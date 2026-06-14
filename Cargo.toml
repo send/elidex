@@ -150,7 +150,7 @@ sha2-oid = { package = "sha2", version = "0.10", features = ["oid"] }
 # rand_core 0.6 (the EC 0.13 / rsa 0.9 generation) — direct dep for the shared
 # `ClosureRng` entropy-seam adapter feeding both EC `SecretKey::random` and RSA
 # `RsaPrivateKey::new_with_exp` from the VM's single `fill_random` closure.
-rand_core = "0.6"
+rand_core = "0.9"
 # aws-lc-rs (AWS-LC, a BoringSSL fork) — the workspace's **single crypto C library**, shared by
 # the rustls TLS stack (the `CryptoProvider` for elidex-net + reqwest + tungstenite; replaces the
 # former `ring` provider) AND WebCrypto §22 RSA-OAEP encrypt / decrypt / wrapKey / unwrapKey (PR-5b).
