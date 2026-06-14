@@ -218,7 +218,7 @@ fn window_scroll_by_adds_delta() {
 
 #[test]
 fn window_scroll_to_accepts_options_object() {
-    // CSSOM-View §6 `scrollTo({ left, top })` one-argument overload — the
+    // CSSOM-View §4 `scrollTo({ left, top })` one-argument overload — the
     // boa→VM cutover dropped this, coercing the object to NaN→0. Both members
     // present: behaves like the positional `scrollTo(50, 100)`.
     let mut vm = Vm::new();
@@ -230,7 +230,7 @@ fn window_scroll_to_accepts_options_object() {
 
 #[test]
 fn window_scroll_to_options_absent_member_holds_current_axis() {
-    // CSSOM-View §6 step 1.2/1.3: an absent `left`/`top` dictionary member is
+    // CSSOM-View §4 step 1.2/1.3: an absent `left`/`top` dictionary member is
     // the viewport's CURRENT offset on that axis, not 0 — so
     // `scrollTo({ top: 100 })` must keep `scrollX` (the exact regression Codex
     // flagged: "pages stop scrolling after the cutover").
@@ -246,6 +246,20 @@ fn window_scroll_to_options_absent_member_holds_current_axis() {
     );
     assert_eq!(vm.inner.viewport.scroll_y, 100.0);
     assert_eq!(vm.inner.viewport.pending_scroll, Some((10.0, 100.0)));
+}
+
+#[test]
+fn window_scroll_to_lone_primitive_is_a_type_error() {
+    // A single non-object primitive resolves to the one-argument options
+    // overload; Web IDL §3.2.17 converts it to a `ScrollToOptions` dictionary,
+    // which throws a TypeError (it is not an object). `scrollTo(40)` is NOT a
+    // lenient positional `x` — matches browsers; the positional overload needs
+    // both `x` and `y`.
+    let mut vm = Vm::new();
+    assert!(
+        vm.eval("window.scrollTo(40);").is_err(),
+        "lone numeric scrollTo arg is a TypeError, not positional x"
+    );
 }
 
 #[test]
@@ -266,7 +280,7 @@ fn window_scroll_to_nullish_options_is_an_empty_dictionary() {
 
 #[test]
 fn window_scroll_by_accepts_options_object() {
-    // CSSOM-View §6 `scrollBy({ left, top })` — an absent member is a 0 delta
+    // CSSOM-View §4 `scrollBy({ left, top })` — an absent member is a 0 delta
     // on that axis (not the current offset, unlike `scrollTo`).
     let mut vm = Vm::new();
     vm.eval(

@@ -114,7 +114,9 @@ pub fn tab_index_default_for(dom: &EcsDom, entity: Entity) -> i32 {
 /// navigation with no author `tabindex`). A `<summary>` outside a `<details>`,
 /// or any but the first, is not UA-focusable. (This is the focusability half
 /// only; the activation behaviour — Enter/Space toggling `open` — is a separate
-/// default-action concern, not modelled here.)
+/// default-action concern in the disclosure-widget family, adjacent to the
+/// existing toggle-event slot `#11-tags-T2d-details-toggle-event`, not modelled
+/// here.)
 fn is_first_summary_of_details(dom: &EcsDom, summary: Entity) -> bool {
     let Some(parent) = dom.get_parent(summary) else {
         return false;

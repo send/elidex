@@ -93,15 +93,18 @@ impl ViewportState {
 
 /// Parse the CSSOM-View `scroll()` / `scrollBy()` argument overloads: the
 /// two-argument positional form `(x, y)` or a single `ScrollToOptions`
-/// dictionary `{ left, top }` (CSSOM-View §6 "when the `scroll()` method is
-/// invoked"). Returns `(left, top)` where an absent dictionary member is `None`
-/// so the caller substitutes the per-method default — the current offset for
-/// `scrollTo` (absolute), `0` for `scrollBy` (delta). The `behavior` member
-/// (smooth / auto) is not modelled until scroll-anchoring lands.
+/// dictionary `{ left, top }` (CSSOM-View §4 "Extensions to the Window
+/// Interface"). Returns `(left, top)` where an absent dictionary member is
+/// `None` so the caller substitutes the per-method default — the current offset
+/// for `scrollTo` (absolute), `0` for `scrollBy` (delta). The `behavior` member
+/// (`smooth` / `auto`) is a UA hint this engine does not honour — it always
+/// scrolls instantly, which is conforming (the spec lets a UA realize the
+/// requested scroll behaviour at its own discretion); it is not a pending
+/// feature.
 ///
 /// Restores the options-object overload the boa→VM scroll cutover dropped: the
-/// replaced boa path parsed `{ left, top }` in `parse_scroll_args`, so without
-/// this `window.scrollTo({ top: 100 })` would coerce the object to `NaN`→0 and
+/// replaced boa path parsed `{ left, top }`, so without this
+/// `window.scrollTo({ top: 100 })` would coerce the object to `NaN`→0 and
 /// silently scroll to the origin.
 fn parse_scroll_args(
     ctx: &mut NativeContext<'_>,
@@ -117,24 +120,31 @@ fn parse_scroll_args(
     if let Some(&first) = args.first() {
         match first {
             // `null` / `undefined` convert to an EMPTY `ScrollToOptions`
-            // dictionary (Web IDL §3.2.17), NOT a positional `x`: both members
-            // absent, so `scrollTo(null)` holds the current offset (a no-op)
-            // rather than scrolling to the origin.
-            JsValue::Null | JsValue::Undefined => return Ok((None, None)),
+            // dictionary (Web IDL §3.2.17), so `scrollTo(null)` holds the
+            // current offset (both members absent — a no-op) rather than
+            // scrolling to the origin.
+            JsValue::Null | JsValue::Undefined => Ok((None, None)),
             // A `{ left, top }` dictionary.
             JsValue::Object(id) => {
                 let left = read_optional_scroll_member(ctx, id, "left")?;
                 let top = read_optional_scroll_member(ctx, id, "top")?;
-                return Ok((left, top));
+                Ok((left, top))
             }
-            // A lone non-object primitive is the positional `x` (with `y`
-            // defaulting to 0) — preserves the boa path this cutover replaces.
-            _ => return Ok((Some(coerce::to_number(ctx.vm, first)?), Some(0.0))),
+            // A lone NON-object primitive (number / string / boolean) still
+            // resolves to the one-argument options overload — Web IDL §3.2.17
+            // converts it to a `ScrollToOptions` dictionary, which throws a
+            // TypeError because it is not an object. Matches browsers
+            // (`scrollTo(40)` is a TypeError, not a positional `x`); the
+            // two-argument positional overload requires BOTH `x` and `y`.
+            _ => Err(VmError::type_error(
+                "Failed to execute 'scrollTo'/'scrollBy': the provided value is not of type 'ScrollToOptions'.",
+            )),
         }
+    } else {
+        // No arguments: an empty options dictionary — both members absent, so
+        // each method holds its current offset (a no-op scroll).
+        Ok((None, None))
     }
-    // No arguments: an empty options dictionary — both members absent, so each
-    // method holds its current offset (a no-op scroll).
-    Ok((None, None))
 }
 
 /// Read a `ScrollToOptions` numeric member via `[[Get]]`, returning `None` when
@@ -157,7 +167,7 @@ pub(super) fn native_window_scroll_to(
     _this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    // CSSOM-View §6 `scrollTo(x, y)` / `scrollTo({ left, top })`. An absent
+    // CSSOM-View §4 `scrollTo(x, y)` / `scrollTo({ left, top })`. An absent
     // dictionary member holds the current offset on that axis (step 1.2/1.3),
     // not 0 — so `scrollTo({ top: 100 })` keeps `scrollX`.
     let (left, top) = parse_scroll_args(ctx, args)?;
@@ -179,7 +189,7 @@ pub(super) fn native_window_scroll_by(
     _this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    // CSSOM-View §6 `scrollBy(dx, dy)` / `scrollBy({ left, top })` — an absent
+    // CSSOM-View §4 `scrollBy(dx, dy)` / `scrollBy({ left, top })` — an absent
     // dictionary member is a 0 delta on that axis.
     let (left, top) = parse_scroll_args(ctx, args)?;
     let dx = left.unwrap_or(0.0);
