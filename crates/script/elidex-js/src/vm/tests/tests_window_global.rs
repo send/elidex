@@ -193,6 +193,18 @@ fn window_scroll_to_updates_state() {
 }
 
 #[test]
+fn window_scroll_is_alias_of_scroll_to() {
+    // CSSOM View "Extensions to the Window Interface": `scroll(x, y)` runs the
+    // same steps as `scrollTo(x, y)`. Without the alias `window.scroll(...)` is
+    // a TypeError.
+    let mut vm = Vm::new();
+    vm.eval("window.scroll(50, 100);").unwrap();
+    assert_eq!(vm.inner.viewport.scroll_x, 50.0);
+    assert_eq!(vm.inner.viewport.scroll_y, 100.0);
+    assert_eq!(vm.inner.viewport.pending_scroll, Some((50.0, 100.0)));
+}
+
+#[test]
 fn window_scroll_by_adds_delta() {
     let mut vm = Vm::new();
     vm.eval(

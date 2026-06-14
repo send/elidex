@@ -366,6 +366,11 @@ impl VmInner {
 
 const WINDOW_METHODS: &[(&str, super::super::NativeFn)] = &[
     ("scrollTo", native_window_scroll_to),
+    // CSSOM View "Extensions to the Window Interface": `scroll(x, y)` /
+    // `scroll(options)` is defined to run the exact same steps as `scrollTo`,
+    // so it shares the native fn (without the alias, `window.scroll(...)` is a
+    // `TypeError`).
+    ("scroll", native_window_scroll_to),
     ("scrollBy", native_window_scroll_by),
     (
         "postMessage",

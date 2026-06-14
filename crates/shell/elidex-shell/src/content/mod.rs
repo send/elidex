@@ -192,18 +192,29 @@ impl ContentState {
 
         let mutation_records = crate::re_render(&mut self.pipeline);
 
-        // Now that layout boxes reflect this turn's mutations, clamp a
-        // script-requested scroll against the fresh content size, then re-sync
-        // the (possibly clamped) offset to the display list + JS bridge. The
-        // pre-layout echo above used the unclamped request, so a "scroll to the
-        // bottom of just-added content" idiom lands on the NEW max instead of
-        // being clamped to the stale old max and lost (Codex R6).
-        if pending_scroll.is_some() {
-            scroll::update_viewport_scroll_dimensions(self);
-            self.pipeline.scroll_offset = self.viewport_scroll.scroll_offset;
+        // Now that layout boxes reflect this turn's mutations, refresh the
+        // viewport scroll dimensions and clamp the offset against the fresh
+        // content size, then re-sync the (possibly clamped) offset to the display
+        // list + the JS-observable echo when it moved. Two paths need this:
+        //  - a script `scrollTo`/`scrollBy` applied pre-layout used the unclamped
+        //    request (the pre-layout echo above), so "scroll to the bottom of
+        //    just-added content" lands on the NEW max instead of the stale old
+        //    max and lost (Codex R6); and
+        //  - a resize / content shrink with no pending scroll can push the
+        //    existing offset past the new max, which must likewise re-clamp +
+        //    re-sync this frame rather than leaving the display list / bridge /
+        //    document-root `ScrollState` stale until some later render (F4).
+        // `clamp_scroll` only ever shrinks the offset, so the display list built
+        // in `crate::re_render` (with the pre-layout offset) already carries a
+        // `PushScrollOffset` wrapper to patch — no 0→non-zero rebuild needed here.
+        let pre_clamp_offset = self.viewport_scroll.scroll_offset;
+        scroll::update_viewport_scroll_dimensions(self);
+        let clamped_offset = self.viewport_scroll.scroll_offset;
+        if pending_scroll.is_some() || clamped_offset != pre_clamp_offset {
+            self.pipeline.scroll_offset = clamped_offset;
             self.pipeline
                 .display_list
-                .update_scroll_offset(self.viewport_scroll.scroll_offset);
+                .update_scroll_offset(clamped_offset);
             self.echo_viewport_scroll();
         }
 
@@ -262,9 +273,6 @@ impl ContentState {
                 self.pipeline.scroll_offset,
             );
         }
-
-        // Update viewport scroll dimensions after layout completes.
-        scroll::update_viewport_scroll_dimensions(self);
     }
 
     /// Reset caret blink timer (call on key input to keep caret visible).
