@@ -7,15 +7,27 @@
 //! - `returnValue` — DOMString state, stored in
 //!   [`elidex_ecs::DialogReturnValue`].  Defaulted to the empty string
 //!   until first set/closed-with-arg.
-//! - `show()` — open as non-modal.  M4-12 stub: throw
-//!   `InvalidStateError` if already open as modal (per
-//!   [`elidex_ecs::IsModalDialog`] marker).
-//! - `showModal()` — open as modal: set `open` content attribute and
-//!   insert `IsModalDialog` ECS marker.  Throws `InvalidStateError`
-//!   if already open as modal.  Render-side top-layer / focus
-//!   management is deferred to slot `#11-dialog-top-layer` (Phase 4).
-//!   The "in document tree" check is deferred to
-//!   `#11-dialog-tree-check`.
+//! - `show()` — open as non-modal (HTML §4.11.4 `show()`): step 2
+//!   already-open-modal → throw `InvalidStateError` (per
+//!   [`elidex_ecs::IsModalDialog`] marker); step 6 add `open`.  No
+//!   connectedness requirement (a non-modal dialog may be shown while
+//!   disconnected).
+//! - `showModal()` — open as modal (HTML §4.11.4 "show a modal dialog"):
+//!   step 2 already-open → throw `InvalidStateError`; step 4 **not
+//!   connected → throw `InvalidStateError`** (delegated to the
+//!   engine-independent `isConnected.get` DOM API, DOM §4.2.2
+//!   "connected") — the core of slot `#11-dialog-tree-check`; then
+//!   insert the `IsModalDialog` ECS marker + add `open`.  Step 3 ("not
+//!   fully active") is unconditionally satisfied in the single-document
+//!   VM and is folded into `#11-browsing-context-state-ecs-components`.
+//! - **Deferred (`#11-dialog-top-layer`, depends on a reliable
+//!   `is modal` flag → the dialog *removing* steps that reset it on tree
+//!   removal):** the step-1 already-open **idempotent return** for both
+//!   methods (without removing-steps, the marker can go stale after
+//!   `removeChild`, so a step-1 no-op would wrongly succeed — we keep the
+//!   conservative throw); the popover-showing check (step 5),
+//!   `beforetoggle` (step 6), and render-side top-layer / focus
+//!   management (steps 12+).
 //! - `close(optional DOMString returnValue)` — clear `open`, clear
 //!   `IsModalDialog` marker, set `returnValue` if arg provided,
 //!   dispatch a `close` event (bubbles=false, cancelable=false) via
@@ -218,6 +230,12 @@ fn dialog_show(
     if ctx.host_if_bound().is_none() {
         return Ok(JsValue::Undefined);
     }
+    // HTML §4.11.4 `show()` step 2: already open as modal → throw.  The
+    // step-1 already-open-non-modal idempotent return is deferred: it
+    // depends on a reliable `is modal` flag, which requires modelling the
+    // dialog removing steps (tree removal resets `is modal`) — deferred to
+    // `#11-dialog-top-layer`.  Until then the marker can go stale, so we
+    // keep the conservative throw rather than a wrong no-op.
     if has_modal_marker(ctx, entity) {
         return Err(VmError::dom_exception(
             ctx.vm.well_known.dom_exc_invalid_state_error,
@@ -239,12 +257,30 @@ fn dialog_show_modal(
     if ctx.host_if_bound().is_none() {
         return Ok(JsValue::Undefined);
     }
-    let already_open = has_open_attribute(ctx, entity)?;
-    if already_open {
+    // HTML §4.11.4 "show a modal dialog" step 2: already open → throw.
+    // The step-1 already-open-modal idempotent return is deferred (it
+    // depends on a reliable `is modal` flag — see `dialog_show` — so the
+    // marker can go stale after tree removal; `#11-dialog-top-layer`).
+    // Step 2 precedes the connectedness check, so an open-but-disconnected
+    // dialog reports the already-open error.
+    if has_open_attribute(ctx, entity)? {
         return Err(VmError::dom_exception(
             ctx.vm.well_known.dom_exc_invalid_state_error,
             "Failed to execute 'showModal' on 'HTMLDialogElement': \
              The element already has an 'open' attribute.",
+        ));
+    }
+    // Step 3 ("not fully active") is unconditionally satisfied in the
+    // single-document VM (folded into
+    // `#11-browsing-context-state-ecs-components`).
+    // Step 4: not connected → throw.  Delegated to the engine-independent
+    // `isConnected.get` DOM API (DOM §4.2.2 "connected").  This is the
+    // core of slot `#11-dialog-tree-check`.
+    if !is_connected(ctx, entity)? {
+        return Err(VmError::dom_exception(
+            ctx.vm.well_known.dom_exc_invalid_state_error,
+            "Failed to execute 'showModal' on 'HTMLDialogElement': \
+             The element is not connected to a document.",
         ));
     }
     let _ = ctx
@@ -279,6 +315,9 @@ fn dialog_close(
             write_return_value(ctx, entity, owned);
         }
     }
+    // Per HTML §4.11.4 "close the dialog" algorithm: reset `is modal`
+    // (only close() and the tree-removing steps clear it — the `open`
+    // attribute-change/cleanup steps deliberately do NOT).
     let _ = ctx
         .host()
         .dom()
@@ -308,6 +347,13 @@ fn has_modal_marker(ctx: &mut NativeContext<'_>, entity: Entity) -> bool {
 fn has_open_attribute(ctx: &mut NativeContext<'_>, entity: Entity) -> Result<bool, VmError> {
     let attr_sid = ctx.vm.strings.intern("open");
     let result = invoke_dom_api(ctx, "hasAttribute", entity, &[JsValue::String(attr_sid)])?;
+    Ok(matches!(result, JsValue::Boolean(true)))
+}
+
+/// DOM §4.2.2 "connected" via the engine-independent `isConnected.get`
+/// handler (its shadow-including root is a document).
+fn is_connected(ctx: &mut NativeContext<'_>, entity: Entity) -> Result<bool, VmError> {
+    let result = invoke_dom_api(ctx, "isConnected.get", entity, &[])?;
     Ok(matches!(result, JsValue::Boolean(true)))
 }
 
