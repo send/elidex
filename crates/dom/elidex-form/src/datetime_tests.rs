@@ -127,6 +127,35 @@ fn convert_number_below_year_one_has_no_valid_string() {
 }
 
 #[test]
+fn oversized_years_rejected_without_overflow() {
+    // Regression (Codex R2): a year that fits in i64 but is astronomically
+    // large would overflow the civil-date multiplication (debug panic /
+    // release wrap).  Years beyond the ECMAScript Date range (275760) are
+    // a parse error instead.
+    for s in [
+        "9223372036854775807-01-01", // i64::MAX year
+        "275761-01-01",              // one past the max
+        "0999999-06-15",
+    ] {
+        assert_eq!(convert_string_to_number(Date, s), None, "reject {s}");
+    }
+    assert_eq!(convert_string_to_number(Month, "275761-01"), None);
+    assert_eq!(convert_string_to_number(Week, "275761-W01"), None);
+    assert_eq!(
+        convert_string_to_number(DatetimeLocal, "275761-01-01T00:00"),
+        None
+    );
+    // The max year itself is representable and round-trips.
+    let n = convert_string_to_number(Date, "275760-09-13").expect("max date");
+    assert_eq!(
+        convert_number_to_string(Date, n).as_deref(),
+        Some("275760-09-13")
+    );
+    // Stepping past the max serializes to None (no-op), never a panic.
+    assert_eq!(convert_number_to_string(Date, 1e18), None);
+}
+
+#[test]
 fn date_invalid_strings_rejected() {
     for s in [
         "",

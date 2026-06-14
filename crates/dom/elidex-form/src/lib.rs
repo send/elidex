@@ -145,13 +145,37 @@ impl FormControlKind {
         self.is_text_control() && self != Self::TextArea
     }
 
-    /// Returns `true` if the control supports the selection API (HTML §4.10.5.2.10).
-    ///
-    /// Text/password/textarea and text-like input types (email/url/tel/search) support
-    /// `selectionStart`/`selectionEnd`/`setSelectionRange()`.
+    /// Returns `true` if the control supports the text-selection APIs
+    /// (`selectionStart`/`selectionEnd`/`selectionDirection`,
+    /// `setRangeText()`, `setSelectionRange()`).  Per the input-state
+    /// apply-lists (HTML §4.10.5.1.x) these apply only to the text-like
+    /// states (text/search/url/tel/password and `<textarea>`) — they do
+    /// **not** apply to number or the date/time states.
     #[must_use]
     pub fn supports_selection(self) -> bool {
         self.is_text_control()
+    }
+
+    /// Returns `true` if the `select()` method applies to this kind.
+    ///
+    /// Per the input-state apply-lists, `select()` is listed for the
+    /// text-like states **and** the number and date/time states
+    /// (date/month/week/time/datetime-local) — a broader set than
+    /// [`Self::supports_selection`].  `select()` is a no-op (never an
+    /// error) for the kinds it does not apply to (HTML "select() method",
+    /// step 1), so this gates a no-op rather than an exception.
+    #[must_use]
+    pub fn select_method_applies(self) -> bool {
+        self.is_text_control()
+            || matches!(
+                self,
+                Self::Number
+                    | Self::Date
+                    | Self::DatetimeLocal
+                    | Self::Time
+                    | Self::Week
+                    | Self::Month
+            )
     }
 
     /// Returns `true` if the `readonly` attribute applies to this kind

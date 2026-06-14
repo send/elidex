@@ -33,6 +33,15 @@ const MS_PER_WEEK: i64 = 604_800_000;
 /// Milliseconds in one second (the time / datetime-local step scale).
 const MS_PER_SECOND: i64 = 1_000;
 
+/// Largest representable year.  The date/time number spaces convert to a
+/// `Date` object (`valueAsDate`), whose range is the ECMAScript maximum
+/// time value ±8.64×10¹⁵ ms, i.e. up to 275760-09-13 UTC.  Years beyond
+/// this are rejected as a parse / conversion error rather than overflowing
+/// the `i64` civil-date arithmetic (a huge year like `9223372036854775807`
+/// would otherwise wrap or panic in `days_from_civil`).  This also keeps
+/// every reachable ms value below 2⁵³, so the cast to `f64` stays exact.
+const MAX_YEAR: i64 = 275_760;
+
 // ===================================================================
 // Civil-date core (proleptic Gregorian, Howard Hinnant algorithms)
 // ===================================================================
@@ -188,7 +197,7 @@ fn parse_month_component(input: &[u8], pos: &mut usize) -> Option<(i64, u32)> {
         return None;
     }
     let year = digits_to_i64(year_digits)?;
-    if year <= 0 {
+    if !(1..=MAX_YEAR).contains(&year) {
         return None;
     }
     if input.get(*pos) != Some(&b'-') {
@@ -314,7 +323,7 @@ fn parse_week(s: &str) -> Option<(i64, u32)> {
         return None;
     }
     let week_year = digits_to_i64(year_digits)?;
-    if week_year <= 0 {
+    if !(1..=MAX_YEAR).contains(&week_year) {
         return None;
     }
     if input.get(pos) != Some(&b'-') {
@@ -467,24 +476,33 @@ pub(crate) fn convert_number_to_string(kind: FormControlKind, n: f64) -> Option<
     match kind {
         FormControlKind::Date => {
             let date: CivilDate = civil_from_days(n.div_euclid(MS_PER_DAY)).into();
-            (date.year >= 1).then(|| format_date(date))
+            (1..=MAX_YEAR)
+                .contains(&date.year)
+                .then(|| format_date(date))
         }
         FormControlKind::Month => {
             let year = 1970 + n.div_euclid(12);
             let month = n.rem_euclid(12) + 1;
-            (year >= 1).then(|| format!("{}-{:02}", format_year(year), month))
+            (1..=MAX_YEAR)
+                .contains(&year)
+                .then(|| format!("{}-{:02}", format_year(year), month))
         }
         FormControlKind::Week => {
             let (wy, week) = iso_week_from_days(n.div_euclid(MS_PER_DAY));
-            (wy >= 1).then(|| format!("{}-W{:02}", format_year(wy), week))
+            (1..=MAX_YEAR)
+                .contains(&wy)
+                .then(|| format!("{}-W{:02}", format_year(wy), week))
         }
         FormControlKind::Time => Some(format_time(n)),
         FormControlKind::DatetimeLocal => {
             let date: CivilDate = civil_from_days(n.div_euclid(MS_PER_DAY)).into();
+            // Guard the year bound (below) before formatting.
             // `format_time` extracts the time-of-day from the full ms
             // value itself (it normalizes modulo the day), so pass `n`
             // directly — same as the Time arm.
-            (date.year >= 1).then(|| format!("{}T{}", format_date(date), format_time(n)))
+            (1..=MAX_YEAR)
+                .contains(&date.year)
+                .then(|| format!("{}T{}", format_date(date), format_time(n)))
         }
         _ => None,
     }

@@ -84,6 +84,20 @@ pub(super) fn require_text_control(
     Ok(())
 }
 
+/// Whether the `select()` method applies to `entity`'s control kind
+/// (HTML "select() method", step 1).  Unlike [`require_text_control`],
+/// a non-applicable kind is **not** an error — `select()` is simply a
+/// no-op there — so this returns a `bool` for the caller to gate on
+/// rather than raising an `InvalidStateError`.
+pub(super) fn select_method_applies(ctx: &mut NativeContext<'_>, entity: Entity) -> bool {
+    ctx.host()
+        .dom()
+        .world()
+        .get::<&FormControlState>(entity)
+        .map(|s| s.kind.select_method_applies())
+        .unwrap_or(false)
+}
+
 // -------------------------------------------------------------------------
 // selectionStart / selectionEnd
 // -------------------------------------------------------------------------
