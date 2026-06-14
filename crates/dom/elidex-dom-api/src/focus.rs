@@ -265,28 +265,37 @@ fn raw_focus_holder(dom: &EcsDom) -> Option<Entity> {
 }
 
 /// The currently focused element of `document`, if any (WHATWG HTML §6.6 — **the
-/// single READ model** behind `document.activeElement` / `hasFocus` and every
-/// shell focus read site). **Derives** the effective focused area from the
-/// canonical [`ElementState::FOCUS`] bit: the holder counts only while it is
-/// BOTH in the bound document AND still a focusable area (§6.6.2).
+/// single READ model** behind `document.activeElement` / `hasFocus`, the
+/// `:focus` selector, and every shell focus read site). Reads the canonical
+/// [`ElementState::FOCUS`] bit, scoped to the bound document.
 ///
-/// - The **`is_in_document` walk** scopes the read to the bound document (never a
-///   `document.cloneNode()` subtree sharing the world) and guards connectedness
-///   (a removed holder's bit is cleared at §2.1.4 removal, so this rarely
-///   filters — but it keeps `activeElement` correct if a writer ever bypasses
-///   the gate).
-/// - The **`is_focusable` filter** makes the read consistent WITHIN a JS turn: a
-///   mutation that makes the focused element non-focusable (its `hidden` /
-///   `disabled` lands, `<input type>` flips, or it loses the `tabindex` /
-///   `contenteditable` / `href` that made it focusable) takes effect for
-///   `document.activeElement` / `hasFocus` / key routing *immediately* — not
-///   only after the frame's [`reconcile_focus`] GC clears the bit. The bit is
-///   still cleared at render so an un-hide / re-enable cannot resurrect focus
-///   the read path already hides.
+/// The bit **is** the document's *focused area* (the single SoT), so this read
+/// stays consistent with every other focus consumer — crucially the `:focus`
+/// selector, which matches the same bit directly (`elidex-css`
+/// `selector/matching.rs`). A focused element that becomes non-focusable in the
+/// same JS turn (its `hidden` / `disabled` lands, `<input type>` flips, or it
+/// loses the `tabindex` / `contenteditable` / `href` that made it focusable)
+/// **remains** the focused area until the render-time [`reconcile_focus`] GC
+/// clears the bit: WHATWG HTML "update the rendering" step 17 makes that
+/// focusability fixup **asynchronous** (run at the next rendering update), in
+/// contrast to the **synchronous** fixup for *removal* (§2.1.4 removing steps,
+/// `EcsDom::fire_after_remove`). So `activeElement` keeps reporting the
+/// soon-to-be-blurred element until the frame fixup — matching the spec and
+/// staying consistent with `:focus`.
+///
+/// Filtering focusability *here* (a `&& is_focusable` derive-on-read) would
+/// instead split `activeElement` from the `:focus` selector within a turn and
+/// make `activeElement` non-spec (it would blur eagerly, before the async
+/// rendering fixup) — Codex S2 R7.
+///
+/// The `is_in_document` walk scopes the read to the bound document (never a
+/// `document.cloneNode()` subtree sharing the world); it is a defensive guard —
+/// `ElementState` is a non-copied component (clones never carry the bit) and
+/// `focus()` gates document membership, so it should never actually filter.
 #[must_use]
 pub fn current_focus(dom: &EcsDom, document: Entity) -> Option<Entity> {
     let focused = raw_focus_holder(dom)?;
-    (is_in_document(dom, focused, document) && is_focusable(dom, focused)).then_some(focused)
+    is_in_document(dom, focused, document).then_some(focused)
 }
 
 /// Whether `entity` is an inclusive descendant of `document` — its light-tree
@@ -365,13 +374,13 @@ pub fn set_focus_bit(dom: &mut EcsDom, new: Option<Entity>) {
 /// `entity` currently holds the canonical [`ElementState::FOCUS`] bit, clear it;
 /// otherwise a no-op (blurring an unfocused element does nothing).
 ///
-/// Targets the **raw** bit holder (`raw_focus_holder`), NOT the
-/// [`current_focus`] derive-on-read view, because `blur()` is a WRITE on the
-/// focus SoT: it must clear the bit even when a same-turn mutation has already
-/// made the holder non-focusable. Were it gated on the filtered `current_focus`
-/// (which hides such a holder), the bit would linger until the frame
-/// [`reconcile_focus`] GC — and a same-turn un-hide before that GC would
-/// resurrect `document.activeElement` despite the `blur()`, e.g.
+/// Operates on the raw bit holder (`raw_focus_holder`) — `blur()` is an explicit
+/// WRITE on the focus SoT, so it clears the bit even when a same-turn mutation
+/// has made the holder non-focusable but the asynchronous render fixup
+/// ([`reconcile_focus`]) has not run yet. Without the explicit clear, the
+/// lingering bit (the holder is still the focused area until the async fixup)
+/// would survive to a same-turn un-hide and resurrect `document.activeElement`
+/// despite the `blur()`, e.g.
 /// `el.focus(); el.hidden = true; el.blur(); el.hidden = false` (Codex S2 R6).
 ///
 /// Event dispatch (`blur` / `focusout`) is deferred with the rest of the
@@ -383,34 +392,38 @@ pub fn blur(dom: &mut EcsDom, entity: Entity) {
     }
 }
 
-/// Maintain the focus invariant **`current_focus(dom, document) ⟹ is_focusable`**:
-/// if the document's focused area is no longer a focusable area, silently clear
-/// the [`ElementState::FOCUS`] bit.
+/// The **asynchronous focusability fixup** (WHATWG HTML "update the rendering"
+/// step 17): if the document's focused area is no longer a focusable area,
+/// silently clear the [`ElementState::FOCUS`] bit, resetting the focused area to
+/// the viewport.
 ///
-/// The §6.6.2 focusable-area criteria are enforced as a focus-*time* gate on the
-/// writers ([`is_focusable`] at every `focus()` entry), but a connected,
-/// focusable element can *become* non-focusable while focus is still on it — its
-/// `hidden` attribute lands (on it or an ancestor), `<input type>` flips to
-/// `hidden`, `disabled` lands, or it loses the `tabindex` / `contenteditable` /
-/// `href` that made it focusable (WHATWG HTML §6.6.2 criteria 1/3/5). This is
-/// the catch-all that re-establishes the invariant after such a mutation — the
-/// attribute-transition counterpart to `EcsDom::fire_after_remove`'s eager
-/// connectedness reset (WHATWG HTML §2.1.4).
+/// §6.6.2 focusability is enforced as a focus-*time* gate on the writers
+/// ([`is_focusable`] at every `focus()` entry), but a connected, focusable
+/// element can *become* non-focusable while focus is still on it — its `hidden`
+/// attribute lands (on it or an ancestor), `<input type>` flips to `hidden`,
+/// `disabled` lands, or it loses the `tabindex` / `contenteditable` / `href`
+/// that made it focusable (WHATWG HTML §6.6.2 criteria 1/3/5). The spec fixes
+/// that up **at the next rendering update** ("update the rendering" step 17 —
+/// "an element has the hidden attribute added… or… gets disabled"), i.e.
+/// **asynchronously**, unlike the **synchronous** fixup for *removal* (§2.1.4
+/// removing steps, `EcsDom::fire_after_remove`). The shell drives this once per
+/// re-render, after the frame's DOM mutations are applied (gated on "any
+/// mutation occurred", so it sees every focusability-affecting attribute or tree
+/// change without a hand-maintained attribute allow-list). Until it runs,
+/// `current_focus` / `activeElement` / the `:focus` selector all still report
+/// the holder — consistent, per the spec's asynchronous fixup.
 ///
 /// **Silent** (no `blur` / `focusout` / `change`): like the §2.1.4 removal
 /// reset, a passive loss of focusability runs none of the §6.6.4
 /// focusing/unfocusing steps (those fire only on UA-input / script
 /// `focus()` / `blur()`), so this is a component-only mutation with no
-/// dependency on the deferred engine-bound event dispatch. The shell drives it
-/// once per re-render, after the frame's DOM mutations are applied (gated on
-/// "any mutation occurred", so it sees every focusability-affecting attribute or
-/// tree change without a hand-maintained attribute allow-list).
+/// dependency on the deferred engine-bound event dispatch.
 pub fn reconcile_focus(dom: &mut EcsDom, document: Entity) {
-    // GC the raw `FOCUS` bit — NOT `current_focus`, which now filters
-    // `is_focusable` (derive-on-read) and would therefore never surface a
-    // non-focusable holder to clear. Clearing the bit left on a connected-but-
-    // non-focusable holder is what stops an un-hide / re-enable from resurrecting
-    // focus the read path (`current_focus`) already hides this same frame.
+    // GC the raw `FOCUS` bit: read the raw holder and test focusability here
+    // (`current_focus` is doc-scoped but no longer filters focusability, so it
+    // would still surface the holder). Clearing the bit left on a connected-but-
+    // non-focusable holder is the async "update the rendering" fixup that resets
+    // the focused area to the viewport.
     if let Some(focused) = raw_focus_holder(dom) {
         if is_in_document(dom, focused, document) && !is_focusable(dom, focused) {
             set_focus_bit(dom, None);
@@ -436,10 +449,10 @@ mod tests {
     use super::*;
     use elidex_ecs::Attributes;
 
-    /// A `<div tabindex="0">` — a real focusable area, so `current_focus`
-    /// (which now derives connectedness AND focusability) reports it. Bit-
-    /// mechanism tests use this instead of a bare `<div>` (non-focusable, which
-    /// the derive-on-read read path correctly hides).
+    /// A `<div tabindex="0">` — a real focusable area, so the asynchronous
+    /// [`reconcile_focus`] fixup keeps it (it never GCs the bit). Tests that
+    /// exercise persistence across reconcile use this rather than a bare `<div>`
+    /// (non-focusable, which `reconcile_focus` would clear).
     fn focusable_div(dom: &mut EcsDom) -> Entity {
         let mut attrs = Attributes::default();
         attrs.set("tabindex".to_string(), "0".to_string());
@@ -474,70 +487,71 @@ mod tests {
     }
 
     #[test]
-    fn current_focus_hides_non_focusable_holder_same_turn() {
-        // Codex (S2): a same-turn mutation that makes the focused element
-        // non-focusable must take effect for `document.activeElement` /
-        // `hasFocus` / key routing IMMEDIATELY (derive-on-read) — not only after
-        // the frame's `reconcile_focus` GC clears the bit.
+    fn current_focus_keeps_holder_until_async_fixup() {
+        // Spec: a same-turn mutation that makes the focused element non-focusable
+        // (hidden / disabled) is an ASYNCHRONOUS fixup — WHATWG HTML "update the
+        // rendering" step 17 runs it at the next rendering update, NOT
+        // synchronously (only *removal*, §2.1.4, is synchronous). So
+        // `document.activeElement` / `:focus` keep reporting the holder until
+        // `reconcile_focus` runs. (Reverted the R4 derive-on-read `is_focusable`
+        // filter, which hid it eagerly = non-spec + split `activeElement` from
+        // the `:focus` selector — Codex S2 R7.)
         let mut dom = EcsDom::new();
         let doc = dom.create_document_root();
         let el = focusable_div(&mut dom);
         let _ = dom.append_child(doc, el);
         set_focus_bit(&mut dom, Some(el));
-        assert_eq!(
-            current_focus(&dom, doc),
-            Some(el),
-            "a focusable connected holder reads as focused"
-        );
+        assert_eq!(current_focus(&dom, doc), Some(el));
 
-        // Same-turn: make it non-focusable (hidden) WITHOUT clearing the bit yet
-        // (a plain EcsDom has no dispatcher, so `set_attribute` does not run the
-        // reconciler — exactly the pre-render window the read path must cover).
+        // Same-turn `hidden` lands, but `set_attribute` on a dispatcher-less
+        // `EcsDom` does NOT run the reconciler — the pre-render window. The
+        // holder is still the focused area (async fixup pending), consistent with
+        // the raw bit the `:focus` selector reads.
         dom.set_attribute(el, "hidden", "");
         assert_eq!(
             current_focus(&dom, doc),
-            None,
-            "the read path hides a now-non-focusable holder before reconcile runs"
-        );
-        assert_eq!(
-            raw_focus_holder(&dom),
             Some(el),
-            "the raw `FOCUS` bit lingers until the frame GC"
+            "stays the focused area until the async render-time fixup"
         );
+        assert_eq!(raw_focus_holder(&dom), Some(el));
 
-        // `reconcile_focus` (frame GC) clears the connected-non-focusable bit so
-        // an un-hide cannot resurrect focus the read path already hid.
+        // `reconcile_focus` IS that asynchronous fixup: it GCs the connected-but-
+        // non-focusable bit, resetting the focused area to the viewport.
         reconcile_focus(&mut dom, doc);
-        assert_eq!(raw_focus_holder(&dom), None, "reconcile GCs the bit");
-        dom.remove_attribute(el, "hidden");
         assert_eq!(
             current_focus(&dom, doc),
             None,
-            "un-hiding after the GC does not resurrect focus"
+            "async fixup cleared the focus"
         );
+        assert_eq!(raw_focus_holder(&dom), None);
     }
 
     #[test]
-    fn blur_clears_raw_bit_of_same_turn_nonfocusable_holder() {
-        // Codex (S2 R6): `blur()` must target the raw FOCUS bit, not the
-        // filtered `current_focus` view — otherwise
-        // `el.focus(); el.hidden = true; el.blur(); el.hidden = false`
-        // resurrects `activeElement` because the same-turn `hidden` hid the
-        // holder from `current_focus` so the blur skipped clearing the bit.
+    fn blur_clears_the_lingering_bit_so_unhide_does_not_resurrect() {
+        // Codex (S2 R6): `blur()` is an explicit WRITE on the focus SoT, so it
+        // clears the raw FOCUS bit even when a same-turn mutation has made the
+        // holder non-focusable but the async render fixup has not run yet —
+        // otherwise `el.focus(); el.hidden = true; el.blur(); el.hidden = false`
+        // leaves the bit lingering and the un-hide resurrects `activeElement`.
         let mut dom = EcsDom::new();
         let doc = dom.create_document_root();
         let el = focusable_div(&mut dom);
         let _ = dom.append_child(doc, el);
         set_focus_bit(&mut dom, Some(el));
 
-        // Same-turn: make it non-focusable WITHOUT the reconcile GC running.
+        // Same-turn `hidden` lands; the bit lingers and `el` is still the focused
+        // area (async fixup pending) — `blur()` must clear it regardless.
         dom.set_attribute(el, "hidden", "");
-        assert_eq!(current_focus(&dom, doc), None, "filtered read hides it");
+        assert_eq!(
+            current_focus(&dom, doc),
+            Some(el),
+            "still focused (async fixup)"
+        );
         assert_eq!(raw_focus_holder(&dom), Some(el), "raw bit lingers");
 
-        // `blur()` clears the raw holder even though `current_focus` hid it.
         blur(&mut dom, el);
         assert_eq!(raw_focus_holder(&dom), None, "blur cleared the raw bit");
+        assert_eq!(current_focus(&dom, doc), None, "blurred");
 
         // Un-hiding in the same turn no longer resurrects focus.
         dom.remove_attribute(el, "hidden");

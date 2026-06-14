@@ -194,8 +194,9 @@ impl ContentState {
         // blurs the child and flags it `needs_render`, so it must precede
         // `re_render_all_iframes` — otherwise the child display list is rebuilt
         // with the stale focus this frame and the blur only lands a frame late
-        // (Codex S2 R5). `current_focus` is derive-on-read, so it already
-        // reflects the post-turn focus before `crate::re_render`'s GC runs.
+        // (Codex S2 R5). `current_focus` reads the canonical FOCUS bit, which the
+        // script's `focus()` already moved this turn, so it reflects the post-turn
+        // focus before `crate::re_render`'s reconcile fixup runs.
         event_handlers::reconcile_focused_iframe(self);
 
         // Re-render in-process iframes before the parent so child display

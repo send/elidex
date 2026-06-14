@@ -333,14 +333,13 @@ fn native_html_element_get_dataset(
 ///
 /// Delegates to the engine-independent [`elidex_dom_api::focus::blur`], which
 /// clears the `ElementState::FOCUS` bit iff the receiver is the **raw** focus
-/// holder (the focus SoT) — NOT the filtered [`current_focus`] view. Blurring an
-/// unfocused element is a no-op. Reading the raw holder (rather than
-/// `current_focus`) is what makes `el.focus(); el.hidden = true; el.blur()`
-/// actually unfocus `el`: the same-turn `hidden` hides it from `current_focus`
-/// (derive-on-read) but leaves the bit set until the frame GC, so a
-/// `current_focus`-gated blur would be a silent no-op and a later un-hide would
-/// resurrect `document.activeElement` (Codex S2 R6). No `blur` / `focusout`
-/// event dispatch yet (deferred with `focus`;
+/// holder (the focus SoT). Blurring an unfocused element is a no-op. Operating on
+/// the raw holder makes `el.focus(); el.hidden = true; el.blur()` actually
+/// unfocus `el` even though the same-turn `hidden` only schedules the
+/// *asynchronous* render-time fixup (the bit lingers, so `el` is still the
+/// focused area when `blur()` runs); the explicit clear stops a later un-hide
+/// from resurrecting `document.activeElement` (Codex S2 R6). No `blur` /
+/// `focusout` event dispatch yet (deferred with `focus`;
 /// slot `#11-vm-host-synthetic-dom-event-dispatch`).
 fn native_html_element_blur(
     ctx: &mut NativeContext<'_>,
