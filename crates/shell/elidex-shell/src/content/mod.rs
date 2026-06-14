@@ -475,9 +475,23 @@ fn dispatch_media_query_changes(changed: &[(u64, bool)], state: &mut ContentStat
 
 /// Focusability-relevant attribute names.
 ///
-/// Changes to these attributes affect whether an element is focusable or
-/// its position in the sequential focus navigation order (HTML §6.6.3).
-const FOCUSABLE_ATTRIBUTES: &[&str] = &["tabindex", "disabled", "contenteditable", "hidden"];
+/// Changes to these attributes affect whether an element is focusable or its
+/// position in the sequential focus navigation order (HTML §6.6.3), so a
+/// mutation to any of them invalidates the shell's Tab-order `focusable_cache`.
+/// The complete set that `elidex_dom_api::focus::is_focusable` reads: `tabindex`
+/// (criterion 1 + order), `disabled` (criterion 3), `contenteditable` (editing
+/// host, criterion 1), `hidden` (criterion 5 subtree), `href` (the `<a>`/`<area>`
+/// link default), and `type` (an `<input>`'s `type=hidden` is never focusable).
+/// Missing `href`/`type` here previously left a stale Tab order after a script
+/// added/removed a link's `href` or flipped an input's `type` (Codex S2).
+const FOCUSABLE_ATTRIBUTES: &[&str] = &[
+    "tabindex",
+    "disabled",
+    "contenteditable",
+    "hidden",
+    "href",
+    "type",
+];
 
 /// Check whether any mutation record requires invalidating the focusable cache.
 ///

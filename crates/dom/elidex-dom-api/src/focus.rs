@@ -33,8 +33,18 @@ use elidex_ecs::{EcsDom, ElementState, Entity};
 /// Per-element default `tabIndex` value (WHATWG HTML §6.6.3 "tabindex value" —
 /// the value when no `tabindex` content attribute is present): `0` for
 /// intrinsically focusable areas (button / select / textarea / iframe / object
-/// / embed, `<a>`/`<area>` with `href`, `<input>` other than `type=hidden`,
-/// `contenteditable` elements), `-1` otherwise.
+/// / embed, `<a>`/`<area>` with `href`, `<input>` other than `type=hidden`, the
+/// first `<summary>` of a `<details>`, and editing hosts — an own
+/// `contenteditable` in the true/plaintext-only state), `-1` otherwise.
+///
+/// These §6.6.3 UA-determined defaults are **HTML-namespace only**: a foreign
+/// (SVG / MathML) element whose local name happens to match an HTML control —
+/// e.g. parser-created `<svg><button>` or an SVG-namespaced `<input>` — is not
+/// an HTML control and gets `-1`. The engine treats namespace as load-bearing
+/// (form-control state creation and `datalist` resolution gate on
+/// `EcsDom::is_html_namespace` too). An explicit `tabindex` still grants
+/// focusability cross-namespace via [`is_focusable`]'s separate branch (the
+/// attribute is global); only this per-element *default* is HTML-only.
 ///
 /// Backs the `tabIndex` IDL getter — it reflects the default tab *order* and is
 /// independent of disabled state (a disabled `<button>` still has `tabIndex`
@@ -58,6 +68,15 @@ pub fn tab_index_default_for(dom: &EcsDom, entity: Entity) -> i32 {
         Summary,
         // Generic element — depends on `contenteditable`.
         Generic,
+    }
+    // §6.6.3 UA-determined focus defaults apply only to HTML-namespace elements:
+    // a foreign (SVG / MathML) look-alike whose local name matches an HTML
+    // control is not an HTML control, so it gets no per-element default (`-1`).
+    // An explicit `tabindex` still makes it focusable via `is_focusable`'s
+    // separate branch (the attribute is global). `is_html_namespace` gates on
+    // `is_element`, so non-element entities also return `-1` here.
+    if !dom.is_html_namespace(entity) {
+        return -1;
     }
     let kind = dom.with_tag_name(entity, |t| match t {
         None => None,
@@ -759,6 +778,57 @@ mod tests {
                 "an editable descendant is not focusable for contenteditable={value:?}"
             );
         }
+    }
+
+    #[test]
+    fn tab_index_default_is_html_namespace_only() {
+        // §6.6.3 UA-determined focus defaults are HTML-only (Codex S2): a foreign
+        // (SVG/MathML) element whose local name matches an HTML control gets no
+        // per-element default, so it is not a focusable area — but an explicit
+        // `tabindex` still makes it focusable cross-namespace (the attribute is
+        // global). Mirrors the repo's namespace gating on form-control state.
+        let mut dom = EcsDom::new();
+        let doc = dom.create_document_root();
+        // An SVG-namespaced <button> look-alike: not an HTML control.
+        let svg_button = dom.create_element_ns(
+            "button",
+            elidex_ecs::Namespace::Svg,
+            Attributes::default(),
+            None,
+        );
+        let _ = dom.append_child(doc, svg_button);
+        assert_eq!(
+            tab_index_default_for(&dom, svg_button),
+            -1,
+            "a foreign-namespace control look-alike has no HTML focus default"
+        );
+        assert!(
+            !is_focusable(&dom, svg_button),
+            "an SVG <button> is not a focusable area by default"
+        );
+        // An HTML <button> with the same local name IS focusable by default.
+        let html_button = connect_el(&mut dom, doc, "button");
+        assert!(
+            is_focusable(&dom, html_button),
+            "an HTML <button> is focusable by default"
+        );
+        // An explicit tabindex still grants focusability cross-namespace.
+        dom.set_attribute(svg_button, "tabindex", "0");
+        assert!(
+            is_focusable(&dom, svg_button),
+            "an explicit tabindex makes a foreign element focusable"
+        );
+        // An SVG <a href> also gets no HTML link default (SVG focus is a
+        // separate, unmodelled concern).
+        let svg_a =
+            dom.create_element_ns("a", elidex_ecs::Namespace::Svg, Attributes::default(), None);
+        let _ = dom.append_child(doc, svg_a);
+        dom.set_attribute(svg_a, "href", "#x");
+        assert_eq!(
+            tab_index_default_for(&dom, svg_a),
+            -1,
+            "an SVG <a href> has no HTML link focus default"
+        );
     }
 
     #[test]
