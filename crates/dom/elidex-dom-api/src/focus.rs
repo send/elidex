@@ -54,6 +54,8 @@ pub fn tab_index_default_for(dom: &EcsDom, entity: Entity) -> i32 {
         Link,
         // `<input>` — focus-zero unless `type="hidden"`.
         Input,
+        // `<summary>` — focus-zero only as the first summary child of a details.
+        Summary,
         // Generic element — depends on `contenteditable`.
         Generic,
     }
@@ -72,6 +74,8 @@ pub fn tab_index_default_for(dom: &EcsDom, entity: Entity) -> i32 {
                 Some(TagDefault::Link)
             } else if s.eq_ignore_ascii_case("input") {
                 Some(TagDefault::Input)
+            } else if s.eq_ignore_ascii_case("summary") {
+                Some(TagDefault::Summary)
             } else {
                 Some(TagDefault::Generic)
             }
@@ -88,6 +92,7 @@ pub fn tab_index_default_for(dom: &EcsDom, entity: Entity) -> i32 {
                 t.is_some_and(|s| s.eq_ignore_ascii_case("hidden"))
             })
         }
+        Some(TagDefault::Summary) => is_first_summary_of_details(dom, entity),
         Some(TagDefault::Generic) => dom.with_attribute(entity, "contenteditable", |v| {
             v.is_some_and(|s| {
                 s.is_empty()
@@ -101,6 +106,22 @@ pub fn tab_index_default_for(dom: &EcsDom, entity: Entity) -> i32 {
     } else {
         -1
     }
+}
+
+/// Whether `summary` is the first `<summary>` child of a `<details>` — the
+/// disclosure widget's built-in control, which WHATWG HTML §6.6.2 designates a
+/// **UA-determined focusable area** (so it participates in sequential focus
+/// navigation with no author `tabindex`). A `<summary>` outside a `<details>`,
+/// or any but the first, is not UA-focusable. (This is the focusability half
+/// only; the activation behaviour — Enter/Space toggling `open` — is a separate
+/// default-action concern, not modelled here.)
+fn is_first_summary_of_details(dom: &EcsDom, summary: Entity) -> bool {
+    let Some(parent) = dom.get_parent(summary) else {
+        return false;
+    };
+    dom.with_tag_name(parent, |t| {
+        t.is_some_and(|s| s.eq_ignore_ascii_case("details"))
+    }) && dom.first_child_with_tag(parent, "summary") == Some(summary)
 }
 
 /// Whether `entity` is a focusable area (WHATWG HTML §6.6.2 "Data model").
@@ -117,8 +138,11 @@ pub fn tab_index_default_for(dom: &EcsDom, entity: Entity) -> i32 {
 /// `isContentEditable` algorithm, so case-insensitive `true`/`plaintext-only` +
 /// ancestor inheritance), or a non-negative per-element default
 /// ([`tab_index_default_for`]: `<a href>` / button / input(non-hidden) / select
-/// / textarea / iframe / object / embed). UA-list residue not yet modelled:
-/// `summary` as a `details`' first child; `draggable`.
+/// / textarea / iframe / object / embed, and the **first `<summary>` child of a
+/// `<details>`** via `is_first_summary_of_details`). The §6.6.2 table's
+/// open-ended "any other element… determined by the user agent… to better match
+/// platform conventions" clause is UA discretion, not a spec mandate, so it is
+/// intentionally not enumerated here (it is not a fixed criterion to model).
 ///
 /// **C2 — not a shadow host, or shadow root delegates-focus = false** — *not
 /// enforced here*: a delegates-focus host is not itself the focusable area (its
@@ -904,6 +928,47 @@ mod tests {
         let disabled_button = dom.create_element("button", Attributes::default());
         dom.set_attribute(disabled_button, "disabled", "");
         assert_eq!(tab_index_default_for(&dom, disabled_button), 0);
+    }
+
+    #[test]
+    fn first_summary_of_details_is_focusable() {
+        // Codex (S2 R10): the first `<summary>` child of a `<details>` is a
+        // UA-determined focusable area (§6.6.2) — the disclosure widget's
+        // built-in control — so it gets a default tabIndex of 0 with no author
+        // `tabindex`. A second summary, or a summary outside a details, is not.
+        let mut dom = EcsDom::new();
+        let doc = dom.create_document_root();
+        let details = connect_el(&mut dom, doc, "details");
+        let summary = dom.create_element("summary", Attributes::default());
+        let _ = dom.append_child(details, summary);
+        assert_eq!(
+            tab_index_default_for(&dom, summary),
+            0,
+            "first summary focusable"
+        );
+        assert!(is_focusable(&dom, summary));
+
+        // A second summary in the same details is NOT the UA control.
+        let second = dom.create_element("summary", Attributes::default());
+        let _ = dom.append_child(details, second);
+        assert_eq!(
+            tab_index_default_for(&dom, second),
+            -1,
+            "second summary not focusable"
+        );
+
+        // A summary outside any details is not UA-focusable.
+        let orphan = connect_el(&mut dom, doc, "summary");
+        assert_eq!(
+            tab_index_default_for(&dom, orphan),
+            -1,
+            "summary sans details not focusable"
+        );
+
+        // An explicit author `tabindex` still grants focusability (criterion 1
+        // first arm) independent of the UA default.
+        dom.set_attribute(orphan, "tabindex", "0");
+        assert!(is_focusable(&dom, orphan));
     }
 
     #[test]
