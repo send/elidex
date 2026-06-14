@@ -191,19 +191,6 @@ fn dialog_show_modal_disconnected_throws_invalid_state() {
 }
 
 #[test]
-fn dialog_show_modal_twice_is_noop() {
-    // Step 1: a second showModal() on an already-open modal dialog is a
-    // no-op (no throw, stays open).
-    let out = run("var d = document.createElement('dialog'); \
-         document.body.appendChild(d); \
-         d.showModal(); \
-         var threw = false; \
-         try { d.showModal(); } catch (e) { threw = true; } \
-         (!threw && d.open === true) ? 'ok' : 'fail';");
-    assert_eq!(out, "ok");
-}
-
-#[test]
 fn dialog_show_modal_then_show_throws_invalid_state() {
     let out = run("var d = document.createElement('dialog'); \
          document.body.appendChild(d); \
@@ -224,37 +211,6 @@ fn dialog_show_modal_when_already_open_throws() {
          var caught = false; \
          try { d.showModal(); } catch (e) { caught = (e.name === 'InvalidStateError'); } \
          caught ? 'ok' : 'fail';");
-    assert_eq!(out, "ok");
-}
-
-#[test]
-fn dialog_remove_open_attr_preserves_modal_state() {
-    // Removing the `open` attribute directly runs the dialog cleanup
-    // steps, which per HTML §4.11.4 do NOT reset `is modal` (that reset
-    // happens only in close() and the tree-removing steps).  So the
-    // dialog stays modal: after re-show()ing it, a second show() throws
-    // at step 2 (already open ⇒ still modal), rather than no-op'ing as a
-    // non-modal dialog would.
-    let out = run("var d = document.createElement('dialog'); \
-         document.body.appendChild(d); \
-         d.showModal(); \
-         d.removeAttribute('open'); \
-         d.show(); \
-         var threw = false; \
-         try { d.show(); } catch (e) { threw = (e.name === 'InvalidStateError'); } \
-         threw ? 'ok' : 'fail';");
-    assert_eq!(out, "ok");
-}
-
-#[test]
-fn dialog_show_on_already_open_is_noop() {
-    // show() step 1: a second show() on an already-open non-modal dialog
-    // is a no-op (no throw, stays open).  No connectedness requirement.
-    let out = run("var d = document.createElement('dialog'); \
-         d.show(); \
-         var threw = false; \
-         try { d.show(); } catch (e) { threw = true; } \
-         (!threw && d.open === true) ? 'ok' : 'fail';");
     assert_eq!(out, "ok");
 }
 
