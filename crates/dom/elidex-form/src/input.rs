@@ -528,7 +528,7 @@ pub fn apply_step(state: &mut FormControlState, n: f64, direction: f64) -> Resul
     Ok(())
 }
 
-/// HTML §4.10.5.6 type-change sanitize step.
+/// HTML §4.10.5 type-change sanitize step.
 ///
 /// Run after `state.kind` has been updated from `old_kind` to the
 /// new value, to bring `FormControlState` back into a consistent
@@ -536,11 +536,11 @@ pub fn apply_step(state: &mut FormControlState, n: f64, direction: f64) -> Resul
 ///
 /// 1. **Checkable-state cleanup**: if the old kind was `Checkbox`
 ///    or `Radio` and the new kind is neither, clear `checked` and
-///    `indeterminate` (HTML §4.10.5.6 step 3.1).  These bits are
+///    `indeterminate` (HTML §4.10.5 type-change steps).  These bits are
 ///    semantically meaningless on non-checkable types.
 /// 2. **Number value sanitization**: if the new kind is `Number`
 ///    and the current value isn't a finite floating-point literal,
-///    clear it (per HTML §4.10.5.4 number value-sanitization
+///    clear it (per HTML §4.10.5.1.12 number value-sanitization
 ///    algorithm — non-numeric values are rejected to `""`).
 ///
 /// Other per-type sanitize algorithms (Color, URL, Email, Date,

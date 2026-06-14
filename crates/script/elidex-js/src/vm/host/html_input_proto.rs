@@ -847,7 +847,7 @@ fn native_input_set_type(
     // Mirror the type into `FormControlState.kind` so subsequent
     // value / valueAsNumber / Selection-API behaviour reflects the
     // new type without requiring a re-attach (HTML §4.10.5.1.6).
-    // Then run the HTML §4.10.5.6 type-change sanitize step so the
+    // Then run the HTML §4.10.5 type-change sanitize step so the
     // checked / indeterminate bits don't survive a checkable→non-
     // checkable transition and a non-numeric value gets cleared on
     // entry into `type=number`.  Algorithm lives in elidex-form.
