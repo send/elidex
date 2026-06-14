@@ -154,14 +154,20 @@ pub enum StepError {
 /// tolerance of an integer.
 ///
 /// The tolerance is scaled by `f64::EPSILON` (≈ 2.2e-16) because the
-/// ratio carries only a few ULPs of representation error.  A fixed
-/// fudge factor (e.g. `1e-9`) must NOT be used: multiplied by a large
-/// ratio it grows without bound and, once it reaches ½, classifies
-/// *every* off-grid value as aligned (e.g. `step=1, value=5e8+0.5`
-/// would stop snapping).  128 ULP leaves generous headroom for
-/// accumulated rounding while staying far below ½ for any ratio f64 can
-/// represent with fractional precision.
-const STEP_ALIGN_TOLERANCE: f64 = 128.0 * f64::EPSILON;
+/// ratio carries only a few ULPs of representation error; 128 ULP
+/// leaves generous headroom for accumulated rounding.  A fixed fudge
+/// factor (e.g. `1e-9`) must NOT be used here.
+const STEP_ALIGN_REL_TOLERANCE: f64 = 128.0 * f64::EPSILON;
+
+/// Hard cap (in step units) on the alignment tolerance, strictly below
+/// ½ a step.  The relative term above is unbounded — at a large enough
+/// ratio it exceeds ½ and would classify *every* off-grid value as
+/// aligned (e.g. `step=1, value=1e14+0.5`, which f64 still represents
+/// with a fractional offset, must still snap, not gain a full step).
+/// Capping at a quarter-step keeps any value ≈½ step off the grid
+/// unaligned at every magnitude, while the relative term still governs
+/// the precision-error region at normal magnitudes.
+const STEP_ALIGN_MAX_TOLERANCE: f64 = 0.25;
 
 /// HTML "rules for parsing floating-point number values"
 /// (§2.3.4.3 "Floating-point numbers") — used as "convert a string to a
@@ -306,11 +312,12 @@ fn step_ratio(value: f64, base: f64, step: f64) -> f64 {
 }
 
 /// Whether `value`, when subtracted from `base`, is an integral
-/// multiple of `step` (HTML §4.10.5.4 step 7), within
-/// [`STEP_ALIGN_TOLERANCE`].
+/// multiple of `step` (HTML §4.10.5.4 step 7), within the relative
+/// [`STEP_ALIGN_REL_TOLERANCE`] capped by [`STEP_ALIGN_MAX_TOLERANCE`].
 fn is_step_aligned(value: f64, base: f64, step: f64) -> bool {
     let ratio = step_ratio(value, base, step);
-    (ratio - ratio.round()).abs() <= STEP_ALIGN_TOLERANCE * ratio.abs().max(1.0)
+    let tolerance = (STEP_ALIGN_REL_TOLERANCE * ratio.abs().max(1.0)).min(STEP_ALIGN_MAX_TOLERANCE);
+    (ratio - ratio.round()).abs() <= tolerance
 }
 
 /// Largest step-aligned value `≤ value` (`base + ⌊ratio⌋ · step`).

@@ -492,6 +492,17 @@ fn apply_step_large_magnitude_unaligned_still_snaps() {
 }
 
 #[test]
+fn apply_step_very_large_magnitude_unaligned_still_snaps() {
+    // The alignment tolerance is capped below ½ a step, so even at a
+    // magnitude where the relative term would exceed ½ (here ~1e14, still
+    // f64-representable with a 0.5 fractional offset) an off-grid value
+    // snaps instead of gaining a full step.  (Codex PR#344 round 3.)
+    let mut s = make_state(FormControlKind::Number, "100000000000000.5", Some("1"));
+    assert!(apply_step(&mut s, 1.0, 1.0).is_ok());
+    assert_eq!(s.value(), "100000000000001");
+}
+
+#[test]
 fn apply_step_non_finite_result_is_noop() {
     // f64 overflow guard: a pathologically large step with no maximum
     // makes step×n overflow to infinity; the value must NOT become
