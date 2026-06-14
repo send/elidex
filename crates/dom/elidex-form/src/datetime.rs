@@ -246,10 +246,28 @@ fn parse_date_component(input: &[u8], pos: &mut usize) -> Option<CivilDate> {
     })
 }
 
+/// Fractional-second precision policy for the time-component parser —
+/// the date/time analogue of the number state's `parse_valid_floating_point`
+/// (strict) vs `parse_floating_point` (permissive) split.
+#[derive(Clone, Copy, Eq, PartialEq)]
+pub(crate) enum FracPrecision {
+    /// HTML "valid time string" (§2.3.5.4): the fractional part is *at
+    /// most* three digits.  Models the element's **value** as the value
+    /// sanitization algorithm would have left it, so a stored over-precision
+    /// string is the parse-error/empty case rather than a truncated parse.
+    ValidString,
+    /// HTML "parse a time component" (§2.3.5.4): any number of fractional
+    /// digits, truncated to millisecond resolution.  Used for the permissive
+    /// `min`/`max` attribute parse, as the spec specifies for those.
+    Permissive,
+}
+
 /// HTML "parse a time component" (§2.3.5.4): `HH:MM` then optional
-/// `:SS[.sss]`, `0 ≤ hour ≤ 23`, `0 ≤ minute ≤ 59`, `0 ≤ second < 60`,
-/// 1–3 fractional digits.  Returns milliseconds since midnight.
-fn parse_time_component(input: &[u8], pos: &mut usize) -> Option<TimeOfDay> {
+/// `:SS[.sss]`, `0 ≤ hour ≤ 23`, `0 ≤ minute ≤ 59`, `0 ≤ second < 60`.
+/// The fractional part is constrained per `frac`: [`FracPrecision::ValidString`]
+/// rejects more than three digits, [`FracPrecision::Permissive`] accepts any
+/// number (truncated to milliseconds).  Returns milliseconds since midnight.
+fn parse_time_component(input: &[u8], pos: &mut usize, frac: FracPrecision) -> Option<TimeOfDay> {
     let hour_digits = collect_digits(input, pos);
     if hour_digits.len() != 2 {
         return None;
@@ -290,12 +308,15 @@ fn parse_time_component(input: &[u8], pos: &mut usize) -> Option<TimeOfDay> {
             if frac_digits.is_empty() {
                 return None;
             }
-            // HTML §2.3.5.4 accepts any number of fractional-second digits
-            // (the seconds component is "SS" optionally followed by "." and
-            // one-or-more digits).  elidex keeps millisecond resolution, so
-            // take the first three digits (zero-padded) as the millisecond
-            // component and truncate any beyond — `.5` → 500, `.05` → 50,
+            // A "valid time string" permits one, two, or three fractional
+            // digits; a value with more is not a valid time string and so is
+            // the parse-error case for the strict (value) path.  The permissive
+            // "parse a time component" path accepts any number of digits and
+            // truncates to millisecond resolution — `.5` → 500, `.05` → 50,
             // `.001` → 1, `.1239` → 123 (sub-millisecond digits dropped).
+            if frac == FracPrecision::ValidString && frac_digits.len() > 3 {
+                return None;
+            }
             let mut ms_digits = [b'0'; 3];
             for (slot, &d) in ms_digits.iter_mut().zip(frac_digits.iter()) {
                 *slot = d;
@@ -365,16 +386,16 @@ fn parse_week(s: &str) -> Option<(i64, u32)> {
 
 /// HTML "parse a time string" (§2.3.5.4).  Returns milliseconds since
 /// midnight.
-fn parse_time(s: &str) -> Option<TimeOfDay> {
+fn parse_time(s: &str, frac: FracPrecision) -> Option<TimeOfDay> {
     let input = s.as_bytes();
     let mut pos = 0;
-    let time = parse_time_component(input, &mut pos)?;
+    let time = parse_time_component(input, &mut pos, frac)?;
     (pos == input.len()).then_some(time)
 }
 
 /// HTML "parse a local date and time string" (§2.3.5.5): a date
 /// component, then `T` or U+0020 SPACE, then a time component.
-fn parse_local_date_time(s: &str) -> Option<(CivilDate, TimeOfDay)> {
+fn parse_local_date_time(s: &str, frac: FracPrecision) -> Option<(CivilDate, TimeOfDay)> {
     let input = s.as_bytes();
     let mut pos = 0;
     let date = parse_date_component(input, &mut pos)?;
@@ -382,7 +403,7 @@ fn parse_local_date_time(s: &str) -> Option<(CivilDate, TimeOfDay)> {
         Some(&b'T' | &b' ') => pos += 1,
         _ => return None,
     }
-    let time = parse_time_component(input, &mut pos)?;
+    let time = parse_time_component(input, &mut pos, frac)?;
     (pos == input.len()).then_some((date, time))
 }
 
@@ -440,11 +461,32 @@ fn format_time(ms: i64) -> String {
 // Per-type number conversion (HTML §4.10.5.1.7–.11)
 // ===================================================================
 
-/// HTML "convert a string to a number" for the date/time input states.
-/// Returns `None` for the spec's "return an error" outcome (parse
-/// failure or a non-date-time `kind`).  The number is milliseconds
-/// (months for the Month state); see the module docs for each space.
+/// HTML "convert a string to a number" for the date/time input states —
+/// the permissive algorithm, used for the `min`/`max` content attributes
+/// (over-precision time fractions are accepted and truncated to
+/// milliseconds, as the spec specifies for those attributes).  Returns
+/// `None` for the spec's "return an error" outcome (parse failure or a
+/// non-date-time `kind`).  The number is milliseconds (months for the
+/// Month state); see the module docs for each space.
 pub(crate) fn convert_string_to_number(kind: FormControlKind, s: &str) -> Option<f64> {
+    convert_string_to_number_with(kind, s, FracPrecision::Permissive)
+}
+
+/// "Convert a string to a number" for the element's stored **value** in the
+/// stepUp/stepDown algorithm.  Mirrors the number state's
+/// `parse_valid_floating_point`: the value is parsed only if it is a *valid*
+/// `<type>` string (an over-precision time fraction is the error/empty case),
+/// modelling the post-value-sanitization state since date/time value
+/// sanitization is not yet wired (`#11-input-type-sanitize-extended`).
+pub(crate) fn convert_valid_string_to_number(kind: FormControlKind, s: &str) -> Option<f64> {
+    convert_string_to_number_with(kind, s, FracPrecision::ValidString)
+}
+
+fn convert_string_to_number_with(
+    kind: FormControlKind,
+    s: &str,
+    frac: FracPrecision,
+) -> Option<f64> {
     #[allow(clippy::cast_precision_loss)]
     match kind {
         FormControlKind::Date => {
@@ -467,11 +509,11 @@ pub(crate) fn convert_string_to_number(kind: FormControlKind, s: &str) -> Option
             Some(iso_week_to_days(wy, week).checked_mul(MS_PER_DAY)? as f64)
         }
         FormControlKind::Time => {
-            let t = parse_time(s)?;
+            let t = parse_time(s, frac)?;
             Some(t.ms as f64)
         }
         FormControlKind::DatetimeLocal => {
-            let (d, t) = parse_local_date_time(s)?;
+            let (d, t) = parse_local_date_time(s, frac)?;
             Some(
                 days_from_civil(d.year, d.month, d.day)
                     .checked_mul(MS_PER_DAY)?

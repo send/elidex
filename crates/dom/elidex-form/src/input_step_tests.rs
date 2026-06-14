@@ -541,6 +541,18 @@ fn apply_step_time_step_in_seconds() {
 }
 
 #[test]
+fn apply_step_time_over_precision_value_is_error_path() {
+    // Codex #349 R1: an over-precision fractional second (more than three
+    // digits) is not a valid time string, so the value path treats it as the
+    // error/empty case (step 5 → 0) rather than mutating the stored value.
+    // stepUp() therefore steps from 0 → one default minute ("00:01"), not
+    // from a truncated parse of "12:30:45.123" (which would give "12:31").
+    let mut s = make_state(FormControlKind::Time, "12:30:45.1234", None);
+    assert!(apply_step(&mut s, 1.0, 1.0).is_ok());
+    assert_eq!(s.value(), "00:01");
+}
+
+#[test]
 fn apply_step_datetime_local_default_step_is_one_minute() {
     let mut s = make_state(FormControlKind::DatetimeLocal, "2025-01-15T12:30", None);
     assert!(apply_step(&mut s, 1.0, 1.0).is_ok());

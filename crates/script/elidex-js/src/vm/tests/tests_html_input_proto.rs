@@ -352,6 +352,34 @@ fn input_set_selection_range_throws_for_non_text_type() {
 }
 
 #[test]
+fn input_selection_getters_return_null_for_non_text_types() {
+    // HTML §4.10.5.2.10: the selectionStart / selectionEnd / selectionDirection
+    // *getters* return null when the attribute does not apply — only the setters
+    // / setSelectionRange() / setRangeText() throw InvalidStateError.  Regression
+    // for Codex #349 R1: making time/week/month first-class (non-text) kinds must
+    // not route their getters through the throwing `require_text_control` path.
+    let out = run("var i = document.createElement('input'); \
+         var r = []; \
+         ['number','date','month','week','time','datetime-local','color'].forEach(function (t) { \
+           i.type = t; \
+           r.push(i.selectionStart === null && i.selectionEnd === null && i.selectionDirection === null); \
+         }); \
+         r.every(function (x) { return x === true; }) ? 'all-null' : 'leaked:' + r.join(',');");
+    assert_eq!(out, "all-null");
+}
+
+#[test]
+fn input_selection_setter_still_throws_for_non_text_type() {
+    // The setter side of the getter/setter split: assigning selectionStart on a
+    // non-text type still throws InvalidStateError (only the getter is null).
+    let out = run("var i = document.createElement('input'); \
+         i.type = 'time'; \
+         try { i.selectionStart = 0; 'no-throw'; } \
+         catch (e) { (e.name === 'InvalidStateError') ? 'ok' : 'other:' + e.name; }");
+    assert_eq!(out, "ok");
+}
+
+#[test]
 fn input_select_method_never_throws_for_number_or_date_types() {
     // select() NEVER throws for number or the date/time states (HTML
     // "select() method" step 1 — no-op, not InvalidStateError), unlike the

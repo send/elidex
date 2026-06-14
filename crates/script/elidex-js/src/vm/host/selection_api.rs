@@ -99,6 +99,21 @@ pub(super) fn has_selectable_text(ctx: &mut NativeContext<'_>, entity: Entity) -
         .unwrap_or(false)
 }
 
+/// Whether `entity`'s control supports the text-selection IDL attributes
+/// ([`FormControlKind::supports_selection`]).  The non-throwing predicate
+/// for the selection *getters*, which return null (rather than the
+/// [`require_text_control`] `InvalidStateError`) when the attribute does not
+/// apply — HTML §4.10.5.2.10 throws only from the setters / `setSelectionRange()`
+/// / `setRangeText()`, never the `selectionStart`/`End`/`Direction` getters.
+pub(super) fn supports_selection(ctx: &mut NativeContext<'_>, entity: Entity) -> bool {
+    ctx.host()
+        .dom()
+        .world()
+        .get::<&FormControlState>(entity)
+        .map(|s| s.kind.supports_selection())
+        .unwrap_or(false)
+}
+
 // -------------------------------------------------------------------------
 // selectionStart / selectionEnd
 // -------------------------------------------------------------------------

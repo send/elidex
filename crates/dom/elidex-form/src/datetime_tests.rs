@@ -295,6 +295,41 @@ fn time_accepts_extra_fractional_digits_truncated_to_ms() {
 }
 
 #[test]
+fn valid_string_path_rejects_over_precision_time_fraction() {
+    // Codex #349 R1: the stepUp **value** path parses only a valid time
+    // string (≤3 fractional digits), modelling post-value-sanitization
+    // state — so an over-precision value is the error/empty case, not a
+    // truncated parse (the permissive attr path still accepts it, above).
+    for s in ["12:30:45.1234", "00:00:00.5009", "2025-01-15T12:30:45.1234"] {
+        let kind = if s.contains('T') { DatetimeLocal } else { Time };
+        assert_eq!(
+            convert_valid_string_to_number(kind, s),
+            None,
+            "valid-string path must reject over-precision {s:?}"
+        );
+        // The permissive ("convert a string to a number") path still parses
+        // it — confirms the two paths diverge only on fractional precision.
+        assert!(
+            convert_string_to_number(kind, s).is_some(),
+            "permissive path still accepts {s:?}"
+        );
+    }
+    // ≤3 fractional digits remain valid on both paths (DatetimeLocal too).
+    for s in [
+        "12:30:45.123",
+        "12:30:45.5",
+        "12:30",
+        "2025-01-15T12:30:45.999",
+    ] {
+        let kind = if s.contains('T') { DatetimeLocal } else { Time };
+        assert!(
+            convert_valid_string_to_number(kind, s).is_some(),
+            "valid-string path accepts {s:?}"
+        );
+    }
+}
+
+#[test]
 fn convert_number_to_string_rejects_out_of_i64_range() {
     // Codex R5: a huge but finite step (e.g. type=date step=1e20) reaches
     // the serializer with a value far outside the i64 ms range; the cast

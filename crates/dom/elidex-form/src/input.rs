@@ -324,7 +324,10 @@ fn parse_valid_floating_point(s: &str) -> Option<f64> {
 /// spec's "results in an error" outcome.
 fn convert_value_to_number(state: &FormControlState) -> Option<f64> {
     if datetime::is_date_time_kind(state.kind) {
-        datetime::convert_string_to_number(state.kind, state.value())
+        // Strict (valid-string) parse for the stored value — the date/time
+        // analogue of `parse_valid_floating_point` above; an over-precision
+        // time fraction is the error/empty case, not a truncated value.
+        datetime::convert_valid_string_to_number(state.kind, state.value())
     } else {
         parse_valid_floating_point(state.value())
     }
