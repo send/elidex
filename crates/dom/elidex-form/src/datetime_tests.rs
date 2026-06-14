@@ -127,32 +127,31 @@ fn convert_number_below_year_one_has_no_valid_string() {
 }
 
 #[test]
-fn oversized_years_rejected_without_overflow() {
-    // Regression (Codex R2): a year that fits in i64 but is astronomically
-    // large would overflow the civil-date multiplication (debug panic /
-    // release wrap).  Years beyond the ECMAScript Date range (275760) are
-    // a parse error instead.
-    for s in [
-        "9223372036854775807-01-01", // i64::MAX year
-        "275761-01-01",              // one past the max
-        "0999999-06-15",
-    ] {
-        assert_eq!(convert_string_to_number(Date, s), None, "reject {s}");
-    }
-    assert_eq!(convert_string_to_number(Month, "275761-01"), None);
-    assert_eq!(convert_string_to_number(Week, "275761-W01"), None);
-    assert_eq!(
-        convert_string_to_number(DatetimeLocal, "275761-01-01T00:00"),
-        None
-    );
-    // The max year itself is representable and round-trips.
-    let n = convert_string_to_number(Date, "275760-09-13").expect("max date");
+fn large_years_honored_without_overflow() {
+    // Regression (Codex R2/R3): a pathological year must not overflow the
+    // civil-date arithmetic (debug panic / release wrap) — but spec-valid
+    // years ABOVE the ECMAScript Date range (275760) are still honored
+    // (the HTML year production is unbounded).  Only years whose
+    // millisecond value genuinely overflows i64 are a conversion error.
+
+    // Accepted: above the JS Date range, and round-trips (f64-exact here).
+    let n = convert_string_to_number(Date, "280000-01-01").expect("year > 275760 is valid");
     assert_eq!(
         convert_number_to_string(Date, n).as_deref(),
-        Some("275760-09-13")
+        Some("280000-01-01")
     );
-    // Stepping past the max serializes to None (no-op), never a panic.
-    assert_eq!(convert_number_to_string(Date, 1e18), None);
+    assert!(convert_string_to_number(Date, "275761-01-01").is_some());
+    assert!(convert_string_to_number(Month, "275761-01").is_some());
+    assert!(convert_string_to_number(Week, "300000-W10").is_some());
+    assert!(convert_string_to_number(DatetimeLocal, "275761-01-01T00:00").is_some());
+
+    // Rejected (no panic): millisecond value overflows i64, or the year is
+    // beyond the civil-arithmetic guard (i64::MAX).
+    assert_eq!(convert_string_to_number(Date, "1000000000-01-01"), None); // ms overflows i64
+    assert_eq!(
+        convert_string_to_number(Date, "9223372036854775807-01-01"),
+        None
+    ); // i64::MAX year
 }
 
 #[test]

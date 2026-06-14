@@ -33,14 +33,19 @@ const MS_PER_WEEK: i64 = 604_800_000;
 /// Milliseconds in one second (the time / datetime-local step scale).
 const MS_PER_SECOND: i64 = 1_000;
 
-/// Largest representable year.  The date/time number spaces convert to a
-/// `Date` object (`valueAsDate`), whose range is the ECMAScript maximum
-/// time value ±8.64×10¹⁵ ms, i.e. up to 275760-09-13 UTC.  Years beyond
-/// this are rejected as a parse / conversion error rather than overflowing
-/// the `i64` civil-date arithmetic (a huge year like `9223372036854775807`
-/// would otherwise wrap or panic in `days_from_civil`).  This also keeps
-/// every reachable ms value below 2⁵³, so the cast to `f64` stays exact.
-const MAX_YEAR: i64 = 275_760;
+/// Upper bound on the year accepted by the parsers.  This is **not** the
+/// HTML date range — the year production is unbounded (four-or-more
+/// digits), and spec-valid years well above the ECMAScript `Date` range
+/// (275760) are honored.  The bound exists only to keep `days_from_civil`'s
+/// internal `i64` arithmetic (the `era * 146097` term) from wrapping for a
+/// pathological year such as `9223372036854775807`; it sits far below that
+/// wrap point (~2.5×10¹⁶) and far above any realistic year.  The narrower,
+/// genuine limit — years whose **millisecond value** overflows `i64` — is
+/// enforced by checked arithmetic in [`convert_string_to_number`], which
+/// returns the spec's error outcome there.  (Millisecond values above 2⁵³,
+/// i.e. years beyond ≈285 000, are returned as the nearest `f64`; exact
+/// arithmetic for those is the `#11-input-number-decimal-precision` slot.)
+const CIVIL_YEAR_LIMIT: i64 = 100_000_000_000;
 
 // ===================================================================
 // Civil-date core (proleptic Gregorian, Howard Hinnant algorithms)
@@ -197,7 +202,7 @@ fn parse_month_component(input: &[u8], pos: &mut usize) -> Option<(i64, u32)> {
         return None;
     }
     let year = digits_to_i64(year_digits)?;
-    if !(1..=MAX_YEAR).contains(&year) {
+    if !(1..=CIVIL_YEAR_LIMIT).contains(&year) {
         return None;
     }
     if input.get(*pos) != Some(&b'-') {
@@ -323,7 +328,7 @@ fn parse_week(s: &str) -> Option<(i64, u32)> {
         return None;
     }
     let week_year = digits_to_i64(year_digits)?;
-    if !(1..=MAX_YEAR).contains(&week_year) {
+    if !(1..=CIVIL_YEAR_LIMIT).contains(&week_year) {
         return None;
     }
     if input.get(pos) != Some(&b'-') {
@@ -436,15 +441,22 @@ pub(crate) fn convert_string_to_number(kind: FormControlKind, s: &str) -> Option
     match kind {
         FormControlKind::Date => {
             let d = parse_date(s)?;
-            Some((days_from_civil(d.year, d.month, d.day) * MS_PER_DAY) as f64)
+            // Checked: a year within the civil-arithmetic guard can still
+            // have a millisecond count that overflows i64 → conversion
+            // error (the spec's "return an error"), never a wrap/panic.
+            Some(days_from_civil(d.year, d.month, d.day).checked_mul(MS_PER_DAY)? as f64)
         }
         FormControlKind::Month => {
             let (year, month) = parse_month(s)?;
-            Some(((year - 1970) * 12 + i64::from(month) - 1) as f64)
+            Some(
+                (year - 1970)
+                    .checked_mul(12)?
+                    .checked_add(i64::from(month) - 1)? as f64,
+            )
         }
         FormControlKind::Week => {
             let (wy, week) = parse_week(s)?;
-            Some((iso_week_to_days(wy, week) * MS_PER_DAY) as f64)
+            Some(iso_week_to_days(wy, week).checked_mul(MS_PER_DAY)? as f64)
         }
         FormControlKind::Time => {
             let t = parse_time(s)?;
@@ -452,7 +464,11 @@ pub(crate) fn convert_string_to_number(kind: FormControlKind, s: &str) -> Option
         }
         FormControlKind::DatetimeLocal => {
             let (d, t) = parse_local_date_time(s)?;
-            Some((days_from_civil(d.year, d.month, d.day) * MS_PER_DAY + t.ms) as f64)
+            Some(
+                days_from_civil(d.year, d.month, d.day)
+                    .checked_mul(MS_PER_DAY)?
+                    .checked_add(t.ms)? as f64,
+            )
         }
         _ => None,
     }
@@ -476,33 +492,24 @@ pub(crate) fn convert_number_to_string(kind: FormControlKind, n: f64) -> Option<
     match kind {
         FormControlKind::Date => {
             let date: CivilDate = civil_from_days(n.div_euclid(MS_PER_DAY)).into();
-            (1..=MAX_YEAR)
-                .contains(&date.year)
-                .then(|| format_date(date))
+            (date.year >= 1).then(|| format_date(date))
         }
         FormControlKind::Month => {
             let year = 1970 + n.div_euclid(12);
             let month = n.rem_euclid(12) + 1;
-            (1..=MAX_YEAR)
-                .contains(&year)
-                .then(|| format!("{}-{:02}", format_year(year), month))
+            (year >= 1).then(|| format!("{}-{:02}", format_year(year), month))
         }
         FormControlKind::Week => {
             let (wy, week) = iso_week_from_days(n.div_euclid(MS_PER_DAY));
-            (1..=MAX_YEAR)
-                .contains(&wy)
-                .then(|| format!("{}-W{:02}", format_year(wy), week))
+            (wy >= 1).then(|| format!("{}-W{:02}", format_year(wy), week))
         }
         FormControlKind::Time => Some(format_time(n)),
         FormControlKind::DatetimeLocal => {
             let date: CivilDate = civil_from_days(n.div_euclid(MS_PER_DAY)).into();
-            // Guard the year bound (below) before formatting.
             // `format_time` extracts the time-of-day from the full ms
             // value itself (it normalizes modulo the day), so pass `n`
             // directly — same as the Time arm.
-            (1..=MAX_YEAR)
-                .contains(&date.year)
-                .then(|| format!("{}T{}", format_date(date), format_time(n)))
+            (date.year >= 1).then(|| format!("{}T{}", format_date(date), format_time(n)))
         }
         _ => None,
     }
