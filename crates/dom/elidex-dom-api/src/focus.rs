@@ -136,12 +136,22 @@ fn is_first_summary_of_details(dom: &EcsDom, summary: Entity) -> bool {
 /// **C1 — tabindex value non-null, OR UA-determined focusable** — *enforced*: a
 /// `tabindex` that parses as a valid integer (§6.6.3 "rules for parsing
 /// integers", via [`parse_tab_index_value`] — shared with the `tabIndex` IDL
-/// getter), an editing host ([`crate::element::is_content_editable`] — the
-/// `isContentEditable` algorithm, so case-insensitive `true`/`plaintext-only` +
-/// ancestor inheritance), or a non-negative per-element default
-/// ([`tab_index_default_for`]: `<a href>` / button / input(non-hidden) / select
-/// / textarea / iframe / object / embed, and the **first `<summary>` child of a
-/// `<details>`** via `is_first_summary_of_details`). The §6.6.2 table's
+/// getter), or a non-negative per-element default ([`tab_index_default_for`]:
+/// `<a href>` / button / input(non-hidden) / select / textarea / iframe /
+/// object / embed, the **first `<summary>` child of a `<details>`** via
+/// `is_first_summary_of_details`, and an **editing host** — an element whose
+/// *own* `contenteditable` is in the true or plaintext-only state). §6.6.3 lists
+/// "Editing hosts" among the UA-determined focusable areas, and §6.8.4 defines an
+/// editing host as the element carrying `contenteditable` in the true/plaintext-
+/// only state — **not** the merely-editable descendants that inherit editability:
+/// the editing-host arm of [`tab_index_default_for`] therefore reads the element's
+/// *own* `contenteditable` (case-insensitive `""`/`true`/`plaintext-only`), not
+/// the inherited `isContentEditable` algorithm ([`crate::element::is_content_editable`]).
+/// A `<span>` inside `<div contenteditable>` is editable but not an editing host,
+/// so it is not a focusable area; a click/`focus()` on it retargets to the host
+/// via "get the focusable area" (§6.6.4), which is the
+/// `#11-focusing-steps-fallback-target` slot — the same path every non-focusable
+/// click target takes, not a contenteditable special case. The §6.6.2 table's
 /// open-ended "any other element… determined by the user agent… to better match
 /// platform conventions" clause is UA discretion, not a spec mandate, so it is
 /// intentionally not enumerated here (it is not a fixed criterion to model).
@@ -199,8 +209,7 @@ pub fn is_focusable(dom: &EcsDom, entity: Entity) -> bool {
     // per-element default — matching the `tabIndex` IDL getter.
     dom.with_attribute(entity, "tabindex", |v| {
         v.and_then(parse_tab_index_value).is_some()
-    }) || crate::element::is_content_editable(dom, entity)
-        || tab_index_default_for(dom, entity) >= 0
+    }) || tab_index_default_for(dom, entity) >= 0
 }
 
 /// Parse a `tabindex` content attribute value (WHATWG HTML §6.6.3 "tabindex
@@ -689,43 +698,65 @@ mod tests {
     }
 
     #[test]
-    fn is_focusable_inherits_contenteditable() {
-        // Regression (Codex R1 F3): an editing-host descendant must stay
-        // focusable via ancestor-inherited `contenteditable` (WHATWG §6.8.1),
-        // not only a direct attribute — else clicking a child inside a
-        // `<div contenteditable>` blurs the editor.
+    fn is_focusable_editing_host_not_inherited() {
+        // Regression (Codex S2 final-pass #3, correcting R1-F3/R4-F3): only an
+        // *editing host* is a focusable area, NOT its merely-editable descendants.
+        // §6.6.3 lists editing hosts as UA-focusable; §6.8.4 defines an editing
+        // host as the element with its OWN `contenteditable` in the true/
+        // plaintext-only state — the inherited `isContentEditable` algorithm
+        // (true for editable descendants too) is the wrong axis for focusability.
         let mut dom = EcsDom::new();
         let doc = dom.create_document_root();
         let editor = connect_el(&mut dom, doc, "div");
         dom.set_attribute(editor, "contenteditable", "");
+        assert!(
+            is_focusable(&dom, editor),
+            "an editing host (own contenteditable) is focusable"
+        );
+        // A plain descendant inherits editability but is not itself an editing
+        // host, so it is not a focusable area. (A click/`focus()` retargets to
+        // the host via "get the focusable area", §6.6.4 — slot
+        // `#11-focusing-steps-fallback-target`, the same path as any other
+        // non-focusable target, not a contenteditable special case.)
         let span = dom.create_element("span", Attributes::default());
         let _ = dom.append_child(editor, span);
         assert!(
-            is_focusable(&dom, span),
-            "an editing-host descendant inherits focusability"
+            !is_focusable(&dom, span),
+            "a merely-editable descendant of an editing host is not focusable"
         );
-        // A <span> outside any editing host is not focusable.
+        // `contenteditable="false"` is not an editing host.
+        let off = connect_el(&mut dom, doc, "div");
+        dom.set_attribute(off, "contenteditable", "false");
+        assert!(
+            !is_focusable(&dom, off),
+            "contenteditable=false is not an editing host"
+        );
+        // A <span> with no editing context at all.
         let plain = connect_el(&mut dom, doc, "span");
         assert!(!is_focusable(&dom, plain));
     }
 
     #[test]
-    fn is_focusable_inherits_contenteditable_uppercase_and_plaintext_only() {
-        // Regression (Codex R4 F3): the lower-level `EcsDom::is_contenteditable`
-        // matched only exact lowercase `"true"`/`""`, so an editing host with
-        // `contenteditable="TRUE"` or `"plaintext-only"` left its descendants
-        // non-focusable — diverging from the canonical `is_content_editable`
-        // (the `isContentEditable` algorithm) that this predicate now shares.
+    fn is_focusable_editing_host_case_insensitive_and_plaintext_only() {
+        // The own-`contenteditable` editing-host check (via
+        // `tab_index_default_for`'s generic arm) matches the true state
+        // case-insensitively and the plaintext-only state (WHATWG HTML §6.8.1
+        // states) — so `TRUE` / `plaintext-only` editing hosts are focusable,
+        // while their descendants (which merely inherit editability) are not.
         for value in ["TRUE", "plaintext-only", "PLAINTEXT-ONLY"] {
             let mut dom = EcsDom::new();
             let doc = dom.create_document_root();
             let editor = connect_el(&mut dom, doc, "div");
             dom.set_attribute(editor, "contenteditable", value);
+            assert!(
+                is_focusable(&dom, editor),
+                "an editing host is focusable for contenteditable={value:?}"
+            );
             let span = dom.create_element("span", Attributes::default());
             let _ = dom.append_child(editor, span);
             assert!(
-                is_focusable(&dom, span),
-                "an editing-host descendant inherits focusability for contenteditable={value:?}"
+                !is_focusable(&dom, span),
+                "an editable descendant is not focusable for contenteditable={value:?}"
             );
         }
     }

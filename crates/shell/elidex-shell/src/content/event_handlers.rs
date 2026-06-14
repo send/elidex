@@ -478,8 +478,11 @@ fn find_next_focusable(state: &mut ContentState, forward: bool) -> Option<elidex
 /// Recursively collect focusable entities in pre-order.
 ///
 /// Per HTML §6.6.3: elements with negative tabindex are focusable but not
-/// in the sequential focus navigation order (Tab key).
-/// Elements with `contenteditable` are also focusable.
+/// in the sequential focus navigation order (Tab key). Editing hosts (own
+/// `contenteditable` true/plaintext-only) are UA-focusable via
+/// [`elidex_dom_api::focus::is_focusable`]; their merely-editable descendants
+/// are not (§6.8.4 — only the editing host, not the inherited-editability
+/// children — so Tab lands on the host, not a child `<span>`).
 fn collect_focusable_entities(
     dom: &elidex_ecs::EcsDom,
     entity: elidex_ecs::Entity,
