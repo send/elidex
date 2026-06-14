@@ -21,9 +21,12 @@ use crate::PipelineResult;
 
 /// Move focus to the given entity, clearing focus from the previous target.
 ///
-/// Per UI Events §5.2, dispatches focusout/focusin (bubbling) then blur/focus
-/// (non-bubbling). Only focusable elements receive focus (form controls, links
-/// with href, elements with tabindex / contenteditable).
+/// Dispatches the WHATWG HTML §6.6.4 focus update steps' events in spec order:
+/// losing side `change` → `blur` → `focusout`, then (after the `FOCUS` bit
+/// moves to the new area) gaining side `focus` → `focusin` (UI Events §3.3.2
+/// "Focus Event Order"; focusout follows blur per §3.3.4.4). Only focusable
+/// elements receive focus (form controls, links with href, elements with
+/// tabindex / contenteditable).
 pub(crate) fn set_focus(pipeline: &mut PipelineResult, entity: Entity) {
     let old = current_focus(&pipeline.dom, pipeline.document);
     if old == Some(entity) {
@@ -46,13 +49,16 @@ pub(crate) fn set_focus(pipeline: &mut PipelineResult, entity: Entity) {
     // `relatedTarget` is the element on the other side of the transition;
     // `current_focus` already filtered connectedness, so `old` is connected.
     if let Some(old) = old {
-        dispatch_focus_event_with_related(pipeline, "focusout", old, true, Some(entity));
-        // Clear the prior focus before the blur event so `activeElement`
-        // reports `<body>` during blur (matching the prior field model).
+        // Losing-side order = change → blur → focusout (HTML §6.6.4 focus update
+        // steps: step 2.1 fires `change` BEFORE step 2.4 `blur`; UI Events
+        // §3.3.4.4: blur fires before `focusout`). `change` fires while `old` is
+        // still the focused area (step 2.1 precedes the new-area designation in
+        // step 4), so it runs BEFORE the bit is cleared; the `FOCUS` bit is then
+        // cleared so `activeElement` reports `<body>` during blur AND focusout.
+        dispatch_change_on_blur(pipeline, old);
         set_focus_bit(&mut pipeline.dom, None);
         dispatch_focus_event_with_related(pipeline, "blur", old, false, Some(entity));
-        // HTML §4.10.5.5: "change" fires during the unfocusing steps (after blur).
-        dispatch_change_on_blur(pipeline, old);
+        dispatch_focus_event_with_related(pipeline, "focusout", old, true, Some(entity));
     }
     set_focus_bit(&mut pipeline.dom, Some(entity));
     dispatch_focus_event_with_related(pipeline, "focus", entity, false, old);
@@ -75,11 +81,14 @@ pub(crate) fn blur_current(pipeline: &mut PipelineResult) {
         // and there is nothing to sweep here.
         return;
     };
-    dispatch_focus_event_with_related(pipeline, "focusout", old, true, None);
+    // Losing-side order = change → blur → focusout (see `set_focus`): `change`
+    // (HTML §6.6.4 step 2.1) before `blur` (step 2.4), `focusout` after blur
+    // (UI Events §3.3.4.4). Clear the `FOCUS` bit after `change` so blur and
+    // focusout see `activeElement` == `<body>`.
+    dispatch_change_on_blur(pipeline, old);
     set_focus_bit(&mut pipeline.dom, None);
     dispatch_focus_event_with_related(pipeline, "blur", old, false, None);
-    // HTML §4.10.5.5: "change" fires during the unfocusing steps (after blur).
-    dispatch_change_on_blur(pipeline, old);
+    dispatch_focus_event_with_related(pipeline, "focusout", old, true, None);
 }
 
 /// Dispatch a focus event with optional related target.
