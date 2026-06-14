@@ -132,8 +132,18 @@ fn handle_attribute_change(node: Entity, name: &str, new_value: Option<&str>, do
     // wildcard.  HTML §4.10.5.4 dirty-value-flag suppression / §4.10.5.3.6
     // pattern same-value short-circuit.
     if name == "value" {
+        let raw = new_value.unwrap_or("");
+        // `defaultValue` reflects the `value` content attribute (HTML
+        // §4.10.5.4 — the IDL attribute "must reflect the value content
+        // attribute"), so `default_value` must track every `value`
+        // attribute mutation, INCLUDING while the dirty value flag
+        // suppresses the IDL `value` update.  Anything reading the step
+        // base off this field (`input.rs` `step_base`, §4.10.5.3.7)
+        // otherwise sees a stale base for a dirty input whose `value`
+        // attribute was later changed.
+        fcs.default_value.clear();
+        fcs.default_value.push_str(raw);
         if !fcs.dirty_value {
-            let raw = new_value.unwrap_or("");
             // HTML §4.10.5.1.18 (submit) / §4.10.5.1.19 (reset) default
             // button label substitution — matches the `from_input_element`
             // path at createElement time.
@@ -159,8 +169,6 @@ fn handle_attribute_change(node: Entity, name: &str, new_value: Option<&str>, do
             fcs.selection_start = end;
             fcs.selection_end = end;
             fcs.selection_direction = SelectionDirection::None;
-            fcs.default_value.clear();
-            fcs.default_value.push_str(raw);
             fcs.value.clear();
             fcs.value.push_str(displayed);
         }
@@ -325,6 +333,26 @@ mod tests {
         // (HTML §4.10.5.4 dirty value flag suppression).
         assert!(dom.set_attribute(e, "value", "from-attr"));
         with_fcs(&dom, e, |s| assert_eq!(s.value, "user-typed"));
+    }
+
+    #[test]
+    fn e5e_value_attribute_write_updates_default_value_even_when_dirty() {
+        // `defaultValue` reflects the `value` content attribute even
+        // while the dirty value flag suppresses the IDL `value` update
+        // (HTML §4.10.5.4).  The step base (§4.10.5.3.7) reads this
+        // field, so it must stay fresh for a dirty input.
+        let (mut dom, e) = setup("input", &[("value", "initial")]);
+        {
+            let mut state = dom.world_mut().get::<&mut FormControlState>(e).unwrap();
+            state.set_value("user-typed".to_string());
+            assert!(state.dirty_value);
+        }
+        assert!(dom.set_attribute(e, "value", "from-attr"));
+        with_fcs(&dom, e, |s| {
+            // IDL value suppressed (dirty), but defaultValue reflects.
+            assert_eq!(s.value, "user-typed");
+            assert_eq!(s.default_value, "from-attr");
+        });
     }
 
     #[test]

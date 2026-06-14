@@ -430,6 +430,23 @@ fn input_step_up_non_finite_n_is_treated_as_zero() {
 }
 
 #[test]
+fn input_step_up_uses_fresh_value_attribute_as_step_base_when_dirty() {
+    // HTML §4.10.5.3.7 step base = the `value` content attribute (when
+    // no `min`).  After the input is dirty, a later `setAttribute(value)`
+    // must still update the step base: value 5 on a base-2 / step-10 grid
+    // ({2,12,22,…}) snaps up to 12, not 10 (which a stale base-0 grid
+    // would give).  Regression for Codex PR#344 P2.
+    let out = run("var i = document.createElement('input'); \
+         i.type = 'number'; \
+         i.value = '5'; \
+         i.setAttribute('value', '2'); \
+         i.step = '10'; \
+         i.stepUp(); \
+         i.value;");
+    assert_eq!(out, "12");
+}
+
+#[test]
 fn input_step_up_snaps_unaligned_value_to_grid() {
     // HTML §4.10.5.4 step 7: value off the step grid snaps to the
     // nearest aligned value in the step direction (5 on a step-10 grid
