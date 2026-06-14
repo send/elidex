@@ -186,6 +186,18 @@ impl ContentState {
         // Echo to the JS-observable consumers (scrollX/scrollY + the document-root
         // ScrollState for getBoundingClientRect) through the shared chokepoint.
         self.echo_viewport_scroll();
+        // Reconcile the focused-iframe side field against the parent's canonical
+        // FOCUS bit BEFORE the iframe render pass below: a parent-side script
+        // `focus()` this turn may have moved focus off the `<iframe>` element
+        // without `handle_click`'s blur path, leaving an in-process child with
+        // `:focus` / caret / a stale `activeElement`. `reconcile_focused_iframe`
+        // blurs the child and flags it `needs_render`, so it must precede
+        // `re_render_all_iframes` — otherwise the child display list is rebuilt
+        // with the stale focus this frame and the blur only lands a frame late
+        // (Codex S2 R5). `current_focus` is derive-on-read, so it already
+        // reflects the post-turn focus before `crate::re_render`'s GC runs.
+        event_handlers::reconcile_focused_iframe(self);
+
         // Re-render in-process iframes before the parent so child display
         // lists are up-to-date when the parent composites them.
         iframe::re_render_all_iframes(self);
@@ -225,13 +237,9 @@ impl ContentState {
 
         // (The `current_focus ⟹ is_focusable` reconciliation now lives inside
         // `crate::re_render` above, so the parent, in-process iframes and OOP
-        // iframes all share one chokepoint — see the comment there.)
-
-        // Reconcile the focused-iframe side field against the parent's canonical
-        // FOCUS bit: a parent-side script `focus()` this turn may have moved
-        // focus off the `<iframe>` element without `handle_click`'s blur path, so
-        // an in-process child kept `:focus` / caret / a stale `activeElement`.
-        event_handlers::reconcile_focused_iframe(self);
+        // iframes all share one chokepoint — see the comment there. The
+        // focused-iframe side-field reconciliation runs BEFORE the iframe render
+        // pass above, not here — see `reconcile_focused_iframe`.)
 
         // Deliver observer callbacks after layout is complete.
         if !mutation_records.is_empty() {
