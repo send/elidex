@@ -491,11 +491,20 @@ fn collect_focusable_entities(
     }
 
     if super::focus::is_focusable(dom, entity) {
+        // §6.6.3 "rules for parsing integers" via the shared tabindex parser, so
+        // the Tab-order collector agrees with `is_focusable` and the `tabIndex`
+        // getter instead of running a second `str::parse::<i32>()` path: a
+        // leading-integer value like `tabindex="2foo"` sorts as order 2, and
+        // `tabindex="-1foo"` is correctly excluded from Tab order. A null/absent
+        // value defaults to 0 (the per-element default already gated focusable).
         let tabindex = dom
             .world()
             .get::<&elidex_ecs::Attributes>(entity)
             .ok()
-            .and_then(|a| a.get("tabindex").and_then(|v| v.parse::<i32>().ok()))
+            .and_then(|a| {
+                a.get("tabindex")
+                    .and_then(elidex_dom_api::focus::parse_tab_index_value)
+            })
             .unwrap_or(0);
         // Negative tabindex: focusable but not in Tab order.
         if tabindex >= 0 {
@@ -803,16 +812,20 @@ pub(super) fn try_route_click_to_iframe(
         mods: click.mods,
     };
 
-    // Focus is moving into the iframe's browsing context, so the parent
-    // document's focused area resets (WHATWG HTML §6.6): blur the parent's
-    // current focus — dispatching its focusout/blur + change-on-blur — before
-    // focusing inside the iframe. Each pipeline owns its own `EcsDom`, so the
-    // iframe-side `set_focus` below cannot reach the parent's `FOCUS` bit;
-    // without this the parent control keeps `:focus` / caret blink / the
-    // change-on-blur snapshot active even though key routing has moved to the
-    // iframe. Runs for both in-process and out-of-process iframes (focus leaves
-    // the parent either way) and is a no-op when the parent has no focus.
-    super::focus::blur_current(&mut state.pipeline);
+    // Focus is moving into the iframe's browsing context, so in the PARENT
+    // document the focused area becomes the `<iframe>` element itself (WHATWG
+    // HTML §6.6: a navigable container is the parent's focusable area / DOM
+    // anchor while focus is inside the nested context). Focus the `<iframe>`
+    // element (`hit_entity`) in the parent — `set_focus` first blurs+change-on-
+    // blurs the parent's previous focus, then designates the iframe element so
+    // parent scripts read `document.activeElement === iframeEl` and
+    // `hasFocus() === true` (both routed via `current_focus`) instead of falling
+    // back to `<body>`/false while keyboard focus is actually inside the frame.
+    // Each pipeline owns its own `EcsDom`, so the iframe-side `set_focus` below
+    // cannot reach the parent `FOCUS` bit. Runs for both in-process and OOP
+    // iframes (the `<iframe>` element is default-focusable as a navigable
+    // container).
+    super::focus::set_focus(&mut state.pipeline, hit_entity);
     // ...and any *other* iframe that previously held focus — a sibling
     // iframe-to-iframe click. Each frame owns a separate `EcsDom`, so the
     // iframe-side `set_focus` below reaches none of the others; without this the
