@@ -761,3 +761,7 @@ fn input_list_applies_to_type(dom: &EcsDom, input_entity: Entity) -> bool {
 #[cfg(test)]
 #[path = "input_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "input_step_tests.rs"]
+mod step_tests;
