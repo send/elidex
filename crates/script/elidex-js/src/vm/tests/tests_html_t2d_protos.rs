@@ -228,21 +228,21 @@ fn dialog_show_modal_when_already_open_throws() {
 }
 
 #[test]
-fn dialog_remove_open_attr_clears_modal_marker() {
-    // Removing the `open` content attribute directly (not via close())
-    // clears the modal flag (HTML §4.11.4 dialog attribute-change →
-    // cleanup steps, via the attribute-write reconcile seam), so the
-    // dialog can later be shown non-modally.  Detector: after re-show()
-    // a non-modal dialog, a second show() is a step-1 no-op (a stale
-    // modal marker would instead make it throw at step 2).
+fn dialog_remove_open_attr_preserves_modal_state() {
+    // Removing the `open` attribute directly runs the dialog cleanup
+    // steps, which per HTML §4.11.4 do NOT reset `is modal` (that reset
+    // happens only in close() and the tree-removing steps).  So the
+    // dialog stays modal: after re-show()ing it, a second show() throws
+    // at step 2 (already open ⇒ still modal), rather than no-op'ing as a
+    // non-modal dialog would.
     let out = run("var d = document.createElement('dialog'); \
          document.body.appendChild(d); \
          d.showModal(); \
          d.removeAttribute('open'); \
          d.show(); \
          var threw = false; \
-         try { d.show(); } catch (e) { threw = true; } \
-         (!threw && d.open === true) ? 'ok' : 'fail';");
+         try { d.show(); } catch (e) { threw = (e.name === 'InvalidStateError'); } \
+         threw ? 'ok' : 'fail';");
     assert_eq!(out, "ok");
 }
 

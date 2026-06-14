@@ -151,11 +151,15 @@ fn dialog_set_open(
             &[JsValue::String(attr_sid), JsValue::String(empty_sid)],
         )
     } else {
-        // Clearing `open` content attribute via the IDL setter does NOT
-        // itself fire the `close` event (per HTML §4.11.4 — only the
-        // `close()` method dispatches the event).  Removing `open` clears
-        // the `IsModalDialog` marker via the attribute-write chokepoint's
-        // reconcile seam (a dialog cannot be modal while closed).
+        // Clearing `open` content attribute via the IDL setter does
+        // NOT itself fire the `close` event (per HTML §4.11.4 — only
+        // the `close()` method dispatches the event).  It does clear
+        // the modal marker, since the dialog is no longer open.
+        let _ = ctx
+            .host()
+            .dom()
+            .world_mut()
+            .remove_one::<IsModalDialog>(entity);
         invoke_dom_api(ctx, "removeAttribute", entity, &[JsValue::String(attr_sid)])
     }
 }
@@ -313,8 +317,14 @@ fn dialog_close(
             write_return_value(ctx, entity, owned);
         }
     }
-    // Removing `open` clears the `IsModalDialog` marker via the
-    // attribute-write chokepoint's reconcile seam.
+    // Per HTML §4.11.4 "close the dialog" algorithm: reset `is modal`
+    // (only close() and the tree-removing steps clear it — the `open`
+    // attribute-change/cleanup steps deliberately do NOT).
+    let _ = ctx
+        .host()
+        .dom()
+        .world_mut()
+        .remove_one::<IsModalDialog>(entity);
     let attr_sid = ctx.vm.strings.intern("open");
     invoke_dom_api(ctx, "removeAttribute", entity, &[JsValue::String(attr_sid)])?;
     let close_sid = ctx.vm.well_known.close;

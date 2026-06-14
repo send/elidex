@@ -7,7 +7,7 @@
 use hecs::Entity;
 
 use super::EcsDom;
-use crate::components::{Attributes, IframeData, InlineStyle, IsModalDialog};
+use crate::components::{Attributes, IframeData, InlineStyle};
 
 impl EcsDom {
     /// Re-make every **inline-reconciled** attribute-derived component
@@ -61,26 +61,6 @@ impl EcsDom {
                 |a| IframeData::from_attributes(&a),
             );
             let _ = self.world.insert_one(entity, derived);
-        }
-        // `IsModalDialog` is *not* a projection of attributes — modality is set
-        // at `showModal()` time and cannot be derived from markup — but its
-        // validity *depends* on the `open` attribute: a dialog cannot be modal
-        // while closed. HTML §4.11.4's dialog attribute-change steps run the
-        // dialog cleanup steps when `open` is removed; resetting `is modal` is
-        // the only piece of that cleanup currently modelled (close watcher /
-        // top-layer removal stay deferred to `#11-dialog-top-layer`). Clearing
-        // the marker here is the single canonical drop point for every `open`
-        // removal — the generic `removeAttribute("open")` path as well as the
-        // IDL `open=false` setter and `close()` (which previously each cleared
-        // the marker ad-hoc, leaving the generic path stale).
-        if name == "open"
-            && self.world.get::<&IsModalDialog>(entity).is_ok()
-            && !self
-                .world
-                .get::<&Attributes>(entity)
-                .is_ok_and(|a| a.contains("open"))
-        {
-            let _ = self.world.remove_one::<IsModalDialog>(entity);
         }
     }
 }
