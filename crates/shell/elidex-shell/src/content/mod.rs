@@ -123,6 +123,34 @@ impl ContentState {
         }
     }
 
+    /// Echo the committed viewport scroll offset to the two JS-observable
+    /// consumers: the document-root `ScrollState` component (read by
+    /// `getBoundingClientRect` via `accumulated_scroll_offset`, CSSOM View §5)
+    /// and the script bridge (`window.scrollX` / `scrollY`).
+    ///
+    /// Both viewport-scroll commit paths route through this single sink so they
+    /// cannot diverge: the `re_render` path (JS `scrollTo` / `scrollBy` applied
+    /// via `take_pending_scroll`) and the wheel fast path
+    /// (`scroll::handle_wheel`), which patches the display list in place without
+    /// re-rendering and would otherwise leave `scrollX` / `scrollY` and
+    /// `getBoundingClientRect` stale after user wheel scrolling until some
+    /// unrelated render happened.
+    fn echo_viewport_scroll(&mut self) {
+        // Store viewport scroll on the document root so getBoundingClientRect
+        // includes it via accumulated_scroll_offset (CSSOM View §5).
+        let _ = self
+            .pipeline
+            .dom
+            .world_mut()
+            .insert_one(self.pipeline.document, self.viewport_scroll.clone());
+        // Sync scroll offset to the script bridge so scrollX/scrollY reflect
+        // current state.
+        self.pipeline.runtime.bridge().set_scroll_offset(
+            self.viewport_scroll.scroll_offset.x,
+            self.viewport_scroll.scroll_offset.y,
+        );
+    }
+
     /// Sync canvas pixels and `caret_visible` to the pipeline, then re-render.
     ///
     /// Canvas `ImageData` sync is deferred to this point (once per frame)
@@ -150,18 +178,9 @@ impl ContentState {
 
         // Sync viewport scroll offset to pipeline for display list building.
         self.pipeline.scroll_offset = self.viewport_scroll.scroll_offset;
-        // Store viewport scroll on document root so getBoundingClientRect
-        // includes it via accumulated_scroll_offset (CSSOM View §5).
-        let _ = self
-            .pipeline
-            .dom
-            .world_mut()
-            .insert_one(self.pipeline.document, self.viewport_scroll.clone());
-        // Sync scroll offset to JS bridge so scrollX/scrollY reflect current state.
-        self.pipeline.runtime.bridge().set_scroll_offset(
-            self.viewport_scroll.scroll_offset.x,
-            self.viewport_scroll.scroll_offset.y,
-        );
+        // Echo to the JS-observable consumers (scrollX/scrollY + the document-root
+        // ScrollState for getBoundingClientRect) through the shared chokepoint.
+        self.echo_viewport_scroll();
         // Re-render in-process iframes before the parent so child display
         // lists are up-to-date when the parent composites them.
         iframe::re_render_all_iframes(self);

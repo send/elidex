@@ -256,8 +256,16 @@ impl VmInner {
 /// Focus EVENT dispatch (`focus` / `focusin`) is deferred: a VM host
 /// method cannot fire a DOM event through the 3-phase listener walk yet
 /// (the same primitive that blocks `el.click()` — slot
-/// `#11-vm-host-synthetic-dom-event-dispatch`). The `options` parameter
-/// (`{preventScroll, focusVisible}`) is accepted and ignored (spec polish).
+/// `#11-vm-host-synthetic-dom-event-dispatch`). The same deferral covers the
+/// OLD focused area's unfocusing steps when this `focus()` moves focus off a
+/// previously-focused element: its `focusout` / `blur` and — for a user-edited
+/// text control — the §4.10.5.5 change-on-blur event are NOT fired here (the
+/// shell UA reconciler `content::focus::set_focus` dispatches those, but only
+/// on its own input paths). The old element's `FocusValueSnapshot` is
+/// deliberately left intact (not consumed) rather than discarded, so that once
+/// the slot lands the deferred dispatch can still observe the focus-time value
+/// and fire `change`. The `options` parameter (`{preventScroll, focusVisible}`)
+/// is accepted and ignored (spec polish).
 fn native_html_element_focus(
     ctx: &mut NativeContext<'_>,
     this: JsValue,

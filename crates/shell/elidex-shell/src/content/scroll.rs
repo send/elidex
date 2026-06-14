@@ -46,6 +46,13 @@ pub(super) fn handle_wheel(state: &mut ContentState, delta: Vector<f64>, point: 
     };
 
     if consumed {
+        // Echo the committed offset to the JS-observable consumers
+        // (`window.scrollX`/`scrollY` + the document-root `ScrollState` that
+        // `getBoundingClientRect` reads) through the shared chokepoint — the
+        // same sink `re_render` uses. This fast path skips `re_render`, so
+        // without the echo `scrollX`/`scrollY` and `getBoundingClientRect`
+        // would stay stale after user wheel scrolling until an unrelated render.
+        state.echo_viewport_scroll();
         // Fast path: patch scroll offset in existing display list.
         // The display list structure (PushScrollOffset/PopScrollOffset pairs
         // including fixed-element exclusion) is invariant for scroll-only changes.

@@ -339,6 +339,18 @@ pub(super) fn handle_key(
     if event_type == "keydown" && !default_prevented && key == "Tab" {
         let forward = !mods.shift;
         if let Some(next) = find_next_focusable(state, forward) {
+            // When `next` is an in-process `<iframe>`, §6.6.3 sequential focus
+            // navigation should descend into the frame's own focus scope (the
+            // flattened tabindex-ordered navigation order treats the frame's
+            // focusable areas as part of this document's sequence): set
+            // `state.focused_iframe` + route focus into the child pipeline the
+            // way the click path does (`try_route_click_to_iframe`), and on the
+            // way out resume the parent sequence. The Tab handler only runs the
+            // parent `set_focus` today, so keyboard-only users cannot enter or traverse
+            // iframe content — deferred to slot
+            // `#11-cross-frame-sequential-focus-nav` (a discrete keyboard-nav
+            // feature: enter / traverse-within / exit the frame boundary; gated
+            // on the in-process-iframe test harness, `#11-iframe-focus-test-infra`).
             set_focus(&mut state.pipeline, next);
         }
         state.re_render();
