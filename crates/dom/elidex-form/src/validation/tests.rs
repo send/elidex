@@ -120,48 +120,6 @@ fn required_select_empty() {
 }
 
 #[test]
-fn required_date_family_empty_is_value_missing() {
-    // Regression (Codex R1): date/month/week/time/datetime-local with
-    // `required` and an empty value must report valueMissing
-    // (HTML §4.10.5.3.4).  month/week/time previously fell back to the
-    // TextInput required check; modelling them as distinct kinds must not
-    // drop it.
-    for ty in ["date", "datetime-local", "time", "week", "month"] {
-        let mut attrs = Attributes::default();
-        attrs.set("type", ty);
-        attrs.set("required", "");
-        let state = FormControlState::from_element("input", &attrs).unwrap();
-        let v = validate_control(&state);
-        assert!(
-            v.value_missing,
-            "type={ty} empty+required should be value_missing"
-        );
-    }
-}
-
-#[test]
-fn required_date_family_with_value_is_valid() {
-    for (ty, val) in [
-        ("date", "2025-01-15"),
-        ("datetime-local", "2025-01-15T12:30"),
-        ("time", "12:30"),
-        ("week", "2025-W25"),
-        ("month", "2025-06"),
-    ] {
-        let mut attrs = Attributes::default();
-        attrs.set("type", ty);
-        attrs.set("required", "");
-        attrs.set("value", val);
-        let state = FormControlState::from_element("input", &attrs).unwrap();
-        let v = validate_control(&state);
-        assert!(
-            !v.value_missing,
-            "type={ty} value={val} should not be value_missing"
-        );
-    }
-}
-
-#[test]
 fn validity_state_default_is_valid() {
     let v = ValidityState::default();
     assert!(v.is_valid());

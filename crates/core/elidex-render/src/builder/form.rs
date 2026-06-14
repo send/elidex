@@ -124,9 +124,6 @@ pub(crate) fn emit_form_control(
         | FormControlKind::Color
         | FormControlKind::Date
         | FormControlKind::DatetimeLocal
-        | FormControlKind::Time
-        | FormControlKind::Week
-        | FormControlKind::Month
         | FormControlKind::File => {
             emit_button(lb, fcs, style, fonts, dl);
         }
