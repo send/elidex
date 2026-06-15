@@ -151,21 +151,28 @@ pub fn validate_control(state: &FormControlState) -> ValidityState {
         FormControlKind::Checkbox | FormControlKind::Radio => {
             check_required_checked(&mut validity, state);
         }
+        FormControlKind::Range => {
+            // Range has no `required` (it always has a value, defaulting to the
+            // midpoint) and no `badInput` (its slider UI cannot describe a
+            // non-float — HTML §4.10.5.1.13).  But `rangeUnderflow` /
+            // `rangeOverflow` / `stepMismatch` ARE evaluated on the stored
+            // value: the spec's structural conformance for range comes from the
+            // UA *correcting* the value (clamp to [min,max], snap to step),
+            // which is the deferred value-sanitization slot
+            // (`#11-input-type-sanitize-extended`).  Until that lands we compute
+            // validity *honestly on the actual value* — assuming the un-wired
+            // clamping (reporting `valid` for a stored `value=150`) would be a
+            // read of unmodelled lifecycle state, and inconsistent with how the
+            // numeric and date/time states surface a non-conforming value.
+            check_range(&mut validity, state);
+            check_step(&mut validity, state);
+        }
         // Kinds with no value-based constraint validation (only a central
-        // `customError` can apply):
-        // * Range — structurally always conformant: HTML §4.10.5.1.13
-        //   *mandates* the UA correct an underflow→min, overflow→max, and
-        //   step mismatch→nearest in-range step, its slider UI cannot produce
-        //   a non-float (no `badInput`), and it always has a value (no
-        //   `valueMissing`).  Running `check_range`/`check_step` would report
-        //   bits a spec UA never surfaces (e.g. `value=150` → clamped to
-        //   `max`, not `rangeOverflow`).
-        // * Color always has a value (default #000000) → never value-missing;
-        //   File's required check is over selected files, not the value
-        //   string (deferred); the buttons / Output / Meter / Progress / Hidden
-        //   have no validity.
-        FormControlKind::Range
-        | FormControlKind::SubmitButton
+        // `customError` can apply): Color always has a value (default
+        // #000000) → never value-missing; File's required check is over
+        // selected files, not the value string (deferred); the buttons /
+        // Output / Meter / Progress / Hidden have no validity.
+        FormControlKind::SubmitButton
         | FormControlKind::ResetButton
         | FormControlKind::Button
         | FormControlKind::Color
@@ -416,3 +423,6 @@ fn check_required_checked(validity: &mut ValidityState, state: &FormControlState
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod datetime_validation_tests;
