@@ -654,6 +654,17 @@ pub(crate) fn type_default_step(kind: FormControlKind) -> f64 {
     }
 }
 
+/// Whether the type has a **periodic domain** (HTML §4.10.5.3.7): a
+/// finite, wrapping range where `min`/`max` may be specified in reverse
+/// order to denote an interval that spans the boundary.  Among the input
+/// types only the **time** state is periodic (its 24-hour domain wraps);
+/// date / datetime-local / week / month / number are linear.  A periodic
+/// control with `max < min` has a *reversed range* (used by constraint
+/// validation's underflow/overflow determination).
+pub(crate) fn is_periodic_domain(kind: FormControlKind) -> bool {
+    matches!(kind, FormControlKind::Time)
+}
+
 /// HTML "default step base" (§4.10.5.1.9): the Week state anchors its
 /// grid at −259 200 000 ms (the Monday starting 1970-W01); all other
 /// states default to 0.
