@@ -136,6 +136,7 @@ Rule: CLAUDE.md § "Layering mandate (2026-05-04 incident 由来)" — "Core vs 
 - `[plan]` plan が「test 簡略化のため scope 削る」/「失敗 test drop」/「IDL gap workaround 経由 test」 — broken assumption の root fix が plan 内 OR 別 PR slot で明示されているか確認
 - `[plan]` plan が既存 TODO を引き取らない (該当 area で `grep TODO` 痕跡があるのに plan 内 close 予定無し)
 - `[plan]` plan §Defer の新規 slot に `Why deferred` + `Re-evaluation trigger` + `Re-evaluation date` の 3 要素が揃っていない (1 つでも欠落で MIN)
+- `[plan]` plan が **edge-dense work** (≥3 intersecting invariant axes を束ねる / 正準アルゴリズムが無い subsystem を触る) を **単一 PR** に束ねている (umbrella plan + per-PR plan 分割の宣言が無い) → **IMP** (CLAUDE.md "Edge-dense work = multi-PR program" rule、judgment でなく rule、#339 incident 由来)。Required action = umbrella plan + per-PR plan に分割し plan-review をかけ直す。**Base case 除外 (fire しない)**: plan が承認済 umbrella program の per-PR slice であることを明示し scope が単一 invariant-axis 交点に絞られている場合 (terminal 単位 = 許容される単一 PR)
 - `[diff]` **docstring-contract ↔ body 違反** — `Result`-返す host native (特に promise-returning `*_outcome` family) の body が backend/IO `Result` を `unwrap_or(_)` / `unwrap_or_default()` / `.ok().flatten()` で握り潰すが、file/fn docstring か同 file の sibling op (`open`/`put` 等) が「failure → reject/propagate」契約を明示 → silent-wrong-on-error + self-inconsistency。**Required action**: 契約通り `?`-propagate + `map_err`。(#275 R1 = cache read 8 op; bar = generalizable[promise-returning native family 横断] かつ grep-detectable[`*_outcome` 終端の `Result` swallow] ゆえ axis 化)
 
 ### Output format
