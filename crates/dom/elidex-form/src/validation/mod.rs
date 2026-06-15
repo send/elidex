@@ -151,20 +151,23 @@ pub fn validate_control(state: &FormControlState) -> ValidityState {
         FormControlKind::Checkbox | FormControlKind::Radio => {
             check_required_checked(&mut validity, state);
         }
-        FormControlKind::Range => {
-            // Range always has a value (defaults to midpoint), so no required
-            // check; and its value sanitization replaces any invalid value
-            // with the default (a valid float), so range is structurally
-            // barred from `badInput` (no `check_bad_input` here).
-            check_range(&mut validity, state);
-            check_step(&mut validity, state);
-        }
-        FormControlKind::SubmitButton
+        // Kinds with no value-based constraint validation (only a central
+        // `customError` can apply):
+        // * Range — structurally always conformant: HTML §4.10.5.1.13
+        //   *mandates* the UA correct an underflow→min, overflow→max, and
+        //   step mismatch→nearest in-range step, its slider UI cannot produce
+        //   a non-float (no `badInput`), and it always has a value (no
+        //   `valueMissing`).  Running `check_range`/`check_step` would report
+        //   bits a spec UA never surfaces (e.g. `value=150` → clamped to
+        //   `max`, not `rangeOverflow`).
+        // * Color always has a value (default #000000) → never value-missing;
+        //   File's required check is over selected files, not the value
+        //   string (deferred); the buttons / Output / Meter / Progress / Hidden
+        //   have no validity.
+        FormControlKind::Range
+        | FormControlKind::SubmitButton
         | FormControlKind::ResetButton
         | FormControlKind::Button
-        // Color always has a value (default #000000), so it can never be
-        // value-missing; File's required check is over selected files, not
-        // the value string (deferred); the rest have no validity.
         | FormControlKind::Color
         | FormControlKind::File
         | FormControlKind::Hidden
@@ -306,23 +309,46 @@ fn check_url_type(validity: &mut ValidityState, state: &FormControlState) {
 }
 
 /// Check the `min`/`max` range constraints (HTML §4.10.5.3.7),
-/// kind-agnostic across number/range/date/time.  The value is read
-/// through `convert_value_to_number` (so each date/time type maps into
-/// its own number space) and compared against the canonical `minimum` /
-/// `maximum`, which apply the permissive attr parse plus the range
-/// state's default `0`/`100`.  An empty or unparseable value yields no
-/// range verdict (the error case is handled by `check_bad_input`).
+/// kind-agnostic across number/date/time.  The value is read through
+/// `convert_value_to_number` (so each date/time type maps into its own
+/// number space) and compared against the canonical `minimum` /
+/// `maximum`.  An empty or unparseable value yields no range verdict
+/// (the error case is handled by `check_bad_input`).
+///
+/// A type with a **periodic domain** (`time`) where `max < min` has a
+/// *reversed range*: a value strictly between `max` and `min` is
+/// *simultaneously* suffering an underflow and an overflow, while values
+/// outside that band (the wrap-around interval) are in range.  For every
+/// other case the determination is the plain `val < min` / `val > max`
+/// (which, for a non-periodic type configured with `max < min`, already
+/// flags every value as at least one of the two, per the spec note).
 fn check_range(validity: &mut ValidityState, state: &FormControlState) {
     let Some(val) = convert_value_to_number(state) else {
         return;
     };
-    if let Some(min) = minimum(state) {
-        if val < min {
+    let min = minimum(state);
+    let max = maximum(state);
+
+    if crate::datetime::is_periodic_domain(state.kind) {
+        if let (Some(lo), Some(hi)) = (min, max) {
+            if hi < lo {
+                // Reversed range: only the (max, min) band is invalid.
+                if val > hi && val < lo {
+                    validity.range_underflow = true;
+                    validity.range_overflow = true;
+                }
+                return;
+            }
+        }
+    }
+
+    if let Some(lo) = min {
+        if val < lo {
             validity.range_underflow = true;
         }
     }
-    if let Some(max) = maximum(state) {
-        if val > max {
+    if let Some(hi) = max {
+        if val > hi {
             validity.range_overflow = true;
         }
     }

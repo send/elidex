@@ -948,7 +948,9 @@ fn step_up_result_never_step_mismatch() {
             Some("16"),
             Some("0.001"),
         ),
-        (FormControlKind::Range, "23", Some("0"), Some("10")),
+        // Range is excluded: it is structurally barred from `stepMismatch`
+        // (the UA rounds it), so it does not run `check_step` (see
+        // `range_is_always_conformant`).
         (FormControlKind::Date, "2025-01-02", None, Some("3")),
         (
             FormControlKind::Month,
@@ -988,25 +990,77 @@ fn number_step_cancellation_not_mismatch() {
 }
 
 #[test]
-fn range_default_min_max_bounds() {
-    // The converged `minimum`/`maximum` apply the range state's default
-    // 0..=100 even with no `min`/`max` attrs (HTML §4.10.5.3.7).
-    let state = FormControlState {
-        kind: FormControlKind::Range,
-        value: "150".to_string(),
-        ..FormControlState::default()
+fn range_is_always_conformant() {
+    // HTML §4.10.5.1.13 mandates the UA correct a range underflow→min,
+    // overflow→max, and step mismatch→nearest in-range step, and its slider
+    // UI cannot produce bad input — so a range control is structurally always
+    // conformant.  Validation must therefore NOT report range/step/bad-input
+    // bits even when the (sanitization-deferred) stored value is out of the
+    // default 0..=100 / off-step (a spec UA would have clamped/rounded it).
+    for (value, min, max, step) in [
+        ("150", None, None, None),                 // above default max=100
+        ("-20", None, None, None),                 // below default min=0
+        ("23", Some("0"), Some("10"), Some("10")), // off the step grid
+        ("500", Some("0"), Some("100"), None),     // above explicit max
+    ] {
+        let state = FormControlState {
+            kind: FormControlKind::Range,
+            value: value.to_string(),
+            min: min.map(str::to_string),
+            max: max.map(str::to_string),
+            step: step.map(str::to_string),
+            ..FormControlState::default()
+        };
+        let v = validate_control(&state);
+        assert!(
+            v.is_valid(),
+            "range value={value} min={min:?} max={max:?} step={step:?} must be conformant, got {v:?}"
+        );
+    }
+}
+
+#[test]
+fn time_reversed_range() {
+    // HTML §4.10.5.3.7: `time` has a periodic domain, so `min` later than
+    // `max` denotes a *reversed range* (an overnight interval).  Only a value
+    // strictly between max and min is invalid (simultaneously under+overflow);
+    // values in the wrap-around band are in range.
+    let reversed = |value: &str| {
+        validate_control(&datetime_state(
+            FormControlKind::Time,
+            value,
+            Some("21:00"),
+            Some("06:00"),
+            None,
+        ))
     };
-    let v = validate_control(&state);
+
+    // Midnight is inside the allowed overnight band (≥ 21:00 wrapping to
+    // ≤ 06:00) → valid, NOT underflow.
+    let v = reversed("00:00");
     assert!(
-        v.range_overflow,
-        "range value above default max=100 → overflow"
+        !v.range_underflow && !v.range_overflow,
+        "00:00 is within the reversed range 21:00..06:00"
+    );
+    // 23:00 (after min) and 03:00 (before max) are also in band → valid.
+    assert!(!reversed("23:00").range_underflow && !reversed("23:00").range_overflow);
+    assert!(!reversed("03:00").range_underflow && !reversed("03:00").range_overflow);
+
+    // 12:00 is strictly between max (06:00) and min (21:00) → the forbidden
+    // band → simultaneously underflow AND overflow.
+    let v = reversed("12:00");
+    assert!(
+        v.range_underflow && v.range_overflow,
+        "12:00 is outside the reversed range → both under and overflow"
     );
 
-    let state = FormControlState {
-        kind: FormControlKind::Range,
-        value: "50".to_string(),
-        ..FormControlState::default()
-    };
-    let v = validate_control(&state);
-    assert!(!v.range_overflow && !v.range_underflow);
+    // A normal (non-reversed) time range still uses the plain comparison.
+    let v = validate_control(&datetime_state(
+        FormControlKind::Time,
+        "05:00",
+        Some("09:00"),
+        Some("17:00"),
+        None,
+    ));
+    assert!(v.range_underflow && !v.range_overflow, "05:00 < min 09:00");
 }
