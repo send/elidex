@@ -18,12 +18,14 @@ user-invocable: true
 - Plan-memo writeup 直後 / user approval 前 — `/elidex-review` 対象 PR は plan-memo 必須、両 gate 連続適用
 - Scope creep risk (新 ECS infra / 既存 system 変更 / cross-crate coordination / 複雑 test plan) 時は特に推奨
 - `/elidex-review` の rehearsal ではなく **independent gate** — implementation 段階の細部は plan に無いため両方必要
+- **MANDATORY (judgment でなく rule)**: work-item が (a) **≥3 intersecting invariant axes を束ねる**、または (b) **正準アルゴリズムが無い subsystem を触る** → 実装前 plan-review **必須** + 単一 PR に束ねず **umbrella plan + per-PR plan に分割**し各 PR を個別 full review。**Base case (再帰の終端)**: 承認済 umbrella 配下で plan-review を通った narrowly-scoped per-PR slice は **terminal 単位** = 許容される単一 PR — per-PR slice が同 subsystem を触ること自体は再分割 trigger にしない (さもなくば「各 slice もまた単一 PR 禁止」と無限後退する)。#339 (S2) が 1-PR-bundle + plan-review skip で実装 ~1 commit に対し review tail 30+ commit を払った incident 由来 → `memory/feedback_edge-dense-mandatory-plan-review-and-split.md`
 
 ## Skip OK
 
 - Plan-memo < 50 行 + 既存 pattern 軽微 extension のみ
 - Trivial cleanup / rename PR で plan-memo 不要なケース
 - Skip した場合は landing memo に理由明示
+- ⚠ 上記 "When to invoke" の MANDATORY trigger (≥3 intersecting invariant axes / 正準アルゴリズム無い subsystem) 該当時は **skip 不可**
 
 ## Pre-condition #1 — Plan-memo §3 Spec coverage map
 
