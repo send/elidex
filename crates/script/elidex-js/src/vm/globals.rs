@@ -552,7 +552,7 @@ impl VmInner {
                 // `location` — WHATWG HTML §7.1.  Reads/writes
                 // `VmInner::navigation` (in-memory only at Phase 2).
                 self.register_location_global();
-                // `history` — WHATWG HTML §7.4.  Shares navigation state
+                // `history` — WHATWG HTML §7.2.5.  Shares navigation state
                 // with `location`.
                 self.register_history_global();
                 // `window === globalThis` (WHATWG HTML §7.2.4).
