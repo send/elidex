@@ -322,7 +322,7 @@ fn parse_valid_floating_point(s: &str) -> Option<f64> {
 /// (date, month, week, time, datetime-local) use the per-type
 /// microsyntax conversion in [`datetime`].  Returns `None` for the
 /// spec's "results in an error" outcome.
-fn convert_value_to_number(state: &FormControlState) -> Option<f64> {
+pub(crate) fn convert_value_to_number(state: &FormControlState) -> Option<f64> {
     if datetime::is_date_time_kind(state.kind) {
         // Strict (valid-string) parse for the stored value — the date/time
         // analogue of `parse_valid_floating_point` above; an over-precision
@@ -360,7 +360,7 @@ fn convert_attr_to_number(kind: FormControlKind, s: &str) -> Option<f64> {
 /// Absent / unparseable / zero / negative all fall back to the type's
 /// default step.  (For number/range the scale is `1` and the default
 /// step is `1`, so this reduces to the historical behavior.)
-fn allowed_value_step(state: &FormControlState) -> Option<f64> {
+pub(crate) fn allowed_value_step(state: &FormControlState) -> Option<f64> {
     let scale = datetime::step_scale_factor(state.kind);
     let default = datetime::type_default_step(state.kind) * scale;
     match state.step.as_deref() {
@@ -381,7 +381,7 @@ fn allowed_value_step(state: &FormControlState) -> Option<f64> {
 /// Only the week state defines a non-zero default step base
 /// (−259 200 000 ms, the Monday starting 1970-W01); every other state
 /// falls through to `0`.
-fn step_base(state: &FormControlState) -> f64 {
+pub(crate) fn step_base(state: &FormControlState) -> f64 {
     if let Some(v) = state
         .min
         .as_deref()
@@ -397,7 +397,7 @@ fn step_base(state: &FormControlState) -> f64 {
 
 /// HTML "minimum" (§4.10.5.3.7).  The number and date/time states have
 /// no default minimum; the range state's default minimum is `0`.
-fn minimum(state: &FormControlState) -> Option<f64> {
+pub(crate) fn minimum(state: &FormControlState) -> Option<f64> {
     state
         .min
         .as_deref()
@@ -410,7 +410,7 @@ fn minimum(state: &FormControlState) -> Option<f64> {
 
 /// HTML "maximum" (§4.10.5.3.7).  The number and date/time states have
 /// no default maximum; the range state's default maximum is `100`.
-fn maximum(state: &FormControlState) -> Option<f64> {
+pub(crate) fn maximum(state: &FormControlState) -> Option<f64> {
     state
         .max
         .as_deref()
@@ -444,7 +444,7 @@ fn align_tolerance(value: f64, base: f64, step: f64) -> f64 {
 
 /// Whether `value`, when subtracted from `base`, is an integral
 /// multiple of `step` (HTML §4.10.5.4 step 7), within [`align_tolerance`].
-fn is_step_aligned(value: f64, base: f64, step: f64) -> bool {
+pub(crate) fn is_step_aligned(value: f64, base: f64, step: f64) -> bool {
     let ratio = step_ratio(value, base, step);
     (ratio - ratio.round()).abs() <= align_tolerance(value, base, step)
 }

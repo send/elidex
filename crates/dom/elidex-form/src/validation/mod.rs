@@ -4,6 +4,9 @@ use std::sync::OnceLock;
 
 use elidex_ecs::{EcsDom, Entity};
 
+use crate::input::{
+    allowed_value_step, convert_value_to_number, is_step_aligned, maximum, minimum, step_base,
+};
 use crate::{FormControlKind, FormControlState};
 
 /// HTML §4.10.20.3 "candidate for constraint validation" predicate
@@ -121,31 +124,40 @@ pub fn validate_control(state: &FormControlState) -> ValidityState {
             check_text_constraints(&mut validity, state);
             check_url_type(&mut validity, state);
         }
-        FormControlKind::Number => {
+        // The numeric Number state and the five date/time value-mode states
+        // (date, datetime-local, time, week, month) share ONE
+        // constraint-validation algorithm — they differ only in the per-type
+        // "convert a string to a number" hidden inside the canonical helpers,
+        // so they converge onto a single arm (One-issue-one-way) rather than
+        // two arms kept in sync.  Each check reads the value through the
+        // canonical `convert_value_to_number` / `minimum` / `maximum` /
+        // `allowed_value_step` / `step_base` / `is_step_aligned` helpers —
+        // the same grid `apply_step` (§4.10.5.4) snaps to, so a value
+        // `stepUp` produces can never report `stepMismatch` (one tolerance,
+        // one grid).  Bits: `valueMissing` §4.10.5.3.4, `badInput`
+        // §4.10.21.1, `rangeUnderflow`/`rangeOverflow` §4.10.5.3.7,
+        // `stepMismatch` §4.10.5.3.8.
+        FormControlKind::Number
+        | FormControlKind::Date
+        | FormControlKind::DatetimeLocal
+        | FormControlKind::Time
+        | FormControlKind::Week
+        | FormControlKind::Month => {
             check_required(&mut validity, state);
-            check_number_bad_input(&mut validity, state);
-            check_number_range(&mut validity, state);
+            check_bad_input(&mut validity, state);
+            check_range(&mut validity, state);
             check_step(&mut validity, state);
         }
         FormControlKind::Checkbox | FormControlKind::Radio => {
             check_required_checked(&mut validity, state);
         }
         FormControlKind::Range => {
-            // Range always has a value (defaults to midpoint), so no required check.
-            check_number_range(&mut validity, state);
+            // Range always has a value (defaults to midpoint), so no required
+            // check; and its value sanitization replaces any invalid value
+            // with the default (a valid float), so range is structurally
+            // barred from `badInput` (no `check_bad_input` here).
+            check_range(&mut validity, state);
             check_step(&mut validity, state);
-        }
-        FormControlKind::Date
-        | FormControlKind::DatetimeLocal
-        | FormControlKind::Time
-        | FormControlKind::Week
-        | FormControlKind::Month => {
-            // `required` applies to the date/time value-mode states, so an
-            // empty value with `required` set suffers from being missing
-            // (HTML §4.10.5.3.4).  The remaining date/time constraint
-            // validation (rangeUnderflow/Overflow/stepMismatch/badInput) is
-            // the separate `#11-input-date-validity` slot.
-            check_required(&mut validity, state);
         }
         FormControlKind::SubmitButton
         | FormControlKind::ResetButton
@@ -161,7 +173,8 @@ pub fn validate_control(state: &FormControlState) -> ValidityState {
         | FormControlKind::Progress => {}
     }
 
-    // Custom validity, per HTML §4.10.20.2: when
+    // Custom validity, per HTML §4.10.21.3 (the constraint validation
+    // API): when
     // `setCustomValidity()` was called with a non-empty string, the
     // `customError` bit is set and the message becomes the
     // `validationMessage`.  `customError` does NOT replace the other
@@ -237,16 +250,18 @@ fn check_pattern(validity: &mut ValidityState, state: &FormControlState) {
     }
 }
 
-fn check_number_bad_input(validity: &mut ValidityState, state: &FormControlState) {
-    // HTML spec §4.10.5.1.12: if the value is non-empty and cannot be parsed
-    // as a valid finite floating-point number, it's a bad input.
-    // Rust's f64::parse accepts "inf"/"-inf"/"NaN" which are not valid HTML numbers.
-    if !state.value.is_empty() {
-        match state.value.parse::<f64>() {
-            Ok(v) if !v.is_finite() => validity.bad_input = true,
-            Err(_) => validity.bad_input = true,
-            _ => {}
-        }
+/// Suffering from bad input (HTML §4.10.21.1): the value is non-empty
+/// but the user agent cannot convert it to a number.  Kind-agnostic —
+/// it reuses the canonical `convert_value_to_number`, which is the
+/// strict valid-floating-point parse for the numeric states (rejecting
+/// `"inf"`/`"NaN"`/trailing junk, which Rust's `f64::parse` would
+/// otherwise accept) and the strict valid-`<type>`-string parse for the
+/// date/time states (an out-of-grammar / over-precision stored value is
+/// the error case).  An empty value is never bad input.
+fn check_bad_input(validity: &mut ValidityState, state: &FormControlState) {
+    if !state.value.is_empty() && convert_value_to_number(state).is_none() {
+        tracing::debug!(kind = ?state.kind, name = %state.name, "validation: bad_input");
+        validity.bad_input = true;
     }
 }
 
@@ -290,26 +305,25 @@ fn check_url_type(validity: &mut ValidityState, state: &FormControlState) {
     }
 }
 
-/// Check number min/max range constraints.
-fn check_number_range(validity: &mut ValidityState, state: &FormControlState) {
-    if state.value.is_empty() {
+/// Check the `min`/`max` range constraints (HTML §4.10.5.3.7),
+/// kind-agnostic across number/range/date/time.  The value is read
+/// through `convert_value_to_number` (so each date/time type maps into
+/// its own number space) and compared against the canonical `minimum` /
+/// `maximum`, which apply the permissive attr parse plus the range
+/// state's default `0`/`100`.  An empty or unparseable value yields no
+/// range verdict (the error case is handled by `check_bad_input`).
+fn check_range(validity: &mut ValidityState, state: &FormControlState) {
+    let Some(val) = convert_value_to_number(state) else {
         return;
-    }
-    let Ok(val) = state.value.parse::<f64>() else {
-        return; // bad_input handled separately.
     };
-    if let Some(ref min_str) = state.min {
-        if let Ok(min_val) = min_str.parse::<f64>() {
-            if val < min_val {
-                validity.range_underflow = true;
-            }
+    if let Some(min) = minimum(state) {
+        if val < min {
+            validity.range_underflow = true;
         }
     }
-    if let Some(ref max_str) = state.max {
-        if let Ok(max_val) = max_str.parse::<f64>() {
-            if val > max_val {
-                validity.range_overflow = true;
-            }
+    if let Some(max) = maximum(state) {
+        if val > max {
+            validity.range_overflow = true;
         }
     }
 }
@@ -336,45 +350,29 @@ fn check_required_select(validity: &mut ValidityState, state: &FormControlState)
     }
 }
 
-/// Check step constraint (HTML §4.10.5.1.12).
+/// Check the `step` constraint (HTML §4.10.5.3.8), kind-agnostic across
+/// number/range/date/time.
 ///
-/// A value `v` satisfies the step constraint when `(v - step_base) % step == 0`.
-/// `step_base` is `min` if set, otherwise 0. `step="any"` disables the constraint.
+/// The value suffers from a step mismatch when, having an allowed value
+/// step, it is not an integral number of steps from the step base.  This
+/// reuses the canonical `allowed_value_step` (which folds in `step="any"`
+/// → no allowed value step → never a mismatch, the per-type step scale,
+/// and the default step), `step_base` (min → `value` attr → type default
+/// → 0), and the cancellation-aware `is_step_aligned` tolerance — the
+/// SAME grid `apply_step` (§4.10.5.4) snaps to, so a value `stepUp`
+/// produces can never report `stepMismatch`.
 fn check_step(validity: &mut ValidityState, state: &FormControlState) {
-    if state.value.is_empty() {
+    // No allowed value step (`step="any"`) → never a step mismatch.
+    let Some(step) = allowed_value_step(state) else {
         return;
-    }
-    let Some(ref step_str) = state.step else {
-        return; // No step attribute — use default step (1 for number/range), always valid for integers.
     };
-    // "any" disables the constraint.
-    if step_str.eq_ignore_ascii_case("any") {
+    // Empty / unparseable value → no step verdict (bad input handled by
+    // `check_bad_input`).
+    let Some(val) = convert_value_to_number(state) else {
         return;
-    }
-    let Ok(step_val) = step_str.parse::<f64>() else {
-        return; // Invalid step attribute — ignored per spec.
     };
-    if !step_val.is_finite() || step_val <= 0.0 {
-        return; // Non-positive or non-finite step — ignored per spec.
-    }
-    let Ok(val) = state.value.parse::<f64>() else {
-        return; // bad_input handled separately.
-    };
-    if !val.is_finite() {
-        return;
-    }
-    // step_base is min if set, otherwise 0.
-    let step_base = state
-        .min
-        .as_deref()
-        .and_then(|s| s.parse::<f64>().ok())
-        .filter(|v| v.is_finite())
-        .unwrap_or(0.0);
-
-    let remainder = (val - step_base) % step_val;
-    // Use epsilon-relative tolerance for floating-point comparison.
-    let epsilon = step_val * 1e-10;
-    if remainder.abs() > epsilon && (step_val - remainder.abs()).abs() > epsilon {
+    if !is_step_aligned(val, step_base(state), step) {
+        tracing::debug!(kind = ?state.kind, name = %state.name, "validation: step_mismatch");
         validity.step_mismatch = true;
     }
 }
