@@ -38,8 +38,9 @@ impl SecurityOrigin {
     /// - `blob` → the origin of its path-serialized inner URL when that is
     ///   http/https/file, else `Opaque` (URL Standard "origin of a URL", blob
     ///   steps; no blob URL store, so the blob-URL-entry origin branch is N/A)
-    /// - `file` → `Opaque` (URL Standard §4.7 "Origin": file URLs have opaque origin)
-    /// - `data` → `Opaque` (URL Standard §4.7 "Origin")
+    /// - `file` → `Opaque` (URL Standard §4.7 "Origin" leaves file: origins
+    ///   implementation-defined; elidex uses a new opaque origin)
+    /// - `data` → `Opaque` (URL Standard §4.7 "Origin": data: URLs get a new opaque origin)
     /// - Other schemes → `Opaque`
     #[must_use]
     pub fn from_url(url: &url::Url) -> Self {
@@ -69,8 +70,8 @@ impl SecurityOrigin {
                 }
                 _ => Self::opaque(),
             },
-            // file:// URLs get opaque origin per URL Standard §4.7 "Origin".
-            // data: URLs get opaque origin per URL Standard §4.7 "Origin".
+            // file:// origins are implementation-defined (URL Standard §4.7); elidex
+            // uses a new opaque origin.  data: URLs get a new opaque origin per §4.7.
             // Any other scheme is opaque as the safe default.
             _ => Self::opaque(),
         }
