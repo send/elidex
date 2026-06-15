@@ -56,7 +56,7 @@ pub struct DispatchEvent {
     /// Contains all entities in the event propagation path, including shadow
     /// root entities for composed events. Built by `dispatch_event()`.
     ///
-    /// WHATWG DOM §2.10 specifies per-entry metadata for each path entry:
+    /// WHATWG DOM §2.9 specifies per-entry metadata for each path entry:
     /// - `invocationTarget`: the event target for this entry
     /// - `invocationTargetInShadowTree`: whether the target is in a shadow tree
     /// - `shadowAdjustedTarget`: the retargeted target for this listener scope
@@ -120,7 +120,8 @@ impl DispatchEvent {
 
     /// Creates a script-dispatched event with `is_trusted: false`.
     ///
-    /// WHATWG DOM §2.2: events dispatched via `dispatchEvent()` are untrusted.
+    /// WHATWG DOM §2.7: events dispatched via `dispatchEvent()` are untrusted
+    /// (the `dispatchEvent()` method step 2 initializes `isTrusted` to false).
     /// Defaults: `bubbles: false`, `cancelable: false`, `composed: false`
     /// (matching `EventInit` dictionary defaults).
     #[must_use]
@@ -458,7 +459,7 @@ pub fn script_dispatch_event_core(
                     break;
                 }
 
-                // WHATWG DOM §2.10 step 15: remove once listeners BEFORE invoking.
+                // WHATWG DOM §2.9 step 15: remove once listeners BEFORE invoking.
                 if entry.once {
                     if let Ok(mut listeners) =
                         ctx.dom.world_mut().get::<&mut EventListeners>(*entity)

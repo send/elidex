@@ -38,8 +38,8 @@ impl SecurityOrigin {
     /// - `blob` → the origin of its path-serialized inner URL when that is
     ///   http/https/file, else `Opaque` (URL Standard "origin of a URL", blob
     ///   steps; no blob URL store, so the blob-URL-entry origin branch is N/A)
-    /// - `file` → `Opaque` (WHATWG §7.1.1: file URLs have opaque origin)
-    /// - `data` → `Opaque` (WHATWG §7.1.1)
+    /// - `file` → `Opaque` (URL Standard §4.7 "Origin": file URLs have opaque origin)
+    /// - `data` → `Opaque` (URL Standard §4.7 "Origin")
     /// - Other schemes → `Opaque`
     #[must_use]
     pub fn from_url(url: &url::Url) -> Self {
@@ -69,8 +69,8 @@ impl SecurityOrigin {
                 }
                 _ => Self::opaque(),
             },
-            // file:// URLs get opaque origin per WHATWG §7.1.1.
-            // data: URLs get opaque origin per WHATWG §7.1.1.
+            // file:// URLs get opaque origin per URL Standard §4.7 "Origin".
+            // data: URLs get opaque origin per URL Standard §4.7 "Origin".
             // Any other scheme is opaque as the safe default.
             _ => Self::opaque(),
         }
