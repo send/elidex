@@ -28,6 +28,14 @@ use crate::PipelineResult;
 /// area, retarget") without a §6.6.2-complete predicate, and a non-focusable hit
 /// falls through to [`set_focus`], which blurs. (The editing-host fallback —
 /// focusing-steps step 2 — is PR-A2.)
+///
+/// Wired here at the content-thread `handle_click` only. The other pointer-click
+/// → content-focus entries (in-process iframe content, OOP-iframe content, the
+/// legacy single-thread `App`) still focus their raw hit; they converge in PR-A2,
+/// when [`set_focus`] becomes a thin caller of the canonical §6.6.4 focus update
+/// steps and the retarget moves to that shared seam's head — so the fix is one
+/// seam, not a `focus_target_for_click` call sprinkled at every click site
+/// (One-issue-one-way: no strangler middle state of N hand-wired call sites).
 pub(crate) fn focus_target_for_click(dom: &elidex_ecs::EcsDom, hit: Entity) -> Entity {
     get_the_focusable_area(dom, hit, FocusTrigger::Click).unwrap_or(hit)
 }

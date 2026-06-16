@@ -563,13 +563,17 @@ pub enum FocusTrigger {
 /// Branches 1–5 are not reachable in elidex's current model (their underlying
 /// state is unmodelled or cross-frame), so this returns non-null **only** via the
 /// shadow-`delegatesFocus` branch. That makes it safe to call on *any* click
-/// target without a §6.6.2-complete "is it a focusable area" pre-gate: a genuine
-/// focusable area is never a delegates-focus shadow host (§6.6.2 criterion: a
-/// delegates-focus host is not a focusable area), so it falls to branch 7 (null)
-/// and the caller keeps the original target (`unwrap_or(hit)`) — reproducing the
-/// focusing-steps step-1 gate. (A §6.6.2 C2-aware predicate is deliberately not
-/// built here: it would blast-radius into the Tab-nav / `reconcile_focus`
-/// predicate, which is PR-A3's sequential-nav axis.)
+/// target without a §6.6.2-complete "is it a focusable area" pre-gate: the only
+/// targets it retargets (returns non-null for) are delegates-focus shadow hosts
+/// (branch 6), which §6.6.2 criterion 2 says are **not** focusable areas — so
+/// retargeting them to their delegate is correct; any genuine §6.6.2 focusable
+/// area has no delegates-focus shadow root, falls to branch 7 (null), and the
+/// caller keeps the original target (`unwrap_or(hit)`) — reproducing the
+/// focusing-steps step-1 gate. (The global [`is_focusable`] predicate omits
+/// §6.6.2 criterion 2 — slot `#11-shadow-focus-delegation` — but that is not
+/// relied on here: the criterion-2-aware `is_focusable_area` predicate is applied
+/// only inside the focus-delegate descendant walk, never to the Tab-nav /
+/// `reconcile_focus` predicate, which is PR-A3's sequential-nav axis.)
 #[must_use]
 pub fn get_the_focusable_area(
     dom: &EcsDom,
@@ -580,8 +584,7 @@ pub fn get_the_focusable_area(
     // are unmodelled / cross-frame per the doc above; branch 7 = the final
     // `None`. A delegates-focus host never matches 1–5, so testing 6 first is
     // order-equivalent in elidex's model.)
-    let shadow_root = dom.get_shadow_root(target)?;
-    if !shadow_delegates_focus(dom, shadow_root) {
+    if !delegates_focus_host(dom, target) {
         return None; // not branch 6 → branch 7 (null)
     }
     // 6.1/6.2 — if `target` is a shadow-including inclusive ancestor of the
@@ -606,6 +609,44 @@ fn shadow_delegates_focus(dom: &EcsDom, shadow_root: Entity) -> bool {
     dom.world()
         .get::<&ShadowRoot>(shadow_root)
         .is_ok_and(|r| r.delegates_focus)
+}
+
+/// Whether `entity` is a shadow host whose shadow root delegates focus — the
+/// §6.6.2 criterion-2 exclusion, and the [`get_the_focusable_area`] branch-6
+/// trigger (the single home for "is this the delegates-focus host case").
+fn delegates_focus_host(dom: &EcsDom, entity: Entity) -> bool {
+    dom.get_shadow_root(entity)
+        .is_some_and(|sr| shadow_delegates_focus(dom, sr))
+}
+
+/// Whether `entity` is a WHATWG HTML §6.6.2 focusable area **including criterion
+/// 2** — an element that is a shadow host whose shadow root delegates focus is
+/// *not* a focusable area (its delegate is). [`is_focusable`] intentionally omits
+/// criterion 2 (slot `#11-shadow-focus-delegation`: a global exclusion would make
+/// `host.focus()` a no-op, since the host *is* the `focus()` target), so the
+/// focus-delegate descendant walk applies it here: a nested delegates-focus host
+/// among the descendants must fall to the get-the-focusable-area recursion
+/// (§6.6.4 focus-delegate step 6.3→6.4 / autofocus-delegate step 1.2), not be
+/// returned as the delegate itself. Scoped to the delegate walk so it never
+/// reaches the Tab-nav / `reconcile_focus` predicate (PR-A3's sequential-nav axis).
+fn is_focusable_area(dom: &EcsDom, entity: Entity) -> bool {
+    is_focusable(dom, entity) && !delegates_focus_host(dom, entity)
+}
+
+/// §6.6.4 "the descendant's focusable area" (focus-delegate step 6.3→6.4 /
+/// autofocus-delegate step 1.2) — the `child` itself when it is a §6.6.2 focusable
+/// area ([`is_focusable_area`], criterion-2-aware), else its get-the-focusable-area
+/// retarget (a nested delegates-focus host → its delegate; a non-host non-area →
+/// null). The single home for "resolve a delegate-walk descendant to its focusable
+/// area", shared by both delegate walkers ([`autofocus_delegate`] /
+/// [`first_delegate_descendant`]) — the only step that differs between them is the
+/// autofocus pre-gate + click filter, not this resolution.
+fn child_focusable_area(dom: &EcsDom, child: Entity, trigger: FocusTrigger) -> Option<Entity> {
+    if is_focusable_area(dom, child) {
+        Some(child)
+    } else {
+        get_the_focusable_area(dom, child, trigger)
+    }
 }
 
 /// §6.6.4 "focus delegate" (WHATWG HTML `#focus-delegate`) — resolve the
@@ -644,7 +685,7 @@ fn focus_delegate(dom: &EcsDom, focus_target: Entity, trigger: FocusTrigger) -> 
 /// §6.6.4 "autofocus delegate" (WHATWG HTML `#autofocus-delegate`) — the first
 /// descendant carrying an `autofocus` content attribute whose focusable area is
 /// suitable for `trigger`, in tree order. Walks **plain** (light-tree)
-/// descendants ([`EcsDom::children`] excludes shadow roots); a shadow host
+/// descendants ([`EcsDom::children_iter`] excludes shadow roots); a shadow host
 /// descendant's tree is entered only via [`get_the_focusable_area`] when that
 /// host itself carries `autofocus`.
 fn autofocus_delegate(
@@ -656,15 +697,10 @@ fn autofocus_delegate(
     if depth >= elidex_ecs::MAX_ANCESTOR_DEPTH {
         return None;
     }
-    for child in dom.children(where_to_look) {
+    for child in dom.children_iter(where_to_look) {
         if dom.has_attribute(child, "autofocus") {
             // step 1.2 — the descendant's focusable area.
-            let area = if is_focusable(dom, child) {
-                Some(child)
-            } else {
-                get_the_focusable_area(dom, child, trigger)
-            };
-            if let Some(area) = area {
+            if let Some(area) = child_focusable_area(dom, child, trigger) {
                 // step 1.4 — skip a non-click-focusable area for a "click" trigger;
                 // step 1.5 — otherwise it is the delegate.
                 if trigger != FocusTrigger::Click || is_click_focusable(dom, area) {
@@ -681,8 +717,8 @@ fn autofocus_delegate(
 
 /// §6.6.4 focus-delegate step 6 — the first focusable area among `node`'s
 /// (light-tree) descendants in tree order. Walks **plain** descendants (the spec
-/// is explicit it is *not* the shadow-including descendants — [`EcsDom::children`]
-/// excludes shadow roots); a nested shadow host is handled by recursing through
+/// is explicit it is *not* the shadow-including descendants —
+/// [`EcsDom::children_iter`] excludes shadow roots); a nested shadow host is handled by recursing through
 /// [`get_the_focusable_area`] (step 6.4), not by walking into its shadow tree.
 fn first_delegate_descendant(
     dom: &EcsDom,
@@ -693,14 +729,12 @@ fn first_delegate_descendant(
     if depth >= elidex_ecs::MAX_ANCESTOR_DEPTH {
         return None;
     }
-    for child in dom.children(node) {
-        let area = if is_focusable(dom, child) {
-            Some(child) // step 6.3 — a focusable area
-        } else {
-            get_the_focusable_area(dom, child, trigger) // step 6.4 — recurse (nested host)
-        };
-        if area.is_some() {
-            return area; // step 6.5
+    for child in dom.children_iter(node) {
+        // steps 6.3/6.4 — the child if it is a focusable area, else its
+        // get-the-focusable-area retarget (a nested delegates-focus host recurses
+        // into its shadow tree rather than being returned as itself).
+        if let Some(area) = child_focusable_area(dom, child, trigger) {
+            return Some(area); // step 6.5
         }
         if let Some(found) = first_delegate_descendant(dom, child, trigger, depth + 1) {
             return Some(found);
@@ -1688,6 +1722,44 @@ mod tests {
             get_the_focusable_area(&dom, outer, FocusTrigger::Click),
             Some(deep),
             "recurses through the nested delegatesFocus host to its delegate"
+        );
+    }
+
+    #[test]
+    fn focus_delegate_recurses_into_nested_focusable_shadow_host() {
+        // §6.6.2 criterion 2 + §6.6.4 focus-delegate step 6.3→6.4: a nested
+        // delegatesFocus host that ALSO carries `tabindex` (so `is_focusable`
+        // returns true) is still NOT a focusable area — it must delegate into its
+        // shadow tree, not be returned as itself. Guards the C2-aware
+        // `is_focusable_area` gate (a `is_focusable`-only gate returns the host).
+        let mut dom = EcsDom::new();
+        let doc = dom.create_document_root();
+        let (outer, outer_sr) = shadow_host(&mut dom, doc, true);
+        // Nested host carrying tabindex="0" → intrinsically `is_focusable`, but a
+        // delegatesFocus shadow host, so not a §6.6.2 focusable area.
+        let mut inner_attrs = Attributes::default();
+        inner_attrs.set("tabindex".to_string(), "0".to_string());
+        let inner = dom.create_element("div", inner_attrs);
+        let _ = dom.append_child(outer_sr, inner);
+        let inner_sr = dom
+            .attach_shadow_with_init(
+                inner,
+                elidex_ecs::ShadowInit {
+                    mode: elidex_ecs::ShadowRootMode::Open,
+                    delegates_focus: true,
+                    ..Default::default()
+                },
+            )
+            .expect("attach_shadow on nested <div tabindex>");
+        let deep = focusable_child(&mut dom, inner_sr);
+        assert!(
+            is_focusable(&dom, inner),
+            "the nested host is intrinsically focusable (tabindex) — the case that masks the bug"
+        );
+        assert_eq!(
+            get_the_focusable_area(&dom, outer, FocusTrigger::Click),
+            Some(deep),
+            "a tabindex-bearing nested delegatesFocus host still delegates to its inner area (C2), not itself"
         );
     }
 
