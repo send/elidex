@@ -1,4 +1,4 @@
-//! Security origin and iframe sandbox types (WHATWG HTML §7.5, §4.8.5).
+//! Security origin and iframe sandbox types (WHATWG HTML §7.1.1, §4.8.5).
 //!
 //! Provides [`SecurityOrigin`] for same-origin policy enforcement and
 //! [`IframeSandboxFlags`] for `<iframe sandbox>` attribute parsing.
@@ -14,7 +14,7 @@ pub const MAX_IFRAME_DEPTH: usize = 128;
 /// Counter for generating unique opaque origin IDs.
 static OPAQUE_COUNTER: AtomicU64 = AtomicU64::new(1);
 
-/// Security origin per WHATWG HTML §7.5.
+/// Security origin per WHATWG HTML §7.1.1.
 ///
 /// Used for same-origin policy enforcement on `<iframe>` boundaries.
 /// Distinct from `elidex_css::Origin` (cascade origin: UserAgent/Author).
@@ -38,8 +38,9 @@ impl SecurityOrigin {
     /// - `blob` → the origin of its path-serialized inner URL when that is
     ///   http/https/file, else `Opaque` (URL Standard "origin of a URL", blob
     ///   steps; no blob URL store, so the blob-URL-entry origin branch is N/A)
-    /// - `file` → `Opaque` (WHATWG §7.5.2: file URLs have opaque origin)
-    /// - `data` → `Opaque` (WHATWG §7.5.3)
+    /// - `file` → `Opaque` (URL Standard §4.7 "Origin" leaves file: origins
+    ///   implementation-defined; elidex uses a new opaque origin)
+    /// - `data` → `Opaque` (URL Standard §4.7 "Origin": data: URLs get a new opaque origin)
     /// - Other schemes → `Opaque`
     #[must_use]
     pub fn from_url(url: &url::Url) -> Self {
@@ -69,8 +70,8 @@ impl SecurityOrigin {
                 }
                 _ => Self::opaque(),
             },
-            // file:// URLs get opaque origin per WHATWG §7.5.2.
-            // data: URLs get opaque origin per WHATWG §7.5.3.
+            // file:// origins are implementation-defined (URL Standard §4.7); elidex
+            // uses a new opaque origin.  data: URLs get a new opaque origin per §4.7.
             // Any other scheme is opaque as the safe default.
             _ => Self::opaque(),
         }
@@ -78,14 +79,14 @@ impl SecurityOrigin {
 
     /// Create a new unique opaque origin.
     ///
-    /// Each call returns a distinct opaque origin, matching WHATWG §7.5
+    /// Each call returns a distinct opaque origin, matching WHATWG §7.1.1
     /// which requires every opaque origin to be globally unique.
     #[must_use]
     pub fn opaque() -> Self {
         Self::Opaque(OPAQUE_COUNTER.fetch_add(1, Ordering::Relaxed))
     }
 
-    /// Returns the origin as a serialized string (WHATWG §7.5).
+    /// Returns the origin as a serialized string (WHATWG §7.1.1).
     ///
     /// Tuple origins serialize as `"scheme://host:port"`.
     /// Opaque origins serialize as `"null"`.
