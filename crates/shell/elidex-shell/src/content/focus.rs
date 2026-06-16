@@ -11,13 +11,26 @@
 //! single-thread `App`, and in-process iframes) by operating on a
 //! `&mut PipelineResult` (each owns its own document `EcsDom`).
 
-use elidex_dom_api::focus::{current_focus, set_focus_bit};
+use elidex_dom_api::focus::{current_focus, get_the_focusable_area, set_focus_bit, FocusTrigger};
 use elidex_ecs::Entity;
 use elidex_form::{record_focus_snapshot, take_focus_snapshot, FormControlState};
 use elidex_plugin::{EventPayload, FocusEventInit};
 use elidex_script_session::DispatchEvent;
 
 use crate::PipelineResult;
+
+/// The element a pointer click should focus: the WHATWG HTML §6.6.4 "get the
+/// focusable area" retarget of the raw hit `hit` (a shadow host with
+/// `delegatesFocus` → its delegate), falling back to `hit` itself when there is
+/// no retarget. The retarget is called **unconditionally** — it returns null for
+/// any genuine focusable area (see [`get_the_focusable_area`]'s doc), so
+/// `unwrap_or(hit)` reproduces the focusing-steps step-1 gate ("if not a focusable
+/// area, retarget") without a §6.6.2-complete predicate, and a non-focusable hit
+/// falls through to [`set_focus`], which blurs. (The editing-host fallback —
+/// focusing-steps step 2 — is PR-A2.)
+pub(crate) fn focus_target_for_click(dom: &elidex_ecs::EcsDom, hit: Entity) -> Entity {
+    get_the_focusable_area(dom, hit, FocusTrigger::Click).unwrap_or(hit)
+}
 
 /// Move focus to the given entity, clearing focus from the previous target.
 ///
@@ -198,6 +211,47 @@ mod tests {
         assert!(
             !is_focusable(&dom, input),
             "a disabled form control is not focusable"
+        );
+    }
+
+    #[test]
+    fn focus_target_for_click_retargets_through_delegates_focus_host() {
+        // PR-A1: the shell click→focus entry runs the §6.6.4 get-the-focusable-area
+        // retarget. A click on a `delegatesFocus` shadow host focuses its delegate;
+        // a plain focusable element is its own target (no retarget).
+        let mut dom = EcsDom::new();
+        let doc = dom.create_document_root();
+
+        let host = dom.create_element("div", Attributes::default());
+        let _ = dom.append_child(doc, host);
+        let sr = dom
+            .attach_shadow_with_init(
+                host,
+                elidex_ecs::ShadowInit {
+                    mode: elidex_ecs::ShadowRootMode::Open,
+                    delegates_focus: true,
+                    ..Default::default()
+                },
+            )
+            .expect("attach_shadow on <div>");
+        let mut delegate_attrs = Attributes::default();
+        delegate_attrs.set("tabindex".to_string(), "0".to_string());
+        let delegate = dom.create_element("div", delegate_attrs);
+        let _ = dom.append_child(sr, delegate);
+        assert_eq!(
+            focus_target_for_click(&dom, host),
+            delegate,
+            "a click on a delegatesFocus host retargets to its shadow delegate"
+        );
+
+        let mut plain_attrs = Attributes::default();
+        plain_attrs.set("tabindex".to_string(), "0".to_string());
+        let plain = dom.create_element("div", plain_attrs);
+        let _ = dom.append_child(doc, plain);
+        assert_eq!(
+            focus_target_for_click(&dom, plain),
+            plain,
+            "a plain focusable element is its own focus target (no retarget)"
         );
     }
 }

@@ -12,7 +12,7 @@ use crate::ipc::ModifierState;
 
 use elidex_dom_api::focus::current_focus;
 
-use super::focus::set_focus;
+use super::focus::{focus_target_for_click, set_focus};
 use super::form_input::{
     dispatch_input_event, dispatch_input_event_typed, dispatch_state_change_events,
     handle_form_reset, handle_form_submit, handle_label_click, toggle_checkbox_if_needed,
@@ -60,8 +60,11 @@ pub(super) fn handle_click(state: &mut ContentState, click: &crate::ipc::MouseCl
     if let Some(prev) = state.focused_iframe.take() {
         blur_iframe_focus(state, prev);
     }
-    // Update focus.
-    set_focus(&mut state.pipeline, hit_entity);
+    // Update focus. The raw hit is retargeted through WHATWG HTML §6.6.4 "get the
+    // focusable area" (a shadow host with `delegatesFocus` → its delegate) before
+    // focusing — see `focus::focus_target_for_click`.
+    let focus_target = focus_target_for_click(&state.pipeline.dom, hit_entity);
+    set_focus(&mut state.pipeline, focus_target);
 
     // Set ACTIVE state on press. Per UI Events spec, :active applies from
     // mousedown to mouseup — cleared in handle_mouse_release().
