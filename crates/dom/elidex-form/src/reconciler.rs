@@ -21,6 +21,7 @@
 
 use elidex_ecs::{EcsDom, Entity, MutationEvent, TagType};
 
+use crate::input::sanitize_value;
 use crate::{
     clear_focus_snapshot, compile_pattern_regex, create_form_control_state,
     sanitize_for_type_change,
@@ -202,6 +203,11 @@ fn handle_attribute_change(node: Entity, name: &str, new_value: Option<&str>, do
             fcs.selection_direction = SelectionDirection::None;
             fcs.value.clear();
             fcs.value.push_str(displayed);
+            // HTML §4.10.5.1.x value sanitization on the new (non-dirty)
+            // value, matching the `from_input_element` / IDL-setter paths.
+            // Inside `!dirty_value`: a `value`-attribute change never
+            // re-sanitizes a dirty live value (R2).
+            sanitize_value(&mut fcs);
         }
         return;
     }
@@ -239,7 +245,26 @@ fn handle_attribute_change(node: Entity, name: &str, new_value: Option<&str>, do
         "required" => fcs.required = new_value.is_some(),
         "readonly" => fcs.readonly = new_value.is_some(),
         "autofocus" => fcs.autofocus = new_value.is_some(),
-        "multiple" => fcs.multiple = new_value.is_some(),
+        "multiple" => {
+            fcs.multiple = new_value.is_some();
+            // HTML §4.10.5.1.5 (Email state): "When the multiple attribute
+            // is set or removed, the user agent must run the value
+            // sanitization algorithm" — the Email state switches between
+            // single (strip+trim) and comma-list sanitization, so the
+            // stored value must be re-sanitized.  This trigger is
+            // EMAIL-SPECIFIC (it lives in the Email-state section): `multiple`
+            // does not affect any other kind's sanitization, so gating on
+            // Email avoids an irrelevant re-sanitize (e.g. a `multiple`
+            // toggle must not clamp a range value that an earlier min/max
+            // change deliberately left out of range — min/max are not
+            // sanitization triggers).  Runs unconditionally on the live
+            // value (NOT gated on `!dirty_value`, unlike the `value`-arm):
+            // a dirty `" x , y "` must become single-mode `"x , y"` when
+            // `multiple` is removed.
+            if fcs.kind == FormControlKind::Email {
+                sanitize_value(&mut fcs);
+            }
+        }
 
         // Numeric length attributes (HTML §4.10.5.3.1 maxlength/
         // minlength).  `None` ⇒ unset, parse-failure ⇒ unset.
@@ -745,6 +770,75 @@ mod tests {
         with_fcs(&dom, input, |s| {
             assert_eq!(s.value, "user-typed");
             assert!(s.dirty_value);
+        });
+    }
+
+    #[test]
+    fn value_attr_arm_sanitizes_range() {
+        // A `value` content-attribute write on a non-dirty range control
+        // runs §4.10.5.1.13 value sanitization (clamp to max).
+        let (mut dom, e) = setup("input", &[("type", "range"), ("max", "100")]);
+        assert!(dom.set_attribute(e, "value", "150"));
+        with_fcs(&dom, e, |s| assert_eq!(s.value, "100"));
+    }
+
+    #[test]
+    fn multiple_toggle_resanitizes_email() {
+        // §4.10.5.1.5: setting `multiple` re-runs value sanitization,
+        // switching the Email state to the comma-list algorithm.
+        let (mut dom, e) = setup("input", &[("type", "email"), ("value", " a@b , c@d ")]);
+        // Parsed under single-mode (strip + trim ends).
+        with_fcs(&dom, e, |s| assert_eq!(s.value, "a@b , c@d"));
+        assert!(dom.set_attribute(e, "multiple", ""));
+        with_fcs(&dom, e, |s| assert_eq!(s.value, "a@b,c@d"));
+    }
+
+    #[test]
+    fn multiple_toggle_sanitizes_even_when_dirty() {
+        // The `multiple`-toggle trigger runs on the live value
+        // unconditionally (NOT gated on `!dirty_value`, unlike the
+        // `value`-attribute arm): a dirty single-mode value re-sanitizes
+        // under the comma-list algorithm when `multiple` is set.
+        let (mut dom, e) = setup("input", &[("type", "email")]);
+        {
+            let mut state = dom.world_mut().get::<&mut FormControlState>(e).unwrap();
+            state.set_value(" a , b ".to_string()); // single-mode → "a , b", dirty
+            assert_eq!(state.value, "a , b");
+            assert!(state.dirty_value);
+        }
+        assert!(dom.set_attribute(e, "multiple", ""));
+        with_fcs(&dom, e, |s| {
+            assert_eq!(
+                s.value, "a,b",
+                "multiple toggle must re-sanitize a dirty value"
+            );
+            assert!(
+                s.dirty_value,
+                "re-sanitization must not clear the dirty flag"
+            );
+        });
+    }
+
+    #[test]
+    fn multiple_toggle_does_not_resanitize_non_email() {
+        // The `multiple`-toggle sanitization trigger is Email-specific
+        // (§4.10.5.1.5).  Toggling `multiple` on a range must NOT clamp a
+        // value that an earlier `max` change (not a sanitization trigger)
+        // deliberately left out of range.
+        let (mut dom, e) = setup("input", &[("type", "range"), ("min", "0"), ("max", "100")]);
+        assert!(dom.set_attribute(e, "value", "80"));
+        with_fcs(&dom, e, |s| assert_eq!(s.value, "80"));
+        // `max` change is not a sanitization trigger → value stays 80
+        // (now out of range, reported honestly by validity).
+        assert!(dom.set_attribute(e, "max", "50"));
+        with_fcs(&dom, e, |s| assert_eq!(s.value, "80"));
+        // `multiple` toggle on a non-email must not re-sanitize / clamp.
+        assert!(dom.set_attribute(e, "multiple", ""));
+        with_fcs(&dom, e, |s| {
+            assert_eq!(
+                s.value, "80",
+                "multiple toggle must not clamp a non-email value"
+            );
         });
     }
 }

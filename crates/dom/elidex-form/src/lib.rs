@@ -560,7 +560,7 @@ impl FormControlState {
 
     /// Set the value (marks as dirty, moves cursor to end).
     ///
-    /// Per HTML §4.10.7.4 step 5: selection is set to the end of the new value.
+    /// Per HTML §4.10.5.4 (`value` IDL setter) step 5: selection is set to the end of the new value.
     pub fn set_value(&mut self, text: String) {
         self.cursor_pos = text.len();
         self.selection_start = text.len();
@@ -568,12 +568,16 @@ impl FormControlState {
         self.value = text;
         self.dirty_value = true;
         self.update_char_count();
+        // HTML §4.10.5.1.x value sanitization runs on every value
+        // mutation; `sanitize_value` re-syncs char_count / selection if
+        // it changes the value and never touches `dirty_value`.
+        input::sanitize_value(self);
     }
 
     /// Set the value during initialization (`dirty_value` stays false).
     ///
     /// Also sets `default_value` for form reset.
-    /// Per HTML §4.10.7.4 step 5: selection is set to the end of the value.
+    /// Per HTML §4.10.5.4 (`value` IDL setter) step 5: selection is set to the end of the value.
     pub fn set_value_initial(&mut self, text: String) {
         self.cursor_pos = text.len();
         self.selection_start = text.len();
@@ -581,6 +585,9 @@ impl FormControlState {
         self.default_value.clone_from(&text);
         self.value = text;
         self.update_char_count();
+        // Value sanitization (HTML §4.10.5.1.x) on the initial / default
+        // value; does not set the dirty flag.
+        input::sanitize_value(self);
     }
 
     /// Reset to default value (form reset behavior).
@@ -602,6 +609,8 @@ impl FormControlState {
         self.checked = self.default_checked;
         self.indeterminate = false;
         self.update_char_count();
+        // Value sanitization (HTML §4.10.5.1.x) on the restored default.
+        input::sanitize_value(self);
     }
 
     /// Insert text at the current cursor position (marks as dirty).
@@ -721,7 +730,7 @@ impl FormControlState {
         };
         let checked = attrs.contains("checked");
         let char_count = value.chars().count();
-        Self {
+        let mut state = Self {
             kind,
             cursor_pos: value.len(),
             default_value: raw_value,
@@ -741,11 +750,22 @@ impl FormControlState {
             form_owner: attrs.get("form").map(String::from),
             autofocus: attrs.contains("autofocus"),
             autocomplete: attrs.get("autocomplete").unwrap_or("").to_string(),
+            // `multiple` drives the Email-state value sanitization mode
+            // (§4.10.5.1.5) as well as `<select multiple>`, so it must be
+            // read at parse time for the sanitize call below to pick the
+            // comma-list algorithm for `<input type=email multiple>`.
+            multiple: attrs.contains("multiple"),
             min: attrs.get("min").map(String::from),
             max: attrs.get("max").map(String::from),
             step: attrs.get("step").map(String::from),
             ..Self::default()
-        }
+        };
+        // HTML value sanitization (§4.10.5.1.x) at element creation: the
+        // struct-literal parse is a value-establishment site, so the
+        // stored value must be sanitized here (a raw `<input type=range
+        // value=150>` becomes the clamped value, etc.).
+        input::sanitize_value(&mut state);
+        state
     }
 
     /// Parse `<button>` element attributes.

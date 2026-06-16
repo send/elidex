@@ -249,13 +249,15 @@ fn number_step_cancellation_not_mismatch() {
 #[test]
 fn range_validation_on_unsanitized_value() {
     // Range has no `required`/`badInput`, but `rangeUnderflow`/`Overflow`/
-    // `stepMismatch` ARE evaluated on the stored value.  The spec's structural
-    // conformance for range relies on the UA clamping/snapping the value
-    // (§4.10.5.1.13), which is the deferred value-sanitization slot — so until
-    // then validity is computed honestly on the actual value rather than
-    // assuming the un-wired clamp (which would report a stored `value=150` as
-    // valid).  An in-range, on-grid value is conformant; an out-of-range /
-    // off-step stored value surfaces the corresponding bit.
+    // `stepMismatch` ARE evaluated on the stored value.  Validity is computed
+    // honestly on the actual stored value rather than assuming a clamp.  The
+    // §4.10.5.1.13 value-sanitization clamp/snap is now wired at the write
+    // layer (`input::sanitize_value`), so an out-of-range / off-step stored
+    // value no longer *occurs* in practice — every value-establishment site
+    // sanitizes first.  These cases construct `FormControlState` by direct
+    // field literal (bypassing the setters) precisely to exercise
+    // `validate_control` in isolation on a value the write-chokepoint would
+    // otherwise prevent; the validity logic stays honest regardless.
     let range = |value: &str, min: Option<&str>, max: Option<&str>, step: Option<&str>| {
         validate_control(&FormControlState {
             kind: FormControlKind::Range,

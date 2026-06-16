@@ -157,13 +157,15 @@ pub fn validate_control(state: &FormControlState) -> ValidityState {
             // non-float — HTML §4.10.5.1.13).  But `rangeUnderflow` /
             // `rangeOverflow` / `stepMismatch` ARE evaluated on the stored
             // value: the spec's structural conformance for range comes from the
-            // UA *correcting* the value (clamp to [min,max], snap to step),
-            // which is the deferred value-sanitization slot
-            // (`#11-input-type-sanitize-extended`).  Until that lands we compute
-            // validity *honestly on the actual value* — assuming the un-wired
-            // clamping (reporting `valid` for a stored `value=150`) would be a
-            // read of unmodelled lifecycle state, and inconsistent with how the
-            // numeric and date/time states surface a non-conforming value.
+            // UA *correcting* the value (clamp to [min,max], snap to step) via
+            // value sanitization, now wired at the write layer
+            // ([`crate::input::sanitize_value`]).  Validity is still computed
+            // *honestly on the actual stored value* rather than assuming the
+            // clamp — a stored out-of-range value no longer occurs through the
+            // sanitized write paths, but assuming it can't (reporting `valid`
+            // for a hypothetical stored `value=150`) would be a read of
+            // unmodelled lifecycle state, and inconsistent with how the numeric
+            // and date/time states surface a non-conforming value.
             check_range(&mut validity, state);
             check_step(&mut validity, state);
         }
