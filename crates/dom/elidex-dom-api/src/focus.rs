@@ -519,7 +519,8 @@ pub fn reconcile_focus(dom: &mut EcsDom, document: Entity) {
     }
 }
 
-/// §6.6.4 "focus trigger" (WHATWG HTML `#focus-trigger`) — the optional string
+/// §6.6.4 "focus trigger" (WHATWG HTML `#get-the-focusable-area`, which defines
+/// it) — the optional string
 /// passed to the focus-processing algorithms, defaulting to "other". The spec
 /// models it as an open string and behaviourally distinguishes only `"click"`
 /// (the `autofocus_delegate` click-focusable filter). Sequential focus
@@ -708,8 +709,9 @@ fn first_delegate_descendant(
     None
 }
 
-/// Whether `entity` is **click focusable** (WHATWG HTML §6.6 — a focusable area
-/// the user agent permits to be focused by clicking). elidex has no "do not
+/// Whether `entity` is **click focusable** (WHATWG HTML §6.6.2 `#click-focusable`
+/// — a focusable area the user agent permits to be focused by clicking). elidex
+/// has no "do not
 /// focus on click" UA setting, so every focusable area is click focusable; this
 /// is kept spec-shaped for the [`autofocus_delegate`] click filter (presently
 /// always `true`).
