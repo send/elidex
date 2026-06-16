@@ -14,6 +14,7 @@ mod input;
 mod label;
 pub mod radio;
 mod reconciler;
+mod sanitize;
 mod select;
 mod selection;
 mod sizing;
@@ -571,7 +572,7 @@ impl FormControlState {
         // HTML §4.10.5.1.x value sanitization runs on every value
         // mutation; `sanitize_value` re-syncs char_count / selection if
         // it changes the value and never touches `dirty_value`.
-        input::sanitize_value(self);
+        sanitize::sanitize_value(self);
     }
 
     /// Set the value during initialization (`dirty_value` stays false).
@@ -587,7 +588,7 @@ impl FormControlState {
         self.update_char_count();
         // Value sanitization (HTML §4.10.5.1.x) on the initial / default
         // value; does not set the dirty flag.
-        input::sanitize_value(self);
+        sanitize::sanitize_value(self);
     }
 
     /// Reset to default value (form reset behavior).
@@ -610,7 +611,7 @@ impl FormControlState {
         self.indeterminate = false;
         self.update_char_count();
         // Value sanitization (HTML §4.10.5.1.x) on the restored default.
-        input::sanitize_value(self);
+        sanitize::sanitize_value(self);
     }
 
     /// Insert text at the current cursor position (marks as dirty).
@@ -764,7 +765,7 @@ impl FormControlState {
         // struct-literal parse is a value-establishment site, so the
         // stored value must be sanitized here (a raw `<input type=range
         // value=150>` becomes the clamped value, etc.).
-        input::sanitize_value(&mut state);
+        sanitize::sanitize_value(&mut state);
         state
     }
 
