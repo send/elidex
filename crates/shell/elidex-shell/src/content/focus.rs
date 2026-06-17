@@ -22,82 +22,69 @@ use elidex_script_session::DispatchEvent;
 
 use crate::PipelineResult;
 
-/// The WHATWG HTML §6.6.4 focusing-steps step-1 resolution of a pointer click on
-/// raw hit `hit` — the focusable area that should receive focus, or `None` when
-/// the hit is **not** a focusable area and has no delegate (so focus must not move
-/// to it; the caller blurs, per elidex's "click a non-focusable area → blur" rule):
+/// Resolve a focus request for `entity` to the §6.6.2 focusable area that should
+/// actually receive focus, gated by the **shell's** overlay-aware predicate — or
+/// `None` when no focusable area results (the caller blurs, per elidex's "focus a
+/// non-focusable target → blur" rule). Two steps, in this order:
 ///
-/// - hit is not a focusable area but a `delegatesFocus` shadow host (or otherwise
-///   retargetable) → its [`get_the_focusable_area`] delegate;
-/// - hit **is** itself a §6.6.2 focusable area ([`is_focusable_area`], criterion-2
-///   aware) → `hit`;
-/// - otherwise — a non-focusable element, OR a `delegatesFocus` host with no
-///   focusable delegate (which §6.6.2 criterion 2 says is *not* a focusable area)
-///   → `None`: the host must not receive focus itself.
+/// 1. **Resolve** (WHATWG HTML §6.6.4 focusing-steps step 1): if `entity` is
+///    itself a §6.6.2 focusable area ([`is_focusable_area`], criterion-2 aware)
+///    use it; otherwise retarget via [`get_the_focusable_area`] (a `delegatesFocus`
+///    shadow host → its delegate). A non-focusable element with no delegate, or a
+///    `delegatesFocus` host with no focusable delegate, yields `None`.
+/// 2. **Gate the RESOLVED area** with the shell's [`is_focusable`] overlay
+///    (`FormControlState.disabled`, incl. fieldset-inherited disabled). This must
+///    run on the *resolved* area, not on the input: a `delegatesFocus` host
+///    retargets to a shadow delegate that the engine-independent
+///    [`get_the_focusable_area`] search cannot gate against the form overlay, so a
+///    fieldset-disabled delegate would otherwise be focused. Gating the resolved
+///    area rejects it (→ blur). (Making the delegate *search* itself skip
+///    overlay-disabled candidates — so a later focusable sibling is found rather
+///    than blurring — is the engine-independent predicate unification, slot
+///    `#11-focusable-area-fieldset-inherited-disabled`, PR-A3.)
 ///
-/// The gate is [`is_focusable_area`] (criterion-2 aware), **not** the C2-blind
-/// [`is_focusable`] — so a `delegatesFocus` host with an empty/non-focusable shadow
-/// tree is correctly treated as a non-focusable area and blurs, rather than being
-/// focused via the C2-omitting predicate. The retarget itself is still called
-/// unconditionally (a `delegatesFocus` host *with* a `tabindex` is not pre-gated
-/// out of delegation — PR-A1 plan-review F1). (The editing-host ancestor fallback —
-/// focusing-steps step 2 — is PR-A2.)
-///
-/// Wired at the content-thread `handle_click` to pre-resolve the click hit and
-/// apply elidex's "click a non-focusable area → blur" disposition (a `None`
-/// return makes the caller blur). As of A2a [`set_focus`] is itself a thin caller
-/// of the canonical §6.6.4 focusing steps, whose step 1 runs this same
-/// [`get_the_focusable_area`] retarget — so the *other* pointer-click entries
-/// (in-process iframe content, OOP-iframe content, the legacy single-thread
-/// `App`, Tab nav) that hand a raw hit straight to [`set_focus`] now retarget a
-/// `delegatesFocus` host to its delegate too; they no longer focus the raw host.
-/// One disposition is still split across the boundary: on a host with no focusable
-/// delegate this pre-resolver returns `None` (→ blur), whereas a bare [`set_focus`]
-/// leaves focus unchanged (focusing-steps step 2, no-fallback return). Folding
-/// that click-disposition (blur vs leave) into the shared seam so every click
-/// entry agrees is PR-A2b; the retarget itself already lives in one place (the
-/// seam head), so this is not a strangler middle state (One-issue-one-way).
-pub(crate) fn focus_target_for_click(dom: &elidex_ecs::EcsDom, hit: Entity) -> Option<Entity> {
-    if let Some(area) = get_the_focusable_area(dom, hit, FocusTrigger::Click) {
-        Some(area)
-    } else if is_focusable_area(dom, hit) {
-        Some(hit)
+/// The single resolution+gate entry for *every* focus request: [`set_focus`] (and
+/// thus every content-thread / raw-hit / Tab / programmatic caller) routes through
+/// it, so the live paths agree instead of only the content-thread pre-resolving.
+/// `FocusTrigger::Other` is used uniformly — `is_click_focusable` is presently
+/// always true (`predicate.rs`), so click vs. other does not diverge; threading
+/// the real trigger and the click→ancestor climb / editing-host fallback is PR-A2b.
+fn focus_target(dom: &elidex_ecs::EcsDom, entity: Entity) -> Option<Entity> {
+    let area = if is_focusable_area(dom, entity) {
+        entity
     } else {
-        None
-    }
+        get_the_focusable_area(dom, entity, FocusTrigger::Other)?
+    };
+    // Gate the *resolved* area with the shell overlay (not just the input entity).
+    is_focusable(dom, area).then_some(area)
 }
 
-/// Move focus to the given entity, clearing focus from the previous target.
+/// Move focus to the focusable area resolved from `entity`, clearing focus from
+/// the previous target. `entity` may be a raw click / Tab hit: [`focus_target`]
+/// resolves it to the §6.6.4 focusable area and gates that resolved area with the
+/// shell overlay; a `None` resolution blurs (elidex's "focus a non-focusable
+/// target → blur" rule). The click→nearest-focusable-ancestor climb and the
+/// spec's leave-on-no-candidate are PR-A2b.
 ///
 /// Dispatches the WHATWG HTML §6.6.4 focus update steps' events in spec order:
-/// losing side `change` → `blur` → `focusout`, then (after the `FOCUS` bit
-/// moves to the new area) gaining side `focus` → `focusin` (UI Events §3.3.2
-/// "Focus Event Order"; focusout follows blur per §3.3.4.4). Only focusable
-/// elements receive focus (form controls, links with href, elements with
-/// tabindex / contenteditable).
+/// losing side `change` → `blur` → `focusout`, then (after the `FOCUS` bit moves
+/// to the new area) gaining side `focus` → `focusin` (UI Events §3.3.2 "Focus
+/// Event Order"; focusout follows blur per §3.3.4.4).
 pub(crate) fn set_focus(pipeline: &mut PipelineResult, entity: Entity) {
-    // N5: only focusable elements receive focus; a non-focusable target blurs the
-    // current focus. (The click→nearest-focusable-ancestor climb and the spec's
-    // leave-on-no-candidate are PR-A2b; A2a preserves this gate.) The shell
-    // overlay [`is_focusable`] adds the form-subsystem fieldset-disabled check the
-    // engine-independent predicate cannot see.
-    if !is_focusable(&pipeline.dom, entity) {
+    let Some(target) = focus_target(&pipeline.dom, entity) else {
         blur_current(pipeline);
         return;
-    }
+    };
     // The canonical WHATWG HTML §6.6.4 focusing steps. The shell sink supplies the
     // engine-bound 3-phase event dispatch + the change-on-blur snapshot; the
     // transition (SoT-last designation, reentrancy, event order) is engine-indep.
-    //
-    // `FocusTrigger::Other` is a placeholder: the live click entry (`handle_click`)
-    // pre-resolves its hit via `focus_target_for_click` (`FocusTrigger::Click`)
-    // before calling here, so `entity` is already a focusable area and the seam's
-    // step-1 retarget is a no-op — the trigger is never consulted on the live path.
-    // Threading the real trigger for the raw-hit click entries (when they stop
-    // pre-resolving and hand the seam their raw hit) is PR-A2b.
+    // `target` is already the resolved + overlay-gated focusable area, so the
+    // seam's step-1 retarget is a no-op. `FocusTrigger::Other`: is_click_focusable
+    // is presently always true, so click vs. other does not diverge (PR-A2b
+    // threads the real trigger).
     focusing_steps(
         &mut ShellFocusSink { pipeline },
-        entity,
+        target,
         None,
         FocusTrigger::Other,
     );
@@ -278,15 +265,24 @@ mod tests {
     }
 
     #[test]
-    fn focus_target_for_click_retargets_through_delegates_focus_host() {
-        // PR-A1: the shell click→focus entry runs the §6.6.4 focusing-steps step-1
-        // resolution. A click on a `delegatesFocus` shadow host focuses its delegate;
-        // a plain focusable element is its own target (no retarget).
+    fn focus_target_retargets_through_delegates_focus_host() {
+        // The single focus-target resolver runs the §6.6.4 focusing-steps step-1
+        // retarget for EVERY caller (incl. the raw-hit App/iframe paths via
+        // `set_focus`). A `delegatesFocus` shadow host — even a plain, non-focusable
+        // one — resolves to its delegate (Codex R1 F1: a raw-hit pre-gate must not
+        // blur such a host before the retarget). A plain focusable element is its
+        // own target (no retarget).
         let mut dom = EcsDom::new();
         let doc = dom.create_document_root();
 
         let host = dom.create_element("div", Attributes::default());
         let _ = dom.append_child(doc, host);
+        // A plain `<div>` host is NOT itself focusable — the F1 case that the old
+        // `is_focusable` pre-gate would have blurred before reaching the retarget.
+        assert!(
+            !elidex_dom_api::focus::is_focusable(&dom, host),
+            "the plain host is not is_focusable (no tabindex) — the F1 case"
+        );
         let sr = dom
             .attach_shadow_with_init(
                 host,
@@ -302,9 +298,9 @@ mod tests {
         let delegate = dom.create_element("div", delegate_attrs);
         let _ = dom.append_child(sr, delegate);
         assert_eq!(
-            focus_target_for_click(&dom, host),
+            focus_target(&dom, host),
             Some(delegate),
-            "a click on a delegatesFocus host retargets to its shadow delegate"
+            "a plain delegatesFocus host still retargets to its shadow delegate"
         );
 
         let mut plain_attrs = Attributes::default();
@@ -312,19 +308,19 @@ mod tests {
         let plain = dom.create_element("div", plain_attrs);
         let _ = dom.append_child(doc, plain);
         assert_eq!(
-            focus_target_for_click(&dom, plain),
+            focus_target(&dom, plain),
             Some(plain),
             "a plain focusable element is its own focus target (no retarget)"
         );
     }
 
     #[test]
-    fn focus_target_for_click_delegates_focus_host_without_delegate_is_not_focusable() {
-        // Codex R1 (§6.6.2 criterion 2): a `delegatesFocus` host carrying `tabindex`
-        // but an empty/non-focusable shadow tree has no delegate, so it is NOT a
-        // focusable area — the click must yield `None` (→ blur), not focus the host.
-        // A `is_focusable`-gated fallback (`unwrap_or(hit)`) would wrongly focus it,
-        // since `elidex_dom_api::focus::is_focusable` omits criterion 2.
+    fn focus_target_delegates_focus_host_without_delegate_is_none() {
+        // §6.6.2 criterion 2: a `delegatesFocus` host carrying `tabindex` but an
+        // empty/non-focusable shadow tree has no delegate, so it is NOT a focusable
+        // area — `focus_target` yields `None` (→ blur), not the host. The C2-aware
+        // `is_focusable_area` gate is what prevents focusing the host via the
+        // C2-blind `is_focusable` (which is true here on the tabindex).
         let mut dom = EcsDom::new();
         let doc = dom.create_document_root();
 
@@ -348,9 +344,55 @@ mod tests {
             "the host is is_focusable via tabindex (C2-blind) — the masked case"
         );
         assert_eq!(
-            focus_target_for_click(&dom, host),
+            focus_target(&dom, host),
             None,
-            "a delegatesFocus host with no delegate is not a focusable area → None (blur), not focused"
+            "a delegatesFocus host with no delegate is not a focusable area → None (blur)"
+        );
+    }
+
+    #[test]
+    fn focus_target_gates_fieldset_disabled_delegate() {
+        // Codex R1 F2: a `delegatesFocus` host retargets to a shadow delegate via
+        // the engine-independent `get_the_focusable_area` search, which is
+        // attribute-based and cannot see the shell's `FormControlState.disabled`
+        // overlay. `focus_target` gates the *resolved* delegate with the shell
+        // predicate, so a fieldset-disabled delegate (fcs.disabled, no `disabled`
+        // attribute) is rejected → blur, not focused. (A2a gates the resolved area;
+        // making the delegate *search* skip it — so a later focusable sibling is
+        // found instead of blurring — is PR-A3,
+        // slot #11-focusable-area-fieldset-inherited-disabled.)
+        let mut dom = EcsDom::new();
+        let doc = dom.create_document_root();
+        let host = dom.create_element("div", Attributes::default());
+        let _ = dom.append_child(doc, host);
+        let sr = dom
+            .attach_shadow_with_init(
+                host,
+                elidex_ecs::ShadowInit {
+                    mode: elidex_ecs::ShadowRootMode::Open,
+                    delegates_focus: true,
+                    ..Default::default()
+                },
+            )
+            .expect("attach_shadow on <div>");
+        let delegate = dom.create_element("input", Attributes::default());
+        let _ = dom.append_child(sr, delegate);
+        assert!(elidex_form::create_form_control_state(&mut dom, delegate));
+        // Sanity: the engine-independent retarget returns the (attr-focusable)
+        // delegate, so without the overlay gate it would be focused.
+        assert_eq!(
+            get_the_focusable_area(&dom, host, FocusTrigger::Other),
+            Some(delegate),
+            "the engine-independent retarget returns the attr-focusable delegate"
+        );
+        // Fieldset-inherited disabled: fcs.disabled without a `disabled` attribute.
+        if let Ok(mut fcs) = dom.world_mut().get::<&mut FormControlState>(delegate) {
+            fcs.disabled = true;
+        }
+        assert_eq!(
+            focus_target(&dom, host),
+            None,
+            "a fieldset-disabled delegate is rejected by the overlay gate → blur"
         );
     }
 }

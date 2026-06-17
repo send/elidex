@@ -121,9 +121,9 @@ fn delegates_focus_host(dom: &EcsDom, entity: Entity) -> bool {
 ///   descendants must fall to the get-the-focusable-area recursion (§6.6.4
 ///   focus-delegate step 6.3→6.4 / autofocus-delegate step 1.2), not be returned
 ///   as the delegate itself;
-/// - the shell pointer-click gate (`focus_target_for_click`) — a clicked
-///   delegates-focus host with no delegate is not a focusable area, so it must not
-///   itself receive focus.
+/// - the shell focus-target resolver (`focus_target`) — a clicked delegates-focus
+///   host with no delegate is not a focusable area, so it must not itself receive
+///   focus.
 ///
 /// **Not** the Tab-nav / `reconcile_focus` predicate, which stay on the C2-blind
 /// [`is_focusable`] until PR-A3 unifies the focusability predicate (the

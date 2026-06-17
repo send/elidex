@@ -138,13 +138,23 @@ pub fn focusing_steps(
 /// §6.6.4 **unfocusing steps** (`#unfocusing-steps`) — the blur path for
 /// `old_target`.
 ///
-/// A2a scope: the shell `blur_current` passes the *current* focused element,
-/// which is always a focusable area on the focus chain, so step 1 (a
-/// delegatesFocus host → focused-area retarget — needs a host `old_target`, only
-/// reachable via VM `element.blur()`, PR-A2c), step 3 (area/scrollable retarget
-/// — unmodelled) and steps 5-6 (old ∉ chain / not a focusable area — always
-/// satisfied here) reduce to the steps 7-8 transition with an empty new chain.
+/// **Steps 5-6 guard**: `old_target` must be the document's currently focused
+/// area, else return — do not clear the `FOCUS` bit or fire `blur` for a
+/// non-holder. The shell `blur_current` always passes the live holder
+/// ([`current_focus`]), so this is a no-op there; the guard makes the public seam
+/// correct for a VM `element.blur()` on an *unfocused* receiver (PR-A2c), where
+/// without it `other.blur()` would clear whichever element is actually focused and
+/// fire `blur` at the wrong target — matching the bit-level [`super::blur`], which
+/// already no-ops unless the receiver is the holder.
+///
+/// Step 1 (a `delegatesFocus` host `old_target` → its focused shadow area) and
+/// step 3 (area / scrollable-region retarget) are unmodelled (PR-A2c); the
+/// single-element model has no multi-entry old chain (PR-A3).
 pub fn unfocusing_steps(sink: &mut dyn FocusEventSink, old_target: Entity) {
+    let doc = sink.document();
+    if current_focus(sink.dom(), doc) != Some(old_target) {
+        return;
+    }
     focus_update_steps(sink, Some(old_target), None);
 }
 
@@ -345,6 +355,28 @@ mod tests {
         assert_eq!(rec.events, vec![(a, FocusEventKind::Blur, None)]);
         assert!(rec.seeds.is_empty());
         assert_eq!(current_focus(&dom, doc), None);
+    }
+
+    #[test]
+    fn unfocusing_steps_on_a_non_holder_is_a_noop() {
+        // Codex R1 F3: §6.6.4 unfocusing-steps steps 5-6 — if the receiver is not
+        // the document's currently focused area, return without clearing the bit or
+        // firing `blur`. (Guards the public seam against a VM `element.blur()` on an
+        // unfocused element, PR-A2c: `b.blur()` must not blur whoever holds focus.)
+        let mut dom = EcsDom::new();
+        let (doc, a, b) = doc_with_two(&mut dom);
+        set_focus_bit(&mut dom, Some(a)); // `a` holds focus; blur `b` (a non-holder)
+
+        let rec = {
+            let mut sink = TestSink::new(&mut dom, doc);
+            unfocusing_steps(&mut sink, b);
+            sink.rec
+        };
+
+        // No events fired, and `a` keeps focus (the bit was not cleared).
+        assert!(rec.events.is_empty());
+        assert!(rec.changes.is_empty());
+        assert_eq!(current_focus(&dom, doc), Some(a));
     }
 
     #[test]
