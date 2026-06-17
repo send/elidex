@@ -21,7 +21,6 @@
 
 use elidex_ecs::{EcsDom, Entity, MutationEvent, TagType};
 
-use crate::sanitize::sanitize_value;
 use crate::{
     clear_focus_snapshot, compile_pattern_regex, create_form_control_state,
     sanitize_for_type_change,
@@ -105,7 +104,7 @@ fn handle_insert(node: Entity, dom: &mut EcsDom) {
 /// step rounding is only a "may").
 fn recorrect_range(fcs: &mut FormControlState) {
     if fcs.kind == FormControlKind::Range {
-        sanitize_value(fcs);
+        fcs.settle_value();
     }
 }
 
@@ -275,7 +274,7 @@ fn handle_attribute_change(node: Entity, name: &str, new_value: Option<&str>, do
             // a dirty `" x , y "` must become single-mode `"x , y"` when
             // `multiple` is removed.
             if fcs.kind == FormControlKind::Email {
-                sanitize_value(&mut fcs);
+                fcs.settle_value();
             }
         }
 

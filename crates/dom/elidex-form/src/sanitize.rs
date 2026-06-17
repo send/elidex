@@ -15,7 +15,6 @@ use crate::input::{
     aligned_above, aligned_below, allowed_value_step, is_step_aligned,
     is_valid_floating_point_string, maximum, minimum, step_base,
 };
-use crate::util::snap_to_char_boundary;
 use crate::{datetime, FormControlKind, FormControlState};
 
 /// HTML "strip newlines from a string" — remove every U+000A LF and
@@ -137,13 +136,13 @@ fn sanitize_range(state: &FormControlState) -> Option<String> {
 /// routed through here (the editing buffer is the live value).
 ///
 /// A pure transform of (`value`, `kind`, `min`/`max`/`step`, `multiple`)
-/// → `value`; it never touches `dirty_value`, and it does NOT impose a
-/// cursor-collapse / selection-direction POLICY (that is the value-mutation
-/// algorithm's job and differs per call site — see the bookkeeping note
-/// below).  When it changes `value` it re-syncs the value-derived
-/// `char_count` and CLAMPS the cursor / selection into the new value, so the
-/// "selection is within the value" invariant holds by construction even when
-/// sanitization shortens the value.
+/// → `value`; it never touches `dirty_value`, and it is a **pure value
+/// transform**: it imposes no cursor-collapse / selection-direction POLICY
+/// (that is the value-mutation algorithm's job and differs per call site) and
+/// does not itself re-sync `char_count` or clamp the cursor / selection.  The
+/// "selection is within the value" invariant and the `char_count` re-sync are
+/// owned by [`FormControlState::settle_value`], the single establishment
+/// primitive every caller routes through.
 pub(crate) fn sanitize_value(state: &mut FormControlState) {
     let sanitized: Option<String> = match state.kind {
         // §4.10.5.1.2 Text/Search, §4.10.5.1.3 Telephone,
@@ -215,30 +214,7 @@ pub(crate) fn sanitize_value(state: &mut FormControlState) {
         | FormControlKind::Progress => None,
     };
     if let Some(sanitized) = sanitized {
-        if sanitized != state.value {
-            state.value = sanitized;
-            // `sanitize_value` is a pure VALUE transform: re-sync the
-            // value-derived char count, and keep the "selection is within
-            // the value" invariant by CLAMPING the cursor / selection when
-            // THIS transform shortens the value — but it does NOT impose a
-            // cursor-collapse / selection-direction POLICY.  That policy is
-            // the value-mutation algorithm's job and differs per call site:
-            // the IDL `value` setter (§4.10.5.4 step 5) collapses to the end
-            // only when the value changed from the *old* value; the
-            // type-change steps (§4.10.5 step 9) put the cursor at the
-            // beginning.  Those live in [`FormControlState::move_text_cursor_to`]
-            // at the call sites, run AFTER [`FormControlState::settle_value`]
-            // (which sanitizes + clamps unconditionally — the establishment
-            // backstop for a caller that shortened the value without this
-            // transform changing it).  The clamp here is the narrower
-            // "my-transform-shortened-it" trigger for the direct
-            // `sanitize_value` callers (`recorrect_range`, the email-multiple
-            // toggle) that do not route through `settle_value`.
-            state.update_char_count();
-            state.cursor_pos = snap_to_char_boundary(&state.value, state.cursor_pos);
-            state.selection_start = snap_to_char_boundary(&state.value, state.selection_start);
-            state.selection_end = snap_to_char_boundary(&state.value, state.selection_end);
-        }
+        state.value = sanitized;
     }
 }
 

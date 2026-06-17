@@ -189,20 +189,51 @@ fn sanitize_noop_kinds_untouched() {
 }
 
 #[test]
-fn sanitize_resyncs_char_count_and_clamps_selection_on_shorten() {
-    // A value-shortening sanitize re-syncs char_count and CLAMPS the
-    // cursor/selection into the new (shorter) value, keeping the "selection
-    // within value" invariant (the §4.10.5.4-step-5 collapse POLICY is a
-    // separate, per-call-site concern — see `sanitize_value` doc).
+fn settle_value_resyncs_char_count_and_clamps_selection_on_shorten() {
+    // `settle_value` (the canonical establishment primitive) runs the pure
+    // `sanitize_value` transform and then UNCONDITIONALLY re-syncs char_count
+    // and CLAMPS the cursor/selection into the new (shorter) value, keeping
+    // the "selection within value" invariant (the §4.10.5.4-step-5 collapse
+    // POLICY is a separate, per-call-site concern — see `set_value`).
     let mut s = raw_state(FormControlKind::Number, "abc");
     s.cursor_pos = 3;
     s.selection_start = 3;
     s.selection_end = 3;
-    sanitize_value(&mut s);
+    s.settle_value();
     assert_eq!(s.value(), "");
     assert_eq!(s.char_count(), 0);
     assert_eq!(s.selection_start(), 0);
     assert_eq!(s.selection_end(), 0);
+}
+
+#[test]
+fn sanitize_value_is_a_pure_value_transform() {
+    // `sanitize_value` transforms ONLY `value`; the char_count re-sync and
+    // the selection clamp are owned by `settle_value`, not by this function.
+    // (The stale char_count / out-of-bounds selection left here are corrected
+    // by `settle_value`, which every caller routes through.)
+    let mut s = raw_state(FormControlKind::Number, "abc");
+    s.cursor_pos = 3;
+    s.selection_start = 3;
+    s.selection_end = 3;
+    s.char_count = 3;
+    sanitize_value(&mut s);
+    assert_eq!(s.value(), "", "value is sanitized");
+    assert_eq!(
+        s.char_count(),
+        3,
+        "char_count untouched by the pure transform"
+    );
+    assert_eq!(
+        s.selection_start(),
+        3,
+        "selection untouched by the pure transform"
+    );
+    assert_eq!(
+        s.selection_end(),
+        3,
+        "selection untouched by the pure transform"
+    );
 }
 
 #[test]
