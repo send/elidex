@@ -77,13 +77,15 @@ pub trait FocusEventSink {
 
     /// Seed the engine-bound change-on-blur baseline for the element gaining
     /// focus. There is no spec step for this — it is elidex's device for §6.6.4
-    /// focus-update step 2.1's "different to what it was when the control was
-    /// first focused"; the seed is anchored to step 4.1 ("designate entry as the
-    /// focused area"), the moment the control is first focused, so a `focus`
-    /// listener mutating the value cannot shift the baseline. Runs on **every**
-    /// engine (the snapshot is `elidex-form` state, not event dispatch), so the
-    /// canonical transition owns the seed *timing* while the form-layer call
-    /// lives behind the sink.
+    /// focus-update step 2.1's "the user has changed the element's value ...
+    /// such that it is different to what it was when the control was first
+    /// focused". The canonical transition calls it **after** the `focus`/`focusin`
+    /// listeners (step 4.4), so a focus-handler's programmatic `value` write is
+    /// part of the baseline and is not later mistaken for a *user* edit (a
+    /// before-the-event seed would make such a write spuriously fire `change` on
+    /// blur). Runs on **every** engine (the snapshot is `elidex-form` state, not
+    /// event dispatch), so the canonical transition owns the seed *timing* while
+    /// the form-layer call lives behind the sink.
     fn seed_focus_snapshot(&mut self, new: Entity);
 
     /// §6.6.4 focus-update steps 2.2-2.4 / 4.2-4.4 — fire a `blur`/`focus` event
@@ -192,8 +194,19 @@ fn focus_update_steps(sink: &mut dyn FocusEventSink, old: Option<Entity>, new: O
     }
     if let Some(new) = new {
         set_focus_bit(sink.dom(), Some(new)); // step 4.1 — designate (SoT last)
-        sink.seed_focus_snapshot(new); // engine-bound change-on-blur baseline at step-4.1 focus gain
         sink.fire_focus_event(new, FocusEventKind::Focus, old); // steps 4.2-4.4
+                                                                // Seed the change-on-blur baseline AFTER the `focus`/`focusin` listeners,
+                                                                // so a listener's programmatic `value` write is part of the baseline and is
+                                                                // NOT counted as a user edit at the next blur (§6.6.4 step 2.1's change
+                                                                // fires only for values "the user has changed ... since first focused").
+                                                                // Seeding before the focus event (the value at designation) would make a
+                                                                // focus-handler write spuriously fire `change` on blur — matching real
+                                                                // browsers + the pre-A2a shell, which both seed after focus dispatch.
+                                                                // Guard: a `focusin` listener may have reentrantly moved focus on, so only
+                                                                // seed if `new` is still the focused element (reentrant-wins).
+        if current_focus(sink.dom(), doc) == Some(new) {
+            sink.seed_focus_snapshot(new);
+        }
     }
 }
 
@@ -214,6 +227,11 @@ mod tests {
         events: Vec<(Entity, FocusEventKind, Option<Entity>)>,
         changes: Vec<Entity>,
         seeds: Vec<Entity>,
+        /// `seeds.len()` captured when the `Focus` event fires — pins that the
+        /// change-on-blur seed runs AFTER the focus/focusin dispatch (Codex R2:
+        /// a focus-handler `value` write must be in the baseline, so `seeds` is
+        /// still empty at focus-event time).
+        seeds_len_at_focus: Option<usize>,
     }
 
     struct TestSink<'a> {
@@ -257,6 +275,9 @@ mod tests {
             related: Option<Entity>,
         ) {
             self.rec.events.push((target, kind, related));
+            if kind == FocusEventKind::Focus {
+                self.rec.seeds_len_at_focus = Some(self.rec.seeds.len());
+            }
             if kind == FocusEventKind::Blur {
                 if let Some(reentrant) = self.reentrant_on_blur.take() {
                     set_focus_bit(self.dom, Some(reentrant));
@@ -296,6 +317,12 @@ mod tests {
             ]
         );
         assert_eq!(rec.seeds, vec![b], "the gaining element seeds the snapshot");
+        assert_eq!(
+            rec.seeds_len_at_focus,
+            Some(0),
+            "the change-on-blur snapshot is seeded AFTER the focus event (Codex R2: \
+             a focus-handler value write must be in the baseline, not a user edit)"
+        );
         assert_eq!(current_focus(&dom, doc), Some(b));
     }
 
