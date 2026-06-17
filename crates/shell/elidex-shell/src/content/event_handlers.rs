@@ -497,7 +497,16 @@ fn collect_focusable_entities(
         return;
     }
 
-    if super::focus::is_focusable(dom, entity) {
+    // Collect only entities that resolve to an actual focusable area (Codex R3):
+    // `focus_target` is the §6.6.4 focusing-steps step-1 resolution + the shell
+    // overlay gate, so a C2-blind-focusable candidate that resolves to no focusable
+    // area — e.g. a `delegatesFocus` host with `tabindex` but no focusable delegate
+    // — is excluded from the Tab order (it would otherwise be selected as `next`
+    // and then dropped, since `set_focus` blurs on a `None` resolution, leaving Tab
+    // stuck). A `delegatesFocus` host *with* a delegate stays in the order (the
+    // host entity, ordered by the host's tabindex) and `set_focus` retargets to the
+    // delegate; collecting the delegate itself with full C2-aware ordering is PR-A3.
+    if super::focus::focus_target(dom, entity).is_some() {
         // §6.6.3 "rules for parsing integers" via the shared tabindex parser, so
         // the Tab-order collector agrees with `is_focusable` and the `tabIndex`
         // getter instead of running a second `str::parse::<i32>()` path: a
@@ -974,4 +983,57 @@ pub(super) fn try_route_key_to_iframe(
     }
 
     true
+}
+
+#[cfg(test)]
+mod tests {
+    use super::collect_focusable_entities;
+    use elidex_ecs::{Attributes, EcsDom, ShadowInit, ShadowRootMode};
+
+    #[test]
+    fn collect_focusable_entities_excludes_unresolvable_delegates_focus_host() {
+        // Codex R3: a `delegatesFocus` host with `tabindex` but no focusable
+        // delegate is C2-blind `is_focusable` yet resolves to NO focusable area, so
+        // it must not enter the Tab order — otherwise Tab selects it as `next` and
+        // `set_focus` blurs on the `None` resolution, dropping focus (and getting
+        // stuck on the same candidate next Tab). The collector now gates on
+        // `focus_target`, the §6.6.4 resolution + overlay gate.
+        let mut dom = EcsDom::new();
+        let doc = dom.create_document_root();
+
+        // A normal focusable element — must be collected.
+        let mut plain_attrs = Attributes::default();
+        plain_attrs.set("tabindex".to_string(), "0".to_string());
+        let plain = dom.create_element("div", plain_attrs);
+        let _ = dom.append_child(doc, plain);
+
+        // A `delegatesFocus` host with `tabindex` but an empty shadow tree — its
+        // `focus_target` is `None`, so it is excluded.
+        let mut host_attrs = Attributes::default();
+        host_attrs.set("tabindex".to_string(), "0".to_string());
+        let host = dom.create_element("div", host_attrs);
+        let _ = dom.append_child(doc, host);
+        let _sr = dom
+            .attach_shadow_with_init(
+                host,
+                ShadowInit {
+                    mode: ShadowRootMode::Open,
+                    delegates_focus: true,
+                    ..Default::default()
+                },
+            )
+            .expect("attach_shadow on <div tabindex>");
+
+        let mut result = Vec::new();
+        collect_focusable_entities(&dom, doc, &mut result, 0);
+        let collected: Vec<_> = result.iter().map(|(e, _)| *e).collect();
+        assert!(
+            collected.contains(&plain),
+            "a normal focusable element is collected into the Tab order"
+        );
+        assert!(
+            !collected.contains(&host),
+            "a delegatesFocus host with no delegate is excluded from the Tab order"
+        );
+    }
 }

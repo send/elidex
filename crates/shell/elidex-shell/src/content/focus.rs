@@ -49,7 +49,7 @@ use crate::PipelineResult;
 /// `FocusTrigger::Other` is used uniformly — `is_click_focusable` is presently
 /// always true (`predicate.rs`), so click vs. other does not diverge; threading
 /// the real trigger and the click→ancestor climb / editing-host fallback is PR-A2b.
-fn focus_target(dom: &elidex_ecs::EcsDom, entity: Entity) -> Option<Entity> {
+pub(crate) fn focus_target(dom: &elidex_ecs::EcsDom, entity: Entity) -> Option<Entity> {
     let area = if is_focusable_area(dom, entity) {
         entity
     } else {

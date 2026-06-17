@@ -163,32 +163,36 @@ pub fn unfocusing_steps(sink: &mut dyn FocusEventSink, old_target: Entity) {
 /// §6.6.4 **focus update steps** (`#focus-update-steps`), specialised to the
 /// single-element model: `old`/`new` are the focusable elements (chain leaves).
 fn focus_update_steps(sink: &mut dyn FocusEventSink, old: Option<Entity>, new: Option<Entity>) {
-    // Step 2 — losing side. Clear the FOCUS bit *before* every losing-side event
-    // so `document.activeElement` / `hasFocus` report `<body>` throughout the
-    // losing side. The literal spec keeps `old` designated as the focused area
-    // until step 4.1 (it is never undesignated in step 2); clearing early is a
-    // deliberate divergence with two motivations, the second load-bearing:
-    //   1. browser-parity for `blur`/`focusout` — the pre-A2a shell already
-    //      cleared before `blur` for this. (It cleared *after* `change`, so a
-    //      `change` listener there still observed `old` as `activeElement`; A2a
-    //      no longer does — see motivation 2.)
-    //   2. reentrancy (load-bearing): the step-4 gate detects a reentrant
-    //      `focus()` fired from a losing-side listener as `current_focus()
-    //      .is_some()`, which is only an exact signal if the bit is already None
-    //      when the listener runs. So the clear must precede `change` too — A2a's
-    //      extension over the pre-A2a clear-before-blur. Clearing only before
-    //      `blur` would let a reentrant focus from a `change` listener be wiped by
-    //      this very clear (the pre-A2a R11 race).
-    set_focus_bit(sink.dom(), None);
+    let doc = sink.document();
+    // Step 2.1 — `change`, fired while `old` is *still the designated focused
+    // area*: §6.6.4 keeps `old` designated until step 4.1 (it is never undesignated
+    // in step 2), so `document.activeElement` / `hasFocus` / `:focus` inside a
+    // `change` handler still see `old`, the control being committed.
     if let Some(old) = old {
         sink.commit_change_on_blur(old); // step 2.1 — change (snapshot consume)
+                                         // The `change` handler may have reentrantly called `focus()`/`blur()`,
+                                         // moving the FOCUS bit off `old`. If so, that reentrant transition wins
+                                         // (reentrant-wins) and has already fired its own `blur`/`focus` — the outer
+                                         // transition must not clobber it.
+        if current_focus(sink.dom(), doc) != Some(old) {
+            return;
+        }
+    }
+    // Steps 2.2-2.4 — clear the FOCUS bit *before* `blur`/`focusout`, then fire
+    // them. elidex browser-parity: `document.activeElement` / `hasFocus` report
+    // `<body>` during `blur`/`focusout` (the pre-A2a shell + real browsers both do
+    // this; the literal spec keeps `old` designated until step 4.1). Clearing here
+    // — after `change`, before `blur` — also makes the step-4 gate's
+    // `current_focus().is_some()` an exact reentrancy signal for the blur side
+    // (the change side is guarded above, while `old` is still designated).
+    set_focus_bit(sink.dom(), None);
+    if let Some(old) = old {
         sink.fire_focus_event(old, FocusEventKind::Blur, new); // steps 2.2-2.4
     }
     // Step 3 — platform conventions: no-op.
-    // Step 4 — reentrancy gate (reentrant-wins): a `change`/`blur` listener may
-    // have called `focus()`/`blur()`, designating a new focused area after the
-    // step-2 clear. If focus already moved, that reentrant focus wins.
-    let doc = sink.document();
+    // Step 4 — reentrancy gate (reentrant-wins): a `blur`/`focusout` listener may
+    // have designated a new focused area after the step-2 clear. If focus already
+    // moved, that reentrant focus wins.
     if current_focus(sink.dom(), doc).is_some() {
         return;
     }
@@ -232,6 +236,11 @@ mod tests {
         /// a focus-handler `value` write must be in the baseline, so `seeds` is
         /// still empty at focus-event time).
         seeds_len_at_focus: Option<usize>,
+        /// `current_focus` captured when the `change` event fires — pins that the
+        /// old control is STILL the designated focused area during `change` (Codex
+        /// R3: §6.6.4 keeps `old` designated until step 4.1). `None` means either
+        /// no `change` fired or no focus at that point; `changes` disambiguates.
+        focus_at_change: Option<Entity>,
     }
 
     struct TestSink<'a> {
@@ -263,6 +272,10 @@ mod tests {
             self.document
         }
         fn commit_change_on_blur(&mut self, old: Entity) {
+            // Capture who is the designated focused area at `change` time — must
+            // still be `old` (§6.6.4 step 2.1 precedes the step-4.1 re-designation).
+            let doc = self.document;
+            self.rec.focus_at_change = current_focus(self.dom, doc);
             self.rec.changes.push(old);
         }
         fn seed_focus_snapshot(&mut self, new: Entity) {
@@ -322,6 +335,12 @@ mod tests {
             Some(0),
             "the change-on-blur snapshot is seeded AFTER the focus event (Codex R2: \
              a focus-handler value write must be in the baseline, not a user edit)"
+        );
+        assert_eq!(
+            rec.focus_at_change,
+            Some(a),
+            "the losing control is STILL the designated focused area during `change` \
+             (Codex R3: §6.6.4 keeps `old` designated until step 4.1)"
         );
         assert_eq!(current_focus(&dom, doc), Some(b));
     }
