@@ -136,7 +136,7 @@ pub fn select_get_value(dom: &EcsDom, select: Entity) -> String {
     String::new()
 }
 
-/// Set `<select>.value` (HTML §4.10.7.4 value setter).
+/// Set `<select>.value` (HTML §4.10.7 The select element, value setter; `#dom-select-value`).
 ///
 /// The first option whose value (per [`option_value_string`]) equals
 /// `target` becomes selected; all other options have their `selected`
