@@ -183,6 +183,22 @@ mod tests {
     }
 
     #[test]
+    fn invalid_two_sided_range_is_general_enclosed_not_definite() {
+        // §3 `<mf-range>`: two-sided form requires both ops same-direction, no
+        // `=`. Mixed / `=` two-sided → `<general-enclosed>` → Kleene unknown,
+        // NOT a definite Range. (C1 regression.)
+        let env = landscape(); // width 1024
+                               // mixed `<`…`>` — was wrongly true (built `>400 AND >700`).
+        assert!(!matches("(400px < width > 700px)", &env));
+        // `=` in two-sided — was wrongly negatable.
+        assert!(!matches("not (400px = width = 700px)", &env));
+        // unknown→false at the boundary, and `or true` still true (unknown OR true).
+        assert!(matches("(400px < width > 700px) or (min-width: 1px)", &env));
+        // single-sided `=` value-first stays valid (§ allows `<mf-eq>` there).
+        assert!(matches("(1024px = width)", &env));
+    }
+
+    #[test]
     fn aspect_ratio_and_resolution() {
         let env = landscape(); // 1024/768 ≈ 1.333
         assert!(matches("(min-aspect-ratio: 1/1)", &env));
@@ -190,6 +206,16 @@ mod tests {
         assert!(matches("(min-resolution: 1dppx)", &env));
         assert!(!matches("(min-resolution: 2dppx)", &env));
         assert!(matches("(resolution: 96dpi)", &env)); // 96dpi == 1dppx
+    }
+
+    #[test]
+    fn negative_ratio_components_are_not_all() {
+        // `<ratio>` is `[0,∞]` (css-values-4 §5.7) — a negative component is
+        // outside the value syntax → §3.2 `not all`. (I1 regression.)
+        let env = landscape();
+        assert!(!matches("(min-aspect-ratio: -1/1)", &env));
+        assert!(!matches("(aspect-ratio: -2)", &env));
+        assert!(!matches("(min-aspect-ratio: 1/-1)", &env));
     }
 
     // --- §4.4 orientation + MQ5 §12 prefers-* -----------------------------

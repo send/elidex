@@ -61,12 +61,12 @@ fn or_tri(a: Tri, b: Tri) -> Tri {
 }
 
 /// Evaluate a `<media-query-list>` against an environment — mediaqueries-4
-/// §3.1. ORs over the queries (§2.1). An empty list evaluates to `true` (§3).
+/// §3.1. ORs over the queries (§2.1). An empty list evaluates to `true` (§2.1).
 /// This is the sole 2-valued boundary: each query's top-level `Tri::Unknown`
 /// is coerced to `false` here.
 #[must_use]
 pub fn evaluate(list: &MediaQueryList, env: &MediaEnvironment) -> bool {
-    // §3: an empty media query list evaluates to true.
+    // §2.1: an empty media query list evaluates to true.
     if list.0.is_empty() {
         return true;
     }

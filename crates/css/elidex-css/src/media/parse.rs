@@ -23,7 +23,7 @@ use super::types::*;
 /// Total: a grammar-malformed or unknown-feature `<media-query>` is replaced
 /// by the `not all` sentinel per §3.2, recovering at the next top-level comma;
 /// the rest of the list is unaffected. An empty/whitespace string yields the
-/// empty list (which evaluates to `true`, §3).
+/// empty list (§3 accepts an empty list; it evaluates to `true` per §2.1).
 #[must_use]
 pub fn parse_media_query_list(text: &str) -> MediaQueryList {
     let mut input = ParserInput::new(text);
@@ -336,6 +336,14 @@ fn parse_value_first(input: &mut Parser<'_, '_>) -> Result<MediaFeature, FeatErr
     let v1 = coerce_raw(raw1, rf).ok_or(FeatErr::Invalid)?;
     // optional second `<op> <value>` for `a <= width <= b`.
     if let Some(op2) = try_comparison(input) {
+        // §3 `<mf-range>`: a two-sided form is only
+        // `<value> <mf-lt> <name> <mf-lt> <value>` or the `<mf-gt>` dual — both
+        // comparisons same-direction, and `=` is not allowed. Anything else
+        // (mixed `<`…`>`, or any `=`) matches `( <any-value> )` but not
+        // `<mf-range>` → `<general-enclosed>` (Kleene unknown), NOT a Range.
+        if !same_direction_range(op1, op2) {
+            return Err(FeatErr::NotShaped);
+        }
         input.skip_whitespace();
         let raw2 = parse_mf_value(input).map_err(|()| FeatErr::Invalid)?;
         input.skip_whitespace();
@@ -433,8 +441,11 @@ fn coerce_raw(raw: RawMfValue, rf: RangeFeature) -> Option<RangeValue> {
             _ => None,
         },
         RangeFeature::AspectRatio => match raw {
-            RawMfValue::Ratio(n, d) if d != 0.0 => Some(RangeValue::Ratio(n / d)),
-            RawMfValue::Number(n) => Some(RangeValue::Ratio(n)),
+            // `<ratio>` components are non-negative (css-values-4 §5.7); a
+            // negative component or a non-positive denominator is outside the
+            // value syntax → None (→ §3.2 `not all`).
+            RawMfValue::Ratio(n, d) if n >= 0.0 && d > 0.0 => Some(RangeValue::Ratio(n / d)),
+            RawMfValue::Number(n) if n >= 0.0 => Some(RangeValue::Ratio(n)),
             _ => None,
         },
         RangeFeature::Resolution => match raw {
@@ -503,6 +514,14 @@ fn flip_op(op: RangeOp) -> RangeOp {
         RangeOp::Ge => RangeOp::Le,
         RangeOp::Eq => RangeOp::Eq,
     }
+}
+
+/// §3 `<mf-range>` two-sided forms require both comparisons to be the same
+/// direction (`<`/`<=` … `<`/`<=` or `>`/`>=` … `>`/`>=`); `=` is not allowed
+/// in either slot.
+fn same_direction_range(op1: RangeOp, op2: RangeOp) -> bool {
+    use RangeOp::{Ge, Gt, Le, Lt};
+    matches!((op1, op2), (Lt | Le, Lt | Le) | (Gt | Ge, Gt | Ge))
 }
 
 /// Split a legacy `min-`/`max-` prefix off a range feature name.

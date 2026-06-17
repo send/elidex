@@ -11,7 +11,7 @@ use elidex_plugin::LengthUnit;
 ///
 /// `evaluate` ORs over the queries (§2.1 Combining Media Queries). An empty
 /// list (`MediaQueryList(vec![])`, produced from an empty/whitespace query
-/// string) evaluates to `true` per §3.
+/// string) evaluates to `true` per §2.1.
 #[derive(Clone, Debug, PartialEq)]
 pub struct MediaQueryList(pub Vec<MediaQuery>);
 
