@@ -232,12 +232,23 @@ fn collect_control_entry(dom: &EcsDom, entity: Entity, entries: &mut Vec<FormDat
     match fcs.kind {
         FormControlKind::Checkbox | FormControlKind::Radio => {
             if fcs.checked {
+                // HTML §4.10.19.6 "Constructing the entry list" step 7:
+                // a checkbox/radio submits the value of its `value` CONTENT
+                // ATTRIBUTE if specified, otherwise "on" — NOT the live
+                // value (step 10's "value of the field element", used for
+                // hidden / text).  `default_value` mirrors the `value`
+                // content attribute for every `<input>` kind; for the
+                // common (non-dirty) checkbox the two coincide, but a dirty
+                // value-mode → checkbox/default-on type change decouples the
+                // live value from the content attribute (the value IDL is in
+                // default/on mode), so the content-attribute mirror is the
+                // correct submission source.
                 entries.push(FormDataEntry {
                     name: fcs.name.clone(),
-                    value: if fcs.value.is_empty() {
+                    value: if fcs.default_value.is_empty() {
                         "on".to_string()
                     } else {
-                        fcs.value.clone()
+                        fcs.default_value.clone()
                     },
                 });
             }
@@ -484,6 +495,40 @@ mod tests {
         let data = collect_form_data(&dom, form);
         assert_eq!(data.len(), 1);
         assert_eq!(data[0].value, "on");
+    }
+
+    #[test]
+    fn checkbox_submits_value_content_attribute_not_stale_live_value() {
+        // HTML §4.10.19.6 step 7: a checkbox submits the value of its
+        // `value` content attribute (mirrored by `default_value`), NOT the
+        // live value (step 10's "value of the field element", used for
+        // hidden/text).  A dirty value-mode → checkbox/default-on type
+        // change decouples the two — the live value is frozen by the dirty
+        // flag while the default/on IDL setter updates the content
+        // attribute — so submission must follow the content-attribute
+        // mirror to stay consistent with the IDL `value` getter.
+        let mut dom = EcsDom::new();
+        let form = dom.create_element("form", Attributes::default());
+        let mut attrs = Attributes::default();
+        attrs.set("type", "checkbox");
+        attrs.set("name", "c");
+        let cb = dom.create_element("input", attrs.clone());
+        let mut fcs = FormControlState::from_element("input", &attrs).unwrap();
+        fcs.checked = true;
+        // Simulate the post-(dirty type-change + default/on setter) state:
+        // the content-attribute mirror moved to "secret" while the live
+        // value is the dirty-frozen "abc".
+        fcs.default_value = "secret".to_string();
+        fcs.value = "abc".to_string();
+        let _ = dom.world_mut().insert_one(cb, fcs);
+        let _ = dom.append_child(form, cb);
+
+        let data = collect_form_data(&dom, form);
+        assert_eq!(data.len(), 1);
+        assert_eq!(
+            data[0].value, "secret",
+            "checkbox submits the `value` content attribute, not the stale live value"
+        );
     }
 
     #[test]
