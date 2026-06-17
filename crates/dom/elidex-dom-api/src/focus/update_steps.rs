@@ -34,7 +34,8 @@
 use elidex_ecs::{EcsDom, Entity};
 
 use super::{
-    current_focus, get_the_focusable_area, is_focusable_area, set_focus_bit, FocusTrigger,
+    current_focus, get_the_focusable_area, is_focusable_area, is_in_document, set_focus_bit,
+    FocusTrigger,
 };
 
 /// The §6.6.4 focus events the canonical transition fires through the sink. Only
@@ -126,6 +127,15 @@ pub fn focusing_steps(
     // = PR-A2b / `#11-oop-iframe-focus-lifecycle`). Step 4 (inert) — `inert`
     // unmodelled. Both no-op.
     let doc = sink.document();
+    // The resolved target must belong to the bound document. `is_focusable_area`
+    // only checks connectedness, so a focusable element in *another* connected
+    // document in the same `EcsDom` (e.g. a `document.cloneNode()` subtree, reached
+    // via the VM `HTMLElement.focus()` cutover, PR-A2c) would otherwise reach the
+    // transition and have the world-wide `set_focus_bit` sweep the live document's
+    // `FOCUS` bit. Guard it here, matching the bit-level writer's own check.
+    if !is_in_document(sink.dom(), target, doc) {
+        return;
+    }
     let old = current_focus(sink.dom(), doc);
     // Step 5 — already the focused area: nothing to do. (Also preserves the
     // change-on-blur reseed suppression — a re-`focus()` after a user edit must
@@ -173,11 +183,16 @@ fn focus_update_steps(sink: &mut dyn FocusEventSink, old: Option<Entity>, new: O
     // `#11-focus-change-user-validity`.)
     if let Some(old) = old {
         sink.commit_change_on_blur(old); // step 2.1 — change (snapshot consume)
-                                         // The `change` handler may have reentrantly called `focus()`/`blur()`,
-                                         // moving the FOCUS bit off `old`. If so, that reentrant transition wins
-                                         // (reentrant-wins) and has already fired its own `blur`/`focus` — the outer
-                                         // transition must not clobber it.
-        if current_focus(sink.dom(), doc) != Some(old) {
+                                         // The `change` handler may have reentrantly designated a *different* focused
+                                         // area via `focus()`. If so, that reentrant transition wins (reentrant-wins)
+                                         // and has already fired its own `blur`/`focus` — the outer transition must
+                                         // not clobber it. But a handler that merely *clears* the old focus (removes
+                                         // `old`, so `fire_after_remove` clears the bit, or calls the bit-level
+                                         // `blur()`) leaves `current_focus` None with no reentrant target — there the
+                                         // outer transition must still proceed to designate `new` (don't cancel the
+                                         // user's pending click/Tab move). So return only on a reentrant focus to
+                                         // some *other* element, never on a bare clear.
+        if current_focus(sink.dom(), doc).is_some_and(|c| c != old) {
             return;
         }
     }
@@ -258,6 +273,10 @@ mod tests {
         /// `focus()` from a `blur`/`change` listener (exercises the reentrant-wins
         /// gate without re-entering the public API).
         reentrant_on_blur: Option<Entity>,
+        /// On `change`, clear the FOCUS bit (no reentrant target) — simulating a
+        /// `change` handler that removes / bit-level-`blur()`s the old control
+        /// (Codex R5: a bare clear must not cancel the pending focus move).
+        clear_on_change: bool,
     }
 
     impl<'a> TestSink<'a> {
@@ -267,6 +286,7 @@ mod tests {
                 document,
                 rec: Recorded::default(),
                 reentrant_on_blur: None,
+                clear_on_change: false,
             }
         }
     }
@@ -284,6 +304,11 @@ mod tests {
             let doc = self.document;
             self.rec.focus_at_change = current_focus(self.dom, doc);
             self.rec.changes.push(old);
+            if self.clear_on_change {
+                // A `change` handler that removes / `blur()`s the old control: the
+                // FOCUS bit is cleared with NO reentrant target.
+                set_focus_bit(self.dom, None);
+            }
         }
         fn seed_focus_snapshot(&mut self, new: Entity) {
             self.rec.seeds.push(new);
@@ -453,5 +478,64 @@ mod tests {
         assert_eq!(current_focus(&dom, doc), Some(c));
         assert_eq!(rec.events, vec![(a, FocusEventKind::Blur, Some(b))]);
         assert!(rec.seeds.is_empty(), "the outer transition seeds nothing");
+    }
+
+    #[test]
+    fn change_handler_clearing_old_focus_still_focuses_new() {
+        // Codex R5: a `change` listener that merely CLEARS the old focus (removes
+        // the control so `fire_after_remove` clears the bit, or calls bit-level
+        // `blur()`) — without focusing another element — must NOT cancel the pending
+        // focus move; the transition still designates `new`. The change-side gate
+        // returns only on a reentrant focus to a *different* element, not a bare
+        // clear (which would leave focus on the viewport).
+        let mut dom = EcsDom::new();
+        let (doc, a, b) = doc_with_two(&mut dom);
+        set_focus_bit(&mut dom, Some(a));
+
+        let rec = {
+            let mut sink = TestSink::new(&mut dom, doc);
+            sink.clear_on_change = true; // the `change` handler clears `a`'s bit
+            focusing_steps(&mut sink, b, None, FocusTrigger::Other);
+            sink.rec
+        };
+
+        // `b` is focused (the bare clear did not cancel the move), and the full
+        // losing→gaining sequence still ran.
+        assert_eq!(current_focus(&dom, doc), Some(b));
+        assert_eq!(
+            rec.events,
+            vec![
+                (a, FocusEventKind::Blur, Some(b)),
+                (b, FocusEventKind::Focus, Some(a)),
+            ]
+        );
+        assert_eq!(rec.seeds, vec![b]);
+    }
+
+    #[test]
+    fn focusing_a_target_outside_the_bound_document_is_a_noop() {
+        // Codex R5: the seam must reject a focus target in another connected
+        // document in the same `EcsDom` (e.g. a cloned subtree reachable via the VM
+        // `focus()` cutover) — else the world-wide `set_focus_bit` would sweep the
+        // bound document's bit. `is_focusable_area` only checks connectedness.
+        let mut dom = EcsDom::new();
+        let (doc, a, _b) = doc_with_two(&mut dom);
+        set_focus_bit(&mut dom, Some(a));
+        // A focusable element in a SEPARATE document root.
+        let other_doc = dom.create_document_root();
+        let other = focusable_div(&mut dom);
+        let _ = dom.append_child(other_doc, other);
+
+        let rec = {
+            let mut sink = TestSink::new(&mut dom, doc);
+            focusing_steps(&mut sink, other, None, FocusTrigger::Other);
+            sink.rec
+        };
+
+        // The cross-document target is rejected: the bound document keeps `a`, and
+        // no transition events fire.
+        assert_eq!(current_focus(&dom, doc), Some(a));
+        assert!(rec.events.is_empty());
+        assert!(rec.changes.is_empty());
     }
 }
