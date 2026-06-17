@@ -593,6 +593,15 @@ impl FormControlState {
     /// `from_input_element`, the reconciler `value`-arm,
     /// `sanitize_for_type_change`) sets `self.value` then calls this —
     /// no site is exempt.
+    ///
+    /// The clamp operates on the crate's **byte** offsets, whereas HTML
+    /// §4.10.20 preserves/clamps the relevant-value-change selection in
+    /// **UTF-16 code-unit** offsets.  For ASCII values the two coincide; for
+    /// a multibyte value change an in-range byte offset can correspond to a
+    /// different code-unit offset than the spec preserves.  The whole
+    /// selection subsystem is byte-internal (converting to UTF-16 only at
+    /// the IDL boundary), so code-unit-correct clamping is the deferred
+    /// `#11-selection-offset-utf16-units` migration, not a per-call-site fix.
     pub(crate) fn settle_value(&mut self) {
         sanitize::sanitize_value(self);
         self.update_char_count();
