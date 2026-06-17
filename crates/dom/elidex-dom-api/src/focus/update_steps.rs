@@ -167,7 +167,10 @@ fn focus_update_steps(sink: &mut dyn FocusEventSink, old: Option<Entity>, new: O
     // Step 2.1 — `change`, fired while `old` is *still the designated focused
     // area*: §6.6.4 keeps `old` designated until step 4.1 (it is never undesignated
     // in step 2), so `document.activeElement` / `hasFocus` / `:focus` inside a
-    // `change` handler still see `old`, the control being committed.
+    // `change` handler still see `old`, the control being committed. (Step 2.1's
+    // sub-step 1, "set the control's user validity to true", is deferred — elidex
+    // does not model the user-validity / `:user-valid` flag yet; slot
+    // `#11-focus-change-user-validity`.)
     if let Some(old) = old {
         sink.commit_change_on_blur(old); // step 2.1 — change (snapshot consume)
                                          // The `change` handler may have reentrantly called `focus()`/`blur()`,
@@ -197,7 +200,11 @@ fn focus_update_steps(sink: &mut dyn FocusEventSink, old: Option<Entity>, new: O
         return;
     }
     if let Some(new) = new {
-        set_focus_bit(sink.dom(), Some(new)); // step 4.1 — designate (SoT last)
+        // Step 4.1 — designate `new` as the focused area (SoT last). Sub-step 1,
+        // "set the navigation API's focus changed during ongoing navigation to
+        // true", is unmodelled (elidex has no Navigation API; permanent no-op until
+        // that surface lands).
+        set_focus_bit(sink.dom(), Some(new));
         sink.fire_focus_event(new, FocusEventKind::Focus, old); // steps 4.2-4.4
                                                                 // Seed the change-on-blur baseline AFTER the `focus`/`focusin` listeners,
                                                                 // so a listener's programmatic `value` write is part of the baseline and is
