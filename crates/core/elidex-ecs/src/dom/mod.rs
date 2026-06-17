@@ -25,8 +25,8 @@ mod tree_clone;
 pub use mutation_event::{MutationDispatcher, MutationEvent};
 
 use crate::components::{
-    AssociatedDocument, AttrData, Attributes, CommentData, DocTypeData, DocumentBaseUrl, Namespace,
-    NodeKind, ShadowRoot, TagType, TextContent, TreeRelation,
+    AssociatedDocument, AttrData, AttrEntityCache, Attributes, CommentData, DocTypeData,
+    DocumentBaseUrl, Namespace, NodeKind, ShadowRoot, TagType, TextContent, TreeRelation,
 };
 use hecs::{Entity, World};
 
@@ -1164,8 +1164,34 @@ impl EcsDom {
         if did_set {
             self.reconcile_attribute_derived_components(entity, name);
             self.rev_version(entity);
+            self.sync_cached_attr_value(entity, name, value);
         }
         (did_set, old_value)
+    }
+
+    /// Keep any materialized `Attr` node (the entity `getAttributeNode(name)`
+    /// returns) in sync with a chokepoint attribute write, so a captured
+    /// `attr.value` reflects the new value without breaking Attr-node
+    /// identity (WHATWG DOM §4.9 — the same object is returned across reads).
+    ///
+    /// This belongs in the [`set_attribute`](Self::set_attribute) chokepoint
+    /// (not only the IDL `Element.setAttribute` handler) so that EVERY
+    /// attribute write routed through the chokepoint — reflected IDL setters
+    /// (`input.value` default mode, `defaultValue`, `formMethod`, …), the
+    /// parser, and the reconciler's non-dispatching writes — keeps cached
+    /// Attr nodes consistent.  A no-op when no Attr node was materialized for
+    /// `name` (the common case).
+    fn sync_cached_attr_value(&mut self, entity: Entity, name: &str, value: &str) {
+        let cached_attr = self
+            .world
+            .get::<&AttrEntityCache>(entity)
+            .ok()
+            .and_then(|cache| cache.entries.get(name).copied());
+        if let Some(attr_entity) = cached_attr {
+            if let Ok(mut ad) = self.world.get::<&mut AttrData>(attr_entity) {
+                value.clone_into(&mut ad.value);
+            }
+        }
     }
 
     /// Remove attribute `name` from `entity` if present, then bump

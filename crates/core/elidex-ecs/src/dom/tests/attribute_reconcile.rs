@@ -39,6 +39,40 @@ fn set_attribute_rederives_iframe_data_src() {
 }
 
 #[test]
+fn set_attribute_syncs_cached_attr_node_value() {
+    use crate::components::{AttrData, AttrEntityCache};
+    use std::collections::HashMap;
+
+    let mut dom = EcsDom::new();
+    let mut attrs = Attributes::default();
+    attrs.set("value", "old");
+    let el = dom.create_element("input", attrs);
+
+    // Materialize the `Attr` node as `getAttributeNode("value")` would: an
+    // `AttrData` entity + an `AttrEntityCache` mapping on the element.
+    let attr_entity = dom.world_mut().spawn((AttrData {
+        local_name: "value".to_string(),
+        value: "old".to_string(),
+        owner_element: Some(el),
+    },));
+    let mut cache = AttrEntityCache {
+        entries: HashMap::new(),
+    };
+    cache.entries.insert("value".to_string(), attr_entity);
+    dom.world_mut().insert_one(el, cache).unwrap();
+
+    // A chokepoint write (ANY caller — a reflected IDL setter such as
+    // `input.value` in default mode, the parser, or the reconciler — not
+    // only `Element.setAttribute`) keeps the cached Attr node in sync.
+    dom.set_attribute(el, "value", "new");
+    assert_eq!(
+        dom.world().get::<&AttrData>(attr_entity).unwrap().value,
+        "new",
+        "the set_attribute chokepoint syncs cached Attr-node values"
+    );
+}
+
+#[test]
 fn remove_attribute_rederives_iframe_data_src_to_none() {
     let mut dom = EcsDom::new();
     let el = iframe_with_data(&mut dom);
