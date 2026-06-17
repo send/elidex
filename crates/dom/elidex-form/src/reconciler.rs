@@ -21,11 +21,12 @@
 
 use elidex_ecs::{EcsDom, Entity, MutationEvent, TagType};
 
+use crate::value_mode::apply_type_change_value_migration;
 use crate::{
     clear_focus_snapshot, compile_pattern_regex, create_form_control_state,
     sanitize_for_type_change,
 };
-use crate::{FormControlKind, FormControlState, ValueMode};
+use crate::{FormControlKind, FormControlState};
 
 /// [`MutationEvent`] consumer maintaining [`FormControlState`] derived
 /// fields against attribute mutations.
@@ -317,83 +318,6 @@ fn handle_attribute_change(node: Entity, name: &str, new_value: Option<&str>, do
 
         // Attribute not in FormControlState — ignore.
         _ => {}
-    }
-}
-
-/// HTML §4.10.5 "When an input element's type attribute changes state"
-/// **steps 1–3** — the value-mode value migration that precedes value
-/// sanitization (steps 6–9, [`sanitize_for_type_change`]).  A
-/// mutually-exclusive if / else-if / else-if chain on the previous vs
-/// new [`ValueMode`] (the spec's "Otherwise, if …" structure).
-///
-/// Runs at the `set_attribute("type")` chokepoint (the canonical
-/// type-change site) while `FormControlState.kind` is still `old_kind`;
-/// the caller updates the kind and runs `sanitize_for_type_change`
-/// (which settles the value under `new_kind`) immediately after, so this
-/// sets **raw fields only** — no value sanitization here.
-///
-/// - **Step 1** (prev value mode, value ≠ "", new default | default/on):
-///   set the `value` content attribute to the live value, via
-///   [`EcsDom::set_attribute_without_dispatch`] — the reconciler runs
-///   inside `MutationDispatcher::dispatch` and must not re-enter
-///   `set_attribute` (re-entry contract).  That non-dispatching write
-///   suppresses the entire `AttributeChange` consumer fan-out, so the
-///   `value`-arm's `default_value` mirror (the sole effect step 1 needs)
-///   is reproduced inline.
-/// - **Step 2** (prev mode ≠ value, new value mode): set the live value
-///   from the `value` content attribute (mirrored by `default_value`) and
-///   clear the dirty value flag.
-/// - **Step 3** (prev mode ≠ filename, new filename mode): empty the
-///   live value.
-fn apply_type_change_value_migration(
-    old_kind: FormControlKind,
-    new_kind: FormControlKind,
-    dom: &mut EcsDom,
-    node: Entity,
-) {
-    let old_mode = old_kind.value_idl_mode();
-    let new_mode = new_kind.value_idl_mode();
-    if old_mode == new_mode {
-        return; // no value-mode transition — steps 1–3 are all no-ops
-    }
-
-    // Step 1: previous value mode → default | default/on (value ≠ "").
-    if old_mode == ValueMode::Value && matches!(new_mode, ValueMode::Default | ValueMode::DefaultOn)
-    {
-        let Ok(live) = dom
-            .world()
-            .get::<&FormControlState>(node)
-            .map(|s| s.value().to_owned())
-        else {
-            return;
-        };
-        if live.is_empty() {
-            return; // step 1 requires a non-empty value
-        }
-        dom.set_attribute_without_dispatch(node, "value", &live);
-        // Reproduce the suppressed value-arm `default_value` mirror.
-        if let Ok(mut state) = dom.world_mut().get::<&mut FormControlState>(node) {
-            state.default_value = live;
-        }
-        return;
-    }
-
-    // Step 2: previous mode ≠ value → value mode.  (`old_mode != new_mode`
-    // + the step-1 branch above exclude `old_mode == Value` here, so the
-    // spec's "previous … in any mode other than the value mode" holds.)
-    if new_mode == ValueMode::Value {
-        if let Ok(mut state) = dom.world_mut().get::<&mut FormControlState>(node) {
-            state.migrate_value_from_content_attr();
-        }
-        return;
-    }
-
-    // Step 3: previous mode ≠ filename → filename mode.  (`old_mode !=
-    // new_mode` + `new_mode == Filename` imply `old_mode != Filename`.)
-    if new_mode == ValueMode::Filename {
-        if let Ok(mut state) = dom.world_mut().get::<&mut FormControlState>(node) {
-            state.clear_value_for_type_change();
-        }
     }
 }
 
@@ -1004,142 +928,6 @@ mod tests {
             assert_eq!(
                 s.value, "a\nb",
                 "multiple toggle on a non-email must not sanitize (newline kept)"
-            );
-        });
-    }
-
-    // ---- HTML §4.10.5 type-change value migration (steps 1–3) ----
-
-    /// Step 1: a value-mode control with a non-empty (dirty) live value
-    /// becoming default/default-on writes the live value into the `value`
-    /// content attribute (+ mirrors `default_value`).
-    #[test]
-    fn tc1_value_to_default_writes_live_value_into_content_attr() {
-        let (mut dom, e) = setup("input", &[]); // text (value mode)
-        {
-            let mut state = dom.world_mut().get::<&mut FormControlState>(e).unwrap();
-            state.set_value("abc".to_string()); // dirty live value, no `value` attr
-        }
-        assert!(dom.set_attribute(e, "type", "hidden")); // → default mode
-                                                         // Step 1 migrated the live value into the content attribute...
-        assert_eq!(
-            dom.with_attribute(e, "value", |v| v.map(str::to_owned)),
-            Some("abc".to_string())
-        );
-        // ...and reproduced the value-arm `default_value` mirror inline.
-        // Step 1 does not touch the live value (spec sets only the content
-        // attribute), so it is preserved (now irrelevant in default mode).
-        with_fcs(&dom, e, |s| {
-            assert_eq!(s.kind, FormControlKind::Hidden);
-            assert_eq!(s.default_value, "abc");
-            assert_eq!(s.value, "abc");
-        });
-    }
-
-    /// Step 1 no-op when the live value is empty (the spec gates step 1 on
-    /// a non-empty value): no `value` content attribute is created.
-    #[test]
-    fn tc1_value_to_default_empty_value_is_noop() {
-        let (mut dom, e) = setup("input", &[]); // text, empty value
-        assert!(dom.set_attribute(e, "type", "hidden"));
-        assert_eq!(
-            dom.with_attribute(e, "value", |v| v.map(str::to_owned)),
-            None
-        );
-    }
-
-    /// Step 2: a non-value-mode control becoming value mode adopts the
-    /// `value` content attribute as its live value and clears the dirty
-    /// value flag.
-    #[test]
-    fn tc2_default_to_value_adopts_content_attr_and_clears_dirty() {
-        let (mut dom, e) = setup("input", &[("type", "hidden"), ("value", "x")]);
-        with_fcs(&dom, e, |s| {
-            assert_eq!(s.kind, FormControlKind::Hidden);
-            assert_eq!(s.default_value, "x");
-        });
-        assert!(dom.set_attribute(e, "type", "text")); // → value mode
-        with_fcs(&dom, e, |s| {
-            assert_eq!(s.kind, FormControlKind::TextInput);
-            assert_eq!(s.value, "x");
-            assert!(!s.dirty_value, "step 2 clears the dirty value flag");
-        });
-    }
-
-    /// Step 3: any non-filename control becoming the filename mode empties
-    /// the live value.
-    #[test]
-    fn tc3_to_filename_empties_value() {
-        let (mut dom, e) = setup("input", &[]); // text
-        {
-            let mut state = dom.world_mut().get::<&mut FormControlState>(e).unwrap();
-            state.set_value("abc".to_string());
-        }
-        assert!(dom.set_attribute(e, "type", "file")); // → filename mode
-        with_fcs(&dom, e, |s| {
-            assert_eq!(s.kind, FormControlKind::File);
-            assert_eq!(
-                s.value, "",
-                "step 3 empties the value on entry to filename mode"
-            );
-        });
-    }
-
-    /// A value-mode → value-mode type change runs no migration (the live
-    /// value is preserved, modulo the new kind's sanitization).
-    #[test]
-    fn tc_value_to_value_preserves_live_value() {
-        let (mut dom, e) = setup("input", &[]); // text
-        {
-            let mut state = dom.world_mut().get::<&mut FormControlState>(e).unwrap();
-            state.set_value("hello".to_string());
-        }
-        assert!(dom.set_attribute(e, "type", "search")); // value → value
-        with_fcs(&dom, e, |s| {
-            assert_eq!(s.kind, FormControlKind::Search);
-            assert_eq!(s.value, "hello");
-            assert!(
-                s.dirty_value,
-                "value→value migration must not touch dirty flag"
-            );
-        });
-    }
-
-    /// Step 2 via the filename → value entry path (distinct from the
-    /// default → value path in `tc2`): `file` (filename mode) → `text`
-    /// adopts the `value` content attribute as the live value.
-    #[test]
-    fn tc2_filename_to_value_adopts_content_attr() {
-        let (mut dom, e) = setup("input", &[("type", "file"), ("value", "x")]);
-        with_fcs(&dom, e, |s| {
-            assert_eq!(s.kind, FormControlKind::File);
-            assert_eq!(s.default_value, "x");
-        });
-        assert!(dom.set_attribute(e, "type", "text")); // filename → value mode
-        with_fcs(&dom, e, |s| {
-            assert_eq!(s.kind, FormControlKind::TextInput);
-            assert_eq!(s.value, "x");
-            assert!(!s.dirty_value, "step 2 clears the dirty value flag");
-        });
-    }
-
-    /// A same-value-mode type change (default → default, e.g. hidden →
-    /// submit) hits the `old_mode == new_mode` early return: no value
-    /// migration runs, so the live value + dirty flag are untouched.
-    #[test]
-    fn tc_same_mode_default_to_default_is_noop() {
-        let (mut dom, e) = setup("input", &[("type", "hidden")]);
-        {
-            let mut state = dom.world_mut().get::<&mut FormControlState>(e).unwrap();
-            state.set_value("keep".to_string()); // dirty live value
-        }
-        assert!(dom.set_attribute(e, "type", "submit")); // default → default
-        with_fcs(&dom, e, |s| {
-            assert_eq!(s.kind, FormControlKind::SubmitButton);
-            assert_eq!(s.value, "keep", "same-mode transition runs no migration");
-            assert!(
-                s.dirty_value,
-                "same-mode transition must not touch dirty flag"
             );
         });
     }
