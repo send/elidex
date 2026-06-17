@@ -189,10 +189,11 @@ fn sanitize_noop_kinds_untouched() {
 }
 
 #[test]
-fn sanitize_resyncs_char_count_and_selection_on_shorten() {
-    // G2: a value-shortening sanitize must re-sync char_count and clamp
-    // the cursor/selection to the new end (JS-observable via
-    // selectionStart / char_count otherwise).
+fn sanitize_resyncs_char_count_and_clamps_selection_on_shorten() {
+    // A value-shortening sanitize re-syncs char_count and CLAMPS the
+    // cursor/selection into the new (shorter) value, keeping the "selection
+    // within value" invariant (the §4.10.5.4-step-5 collapse POLICY is a
+    // separate, per-call-site concern — see `sanitize_value` doc).
     let mut s = raw_state(FormControlKind::Number, "abc");
     s.cursor_pos = 3;
     s.selection_start = 3;
@@ -278,12 +279,26 @@ fn sanitize_range_extreme_endpoints_no_infinity() {
 }
 
 #[test]
-fn sanitize_resets_selection_direction_on_value_change() {
-    // §4.10.5.4 step 5: when sanitization changes the value, the selection
-    // direction resets to "none" (alongside the cursor/selection collapse).
-    let mut s = raw_state(FormControlKind::TextInput, "a\nb");
-    s.selection_direction = SelectionDirection::Forward;
+fn sanitize_number_keeps_overflow_grammar_valid_verbatim() {
+    // §4.10.5.1.12 + §2.3.4.3: validity is the GRAMMAR, not f64
+    // representability — `"1e309"` is a valid floating-point number string
+    // (it overflows f64 to +∞, but the grammar accepts it) and is kept
+    // verbatim, NOT emptied.
+    let mut s = raw_state(FormControlKind::Number, "1e309");
     sanitize_value(&mut s);
-    assert_eq!(s.value(), "ab");
-    assert_eq!(s.selection_direction, SelectionDirection::None);
+    assert_eq!(s.value(), "1e309");
+    // `Infinity` / `NaN` literals are NOT valid floating-point numbers → empty.
+    let mut inf = raw_state(FormControlKind::Number, "Infinity");
+    sanitize_value(&mut inf);
+    assert_eq!(inf.value(), "");
+}
+
+#[test]
+fn sanitize_range_clamps_overflow_grammar_valid_value() {
+    // A grammar-valid range value that overflows f64 (`"1e309"` → +∞) is not
+    // treated as invalid (→ default); it clamps to the maximum like any
+    // over-range value.
+    let mut s = raw_state(FormControlKind::Range, "1e309"); // default range 0..100
+    sanitize_value(&mut s);
+    assert_eq!(s.value(), "100");
 }

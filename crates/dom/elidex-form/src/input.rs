@@ -266,6 +266,26 @@ fn parse_floating_point(s: &str) -> Option<f64> {
 /// Returns `None` (the error case) for any string that is not a valid
 /// floating-point number, or that overflows to a non-finite value.
 pub(crate) fn parse_valid_floating_point(s: &str) -> Option<f64> {
+    if !is_valid_floating_point_string(s) {
+        return None;
+    }
+    let value: f64 = s.parse().ok()?;
+    value.is_finite().then_some(value)
+}
+
+/// Whether `s` is a **valid floating-point number** per the HTML grammar
+/// (§2.3.4.3) — PURELY SYNTACTIC: optional `-`, digits and/or `.`digits,
+/// optional `e`/`E` sign digits; no leading whitespace, no leading `+`, no
+/// trailing content, no `"1."` / `"1e"`.  Does NOT require the value to be
+/// finite as an `f64`: `"1e309"` is a valid floating-point number string
+/// even though it parses to infinity (`Infinity`/`NaN` literals are not
+/// valid floating-point numbers — the grammar rejects them).
+///
+/// Value sanitization checks grammar validity, NOT numeric representability
+/// (§4.10.5.1.12 Number keeps a grammar-valid value verbatim; §4.10.5.1.13
+/// Range clamps it).  Numeric consumers that need a finite value use
+/// [`parse_valid_floating_point`].
+pub(crate) fn is_valid_floating_point_string(s: &str) -> bool {
     let bytes = s.as_bytes();
     let mut i = 0;
     if bytes.first() == Some(&b'-') {
@@ -293,7 +313,7 @@ pub(crate) fn parse_valid_floating_point(s: &str) -> Option<f64> {
         // and fails the whole-string check below.
     }
     if !has_int && !has_frac {
-        return None;
+        return false;
     }
     // Exponent (optional): `e`/`E`, optional sign, 1+ digits.
     if i < bytes.len() && (bytes[i] == b'e' || bytes[i] == b'E') {
@@ -306,15 +326,12 @@ pub(crate) fn parse_valid_floating_point(s: &str) -> Option<f64> {
             j += 1;
         }
         if j == exp_start {
-            return None; // `e` with no digits.
+            return false; // `e` with no digits.
         }
         i = j;
     }
-    if i != bytes.len() {
-        return None; // leading `+`/whitespace or trailing content.
-    }
-    let value: f64 = s.parse().ok()?;
-    value.is_finite().then_some(value)
+    // leading `+`/whitespace or trailing content → invalid.
+    i == bytes.len()
 }
 
 /// "Convert a string to a number" for the element's **stored value**

@@ -12,10 +12,11 @@
 //! cancellation-aware tolerance).
 
 use crate::input::{
-    aligned_above, aligned_below, allowed_value_step, is_step_aligned, maximum, minimum,
-    parse_valid_floating_point, step_base,
+    aligned_above, aligned_below, allowed_value_step, is_step_aligned,
+    is_valid_floating_point_string, maximum, minimum, step_base,
 };
-use crate::{datetime, FormControlKind, FormControlState, SelectionDirection};
+use crate::util::snap_to_char_boundary;
+use crate::{datetime, FormControlKind, FormControlState};
 
 /// HTML "strip newlines from a string" — remove every U+000A LF and
 /// U+000D CR.  Used by the text / search / telephone / password / URL /
@@ -65,7 +66,14 @@ fn sanitize_range(state: &FormControlState) -> Option<String> {
     // then apply to the resulting value REGARDLESS of how it arrived — the
     // default itself can be off-step and must snap (spec worked example:
     // min=0 max=100 step=20 value=abc → default 50 → step-mismatch → 60).
-    let parsed = parse_valid_floating_point(state.value());
+    // A grammar-valid value (HTML §2.3.4.3) is interpreted as a number even
+    // if its magnitude overflows `f64` (`"1e309"` → +∞, which clamps to max
+    // below) — validity is the GRAMMAR, not numeric representability.  A
+    // grammar-invalid value (`"abc"`, `"1e"`) → best representation of the
+    // default (midpoint).
+    let parsed = is_valid_floating_point_string(state.value())
+        .then(|| state.value().parse::<f64>().ok())
+        .flatten();
     let default = if max < min {
         min
     } else {
@@ -129,12 +137,13 @@ fn sanitize_range(state: &FormControlState) -> Option<String> {
 /// routed through here (the editing buffer is the live value).
 ///
 /// A pure transform of (`value`, `kind`, `min`/`max`/`step`, `multiple`)
-/// → `value`; it never touches `dirty_value` (each call site owns the
-/// dirty policy).  When it changes `value` it re-establishes the
-/// value-dependent bookkeeping — `char_count` and the cursor / selection
-/// offsets, collapsed to the end of the new value (HTML §4.10.5.4
-/// `value` IDL setter, step 5) — so the "selection is within the value"
-/// invariant holds by construction even when sanitization shortens the value.
+/// → `value`; it never touches `dirty_value`, and it does NOT impose a
+/// cursor-collapse / selection-direction POLICY (that is the value-mutation
+/// algorithm's job and differs per call site — see the bookkeeping note
+/// below).  When it changes `value` it re-syncs the value-derived
+/// `char_count` and CLAMPS the cursor / selection into the new value, so the
+/// "selection is within the value" invariant holds by construction even when
+/// sanitization shortens the value.
 pub(crate) fn sanitize_value(state: &mut FormControlState) {
     let sanitized: Option<String> = match state.kind {
         // §4.10.5.1.2 Text/Search, §4.10.5.1.3 Telephone,
@@ -154,10 +163,13 @@ pub(crate) fn sanitize_value(state: &mut FormControlState) {
             strip_ascii_whitespace_ends(&strip_newlines(state.value()))
         }),
         // §4.10.5.1.12 Number: not a valid floating-point number → empty
-        // (a valid number is kept verbatim, never reserialized).
-        FormControlKind::Number => parse_valid_floating_point(state.value())
-            .is_none()
-            .then(String::new),
+        // (a valid number is kept verbatim, never reserialized).  Validity
+        // is the GRAMMAR (§2.3.4.3), not f64 representability — a
+        // grammatically valid magnitude that overflows f64 (`"1e309"`) is a
+        // valid floating-point number string and is kept verbatim.
+        FormControlKind::Number => {
+            (!is_valid_floating_point_string(state.value())).then(String::new)
+        }
         // §4.10.5.1.13 Range: invalid → default; clamp; snap to step.
         FormControlKind::Range => sanitize_range(state),
         // §4.10.5.1.7–.10 date/month/week/time: "if the value is not a
@@ -205,15 +217,20 @@ pub(crate) fn sanitize_value(state: &mut FormControlState) {
     if let Some(sanitized) = sanitized {
         if sanitized != state.value {
             state.value = sanitized;
-            // HTML §4.10.5.4 (`value` IDL setter) step 5: collapse the
-            // selection to the end of the new value AND reset the selection
-            // direction to "none"; keep char count in sync.
-            let end = state.value.len();
-            state.cursor_pos = end;
-            state.selection_start = end;
-            state.selection_end = end;
-            state.selection_direction = SelectionDirection::None;
+            // `sanitize_value` is a pure VALUE transform: re-sync the
+            // value-derived char count, and keep the "selection is within
+            // the value" invariant by CLAMPING the cursor / selection into
+            // the (possibly shorter) new value — but it does NOT impose a
+            // cursor-collapse / selection-direction POLICY.  That policy is
+            // the value-mutation algorithm's job and differs per call site
+            // (IDL `value` setter §4.10.5.4 step 5 collapses to the end only
+            // when the value changed from the *old* value; the type-change
+            // steps put the cursor at the beginning), tracked as a dedicated
+            // edge-dense follow-up (`#11-input-value-setter-cursor-selection-steps`).
             state.update_char_count();
+            state.cursor_pos = snap_to_char_boundary(&state.value, state.cursor_pos);
+            state.selection_start = snap_to_char_boundary(&state.value, state.selection_start);
+            state.selection_end = snap_to_char_boundary(&state.value, state.selection_end);
         }
     }
 }
