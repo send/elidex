@@ -232,7 +232,7 @@ fn collect_control_entry(dom: &EcsDom, entity: Entity, entries: &mut Vec<FormDat
     match fcs.kind {
         FormControlKind::Checkbox | FormControlKind::Radio => {
             if fcs.checked {
-                // HTML §4.10.19.6 "Constructing the entry list" step 7: a
+                // HTML §4.10.22.4 "Constructing the entry list" step 7: a
                 // checkbox/radio submits the value of its `value` CONTENT
                 // ATTRIBUTE **if specified** (including an explicitly empty
                 // `value=""`), otherwise the string "on" — NOT the live value
@@ -500,7 +500,7 @@ mod tests {
 
     #[test]
     fn checkbox_submits_value_content_attribute_not_stale_live_value() {
-        // HTML §4.10.19.6 step 7: a checkbox submits the value of its
+        // HTML §4.10.22.4 step 7: a checkbox submits the value of its
         // `value` content attribute, NOT the live value (step 10's "value of
         // the field element", used for hidden/text).  A dirty value-mode →
         // checkbox/default-on type change decouples the two — the live value
@@ -532,7 +532,7 @@ mod tests {
 
     #[test]
     fn checkbox_present_empty_value_attribute_submits_empty_not_on() {
-        // HTML §4.10.19.6 step 7: a present-but-empty `value=""` is a
+        // HTML §4.10.22.4 step 7: a present-but-empty `value=""` is a
         // *specified* attribute, so it submits "" — NOT the "on" fallback
         // (which applies only when the attribute is absent).
         let mut dom = EcsDom::new();
@@ -561,7 +561,7 @@ mod tests {
         // content attribute present at creation).  `file.value = ""` is the
         // filename-mode empty setter (→ `clear_file_value`), which must empty
         // that backing so form submission no longer emits it.  (File controls
-        // should ultimately submit File objects per §4.10.19.6 step 8; that
+        // should ultimately submit File objects per §4.10.22.4 step 8; that
         // is the `#11-input-file-shell-staging` defer — until then the live
         // value is the submission backing.)
         let mut dom = EcsDom::new();

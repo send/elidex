@@ -89,8 +89,17 @@ pub(super) fn native_input_set_value(
         return Ok(JsValue::Undefined);
     };
     let val = args.first().copied().unwrap_or(JsValue::Undefined);
-    let sid = super::super::coerce::to_string(ctx.vm, val)?;
-    let s = ctx.vm.strings.get_utf8(sid);
+    // `HTMLInputElement.value` is `[LegacyNullToEmptyString] DOMString`, so a
+    // `null` assignment is the empty string — NOT the JS `ToString(null)` =
+    // "null".  This must happen BEFORE the value-mode dispatch, so that e.g.
+    // `fileInput.value = null` clears the selected files (the empty branch)
+    // rather than throwing `InvalidStateError` on the literal "null".
+    let s = if matches!(val, JsValue::Null) {
+        String::new()
+    } else {
+        let sid = super::super::coerce::to_string(ctx.vm, val)?;
+        ctx.vm.strings.get_utf8(sid)
+    };
     let invalid_state_sid = ctx.vm.well_known.dom_exc_invalid_state_error;
     // HTML §4.10.5.4 `value` IDL setter — dispatch on the type attribute's
     // value mode.  `elidex-form` decides the action; the host executes the
