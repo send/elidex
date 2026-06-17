@@ -127,6 +127,91 @@ pub enum FormControlKind {
     Progress,
 }
 
+/// The mode of an input element's `value` IDL attribute — HTML §4.10.5.4
+/// "Common input element APIs" ("The `value` IDL attribute … is in one of
+/// the following modes, which define its behavior").  Returned by
+/// [`FormControlKind::value_idl_mode`]; drives the IDL `value`
+/// getter/setter dispatch and the §4.10.5 type-change value migration.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum ValueMode {
+    /// Getter returns the current value; setter runs §4.10.5.4 value-mode
+    /// steps 1–5 (set live value + dirty flag + sanitize + cursor).
+    Value,
+    /// Getter returns the `value` content attribute or `""`; setter sets
+    /// the `value` content attribute.
+    Default,
+    /// Getter returns the `value` content attribute or `"on"`; setter sets
+    /// the `value` content attribute.
+    DefaultOn,
+    /// Getter returns `"C:\fakepath\"` + first selected file name (or `""`
+    /// if the list is empty); setter clears the selected files on `""`,
+    /// else throws `InvalidStateError`.
+    Filename,
+}
+
+/// The marshalling action a host must perform for an IDL `value` setter,
+/// returned by [`ValueMode::idl_set_action`].  The spec-logic (which mode
+/// → which action, incl. the filename empty-vs-non-empty branch) lives
+/// here in `elidex-form`; the engine host only executes the action
+/// (`set_value` / `set_attribute` / clear files / raise
+/// `InvalidStateError`) per the Layering mandate.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum ValueSetAction {
+    /// Value mode — set the live value (§4.10.5.4 value-mode steps 1–5).
+    SetLiveValue,
+    /// Default / default-on mode — set the `value` content attribute to
+    /// the new value (the host routes this through the `set_attribute`
+    /// chokepoint so the reconciler maintains derived state).
+    SetContentAttr,
+    /// Filename mode, empty new value — empty the list of selected files.
+    ClearFiles,
+    /// Filename mode, non-empty new value — throw `InvalidStateError`.
+    ThrowInvalidState,
+}
+
+impl ValueMode {
+    /// IDL `value` getter dispatch (HTML §4.10.5.4) — pure spec-logic.
+    /// The host marshals the inputs: `live` = `FormControlState.value`,
+    /// `content_attr` = the `value` content attribute (via
+    /// `with_attribute`), `first_filename` = the name of the first
+    /// selected file (currently always `None` — the selected-files list
+    /// is not yet modeled, deferred to `#11-input-file-shell-staging`).
+    #[must_use]
+    pub fn idl_get(
+        self,
+        live: &str,
+        content_attr: Option<&str>,
+        first_filename: Option<&str>,
+    ) -> String {
+        match self {
+            Self::Value => live.to_owned(),
+            Self::Default => content_attr.unwrap_or("").to_owned(),
+            Self::DefaultOn => content_attr.unwrap_or("on").to_owned(),
+            // "C:\fakepath\" + first file name, or "" if the list is empty.
+            Self::Filename => {
+                first_filename.map_or_else(String::new, |name| format!("C:\\fakepath\\{name}"))
+            }
+        }
+    }
+
+    /// IDL `value` setter dispatch (HTML §4.10.5.4) — returns the
+    /// marshalling action the host must perform.  Pure spec-logic.
+    #[must_use]
+    pub fn idl_set_action(self, new_value: &str) -> ValueSetAction {
+        match self {
+            Self::Value => ValueSetAction::SetLiveValue,
+            Self::Default | Self::DefaultOn => ValueSetAction::SetContentAttr,
+            Self::Filename => {
+                if new_value.is_empty() {
+                    ValueSetAction::ClearFiles
+                } else {
+                    ValueSetAction::ThrowInvalidState
+                }
+            }
+        }
+    }
+}
+
 impl FormControlKind {
     /// Returns `true` for text-editable control kinds (`TextInput`, `Password`, `TextArea`, and
     /// text-like input types: `Email`, `Url`, `Tel`, `Search`).
@@ -251,6 +336,61 @@ impl FormControlKind {
                 | Self::File
                 | Self::Hidden
         )
+    }
+
+    /// The mode of the `value` IDL attribute for this kind — HTML
+    /// §4.10.5.4 "Common input element APIs" (the value IDL attribute is
+    /// "in one of the following modes, which define its behavior").  The
+    /// single canonical per-kind → mode predicate consumed by the IDL
+    /// `value` getter/setter dispatch (host + boa) and the §4.10.5
+    /// type-change steps 1–3 value migration.
+    ///
+    /// Per the per-state bookkeeping ("The `value` IDL attribute is in
+    /// the X mode"): **value** for the text-like, numeric, and date/time
+    /// states (text/search/tel/url/email/password/number/range/color/
+    /// date/month/week/time/datetime-local); **default** for hidden/
+    /// submit/reset/button/image; **default/on** for checkbox/radio;
+    /// **filename** for file.
+    ///
+    /// Non-`<input>` kinds (`<textarea>`/`<select>`/`<output>`/`<meter>`/
+    /// `<progress>`) take the **value** mode — their live value is the
+    /// authoritative value (textarea/output expose a `value` IDL whose
+    /// getter returns the current value; meter/progress/select have no
+    /// content-attribute value-mode bookkeeping), so reading/writing the
+    /// live value is correct and avoids a spurious content-attribute
+    /// round-trip.
+    #[must_use]
+    pub fn value_idl_mode(self) -> ValueMode {
+        match self {
+            Self::Hidden | Self::SubmitButton | Self::ResetButton | Self::Button => {
+                ValueMode::Default
+            }
+            Self::Checkbox | Self::Radio => ValueMode::DefaultOn,
+            Self::File => ValueMode::Filename,
+            // value mode: text/search/tel/url/email/password/number/
+            // range/color/date/month/week/time/datetime-local, plus the
+            // non-input value-bearing kinds (textarea/select/output/
+            // meter/progress).
+            Self::TextInput
+            | Self::Password
+            | Self::Email
+            | Self::Url
+            | Self::Tel
+            | Self::Search
+            | Self::Number
+            | Self::Range
+            | Self::Color
+            | Self::Date
+            | Self::DatetimeLocal
+            | Self::Time
+            | Self::Week
+            | Self::Month
+            | Self::TextArea
+            | Self::Select
+            | Self::Output
+            | Self::Meter
+            | Self::Progress => ValueMode::Value,
+        }
     }
 
     /// Map a `type` content-attribute value to a [`FormControlKind`]
@@ -685,6 +825,35 @@ impl FormControlState {
         self.checked = self.default_checked;
         self.indeterminate = false;
         self.settle_value();
+    }
+
+    /// HTML §4.10.5 type-change **step 2** (previous mode ≠ value, new
+    /// value mode): set the live value to the `value` content attribute
+    /// (or `""`), then clear the dirty value flag.  `default_value`
+    /// faithfully mirrors the `value` content attribute for every
+    /// `<input>` kind (the reconciler `value`-arm maintains it), so it is
+    /// the content-attribute source.  **No sanitize / cursor move here** —
+    /// the type-change algorithm sanitizes at step 6
+    /// ([`sanitize_for_type_change`](crate::sanitize_for_type_change),
+    /// which settles under the new kind), so this sets the raw value only.
+    ///
+    /// Contrast [`reset_value`](Self::reset_value), which performs the same
+    /// `value = default_value` + `dirty = false` restore but DOES call
+    /// `settle_value` (the form-reset algorithm has no later sanitize step);
+    /// the omission here is deliberate, not an oversight — step 6 settles.
+    pub(crate) fn migrate_value_from_content_attr(&mut self) {
+        let from_attr = self.default_value.clone();
+        self.value = from_attr;
+        self.dirty_value = false;
+        self.update_char_count();
+    }
+
+    /// HTML §4.10.5 type-change **step 3** (previous mode ≠ filename, new
+    /// filename mode): set the live value to the empty string.  **No
+    /// sanitize here** — step 6 settles under the new kind.
+    pub(crate) fn clear_value_for_type_change(&mut self) {
+        self.value.clear();
+        self.update_char_count();
     }
 
     /// Insert text at the current cursor position (marks as dirty).

@@ -1064,8 +1064,74 @@ impl EcsDom {
     ///
     /// Returns `false` if the entity has been destroyed.
     pub fn set_attribute(&mut self, entity: Entity, name: &str, value: &str) -> bool {
-        if !self.contains(entity) {
+        let (did_set, old_value) = self.write_attribute_no_dispatch(entity, name, value);
+        if !did_set {
             return false;
+        }
+        // Fire `MutationEvent::AttributeChange` per DOM §4.3.2 +
+        // §4.3.3; same-value writes still fire because spec
+        // requires same-value records be queued for
+        // MutationObserver consumers.  Per-consumer suppression
+        // (e.g. `BaseUrlMaintainer` idempotent bump) lives in
+        // the dispatcher's handle, not here.
+        let event = MutationEvent::AttributeChange {
+            node: entity,
+            name,
+            old_value: old_value.as_deref(),
+            new_value: Some(value),
+        };
+        self.dispatch_event(&event);
+        true
+    }
+
+    /// Like [`set_attribute`](Self::set_attribute) but WITHOUT firing the
+    /// `MutationEvent::AttributeChange` dispatch — the strict subset
+    /// (write `Attributes`, then
+    /// [`reconcile_attribute_derived_components`](Self::reconcile_attribute_derived_components),
+    /// then [`rev_version`](Self::rev_version)) that
+    /// [`set_attribute`](Self::set_attribute) shares via the common
+    /// (private) `write_attribute_no_dispatch` core.
+    ///
+    /// **Use only from INSIDE a [`MutationDispatcher`] consumer**, where
+    /// calling [`set_attribute`](Self::set_attribute) would violate the
+    /// re-entry contract on the private `dispatch_event` mutation primitive
+    /// (its `debug_assert!(dispatch_depth == 0)`).  HTML §4.10.5
+    /// type-change step 1 (set the `value` content attribute from the
+    /// `FormControlReconciler`) is the first such caller.
+    ///
+    /// ⚠ Suppressing the dispatch suppresses the **ENTIRE**
+    /// `AttributeChange` consumer fan-out (every [`MutationDispatcher`]
+    /// consumer AND the MutationObserver record), not merely the observer
+    /// record.  Any derived state a consumer would have maintained must
+    /// be reproduced by the caller.  Reuse only where that total
+    /// suppression is intended.
+    ///
+    /// Returns `false` if the entity has been destroyed or is not an
+    /// Element (same contract as [`set_attribute`](Self::set_attribute)).
+    pub fn set_attribute_without_dispatch(
+        &mut self,
+        entity: Entity,
+        name: &str,
+        value: &str,
+    ) -> bool {
+        self.write_attribute_no_dispatch(entity, name, value).0
+    }
+
+    /// Shared core of [`set_attribute`](Self::set_attribute) /
+    /// [`set_attribute_without_dispatch`](Self::set_attribute_without_dispatch):
+    /// write the attribute, reconcile inline derived components, and bump
+    /// `rev_version` — but DO NOT dispatch.  Returns `(did_set, old_value)`
+    /// where `old_value` is the pre-write attribute value (for the
+    /// `MutationObserver` record), captured in the SAME `Attributes` borrow
+    /// that decides insert-vs-set (the single-lookup fast path).
+    fn write_attribute_no_dispatch(
+        &mut self,
+        entity: Entity,
+        name: &str,
+        value: &str,
+    ) -> (bool, Option<String>) {
+        if !self.contains(entity) {
+            return (false, None);
         }
         // Engine-internal hardening (pre-D-31 `require_attrs_mut`
         // semantics): only Element entities carry `Attributes`.
@@ -1074,7 +1140,7 @@ impl EcsDom {
         // attribute readers; bail with `false` so caller sees the
         // mis-routed write the same way it sees a destroyed entity.
         if !matches!(self.node_kind(entity), Some(NodeKind::Element)) {
-            return false;
+            return (false, None);
         }
         // Single component lookup: capture old_value AND component
         // presence from one borrow; if absent, insert a fresh
@@ -1098,21 +1164,8 @@ impl EcsDom {
         if did_set {
             self.reconcile_attribute_derived_components(entity, name);
             self.rev_version(entity);
-            // Fire `MutationEvent::AttributeChange` per DOM §4.3.2 +
-            // §4.3.3; same-value writes still fire because spec
-            // requires same-value records be queued for
-            // MutationObserver consumers.  Per-consumer suppression
-            // (e.g. `BaseUrlMaintainer` idempotent bump) lives in
-            // the dispatcher's handle, not here.
-            let event = MutationEvent::AttributeChange {
-                node: entity,
-                name,
-                old_value: old_value.as_deref(),
-                new_value: Some(value),
-            };
-            self.dispatch_event(&event);
         }
-        did_set
+        (did_set, old_value)
     }
 
     /// Remove attribute `name` from `entity` if present, then bump
