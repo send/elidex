@@ -21,6 +21,7 @@
 
 use elidex_ecs::{EcsDom, Entity, MutationEvent, TagType};
 
+use crate::sanitize::sanitize_value;
 use crate::{
     clear_focus_snapshot, compile_pattern_regex, create_form_control_state,
     sanitize_for_type_change,
@@ -90,6 +91,21 @@ fn handle_insert(node: Entity, dom: &mut EcsDom) {
             continue;
         }
         let _ = create_form_control_state(dom, entity);
+    }
+}
+
+/// HTML §4.10.5.1.13 continuous Range correction: when a **grid-affecting**
+/// attribute changes (`min`/`max`/`step`, or the `value` content attribute
+/// that serves as the step base when `min` is absent — §4.10.5.3.7), a
+/// Range control "must" re-clamp/snap its value.  This is stated
+/// unconditionally (NOT part of the value-sanitization trigger set, and NOT
+/// gated on the dirty flag — a slider cannot represent an out-of-range /
+/// off-grid value).  A no-op for every other kind: number/date/time KEEP an
+/// out-of-range value for their constraint validation to report (number's
+/// step rounding is only a "may").
+fn recorrect_range(fcs: &mut FormControlState) {
+    if fcs.kind == FormControlKind::Range {
+        sanitize_value(fcs);
     }
 }
 
@@ -174,7 +190,14 @@ fn handle_attribute_change(node: Entity, name: &str, new_value: Option<&str>, do
             fcs.default_value.clear();
             fcs.default_value.push_str(raw);
         }
-        if !fcs.dirty_value {
+        if fcs.dirty_value {
+            // Dirty: the live value is suppressed (dirty-value-flag), but
+            // for a Range control the `value` content attribute is the step
+            // base when `min` is absent (§4.10.5.3.7) — so changing it can
+            // shift the step grid under the dirty value and leave it off-grid.
+            // Range must continuously correct that (§4.10.5.1.13).
+            recorrect_range(&mut fcs);
+        } else {
             // HTML §4.10.5.1.18 (submit) / §4.10.5.1.19 (reset) default
             // button label substitution — matches the `from_input_element`
             // path at createElement time.
@@ -202,6 +225,11 @@ fn handle_attribute_change(node: Entity, name: &str, new_value: Option<&str>, do
             fcs.selection_direction = SelectionDirection::None;
             fcs.value.clear();
             fcs.value.push_str(displayed);
+            // HTML §4.10.5.1.x value sanitization on the new (non-dirty)
+            // value, matching the `from_input_element` / IDL-setter paths.
+            // Inside `!dirty_value`: a `value`-attribute change never
+            // re-sanitizes a dirty live value (R2).
+            sanitize_value(&mut fcs);
         }
         return;
     }
@@ -239,7 +267,26 @@ fn handle_attribute_change(node: Entity, name: &str, new_value: Option<&str>, do
         "required" => fcs.required = new_value.is_some(),
         "readonly" => fcs.readonly = new_value.is_some(),
         "autofocus" => fcs.autofocus = new_value.is_some(),
-        "multiple" => fcs.multiple = new_value.is_some(),
+        "multiple" => {
+            fcs.multiple = new_value.is_some();
+            // HTML §4.10.5.1.5 (Email state): "When the multiple attribute
+            // is set or removed, the user agent must run the value
+            // sanitization algorithm" — the Email state switches between
+            // single (strip+trim) and comma-list sanitization, so the
+            // stored value must be re-sanitized.  This trigger is
+            // EMAIL-SPECIFIC (it lives in the Email-state section): `multiple`
+            // does not affect any other kind's sanitization, so gating on
+            // Email avoids an irrelevant re-sanitize (e.g. a `multiple`
+            // toggle must not clamp a range value that an earlier min/max
+            // change deliberately left out of range — min/max are not
+            // sanitization triggers).  Runs unconditionally on the live
+            // value (NOT gated on `!dirty_value`, unlike the `value`-arm):
+            // a dirty `" x , y "` must become single-mode `"x , y"` when
+            // `multiple` is removed.
+            if fcs.kind == FormControlKind::Email {
+                sanitize_value(&mut fcs);
+            }
+        }
 
         // Numeric length attributes (HTML §4.10.5.3.1 maxlength/
         // minlength).  `None` ⇒ unset, parse-failure ⇒ unset.
@@ -259,9 +306,15 @@ fn handle_attribute_change(node: Entity, name: &str, new_value: Option<&str>, do
         "autocomplete" => fcs.autocomplete = new_value.unwrap_or("").to_string(),
 
         // HTML §4.10.5.3.7 min/max / §4.10.5.3.8 step.
-        "min" => fcs.min = new_value.map(str::to_string),
-        "max" => fcs.max = new_value.map(str::to_string),
-        "step" => fcs.step = new_value.map(str::to_string),
+        "min" | "max" | "step" => {
+            let v = new_value.map(str::to_string);
+            match name {
+                "min" => fcs.min = v,
+                "max" => fcs.max = v,
+                _ => fcs.step = v,
+            }
+            recorrect_range(&mut fcs);
+        }
 
         // Attribute not in FormControlState — ignore.
         _ => {}
@@ -745,6 +798,129 @@ mod tests {
         with_fcs(&dom, input, |s| {
             assert_eq!(s.value, "user-typed");
             assert!(s.dirty_value);
+        });
+    }
+
+    #[test]
+    fn value_attr_arm_sanitizes_range() {
+        // A `value` content-attribute write on a non-dirty range control
+        // runs §4.10.5.1.13 value sanitization (clamp to max).
+        let (mut dom, e) = setup("input", &[("type", "range"), ("max", "100")]);
+        assert!(dom.set_attribute(e, "value", "150"));
+        with_fcs(&dom, e, |s| assert_eq!(s.value, "100"));
+    }
+
+    #[test]
+    fn multiple_toggle_resanitizes_email() {
+        // §4.10.5.1.5: setting `multiple` re-runs value sanitization,
+        // switching the Email state to the comma-list algorithm.
+        let (mut dom, e) = setup("input", &[("type", "email"), ("value", " a@b , c@d ")]);
+        // Parsed under single-mode (strip + trim ends).
+        with_fcs(&dom, e, |s| assert_eq!(s.value, "a@b , c@d"));
+        assert!(dom.set_attribute(e, "multiple", ""));
+        with_fcs(&dom, e, |s| assert_eq!(s.value, "a@b,c@d"));
+    }
+
+    #[test]
+    fn multiple_toggle_sanitizes_even_when_dirty() {
+        // The `multiple`-toggle trigger runs on the live value
+        // unconditionally (NOT gated on `!dirty_value`, unlike the
+        // `value`-attribute arm): a dirty single-mode value re-sanitizes
+        // under the comma-list algorithm when `multiple` is set.
+        let (mut dom, e) = setup("input", &[("type", "email")]);
+        {
+            let mut state = dom.world_mut().get::<&mut FormControlState>(e).unwrap();
+            state.set_value(" a , b ".to_string()); // single-mode → "a , b", dirty
+            assert_eq!(state.value, "a , b");
+            assert!(state.dirty_value);
+        }
+        assert!(dom.set_attribute(e, "multiple", ""));
+        with_fcs(&dom, e, |s| {
+            assert_eq!(
+                s.value, "a,b",
+                "multiple toggle must re-sanitize a dirty value"
+            );
+            assert!(
+                s.dirty_value,
+                "re-sanitization must not clear the dirty flag"
+            );
+        });
+    }
+
+    #[test]
+    fn range_reclamps_on_min_max_step_change() {
+        // HTML §4.10.5.1.13: a Range control must continuously correct an
+        // over/underflow / step mismatch as its constraints change.
+        let (mut dom, e) = setup("input", &[("type", "range"), ("min", "0"), ("max", "100")]);
+        assert!(dom.set_attribute(e, "value", "80"));
+        with_fcs(&dom, e, |s| assert_eq!(s.value, "80"));
+        // `max` lowered below the value → overflow → clamp to new max.
+        assert!(dom.set_attribute(e, "max", "50"));
+        with_fcs(&dom, e, |s| assert_eq!(s.value, "50"));
+        // `step` change makes the value off-grid → snap to nearest in-range
+        // step (grid 0,30 within [0,50]; 50 is 20 from 30, 30 from 60-oor →
+        // nearest in-range is 30).
+        assert!(dom.set_attribute(e, "step", "30"));
+        with_fcs(&dom, e, |s| assert_eq!(s.value, "30"));
+    }
+
+    #[test]
+    fn dirty_range_recorrects_on_value_attr_step_base_change() {
+        // §4.10.5.1.13 + §4.10.5.3.7: with no `min`, the `value` content
+        // attribute is the Range step base.  Changing it shifts the grid, so
+        // a dirty live value that was on the old grid must be re-corrected.
+        let (mut dom, e) = setup(
+            "input",
+            &[("type", "range"), ("step", "20"), ("value", "40")],
+        );
+        // Dirty the live value to 60 (on the old grid, base 40: (60-40)/20=1).
+        {
+            let mut state = dom.world_mut().get::<&mut FormControlState>(e).unwrap();
+            state.set_value("60".to_string());
+            assert_eq!(state.value, "60");
+            assert!(state.dirty_value);
+        }
+        // `value` attr → new step base 50; live 60 is off the new grid
+        // (50,70,…) → snap to nearest in-range (tie 50/70 → +∞ → 70).
+        assert!(dom.set_attribute(e, "value", "50"));
+        with_fcs(&dom, e, |s| {
+            assert_eq!(s.value, "70", "dirty range re-corrected to the new grid");
+            assert!(s.dirty_value, "re-correction must keep the dirty flag");
+        });
+    }
+
+    #[test]
+    fn number_does_not_reclamp_on_max_change() {
+        // Number (unlike Range) KEEPS an out-of-range value — its
+        // constraint validation reports the overflow; min/max changes are
+        // not a re-correction trigger (the spec's number step rounding is
+        // only a "may").
+        let (mut dom, e) = setup("input", &[("type", "number"), ("value", "80")]);
+        with_fcs(&dom, e, |s| assert_eq!(s.value, "80"));
+        assert!(dom.set_attribute(e, "max", "50"));
+        with_fcs(&dom, e, |s| {
+            assert_eq!(s.value, "80", "number keeps out-of-range value");
+        });
+    }
+
+    #[test]
+    fn multiple_toggle_does_not_resanitize_non_email() {
+        // The `multiple`-toggle sanitization trigger is Email-specific
+        // (§4.10.5.1.5) — toggling `multiple` on a non-email control must
+        // not run value sanitization.  Seed a raw (unsanitized) newline
+        // directly so that, if the gate were missing, the toggle would
+        // strip it; the newline surviving proves sanitize was not called.
+        let (mut dom, e) = setup("input", &[("type", "text")]);
+        {
+            let mut state = dom.world_mut().get::<&mut FormControlState>(e).unwrap();
+            state.value = "a\nb".to_string(); // direct set bypasses sanitize
+        }
+        assert!(dom.set_attribute(e, "multiple", ""));
+        with_fcs(&dom, e, |s| {
+            assert_eq!(
+                s.value, "a\nb",
+                "multiple toggle on a non-email must not sanitize (newline kept)"
+            );
         });
     }
 }

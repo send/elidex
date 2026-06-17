@@ -4,11 +4,10 @@
 //!
 //! This is the single canonical date/time conversion layer that every
 //! date-type form-control algorithm depends on — `stepUp()`/`stepDown()`
-//! (the first consumer, via [`crate::input::apply_step`]) plus the
-//! deferred consumers value-sanitization (date types under the existing
-//! `#11-input-type-sanitize-extended` slot), `valueAsNumber`/`valueAsDate`
-//! (`#11-input-value-as-date`), and constraint validation
-//! (`#11-input-date-validity`).  No stepping-only
+//! (the first consumer, via [`crate::input::apply_step`]) plus
+//! value-sanitization (date types, via [`crate::input::sanitize_value`]),
+//! `valueAsNumber`/`valueAsDate` (`#11-input-value-as-date`), and constraint
+//! validation (`#11-input-date-validity`).  No stepping-only
 //! shim: parsers/serializers are written once here and reused, never
 //! embedded in the step path.
 //!
@@ -504,10 +503,51 @@ pub(crate) fn convert_string_to_number(kind: FormControlKind, s: &str) -> Option
 /// stepUp/stepDown algorithm.  Mirrors the number state's
 /// `parse_valid_floating_point`: the value is parsed only if it is a *valid*
 /// `<type>` string (an over-precision time fraction is the error/empty case),
-/// modelling the post-value-sanitization state since date/time value
-/// sanitization is not yet wired (`#11-input-type-sanitize-extended`).
+/// matching the post-value-sanitization state established by
+/// [`crate::input::sanitize_value`] for the date/time states.
 pub(crate) fn convert_valid_string_to_number(kind: FormControlKind, s: &str) -> Option<f64> {
     convert_string_to_number_with(kind, s, FracPrecision::ValidString)
+}
+
+/// Whether `s` is a syntactically **valid `<type>` string** (HTML §2.3.5)
+/// for the date/time `kind`, independent of whether its millisecond
+/// conversion fits the internal `i64` number space.
+///
+/// Value sanitization for the date/month/week/time states must keep a
+/// *valid string* verbatim and only empty a value that is **not** a valid
+/// string — so it must NOT use [`convert_valid_string_to_number`] as the
+/// validity test: that helper returns `None` for a syntactically valid but
+/// astronomically large year whose ms count overflows `i64` (the spec's
+/// "convert ... results in an error" case), which would wrongly empty a
+/// valid value.  This checks syntax only (via the per-type parsers, which
+/// still apply the parser's own civil-year guard).
+pub(crate) fn is_valid_datetime_string(kind: FormControlKind, s: &str) -> bool {
+    match kind {
+        FormControlKind::Date => parse_date(s).is_some(),
+        FormControlKind::Month => parse_month(s).is_some(),
+        FormControlKind::Week => parse_week(s).is_some(),
+        FormControlKind::Time => parse_time(s, FracPrecision::ValidString).is_some(),
+        FormControlKind::DatetimeLocal => {
+            parse_local_date_time(s, FracPrecision::ValidString).is_some()
+        }
+        _ => false,
+    }
+}
+
+/// §4.10.5.1.11 datetime-local value sanitization: if `s` is a valid local
+/// date and time string, return its **valid normalized** form (drop a `:00`
+/// seconds component and trailing fractional zeros); otherwise `None` (→ the
+/// sanitizer empties it).
+///
+/// Serializes the parsed **components** directly (`format_date` + `format_time`)
+/// rather than round-tripping through the single combined-millisecond number
+/// ([`convert_valid_string_to_number`] → [`convert_number_to_string`]), so a
+/// syntactically valid but astronomically large year — whose ms count
+/// overflows the i64 number space — is still normalized and kept, not wrongly
+/// emptied.
+pub(crate) fn normalize_local_date_time(s: &str) -> Option<String> {
+    let (date, time) = parse_local_date_time(s, FracPrecision::ValidString)?;
+    Some(format!("{}T{}", format_date(date), format_time(time.ms)))
 }
 
 fn convert_string_to_number_with(

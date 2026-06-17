@@ -2,6 +2,7 @@
 
 use elidex_ecs::{Attributes, EcsDom, Entity, TagType};
 
+use crate::sanitize::sanitize_value;
 use crate::util::{next_char_boundary, prev_char_boundary};
 use crate::{datetime, FormControlKind, FormControlState};
 
@@ -264,7 +265,27 @@ fn parse_floating_point(s: &str) -> Option<f64> {
 ///
 /// Returns `None` (the error case) for any string that is not a valid
 /// floating-point number, or that overflows to a non-finite value.
-fn parse_valid_floating_point(s: &str) -> Option<f64> {
+pub(crate) fn parse_valid_floating_point(s: &str) -> Option<f64> {
+    if !is_valid_floating_point_string(s) {
+        return None;
+    }
+    let value: f64 = s.parse().ok()?;
+    value.is_finite().then_some(value)
+}
+
+/// Whether `s` is a **valid floating-point number** per the HTML grammar
+/// (§2.3.4.3) — PURELY SYNTACTIC: optional `-`, digits and/or `.`digits,
+/// optional `e`/`E` sign digits; no leading whitespace, no leading `+`, no
+/// trailing content, no `"1."` / `"1e"`.  Does NOT require the value to be
+/// finite as an `f64`: `"1e309"` is a valid floating-point number string
+/// even though it parses to infinity (`Infinity`/`NaN` literals are not
+/// valid floating-point numbers — the grammar rejects them).
+///
+/// Value sanitization checks grammar validity, NOT numeric representability
+/// (§4.10.5.1.12 Number keeps a grammar-valid value verbatim; §4.10.5.1.13
+/// Range clamps it).  Numeric consumers that need a finite value use
+/// [`parse_valid_floating_point`].
+pub(crate) fn is_valid_floating_point_string(s: &str) -> bool {
     let bytes = s.as_bytes();
     let mut i = 0;
     if bytes.first() == Some(&b'-') {
@@ -292,7 +313,7 @@ fn parse_valid_floating_point(s: &str) -> Option<f64> {
         // and fails the whole-string check below.
     }
     if !has_int && !has_frac {
-        return None;
+        return false;
     }
     // Exponent (optional): `e`/`E`, optional sign, 1+ digits.
     if i < bytes.len() && (bytes[i] == b'e' || bytes[i] == b'E') {
@@ -305,15 +326,12 @@ fn parse_valid_floating_point(s: &str) -> Option<f64> {
             j += 1;
         }
         if j == exp_start {
-            return None; // `e` with no digits.
+            return false; // `e` with no digits.
         }
         i = j;
     }
-    if i != bytes.len() {
-        return None; // leading `+`/whitespace or trailing content.
-    }
-    let value: f64 = s.parse().ok()?;
-    value.is_finite().then_some(value)
+    // leading `+`/whitespace or trailing content → invalid.
+    i == bytes.len()
 }
 
 /// "Convert a string to a number" for the element's **stored value**
@@ -466,12 +484,12 @@ fn grid_index(value: f64, base: f64, step: f64) -> f64 {
 }
 
 /// Largest step-aligned value `≤ value`.
-fn aligned_below(value: f64, base: f64, step: f64) -> f64 {
+pub(crate) fn aligned_below(value: f64, base: f64, step: f64) -> f64 {
     base + grid_index(value, base, step).floor() * step
 }
 
 /// Smallest step-aligned value `≥ value`.
-fn aligned_above(value: f64, base: f64, step: f64) -> f64 {
+pub(crate) fn aligned_above(value: f64, base: f64, step: f64) -> f64 {
     base + grid_index(value, base, step).ceil() * step
 }
 
@@ -595,16 +613,11 @@ pub fn apply_step(state: &mut FormControlState, n: f64, direction: f64) -> Resul
 ///    §4.10.5 type-change steps leave checkedness and indeterminateness
 ///    inert on non-checkable types rather than clearing them; elidex
 ///    clears them so `FormControlState` carries no stale checkable bits.
-/// 2. **Number value sanitization**: if the new kind is `Number`
-///    and the current value isn't a finite floating-point literal,
-///    clear it (per HTML §4.10.5.1.12 number value-sanitization
-///    algorithm — non-numeric values are rejected to `""`).
-///
-/// Other per-type sanitize algorithms (Color, URL, Email, Date,
-/// Range clamp) are deferred to the next implementation pass — the
-/// value-clearing rule for number is the most-frequently-tripping
-/// branch in the wild and the only one with a JS-observable
-/// regression today.
+/// 2. **Value sanitization**: run `sanitize_value` under the new kind
+///    (HTML §4.10.5.1.x).  This is a direct transform call (NOT via
+///    `set_value`) because a `type` change is not a dirty-value-flag
+///    trigger — routing through `set_value` would wrongly mark the
+///    value dirty.
 pub fn sanitize_for_type_change(state: &mut FormControlState, old_kind: FormControlKind) {
     if state.kind == old_kind {
         return;
@@ -618,12 +631,7 @@ pub fn sanitize_for_type_change(state: &mut FormControlState, old_kind: FormCont
         state.checked = false;
         state.indeterminate = false;
     }
-    if state.kind == FormControlKind::Number {
-        let value_is_valid_number = state.value().parse::<f64>().is_ok_and(f64::is_finite);
-        if !value_is_valid_number && !state.value().is_empty() {
-            state.set_value(String::new());
-        }
-    }
+    sanitize_value(state);
 }
 
 /// Check if inserting a character would exceed maxlength.

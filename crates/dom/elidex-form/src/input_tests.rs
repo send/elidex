@@ -300,14 +300,18 @@ fn sanitize_keeps_value_when_entering_number_with_numeric() {
 
 #[test]
 fn sanitize_no_op_when_kind_unchanged() {
+    // Direct field set bypasses `set_value`'s value sanitization so the
+    // raw invalid value is present going in — this lets the assertion
+    // prove the same-kind early-return guard skips sanitization entirely
+    // (otherwise the Number-state sanitize would clear it to `""`).
     let mut s = FormControlState {
         kind: FormControlKind::Number,
+        value: "not-a-number".to_string(),
         ..FormControlState::default()
     };
-    s.set_value("not-a-number".to_string());
     sanitize_for_type_change(&mut s, FormControlKind::Number);
-    // Same-kind transition: no sanitize runs (caller already had
-    // this value, and same-kind means content didn't change).
+    // Same-kind transition: no sanitize runs (the early-return guard
+    // fires before `sanitize_value`).
     assert_eq!(s.value(), "not-a-number");
 }
 
