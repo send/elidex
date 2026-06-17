@@ -120,8 +120,14 @@ pub(super) fn native_input_set_value(
             dom.set_attribute(entity, "value", &s);
         }
         // filename mode, empty value — empty the list of selected files.
-        // Not modeled yet (`#11-input-file-shell-staging`) → no-op.
-        ValueSetAction::ClearFiles => {}
+        // The list is not modeled yet (`#11-input-file-shell-staging`), but a
+        // file input can carry a stale live backing value; clear it so the
+        // empty set is observable (and not left for form submission).
+        ValueSetAction::ClearFiles => {
+            if let Ok(mut state) = dom.world_mut().get::<&mut FormControlState>(entity) {
+                state.clear_file_value();
+            }
+        }
         // filename mode, non-empty value — InvalidStateError.
         ValueSetAction::ThrowInvalidState => {
             return Err(VmError::dom_exception(

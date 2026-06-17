@@ -718,6 +718,17 @@ impl FormControlState {
         self.update_char_count();
     }
 
+    /// HTML §4.10.5.4 filename-mode `value` setter, empty-string branch
+    /// ("empty the list of selected files").  The selected-files list is not
+    /// yet modeled (`#11-input-file-shell-staging`), but a file input can
+    /// still carry a stale live backing value (e.g. a `value` content
+    /// attribute present at creation); clear it so `file.value = ""` does not
+    /// leave that value observable to form submission (§4.10.19.6).
+    pub fn clear_file_value(&mut self) {
+        self.value.clear();
+        self.update_char_count();
+    }
+
     /// Insert text at the current cursor position (marks as dirty).
     pub fn insert_at_cursor(&mut self, text: &str) {
         let pos = self.safe_cursor_pos();

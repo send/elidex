@@ -6,7 +6,7 @@
 
 use boa_engine::object::ObjectInitializer;
 use boa_engine::property::Attribute;
-use boa_engine::{js_string, JsNativeError, JsValue, NativeFunction};
+use boa_engine::{js_string, JsValue, NativeFunction};
 use elidex_ecs::Entity;
 
 use super::element::extract_entity;
@@ -118,28 +118,25 @@ fn register_value_accessor(
         |this, _args, bridge, ctx| {
             let entity = extract_entity(this, ctx)?;
             bridge.with(|_session, dom| {
-                // HTML §4.10.5.4 `value` IDL getter — dispatch on the type
-                // attribute's value mode (the predicate + per-mode logic
-                // live in `elidex-form`; boa marshals the inputs).
-                let Some((mode, live)) = dom
+                // NOTE: the boa backend deliberately does NOT do the
+                // §4.10.5.4 value-mode dispatch the VM host does.  boa
+                // installs no `FormControlReconciler`, so its content-attr
+                // setters never propagate to the live value that boa's
+                // submission / `FormData` bridge reads — mode dispatch would
+                // make the getter (content attribute) diverge from
+                // submission (live value).  boa is deletion-bound (boa→VM
+                // cutover, D-26 PR7), so it keeps its prior internally
+                // consistent all-live-value behavior; the value-mode dispatch
+                // is the VM path's concern.
+                let val = dom
                     .world()
                     .get::<&elidex_form::FormControlState>(entity)
                     .ok()
-                    .map(|fcs| (fcs.kind.value_idl_mode(), fcs.value().to_string()))
-                else {
-                    return Ok(JsValue::undefined());
-                };
-                let result = if mode == elidex_form::ValueMode::Value {
-                    live
-                } else {
-                    // default / default-on → `value` content attribute (or
-                    // "" / "on"); filename → "" (selected-files list not
-                    // modeled, `#11-input-file-shell-staging`).
-                    let content_attr =
-                        dom.with_attribute(entity, "value", |v| v.map(str::to_owned));
-                    mode.idl_get(&live, content_attr.as_deref(), None)
-                };
-                Ok(JsValue::from(js_string!(result)))
+                    .map(|fcs| fcs.value().to_string());
+                match val {
+                    Some(v) => Ok(JsValue::from(js_string!(v))),
+                    None => Ok(JsValue::undefined()),
+                }
             })
         },
         b,
@@ -157,40 +154,15 @@ fn register_value_accessor(
                 .map(|s| s.to_std_string_escaped())
                 .unwrap_or_default();
             bridge.with(|_session, dom| {
-                // HTML §4.10.5.4 `value` IDL setter — dispatch on the value
-                // mode.  Value-mode sanitization (incl. single-line newline
-                // strip) is handled canonically by `set_value` → `settle_value`,
-                // so no manual strip here (One-issue-one-way).
-                let Some(mode) = dom
-                    .world()
-                    .get::<&elidex_form::FormControlState>(entity)
-                    .ok()
-                    .map(|fcs| fcs.kind.value_idl_mode())
-                else {
-                    return Ok(JsValue::undefined());
-                };
-                match mode.idl_set_action(&text) {
-                    elidex_form::ValueSetAction::SetLiveValue => {
-                        if let Ok(mut fcs) = dom
-                            .world_mut()
-                            .get::<&mut elidex_form::FormControlState>(entity)
-                        {
-                            fcs.set_value(text);
-                        }
-                    }
-                    elidex_form::ValueSetAction::SetContentAttr => {
-                        dom.set_attribute(entity, "value", &text);
-                    }
-                    elidex_form::ValueSetAction::ClearFiles => {}
-                    elidex_form::ValueSetAction::ThrowInvalidState => {
-                        return Err(JsNativeError::typ()
-                            .with_message(
-                                "InvalidStateError: an input element's value may \
-                                 only be set to the empty string when its type \
-                                 is 'file'",
-                            )
-                            .into());
-                    }
+                // All-live-value (see the getter note: no value-mode dispatch
+                // on the reconciler-less boa backend).  `set_value` →
+                // `settle_value` applies the §4.10.5.1.x sanitization (incl.
+                // single-line newline strip), so no manual strip here.
+                if let Ok(mut fcs) = dom
+                    .world_mut()
+                    .get::<&mut elidex_form::FormControlState>(entity)
+                {
+                    fcs.set_value(text);
                 }
                 Ok(JsValue::undefined())
             })

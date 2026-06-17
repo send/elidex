@@ -232,24 +232,25 @@ fn collect_control_entry(dom: &EcsDom, entity: Entity, entries: &mut Vec<FormDat
     match fcs.kind {
         FormControlKind::Checkbox | FormControlKind::Radio => {
             if fcs.checked {
-                // HTML §4.10.19.6 "Constructing the entry list" step 7:
-                // a checkbox/radio submits the value of its `value` CONTENT
-                // ATTRIBUTE if specified, otherwise "on" — NOT the live
-                // value (step 10's "value of the field element", used for
-                // hidden / text).  `default_value` mirrors the `value`
-                // content attribute for every `<input>` kind; for the
-                // common (non-dirty) checkbox the two coincide, but a dirty
-                // value-mode → checkbox/default-on type change decouples the
-                // live value from the content attribute (the value IDL is in
-                // default/on mode), so the content-attribute mirror is the
-                // correct submission source.
+                // HTML §4.10.19.6 "Constructing the entry list" step 7: a
+                // checkbox/radio submits the value of its `value` CONTENT
+                // ATTRIBUTE **if specified** (including an explicitly empty
+                // `value=""`), otherwise the string "on" — NOT the live value
+                // (step 10's "value of the field element", used for
+                // hidden/text).  The decision keys on attribute PRESENCE, so
+                // it reads the attribute directly rather than the
+                // `default_value` mirror (which cannot distinguish an absent
+                // attribute from a present-but-empty one).  This also keeps a
+                // dirty value-mode → checkbox/default-on type change correct:
+                // the value IDL is then in default/on mode, so the content
+                // attribute — not the dirty-frozen live value — is the
+                // submission source, consistent with the IDL `value` getter.
+                let value = dom
+                    .with_attribute(entity, "value", |v| v.map(str::to_owned))
+                    .unwrap_or_else(|| "on".to_string());
                 entries.push(FormDataEntry {
                     name: fcs.name.clone(),
-                    value: if fcs.default_value.is_empty() {
-                        "on".to_string()
-                    } else {
-                        fcs.default_value.clone()
-                    },
+                    value,
                 });
             }
         }
@@ -500,25 +501,23 @@ mod tests {
     #[test]
     fn checkbox_submits_value_content_attribute_not_stale_live_value() {
         // HTML §4.10.19.6 step 7: a checkbox submits the value of its
-        // `value` content attribute (mirrored by `default_value`), NOT the
-        // live value (step 10's "value of the field element", used for
-        // hidden/text).  A dirty value-mode → checkbox/default-on type
-        // change decouples the two — the live value is frozen by the dirty
-        // flag while the default/on IDL setter updates the content
-        // attribute — so submission must follow the content-attribute
-        // mirror to stay consistent with the IDL `value` getter.
+        // `value` content attribute, NOT the live value (step 10's "value of
+        // the field element", used for hidden/text).  A dirty value-mode →
+        // checkbox/default-on type change decouples the two — the live value
+        // is frozen by the dirty flag while the default/on IDL setter updates
+        // the content attribute — so submission must follow the content
+        // attribute to stay consistent with the IDL `value` getter.
         let mut dom = EcsDom::new();
         let form = dom.create_element("form", Attributes::default());
         let mut attrs = Attributes::default();
         attrs.set("type", "checkbox");
         attrs.set("name", "c");
+        attrs.set("value", "secret"); // the `value` content attribute
         let cb = dom.create_element("input", attrs.clone());
         let mut fcs = FormControlState::from_element("input", &attrs).unwrap();
         fcs.checked = true;
-        // Simulate the post-(dirty type-change + default/on setter) state:
-        // the content-attribute mirror moved to "secret" while the live
-        // value is the dirty-frozen "abc".
-        fcs.default_value = "secret".to_string();
+        // Diverge the live value from the content attribute (the dirty-frozen
+        // live value a default/on type change would leave behind).
         fcs.value = "abc".to_string();
         let _ = dom.world_mut().insert_one(cb, fcs);
         let _ = dom.append_child(form, cb);
@@ -528,6 +527,63 @@ mod tests {
         assert_eq!(
             data[0].value, "secret",
             "checkbox submits the `value` content attribute, not the stale live value"
+        );
+    }
+
+    #[test]
+    fn checkbox_present_empty_value_attribute_submits_empty_not_on() {
+        // HTML §4.10.19.6 step 7: a present-but-empty `value=""` is a
+        // *specified* attribute, so it submits "" — NOT the "on" fallback
+        // (which applies only when the attribute is absent).
+        let mut dom = EcsDom::new();
+        let form = dom.create_element("form", Attributes::default());
+        let mut attrs = Attributes::default();
+        attrs.set("type", "checkbox");
+        attrs.set("name", "c");
+        attrs.set("value", ""); // explicitly present, empty
+        let cb = dom.create_element("input", attrs.clone());
+        let mut fcs = FormControlState::from_element("input", &attrs).unwrap();
+        fcs.checked = true;
+        let _ = dom.world_mut().insert_one(cb, fcs);
+        let _ = dom.append_child(form, cb);
+
+        let data = collect_form_data(&dom, form);
+        assert_eq!(data.len(), 1);
+        assert_eq!(
+            data[0].value, "",
+            "a present-but-empty value attribute submits empty, not 'on'"
+        );
+    }
+
+    #[test]
+    fn file_input_clear_value_empties_submission_backing() {
+        // A file input can carry a stale live backing value (e.g. a `value`
+        // content attribute present at creation).  `file.value = ""` is the
+        // filename-mode empty setter (→ `clear_file_value`), which must empty
+        // that backing so form submission no longer emits it.  (File controls
+        // should ultimately submit File objects per §4.10.19.6 step 8; that
+        // is the `#11-input-file-shell-staging` defer — until then the live
+        // value is the submission backing.)
+        let mut dom = EcsDom::new();
+        let form = dom.create_element("form", Attributes::default());
+        let mut attrs = Attributes::default();
+        attrs.set("type", "file");
+        attrs.set("name", "f");
+        let fi = dom.create_element("input", attrs.clone());
+        let mut fcs = FormControlState::from_element("input", &attrs).unwrap();
+        fcs.value = "x".to_string(); // stale file backing
+        let _ = dom.world_mut().insert_one(fi, fcs);
+        let _ = dom.append_child(form, fi);
+        assert_eq!(collect_form_data(&dom, form)[0].value, "x");
+
+        // file.value = "" → clear_file_value empties the backing.
+        if let Ok(mut fcs) = dom.world_mut().get::<&mut FormControlState>(fi) {
+            fcs.clear_file_value();
+        }
+        assert_eq!(
+            collect_form_data(&dom, form)[0].value,
+            "",
+            "clear_file_value empties the file submission backing"
         );
     }
 
