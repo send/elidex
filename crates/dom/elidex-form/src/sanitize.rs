@@ -15,7 +15,7 @@ use crate::input::{
     aligned_above, aligned_below, allowed_value_step, is_step_aligned, maximum, minimum,
     parse_valid_floating_point, step_base,
 };
-use crate::{datetime, FormControlKind, FormControlState};
+use crate::{datetime, FormControlKind, FormControlState, SelectionDirection};
 
 /// HTML "strip newlines from a string" — remove every U+000A LF and
 /// U+000D CR.  Used by the text / search / telephone / password / URL /
@@ -69,7 +69,11 @@ fn sanitize_range(state: &FormControlState) -> Option<String> {
     let default = if max < min {
         min
     } else {
-        min + (max - min) / 2.0
+        // Midpoint as `0.5*min + 0.5*max`, NOT `min + (max-min)/2`: the
+        // latter overflows the `max - min` intermediate to infinity for
+        // extreme finite endpoints (e.g. `min=-1e308 max=1e308`), which
+        // would store `"inf"` — not a valid floating-point number.
+        0.5 * min + 0.5 * max
     };
     let mut value = parsed.unwrap_or(default);
     // Underflow → minimum.
@@ -158,17 +162,18 @@ pub(crate) fn sanitize_value(state: &mut FormControlState) {
         FormControlKind::Range => sanitize_range(state),
         // §4.10.5.1.7–.10 date/month/week/time: "if the value is not a
         // valid <type> string, set it to empty" — a VALID value is kept
-        // VERBATIM (no normalization).  Mirror the Number arm: validity
-        // check → empty on failure, else None (keep).  Do NOT round-trip
-        // through convert_number_to_string here — that would reserialize a
+        // VERBATIM (no normalization).  The validity test is *syntactic*
+        // (`is_valid_datetime_string`), NOT `convert_valid_string_to_number`:
+        // the latter also returns `None` when a syntactically valid but
+        // astronomically large year overflows the i64 ms space, which would
+        // wrongly empty a valid string.  Do NOT round-trip through
+        // convert_number_to_string here — that would reserialize a
         // valid-but-non-canonical string (e.g. `time` `"08:00:00"` → `"08:00"`).
         FormControlKind::Date
         | FormControlKind::Month
         | FormControlKind::Week
         | FormControlKind::Time => {
-            datetime::convert_valid_string_to_number(state.kind, state.value())
-                .is_none()
-                .then(String::new)
+            (!datetime::is_valid_datetime_string(state.kind, state.value())).then(String::new)
         }
         // §4.10.5.1.11 Local Date and Time: valid → *normalized* valid
         // string (the one date/time state the spec normalizes); else empty.
@@ -199,11 +204,13 @@ pub(crate) fn sanitize_value(state: &mut FormControlState) {
         if sanitized != state.value {
             state.value = sanitized;
             // HTML §4.10.5.4 (`value` IDL setter) step 5: collapse the
-            // selection to the end of the new value; keep char count in sync.
+            // selection to the end of the new value AND reset the selection
+            // direction to "none"; keep char count in sync.
             let end = state.value.len();
             state.cursor_pos = end;
             state.selection_start = end;
             state.selection_end = end;
+            state.selection_direction = SelectionDirection::None;
             state.update_char_count();
         }
     }

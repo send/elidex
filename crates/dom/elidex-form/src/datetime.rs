@@ -509,6 +509,31 @@ pub(crate) fn convert_valid_string_to_number(kind: FormControlKind, s: &str) -> 
     convert_string_to_number_with(kind, s, FracPrecision::ValidString)
 }
 
+/// Whether `s` is a syntactically **valid `<type>` string** (HTML §2.3.5)
+/// for the date/time `kind`, independent of whether its millisecond
+/// conversion fits the internal `i64` number space.
+///
+/// Value sanitization for the date/month/week/time states must keep a
+/// *valid string* verbatim and only empty a value that is **not** a valid
+/// string — so it must NOT use [`convert_valid_string_to_number`] as the
+/// validity test: that helper returns `None` for a syntactically valid but
+/// astronomically large year whose ms count overflows `i64` (the spec's
+/// "convert ... results in an error" case), which would wrongly empty a
+/// valid value.  This checks syntax only (via the per-type parsers, which
+/// still apply the parser's own civil-year guard).
+pub(crate) fn is_valid_datetime_string(kind: FormControlKind, s: &str) -> bool {
+    match kind {
+        FormControlKind::Date => parse_date(s).is_some(),
+        FormControlKind::Month => parse_month(s).is_some(),
+        FormControlKind::Week => parse_week(s).is_some(),
+        FormControlKind::Time => parse_time(s, FracPrecision::ValidString).is_some(),
+        FormControlKind::DatetimeLocal => {
+            parse_local_date_time(s, FracPrecision::ValidString).is_some()
+        }
+        _ => false,
+    }
+}
+
 fn convert_string_to_number_with(
     kind: FormControlKind,
     s: &str,

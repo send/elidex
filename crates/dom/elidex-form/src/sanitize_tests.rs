@@ -239,3 +239,41 @@ fn from_element_parse_sanitizes_email_multiple() {
     let state = FormControlState::from_element("input", &attrs).unwrap();
     assert_eq!(state.value(), "a@b,c@d");
 }
+
+#[test]
+fn sanitize_date_keeps_huge_but_valid_year_verbatim() {
+    // §4.10.5.1.7: a syntactically valid date is kept VERBATIM even when its
+    // millisecond count overflows the internal i64 number space — date
+    // value-sanitization validity is syntactic, not numeric.  `year=1e9` is
+    // a valid date string but its ms count exceeds i64::MAX.
+    let mut s = raw_state(FormControlKind::Date, "1000000000-01-01");
+    sanitize_value(&mut s);
+    assert_eq!(s.value(), "1000000000-01-01");
+}
+
+#[test]
+fn sanitize_range_extreme_endpoints_no_infinity() {
+    // The default-value midpoint must stay finite even for extreme finite
+    // endpoints — `0.5*min + 0.5*max` avoids the `max - min` overflow to
+    // infinity that would store an invalid `"inf"`.
+    let mut s = FormControlState {
+        kind: FormControlKind::Range,
+        value: "x".to_string(),
+        min: Some("-1e308".to_string()),
+        max: Some("1e308".to_string()),
+        ..FormControlState::default()
+    };
+    sanitize_value(&mut s);
+    assert_eq!(s.value(), "0");
+}
+
+#[test]
+fn sanitize_resets_selection_direction_on_value_change() {
+    // §4.10.5.4 step 5: when sanitization changes the value, the selection
+    // direction resets to "none" (alongside the cursor/selection collapse).
+    let mut s = raw_state(FormControlKind::TextInput, "a\nb");
+    s.selection_direction = SelectionDirection::Forward;
+    sanitize_value(&mut s);
+    assert_eq!(s.value(), "ab");
+    assert_eq!(s.selection_direction, SelectionDirection::None);
+}

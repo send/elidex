@@ -94,6 +94,21 @@ fn handle_insert(node: Entity, dom: &mut EcsDom) {
     }
 }
 
+/// HTML §4.10.5.1.13 continuous Range correction: when a **grid-affecting**
+/// attribute changes (`min`/`max`/`step`, or the `value` content attribute
+/// that serves as the step base when `min` is absent — §4.10.5.3.7), a
+/// Range control "must" re-clamp/snap its value.  This is stated
+/// unconditionally (NOT part of the value-sanitization trigger set, and NOT
+/// gated on the dirty flag — a slider cannot represent an out-of-range /
+/// off-grid value).  A no-op for every other kind: number/date/time KEEP an
+/// out-of-range value for their constraint validation to report (number's
+/// step rounding is only a "may").
+fn recorrect_range(fcs: &mut FormControlState) {
+    if fcs.kind == FormControlKind::Range {
+        sanitize_value(fcs);
+    }
+}
+
 /// WHATWG DOM §4.9 attribute change steps — partial re-derivation of
 /// [`FormControlState`] fields based on attribute name.  `new_value`
 /// `None` = removed (reset to default); `Some(v)` = set to `v`.
@@ -175,7 +190,14 @@ fn handle_attribute_change(node: Entity, name: &str, new_value: Option<&str>, do
             fcs.default_value.clear();
             fcs.default_value.push_str(raw);
         }
-        if !fcs.dirty_value {
+        if fcs.dirty_value {
+            // Dirty: the live value is suppressed (dirty-value-flag), but
+            // for a Range control the `value` content attribute is the step
+            // base when `min` is absent (§4.10.5.3.7) — so changing it can
+            // shift the step grid under the dirty value and leave it off-grid.
+            // Range must continuously correct that (§4.10.5.1.13).
+            recorrect_range(&mut fcs);
+        } else {
             // HTML §4.10.5.1.18 (submit) / §4.10.5.1.19 (reset) default
             // button label substitution — matches the `from_input_element`
             // path at createElement time.
@@ -291,20 +313,7 @@ fn handle_attribute_change(node: Entity, name: &str, new_value: Option<&str>, do
                 "max" => fcs.max = v,
                 _ => fcs.step = v,
             }
-            // HTML §4.10.5.1.13: a Range control must CONTINUOUSLY correct
-            // an underflow / overflow / step mismatch — "the user agent
-            // must set/round the element's value" is stated
-            // unconditionally, distinct from the value-sanitization
-            // trigger set (which excludes min/max/step) and NOT gated on
-            // the dirty flag (a range slider cannot represent an
-            // out-of-range value).  So a `min`/`max`/`step` change that
-            // puts a range value out of range must re-clamp/snap it.  The
-            // number/date/time states instead KEEP an out-of-range value
-            // (their constraint validation reports it — number's step
-            // rounding is only a "may"), so only Range re-sanitizes here.
-            if fcs.kind == FormControlKind::Range {
-                sanitize_value(&mut fcs);
-            }
+            recorrect_range(&mut fcs);
         }
 
         // Attribute not in FormControlState — ignore.
@@ -853,6 +862,31 @@ mod tests {
         // nearest in-range is 30).
         assert!(dom.set_attribute(e, "step", "30"));
         with_fcs(&dom, e, |s| assert_eq!(s.value, "30"));
+    }
+
+    #[test]
+    fn dirty_range_recorrects_on_value_attr_step_base_change() {
+        // §4.10.5.1.13 + §4.10.5.3.7: with no `min`, the `value` content
+        // attribute is the Range step base.  Changing it shifts the grid, so
+        // a dirty live value that was on the old grid must be re-corrected.
+        let (mut dom, e) = setup(
+            "input",
+            &[("type", "range"), ("step", "20"), ("value", "40")],
+        );
+        // Dirty the live value to 60 (on the old grid, base 40: (60-40)/20=1).
+        {
+            let mut state = dom.world_mut().get::<&mut FormControlState>(e).unwrap();
+            state.set_value("60".to_string());
+            assert_eq!(state.value, "60");
+            assert!(state.dirty_value);
+        }
+        // `value` attr → new step base 50; live 60 is off the new grid
+        // (50,70,…) → snap to nearest in-range (tie 50/70 → +∞ → 70).
+        assert!(dom.set_attribute(e, "value", "50"));
+        with_fcs(&dom, e, |s| {
+            assert_eq!(s.value, "70", "dirty range re-corrected to the new grid");
+            assert!(s.dirty_value, "re-correction must keep the dirty flag");
+        });
     }
 
     #[test]
