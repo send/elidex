@@ -249,11 +249,30 @@ fn text_like_types_are_text_controls() {
         FormControlKind::Search,
     ] {
         assert!(kind.is_text_control(), "{kind:?} should be a text control");
+    }
+    // The text-selection APIs (selectionStart/End/Direction, setRangeText,
+    // setSelectionRange) apply to Text/Search/Tel/URL/Password (+textarea)
+    // but NOT to Email — HTML §4.10.5.1.5 lists them under "do not apply"
+    // for the Email state (only `select()` applies).  `supports_selection`
+    // is the canonical "setRangeText() applies" predicate, so it excludes
+    // Email even though `is_text_control` includes it for editing.
+    for kind in [
+        FormControlKind::Url,
+        FormControlKind::Tel,
+        FormControlKind::Search,
+        FormControlKind::TextInput,
+        FormControlKind::Password,
+        FormControlKind::TextArea,
+    ] {
         assert!(
             kind.supports_selection(),
             "{kind:?} should support selection"
         );
     }
+    assert!(
+        !FormControlKind::Email.supports_selection(),
+        "Email must NOT support the text-selection APIs (HTML §4.10.5.1.5)"
+    );
 }
 
 #[test]
@@ -473,14 +492,203 @@ fn set_value_moves_cursor_to_end() {
 }
 
 #[test]
+fn set_value_unchanged_preserves_cursor_and_selection() {
+    // HTML §4.10.5.4 `value`-setter step 5 (R4-F10): a set whose
+    // post-sanitization value EQUALS the old value must NOT move the
+    // cursor, collapse the selection, or reset the direction.
+    let mut state = FormControlState::default(); // TextInput → supports selection
+    state.set_value("hello".to_string());
+    state.cursor_pos = 3;
+    state.selection_start = 1;
+    state.selection_end = 3;
+    state.selection_direction = SelectionDirection::Forward;
+    state.set_value("hello".to_string()); // same value
+    assert_eq!(
+        state.cursor_pos(),
+        3,
+        "el.value=el.value must not move cursor"
+    );
+    assert_eq!(state.selection_start(), 1);
+    assert_eq!(state.selection_end(), 3);
+    assert_eq!(state.selection_direction, SelectionDirection::Forward);
+}
+
+#[test]
+fn set_value_sanitize_back_to_old_does_not_move_cursor() {
+    // R4-F10: a set that SANITIZES back to the current value (TextInput
+    // strips newlines) is "unchanged" for step 5 → no cursor move.
+    let mut state = FormControlState::default();
+    state.set_value("ab".to_string());
+    state.cursor_pos = 1;
+    state.selection_start = 1;
+    state.selection_end = 1;
+    state.set_value("a\nb".to_string()); // sanitizes (newline strip) → "ab" == old
+    assert_eq!(state.value(), "ab");
+    assert_eq!(
+        state.cursor_pos(),
+        1,
+        "sanitize-back-to-old must not move cursor"
+    );
+}
+
+#[test]
+fn set_value_changed_collapses_to_end_and_resets_direction() {
+    // HTML §4.10.5.4 step 5 (R2-F5): a set that CHANGES the value moves the
+    // cursor to the end, unselects, and resets selection direction to None.
+    let mut state = FormControlState::default();
+    state.set_value("hello".to_string());
+    state.cursor_pos = 1;
+    state.selection_start = 1;
+    state.selection_end = 3;
+    state.selection_direction = SelectionDirection::Backward;
+    state.set_value("worldwide".to_string());
+    assert_eq!(state.cursor_pos(), 9);
+    assert_eq!(state.selection_start(), 9);
+    assert_eq!(state.selection_end(), 9);
+    assert_eq!(state.selection_direction, SelectionDirection::None);
+}
+
+#[test]
+fn set_value_on_editable_text_kind_moves_cursor_to_end() {
+    // Step 5's "has a text entry cursor position" is the editable-text set
+    // (`has_selectable_text`), which is BROADER than `supports_selection`:
+    // email and number have an editing cursor (key input maintains
+    // `cursor_pos`) even though their `selectionStart` getter does not
+    // apply.  So `el.value = ...` must move the cursor to the end for them,
+    // or the next typed character lands at a stale position.
+    for kind in [FormControlKind::Email, FormControlKind::Number] {
+        let mut state = FormControlState {
+            kind,
+            ..FormControlState::default()
+        };
+        state.cursor_pos = 0;
+        state.selection_start = 0;
+        state.selection_end = 0;
+        let v = if kind == FormControlKind::Number {
+            "42"
+        } else {
+            "a@b.c"
+        };
+        state.set_value(v.to_string());
+        assert_eq!(state.value(), v);
+        assert_eq!(state.cursor_pos(), v.len(), "{kind:?}: cursor to end");
+        assert_eq!(state.selection_start(), v.len());
+        assert_eq!(state.selection_end(), v.len());
+    }
+}
+
+#[test]
+fn set_value_on_non_text_kind_does_not_move_cursor() {
+    // A control with NO text entry cursor (`has_selectable_text` false —
+    // range/checkbox/date pickers) gets no step-5 move; the cursor fields
+    // stay put (they are inert for such kinds).
+    for kind in [
+        FormControlKind::Range,
+        FormControlKind::Checkbox,
+        FormControlKind::Date,
+    ] {
+        let mut state = FormControlState {
+            kind,
+            ..FormControlState::default()
+        };
+        state.cursor_pos = 0;
+        state.selection_start = 0;
+        state.selection_end = 0;
+        state.set_value("5".to_string());
+        assert_eq!(
+            state.selection_start(),
+            0,
+            "{kind:?}: no text entry cursor → no step-5 move"
+        );
+        assert_eq!(state.selection_end(), 0);
+    }
+}
+
+#[test]
+fn type_change_newly_selectable_moves_cursor_to_beginning() {
+    // HTML §4.10.5 type-change step 9 (R4-F8): a control that was NOT
+    // selectable (hidden) and IS now (text) gets its cursor at the
+    // beginning + selection direction "none".
+    let mut state = FormControlState::default();
+    state.set_value("hello".to_string()); // TextInput, cursor at end (5)
+    state.selection_direction = SelectionDirection::Forward;
+    state.kind = FormControlKind::TextInput; // new kind
+    sanitize_for_type_change(&mut state, FormControlKind::Hidden);
+    assert_eq!(
+        state.cursor_pos(),
+        0,
+        "newly-selectable → cursor to beginning"
+    );
+    assert_eq!(state.selection_start(), 0);
+    assert_eq!(state.selection_end(), 0);
+    assert_eq!(state.selection_direction, SelectionDirection::None);
+}
+
+#[test]
+fn type_change_both_selectable_preserves_cursor() {
+    // text → search (both selectable) → step 9 does NOT fire; the cursor
+    // is preserved (not reset to the beginning).
+    let mut state = FormControlState::default();
+    state.set_value("hello".to_string());
+    state.cursor_pos = 3;
+    state.selection_start = 3;
+    state.selection_end = 3;
+    state.kind = FormControlKind::Search;
+    sanitize_for_type_change(&mut state, FormControlKind::TextInput);
+    assert_eq!(state.cursor_pos(), 3, "both selectable → cursor preserved");
+}
+
+#[test]
+fn type_change_to_email_does_not_move_cursor() {
+    // Email is NOT selectable (HTML §4.10.5.1.5), so a hidden→email or
+    // text→email change never fires step 9.
+    let mut state = FormControlState::default();
+    state.set_value("a@b.example".to_string());
+    state.cursor_pos = 4;
+    state.selection_start = 4;
+    state.selection_end = 4;
+    state.kind = FormControlKind::Email;
+    sanitize_for_type_change(&mut state, FormControlKind::Hidden);
+    assert_eq!(
+        state.cursor_pos(),
+        4,
+        "email not selectable → no step-9 move"
+    );
+}
+
+#[test]
 fn set_value_initial_does_not_mark_dirty() {
     let mut state = FormControlState::default();
     state.set_value_initial("world".to_string());
     assert_eq!(state.value(), "world");
     assert!(!state.is_dirty());
-    assert_eq!(state.cursor_pos(), 5);
-    assert_eq!(state.selection_start(), 5);
-    assert_eq!(state.selection_end(), 5);
+    // §4.10.20: initial value establishment is clamp-only (no collapse to the
+    // end); the default cursor (0) is in-bounds, so it stays at the beginning.
+    assert_eq!(state.cursor_pos(), 0);
+    assert_eq!(state.selection_start(), 0);
+    assert_eq!(state.selection_end(), 0);
+}
+
+#[test]
+fn relevant_value_change_clamps_without_resetting_direction() {
+    // §4.10.20 (R4 regression): a non-setter relevant-value change (here a
+    // shorter default value via reset) clamps an out-of-bounds selection but
+    // preserves the selection direction — it must NOT reset it to "none"
+    // (that reset belongs to the §4.10.5.4 value setter / type-change steps).
+    let mut state = FormControlState::default();
+    state.set_value("a long value".to_string()); // text input → IDL setter
+    state.default_value = "hi".to_string();
+    state.set_selection(5, 9);
+    state.selection_direction = SelectionDirection::Backward;
+    state.reset_value(); // value → "hi" (len 2), a relevant-value change
+    assert_eq!(state.value(), "hi");
+    assert_eq!(state.selection_start(), 2, "clamped to new length");
+    assert_eq!(state.selection_end(), 2);
+    assert_eq!(
+        state.selection_direction,
+        SelectionDirection::Backward,
+        "direction preserved on a non-setter relevant-value change"
+    );
 }
 
 #[test]

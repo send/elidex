@@ -153,12 +153,28 @@ impl FormControlKind {
     /// Returns `true` if the control supports the text-selection APIs
     /// (`selectionStart`/`selectionEnd`/`selectionDirection`,
     /// `setRangeText()`, `setSelectionRange()`).  Per the input-state
-    /// apply-lists (HTML §4.10.5.1.x) these apply only to the text-like
-    /// states (text/search/url/tel/password and `<textarea>`) — they do
-    /// **not** apply to number or the date/time states.
+    /// apply-lists these apply only to Text (§4.10.5.1.2), Search,
+    /// Telephone (§4.10.5.1.3), URL (§4.10.5.1.4), and Password
+    /// (§4.10.5.1.6), plus `<textarea>` — they do **not** apply to the
+    /// **Email** state (§4.10.5.1.5 lists `selectionStart`/`End`/
+    /// `Direction`/`setRangeText`/`setSelectionRange` under "do not
+    /// apply"; only `select()` applies), nor to number or the date/time
+    /// states.  This is the canonical "setRangeText() applies" predicate —
+    /// it also gates the §4.10.5.4 step-5 "has a text entry cursor
+    /// position" move and the §4.10.5 type-change step-9 selectability
+    /// transition.  (`Email` is therefore EXCLUDED here even though
+    /// [`Self::is_text_control`] includes it for editing purposes.)
     #[must_use]
     pub fn supports_selection(self) -> bool {
-        self.is_text_control()
+        matches!(
+            self,
+            Self::TextInput
+                | Self::Search
+                | Self::Tel
+                | Self::Url
+                | Self::Password
+                | Self::TextArea
+        )
     }
 
     /// Returns `true` if the control has **selectable text** for the
@@ -559,59 +575,116 @@ impl FormControlState {
 
     // ---- High-level editing methods ----
 
-    /// Set the value (marks as dirty, moves cursor to end).
+    /// Settle a freshly-established `self.value`: run the §4.10.5.1.x
+    /// per-type value sanitization, re-sync the cached `char_count`, and
+    /// CLAMP the text-entry cursor / selection into the (possibly
+    /// shorter) value so the "selection is within the value" invariant
+    /// holds by construction.
     ///
-    /// Per HTML §4.10.5.4 (`value` IDL setter) step 5: selection is set to the end of the new value.
-    pub fn set_value(&mut self, text: String) {
-        self.cursor_pos = text.len();
-        self.selection_start = text.len();
-        self.selection_end = text.len();
-        self.value = text;
-        self.dirty_value = true;
-        self.update_char_count();
-        // HTML §4.10.5.1.x value sanitization runs on every value
-        // mutation; `sanitize_value` re-syncs char_count / selection if
-        // it changes the value and never touches `dirty_value`.
+    /// **Policy-free** — it never moves the cursor to a spec-defined
+    /// position; that is the caller's job at the two normative sites
+    /// (HTML §4.10.5.4 `value`-setter step 5 → end, §4.10.5 type-change
+    /// step 9 → beginning) via [`Self::move_text_cursor_to`].  The clamp
+    /// runs UNCONDITIONALLY (not only when sanitization changes the
+    /// value), because a value-establishment that shortens `value`
+    /// without sanitization further changing it would otherwise leave a
+    /// stale out-of-bounds selection.  Every value-establishment site
+    /// (`set_value`, `set_value_initial`, `reset_value`,
+    /// `from_input_element`, the reconciler `value`-arm,
+    /// `sanitize_for_type_change`) sets `self.value` then calls this —
+    /// no site is exempt.
+    ///
+    /// The clamp operates on the crate's **byte** offsets, whereas HTML
+    /// §4.10.20 preserves/clamps the relevant-value-change selection in
+    /// **UTF-16 code-unit** offsets.  For ASCII values the two coincide; for
+    /// a multibyte value change an in-range byte offset can correspond to a
+    /// different code-unit offset than the spec preserves.  The whole
+    /// selection subsystem is byte-internal (converting to UTF-16 only at
+    /// the IDL boundary), so code-unit-correct clamping is the deferred
+    /// `#11-selection-offset-utf16-units` migration, not a per-call-site fix.
+    pub(crate) fn settle_value(&mut self) {
         sanitize::sanitize_value(self);
+        self.update_char_count();
+        self.cursor_pos = util::snap_to_char_boundary(&self.value, self.cursor_pos);
+        self.selection_start = util::snap_to_char_boundary(&self.value, self.selection_start);
+        self.selection_end = util::snap_to_char_boundary(&self.value, self.selection_end);
+    }
+
+    /// Move the text entry cursor to `pos`, unselect any selection, and
+    /// reset the selection direction to "none".
+    ///
+    /// Implements the cursor move shared by HTML §4.10.5.4 `value`-setter
+    /// step 5 (`pos = value.len()`, the end) and the §4.10.5 type-change
+    /// step 9 (`pos = 0`, the beginning).  `pos` is assumed in-bounds and
+    /// char-aligned (callers pass `value.len()` or `0`).
+    pub(crate) fn move_text_cursor_to(&mut self, pos: usize) {
+        self.cursor_pos = pos;
+        self.selection_start = pos;
+        self.selection_end = pos;
+        self.selection_direction = SelectionDirection::None;
+    }
+
+    /// Set the value via the IDL `value` setter (marks the control dirty).
+    ///
+    /// Implements HTML §4.10.5.4 (`value` IDL attribute, mode "value"):
+    /// step 1 capture `oldValue`; step 2 set the value; step 3 set the
+    /// dirty value flag; step 4 invoke value sanitization; step 5 if the
+    /// value (after sanitization) differs from `oldValue` AND the control
+    /// has a text entry cursor position, move the cursor to the end,
+    /// unselect, and reset the selection direction to "none".  A set that
+    /// sanitizes back to (or equals) the old value leaves the cursor /
+    /// selection unchanged.
+    pub fn set_value(&mut self, text: String) {
+        let old = self.value.clone(); // step 1: oldValue
+        self.value = text; // step 2
+        self.dirty_value = true; // step 3
+        self.settle_value(); // step 4 (sanitize) + bounds clamp
+                             // step 5: the move fires only when the post-sanitization value
+                             // changed AND the control "has a text entry cursor position".  That
+                             // is the editable-text set (`has_selectable_text` = the kinds whose
+                             // key input maintains `cursor_pos` via the text handler: text /
+                             // search / tel / url / password / textarea / email / number) — it is
+                             // BROADER than `supports_selection` (the "setRangeText() applies"
+                             // set, which excludes email/number): those controls have an editing
+                             // cursor even though their `selectionStart` getter does not apply, so
+                             // a stale `cursor_pos` would mis-place the next typed character.
+        if self.value != old && self.kind.has_selectable_text() {
+            self.move_text_cursor_to(self.value.len());
+        }
     }
 
     /// Set the value during initialization (`dirty_value` stays false).
     ///
-    /// Also sets `default_value` for form reset.
-    /// Per HTML §4.10.5.4 (`value` IDL setter) step 5: selection is set to the end of the value.
+    /// Also sets `default_value` for form reset.  This is a "relevant value
+    /// change" with **no** explicit cursor-move policy (unlike the IDL
+    /// `value` setter step 5), so per HTML §4.10.20 the cursor / selection
+    /// are only CLAMPED into the new value — not collapsed to the end and
+    /// not direction-reset.  `settle_value` performs exactly that clamp.
     pub fn set_value_initial(&mut self, text: String) {
-        self.cursor_pos = text.len();
-        self.selection_start = text.len();
-        self.selection_end = text.len();
         self.default_value.clone_from(&text);
         self.value = text;
-        self.update_char_count();
-        // Value sanitization (HTML §4.10.5.1.x) on the initial / default
-        // value; does not set the dirty flag.
-        sanitize::sanitize_value(self);
+        self.settle_value();
     }
 
     /// Reset to default value (form reset behavior).
     ///
-    /// Restores `default_value`, clears dirty flag, resets cursor /
-    /// selection / checked / indeterminate.
+    /// Restores `default_value`, clears the dirty flag, and restores
+    /// checked / indeterminate.
     ///
-    /// Per HTML §4.10.5.1.6 reset algorithm for `<input>`: set value
-    /// to the `value` content attribute (or empty), clear the dirty
-    /// flag, restore checkedness from the `checked` content attribute,
-    /// and set the indeterminate IDL attribute back to false.
+    /// Per HTML §4.10.5 reset algorithm for `<input>`: set the dirty value
+    /// flag back to false, set the value to the `value` content attribute
+    /// (or empty), restore checkedness from the `checked` content
+    /// attribute, set indeterminate back to false, and invoke value
+    /// sanitization.  The reset algorithm carries **no** cursor-move policy,
+    /// so the relevant-value-change rule (HTML §4.10.20) applies: the cursor
+    /// / selection are only CLAMPED into the restored value (positions and
+    /// selection direction otherwise preserved), via `settle_value`.
     pub fn reset_value(&mut self) {
-        let dv = self.default_value.clone();
-        self.value = dv;
-        self.cursor_pos = self.value.len();
-        self.selection_start = self.value.len();
-        self.selection_end = self.value.len();
+        self.value = self.default_value.clone();
         self.dirty_value = false;
         self.checked = self.default_checked;
         self.indeterminate = false;
-        self.update_char_count();
-        // Value sanitization (HTML §4.10.5.1.x) on the restored default.
-        sanitize::sanitize_value(self);
+        self.settle_value();
     }
 
     /// Insert text at the current cursor position (marks as dirty).
@@ -733,7 +806,10 @@ impl FormControlState {
         let char_count = value.chars().count();
         let mut state = Self {
             kind,
-            cursor_pos: value.len(),
+            // HTML §4.10.20: "The initial state must consist of a text entry
+            // cursor at the beginning of the control." `cursor_pos` therefore
+            // defaults to 0 (not the value length) at element creation;
+            // `settle_value` below clamps it (a no-op at 0).
             default_value: raw_value,
             char_count,
             value,
@@ -762,10 +838,14 @@ impl FormControlState {
             ..Self::default()
         };
         // HTML value sanitization (§4.10.5.1.x) at element creation: the
-        // struct-literal parse is a value-establishment site, so the
-        // stored value must be sanitized here (a raw `<input type=range
-        // value=150>` becomes the clamped value, etc.).
-        sanitize::sanitize_value(&mut state);
+        // struct-literal parse is a value-establishment site, so it is
+        // settled through the same canonical primitive as every other site
+        // (a raw `<input type=range value=150>` becomes the clamped value,
+        // etc.).  Element creation carries no cursor-move policy, so this is
+        // the clamp-only path: per HTML §4.10.20 the initial text entry cursor
+        // is at the beginning (`cursor_pos` defaults to 0 above), and
+        // `settle_value` only clamps it into bounds (a no-op at 0).
+        state.settle_value();
         state
     }
 

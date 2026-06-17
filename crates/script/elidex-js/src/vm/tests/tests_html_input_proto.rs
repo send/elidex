@@ -369,6 +369,48 @@ fn input_selection_getters_return_null_for_non_text_types() {
 }
 
 #[test]
+fn input_email_selection_apis_do_not_apply() {
+    // HTML §4.10.5.1.5 (Email state): selectionStart/End/Direction,
+    // setRangeText(), setSelectionRange() are listed under "do not apply"
+    // — only select() applies.  So the selection getters return null and
+    // the setters / setSelectionRange / setRangeText throw
+    // InvalidStateError.  select() DOES apply to email (email is still a
+    // text control with selectable text) and records a range — but that
+    // range is JS-unobservable here because the getters return null; the
+    // assertion only checks select() does not throw.
+    let getters = run("var i = document.createElement('input'); \
+         i.type = 'email'; i.value = 'a@b.example'; \
+         '' + (i.selectionStart === null) + (i.selectionEnd === null) + (i.selectionDirection === null);");
+    assert_eq!(
+        getters, "truetruetrue",
+        "email selection getters return null"
+    );
+
+    let set_range = run("var i = document.createElement('input'); \
+         i.type = 'email'; \
+         try { i.setSelectionRange(0, 1); 'no-throw'; } \
+         catch (e) { (e.name === 'InvalidStateError') ? 'ok' : 'other:' + e.name; }");
+    assert_eq!(
+        set_range, "ok",
+        "email setSelectionRange throws InvalidStateError"
+    );
+
+    let setter = run("var i = document.createElement('input'); \
+         i.type = 'email'; \
+         try { i.selectionStart = 0; 'no-throw'; } \
+         catch (e) { (e.name === 'InvalidStateError') ? 'ok' : 'other:' + e.name; }");
+    assert_eq!(
+        setter, "ok",
+        "email selectionStart setter throws InvalidStateError"
+    );
+
+    let select = run("var i = document.createElement('input'); \
+         i.type = 'email'; \
+         try { i.select(); 'ok'; } catch (e) { 'threw:' + e.name; }");
+    assert_eq!(select, "ok", "email select() is a non-throwing no-op");
+}
+
+#[test]
 fn input_selection_setter_still_throws_for_non_text_type() {
     // The setter side of the getter/setter split: assigning selectionStart on a
     // non-text type still throws InvalidStateError (only the getter is null).
@@ -395,28 +437,34 @@ fn input_select_method_never_throws_for_number_or_date_types() {
 }
 
 #[test]
-fn input_select_method_is_noop_for_pickered_date_types() {
+fn input_type_change_to_selectable_collapses_cursor_to_beginning() {
     // Codex R5: the date/time states render as pickers (no selectable
-    // text), so select() must NOT record a selection.  Setting .value
-    // leaves a collapsed cursor at the end (§4.10.7.4); a no-op select()
-    // keeps it collapsed (start == end), whereas select_all would make it a
-    // 0..len range — observable via selectionStart/End after a type change.
+    // text), so select() must NOT record a selection.  date/number both
+    // lack the selectionStart/End getters (HTML §4.10.5.1.7 / .12 — these
+    // IDL attributes do not apply), so the selection can only be read after
+    // switching to a selectable type.  But that type change ITSELF triggers
+    // HTML §4.10.5 type-change step 9: a control that was not selectable
+    // (date / number) and is now (text) has its text entry cursor set to
+    // the BEGINNING and the selection direction reset to "none".  So after
+    // the switch both cases read collapsed at 0 regardless of what select()
+    // did — matching real browsers (Chrome's `selectionStart` throws on
+    // number/date, and number→text lands the cursor at the start).
     let date = run("var i = document.createElement('input'); \
          i.type = 'date'; i.value = '2025-01-15'; \
          i.select(); \
          i.type = 'text'; \
-         (i.selectionStart === i.selectionEnd) ? 'collapsed' : 'range:' + i.selectionStart + '-' + i.selectionEnd;");
-    assert_eq!(date, "collapsed", "date select() must not select a range");
+         '' + i.selectionStart + '/' + i.selectionEnd;");
+    assert_eq!(date, "0/0", "type-change step 9 collapses to the beginning");
 
-    // number HAS selectable text, so select() records the full range.
-    // (selectionStart/End don't apply to number directly — read after
-    // switching to text, the same way the date case does.)
     let number = run("var i = document.createElement('input'); \
          i.type = 'number'; i.value = '12345'; \
          i.select(); \
          i.type = 'text'; \
          '' + i.selectionStart + '/' + i.selectionEnd;");
-    assert_eq!(number, "0/5", "number select() selects its text");
+    assert_eq!(
+        number, "0/0",
+        "type-change step 9 collapses to the beginning"
+    );
 }
 
 #[test]

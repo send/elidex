@@ -26,7 +26,7 @@ use crate::{
     clear_focus_snapshot, compile_pattern_regex, create_form_control_state,
     sanitize_for_type_change,
 };
-use crate::{FormControlKind, FormControlState, SelectionDirection};
+use crate::{FormControlKind, FormControlState};
 
 /// [`MutationEvent`] consumer maintaining [`FormControlState`] derived
 /// fields against attribute mutations.
@@ -206,30 +206,21 @@ fn handle_attribute_change(node: Entity, name: &str, new_value: Option<&str>, do
                 FormControlKind::ResetButton if raw.is_empty() => "Reset",
                 _ => raw,
             };
-            let end = displayed.len();
-            fcs.char_count = displayed.chars().count();
-            fcs.cursor_pos = end;
-            // HTML §4.10.5.5 step 5 of the value-replacement algorithm:
-            // when the relevant value is programmatically replaced (here,
-            // via a `value` content-attribute mutation while
-            // `dirty_value` is false), collapse any selection to the end
-            // of the new value and reset the selection direction.  Stale
-            // `selection_start` / `selection_end` from a prior Selection
-            // API range can otherwise point past the (potentially
-            // shorter) replacement value, violating the spec's
-            // "selection is within the value" invariant.  Mirrors the
-            // [`FormControlState::set_value`] in-crate path used by IDL
-            // setters.
-            fcs.selection_start = end;
-            fcs.selection_end = end;
-            fcs.selection_direction = SelectionDirection::None;
+            // HTML §4.10.5: "When the value content attribute is added,
+            // set, or removed, if the control's dirty value flag is false,
+            // the user agent must set the value of the element to the value
+            // of the value content attribute … and then run the value
+            // sanitization algorithm."  This content-attribute replacement is
+            // a "relevant value change" with NO explicit cursor-move policy
+            // (unlike the IDL `value` setter §4.10.5.4 step 5), so HTML
+            // §4.10.20 applies: the cursor / selection are only CLAMPED into
+            // the (possibly shorter) replacement value — positions and
+            // selection direction otherwise preserved — which is exactly
+            // `settle_value`.  Inside `!dirty_value`: a `value`-attribute
+            // change never re-sanitizes a dirty live value (R2).
             fcs.value.clear();
             fcs.value.push_str(displayed);
-            // HTML §4.10.5.1.x value sanitization on the new (non-dirty)
-            // value, matching the `from_input_element` / IDL-setter paths.
-            // Inside `!dirty_value`: a `value`-attribute change never
-            // re-sanitizes a dirty live value (R2).
-            sanitize_value(&mut fcs);
+            fcs.settle_value();
         }
         return;
     }
@@ -324,6 +315,7 @@ fn handle_attribute_change(node: Entity, name: &str, new_value: Option<&str>, do
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::SelectionDirection;
     use elidex_ecs::{Attributes, MutationDispatcher};
 
     /// Minimal test dispatcher that wires ONLY [`FormControlReconciler`].
@@ -575,34 +567,39 @@ mod tests {
     #[test]
     fn e5b_non_dirty_value_write_syncs_cursor_and_default_value() {
         // Non-dirty `setAttribute("value", new)` must update FCS
-        // value + char_count + cursor_pos + default_value so that
-        // subsequent text-editing keypresses index a valid offset.
+        // value + char_count + default_value, and keep `cursor_pos` a valid
+        // in-bounds offset so subsequent text-editing keypresses index
+        // correctly.  Per HTML §4.10.20 the cursor is CLAMPED (not collapsed
+        // to the end): a freshly parsed control starts with the cursor at the
+        // beginning (0), and a relevant-value change only clamps if the
+        // cursor is now past the end.
         let (mut dom, e) = setup("input", &[("value", "longer-initial")]);
         with_fcs(&dom, e, |s| {
-            assert_eq!(s.cursor_pos, "longer-initial".len());
+            assert_eq!(
+                s.cursor_pos, 0,
+                "initial cursor at the beginning (§4.10.20)"
+            );
         });
         assert!(dom.set_attribute(e, "value", "short"));
         with_fcs(&dom, e, |s| {
             assert_eq!(s.value, "short");
             assert_eq!(s.default_value, "short");
             assert_eq!(s.char_count, 5);
-            assert_eq!(s.cursor_pos, 5);
+            assert_eq!(s.cursor_pos, 0, "cursor 0 is in-bounds → clamp leaves it");
             assert!(!s.dirty_value);
         });
     }
 
     #[test]
-    fn e5d_non_dirty_value_write_collapses_stale_selection_to_end() {
-        // Regression: HTML §4.10.5.5 step 5 of the value-replacement
-        // algorithm requires the selection to be collapsed to the end
-        // of the new value (and `selection_direction` reset to `none`)
-        // when the relevant value is programmatically replaced.  A
-        // prior reconciler that left `selection_start` /
-        // `selection_end` untouched would leave them pointing past the
-        // new (potentially shorter) value, violating the spec's
-        // "selection is within the value" invariant — observable via
-        // a subsequent `input.selectionStart` IDL read returning a
-        // stale out-of-bounds offset.
+    fn e5d_non_dirty_value_write_clamps_stale_selection() {
+        // HTML §4.10.20 relevant-value-change steps: when the value is
+        // programmatically replaced (a non-dirty `value` content-attribute
+        // write), a stale selection whose endpoints are now past the end of
+        // the (shorter) value is CLAMPED to the end — but the selection
+        // direction is NOT reset (that reset is specific to the §4.10.5.4
+        // value-setter / type-change steps, which do not apply here).  This
+        // keeps the "selection is within the value" invariant without
+        // imposing a cursor-move policy the spec does not specify here.
         let (mut dom, e) = setup("input", &[("value", "longer-initial")]);
         // Simulate a `setSelectionRange(10, 14)` from JS.
         {
@@ -614,9 +611,11 @@ mod tests {
         assert!(dom.set_attribute(e, "value", "short"));
         with_fcs(&dom, e, |s| {
             assert_eq!(s.value, "short");
+            // (10, 14) both clamp to the new length (5).
             assert_eq!(s.selection_start, 5);
             assert_eq!(s.selection_end, 5);
-            assert_eq!(s.selection_direction, SelectionDirection::None);
+            // Direction is PRESERVED — §4.10.20 clamps positions only.
+            assert_eq!(s.selection_direction, SelectionDirection::Forward);
         });
     }
 
