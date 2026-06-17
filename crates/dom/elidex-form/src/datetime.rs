@@ -534,6 +534,22 @@ pub(crate) fn is_valid_datetime_string(kind: FormControlKind, s: &str) -> bool {
     }
 }
 
+/// §4.10.5.1.11 datetime-local value sanitization: if `s` is a valid local
+/// date and time string, return its **valid normalized** form (drop a `:00`
+/// seconds component and trailing fractional zeros); otherwise `None` (→ the
+/// sanitizer empties it).
+///
+/// Serializes the parsed **components** directly (`format_date` + `format_time`)
+/// rather than round-tripping through the single combined-millisecond number
+/// ([`convert_valid_string_to_number`] → [`convert_number_to_string`]), so a
+/// syntactically valid but astronomically large year — whose ms count
+/// overflows the i64 number space — is still normalized and kept, not wrongly
+/// emptied.
+pub(crate) fn normalize_local_date_time(s: &str) -> Option<String> {
+    let (date, time) = parse_local_date_time(s, FracPrecision::ValidString)?;
+    Some(format!("{}T{}", format_date(date), format_time(time.ms)))
+}
+
 fn convert_string_to_number_with(
     kind: FormControlKind,
     s: &str,

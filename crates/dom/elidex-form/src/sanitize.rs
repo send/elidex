@@ -177,11 +177,13 @@ pub(crate) fn sanitize_value(state: &mut FormControlState) {
         }
         // §4.10.5.1.11 Local Date and Time: valid → *normalized* valid
         // string (the one date/time state the spec normalizes); else empty.
-        FormControlKind::DatetimeLocal => Some(
-            datetime::convert_valid_string_to_number(state.kind, state.value())
-                .and_then(|n| datetime::convert_number_to_string(state.kind, n))
-                .unwrap_or_default(),
-        ),
+        // Normalizes from the parsed components (NOT the combined-ms
+        // round-trip) so a syntactically valid huge year is normalized and
+        // kept rather than emptied by an i64 ms overflow (mirrors the
+        // date/month/week/time syntactic-validity fix above).
+        FormControlKind::DatetimeLocal => {
+            Some(datetime::normalize_local_date_time(state.value()).unwrap_or_default())
+        }
         // No value sanitization algorithm: hidden, checkbox, radio, file,
         // submit/reset/image/button, color (§4.10.5.1.14 color-well
         // control — deferred, `#11-input-color-well-sanitize`), and the

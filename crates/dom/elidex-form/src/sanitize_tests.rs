@@ -252,6 +252,16 @@ fn sanitize_date_keeps_huge_but_valid_year_verbatim() {
 }
 
 #[test]
+fn sanitize_datetime_local_keeps_huge_but_valid_year() {
+    // §4.10.5.1.11: a syntactically valid datetime-local with an
+    // astronomically large year (ms count overflows i64) is NORMALIZED via
+    // its components and kept, not emptied (drops the `:00` seconds).
+    let mut s = raw_state(FormControlKind::DatetimeLocal, "1000000000-01-01T08:00:00");
+    sanitize_value(&mut s);
+    assert_eq!(s.value(), "1000000000-01-01T08:00");
+}
+
+#[test]
 fn sanitize_range_extreme_endpoints_no_infinity() {
     // The default-value midpoint must stay finite even for extreme finite
     // endpoints — `0.5*min + 0.5*max` avoids the `max - min` overflow to
