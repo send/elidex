@@ -624,12 +624,23 @@ fn delegates_focus_host(dom: &EcsDom, entity: Entity) -> bool {
 /// *not* a focusable area (its delegate is). [`is_focusable`] intentionally omits
 /// criterion 2 (slot `#11-shadow-focus-delegation`: a global exclusion would make
 /// `host.focus()` a no-op, since the host *is* the `focus()` target), so the
-/// focus-delegate descendant walk applies it here: a nested delegates-focus host
-/// among the descendants must fall to the get-the-focusable-area recursion
-/// (§6.6.4 focus-delegate step 6.3→6.4 / autofocus-delegate step 1.2), not be
-/// returned as the delegate itself. Scoped to the delegate walk so it never
-/// reaches the Tab-nav / `reconcile_focus` predicate (PR-A3's sequential-nav axis).
-fn is_focusable_area(dom: &EcsDom, entity: Entity) -> bool {
+/// callers that implement the §6.6.4 focusing-steps step-1 "is the target a
+/// focusable area, else retarget" gate apply C2 here:
+/// - the focus-delegate descendant walk (`autofocus_delegate` /
+///   `first_delegate_descendant`) — a nested delegates-focus host among the
+///   descendants must fall to the get-the-focusable-area recursion (§6.6.4
+///   focus-delegate step 6.3→6.4 / autofocus-delegate step 1.2), not be returned
+///   as the delegate itself;
+/// - the shell pointer-click gate (`focus_target_for_click`) — a clicked
+///   delegates-focus host with no delegate is not a focusable area, so it must not
+///   itself receive focus.
+///
+/// **Not** the Tab-nav / `reconcile_focus` predicate, which stay on the C2-blind
+/// [`is_focusable`] until PR-A3 unifies the focusability predicate (the
+/// sequential-nav axis — folding C2 there changes the Tab order and needs the
+/// delegate descent, out of A1's scope).
+#[must_use]
+pub fn is_focusable_area(dom: &EcsDom, entity: Entity) -> bool {
     is_focusable(dom, entity) && !delegates_focus_host(dom, entity)
 }
 

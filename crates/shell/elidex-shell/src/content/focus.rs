@@ -11,7 +11,9 @@
 //! single-thread `App`, and in-process iframes) by operating on a
 //! `&mut PipelineResult` (each owns its own document `EcsDom`).
 
-use elidex_dom_api::focus::{current_focus, get_the_focusable_area, set_focus_bit, FocusTrigger};
+use elidex_dom_api::focus::{
+    current_focus, get_the_focusable_area, is_focusable_area, set_focus_bit, FocusTrigger,
+};
 use elidex_ecs::Entity;
 use elidex_form::{record_focus_snapshot, take_focus_snapshot, FormControlState};
 use elidex_plugin::{EventPayload, FocusEventInit};
@@ -19,14 +21,25 @@ use elidex_script_session::DispatchEvent;
 
 use crate::PipelineResult;
 
-/// The element a pointer click should focus: the WHATWG HTML §6.6.4 "get the
-/// focusable area" retarget of the raw hit `hit` (a shadow host with
-/// `delegatesFocus` → its delegate), falling back to `hit` itself when there is
-/// no retarget. The retarget is called **unconditionally** — it returns null for
-/// any genuine focusable area (see [`get_the_focusable_area`]'s doc), so
-/// `unwrap_or(hit)` reproduces the focusing-steps step-1 gate ("if not a focusable
-/// area, retarget") without a §6.6.2-complete predicate, and a non-focusable hit
-/// falls through to [`set_focus`], which blurs. (The editing-host fallback —
+/// The WHATWG HTML §6.6.4 focusing-steps step-1 resolution of a pointer click on
+/// raw hit `hit` — the focusable area that should receive focus, or `None` when
+/// the hit is **not** a focusable area and has no delegate (so focus must not move
+/// to it; the caller blurs, per elidex's "click a non-focusable area → blur" rule):
+///
+/// - hit is not a focusable area but a `delegatesFocus` shadow host (or otherwise
+///   retargetable) → its [`get_the_focusable_area`] delegate;
+/// - hit **is** itself a §6.6.2 focusable area ([`is_focusable_area`], criterion-2
+///   aware) → `hit`;
+/// - otherwise — a non-focusable element, OR a `delegatesFocus` host with no
+///   focusable delegate (which §6.6.2 criterion 2 says is *not* a focusable area)
+///   → `None`: the host must not receive focus itself.
+///
+/// The gate is [`is_focusable_area`] (criterion-2 aware), **not** the C2-blind
+/// [`is_focusable`] — so a `delegatesFocus` host with an empty/non-focusable shadow
+/// tree is correctly treated as a non-focusable area and blurs, rather than being
+/// focused via the C2-omitting predicate. The retarget itself is still called
+/// unconditionally (a `delegatesFocus` host *with* a `tabindex` is not pre-gated
+/// out of delegation — PR-A1 plan-review F1). (The editing-host ancestor fallback —
 /// focusing-steps step 2 — is PR-A2.)
 ///
 /// Wired here at the content-thread `handle_click` only. The other pointer-click
@@ -36,8 +49,14 @@ use crate::PipelineResult;
 /// steps and the retarget moves to that shared seam's head — so the fix is one
 /// seam, not a `focus_target_for_click` call sprinkled at every click site
 /// (One-issue-one-way: no strangler middle state of N hand-wired call sites).
-pub(crate) fn focus_target_for_click(dom: &elidex_ecs::EcsDom, hit: Entity) -> Entity {
-    get_the_focusable_area(dom, hit, FocusTrigger::Click).unwrap_or(hit)
+pub(crate) fn focus_target_for_click(dom: &elidex_ecs::EcsDom, hit: Entity) -> Option<Entity> {
+    if let Some(area) = get_the_focusable_area(dom, hit, FocusTrigger::Click) {
+        Some(area)
+    } else if is_focusable_area(dom, hit) {
+        Some(hit)
+    } else {
+        None
+    }
 }
 
 /// Move focus to the given entity, clearing focus from the previous target.
@@ -224,8 +243,8 @@ mod tests {
 
     #[test]
     fn focus_target_for_click_retargets_through_delegates_focus_host() {
-        // PR-A1: the shell click→focus entry runs the §6.6.4 get-the-focusable-area
-        // retarget. A click on a `delegatesFocus` shadow host focuses its delegate;
+        // PR-A1: the shell click→focus entry runs the §6.6.4 focusing-steps step-1
+        // resolution. A click on a `delegatesFocus` shadow host focuses its delegate;
         // a plain focusable element is its own target (no retarget).
         let mut dom = EcsDom::new();
         let doc = dom.create_document_root();
@@ -248,7 +267,7 @@ mod tests {
         let _ = dom.append_child(sr, delegate);
         assert_eq!(
             focus_target_for_click(&dom, host),
-            delegate,
+            Some(delegate),
             "a click on a delegatesFocus host retargets to its shadow delegate"
         );
 
@@ -258,8 +277,44 @@ mod tests {
         let _ = dom.append_child(doc, plain);
         assert_eq!(
             focus_target_for_click(&dom, plain),
-            plain,
+            Some(plain),
             "a plain focusable element is its own focus target (no retarget)"
+        );
+    }
+
+    #[test]
+    fn focus_target_for_click_delegates_focus_host_without_delegate_is_not_focusable() {
+        // Codex R1 (§6.6.2 criterion 2): a `delegatesFocus` host carrying `tabindex`
+        // but an empty/non-focusable shadow tree has no delegate, so it is NOT a
+        // focusable area — the click must yield `None` (→ blur), not focus the host.
+        // A `is_focusable`-gated fallback (`unwrap_or(hit)`) would wrongly focus it,
+        // since `elidex_dom_api::focus::is_focusable` omits criterion 2.
+        let mut dom = EcsDom::new();
+        let doc = dom.create_document_root();
+
+        let mut host_attrs = Attributes::default();
+        host_attrs.set("tabindex".to_string(), "0".to_string());
+        let host = dom.create_element("div", host_attrs);
+        let _ = dom.append_child(doc, host);
+        let _sr = dom
+            .attach_shadow_with_init(
+                host,
+                elidex_ecs::ShadowInit {
+                    mode: elidex_ecs::ShadowRootMode::Open,
+                    delegates_focus: true,
+                    ..Default::default()
+                },
+            )
+            .expect("attach_shadow on <div tabindex>");
+        // Sanity: the host *is* `is_focusable` (tabindex, C2 omitted) — the trap.
+        assert!(
+            elidex_dom_api::focus::is_focusable(&dom, host),
+            "the host is is_focusable via tabindex (C2-blind) — the masked case"
+        );
+        assert_eq!(
+            focus_target_for_click(&dom, host),
+            None,
+            "a delegatesFocus host with no delegate is not a focusable area → None (blur), not focused"
         );
     }
 }

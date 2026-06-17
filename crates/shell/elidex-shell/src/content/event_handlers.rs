@@ -12,7 +12,7 @@ use crate::ipc::ModifierState;
 
 use elidex_dom_api::focus::current_focus;
 
-use super::focus::{focus_target_for_click, set_focus};
+use super::focus::{blur_current, focus_target_for_click, set_focus};
 use super::form_input::{
     dispatch_input_event, dispatch_input_event_typed, dispatch_state_change_events,
     handle_form_reset, handle_form_submit, handle_label_click, toggle_checkbox_if_needed,
@@ -60,11 +60,16 @@ pub(super) fn handle_click(state: &mut ContentState, click: &crate::ipc::MouseCl
     if let Some(prev) = state.focused_iframe.take() {
         blur_iframe_focus(state, prev);
     }
-    // Update focus. The raw hit is retargeted through WHATWG HTML §6.6.4 "get the
-    // focusable area" (a shadow host with `delegatesFocus` → its delegate) before
-    // focusing — see `focus::focus_target_for_click`.
-    let focus_target = focus_target_for_click(&state.pipeline.dom, hit_entity);
-    set_focus(&mut state.pipeline, focus_target);
+    // Update focus via the WHATWG HTML §6.6.4 focusing-steps step-1 resolution of
+    // the raw hit (a `delegatesFocus` shadow host → its delegate; a §6.6.2
+    // criterion-2-aware focusable-area gate) — see `focus::focus_target_for_click`.
+    // `None` = the hit is not a focusable area and has no delegate (e.g. a
+    // delegates-focus host with an empty shadow tree), so focus must not move to
+    // it: blur, matching the "click a non-focusable area → blur" rule.
+    match focus_target_for_click(&state.pipeline.dom, hit_entity) {
+        Some(target) => set_focus(&mut state.pipeline, target),
+        None => blur_current(&mut state.pipeline),
+    }
 
     // Set ACTIVE state on press. Per UI Events spec, :active applies from
     // mousedown to mouseup — cleared in handle_mouse_release().
