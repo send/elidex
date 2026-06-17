@@ -223,9 +223,7 @@ fn handle_attribute_change(node: Entity, name: &str, new_value: Option<&str>, do
             // never re-sanitizes a dirty live value (R2).
             fcs.value.clear();
             fcs.value.push_str(displayed);
-            fcs.settle_value();
-            let end = fcs.value.len();
-            fcs.move_text_cursor_to(end);
+            fcs.settle_and_collapse_to_end();
         }
         return;
     }

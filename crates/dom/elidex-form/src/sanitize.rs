@@ -219,14 +219,21 @@ pub(crate) fn sanitize_value(state: &mut FormControlState) {
             state.value = sanitized;
             // `sanitize_value` is a pure VALUE transform: re-sync the
             // value-derived char count, and keep the "selection is within
-            // the value" invariant by CLAMPING the cursor / selection into
-            // the (possibly shorter) new value — but it does NOT impose a
+            // the value" invariant by CLAMPING the cursor / selection when
+            // THIS transform shortens the value — but it does NOT impose a
             // cursor-collapse / selection-direction POLICY.  That policy is
-            // the value-mutation algorithm's job and differs per call site
-            // (IDL `value` setter §4.10.5.4 step 5 collapses to the end only
-            // when the value changed from the *old* value; the type-change
-            // steps put the cursor at the beginning), tracked as a dedicated
-            // edge-dense follow-up (`#11-input-value-setter-cursor-selection-steps`).
+            // the value-mutation algorithm's job and differs per call site:
+            // the IDL `value` setter (§4.10.5.4 step 5) collapses to the end
+            // only when the value changed from the *old* value; the
+            // type-change steps (§4.10.5 step 9) put the cursor at the
+            // beginning.  Those live in [`FormControlState::move_text_cursor_to`]
+            // at the call sites, run AFTER [`FormControlState::settle_value`]
+            // (which sanitizes + clamps unconditionally — the establishment
+            // backstop for a caller that shortened the value without this
+            // transform changing it).  The clamp here is the narrower
+            // "my-transform-shortened-it" trigger for the direct
+            // `sanitize_value` callers (`recorrect_range`, the email-multiple
+            // toggle) that do not route through `settle_value`.
             state.update_char_count();
             state.cursor_pos = snap_to_char_boundary(&state.value, state.cursor_pos);
             state.selection_start = snap_to_char_boundary(&state.value, state.selection_start);

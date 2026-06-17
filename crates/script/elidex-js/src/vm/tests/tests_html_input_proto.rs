@@ -372,9 +372,12 @@ fn input_selection_getters_return_null_for_non_text_types() {
 fn input_email_selection_apis_do_not_apply() {
     // HTML §4.10.5.1.5 (Email state): selectionStart/End/Direction,
     // setRangeText(), setSelectionRange() are listed under "do not apply"
-    // — only select() applies.  So the selection getters return null, the
-    // setters / setSelectionRange / setRangeText throw InvalidStateError,
-    // and select() is a non-throwing no-op (email has no selectable text).
+    // — only select() applies.  So the selection getters return null and
+    // the setters / setSelectionRange / setRangeText throw
+    // InvalidStateError.  select() DOES apply to email (email is still a
+    // text control with selectable text) and records a range — but that
+    // range is JS-unobservable here because the getters return null; the
+    // assertion only checks select() does not throw.
     let getters = run("var i = document.createElement('input'); \
          i.type = 'email'; i.value = 'a@b.example'; \
          '' + (i.selectionStart === null) + (i.selectionEnd === null) + (i.selectionDirection === null);");
