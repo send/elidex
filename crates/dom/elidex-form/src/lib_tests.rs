@@ -549,26 +549,59 @@ fn set_value_changed_collapses_to_end_and_resets_direction() {
 }
 
 #[test]
-fn set_value_on_non_selectable_kind_does_not_move_cursor() {
-    // Step 5 fires only when the control "has a text entry cursor
-    // position" (`supports_selection`).  Number is not selectable, so the
-    // JS-observable selection fields stay put (the move is unobservable
-    // and elidex declines to touch them).
-    let mut state = FormControlState {
-        kind: FormControlKind::Number,
-        ..FormControlState::default()
-    };
-    state.cursor_pos = 0;
-    state.selection_start = 0;
-    state.selection_end = 0;
-    state.set_value("42".to_string());
-    assert_eq!(state.value(), "42");
-    assert_eq!(
-        state.selection_start(),
-        0,
-        "non-selectable kind: no step-5 move"
-    );
-    assert_eq!(state.selection_end(), 0);
+fn set_value_on_editable_text_kind_moves_cursor_to_end() {
+    // Step 5's "has a text entry cursor position" is the editable-text set
+    // (`has_selectable_text`), which is BROADER than `supports_selection`:
+    // email and number have an editing cursor (key input maintains
+    // `cursor_pos`) even though their `selectionStart` getter does not
+    // apply.  So `el.value = ...` must move the cursor to the end for them,
+    // or the next typed character lands at a stale position.
+    for kind in [FormControlKind::Email, FormControlKind::Number] {
+        let mut state = FormControlState {
+            kind,
+            ..FormControlState::default()
+        };
+        state.cursor_pos = 0;
+        state.selection_start = 0;
+        state.selection_end = 0;
+        let v = if kind == FormControlKind::Number {
+            "42"
+        } else {
+            "a@b.c"
+        };
+        state.set_value(v.to_string());
+        assert_eq!(state.value(), v);
+        assert_eq!(state.cursor_pos(), v.len(), "{kind:?}: cursor to end");
+        assert_eq!(state.selection_start(), v.len());
+        assert_eq!(state.selection_end(), v.len());
+    }
+}
+
+#[test]
+fn set_value_on_non_text_kind_does_not_move_cursor() {
+    // A control with NO text entry cursor (`has_selectable_text` false —
+    // range/checkbox/date pickers) gets no step-5 move; the cursor fields
+    // stay put (they are inert for such kinds).
+    for kind in [
+        FormControlKind::Range,
+        FormControlKind::Checkbox,
+        FormControlKind::Date,
+    ] {
+        let mut state = FormControlState {
+            kind,
+            ..FormControlState::default()
+        };
+        state.cursor_pos = 0;
+        state.selection_start = 0;
+        state.selection_end = 0;
+        state.set_value("5".to_string());
+        assert_eq!(
+            state.selection_start(),
+            0,
+            "{kind:?}: no text entry cursor → no step-5 move"
+        );
+        assert_eq!(state.selection_end(), 0);
+    }
 }
 
 #[test]

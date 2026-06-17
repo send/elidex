@@ -646,10 +646,16 @@ impl FormControlState {
         self.value = text; // step 2
         self.dirty_value = true; // step 3
         self.settle_value(); // step 4 (sanitize) + bounds clamp
-                             // step 5: only the text-entry-cursor controls (`supports_selection`)
-                             // have a "text entry cursor position"; the move fires only when the
-                             // post-sanitization value actually changed.
-        if self.value != old && self.kind.supports_selection() {
+                             // step 5: the move fires only when the post-sanitization value
+                             // changed AND the control "has a text entry cursor position".  That
+                             // is the editable-text set (`has_selectable_text` = the kinds whose
+                             // key input maintains `cursor_pos` via the text handler: text /
+                             // search / tel / url / password / textarea / email / number) — it is
+                             // BROADER than `supports_selection` (the "setRangeText() applies"
+                             // set, which excludes email/number): those controls have an editing
+                             // cursor even though their `selectionStart` getter does not apply, so
+                             // a stale `cursor_pos` would mis-place the next typed character.
+        if self.value != old && self.kind.has_selectable_text() {
             self.move_text_cursor_to(self.value.len());
         }
     }
