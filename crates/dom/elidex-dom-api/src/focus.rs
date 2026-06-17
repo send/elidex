@@ -696,9 +696,13 @@ fn focus_delegate(dom: &EcsDom, focus_target: Entity, trigger: FocusTrigger) -> 
 /// §6.6.4 "autofocus delegate" (WHATWG HTML `#autofocus-delegate`) — the first
 /// descendant carrying an `autofocus` content attribute whose focusable area is
 /// suitable for `trigger`, in tree order. Walks **plain** (light-tree)
-/// descendants ([`EcsDom::children_iter`] excludes shadow roots); a shadow host
-/// descendant's tree is entered only via [`get_the_focusable_area`] when that
-/// host itself carries `autofocus`.
+/// descendants via [`EcsDom::child_list_uncapped`] (excludes shadow roots) — the
+/// delegate search is a spec-ordered *exhaustive* traversal, so it must not
+/// silently truncate a wide sibling list the way the `MAX_ANCESTOR_DEPTH`-capped
+/// `children_iter` would; a shadow host descendant's tree is entered only via
+/// [`get_the_focusable_area`] when that host itself carries `autofocus`. (The
+/// `depth` recursion guard is retained for stack safety against a pathologically
+/// deep tree — that bounds *nesting depth*, not sibling breadth.)
 fn autofocus_delegate(
     dom: &EcsDom,
     where_to_look: Entity,
@@ -708,7 +712,7 @@ fn autofocus_delegate(
     if depth >= elidex_ecs::MAX_ANCESTOR_DEPTH {
         return None;
     }
-    for child in dom.children_iter(where_to_look) {
+    for child in dom.child_list_uncapped(where_to_look) {
         if dom.has_attribute(child, "autofocus") {
             // step 1.2 — the descendant's focusable area.
             if let Some(area) = child_focusable_area(dom, child, trigger) {
@@ -728,8 +732,12 @@ fn autofocus_delegate(
 
 /// §6.6.4 focus-delegate step 6 — the first focusable area among `node`'s
 /// (light-tree) descendants in tree order. Walks **plain** descendants (the spec
-/// is explicit it is *not* the shadow-including descendants —
-/// [`EcsDom::children_iter`] excludes shadow roots); a nested shadow host is handled by recursing through
+/// is explicit it is *not* the shadow-including descendants) via
+/// [`EcsDom::child_list_uncapped`] (excludes shadow roots) — like
+/// [`autofocus_delegate`], this is an exhaustive spec-ordered search, so it uses
+/// the uncapped traversal rather than the `MAX_ANCESTOR_DEPTH`-capped
+/// `children_iter` (silently dropping a later sibling would skip the real focus
+/// delegate); a nested shadow host is handled by recursing through
 /// [`get_the_focusable_area`] (step 6.4), not by walking into its shadow tree.
 fn first_delegate_descendant(
     dom: &EcsDom,
@@ -740,7 +748,7 @@ fn first_delegate_descendant(
     if depth >= elidex_ecs::MAX_ANCESTOR_DEPTH {
         return None;
     }
-    for child in dom.children_iter(node) {
+    for child in dom.child_list_uncapped(node) {
         // steps 6.3/6.4 — the child if it is a focusable area, else its
         // get-the-focusable-area retarget (a nested delegates-focus host recurses
         // into its shadow tree rather than being returned as itself).
