@@ -185,13 +185,22 @@ fn focus_update_steps(sink: &mut dyn FocusEventSink, old: Option<Entity>, new: O
         sink.commit_change_on_blur(old); // step 2.1 — change (snapshot consume)
                                          // The `change` handler may have reentrantly designated a *different* focused
                                          // area via `focus()`. If so, that reentrant transition wins (reentrant-wins)
-                                         // and has already fired its own `blur`/`focus` — the outer transition must
-                                         // not clobber it. But a handler that merely *clears* the old focus (removes
-                                         // `old`, so `fire_after_remove` clears the bit, or calls the bit-level
-                                         // `blur()`) leaves `current_focus` None with no reentrant target — there the
-                                         // outer transition must still proceed to designate `new` (don't cancel the
-                                         // user's pending click/Tab move). So return only on a reentrant focus to
-                                         // some *other* element, never on a bare clear.
+                                         // and the outer transition must not clobber it: a *canonical-seam* reentrant
+                                         // focus (the shell sink, or any `focusing_steps` caller) fired its own full
+                                         // `blur`(`old`)/`focus`(other) before returning here, so the outer path
+                                         // re-firing them would double-dispatch. (The one non-firing reentrant writer
+                                         // is the un-migrated VM `HTMLElement.focus()`, which only sets the FOCUS bit
+                                         // and defers event dispatch — slot `#11-vm-host-synthetic-dom-event-dispatch`.
+                                         // It is unreachable on this path in A2a: the live shell runs boa, which
+                                         // exposes no `HTMLElement.focus()`, and the VM is not a shell engine yet.
+                                         // PR-A2c routes the VM writer through this seam, so once that event-dispatch
+                                         // slot lands `old`'s blur is fired before the bail on the VM path too.) But a
+                                         // handler that merely *clears* the old focus (removes `old`, so
+                                         // `fire_after_remove` clears the bit, or calls the bit-level `blur()`) leaves
+                                         // `current_focus` None with no reentrant target — there the outer transition
+                                         // must still proceed to designate `new` (don't cancel the user's pending
+                                         // click/Tab move). So return only on a reentrant focus to some *other*
+                                         // element, never on a bare clear.
         if current_focus(sink.dom(), doc).is_some_and(|c| c != old) {
             return;
         }
