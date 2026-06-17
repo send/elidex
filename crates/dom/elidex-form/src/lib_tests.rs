@@ -662,9 +662,33 @@ fn set_value_initial_does_not_mark_dirty() {
     state.set_value_initial("world".to_string());
     assert_eq!(state.value(), "world");
     assert!(!state.is_dirty());
-    assert_eq!(state.cursor_pos(), 5);
-    assert_eq!(state.selection_start(), 5);
-    assert_eq!(state.selection_end(), 5);
+    // §4.10.20: initial value establishment is clamp-only (no collapse to the
+    // end); the default cursor (0) is in-bounds, so it stays at the beginning.
+    assert_eq!(state.cursor_pos(), 0);
+    assert_eq!(state.selection_start(), 0);
+    assert_eq!(state.selection_end(), 0);
+}
+
+#[test]
+fn relevant_value_change_clamps_without_resetting_direction() {
+    // §4.10.20 (R4 regression): a non-setter relevant-value change (here a
+    // shorter default value via reset) clamps an out-of-bounds selection but
+    // preserves the selection direction — it must NOT reset it to "none"
+    // (that reset belongs to the §4.10.5.4 value setter / type-change steps).
+    let mut state = FormControlState::default();
+    state.set_value("a long value".to_string()); // text input → IDL setter
+    state.default_value = "hi".to_string();
+    state.set_selection(5, 9);
+    state.selection_direction = SelectionDirection::Backward;
+    state.reset_value(); // value → "hi" (len 2), a relevant-value change
+    assert_eq!(state.value(), "hi");
+    assert_eq!(state.selection_start(), 2, "clamped to new length");
+    assert_eq!(state.selection_end(), 2);
+    assert_eq!(
+        state.selection_direction,
+        SelectionDirection::Backward,
+        "direction preserved on a non-setter relevant-value change"
+    );
 }
 
 #[test]

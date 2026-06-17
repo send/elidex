@@ -180,7 +180,10 @@ mod tests {
         init_form_controls(&mut dom);
         let state = dom.world().get::<&FormControlState>(ta).unwrap();
         assert_eq!(state.value, "Hello");
-        assert_eq!(state.cursor_pos, 5);
+        // HTML §4.10.20: the initial text entry cursor is at the BEGINNING of
+        // the control (value establishment at creation is clamp-only, not a
+        // collapse to the end).
+        assert_eq!(state.cursor_pos, 0);
     }
 
     #[test]

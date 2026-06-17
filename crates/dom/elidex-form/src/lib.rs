@@ -615,22 +615,6 @@ impl FormControlState {
         self.selection_direction = SelectionDirection::None;
     }
 
-    /// Settle a freshly-set `self.value`, then collapse the cursor to its
-    /// end (unselecting + direction "none").
-    ///
-    /// The shared composition for the value-establishment sites that HTML
-    /// leaves **cursor-silent** — `set_value_initial`, `reset_value`, and
-    /// the reconciler `value`-content-attribute arm — where elidex's
-    /// established default is to place the cursor at the end of the new
-    /// value (matching the IDL setter's end-collapse).  This is distinct
-    /// from the two normative cursor moves (`set_value` §4.10.5.4 step 5,
-    /// conditional on value-change + `supports_selection`; type-change
-    /// §4.10.5 step 9 → beginning), which stay open-coded at their sites.
-    pub(crate) fn settle_and_collapse_to_end(&mut self) {
-        self.settle_value();
-        self.move_text_cursor_to(self.value.len());
-    }
-
     /// Set the value via the IDL `value` setter (marks the control dirty).
     ///
     /// Implements HTML §4.10.5.4 (`value` IDL attribute, mode "value"):
@@ -662,16 +646,15 @@ impl FormControlState {
 
     /// Set the value during initialization (`dirty_value` stays false).
     ///
-    /// Also sets `default_value` for form reset.  HTML §4.10.5 element
-    /// creation / value-content-attribute handling specifies **no**
-    /// cursor-move policy (unlike the IDL `value` setter step 5), so the
-    /// position is spec-silent; elidex places the cursor at the end of the
-    /// established value (the long-standing default, matching the IDL
-    /// setter's end-collapse) after `settle_value` sanitizes + clamps.
+    /// Also sets `default_value` for form reset.  This is a "relevant value
+    /// change" with **no** explicit cursor-move policy (unlike the IDL
+    /// `value` setter step 5), so per HTML §4.10.20 the cursor / selection
+    /// are only CLAMPED into the new value — not collapsed to the end and
+    /// not direction-reset.  `settle_value` performs exactly that clamp.
     pub fn set_value_initial(&mut self, text: String) {
         self.default_value.clone_from(&text);
         self.value = text;
-        self.settle_and_collapse_to_end();
+        self.settle_value();
     }
 
     /// Reset to default value (form reset behavior).
@@ -683,15 +666,16 @@ impl FormControlState {
     /// flag back to false, set the value to the `value` content attribute
     /// (or empty), restore checkedness from the `checked` content
     /// attribute, set indeterminate back to false, and invoke value
-    /// sanitization.  The reset algorithm carries **no** cursor-move policy
-    /// (spec-silent); elidex places the cursor at the end of the restored
-    /// value after `settle_value` clamps, matching `set_value_initial`.
+    /// sanitization.  The reset algorithm carries **no** cursor-move policy,
+    /// so the relevant-value-change rule (HTML §4.10.20) applies: the cursor
+    /// / selection are only CLAMPED into the restored value (positions and
+    /// selection direction otherwise preserved), via `settle_value`.
     pub fn reset_value(&mut self) {
         self.value = self.default_value.clone();
         self.dirty_value = false;
         self.checked = self.default_checked;
         self.indeterminate = false;
-        self.settle_and_collapse_to_end();
+        self.settle_value();
     }
 
     /// Insert text at the current cursor position (marks as dirty).
@@ -813,7 +797,10 @@ impl FormControlState {
         let char_count = value.chars().count();
         let mut state = Self {
             kind,
-            cursor_pos: value.len(),
+            // HTML §4.10.20: "The initial state must consist of a text entry
+            // cursor at the beginning of the control." `cursor_pos` therefore
+            // defaults to 0 (not the value length) at element creation;
+            // `settle_value` below clamps it (a no-op at 0).
             default_value: raw_value,
             char_count,
             value,
