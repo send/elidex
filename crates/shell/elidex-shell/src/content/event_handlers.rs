@@ -12,7 +12,7 @@ use crate::ipc::ModifierState;
 
 use elidex_dom_api::focus::current_focus;
 
-use super::focus::{blur_current, focus_target_for_click, set_focus};
+use super::focus::set_focus;
 use super::form_input::{
     dispatch_input_event, dispatch_input_event_typed, dispatch_state_change_events,
     handle_form_reset, handle_form_submit, handle_label_click, toggle_checkbox_if_needed,
@@ -60,16 +60,12 @@ pub(super) fn handle_click(state: &mut ContentState, click: &crate::ipc::MouseCl
     if let Some(prev) = state.focused_iframe.take() {
         blur_iframe_focus(state, prev);
     }
-    // Update focus via the WHATWG HTML §6.6.4 focusing-steps step-1 resolution of
-    // the raw hit (a `delegatesFocus` shadow host → its delegate; a §6.6.2
-    // criterion-2-aware focusable-area gate) — see `focus::focus_target_for_click`.
-    // `None` = the hit is not a focusable area and has no delegate (e.g. a
-    // delegates-focus host with an empty shadow tree), so focus must not move to
-    // it: blur, matching the "click a non-focusable area → blur" rule.
-    match focus_target_for_click(&state.pipeline.dom, hit_entity) {
-        Some(target) => set_focus(&mut state.pipeline, target),
-        None => blur_current(&mut state.pipeline),
-    }
+    // Update focus from the raw click hit. `set_focus` runs the WHATWG HTML §6.6.4
+    // focusing-steps step-1 resolution (a `delegatesFocus` shadow host → its
+    // delegate; a §6.6.2 criterion-2-aware focusable-area gate, overlay-gated) and
+    // blurs when the hit resolves to no focusable area — the "click a non-focusable
+    // area → blur" rule.
+    set_focus(&mut state.pipeline, hit_entity);
 
     // Set ACTIVE state on press. Per UI Events spec, :active applies from
     // mousedown to mouseup — cleared in handle_mouse_release().
@@ -501,7 +497,17 @@ fn collect_focusable_entities(
         return;
     }
 
-    if super::focus::is_focusable(dom, entity) {
+    // Collect only entities that are their OWN §6.6.3 tab stop (Codex R3 + R4):
+    // admit `entity` iff `focus_target(entity) == Some(entity)`, i.e. it resolves
+    // to itself under the §6.6.4 focusing-steps step-1 resolution + the shell
+    // overlay gate. This excludes a `delegatesFocus` host with no focusable
+    // delegate (resolves to `None` → `set_focus` would blur, leaving Tab stuck,
+    // Codex R3) AND a host *with* a delegate (resolves to the delegate, not the
+    // host → Tab would focus the delegate, which is not in this cache, so
+    // `find_next_focusable`'s exact-entity lookup of `current_focus` would miss and
+    // restart at `focusables[0]`, Codex R4). Making such a host's shadow delegate
+    // itself Tab-reachable (collected with C2-aware ordering) is PR-A3.
+    if super::focus::focus_target(dom, entity) == Some(entity) {
         // §6.6.3 "rules for parsing integers" via the shared tabindex parser, so
         // the Tab-order collector agrees with `is_focusable` and the `tabIndex`
         // getter instead of running a second `str::parse::<i32>()` path: a
@@ -979,3 +985,7 @@ pub(super) fn try_route_key_to_iframe(
 
     true
 }
+
+#[cfg(test)]
+#[path = "event_handlers_tests.rs"]
+mod tests;
