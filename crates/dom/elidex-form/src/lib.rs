@@ -842,8 +842,9 @@ impl FormControlState {
         // settled through the same canonical primitive as every other site
         // (a raw `<input type=range value=150>` becomes the clamped value,
         // etc.).  Element creation carries no cursor-move policy, so this is
-        // the clamp-only path (the struct sets `cursor_pos = value.len()`;
-        // `settle_value` clamps it into bounds).
+        // the clamp-only path: per HTML §4.10.20 the initial text entry cursor
+        // is at the beginning (`cursor_pos` defaults to 0 above), and
+        // `settle_value` only clamps it into bounds (a no-op at 0).
         state.settle_value();
         state
     }
