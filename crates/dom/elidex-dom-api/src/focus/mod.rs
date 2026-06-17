@@ -30,24 +30,28 @@
 //!
 //! ## Module layout
 //!
-//! - [`predicate`] — the §6.6.2/§6.6.3 focusable-area predicates
+//! - `predicate` — the §6.6.2/§6.6.3 focusable-area predicates
 //!   ([`is_focusable`] / [`tab_index_default_for`] / [`parse_tab_index_value`]).
-//! - [`sot`] — the focus source-of-truth: the [`ElementState::FOCUS`] bit's
+//! - `sot` — the focus source-of-truth: the [`ElementState::FOCUS`] bit's
 //!   read ([`current_focus`]) / write ([`set_focus_bit`] / [`blur`]) models, the
 //!   active-document membership test ([`is_in_document`]), and the asynchronous
 //!   focusability fixup ([`reconcile_focus`]).
-//! - [`delegate`] — §6.6.4 "get the focusable area" / "focus delegate" (the
+//! - `delegate` — §6.6.4 "get the focusable area" / "focus delegate" (the
 //!   shadow-`delegatesFocus` retarget, PR-A1).
+//! - `update_steps` — the canonical §6.6.4 transition ([`focusing_steps`] /
+//!   [`unfocusing_steps`] + the [`FocusEventSink`] seam), PR-A2a.
 
 use elidex_ecs::{EcsDom, ElementState, Entity};
 
 mod delegate;
 mod predicate;
 mod sot;
+mod update_steps;
 
 pub use delegate::*;
 pub use predicate::*;
 pub use sot::*;
+pub use update_steps::*;
 
 #[cfg(test)]
 mod tests {

@@ -4,6 +4,8 @@
 //! ([`is_in_document`]), and the asynchronous focusability fixup
 //! ([`reconcile_focus`], WHATWG HTML "update the rendering" step 17).
 
+// Cohesive `focus` module split: the submodules share the parent namespace.
+#[allow(clippy::wildcard_imports)]
 use super::*;
 
 /// The raw [`ElementState::FOCUS`]-bit holder, with NO connectedness or

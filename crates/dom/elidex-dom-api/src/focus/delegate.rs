@@ -4,6 +4,8 @@
 //! criterion-2-aware focusable-area predicate ([`is_focusable_area`]) and the
 //! [`FocusTrigger`] the focus-processing algorithms thread through.
 
+// Cohesive `focus` module split: the submodules share the parent namespace.
+#[allow(clippy::wildcard_imports)]
 use super::*;
 use elidex_ecs::ShadowRoot;
 

@@ -3,6 +3,8 @@
 //! and the per-element default `tabIndex`. The write-side gate of the
 //! `FOCUS`-set ⟹ connected/focusable invariant maintained by the SoT writers.
 
+// Cohesive `focus` module split: the submodules share the parent namespace.
+#[allow(clippy::wildcard_imports)]
 use super::*;
 
 /// Per-element default `tabIndex` value (WHATWG HTML §6.6.3 "tabindex value" —

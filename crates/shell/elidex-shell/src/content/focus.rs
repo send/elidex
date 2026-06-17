@@ -12,7 +12,8 @@
 //! `&mut PipelineResult` (each owns its own document `EcsDom`).
 
 use elidex_dom_api::focus::{
-    current_focus, get_the_focusable_area, is_focusable_area, set_focus_bit, FocusTrigger,
+    current_focus, focusing_steps, get_the_focusable_area, is_focusable_area, unfocusing_steps,
+    FocusEventKind, FocusEventSink, FocusTrigger,
 };
 use elidex_ecs::Entity;
 use elidex_form::{record_focus_snapshot, take_focus_snapshot, FormControlState};
@@ -68,67 +69,88 @@ pub(crate) fn focus_target_for_click(dom: &elidex_ecs::EcsDom, hit: Entity) -> O
 /// elements receive focus (form controls, links with href, elements with
 /// tabindex / contenteditable).
 pub(crate) fn set_focus(pipeline: &mut PipelineResult, entity: Entity) {
-    let old = current_focus(&pipeline.dom, pipeline.document);
-    if old == Some(entity) {
-        return;
-    }
-
-    // N5: Only focusable elements receive focus. Clicking a non-focusable
-    // element blurs the current focus.
+    // N5: only focusable elements receive focus; a non-focusable target blurs the
+    // current focus. (The click→nearest-focusable-ancestor climb and the spec's
+    // leave-on-no-candidate are PR-A2b; A2a preserves this gate.) The shell
+    // overlay [`is_focusable`] adds the form-subsystem fieldset-disabled check the
+    // engine-independent predicate cannot see.
     if !is_focusable(&pipeline.dom, entity) {
         blur_current(pipeline);
         return;
     }
-
-    // WHATWG HTML §6.6.4 focus update steps: the OLD focused area's events fire,
-    // THEN the new area is designated (the `FOCUS` bit), THEN the NEW area's
-    // events fire. So `focus`/`focusin` run AFTER the bit is set, and a `focusin`
-    // / `focus` listener sees `document.activeElement` / `hasFocus` (which now
-    // read the bit via `current_focus`) already pointing at the NEW element. Per
-    // UI Events §3.3.2 "Focus Event Order", `focusin` follows `focus`.
-    // `relatedTarget` is the element on the other side of the transition;
-    // `current_focus` already filtered connectedness, so `old` is connected.
-    if let Some(old) = old {
-        // Losing-side order = change → blur → focusout (HTML §6.6.4 focus update
-        // steps: step 2.1 fires `change` BEFORE step 2.4 `blur`; UI Events
-        // §3.3.4.4: blur fires before `focusout`). `change` fires while `old` is
-        // still the focused area (step 2.1 precedes the new-area designation in
-        // step 4), so it runs BEFORE the bit is cleared; the `FOCUS` bit is then
-        // cleared so `activeElement` reports `<body>` during blur AND focusout.
-        dispatch_change_on_blur(pipeline, old);
-        set_focus_bit(&mut pipeline.dom, None);
-        dispatch_focus_event_with_related(pipeline, "blur", old, false, Some(entity));
-        dispatch_focus_event_with_related(pipeline, "focusout", old, true, Some(entity));
-    }
-    set_focus_bit(&mut pipeline.dom, Some(entity));
-    dispatch_focus_event_with_related(pipeline, "focus", entity, false, old);
-    dispatch_focus_event_with_related(pipeline, "focusin", entity, true, old);
-
-    // Record the focus-time value for change-on-blur (the engine-indep
-    // `elidex_form` helper, shared with the VM `focus()` path so a script
-    // `input.focus()` also seeds the snapshot).
-    record_focus_snapshot(&mut pipeline.dom, entity);
+    // The canonical WHATWG HTML §6.6.4 focusing steps. The shell sink supplies the
+    // engine-bound 3-phase event dispatch + the change-on-blur snapshot; the
+    // transition (SoT-last designation, reentrancy, event order) is engine-indep.
+    focusing_steps(
+        &mut ShellFocusSink { pipeline },
+        entity,
+        None,
+        FocusTrigger::Other,
+    );
 }
 
 /// Remove focus from the current target without setting a new one.
 pub(crate) fn blur_current(pipeline: &mut PipelineResult) {
+    // The current holder is connected by construction (gated at focus, cleared at
+    // removal via `EcsDom::fire_after_remove`, WHATWG HTML §2.1.4 removing steps),
+    // so `current_focus` never misses a stale-detached holder.
     let Some(old) = current_focus(&pipeline.dom, pipeline.document) else {
-        // No focused element. A removed holder's `FOCUS` bit is already cleared
-        // at removal (`EcsDom::fire_after_remove`, WHATWG HTML §2.1.4 removing
-        // steps), and `focus()` cannot set it on a disconnected element (the
-        // `is_focusable` connectedness gate), so the bit is connected by
-        // construction — `current_focus` never misses a stale-detached holder,
-        // and there is nothing to sweep here.
         return;
     };
-    // Losing-side order = change → blur → focusout (see `set_focus`): `change`
-    // (HTML §6.6.4 step 2.1) before `blur` (step 2.4), `focusout` after blur
-    // (UI Events §3.3.4.4). Clear the `FOCUS` bit after `change` so blur and
-    // focusout see `activeElement` == `<body>`.
-    dispatch_change_on_blur(pipeline, old);
-    set_focus_bit(&mut pipeline.dom, None);
-    dispatch_focus_event_with_related(pipeline, "blur", old, false, None);
-    dispatch_focus_event_with_related(pipeline, "focusout", old, true, None);
+    unfocusing_steps(&mut ShellFocusSink { pipeline }, old);
+}
+
+/// The shell's [`FocusEventSink`] — adapts the engine-independent §6.6.4
+/// transition to the content pipeline: DOM access plus the engine-bound 3-phase
+/// event dispatch (`blur`/`focus` + the bubbling `focusout`/`focusin`, UI Events
+/// §3.3.2 "Focus Event Order") and the `elidex-form` change-on-blur snapshot.
+struct ShellFocusSink<'a> {
+    pipeline: &'a mut PipelineResult,
+}
+
+impl FocusEventSink for ShellFocusSink<'_> {
+    fn dom(&mut self) -> &mut elidex_ecs::EcsDom {
+        &mut self.pipeline.dom
+    }
+
+    fn document(&self) -> Entity {
+        self.pipeline.document
+    }
+
+    fn commit_change_on_blur(&mut self, old: Entity) {
+        // §6.6.4 step 2.1 — fire `change` if the value was user-edited since
+        // focus, consuming the snapshot (a no-op sink — the VM, PR-A2c — leaves it
+        // intact). `change` fires while the FOCUS bit is already cleared, so it
+        // runs before the new area is designated, per the losing-side ordering.
+        dispatch_change_on_blur(self.pipeline, old);
+    }
+
+    fn seed_focus_snapshot(&mut self, new: Entity) {
+        // §6.6.4 step 4.1 — record the focus-time value for change-on-blur (the
+        // canonical transition owns the seed timing; the `elidex-form` call lives
+        // here because the engine-independent crate has no form dependency).
+        record_focus_snapshot(&mut self.pipeline.dom, new);
+    }
+
+    fn fire_focus_event(&mut self, target: Entity, kind: FocusEventKind, related: Option<Entity>) {
+        // §6.6.4 fires `blur`/`focus`; the shell adds the bubbling `focusout`
+        // (UI Events §3.3.4.4) after `blur` and `focusin` (§3.3.4.3) after
+        // `focus`, per §3.3.2 order. The FOCUS bit has already moved (cleared
+        // before the losing side, designated before the gaining side), so a
+        // `focusin` listener sees `activeElement` at the new element and a
+        // `focusout` listener sees `<body>`. `relatedTarget` is the element on the
+        // other side of the transition.
+        match kind {
+            FocusEventKind::Blur => {
+                dispatch_focus_event_with_related(self.pipeline, "blur", target, false, related);
+                dispatch_focus_event_with_related(self.pipeline, "focusout", target, true, related);
+            }
+            FocusEventKind::Focus => {
+                dispatch_focus_event_with_related(self.pipeline, "focus", target, false, related);
+                dispatch_focus_event_with_related(self.pipeline, "focusin", target, true, related);
+            }
+        }
+    }
 }
 
 /// Dispatch a focus event with optional related target.
