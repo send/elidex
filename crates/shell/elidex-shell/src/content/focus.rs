@@ -43,13 +43,20 @@ use crate::PipelineResult;
 /// out of delegation — PR-A1 plan-review F1). (The editing-host ancestor fallback —
 /// focusing-steps step 2 — is PR-A2.)
 ///
-/// Wired here at the content-thread `handle_click` only. The other pointer-click
-/// → content-focus entries (in-process iframe content, OOP-iframe content, the
-/// legacy single-thread `App`) still focus their raw hit; they converge in PR-A2,
-/// when [`set_focus`] becomes a thin caller of the canonical §6.6.4 focus update
-/// steps and the retarget moves to that shared seam's head — so the fix is one
-/// seam, not a `focus_target_for_click` call sprinkled at every click site
-/// (One-issue-one-way: no strangler middle state of N hand-wired call sites).
+/// Wired at the content-thread `handle_click` to pre-resolve the click hit and
+/// apply elidex's "click a non-focusable area → blur" disposition (a `None`
+/// return makes the caller blur). As of A2a [`set_focus`] is itself a thin caller
+/// of the canonical §6.6.4 focusing steps, whose step 1 runs this same
+/// [`get_the_focusable_area`] retarget — so the *other* pointer-click entries
+/// (in-process iframe content, OOP-iframe content, the legacy single-thread
+/// `App`, Tab nav) that hand a raw hit straight to [`set_focus`] now retarget a
+/// `delegatesFocus` host to its delegate too; they no longer focus the raw host.
+/// One disposition is still split across the boundary: on a host with no focusable
+/// delegate this pre-resolver returns `None` (→ blur), whereas a bare [`set_focus`]
+/// leaves focus unchanged (focusing-steps step 2, no-fallback return). Folding
+/// that click-disposition (blur vs leave) into the shared seam so every click
+/// entry agrees is PR-A2b; the retarget itself already lives in one place (the
+/// seam head), so this is not a strangler middle state (One-issue-one-way).
 pub(crate) fn focus_target_for_click(dom: &elidex_ecs::EcsDom, hit: Entity) -> Option<Entity> {
     if let Some(area) = get_the_focusable_area(dom, hit, FocusTrigger::Click) {
         Some(area)
@@ -81,6 +88,13 @@ pub(crate) fn set_focus(pipeline: &mut PipelineResult, entity: Entity) {
     // The canonical WHATWG HTML §6.6.4 focusing steps. The shell sink supplies the
     // engine-bound 3-phase event dispatch + the change-on-blur snapshot; the
     // transition (SoT-last designation, reentrancy, event order) is engine-indep.
+    //
+    // `FocusTrigger::Other` is a placeholder: the live click entry (`handle_click`)
+    // pre-resolves its hit via `focus_target_for_click` (`FocusTrigger::Click`)
+    // before calling here, so `entity` is already a focusable area and the seam's
+    // step-1 retarget is a no-op — the trigger is never consulted on the live path.
+    // Threading the real trigger for the raw-hit click entries (when they stop
+    // pre-resolving and hand the seam their raw hit) is PR-A2b.
     focusing_steps(
         &mut ShellFocusSink { pipeline },
         entity,

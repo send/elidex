@@ -75,10 +75,15 @@ pub trait FocusEventSink {
     /// intact so the later dispatch can still observe the focus-time value.
     fn commit_change_on_blur(&mut self, old: Entity);
 
-    /// §6.6.4 focus-update step 4.1 — seed the change-on-blur snapshot for the
-    /// element gaining focus. Runs on **every** engine (the snapshot is
-    /// `elidex-form` state, not event dispatch), so the canonical transition
-    /// owns the seed *timing* while the form-layer call lives behind the sink.
+    /// Seed the engine-bound change-on-blur baseline for the element gaining
+    /// focus. There is no spec step for this — it is elidex's device for §6.6.4
+    /// focus-update step 2.1's "different to what it was when the control was
+    /// first focused"; the seed is anchored to step 4.1 ("designate entry as the
+    /// focused area"), the moment the control is first focused, so a `focus`
+    /// listener mutating the value cannot shift the baseline. Runs on **every**
+    /// engine (the snapshot is `elidex-form` state, not event dispatch), so the
+    /// canonical transition owns the seed *timing* while the form-layer call
+    /// lives behind the sink.
     fn seed_focus_snapshot(&mut self, new: Entity);
 
     /// §6.6.4 focus-update steps 2.2-2.4 / 4.2-4.4 — fire a `blur`/`focus` event
@@ -146,11 +151,22 @@ pub fn unfocusing_steps(sink: &mut dyn FocusEventSink, old_target: Entity) {
 /// §6.6.4 **focus update steps** (`#focus-update-steps`), specialised to the
 /// single-element model: `old`/`new` are the focusable elements (chain leaves).
 fn focus_update_steps(sink: &mut dyn FocusEventSink, old: Option<Entity>, new: Option<Entity>) {
-    // Step 2 — losing side. elidex browser-parity divergence: clear the FOCUS
-    // bit *before* the losing events so `document.activeElement` / `hasFocus`
-    // report `<body>` during `change`/`blur`/`focusout` (matches real browsers +
-    // the pre-A2a shell; the literal spec keeps `old` designated until step 4).
-    // It also makes the step-4 reentrancy test an exact `current_focus.is_some()`.
+    // Step 2 — losing side. Clear the FOCUS bit *before* every losing-side event
+    // so `document.activeElement` / `hasFocus` report `<body>` throughout the
+    // losing side. The literal spec keeps `old` designated as the focused area
+    // until step 4.1 (it is never undesignated in step 2); clearing early is a
+    // deliberate divergence with two motivations, the second load-bearing:
+    //   1. browser-parity for `blur`/`focusout` — the pre-A2a shell already
+    //      cleared before `blur` for this. (It cleared *after* `change`, so a
+    //      `change` listener there still observed `old` as `activeElement`; A2a
+    //      no longer does — see motivation 2.)
+    //   2. reentrancy (load-bearing): the step-4 gate detects a reentrant
+    //      `focus()` fired from a losing-side listener as `current_focus()
+    //      .is_some()`, which is only an exact signal if the bit is already None
+    //      when the listener runs. So the clear must precede `change` too — A2a's
+    //      extension over the pre-A2a clear-before-blur. Clearing only before
+    //      `blur` would let a reentrant focus from a `change` listener be wiped by
+    //      this very clear (the pre-A2a R11 race).
     set_focus_bit(sink.dom(), None);
     if let Some(old) = old {
         sink.commit_change_on_blur(old); // step 2.1 — change (snapshot consume)
@@ -166,7 +182,7 @@ fn focus_update_steps(sink: &mut dyn FocusEventSink, old: Option<Entity>, new: O
     }
     if let Some(new) = new {
         set_focus_bit(sink.dom(), Some(new)); // step 4.1 — designate (SoT last)
-        sink.seed_focus_snapshot(new); // step 4.1 — seed the change-on-blur snapshot
+        sink.seed_focus_snapshot(new); // engine-bound change-on-blur baseline at step-4.1 focus gain
         sink.fire_focus_event(new, FocusEventKind::Focus, old); // steps 4.2-4.4
     }
 }
