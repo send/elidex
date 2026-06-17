@@ -2,7 +2,6 @@
 
 use elidex_ecs::{Attributes, EcsDom, Entity, TagType};
 
-use crate::sanitize::sanitize_value;
 use crate::util::{next_char_boundary, prev_char_boundary};
 use crate::{datetime, FormControlKind, FormControlState};
 
@@ -613,11 +612,16 @@ pub fn apply_step(state: &mut FormControlState, n: f64, direction: f64) -> Resul
 ///    §4.10.5 type-change steps leave checkedness and indeterminateness
 ///    inert on non-checkable types rather than clearing them; elidex
 ///    clears them so `FormControlState` carries no stale checkable bits.
-/// 2. **Value sanitization**: run `sanitize_value` under the new kind
-///    (HTML §4.10.5.1.x).  This is a direct transform call (NOT via
-///    `set_value`) because a `type` change is not a dirty-value-flag
-///    trigger — routing through `set_value` would wrongly mark the
-///    value dirty.
+/// 2. **Value sanitization** (type-change step 6): settle the value under
+///    the new kind (HTML §4.10.5.1.x) via `settle_value` — the policy-free
+///    value-establishment primitive (sanitize + bounds clamp), NOT
+///    `set_value`, because a `type` change is not a dirty-value-flag
+///    trigger (routing through `set_value` would wrongly mark the value
+///    dirty and apply the §4.10.5.4 step-5 end-collapse policy).
+/// 3. **Selectability transition** (type-change steps 7–9): if the control
+///    was NOT selectable before the change and IS selectable after it,
+///    set the text entry cursor position to the beginning and the
+///    selection direction to "none".
 pub fn sanitize_for_type_change(state: &mut FormControlState, old_kind: FormControlKind) {
     if state.kind == old_kind {
         return;
@@ -631,7 +635,16 @@ pub fn sanitize_for_type_change(state: &mut FormControlState, old_kind: FormCont
         state.checked = false;
         state.indeterminate = false;
     }
-    sanitize_value(state);
+    // Step 6: value sanitization + bounds clamp under the new kind.
+    state.settle_value();
+    // Steps 7–9: `previouslySelectable` / `nowSelectable` use the
+    // "setRangeText() applies" predicate (`supports_selection`); a control
+    // that becomes newly selectable gets its cursor at the beginning.
+    let previously_selectable = old_kind.supports_selection();
+    let now_selectable = state.kind.supports_selection();
+    if !previously_selectable && now_selectable {
+        state.move_text_cursor_to(0);
+    }
 }
 
 /// Check if inserting a character would exceed maxlength.

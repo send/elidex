@@ -439,7 +439,8 @@ fn register_selected_index_accessor(
 /// Per HTML spec, selection offsets are in UTF-16 code units.
 ///
 /// WHATWG §4.10.5.2.8: returns `null` for input types that don't support
-/// the selection API (only text/password/textarea/email/url/tel/search).
+/// the selection API (only text/password/textarea/url/tel/search — Email
+/// is excluded per §4.10.5.1.5, where these APIs "do not apply").
 fn register_usize_fcs_accessor(
     init: &mut ObjectInitializer<'_>,
     bridge: &HostBridge,

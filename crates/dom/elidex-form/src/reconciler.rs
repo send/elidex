@@ -26,7 +26,7 @@ use crate::{
     clear_focus_snapshot, compile_pattern_regex, create_form_control_state,
     sanitize_for_type_change,
 };
-use crate::{FormControlKind, FormControlState, SelectionDirection};
+use crate::{FormControlKind, FormControlState};
 
 /// [`MutationEvent`] consumer maintaining [`FormControlState`] derived
 /// fields against attribute mutations.
@@ -206,30 +206,26 @@ fn handle_attribute_change(node: Entity, name: &str, new_value: Option<&str>, do
                 FormControlKind::ResetButton if raw.is_empty() => "Reset",
                 _ => raw,
             };
-            let end = displayed.len();
-            fcs.char_count = displayed.chars().count();
-            fcs.cursor_pos = end;
-            // HTML §4.10.5.5 step 5 of the value-replacement algorithm:
-            // when the relevant value is programmatically replaced (here,
-            // via a `value` content-attribute mutation while
-            // `dirty_value` is false), collapse any selection to the end
-            // of the new value and reset the selection direction.  Stale
-            // `selection_start` / `selection_end` from a prior Selection
-            // API range can otherwise point past the (potentially
-            // shorter) replacement value, violating the spec's
-            // "selection is within the value" invariant.  Mirrors the
-            // [`FormControlState::set_value`] in-crate path used by IDL
-            // setters.
-            fcs.selection_start = end;
-            fcs.selection_end = end;
-            fcs.selection_direction = SelectionDirection::None;
+            // HTML §4.10.5: "When the value content attribute is added,
+            // set, or removed, if the control's dirty value flag is false,
+            // the user agent must set the value of the element to the value
+            // of the value content attribute … and then run the value
+            // sanitization algorithm."  The spec specifies NO cursor-move
+            // policy for this content-attribute replacement (unlike the IDL
+            // `value` setter §4.10.5.4 step 5) — the position is spec-silent.
+            // elidex collapses the cursor / selection to the end of the
+            // replacement value (matching `set_value_initial` and the IDL
+            // setter's end-collapse, and ensuring a stale Selection-API
+            // range cannot point past a shorter replacement value):
+            // `settle_value` sanitizes + clamps, then `move_text_cursor_to`
+            // places the cursor at the end and resets the selection
+            // direction.  Inside `!dirty_value`: a `value`-attribute change
+            // never re-sanitizes a dirty live value (R2).
             fcs.value.clear();
             fcs.value.push_str(displayed);
-            // HTML §4.10.5.1.x value sanitization on the new (non-dirty)
-            // value, matching the `from_input_element` / IDL-setter paths.
-            // Inside `!dirty_value`: a `value`-attribute change never
-            // re-sanitizes a dirty live value (R2).
-            sanitize_value(&mut fcs);
+            fcs.settle_value();
+            let end = fcs.value.len();
+            fcs.move_text_cursor_to(end);
         }
         return;
     }
@@ -324,6 +320,7 @@ fn handle_attribute_change(node: Entity, name: &str, new_value: Option<&str>, do
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::SelectionDirection;
     use elidex_ecs::{Attributes, MutationDispatcher};
 
     /// Minimal test dispatcher that wires ONLY [`FormControlReconciler`].
