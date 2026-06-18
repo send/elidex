@@ -29,8 +29,8 @@ pub use eval::evaluate;
 pub use parse::parse_media_query_list;
 pub use types::{
     BooleanFeature, ColorScheme, DiscreteFeature, DiscreteValue, MediaCondition, MediaEnvironment,
-    MediaFeature, MediaQuery, MediaQueryList, MediaType, Qualifier, RangeConstraint, RangeFeature,
-    RangeOp, RangeValue, ReducedMotion,
+    MediaFeature, MediaQuery, MediaQueryList, MediaType, Medium, Qualifier, RangeConstraint,
+    RangeFeature, RangeOp, RangeValue, ReducedMotion,
 };
 
 #[cfg(test)]
@@ -660,6 +660,60 @@ mod tests {
         assert!(!matches("(width: -100px)", &zero_w)); // 0 ≠ -100 (not clamped to 0)
         assert!(!matches("(max-width: -100px)", &zero_w)); // 0 ≤ -100 is false
         assert!(matches("(min-width: -100px)", &landscape())); // 1024 ≥ -100
+    }
+
+    // --- Codex R9 regressions ---------------------------------------------
+
+    #[test]
+    fn calc_nan_is_censored_to_zero() {
+        // R9-1 / css-values-4 §10.9.2: a top-level calc() NaN (e.g. `0px / 0`) is
+        // censored to a zero value, then §10.12 clamps to the feature range — so
+        // `(width: calc(0px / 0))` resolves to `0px`, matching a 0-width viewport
+        // (not always-false from a NaN comparison).
+        let zero_w = MediaEnvironment {
+            viewport_width: 0.0,
+            ..landscape()
+        };
+        assert!(matches("(width: calc(0px / 0))", &zero_w)); // NaN→0, 0 == 0
+        assert!(matches("(max-width: calc(0px / 0))", &zero_w)); // 0 ≤ 0
+        assert!(matches("(min-width: calc(0px / 0))", &landscape())); // 1024 ≥ 0
+        assert!(!matches("(width: calc(0px / 0))", &landscape())); // 1024 ≠ 0
+    }
+
+    #[test]
+    fn media_type_matches_environment_medium() {
+        // R9-2 / §2.3: `screen`/`print` match the device's actual output medium,
+        // read from the environment — not hard-coded to screen. `@media print`
+        // applies in paged output and not on screen, and vice versa; `all`
+        // matches either.
+        let print = MediaEnvironment {
+            medium: Medium::Print,
+            ..landscape()
+        };
+        assert!(matches("print", &print));
+        assert!(!matches("screen", &print));
+        assert!(matches("all", &print));
+        assert!(matches("print and (min-width: 500px)", &print)); // medium + width
+        assert!(!matches("screen and (min-width: 500px)", &print));
+        // a screen environment is the mirror image.
+        assert!(matches("screen", &landscape()));
+        assert!(!matches("print", &landscape()));
+        assert!(matches("not print", &landscape())); // negatable
+    }
+
+    #[test]
+    fn negative_converted_breakpoint_is_false_in_negative_range() {
+        // R9-3 / §2.4.3: width/height are false in the negative range, so a
+        // negative converted (abs-unit) target must compare exactly — the
+        // conversion tolerance must not rescue `approx_eq(0, -tiny)` onto a
+        // zero-width viewport.
+        let zero_w = MediaEnvironment {
+            viewport_width: 0.0,
+            ..landscape()
+        };
+        assert!(!matches("(width: -0.00000001cm)", &zero_w)); // 0 ≠ tiny-negative
+        assert!(!matches("(max-width: -0.00000001cm)", &zero_w)); // 0 ≤ negative is false
+        assert!(matches("(min-width: -0.00000001cm)", &zero_w)); // 0 ≥ negative is true
     }
 
     // --- §2.5 combining ----------------------------------------------------

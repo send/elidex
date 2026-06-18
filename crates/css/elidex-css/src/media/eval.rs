@@ -78,7 +78,7 @@ pub fn evaluate(list: &MediaQueryList, env: &MediaEnvironment) -> bool {
 fn eval_query(query: &MediaQuery, env: &MediaEnvironment) -> Tri {
     let type_tri = match query.media_type {
         None => Tri::True, // condition-only query
-        Some(t) => match_media_type(t),
+        Some(t) => match_media_type(t, env.medium),
     };
     let cond_tri = match &query.condition {
         None => Tri::True, // type-only query
@@ -92,15 +92,18 @@ fn eval_query(query: &MediaQuery, env: &MediaEnvironment) -> Tri {
     }
 }
 
-/// Match a `<media-type>` on a screen UA — §2.3 / §3.2.
-fn match_media_type(t: MediaType) -> Tri {
-    match t {
-        MediaType::All | MediaType::Screen => Tri::True,
-        // `print` never matches on a screen-only UA; a recognized-but-
-        // non-matching ident (`Other`) is also definite-false here — its
-        // negatability comes from the query qualifier (`not <Other>` = true),
-        // applied in `eval_query`, not from this arm.
-        MediaType::Print | MediaType::Other => Tri::False,
+/// Match a `<media-type>` against the environment's output medium — §2.3 / §3.2.
+/// `screen`/`print` match iff they equal the device medium (so `@media print`
+/// applies in paged output and not on screen, and vice versa); `all` matches
+/// any medium. A recognized-but-non-matching ident (`Other`) is definite-false
+/// — its negatability comes from the query qualifier (`not <Other>` = true),
+/// applied in `eval_query`, not from this arm.
+fn match_media_type(query: MediaType, medium: Medium) -> Tri {
+    match query {
+        MediaType::All => Tri::True,
+        MediaType::Screen => Tri::from_bool(medium == Medium::Screen),
+        MediaType::Print => Tri::from_bool(medium == Medium::Print),
+        MediaType::Other => Tri::False,
     }
 }
 
@@ -164,16 +167,18 @@ fn resolve_range_value(value: &RangeValue, env: &MediaEnvironment) -> (f64, bool
         RangeValue::Length { value, unit } => (resolve_px(*value, *unit, env), false),
         RangeValue::Calc(expr) => {
             let v = resolve_calc(expr, env);
-            // css-values-4 §10.12: a top-level calc() result is clamped to the
-            // target context's allowed range. width/height (the only
-            // calc-bearing features) are non-negative ("width is false in the
-            // negative range", MQ4 §4.1), so a negative calc() clamps to 0px —
-            // `(width: calc(-100px))` ≡ `(width: 0px)`. (A literal negative
+            // css-values-4 §10.9.2 + §10.12: a top-level calc() result has its
+            // special values censored, then is clamped to the target context's
+            // allowed range. NaN (e.g. `calc(0px / 0)`, or a `<percentage>` the
+            // parser excludes) is censored to 0 (§10.9.2: "NaN … is censored
+            // into a zero value"); negatives clamp to the non-negative range of
+            // width/height (the only calc-bearing features — "width is false in
+            // the negative range", MQ4 §4.1), so `(width: calc(-100px))` and
+            // `(width: calc(0px / 0))` both resolve to `0px`. (A literal negative
             // length is NOT clamped — it stays "false in the negative range",
-            // the css-values "-5px ≠ calc(-5px)" rule.) A NaN (a `<percentage>`,
-            // which the parser excludes but `resolve_calc` maps to NaN
-            // defensively) is left as-is so the comparison stays false.
-            let clamped = if v.is_nan() { v } else { v.max(0.0) };
+            // the css-values "-5px ≠ calc(-5px)" rule.) +∞ is left as-is so an
+            // `(min-width: calc(infinity * 1px))` comparison stays false.
+            let clamped = if v.is_nan() { 0.0 } else { v.max(0.0) };
             (clamped, false)
         }
         RangeValue::Ratio(r) => (*r, false),
@@ -257,8 +262,14 @@ fn approx_eq(a: f64, b: f64) -> bool {
 /// magnitude-relative equality ([`approx_eq`]) for lossy-converted values
 /// ([`RangeValue::Converted`]); every other value compares exactly, so the
 /// equality boundary is f32-faithful and fractional breakpoints stay distinct.
+///
+/// The tolerance is gated to **non-negative** targets: all range features
+/// (width/height/resolution/…) are "false in the negative range" (§2.4.3), so a
+/// negative converted target (`(width: -0.00000001cm)`) must compare exactly —
+/// otherwise `approx_eq(0, -tiny)` would rescue a negative breakpoint onto a
+/// zero viewport.
 fn compare(actual: f64, op: RangeOp, target: f64, tolerant: bool) -> bool {
-    let eq = if tolerant {
+    let eq = if tolerant && target >= 0.0 {
         approx_eq(actual, target)
     } else {
         actual == target
