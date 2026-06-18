@@ -475,13 +475,15 @@ mod tests {
         });
     }
 
-    /// Step 2 reads the ACTUAL `value` content attribute, not the
-    /// `default_value` mirror.  The buffered-mutation flush path
-    /// (`SessionCore::flush` → `apply_set_attribute`) writes `Attributes`
-    /// directly without running the `FormControlReconciler` `value`-arm, so a
-    /// `value` set through it leaves the mirror stale; step 2 must still adopt
-    /// the content attribute (§4.10.5 step 2 = "the value of the value content
-    /// attribute"), not the divergent mirror.
+    /// Step 2 re-derives BOTH the live value and the `default_value` mirror
+    /// from the actual `value` content attribute, so `value == default_value
+    /// == content attribute` holds by construction.  The buffered-mutation
+    /// flush path (`SessionCore::flush` → `apply_set_attribute`) writes
+    /// `Attributes` without running the `FormControlReconciler` `value`-arm,
+    /// so a `value` set through it leaves the mirror stale; step 2 adopts the
+    /// content attribute (§4.10.5 step 2) for the live value AND repairs the
+    /// mirror, so a later `reset_value` / step-base read cannot resurrect the
+    /// stale value.
     #[test]
     fn tc2_reads_content_attribute_not_stale_default_value_mirror() {
         let (mut dom, e) = setup(&[("type", "hidden"), ("value", "real")]);
@@ -497,7 +499,24 @@ mod tests {
                 s.value, "real",
                 "step 2 adopts the content attribute, not the stale default_value mirror"
             );
+            assert_eq!(
+                s.default_value, "real",
+                "step 2 re-syncs default_value from the content attribute"
+            );
             assert!(!s.dirty_value, "step 2 clears the dirty value flag");
+        });
+        // The repaired mirror means a subsequent form reset restores the real
+        // content value, not the previously-stale mirror.
+        {
+            let mut state = dom.world_mut().get::<&mut FormControlState>(e).unwrap();
+            state.set_value("typed".to_string()); // dirty the live value
+            state.reset_value();
+        }
+        with_fcs(&dom, e, |s| {
+            assert_eq!(
+                s.value, "real",
+                "reset_value restores the repaired mirror, not the stale value"
+            );
         });
     }
 

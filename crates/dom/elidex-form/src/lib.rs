@@ -693,19 +693,29 @@ impl FormControlState {
     /// value mode): set the live value to the `value` content attribute
     /// (or `""`), then clear the dirty value flag.  The caller passes the
     /// CURRENT `value` content attribute (`content`) read straight from
-    /// `Attributes` — NOT the `default_value` mirror, which a buffered
-    /// `SetAttribute` flush (`SessionCore::flush` → `apply_set_attribute`)
-    /// can leave stale because it writes `Attributes` without running the
-    /// `FormControlReconciler` `value`-arm that maintains the mirror.  **No
-    /// sanitize / cursor move here** — the type-change algorithm sanitizes at
-    /// step 6 ([`sanitize_for_type_change`](crate::sanitize_for_type_change),
-    /// which settles under the new kind), so this sets the raw value only.
+    /// `Attributes`.
     ///
-    /// Contrast [`reset_value`](Self::reset_value), which restores from
-    /// `default_value` and DOES call `settle_value` (the form-reset algorithm
-    /// has no later sanitize step); the omission here is deliberate — step 6
-    /// settles.
+    /// Both the live `value` and the `default_value` mirror are set from the
+    /// single `content` read, so `value == default_value == the value content
+    /// attribute` holds **by construction** after this call.  Setting only
+    /// `value` (reading the mirror would have been the alternative) would let
+    /// the two diverge whenever the mirror is stale — a non-dispatching
+    /// buffered `SetAttribute` flush (`SessionCore::flush` →
+    /// `apply_set_attribute`) writes `Attributes` without running the
+    /// `FormControlReconciler` `value`-arm that maintains the mirror — and a
+    /// later [`reset_value`](Self::reset_value) or step-base calculation
+    /// (which read `default_value`) would then resurrect the stale value.
+    /// Re-deriving the mirror here is convergent (in the common, dispatched
+    /// case it already equals `content`, so this is a no-op), not a competing
+    /// maintainer: the reconciler maintains the mirror on `value`-attribute
+    /// changes, while this re-establishes it on the value-MODE change.
+    ///
+    /// **No sanitize / cursor move here** — the type-change algorithm
+    /// sanitizes at step 6
+    /// ([`sanitize_for_type_change`](crate::sanitize_for_type_change), which
+    /// settles under the new kind), so this sets the raw value only.
     pub(crate) fn set_value_from_content_attr(&mut self, content: String) {
+        self.default_value.clone_from(&content);
         self.value = content;
         self.dirty_value = false;
         self.update_char_count();
