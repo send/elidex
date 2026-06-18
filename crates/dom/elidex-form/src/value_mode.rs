@@ -231,8 +231,20 @@ pub(crate) fn apply_type_change_value_migration(
     // + the step-1 branch above exclude `old_mode == Value` here, so the
     // spec's "previous … in any mode other than the value mode" holds.)
     if new_mode == ValueMode::Value {
+        // §4.10.5 step 2: "set the value of the element to the value of the
+        // value content attribute, if there is one, or the empty string
+        // otherwise."  Read the ACTUAL `value` content attribute straight
+        // from `Attributes` — NOT `FormControlState::default_value`.  The
+        // mirror is maintained by the `FormControlReconciler` `value`-arm,
+        // but the buffered-mutation flush path (`SessionCore::flush` →
+        // `apply_set_attribute`) writes `Attributes` directly without running
+        // that reconciler, so a `value` set through it leaves the mirror
+        // stale; the content attribute is the spec's source of truth.
+        let content = dom
+            .with_attribute(node, "value", |v| v.map(str::to_owned))
+            .unwrap_or_default();
         if let Ok(mut state) = dom.world_mut().get::<&mut FormControlState>(node) {
-            state.migrate_value_from_content_attr();
+            state.set_value_from_content_attr(content);
         }
         return;
     }
@@ -459,6 +471,32 @@ mod tests {
         with_fcs(&dom, e, |s| {
             assert_eq!(s.kind, FormControlKind::TextInput);
             assert_eq!(s.value, "x");
+            assert!(!s.dirty_value, "step 2 clears the dirty value flag");
+        });
+    }
+
+    /// Step 2 reads the ACTUAL `value` content attribute, not the
+    /// `default_value` mirror.  The buffered-mutation flush path
+    /// (`SessionCore::flush` → `apply_set_attribute`) writes `Attributes`
+    /// directly without running the `FormControlReconciler` `value`-arm, so a
+    /// `value` set through it leaves the mirror stale; step 2 must still adopt
+    /// the content attribute (§4.10.5 step 2 = "the value of the value content
+    /// attribute"), not the divergent mirror.
+    #[test]
+    fn tc2_reads_content_attribute_not_stale_default_value_mirror() {
+        let (mut dom, e) = setup(&[("type", "hidden"), ("value", "real")]);
+        // Simulate the buffered-flush state: the content attribute is "real"
+        // but the mirror diverged (the reconciler value-arm never ran).
+        {
+            let mut state = dom.world_mut().get::<&mut FormControlState>(e).unwrap();
+            state.default_value = "stale".to_string();
+        }
+        assert!(dom.set_attribute(e, "type", "text")); // → value mode
+        with_fcs(&dom, e, |s| {
+            assert_eq!(
+                s.value, "real",
+                "step 2 adopts the content attribute, not the stale default_value mirror"
+            );
             assert!(!s.dirty_value, "step 2 clears the dirty value flag");
         });
     }

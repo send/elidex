@@ -691,21 +691,22 @@ impl FormControlState {
 
     /// HTML §4.10.5 type-change **step 2** (previous mode ≠ value, new
     /// value mode): set the live value to the `value` content attribute
-    /// (or `""`), then clear the dirty value flag.  `default_value`
-    /// faithfully mirrors the `value` content attribute for every
-    /// `<input>` kind (the reconciler `value`-arm maintains it), so it is
-    /// the content-attribute source.  **No sanitize / cursor move here** —
-    /// the type-change algorithm sanitizes at step 6
-    /// ([`sanitize_for_type_change`](crate::sanitize_for_type_change),
+    /// (or `""`), then clear the dirty value flag.  The caller passes the
+    /// CURRENT `value` content attribute (`content`) read straight from
+    /// `Attributes` — NOT the `default_value` mirror, which a buffered
+    /// `SetAttribute` flush (`SessionCore::flush` → `apply_set_attribute`)
+    /// can leave stale because it writes `Attributes` without running the
+    /// `FormControlReconciler` `value`-arm that maintains the mirror.  **No
+    /// sanitize / cursor move here** — the type-change algorithm sanitizes at
+    /// step 6 ([`sanitize_for_type_change`](crate::sanitize_for_type_change),
     /// which settles under the new kind), so this sets the raw value only.
     ///
-    /// Contrast [`reset_value`](Self::reset_value), which performs the same
-    /// `value = default_value` + `dirty = false` restore but DOES call
-    /// `settle_value` (the form-reset algorithm has no later sanitize step);
-    /// the omission here is deliberate, not an oversight — step 6 settles.
-    pub(crate) fn migrate_value_from_content_attr(&mut self) {
-        let from_attr = self.default_value.clone();
-        self.value = from_attr;
+    /// Contrast [`reset_value`](Self::reset_value), which restores from
+    /// `default_value` and DOES call `settle_value` (the form-reset algorithm
+    /// has no later sanitize step); the omission here is deliberate — step 6
+    /// settles.
+    pub(crate) fn set_value_from_content_attr(&mut self, content: String) {
+        self.value = content;
         self.dirty_value = false;
         self.update_char_count();
     }
