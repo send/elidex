@@ -482,6 +482,26 @@ mod tests {
         assert!(matches("(min-width: 64em)", &landscape())); // 1024 == 1024
     }
 
+    // --- Codex R4 regressions ---------------------------------------------
+
+    #[test]
+    fn deeply_nested_parens_is_not_all_not_a_panic() {
+        // §3.2 total contract: pathologically nested parentheses (a DoS vector
+        // for untrusted CSS / matchMedia) must fail to `not all`, never abort the
+        // process via stack overflow. The depth cap bounds recursion regardless
+        // of input length. (R4-3.)
+        let env = landscape();
+        let deep = format!(
+            "{}(min-width: 1px){}",
+            "(".repeat(20_000),
+            ")".repeat(20_000)
+        );
+        assert!(!matches(&deep, &env)); // does not panic; over the cap → not all
+                                        // sane nesting depths still parse + evaluate.
+        assert!(matches("(((min-width: 1px)))", &env));
+        assert!(matches("((min-width: 1px) and (max-width: 5000px))", &env));
+    }
+
     // --- §2.5 combining ----------------------------------------------------
 
     #[test]

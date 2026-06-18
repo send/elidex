@@ -49,6 +49,15 @@ pub fn parse_media_query_list(text: &str) -> MediaQueryList {
     MediaQueryList(queries)
 }
 
+/// Maximum `<media-in-parens>` nesting depth. Each `(` opens one
+/// `parse_media_in_parens` → `parse_parens_content` → `parse_media_condition`
+/// recursion cycle, so untrusted input like `((((…))))` would recurse without
+/// bound and abort the process via stack overflow — violating the parser's
+/// total/never-panic contract (a DoS path for page-controlled CSS / `matchMedia`
+/// strings). Mirrors the `calc()` parser's `MAX_CALC_DEPTH`; real media queries
+/// never nest anywhere near this. Exceeding it fails the parse → `not all`.
+const MAX_MEDIA_NESTING_DEPTH: u32 = 32;
+
 /// `<media-query>` — `<media-condition> | [not|only]? <media-type> [and <media-condition-without-or>]?`.
 fn parse_media_query<'i>(input: &mut Parser<'i, '_>) -> Result<MediaQuery, ParseError<'i, ()>> {
     input.skip_whitespace();
@@ -57,7 +66,7 @@ fn parse_media_query<'i>(input: &mut Parser<'i, '_>) -> Result<MediaQuery, Parse
     if let Ok(query) = input.try_parse(parse_type_query) {
         return Ok(query);
     }
-    let condition = parse_media_condition(input)?;
+    let condition = parse_media_condition(input, 0)?;
     Ok(MediaQuery {
         qualifier: None,
         media_type: None,
@@ -83,7 +92,7 @@ fn parse_type_query<'i>(input: &mut Parser<'i, '_>) -> Result<MediaQuery, ParseE
     }
     .map_err(|()| input.new_custom_error(()))?;
     let condition = if input.try_parse(|i| expect_keyword(i, "and")).is_ok() {
-        Some(parse_media_condition_without_or(input)?)
+        Some(parse_media_condition_without_or(input, 0)?)
     } else {
         None
     };
@@ -95,25 +104,29 @@ fn parse_type_query<'i>(input: &mut Parser<'i, '_>) -> Result<MediaQuery, ParseE
 }
 
 /// `<media-condition>` — `<media-not> | <media-in-parens> [ <media-and>* | <media-or>* ]`.
+/// `depth` is the current `<media-in-parens>` nesting level (see
+/// [`MAX_MEDIA_NESTING_DEPTH`]); the `and`/`or` lists are iterative (heap),
+/// only nested `( … )` deepens the recursion.
 fn parse_media_condition<'i>(
     input: &mut Parser<'i, '_>,
+    depth: u32,
 ) -> Result<MediaCondition, ParseError<'i, ()>> {
     input.skip_whitespace();
     if input.try_parse(|i| expect_keyword(i, "not")).is_ok() {
-        let inner = parse_media_in_parens(input)?;
+        let inner = parse_media_in_parens(input, depth)?;
         return Ok(MediaCondition::Not(Box::new(inner)));
     }
-    let first = parse_media_in_parens(input)?;
+    let first = parse_media_in_parens(input, depth)?;
     if input.try_parse(|i| expect_keyword(i, "and")).is_ok() {
-        let mut terms = vec![first, parse_media_in_parens(input)?];
+        let mut terms = vec![first, parse_media_in_parens(input, depth)?];
         while input.try_parse(|i| expect_keyword(i, "and")).is_ok() {
-            terms.push(parse_media_in_parens(input)?);
+            terms.push(parse_media_in_parens(input, depth)?);
         }
         Ok(MediaCondition::And(terms))
     } else if input.try_parse(|i| expect_keyword(i, "or")).is_ok() {
-        let mut terms = vec![first, parse_media_in_parens(input)?];
+        let mut terms = vec![first, parse_media_in_parens(input, depth)?];
         while input.try_parse(|i| expect_keyword(i, "or")).is_ok() {
-            terms.push(parse_media_in_parens(input)?);
+            terms.push(parse_media_in_parens(input, depth)?);
         }
         Ok(MediaCondition::Or(terms))
     } else {
@@ -124,16 +137,17 @@ fn parse_media_condition<'i>(
 /// `<media-condition-without-or>` — `<media-not> | <media-in-parens> <media-and>*`.
 fn parse_media_condition_without_or<'i>(
     input: &mut Parser<'i, '_>,
+    depth: u32,
 ) -> Result<MediaCondition, ParseError<'i, ()>> {
     input.skip_whitespace();
     if input.try_parse(|i| expect_keyword(i, "not")).is_ok() {
-        let inner = parse_media_in_parens(input)?;
+        let inner = parse_media_in_parens(input, depth)?;
         return Ok(MediaCondition::Not(Box::new(inner)));
     }
-    let first = parse_media_in_parens(input)?;
+    let first = parse_media_in_parens(input, depth)?;
     let mut terms = vec![first];
     while input.try_parse(|i| expect_keyword(i, "and")).is_ok() {
-        terms.push(parse_media_in_parens(input)?);
+        terms.push(parse_media_in_parens(input, depth)?);
     }
     if terms.len() == 1 {
         Ok(terms.into_iter().next().expect("one term"))
@@ -145,7 +159,13 @@ fn parse_media_condition_without_or<'i>(
 /// `<media-in-parens>` — `( <media-condition> ) | <media-feature> | <general-enclosed>`.
 fn parse_media_in_parens<'i>(
     input: &mut Parser<'i, '_>,
+    depth: u32,
 ) -> Result<MediaCondition, ParseError<'i, ()>> {
+    // §3.2 total contract: a too-deeply-nested query fails the grammar → `not
+    // all`, never a stack-overflow panic. Guard before descending another level.
+    if depth >= MAX_MEDIA_NESTING_DEPTH {
+        return Err(input.new_custom_error(()));
+    }
     input.skip_whitespace();
     // A function token (`name(...)`) can only be <general-enclosed>.
     if input.try_parse(expect_function_token).is_ok() {
@@ -153,7 +173,7 @@ fn parse_media_in_parens<'i>(
         return Ok(MediaCondition::GeneralEnclosed);
     }
     input.expect_parenthesis_block().map_err(ParseError::from)?;
-    input.parse_nested_block(parse_parens_content)
+    input.parse_nested_block(|inner| parse_parens_content(inner, depth + 1))
 }
 
 /// Consume a `<function-token>` (opens its block for `parse_nested_block`).
@@ -177,11 +197,12 @@ fn drain_block<'i>(inner: &mut Parser<'i, '_>) -> Result<(), ParseError<'i, ()>>
 /// `<media-feature>`, else `<general-enclosed>`.
 fn parse_parens_content<'i>(
     inner: &mut Parser<'i, '_>,
+    depth: u32,
 ) -> Result<MediaCondition, ParseError<'i, ()>> {
     inner.skip_whitespace();
     // 1. nested `( <media-condition> )`.
     if let Ok(cond) = inner.try_parse(|i| -> Result<MediaCondition, ParseError<'_, ()>> {
-        let c = parse_media_condition(i)?;
+        let c = parse_media_condition(i, depth)?;
         i.skip_whitespace();
         i.expect_exhausted().map_err(ParseError::from)?;
         Ok(c)
