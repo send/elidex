@@ -613,6 +613,55 @@ mod tests {
         assert!(matches("((min-width: 1px) and (max-width: 5000px))", &env));
     }
 
+    // --- Codex R8 regressions ---------------------------------------------
+
+    #[test]
+    fn direct_px_breakpoints_are_not_widened_by_tolerance() {
+        // R8-1: the conversion tolerance is scoped to lossy unit conversions, so
+        // a *direct* px `<length>` compares EXACTLY — a fractional px breakpoint
+        // within the old ~0.001px tolerance of the viewport must NOT spuriously
+        // match (it would select the wrong `@media` branch). §2.4.3 is ordinary
+        // mathematical comparison.
+        let env = landscape(); // width 1024
+        assert!(!matches("(min-width: 1024.0005px)", &env)); // 1024 < 1024.0005 → false
+        assert!(!matches("(max-width: 1023.9995px)", &env)); // 1024 > 1023.9995 → false
+        assert!(!matches("(width: 1024.0005px)", &env)); // 1024 ≠ 1024.0005 → false
+                                                         // fractional breakpoints still resolve correctly on either side.
+        let env600 = MediaEnvironment {
+            viewport_width: 600.0,
+            ..landscape()
+        };
+        let env601 = MediaEnvironment {
+            viewport_width: 601.0,
+            ..landscape()
+        };
+        assert!(!matches("(min-width: 600.5px)", &env600)); // 600 < 600.5
+        assert!(matches("(min-width: 600.5px)", &env601)); // 601 ≥ 600.5
+    }
+
+    #[test]
+    fn negative_calc_clamps_to_zero_but_literal_does_not() {
+        // R8-2 / css-values-4 §10.12: a top-level calc() result is clamped to the
+        // feature's allowed range; width/height are non-negative (MQ4 §4.1
+        // "width is false in the negative range"), so `calc(-100px)` clamps to
+        // `0px`. A *literal* negative length is NOT clamped (the css-values
+        // "-5px ≠ calc(-5px)" rule) — it stays false in the negative range.
+        let zero_w = MediaEnvironment {
+            viewport_width: 0.0,
+            ..landscape()
+        };
+        // calc(-100px) → 0px: matches a 0-width viewport.
+        assert!(matches("(width: calc(-100px))", &zero_w));
+        assert!(matches("(max-width: calc(-100px))", &zero_w));
+        // …but not a normal viewport (0px ≠ 1024px).
+        assert!(!matches("(width: calc(-100px))", &landscape()));
+        assert!(matches("(min-width: calc(-100px))", &landscape())); // width ≥ 0px
+                                                                     // literal negative is unclamped → mathematical comparison (≥0 viewport).
+        assert!(!matches("(width: -100px)", &zero_w)); // 0 ≠ -100 (not clamped to 0)
+        assert!(!matches("(max-width: -100px)", &zero_w)); // 0 ≤ -100 is false
+        assert!(matches("(min-width: -100px)", &landscape())); // 1024 ≥ -100
+    }
+
     // --- §2.5 combining ----------------------------------------------------
 
     #[test]

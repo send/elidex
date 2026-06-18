@@ -515,7 +515,7 @@ fn coerce_raw(raw: RawMfValue, rf: RangeFeature) -> Option<RangeValue> {
             _ => None,
         },
         RangeFeature::Resolution => match raw {
-            RawMfValue::Dimension(v, u) => resolution_to_dppx(v, &u).map(RangeValue::Dppx),
+            RawMfValue::Dimension(v, u) => resolution_to_value(v, &u),
             // §5.1: `resolution` also accepts the `infinite` keyword.
             RawMfValue::Ident(s) if s.eq_ignore_ascii_case("infinite") => {
                 Some(RangeValue::Dppx(f64::INFINITY))
@@ -553,9 +553,11 @@ fn calc_has_length(expr: &CalcExpr) -> bool {
 }
 
 /// Resolve a `<length>` dimension for a width/height media feature. Relative +
-/// viewport units keep their unit (resolved at eval against the environment);
-/// CSS absolute units (`in`/`cm`/`mm`/`q`/`pt`/`pc`) resolve to px here at
-/// 96dpi (§1.3 / css-values-4 absolute lengths).
+/// viewport units keep their unit (resolved at eval against the environment,
+/// compared exactly); CSS absolute units (`in`/`cm`/`mm`/`q`/`pt`/`pc`) resolve
+/// to px here at 96dpi (§1.3 / css-values-4 absolute lengths) and become
+/// [`RangeValue::Converted`] — the cssparser `f32` source + factor make that px
+/// inexact, so it (unlike a direct px) compares with tolerance.
 fn media_length_to_value(value: f64, unit: &str) -> Option<RangeValue> {
     if let Ok(u) = crate::values::parse_length_unit(unit) {
         return Some(RangeValue::Length { value, unit: u });
@@ -569,18 +571,18 @@ fn media_length_to_value(value: f64, unit: &str) -> Option<RangeValue> {
         "pc" => value * 16.0,
         _ => return None,
     };
-    Some(RangeValue::Length {
-        value: px,
-        unit: LengthUnit::Px,
-    })
+    Some(RangeValue::Converted(px))
 }
 
-/// `<resolution>` units → dppx — css-values-4 §7.4.
-fn resolution_to_dppx(value: f64, unit: &str) -> Option<f64> {
+/// `<resolution>` units → a dppx [`RangeValue`] — css-values-4 §7.4. `dppx`/`x`
+/// are the canonical unit (exact [`RangeValue::Dppx`]); `dpi`/`dpcm` divide by a
+/// (possibly inexact) factor, so they become [`RangeValue::Converted`] and
+/// compare with tolerance.
+fn resolution_to_value(value: f64, unit: &str) -> Option<RangeValue> {
     match unit.to_ascii_lowercase().as_str() {
-        "dppx" | "x" => Some(value),
-        "dpi" => Some(value / 96.0),
-        "dpcm" => Some(value / (96.0 / 2.54)),
+        "dppx" | "x" => Some(RangeValue::Dppx(value)),
+        "dpi" => Some(RangeValue::Converted(value / 96.0)),
+        "dpcm" => Some(RangeValue::Converted(value / (96.0 / 2.54))),
         _ => None,
     }
 }

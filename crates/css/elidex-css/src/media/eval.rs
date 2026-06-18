@@ -127,15 +127,10 @@ fn eval_feature(feature: &MediaFeature, env: &MediaEnvironment) -> Tri {
     match feature {
         MediaFeature::Range { name, constraints } => {
             let actual = range_feature_value(*name, env);
-            // §6.1: `color` is an `<integer>` → compare exactly. The other range
-            // values are f32-sourced (`<length>`/`<resolution>`/`<ratio>`) and
-            // use the magnitude-relative tolerance (see `compare`/`approx_eq`).
-            let exact = matches!(*name, RangeFeature::Color);
-            Tri::from_bool(
-                constraints
-                    .iter()
-                    .all(|c| compare(actual, c.op, resolve_range_value(&c.value, env), exact)),
-            )
+            Tri::from_bool(constraints.iter().all(|c| {
+                let (target, tolerant) = resolve_range_value(&c.value, env);
+                compare(actual, c.op, target, tolerant)
+            }))
         }
         MediaFeature::Discrete { name, value } => {
             Tri::from_bool(match_discrete(*name, *value, env))
@@ -158,15 +153,33 @@ fn range_feature_value(name: RangeFeature, env: &MediaEnvironment) -> f64 {
 }
 
 /// Resolve a parsed [`RangeValue`] to a comparable `f64` against the
-/// environment — lengths resolve here so viewport-relative units use the
-/// queried viewport.
-fn resolve_range_value(value: &RangeValue, env: &MediaEnvironment) -> f64 {
+/// environment, plus whether it compares with tolerance (`true`) or exactly
+/// (`false`). Lengths resolve here so viewport-relative units use the queried
+/// viewport. Only a value from a lossy unit conversion
+/// ([`RangeValue::Converted`]) is tolerant — a direct px/relative `<length>`,
+/// `<ratio>`, exact `<resolution>`, and `<integer>` compare exactly, so
+/// fractional breakpoints are never widened (MQ4 §2.4.3).
+fn resolve_range_value(value: &RangeValue, env: &MediaEnvironment) -> (f64, bool) {
     match value {
-        RangeValue::Length { value, unit } => resolve_px(*value, *unit, env),
-        RangeValue::Calc(expr) => resolve_calc(expr, env),
-        RangeValue::Ratio(r) => *r,
-        RangeValue::Dppx(d) => *d,
-        RangeValue::Number(n) => *n,
+        RangeValue::Length { value, unit } => (resolve_px(*value, *unit, env), false),
+        RangeValue::Calc(expr) => {
+            let v = resolve_calc(expr, env);
+            // css-values-4 §10.12: a top-level calc() result is clamped to the
+            // target context's allowed range. width/height (the only
+            // calc-bearing features) are non-negative ("width is false in the
+            // negative range", MQ4 §4.1), so a negative calc() clamps to 0px —
+            // `(width: calc(-100px))` ≡ `(width: 0px)`. (A literal negative
+            // length is NOT clamped — it stays "false in the negative range",
+            // the css-values "-5px ≠ calc(-5px)" rule.) A NaN (a `<percentage>`,
+            // which the parser excludes but `resolve_calc` maps to NaN
+            // defensively) is left as-is so the comparison stays false.
+            let clamped = if v.is_nan() { v } else { v.max(0.0) };
+            (clamped, false)
+        }
+        RangeValue::Ratio(r) => (*r, false),
+        RangeValue::Dppx(d) => (*d, false),
+        RangeValue::Number(n) => (*n, false),
+        RangeValue::Converted(v) => (*v, true),
     }
 }
 
@@ -208,27 +221,28 @@ fn resolve_px(value: f64, unit: LengthUnit, env: &MediaEnvironment) -> f64 {
     }
 }
 
-/// Relative tolerance for `<length>`/`<resolution>`/`<ratio>` comparisons.
+/// Relative tolerance for [`RangeValue::Converted`] comparisons only.
 ///
-/// `<mf-value>` dimensions arrive as cssparser `f32`, so an exact decimal like
-/// `2.54cm` cannot round-trip to its intended `96px` (`2.54f32` ≈ 2.5399999…);
-/// after unit conversion the result is off by ~1.4×10⁻⁶ px (rel ≈ 1.5×10⁻⁸).
-/// A magnitude-relative tolerance (cancellation-aware, per the f64-tolerance
-/// lesson — relative, not absolute, so it tracks the value's scale) absorbs
-/// that f32 quantization while staying far below the 1px gap between adjacent
-/// integer viewport sizes. Measured safe band: > 1.5×10⁻⁸ (f32 error floor)
-/// and < 1.5×10⁻⁵ (adjacent-integer relative gap at a generous 65536px max);
-/// `1e-6` sits ~67× above the floor and ~15× below the aliasing ceiling, so
-/// distinct breakpoints never alias. `color` is an `<integer>` and compares
-/// exactly (no tolerance — see `compare`'s `exact`).
+/// A value resolved from a lossy unit conversion (`2.54cm` → 95.9999986px,
+/// `dpi`/`dpcm` → dppx) cannot round-trip exactly: the cssparser `f32` source
+/// (`2.54f32` ≈ 2.5399999…) carries ≤ ~3×10⁻⁸ relative error through the
+/// conversion factor. A magnitude-relative tolerance (cancellation-aware, per
+/// the f64-tolerance lesson — relative, not absolute, so it tracks the value's
+/// scale) absorbs that, with `1e-6` leaving a ~30× margin over the worst-case
+/// f32 conversion error. Crucially this tolerance is **scoped to converted
+/// values**: direct px/relative `<length>`, `<ratio>`, exact `<resolution>`,
+/// and `<integer>` (`color`) compare exactly (see `compare`/`resolve_range_value`),
+/// so the tolerance can never widen a direct fractional breakpoint. (A *global*
+/// tolerance can't: the conversion error ~3×10⁻⁸ and one f32 ULP ~6×10⁻⁸ nearly
+/// coincide, so no single epsilon both absorbs conversion error and preserves
+/// f32-distinct breakpoints — scoping decouples the two.)
 const VALUE_REL_EPS: f64 = 1e-6;
 
-/// Magnitude-relative approximate equality for f32-sourced media values: equal
-/// if the difference is within [`VALUE_REL_EPS`] of the larger magnitude
+/// Magnitude-relative approximate equality for lossy-converted media values:
+/// equal if the difference is within [`VALUE_REL_EPS`] of the larger magnitude
 /// (floored at 1.0, so sub-unit values keep an absolute ~1e-6 tolerance).
 /// Non-finite inputs compare exactly — `∞ == ∞`, but `∞ ≠` any finite value and
-/// `NaN ≠ NaN` — so e.g. `(aspect-ratio < 1/0)` keeps a finite ratio strictly
-/// below the `1/0 = ∞` target instead of aliasing onto it.
+/// `NaN ≠ NaN`.
 fn approx_eq(a: f64, b: f64) -> bool {
     if a == b {
         return true;
@@ -239,14 +253,15 @@ fn approx_eq(a: f64, b: f64) -> bool {
     (a - b).abs() <= VALUE_REL_EPS * a.abs().max(b.abs()).max(1.0)
 }
 
-/// `<mf-comparison>` numeric comparison — §2.4.3. `exact` selects integer-exact
-/// equality (`color`, an `<integer>`); all other feature values are f32-sourced
-/// and use [`approx_eq`] for the equality boundary.
-fn compare(actual: f64, op: RangeOp, target: f64, exact: bool) -> bool {
-    let eq = if exact {
-        actual == target
-    } else {
+/// `<mf-comparison>` numeric comparison — §2.4.3. `tolerant` selects the
+/// magnitude-relative equality ([`approx_eq`]) for lossy-converted values
+/// ([`RangeValue::Converted`]); every other value compares exactly, so the
+/// equality boundary is f32-faithful and fractional breakpoints stay distinct.
+fn compare(actual: f64, op: RangeOp, target: f64, tolerant: bool) -> bool {
+    let eq = if tolerant {
         approx_eq(actual, target)
+    } else {
+        actual == target
     };
     match op {
         RangeOp::Lt => actual < target && !eq,

@@ -130,7 +130,12 @@ pub enum RangeOp {
 /// `CssValue::Length(f32, _)` happens here).
 #[derive(Clone, Debug, PartialEq)]
 pub enum RangeValue {
-    /// A `<length>` for `width`/`height` — resolved to px at eval.
+    /// A `<length>` for `width`/`height` in px or a viewport/font-relative unit
+    /// — resolved to px at eval and compared EXACTLY. A direct/relative
+    /// `<length>` is faithful to the cssparser `f32` source (px is the
+    /// comparison unit; relative units multiply by an exact factor), so
+    /// fractional px breakpoints (`min-width: 1024.0005px`) stay distinct to the
+    /// f32 ULP — the tolerance must NOT widen them.
     Length { value: f64, unit: LengthUnit },
     /// A length-typed `calc()` for `width`/`height` — MQ4 §1.2/§1.3 delegates
     /// `<mf-value>` types/units to CSS Values, so the math tree (parsed by the
@@ -143,11 +148,22 @@ pub enum RangeValue {
     Calc(Box<CalcExpr>),
     /// A `<ratio>` (css-values-4 §5.7) for `aspect-ratio`.
     Ratio(f64),
-    /// A `<resolution>` (css-values-4 §7.4) in dppx for `resolution` (may be
-    /// `f64::INFINITY` for the `infinite` keyword, MQ4 §5.1).
+    /// A `<resolution>` (css-values-4 §7.4) in dppx for `resolution`, from a
+    /// `dppx`/`x` token (the canonical unit — no conversion) or the `infinite`
+    /// keyword (`f64::INFINITY`, MQ4 §5.1). Compared EXACTLY.
     Dppx(f64),
     /// A unitless `<integer>` for `color` (bits per component, MQ4 §6.1).
+    /// Compared EXACTLY (an `<integer>` has no conversion error).
     Number(f64),
+    /// A scalar in the feature's comparison unit (px for `width`/`height`, dppx
+    /// for `resolution`) resolved from a **lossy unit conversion** — a CSS
+    /// absolute length (`in`/`cm`/`mm`/`q`/`pt`/`pc` → px) or a `dpi`/`dpcm`
+    /// resolution. The cssparser `f32` source + conversion factor make the
+    /// result inexact (`2.54cm` → 95.9999986, not 96px), so this — and ONLY
+    /// this — compares with the magnitude-relative tolerance (`approx_eq`). Kept
+    /// distinct from [`Length`](Self::Length)/[`Dppx`](Self::Dppx) so a *direct*
+    /// fractional px/dppx breakpoint is never widened by that tolerance.
+    Converted(f64),
 }
 
 /// The range-typed media features supported in this slice (the extended MQ5
