@@ -278,6 +278,26 @@ fn collect_control_entry(dom: &EcsDom, entity: Entity, entries: &mut Vec<FormDat
                 }
             }
         }
+        FormControlKind::File => {
+            // HTML §4.10.22.4 "Constructing the entry list" step 8: a file
+            // control submits its SELECTED FILES as `File` objects — NOT the
+            // live value (step 10) and NOT the `value` content attribute,
+            // which is inert in filename mode.  Routing file inputs through
+            // the general `fcs.value` arm would emit a stale string backing
+            // (e.g. `<input type=file value=secret>` seeds `fcs.value` at
+            // creation), so submission is carved out here.
+            //
+            // The selected-files list is not yet modeled
+            // (`#11-input-file-shell-staging`); step 8.1 ("no selected files")
+            // creates an entry with an empty-name `File`, which this
+            // string-valued stopgap represents as an empty value.  When real
+            // `File` objects land this extends to step 8.2 (one entry per
+            // selected file).
+            entries.push(FormDataEntry {
+                name: fcs.name.clone(),
+                value: String::new(),
+            });
+        }
         _ => {
             // HTML §4.10.22.4 "Constructing the entry list" step 10: a
             // general control (text, hidden, …) submits "the value of the

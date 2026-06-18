@@ -63,6 +63,38 @@ fn collect_form_data_basic() {
     assert_eq!(data[0].value, "hello");
 }
 
+/// §4.10.22.4 step 8: a file control submits its selected files, NOT the live
+/// value / `value` content attribute (inert in filename mode).  Guards the
+/// stale-backing leak Codex flagged — `<input type=file value=secret>` seeds
+/// `fcs.value` at creation, but submission must emit the empty-file entry
+/// (step 8.1, no selected files modeled), not `secret`.
+#[test]
+fn collect_form_data_file_does_not_submit_value_attribute() {
+    let mut dom = EcsDom::new();
+    let form = dom.create_element("form", Attributes::default());
+    let mut attrs = Attributes::default();
+    attrs.set("type", "file");
+    attrs.set("name", "f");
+    attrs.set("value", "secret");
+    let input = dom.create_element("input", attrs.clone());
+    let fcs = FormControlState::from_element("input", &attrs).unwrap();
+    assert_eq!(fcs.kind, FormControlKind::File);
+    let _ = dom.world_mut().insert_one(input, fcs);
+    let _ = dom.append_child(form, input);
+
+    let data = collect_form_data(&dom, form);
+    assert_eq!(
+        data.len(),
+        1,
+        "file control still produces an (empty-file) entry"
+    );
+    assert_eq!(data[0].name, "f");
+    assert_eq!(
+        data[0].value, "",
+        "file submission is the empty selected-files list, not the stale `value` attribute"
+    );
+}
+
 #[test]
 fn collect_form_data_skips_disabled() {
     let mut dom = EcsDom::new();
@@ -173,35 +205,18 @@ fn checkbox_present_empty_value_attribute_submits_empty_not_on() {
 }
 
 #[test]
-fn file_input_clear_value_empties_submission_backing() {
-    // A file input can carry a stale live backing value (e.g. a `value`
-    // content attribute present at creation).  `file.value = ""` is the
-    // filename-mode empty setter (→ `clear_file_value`), which must empty
-    // that backing so form submission no longer emits it.  (File controls
-    // should ultimately submit File objects per §4.10.22.4 step 8; that
-    // is the `#11-input-file-shell-staging` defer — until then the live
-    // value is the submission backing.)
-    let mut dom = EcsDom::new();
-    let form = dom.create_element("form", Attributes::default());
+fn clear_file_value_empties_live_backing() {
+    // `file.value = ""` (the filename-mode empty setter → `clear_file_value`)
+    // empties the live value backing.  Form submission is now independently
+    // decoupled from this backing (§4.10.22.4 step 8 — see
+    // `collect_form_data_file_does_not_submit_value_attribute`), so this
+    // asserts `clear_file_value`'s remaining job directly on the state.
     let mut attrs = Attributes::default();
     attrs.set("type", "file");
-    attrs.set("name", "f");
-    let fi = dom.create_element("input", attrs.clone());
     let mut fcs = FormControlState::from_element("input", &attrs).unwrap();
     fcs.value = "x".to_string(); // stale file backing
-    let _ = dom.world_mut().insert_one(fi, fcs);
-    let _ = dom.append_child(form, fi);
-    assert_eq!(collect_form_data(&dom, form)[0].value, "x");
-
-    // file.value = "" → clear_file_value empties the backing.
-    if let Ok(mut fcs) = dom.world_mut().get::<&mut FormControlState>(fi) {
-        fcs.clear_file_value();
-    }
-    assert_eq!(
-        collect_form_data(&dom, form)[0].value,
-        "",
-        "clear_file_value empties the file submission backing"
-    );
+    fcs.clear_file_value();
+    assert_eq!(fcs.value(), "", "clear_file_value empties the live backing");
 }
 
 #[test]
