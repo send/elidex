@@ -145,13 +145,9 @@ fn range_feature_value(name: RangeFeature, env: &MediaEnvironment) -> f64 {
     match name {
         RangeFeature::Width => env.viewport_width,
         RangeFeature::Height => env.viewport_height,
-        RangeFeature::AspectRatio => {
-            if env.viewport_height == 0.0 {
-                0.0
-            } else {
-                env.viewport_width / env.viewport_height
-            }
-        }
+        // §4.3: width / height. A degenerate zero height yields ±inf or NaN
+        // (f64 division), which `compare` handles correctly — not a collapse to 0.
+        RangeFeature::AspectRatio => env.viewport_width / env.viewport_height,
         RangeFeature::Resolution => env.resolution_dppx,
         RangeFeature::Color => f64::from(env.color_bits),
     }
@@ -236,7 +232,8 @@ fn eval_boolean(bf: BooleanFeature, env: &MediaEnvironment) -> bool {
         BooleanFeature::Width => env.viewport_width != 0.0,
         BooleanFeature::Height => env.viewport_height != 0.0,
         BooleanFeature::AspectRatio => env.viewport_width != 0.0 && env.viewport_height != 0.0,
-        BooleanFeature::Resolution => env.resolution_dppx != 0.0 && env.resolution_dppx.is_finite(),
+        // §2.4.2/§5.1: true for any non-zero resolution, including `infinite`.
+        BooleanFeature::Resolution => env.resolution_dppx > 0.0,
         // §6.1: `(color)` is true iff the device has a non-zero color depth.
         BooleanFeature::Color => env.color_bits > 0,
         // A viewport always has an orientation; prefers-color-scheme always

@@ -285,11 +285,13 @@ fn parse_boolean(name: &str) -> Result<MediaFeature, FeatErr> {
 
 fn parse_plain(input: &mut Parser<'_, '_>, name: &str) -> Result<MediaFeature, FeatErr> {
     input.skip_whitespace();
-    let raw = parse_mf_value(input).map_err(|()| FeatErr::NotShaped)?;
+    // A colon commits this to an `<mf-plain>` attempt for a (known or unknown)
+    // feature; §3.2 says a value that doesn't match the feature's value syntax
+    // (missing, extra tokens, or wrong type) → `not all`, NOT general-enclosed.
+    let raw = parse_mf_value(input).map_err(|()| FeatErr::Invalid)?;
     input.skip_whitespace();
-    // mf-plain is exactly one value; extra tokens → future syntax → general-enclosed.
     if !input.is_exhausted() {
-        return Err(FeatErr::NotShaped);
+        return Err(FeatErr::Invalid);
     }
     let lower = name.to_ascii_lowercase();
     if let Some(df) = classify_discrete_feature(&lower) {
@@ -463,9 +465,9 @@ fn coerce_raw(raw: RawMfValue, rf: RangeFeature) -> Option<RangeValue> {
         },
         RangeFeature::AspectRatio => match raw {
             // `<ratio>` components are non-negative (css-values-4 §5.7); a
-            // negative component or a non-positive denominator is outside the
-            // value syntax → None (→ §3.2 `not all`).
-            RawMfValue::Ratio(n, d) if n >= 0.0 && d > 0.0 => Some(RangeValue::Ratio(n / d)),
+            // negative component is invalid, but `0` (incl. a zero denominator)
+            // is a valid degenerate ratio → ±inf/NaN, handled by `compare`.
+            RawMfValue::Ratio(n, d) if n >= 0.0 && d >= 0.0 => Some(RangeValue::Ratio(n / d)),
             RawMfValue::Number(n) if n >= 0.0 => Some(RangeValue::Ratio(n)),
             _ => None,
         },
@@ -478,8 +480,9 @@ fn coerce_raw(raw: RawMfValue, rf: RangeFeature) -> Option<RangeValue> {
             _ => None,
         },
         RangeFeature::Color => match raw {
-            // §6.1: `color` is a non-negative `<integer>` (bits per component).
-            RawMfValue::Number(n) if n >= 0.0 && n.fract() == 0.0 => Some(RangeValue::Number(n)),
+            // §6.1 + §2.4.3: `color` is an `<integer>`; negative values parse
+            // (`false in the negative range`) and must reach `compare`.
+            RawMfValue::Number(n) if n.fract() == 0.0 => Some(RangeValue::Number(n)),
             _ => None,
         },
     }

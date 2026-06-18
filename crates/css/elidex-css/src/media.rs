@@ -314,6 +314,68 @@ mod tests {
         assert!(!matches("(min-resolution: infinite)", &env));
     }
 
+    // --- Codex R2 regressions ---------------------------------------------
+
+    #[test]
+    fn color_accepts_negative_integers() {
+        // §2.4.3: `color` is false in the negative range, but negative values
+        // must parse and reach `compare`. (R2-1.)
+        let env = landscape(); // color_bits = 8
+        assert!(matches("(color > -1)", &env)); // 8 > -1
+        assert!(matches("(min-color: -1)", &env)); // 8 >= -1
+        assert!(!matches("(max-color: -1)", &env)); // 8 <= -1 is false
+        assert!(matches("not (color <= -1)", &env));
+    }
+
+    #[test]
+    fn infinite_resolution_boolean_is_true() {
+        // §2.4.2/§5.1: an infinite (non-zero) resolution satisfies `(resolution)`.
+        // (R2-2.)
+        let inf = MediaEnvironment {
+            resolution_dppx: f64::INFINITY,
+            ..landscape()
+        };
+        assert!(matches("(resolution)", &inf));
+        assert!(matches("(max-resolution: infinite)", &inf));
+    }
+
+    #[test]
+    fn malformed_known_feature_value_is_not_all() {
+        // §3.2: a known feature with a value that doesn't match its syntax (extra
+        // tokens) → not all, not general-enclosed (must not match via OR). (R2-3.)
+        let env = landscape();
+        assert!(!matches("(width: 1px 2px)", &env));
+        assert!(!matches("(color) or (width: 1px 2px)", &env));
+    }
+
+    #[test]
+    fn degenerate_ratios_parse() {
+        // css-values-4 §5.7: `<ratio>` is `[0,∞]` on both sides; a zero
+        // denominator is a valid degenerate ratio (→ ±inf). (R2-4.)
+        let env = landscape(); // 1024/768 ≈ 1.333
+        assert!(matches("(aspect-ratio < 1/0)", &env)); // 1.333 < inf
+        assert!(matches("not (aspect-ratio: 1/0)", &env)); // 1.333 == inf is false
+    }
+
+    #[test]
+    fn whitespace_around_ratio_slash_parses() {
+        // css-values-4 §2.5/§5.7: whitespace around the `/` is allowed. (R2-6.)
+        let env = landscape(); // 1.333
+        assert!(matches("(min-aspect-ratio: 1 / 1)", &env)); // 1.333 >= 1
+        assert!(!matches("(min-aspect-ratio: 2 / 1)", &env)); // 1.333 >= 2 is false
+    }
+
+    #[test]
+    fn zero_height_aspect_ratio_is_infinite() {
+        // §4.3: width/height with zero height → ∞, not 0. (R2-7.)
+        let env = MediaEnvironment {
+            viewport_height: 0.0,
+            ..landscape()
+        };
+        assert!(matches("(min-aspect-ratio: 1/1)", &env)); // inf >= 1
+        assert!(matches("(aspect-ratio > 100/1)", &env)); // inf > 100
+    }
+
     // --- §2.5 combining ----------------------------------------------------
 
     #[test]
