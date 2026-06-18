@@ -1,6 +1,6 @@
 //! Attribute get/set/remove handlers.
 
-use elidex_ecs::{AttrData, AttrEntityCache, EcsDom, Entity};
+use elidex_ecs::{AttrEntityCache, EcsDom, Entity};
 use elidex_plugin::JsValue;
 use elidex_script_session::{DomApiError, DomApiHandler, SessionCore};
 
@@ -64,21 +64,11 @@ impl DomApiHandler for SetAttribute {
         // `BaseUrlMaintainer` to react to `<base>.href` writes).  Pre-D-31
         // this handler wrote `Attributes::set` directly and bumped
         // `rev_version` separately — the chokepoint subsumes both.
+        // The `EcsDom::set_attribute` chokepoint also syncs any materialized
+        // `Attr` node's value (so `getAttributeNode("x").value` reflects the
+        // write while preserving identity) — see `EcsDom::sync_cached_attr_value`.
         if !dom.set_attribute(this, &name, &value) {
             return Err(crate::util::not_found_error("element not found"));
-        }
-        // Sync the cached Attr entity's value so that attr.value reflects
-        // the update without breaking identity (getAttributeNode returns the
-        // same object before and after setAttribute).
-        let cached_attr = dom
-            .world()
-            .get::<&AttrEntityCache>(this)
-            .ok()
-            .and_then(|cache| cache.entries.get(&name).copied());
-        if let Some(attr_entity) = cached_attr {
-            if let Ok(mut ad) = dom.world_mut().get::<&mut AttrData>(attr_entity) {
-                ad.value.clone_from(&value);
-            }
         }
         Ok(JsValue::Undefined)
     }

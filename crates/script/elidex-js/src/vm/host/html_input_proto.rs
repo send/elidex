@@ -80,7 +80,6 @@ use super::super::wrapper_intern::{WrapperKey, WrapperKind};
 use super::super::{NativeFn, VmInner};
 
 use elidex_ecs::{Entity, NodeKind};
-use elidex_form::FormControlState;
 
 impl VmInner {
     #[allow(clippy::too_many_lines)]
@@ -843,23 +842,15 @@ fn native_input_set_type(
     let val = args.first().copied().unwrap_or(JsValue::Undefined);
     let sid = super::super::coerce::to_string(ctx.vm, val)?;
     let s = ctx.vm.strings.get_utf8(sid);
+    // HTML §4.10.5 "type attribute changes state": the entire type-change
+    // algorithm (kind update + value-mode migration steps 1–3 + value
+    // sanitization steps 6–9, all in `elidex-form`) runs canonically in the
+    // `FormControlReconciler` off this `set_attribute("type")` mutation —
+    // the single canonical type-change site.  The IDL setter is pure
+    // marshalling; it must NOT re-run the migration inline (One-issue-one-
+    // way), and `from_tag_and_type_attr` in the reconciler is more correct
+    // than `from_type_str` here (it distinguishes `<button>` types).
     ctx.host().dom().set_attribute(entity, "type", &s);
-    // Mirror the type into `FormControlState.kind` so subsequent
-    // value / valueAsNumber / Selection-API behaviour reflects the
-    // new type without requiring a re-attach (HTML §4.10.5.1.6).
-    // Then run the elidex type-change sanitize step: HTML §4.10.5 value
-    // sanitization on entry into `type=number` (non-numeric value → ""),
-    // plus an elidex normalization (beyond the spec type-change steps)
-    // that drops stale `checked` / `indeterminate` bits on a checkable→
-    // non-checkable transition.  Algorithm lives in elidex-form.
-    use elidex_form::FormControlKind;
-    let new_kind = FormControlKind::from_type_str(&s.to_ascii_lowercase());
-    let dom = ctx.host().dom();
-    if let Ok(mut state) = dom.world_mut().get::<&mut FormControlState>(entity) {
-        let old_kind = state.kind;
-        state.kind = new_kind;
-        elidex_form::sanitize_for_type_change(&mut state, old_kind);
-    }
     Ok(JsValue::Undefined)
 }
 

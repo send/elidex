@@ -118,6 +118,16 @@ fn register_value_accessor(
         |this, _args, bridge, ctx| {
             let entity = extract_entity(this, ctx)?;
             bridge.with(|_session, dom| {
+                // NOTE: the boa backend deliberately does NOT do the
+                // §4.10.5.4 value-mode dispatch the VM host does.  boa
+                // installs no `FormControlReconciler`, so its content-attr
+                // setters never propagate to the live value that boa's
+                // submission / `FormData` bridge reads — mode dispatch would
+                // make the getter (content attribute) diverge from
+                // submission (live value).  boa is deletion-bound (boa→VM
+                // cutover, D-26 PR7), so it keeps its prior internally
+                // consistent all-live-value behavior; the value-mode dispatch
+                // is the VM path's concern.
                 let val = dom
                     .world()
                     .get::<&elidex_form::FormControlState>(entity)
@@ -144,20 +154,15 @@ fn register_value_accessor(
                 .map(|s| s.to_std_string_escaped())
                 .unwrap_or_default();
             bridge.with(|_session, dom| {
+                // All-live-value (see the getter note: no value-mode dispatch
+                // on the reconciler-less boa backend).  `set_value` →
+                // `settle_value` applies the §4.10.5.1.x sanitization (incl.
+                // single-line newline strip), so no manual strip here.
                 if let Ok(mut fcs) = dom
                     .world_mut()
                     .get::<&mut elidex_form::FormControlState>(entity)
                 {
-                    // HTML spec §4.10.5.4: single-line inputs strip newlines from value.
-                    let sanitized = if fcs.kind.is_single_line_text() {
-                        text.replace(['\n', '\r'], "")
-                    } else {
-                        text
-                    };
-                    // HTML spec §4.10.5.4: setting .value IDL does NOT enforce
-                    // maxlength (intentional per spec). maxlength only constrains
-                    // user input (keyboard, paste).
-                    fcs.set_value(sanitized);
+                    fcs.set_value(text);
                 }
                 Ok(JsValue::undefined())
             })

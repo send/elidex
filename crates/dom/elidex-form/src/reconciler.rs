@@ -21,6 +21,7 @@
 
 use elidex_ecs::{EcsDom, Entity, MutationEvent, TagType};
 
+use crate::value_mode::apply_type_change_value_migration;
 use crate::{
     clear_focus_snapshot, compile_pattern_regex, create_form_control_state,
     sanitize_for_type_change,
@@ -132,12 +133,21 @@ fn handle_attribute_change(node: Entity, name: &str, new_value: Option<&str>, do
             },
             Err(_) => return,
         };
-        // Immutable TagType borrow dropped at the `}` above.
+        // Read the old kind before any mutation (short borrow, dropped
+        // before the migration's `&mut EcsDom` calls).
+        let Ok(old_kind) = dom.world().get::<&FormControlState>(node).map(|s| s.kind) else {
+            return;
+        };
+        // HTML §4.10.5 type-change steps 1–3: value-mode value migration.
+        // MUST run BEFORE the kind update + sanitization (steps 6–9).
+        // Step 1 writes the `value` content attribute via the
+        // non-dispatching primitive (re-entry contract — see fn docs).
+        apply_type_change_value_migration(old_kind, new_kind, dom, node);
+        // Steps 4–9: kind update + value sanitization + selectability.
         {
             let Ok(mut state) = dom.world_mut().get::<&mut FormControlState>(node) else {
                 return;
             };
-            let old_kind = state.kind;
             state.kind = new_kind;
             sanitize_for_type_change(&mut state, old_kind);
         }

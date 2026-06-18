@@ -21,6 +21,7 @@ mod sizing;
 mod submit;
 pub mod util;
 mod validation;
+mod value_mode;
 
 pub use ancestor_cache::AncestorCache;
 pub use clipboard::{clipboard_copy, clipboard_cut, clipboard_paste};
@@ -54,6 +55,7 @@ pub use submit::{
     FormSubmission,
 };
 pub use validation::{is_constraint_validation_candidate, validate_control, ValidityState};
+pub use value_mode::{ValueMode, ValueSetAction};
 
 use elidex_ecs::Attributes;
 use std::sync::Arc;
@@ -674,17 +676,84 @@ impl FormControlState {
     /// Per HTML §4.10.5 reset algorithm for `<input>`: set the dirty value
     /// flag back to false, set the value to the `value` content attribute
     /// (or empty), restore checkedness from the `checked` content
-    /// attribute, set indeterminate back to false, and invoke value
-    /// sanitization.  The reset algorithm carries **no** cursor-move policy,
-    /// so the relevant-value-change rule (HTML §4.10.20) applies: the cursor
-    /// / selection are only CLAMPED into the restored value (positions and
-    /// selection direction otherwise preserved), via `settle_value`.
+    /// attribute, **empty the list of selected files**, set indeterminate
+    /// back to false, and invoke value sanitization.  The reset algorithm
+    /// carries **no** cursor-move policy, so the relevant-value-change rule
+    /// (HTML §4.10.20) applies: the cursor / selection are only CLAMPED into
+    /// the restored value (positions and selection direction otherwise
+    /// preserved), via `settle_value`.
+    ///
+    /// The reset algorithm has **two distinct value steps**: restore the
+    /// value content attribute (value mode) AND empty the selected-files list
+    /// (filename mode).  For a file control the content attribute does not
+    /// apply, so reset empties the backing rather than restoring
+    /// `default_value` — otherwise a `default_value` left over from a value
+    /// content attribute present at creation, or from a non-dispatched write,
+    /// would resurrect a stale string the file setter / type change had
+    /// cleared.  The selected-files list is not yet modeled
+    /// (`#11-input-file-shell-staging`); its observable backing lives in
+    /// `value`, so "empty the list" maps to an empty `value`.
     pub fn reset_value(&mut self) {
-        self.value = self.default_value.clone();
+        if self.kind == FormControlKind::File {
+            self.value.clear();
+        } else {
+            self.value.clone_from(&self.default_value);
+        }
         self.dirty_value = false;
         self.checked = self.default_checked;
         self.indeterminate = false;
         self.settle_value();
+    }
+
+    /// HTML §4.10.5 type-change **step 2** (previous mode ≠ value, new
+    /// value mode): set the live value to the `value` content attribute
+    /// (or `""`), then clear the dirty value flag.  The caller passes the
+    /// CURRENT `value` content attribute (`content`) read straight from
+    /// `Attributes`.
+    ///
+    /// Both the live `value` and the `default_value` mirror are set from the
+    /// single `content` read, so `value == default_value == the value content
+    /// attribute` holds **by construction** after this call.  Setting only
+    /// `value` (reading the mirror would have been the alternative) would let
+    /// the two diverge whenever the mirror is stale — a non-dispatching
+    /// buffered `SetAttribute` flush (`SessionCore::flush` →
+    /// `apply_set_attribute`) writes `Attributes` without running the
+    /// `FormControlReconciler` `value`-arm that maintains the mirror — and a
+    /// later [`reset_value`](Self::reset_value) or step-base calculation
+    /// (which read `default_value`) would then resurrect the stale value.
+    /// Re-deriving the mirror here is convergent (in the common, dispatched
+    /// case it already equals `content`, so this is a no-op), not a competing
+    /// maintainer: the reconciler maintains the mirror on `value`-attribute
+    /// changes, while this re-establishes it on the value-MODE change.
+    ///
+    /// **No sanitize / cursor move here** — the type-change algorithm
+    /// sanitizes at step 6
+    /// ([`sanitize_for_type_change`](crate::sanitize_for_type_change), which
+    /// settles under the new kind), so this sets the raw value only.
+    pub(crate) fn set_value_from_content_attr(&mut self, content: String) {
+        self.default_value.clone_from(&content);
+        self.value = content;
+        self.dirty_value = false;
+        self.update_char_count();
+    }
+
+    /// HTML §4.10.5 type-change **step 3** (previous mode ≠ filename, new
+    /// filename mode): set the live value to the empty string.  **No
+    /// sanitize here** — step 6 settles under the new kind.
+    pub(crate) fn clear_value_for_type_change(&mut self) {
+        self.value.clear();
+        self.update_char_count();
+    }
+
+    /// HTML §4.10.5.4 filename-mode `value` setter, empty-string branch
+    /// ("empty the list of selected files").  The selected-files list is not
+    /// yet modeled (`#11-input-file-shell-staging`), but a file input can
+    /// still carry a stale live backing value (e.g. a `value` content
+    /// attribute present at creation); clear it so `file.value = ""` does not
+    /// leave that value observable to form submission (§4.10.22.4).
+    pub fn clear_file_value(&mut self) {
+        self.value.clear();
+        self.update_char_count();
     }
 
     /// Insert text at the current cursor position (marks as dirty).

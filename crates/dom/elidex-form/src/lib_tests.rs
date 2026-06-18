@@ -702,6 +702,34 @@ fn reset_value_restores_default() {
     assert!(!state.is_dirty());
 }
 
+/// §4.10.5 reset "empty the list of selected files": a file control resets to
+/// the empty string, NOT its `default_value` (the value content attribute
+/// does not apply in filename mode).  Guards the resurrection path Codex
+/// flagged — `file.value = ""` / type change clears `value`, but a stale
+/// `default_value` (e.g. a `value` attr at creation) must not be restored on
+/// form reset.
+#[test]
+fn reset_value_empties_file_control_not_default() {
+    let mut attrs = Attributes::default();
+    attrs.set("type", "file");
+    attrs.set("value", "stale");
+    let mut state = FormControlState::from_element("input", &attrs).unwrap();
+    assert_eq!(state.kind, FormControlKind::File);
+    // Premise: creation mirrors the `value` attr into the reset backing, so a
+    // non-file-aware reset would resurrect it (this is what the fix guards).
+    assert_eq!(state.default_value, "stale");
+    // The file setter / type change empties the live backing.
+    state.clear_file_value();
+    assert_eq!(state.value(), "");
+    // Form reset must NOT resurrect the stale value content attribute.
+    state.reset_value();
+    assert_eq!(
+        state.value(),
+        "",
+        "file control reset empties the selected files, not restore default_value"
+    );
+}
+
 #[test]
 fn insert_at_cursor_basic() {
     let mut state = FormControlState::default();

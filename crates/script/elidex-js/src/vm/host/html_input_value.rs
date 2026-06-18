@@ -32,8 +32,7 @@
 // parent `html_input_proto.rs`.
 #![allow(clippy::items_after_statements)]
 
-use elidex_ecs::Entity;
-use elidex_form::FormControlState;
+use elidex_form::{FormControlState, ValueMode, ValueSetAction};
 
 use super::super::value::{JsValue, NativeContext, VmError};
 use super::html_input_proto::require_input_receiver;
@@ -42,29 +41,43 @@ use super::html_input_proto::require_input_receiver;
 // value / defaultValue / checked / defaultChecked / indeterminate
 // -------------------------------------------------------------------------
 
-/// Read `FormControlState.value` for the input entity.  Returns
-/// `""` if the state is missing (not a recognised form control).
-fn read_state_value(ctx: &mut NativeContext<'_>, entity: Entity) -> JsValue {
-    let empty = ctx.vm.well_known.empty;
-    let dom = ctx.host().dom();
-    let Some(state) = dom.world().get::<&FormControlState>(entity).ok() else {
-        return JsValue::String(empty);
-    };
-    let v = state.value().to_owned();
-    drop(state);
-    let sid = ctx.vm.strings.intern(&v);
-    JsValue::String(sid)
-}
-
 pub(super) fn native_input_get_value(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
+    let empty = ctx.vm.well_known.empty;
     let Some(entity) = require_input_receiver(ctx, this, "value")? else {
-        return Ok(JsValue::String(ctx.vm.well_known.empty));
+        return Ok(JsValue::String(empty));
     };
-    Ok(read_state_value(ctx, entity))
+    // HTML §4.10.5.4 `value` IDL getter — dispatch on the type attribute's
+    // value mode.  The mode predicate + per-mode fallback logic live in
+    // `elidex-form`; the host marshals the live value / content attribute
+    // and interns the result (Layering mandate).  Read the mode + the live
+    // value in a single `FormControlState` borrow (matches the boa sibling
+    // getter's shape).
+    let (mode, live) = {
+        let dom = ctx.host().dom();
+        match dom.world().get::<&FormControlState>(entity).ok() {
+            Some(state) => (state.kind.value_idl_mode(), state.value().to_owned()),
+            None => return Ok(JsValue::String(empty)),
+        }
+    };
+    let result = if mode == ValueMode::Value {
+        // value mode → the live `FormControlState.value`.
+        live
+    } else {
+        // default / default-on → the `value` content attribute (fallback
+        // "" / "on"); filename → "C:\fakepath\" + first selected file name,
+        // or "" if the list is empty.  The selected-files list is not yet
+        // modeled (`#11-input-file-shell-staging`), so `first_filename` is
+        // `None` and the filename getter returns "".
+        let dom = ctx.host().dom();
+        let content_attr = dom.with_attribute(entity, "value", |v| v.map(str::to_owned));
+        mode.idl_get(&live, content_attr.as_deref(), None)
+    };
+    let sid = ctx.vm.strings.intern(&result);
+    Ok(JsValue::String(sid))
 }
 
 pub(super) fn native_input_set_value(
@@ -76,11 +89,63 @@ pub(super) fn native_input_set_value(
         return Ok(JsValue::Undefined);
     };
     let val = args.first().copied().unwrap_or(JsValue::Undefined);
-    let sid = super::super::coerce::to_string(ctx.vm, val)?;
-    let s = ctx.vm.strings.get_utf8(sid);
+    // `HTMLInputElement.value` is `[LegacyNullToEmptyString] DOMString`, so a
+    // `null` assignment is the empty string — NOT the JS `ToString(null)` =
+    // "null".  This must happen BEFORE the value-mode dispatch, so that e.g.
+    // `fileInput.value = null` clears the selected files (the empty branch)
+    // rather than throwing `InvalidStateError` on the literal "null".
+    let s = if matches!(val, JsValue::Null) {
+        String::new()
+    } else {
+        let sid = super::super::coerce::to_string(ctx.vm, val)?;
+        ctx.vm.strings.get_utf8(sid)
+    };
+    let invalid_state_sid = ctx.vm.well_known.dom_exc_invalid_state_error;
+    // HTML §4.10.5.4 `value` IDL setter — dispatch on the type attribute's
+    // value mode.  `elidex-form` decides the action; the host executes the
+    // marshalling (set live value / set content attribute / clear files /
+    // raise InvalidStateError) per the Layering mandate.
     let dom = ctx.host().dom();
-    if let Ok(mut state) = dom.world_mut().get::<&mut FormControlState>(entity) {
-        state.set_value(s);
+    let Some(mode) = dom
+        .world()
+        .get::<&FormControlState>(entity)
+        .ok()
+        .map(|state| state.kind.value_idl_mode())
+    else {
+        return Ok(JsValue::Undefined);
+    };
+    match mode.idl_set_action(&s) {
+        // value mode — §4.10.5.4 steps 1–5 (set live value + dirty flag +
+        // sanitize + step-5 cursor).
+        ValueSetAction::SetLiveValue => {
+            if let Ok(mut state) = dom.world_mut().get::<&mut FormControlState>(entity) {
+                state.set_value(s);
+            }
+        }
+        // default / default-on — set the `value` content attribute via the
+        // `set_attribute` chokepoint so the reconciler maintains the
+        // derived `default_value` (and, when not dirty, the live value).
+        ValueSetAction::SetContentAttr => {
+            dom.set_attribute(entity, "value", &s);
+        }
+        // filename mode, empty value — empty the list of selected files.
+        // The list is not modeled yet (`#11-input-file-shell-staging`), but a
+        // file input can carry a stale live backing value; clear it so the
+        // empty set is observable (and not left for form submission).
+        ValueSetAction::ClearFiles => {
+            if let Ok(mut state) = dom.world_mut().get::<&mut FormControlState>(entity) {
+                state.clear_file_value();
+            }
+        }
+        // filename mode, non-empty value — InvalidStateError.
+        ValueSetAction::ThrowInvalidState => {
+            return Err(VmError::dom_exception(
+                invalid_state_sid,
+                "Failed to set the 'value' property on 'HTMLInputElement': \
+                 this input element's value may only be set to the empty \
+                 string when its type is 'file'.",
+            ));
+        }
     }
     Ok(JsValue::Undefined)
 }
