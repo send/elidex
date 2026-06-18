@@ -110,9 +110,22 @@ pub fn build_form_submission(
     if let Some(submitter_entity) = submitter {
         if let Ok(fcs) = dom.world().get::<&FormControlState>(submitter_entity) {
             if fcs.kind == FormControlKind::SubmitButton && !fcs.name.is_empty() {
+                // A submit button submits its OPTIONAL VALUE — the `value`
+                // content attribute's value, or empty when absent (HTML
+                // §4.10.5.1.18: "The element's optional value is the value of
+                // the element's value attribute, if there is one; otherwise
+                // null").  NOT `fcs.value`, which holds the display LABEL: the
+                // implementation-defined "Submit" string is substituted there
+                // for an empty/absent value attribute (§4.10.5.1.18 "the
+                // button's label … otherwise … 'Submit'"), and that label must
+                // not leak into the submitted value (e.g. `btn.value = ""`
+                // submits empty, not "Submit").
+                let value = dom
+                    .with_attribute(submitter_entity, "value", |v| v.map(str::to_owned))
+                    .unwrap_or_default();
                 data.push(FormDataEntry {
                     name: fcs.name.clone(),
-                    value: fcs.value.clone(),
+                    value,
                 });
             }
         }
@@ -599,6 +612,44 @@ mod tests {
             "",
             "clear_file_value empties the file submission backing"
         );
+    }
+
+    #[test]
+    fn submit_button_submitter_submits_value_attribute_not_label() {
+        // HTML §4.10.5.1.18: a submit button submits its OPTIONAL VALUE (the
+        // `value` content attribute), while the implementation-defined "Submit"
+        // string is only the display LABEL substituted for an empty/absent
+        // value attribute.  The label must not leak into the submitted value.
+        let build = |value_attr: Option<&str>| -> String {
+            let mut dom = EcsDom::new();
+            let form = dom.create_element("form", Attributes::default());
+            let mut attrs = Attributes::default();
+            attrs.set("type", "submit");
+            attrs.set("name", "btn");
+            if let Some(v) = value_attr {
+                attrs.set("value", v);
+            }
+            let btn = dom.create_element("input", attrs.clone());
+            let fcs = FormControlState::from_element("input", &attrs).unwrap();
+            // `from_element` substitutes the "Submit" display label into the
+            // live value when the value attribute is empty/absent.
+            let _ = dom.world_mut().insert_one(btn, fcs);
+            let _ = dom.append_child(form, btn);
+            let sub = build_form_submission(&dom, form, Some(btn));
+            sub.data
+                .into_iter()
+                .find(|e| e.name == "btn")
+                .map(|e| e.value)
+                .expect("submitter entry present")
+        };
+        // Explicit empty value attribute → submit empty (NOT the "Submit"
+        // display label).  This is the regression the IDL `value` setter path
+        // would otherwise reintroduce via the content-attribute write.
+        assert_eq!(build(Some("")), "");
+        // Absent value attribute → submit empty (label is still "Submit").
+        assert_eq!(build(None), "");
+        // Non-empty value attribute → submit it verbatim.
+        assert_eq!(build(Some("Go")), "Go");
     }
 
     #[test]
