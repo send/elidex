@@ -153,6 +153,7 @@ fn range_feature_value(name: RangeFeature, env: &MediaEnvironment) -> f64 {
             }
         }
         RangeFeature::Resolution => env.resolution_dppx,
+        RangeFeature::Color => f64::from(env.color_bits),
     }
 }
 
@@ -164,6 +165,7 @@ fn resolve_range_value(value: RangeValue, env: &MediaEnvironment) -> f64 {
         RangeValue::Length { value, unit } => resolve_px(value, unit, env),
         RangeValue::Ratio(r) => r,
         RangeValue::Dppx(d) => d,
+        RangeValue::Number(n) => n,
     }
 }
 
@@ -235,11 +237,11 @@ fn eval_boolean(bf: BooleanFeature, env: &MediaEnvironment) -> bool {
         BooleanFeature::Height => env.viewport_height != 0.0,
         BooleanFeature::AspectRatio => env.viewport_width != 0.0 && env.viewport_height != 0.0,
         BooleanFeature::Resolution => env.resolution_dppx != 0.0 && env.resolution_dppx.is_finite(),
-        // A viewport always has an orientation; a screen UA always has a color
-        // depth ≥ 1 — both are true in boolean context.
-        BooleanFeature::Orientation | BooleanFeature::Color => true,
-        // True iff the user expressed a (non-default) scheme preference.
-        BooleanFeature::PrefersColorScheme => env.color_scheme != ColorScheme::NoPreference,
+        // §6.1: `(color)` is true iff the device has a non-zero color depth.
+        BooleanFeature::Color => env.color_bits > 0,
+        // A viewport always has an orientation; prefers-color-scheme always
+        // resolves to light or dark — both are true in boolean context.
+        BooleanFeature::Orientation | BooleanFeature::PrefersColorScheme => true,
         // True iff the user asked for reduced motion (no-preference is "off").
         BooleanFeature::PrefersReducedMotion => env.reduced_motion == ReducedMotion::Reduce,
     }

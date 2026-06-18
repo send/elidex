@@ -126,8 +126,11 @@ pub enum RangeValue {
     Length { value: f64, unit: LengthUnit },
     /// A `<ratio>` (css-values-4 §5.7) for `aspect-ratio`.
     Ratio(f64),
-    /// A `<resolution>` (css-values-4 §7.4) in dppx for `resolution`.
+    /// A `<resolution>` (css-values-4 §7.4) in dppx for `resolution` (may be
+    /// `f64::INFINITY` for the `infinite` keyword, MQ5 §5.1).
     Dppx(f64),
+    /// A unitless `<integer>` for `color` (bits per component, MQ5 §6.1).
+    Number(f64),
 }
 
 /// The range-typed media features supported in this slice.
@@ -141,6 +144,8 @@ pub enum RangeFeature {
     AspectRatio,
     /// MQ4 §5.1 `resolution`.
     Resolution,
+    /// MQ5 §6.1 `color` (bits per color component).
+    Color,
 }
 
 /// The discrete-typed media features supported in this slice.
@@ -188,16 +193,19 @@ pub struct MediaEnvironment {
     pub viewport_width: f64,
     pub viewport_height: f64,
     pub resolution_dppx: f64,
+    /// Bits per color component (0 = monochrome / not a color device) — MQ5 §6.1.
+    pub color_bits: u16,
     pub color_scheme: ColorScheme,
     pub reduced_motion: ReducedMotion,
 }
 
-/// `prefers-color-scheme` user preference — MQ5 §12.5.
+/// `prefers-color-scheme` user preference — MQ5 §12.5. The feature value is
+/// `light | dark` only; a UA with no active preference reports `light` (UA
+/// convention), so there is no separate "no-preference" state — the default is
+/// `Light`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum ColorScheme {
-    /// No preference expressed — matches neither `light` nor `dark`.
     #[default]
-    NoPreference,
     Light,
     Dark,
 }
@@ -220,7 +228,8 @@ impl Default for MediaEnvironment {
             viewport_width: 1024.0,
             viewport_height: 768.0,
             resolution_dppx: 1.0,
-            color_scheme: ColorScheme::NoPreference,
+            color_bits: 8,
+            color_scheme: ColorScheme::Light,
             reduced_motion: ReducedMotion::NoPreference,
         }
     }

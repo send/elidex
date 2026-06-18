@@ -188,6 +188,15 @@ fn parse_parens_content<'i>(
     }) {
         return Ok(cond);
     }
+    // §3.2: if the content is condition-shaped (a nested `( … )` group or
+    // `not (…)`) but the condition parse above failed, the failure is an
+    // unknown/invalid feature INSIDE the group → the whole query is `not all`,
+    // NOT `<general-enclosed>` (which is reserved for content matching neither
+    // `( <media-feature> )` nor `( <media-condition> )`).
+    inner.skip_whitespace();
+    if peek_is_condition_start(inner) {
+        return Err(inner.new_custom_error(()));
+    }
     // 2. `<media-feature>`.
     match parse_media_feature(inner) {
         Ok(feature) => Ok(MediaCondition::Feature(feature)),
@@ -199,6 +208,20 @@ fn parse_parens_content<'i>(
             Ok(MediaCondition::GeneralEnclosed)
         }
     }
+}
+
+/// Peek whether the parens content starts like a `<media-condition>` — a nested
+/// `( … )` group or a leading `not`. Used to route a failed condition parse to
+/// `not all` (unknown feature inside a group, §3.2) vs `<general-enclosed>`.
+fn peek_is_condition_start(input: &mut Parser<'_, '_>) -> bool {
+    let start = input.state();
+    let is_start = match input.next() {
+        Ok(Token::ParenthesisBlock) => true,
+        Ok(Token::Ident(s)) => s.eq_ignore_ascii_case("not"),
+        _ => false,
+    };
+    input.reset(&start);
+    is_start
 }
 
 /// The outcome of attempting to parse a `<media-feature>` from parens content.
@@ -429,9 +452,7 @@ fn parse_mf_value(input: &mut Parser<'_, '_>) -> Result<RawMfValue, ()> {
 fn coerce_raw(raw: RawMfValue, rf: RangeFeature) -> Option<RangeValue> {
     match rf {
         RangeFeature::Width | RangeFeature::Height => match raw {
-            RawMfValue::Dimension(v, u) => crate::values::parse_length_unit(&u)
-                .ok()
-                .map(|unit| RangeValue::Length { value: v, unit }),
+            RawMfValue::Dimension(v, u) => media_length_to_value(v, &u),
             // A unitless `0` is `0px` (CSS); any other bare number is invalid
             // as a `<length>`.
             RawMfValue::Number(n) => (n == 0.0).then_some(RangeValue::Length {
@@ -450,9 +471,41 @@ fn coerce_raw(raw: RawMfValue, rf: RangeFeature) -> Option<RangeValue> {
         },
         RangeFeature::Resolution => match raw {
             RawMfValue::Dimension(v, u) => resolution_to_dppx(v, &u).map(RangeValue::Dppx),
+            // §5.1: `resolution` also accepts the `infinite` keyword.
+            RawMfValue::Ident(s) if s.eq_ignore_ascii_case("infinite") => {
+                Some(RangeValue::Dppx(f64::INFINITY))
+            }
+            _ => None,
+        },
+        RangeFeature::Color => match raw {
+            // §6.1: `color` is a non-negative `<integer>` (bits per component).
+            RawMfValue::Number(n) if n >= 0.0 && n.fract() == 0.0 => Some(RangeValue::Number(n)),
             _ => None,
         },
     }
+}
+
+/// Resolve a `<length>` dimension for a width/height media feature. Relative +
+/// viewport units keep their unit (resolved at eval against the environment);
+/// CSS absolute units (`in`/`cm`/`mm`/`q`/`pt`/`pc`) resolve to px here at
+/// 96dpi (§1.3 / css-values-4 absolute lengths).
+fn media_length_to_value(value: f64, unit: &str) -> Option<RangeValue> {
+    if let Ok(u) = crate::values::parse_length_unit(unit) {
+        return Some(RangeValue::Length { value, unit: u });
+    }
+    let px = match unit.to_ascii_lowercase().as_str() {
+        "in" => value * 96.0,
+        "cm" => value * (96.0 / 2.54),
+        "mm" => value * (96.0 / 25.4),
+        "q" => value * (96.0 / 25.4 / 4.0),
+        "pt" => value * (96.0 / 72.0),
+        "pc" => value * 16.0,
+        _ => return None,
+    };
+    Some(RangeValue::Length {
+        value: px,
+        unit: LengthUnit::Px,
+    })
 }
 
 /// `<resolution>` units → dppx — css-values-4 §7.4.
@@ -465,9 +518,9 @@ fn resolution_to_dppx(value: f64, unit: &str) -> Option<f64> {
     }
 }
 
-/// Parse an `<mf-comparison>` operator (`<` `<=` `>` `>=` `=`). Whitespace
-/// between `<`/`>` and `=` is tolerated (a minor laxity vs the spec's
-/// no-whitespace rule).
+/// Parse an `<mf-comparison>` operator (`<` `<=` `>` `>=` `=`). §3 requires no
+/// whitespace between `<`/`>` and `=`, so `< =` parses as a bare `<` (the
+/// trailing `=` then fails the query → `not all`).
 fn try_comparison(input: &mut Parser<'_, '_>) -> Option<RangeOp> {
     input
         .try_parse(|i| -> Result<RangeOp, ()> {
@@ -497,7 +550,9 @@ fn try_comparison(input: &mut Parser<'_, '_>) -> Option<RangeOp> {
 fn eat_equals(input: &mut Parser<'_, '_>) -> bool {
     input
         .try_parse(|i| -> Result<(), ()> {
-            match i.next().map_err(|_| ())? {
+            // `next_including_whitespace` so `< =` (with a gap) is NOT read as
+            // `<=` — §3 forbids whitespace inside the comparison operator.
+            match i.next_including_whitespace().map_err(|_| ())? {
                 Token::Delim('=') => Ok(()),
                 _ => Err(()),
             }
@@ -563,6 +618,8 @@ fn classify_range_feature(name: &str) -> Option<RangeFeature> {
         "height" => Some(RangeFeature::Height),
         "aspect-ratio" => Some(RangeFeature::AspectRatio),
         "resolution" => Some(RangeFeature::Resolution),
+        // §6.1: `color` is a range feature (`(color)` boolean + `(min-color: N)`).
+        "color" => Some(RangeFeature::Color),
         _ => None,
     }
 }

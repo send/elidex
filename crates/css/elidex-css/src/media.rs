@@ -236,7 +236,9 @@ mod tests {
         };
         assert!(matches("(prefers-color-scheme: dark)", &dark));
         assert!(!matches("(prefers-color-scheme: light)", &dark));
-        // no-preference env matches neither.
+        // §12.5: no separate no-preference — the default UA value is `light`,
+        // so default users match `light` and not `dark`.
+        assert!(matches("(prefers-color-scheme: light)", &landscape()));
         assert!(!matches("(prefers-color-scheme: dark)", &landscape()));
 
         let reduce = MediaEnvironment {
@@ -249,6 +251,67 @@ mod tests {
             &landscape()
         ));
         assert!(!matches("(prefers-reduced-motion: reduce)", &landscape()));
+    }
+
+    // --- Codex R1 regressions ---------------------------------------------
+
+    #[test]
+    fn color_is_a_range_feature() {
+        // §6.1: color is a range feature; `(color)` and `(min-color: 1)` are
+        // equivalent on a color device. (F2 regression.)
+        let env = landscape(); // color_bits = 8
+        assert!(matches("(color)", &env));
+        assert!(matches("(min-color: 1)", &env));
+        assert!(matches("(color: 8)", &env));
+        assert!(matches("(color >= 8)", &env));
+        assert!(!matches("(min-color: 9)", &env));
+        let mono = MediaEnvironment {
+            color_bits: 0,
+            ..landscape()
+        };
+        assert!(!matches("(color)", &mono));
+        assert!(!matches("(min-color: 1)", &mono));
+    }
+
+    #[test]
+    fn whitespace_inside_comparison_operator_fails() {
+        // §3: no whitespace between `<`/`>` and `=`; `(width < = 2000px)` is
+        // malformed → not all, while `(width <= 2000px)` is valid. (F3.)
+        let env = landscape(); // width 1024
+        assert!(matches("(width <= 2000px)", &env));
+        assert!(!matches("(width < = 2000px)", &env));
+        assert!(!matches("(width > = 1px)", &env));
+    }
+
+    #[test]
+    fn grouped_unknown_feature_is_not_all() {
+        // §3.2: an unknown feature inside a group poisons the whole query to
+        // `not all`; it must NOT be rescued into Kleene unknown. (F4.)
+        assert!(!matches(
+            "((max-weight: 3kg) or (min-width: 1px)) or (color)",
+            &landscape()
+        ));
+        assert!(!matches("((max-weight: 3kg)) or (color)", &landscape()));
+        // a genuinely general-enclosed group still works (true OR unknown).
+        assert!(matches("(color) or (weird-fn(x))", &landscape()));
+    }
+
+    #[test]
+    fn absolute_length_units_in_features() {
+        // §4.1/§1.3: width/height accept CSS absolute lengths (96dpi). (F5.)
+        let env = landscape(); // width 1024px
+        assert!(matches("(min-width: 10in)", &env)); // 10in = 960px ≤ 1024
+        assert!(!matches("(min-width: 11in)", &env)); // 11in = 1056px > 1024
+        assert!(matches("(min-width: 20cm)", &env)); // 20cm ≈ 756px ≤ 1024
+        assert!(matches("(min-width: 100pt)", &env)); // 100pt ≈ 133px ≤ 1024
+    }
+
+    #[test]
+    fn infinite_resolution_keyword() {
+        // §5.1: `resolution = <resolution> | infinite`. (F6.)
+        let env = landscape(); // 1dppx
+        assert!(matches("(max-resolution: infinite)", &env));
+        assert!(!matches("(min-resolution: infinite)", &env));
     }
 
     // --- §2.5 combining ----------------------------------------------------
