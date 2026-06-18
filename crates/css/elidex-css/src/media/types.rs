@@ -128,18 +128,23 @@ pub enum RangeValue {
     /// `<mf-value>` types/units to CSS Values, so the math tree (parsed by the
     /// canonical `crate::values::parse_length`) is carried symbolically and
     /// resolved against the queried environment at eval, not at parse —
-    /// relative/viewport units (`em`, `vw`, …) need the environment.
+    /// relative/viewport units (`em`, `vw`, …) need the environment. The
+    /// remaining unit/math tail (abs-unit lengths, resolution `calc()`, font-
+    /// relative/logical/viewport-variant units) is the carved follow-up slot
+    /// `#11-media-css-values-fidelity`.
     Calc(Box<CalcExpr>),
     /// A `<ratio>` (css-values-4 §5.7) for `aspect-ratio`.
     Ratio(f64),
     /// A `<resolution>` (css-values-4 §7.4) in dppx for `resolution` (may be
-    /// `f64::INFINITY` for the `infinite` keyword, MQ5 §5.1).
+    /// `f64::INFINITY` for the `infinite` keyword, MQ4 §5.1).
     Dppx(f64),
-    /// A unitless `<integer>` for `color` (bits per component, MQ5 §6.1).
+    /// A unitless `<integer>` for `color` (bits per component, MQ4 §6.1).
     Number(f64),
 }
 
-/// The range-typed media features supported in this slice.
+/// The range-typed media features supported in this slice (the extended MQ5
+/// feature set — `hover`/`pointer`/`update`/`overflow-*`/etc. — is the carved
+/// follow-up slot `#11-media-extended-features`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RangeFeature {
     /// MQ4 §4.1 `width`.
@@ -150,11 +155,13 @@ pub enum RangeFeature {
     AspectRatio,
     /// MQ4 §5.1 `resolution`.
     Resolution,
-    /// MQ5 §6.1 `color` (bits per color component).
+    /// MQ4 §6.1 `color` (bits per color component).
     Color,
 }
 
-/// The discrete-typed media features supported in this slice.
+/// The discrete-typed media features supported in this slice (further MQ5
+/// `prefers-*` features + their change-event delivery are the carved follow-up
+/// slot `#11-media-prefers-features`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DiscreteFeature {
     /// MQ4 §4.4 `orientation`.
@@ -205,7 +212,7 @@ pub struct MediaEnvironment {
     /// font-size. Typically the UA `medium` default (16px), but a user with a
     /// larger default font reports it here, shifting `em`-based breakpoints.
     pub root_font_size_px: f64,
-    /// Bits per color component (0 = monochrome / not a color device) — MQ5 §6.1.
+    /// Bits per color component (0 = monochrome / not a color device) — MQ4 §6.1.
     pub color_bits: u16,
     pub color_scheme: ColorScheme,
     pub reduced_motion: ReducedMotion,

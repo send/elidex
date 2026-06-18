@@ -473,6 +473,8 @@ fn parse_mf_value(input: &mut Parser<'_, '_>) -> Result<RawMfValue, ()> {
     // rewinds to the token path below (which also covers the CSS absolute units
     // `parse_length` omits). Only a length-typed `calc()` survives here; a
     // number-typed one (e.g. `calc(40)`) is filtered at coercion per feature.
+    // The unsupported tail (abs-unit/resolution-unit `calc()`, `min`/`max`/
+    // `clamp`) is the carved slot `#11-media-css-values-fidelity`.
     if let Ok(expr) = input.try_parse(|i| match crate::values::parse_length(i) {
         Ok(CssValue::Calc(expr)) => Ok(expr),
         _ => Err(()),

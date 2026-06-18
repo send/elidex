@@ -12,6 +12,13 @@
 //! This is the single SSoT media-query evaluator: the VM `matchMedia` (Slice
 //! 2) and the CSS `@media` cascade (Slice 3) both consume it, replacing boa's
 //! `evaluate_media_query_raw` string-splitter.
+//!
+//! Scope = Slice 1 (the evaluator skeleton + common feature/value cases). Carved
+//! follow-ups (registered defer slots): full CSS-Values unit/math fidelity
+//! (abs-unit/resolution `calc()`, `ch`/`ex`/`lh`/`vi`/`svw` units, `min`/`max`/
+//! `clamp`) → `#11-media-css-values-fidelity`; the extended MQ5 feature set →
+//! `#11-media-extended-features` / `#11-media-prefers-features`; the `@media`
+//! cascade wiring → `#11-css-at-media-cascade`.
 
 mod eval;
 mod parse;
