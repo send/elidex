@@ -13,7 +13,7 @@
 //!       (Kleene unknown at eval).
 
 use cssparser::{ParseError, Parser, ParserInput, Token};
-use elidex_plugin::LengthUnit;
+use elidex_plugin::{CalcExpr, CssValue, LengthUnit};
 
 #[allow(clippy::wildcard_imports)]
 use super::types::*;
@@ -289,10 +289,7 @@ fn parse_plain(input: &mut Parser<'_, '_>, name: &str) -> Result<MediaFeature, F
     // feature; §3.2 says a value that doesn't match the feature's value syntax
     // (missing, extra tokens, or wrong type) → `not all`, NOT general-enclosed.
     let raw = parse_mf_value(input).map_err(|()| FeatErr::Invalid)?;
-    input.skip_whitespace();
-    if !input.is_exhausted() {
-        return Err(FeatErr::Invalid);
-    }
+    expect_feature_end(input)?;
     let lower = name.to_ascii_lowercase();
     if let Some(df) = classify_discrete_feature(&lower) {
         return match raw {
@@ -323,10 +320,10 @@ fn parse_name_first_range(
 ) -> Result<MediaFeature, FeatErr> {
     input.skip_whitespace();
     let raw = parse_mf_value(input).map_err(|()| FeatErr::Invalid)?;
-    input.skip_whitespace();
-    if !input.is_exhausted() {
-        return Err(FeatErr::NotShaped);
-    }
+    // `<name> <comparison> <value>` is the committed `<mf-range>` name-first
+    // shape; a trailing token is a malformed feature → §3.2 → `not all`
+    // (`Invalid`), NOT general-enclosed (sibling of the `parse_plain` rule).
+    expect_feature_end(input)?;
     let lower = name.to_ascii_lowercase();
     // a discrete feature in range context is invalid (§2.4.1).
     if classify_discrete_feature(&lower).is_some() {
@@ -363,18 +360,19 @@ fn parse_value_first(input: &mut Parser<'_, '_>) -> Result<MediaFeature, FeatErr
     if let Some(op2) = try_comparison(input) {
         // §3 `<mf-range>`: a two-sided form is only
         // `<value> <mf-lt> <name> <mf-lt> <value>` or the `<mf-gt>` dual — both
-        // comparisons same-direction, and `=` is not allowed. Anything else
-        // (mixed `<`…`>`, or any `=`) matches `( <any-value> )` but not
-        // `<mf-range>` → `<general-enclosed>` (Kleene unknown), NOT a Range.
+        // comparisons same-direction, and `=` is not allowed. `rf` is already a
+        // *recognized* range feature here, so a mixed-direction form (or any
+        // `=`) is a malformed use of a known feature → §3.2 → `not all`
+        // (`Invalid`), NOT `<general-enclosed>` (which is reserved for content
+        // matching no recognized feature — the `<value> <op> <name>` prefix has
+        // already committed the feature shape).
         if !same_direction_range(op1, op2) {
-            return Err(FeatErr::NotShaped);
+            return Err(FeatErr::Invalid);
         }
         input.skip_whitespace();
         let raw2 = parse_mf_value(input).map_err(|()| FeatErr::Invalid)?;
-        input.skip_whitespace();
-        if !input.is_exhausted() {
-            return Err(FeatErr::NotShaped);
-        }
+        // trailing token after a complete two-sided range → malformed → not all.
+        expect_feature_end(input)?;
         let v2 = coerce_raw(raw2, rf).ok_or(FeatErr::Invalid)?;
         return Ok(MediaFeature::Range {
             name: rf,
@@ -387,10 +385,9 @@ fn parse_value_first(input: &mut Parser<'_, '_>) -> Result<MediaFeature, FeatErr
             ],
         });
     }
-    input.skip_whitespace();
-    if !input.is_exhausted() {
-        return Err(FeatErr::NotShaped);
-    }
+    // trailing token after a complete single-sided value-first range of a
+    // recognized feature → malformed → not all.
+    expect_feature_end(input)?;
     Ok(MediaFeature::Range {
         name: rf,
         constraints: vec![RangeConstraint {
@@ -400,27 +397,71 @@ fn parse_value_first(input: &mut Parser<'_, '_>) -> Result<MediaFeature, FeatErr
     })
 }
 
+/// Assert a committed `<media-feature>` shape consumed all of its parens
+/// content. Any leftover token is a grammar failure of that feature, so §3.2
+/// replaces the whole `<media-query>` with `not all` (`FeatErr::Invalid`) —
+/// never `<general-enclosed>`, which is reserved for content that matches no
+/// recognized feature shape. This is the single canonical form of the
+/// "trailing junk after a feature" rule, shared by `parse_plain`,
+/// `parse_name_first_range`, and `parse_value_first` (both range arms).
+fn expect_feature_end(input: &mut Parser<'_, '_>) -> Result<(), FeatErr> {
+    input.skip_whitespace();
+    if input.is_exhausted() {
+        Ok(())
+    } else {
+        Err(FeatErr::Invalid)
+    }
+}
+
 /// A raw `<mf-value>` token before coercion to a feature's value type.
 enum RawMfValue {
-    Number(f64),
+    /// A `<number>` token. `is_int` records whether the source was an integer
+    /// token (cssparser `Token::Number { int_value: Some(_) }`) — `color` is an
+    /// `<integer>` (MQ4 §6.1), so `8.0` (a `<number>` token) must be rejected
+    /// even though it has no fractional part.
+    Number {
+        value: f64,
+        is_int: bool,
+    },
     Dimension(f64, String),
     Ratio(f64, f64),
     Ident(String),
+    /// A length-typed `calc()` (CSS math), parsed by the canonical
+    /// `crate::values::parse_length` — MQ4 §1.2/§1.3 delegates `<mf-value>` to
+    /// CSS Values. Only valid for `width`/`height`; resolved at eval.
+    Calc(Box<CalcExpr>),
 }
 
 /// The leading token of an `<mf-value>`, captured to release the token borrow
 /// before any further parsing (e.g. the ratio `/ <number>` lookahead).
 enum FirstToken {
-    Num(f64),
+    /// `value` + whether it was an integer token (`int_value.is_some()`).
+    Num(f64, bool),
     Dim(f64, String),
     Id(String),
 }
 
-/// Parse a single `<mf-value>` (`<number> | <dimension> | <ident> | <ratio>`).
+/// Parse a single `<mf-value>`
+/// (`<number> | <dimension> | <ident> | <ratio> | calc()`).
 fn parse_mf_value(input: &mut Parser<'_, '_>) -> Result<RawMfValue, ()> {
     input.skip_whitespace();
+    // `calc()` (and CSS math generally) delegates to the canonical CSS Values
+    // length parser — MQ4 §1.2/§1.3 defers `<mf-value>` types/units to CSS
+    // Values, so there is one calc grammar, not a hand-rolled second one. A
+    // non-`calc()` leading token makes the closure return `Err`, so `try_parse`
+    // rewinds to the token path below (which also covers the CSS absolute units
+    // `parse_length` omits). Only a length-typed `calc()` survives here; a
+    // number-typed one (e.g. `calc(40)`) is filtered at coercion per feature.
+    if let Ok(expr) = input.try_parse(|i| match crate::values::parse_length(i) {
+        Ok(CssValue::Calc(expr)) => Ok(expr),
+        _ => Err(()),
+    }) {
+        return Ok(RawMfValue::Calc(expr));
+    }
     let first = match input.next().map_err(|_| ())? {
-        Token::Number { value, .. } => FirstToken::Num(f64::from(*value)),
+        Token::Number {
+            value, int_value, ..
+        } => FirstToken::Num(f64::from(*value), int_value.is_some()),
         Token::Dimension { value, unit, .. } => {
             FirstToken::Dim(f64::from(*value), unit.as_ref().to_owned())
         }
@@ -428,7 +469,7 @@ fn parse_mf_value(input: &mut Parser<'_, '_>) -> Result<RawMfValue, ()> {
         _ => return Err(()),
     };
     match first {
-        FirstToken::Num(n) => {
+        FirstToken::Num(n, is_int) => {
             // optional `/ <number>` → ratio.
             let denom = input.try_parse(|i| -> Result<f64, ()> {
                 let is_slash = matches!(i.next().map_err(|_| ())?, Token::Delim('/'));
@@ -442,7 +483,7 @@ fn parse_mf_value(input: &mut Parser<'_, '_>) -> Result<RawMfValue, ()> {
             });
             match denom {
                 Ok(d) => Ok(RawMfValue::Ratio(n, d)),
-                Err(()) => Ok(RawMfValue::Number(n)),
+                Err(()) => Ok(RawMfValue::Number { value: n, is_int }),
             }
         }
         FirstToken::Dim(v, u) => Ok(RawMfValue::Dimension(v, u)),
@@ -457,10 +498,14 @@ fn coerce_raw(raw: RawMfValue, rf: RangeFeature) -> Option<RangeValue> {
             RawMfValue::Dimension(v, u) => media_length_to_value(v, &u),
             // A unitless `0` is `0px` (CSS); any other bare number is invalid
             // as a `<length>`.
-            RawMfValue::Number(n) => (n == 0.0).then_some(RangeValue::Length {
+            RawMfValue::Number { value, .. } => (value == 0.0).then_some(RangeValue::Length {
                 value: 0.0,
                 unit: LengthUnit::Px,
             }),
+            // A length-typed `calc()` is carried symbolically (resolved at
+            // eval). A number-typed `calc()` (e.g. `calc(40)`) is not a
+            // `<length>` → invalid (§4.1/§4.2).
+            RawMfValue::Calc(expr) if calc_has_length(&expr) => Some(RangeValue::Calc(expr)),
             _ => None,
         },
         RangeFeature::AspectRatio => match raw {
@@ -468,7 +513,7 @@ fn coerce_raw(raw: RawMfValue, rf: RangeFeature) -> Option<RangeValue> {
             // negative component is invalid, but `0` (incl. a zero denominator)
             // is a valid degenerate ratio → ±inf/NaN, handled by `compare`.
             RawMfValue::Ratio(n, d) if n >= 0.0 && d >= 0.0 => Some(RangeValue::Ratio(n / d)),
-            RawMfValue::Number(n) if n >= 0.0 => Some(RangeValue::Ratio(n)),
+            RawMfValue::Number { value, .. } if value >= 0.0 => Some(RangeValue::Ratio(value)),
             _ => None,
         },
         RangeFeature::Resolution => match raw {
@@ -480,11 +525,32 @@ fn coerce_raw(raw: RawMfValue, rf: RangeFeature) -> Option<RangeValue> {
             _ => None,
         },
         RangeFeature::Color => match raw {
-            // §6.1 + §2.4.3: `color` is an `<integer>`; negative values parse
-            // (`false in the negative range`) and must reach `compare`.
-            RawMfValue::Number(n) if n.fract() == 0.0 => Some(RangeValue::Number(n)),
+            // §6.1 + §2.4.3: `color` is an `<integer>` — an integer *token*, so
+            // `8.0` (a `<number>` token, `is_int == false`) is invalid even with
+            // a zero fraction. Negative integers parse (`false in the negative
+            // range`) and must reach `compare`.
+            RawMfValue::Number {
+                value,
+                is_int: true,
+            } => Some(RangeValue::Number(value)),
             _ => None,
         },
+    }
+}
+
+/// Whether a `calc()` tree is length-typed (contains at least one `<length>`
+/// leaf). `width`/`height` accept `<length>`, not a bare `<number>`, so a
+/// number-only `calc()` (e.g. `calc(40)` or `calc(2 * 3)`) must be rejected
+/// (§4.1/§4.2). The canonical parser already excludes percentage-typed
+/// `calc()`, so "contains a `<length>`" ⟺ "the expression resolves to a
+/// `<length>`".
+fn calc_has_length(expr: &CalcExpr) -> bool {
+    match expr {
+        CalcExpr::Length(..) => true,
+        CalcExpr::Number(_) | CalcExpr::Percentage(_) => false,
+        CalcExpr::Add(a, b) | CalcExpr::Sub(a, b) | CalcExpr::Mul(a, b) | CalcExpr::Div(a, b) => {
+            calc_has_length(a) || calc_has_length(b)
+        }
     }
 }
 

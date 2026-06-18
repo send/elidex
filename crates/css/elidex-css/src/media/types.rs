@@ -5,7 +5,7 @@
 //! descriptors live in MQ4 §4/§5/§6 and MQ5 §12. The types here are pure
 //! values — no JS, no DOM, no engine state.
 
-use elidex_plugin::LengthUnit;
+use elidex_plugin::{CalcExpr, LengthUnit};
 
 /// A `<media-query-list>` — mediaqueries-4 §3 (`#typedef-media-query-list`).
 ///
@@ -100,7 +100,7 @@ pub enum MediaFeature {
 }
 
 /// One comparison in a range feature: `<op> <value>` — mediaqueries-4 §2.4.3.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct RangeConstraint {
     pub op: RangeOp,
     pub value: RangeValue,
@@ -120,10 +120,16 @@ pub enum RangeOp {
 /// time. Lengths keep their unit so viewport-relative units resolve against
 /// the [`MediaEnvironment`] (the f32→f64 lift from `parse_length`'s
 /// `CssValue::Length(f32, _)` happens here).
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum RangeValue {
     /// A `<length>` for `width`/`height` — resolved to px at eval.
     Length { value: f64, unit: LengthUnit },
+    /// A length-typed `calc()` for `width`/`height` — MQ4 §1.2/§1.3 delegates
+    /// `<mf-value>` types/units to CSS Values, so the math tree (parsed by the
+    /// canonical `crate::values::parse_length`) is carried symbolically and
+    /// resolved against the queried environment at eval, not at parse —
+    /// relative/viewport units (`em`, `vw`, …) need the environment.
+    Calc(Box<CalcExpr>),
     /// A `<ratio>` (css-values-4 §5.7) for `aspect-ratio`.
     Ratio(f64),
     /// A `<resolution>` (css-values-4 §7.4) in dppx for `resolution` (may be
@@ -193,6 +199,12 @@ pub struct MediaEnvironment {
     pub viewport_width: f64,
     pub viewport_height: f64,
     pub resolution_dppx: f64,
+    /// The initial font-size in CSS px that media-query relative lengths
+    /// (`em`/`rem`) resolve against — MQ4 §1.3: relative units use the initial
+    /// value defined by the UA or user preferences, never a declared/element
+    /// font-size. Typically the UA `medium` default (16px), but a user with a
+    /// larger default font reports it here, shifting `em`-based breakpoints.
+    pub root_font_size_px: f64,
     /// Bits per color component (0 = monochrome / not a color device) — MQ5 §6.1.
     pub color_bits: u16,
     pub color_scheme: ColorScheme,
@@ -228,6 +240,9 @@ impl Default for MediaEnvironment {
             viewport_width: 1024.0,
             viewport_height: 768.0,
             resolution_dppx: 1.0,
+            // CSS initial font-size (`medium` = 16px) — the UA default basis for
+            // `em`/`rem` in media queries (§1.3).
+            root_font_size_px: 16.0,
             color_bits: 8,
             color_scheme: ColorScheme::Light,
             reduced_motion: ReducedMotion::NoPreference,

@@ -183,19 +183,35 @@ mod tests {
     }
 
     #[test]
-    fn invalid_two_sided_range_is_general_enclosed_not_definite() {
-        // §3 `<mf-range>`: two-sided form requires both ops same-direction, no
-        // `=`. Mixed / `=` two-sided → `<general-enclosed>` → Kleene unknown,
-        // NOT a definite Range. (C1 regression.)
+    fn malformed_two_sided_range_is_not_all() {
+        // §3 `<mf-range>`: a two-sided form requires both ops same-direction and
+        // forbids `=`. A recognized feature with a comparison has *committed* to
+        // the `<mf-range>` shape, so a mixed/`=` form is a malformed feature →
+        // §3.2 → `not all`, NOT `<general-enclosed>` (which is reserved for
+        // content that never commits to a feature — see
+        // `range_without_operator_is_general_enclosed`). (C1, corrected per R3-5.)
         let env = landscape(); // width 1024
-                               // mixed `<`…`>` — was wrongly true (built `>400 AND >700`).
-        assert!(!matches("(400px < width > 700px)", &env));
-        // `=` in two-sided — was wrongly negatable.
-        assert!(!matches("not (400px = width = 700px)", &env));
-        // unknown→false at the boundary, and `or true` still true (unknown OR true).
-        assert!(matches("(400px < width > 700px) or (min-width: 1px)", &env));
+        assert!(!matches("(400px < width > 700px)", &env)); // mixed `<`…`>`
+        assert!(!matches("not (400px = width = 700px)", &env)); // `=` two-sided
+                                                                // committed-but-malformed makes the whole `<media-query>` `not all`, so a
+                                                                // sibling `or` cannot rescue it (contrast `unknown OR true` = true).
+        assert!(!matches(
+            "(400px < width > 700px) or (min-width: 1px)",
+            &env
+        ));
         // single-sided `=` value-first stays valid (§ allows `<mf-eq>` there).
         assert!(matches("(1024px = width)", &env));
+    }
+
+    #[test]
+    fn range_without_operator_is_general_enclosed() {
+        // `(width 500px)` has no `:` or comparison, so it never commits to a
+        // feature shape — it matches `<general-enclosed>` (Kleene unknown), NOT
+        // `not all`, and so does not poison a sibling `or` term. (WPT
+        // mq-range-001: `range syntax without operator isn't valid syntax`.)
+        let env = landscape();
+        assert!(matches("(width 500px) or (min-width: 1px)", &env)); // unknown OR true
+        assert!(!matches("(width 500px)", &env)); // unknown → false at boundary
     }
 
     #[test]
@@ -374,6 +390,96 @@ mod tests {
         };
         assert!(matches("(min-aspect-ratio: 1/1)", &env)); // inf >= 1
         assert!(matches("(aspect-ratio > 100/1)", &env)); // inf > 100
+    }
+
+    // --- Codex R3 regressions ---------------------------------------------
+
+    #[test]
+    fn calc_in_width_resolves_via_css_values() {
+        // MQ4 §1.2/§1.3 delegates numeric `<mf-value>` to CSS Values, so `calc()`
+        // works for width/height — parsed by the canonical `crate::values::
+        // parse_length`, resolved against the environment at eval. (R3-1.)
+        let env = landscape(); // 1024×768, root font 16px
+        assert!(matches("(min-width: calc(40em + 1px))", &env)); // 40*16+1=641 ≤ 1024
+        assert!(!matches("(min-width: calc(700px + 700px))", &env)); // 1400 > 1024
+                                                                     // a viewport unit inside calc() resolves against the queried viewport.
+        assert!(matches("(width: calc(50vw + 512px))", &env)); // 512+512 == 1024
+                                                               // a number-typed calc() is not a `<length>` → not all.
+        assert!(!matches("(width: calc(40))", &env));
+        // calc() is not accepted for non-length features this slice → not all.
+        assert!(!matches("(min-color: calc(2 + 6))", &env));
+    }
+
+    #[test]
+    fn flex_unit_is_not_a_media_length() {
+        // `fr` is a grid flex fraction, not a `<length>` — `crate::values` rejects
+        // it, so width/height `fr` values never resolve as px; they are invalid →
+        // `not all`. (R3-3: Codex flagged this as accepted; confirmed FP, locked.)
+        let env = landscape();
+        assert!(!matches("(width: 1fr)", &env));
+        assert!(!matches("(min-width: 1fr)", &env));
+        // committed-but-invalid value → not all, so `or true` cannot rescue it.
+        assert!(!matches("(min-width: 1024fr) or (color)", &env));
+    }
+
+    #[test]
+    fn color_requires_an_integer_token() {
+        // §6.1 + §2.4.3: `color` is an `<integer>` — an integer *token*, so a
+        // decimal `<number>` token (`8.0`) is invalid even with a zero fraction →
+        // not all, while the integer `8` matches. (R3-4.)
+        let env = landscape(); // color_bits = 8
+        assert!(matches("(color: 8)", &env));
+        assert!(!matches("(color: 8.0)", &env));
+        assert!(!matches("(color >= 1.0)", &env));
+        assert!(!matches("(color: 8.0) or (min-width: 1px)", &env)); // not all, not rescued
+    }
+
+    #[test]
+    fn malformed_committed_range_is_not_all() {
+        // A `:` or comparison commits to a feature; trailing tokens then make it a
+        // malformed feature → §3.2 → `not all`, NOT `<general-enclosed>`, so a
+        // sibling `or` cannot rescue it. (R3-5: sibling-sweep of R2-3 across the
+        // name-first and value-first range arms.)
+        let env = landscape();
+        // name-first range with trailing junk.
+        assert!(!matches("(width > 1px 2px)", &env));
+        assert!(!matches("((width > 1px 2px) or (color))", &env)); // Codex's example
+                                                                   // two-sided range with trailing junk.
+        assert!(!matches("(400px < width < 700px 800px)", &env));
+    }
+
+    #[test]
+    fn aspect_ratio_boolean_matches_range_value() {
+        // §2.4.2: `(aspect-ratio)` boolean must agree with the range value
+        // (width/height, §4.3). A zero-height viewport gives ratio +∞ (non-zero)
+        // → true, mirroring `(aspect-ratio > 0/1)`; a zero-width viewport gives
+        // ratio 0 → false. (R3-2.)
+        let zero_h = MediaEnvironment {
+            viewport_height: 0.0,
+            ..landscape()
+        };
+        assert!(matches("(aspect-ratio)", &zero_h)); // ∞ is non-zero
+        assert!(matches("(aspect-ratio) and (min-width: 1px)", &zero_h));
+        let zero_w = MediaEnvironment {
+            viewport_width: 0.0,
+            ..landscape()
+        };
+        assert!(!matches("(aspect-ratio)", &zero_w)); // ratio 0
+    }
+
+    #[test]
+    fn em_resolves_against_environment_root_font_size() {
+        // §1.3: MQ relative lengths use the environment's initial font-size, not a
+        // baked-in 16px. With a 20px root, `50em` = 1000px. (R3-6.)
+        let big_font = MediaEnvironment {
+            root_font_size_px: 20.0,
+            ..landscape()
+        };
+        assert!(matches("(min-width: 50em)", &big_font)); // 1000 ≤ 1024
+        assert!(!matches("(min-width: 52em)", &big_font)); // 1040 > 1024
+                                                           // the default 16px root still holds (regression).
+        assert!(matches("(min-width: 50em)", &landscape())); // 800 ≤ 1024
+        assert!(matches("(min-width: 64em)", &landscape())); // 1024 == 1024
     }
 
     // --- §2.5 combining ----------------------------------------------------

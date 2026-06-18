@@ -7,7 +7,7 @@
 //! early — that asymmetry is the whole point of the Kleene logic (so that
 //! `not <general-enclosed>` does not become `true`).
 
-use elidex_plugin::LengthUnit;
+use elidex_plugin::{CalcExpr, LengthUnit};
 
 #[allow(clippy::wildcard_imports)]
 use super::types::*;
@@ -130,7 +130,7 @@ fn eval_feature(feature: &MediaFeature, env: &MediaEnvironment) -> Tri {
             Tri::from_bool(
                 constraints
                     .iter()
-                    .all(|c| compare(actual, c.op, resolve_range_value(c.value, env))),
+                    .all(|c| compare(actual, c.op, resolve_range_value(&c.value, env))),
             )
         }
         MediaFeature::Discrete { name, value } => {
@@ -156,26 +156,44 @@ fn range_feature_value(name: RangeFeature, env: &MediaEnvironment) -> f64 {
 /// Resolve a parsed [`RangeValue`] to a comparable `f64` against the
 /// environment — lengths resolve here so viewport-relative units use the
 /// queried viewport.
-fn resolve_range_value(value: RangeValue, env: &MediaEnvironment) -> f64 {
+fn resolve_range_value(value: &RangeValue, env: &MediaEnvironment) -> f64 {
     match value {
-        RangeValue::Length { value, unit } => resolve_px(value, unit, env),
-        RangeValue::Ratio(r) => r,
-        RangeValue::Dppx(d) => d,
-        RangeValue::Number(n) => n,
+        RangeValue::Length { value, unit } => resolve_px(*value, *unit, env),
+        RangeValue::Calc(expr) => resolve_calc(expr, env),
+        RangeValue::Ratio(r) => *r,
+        RangeValue::Dppx(d) => *d,
+        RangeValue::Number(n) => *n,
+    }
+}
+
+/// Resolve a length-typed `calc()` tree to CSS px against the environment —
+/// MQ4 §1.2/§1.3 delegates `<mf-value>` to CSS Values. `<length>` leaves
+/// resolve via [`resolve_px`] (so relative/viewport units use the queried
+/// environment); `<number>` leaves are unitless multipliers/divisors. A
+/// `<percentage>` cannot appear — the parser only admits a length-typed,
+/// percentage-free `calc()` for `width`/`height` — but it maps to `NaN` (any
+/// comparison against which is false) rather than silently contributing 0.
+fn resolve_calc(expr: &CalcExpr, env: &MediaEnvironment) -> f64 {
+    match expr {
+        CalcExpr::Length(v, unit) => resolve_px(f64::from(*v), *unit, env),
+        CalcExpr::Number(n) => f64::from(*n),
+        CalcExpr::Percentage(_) => f64::NAN,
+        CalcExpr::Add(a, b) => resolve_calc(a, env) + resolve_calc(b, env),
+        CalcExpr::Sub(a, b) => resolve_calc(a, env) - resolve_calc(b, env),
+        CalcExpr::Mul(a, b) => resolve_calc(a, env) * resolve_calc(b, env),
+        CalcExpr::Div(a, b) => resolve_calc(a, env) / resolve_calc(b, env),
     }
 }
 
 /// Resolve a `<length>` to CSS px. Media-query relative units use the initial
-/// values (MQ4 §1.3): `em`/`rem` against the initial font-size (16px),
+/// values (MQ4 §1.3): `em`/`rem` against the environment's initial font-size
+/// (`root_font_size_px`, the UA/user default — never a declared font-size),
 /// viewport units against the queried viewport.
 #[allow(clippy::match_same_arms)] // `px` (identity) is kept explicit alongside the non_exhaustive fallback.
 fn resolve_px(value: f64, unit: LengthUnit, env: &MediaEnvironment) -> f64 {
-    /// CSS initial font-size (`medium` = 16px). MQ relative lengths use the
-    /// initial value, never a declared font-size.
-    const INITIAL_FONT_PX: f64 = 16.0;
     match unit {
         LengthUnit::Px => value,
-        LengthUnit::Em | LengthUnit::Rem => value * INITIAL_FONT_PX,
+        LengthUnit::Em | LengthUnit::Rem => value * env.root_font_size_px,
         LengthUnit::Vw => value / 100.0 * env.viewport_width,
         LengthUnit::Vh => value / 100.0 * env.viewport_height,
         LengthUnit::Vmin => value / 100.0 * env.viewport_width.min(env.viewport_height),
@@ -227,11 +245,21 @@ fn match_discrete(name: DiscreteFeature, value: DiscreteValue, env: &MediaEnviro
 
 /// Evaluate a feature in boolean context `(name)` — §2.4.2: true iff the
 /// feature would be true for some value (non-zero / non-none).
+// `Width` and `AspectRatio` share an expression but are distinct features kept
+// explicit: the equality is incidental (see the `AspectRatio` comment), not a
+// shared semantic, so they must not be merged into one pattern.
+#[allow(clippy::match_same_arms)]
 fn eval_boolean(bf: BooleanFeature, env: &MediaEnvironment) -> bool {
     match bf {
         BooleanFeature::Width => env.viewport_width != 0.0,
         BooleanFeature::Height => env.viewport_height != 0.0,
-        BooleanFeature::AspectRatio => env.viewport_width != 0.0 && env.viewport_height != 0.0,
+        // §2.4.2: boolean context is true iff the feature's value is non-zero,
+        // and `aspect-ratio` = width / height (§4.3). That ratio is zero only
+        // when the width is zero (a zero *height* yields ±∞, which is non-zero),
+        // so this must mirror `range_feature_value` — keyed on width, not height
+        // — else `(aspect-ratio)` disagrees with `(aspect-ratio > 0/1)` in the
+        // zero-height viewport.
+        BooleanFeature::AspectRatio => env.viewport_width != 0.0,
         // §2.4.2/§5.1: true for any non-zero resolution, including `infinite`.
         BooleanFeature::Resolution => env.resolution_dppx > 0.0,
         // §6.1: `(color)` is true iff the device has a non-zero color depth.
