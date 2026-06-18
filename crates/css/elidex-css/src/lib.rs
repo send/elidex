@@ -6,6 +6,7 @@
 mod color;
 mod declaration;
 pub mod escape;
+pub mod media;
 pub mod page;
 mod parser;
 mod selector;
