@@ -4,8 +4,9 @@
 //! engine state. Consumers build a [`MediaEnvironment`] and call in:
 //!
 //! - [`parse_media_query_list`] — total parser (mediaqueries-4 §3 Syntax,
-//!   §3.2 Error Handling): never errors or panics; a malformed or
-//!   unknown-feature query becomes `not all`.
+//!   §3.2 Error Handling): never errors or panics; a top-level grammar-malformed
+//!   query becomes `not all`, while an unknown/invalid feature inside `( … )`
+//!   becomes `<general-enclosed>` → Kleene unknown.
 //! - [`evaluate`] — Kleene 3-valued evaluation (mediaqueries-4 §3.1), with the
 //!   `Unknown → false` coercion applied once at the public boundary.
 //!
@@ -92,20 +93,26 @@ mod tests {
         assert!(!matches("and", &landscape()));
     }
 
-    // --- §3.2 unknown feature → parse-time not all -------------------------
+    // --- §3.2/§3.1 unknown feature → general-enclosed (Kleene unknown) ------
 
     #[test]
-    fn unknown_feature_name_is_not_all() {
-        // Feature-shaped but unknown → whole query `not all` (false), and
-        // `not (...)` is ALSO false (not Kleene-negated).
+    fn unknown_feature_name_is_general_enclosed() {
+        // §3.2/§3.1: an unknown `<mf-name>` inside `( … )` matches
+        // `( <any-value> )` → `<general-enclosed>` → Kleene unknown, which
+        // coerces to false at the 2-valued boundary. `not (unknown)` is
+        // `not unknown` = unknown → false too (NOT true).
         assert!(!matches("(max-weight: 3kg)", &landscape()));
         assert!(!matches("not (max-weight: 3kg)", &landscape()));
         assert!(!matches("(unknownboolfeature)", &landscape()));
+        // …but unknown is Kleene unknown, not a poison: `true OR unknown` = true,
+        // so a sibling that matches rescues the query (the §3.2 fix).
+        assert!(matches("(color) or (max-weight: 3kg)", &landscape()));
     }
 
     #[test]
     fn unknown_feature_nukes_only_its_own_query_in_a_list() {
-        // §3.2: recovery at the top-level comma — the sibling survives.
+        // §3.2: recovery at the top-level comma — the sibling query survives.
+        // (Each comma-separated query is its own standalone unknown → false.)
         assert!(matches(
             "(max-weight: 3kg), (min-width: 500px)",
             &landscape()
@@ -118,23 +125,32 @@ mod tests {
     }
 
     #[test]
-    fn unknown_value_for_known_feature_is_not_all() {
-        // `(width: foo)` matches mf-plain grammar but the value is invalid →
-        // §3.2 → not all, and so is `... or (width: foo)`.
+    fn unknown_value_for_known_feature_is_general_enclosed() {
+        // `(width: foo)` matches `<mf-plain>` grammar but `foo` is not a valid
+        // `<length>` → the block is not a recognized feature → general-enclosed
+        // → Kleene unknown → false standalone, but `true OR unknown` = true.
         assert!(!matches("(width: foo)", &landscape()));
-        assert!(!matches("(color) or (width: foo)", &landscape()));
+        assert!(matches("(color) or (width: foo)", &landscape()));
     }
 
     // --- §2.4.4 min-/max- gating ------------------------------------------
 
     #[test]
-    fn min_max_on_discrete_is_not_all() {
+    fn min_max_on_discrete_is_general_enclosed() {
+        // §2.4.4: `orientation` does not accept `min-`/`max-` → unknown feature
+        // → general-enclosed → unknown → false (and rescuable by a sibling OR).
         assert!(!matches("(min-orientation: portrait)", &landscape()));
         assert!(!matches("(max-orientation: landscape)", &landscape()));
+        assert!(matches(
+            "(color) or (min-orientation: portrait)",
+            &landscape()
+        ));
     }
 
     #[test]
-    fn min_max_in_boolean_context_is_not_all() {
+    fn min_max_in_boolean_context_is_general_enclosed() {
+        // §2.4.4: `min-`/`max-` in boolean context is a syntax error → unknown →
+        // general-enclosed → false.
         assert!(!matches("(min-width)", &landscape()));
         assert!(!matches("(max-height)", &landscape()));
     }
@@ -164,6 +180,26 @@ mod tests {
         ));
     }
 
+    #[test]
+    fn unknown_feature_truth_is_environment_dependent() {
+        // R7-3 / §3.2: the decisive proof that an unknown feature is Kleene
+        // unknown (not a parse-time `not all` poison) — `(color) or (unknown)`
+        // is TRUE on a color device but FALSE on a monochrome one. A parse-time
+        // replacement with `not all` could not be environment-dependent, so the
+        // §3.2 "value unknown → not all" rule must be the §3.1 boundary coercion
+        // applied per environment at eval, not a poison of the sibling `or`.
+        let color = landscape(); // color_bits = 8
+        let mono = MediaEnvironment {
+            color_bits: 0,
+            ..landscape()
+        };
+        assert!(matches("(color) or (unknown-feature)", &color)); // true OR unknown
+        assert!(!matches("(color) or (unknown-feature)", &mono)); // false OR unknown → false
+                                                                  // AND mirrors it: false AND unknown = false; true AND unknown = unknown.
+        assert!(!matches("(color) and (unknown-feature)", &color)); // true AND unknown → false
+        assert!(!matches("(color) and (unknown-feature)", &mono)); // false AND unknown → false
+    }
+
     // --- §2.4.3 range features + boundaries --------------------------------
 
     #[test]
@@ -190,32 +226,29 @@ mod tests {
     }
 
     #[test]
-    fn malformed_two_sided_range_is_not_all() {
+    fn malformed_two_sided_range_is_general_enclosed() {
         // §3 `<mf-range>`: a two-sided form requires both ops same-direction and
-        // forbids `=`. A recognized feature with a comparison has *committed* to
-        // the `<mf-range>` shape, so a mixed/`=` form is a malformed feature →
-        // §3.2 → `not all`, NOT `<general-enclosed>` (which is reserved for
-        // content that never commits to a feature — see
-        // `range_without_operator_is_general_enclosed`). (C1, corrected per R3-5.)
+        // forbids `=`. A mixed-direction / `=` form does not match any feature
+        // production, so the block falls to `( <any-value> )` =
+        // `<general-enclosed>` → Kleene unknown (§3.1/§3.2) — NOT `not all`.
+        // (Reverts R3-5, which wrongly poisoned these to `not all`: the outcome
+        // is environment-dependent — `unknown OR true` = true — so it cannot be
+        // a parse-time replacement.)
         let env = landscape(); // width 1024
-        assert!(!matches("(400px < width > 700px)", &env)); // mixed `<`…`>`
-        assert!(!matches("not (400px = width = 700px)", &env)); // `=` two-sided
-                                                                // committed-but-malformed makes the whole `<media-query>` `not all`, so a
-                                                                // sibling `or` cannot rescue it (contrast `unknown OR true` = true).
-        assert!(!matches(
-            "(400px < width > 700px) or (min-width: 1px)",
-            &env
-        ));
-        // single-sided `=` value-first stays valid (§ allows `<mf-eq>` there).
+        assert!(!matches("(400px < width > 700px)", &env)); // mixed → unknown → false
+        assert!(!matches("not (400px = width = 700px)", &env)); // not unknown → false
+                                                                // unknown is rescuable by a true sibling OR (the §3.2 fix).
+        assert!(matches("(400px < width > 700px) or (min-width: 1px)", &env));
+        // single-sided `=` value-first stays a valid feature (§ allows `<mf-eq>`).
         assert!(matches("(1024px = width)", &env));
     }
 
     #[test]
     fn range_without_operator_is_general_enclosed() {
-        // `(width 500px)` has no `:` or comparison, so it never commits to a
-        // feature shape — it matches `<general-enclosed>` (Kleene unknown), NOT
-        // `not all`, and so does not poison a sibling `or` term. (WPT
-        // mq-range-001: `range syntax without operator isn't valid syntax`.)
+        // `(width 500px)` has no `:` or comparison → not a recognized feature →
+        // `<general-enclosed>` (Kleene unknown), so it does not poison a sibling
+        // `or` term. (WPT mq-range-001: `range syntax without operator isn't
+        // valid syntax`.)
         let env = landscape();
         assert!(matches("(width 500px) or (min-width: 1px)", &env)); // unknown OR true
         assert!(!matches("(width 500px)", &env)); // unknown → false at boundary
@@ -232,13 +265,30 @@ mod tests {
     }
 
     #[test]
-    fn negative_ratio_components_are_not_all() {
+    fn negative_ratio_components_are_general_enclosed() {
         // `<ratio>` is `[0,∞]` (css-values-4 §5.7) — a negative component is
-        // outside the value syntax → §3.2 `not all`. (I1 regression.)
+        // outside the value syntax → unknown value → general-enclosed → unknown
+        // → false standalone (rescuable by a true sibling OR). (I1 regression.)
         let env = landscape();
         assert!(!matches("(min-aspect-ratio: -1/1)", &env));
         assert!(!matches("(aspect-ratio: -2)", &env));
         assert!(!matches("(min-aspect-ratio: 1/-1)", &env));
+        assert!(matches("(color) or (aspect-ratio: -2)", &env));
+    }
+
+    #[test]
+    fn value_first_range_with_ident_value() {
+        // R7-1: `(infinite > resolution)` is value-first — value `infinite`
+        // (the §5.1 resolution keyword), name `resolution` — i.e.
+        // `resolution < infinite`. A leading ident that is not itself a
+        // recognized feature must be retried as a value-first value, not
+        // mis-read as an unknown `infinite` feature.
+        let env = landscape(); // 1dppx
+        assert!(matches("(infinite > resolution)", &env)); // resolution < ∞ → true
+        assert!(!matches("(infinite < resolution)", &env)); // resolution > ∞ → false
+                                                            // both sides idents that are not valid values for each other → unknown.
+        assert!(!matches("(width > height)", &env)); // general-enclosed → false
+        assert!(matches("(color) or (width > height)", &env)); // …rescuable by OR
     }
 
     // --- §4.4 orientation + MQ5 §12 prefers-* -----------------------------
@@ -298,8 +348,9 @@ mod tests {
 
     #[test]
     fn whitespace_inside_comparison_operator_fails() {
-        // §3: no whitespace between `<`/`>` and `=`; `(width < = 2000px)` is
-        // malformed → not all, while `(width <= 2000px)` is valid. (F3.)
+        // §3: no whitespace between `<`/`>` and `=`; `(width < = 2000px)` is not
+        // a recognized feature → general-enclosed → unknown → false, while
+        // `(width <= 2000px)` is valid. (F3.)
         let env = landscape(); // width 1024
         assert!(matches("(width <= 2000px)", &env));
         assert!(!matches("(width < = 2000px)", &env));
@@ -307,16 +358,22 @@ mod tests {
     }
 
     #[test]
-    fn grouped_unknown_feature_is_not_all() {
-        // §3.2: an unknown feature inside a group poisons the whole query to
-        // `not all`; it must NOT be rescued into Kleene unknown. (F4.)
-        assert!(!matches(
+    fn grouped_unknown_feature_is_general_enclosed() {
+        // §3.2/§3.1: an unknown feature inside a group is general-enclosed
+        // (Kleene unknown), NOT a `not all` poison — so the unknown propagates
+        // through the group's Kleene logic and a true sibling rescues it.
+        // (F4, corrected per R7-3.)
+        // ((unknown OR true)) OR true = true.
+        assert!(matches(
             "((max-weight: 3kg) or (min-width: 1px)) or (color)",
             &landscape()
         ));
-        assert!(!matches("((max-weight: 3kg)) or (color)", &landscape()));
-        // a genuinely general-enclosed group still works (true OR unknown).
+        // ((unknown)) OR true = true.
+        assert!(matches("((max-weight: 3kg)) or (color)", &landscape()));
+        // a function-token general-enclosed group behaves identically.
         assert!(matches("(color) or (weird-fn(x))", &landscape()));
+        // but a standalone group that is all-unknown still coerces to false.
+        assert!(!matches("((max-weight: 3kg))", &landscape()));
     }
 
     #[test]
@@ -327,6 +384,40 @@ mod tests {
         assert!(!matches("(min-width: 11in)", &env)); // 11in = 1056px > 1024
         assert!(matches("(min-width: 20cm)", &env)); // 20cm ≈ 756px ≤ 1024
         assert!(matches("(min-width: 100pt)", &env)); // 100pt ≈ 133px ≤ 1024
+    }
+
+    #[test]
+    fn abs_unit_conversion_matches_integer_px_within_tolerance() {
+        // R7-2: `<mf-value>` dimensions are cssparser f32, so `2.54cm` converts
+        // to ~95.9999986px, not exactly 96px. The magnitude-relative tolerance
+        // (`approx_eq`) absorbs that f32 quantization, so `(width: 2.54cm)`
+        // matches a 96px viewport. (cm/mm/q all share the `96/2.54` factor.)
+        let px96 = MediaEnvironment {
+            viewport_width: 96.0,
+            ..landscape()
+        };
+        assert!(matches("(width: 2.54cm)", &px96)); // ~96px ≈ 96px
+        assert!(matches("(width: 25.4mm)", &px96));
+        assert!(matches("(min-width: 2.54cm)", &px96)); // 96 ≥ ~96 (boundary)
+        assert!(matches("(max-width: 2.54cm)", &px96)); // 96 ≤ ~96 (boundary)
+                                                        // …but the tolerance is far below a 1px gap, so distinct integer
+                                                        // breakpoints never alias: 2.54cm (~96px) does not match a 95 or 97 px
+                                                        // viewport.
+        let px95 = MediaEnvironment {
+            viewport_width: 95.0,
+            ..landscape()
+        };
+        let px97 = MediaEnvironment {
+            viewport_width: 97.0,
+            ..landscape()
+        };
+        assert!(!matches("(width: 2.54cm)", &px95));
+        assert!(!matches("(width: 2.54cm)", &px97));
+        // adjacent integer px stay strictly ordered under the tolerance.
+        let env = landscape(); // width 1024
+        assert!(!matches("(width: 1023px)", &env));
+        assert!(!matches("(width: 1025px)", &env));
+        assert!(matches("(width: 1024px)", &env));
     }
 
     #[test]
@@ -363,12 +454,15 @@ mod tests {
     }
 
     #[test]
-    fn malformed_known_feature_value_is_not_all() {
-        // §3.2: a known feature with a value that doesn't match its syntax (extra
-        // tokens) → not all, not general-enclosed (must not match via OR). (R2-3.)
+    fn malformed_known_feature_value_is_general_enclosed() {
+        // §3.2/§3.1: a known feature with trailing junk (`width: 1px 2px`) is
+        // not a recognized `<mf-plain>` (the value is a single `<mf-value>`), so
+        // the block falls to `( <any-value> )` = general-enclosed → unknown →
+        // false standalone, but rescuable by a true sibling OR. (R2-3, corrected
+        // per R7-3 — previously wrongly poisoned to `not all`.)
         let env = landscape();
         assert!(!matches("(width: 1px 2px)", &env));
-        assert!(!matches("(color) or (width: 1px 2px)", &env));
+        assert!(matches("(color) or (width: 1px 2px)", &env));
     }
 
     #[test]
@@ -411,22 +505,26 @@ mod tests {
         assert!(!matches("(min-width: calc(700px + 700px))", &env)); // 1400 > 1024
                                                                      // a viewport unit inside calc() resolves against the queried viewport.
         assert!(matches("(width: calc(50vw + 512px))", &env)); // 512+512 == 1024
-                                                               // a number-typed calc() is not a `<length>` → not all.
+                                                               // a number-typed calc() is not a `<length>` → invalid value →
+                                                               // general-enclosed → unknown → false.
         assert!(!matches("(width: calc(40))", &env));
-        // calc() is not accepted for non-length features this slice → not all.
+        // calc() is not accepted for non-length features this slice → invalid
+        // value → general-enclosed → unknown → false.
         assert!(!matches("(min-color: calc(2 + 6))", &env));
     }
 
     #[test]
     fn flex_unit_is_not_a_media_length() {
         // `fr` is a grid flex fraction, not a `<length>` — `crate::values` rejects
-        // it, so width/height `fr` values never resolve as px; they are invalid →
-        // `not all`. (R3-3: Codex flagged this as accepted; confirmed FP, locked.)
+        // it, so width/height `fr` values never resolve as px; they are an invalid
+        // value → general-enclosed → unknown → false standalone. (R3-3: Codex
+        // flagged this as accepted; confirmed not-a-length, locked.)
         let env = landscape();
         assert!(!matches("(width: 1fr)", &env));
         assert!(!matches("(min-width: 1fr)", &env));
-        // committed-but-invalid value → not all, so `or true` cannot rescue it.
-        assert!(!matches("(min-width: 1024fr) or (color)", &env));
+        // invalid value → general-enclosed → Kleene unknown, so a true sibling
+        // OR rescues it (§3.1) — corrected per R7-3.
+        assert!(matches("(min-width: 1024fr) or (color)", &env));
     }
 
     #[test]
@@ -438,21 +536,25 @@ mod tests {
         assert!(matches("(color: 8)", &env));
         assert!(!matches("(color: 8.0)", &env));
         assert!(!matches("(color >= 1.0)", &env));
-        assert!(!matches("(color: 8.0) or (min-width: 1px)", &env)); // not all, not rescued
+        // invalid value → general-enclosed → unknown, so `or true` rescues it
+        // (corrected per R7-3).
+        assert!(matches("(color: 8.0) or (min-width: 1px)", &env));
     }
 
     #[test]
-    fn malformed_committed_range_is_not_all() {
-        // A `:` or comparison commits to a feature; trailing tokens then make it a
-        // malformed feature → §3.2 → `not all`, NOT `<general-enclosed>`, so a
-        // sibling `or` cannot rescue it. (R3-5: sibling-sweep of R2-3 across the
-        // name-first and value-first range arms.)
+    fn malformed_range_with_trailing_junk_is_general_enclosed() {
+        // Trailing tokens after a range feature mean the block is not a
+        // recognized `<media-feature>` (which is the *whole* parens content), so
+        // it falls to `( <any-value> )` = general-enclosed → Kleene unknown
+        // (§3.1/§3.2) — false standalone, rescuable by a true sibling OR.
+        // (Reverts R3-5, which wrongly poisoned these to `not all`.)
         let env = landscape();
         // name-first range with trailing junk.
         assert!(!matches("(width > 1px 2px)", &env));
-        assert!(!matches("((width > 1px 2px) or (color))", &env)); // Codex's example
-                                                                   // two-sided range with trailing junk.
+        assert!(matches("((width > 1px 2px) or (color))", &env)); // (unknown OR true)
+                                                                  // two-sided range with trailing junk.
         assert!(!matches("(400px < width < 700px 800px)", &env));
+        assert!(matches("(400px < width < 700px 800px) or (color)", &env));
     }
 
     #[test]
@@ -492,18 +594,20 @@ mod tests {
     // --- Codex R4 regressions ---------------------------------------------
 
     #[test]
-    fn deeply_nested_parens_is_not_all_not_a_panic() {
+    fn deeply_nested_parens_does_not_panic() {
         // §3.2 total contract: pathologically nested parentheses (a DoS vector
-        // for untrusted CSS / matchMedia) must fail to `not all`, never abort the
-        // process via stack overflow. The depth cap bounds recursion regardless
-        // of input length. (R4-3.)
+        // for untrusted CSS / matchMedia) must never abort the process via stack
+        // overflow. The depth cap bounds the `parse_nested_block` recursion; the
+        // over-cap block then drains iteratively (cssparser `next()` returns a
+        // nested `( … )` as a single token without descending) and becomes
+        // general-enclosed → Kleene unknown → false. (R4-3.)
         let env = landscape();
         let deep = format!(
             "{}(min-width: 1px){}",
             "(".repeat(20_000),
             ")".repeat(20_000)
         );
-        assert!(!matches(&deep, &env)); // does not panic; over the cap → not all
+        assert!(!matches(&deep, &env)); // does not panic; over the cap → unknown → false
                                         // sane nesting depths still parse + evaluate.
         assert!(matches("(((min-width: 1px)))", &env));
         assert!(matches("((min-width: 1px) and (max-width: 5000px))", &env));

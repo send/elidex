@@ -29,10 +29,13 @@ pub struct MediaQuery {
 }
 
 impl MediaQuery {
-    /// The `not all` sentinel a grammar-malformed or unknown-feature query is
-    /// replaced by — mediaqueries-4 §3.2 Error Handling. Always evaluates to
-    /// `false` (its `not` is baked in, so it is false even though it carries a
-    /// qualifier).
+    /// The `not all` sentinel a *top-level* grammar-malformed query is replaced
+    /// by — mediaqueries-4 §3.2 Error Handling: a reserved keyword used as a
+    /// `<media-type>` (`or`/`and`/`only`/`not`/`layer`), `and`/`or` mixed at one
+    /// level, or other bare-token garbage. (An unknown feature *inside* a
+    /// `( … )` is NOT this — it is `GeneralEnclosed` → Kleene unknown.) Always
+    /// evaluates to `false` (its `not` is baked in, so it is false even though
+    /// it carries a qualifier).
     pub(crate) fn not_all() -> Self {
         MediaQuery {
             qualifier: Some(Qualifier::Not),
@@ -71,10 +74,15 @@ pub enum MediaCondition {
     Not(Box<MediaCondition>),
     And(Vec<MediaCondition>),
     Or(Vec<MediaCondition>),
-    /// `<general-enclosed>` — mediaqueries-4 §3.1: an enclosed shape matching
-    /// neither `( <media-feature> )` nor `( <media-condition> )` (e.g. a
-    /// function token, or multi-token future syntax). Evaluates to Kleene
-    /// `Unknown` (never `false`) for forward-compatibility.
+    /// `<general-enclosed>` — mediaqueries-4 §3.1: a `( <any-value> )` (or
+    /// `<function-token> … )`) block that is not a recognized `( <media-feature> )`
+    /// nor `( <media-condition> )`. This is the catch-all for everything the
+    /// recognizer rejects: a function token or multi-token future syntax, but
+    /// also an unknown `<mf-name>`, an invalid/missing `<mf-value>`, trailing
+    /// junk after a feature, and a malformed (mixed-direction / `=`) range
+    /// (§3.2 "unknown … results in the value unknown"). Evaluates to Kleene
+    /// `Unknown` (never `false`) for forward-compatibility — so `(color) or
+    /// (unknownfeature)` is true on a color device, not poisoned to `not all`.
     GeneralEnclosed,
 }
 

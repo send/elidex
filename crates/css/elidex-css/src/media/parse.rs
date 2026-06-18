@@ -1,16 +1,28 @@
 //! Media Queries Level 4 parser — mediaqueries-4 §3 Syntax.
 //!
 //! **Total + recovering** per §3.2 Error Handling: never errors or panics
-//! (CSSOM `matchMedia` does not throw). Four-way failure routing:
-//!   (a) grammar mismatch → that `<media-query>` becomes `not all`, recovering
-//!       at the next top-level comma;
-//!   (b) unknown `<mf-name>`/`<mf-value>` (valid `( <media-feature> )` shape) →
-//!       the whole `<media-query>` becomes `not all` at parse;
-//!   (c) unknown/deprecated `<media-type>` ident → `MediaType::Other`
-//!       (definite-false but negatable);
-//!   (d) `<general-enclosed>` (matches neither `( <media-feature> )` nor
-//!       `( <media-condition> )`) → `MediaCondition::GeneralEnclosed`
-//!       (Kleene unknown at eval).
+//! (CSSOM `matchMedia` does not throw). The error model is two-way:
+//!
+//!   * **recognized feature vs general-enclosed** — inside a `( … )`, any
+//!     content that is not a recognized `<media-feature>` (known `<mf-name>` +
+//!     valid `<mf-value>` that consumes the whole block) still matches the
+//!     `( <any-value> )` `<general-enclosed>` production and becomes
+//!     `MediaCondition::GeneralEnclosed` → Kleene *unknown* at eval (§3.1). This
+//!     covers unknown names, invalid/missing values, trailing junk, and
+//!     malformed ranges. §3.2's "unknown `<mf-name>`/`<mf-value>` results in the
+//!     value unknown; a `<media-query>` whose value is unknown is replaced with
+//!     `not all`" is NOT a parse-time poison of the sibling terms — it is the
+//!     §3.1 boundary coercion (`unknown → false`) applied once per environment
+//!     at eval, because the outcome is environment-dependent (`(color) or
+//!     (unknown)` is true on a color device, false on a monochrome one).
+//!   * **`not all`** is reserved for *top-level* grammar failures that no
+//!     production accepts: a reserved keyword used as a `<media-type>` (`or`,
+//!     `and`, `only`, `not`, `layer`), `and`/`or` mixed at one level, or other
+//!     bare-token garbage. These replace the whole `<media-query>`, recovering
+//!     at the next top-level comma.
+//!
+//! An unknown/deprecated `<media-type>` ident is `MediaType::Other`
+//! (definite-false but negatable — `not unknowntype` is true).
 
 use cssparser::{ParseError, Parser, ParserInput, Token};
 use elidex_plugin::{CalcExpr, CssValue, LengthUnit};
@@ -20,10 +32,12 @@ use super::types::*;
 
 /// Parse a `<media-query-list>` (mediaqueries-4 §3) from an untrusted string.
 ///
-/// Total: a grammar-malformed or unknown-feature `<media-query>` is replaced
-/// by the `not all` sentinel per §3.2, recovering at the next top-level comma;
-/// the rest of the list is unaffected. An empty/whitespace string yields the
-/// empty list (§3 accepts an empty list; it evaluates to `true` per §2.1).
+/// Total: a *top-level* grammar-malformed `<media-query>` is replaced by the
+/// `not all` sentinel per §3.2, recovering at the next top-level comma; the
+/// rest of the list is unaffected. (An unknown/invalid feature *inside* a
+/// `( … )` is not malformed at this level — it becomes `<general-enclosed>` →
+/// Kleene unknown.) An empty/whitespace string yields the empty list (§3
+/// accepts an empty list; it evaluates to `true` per §2.1).
 #[must_use]
 pub fn parse_media_query_list(text: &str) -> MediaQueryList {
     let mut input = ParserInput::new(text);
@@ -36,8 +50,9 @@ pub fn parse_media_query_list(text: &str) -> MediaQueryList {
         |segment| -> Result<MediaQuery, ParseError<'_, ()>> {
             let query = match parse_media_query(segment) {
                 Ok(q) if segment.is_exhausted() => q,
-                // §3.2: any grammar/unknown failure (or trailing junk) → this
-                // query becomes `not all`.
+                // §3.2: a top-level grammar failure (or trailing junk before the
+                // comma) → this query becomes `not all`. (Feature-level unknowns
+                // are absorbed as general-enclosed inside `parse_media_query`.)
                 _ => MediaQuery::not_all(),
             };
             // Drain the rest of the segment so the comma-splitter is satisfied
@@ -55,7 +70,11 @@ pub fn parse_media_query_list(text: &str) -> MediaQueryList {
 /// bound and abort the process via stack overflow — violating the parser's
 /// total/never-panic contract (a DoS path for page-controlled CSS / `matchMedia`
 /// strings). Mirrors the `calc()` parser's `MAX_CALC_DEPTH`; real media queries
-/// never nest anywhere near this. Exceeding it fails the parse → `not all`.
+/// never nest anywhere near this. Exceeding it fails the over-deep
+/// `<media-in-parens>` parse, which then drains iteratively to
+/// `<general-enclosed>` → Kleene unknown → false (the bounded recursion is the
+/// DoS guarantee; cssparser `next()` returns a nested block as one token, so the
+/// drain does not re-descend).
 const MAX_MEDIA_NESTING_DEPTH: u32 = 32;
 
 /// `<media-query>` — `<media-condition> | [not|only]? <media-type> [and <media-condition-without-or>]?`.
@@ -161,8 +180,10 @@ fn parse_media_in_parens<'i>(
     input: &mut Parser<'i, '_>,
     depth: u32,
 ) -> Result<MediaCondition, ParseError<'i, ()>> {
-    // §3.2 total contract: a too-deeply-nested query fails the grammar → `not
-    // all`, never a stack-overflow panic. Guard before descending another level.
+    // §3.2 total contract: never a stack-overflow panic. Over the depth cap,
+    // this `<media-in-parens>` parse fails; the enclosing block then resolves to
+    // `<general-enclosed>` (Kleene unknown) — the bounded recursion is the DoS
+    // guard. Check before descending another level.
     if depth >= MAX_MEDIA_NESTING_DEPTH {
         return Err(input.new_custom_error(()));
     }
@@ -193,8 +214,15 @@ fn drain_block<'i>(inner: &mut Parser<'i, '_>) -> Result<(), ParseError<'i, ()>>
     Ok(())
 }
 
-/// The content inside a `( ... )`: try `<media-condition>`, then
-/// `<media-feature>`, else `<general-enclosed>`.
+/// The content inside a `( ... )`: try `( <media-condition> )`, then a
+/// recognized `<media-feature>`, else `<general-enclosed>`.
+///
+/// This never produces `not all`: per §3.2 any `( … )` whose content is not a
+/// recognized condition or feature still matches `( <any-value> )` =
+/// `<general-enclosed>` → Kleene unknown. The `not all` sentinel is a
+/// top-level concern (reserved-keyword media type, mixed `and`/`or`), handled
+/// by [`parse_media_query_list`] / [`parse_type_query`], not here.
+#[allow(clippy::unnecessary_wraps)] // signature dictated by `parse_nested_block`.
 fn parse_parens_content<'i>(
     inner: &mut Parser<'i, '_>,
     depth: u32,
@@ -209,68 +237,64 @@ fn parse_parens_content<'i>(
     }) {
         return Ok(cond);
     }
-    // §3.2: if the content is condition-shaped (a nested `( … )` group or
-    // `not (…)`) but the condition parse above failed, the failure is an
-    // unknown/invalid feature INSIDE the group → the whole query is `not all`,
-    // NOT `<general-enclosed>` (which is reserved for content matching neither
-    // `( <media-feature> )` nor `( <media-condition> )`).
-    inner.skip_whitespace();
-    if peek_is_condition_start(inner) {
-        return Err(inner.new_custom_error(()));
+    // 2. a recognized `<media-feature>`, else 3. `<general-enclosed>`.
+    if let Some(feature) = parse_media_feature(inner) {
+        return Ok(MediaCondition::Feature(feature));
     }
-    // 2. `<media-feature>`.
-    match parse_media_feature(inner) {
-        Ok(feature) => Ok(MediaCondition::Feature(feature)),
-        // feature-shaped but unknown name / invalid value → §3.2 → not all.
-        Err(FeatErr::Invalid) => Err(inner.new_custom_error(())),
-        // 3. `<general-enclosed>`: not feature-shaped → Kleene unknown.
-        Err(FeatErr::NotShaped) => {
-            while inner.next().is_ok() {}
-            Ok(MediaCondition::GeneralEnclosed)
-        }
-    }
+    // Unknown name / invalid value / trailing junk / malformed range — all
+    // still match `( <any-value> )` → Kleene unknown (§3.1/§3.2).
+    while inner.next().is_ok() {}
+    Ok(MediaCondition::GeneralEnclosed)
 }
 
-/// Peek whether the parens content starts like a `<media-condition>` — a nested
-/// `( … )` group or a leading `not`. Used to route a failed condition parse to
-/// `not all` (unknown feature inside a group, §3.2) vs `<general-enclosed>`.
-fn peek_is_condition_start(input: &mut Parser<'_, '_>) -> bool {
-    let start = input.state();
-    let is_start = match input.next() {
-        Ok(Token::ParenthesisBlock) => true,
-        Ok(Token::Ident(s)) => s.eq_ignore_ascii_case("not"),
-        _ => false,
-    };
-    input.reset(&start);
-    is_start
+/// Parse the content of a `( ... )` as a complete `<media-feature>`.
+///
+/// Returns `Some` only when the content is a recognized feature — a known
+/// `<mf-name>` with a valid `<mf-value>` — that consumes the *entire* parens
+/// content. Otherwise `None`: the caller treats the block as
+/// `<general-enclosed>` (Kleene unknown), never `not all`. Unknown names,
+/// invalid/missing values, trailing junk, and malformed (mixed-direction / `=`)
+/// ranges all yield `None`.
+fn parse_media_feature(input: &mut Parser<'_, '_>) -> Option<MediaFeature> {
+    input
+        .try_parse(|i| -> Result<MediaFeature, ()> {
+            let feature = parse_feature_body(i)?;
+            i.skip_whitespace();
+            // A `<media-feature>` is the *whole* parenthesized content; a
+            // trailing token means it is not a feature → general-enclosed.
+            if i.is_exhausted() {
+                Ok(feature)
+            } else {
+                Err(())
+            }
+        })
+        .ok()
 }
 
-/// The outcome of attempting to parse a `<media-feature>` from parens content.
-enum FeatErr {
-    /// Matches `<media-feature>` grammar but the name/value is unknown/invalid
-    /// → §3.2 → the whole `<media-query>` becomes `not all`.
-    Invalid,
-    /// Does not match `<media-feature>` grammar → `<general-enclosed>`.
-    NotShaped,
-}
-
-/// Parse the content of a `( ... )` as a `<media-feature>` (parser scoped to
-/// the content). See [`FeatErr`] for the failure routing.
-fn parse_media_feature(input: &mut Parser<'_, '_>) -> Result<MediaFeature, FeatErr> {
-    input.skip_whitespace();
-    // Name-first: an ident leads (boolean | plain | name-first range).
-    if let Ok(name) = input.try_parse(|i| {
-        i.expect_ident()
+/// Dispatch parens content to the name-first (`<ident> …`) or value-first
+/// (`<value> <op> <name> …`) `<media-feature>` shape. A leading ident that does
+/// not resolve to a recognized name-first feature is retried as value-first, so
+/// `(infinite > resolution)` (value `infinite`, name `resolution`) is read as
+/// `resolution < infinite` rather than an unknown `infinite` feature.
+fn parse_feature_body(input: &mut Parser<'_, '_>) -> Result<MediaFeature, ()> {
+    let name_first = input.try_parse(|i| -> Result<MediaFeature, ()> {
+        i.skip_whitespace();
+        let name = i
+            .expect_ident()
             .map(|s| s.as_ref().to_owned())
-            .map_err(|_| ())
-    }) {
-        return parse_name_first(input, &name);
+            .map_err(|_| ())?;
+        parse_name_first(i, &name)
+    });
+    if let Ok(feature) = name_first {
+        return Ok(feature);
     }
-    // Value-first range: `<value> <op> <name> [ <op> <value> ]?`.
-    parse_value_first(input)
+    input.try_parse(|i| parse_value_first(i))
 }
 
-fn parse_name_first(input: &mut Parser<'_, '_>, name: &str) -> Result<MediaFeature, FeatErr> {
+/// Parse a name-first feature after its leading `<mf-name>`. `Err(())` means the
+/// content is not a recognized name-first feature (caller retries value-first /
+/// falls back to general-enclosed).
+fn parse_name_first(input: &mut Parser<'_, '_>, name: &str) -> Result<MediaFeature, ()> {
     input.skip_whitespace();
     // `(name)` — boolean context.
     if input.is_exhausted() {
@@ -287,151 +311,102 @@ fn parse_name_first(input: &mut Parser<'_, '_>, name: &str) -> Result<MediaFeatu
     if let Some(op) = try_comparison(input) {
         return parse_name_first_range(input, name, op);
     }
-    // ident followed by some other token → not feature-shaped.
-    Err(FeatErr::NotShaped)
+    // ident followed by some other token → not a recognized feature.
+    Err(())
 }
 
-fn parse_boolean(name: &str) -> Result<MediaFeature, FeatErr> {
+fn parse_boolean(name: &str) -> Result<MediaFeature, ()> {
     let lower = name.to_ascii_lowercase();
-    // §2.4.4: `min-`/`max-` in a boolean context is a syntax error.
+    // §2.4.4: `min-`/`max-` in a boolean context is a syntax error → not a
+    // recognized feature → general-enclosed.
     if lower.starts_with("min-") || lower.starts_with("max-") {
-        return Err(FeatErr::Invalid);
+        return Err(());
     }
-    match classify_boolean_feature(&lower) {
-        Some(bf) => Ok(MediaFeature::Boolean(bf)),
-        // a lone ident matches `<mf-boolean>` grammar → unknown name → not all.
-        None => Err(FeatErr::Invalid),
-    }
+    classify_boolean_feature(&lower)
+        .map(MediaFeature::Boolean)
+        .ok_or(())
 }
 
-fn parse_plain(input: &mut Parser<'_, '_>, name: &str) -> Result<MediaFeature, FeatErr> {
+fn parse_plain(input: &mut Parser<'_, '_>, name: &str) -> Result<MediaFeature, ()> {
     input.skip_whitespace();
-    // A colon commits this to an `<mf-plain>` attempt for a (known or unknown)
-    // feature; §3.2 says a value that doesn't match the feature's value syntax
-    // (missing, extra tokens, or wrong type) → `not all`, NOT general-enclosed.
-    let raw = parse_mf_value(input).map_err(|()| FeatErr::Invalid)?;
-    expect_feature_end(input)?;
+    let raw = parse_mf_value(input)?;
     let lower = name.to_ascii_lowercase();
     if let Some(df) = classify_discrete_feature(&lower) {
         return match raw {
-            RawMfValue::Ident(kw) => match discrete_value(df, &kw.to_ascii_lowercase()) {
-                Some(value) => Ok(MediaFeature::Discrete { name: df, value }),
-                None => Err(FeatErr::Invalid),
-            },
-            _ => Err(FeatErr::Invalid),
+            RawMfValue::Ident(kw) => discrete_value(df, &kw.to_ascii_lowercase())
+                .map(|value| MediaFeature::Discrete { name: df, value })
+                .ok_or(()),
+            _ => Err(()),
         };
     }
     let (base, op) = strip_min_max(&lower);
-    match classify_range_feature(base) {
-        Some(rf) => match coerce_raw(raw, rf) {
-            Some(value) => Ok(MediaFeature::Range {
-                name: rf,
-                constraints: vec![RangeConstraint { op, value }],
-            }),
-            None => Err(FeatErr::Invalid),
-        },
-        None => Err(FeatErr::Invalid),
-    }
+    let rf = classify_range_feature(base).ok_or(())?;
+    let value = coerce_raw(raw, rf).ok_or(())?;
+    Ok(MediaFeature::Range {
+        name: rf,
+        constraints: vec![RangeConstraint { op, value }],
+    })
 }
 
 fn parse_name_first_range(
     input: &mut Parser<'_, '_>,
     name: &str,
     op: RangeOp,
-) -> Result<MediaFeature, FeatErr> {
+) -> Result<MediaFeature, ()> {
     input.skip_whitespace();
-    let raw = parse_mf_value(input).map_err(|()| FeatErr::Invalid)?;
-    // `<name> <comparison> <value>` is the committed `<mf-range>` name-first
-    // shape; a trailing token is a malformed feature → §3.2 → `not all`
-    // (`Invalid`), NOT general-enclosed (sibling of the `parse_plain` rule).
-    expect_feature_end(input)?;
+    let raw = parse_mf_value(input)?;
     let lower = name.to_ascii_lowercase();
     // a discrete feature in range context is invalid (§2.4.1).
     if classify_discrete_feature(&lower).is_some() {
-        return Err(FeatErr::Invalid);
+        return Err(());
     }
-    match classify_range_feature(&lower) {
-        Some(rf) => match coerce_raw(raw, rf) {
-            Some(value) => Ok(MediaFeature::Range {
-                name: rf,
-                constraints: vec![RangeConstraint { op, value }],
-            }),
-            None => Err(FeatErr::Invalid),
-        },
-        None => Err(FeatErr::Invalid),
-    }
-}
-
-fn parse_value_first(input: &mut Parser<'_, '_>) -> Result<MediaFeature, FeatErr> {
-    input.skip_whitespace();
-    let raw1 = parse_mf_value(input).map_err(|()| FeatErr::NotShaped)?;
-    let op1 = try_comparison(input).ok_or(FeatErr::NotShaped)?;
-    input.skip_whitespace();
-    let name = input
-        .try_parse(|i| {
-            i.expect_ident()
-                .map(|s| s.as_ref().to_owned())
-                .map_err(|_| ())
-        })
-        .map_err(|()| FeatErr::NotShaped)?;
-    let lower = name.to_ascii_lowercase();
-    let rf = classify_range_feature(&lower).ok_or(FeatErr::Invalid)?;
-    let v1 = coerce_raw(raw1, rf).ok_or(FeatErr::Invalid)?;
-    // optional second `<op> <value>` for `a <= width <= b`.
-    if let Some(op2) = try_comparison(input) {
-        // §3 `<mf-range>`: a two-sided form is only
-        // `<value> <mf-lt> <name> <mf-lt> <value>` or the `<mf-gt>` dual — both
-        // comparisons same-direction, and `=` is not allowed. `rf` is already a
-        // *recognized* range feature here, so a mixed-direction form (or any
-        // `=`) is a malformed use of a known feature → §3.2 → `not all`
-        // (`Invalid`), NOT `<general-enclosed>` (which is reserved for content
-        // matching no recognized feature — the `<value> <op> <name>` prefix has
-        // already committed the feature shape).
-        if !same_direction_range(op1, op2) {
-            return Err(FeatErr::Invalid);
-        }
-        input.skip_whitespace();
-        let raw2 = parse_mf_value(input).map_err(|()| FeatErr::Invalid)?;
-        // trailing token after a complete two-sided range → malformed → not all.
-        expect_feature_end(input)?;
-        let v2 = coerce_raw(raw2, rf).ok_or(FeatErr::Invalid)?;
-        return Ok(MediaFeature::Range {
-            name: rf,
-            constraints: vec![
-                RangeConstraint {
-                    op: flip_op(op1),
-                    value: v1,
-                },
-                RangeConstraint { op: op2, value: v2 },
-            ],
-        });
-    }
-    // trailing token after a complete single-sided value-first range of a
-    // recognized feature → malformed → not all.
-    expect_feature_end(input)?;
+    let rf = classify_range_feature(&lower).ok_or(())?;
+    let value = coerce_raw(raw, rf).ok_or(())?;
     Ok(MediaFeature::Range {
         name: rf,
-        constraints: vec![RangeConstraint {
-            op: flip_op(op1),
-            value: v1,
-        }],
+        constraints: vec![RangeConstraint { op, value }],
     })
 }
 
-/// Assert a committed `<media-feature>` shape consumed all of its parens
-/// content. Any leftover token is a grammar failure of that feature, so §3.2
-/// replaces the whole `<media-query>` with `not all` (`FeatErr::Invalid`) —
-/// never `<general-enclosed>`, which is reserved for content that matches no
-/// recognized feature shape. This is the single canonical form of the
-/// "trailing junk after a feature" rule, shared by `parse_plain`,
-/// `parse_name_first_range`, and `parse_value_first` (both range arms).
-fn expect_feature_end(input: &mut Parser<'_, '_>) -> Result<(), FeatErr> {
+fn parse_value_first(input: &mut Parser<'_, '_>) -> Result<MediaFeature, ()> {
     input.skip_whitespace();
-    if input.is_exhausted() {
-        Ok(())
-    } else {
-        Err(FeatErr::Invalid)
+    let raw1 = parse_mf_value(input)?;
+    let op1 = try_comparison(input).ok_or(())?;
+    input.skip_whitespace();
+    let name = input.try_parse(|i| {
+        i.expect_ident()
+            .map(|s| s.as_ref().to_owned())
+            .map_err(|_| ())
+    })?;
+    let lower = name.to_ascii_lowercase();
+    let rf = classify_range_feature(&lower).ok_or(())?;
+    let v1 = coerce_raw(raw1, rf).ok_or(())?;
+    let mut constraints = vec![RangeConstraint {
+        op: flip_op(op1),
+        value: v1,
+    }];
+    // Optional second `<op> <value>` for `a <= width <= b`. §3 `<mf-range>`
+    // requires both comparisons the same direction and forbids `=`. A
+    // mixed-direction / `=` second comparison is NOT consumed (the `try_parse`
+    // rewinds): it is left for [`parse_media_feature`]'s exhaustion check, which
+    // routes the leftover tokens to `<general-enclosed>` (Kleene unknown), NOT
+    // `not all`.
+    if let Ok((op2, v2)) = input.try_parse(|i| -> Result<(RangeOp, RangeValue), ()> {
+        let op2 = try_comparison(i).ok_or(())?;
+        if !same_direction_range(op1, op2) {
+            return Err(());
+        }
+        i.skip_whitespace();
+        let raw2 = parse_mf_value(i)?;
+        let v2 = coerce_raw(raw2, rf).ok_or(())?;
+        Ok((op2, v2))
+    }) {
+        constraints.push(RangeConstraint { op: op2, value: v2 });
     }
+    Ok(MediaFeature::Range {
+        name: rf,
+        constraints,
+    })
 }
 
 /// A raw `<mf-value>` token before coercion to a feature's value type.
@@ -612,7 +587,8 @@ fn resolution_to_dppx(value: f64, unit: &str) -> Option<f64> {
 
 /// Parse an `<mf-comparison>` operator (`<` `<=` `>` `>=` `=`). §3 requires no
 /// whitespace between `<`/`>` and `=`, so `< =` parses as a bare `<` (the
-/// trailing `=` then fails the query → `not all`).
+/// trailing `=` then leaves the feature unrecognized → general-enclosed →
+/// Kleene unknown).
 fn try_comparison(input: &mut Parser<'_, '_>) -> Option<RangeOp> {
     input
         .try_parse(|i| -> Result<RangeOp, ()> {

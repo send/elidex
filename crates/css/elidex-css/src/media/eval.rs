@@ -127,10 +127,14 @@ fn eval_feature(feature: &MediaFeature, env: &MediaEnvironment) -> Tri {
     match feature {
         MediaFeature::Range { name, constraints } => {
             let actual = range_feature_value(*name, env);
+            // §6.1: `color` is an `<integer>` → compare exactly. The other range
+            // values are f32-sourced (`<length>`/`<resolution>`/`<ratio>`) and
+            // use the magnitude-relative tolerance (see `compare`/`approx_eq`).
+            let exact = matches!(*name, RangeFeature::Color);
             Tri::from_bool(
                 constraints
                     .iter()
-                    .all(|c| compare(actual, c.op, resolve_range_value(&c.value, env))),
+                    .all(|c| compare(actual, c.op, resolve_range_value(&c.value, env), exact)),
             )
         }
         MediaFeature::Discrete { name, value } => {
@@ -204,14 +208,52 @@ fn resolve_px(value: f64, unit: LengthUnit, env: &MediaEnvironment) -> f64 {
     }
 }
 
-/// `<mf-comparison>` numeric comparison — §2.4.3.
-fn compare(actual: f64, op: RangeOp, target: f64) -> bool {
+/// Relative tolerance for `<length>`/`<resolution>`/`<ratio>` comparisons.
+///
+/// `<mf-value>` dimensions arrive as cssparser `f32`, so an exact decimal like
+/// `2.54cm` cannot round-trip to its intended `96px` (`2.54f32` ≈ 2.5399999…);
+/// after unit conversion the result is off by ~1.4×10⁻⁶ px (rel ≈ 1.5×10⁻⁸).
+/// A magnitude-relative tolerance (cancellation-aware, per the f64-tolerance
+/// lesson — relative, not absolute, so it tracks the value's scale) absorbs
+/// that f32 quantization while staying far below the 1px gap between adjacent
+/// integer viewport sizes. Measured safe band: > 1.5×10⁻⁸ (f32 error floor)
+/// and < 1.5×10⁻⁵ (adjacent-integer relative gap at a generous 65536px max);
+/// `1e-6` sits ~67× above the floor and ~15× below the aliasing ceiling, so
+/// distinct breakpoints never alias. `color` is an `<integer>` and compares
+/// exactly (no tolerance — see `compare`'s `exact`).
+const VALUE_REL_EPS: f64 = 1e-6;
+
+/// Magnitude-relative approximate equality for f32-sourced media values: equal
+/// if the difference is within [`VALUE_REL_EPS`] of the larger magnitude
+/// (floored at 1.0, so sub-unit values keep an absolute ~1e-6 tolerance).
+/// Non-finite inputs compare exactly — `∞ == ∞`, but `∞ ≠` any finite value and
+/// `NaN ≠ NaN` — so e.g. `(aspect-ratio < 1/0)` keeps a finite ratio strictly
+/// below the `1/0 = ∞` target instead of aliasing onto it.
+fn approx_eq(a: f64, b: f64) -> bool {
+    if a == b {
+        return true;
+    }
+    if !a.is_finite() || !b.is_finite() {
+        return false;
+    }
+    (a - b).abs() <= VALUE_REL_EPS * a.abs().max(b.abs()).max(1.0)
+}
+
+/// `<mf-comparison>` numeric comparison — §2.4.3. `exact` selects integer-exact
+/// equality (`color`, an `<integer>`); all other feature values are f32-sourced
+/// and use [`approx_eq`] for the equality boundary.
+fn compare(actual: f64, op: RangeOp, target: f64, exact: bool) -> bool {
+    let eq = if exact {
+        actual == target
+    } else {
+        approx_eq(actual, target)
+    };
     match op {
-        RangeOp::Lt => actual < target,
-        RangeOp::Le => actual <= target,
-        RangeOp::Gt => actual > target,
-        RangeOp::Ge => actual >= target,
-        RangeOp::Eq => actual == target,
+        RangeOp::Lt => actual < target && !eq,
+        RangeOp::Le => actual < target || eq,
+        RangeOp::Gt => actual > target && !eq,
+        RangeOp::Ge => actual > target || eq,
+        RangeOp::Eq => eq,
     }
 }
 
