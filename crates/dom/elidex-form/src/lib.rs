@@ -676,13 +676,29 @@ impl FormControlState {
     /// Per HTML §4.10.5 reset algorithm for `<input>`: set the dirty value
     /// flag back to false, set the value to the `value` content attribute
     /// (or empty), restore checkedness from the `checked` content
-    /// attribute, set indeterminate back to false, and invoke value
-    /// sanitization.  The reset algorithm carries **no** cursor-move policy,
-    /// so the relevant-value-change rule (HTML §4.10.20) applies: the cursor
-    /// / selection are only CLAMPED into the restored value (positions and
-    /// selection direction otherwise preserved), via `settle_value`.
+    /// attribute, **empty the list of selected files**, set indeterminate
+    /// back to false, and invoke value sanitization.  The reset algorithm
+    /// carries **no** cursor-move policy, so the relevant-value-change rule
+    /// (HTML §4.10.20) applies: the cursor / selection are only CLAMPED into
+    /// the restored value (positions and selection direction otherwise
+    /// preserved), via `settle_value`.
+    ///
+    /// The reset algorithm has **two distinct value steps**: restore the
+    /// value content attribute (value mode) AND empty the selected-files list
+    /// (filename mode).  For a file control the content attribute does not
+    /// apply, so reset empties the backing rather than restoring
+    /// `default_value` — otherwise a `default_value` left over from a value
+    /// content attribute present at creation, or from a non-dispatched write,
+    /// would resurrect a stale string the file setter / type change had
+    /// cleared.  The selected-files list is not yet modeled
+    /// (`#11-input-file-shell-staging`); its observable backing lives in
+    /// `value`, so "empty the list" maps to an empty `value`.
     pub fn reset_value(&mut self) {
-        self.value = self.default_value.clone();
+        if self.kind == FormControlKind::File {
+            self.value.clear();
+        } else {
+            self.value.clone_from(&self.default_value);
+        }
         self.dirty_value = false;
         self.checked = self.default_checked;
         self.indeterminate = false;
