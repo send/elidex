@@ -266,6 +266,20 @@ fn collect_control_entry(dom: &EcsDom, entity: Entity, entries: &mut Vec<FormDat
             }
         }
         _ => {
+            // HTML §4.10.22.4 "Constructing the entry list" step 10: a
+            // general control (text, hidden, …) submits "the value of the
+            // field element" — the control's VALUE, i.e. its internal state
+            // (`fcs.value`), per §4.10.18.1 "A form control's value".
+            //
+            // This is the LIVE value, NOT the `value` content attribute / the
+            // default-mode IDL getter.  For a control dirtied in a value-mode
+            // state and then type-changed into a default mode (hidden/submit),
+            // §4.10.18.1 says the dirty value flag makes the value IGNORE the
+            // default value, so a later default-mode `el.value = x` updates the
+            // content attribute (and the IDL getter) while the submitted value
+            // stays the dirty live value — getter ≠ submission is intended.
+            // (Checkbox/radio are the deliberate exception, handled above per
+            // step 7 = the content attribute.)
             entries.push(FormDataEntry {
                 name: fcs.name.clone(),
                 value: fcs.value.clone(),
