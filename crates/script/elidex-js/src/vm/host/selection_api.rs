@@ -26,11 +26,14 @@
 //! slot `#11-selection-mid-surrogate-fidelity`.
 //!
 //! For `<textarea>`, §4.10.20's "relevant value" is the **API value**
-//! (CR / CRLF normalized to LF).  `FormControlState` now stores the API
-//! value (`elidex_form` normalizes textarea newlines at every value
-//! establishment / edit site), so `state.value()` here *is* the API
-//! value and these offsets are spec-correct with no extra work in this
-//! module.
+//! (CR / CRLF normalized to LF).  `FormControlState` normalizes textarea
+//! newlines at every value-*establishment* site (the IDL `value` setter,
+//! parser child-text init, form reset), so for values set that way
+//! `state.value()` *is* the API value and these offsets are spec-correct
+//! with no extra work here.  Newline folding on the incremental *editing*
+//! paths (`setRangeText` / paste / IME) — and the coupled maxlength /
+//! `InputEvent` handling those entail — is the follow-up
+//! `#11-textarea-edit-path-newline-normalization`.
 //!
 //! ## Layering
 //!

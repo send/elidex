@@ -31,12 +31,14 @@ fn strip_newlines(s: &str) -> String {
 /// the `value` / `textLength` IDL attributes and `maxlength` / `minlength`
 /// observe.  Storing the normalized value at every value-establishment site
 /// keeps those observers (and the shared selection conversion) spec-correct
-/// uniformly — see [`FormControlState::settle_value`].  Also applied by the
-/// editing-mutation paths ([`FormControlState::insert_at_cursor`] /
-/// [`replace_selection`](FormControlState::replace_selection)) that bypass
-/// `settle_value`, so an inserted CR (setRangeText / paste / IME) is folded
-/// too.
-pub(crate) fn normalize_newlines(s: &str) -> String {
+/// uniformly — see [`FormControlState::settle_value`].
+///
+/// Scope: this covers value-*establishment* (the IDL `value` setter, parser
+/// child-text init, form reset).  Folding newlines on the incremental
+/// *editing* paths (`setRangeText` / paste / IME) — together with maxlength
+/// counted on the API value and the `InputEvent` data — is the coupled
+/// follow-up (`#11-textarea-edit-path-newline-normalization`).
+fn normalize_newlines(s: &str) -> String {
     s.replace("\r\n", "\n").replace('\r', "\n")
 }
 

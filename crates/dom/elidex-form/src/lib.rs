@@ -756,27 +756,10 @@ impl FormControlState {
         self.update_char_count();
     }
 
-    /// Fold an about-to-be-inserted string's newlines to LF for a
-    /// `<textarea>`, so the stored value stays the element's API value
-    /// (HTML §4.10.11) even on the editing paths — `setRangeText` →
-    /// [`replace_selection`](Self::replace_selection), and paste / IME →
-    /// [`insert_at_cursor`](Self::insert_at_cursor) — that bypass the
-    /// `sanitize_value` chokepoint.  Other kinds insert verbatim (their own
-    /// value sanitization runs at the value-establishment chokepoint, not
-    /// per edit, so re-sanitizing here would e.g. empty a half-typed number).
-    pub(crate) fn normalize_textarea_insert<'a>(&self, text: &'a str) -> std::borrow::Cow<'a, str> {
-        if self.kind == FormControlKind::TextArea {
-            std::borrow::Cow::Owned(sanitize::normalize_newlines(text))
-        } else {
-            std::borrow::Cow::Borrowed(text)
-        }
-    }
-
     /// Insert text at the current cursor position (marks as dirty).
     pub fn insert_at_cursor(&mut self, text: &str) {
         let pos = self.safe_cursor_pos();
-        let text = self.normalize_textarea_insert(text);
-        self.value.insert_str(pos, &text);
+        self.value.insert_str(pos, text);
         self.cursor_pos = pos + text.len();
         self.dirty_value = true;
         self.update_char_count();
@@ -819,8 +802,7 @@ impl FormControlState {
         if start != end {
             self.value.drain(start..end);
         }
-        let text = self.normalize_textarea_insert(text);
-        self.value.insert_str(start, &text);
+        self.value.insert_str(start, text);
         self.cursor_pos = start + text.len();
         self.selection_start = self.cursor_pos;
         self.selection_end = self.cursor_pos;
