@@ -116,8 +116,9 @@ pub(super) fn dispatch_input_event_typed(
 
 /// Handle implicit form submission (Enter on text input/password).
 ///
-/// Per HTML §4.10.15.3: implicit submission finds the form ancestor,
-/// dispatches a "submit" event, and if not prevented, logs the form data.
+/// Per HTML §4.10.22.3 (form submission algorithm; the implicit-Enter
+/// trigger is §4.10.22.2): finds the form ancestor, dispatches a "submit"
+/// event, and if not prevented, runs the method-dispatched submission.
 ///
 /// Sandbox `allow-forms` enforcement: if this document is inside a sandboxed
 /// iframe without `allow-forms`, form submission is silently blocked
@@ -208,7 +209,7 @@ fn navigate_submission(
 /// Resolve and build the submission target URL.
 ///
 /// For GET: replaces query with form-encoded data, preserves fragment from action URL
-/// (WHATWG §4.10.15.3 step 11).
+/// (WHATWG §4.10.22.3 "Mutate action URL").
 /// For POST: preserves existing query, strips fragment.
 fn build_submission_url(
     state: &ContentState,
@@ -221,13 +222,13 @@ fn build_submission_url(
 
     if method == "get" {
         let mut target_url = resolved;
-        // WHATWG §4.10.15.3: GET replaces the query entirely (no appending).
+        // WHATWG §4.10.22.3 "Mutate action URL": GET replaces the query entirely.
         target_url.set_query(if encoded.is_empty() {
             None
         } else {
             Some(&encoded)
         });
-        // WHATWG §4.10.15.3 step 11: fragment is preserved from the action URL.
+        // WHATWG §4.10.22.3 "Mutate action URL": fragment is preserved from the action URL.
         Some(target_url)
     } else {
         let mut target_url = resolved;

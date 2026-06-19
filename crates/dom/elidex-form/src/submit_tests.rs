@@ -629,10 +629,7 @@ fn invalid_form_method_defaults_to_get() {
     let mut form_attrs = Attributes::default();
     form_attrs.set("method", "frobnicate");
     let form = dom.create_element("form", form_attrs);
-    let (method, ..) = {
-        let (_, m, e, d) = navigate(build_form_submission(&dom, form, None));
-        (m, e, d)
-    };
+    let (_, method, _, _) = navigate(build_form_submission(&dom, form, None));
     assert_eq!(method, "get", "§attr-fs-method: invalid method → GET");
 }
 
