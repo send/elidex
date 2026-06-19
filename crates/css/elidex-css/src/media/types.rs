@@ -53,7 +53,11 @@ pub enum Qualifier {
 }
 
 /// `<media-type>` — mediaqueries-4 §2.3.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+///
+/// Not `Copy`: [`Other`](Self::Other) carries the ident text so it can be
+/// serialized back (CSSOM-1 §4.2 step 2 — "the media type … converted to ASCII
+/// lowercase"); the heap `Box<str>` makes the value non-`Copy`.
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum MediaType {
     All,
     Screen,
@@ -62,8 +66,10 @@ pub enum MediaType {
     /// a deprecated one (`tty`/`tv`/`projection`/`handheld`/`braille`/
     /// `embossed`/`aural`/`speech`). §2.3 + §3.2: definite-FALSE but NEGATABLE
     /// (`not <Other>` = true) — distinct from the `not all` sentinel (which is
-    /// false even under `not`).
-    Other,
+    /// false even under `not`). Carries the **lowercased** ident (CSSOM-1 §4.2
+    /// step 2 lowercases the media type) so `matchMedia('TV').media` → `tv`;
+    /// without it the serializer would have no token to emit.
+    Other(Box<str>),
 }
 
 /// `<media-condition>` — mediaqueries-4 §2.5 — a recursive boolean tree
@@ -83,7 +89,13 @@ pub enum MediaCondition {
     /// (§3.2 "unknown … results in the value unknown"). Evaluates to Kleene
     /// `Unknown` (never `false`) for forward-compatibility — so `(color) or
     /// (unknownfeature)` is true on a color device, not poisoned to `not all`.
-    GeneralEnclosed,
+    ///
+    /// Carries the **raw block text** captured at parse — `(weird: x)` or a
+    /// `name(...)` function block — so it serializes back verbatim (CSSOM has no
+    /// canonical form for `<general-enclosed>`; browsers preserve the original
+    /// text). The stored slice includes its own delimiters: `( … )` for a parens
+    /// block, `name( … )` for a function token.
+    GeneralEnclosed(Box<str>),
 }
 
 /// `<media-feature>` — mediaqueries-4 §2.4.
@@ -92,9 +104,14 @@ pub enum MediaFeature {
     /// A range feature (`width`/`height`/`aspect-ratio`/`resolution`) with one
     /// or two comparison constraints — §2.4.3 range context (incl. legacy
     /// `min-`/`max-` prefixes and L4 `(a <= width <= b)`). Constraints ANDed.
+    ///
+    /// `syntax` records which of the two equivalent notations was written, so
+    /// `.media` serializes back the same one — the constraints alone can't tell
+    /// `(min-width: 5px)` from `(width >= 5px)` (both are `[{Ge, 5px}]`).
     Range {
         name: RangeFeature,
         constraints: Vec<RangeConstraint>,
+        syntax: RangeSyntax,
     },
     /// A discrete feature (`orientation`/`prefers-*`) with an explicit keyword
     /// value — §2.4 discrete type.
@@ -105,6 +122,23 @@ pub enum MediaFeature {
     /// A feature used in boolean context `(name)` — §2.4.2: true iff the
     /// feature would be true for some value (non-zero / non-none).
     Boolean(BooleanFeature),
+}
+
+/// Which of the two equivalent notations a [range feature](MediaFeature::Range)
+/// was written in — mediaqueries-4 §2.4.1. They are semantically identical
+/// (`min-width: 5px` ≡ `width >= 5px`), so they collapse to the same
+/// [`RangeConstraint`]s at parse; this records the source notation purely so
+/// `.media` serializes back the same one (CSSOM-1 §4.2 only models the colon
+/// notation as feature *names* — the comparison notation has no spec
+/// serialization, so it follows the browser de-facto form).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RangeSyntax {
+    /// Colon notation: `(width: 5px)` / `(min-width: 5px)` / `(max-width: 5px)`
+    /// — §2.4.4. Always a single constraint with op `=` / `>=` / `<=`.
+    Plain,
+    /// Comparison notation: `(width >= 5px)`, `(5px <= width <= 10px)` — §2.4.3
+    /// range context. One or two constraints with any comparison operator.
+    Comparison,
 }
 
 /// One comparison in a range feature: `<op> <value>` — mediaqueries-4 §2.4.3.
@@ -122,6 +156,23 @@ pub enum RangeOp {
     Gt,
     Ge,
     Eq,
+}
+
+impl RangeOp {
+    /// The reflected operator: `a <op> b` ≡ `b <op.flipped()> a` (§2.4.3). The
+    /// parser uses it to rewrite a value-first comparison (`5px < width`) to the
+    /// canonical name-first orientation; the serializer flips back to recover
+    /// the left operand of a two-sided range (`a <= width <= b`).
+    #[must_use]
+    pub(crate) fn flipped(self) -> RangeOp {
+        match self {
+            RangeOp::Lt => RangeOp::Gt,
+            RangeOp::Le => RangeOp::Ge,
+            RangeOp::Gt => RangeOp::Lt,
+            RangeOp::Ge => RangeOp::Le,
+            RangeOp::Eq => RangeOp::Eq,
+        }
+    }
 }
 
 /// A range feature's target value, resolved to a comparable `f64` at eval
@@ -146,8 +197,12 @@ pub enum RangeValue {
     /// relative/logical/viewport-variant units) is the carved follow-up slot
     /// `#11-media-css-values-fidelity`.
     Calc(Box<CalcExpr>),
-    /// A `<ratio>` (css-values-4 §5.7) for `aspect-ratio`.
-    Ratio(f64),
+    /// A `<ratio>` (css-values-4 §5.7) for `aspect-ratio`. The numerator and
+    /// denominator are kept separate (not pre-divided) so `.media` serializes
+    /// back `16 / 9` rather than `1.7777…`; eval compares `num / den`. A bare
+    /// `<number>` ratio (`aspect-ratio: 2`) is `den == 1.0` (css-values-4 §5.7:
+    /// `<number>` ≡ `<number> / 1`, serialized `2 / 1`).
+    Ratio { num: f64, den: f64 },
     /// A `<resolution>` (css-values-4 §7.4) in dppx for `resolution`, from a
     /// `dppx`/`x` token (the canonical unit — no conversion) or the `infinite`
     /// keyword (`f64::INFINITY`, MQ4 §5.1). Compared EXACTLY.
@@ -163,7 +218,12 @@ pub enum RangeValue {
     /// this — compares with the magnitude-relative tolerance (`approx_eq`). Kept
     /// distinct from [`Length`](Self::Length)/[`Dppx`](Self::Dppx) so a *direct*
     /// fractional px/dppx breakpoint is never widened by that tolerance.
-    Converted(f64),
+    ///
+    /// `px` is the resolved comparison value (what eval reads); `value` + `unit`
+    /// (the **lowercased** specified dimension, e.g. `2.54` + `cm`) are retained
+    /// so `.media` serializes back `2.54cm` rather than the lossy `95.9999986px`
+    /// — the conversion is one-way, so the resolved scalar can't recover it.
+    Converted { px: f64, value: f64, unit: Box<str> },
 }
 
 /// The range-typed media features supported in this slice (the extended MQ5

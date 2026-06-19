@@ -188,10 +188,16 @@ fn parse_media_in_parens<'i>(
         return Err(input.new_custom_error(()));
     }
     input.skip_whitespace();
-    // A function token (`name(...)`) can only be <general-enclosed>.
+    // A function token (`name(...)`) can only be <general-enclosed>. Capture its
+    // raw text (the whole `name( … )`, its own delimiters included) for
+    // serialization — `slice_from` spans the function token through the closing
+    // `)` consumed by `parse_nested_block`.
+    let fn_start = input.position();
     if input.try_parse(expect_function_token).is_ok() {
         input.parse_nested_block(drain_block)?;
-        return Ok(MediaCondition::GeneralEnclosed);
+        return Ok(MediaCondition::GeneralEnclosed(
+            input.slice_from(fn_start).into(),
+        ));
     }
     input.expect_parenthesis_block().map_err(ParseError::from)?;
     input.parse_nested_block(|inner| parse_parens_content(inner, depth + 1))
@@ -227,6 +233,10 @@ fn parse_parens_content<'i>(
     inner: &mut Parser<'i, '_>,
     depth: u32,
 ) -> Result<MediaCondition, ParseError<'i, ()>> {
+    // Capture the raw inner text up front for the <general-enclosed> fallback;
+    // the caller already consumed the surrounding `( )`, so it is re-wrapped
+    // below. (`trim` drops the leading whitespace this spans before skipping.)
+    let content_start = inner.position();
     inner.skip_whitespace();
     // 1. nested `( <media-condition> )`.
     if let Ok(cond) = inner.try_parse(|i| -> Result<MediaCondition, ParseError<'_, ()>> {
@@ -242,9 +252,12 @@ fn parse_parens_content<'i>(
         return Ok(MediaCondition::Feature(feature));
     }
     // Unknown name / invalid value / trailing junk / malformed range — all
-    // still match `( <any-value> )` → Kleene unknown (§3.1/§3.2).
+    // still match `( <any-value> )` → Kleene unknown (§3.1/§3.2). Preserve the
+    // raw text (re-wrapped in its parens) so `.media` serializes it back.
     while inner.next().is_ok() {}
-    Ok(MediaCondition::GeneralEnclosed)
+    Ok(MediaCondition::GeneralEnclosed(
+        format!("({})", inner.slice_from(content_start).trim()).into(),
+    ))
 }
 
 /// Parse the content of a `( ... )` as a complete `<media-feature>`.
@@ -345,6 +358,7 @@ fn parse_plain(input: &mut Parser<'_, '_>, name: &str) -> Result<MediaFeature, (
     Ok(MediaFeature::Range {
         name: rf,
         constraints: vec![RangeConstraint { op, value }],
+        syntax: RangeSyntax::Plain,
     })
 }
 
@@ -365,6 +379,7 @@ fn parse_name_first_range(
     Ok(MediaFeature::Range {
         name: rf,
         constraints: vec![RangeConstraint { op, value }],
+        syntax: RangeSyntax::Comparison,
     })
 }
 
@@ -382,7 +397,7 @@ fn parse_value_first(input: &mut Parser<'_, '_>) -> Result<MediaFeature, ()> {
     let rf = classify_range_feature(&lower).ok_or(())?;
     let v1 = coerce_raw(raw1, rf).ok_or(())?;
     let mut constraints = vec![RangeConstraint {
-        op: flip_op(op1),
+        op: op1.flipped(),
         value: v1,
     }];
     // Optional second `<op> <value>` for `a <= width <= b`. §3 `<mf-range>`
@@ -406,6 +421,7 @@ fn parse_value_first(input: &mut Parser<'_, '_>) -> Result<MediaFeature, ()> {
     Ok(MediaFeature::Range {
         name: rf,
         constraints,
+        syntax: RangeSyntax::Comparison,
     })
 }
 
@@ -510,8 +526,14 @@ fn coerce_raw(raw: RawMfValue, rf: RangeFeature) -> Option<RangeValue> {
             // `<ratio>` components are non-negative (css-values-4 §5.7); a
             // negative component is invalid, but `0` (incl. a zero denominator)
             // is a valid degenerate ratio → ±inf/NaN, handled by `compare`.
-            RawMfValue::Ratio(n, d) if n >= 0.0 && d >= 0.0 => Some(RangeValue::Ratio(n / d)),
-            RawMfValue::Number { value, .. } if value >= 0.0 => Some(RangeValue::Ratio(value)),
+            RawMfValue::Ratio(n, d) if n >= 0.0 && d >= 0.0 => {
+                Some(RangeValue::Ratio { num: n, den: d })
+            }
+            // A bare `<number>` is `<number> / 1` (css-values-4 §5.7).
+            RawMfValue::Number { value, .. } if value >= 0.0 => Some(RangeValue::Ratio {
+                num: value,
+                den: 1.0,
+            }),
             _ => None,
         },
         RangeFeature::Resolution => match raw {
@@ -562,7 +584,8 @@ fn media_length_to_value(value: f64, unit: &str) -> Option<RangeValue> {
     if let Ok(u) = crate::values::parse_length_unit(unit) {
         return Some(RangeValue::Length { value, unit: u });
     }
-    let px = match unit.to_ascii_lowercase().as_str() {
+    let lower = unit.to_ascii_lowercase();
+    let px = match lower.as_str() {
         "in" => value * 96.0,
         "cm" => value * (96.0 / 2.54),
         "mm" => value * (96.0 / 25.4),
@@ -571,7 +594,11 @@ fn media_length_to_value(value: f64, unit: &str) -> Option<RangeValue> {
         "pc" => value * 16.0,
         _ => return None,
     };
-    Some(RangeValue::Converted(px))
+    Some(RangeValue::Converted {
+        px,
+        value,
+        unit: lower.into_boxed_str(),
+    })
 }
 
 /// `<resolution>` units → a dppx [`RangeValue`] — css-values-4 §7.4. `dppx`/`x`
@@ -579,12 +606,18 @@ fn media_length_to_value(value: f64, unit: &str) -> Option<RangeValue> {
 /// (possibly inexact) factor, so they become [`RangeValue::Converted`] and
 /// compare with tolerance.
 fn resolution_to_value(value: f64, unit: &str) -> Option<RangeValue> {
-    match unit.to_ascii_lowercase().as_str() {
-        "dppx" | "x" => Some(RangeValue::Dppx(value)),
-        "dpi" => Some(RangeValue::Converted(value / 96.0)),
-        "dpcm" => Some(RangeValue::Converted(value / (96.0 / 2.54))),
-        _ => None,
-    }
+    let lower = unit.to_ascii_lowercase();
+    let px = match lower.as_str() {
+        "dppx" | "x" => return Some(RangeValue::Dppx(value)),
+        "dpi" => value / 96.0,
+        "dpcm" => value / (96.0 / 2.54),
+        _ => return None,
+    };
+    Some(RangeValue::Converted {
+        px,
+        value,
+        unit: lower.into_boxed_str(),
+    })
 }
 
 /// Parse an `<mf-comparison>` operator (`<` `<=` `>` `>=` `=`). §3 requires no
@@ -630,17 +663,6 @@ fn eat_equals(input: &mut Parser<'_, '_>) -> bool {
         .is_ok()
 }
 
-/// `a <op> name` ≡ `name <flip(op)> a`.
-fn flip_op(op: RangeOp) -> RangeOp {
-    match op {
-        RangeOp::Lt => RangeOp::Gt,
-        RangeOp::Le => RangeOp::Ge,
-        RangeOp::Gt => RangeOp::Lt,
-        RangeOp::Ge => RangeOp::Le,
-        RangeOp::Eq => RangeOp::Eq,
-    }
-}
-
 /// §3 `<mf-range>` two-sided forms require both comparisons to be the same
 /// direction (`<`/`<=` … `<`/`<=` or `>`/`>=` … `>`/`>=`); `=` is not allowed
 /// in either slot.
@@ -673,13 +695,17 @@ fn match_qualifier(ident: &str) -> Option<Qualifier> {
 /// `<media-type>` — §2.3 / §3.2. Reserved keywords cannot be a media type
 /// (grammar fail → `not all`); any other ident is recognized-but-non-matching.
 fn classify_media_type(ident: &str) -> Result<MediaType, ()> {
-    match ident.to_ascii_lowercase().as_str() {
-        "all" => Ok(MediaType::All),
-        "screen" => Ok(MediaType::Screen),
-        "print" => Ok(MediaType::Print),
-        "not" | "only" | "and" | "or" | "layer" => Err(()),
-        _ => Ok(MediaType::Other),
+    let lower = ident.to_ascii_lowercase();
+    match lower.as_str() {
+        "all" => return Ok(MediaType::All),
+        "screen" => return Ok(MediaType::Screen),
+        "print" => return Ok(MediaType::Print),
+        "not" | "only" | "and" | "or" | "layer" => return Err(()),
+        // Recognized-but-non-matching: keep the lowercased ident so `.media` can
+        // serialize it back (CSSOM-1 §4.2 step 2 lowercases the media type).
+        _ => {}
     }
+    Ok(MediaType::Other(lower.into_boxed_str()))
 }
 
 fn classify_range_feature(name: &str) -> Option<RangeFeature> {
