@@ -5,6 +5,20 @@
 use super::*;
 use elidex_ecs::{Attributes, EcsDom};
 
+/// Unwrap a [`FormSubmission::Navigate`] (the common case in these tests),
+/// returning `(action, method, enctype, data)`.
+fn navigate(sub: Option<FormSubmission>) -> (String, String, String, Vec<FormDataEntry>) {
+    match sub.expect("expected a submission") {
+        FormSubmission::Navigate {
+            action,
+            method,
+            enctype,
+            data,
+        } => (action, method, enctype, data),
+        FormSubmission::Dialog { .. } => panic!("expected Navigate, got Dialog"),
+    }
+}
+
 fn make_form_with_input(dom: &mut EcsDom, name: &str, value: &str) -> (Entity, Entity) {
     let form = dom.create_element("form", Attributes::default());
     let mut attrs = Attributes::default();
@@ -240,9 +254,8 @@ fn submit_button_submitter_submits_value_attribute_not_label() {
         // live value when the value attribute is empty/absent.
         let _ = dom.world_mut().insert_one(btn, fcs);
         let _ = dom.append_child(form, btn);
-        let sub = build_form_submission(&dom, form, Some(btn));
-        sub.data
-            .into_iter()
+        let (_, _, _, data) = navigate(build_form_submission(&dom, form, Some(btn)));
+        data.into_iter()
             .find(|e| e.name == "btn")
             .map(|e| e.value)
             .expect("submitter entry present")
@@ -423,10 +436,10 @@ fn build_form_submission_collects_data() {
     let fcs = FormControlState::from_element("input", &input_attrs).unwrap();
     let _ = dom.world_mut().insert_one(input, fcs);
     let _ = dom.append_child(form, input);
-    let submission = build_form_submission(&dom, form, None);
-    assert_eq!(submission.action, "/search");
-    assert_eq!(submission.method, "get");
-    assert_eq!(submission.data.len(), 1);
+    let (action, method, _, data) = navigate(build_form_submission(&dom, form, None));
+    assert_eq!(action, "/search");
+    assert_eq!(method, "get");
+    assert_eq!(data.len(), 1);
 }
 
 #[test]
@@ -502,12 +515,143 @@ fn submitter_entry_included() {
     let fcs = FormControlState::from_element("input", &btn_attrs).unwrap();
     let _ = dom.world_mut().insert_one(btn, fcs);
     let _ = dom.append_child(form, btn);
-    let submission = build_form_submission(&dom, form, Some(btn));
+    let (_, _, _, data) = navigate(build_form_submission(&dom, form, Some(btn)));
     // Submit buttons are not in the normal data, but the submitter is added.
-    assert!(submission
-        .data
-        .iter()
-        .any(|e| e.name == "action" && e.value == "save"));
+    assert!(data.iter().any(|e| e.name == "action" && e.value == "save"));
+}
+
+// ---------------------------------------------------------------
+// method=dialog — WHATWG HTML §4.10.22.3 step 11 + §attr-fs-method
+// ---------------------------------------------------------------
+
+/// Unwrap a [`FormSubmission::Dialog`], returning `(subject, result)`.
+fn dialog(sub: Option<FormSubmission>) -> (Entity, Option<String>) {
+    match sub.expect("expected a submission") {
+        FormSubmission::Dialog { subject, result } => (subject, result),
+        FormSubmission::Navigate { .. } => panic!("expected Dialog, got Navigate"),
+    }
+}
+
+/// Build `<dialog><form method=M>` with a submit button (optional `value`),
+/// returning `(dialog, form, button)`.
+fn dialog_form(
+    dom: &mut EcsDom,
+    form_method: &str,
+    btn_formmethod: Option<&str>,
+    btn_value: Option<&str>,
+) -> (Entity, Entity, Entity) {
+    let dlg = dom.create_element("dialog", Attributes::default());
+    let mut form_attrs = Attributes::default();
+    form_attrs.set("method", form_method);
+    let form = dom.create_element("form", form_attrs);
+    let _ = dom.append_child(dlg, form);
+    let mut btn_attrs = Attributes::default();
+    btn_attrs.set("type", "submit");
+    btn_attrs.set("name", "go");
+    if let Some(fm) = btn_formmethod {
+        btn_attrs.set("formmethod", fm);
+    }
+    if let Some(v) = btn_value {
+        btn_attrs.set("value", v);
+    }
+    let btn = dom.create_element("input", btn_attrs.clone());
+    let fcs = FormControlState::from_element("input", &btn_attrs).unwrap();
+    let _ = dom.world_mut().insert_one(btn, fcs);
+    let _ = dom.append_child(form, btn);
+    (dlg, form, btn)
+}
+
+#[test]
+fn dialog_method_returns_dialog_with_submitter_value() {
+    let mut dom = EcsDom::new();
+    let (dlg, form, btn) = dialog_form(&mut dom, "dialog", None, Some("ok"));
+    let (subject, result) = dialog(build_form_submission(&dom, form, Some(btn)));
+    assert_eq!(subject, dlg);
+    assert_eq!(result.as_deref(), Some("ok"));
+}
+
+#[test]
+fn formmethod_dialog_overrides_form_post() {
+    let mut dom = EcsDom::new();
+    // form method=post, but the submit button's formmethod=dialog wins.
+    let (dlg, form, btn) = dialog_form(&mut dom, "post", Some("dialog"), Some("v"));
+    let (subject, result) = dialog(build_form_submission(&dom, form, Some(btn)));
+    assert_eq!(subject, dlg);
+    assert_eq!(result.as_deref(), Some("v"));
+}
+
+#[test]
+fn dialog_method_with_no_ancestor_dialog_returns_none() {
+    let mut dom = EcsDom::new();
+    // <form method=dialog> NOT inside any <dialog>.
+    let mut form_attrs = Attributes::default();
+    form_attrs.set("method", "dialog");
+    let form = dom.create_element("form", form_attrs);
+    let btn = make_submit_button(&mut dom, form);
+    assert!(
+        build_form_submission(&dom, form, Some(btn)).is_none(),
+        "§4.10.22.3 step 11.1: no ancestor dialog → silent return"
+    );
+}
+
+#[test]
+fn dialog_result_none_when_submitter_has_no_value_attr() {
+    let mut dom = EcsDom::new();
+    let (_, form, btn) = dialog_form(&mut dom, "dialog", None, None);
+    let (_, result) = dialog(build_form_submission(&dom, form, Some(btn)));
+    assert_eq!(result, None, "no value attr → returnValue unchanged");
+}
+
+#[test]
+fn dialog_result_empty_string_when_value_empty() {
+    let mut dom = EcsDom::new();
+    let (_, form, btn) = dialog_form(&mut dom, "dialog", None, Some(""));
+    let (_, result) = dialog(build_form_submission(&dom, form, Some(btn)));
+    assert_eq!(
+        result.as_deref(),
+        Some(""),
+        "value=\"\" → set returnValue to \"\""
+    );
+}
+
+#[test]
+fn dialog_result_none_when_no_submitter() {
+    let mut dom = EcsDom::new();
+    let (dlg, form, _) = dialog_form(&mut dom, "dialog", None, Some("ok"));
+    let (subject, result) = dialog(build_form_submission(&dom, form, None));
+    assert_eq!(subject, dlg);
+    assert_eq!(result, None, "no submitter → result is null");
+}
+
+#[test]
+fn invalid_form_method_defaults_to_get() {
+    let mut dom = EcsDom::new();
+    let mut form_attrs = Attributes::default();
+    form_attrs.set("method", "frobnicate");
+    let form = dom.create_element("form", form_attrs);
+    let (method, ..) = {
+        let (_, m, e, d) = navigate(build_form_submission(&dom, form, None));
+        (m, e, d)
+    };
+    assert_eq!(method, "get", "§attr-fs-method: invalid method → GET");
+}
+
+#[test]
+fn formaction_override_on_submit_button() {
+    let mut dom = EcsDom::new();
+    let mut form_attrs = Attributes::default();
+    form_attrs.set("action", "/form");
+    form_attrs.set("method", "post");
+    let form = dom.create_element("form", form_attrs);
+    let mut btn_attrs = Attributes::default();
+    btn_attrs.set("type", "submit");
+    btn_attrs.set("formaction", "/override");
+    let btn = dom.create_element("input", btn_attrs.clone());
+    let fcs = FormControlState::from_element("input", &btn_attrs).unwrap();
+    let _ = dom.world_mut().insert_one(btn, fcs);
+    let _ = dom.append_child(form, btn);
+    let (action, ..) = navigate(build_form_submission(&dom, form, Some(btn)));
+    assert_eq!(action, "/override");
 }
 
 #[test]

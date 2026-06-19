@@ -137,44 +137,71 @@ pub(super) fn handle_form_submit(state: &mut ContentState, target: Entity) {
     submit_event.cancelable = true;
     let prevented = state.pipeline.dispatch_event(&mut submit_event);
 
-    if !prevented {
-        let mut submission =
-            elidex_form::build_form_submission(&state.pipeline.dom, form_entity, Some(target));
-        // WHATWG §4.10.15.3 step 5: submitter formaction/formmethod override.
-        if let Ok(attrs) = state
+    if prevented {
+        return;
+    }
+
+    // §4.10.22.3 steps 10-11: resolve the submitter's effective method and
+    // branch. The submitter `formmethod`/`formaction` override + nearest-
+    // ancestor-dialog resolution live in the engine-independent
+    // `build_form_submission`. `None` = method=dialog with no ancestor
+    // `<dialog>` (step 11.1 silent return).
+    let Some(submission) =
+        elidex_form::build_form_submission(&state.pipeline.dom, form_entity, Some(target))
+    else {
+        return;
+    };
+
+    match submission {
+        elidex_form::FormSubmission::Navigate {
+            action,
+            method,
+            enctype,
+            data,
+        } => navigate_submission(state, &action, &method, &enctype, &data),
+        elidex_form::FormSubmission::Dialog { subject, result } => {
+            // §4.10.22.3 step 11.6: close the dialog `subject` with `result`.
+            // The engine-independent algorithm performs the state mutation
+            // (removes `open` via the chokepoint → MutationObserver, clears
+            // the modal marker, sets returnValue); we fire the `close` event
+            // here (close-the-dialog step 13) iff the dialog was open —
+            // mirroring the `reset_form` precedent (caller fires the event).
+            if elidex_dom_api::close_the_dialog(&mut state.pipeline.dom, subject, result.as_deref())
+            {
+                let mut close_event = DispatchEvent::new("close", subject);
+                close_event.bubbles = false;
+                close_event.cancelable = false;
+                state.pipeline.dispatch_event(&mut close_event);
+            }
+        }
+    }
+}
+
+/// Navigate-branch submission (§4.10.22.3 steps 12+): resolve the action
+/// (empty → current document URL), build the target URL, and execute.
+fn navigate_submission(
+    state: &mut ContentState,
+    action: &str,
+    method: &str,
+    enctype: &str,
+    data: &[elidex_form::FormDataEntry],
+) {
+    // §4.10.22.3 step 13: empty action → the document's URL.
+    let action = if action.is_empty() {
+        state
             .pipeline
-            .dom
-            .world()
-            .get::<&elidex_ecs::Attributes>(target)
-        {
-            if let Some(fa) = attrs.get("formaction") {
-                if !fa.is_empty() {
-                    submission.action = fa.to_string();
-                }
-            }
-            if let Some(fm) = attrs.get("formmethod") {
-                let fm_lower = fm.to_ascii_lowercase();
-                if fm_lower == "get" || fm_lower == "post" {
-                    submission.method = fm_lower;
-                }
-            }
-        }
-        // WHATWG §4.10.15.3 step 7: empty action → current document URL.
-        let action = if submission.action.is_empty() {
-            state
-                .pipeline
-                .url
-                .as_ref()
-                .map(std::string::ToString::to_string)
-                .unwrap_or_default()
-        } else {
-            submission.action.clone()
-        };
-        if !action.is_empty() {
-            if let Some(target_url) = build_submission_url(state, &submission, &action) {
-                execute_submission(state, &submission, &target_url);
-            }
-        }
+            .url
+            .as_ref()
+            .map(std::string::ToString::to_string)
+            .unwrap_or_default()
+    } else {
+        action.to_string()
+    };
+    if action.is_empty() {
+        return;
+    }
+    if let Some(target_url) = build_submission_url(state, method, data, &action) {
+        execute_submission(state, method, enctype, data, &target_url);
     }
 }
 
@@ -185,13 +212,14 @@ pub(super) fn handle_form_submit(state: &mut ContentState, target: Entity) {
 /// For POST: preserves existing query, strips fragment.
 fn build_submission_url(
     state: &ContentState,
-    submission: &elidex_form::FormSubmission,
+    method: &str,
+    data: &[elidex_form::FormDataEntry],
     action: &str,
 ) -> Option<url::Url> {
     let resolved = crate::app::navigation::resolve_nav_url(state.pipeline.url.as_ref(), action)?;
-    let encoded = elidex_form::encode_form_urlencoded(&submission.data);
+    let encoded = elidex_form::encode_form_urlencoded(data);
 
-    if submission.method == "get" {
+    if method == "get" {
         let mut target_url = resolved;
         // WHATWG §4.10.15.3: GET replaces the query entirely (no appending).
         target_url.set_query(if encoded.is_empty() {
@@ -211,22 +239,24 @@ fn build_submission_url(
 /// Execute the form submission (navigate with GET or POST).
 fn execute_submission(
     state: &mut ContentState,
-    submission: &elidex_form::FormSubmission,
+    method: &str,
+    enctype: &str,
+    data: &[elidex_form::FormDataEntry],
     target_url: &url::Url,
 ) {
-    if submission.method == "get" {
+    if method == "get" {
         super::navigation::handle_navigate(state, target_url, false, None);
-    } else if submission.method == "post" {
-        if submission.enctype == "multipart/form-data" {
+    } else if method == "post" {
+        if enctype == "multipart/form-data" {
             tracing::warn!(
-                action = %submission.action,
+                url = %target_url,
                 "multipart/form-data enctype not yet supported, falling back to urlencoded"
             );
         }
-        let encoded = elidex_form::encode_form_urlencoded(&submission.data);
+        let encoded = elidex_form::encode_form_urlencoded(data);
         tracing::debug!(
-            action = %submission.action,
-            entries = submission.data.len(),
+            url = %target_url,
+            entries = data.len(),
             "POST form submission"
         );
         let request = elidex_net::Request {

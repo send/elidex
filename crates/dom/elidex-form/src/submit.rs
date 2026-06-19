@@ -6,17 +6,37 @@ use elidex_ecs::{
 
 use crate::{FormControlKind, FormControlState};
 
-/// Describes a form submission.
+/// The outcome of running the form submission algorithm
+/// (WHATWG HTML §4.10.22.3) for a given submitter.
+///
+/// The submitter's **method** (§attr-fs-method: the submit button's
+/// `formmethod` if present, otherwise the form's `method`) selects the
+/// terminal branch — the `dialog` keyword (step 11) closes a `<dialog>`
+/// and never navigates, so it carries no action/method/enctype.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct FormSubmission {
-    /// The form action URL.
-    pub action: String,
-    /// The HTTP method (GET or POST).
-    pub method: String,
-    /// The encoding type (e.g. "application/x-www-form-urlencoded").
-    pub enctype: String,
-    /// The collected form data entries.
-    pub data: Vec<FormDataEntry>,
+pub enum FormSubmission {
+    /// Steps 12+ — navigate the form's target (GET/POST).
+    Navigate {
+        /// The form action URL (empty → caller substitutes the document URL).
+        action: String,
+        /// The HTTP method, normalized to `"get"` or `"post"`.
+        method: String,
+        /// The encoding type (e.g. "application/x-www-form-urlencoded").
+        enctype: String,
+        /// The collected form data entries.
+        data: Vec<FormDataEntry>,
+    },
+    /// Step 11 — `method=dialog`: close the form's nearest ancestor
+    /// `<dialog>` with `result`, firing no navigation.
+    Dialog {
+        /// The nearest ancestor `<dialog>` (step 11.2 "subject").
+        subject: Entity,
+        /// The result (steps 11.3-11.5): a submit button's optional value,
+        /// or `None` when the submitter is not a submit button / has no
+        /// `value` attribute. `None` leaves the dialog's `returnValue`
+        /// unchanged; `Some` (incl. `Some("")`) sets it.
+        result: Option<String>,
+    },
 }
 
 /// Encode form data entries as `application/x-www-form-urlencoded`.
@@ -93,18 +113,46 @@ pub fn read_form_attrs(dom: &EcsDom, form_entity: Entity) -> FormAttrs {
         )
 }
 
-/// Build a `FormSubmission` from a form element.
+/// Run the method-dispatch portion of the form submission algorithm
+/// (WHATWG HTML §4.10.22.3 steps 10-11) for `form_entity` submitted by
+/// the optional `submitter`.
 ///
-/// Optionally includes a `submitter` entity (e.g. the submit button that was
-/// clicked), which adds the submitter's name/value to the form data per
-/// HTML §4.10.15.3 step 5.
+/// Resolves the submitter's **effective method** (§attr-fs-method: the
+/// submit button's `formmethod` if present — invalid → GET — otherwise
+/// the form's `method`) and branches:
+/// - `method=dialog` (step 11): returns [`FormSubmission::Dialog`] with
+///   the nearest ancestor `<dialog>` and the submit button's optional
+///   value as the result. **Returns `None`** when the form has no
+///   ancestor `<dialog>` (step 11.1 silent return — the sole `None`).
+/// - otherwise (steps 12+): returns [`FormSubmission::Navigate`] with the
+///   collected entry list, the submitter's `formaction` override (if a
+///   non-empty submit-button `formaction`), and the normalized method.
+///
+/// The submitter's name/value is appended to the entry list for the
+/// navigate case per HTML §4.10.22.4 / §4.10.22.3 step 5.
 #[must_use]
 pub fn build_form_submission(
     dom: &EcsDom,
     form_entity: Entity,
     submitter: Option<Entity>,
-) -> FormSubmission {
+) -> Option<FormSubmission> {
     let attrs = read_form_attrs(dom, form_entity);
+    let method = resolve_effective_method(dom, &attrs.method, submitter);
+
+    if method == "dialog" {
+        // Step 11.1: no ancestor <dialog> → silent return (no submission).
+        let subject = find_dialog_ancestor(dom, form_entity)?;
+        // Steps 11.3-11.5: result = the submit button's optional value
+        // (None when the submitter is not a submit button or has no
+        // `value` attribute). Image-button (step 11.4 `"x,y"`) coords are
+        // not tracked yet (slot `#11-input-image-state`); an image button
+        // is a submit button here and falls through to its optional value.
+        let result = submitter
+            .filter(|&s| is_submit_button(dom, s))
+            .and_then(|s| dom.with_attribute(s, "value", |v| v.map(str::to_owned)));
+        return Some(FormSubmission::Dialog { subject, result });
+    }
+
     let mut data = collect_form_data(dom, form_entity);
     // Add the submitter's name/value if it's a submit button with a name.
     if let Some(submitter_entity) = submitter {
@@ -130,12 +178,66 @@ pub fn build_form_submission(
             }
         }
     }
-    FormSubmission {
-        action: attrs.action,
-        method: attrs.method,
+
+    // §4.10.22.3 step 12 (action) with the submit button's `formaction`
+    // override (a non-empty `formaction` on a submit-button submitter
+    // wins over the form's `action`).
+    let action = submitter
+        .filter(|&s| is_submit_button(dom, s))
+        .and_then(|s| {
+            dom.with_attribute(s, "formaction", |v| {
+                v.filter(|fa| !fa.is_empty()).map(str::to_owned)
+            })
+        })
+        .unwrap_or(attrs.action);
+
+    Some(FormSubmission::Navigate {
+        action,
+        method,
         enctype: attrs.enctype,
         data,
+    })
+}
+
+/// Resolve a submitter's **method** per WHATWG HTML §attr-fs-method:
+/// if the submitter is a submit button with a `formmethod` attribute,
+/// that attribute's state; otherwise the form owner's `method`.
+///
+/// Both `method` and `formmethod` are enumerated (`get`/`post`/`dialog`)
+/// with an invalid-value default of GET; `formmethod` has no missing
+/// default (absent → fall through to the form's `method`). Returns the
+/// normalized keyword.
+fn resolve_effective_method(dom: &EcsDom, form_method: &str, submitter: Option<Entity>) -> String {
+    let raw = submitter
+        .filter(|&s| is_submit_button(dom, s))
+        .and_then(|s| dom.with_attribute(s, "formmethod", |v| v.map(str::to_owned)))
+        .unwrap_or_else(|| form_method.to_string());
+    match raw.to_ascii_lowercase().as_str() {
+        "post" => "post".to_string(),
+        "dialog" => "dialog".to_string(),
+        // Missing/invalid value default = GET (§attr-fs-method).
+        _ => "get".to_string(),
     }
+}
+
+/// Find the nearest `<dialog>` ancestor of `entity` (WHATWG HTML
+/// §4.10.22.3 step 11.2 "nearest ancestor dialog element"). Mirrors
+/// [`find_form_ancestor`].
+#[must_use]
+pub fn find_dialog_ancestor(dom: &EcsDom, entity: Entity) -> Option<Entity> {
+    let mut current = dom.get_parent(entity);
+    for _ in 0..MAX_ANCESTOR_DEPTH {
+        let e = current?;
+        let is_dialog = dom
+            .world()
+            .get::<&TagType>(e)
+            .is_ok_and(|t| t.0 == "dialog");
+        if is_dialog {
+            return Some(e);
+        }
+        current = dom.get_parent(e);
+    }
+    None
 }
 
 /// Collected form data entry.

@@ -21,6 +21,7 @@ pub mod class_list;
 pub mod computed_style;
 pub mod css_namespace;
 pub mod cssom_sheet;
+pub mod dialog;
 pub mod document;
 pub mod element;
 pub mod focus;
@@ -68,6 +69,7 @@ pub use cssom_sheet::{
     RuleStyleCssText, RuleStyleGetPropertyPriority, RuleStyleGetPropertyValue, RuleStyleItem,
     RuleStyleLength,
 };
+pub use dialog::close_the_dialog;
 pub use document::{
     query_selector_all, CreateElement, CreateTextNode, GetElementById, QuerySelector,
 };

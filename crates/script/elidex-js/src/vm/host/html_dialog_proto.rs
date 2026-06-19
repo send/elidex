@@ -28,15 +28,21 @@
 //!   conservative throw); the popover-showing check (step 5),
 //!   `beforetoggle` (step 6), and render-side top-layer / focus
 //!   management (steps 12+).
-//! - `close(optional DOMString returnValue)` — clear `open`, clear
-//!   `IsModalDialog` marker, set `returnValue` if arg provided,
-//!   dispatch a `close` event (bubbles=false, cancelable=false) via
-//!   [`super::event_target_dispatch::dispatch_simple_event`].
+//! - `close(optional DOMString returnValue)` — delegates the state
+//!   mutation (HTML §4.11.4 "close the dialog": set `returnValue` if the
+//!   arg is non-undefined, clear `IsModalDialog`, remove `open`) to the
+//!   engine-independent [`elidex_dom_api::close_the_dialog`], then
+//!   dispatches a `close` event (bubbles=false, cancelable=false) via
+//!   [`super::event_target_dispatch::dispatch_simple_event`] iff the
+//!   dialog was open. The same `close_the_dialog` algorithm is shared by
+//!   `<form method="dialog">` submission in the shell (one-issue-one-way).
 //!
 //! Event-handler IDL attrs (`oncancel` / `onclose`) are deferred along
 //! with the rest of the per-tag event-handler reflects (D-10
-//! `#11-events-misc`); `<form method="dialog">` integration is
-//! deferred to `#11-dialog-form-method`.
+//! `#11-events-misc`). `<form method="dialog">` submission shares the
+//! engine-independent [`elidex_dom_api::close_the_dialog`] algorithm
+//! (HTML §4.10.22.3 step 11; the shell fires the `close` event there,
+//! mirroring this method).
 //!
 //! ## Layering
 //!
@@ -302,33 +308,31 @@ fn dialog_close(
     if ctx.host_if_bound().is_none() {
         return Ok(JsValue::Undefined);
     }
-    // Per HTML §4.11.4 step 1: if the element does not have an `open`
-    // content attribute, return early with no event fire and no state
-    // mutation.
-    if !has_open_attribute(ctx, entity)? {
-        return Ok(JsValue::Undefined);
-    }
-    if let Some(arg) = args.first().copied() {
-        if !matches!(arg, JsValue::Undefined) {
+    // Coerce the optional `returnValue` argument at the IDL boundary
+    // (`close(optional DOMString)`): `undefined`/absent → null (leave
+    // returnValue unchanged), else `ToString`. This precedes the
+    // open-check inside `close_the_dialog`, so a `valueOf`/`toString`
+    // side effect runs even when the dialog is already closed — matching
+    // the IDL coercion-before-algorithm ordering.
+    let result: Option<String> = match args.first().copied() {
+        Some(arg) if !matches!(arg, JsValue::Undefined) => {
             let new_value_sid = super::super::coerce::to_string(ctx.vm, arg)?;
-            let owned = ctx.vm.strings.get_utf8(new_value_sid);
-            write_return_value(ctx, entity, owned);
+            Some(ctx.vm.strings.get_utf8(new_value_sid))
         }
+        _ => None,
+    };
+    // HTML §4.11.4 "close the dialog" — state mutation (engine-indep:
+    // step 1 open-check, step 9 returnValue, step 8 is-modal, step 5
+    // remove `open` via the chokepoint). Returns whether the dialog was
+    // open; we fire `close` (step 13) here iff it was, mirroring the
+    // `reset_form` precedent (caller fires the DOM event).
+    let closed = elidex_dom_api::close_the_dialog(ctx.host().dom(), entity, result.as_deref());
+    if closed {
+        let close_sid = ctx.vm.well_known.close;
+        let _ = super::event_target_dispatch::dispatch_simple_event(
+            ctx, entity, close_sid, /*bubbles=*/ false, /*cancelable=*/ false,
+        )?;
     }
-    // Per HTML §4.11.4 "close the dialog" algorithm: reset `is modal`
-    // (only close() and the tree-removing steps clear it — the `open`
-    // attribute-change/cleanup steps deliberately do NOT).
-    let _ = ctx
-        .host()
-        .dom()
-        .world_mut()
-        .remove_one::<IsModalDialog>(entity);
-    let attr_sid = ctx.vm.strings.intern("open");
-    invoke_dom_api(ctx, "removeAttribute", entity, &[JsValue::String(attr_sid)])?;
-    let close_sid = ctx.vm.well_known.close;
-    let _ = super::event_target_dispatch::dispatch_simple_event(
-        ctx, entity, close_sid, /*bubbles=*/ false, /*cancelable=*/ false,
-    )?;
     Ok(JsValue::Undefined)
 }
 
