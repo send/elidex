@@ -84,8 +84,17 @@ impl fmt::Display for MediaQuery {
                 if !matches!(media_type, MediaType::All) || qualified {
                     write_media_type(f, media_type)?;
                     f.write_str(" and ")?;
+                    // The condition follows `<type> and`, a restricted
+                    // `<media-condition-without-or>` slot.
+                    write_condition_without_or(f, cond)
+                } else {
+                    // `all` was elided, so the condition is now the entire
+                    // query — a full top-level `<media-condition>` (a bare `or`
+                    // is valid, not re-wrapped). This keeps `all and (X)`
+                    // serializing identically to the equivalent bare `(X)`, so
+                    // the two share a canonical cache key.
+                    write_condition(f, cond)
                 }
-                write_condition_without_or(f, cond)
             }
             // The parser never builds a query with neither a type nor a
             // condition; serialize it as the empty string for totality.
@@ -257,18 +266,26 @@ fn write_value(f: &mut fmt::Formatter<'_>, value: &RangeValue) -> fmt::Result {
 /// spelling — `2.54em` instead of the `f64`'s `2.5399999618530273em` — and
 /// `f32`'s `Display` emits the shortest round-tripping form (no trailing `.0`).
 ///
-/// A non-finite result (a token that overflowed `f32` to ±∞, e.g. `1e40px`, or
-/// a NaN) is censored to `0` so the output stays valid CSS — matching the
-/// engine's `CssValue` serialization convention (`elidex-plugin`'s `sf`/`sf64`).
-/// The legitimate `infinite` resolution keyword is handled by the caller, not
-/// here.
+/// A token that overflows `f32` to ±∞ (e.g. `1e40px`) is clamped to the nearest
+/// finite extremum (`f32::MAX` / `f32::MIN`), NOT censored to `0`: zeroing would
+/// invert the query's meaning — an always-false `(min-width: 1e40px)` would
+/// reserialize to an always-true `(min-width: 0px)` and, since this output is
+/// the canonical cache key, alias a real `0` breakpoint. The clamp evaluates
+/// identically to ±∞ for every realistic viewport (no device is `f32::MAX` px
+/// wide) and stays valid, round-trip-stable CSS. A NaN (unreachable from a
+/// token) censors to `0`. The legitimate `infinite` resolution keyword is
+/// handled by the caller, not here.
 #[allow(clippy::cast_possible_truncation)] // intentional narrowing — see above.
 fn css_num(value: f64) -> f32 {
     let narrowed = value as f32;
     if narrowed.is_finite() {
         narrowed
-    } else {
+    } else if narrowed.is_nan() {
         0.0
+    } else if narrowed > 0.0 {
+        f32::MAX
+    } else {
+        f32::MIN
     }
 }
 
@@ -458,11 +475,40 @@ mod tests {
         norm("(min-width: 0)", "(min-width: 0px)"); // unitless 0 → 0px
         norm("(aspect-ratio: 2)", "(aspect-ratio: 2 / 1)"); // bare number → n / 1
         norm("((color))", "(color)"); // redundant grouping dropped
-                                      // An f32-overflow token censors to a valid `0`, never `infpx`/`NaN`.
+    }
+
+    #[test]
+    fn all_elision_matches_bare_condition() {
+        // After eliding the redundant `all` (CSSOM-1 §4.2 step 4), the condition
+        // is the whole query and must serialize identically to the equivalent
+        // bare condition-only query — including a top-level `or` (NOT re-wrapped)
+        // — so the two share a canonical cache key.
+        let with_all = parse_media_query_list("all and ((color) or (width: 1px))").to_string();
+        let bare = parse_media_query_list("(color) or (width: 1px)").to_string();
+        assert_eq!(with_all, bare);
+        assert_eq!(bare, "(color) or (width: 1px)");
+        // The `and`-of-features case was already correct and stays so.
         assert_eq!(
-            parse_media_query_list("(min-width: 1e40px)").to_string(),
-            "(min-width: 0px)"
+            parse_media_query_list("all and (width: 1px) and (height: 2px)").to_string(),
+            "(width: 1px) and (height: 2px)"
         );
+    }
+
+    #[test]
+    fn overflow_value_preserves_eval_not_zeroed() {
+        use super::super::{evaluate, MediaEnvironment};
+        let env = MediaEnvironment::default(); // 1024×768 screen
+        let overflow = parse_media_query_list("(min-width: 1e40px)");
+        let s = overflow.to_string();
+        // Must NOT collapse to the always-true `0px` — that would alias an
+        // impossible breakpoint onto a real zero breakpoint in the cache key.
+        assert_ne!(s, "(min-width: 0px)");
+        // `(min-width: 1e40px)` is always false (no viewport is 1e40px); the
+        // serialized form must reparse to the same false result, not flip true.
+        assert!(!evaluate(&overflow, &env));
+        assert!(!evaluate(&parse_media_query_list(&s), &env));
+        // The clamped finite value reserializes identically (round-trip stable).
+        assert_eq!(parse_media_query_list(&s).to_string(), s);
     }
 
     // --- §2.3 / §3.2 media types -----------------------------------------
