@@ -1345,6 +1345,14 @@ impl VmInner {
                 .retain(|id, _| bit_get(marks, id.0));
             self.abort_listener_back_refs
                 .retain(|_, signal_id| bit_get(marks, signal_id.0));
+            // Live `MediaQueryList` registry (CSSOM-View §4.2): prune
+            // entries whose MQL `ObjectId` was collected so a recycled
+            // slot never inherits a stale `{parsed, last_matches}`.  The
+            // value is `ObjectId`/`JsValue`-free, so there is no trace
+            // pass — this sweep-prune is the ONLY GC delete-path and it
+            // balances the `matchMedia` insert write-path.
+            self.media_query_list_registry
+                .retain(|id, _| bit_get(marks, id.0));
             // DOMException out-of-band state: prune entries whose
             // instance was collected so a recycled slot can't
             // inherit stale `name` / `message`.  Payload is

@@ -90,7 +90,11 @@ pub(crate) fn target_from_this(ctx: &NativeContext<'_>, this: JsValue) -> Option
         // (`statechange`), and the registration (`updatefound`).
         | ObjectKind::ServiceWorkerContainer
         | ObjectKind::ServiceWorker
-        | ObjectKind::ServiceWorkerRegistration => ctx
+        | ObjectKind::ServiceWorkerRegistration
+        // `MediaQueryList` (CSSOM-View §4.2) is a non-Node EventTarget:
+        // `addEventListener('change')` / `onchange` / legacy `addListener`
+        // route to its `vm_event_listeners` home, like `AbortSignal`.
+        | ObjectKind::MediaQueryList => ctx
             .vm
             .host_data
             .as_ref()

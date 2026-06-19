@@ -1132,6 +1132,14 @@ pub(crate) struct VmInner {
     /// `register_globals()`.
     #[cfg(feature = "engine")]
     pub(crate) abort_signal_prototype: Option<ObjectId>,
+    /// `MediaQueryList.prototype` (CSSOM-View §4.2) — chains to
+    /// `EventTarget.prototype` (Node.prototype skipped, exactly like
+    /// [`Self::abort_signal_prototype`]).  Holds the `matches` / `media`
+    /// RO accessors, the `onchange` event-handler attribute, and the
+    /// legacy `addListener` / `removeListener` methods.  `None` until
+    /// `register_media_query_list_global()` runs in `register_globals()`.
+    #[cfg(feature = "engine")]
+    pub(crate) media_query_list_prototype: Option<ObjectId>,
     /// Per-signal mutable state, keyed by the `AbortSignal`'s own
     /// `ObjectId`.  Out-of-band so [`ObjectKind::AbortSignal`] stays
     /// payload-free and per-variant size discipline is preserved.
@@ -1145,6 +1153,30 @@ pub(crate) struct VmInner {
     ///   stale state.
     #[cfg(feature = "engine")]
     pub(crate) abort_signal_states: HashMap<ObjectId, host::abort::AbortSignalState>,
+    /// Live `MediaQueryList` registry (CSSOM-View §4.2), keyed by the
+    /// MQL's own `ObjectId`.  Full member of the `abort_signal_states`
+    /// canonical ObjectId-keyed side-table contract: a `HashMap` (same
+    /// shape as `abort_signal_states`, not an order-keyed map —
+    /// registration order is recoverable from the monotonic `ObjectId`
+    /// when 2b-ii iterates for report-changes, so the canonical
+    /// `HashMap` is kept rather than pulling in a new ordered-map dep).
+    ///
+    /// Value = [`host::media_query::MediaQueryEntry`] (the parsed AST +
+    /// the `last_matches` snapshot). The `matches` result is *derived*
+    /// via `elidex_css::media::evaluate`; `last_matches` is only the
+    /// flip-detection prior, never a competing SoT.
+    ///
+    /// GC contract (differs from `abort_signal_states` in the trace
+    /// half): the value is `ObjectId`/`JsValue`-free, so there is **no
+    /// trace pass** (nothing to mark — see the `ObjectKind::MediaQueryList`
+    /// doc). The sweep tail (`collect_garbage`) still prunes entries
+    /// whose key `ObjectId` was collected so a recycled slot never
+    /// inherits a stale entry. **Survives `Vm::unbind`** (the value
+    /// binds to no DOM entity / browsing-context resource), matching
+    /// `abort_signal_states` — a retained MQL keeps evaluating after a
+    /// rebind.
+    #[cfg(feature = "engine")]
+    pub(crate) media_query_list_registry: HashMap<ObjectId, host::media_query::MediaQueryEntry>,
     /// Reverse index from a `ListenerId` (registered via
     /// `addEventListener(type, cb, {signal})`) back to the
     /// `AbortSignal` `ObjectId` that owns it.  Lets

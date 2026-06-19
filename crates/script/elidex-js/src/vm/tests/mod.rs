@@ -109,6 +109,7 @@ mod tests_json;
 mod tests_location;
 mod tests_m4_10_2;
 mod tests_m4_11;
+mod tests_match_media;
 mod tests_math;
 mod tests_mutation_observer;
 mod tests_named_node_map;

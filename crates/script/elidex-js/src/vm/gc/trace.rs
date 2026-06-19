@@ -373,6 +373,15 @@ pub(super) fn trace_work_list(
                     // through `listener_store`.  No tracing needed here.
                 }
             }
+            // `MediaQueryList` (CSSOM-View §4.2): its out-of-band state
+            // (`media_query_list_registry`) is a CSS AST + a `bool` —
+            // ZERO `ObjectId`/`JsValue` to mark.  The `change` listeners
+            // live in `vm_event_listeners` (rooted via `listener_store`),
+            // not here.  So this is a deliberate no-op trace arm; the
+            // sweep tail prunes dead entries.  Engine-only (the variant
+            // is `#[cfg(feature = "engine")]`).
+            #[cfg(feature = "engine")]
+            ObjectKind::MediaQueryList => {}
             // `AbortController` carries the paired signal `ObjectId`
             // as an internal slot — mark it so the signal survives as
             // long as the controller is reachable.  Same arm runs on
