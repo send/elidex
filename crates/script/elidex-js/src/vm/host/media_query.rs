@@ -252,8 +252,16 @@ pub(super) fn native_window_match_media(
     _this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
+    // WebIDL: `query` is a *required* argument, so a 0-arg call throws
+    // (arity convention shared with `structuredClone` / `CSS.supports`),
+    // rather than coercing a missing arg to the `"undefined"` query.
+    if args.is_empty() {
+        return Err(VmError::type_error(
+            "Failed to execute 'matchMedia' on 'Window': 1 argument required, but only 0 present.",
+        ));
+    }
     // `query` is a `CSSOMString` → ToString-coerced at the IDL boundary.
-    let arg = args.first().copied().unwrap_or(JsValue::Undefined);
+    let arg = args[0];
     let query_sid = super::super::coerce::to_string(ctx.vm, arg)?;
     let query = ctx.vm.strings.get_utf8(query_sid);
 

@@ -69,6 +69,18 @@ fn matches_false_when_query_exceeds_viewport() {
 }
 
 #[test]
+fn match_media_no_arg_throws() {
+    // WebIDL: `query` is required → 0-arg call throws TypeError (arity),
+    // not a "undefined"-query MQL.
+    let mut vm = new_vm();
+    assert!(eval_bool(
+        &mut vm,
+        "var threw = false; try { matchMedia(); } \
+         catch (e) { threw = e instanceof TypeError; } threw;"
+    ));
+}
+
+#[test]
 fn empty_query_matches_true() {
     // mediaqueries §2.1: an empty media query list evaluates to `true`.
     let mut vm = new_vm();

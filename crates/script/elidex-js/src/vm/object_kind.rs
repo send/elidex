@@ -315,9 +315,9 @@ pub enum ObjectKind {
     /// and goes `MediaQueryList.prototype → EventTarget.prototype →
     /// Object.prototype` (same shape as `AbortSignal` / `Window`).
     ///
-    /// Per-MQL state ([`super::host::media_query::MediaQueryEntry`] —
-    /// the parsed `MediaQueryList` AST + the `last_matches` snapshot)
-    /// lives **out-of-band** in `VmInner::media_query_list_registry`,
+    /// Per-MQL state (`MediaQueryEntry` — the parsed `MediaQueryList` AST
+    /// + the `last_matches` snapshot) lives **out-of-band** in
+    /// `VmInner::media_query_list_registry`,
     /// keyed by this object's `ObjectId`.  Payload-free here so the
     /// per-variant size discipline matches [`Self::AbortSignal`].
     ///
