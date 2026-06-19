@@ -367,3 +367,71 @@ fn textarea_set_range_text_splices_at_utf16_offsets() {
          t.value + '|' + t.selectionStart + '/' + t.selectionEnd;");
     assert_eq!(out, "cafX|4/4");
 }
+
+// ---------------------------------------------------------------------------
+// API value newline normalization (HTML §4.10.11) — the `value` getter,
+// `textLength`, and the shared selection conversion observe the API value =
+// raw value with newlines normalized (CRLF→LF, lone CR→LF).  `defaultValue`
+// (child text content) stays un-normalized.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn textarea_value_getter_returns_api_value_crlf_normalized() {
+    // "a\r\nb" raw → API value "a\nb"; the CR is collapsed.
+    let out = run("var t = document.createElement('textarea'); \
+         t.value = 'a\\r\\nb'; \
+         (t.value === 'a\\nb') + ':' + t.value.length;");
+    assert_eq!(out, "true:3");
+}
+
+#[test]
+fn textarea_value_getter_normalizes_lone_cr() {
+    let out = run("var t = document.createElement('textarea'); \
+         t.value = 'a\\rb'; \
+         (t.value === 'a\\nb') + ':' + t.value.length;");
+    assert_eq!(out, "true:3");
+}
+
+#[test]
+fn textarea_text_length_counts_api_value() {
+    // textLength = code-unit length of the API value: "a\r\nb" → 3, not 4.
+    let out = run("var t = document.createElement('textarea'); \
+         t.value = 'a\\r\\nb'; \
+         '' + t.textLength;");
+    assert_eq!(out, "3");
+}
+
+#[test]
+fn textarea_default_value_stays_unnormalized() {
+    // defaultValue reflects child text content (un-normalized); value is the
+    // normalized API value.  Setting defaultValue (not dirty) mirrors to value.
+    let out = run("var t = document.createElement('textarea'); \
+         t.defaultValue = 'x\\r\\ny'; \
+         (t.defaultValue === 'x\\r\\ny') + '/' + (t.value === 'x\\ny');");
+    assert_eq!(out, "true/true");
+}
+
+#[test]
+fn textarea_selection_offsets_over_api_value() {
+    // Selection offsets (§4.10.20, #362) operate on the API value: "a\r\nb"
+    // → "a\nb" (3 units); an over-length caret clamps to 3, not 4.
+    let out = run("var t = document.createElement('textarea'); \
+         t.value = 'a\\r\\nb'; \
+         t.setSelectionRange(99, 99); \
+         '' + t.selectionStart + '/' + t.selectionEnd;");
+    assert_eq!(out, "3/3");
+}
+
+#[test]
+fn textarea_set_value_equal_api_value_preserves_selection() {
+    // §4.10.11 value setter step 4: cursor moves only if the NEW API value
+    // differs from the OLD API value.  Setting "a\nb" when the stored API
+    // value is already "a\nb" (from raw "a\r\nb") must NOT move/reset the
+    // selection — the comparison is API-vs-API, not raw-vs-raw.
+    let out = run("var t = document.createElement('textarea'); \
+         t.value = 'a\\r\\nb'; \
+         t.setSelectionRange(1, 2); \
+         t.value = 'a\\nb'; \
+         '' + t.selectionStart + '/' + t.selectionEnd;");
+    assert_eq!(out, "1/2");
+}

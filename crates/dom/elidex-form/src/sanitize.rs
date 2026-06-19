@@ -24,6 +24,18 @@ fn strip_newlines(s: &str) -> String {
     s.chars().filter(|&c| c != '\n' && c != '\r').collect()
 }
 
+/// HTML "normalize newlines in a string" — replace every U+000D U+000A
+/// CRLF pair with a single U+000A LF, then every remaining lone U+000D CR
+/// with U+000A LF (order-significant).  This derives a `<textarea>`'s
+/// **API value** from its raw value (HTML §4.10.11): the API value is what
+/// the `value` / `textLength` IDL attributes and `maxlength` / `minlength`
+/// observe.  Storing the normalized value at every value-establishment site
+/// keeps those observers (and the shared selection conversion) spec-correct
+/// uniformly — see [`FormControlState::settle_value`].
+fn normalize_newlines(s: &str) -> String {
+    s.replace("\r\n", "\n").replace('\r', "\n")
+}
+
 /// HTML "strip leading and trailing ASCII whitespace".  Rust's
 /// [`char::is_ascii_whitespace`] matches exactly the HTML ASCII
 /// whitespace set (U+0009 TAB, U+000A LF, U+000C FF, U+000D CR,
@@ -195,10 +207,18 @@ pub(crate) fn sanitize_value(state: &mut FormControlState) {
         FormControlKind::DatetimeLocal => {
             Some(datetime::normalize_local_date_time(state.value()).unwrap_or_default())
         }
+        // §4.10.11 `<textarea>`: the stored value is the element's API
+        // value = its raw value with newlines normalized (CRLF→LF, lone
+        // CR→LF).  Normalizing here (at every value-establishment site via
+        // `settle_value`) makes `value` / `textLength` / `maxlength` and the
+        // shared selection conversion observe the API value uniformly; the
+        // un-normalized raw value is never observable (`defaultValue` reads
+        // the element's child text content, not this field).
+        FormControlKind::TextArea => Some(normalize_newlines(state.value())),
         // No value sanitization algorithm: hidden, checkbox, radio, file,
         // submit/reset/image/button, color (§4.10.5.1.14 color-well
         // control — deferred, `#11-input-color-well-sanitize`), and the
-        // non-input kinds (textarea / select / output / meter / progress).
+        // remaining non-input kinds (select / output / meter / progress).
         FormControlKind::Hidden
         | FormControlKind::Checkbox
         | FormControlKind::Radio
@@ -207,7 +227,6 @@ pub(crate) fn sanitize_value(state: &mut FormControlState) {
         | FormControlKind::ResetButton
         | FormControlKind::Button
         | FormControlKind::Color
-        | FormControlKind::TextArea
         | FormControlKind::Select
         | FormControlKind::Output
         | FormControlKind::Meter

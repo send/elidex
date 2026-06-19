@@ -101,7 +101,11 @@ fn finalize_control(dom: &mut EcsDom, entity: Entity, state: &mut FormControlSta
     // For <textarea>, read initial value from first child text content.
     if state.kind == FormControlKind::TextArea {
         if let Some(text) = first_child_text(dom, entity) {
-            // HTML §4.10.7.2: strip one leading newline from textarea content.
+            // HTML parser §13.2.6.4.7 ("in body" insertion mode): a single
+            // U+000A LF immediately after a `<textarea>` start tag is ignored.
+            // Only LF need be handled here: the parser's §13.2.3.5 input-stream
+            // preprocessing has already normalized CR/CRLF→LF before tree
+            // construction, so parsed child text never contains CR.
             let text = text.strip_prefix('\n').unwrap_or(&text).to_string();
             state.set_value_initial(text);
         }
