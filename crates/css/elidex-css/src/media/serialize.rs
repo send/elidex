@@ -241,51 +241,59 @@ fn write_range(
     }
 }
 
-/// Serialize an `<mf-value>`.
+/// Serialize an `<mf-value>`. Every numeric component routes through the single
+/// [`fmt_num`] chokepoint so non-finite (overflowed) values are handled
+/// uniformly across feature types.
 fn write_value(f: &mut fmt::Formatter<'_>, value: &RangeValue) -> fmt::Result {
     match value {
-        RangeValue::Length { value, unit } => write!(f, "{}{}", css_num(*value), unit.as_str()),
+        RangeValue::Length { value, unit } => write!(f, "{}{}", fmt_num(*value), unit.as_str()),
         RangeValue::Calc(expr) => write!(f, "calc({})", expr.to_css_string()),
-        RangeValue::Ratio { num, den } => write!(f, "{} / {}", css_num(*num), css_num(*den)),
+        RangeValue::Ratio { num, den } => write!(f, "{} / {}", fmt_num(*num), fmt_num(*den)),
         RangeValue::Dppx(dppx) => {
-            // §5.1: an `infinite` resolution is a keyword, not a dimension.
-            if dppx.is_infinite() {
+            // §5.1: a `+∞` resolution serializes as the `infinite` keyword — the
+            // canonical form for both the keyword itself and a `+∞`-overflowed
+            // `dppx`/`x` token, so equivalent inputs share a cache key. A `-∞`
+            // (an overflowed negative `dppx`) has no keyword and falls through to
+            // the dimension form, where `fmt_num` keeps it `-∞`.
+            if dppx.is_infinite() && *dppx > 0.0 {
                 f.write_str("infinite")
             } else {
-                write!(f, "{}dppx", css_num(*dppx))
+                write!(f, "{}dppx", fmt_num(*dppx))
             }
         }
-        RangeValue::Number(n) => write!(f, "{}", css_num(*n)),
+        RangeValue::Number(n) => write!(f, "{}", fmt_num(*n)),
         // The lossy absolute-unit conversion kept the specified value+unit.
-        RangeValue::Converted { value, unit, .. } => write!(f, "{}{}", css_num(*value), unit),
+        RangeValue::Converted { value, unit, .. } => write!(f, "{}{}", fmt_num(*value), unit),
     }
 }
 
-/// Serialize a media value's number. The stored `f64` was losslessly widened
-/// from cssparser's `f32` token, so narrowing back recovers the author's
-/// spelling — `2.54em` instead of the `f64`'s `2.5399999618530273em` — and
-/// `f32`'s `Display` emits the shortest round-tripping form (no trailing `.0`).
+/// Serialize a media value's number to canonical CSS. A finite value narrows
+/// through `f32` (the token type it was losslessly widened from), so the
+/// author's spelling comes back — `2.54em` instead of the `f64`'s
+/// `2.5399999618530273em` — and `f32`'s `Display` gives the shortest
+/// round-tripping form (no trailing `.0`).
 ///
-/// A token that overflows `f32` to ±∞ (e.g. `1e40px`) is clamped to the nearest
-/// finite extremum (`f32::MAX` / `f32::MIN`), NOT censored to `0`: zeroing would
-/// invert the query's meaning — an always-false `(min-width: 1e40px)` would
-/// reserialize to an always-true `(min-width: 0px)` and, since this output is
-/// the canonical cache key, alias a real `0` breakpoint. The clamp evaluates
-/// identically to ±∞ for every realistic viewport (no device is `f32::MAX` px
-/// wide) and stays valid, round-trip-stable CSS. A NaN (unreachable from a
-/// token) censors to `0`. The legitimate `infinite` resolution keyword is
-/// handled by the caller, not here.
+/// A value that overflowed `f32` to ±∞ (e.g. a page-supplied `1e40px`) is
+/// emitted as a literal that **re-overflows to the same ±∞ on reparse**, so the
+/// serialized `.media` / cache key evaluates identically to the original.
+/// Clamping to a *finite* `f32::MAX` (a previous attempt) silently moved the
+/// breakpoint — `(min-width: 1e40px)` is always false, but a finite clamp
+/// reparses to a real `3.4e38px` and a `dpi`/`dppx`/`<ratio>` overflow flipped
+/// equality/upper-bound results — and zeroing inverted it outright
+/// (always-false → always-true, aliasing a real `0` breakpoint). A NaN
+/// (unreachable from a token) becomes `0`.
 #[allow(clippy::cast_possible_truncation)] // intentional narrowing — see above.
-fn css_num(value: f64) -> f32 {
+fn fmt_num(value: f64) -> String {
     let narrowed = value as f32;
     if narrowed.is_finite() {
-        narrowed
+        format!("{narrowed}")
     } else if narrowed.is_nan() {
-        0.0
+        "0".to_owned()
     } else if narrowed > 0.0 {
-        f32::MAX
+        // `1e39` > `f32::MAX` (≈3.4e38), so it re-overflows to `+∞` on reparse.
+        "1e39".to_owned()
     } else {
-        f32::MIN
+        "-1e39".to_owned()
     }
 }
 
@@ -495,20 +503,47 @@ mod tests {
     }
 
     #[test]
-    fn overflow_value_preserves_eval_not_zeroed() {
+    fn overflow_values_preserve_eval() {
         use super::super::{evaluate, MediaEnvironment};
-        let env = MediaEnvironment::default(); // 1024×768 screen
-        let overflow = parse_media_query_list("(min-width: 1e40px)");
-        let s = overflow.to_string();
-        // Must NOT collapse to the always-true `0px` — that would alias an
-        // impossible breakpoint onto a real zero breakpoint in the cache key.
-        assert_ne!(s, "(min-width: 0px)");
-        // `(min-width: 1e40px)` is always false (no viewport is 1e40px); the
-        // serialized form must reparse to the same false result, not flip true.
-        assert!(!evaluate(&overflow, &env));
-        assert!(!evaluate(&parse_media_query_list(&s), &env));
-        // The clamped finite value reserializes identically (round-trip stable).
-        assert_eq!(parse_media_query_list(&s).to_string(), s);
+
+        // For an `f32`-overflowed value, `serialize → reparse` must preserve the
+        // query's truth value (and be idempotent) for every feature type — the
+        // serialized string is the canonical cache key, so a flipped result
+        // would return the wrong cached match. Checks every value type that can
+        // carry ±∞: Length, Dppx (both signs), Converted (length + resolution),
+        // and Ratio.
+        #[track_caller]
+        fn rt_eval(query: &str, env: &MediaEnvironment) {
+            let q = parse_media_query_list(query);
+            let s = q.to_string();
+            let reparsed = parse_media_query_list(&s);
+            assert_eq!(
+                evaluate(&reparsed, env),
+                evaluate(&q, env),
+                "`{query}` -> `{s}` flipped its evaluation"
+            );
+            assert_eq!(reparsed.to_string(), s, "`{query}` -> `{s}` not idempotent");
+        }
+
+        let env = MediaEnvironment::default(); // 1024×768, 1dppx
+        let zero_h = MediaEnvironment {
+            viewport_height: 0.0,
+            ..MediaEnvironment::default()
+        };
+        // The R2 zeroing bug: this is always false; the key must not alias `0px`.
+        assert_ne!(
+            parse_media_query_list("(min-width: 1e40px)").to_string(),
+            "(min-width: 0px)"
+        );
+        rt_eval("(min-width: 1e40px)", &env); // Length +∞ (always false)
+        rt_eval("(max-width: 1e40px)", &env); // Length +∞ (always true)
+        rt_eval("(min-resolution: 1e40dppx)", &env); // Dppx +∞ → `infinite`
+        rt_eval("(max-resolution: -1e40dppx)", &env); // Dppx -∞ (R3: sign)
+        rt_eval("(resolution: 1e40dpi)", &env); // Converted resolution +∞
+        rt_eval("(max-width: 1e40cm)", &env); // Converted length +∞
+        rt_eval("(min-aspect-ratio: 1e40 / 1)", &zero_h); // Ratio +∞ numerator
+        rt_eval("(aspect-ratio: 1e40 / 1)", &zero_h); // Ratio +∞ exact match
+        rt_eval("(min-aspect-ratio: 1 / 1e40)", &env); // Ratio →0 denominator
     }
 
     // --- §2.3 / §3.2 media types -----------------------------------------
