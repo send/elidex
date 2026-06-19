@@ -14,26 +14,26 @@
 //! render consumers stay byte-internal), so the editing logic in
 //! `elidex_form` remains byte-internal and unchanged.
 //!
-//! ### Known limitations of the byte-internal model (deferred)
+//! ### Known limitation of the byte-internal model (deferred)
 //!
-//! Two §4.10.20 fidelity gaps are intrinsic to the byte-internal
-//! storage this slot deliberately keeps, and each needs a separate
-//! representation change rather than a boundary tweak:
+//! One §4.10.20 fidelity gap is intrinsic to the byte-internal storage
+//! this slot deliberately keeps and needs a separate representation
+//! change rather than a boundary tweak: **offsets that split a
+//! surrogate pair** are not representable as a UTF-8 byte offset, so
+//! [`utf16_to_byte_offset`] snaps them down to the character start
+//! (deterministic, documented).  Exact preservation of a mid-surrogate
+//! code-unit offset would require UTF-16-internal selection storage →
+//! slot `#11-selection-mid-surrogate-fidelity`.
 //!
-//! - **Offsets that split a surrogate pair** are not representable as
-//!   a UTF-8 byte offset, so [`utf16_to_byte_offset`] snaps them down
-//!   to the character start (deterministic, documented).  Exact
-//!   preservation of a mid-surrogate code-unit offset would require
-//!   UTF-16-internal selection storage → slot
-//!   `#11-selection-mid-surrogate-fidelity`.
-//! - For `<textarea>`, §4.10.20's "relevant value" is the **API
-//!   value** (CR / CRLF normalized to LF), but elidex stores and
-//!   reports the raw value uniformly (the `value` getter, `textLength`
-//!   and these offsets all operate on the raw value).  Conversion here
-//!   uses `state.value()` so it stays consistent with the stored byte
-//!   offsets; implementing textarea API-value normalization (which
-//!   would make this conversion spec-correct without code change here)
-//!   → slot `#11-textarea-api-value-newline-normalization`.
+//! For `<textarea>`, §4.10.20's "relevant value" is the **API value**
+//! (CR / CRLF normalized to LF).  `FormControlState` normalizes textarea
+//! newlines at every value-*establishment* site (the IDL `value` setter,
+//! parser child-text init, form reset) and for `setRangeText` (via
+//! `replace_selection`), so for those `state.value()` *is* the API value and
+//! these offsets are spec-correct with no extra work here.  Newline folding
+//! on the *interactive* edit paths (paste / IME) — and the coupled maxlength /
+//! `InputEvent` handling those entail — is the follow-up
+//! `#11-textarea-edit-path-newline-normalization`.
 //!
 //! ## Layering
 //!

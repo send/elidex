@@ -797,13 +797,26 @@ impl FormControlState {
     /// Replace the current selection with the given text (marks as dirty).
     ///
     /// If there is no selection, inserts at the cursor position.
+    ///
+    /// This backs `setRangeText` (`elidex-js` `selection_api`), which bypasses
+    /// the `settle_value` chokepoint — so for a `<textarea>` the inserted
+    /// CR/CRLF is folded to LF here too, keeping the stored value the element's
+    /// API value (HTML §4.10.11).  `setRangeText` enforces no maxlength and
+    /// fires no `input` event, so unlike the paste / IME edit paths this needs
+    /// no coupled handling.  (Other kinds insert verbatim — their value
+    /// sanitization runs at the establishment chokepoint, not per edit.)
     pub fn replace_selection(&mut self, text: &str) {
         let (start, end) = self.safe_selection_range();
         if start != end {
             self.value.drain(start..end);
         }
-        self.value.insert_str(start, text);
-        self.cursor_pos = start + text.len();
+        let insert: std::borrow::Cow<'_, str> = if self.kind == FormControlKind::TextArea {
+            std::borrow::Cow::Owned(sanitize::normalize_newlines(text))
+        } else {
+            std::borrow::Cow::Borrowed(text)
+        };
+        self.value.insert_str(start, &insert);
+        self.cursor_pos = start + insert.len();
         self.selection_start = self.cursor_pos;
         self.selection_end = self.cursor_pos;
         self.dirty_value = true;
