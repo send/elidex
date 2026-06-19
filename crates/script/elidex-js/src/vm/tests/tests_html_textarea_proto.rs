@@ -331,3 +331,39 @@ fn textarea_set_range_text_negative_start_wraps_then_clamps() {
          t.value;");
     assert_eq!(out, "abcX");
 }
+
+// ---------------------------------------------------------------------------
+// UTF-16 code-unit selection offsets (HTML §4.10.20) — same shared
+// `selection_api.rs` boundary as `<input>`, exercised through the textarea
+// wrappers to confirm both routes apply the byte↔UTF-16 conversion.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn textarea_selection_getter_returns_utf16_units_bmp() {
+    // "café" = 5 bytes / 4 UTF-16 units; caret at end is unit 4.
+    let out = run("var t = document.createElement('textarea'); \
+         t.value = 'café'; \
+         t.setSelectionRange(4, 4); \
+         '' + t.selectionStart + '/' + t.selectionEnd;");
+    assert_eq!(out, "4/4");
+}
+
+#[test]
+fn textarea_selection_range_astral_surrogate_pair_units() {
+    // "𠮷" (U+20BB7) = 4 bytes / 2 UTF-16 units.
+    let out = run("var t = document.createElement('textarea'); \
+         t.value = '𠮷'; \
+         t.setSelectionRange(0, 2); \
+         '' + t.selectionStart + '/' + t.selectionEnd;");
+    assert_eq!(out, "0/2");
+}
+
+#[test]
+fn textarea_set_range_text_splices_at_utf16_offsets() {
+    // Replace unit range [3,4) ('é') of "café" with "X" → "cafX".
+    let out = run("var t = document.createElement('textarea'); \
+         t.value = 'café'; \
+         t.setRangeText('X', 3, 4); \
+         t.value + '|' + t.selectionStart + '/' + t.selectionEnd;");
+    assert_eq!(out, "cafX|4/4");
+}

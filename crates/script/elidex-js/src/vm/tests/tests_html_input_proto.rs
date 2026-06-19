@@ -353,7 +353,7 @@ fn input_set_selection_range_throws_for_non_text_type() {
 
 #[test]
 fn input_selection_getters_return_null_for_non_text_types() {
-    // HTML §4.10.5.2.10: the selectionStart / selectionEnd / selectionDirection
+    // HTML §4.10.20: the selectionStart / selectionEnd / selectionDirection
     // *getters* return null when the attribute does not apply — only the setters
     // / setSelectionRange() / setRangeText() throw InvalidStateError.  Regression
     // for Codex #349 R1: making time/week/month first-class (non-text) kinds must
@@ -782,7 +782,7 @@ fn input_brand_check_throws_on_non_input_receiver() {
 
 // ---------------------------------------------------------------------------
 // R25 regressions — WebIDL `unsigned long` (ToUint32) coercion for
-// the Selection API mixin (HTML §4.10.5.2.10).  Negative inputs
+// the Selection API mixin (HTML §4.10.20).  Negative inputs
 // must wrap to (2³² + n) and then clamp to value.len(), NOT clamp
 // to 0 immediately (which would change the user-visible
 // behaviour from "selection at end of value" to "selection at

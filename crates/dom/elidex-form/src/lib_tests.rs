@@ -304,7 +304,7 @@ fn is_single_line_text() {
 
 #[test]
 fn supports_selection_false_for_non_text() {
-    // HTML §4.10.5.2.10: selection API is only for text/password/textarea + text-like types.
+    // HTML §4.10.20: selection API is only for text/password/textarea + text-like types.
     for kind in [
         FormControlKind::Checkbox,
         FormControlKind::Radio,
