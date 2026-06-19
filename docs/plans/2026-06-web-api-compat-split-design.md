@@ -3,8 +3,11 @@
 Plan date: 2026-06-20 JST
 Status: **DESIGN / DOC ONLY — no `.rs` change in this PR.**
 Program: `docs/plans/2026-06-elidex-philosophy-alignment-umbrella.md` → Program A, PR0 (A0).
+**This PR also lands the umbrella plan itself** (it was untracked; as PR0 of the
+program, A0 is its natural home — so the SSoT this doc derives Program A/B/C/D/E
+scope + ordering from is verifiable in-tree, not a dangling reference; Codex P2).
 Follows up: audit F1 (sync storage on core surface) + F2 (`document.cookie` on core Document)
-in `docs/audits/2026-06-elidex-philosophy-implementation-audit.md`.
+in `docs/audits/2026-06-elidex-philosophy-implementation-audit.md` (already on `main`, #366).
 Audience: Claude / maintainers (and Codex via `## Review guidelines` of the umbrella).
 
 > This is the design gate for the F1/F2 remediation. Per the umbrella and
@@ -156,7 +159,8 @@ Not present (verified absent): `alert`/`confirm`/`prompt`, `XMLHttpRequest`.
 | `getSelection` | :1047 | M | Mirrors Window binding (same singleton). |
 | traversal factories (`createTreeWalker`/`createNodeIterator`/`createRange`) | `document_traversal::FACTORIES` install :987 | M | |
 | `documentElement`/`head`/`body` | `DOCUMENT_RO_ACCESSORS` :1050 | M | |
-| `firstElementChild`/`lastElementChild`/`children`/`childElementCount` | :1056–:1068 | M | ParentNode mixin. |
+| `firstElementChild`/`lastElementChild`/`childElementCount` | :1056–:1068 | M | ParentNode mixin (Element/null/number — not collections). |
+| `children` | :1064, `native_pn_children` | **L?** | **Correction (Codex P2):** ParentNode `children` allocates a live `HTMLCollection` (`parentnode.rs:336`); same accessor installs on `Document` **and** `Element`. Live-collection family → open call (§1.3), routed to B0 (counts toward B0's "every `alloc_collection` site" AC). |
 | `URL`/`documentURI`/`baseURI`/`compatMode`/`defaultView`/`doctype` | :1069–:1075 | M | |
 | `readyState` | :1072 | M (stub) | Returns `"complete"` (no real lifecycle yet). |
 | `referrer` | :1078 | M (stub) | |
@@ -249,10 +253,22 @@ Several stale-comment classes, all reviewer-misleading, all in F1/F2 files:
   = §12.2.4**; `document.cookie` = **HTML §3.1.4** ("Resource metadata
   management", `#dom-document-cookie`).
 
-Both classes are pure Axis-3/Axis-4 docstring corrections, separable from the
-migration. **Recommendation:** fold the citation fix into the same clerical micro-PR
-as the stale-stub fix (or into A2/A3 if not landed first) — a single
-comment-only sweep over `window.rs`/`document.rs`/`navigator.rs`.
+All classes are pure Axis-3/Axis-4 docstring corrections, separable from the
+migration. **Recommendation (corrected, Codex P2): the comment-only sweep is the
+independent F2 micro-PR, NOT folded into A3.** The sweep spans both A2-owned and
+A3-owned files, so folding it into A3 would either leave the storage citations
+unfixed or pull A3 into A2's storage files (breaking the A2/A3 split + collision
+plan):
+- **A2 / storage files:** `window.rs` ("§11.2"→§12.2), `StorageEvent`
+  (`mod.rs`/`object_kind.rs` "§11.4.2"→§12.2.4), `document.rs:591` "snapshot
+  arrays" comment.
+- **A3 / cookie files:** `document.rs:1098-1100` + `navigator.rs:72-75` stub
+  comments, cookie "§6.5.2"→§3.1.4.
+
+Land the **independent F2 micro-PR** for the whole sweep (preferred — one
+comment-only pass, no split tax); only if it has not landed by A2/A3 time, each of
+A2/A3 picks up **its own** files' citations (storage→A2, cookie→A3), never the
+other's.
 
 ---
 
@@ -376,10 +392,17 @@ in the binary?").
   the enums) so every layer can name it; the **policy value** is threaded into the
   VM at `bind_session`/VM construction from the embedder (shell supplies
   `BrowserCompat` today — zero behavior change).
-- The **classification-at-registration** change lives in the VM host registration
-  plumbing (`elidex-js`), since that is where `install_*` lives.
-- The **compat shims** live in new `elidex-api-storage-compat` / `-cookies-compat`
-  crates (§4), behind `feature = "compat-webapi"`.
+- The **classification-at-registration + the VM-native JS glue** live in the VM
+  host registration plumbing (`elidex-js`), since that is where `install_*` /
+  `register_*_global` live — and (§4.1) the native glue **cannot relocate** out of
+  `elidex-js` (it imports private VM types → dependency cycle), so it is gated **in
+  place** by `feature = "compat-webapi"` + the policy.
+- **Any** new `elidex-api-storage-compat` / `-cookies-compat` crate holds **only**
+  backend/shim logic that can sit *below* `elidex-js` — and since the backends
+  already exist (`elidex-storage-core` / `elidex-net`), **whether a separate compat
+  crate is created at all is conditional on the §4.1 plan-review decision** (it may
+  be unnecessary). Do **not** create empty/duplicative crates by reading this
+  bullet literally.
 
 ### 3.3 Alternatives considered (and why rejected)
 
@@ -468,9 +491,12 @@ F4 "untracked narrative" anti-pattern the umbrella criticizes):** register
   `elidex.storage` JS global + a CookieStore implementation in `elidex-api-cookies`),
   orthogonal to moving the *existing* sync shims behind the gate (A2/A3). Building
   it is not a precondition for the **browser-mode** compat split.
-- *Re-evaluation trigger:* the moment an `elidex-app` mode (or any `App`-mode
-  storage) is introduced — at which point sync storage is compile-excluded
-  (§14.4.3) and the async core becomes the *only* storage API, so it MUST exist.
+- *Re-evaluation trigger:* the moment **either** a `BrowserCore` **or** an
+  `elidex-app`/`App` storage mode is made selectable for a real session (Codex P2 —
+  *both* are gated on the async core per design §14.4.3, not App alone) — at which
+  point sync storage is excluded and the async core becomes the *only* storage API,
+  so it MUST exist. Whichever of `BrowserCore`/`App` is introduced first trips the
+  trigger.
 - *Re-evaluation date:* revisit when the `world_id` / S5-boa-removal program opens
   the dual-mode work (MEMORY.md Active state), or sooner if app-mode storage is
   scheduled.
@@ -522,7 +548,7 @@ AC = gate conditions.
 |---|---|---|---|---|---|
 | **A1** | Build the **gate**: (a) level at **every install seam** — `install_*` tables **and** direct `register_*_global()` installers (§3.2a, Codex P2); (b) `WebApiMode`/`SpecLevelPolicy` in `elidex-plugin`, threaded into VM construction; (c) enforcement that prunes excluded levels at every installer — covering the static tables, the global installers, **and** the `DomApiHandler` registry; (d) `feature = "compat-webapi"`. **No API moves yet; no behavior change** (shell supplies `BrowserCompat`). | `elidex-plugin` (policy type), `elidex-js` VM host registration plumbing incl. `vm/globals.rs`, `elidex-script-session` (registry enforcement) | A0 | **PR-R** | Policy classifies+conditionally-installs by level; `localStorage`/`cookie` still installed under `BrowserCompat`; unit tests show `BrowserCore`/`App` excludes a marked-`Legacy` API installed via **both** a table entry **and** a `register_*_global`; gate proven against a `DomApiHandler` too; `compat-webapi` compiles on/off. **`BrowserCore`/`App` exercised only by tests, never a real session (§4.2 async-core precondition).** |
 | **A2** | Gate `Storage` (`localStorage`/`sessionStorage`) **+ `StorageEvent`** (Codex P2) behind the policy + `compat-webapi` feature, **in place** in `elidex-js` (native glue does not relocate — §4.1 dependency-cycle); classify them `Legacy`. | `vm/host/storage.rs`, `window.rs`, `vm/globals.rs` (StorageEvent), opt. new `elidex-api-storage-compat` (§4.1 — confirm need) | A1 | **PR-R** | Sync storage **and** `StorageEvent` reachable only under `BrowserCompat`; both absent together in `BrowserCore`/`App` (no `typeof StorageEvent==='function'` while storage absent); opaque-origin slot `#11-storage-opaque-origin-securityerror` re-evaluated; `BrowserCompat` byte-identical; tests green. **Sequence after JS-side media Slice 2b** (window.rs collision — §6). |
-| **A3** | Gate `document.cookie` **+ `navigator.cookieEnabled`** (Codex P2) behind the policy + feature, in place in `elidex-js`; classify cookie `Legacy`; **flip/policy-gate `cookieEnabled`** to match cookie reachability. Fold the F2 clerical fix (stale stub + stale citation, §1.5). | `vm/host/document.rs`, `vm/host/navigator.rs`, opt. new `elidex-api-cookies-compat` (§4.1 — confirm need) | A1 (∥ A2) | **PR-R** | `document.cookie` reachable only under `BrowserCompat`; `navigator.cookieEnabled` reports `true` exactly when `document.cookie` is reachable **and** a `CookieJar` is bound (no `cookieEnabled=false` while the compat API works); stale comments + citations removed; tests green. |
+| **A3** | Gate `document.cookie` **+ `navigator.cookieEnabled`** (Codex P2) behind the policy + feature, in place in `elidex-js`; classify cookie `Legacy`; **flip/policy-gate `cookieEnabled`** to match cookie reachability. **Cookie-file clerical only** (`document.rs`/`navigator.rs` stub comments + cookie citation) — the **full §1.5 sweep is the independent F2 micro-PR** (Codex P2), and A3 must **not** touch A2-owned storage citation files. | `vm/host/document.rs`, `vm/host/navigator.rs`, opt. new `elidex-api-cookies-compat` (§4.1 — confirm need) | A1 (∥ A2) | **PR-R** | `document.cookie` reachable only under `BrowserCompat`; `navigator.cookieEnabled` reports `true` exactly when `document.cookie` is reachable **and** a `CookieJar` is bound (no `cookieEnabled=false` while the compat API works); cookie-file stale comments + citation removed (storage citations belong to A2/F2, not A3); tests green. |
 
 `elidex.storage` / CookieStore async core = **out of Program A** (§4.2, slot
 `#11-async-core-storage-cookiestore`), the **`BrowserCore`/`App` storage
