@@ -215,11 +215,14 @@ pub(crate) fn sanitize_value(state: &mut FormControlState) {
         }
         // §4.10.11 `<textarea>`: the stored value is the element's API
         // value = its raw value with newlines normalized (CRLF→LF, lone
-        // CR→LF).  Normalizing here (at every value-establishment site via
+        // CR→LF).  Normalizing at every value-*establishment* site (the IDL
+        // `value` setter, parser child-text init, form reset — all via
         // `settle_value`) makes `value` / `textLength` / `maxlength` and the
-        // shared selection conversion observe the API value uniformly; the
-        // un-normalized raw value is never observable (`defaultValue` reads
-        // the element's child text content, not this field).
+        // shared selection conversion observe the API value for values set
+        // that way.  The incremental edit paths (`setRangeText` / paste / IME)
+        // do NOT pass through here and still leave raw CRs in the value —
+        // folding them, with the coupled maxlength / `InputEvent` handling, is
+        // the follow-up `#11-textarea-edit-path-newline-normalization`.
         FormControlKind::TextArea => Some(normalize_newlines(state.value())),
         // No value sanitization algorithm: hidden, checkbox, radio, file,
         // submit/reset/image/button, color (§4.10.5.1.14 color-well
