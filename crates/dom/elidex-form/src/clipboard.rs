@@ -39,12 +39,6 @@ pub fn clipboard_paste(state: &mut FormControlState, text: &str) {
     if state.readonly {
         return;
     }
-    // §4.10.11: a `<textarea>` stores its API value (newlines normalized), so
-    // fold pasted CR/CRLF to LF up front — before the maxlength count /
-    // truncation and before either insertion branch below — so the stored
-    // value stays the API value and the length budget counts API-value chars.
-    let normalized = state.normalize_textarea_insert(text);
-    let text = normalized.as_ref();
     // Ensure cursor_pos is valid before insertion.
     state.cursor_pos = state.safe_cursor_pos();
 
@@ -60,13 +54,21 @@ pub fn clipboard_paste(state: &mut FormControlState, text: &str) {
     if available == 0 {
         return;
     }
-    // Allocation bounded by min(maxlength, MAX_PASTE_CHARS) via `available`.
+    // Bound the work FIRST: take at most `available` chars of the raw paste
+    // (≤ min(maxlength, MAX_PASTE_CHARS)) so a huge clipboard string is never
+    // fully scanned/allocated.
     let truncated: String = text.chars().take(available).collect();
+    // §4.10.11: a `<textarea>` stores its API value — fold the (already
+    // size-bounded) paste's CR/CRLF to LF.  Done AFTER truncation so the guard
+    // above still applies; normalization only shrinks, so the inserted text
+    // stays within the `available` budget.
+    let normalized = state.normalize_textarea_insert(&truncated);
+    let to_insert: &str = normalized.as_ref();
     if selection::has_selection(state) {
-        selection::replace_selection(state, &truncated);
+        selection::replace_selection(state, to_insert);
     } else {
-        state.value.insert_str(state.cursor_pos, &truncated);
-        state.cursor_pos += truncated.len();
+        state.value.insert_str(state.cursor_pos, to_insert);
+        state.cursor_pos += to_insert.len();
     }
     state.dirty_value = true;
     state.update_char_count();
@@ -154,6 +156,22 @@ mod tests {
         s.selection_end = 2;
         clipboard_paste(&mut s, "p\rq"); // replaces "b" → "p\nq"
         assert_eq!(s.value, "ap\nqc");
+    }
+
+    #[test]
+    fn paste_into_textarea_bounds_work_before_normalizing() {
+        // The size cap is applied to the RAW paste BEFORE normalization, so a
+        // large clipboard string is never fully scanned for a tiny budget.
+        // available = maxlength(3); raw take(3) = "a\r\n" → normalize → "a\n".
+        // (Conservative: a CRLF at the truncation boundary may under-fill the
+        // budget, but the result never exceeds maxlength.)
+        let mut s = FormControlState {
+            kind: FormControlKind::TextArea,
+            maxlength: Some(3),
+            ..FormControlState::default()
+        };
+        clipboard_paste(&mut s, "a\r\nbcdefghij");
+        assert_eq!(s.value, "a\n");
     }
 
     #[test]
