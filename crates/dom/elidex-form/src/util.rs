@@ -46,11 +46,24 @@ pub fn byte_offset_to_utf16(s: &str, byte_pos: usize) -> usize {
 ///
 /// Returns the byte position corresponding to the given UTF-16 code unit index.
 /// If `utf16_pos` exceeds the string length in UTF-16 units, returns `s.len()`.
+///
+/// An offset that falls *inside* a surrogate pair (i.e. between the two UTF-16
+/// code units of an astral character) cannot be represented as a UTF-8 byte
+/// offset, so it is snapped **down** to the byte boundary at the start of that
+/// character — the same direction [`byte_offset_to_utf16`] /
+/// [`snap_to_char_boundary`] round, keeping the byte↔UTF-16 mapping
+/// self-consistent. (Whole-character offsets are exact and unaffected.)
 #[must_use]
 pub fn utf16_to_byte_offset(s: &str, utf16_pos: usize) -> usize {
     let mut utf16_count = 0;
     for (byte_idx, ch) in s.char_indices() {
         if utf16_count >= utf16_pos {
+            return byte_idx;
+        }
+        // If `utf16_pos` lands strictly inside this character (a split
+        // surrogate pair), snap down to this character's start boundary
+        // rather than overshooting to the next character.
+        if utf16_count + ch.len_utf16() > utf16_pos {
             return byte_idx;
         }
         utf16_count += ch.len_utf16();
@@ -122,5 +135,19 @@ mod tests {
         let s = "hi";
         assert_eq!(byte_offset_to_utf16(s, 100), 2);
         assert_eq!(utf16_to_byte_offset(s, 100), 2);
+    }
+
+    #[test]
+    fn utf16_split_surrogate_pair_snaps_to_char_start() {
+        // An offset that lands inside a surrogate pair is not representable
+        // as a UTF-8 byte offset → snap DOWN to the char's start boundary.
+        let s = "𠮷"; // 4 bytes, 2 units (single surrogate pair)
+        assert_eq!(utf16_to_byte_offset(s, 1), 0); // mid-pair → start of '𠮷'
+
+        let s = "a𠮷b"; // 'a' 1u, '𠮷' 2u (bytes 1..5), 'b' 1u
+        assert_eq!(utf16_to_byte_offset(s, 2), 1); // mid-pair → start of '𠮷', not byte 5
+                                                   // Whole-character offsets remain exact (regression guard).
+        assert_eq!(utf16_to_byte_offset(s, 1), 1);
+        assert_eq!(utf16_to_byte_offset(s, 3), 5);
     }
 }

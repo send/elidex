@@ -6,7 +6,7 @@
 //! Members covered: `selectionStart` / `selectionEnd` /
 //! `selectionDirection` accessor pairs and `select()` /
 //! `setSelectionRange()` / `setRangeText()` methods (HTML
-//! §4.10.5.2.10).
+//! §4.10.20).
 //!
 //! All entry points share the same shape:
 //!
@@ -50,7 +50,7 @@ fn input_check(
 /// Receiver check for the selection *getters*.  Like [`input_check`] it
 /// brand-checks the `<input>` receiver, but a type whose selection IDL
 /// attributes do not apply resolves to `None` (→ the getter returns null)
-/// rather than an `InvalidStateError` — HTML §4.10.5.2.10 throws only from
+/// rather than an `InvalidStateError` — HTML §4.10.20 throws only from
 /// the setters / `setSelectionRange()` / `setRangeText()`, never the
 /// `selectionStart`/`selectionEnd`/`selectionDirection` getters.
 fn input_get_check(

@@ -34,7 +34,7 @@
 //! - `form` walks via `find_form_ancestor`.
 //! - `labels` empty NodeList stub (same as `<button>`).
 //!
-//! Selection API mixin (HTML §4.10.5.2.10): `selectionStart`,
+//! Selection API mixin (HTML §4.10.20): `selectionStart`,
 //! `selectionEnd`, `selectionDirection`, `select()`,
 //! `setSelectionRange(start, end, dir?)`, `setRangeText(...)`.
 //! All operate on `FormControlState.value` via the same elidex-form
@@ -203,7 +203,7 @@ impl VmInner {
             Some(native_textarea_set_value),
             attrs,
         );
-        // Selection API mixin (HTML §4.10.5.2.10) — same algorithms
+        // Selection API mixin (HTML §4.10.20) — same algorithms
         // as `<input>`, brand-checked for textarea.
         self.install_accessor_pair(
             proto_id,

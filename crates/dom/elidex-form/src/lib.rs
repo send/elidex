@@ -359,7 +359,7 @@ pub struct SelectOption {
     pub selected: bool,
 }
 
-/// Selection direction for text selection (HTML spec §4.10.5.2.10).
+/// Selection direction for text selection (HTML spec §4.10.20).
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum SelectionDirection {
     /// Selection direction is not specified.

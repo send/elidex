@@ -1,5 +1,18 @@
-//! Shared HTML Selection API (HTML §4.10.5.2.10) bodies for
+//! Shared HTML Selection API (HTML §4.10.20) bodies for
 //! `<input>` and `<textarea>`.
+//!
+//! ## Offset units (HTML §4.10.20)
+//!
+//! Every offset crossing this IDL surface is measured in **UTF-16
+//! code units of the relevant value**.  `FormControlState` stores
+//! selection offsets internally as **byte** offsets (natural for
+//! Rust `String` slicing), so this module is the single boundary
+//! where the two representations are reconciled: getters convert
+//! byte→UTF-16 on read, setters convert UTF-16→byte before write,
+//! via [`byte_offset_to_utf16`] / [`utf16_to_byte_offset`].  No
+//! other reader of the selection offsets escapes to JS (the shell /
+//! render consumers stay byte-internal), so the editing logic in
+//! `elidex_form` remains byte-internal and unchanged.
 //!
 //! ## Layering
 //!
@@ -43,6 +56,7 @@
 #![allow(clippy::map_unwrap_or)]
 
 use elidex_ecs::Entity;
+use elidex_form::util::{byte_offset_to_utf16, utf16_to_byte_offset};
 use elidex_form::{FormControlState, SelectionDirection};
 
 use super::super::value::{JsValue, NativeContext, VmError};
@@ -50,7 +64,7 @@ use super::super::value::{JsValue, NativeContext, VmError};
 /// Verify that `entity`'s [`FormControlState::kind`] supports
 /// selection per [`FormControlKind::supports_selection`].  Returns an
 /// `InvalidStateError` DOMException with an interface-specific
-/// message otherwise (matches HTML §4.10.5.2.10's "throw an
+/// message otherwise (matches HTML §4.10.20's "throw an
 /// InvalidStateError" branches).
 ///
 /// Used by both [`html_input_selection`](super::html_input_selection)
@@ -103,7 +117,7 @@ pub(super) fn has_selectable_text(ctx: &mut NativeContext<'_>, entity: Entity) -
 /// ([`FormControlKind::supports_selection`]).  The non-throwing predicate
 /// for the selection *getters*, which return null (rather than the
 /// [`require_text_control`] `InvalidStateError`) when the attribute does not
-/// apply — HTML §4.10.5.2.10 throws only from the setters / `setSelectionRange()`
+/// apply — HTML §4.10.20 throws only from the setters / `setSelectionRange()`
 /// / `setRangeText()`, never the `selectionStart`/`End`/`Direction` getters.
 pub(super) fn supports_selection(ctx: &mut NativeContext<'_>, entity: Entity) -> bool {
     ctx.host()
@@ -120,10 +134,12 @@ pub(super) fn supports_selection(ctx: &mut NativeContext<'_>, entity: Entity) ->
 
 pub(super) fn get_selection_start(ctx: &mut NativeContext<'_>, entity: Entity) -> JsValue {
     let dom = ctx.host().dom();
+    // HTML §4.10.20: return the offset in UTF-16 code units of the
+    // relevant value (internal offset is a byte offset → convert).
     let pos = dom
         .world()
         .get::<&FormControlState>(entity)
-        .map(|s| s.selection_start())
+        .map(|s| byte_offset_to_utf16(s.value(), s.selection_start()))
         .unwrap_or(0);
     JsValue::Number(f64::from(u32::try_from(pos).unwrap_or(u32::MAX)))
 }
@@ -137,17 +153,24 @@ pub(super) fn set_selection_start(
     let n = super::super::coerce::to_uint32(ctx.vm, val)? as usize;
     let dom = ctx.host().dom();
     if let Ok(mut state) = dom.world_mut().get::<&mut FormControlState>(entity) {
-        state.set_selection_start(n);
+        // `n` is a UTF-16 code-unit offset (HTML §4.10.20); convert to
+        // the internal byte offset.  `utf16_to_byte_offset` self-clamps
+        // to `value.len()` for over-length input (= spec "set it to the
+        // length"), so no separate UTF-16-length clamp is needed.
+        let byte = utf16_to_byte_offset(state.value(), n);
+        state.set_selection_start(byte);
     }
     Ok(())
 }
 
 pub(super) fn get_selection_end(ctx: &mut NativeContext<'_>, entity: Entity) -> JsValue {
     let dom = ctx.host().dom();
+    // HTML §4.10.20: return the offset in UTF-16 code units of the
+    // relevant value (internal offset is a byte offset → convert).
     let pos = dom
         .world()
         .get::<&FormControlState>(entity)
-        .map(|s| s.selection_end())
+        .map(|s| byte_offset_to_utf16(s.value(), s.selection_end()))
         .unwrap_or(0);
     JsValue::Number(f64::from(u32::try_from(pos).unwrap_or(u32::MAX)))
 }
@@ -161,7 +184,9 @@ pub(super) fn set_selection_end(
     let n = super::super::coerce::to_uint32(ctx.vm, val)? as usize;
     let dom = ctx.host().dom();
     if let Ok(mut state) = dom.world_mut().get::<&mut FormControlState>(entity) {
-        state.set_selection_end(n);
+        // `n` is a UTF-16 code-unit offset (HTML §4.10.20) → byte.
+        let byte = utf16_to_byte_offset(state.value(), n);
+        state.set_selection_end(byte);
     }
     Ok(())
 }
@@ -222,9 +247,11 @@ pub(super) fn set_selection_range(
     let end_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
     let dir_arg = args.get(2).copied().unwrap_or(JsValue::Undefined);
     // setSelectionRange start / end are WebIDL `unsigned long`
-    // (HTML §4.10.5.2.10) — coerce via ToUint32 so negative inputs
-    // wrap to 2³² + n rather than clamping to 0; the clamping to
-    // `value.len()` happens inside `set_selection`.
+    // (HTML §4.10.20) — coerce via ToUint32 so negative inputs wrap to
+    // 2³² + n rather than clamping to 0.  The coerced values are
+    // UTF-16 code-unit offsets; `utf16_to_byte_offset` converts to the
+    // internal byte offset and self-clamps over-length offsets to
+    // `value.len()` (= spec "treated as pointing at the end").
     let start = super::super::coerce::to_uint32(ctx.vm, start_arg)? as usize;
     let end = super::super::coerce::to_uint32(ctx.vm, end_arg)? as usize;
     let dir = if matches!(dir_arg, JsValue::Undefined) {
@@ -236,7 +263,9 @@ pub(super) fn set_selection_range(
     };
     let dom = ctx.host().dom();
     if let Ok(mut state) = dom.world_mut().get::<&mut FormControlState>(entity) {
-        state.set_selection(start, end);
+        let byte_start = utf16_to_byte_offset(state.value(), start);
+        let byte_end = utf16_to_byte_offset(state.value(), end);
+        state.set_selection(byte_start, byte_end);
         state.selection_direction = dir;
     }
     Ok(())
@@ -251,20 +280,32 @@ pub(super) fn set_range_text(
     let sid = super::super::coerce::to_string(ctx.vm, replacement_arg)?;
     let replacement = ctx.vm.strings.get_utf8(sid);
     // Optional start / end via WebIDL `unsigned long` coercion
-    // (HTML §4.10.5.2.10) — `to_uint32` runs ToNumber first so
-    // strings ("2") and booleans (true → 1 / false → 0) coerce.
-    // BigInt inputs throw TypeError (ES `ToNumber` on BigInt is a
-    // hard error — see `coerce::to_number`).  `Undefined` / missing
-    // → use the current selection bounds.  Negative inputs wrap
-    // modulo 2³² (per ToUint32) and the result is clamped to
-    // `value.len()` inside `set_selection`.
+    // (HTML §4.10.20) — `to_uint32` runs ToNumber first so strings
+    // ("2") and booleans (true → 1 / false → 0) coerce.  BigInt inputs
+    // throw TypeError (ES `ToNumber` on BigInt is a hard error — see
+    // `coerce::to_number`).  `Undefined` / missing → use the current
+    // selection bounds.  The coerced values are UTF-16 code-unit
+    // offsets against the PRE-replacement value (converted below).
     let coerced_start = coerce_optional_clamp(ctx, args.get(1).copied())?;
     let coerced_end = coerce_optional_clamp(ctx, args.get(2).copied())?;
     let dom = ctx.host().dom();
     if let Ok(mut state) = dom.world_mut().get::<&mut FormControlState>(entity) {
         let (cur_s, cur_e) = state.safe_selection_range();
-        let start = coerced_start.unwrap_or(cur_s);
-        let end = coerced_end.unwrap_or(cur_e);
+        // Provided start / end are UTF-16 code units against the
+        // pre-replacement value → convert to byte offsets here (where
+        // `state.value()` is still the old value).  Omitted args fall
+        // back to the current selection bounds, which are ALREADY byte
+        // offsets — these must NOT be converted (mixing a converted
+        // arg with an unconverted byte fallback is the hazard the
+        // per-arg `match` prevents).
+        let start = match coerced_start {
+            Some(u) => utf16_to_byte_offset(state.value(), u),
+            None => cur_s,
+        };
+        let end = match coerced_end {
+            Some(u) => utf16_to_byte_offset(state.value(), u),
+            None => cur_e,
+        };
         state.set_selection(start, end);
         // FormControlState exposes `replace_selection` directly,
         // matching `elidex_form::selection::replace_selection` but
@@ -287,13 +328,15 @@ fn parse_selection_direction(s: &str) -> SelectionDirection {
 }
 
 /// Coerce an optional `start` / `end` argument from `setRangeText`
-/// into a `usize`.  `Undefined` / missing yields `None` (caller
-/// substitutes the current selection bound); other values flow
-/// through `to_uint32` (full WebIDL `unsigned long` coercion:
-/// ToNumber → trunc → mod-2³² as an unsigned integer) and convert to
-/// `usize` directly — `set_selection` clamps to `value.len()`.
-/// Negative inputs wrap to large positive values per ToUint32 and
-/// then clamp, which matches HTML §4.10.5.2.10.
+/// into a `usize` **UTF-16 code-unit offset**.  `Undefined` / missing
+/// yields `None` (caller substitutes the current selection bound,
+/// which is already a byte offset); other values flow through
+/// `to_uint32` (full WebIDL `unsigned long` coercion: ToNumber →
+/// trunc → mod-2³² as an unsigned integer).  The returned value is
+/// still in UTF-16 units — the caller converts it to a byte offset
+/// against the pre-replacement value (HTML §4.10.20), at which point
+/// over-length offsets self-clamp to `value.len()`.  This helper does
+/// not convert because it has no access to the value string.
 fn coerce_optional_clamp(
     ctx: &mut NativeContext<'_>,
     arg: Option<JsValue>,

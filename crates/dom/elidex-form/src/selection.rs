@@ -5,7 +5,7 @@ use crate::FormControlState;
 
 /// Extend selection in the given direction.
 ///
-/// Per HTML §4.10.5.2.10: updates `selectionDirection` to "forward" or "backward".
+/// Per HTML §4.10.20: updates `selectionDirection` to "forward" or "backward".
 pub fn extend_selection(state: &mut FormControlState, forward: bool) {
     if forward {
         if state.cursor_pos < state.value.len() {
