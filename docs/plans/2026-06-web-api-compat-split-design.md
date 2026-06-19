@@ -27,11 +27,13 @@ Audience: Claude / maintainers (and Codex via `## Review guidelines` of the umbr
 
 1. **Inventory + classification (§1).** Of the entire core-VM
    `Window`/`Document`/`navigator` surface, exactly **three** API families are
-   **Legacy** (compat-destined): `localStorage`/`sessionStorage`,
-   `document.cookie`, and the **live-collection** getters
-   (`getElementsByClassName` confirmed by design §12.1.2; `getElementsByTagName`/
-   `getElementsByName` are live-collection siblings that need an explicit design
-   call — surfaced, not pre-decided). Everything else is **Modern**. **No
+   **Legacy** (compat-destined): the **Web Storage** family
+   (`localStorage`/`sessionStorage` **+ `StorageEvent`**, Codex P2),
+   `document.cookie` (**+ the coupled `navigator.cookieEnabled`**, Codex P2), and
+   the **live-collection** surface (`getElementsByClassName` confirmed by design
+   §12.1.2; `getElementsByTagName`/`getElementsByName` **+ `forms`/`images`/`links`
+   — all confirmed live, not snapshot — + the `Element`-side getters** need an
+   explicit design call, routed to B0). Everything else is **Modern**. **No
    Deprecated API is implemented** (verified absent: `document.write`/`writeln`/
    `open`/`close`/`all`/`execCommand`, `XMLHttpRequest`, `alert`/`confirm`/
    `prompt`, `attachEvent`). The `navigator` UA-compat constant fields
@@ -44,19 +46,25 @@ Audience: Claude / maintainers (and Codex via `## Review guidelines` of the umbr
    once at VM/session construction from an embedder-supplied **mode**
    (`browser-compat` / `browser-core` / `app`), **plus** a compile-time
    `feature = "compat-webapi"` that lets `app` builds refuse to even *link* the
-   compat shims. This is **One issue, one way**: the same gate governs storage,
-   cookie, and live collections (and any future legacy Web/DOM API) — not a
-   storage-only special case. The classification *vocabulary* already exists in
-   `elidex-plugin`; A1 builds the carrier + enforcement + mode selector.
+   compat shims. The gate is applied at **every install seam** — `install_*`
+   tables **and** direct `register_*_global()` installers (Codex P2) — so the same
+   gate governs storage, `StorageEvent`, cookie, live collections, and any future
+   legacy top-level global (e.g. `XMLHttpRequest`) — not a storage-only special
+   case (**One issue, one way**). The classification *vocabulary* already exists
+   in `elidex-plugin`; A1 builds the carrier + enforcement + mode selector.
 
-3. **Compat placement + async core (§4).** Sync shims move into new
-   `elidex-api-storage-compat` / `elidex-api-cookies-compat` crates (per design
-   §14.4.2), each a thin VM binding over the **already-existing backends**
-   (`WebStorageManager` / `CookieJar`). The async **core equivalents**
-   (`elidex.storage`, CookieStore) are **not** a precondition for the
-   browser-compat split (A2/A3 stay shippable without them) but **are** the
-   precondition for a future `app` mode — recorded as defer slot
-   **`#11-async-core-storage-cookiestore`** (§4.2), **not** built here.
+3. **Compat placement + async core (§4).** The VM-native JS glue (`vm/host/
+   storage.rs`, the cookie natives) **stays in `elidex-js`** gated by the feature +
+   policy — it imports private VM types, so relocating it into a crate `elidex-js`
+   depends on would be a **dependency cycle** (Codex P2); the backends already live
+   in `elidex-storage-core` / `elidex-net`, so whether a *separate*
+   `-storage-compat`/`-cookies-compat` crate is even needed is an A1 plan-review
+   question (§4.1). The async **core equivalents** (`elidex.storage`, CookieStore)
+   are **not** a precondition for the `BrowserCompat` split (A2/A3 ship without
+   them) but **are** the precondition for ever selecting `BrowserCore`/`App`
+   storage (Codex P2 — a *core* session is contracted to have `elidex.storage`,
+   §14.4.3) — recorded as defer slot **`#11-async-core-storage-cookiestore`**
+   (§4.2), **not** built here.
 
 4. **PR list (§5).** A1 (gate/mode mechanism) → A2 (storage behind compat) ∥ A3
    (cookie behind compat). Adjusted B/C/D/E acceptance criteria carried from the
@@ -81,23 +89,26 @@ Audience: Claude / maintainers (and Codex via `## Review guidelines` of the umbr
 | WHATWG HTML §12.2.1 The Storage interface | classify `Storage` iface | Legacy | `storage.rs:237` `register_storage_global` → **A2** | ✓ | yes |
 | WHATWG HTML §12.2.2 The sessionStorage getter | classify `sessionStorage` | Legacy | `window.rs:524` / getter `:541` → **A2** | yes | yes |
 | WHATWG HTML §12.2.3 The localStorage getter | classify `localStorage` | Legacy | `window.rs:523` / getter `:530` → **A2** | yes | yes |
+| WHATWG HTML §12.2.4 The StorageEvent interface | classify `StorageEvent` global (Codex P2) | Legacy | `globals.rs:656` `register_globals` → **A2** | ✓ | no (ctor) |
 | WHATWG HTML §3.1.4 Resource metadata management | classify `document.cookie` | Legacy | `document.rs:1108` (getter `:600` / setter `:646`) → **A3** | ✓ (cookie attr) | yes (setter value) |
-| WHATWG DOM §4.5 Interface Document | classify `getElementsByTagName`/`getElementsByClassName` (live `HTMLCollection`) | **Legacy? (open, §1.3)** | `document.rs:1022` / `:1026` → **B0** (+ §12.1.2 amend) | ⚠ open (1 of 2 confirmed) | yes (tag/class arg) |
 | WHATWG HTML §3.1.7 DOM tree accessors | classify `getElementsByName` (live `NodeList`) | **Legacy? (open, §1.3)** | `document.rs:1029` → **B0** | ⚠ open | yes (name arg) |
+| WHATWG DOM §4.5 Interface Document | classify `getElementsByTagName`/`getElementsByClassName` + `forms`/`images`/`links` (all live, Codex P2) | **Legacy? (open, §1.3)** | `document.rs:1022`/`:1026`/`:722`/`:740`/`:912` → **B0** (+ §12.1.2 amend) | ⚠ open (broader live-collection sweep → §1.3) | yes (tag/class arg) |
 
-**Breadth**: K=2 specs (html, dom), M=7 entries → single-PR scope. This is the
+**Breadth**: K=2 specs (html, dom), M=8 entries → single-PR scope. This is the
 design doc; the *implementation* children A1/A2/A3/B0 each re-run their own
-coverage map at plan time.
+coverage map at plan time. The full `LiveCollection`-allocation-site sweep (incl.
+`Element.prototype` + `table.rows` + `form.elements` + `select.options`, §1.3) is
+B0's, not enumerated row-by-row here.
 
 ### §A.1 Surface-completeness note
 
 The **Modern** surface (the ~95% of §1 not tabled above) is not spec-enumerated
 here because classification is the identity map "installed ⇒ Modern unless
 §14.4.2 / §12.1.2 demotes it"; the closed question is *which APIs demote*, and
-that set is the seven rows above (storage ×4 collapses to one family; cookie;
-live-collections ×2 rows — the only `⚠ open` rows, routed to B0). No Deprecated API is
-installed (verified absent, §1.1–§1.2), so the Deprecated branch is empty by
-construction.
+that set is the eight rows above (storage ×4 + `StorageEvent` collapse to one Web
+Storage family; cookie; live-collections — the `⚠ open` rows, whose *full* site
+sweep is B0's, §1.3). No Deprecated API is installed (verified absent,
+§1.1–§1.2), so the Deprecated branch is empty by construction.
 
 ---
 
@@ -125,6 +136,7 @@ core/compat), `12-dom-cssom.md` §12.1.2 (DOM core/compat), ADR #14/#16/#17.
 | **`localStorage`** | `WINDOW_STORAGE_ACCESSORS` :522 (:523), getter :530, install :438 | **L** | Sync storage → compat (§14.4.2, ADR #16). |
 | **`sessionStorage`** | :524, getter :541, install :438 | **L** | Sync storage → compat. |
 | event-handler IDL attrs (`onload`, …) | install :445 (Global+Window scopes) | M | GlobalEventHandlers + WindowEventHandlers mixins. |
+| **`StorageEvent`** (global/ctor) | `globals.rs:656` `register_globals` (unconditional); slot `#11-storage-web` | **L** | **Added (Codex P2):** HTML §12.2.4 — part of the Web Storage API surface; must be gated **with** `Storage` (else a `BrowserCore`/`App` session observes `typeof StorageEvent === 'function'` while Web Storage is absent). In-code citation `§11.4.2` (`mod.rs:581`, `object_kind.rs:855`) is **stale** → §12.2.4; fold into §1.5 sweep. Installed via a **direct global**, not a table (see §3.2 F4). |
 
 Not present (verified absent): `alert`/`confirm`/`prompt`, `XMLHttpRequest`.
 `fetch` is a **bare global**, not a `Window` method (`fetch/mod.rs:91`,
@@ -148,7 +160,7 @@ Not present (verified absent): `alert`/`confirm`/`prompt`, `XMLHttpRequest`.
 | `URL`/`documentURI`/`baseURI`/`compatMode`/`defaultView`/`doctype` | :1069–:1075 | M | |
 | `readyState` | :1072 | M (stub) | Returns `"complete"` (no real lifecycle yet). |
 | `referrer` | :1078 | M (stub) | |
-| `forms`/`images`/`links` | :1079–:1081 | M | Snapshot arrays today (not live). |
+| `forms`/`images`/`links` | :1079–:1081, getters :722/:740/:912 | **L?** | **Correction (Codex P2):** these allocate **live** `LiveCollection` (`document.rs:730`/`:748`/`:920`), **not** snapshot arrays. The in-code comment "snapshot arrays" (`document.rs:591`) is itself stale → fold into the §1.5 clerical sweep. Live-collection family → open call (§1.3), routed to B0. |
 | `activeElement`/`hidden`/`visibilityState` | :1084–:1089 | M | |
 | `styleSheets` | :1093 | M | CSSOM §6.8. |
 | `title` | `DOCUMENT_RW_ACCESSORS` :1101 (:1102) | M | |
@@ -181,6 +193,20 @@ decision to **B0** (the mutation/DOM audit) + a §12.1.2 amendment, rather than
 folding it into A1's storage/cookie scope. A1's *mechanism* must nonetheless be
 able to express it (see §3.4).
 
+**Scope correction (Codex P2): the live-collection surface is broader than the
+three `Document` getters.** This inventory is scoped to `Window`/`Document`/
+`navigator` (the audit's F1/F2 surface), but `LiveCollection` is allocated at
+many **more** sites that B0 must enumerate before demoting the family — otherwise
+`BrowserCore` still exposes live collections after the "family" is demoted:
+`Document.forms`/`images`/`links` (§1.2, corrected); `Element.prototype`
+`getElementsByTagName`/`getElementsByClassName` (`element_proto.rs`);
+`form.elements` (`html_form_proto.rs`); `table.rows`/`tBodies` +
+`tableSection.rows` (`html_table_proto.rs` / `html_table_section_proto.rs`);
+`select.options` (`html_options_collection.rs`); `map.areas`
+(`html_map_proto.rs`); `node.childNodes`. **B0's acceptance criterion must be
+"every `alloc_collection(LiveCollection::new(...))` site is classified,"** not
+just the three named getters. A0 records the surface; B0 owns the full sweep.
+
 ### 1.4 `navigator` (`crates/script/elidex-js/src/vm/host/navigator.rs`, `register_navigator_global` :32)
 
 | API | Site | Class | Notes |
@@ -189,7 +215,7 @@ able to express it (see §3.4).
 | `appName`/`appVersion`/`product`/`productSub`/`vendor`/`vendorSub` | :50–:55 | **(F)** | **Frozen-for-compat constants.** HTML mandates these hard-coded historical values (`"Netscape"`, `"Gecko"`, `"20030107"`, …) in *every* modern browser. They are neither removable Legacy nor a clean-core violation — they are spec-required compat constants. **Keep as-is**, document the (F) bucket. |
 | `platform`/`language` | :56/:57 | M (F-adjacent) | `platform` is OS-derived; HTML treats it as a near-frozen hint. |
 | `onLine` | :77 | M | |
-| `cookieEnabled` | :78 | M | Deliberately `false` until cookie integration (see :72 comment). |
+| `cookieEnabled` | :78 | M **(A3-coupled)** | **Correction (Codex P2):** hard-coded `false` today. But A3 makes `document.cookie` work in `BrowserCompat` (a real `CookieJar` is installed in the shell/content path), so leaving `cookieEnabled=false` is **inconsistent** — pages that gate cookie use on `navigator.cookieEnabled` would skip cookies while the compat API works. **A3 must flip/policy-gate `cookieEnabled` together with `document.cookie`** (not just fix its stale comment). Added to A3's AC (§5). |
 | `javaEnabled` | :79 | M (F) | Spec-frozen no-op returning `false` (HTML keeps `navigator.javaEnabled()` as a hard `false`). Harmless constant. |
 | `hardwareConcurrency` | :92 | M | |
 | `languages` (Array) | :107 | M | |
@@ -204,19 +230,24 @@ did not flag navigator; this is a pre-emptive clarification.)
 
 ### 1.5 Newly-found clerical drift (fold into the F2 sweep)
 
-Two stale-comment classes, both reviewer-misleading, both in F1/F2 files:
+Several stale-comment classes, all reviewer-misleading, all in F1/F2 files:
 
 - **Stale "stub" comments** (already in audit F2): `document.rs:1098-1100`
   ("`cookie` is currently a stub whose setter silently drops writes") and
   `navigator.rs:72-75` (same "silently drop" claim) — contradicted by the **real**
   setter at `document.rs:646` (forwards to `CookieJar::set_cookie_from_script`,
   `:682`).
+- **Stale "snapshot arrays" comment** (newly found, Codex P2): `document.rs:591`
+  ("forms / images / links (snapshot arrays)") — contradicted by the **real**
+  getters that allocate `LiveCollection` (`document.rs:730`/`:748`/`:920`).
 - **Stale spec-section citations** (newly found here): `window.rs:434` cites
-  storage as "WHATWG HTML §11.2"; the cookie code cites "WHATWG §6.5.2". Both
-  drifted. Verified-correct anchors (webref, §7): storage = **HTML §12.2**
-  ("The API"), Storage interface §12.2.1, `sessionStorage` getter §12.2.2,
-  `localStorage` getter §12.2.3; `document.cookie` = **HTML §3.1.4** ("Resource
-  metadata management", `#dom-document-cookie`).
+  storage as "WHATWG HTML §11.2"; the cookie code cites "WHATWG §6.5.2"; the
+  `StorageEvent` code cites "WHATWG HTML §11.4.2" (`mod.rs:581`,
+  `object_kind.rs:855`). All drifted. Verified-correct anchors (webref, §7):
+  storage = **HTML §12.2** ("The API"), Storage interface §12.2.1,
+  `sessionStorage` getter §12.2.2, `localStorage` getter §12.2.3, **`StorageEvent`
+  = §12.2.4**; `document.cookie` = **HTML §3.1.4** ("Resource metadata
+  management", `#dom-document-cookie`).
 
 Both classes are pure Axis-3/Axis-4 docstring corrections, separable from the
 migration. **Recommendation:** fold the citation fix into the same clerical micro-PR
@@ -284,13 +315,32 @@ binding rather than assuming it is the only path that exists today.
 
 Two cooperating parts, with a clear division of labor:
 
-**(a) Per-API classification attached at the registration site.** Extend the VM's
-registration tables so every installed Web/DOM API carries a
-`WebApiSpecLevel`/`DomSpecLevel` (reusing the existing enums). Concretely, the
-`install_methods`/`install_ro_accessors`/`install_rw_accessors` entries gain a
-level (defaulting to `Modern`/`Living`, so the change is mechanical and
-near-noise for the ~95% Modern surface). This is the **vocabulary made
-load-bearing** rather than decorative.
+**(a) Per-API classification attached at *every* registration seam.** Extend the
+VM's registration so every installed Web/DOM API carries a
+`WebApiSpecLevel`/`DomSpecLevel` (reusing the existing enums), defaulting to
+`Modern`/`Living` (mechanical, near-noise for the ~95% Modern surface). This is
+the **vocabulary made load-bearing** rather than decorative. There are **three**
+seams the gate must cover (Codex P2 — the table-only form is incomplete):
+
+  1. **`install_methods`/`install_ro_accessors`/`install_rw_accessors` table
+     entries** — the `Window`/`Document` method/accessor surface (incl. the
+     `WINDOW_STORAGE_ACCESSORS` storage pair and the static `DOCUMENT_METHODS`
+     live-collection getters).
+  2. **Direct `register_*_global()` installers** — many top-level Web APIs are
+     installed by a flat sequence of `register_*_global()` calls in
+     `vm/globals.rs` `register_globals` (e.g. `register_storage_global:483`,
+     `StorageEvent` `:656`, `register_websocket_global`, `register_event_source_global`,
+     crypto, and any **future `XMLHttpRequest`-shaped global**). A table-only gate
+     would leave these outside the policy — contradicting "one gate for any future
+     legacy API." The policy must apply to `register_*_global` too (e.g. each takes
+     / is wrapped by a level, and the installer no-ops it when excluded).
+  3. **Live-collection getters that allocate directly** — see §3.4: these are in
+     the static `DOCUMENT_METHODS` table **and** allocate `LiveCollection` in
+     `vm/host/document.rs`, *not* through the `DomApiHandler` registry, so they are
+     gated at seam (1), not via registry pruning.
+
+The gate is therefore "**a level at every install seam + one policy consulted by
+every installer**," not "a level on one table."
 
 **(b) One runtime `SpecLevelPolicy`, resolved once at VM/session construction.**
 The embedder (shell vs. the future app host) supplies a **mode**; the VM
@@ -299,8 +349,10 @@ translates it into a policy that the installer consults:
 ```
 enum WebApiMode { BrowserCompat, BrowserCore, App }   // embedder-supplied
 // BrowserCompat → install Modern + Legacy (current behavior)
-// BrowserCore   → install Modern only (Legacy reachable only via explicit opt-in)
-// App           → install Modern only; Legacy is a hard error / absent
+// BrowserCore   → install Modern only  (⚠ not selectable for a real session until
+//                 the async core lands — a core session needs elidex.storage, §4.2)
+// App           → install Modern only; Legacy compile-excluded (⚠ same async-core
+//                 precondition for storage, §4.2)
 ```
 
 The installer skips entries whose level the policy excludes. This is the single
@@ -350,14 +402,26 @@ in the binary?").
 
 ### 3.4 The mechanism must also be able to express the live-collection family
 
-Because §1.3 may demote three DOM methods to `Legacy`, the gate must apply to
-`DomApiHandler`-dispatched methods too — not just the storage/cookie tables. Good
-news: `DomApiHandler` **already** carries `spec_level()`. The missing piece is the
-**same** enforcement (the policy pruning `Legacy` handlers at resolve/install
-time). So A1's enforcement should be written against *both* the static Web-API
-tables and the `DomApiHandler` registry, proving the gate is universal (requirement
-2) rather than storage-shaped. The actual *demotion* of the three methods stays a
-B0/§12.1.2 decision; A1 only makes the gate capable of it.
+Because §1.3 may demote the live-collection getters to `Legacy`, the gate must
+reach them too. **Correction (Codex P2):** the original draft routed this through
+the `DomApiHandler` registry — that is **wrong** for these methods.
+`getElementsByTagName`/`getElementsByClassName`/`getElementsByName` are installed
+from the **static `DOCUMENT_METHODS` table** and allocate `LiveCollection`
+**directly** in `vm/host/document.rs` (`:211`/`:240`/`:263`), *not* through
+`invoke_dom_api`/`DomApiHandler`. So pruning the `DomApiHandler` registry would
+**not** gate them — in `BrowserCore` the JS properties would still install and
+bypass the policy. Their gate is therefore at **seam (1)** (the static table,
+§3.2a), exactly like the storage accessors — which reinforces the "gate at every
+registration seam" thesis rather than weakening it.
+
+`DomApiHandler::spec_level()` enforcement (pruning `Legacy` handlers at
+resolve/install) is still worth doing for the methods that *are* genuinely
+bridge-dispatched (`setAttribute`/`getAttribute` go through `invoke_dom_api`), so
+A1's enforcement is written against **both** the install seams (1)+(2) **and** the
+`DomApiHandler` registry — but the live-collection getters belong to the
+*table-seam* half, not the registry half. The actual *demotion* + the full
+`LiveCollection`-site sweep stay a B0/§12.1.2 decision (§1.3 scope correction);
+A1 only makes the gate capable of it.
 
 ---
 
@@ -367,15 +431,28 @@ B0/§12.1.2 decision; A1 only makes the gate capable of it.
 
 Per design §14.4.2:
 
-| Shim crate | Houses | Backed by (exists today) | Feature |
-|---|---|---|---|
-| `elidex-api-storage-compat` | `localStorage`/`sessionStorage` thin VM binding + `Storage` interface | `WebStorageManager` / `SessionStorageState` (`elidex-storage-core`) | `compat-webapi` |
-| `elidex-api-cookies-compat` | `document.cookie` get/set thin binding | `CookieJar` (`elidex-net`) | `compat-webapi` |
+**Correction (Codex P2) — what actually moves vs. what stays.** The original draft
+said the compat crates "house the `localStorage`/`sessionStorage` thin VM binding."
+That is **not buildable**: the VM-native glue (`vm/host/storage.rs`, the cookie
+getter/setter) imports **private `elidex-js` VM types** (`NativeContext`,
+`ObjectId`, `ObjectKind`, `VmInner`), and `elidex-js` is the crate that would
+*depend on* the new compat crates — so relocating the glue creates a **dependency
+cycle** (or forces exposing VM internals). Therefore:
 
-These are **moves of existing code** (the current `vm/host/storage.rs` thin
-binding + the cookie getter/setter) behind the gate and the feature, not new
-algorithms. The layering mandate is already honored in `storage.rs:1` ("VM thin
-binding"; algorithm in `elidex-storage-core`) — the compat crate keeps that split.
+| Layer | Where it lives | Gated by |
+|---|---|---|
+| Backend (quota / persistence / origin registry / cookie store) | **already exists** — `elidex-storage-core` (`WebStorageManager`/`SessionStorageState`), `elidex-net` (`CookieJar`) | n/a |
+| Optional compat shim/integration (if any beyond the backend) | new `elidex-api-storage-compat` / `-cookies-compat` | `feature = "compat-webapi"` |
+| **VM-native JS glue** (`install_*` / `register_*_global` / `NativeContext`-using natives) | **stays in `elidex-js`** | `feature = "compat-webapi"` + runtime `SpecLevelPolicy` |
+
+So "move behind compat" = **gate the native glue in place** (feature + policy),
+**not** relocate it. The new compat crate(s) hold only what can sit *below*
+`elidex-js` without a cycle — and since the backends already live in
+`elidex-storage-core`/`elidex-net`, A1 plan-review (§8 Q1) should confirm whether
+a *separate* `-storage-compat`/`-cookies-compat` crate is even needed or whether
+the design §14.4.2 "compat shim" role is already filled by the existing backend
+crate + the gated in-`elidex-js` glue. The layering mandate (`storage.rs:1` "VM
+thin binding"; algorithm in `elidex-storage-core`) is preserved either way.
 
 ### 4.2 Async core equivalents (this program does **not** build these)
 
@@ -398,20 +475,30 @@ F4 "untracked narrative" anti-pattern the umbrella criticizes):** register
   the dual-mode work (MEMORY.md Active state), or sooner if app-mode storage is
   scheduled.
 
-**The ordering decision (important):** §14.4.3 says in `app` mode sync storage is
-compile-excluded and `elidex.storage` is the *primary* API. Naively gating
-`localStorage` out of `app` mode **without** `elidex.storage` would leave app mode
-with **no storage at all**. Resolution:
+**The ordering decision (important) — corrected (Codex P2).** §14.4.3's mode
+table says **both** `elidex-browser（コア）` **and** `elidex-app` have sync storage
+`利用不可` but async `elidex.storage` `利用可能` — i.e. a *core* session is
+contracted to have `elidex.storage`, **not no storage**. So hiding `localStorage`
+in `BrowserCore` **without** the async core would make `BrowserCore` violate the
+mode contract (a core session with zero storage API), even though it would *pass*
+A1's gate tests. The async core is therefore a precondition for **`BrowserCore`
+too**, not only `App`. Resolution:
 
-- `elidex-app` **does not exist yet**, so there is no app build to strand. A2/A3
-  therefore target **browser** mode: keep `localStorage`/`cookie` available (via
-  the compat boundary) in `BrowserCompat`, hide them in `BrowserCore`. This is
-  **shippable without** the async core.
-- The async core (`elidex.storage`/CookieStore) is recorded as a **hard
-  precondition for ever enabling `App` mode storage**, owned by a later PR,
-  cross-referenced from A1's mode enum docs. A0 **does not** schedule it into
-  Program A; it is flagged so the `App` arm of `WebApiMode` is documented as
-  "storage requires the async-core PR" rather than silently broken.
+- `elidex-app` and a selectable `BrowserCore` storage mode **do not exist yet**, so
+  nothing is stranded today. A2/A3 target the **`BrowserCompat`** mode only: keep
+  `localStorage`/`cookie` reachable via the compat boundary; A2/A3 introduce the
+  *classification + gate plumbing* and the `compat-webapi` feature, but **do not
+  flip any production session to `BrowserCore`/`App`**. The gate's
+  `BrowserCore`/`App` *exclusion* is exercised only by unit tests (a marked-`Legacy`
+  test API), never by a real session, until the async core lands.
+- The async core (`elidex.storage`/CookieStore, slot
+  `#11-async-core-storage-cookiestore`) is the **hard precondition for selecting
+  `BrowserCore` *or* `App` storage** in production. A1's mode-enum docs must state:
+  *"`BrowserCore`/`App` must not be selected for a real session until
+  `#11-async-core-storage-cookiestore` lands — else the session has no storage
+  API, violating design §14.4.3."* A0 does **not** schedule the async core into
+  Program A; it pins the dependency so the gate can't silently ship a
+  contract-violating mode.
 
 ### 4.3 Side-store → component lens (pre-answer for Axis 2)
 
@@ -433,19 +520,23 @@ AC = gate conditions.
 
 | PR | Purpose | Main files / crates | Depends | Plan-review | Acceptance criteria |
 |---|---|---|---|---|---|
-| **A1** | Build the **gate**: (a) level on the VM registration entries; (b) `WebApiMode`/`SpecLevelPolicy` in `elidex-plugin`, threaded into VM construction; (c) enforcement that prunes excluded levels at install — applied to **both** the static Web-API tables **and** the `DomApiHandler` registry; (d) `feature = "compat-webapi"`. **No API moves yet; no behavior change** (shell supplies `BrowserCompat`). | `elidex-plugin` (policy type), `elidex-js` VM host registration plumbing, `elidex-script-session` (registry enforcement) | A0 | **PR-R** | Policy can classify+conditionally-install an API by level; `localStorage`/`cookie` still installed & behaving identically under `BrowserCompat`; a unit test shows `BrowserCore`/`App` policy *excludes* a marked-`Legacy` test API; gate proven to apply to a `DomApiHandler` too; `compat-webapi` feature compiles on/off. |
-| **A2** | Move `Storage` (`localStorage`/`sessionStorage`) into `elidex-api-storage-compat` behind the gate + feature; classify them `Legacy`. | new `elidex-api-storage-compat`, `vm/host/storage.rs`, `window.rs` | A1 | **PR-R** | Sync storage reachable only via the compat boundary (present in `BrowserCompat`, absent in `BrowserCore`/`App`); opaque-origin slot `#11-storage-opaque-origin-securityerror` re-evaluated under the boundary; `BrowserCompat` behavior byte-identical; tests green. **Sequence after JS-side media Slice 2b** (window.rs collision — §6). |
-| **A3** | Move `document.cookie` into `elidex-api-cookies-compat` behind the gate + feature; classify it `Legacy`. Fold the F2 clerical fix (stale stub + stale citation, §1.5) if not already landed. | new `elidex-api-cookies-compat`, `vm/host/document.rs` | A1 (∥ A2) | **PR-R** | `document.cookie` reachable only via the compat boundary; stale comments + citations removed; `BrowserCompat` behavior identical; tests green. |
+| **A1** | Build the **gate**: (a) level at **every install seam** — `install_*` tables **and** direct `register_*_global()` installers (§3.2a, Codex P2); (b) `WebApiMode`/`SpecLevelPolicy` in `elidex-plugin`, threaded into VM construction; (c) enforcement that prunes excluded levels at every installer — covering the static tables, the global installers, **and** the `DomApiHandler` registry; (d) `feature = "compat-webapi"`. **No API moves yet; no behavior change** (shell supplies `BrowserCompat`). | `elidex-plugin` (policy type), `elidex-js` VM host registration plumbing incl. `vm/globals.rs`, `elidex-script-session` (registry enforcement) | A0 | **PR-R** | Policy classifies+conditionally-installs by level; `localStorage`/`cookie` still installed under `BrowserCompat`; unit tests show `BrowserCore`/`App` excludes a marked-`Legacy` API installed via **both** a table entry **and** a `register_*_global`; gate proven against a `DomApiHandler` too; `compat-webapi` compiles on/off. **`BrowserCore`/`App` exercised only by tests, never a real session (§4.2 async-core precondition).** |
+| **A2** | Gate `Storage` (`localStorage`/`sessionStorage`) **+ `StorageEvent`** (Codex P2) behind the policy + `compat-webapi` feature, **in place** in `elidex-js` (native glue does not relocate — §4.1 dependency-cycle); classify them `Legacy`. | `vm/host/storage.rs`, `window.rs`, `vm/globals.rs` (StorageEvent), opt. new `elidex-api-storage-compat` (§4.1 — confirm need) | A1 | **PR-R** | Sync storage **and** `StorageEvent` reachable only under `BrowserCompat`; both absent together in `BrowserCore`/`App` (no `typeof StorageEvent==='function'` while storage absent); opaque-origin slot `#11-storage-opaque-origin-securityerror` re-evaluated; `BrowserCompat` byte-identical; tests green. **Sequence after JS-side media Slice 2b** (window.rs collision — §6). |
+| **A3** | Gate `document.cookie` **+ `navigator.cookieEnabled`** (Codex P2) behind the policy + feature, in place in `elidex-js`; classify cookie `Legacy`; **flip/policy-gate `cookieEnabled`** to match cookie reachability. Fold the F2 clerical fix (stale stub + stale citation, §1.5). | `vm/host/document.rs`, `vm/host/navigator.rs`, opt. new `elidex-api-cookies-compat` (§4.1 — confirm need) | A1 (∥ A2) | **PR-R** | `document.cookie` reachable only under `BrowserCompat`; `navigator.cookieEnabled` reports `true` exactly when `document.cookie` is reachable **and** a `CookieJar` is bound (no `cookieEnabled=false` while the compat API works); stale comments + citations removed; tests green. |
 
-`elidex.storage` / CookieStore async core = **out of Program A** (§4.2), flagged
-as the `App`-mode storage precondition for a later PR.
+`elidex.storage` / CookieStore async core = **out of Program A** (§4.2, slot
+`#11-async-core-storage-cookiestore`), the **`BrowserCore`/`App` storage
+precondition** (not just `App`) for a later PR.
 
 ### Adjusted B/C/D/E (carried from umbrella, refined)
 
 - **B0/B1/B2 (F3)** — unchanged scope; **but** B0 now also owns the
-  live-collection classification call (§1.3) + the §12.1.2 amendment, and B1's
-  enforcement reuses **A1's gate** for any `Legacy` DOM method (don't build a
-  second gate). Cross-reference A1 ⇄ B1.
+  live-collection classification call (§1.3) + the §12.1.2 amendment, **with AC =
+  "every `alloc_collection(LiveCollection::new(...))` site is classified"** (incl.
+  `forms`/`images`/`links`, `Element.prototype` getters, `table.rows`,
+  `form.elements`, `select.options` — Codex P2), not just the named `Document`
+  getters. B1's enforcement reuses **A1's gate** for any `Legacy` DOM method
+  (don't build a second gate). Cross-reference A1 ⇄ B1.
 - **C0 (F4)** — unchanged (decide remove-vs-slot for iframe `contentDocument`/
   `contentWindow`; the (M)(stub) Window browsing-context accessors §1.1 are the
   same family — note the linkage).
@@ -508,7 +599,10 @@ Opaque-origin `SecurityError` for storage: the getter algorithms HTML §12.2.2 /
 `storage.rs:82`'s deviation doc + slot `#11-storage-opaque-origin-securityerror`).
 
 > Stale in-code citations to fix (§1.5): `window.rs:434` "§11.2" → §12.2;
-> cookie "§6.5.2" → §3.1.4. (Code comments, not this doc — folded into the F2 sweep.)
+> cookie "§6.5.2" → §3.1.4; `StorageEvent` "§11.4.2" (`mod.rs:581`,
+> `object_kind.rs:855`) → §12.2.4. Plus the stale `document.rs:591` "snapshot
+> arrays" comment (forms/images/links are live). (Code comments, not this doc —
+> folded into the F2 sweep.)
 
 ---
 
