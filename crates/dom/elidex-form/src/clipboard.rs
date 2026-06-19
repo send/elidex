@@ -39,6 +39,12 @@ pub fn clipboard_paste(state: &mut FormControlState, text: &str) {
     if state.readonly {
         return;
     }
+    // §4.10.11: a `<textarea>` stores its API value (newlines normalized), so
+    // fold pasted CR/CRLF to LF up front — before the maxlength count /
+    // truncation and before either insertion branch below — so the stored
+    // value stays the API value and the length budget counts API-value chars.
+    let normalized = state.normalize_textarea_insert(text);
+    let text = normalized.as_ref();
     // Ensure cursor_pos is valid before insertion.
     state.cursor_pos = state.safe_cursor_pos();
 
@@ -122,6 +128,32 @@ mod tests {
         clipboard_paste(&mut s, "b");
         assert_eq!(s.value, "abc");
         assert!(s.dirty_value);
+    }
+
+    #[test]
+    fn paste_into_textarea_normalizes_newlines() {
+        // §4.10.11: pasted CR/CRLF folds to LF in a textarea, on both the
+        // insert-at-cursor branch and the replace-selection branch.
+        let mut s = FormControlState {
+            kind: FormControlKind::TextArea,
+            value: "ab".to_string(),
+            cursor_pos: 1,
+            char_count: 2,
+            ..FormControlState::default()
+        };
+        clipboard_paste(&mut s, "x\r\ny"); // no selection → insert branch
+        assert_eq!(s.value, "ax\nyb");
+
+        let mut s = FormControlState {
+            kind: FormControlKind::TextArea,
+            value: "abc".to_string(),
+            char_count: 3,
+            ..FormControlState::default()
+        };
+        s.selection_start = 1;
+        s.selection_end = 2;
+        clipboard_paste(&mut s, "p\rq"); // replaces "b" → "p\nq"
+        assert_eq!(s.value, "ap\nqc");
     }
 
     #[test]

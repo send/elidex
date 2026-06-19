@@ -367,3 +367,26 @@ fn textarea_default_value_stays_unnormalized() {
     assert_eq!(s.value(), "a\nb"); // API value (normalized)
     assert_eq!(s.default_value, "a\r\nb"); // raw child text (un-normalized)
 }
+
+#[test]
+fn textarea_edit_insertions_normalize_newlines() {
+    // The editing-mutation paths bypass `settle_value`, so they must fold an
+    // inserted CR/CRLF to LF too, keeping the stored value the API value:
+    // `replace_selection` (← setRangeText) and `insert_at_cursor` (← paste / IME).
+    let mut s = raw_state(FormControlKind::TextArea, "ab");
+    s.set_selection(1, 1);
+    s.replace_selection("x\r\ny");
+    assert_eq!(s.value(), "ax\nyb");
+
+    let mut s = raw_state(FormControlKind::TextArea, "ab");
+    s.set_cursor(1);
+    s.insert_at_cursor("p\rq");
+    assert_eq!(s.value(), "ap\nqb");
+
+    // Non-textarea kinds insert verbatim (their value sanitization runs at the
+    // value-establishment chokepoint, not per edit) — the kind gate holds.
+    let mut s = raw_state(FormControlKind::TextInput, "ab");
+    s.set_cursor(1);
+    s.insert_at_cursor("p\rq");
+    assert_eq!(s.value(), "ap\rqb");
+}
