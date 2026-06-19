@@ -423,6 +423,18 @@ fn textarea_selection_offsets_over_api_value() {
 }
 
 #[test]
+fn textarea_set_range_text_normalizes_newlines() {
+    // setRangeText inserts via replace_selection (bypasses settle_value); for
+    // a textarea the inserted CR/CRLF must fold to LF so value / textLength
+    // observe the API value (HTML §4.10.11).
+    let out = run("var t = document.createElement('textarea'); \
+         t.value = 'ab'; \
+         t.setRangeText('x\\r\\ny', 1, 1); \
+         (t.value === 'ax\\nyb') + ':' + t.value.indexOf('\\r');");
+    assert_eq!(out, "true:-1");
+}
+
+#[test]
 fn textarea_set_value_equal_api_value_preserves_selection() {
     // §4.10.11 value setter step 4: cursor moves only if the NEW API value
     // differs from the OLD API value.  Setting "a\nb" when the stored API

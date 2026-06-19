@@ -31,14 +31,17 @@ fn strip_newlines(s: &str) -> String {
 /// the `value` / `textLength` IDL attributes and `maxlength` / `minlength`
 /// observe.  Storing the normalized value at every value-establishment site
 /// keeps those observers (and the shared selection conversion) spec-correct
-/// uniformly — see [`FormControlState::settle_value`].
+/// uniformly — see [`FormControlState::settle_value`].  Also applied by
+/// [`FormControlState::replace_selection`] for the `setRangeText` value
+/// mutation (which bypasses `settle_value`).
 ///
-/// Scope: this covers value-*establishment* (the IDL `value` setter, parser
-/// child-text init, form reset).  Folding newlines on the incremental
-/// *editing* paths (`setRangeText` / paste / IME) — together with maxlength
-/// counted on the API value and the `InputEvent` data — is the coupled
-/// follow-up (`#11-textarea-edit-path-newline-normalization`).
-fn normalize_newlines(s: &str) -> String {
+/// Scope: value-*establishment* (IDL `value` setter / parser child-text /
+/// reset) plus `setRangeText`.  The remaining *interactive* edit paths —
+/// paste ([`crate::clipboard_paste`]) and IME ([`FormControlState::insert_at_cursor`])
+/// — are NOT covered here: they fold newlines together with maxlength
+/// counted on the API value and the `InputEvent` data, a coupled
+/// engine+shell follow-up (`#11-textarea-edit-path-newline-normalization`).
+pub(crate) fn normalize_newlines(s: &str) -> String {
     s.replace("\r\n", "\n").replace('\r', "\n")
 }
 
@@ -219,10 +222,11 @@ pub(crate) fn sanitize_value(state: &mut FormControlState) {
         // `value` setter, parser child-text init, form reset — all via
         // `settle_value`) makes `value` / `textLength` / `maxlength` and the
         // shared selection conversion observe the API value for values set
-        // that way.  The incremental edit paths (`setRangeText` / paste / IME)
-        // do NOT pass through here and still leave raw CRs in the value —
-        // folding them, with the coupled maxlength / `InputEvent` handling, is
-        // the follow-up `#11-textarea-edit-path-newline-normalization`.
+        // that way.  `setRangeText` is additionally folded in
+        // `replace_selection`.  The *interactive* edit paths (paste / IME) do
+        // NOT pass through here and still leave raw CRs in the value — folding
+        // them, with the coupled maxlength / `InputEvent` handling, is the
+        // follow-up `#11-textarea-edit-path-newline-normalization`.
         FormControlKind::TextArea => Some(normalize_newlines(state.value())),
         // No value sanitization algorithm: hidden, checkbox, radio, file,
         // submit/reset/image/button, color (§4.10.5.1.14 color-well

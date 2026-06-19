@@ -28,10 +28,10 @@
 //! For `<textarea>`, §4.10.20's "relevant value" is the **API value**
 //! (CR / CRLF normalized to LF).  `FormControlState` normalizes textarea
 //! newlines at every value-*establishment* site (the IDL `value` setter,
-//! parser child-text init, form reset), so for values set that way
-//! `state.value()` *is* the API value and these offsets are spec-correct
-//! with no extra work here.  Newline folding on the incremental *editing*
-//! paths (`setRangeText` / paste / IME) — and the coupled maxlength /
+//! parser child-text init, form reset) and for `setRangeText` (via
+//! `replace_selection`), so for those `state.value()` *is* the API value and
+//! these offsets are spec-correct with no extra work here.  Newline folding
+//! on the *interactive* edit paths (paste / IME) — and the coupled maxlength /
 //! `InputEvent` handling those entail — is the follow-up
 //! `#11-textarea-edit-path-newline-normalization`.
 //!

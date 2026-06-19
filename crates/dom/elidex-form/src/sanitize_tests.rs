@@ -367,3 +367,21 @@ fn textarea_default_value_stays_unnormalized() {
     assert_eq!(s.value(), "a\nb"); // API value (normalized)
     assert_eq!(s.default_value, "a\r\nb"); // raw child text (un-normalized)
 }
+
+#[test]
+fn textarea_replace_selection_normalizes_newlines() {
+    // `setRangeText` → `replace_selection` bypasses `settle_value`; for a
+    // textarea the inserted CR/CRLF folds to LF (the API-value invariant).
+    // (Paste / IME insertion is the carved follow-up
+    // `#11-textarea-edit-path-newline-normalization`.)
+    let mut s = raw_state(FormControlKind::TextArea, "ab");
+    s.set_selection(1, 1);
+    s.replace_selection("x\r\ny");
+    assert_eq!(s.value(), "ax\nyb");
+
+    // Non-textarea kinds insert verbatim (the kind gate holds).
+    let mut s = raw_state(FormControlKind::TextInput, "ab");
+    s.set_selection(1, 1);
+    s.replace_selection("p\rq");
+    assert_eq!(s.value(), "ap\rqb");
+}
