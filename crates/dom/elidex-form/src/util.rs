@@ -53,6 +53,9 @@ pub fn byte_offset_to_utf16(s: &str, byte_pos: usize) -> usize {
 /// character — the same direction [`byte_offset_to_utf16`] /
 /// [`snap_to_char_boundary`] round, keeping the byte↔UTF-16 mapping
 /// self-consistent. (Whole-character offsets are exact and unaffected.)
+/// Exact preservation of a mid-surrogate code-unit offset is impossible
+/// with byte storage and is deferred to UTF-16-internal selection
+/// storage (slot `#11-selection-mid-surrogate-fidelity`).
 #[must_use]
 pub fn utf16_to_byte_offset(s: &str, utf16_pos: usize) -> usize {
     let mut utf16_count = 0;
