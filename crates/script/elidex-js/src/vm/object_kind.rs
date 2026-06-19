@@ -1526,6 +1526,35 @@ impl ObjectKind {
                     | Self::AsyncDriverStep { .. }
             )
     }
+
+    /// Returns `true` if this kind is a **non-Node** EventTarget brand —
+    /// the canonical set that routes to a `vm_event_listeners` home
+    /// (`host::dispatch_target::target_from_this`) and is accepted by the
+    /// WebIDL `EventTarget?` / `EventTarget` coercions (`relatedTarget`,
+    /// `Touch.target`). Node EventTargets are `HostObject` wrappers, gated
+    /// separately by the entity check at each site.
+    ///
+    /// Single SoT so the brand list cannot drift across the three sites —
+    /// the `match_event_target` helper the `events_ui` accept-list doc
+    /// anticipated. Adding a new non-Node EventTarget brand updates here
+    /// only.
+    #[cfg(feature = "engine")]
+    pub(crate) fn is_non_node_event_target(&self) -> bool {
+        matches!(
+            self,
+            Self::AbortSignal
+                | Self::IdbRequest
+                | Self::IdbTransaction
+                | Self::IdbDatabase
+                | Self::WebSocket
+                | Self::EventSource
+                | Self::FileReader
+                | Self::ServiceWorkerContainer
+                | Self::ServiceWorker
+                | Self::ServiceWorkerRegistration
+                | Self::MediaQueryList
+        )
+    }
 }
 
 /// `IsConstructor(value)` (ECMA-262 §7.2.4): true when the object has

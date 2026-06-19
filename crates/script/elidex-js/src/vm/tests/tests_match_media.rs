@@ -234,7 +234,8 @@ fn legacy_remove_listener_stops() {
 
 #[test]
 fn legacy_add_listener_dedupes_like_add_event_listener() {
-    // addListener(cb) twice = one registration (EventTarget §2.6 step 4).
+    // addListener(cb) twice = one registration (DOM §2.7 "add an event
+    // listener" step 5).
     let mut vm = new_vm();
     assert!(eval_bool(
         &mut vm,
@@ -243,6 +244,21 @@ fn legacy_add_listener_dedupes_like_add_event_listener() {
          m.addListener(cb); m.addListener(cb); \
          m.dispatchEvent(new Event('change')); \
          n === 1;"
+    ));
+}
+
+#[test]
+fn mql_accepted_as_event_related_target() {
+    // MediaQueryList is a non-Node EventTarget, so it is a valid WebIDL
+    // `EventTarget?` relatedTarget — exercises the unified
+    // `ObjectKind::is_non_node_event_target` accept-list (the new brand must
+    // be recognized by the relatedTarget coercion, not just listener routing).
+    let mut vm = new_vm();
+    assert!(eval_bool(
+        &mut vm,
+        "var m = matchMedia('(min-width: 1px)'); \
+         var e = new MouseEvent('click', { relatedTarget: m }); \
+         e.relatedTarget === m;"
     ));
 }
 
