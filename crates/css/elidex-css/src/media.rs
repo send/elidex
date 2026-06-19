@@ -23,6 +23,7 @@
 
 mod eval;
 mod parse;
+mod serialize;
 mod types;
 
 pub use eval::evaluate;
@@ -30,7 +31,7 @@ pub use parse::parse_media_query_list;
 pub use types::{
     BooleanFeature, ColorScheme, DiscreteFeature, DiscreteValue, MediaCondition, MediaEnvironment,
     MediaFeature, MediaQuery, MediaQueryList, MediaType, Medium, Qualifier, RangeConstraint,
-    RangeFeature, RangeOp, RangeValue, ReducedMotion,
+    RangeFeature, RangeOp, RangeSyntax, RangeValue, ReducedMotion,
 };
 
 #[cfg(test)]

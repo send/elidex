@@ -76,7 +76,7 @@ pub fn evaluate(list: &MediaQueryList, env: &MediaEnvironment) -> bool {
 /// Evaluate one `<media-query>`: `(type-match AND condition)` then apply the
 /// `not`/`only` qualifier — §3.1.
 fn eval_query(query: &MediaQuery, env: &MediaEnvironment) -> Tri {
-    let type_tri = match query.media_type {
+    let type_tri = match &query.media_type {
         None => Tri::True, // condition-only query
         Some(t) => match_media_type(t, env.medium),
     };
@@ -98,12 +98,12 @@ fn eval_query(query: &MediaQuery, env: &MediaEnvironment) -> Tri {
 /// any medium. A recognized-but-non-matching ident (`Other`) is definite-false
 /// — its negatability comes from the query qualifier (`not <Other>` = true),
 /// applied in `eval_query`, not from this arm.
-fn match_media_type(query: MediaType, medium: Medium) -> Tri {
+fn match_media_type(query: &MediaType, medium: Medium) -> Tri {
     match query {
         MediaType::All => Tri::True,
         MediaType::Screen => Tri::from_bool(medium == Medium::Screen),
         MediaType::Print => Tri::from_bool(medium == Medium::Print),
-        MediaType::Other => Tri::False,
+        MediaType::Other(_) => Tri::False,
     }
 }
 
@@ -119,7 +119,7 @@ fn eval_condition(cond: &MediaCondition, env: &MediaEnvironment) -> Tri {
             .iter()
             .fold(Tri::False, |acc, t| or_tri(acc, eval_condition(t, env))),
         // §3.1: `<general-enclosed>` evaluates to unknown.
-        MediaCondition::GeneralEnclosed => Tri::Unknown,
+        MediaCondition::GeneralEnclosed(_) => Tri::Unknown,
     }
 }
 
@@ -128,7 +128,9 @@ fn eval_condition(cond: &MediaCondition, env: &MediaEnvironment) -> Tri {
 /// name/value was already turned into `not all` at parse, §3.2).
 fn eval_feature(feature: &MediaFeature, env: &MediaEnvironment) -> Tri {
     match feature {
-        MediaFeature::Range { name, constraints } => {
+        MediaFeature::Range {
+            name, constraints, ..
+        } => {
             let actual = range_feature_value(*name, env);
             Tri::from_bool(constraints.iter().all(|c| {
                 let (target, tolerant) = resolve_range_value(&c.value, env);
@@ -181,10 +183,10 @@ fn resolve_range_value(value: &RangeValue, env: &MediaEnvironment) -> (f64, bool
             let clamped = if v.is_nan() { 0.0 } else { v.max(0.0) };
             (clamped, false)
         }
-        RangeValue::Ratio(r) => (*r, false),
+        RangeValue::Ratio { num, den } => (num / den, false),
         RangeValue::Dppx(d) => (*d, false),
         RangeValue::Number(n) => (*n, false),
-        RangeValue::Converted(v) => (*v, true),
+        RangeValue::Converted { px, .. } => (*px, true),
     }
 }
 
