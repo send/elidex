@@ -1,6 +1,6 @@
 # Elidex Philosophy Implementation Audit
 
-Date: 2026-06-20
+Audit date: 2026-06-19 UTC / 2026-06-20 JST
 Scope: high-signal implementation audit, not exhaustive
 Reader: Claude / maintainers
 
@@ -194,7 +194,7 @@ Recommended next investigation:
 
 ### F5. HTML tag-to-prototype routing is hard-coded in the VM
 
-Severity: MIN / IMP
+Severity: MIN
 
 Evidence:
 
@@ -305,7 +305,8 @@ Recommended next investigation:
 - Do not treat the recommended actions above as final fixes. They are audit
   leads. Re-run local searches and inspect current code before writing plans or
   patches.
-- Prefer a plan-review before implementing F1, F2, or F3. Each spans multiple
-  invariants and can easily become an edge-dense PR.
+- F1, F2, and F3 require an implementation plan-review before any fix work.
+  Each spans multiple invariants and falls under `CLAUDE.md`'s mandatory
+  edge-dense multi-PR program / pre-implementation `/elidex-plan-review` gate.
 - If a finding is intentionally accepted as a phase constraint, record the
   defer slot with: why deferred, re-evaluation trigger, and re-evaluation date.
