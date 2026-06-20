@@ -237,7 +237,9 @@ impl VmInner {
     /// so there is one env-builder + one evaluator (#360). `medium` is always
     /// `Screen` (matchMedia is a screen document; the `Print` medium is the
     /// Slice 3 `@media` cascade, `#11-css-at-media-cascade`); `root_font_size_px`
-    /// / `color_bits` keep the #360 defaults (no transport producer yet).
+    /// / `color_bits` keep the #360 defaults (no transport producer yet — em/rem
+    /// fidelity `#11-media-css-values-fidelity`, color-depth
+    /// `#11-media-extended-features`).
     pub(in crate::vm) fn media_environment(&self) -> MediaEnvironment {
         MediaEnvironment {
             viewport_width: self.viewport.inner_width,
