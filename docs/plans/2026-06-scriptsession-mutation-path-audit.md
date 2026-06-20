@@ -224,7 +224,7 @@ Audience: Claude / maintainers (and Codex via the review guidelines below).
   consumer" breaks invariant 3 (and shatters innerHTML's single coalesced
   childList record, 8YcO). **No single naive routing satisfies all three** — that
   is exactly why the choice is a B1 plan-review design judgment, not a B0 verdict.
-  §4 presents these three invariants plus the C1–C5 + non-dispatching /
+  §4 presents these three invariants plus the C1–C8 + non-dispatching /
   shadow-root / Range / `normalize` / CommentData record-source constraints as
   B1's *input*. (Design §12's "writes via `session.record_mutation`" and ADR #17's
   "consistent MutationObserver records in a single mechanism" are the design
@@ -707,39 +707,99 @@ The two mechanisms intersect at the **HTML-fragment write family —
 innerHTML, outerHTML, and insertAdjacentHTML** (corrected, 8ykL; the earlier
 "only innerHTML/insertAdjacentHTML" omitted the VM `outerHTML` setter):
 `apply_mutation(SetInnerHtml)` / `apply_set_outer_html` ultimately drive `EcsDom`
-tree ops (Mechanism A consumers fire) *and* yield a `MutationRecord`
-(Mechanism B → observer). The VM `outerHTML` setter is concretely both:
-`native_element_set_outer_html` → `apply_set_outer_html`
-(`html_fragment.rs:116`) runs the replace through `EcsDom` tree ops (Mechanism A
-`Insert`/`Remove` fire per node) **and** emits the coalesced record delivered at
-`dom_inner_html.rs:362` (Mechanism B). So outerHTML is on the overlap with
-innerHTML — consistent with §3's "records ARE produced" list and §4.3's
-no-double-delivery / C5 coalescing caveat.
+tree ops (Mechanism A consumers fire) *and* yield a `MutationRecord` that reaches
+the observer.
+
+> **The VM innerHTML/outerHTML record path is *direct-delivery*, NOT Mechanism B
+> buffer-overlap (corrected, 9dTQ).** An earlier draft classified the VM
+> `innerHTML`/`outerHTML` record path as "Mechanism B → observer" — i.e. as if the
+> record were buffered into `SessionCore::pending` and delivered at `flush`. **It is
+> not.** The VM natives call `apply_set_inner_html` / `apply_set_outer_html`
+> *directly* through `with_session_and_dom` with the `_session` argument **unused**
+> (`dom_inner_html.rs:146`/`:359`), and then **synchronously hand the returned
+> record to `ctx.vm.deliver_mutation_records(&[rec])`** (`dom_inner_html.rs:148`/
+> `:362`) — never entering `SessionCore::record_mutation` and never going through
+> `flush`. So the correct map of the §1-invariant "covered" set has **three**
+> categories, not two: Mechanism A (dispatcher events), Mechanism B (`SessionCore`
+> buffer → `flush` → `deliver_mutation_records`, the production/boa MO path and the
+> boa iframe attr writes, §2.2), and a **VM direct-delivery** category (the VM
+> innerHTML/outerHTML setters self-generate a record and deliver it synchronously,
+> bypassing the buffer). The overlap at the HTML-fragment family is therefore
+> **Mechanism A (tree-op dispatcher events fire) ∩ VM direct-delivery** in the VM,
+> and Mechanism A ∩ Mechanism B on the boa/dom-api `SetInnerHtml`/`InsertAdjacentHtml`
+> path — *not* a single uniform "Mechanism B" overlap. This is the same
+> three-way split §0/§1's covered-set definition (covered = `record_mutation` ∧
+> delivering flush **∪** direct `deliver_mutation_records` producers) and §6's
+> grep-diff methodology already use; §2.3 is corrected here to match it.
+> `insertAdjacentHTML` is **not** a VM native (`well_known.rs:341-342` installs only
+> `insertAdjacentElement`/`insertAdjacentText`), so its `SetInnerHtml`-class record
+> is a dom-api/boa Mechanism-B producer only, not a VM direct-delivery one (§1.4).
+
+The VM `outerHTML` setter is concretely both Mechanism A and VM direct-delivery:
+`native_element_set_outer_html` → `apply_set_outer_html` (`html_fragment.rs:116`)
+runs the replace through `EcsDom` tree ops (Mechanism A `Insert`/`Remove` fire per
+node) **and** emits the coalesced record delivered synchronously at
+`dom_inner_html.rs:362` (VM direct-delivery, **not** buffered Mechanism B) — so
+outerHTML is on the overlap with innerHTML, consistent with §3's "records ARE
+produced" list and §4.3's no-double-delivery / C5 coalescing caveat.
 
 For most other writes, Mechanism A fires and Mechanism B is empty — but **not
 all** (9LCT). The blanket "every non-fragment write fires Mechanism A" is
-**false** for the **Comment character-data** path: `set_char_data`'s Comment
-branch (`char_data/char_data_handlers.rs:59-73`) writes `CommentData.0` + bumps
-`rev_version` **only** — it calls no `dispatch_event`, so **neither** a
-Mechanism-A `MutationEvent` **nor** a Mechanism-B record fires (§1.4b/§3 8YcL).
-So a `comment.data = 'x'` (or `appendData`/… on a Comment) is the one
-non-fragment write that drives **neither** mechanism — the Comment branch is the
-counterexample to "all non-fragment writes fire Mechanism A". (The Text/CData
-branch *does* fire `TextChange` via Mechanism A; only the Comment branch is the
-hole.) With that exception noted, for all remaining writes Mechanism A fires and
-Mechanism B is empty.
+**false** for **two** non-fragment write classes, each of which drives a path
+*other than* Mechanism A:
+
+1. **Comment character-data — drives *neither* mechanism (9LCT/8YcL).**
+   `set_char_data`'s Comment branch (`char_data/char_data_handlers.rs:59-73`)
+   writes `CommentData.0` + bumps `rev_version` **only** — it calls no
+   `dispatch_event`, so **neither** a Mechanism-A `MutationEvent` **nor** a
+   Mechanism-B record fires (§1.4b/§3 8YcL). So a `comment.data = 'x'` (or
+   `appendData`/… on a Comment) drives **neither** mechanism. (The Text/CData
+   branch *does* fire `TextChange` via Mechanism A; only the Comment branch is the
+   hole.)
+2. **boa buffered `<iframe>` attribute writes — Mechanism B, *not* Mechanism A
+   (9dTR).** `iframe.rs:99`/`:105`/`:206` record
+   `Mutation::SetAttribute`/`RemoveAttribute`, applied by
+   `apply_set_attribute`/`apply_remove_attribute` (`mutation/mod.rs:288-332`) which
+   write `Attributes` directly + reconcile + `rev_version` and **self-generate** the
+   record — they never enter `EcsDom::set_attribute` and so fire **no**
+   `MutationEvent`. So this is a non-fragment write that records into Mechanism B
+   while driving **no** Mechanism-A event (and bypassing the `EcsDom::set_attribute`
+   chokepoint / `MutationEvent`, §2.2/§4.2a C4). (boa-specific — known-to-differ per
+   the scoping note, moot at S5; retained because it is the one *existing*
+   non-fragment attribute write that records to Mechanism B without a
+   `MutationEvent`.)
+
+So the "all non-fragment writes fire Mechanism A" statement has **two**
+counterexamples, not one: Comment character-data (neither mechanism) and the boa
+buffered iframe attr write (Mechanism B, no Mechanism-A event). With those two
+exceptions noted, for all remaining writes Mechanism A fires and Mechanism B is
+empty.
 
 ---
 
 ## 3. The MutationObserver Coverage Gap (exact)
 
 The JS-level `MutationObserver` (WHATWG DOM §4.3) observes a mutation **iff a
-`MutationRecord` is produced and delivered**, i.e. iff the mutation went through
-`SessionCore::record_mutation` (or a direct `dom_inner_html.rs` deliver call).
-This is the §1 invariant restated for the observer axis; the gap rows below are a
-**representative** list (incl. the R5 textContent/nodeValue/splitText additions),
-and the **verified-exhaustive** gap set is the §1 B1 grep-diff deliverable, not
-this table.
+`MutationRecord` is produced *and a delivering path actually hands it to*
+`deliver_mutation_records`** (corrected, 9dTT — "produced and delivered", with
+*delivered* spelled out below). Concretely, the mutation must be in **one** of:
+**(a)** it went through `SessionCore::record_mutation` **and** the flush that
+drains its buffer is the *delivering* flush — the per-frame `re_render` →
+`content/mod.rs:258`, **not** `flush_with_ce_reactions` (`pipeline.rs:25-34`), which
+feeds the buffered records to **CE reactions only** and **never calls
+`deliver_mutation_records`**; **or (b)** it is a **direct-delivery** producer that
+self-generates a record and calls `deliver_mutation_records` synchronously without
+the buffer (the VM `innerHTML`/`outerHTML` setters, `dom_inner_html.rs:148`/`:362`).
+**`record_mutation` is therefore NOT, by itself, equivalent to observation:** a
+write that records a `Mutation` whose buffer is only ever drained by
+`flush_with_ce_reactions` (page-load / lifecycle finalization) is **MO-silent
+despite recording** — it is delivered to CE reactions but not to MutationObservers
+(§1 covered-set qualifier / §2.2 / §6 grep-diff). This is the §1 invariant
+("covered = (`record_mutation` ∧ delivering flush) ∪ direct
+`deliver_mutation_records` producers") restated for the observer axis — **not**
+"recorded ⇒ observed". The gap rows below are a **representative** list (incl. the
+R5 textContent/nodeValue/splitText additions), and the **verified-exhaustive** gap
+set is the §1 B1 grep-diff deliverable, not this table.
 
 **Records ARE produced for (in the elidex-js VM):**
 
@@ -818,7 +878,7 @@ to `#11-mutation-observer-extras` (`mutation_event.rs:295-298`).
 > coupled-invariant corner** and, under `CLAUDE.md` "Edge-dense work = multi-PR +
 > 実装前 plan-review 必須", that choice is **B1's `/elidex-plan-review` design
 > judgment**, not B0's verdict. What follows is the *input* B1 must satisfy: the
-> three coupled invariants (§4.1) and the record-source constraints C1–C5 (§4.2a).
+> three coupled invariants (§4.1) and the record-source constraints C1–C8 (§4.2a).
 > The B1/B2 plan-memos run `/elidex-plan-review` with this corner mapped upfront.
 
 ### 4.1 The three coupled invariants any candidate mechanism must satisfy
@@ -866,7 +926,7 @@ producing the MO record at the ScriptSession seam (invariant 3) — i.e. separat
 *where the write applies* from *where the MO record originates*. **How to wire
 that — and whether it requires a seam-side record emitted at the same call as the
 synchronous chokepoint write, a flush-coalescing layer, or another structure — is
-the design B1 owns.** §4.2a's C1–C5 are the additional record-source constraints
+the design B1 owns.** §4.2a's C1–C8 are the additional record-source constraints
 that mechanism must also reproduce.
 
 > **Lesson #181 *does* tension with the naive seam-only routing (correcting an
@@ -958,6 +1018,72 @@ factor for B1 to weigh (it does **not** settle the choice — invariants 1 + 2 o
   *explicit* `deliver_mutation_records` at `dom_inner_html.rs:148`/`:362` so a
   given innerHTML/outerHTML mutation is delivered exactly once (no double-delivery,
   no per-node shattering).
+- **C6 — "replace all" coalescing for `replaceChildren` / element `textContent`
+  (9dTW).** Two more script-reachable whole-subtree replaces are implemented as
+  **remove-all-then-insert** loops of per-node `EcsDom` ops, *not* as a single
+  intent — so they carry the **same** N+M-shatter risk as innerHTML (C5) but have
+  **no** record at all today (§3 gap rows):
+  - **`replaceChildren`** (`child_node/mutations.rs:275-283`) removes every existing
+    child via a `remove_child` loop, then inserts the new node(s).
+  - **element `textContent =`** (`node_methods/text_content.rs:106-113`, the element
+    branch) removes every child via a `remove_child` loop, then optionally appends a
+    single text node.
+  Per **WHATWG DOM §4.2.3 Mutation algorithms**, "replace all" (`#concept-node-replace-all`)
+  removes all children **with `suppressObservers` true** and inserts the new node
+  **with `suppressObservers` true**, then (step 7) **queues a single tree mutation
+  record** for the parent carrying `addedNodes` *and* `removedNodes` together —
+  i.e. **one** aggregate `ChildList` record, not N+M per-node records. (Both
+  `replaceChildren`, DOM §4.2.6 Mixin ParentNode (`#dom-parentnode-replacechildren`),
+  and the `textContent` setter, DOM §4.4 Interface Node (`#dom-node-textcontent`),
+  are spec-defined in terms of "replace all".) So C6
+  is the same intent-vs-event discriminator as C5: a seam/intent-driven source
+  yields the single aggregate record by construction, while an event-driven source
+  (Pole A) must coalesce the per-node `remove_child`/`append_child` dispatcher events
+  back into one record. *Favors recording from intent.* B1 must produce **one**
+  coalesced record for `replaceChildren` and element `textContent`, matching the C5
+  innerHTML/outerHTML shape (§4.3 record-shape correctness).
+- **C7 — CE-reaction *order* preservation across coalesced records (9dTU — a named
+  coupled invariant).** A coalesced childList record (C1 replaceChild / C5
+  innerHTML / C6 replace-all) is **not** order-free: the spec/CE consumer cares
+  about added-vs-removed ordering, and the current sources fix a specific order that
+  a naive "node-set match" record loses:
+  - The flush-side CE scan `enqueue_ce_reactions_from_mutations`
+    (`elidex-js-boa/runtime/ce.rs:145`) iterates **added nodes first** (connected,
+    `ce.rs:24` region) **then removed nodes** (disconnected) within a single record.
+  - `EcsDom::replace_child` (`tree/mutation.rs:185-205`) dispatches
+    **`fire_after_remove(old)` (`:189`) then `fire_after_insert(new)` (`:200`)** —
+    Remove **before** Insert.
+  - `apply_set_inner_html` (and outerHTML) likewise **remove-old then append-new**.
+  So if B1's record/coalesce step or its flush-side CE scan reorders added vs.
+  removed (or treats a coalesced record as an unordered node-set), the CE
+  `disconnected`-then-`connected` (or `connected`-then-`disconnected`) **callback
+  firing order can invert** relative to today. **B1 must treat
+  added/removed-node ordering inside a coalesced record as a load-bearing
+  invariant** — record production, coalescing, *and* the flush-side CE scan must
+  agree on one order — alongside C1–C6, not as an afterthought. (This couples
+  record-shape coalescing with CE-reaction semantics — §4.3's CE-reaction
+  preservation bullet — at the same source.)
+- **C8 — characterData `oldValue` capture *timing* (9dTY — a named coupled
+  invariant).** `{characterDataOldValue:true}` (DOM §4.3.3) requires the **pre-write**
+  character data, but on the Mechanism-A / `ConsumerDispatcher` path the old value is
+  **already gone** by the time any consumer runs:
+  - `EcsDom::set_text_data` (`elidex-ecs/dom/mod.rs:332`) **overwrites the
+    `TextContent` buffer** (`:336`) **before** firing `MutationEvent::TextChange`
+    (`:340-344`), and that event carries only `{ node, new_utf16_len }`
+    (`mutation_event.rs:191`) — **no old value**.
+  - `ReplaceData` (`mutation_event.rs:209`) carries only `{ offset, count }` —
+    again no old value, and the splice has already mutated the buffer.
+  - The Comment branch of `set_char_data` (`char_data_handlers.rs:59-73`) overwrites
+    `CommentData.0` in place with no event at all.
+  So an **event-driven (Pole A) characterData-oldValue source is impossible by
+  construction** — the dispatcher event neither carries the old value nor fires
+  before the overwrite. The old value must be **captured at the seam/handler,
+  *before* the `EcsDom` write**, where it is still in hand (§4.3 `oldValue`
+  threading bullet). **B1 must treat characterData `oldValue` capture-timing as a
+  C1–C7-class constraint**: it is a hard reason an event-driven source cannot fully
+  serve `characterDataOldValue`, coupling the record source with capture ordering at
+  one upstream point (the same coupling C2/C3 raise for attribute oldValue and
+  shadow-root suppression).
 
 ### 4.2 Candidate directions B1 weighs (neither pre-decided here)
 
@@ -999,7 +1125,7 @@ write + dispatcher fan-out at the `EcsDom::set_attribute` chokepoint (invariants
 write, rather than deferring application to flush. **Whether that, a
 flush-coalescing layer, or another structure is correct — and how to thread it
 through `elidex-dom-api` handlers, the reflected setters (§4.5), the dual runtime,
-and the C1–C5 constraints — is the B1 design judgment.** B0 deliberately stops
+and the C1–C8 constraints — is the B1 design judgment.** B0 deliberately stops
 short of choosing.
 
 ### 4.3 Cross-cutting work any direction inherits (for B1's plan)
@@ -1030,9 +1156,10 @@ B1's plan-review covers them:
   nodes → `connected`/`disconnected`, attribute records →
   `attributeChangedCallback`). In particular a Pole-B record-shape change (e.g.
   coalescing or re-ordering childList records) must keep CE
-  `enqueue_ce_reactions_from_mutations` seeing the same added/removed node set,
-  and the flush→CE drain must continue to run on the page-load
-  (`flush_with_ce_reactions`) path, not only per-frame.
+  `enqueue_ce_reactions_from_mutations` seeing the same added/removed node set
+  **in the same order** (the added-then-removed / Remove-before-Insert order is a
+  named constraint — **C7**, §4.2a, 9dTU), and the flush→CE drain must continue to
+  run on the page-load (`flush_with_ce_reactions`) path, not only per-frame.
 - **CommentData notification + live-range coupling (8YcL / 9WUB) — a *coupled*
   invariant, not a lone missing record.** Comment characterData fires no event
   today (§1.4b); the current Comment path writes only `CommentData` + `rev_version`
@@ -1057,8 +1184,12 @@ B1's plan-review covers them:
   named §4 coupled invariant handed to B1's `/elidex-plan-review`, not solved here.
 - **`oldValue` threading.** `characterDataOldValue` / attribute `oldValue` need
   the pre-write value captured before the `EcsDom` write (the handler has it in
-  hand); `attributeNamespace` stays deferred to `#11-mutation-observer-extras`
-  (`mutation_event.rs:295-298`).
+  hand). For **characterData** this is a hard capture-*timing* constraint — **C8**
+  (§4.2a, 9dTY): the `EcsDom::set_text_data` / Comment write overwrites the buffer
+  **before** any dispatcher event fires, and `TextChange`/`ReplaceData` carry no old
+  value, so an event-driven source cannot serve `characterDataOldValue` at all — the
+  old value must be captured at the seam/handler upstream of the write. `attributeNamespace`
+  stays deferred to `#11-mutation-observer-extras` (`mutation_event.rs:295-298`).
 - **Dual-runtime delivery.** Both VM and boa flush through `SessionCore`, so a
   seam-side record is runtime-uniform; a flush→MO hook must exist in the boa flush
   path until S5 removes boa. A dispatcher-consumer (Pole A) is VM-only (the
@@ -1069,9 +1200,53 @@ B1's plan-review covers them:
 
 §1 surfaced a uniformity gap that B1's mechanism choice will shape: today
 `setAttribute` routes through a `DomApiHandler` while `removeAttribute` and the
-reflected IDL setters do not. **The target direction depends on B1's §4.1/§4.2
-decision** (e.g. whether reflected writes carry an MO record at all, and at which
-layer), so B2 is *gated on* B1 rather than independently prescribed. The Layering
+reflected IDL setters do not.
+
+> **B2 summary — corrected from "whether" to "where/how" (9dTS).** An earlier draft
+> left B2 *gated on* "**whether** reflected writes carry an MO record at all". That
+> framing is **inconsistent with §4.5's own reflected-setter bullet (8YcT) below**,
+> which establishes — via webref-verified spec — that a *true* reflected IDL setter
+> (`a.href`, `form.method`, `input.type`, …) **is** an observable attribute mutation
+> (HTML §2.6.1 reflection contract = "set the content attribute" → WHATWG DOM §4.9
+> "change an attribute" → "handle attribute changes" step 1 **queues an
+> `"attributes"` mutation record**), so a `{attributes:true,
+> attributeFilter:['href']}` observer **is owed** that record — *spec-settled, not a
+> per-plan option*. The **sole exception is `input.value`** (8kHF): its setter is a
+> value-mode dispatch, **not** "set the content attribute", so a text-like-mode
+> `input.value = 'x'` is a non-attribute live-state write (`FormControlState`,
+> `Attributes` untouched) that must **not** emit a spurious attribute record. So the
+> open B2 question is **not** "observable or not" — that is settled (true reflections:
+> record owed; `input.value` text-mode: record-free) — it is **where/how** the
+> (spec-owed) MO record is recorded: which layer / mechanism, per §4.1's coupled
+> invariants. This propagates §4.5's 8YcT/8kHF conclusion into the B2 summary so the
+> summary states *where/how*, not *whether*.
+
+**The target direction depends on B1's §4.1/§4.2
+decision** (the recording layer/mechanism for the spec-owed reflected-write record,
+per the summary above), so B2 is *gated on* B1 rather than independently prescribed.
+
+> **B2 convergence scope = *all* direct-`EcsDom` attribute-write host APIs (9dTV).**
+> The uniformity gap is **not** confined to `removeAttribute` + the reflected
+> setters. §1.1 + the code show the full set of `vm/host/` attribute-write APIs that
+> reach `EcsDom::set_attribute`/`remove_attribute` **directly** (no `invoke_dom_api`
+> seam), every one of which B2's convergence must include alongside `removeAttribute`
+> and the reflected setters:
+> - **`toggleAttribute`** — via `attr_set` (`element_attrs.rs:577`/`:592`) →
+>   `EcsDom::set_attribute` (and the absent-branch removal, `:558` region).
+> - **`Attr.value =` setter** — `attr_proto.rs:416` → `EcsDom::set_attribute` direct.
+> - **`NamedNodeMap.setNamedItem` / `removeNamedItem`** —
+>   `named_node_map.rs:345`/`:431` → `EcsDom::set_attribute`/`remove_attribute` direct.
+> - **`setAttributeNode` / `removeAttributeNode`** — `element_attrs.rs:414`/`:535` →
+>   `EcsDom::set_attribute`/`remove_attribute` direct.
+>
+> So B2's "route attribute writes uniformly" convergence scope is **{`removeAttribute`,
+> reflected IDL setters, `toggleAttribute`, `Attr.value`, `setNamedItem`,
+> `removeNamedItem`, `setAttributeNode`, `removeAttributeNode`}** — the whole direct-
+> `EcsDom` attribute-write surface, not the two originally listed. (Each carries the
+> same VM-local `Attr`-detach precondition where it removes an attribute, per the
+> first bullet below.)
+
+The Layering
 mandate (`vm/host/` marshalling-only) and the following per-site facts constrain
 whatever B2 does:
 
@@ -1140,7 +1315,7 @@ whatever B2 does:
 ### 4.6 Sequencing
 
 **B1's `/elidex-plan-review` resolves the §4.1 coupled-invariant corner and picks
-the mechanism** (correctness: close the MutationObserver gap of §3 + the C1–C5
+the mechanism** (correctness: close the MutationObserver gap of §3 + the C1–C8
 constraints + 8YcL/8YcW), **before** B2 (the bridge/direct + reflected-setter
 convergence of §4.5), since B2's target shape depends on B1's mechanism choice.
 Both are `/elidex-plan-review`-gated per `CLAUDE.md` "Edge-dense work = multi-PR +
@@ -1238,8 +1413,16 @@ verdict here.
   8YcL), `apply_set_inner_html` single-record shape (`html_fragment.rs:85-89` —
   8YcO/C5), the missing flush→MO hook (`natives_promise.rs:333-344` dispatches
   slotchange only — 8YcR), the `input.value` value-mode dispatch
-  (`html_input_value.rs:120-129` — 8kHF, *not* a plain reflection), and the
-  reflected-setter direct writes (`html_input_proto.rs` etc. — 8YcT).
+  (`html_input_value.rs:120-129` — 8kHF, *not* a plain reflection), the
+  reflected-setter direct writes (`html_input_proto.rs` etc. — 8YcT), the
+  **replace-all** remove-all-then-insert loops (`child_node/mutations.rs:275-283`
+  `replaceChildren` + element `textContent` `node_methods/text_content.rs:106-113`
+  — C6/9dTW, DOM §4.2.3 single tree mutation record), the **CE-reaction order**
+  anchors (`enqueue_ce_reactions_from_mutations` added-then-removed `ce.rs:145`/`:24`
+  + `replace_child` Remove-before-Insert `tree/mutation.rs:189`/`:200` — C7/9dTU),
+  and the **characterData `oldValue` capture-timing** anchors (`set_text_data`
+  overwrite-before-dispatch `elidex-ecs/dom/mod.rs:336`/`:340-344`, `TextChange`/
+  `ReplaceData` carry no old value `mutation_event.rs:191`/`:209` — C8/9dTY).
 - Re-check active branches (`git branch -r`) for convergence drift on
   `element_attrs.rs` / `vm/host/` attribute setters (MED collision risk with
   JS-side work; low overlap with media Slice 2b today, but B is later — Axis 5).
@@ -1270,7 +1453,7 @@ verdict here.
   multi-PR + 実装前 plan-review 必須" reserves that choice for B1. So: do **not**
   flag §4 for "failing to pick a mechanism" — picking one in a B0 audit would be
   the mandate violation. **Do** flag if (a) any of the three §4.1 coupled
-  invariants is mis-stated or mis-attributed, (b) a §4.2a constraint (C1–C5) is
+  invariants is mis-stated or mis-attributed, (b) a §4.2a constraint (C1–C8) is
   wrong, (c) the §4.2 Pole-A/Pole-B trade-offs mis-describe the code, or (d) the
   #181 / `apply_set_attribute`-bypass tension (§4.1 callout, §5) is mis-read.
 - Out of scope: implementing B1/B2; touching `element_attrs.rs`, reflected
