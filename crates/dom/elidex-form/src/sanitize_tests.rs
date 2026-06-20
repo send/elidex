@@ -174,13 +174,14 @@ fn sanitize_datetime_local_normalizes() {
 #[test]
 fn sanitize_noop_kinds_untouched() {
     // States with no value sanitization algorithm keep the value as-is.
+    // (Color is NOT here — it has the §4.10.5.1.14 color-well sanitization,
+    // covered by the `sanitize_color_*` tests above.)
     for kind in [
         FormControlKind::Hidden,
         FormControlKind::Checkbox,
         FormControlKind::Radio,
         FormControlKind::File,
         FormControlKind::SubmitButton,
-        FormControlKind::Color,
     ] {
         let mut s = raw_state(kind, "x\ny 150");
         sanitize_value(&mut s);
@@ -384,4 +385,67 @@ fn textarea_replace_selection_normalizes_newlines() {
     s.set_selection(1, 1);
     s.replace_selection("p\rq");
     assert_eq!(s.value(), "ap\rqb");
+}
+
+// ---- §4.10.5.1.14 Color state (default Limited-sRGB-opaque path) ----
+
+#[test]
+fn sanitize_color_canonicalizes_to_lowercase_rrggbb() {
+    // Any CSS color form is accepted and canonicalized to `#rrggbb` lowercase.
+    let cases = [
+        ("red", "#ff0000"),
+        ("#F00", "#ff0000"),    // 3-digit hex expands + lowercases
+        ("#ABCDEF", "#abcdef"), // 6-digit hex lowercases
+        ("#aBc", "#aabbcc"),    // 3-digit nibble expansion
+        ("rgb(255, 0, 0)", "#ff0000"),
+        ("rgb(0 128 0)", "#008000"),
+        ("RebeccaPurple", "#663399"),
+        ("hsl(120, 100%, 50%)", "#00ff00"),
+    ];
+    for (input, expected) in cases {
+        let mut s = raw_state(FormControlKind::Color, input);
+        sanitize_value(&mut s);
+        assert_eq!(s.value(), expected, "input {input:?}");
+    }
+}
+
+#[test]
+fn sanitize_color_invalid_becomes_opaque_black() {
+    // Parse failure (incl. trailing junk / empty) → opaque black `#000000`;
+    // the value is never left as an unparseable / empty string (the spec:
+    // "there is always a CSS color picked").
+    for input in ["", "   ", "notacolor", "#ff", "red junk", "#fff x"] {
+        let mut s = raw_state(FormControlKind::Color, input);
+        sanitize_value(&mut s);
+        assert_eq!(s.value(), "#000000", "input {input:?}");
+    }
+}
+
+#[test]
+fn sanitize_color_forces_opaque() {
+    // `alpha` not specified (the default) → the color is forced fully opaque,
+    // so translucent / transparent inputs serialize to `#rrggbb` (no alpha).
+    for (input, expected) in [
+        ("transparent", "#000000"),
+        ("rgba(255, 0, 0, 0.5)", "#ff0000"),
+        ("#ff000080", "#ff0000"),
+        ("rgb(0 0 255 / 25%)", "#0000ff"),
+    ] {
+        let mut s = raw_state(FormControlKind::Color, input);
+        sanitize_value(&mut s);
+        assert_eq!(s.value(), expected, "input {input:?}");
+    }
+}
+
+#[test]
+fn color_idl_value_set_round_trips_valid_color() {
+    // B2 (interop-faithful): `input.value = "#ff0000"` keeps `#ff0000` — the
+    // value-mode IDL setter sanitizes the live value, NOT the (absent) `value`
+    // content attribute.  A valid color round-trips; an invalid one snaps to
+    // opaque black.
+    let mut s = raw_state(FormControlKind::Color, "");
+    s.set_value("#ff0000".to_string());
+    assert_eq!(s.value(), "#ff0000");
+    s.set_value("oklch(0.5 0.1 200)".to_string()); // unsupported function form
+    assert_eq!(s.value(), "#000000");
 }
