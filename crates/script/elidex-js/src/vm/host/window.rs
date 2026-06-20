@@ -32,6 +32,8 @@
 
 #![cfg(feature = "engine")]
 
+use elidex_css::media::{ColorScheme, ReducedMotion};
+
 use super::super::coerce;
 use super::super::shape;
 use super::super::value::{
@@ -39,19 +41,24 @@ use super::super::value::{
 };
 use super::super::VmInner;
 
-/// In-memory viewport state (size + scroll offset) backing the
-/// `innerWidth` / `innerHeight` / `scrollX` / `scrollY` /
-/// `devicePixelRatio` window getters.
+/// The single transported device-facts SoT for this window, backing the
+/// `innerWidth` / `innerHeight` / `scrollX` / `scrollY` / `devicePixelRatio`
+/// window getters AND the media-query evaluator. It holds viewport geometry
+/// (`inner_width` / `inner_height` / `device_pixel_ratio`), live scroll, and
+/// the user-preference media facts (`color_scheme` / `reduced_motion`).
 ///
-/// Phase 2 values are fixed defaults until the shell integration
-/// pushes real values (PR6):
+/// It is the **one** struct the shell drives device state through (mirroring
+/// the engine-independent [`elidex_css::media::MediaEnvironment`]'s own
+/// co-location), so
+/// [`VmInner::media_environment`](crate::vm::VmInner::media_environment) derives
+/// the evaluator environment from here rather than from a second prefs struct
+/// (one-issue-one-way). The name reads "viewport" for history; it is a
+/// **superset** of geometry — the prefs fields are device facts too, pushed by
+/// the same `set_media_environment` transport.
 ///
-/// - `inner_width` / `inner_height` — 1024 × 768 CSS pixels,
-///   matching the most common responsive-breakpoint assumption.
-/// - `scroll_x` / `scroll_y` — mutated by `scrollTo` / `scrollBy`
-///   but not otherwise observable until compositing lands.
-/// - `device_pixel_ratio` — 1.0 (browsers on standard DPI
-///   displays).
+/// Defaults are 1024×768 CSS px, 1.0 dppx, `Light` / `NoPreference` until the
+/// shell pushes real values via `set_media_environment` (`scroll_x` / `scroll_y`
+/// are driven by `scrollTo` / `scrollBy`).
 #[derive(Debug)]
 pub(crate) struct ViewportState {
     pub(crate) inner_width: f64,
@@ -59,6 +66,14 @@ pub(crate) struct ViewportState {
     pub(crate) scroll_x: f64,
     pub(crate) scroll_y: f64,
     pub(crate) device_pixel_ratio: f64,
+    /// `prefers-color-scheme` user preference (MQ5 §12.5). Defaults to
+    /// `Light` (UA convention, no active preference); the shell's
+    /// theme-change producer (carved `#11-media-prefers-features`) will drive
+    /// it via `set_media_environment`. VM tests drive it directly.
+    pub(crate) color_scheme: ColorScheme,
+    /// `prefers-reduced-motion` user preference (MQ5 §12.1). Defaults to
+    /// `NoPreference`; producer wiring carved like `color_scheme`.
+    pub(crate) reduced_motion: ReducedMotion,
     /// Scroll offset a script requested via `scrollTo` / `scrollBy`
     /// (CSSOM View §4) that the shell has not yet applied + echoed back.
     /// Drained by [`Vm::take_pending_scroll`](crate::vm::Vm::take_pending_scroll);
@@ -76,6 +91,10 @@ impl ViewportState {
             scroll_x: 0.0,
             scroll_y: 0.0,
             device_pixel_ratio: 1.0,
+            // #360 `MediaEnvironment::default` prefs (MQ5 §12.5 / §12.1) until
+            // the shell producer wiring lands (`#11-media-prefers-features`).
+            color_scheme: ColorScheme::Light,
+            reduced_motion: ReducedMotion::NoPreference,
             pending_scroll: None,
         }
     }

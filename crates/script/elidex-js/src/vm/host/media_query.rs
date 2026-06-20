@@ -49,9 +49,9 @@
 //! exposed here (Window-only, constructible: `new MediaQueryListEvent(type,
 //! {matches, media})`), built as `ObjectKind::Event` + a precomputed shape
 //! (no own brand, MessageEvent precedent — lesson #276). The host-driven
-//! report-changes *fire* (transport → flip → dispatch) lands with the
-//! `HostDriver` transport in Slice 2b-ii; this slice provides the
-//! constructible interface, exercised via `dispatchEvent`.
+//! report-changes *fire* (transport → flip → dispatch) is
+//! [`VmInner::deliver_media_query_changes`] (Slice 2b-ii), driven from the
+//! shell's update-the-rendering step after a `set_media_environment` push.
 
 #![cfg(feature = "engine")]
 
@@ -63,23 +63,35 @@ use super::super::value::{
     PropertyValue, VmError,
 };
 use super::super::{NativeFn, VmInner};
+use super::event_target_dispatch_vm::fire_vm_event;
+use super::events::EventInit;
 
 /// Per-`MediaQueryList` state, owned by
 /// [`VmInner::media_query_list_registry`] and looked up via the MQL's
 /// `ObjectId`.
 ///
-/// Holds ONLY the parsed query: `.matches` is **derived live** on each get
-/// (`evaluate(&parsed, &media_environment())`), never stored — so the value
+/// Holds the parsed query plus the **last reported** match result. `.matches`
+/// is still **derived live** on each get (`evaluate(&parsed,
+/// &media_environment())`), never read from `last_matches` — so the getter
 /// always reflects the current environment by construction (§6 "matches
-/// derived, never stored as truth"; Codex R2). Slice 2b-ii adds a
-/// `last_matches` flip-prior field here when it wires the report-changes
-/// `change`-firing (the only consumer of a stored prior).
+/// derived, never stored as truth"; Codex R2). `last_matches` is a **separate
+/// concern**: the prior-state the report-changes algorithm (CSSOM-View §4.2
+/// "evaluate media queries and report changes") compares against to fire
+/// `change` **only on a flip**. It is the *last value delivered to listeners*,
+/// not a `.matches` cache — the two intentionally diverge between deliver
+/// turns (a mid-turn env change moves `.matches` immediately while
+/// `last_matches` holds until the next `deliver_media_query_changes`).
 #[derive(Debug)]
 pub(crate) struct MediaQueryEntry {
     /// The parsed query (engine-independent AST, #360). Evaluated live by
     /// the `.matches` getter; serialized on demand by `.media` via `Display`
     /// (#364).
     pub(crate) parsed: MediaQueryList,
+    /// The match result last delivered to `change` listeners — the
+    /// flip-detection prior for `deliver_media_query_changes`. Seeded at
+    /// `create_media_query_list` to the initial evaluation so the first
+    /// deliver after a no-op env change fires nothing.
+    pub(crate) last_matches: bool,
 }
 
 // ---------------------------------------------------------------------------
@@ -195,6 +207,10 @@ impl VmInner {
     /// [`Self::media_query_list_registry`]. Used by `matchMedia` — never
     /// directly callable from JS (`new MediaQueryList()` throws TypeError).
     pub(in crate::vm) fn create_media_query_list(&mut self, parsed: MediaQueryList) -> ObjectId {
+        // Seed the flip-prior with the initial evaluation (against the current
+        // env) so the first `deliver_media_query_changes` only fires `change`
+        // if the environment has actually moved since construction.
+        let last_matches = evaluate(&parsed, &self.media_environment());
         let proto = self.media_query_list_prototype;
         let id = self.alloc_object(Object {
             kind: ObjectKind::MediaQueryList,
@@ -202,27 +218,131 @@ impl VmInner {
             prototype: proto,
             extensible: true,
         });
-        self.media_query_list_registry
-            .insert(id, MediaQueryEntry { parsed });
+        self.media_query_list_registry.insert(
+            id,
+            MediaQueryEntry {
+                parsed,
+                last_matches,
+            },
+        );
         id
     }
 
-    /// Build the [`MediaEnvironment`] the evaluator reads, derived from the
-    /// `VmInner::viewport` SoT (the single transported device-facts struct).
+    /// Build the [`MediaEnvironment`] the evaluator reads, derived entirely
+    /// from the `VmInner::viewport` SoT (the single transported device-facts
+    /// struct — viewport geometry + dppx + `color_scheme` + `reduced_motion`).
     ///
-    /// Shared by the `matchMedia` initial-`matches` path and (Slice 2b-ii)
-    /// the report-changes re-eval, so there is one env-builder + one
-    /// evaluator (#360). `medium` is always `Screen` (matchMedia is a screen
-    /// document); `color_scheme` / `reduced_motion` use the #360 defaults
-    /// until the 2b-ii `ViewportState` extension sources them from the
-    /// transport.
+    /// Shared by the `matchMedia` initial-`matches` path, the live `.matches`
+    /// getter, AND the report-changes re-eval (`deliver_media_query_changes`),
+    /// so there is one env-builder + one evaluator (#360). `medium` is always
+    /// `Screen` (matchMedia is a screen document; the `Print` medium is the
+    /// Slice 3 `@media` cascade, `#11-css-at-media-cascade`); `root_font_size_px`
+    /// / `color_bits` keep the #360 defaults (no transport producer yet).
     pub(in crate::vm) fn media_environment(&self) -> MediaEnvironment {
         MediaEnvironment {
             viewport_width: self.viewport.inner_width,
             viewport_height: self.viewport.inner_height,
             resolution_dppx: self.viewport.device_pixel_ratio,
+            color_scheme: self.viewport.color_scheme,
+            reduced_motion: self.viewport.reduced_motion,
             ..MediaEnvironment::default()
         }
+    }
+
+    /// CSSOM-View §4.2 "evaluate media queries and report changes" — the
+    /// per-turn report-changes pass. Re-evaluates every live `MediaQueryList`
+    /// against the current [`Self::media_environment`] and, for each whose
+    /// result has **flipped** since its last delivery, updates `last_matches`
+    /// and fires a trusted `change` ([`MediaQueryListEvent`]) at the MQL.
+    ///
+    /// Mirrors the `deliver_resize_observations` / `deliver_sw_client_update`
+    /// host→VM delivery shape: a no-op while unbound (no JS context to fire
+    /// into — the registry itself SURVIVES unbind, only the firing is gated),
+    /// a `NativeContext` for the dispatch, and a trailing microtask
+    /// checkpoint. The shell drives this from its update-the-rendering step
+    /// after pushing new device facts via
+    /// [`set_media_environment`](crate::vm::Vm::set_media_environment) (the
+    /// shell producer wiring is carved to S5 / `#11-media-prefers-features`;
+    /// VM tests drive it directly).
+    ///
+    /// Flip detection is snapshotted up front (phase A, deterministic
+    /// `ObjectId` order) so a listener that calls `matchMedia` or mutates
+    /// listeners during dispatch (phase B) cannot perturb this turn's set —
+    /// a newly-created MQL is seeded to the current env and simply isn't in
+    /// the flip list.
+    pub(in crate::vm) fn deliver_media_query_changes(&mut self) {
+        if !self
+            .host_data
+            .as_deref()
+            .is_some_and(super::super::host_data::HostData::is_bound)
+        {
+            return;
+        }
+
+        // Phase A: snapshot the flip set in deterministic `ObjectId` order
+        // (the registry is a `HashMap`; the report order must be stable —
+        // the canonical `abort_signal_states` shape recovers order from the
+        // monotonic id).
+        let env = self.media_environment();
+        let mut ids: Vec<ObjectId> = self.media_query_list_registry.keys().copied().collect();
+        ids.sort_unstable_by_key(|id| id.0);
+        let mut flips: Vec<(ObjectId, bool, String)> = Vec::new();
+        for id in ids {
+            let entry = &self.media_query_list_registry[&id];
+            let now = evaluate(&entry.parsed, &env);
+            if now != entry.last_matches {
+                flips.push((id, now, entry.parsed.to_string()));
+            }
+        }
+        if flips.is_empty() {
+            return;
+        }
+
+        // Update each flipped entry's reported prior BEFORE firing (CSSOM-View
+        // §4.2 sets the MQL's value to `now` before queuing the `change`), so
+        // a listener that re-reads is consistent and a re-entrant deliver is a
+        // no-op for these entries.
+        for &(id, now, _) in &flips {
+            if let Some(e) = self.media_query_list_registry.get_mut(&id) {
+                e.last_matches = now;
+            }
+        }
+
+        // Phase B: fire `change` (a trusted `MediaQueryListEvent`) at each
+        // flipped MQL through the unified EventTarget dispatch core.
+        {
+            let mut ctx = NativeContext::new_call(self);
+            let shape = ctx
+                .vm
+                .precomputed_event_shapes
+                .as_ref()
+                .expect("precomputed_event_shapes built during VM init")
+                .media_query_list_event;
+            let proto = ctx.vm.media_query_list_event_prototype;
+            let change_sid = ctx.vm.well_known.change;
+            for (id, now, media) in flips {
+                let media_sid = ctx.vm.strings.intern(&media);
+                // Slot order matches `event_shapes.rs::media_query_list_event`
+                // + the constructor: `media`, then `matches`.
+                let payload = vec![
+                    PropertyValue::Data(JsValue::String(media_sid)),
+                    PropertyValue::Data(JsValue::Boolean(now)),
+                ];
+                let init = EventInit {
+                    bubbles: false,
+                    cancelable: false,
+                    composed: false,
+                };
+                // `fire_vm_event` allocates nothing if the MQL has no `change`
+                // listener — a flip on an unobserved MQL just updates
+                // `last_matches` (done above) and costs nothing.
+                let _ = fire_vm_event(&mut ctx, id, change_sid, init, shape, proto, payload);
+            }
+        }
+
+        // Each report-changes pass is its own microtask checkpoint (parity
+        // with the other `deliver_*` members).
+        self.drain_microtasks();
     }
 }
 

@@ -1067,6 +1067,41 @@ impl Vm {
         self.inner.viewport.scroll_y = y;
     }
 
+    /// Push the window's media-query device facts (CSSOM-View §4.2) into the
+    /// single `ViewportState` device-facts SoT, so `innerWidth` / `innerHeight`
+    /// / `devicePixelRatio` and every live `MediaQueryList.matches` read the
+    /// new values. A **pure state push** (no JS, no `change`) — the sibling of
+    /// [`Self::set_scroll_offset`]; the shell runs
+    /// [`Self::deliver_media_query_changes`] to report flips. Backs
+    /// [`HostDriver::set_media_environment`](elidex_script_session::HostDriver::set_media_environment).
+    #[cfg(feature = "engine")]
+    pub fn set_media_environment(
+        &mut self,
+        viewport_width: f64,
+        viewport_height: f64,
+        device_pixel_ratio: f64,
+        color_scheme: elidex_css::media::ColorScheme,
+        reduced_motion: elidex_css::media::ReducedMotion,
+    ) {
+        let vp = &mut self.inner.viewport;
+        vp.inner_width = viewport_width;
+        vp.inner_height = viewport_height;
+        vp.device_pixel_ratio = device_pixel_ratio;
+        vp.color_scheme = color_scheme;
+        vp.reduced_motion = reduced_motion;
+    }
+
+    /// Run the CSSOM-View §4.2 "evaluate media queries and report changes"
+    /// pass — re-evaluate every live `MediaQueryList` against the current
+    /// environment and fire `change` at each whose result flipped since the
+    /// last delivery. Backs
+    /// [`HostDriver::deliver_media_query_changes`](elidex_script_session::HostDriver::deliver_media_query_changes);
+    /// VM tests call it directly after [`Self::set_media_environment`].
+    #[cfg(feature = "engine")]
+    pub fn deliver_media_query_changes(&mut self) {
+        self.inner.deliver_media_query_changes();
+    }
+
     /// Install the per-origin IndexedDB backend (slot `#11-indexed-db-vm`).
     ///
     /// The embedder / session layer constructs an [`elidex_indexeddb::IdbBackend`]

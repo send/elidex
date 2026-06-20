@@ -1,16 +1,28 @@
 //! `window.matchMedia` + `MediaQueryList` interface tests (CSSOM-View §4 /
-//! §4.2) — Slice 2b-i.
+//! §4.2) — Slices 2b-i + 2b-ii.
 //!
-//! Covers the static-snapshot MQL: `matchMedia` returns a live
+//! **2b-i** covers the static-snapshot MQL: `matchMedia` returns a live
 //! `MediaQueryList`, `.matches` / `.media` reads, the EventTarget
-//! integration (`addEventListener('change')` / `onchange` / legacy
-//! `addListener` with `this === mql`), interface identity, and the
-//! ObjectId-keyed side-table lifecycle (survives unbind, GC-pruned). The
-//! host-driven report-changes fire is Slice 2b-ii — delivery is exercised
-//! here via `dispatchEvent`.
+//! integration (`addEventListener('change')` / `onchange` with
+//! `this === mql`), interface identity, and the ObjectId-keyed side-table
+//! lifecycle (survives unbind, GC-pruned).
+//!
+//! **2b-ii** covers the host-driven transport + report-changes: the
+//! `set_media_environment` device-facts push (and the `innerWidth` /
+//! `innerHeight` / `devicePixelRatio` regression-fix that rides it) plus
+//! `deliver_media_query_changes` firing `change` (a real
+//! `MediaQueryListEvent`) **only on a boolean flip** (CSSOM-View §4.2
+//! "evaluate media queries and report changes"). The deliver path needs a
+//! *bound* VM (its `is_bound` guard mirrors `deliver_resize_observations`),
+//! so those tests use [`with_bound_vm`].
 
 #![cfg(feature = "engine")]
 
+use elidex_css::media::{ColorScheme, ReducedMotion};
+use elidex_ecs::EcsDom;
+use elidex_script_session::SessionCore;
+
+use super::super::host_data::HostData;
 use super::super::value::JsValue;
 use super::super::Vm;
 
@@ -362,4 +374,261 @@ fn gc_prunes_dropped_mql() {
         0,
         "collected MQL must leave no stale registry entry"
     );
+}
+
+// --- Slice 2b-ii: transport + report-changes -------------------------------
+
+/// Run `body` against a fully **bound** VM (session + DOM + document root).
+/// `deliver_media_query_changes` no-ops while unbound (its `is_bound` guard,
+/// mirroring `deliver_resize_observations` — no JS may run between documents),
+/// so the report-changes tests need a real binding. `session` / `dom` live on
+/// this frame for the whole `body`, keeping the bound raw pointers valid.
+fn with_bound_vm(body: impl FnOnce(&mut Vm)) {
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = dom.create_document_root();
+    vm.install_host_data(HostData::new());
+    #[allow(unsafe_code)]
+    unsafe {
+        vm.bind(&raw mut session, &raw mut dom, doc);
+    }
+    body(&mut vm);
+    vm.unbind();
+}
+
+#[test]
+fn matches_reflects_transported_viewport() {
+    // `.matches` is live-computed, so a transported viewport change is visible
+    // immediately (no deliver needed) — the read side of the regression-fix.
+    with_bound_vm(|vm| {
+        vm.eval("globalThis.m = matchMedia('(min-width: 1500px)');")
+            .unwrap();
+        assert!(!eval_bool(vm, "m.matches;")); // 1024 < 1500
+        vm.set_media_environment(
+            1600.0,
+            900.0,
+            1.0,
+            ColorScheme::Light,
+            ReducedMotion::NoPreference,
+        );
+        assert!(eval_bool(vm, "m.matches;")); // 1600 >= 1500
+    });
+}
+
+#[test]
+fn inner_width_height_dppr_reflect_transported_env() {
+    // Regression-fix: the window getters used to lie at the 1024/768/1
+    // defaults (no setter existed); they now derive from the transported
+    // `ViewportState`.
+    with_bound_vm(|vm| {
+        vm.set_media_environment(
+            1440.0,
+            900.0,
+            2.0,
+            ColorScheme::Light,
+            ReducedMotion::NoPreference,
+        );
+        assert!(eval_bool(
+            vm,
+            "innerWidth === 1440 && innerHeight === 900 && devicePixelRatio === 2;"
+        ));
+    });
+}
+
+#[test]
+fn change_fires_on_flip_with_media_query_list_event() {
+    with_bound_vm(|vm| {
+        vm.eval(
+            "globalThis.fired = 0; globalThis.okThis = false; globalThis.okEvt = false; \
+             globalThis.m = matchMedia('(min-width: 1500px)'); \
+             m.addEventListener('change', function (e) { \
+                 fired++; okThis = (this === m); \
+                 okEvt = (e instanceof MediaQueryListEvent) && e.matches === true \
+                         && e.media === '(min-width: 1500px)'; \
+             });",
+        )
+        .unwrap();
+        vm.set_media_environment(
+            1600.0,
+            900.0,
+            1.0,
+            ColorScheme::Light,
+            ReducedMotion::NoPreference,
+        );
+        vm.deliver_media_query_changes();
+        assert!(eval_bool(vm, "fired === 1 && okThis && okEvt;"));
+    });
+}
+
+#[test]
+fn change_does_not_fire_without_flip() {
+    with_bound_vm(|vm| {
+        vm.eval(
+            "globalThis.fired = 0; \
+             globalThis.m = matchMedia('(min-width: 500px)'); \
+             m.addEventListener('change', function () { fired++; });",
+        )
+        .unwrap();
+        // 1024 → 1200: both still satisfy (min-width: 500px) → no flip.
+        vm.set_media_environment(
+            1200.0,
+            768.0,
+            1.0,
+            ColorScheme::Light,
+            ReducedMotion::NoPreference,
+        );
+        vm.deliver_media_query_changes();
+        assert!(eval_bool(vm, "fired === 0;"));
+    });
+}
+
+#[test]
+fn onchange_fires_on_flip() {
+    with_bound_vm(|vm| {
+        vm.eval(
+            "globalThis.got = null; \
+             globalThis.m = matchMedia('(max-width: 1000px)'); \
+             m.onchange = function (e) { got = e.matches; };",
+        )
+        .unwrap();
+        // 1024 (false: 1024 > 1000) → 800 (true: 800 <= 1000): flip → true.
+        vm.set_media_environment(
+            800.0,
+            768.0,
+            1.0,
+            ColorScheme::Light,
+            ReducedMotion::NoPreference,
+        );
+        vm.deliver_media_query_changes();
+        assert!(eval_bool(vm, "got === true;"));
+    });
+}
+
+#[test]
+fn deliver_does_not_refire_on_stable_redelivery() {
+    // A second deliver with no further env change must NOT re-fire —
+    // `last_matches` was advanced to the reported value on the first delivery.
+    with_bound_vm(|vm| {
+        vm.eval(
+            "globalThis.fired = 0; \
+             globalThis.m = matchMedia('(min-width: 1500px)'); \
+             m.addEventListener('change', function () { fired++; });",
+        )
+        .unwrap();
+        vm.set_media_environment(
+            1600.0,
+            900.0,
+            1.0,
+            ColorScheme::Light,
+            ReducedMotion::NoPreference,
+        );
+        vm.deliver_media_query_changes();
+        vm.deliver_media_query_changes(); // env unchanged → no second fire
+        assert!(eval_bool(vm, "fired === 1;"));
+    });
+}
+
+#[test]
+fn removed_listener_no_change_but_matches_tracks() {
+    with_bound_vm(|vm| {
+        vm.eval(
+            "globalThis.fired = 0; \
+             globalThis.m = matchMedia('(min-width: 1500px)'); \
+             globalThis.cb = function () { fired++; }; \
+             m.addEventListener('change', cb); m.removeEventListener('change', cb);",
+        )
+        .unwrap();
+        vm.set_media_environment(
+            1600.0,
+            900.0,
+            1.0,
+            ColorScheme::Light,
+            ReducedMotion::NoPreference,
+        );
+        vm.deliver_media_query_changes();
+        // No listener → no fire, but `.matches` still reflects the new env.
+        assert!(eval_bool(vm, "fired === 0 && m.matches === true;"));
+    });
+}
+
+#[test]
+fn multiple_mqls_each_deliver_independently() {
+    with_bound_vm(|vm| {
+        vm.eval(
+            "globalThis.log = []; \
+             globalThis.a = matchMedia('(min-width: 1500px)'); \
+             globalThis.b = matchMedia('(min-width: 1800px)'); \
+             a.addEventListener('change', function (e) { log.push('a' + e.matches); }); \
+             b.addEventListener('change', function (e) { log.push('b' + e.matches); });",
+        )
+        .unwrap();
+        // 1024 → 1600: a flips true (>=1500); b stays false (<1800).
+        vm.set_media_environment(
+            1600.0,
+            900.0,
+            1.0,
+            ColorScheme::Light,
+            ReducedMotion::NoPreference,
+        );
+        vm.deliver_media_query_changes();
+        assert_eq!(eval_string(vm, "log.join(',');"), "atrue");
+        // 1600 → 1900: b flips true; a already true → no re-fire.
+        vm.set_media_environment(
+            1900.0,
+            900.0,
+            1.0,
+            ColorScheme::Light,
+            ReducedMotion::NoPreference,
+        );
+        vm.deliver_media_query_changes();
+        assert_eq!(eval_string(vm, "log.join(',');"), "atrue,btrue");
+    });
+}
+
+#[test]
+fn change_fires_on_prefers_color_scheme_flip() {
+    // The transport drives the FULL env: a `prefers-color-scheme` MQL flips
+    // when `color_scheme` is transported (VM path complete + test-exercised;
+    // the shell theme producer is carved to `#11-media-prefers-features`).
+    with_bound_vm(|vm| {
+        vm.eval(
+            "globalThis.got = null; \
+             globalThis.m = matchMedia('(prefers-color-scheme: dark)'); \
+             m.addEventListener('change', function (e) { got = e.matches; });",
+        )
+        .unwrap();
+        assert!(!eval_bool(vm, "m.matches;")); // default Light
+        vm.set_media_environment(
+            1024.0,
+            768.0,
+            1.0,
+            ColorScheme::Dark,
+            ReducedMotion::NoPreference,
+        );
+        vm.deliver_media_query_changes();
+        assert!(eval_bool(vm, "got === true && m.matches === true;"));
+    });
+}
+
+#[test]
+fn deliver_is_noop_while_unbound() {
+    // Parity with `deliver_resize_observations`: a stray delivery on an unbound
+    // VM must not panic (no `host_data().dom()` deref) and must not fire.
+    let mut vm = new_vm(); // HostData installed but NOT bound
+    vm.eval(
+        "globalThis.fired = 0; \
+         globalThis.m = matchMedia('(min-width: 1500px)'); \
+         m.addEventListener('change', function () { fired++; });",
+    )
+    .unwrap();
+    vm.set_media_environment(
+        1600.0,
+        900.0,
+        1.0,
+        ColorScheme::Light,
+        ReducedMotion::NoPreference,
+    );
+    vm.deliver_media_query_changes(); // unbound → no-op
+    assert!(eval_bool(&mut vm, "fired === 0;"));
 }
