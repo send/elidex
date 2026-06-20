@@ -160,12 +160,16 @@ direct read:
    event-handler-attr, canvas, base-url, live-range, and node-iterator consumers.
    So custom elements / form state / style derivation / **live collections**
    (via `rev_version`) are **not** bypassed by direct calls.
-2. **`setAttribute`/`getAttribute`/`removeAttribute` already have
-   `invoke_dom_api` routes.** `element_attrs.rs:218` (`setAttribute`) and `:202`
-   (`getAttribute`) dispatch through `dom_bridge::invoke_dom_api` to the
-   engine-independent `elidex-dom-api` handlers, which themselves bottom out at
-   the same `EcsDom::set_attribute`. The audit's claim that "only tree ops go
-   through the bridge" is stale.
+2. **`setAttribute`/`getAttribute` already have `invoke_dom_api` routes**
+   (`removeAttribute` does **not** yet — Codex R8-2). `element_attrs.rs:218`
+   (`setAttribute`) and `:202` (`getAttribute`) dispatch through
+   `dom_bridge::invoke_dom_api` to the engine-independent `elidex-dom-api`
+   handlers, which bottom out at the same `EcsDom::set_attribute`. But
+   `native_element_remove_attribute` still calls the file-local `attr_remove`
+   helper directly — it is one of the **direct VM-host paths** §2.3(c) flags for
+   B2 to migrate, *not* an already-bridged route. The audit's "only tree ops go
+   through the bridge" claim is stale for set/get; `removeAttribute` remains a
+   direct path.
 
 **The genuine, narrower issue** (this is what F3 should remediate):
 
