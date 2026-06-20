@@ -334,17 +334,18 @@ pub enum ObjectKind {
     /// itself lands with the transport in Slice 2b-ii.)
     ///
     /// GC contract: the side-store value is `ObjectId`/`JsValue`-free
-    /// (a CSS AST, a `bool`, and the `seq`/`bind_epoch` integers), so —
-    /// unlike [`Self::AbortSignal`], whose `reason`/listener `ObjectId`s
-    /// must be marked — there is **no trace pass** (nothing to mark).  The
-    /// sweep tail still prunes `media_query_list_registry` entries whose
-    /// key was collected so a recycled slot does not inherit a stale entry.
-    /// Survives `Vm::unbind` (the value binds to no DOM entity /
-    /// browsing-context resource), matching `abort_signal_states`; but a
+    /// (a CSS AST, a `bool`, the `seq` integer, and the `document`
+    /// `Entity`), so — unlike [`Self::AbortSignal`], whose `reason`/listener
+    /// `ObjectId`s must be marked — there is **no trace pass** (nothing to
+    /// mark).  The sweep tail still prunes `media_query_list_registry`
+    /// entries whose key was collected so a recycled slot does not inherit a
+    /// stale entry.  Survives `Vm::unbind` (the value binds to no DOM entity
+    /// / browsing-context resource), matching `abort_signal_states`; but a
     /// survivor belongs to its creating document, so report-changes filters
-    /// by `bind_epoch` (CSSOM-View §4.2 associated-document scope, the
-    /// `StaticRange` invalidate-don't-drop contract) — a retained MQL is
-    /// inert for a foreign document's pass.
+    /// by the entry's `document` `Entity` (CSSOM-View §4.2 associated-
+    /// document scope — NOT `bind_epoch`, which the BATCH-BIND model bumps
+    /// per batch; Codex R2) — a retained MQL is inert for a foreign
+    /// document's pass.
     #[cfg(feature = "engine")]
     MediaQueryList,
     /// `Headers` instance (WHATWG Fetch §5.2) — the header list

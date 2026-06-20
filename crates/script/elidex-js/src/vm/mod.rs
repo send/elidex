@@ -1175,8 +1175,8 @@ pub(crate) struct VmInner {
     /// by `seq`.
     ///
     /// Value = [`host::media_query::MediaQueryEntry`] (the parsed AST,
-    /// the `last_matches` flip-prior, `seq`, and the `bind_epoch`
-    /// associated-document tag). The `matches` result is *derived* via
+    /// the `last_matches` flip-prior, `seq`, and the `document` associated-
+    /// document `Entity`). The `matches` result is *derived* via
     /// `elidex_css::media::evaluate`; `last_matches` is only the
     /// flip-detection prior, never a competing SoT.
     ///
@@ -1188,9 +1188,10 @@ pub(crate) struct VmInner {
     /// inherits a stale entry. **Survives `Vm::unbind`** (the value
     /// binds to no DOM entity / browsing-context resource), matching
     /// `abort_signal_states`; but a survivor belongs to its creating
-    /// document, so `deliver_media_query_changes` filters by `bind_epoch`
-    /// (the `StaticRange` invalidate-don't-drop contract) — a retained MQL
-    /// is inert for a *foreign* document's report-changes pass.
+    /// document, so `deliver_media_query_changes` filters by the entry's
+    /// `document` `Entity` (NOT `bind_epoch` — a per-batch counter under the
+    /// BATCH-BIND model; Codex R2) — a retained MQL is inert for a *foreign*
+    /// document's report-changes pass.
     #[cfg(feature = "engine")]
     pub(crate) media_query_list_registry: HashMap<ObjectId, host::media_query::MediaQueryEntry>,
     /// Monotonic source for [`MediaQueryEntry::seq`] — the recycle-immune

@@ -778,22 +778,79 @@ fn recycle_during_dispatch_is_safe_and_fires_no_stale_change() {
 }
 
 #[test]
-fn retained_prior_document_mql_is_inert_after_rebind() {
-    // C3 (CSSOM-View §4.2 associated-document scope): the registry survives
-    // unbind, so a retained MQL from a prior document persists. Its `change`
-    // listener must NOT fire during a *new* document's report-changes pass —
-    // the `bind_epoch` tag scopes delivery to current-document MQLs, while a
-    // freshly-created MQL in the new document fires normally.
+fn same_document_mql_delivers_across_a_batch_rebind() {
+    // R2-1 (Codex): the engine's BATCH-BIND model brackets every batch
+    // (script-exec / event-dispatch / frame-drain) with bind/unbind, bumping
+    // `bind_epoch` each time. So an MQL created in one batch
+    // (`eval(matchMedia + listener)`) MUST still deliver in a LATER batch
+    // (`set_media_environment` + `deliver_media_query_changes`) for the SAME
+    // document. Scoping on the document `Entity` (not the per-batch
+    // `bind_epoch`) makes this hold — an epoch filter would skip it (the R1
+    // regression this guards against).
     let mut vm = Vm::new();
     vm.install_host_data(HostData::new());
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = dom.create_document_root();
 
-    // --- Document 1: create a live MQL + listener, then unbind. ---
-    let mut session_one = SessionCore::new();
-    let mut dom_one = EcsDom::new();
-    let root_one = dom_one.create_document_root();
+    // Batch 1: create the MQL + listener, then close the batch (unbind bumps
+    // `bind_epoch`).
     #[allow(unsafe_code)]
     unsafe {
-        vm.bind(&raw mut session_one, &raw mut dom_one, root_one);
+        vm.bind(&raw mut session, &raw mut dom, doc);
+    }
+    vm.eval(
+        "globalThis.fired = 0; \
+         globalThis.m = matchMedia('(min-width: 1500px)'); \
+         m.addEventListener('change', function () { fired++; });",
+    )
+    .unwrap();
+    vm.unbind();
+
+    // Batch 2: SAME document, later env push + deliver.
+    #[allow(unsafe_code)]
+    unsafe {
+        vm.bind(&raw mut session, &raw mut dom, doc);
+    }
+    vm.set_media_environment(
+        1600.0,
+        900.0,
+        1.0,
+        ColorScheme::Light,
+        ReducedMotion::NoPreference,
+    );
+    vm.deliver_media_query_changes();
+    assert!(
+        eval_bool(&mut vm, "fired === 1;"),
+        "an MQL created in an earlier batch must still deliver in a later batch \
+         for the SAME document (document-Entity scope, not per-batch bind_epoch)",
+    );
+    vm.unbind();
+}
+
+#[test]
+fn retained_prior_document_mql_is_inert_in_a_different_document() {
+    // C3 (CSSOM-View §4.2 associated-document scope): the registry survives
+    // unbind, so a retained MQL from a prior document persists. Its `change`
+    // listener must NOT fire during a *different* document's report-changes
+    // pass — the entry's `document` `Entity` scopes delivery — while a fresh
+    // MQL created in the new document fires normally.
+    //
+    // Two distinct document entities in ONE `EcsDom`, so their `Entity`s are
+    // provably different (no cross-`EcsDom`-world index aliasing — that edge is
+    // the deferred world_id concern).
+    let mut vm = Vm::new();
+    vm.install_host_data(HostData::new());
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc_a = dom.create_document_root();
+    let doc_b = dom.create_document_root();
+    assert_ne!(doc_a, doc_b, "two document roots must be distinct entities");
+
+    // Document A: create a retained MQL + listener, then unbind.
+    #[allow(unsafe_code)]
+    unsafe {
+        vm.bind(&raw mut session, &raw mut dom, doc_a);
     }
     vm.eval(
         "globalThis.oldFired = 0; \
@@ -803,26 +860,21 @@ fn retained_prior_document_mql_is_inert_after_rebind() {
     .unwrap();
     vm.unbind();
 
-    // --- Document 2: a different binding. ---
-    let mut session_two = SessionCore::new();
-    let mut dom_two = EcsDom::new();
-    let root_two = dom_two.create_document_root();
+    // Document B: a fresh MQL + listener — the control proving the deliver path
+    // still fires in the new document, so a missing `oldM` fire is the
+    // document scope, not a broken deliver.
     #[allow(unsafe_code)]
     unsafe {
-        vm.bind(&raw mut session_two, &raw mut dom_two, root_two);
+        vm.bind(&raw mut session, &raw mut dom, doc_b);
     }
-    // A FRESH MQL created in document 2 (current epoch) — the control that
-    // proves the deliver path + listener mechanism still fire in the new
-    // document, so a missing `oldM` fire is the epoch filter, not a broken
-    // deliver.
     vm.eval(
         "globalThis.newFired = 0; \
          globalThis.newM = matchMedia('(min-width: 1500px)'); \
          newM.addEventListener('change', function () { newFired++; });",
     )
     .unwrap();
-    // 1024 → 1600 flips BOTH queries' results, but only the doc2 MQL is in the
-    // current document's pass.
+    // 1024 → 1600 flips BOTH queries' results, but only the doc_b MQL is in
+    // doc_b's pass.
     vm.set_media_environment(
         1600.0,
         900.0,
@@ -833,7 +885,7 @@ fn retained_prior_document_mql_is_inert_after_rebind() {
     vm.deliver_media_query_changes();
     assert!(
         eval_bool(&mut vm, "oldFired === 0 && newFired === 1;"),
-        "the retained doc1 MQL must be inert (oldFired=0) while the doc2 MQL \
+        "the doc_a MQL must be inert in doc_b (oldFired=0) while the doc_b MQL \
          fires (newFired=1)",
     );
     vm.unbind();

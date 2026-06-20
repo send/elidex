@@ -56,6 +56,7 @@
 #![cfg(feature = "engine")]
 
 use elidex_css::media::{evaluate, parse_media_query_list, MediaEnvironment, MediaQueryList};
+use elidex_ecs::Entity;
 
 use super::super::shape::{self, PropertyAttrs};
 use super::super::value::{
@@ -63,7 +64,7 @@ use super::super::value::{
     PropertyValue, VmError,
 };
 use super::super::{NativeFn, VmInner};
-use super::event_target_dispatch_vm::fire_vm_event;
+use super::event_target_dispatch_vm::{fire_vm_event, vm_path_has_listener};
 use super::events::EventInit;
 
 /// Per-`MediaQueryList` state, owned by
@@ -109,21 +110,29 @@ pub(crate) struct MediaQueryEntry {
     ///   carries the snapshotted `seq` before firing, so a slot recycled
     ///   into a *different* MQL mid-dispatch is skipped rather than fired at.
     pub(crate) seq: u64,
-    /// The [`HostData::bind_epoch`] captured at construction — the MQL's
-    /// **associated-document tag** (CSSOM-View §4.2 reports changes only for
-    /// `MediaQueryList`s whose associated document is the target document).
+    /// The **associated document** — the creating document's `Entity`,
+    /// captured at construction. CSSOM-View §4.2 reports changes only for
+    /// `MediaQueryList`s whose associated document is the target document;
+    /// the registry survives `Vm::unbind` (DOM-free, `abort_signal_states`
+    /// parity) so it can hold MQLs from a *prior* document, and
+    /// `deliver_media_query_changes` filters to entries whose `document`
+    /// equals the currently-bound document — a retained prior-document MQL
+    /// is inert for the new document's pass.
     ///
-    /// The registry intentionally survives `Vm::unbind` (the value is
-    /// DOM-free, `abort_signal_states` parity), but a retained MQL belongs
-    /// to the document it was created in. `bind_epoch` is bumped on every
-    /// `unbind`, so `deliver_media_query_changes` filters to entries whose
-    /// `bind_epoch` equals the current epoch — a prior-document MQL is
-    /// inert for the new document's report-changes pass instead of being
-    /// re-evaluated against (and firing its old listener into) a foreign
-    /// document. This is the canonical "the `bind_epoch` mechanism
-    /// invalidates stale retained wrappers instead of dropping them"
-    /// contract (`vm_api.rs` unbind, `StaticRange` precedent).
-    pub(crate) bind_epoch: u32,
+    /// This is the **document `Entity`** (the canonical per-document
+    /// identity, the `HostData::document_methods_installed` precedent), NOT
+    /// `bind_epoch`: the engine's BATCH-BIND model (`HostDriver`) brackets
+    /// *every* batch (script-exec / event-dispatch / frame-drain) with
+    /// `bind`/`unbind`, bumping `bind_epoch` each time, so `bind_epoch`
+    /// distinguishes *batches*, not *documents* — filtering on it would skip
+    /// an MQL the moment its creating batch ends (the common
+    /// `matchMedia`-then-later-`deliver` flow; Codex R2). `None` only for an
+    /// MQL created while unbound (no document — reachable from `matchMedia`
+    /// in the unbound unit-test harness, never in the bound batch model),
+    /// which then matches no delivery document. The cross-`EcsDom`-world
+    /// `Entity`-aliasing edge is the same deferred concern as the wrapper
+    /// caches (`#11-wrapper-cache-cross-dom-discriminator` / world_id).
+    pub(crate) document: Option<Entity>,
 }
 
 // ---------------------------------------------------------------------------
@@ -246,14 +255,14 @@ impl VmInner {
         // Recycle-immune creation identity + associated-document tag —
         // captured BEFORE `alloc_object` (which may recycle a collected
         // `ObjectId` slot, the very hazard `seq` defends against). `matchMedia`
-        // only runs in bound JS, so `host_data` is `Some`; `map_or(0, …)` is a
-        // defensive default for the unreachable unbound path.
+        // runs in bound JS so `document_entity_opt()` is `Some`; the unbound
+        // unit-test path yields `None` (matches no delivery document).
         let seq = self.media_query_list_next_seq;
         self.media_query_list_next_seq = self.media_query_list_next_seq.wrapping_add(1);
-        let bind_epoch = self
+        let document = self
             .host_data
             .as_deref()
-            .map_or(0, super::super::host_data::HostData::bind_epoch);
+            .and_then(super::super::host_data::HostData::document_entity_opt);
         let proto = self.media_query_list_prototype;
         let id = self.alloc_object(Object {
             kind: ObjectKind::MediaQueryList,
@@ -267,7 +276,7 @@ impl VmInner {
                 parsed,
                 last_matches,
                 seq,
-                bind_epoch,
+                document,
             },
         );
         id
@@ -298,7 +307,7 @@ impl VmInner {
 
     /// CSSOM-View §4.2 "evaluate media queries and report changes" — the
     /// per-turn report-changes pass. Re-evaluates every live `MediaQueryList`
-    /// **created for the current document** (`bind_epoch` filter — the
+    /// **created for the current document** (document-`Entity` filter — the
     /// registry survives unbind, so it can hold prior-document MQLs; §4.2
     /// scopes the pass to associated-document MQLs) against the current
     /// [`Self::media_environment`] and, for each whose result has **flipped**
@@ -333,15 +342,18 @@ impl VmInner {
 
         // CSSOM-View §4.2 reports changes only for `MediaQueryList`s whose
         // associated document is the target document. The registry survives
-        // unbind (DOM-free), so it can hold MQLs from a *prior* document; the
-        // `bind_epoch` captured at creation tags each entry's document, and
-        // only current-epoch entries participate (the `StaticRange`
-        // invalidate-don't-drop contract). `is_bound` passed above, so
-        // `host_data` is `Some`.
-        let current_epoch = self
+        // unbind (DOM-free), so it can hold MQLs from a *prior* document; each
+        // entry's `document` (the creating document's `Entity`) is matched
+        // against the currently-bound document so a retained prior-document MQL
+        // is inert. The document `Entity` — NOT `bind_epoch` — is the
+        // per-document identity: the BATCH-BIND model bumps `bind_epoch` on
+        // every batch boundary (script-exec / event-dispatch / frame-drain), so
+        // an epoch filter would skip an MQL as soon as its creating batch ended
+        // (Codex R2). `is_bound` passed above, so `host_data` is `Some`.
+        let current_document = self
             .host_data
             .as_deref()
-            .map_or(0, super::super::host_data::HostData::bind_epoch);
+            .and_then(super::super::host_data::HostData::document_entity_opt);
 
         // Phase A: snapshot the flip set. Evaluation is side-effect-free, so
         // iterate the `HashMap` in any order and sort only the (usually empty)
@@ -352,7 +364,7 @@ impl VmInner {
         let env = self.media_environment();
         let mut flips: Vec<(ObjectId, u64, bool, String)> = Vec::new();
         for (&id, entry) in &self.media_query_list_registry {
-            if entry.bind_epoch != current_epoch {
+            if entry.document != current_document {
                 continue;
             }
             let now = evaluate(&entry.parsed, &env);
@@ -377,34 +389,39 @@ impl VmInner {
             }
 
             // Phase B: fire `change` (a trusted `MediaQueryListEvent`) at each
-            // flipped MQL through the unified EventTarget dispatch core.
-            let mut ctx = NativeContext::new_call(self);
-            let shape = ctx
-                .vm
+            // flipped MQL through the unified EventTarget dispatch core. The
+            // dispatch invariants are read up front (all `Copy`); the
+            // per-iteration `NativeContext` is built from the temp-root guard so
+            // the MQL is GC-rooted across the fire (below).
+            let shape = self
                 .precomputed_event_shapes
                 .as_ref()
                 .expect("precomputed_event_shapes built during VM init")
                 .media_query_list_event;
-            let proto = ctx.vm.media_query_list_event_prototype;
-            let change_sid = ctx.vm.well_known.change;
+            let proto = self.media_query_list_event_prototype;
+            let change_sid = self.well_known.change;
             for (id, seq, now, media) in flips {
-                // Per-id liveness + identity re-check (mirrors
-                // `deliver_to_observer_callbacks`' per-id binding lookup): an
-                // earlier `change` listener this turn may have dropped this MQL,
-                // and a GC during dispatch may then have collected its
-                // `ObjectId` AND the free-list recycled the slot into a *new*
-                // `matchMedia()` object. `contains_key` alone would then be true
-                // for the recycled entry and fire this stale snapshot at the
-                // wrong MQL — so re-check the snapshotted `seq` (recycle-immune)
-                // and skip unless it is still the *same* entry.
-                if ctx.vm.media_query_list_registry.get(&id).map(|e| e.seq) != Some(seq) {
+                // Per-id liveness + identity re-check: an earlier `change`
+                // listener this turn may have dropped this MQL, and a GC during
+                // dispatch may then have collected its `ObjectId` AND the
+                // free-list recycled the slot into a *new* `matchMedia()`
+                // object. `contains_key` alone would then be true for the
+                // recycled entry and fire this stale snapshot at the wrong MQL —
+                // so re-check the snapshotted `seq` (recycle-immune) and skip
+                // unless it is still the *same* entry.
+                if self.media_query_list_registry.get(&id).map(|e| e.seq) != Some(seq) {
                     continue;
                 }
-                // `media` is author-bounded (a parsed query string), so
-                // interning it before the listener gate grows the pool by at
-                // most one entry per distinct query — and `.media` interns the
-                // identical string, so it is a dedup in practice.
-                let media_sid = ctx.vm.strings.intern(&media);
+                // Gate on a `change` listener BEFORE serializing/interning the
+                // media payload (Codex R2): interned strings are pool-permanent,
+                // so interning for a target that won't dispatch needlessly grows
+                // the pool. MQL `change` does not bubble, so only the target's
+                // own listeners matter — and `fire_vm_event` re-checks this gate
+                // anyway, so skipping here is a pure no-work fast path.
+                if !vm_path_has_listener(self, id, "change", false) {
+                    continue;
+                }
+                let media_sid = self.strings.intern(&media);
                 // Slot order matches `event_shapes.rs::media_query_list_event`
                 // + the constructor: `media`, then `matches`.
                 let payload = vec![
@@ -416,9 +433,16 @@ impl VmInner {
                     cancelable: false,
                     composed: false,
                 };
-                // `fire_vm_event` allocates nothing if the MQL has no `change`
-                // listener — a flip on an unobserved MQL just updates
-                // `last_matches` (done above) and costs nothing.
+                // Root the MQL across the fire (Codex R2): `fire_vm_event`
+                // allocates the event object and may trigger a GC before
+                // dispatch; the MQL can be reachable only via this registry +
+                // its listener metadata (`listener_store` roots the callback,
+                // not the target), so without a root that GC could collect it
+                // between the liveness check and dispatch. Mirrors the
+                // `deliver_to_observer_callbacks` / `resize_observer` temp-root
+                // discipline.
+                let mut guard = self.push_temp_root(JsValue::Object(id));
+                let mut ctx = NativeContext::new_call(&mut guard);
                 let _ = fire_vm_event(&mut ctx, id, change_sid, init, shape, proto, payload);
             }
         }
