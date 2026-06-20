@@ -685,7 +685,20 @@ fn lazy_iframe_srcdoc_change_while_offscreen_re_defers() {
     let r = state.pipeline.eval_script("f.srcdoc = '<p>v2</p>';");
     assert!(r.success, "srcdoc-change JS failed: {:?}", r.error);
 
-    iframe::detect_iframe_mutations(&[attribute_record(f, "srcdoc")], &mut state);
+    let srcdoc_changed =
+        iframe::detect_iframe_mutations(&[attribute_record(f, "srcdoc")], &mut state);
+    // Assert the srcdoc record was actually *processed* (the Attribute branch
+    // ran: re-derive → remove-from-pending → re-defer). Without this the test
+    // would pass vacuously — `f` is already lazy-pending from the insertion
+    // above, so the "still pending" assertion alone holds even if the detector
+    // regressed to matching only `src` and ignored the `srcdoc` record
+    // (precisely the PR #373 path this test pins). `detect_iframe_mutations`
+    // only returns `true` when a matched mutation drove a load/defer, so the
+    // `srcdoc`-ignored regression flips this to `false`.
+    assert!(
+        srcdoc_changed,
+        "a srcdoc attribute change on a connected iframe must be processed (PR #373 srcdoc reload path), not ignored"
+    );
     assert!(
         state.iframes.get(f).is_none(),
         "a lazy iframe must not force-load on a srcdoc change while offscreen"
