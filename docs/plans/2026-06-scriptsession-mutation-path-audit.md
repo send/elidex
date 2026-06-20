@@ -105,41 +105,81 @@ Audience: Claude / maintainers (and Codex via the review guidelines below).
     reckon with this loss (§4 invariant #2).
 - **The real gap is the JS-level `MutationObserver`, and it is broader than the
   original F3 framing stated.** `MutationObserver` is *not* a `ConsumerDispatcher`
-  consumer. It is fed exclusively by `Vm::deliver_mutation_records`, which in
-  the elidex-js VM is reached from **only three production sites**: the
-  innerHTML setter native (`dom_inner_html.rs:148`), the **outerHTML** setter
-  native (`dom_inner_html.rs:362` — `native_element_set_outer_html`, **not**
-  insertAdjacentHTML), and the shell's per-frame flush (`content/mod.rs:258`
-  ← `re_render` ← `SessionCore::flush`). The session buffer
-  (`SessionCore::pending`) is populated in production by **only the
-  `SetInnerHtml` / `InsertAdjacentHtml` `Mutation` variants**
-  (`elidex-dom-api/element/tree.rs:416`/`:476`). Every *other* JS DOM write —
-  `setAttribute`, `removeAttribute`, every reflected IDL setter, **and
+  consumer. It is fed by a `deliver_mutation_records` call — but **two distinct
+  wirings** deliver, and B1 must not conflate them (corrected, 8ykO):
+  - **VM-direct delivery** — the elidex-js VM `Vm::deliver_mutation_records`
+    (`vm_api.rs:867`, single-arg `&[records]`) is called **synchronously inside
+    two VM natives**: the innerHTML setter (`dom_inner_html.rs:148`) and the
+    **outerHTML** setter (`dom_inner_html.rs:362` —
+    `native_element_set_outer_html`, **not** insertAdjacentHTML). No `flush`, no
+    shell, no session buffer — the native delivers its own record.
+  - **boa per-frame delivery** — the shell's per-frame flush
+    (`content/mod.rs:258` ← `re_render` ← `SessionCore::flush`) calls the **boa**
+    `JsRuntime::deliver_mutation_records` (`elidex-js-boa/runtime/observers.rs:20`,
+    four-arg: records + session + dom + document), **not** `Vm::…` — the shell
+    imports `elidex_js_boa::JsRuntime` (`pipeline.rs:9`, `lib.rs:39`). This is
+    the **only** flush-driven MO delivery, and it is on the **boa** runtime,
+    distinct from the VM-direct path above. **B1 must therefore not look for a
+    `Vm` flush-hook on the shell path** — the shell drives boa today; a
+    seam→MO flush hook (8YcR) must be wired into the runtime the shell actually
+    holds. The session buffer
+  (`SessionCore::pending`) is populated in production by the
+  `SetInnerHtml` / `InsertAdjacentHtml` `Mutation` variants
+  (`elidex-dom-api/element/tree.rs:416`/`:476`) **and by the boa `<iframe>`
+  attribute setters** (`elidex-js-boa/globals/iframe.rs:99`/`:105`/`:206` record
+  `Mutation::SetAttribute`/`RemoveAttribute`). That iframe path is the **one
+  existing attribute write that bypasses `EcsDom::set_attribute`** (it
+  self-generates the record via `apply_set_attribute`/`apply_remove_attribute`,
+  `mutation/mod.rs:288-332`, dropping the dispatcher fan-out — §2.2/§4.2a C4) and
+  is therefore a write B1 must **reconcile**, not a clean precedent. With that one
+  exception, every *other* JS DOM write — `setAttribute`, `removeAttribute`,
+  every reflected IDL setter, **and
   `appendChild`/`removeChild`/`insertBefore`/`replaceChild` even through the
   bridge** — produces **no `MutationRecord`** and is therefore unobservable by
-  `new MutationObserver(...)`. Note the shell's *initial-script /
+  `new MutationObserver(...)` (correcting an earlier "every other JS DOM write is
+  silent" over-claim that omitted the boa iframe producer — 8ykE). Note the shell's *initial-script /
   finalization* flush (`pipeline.rs:25-34` `flush_with_ce_reactions`) feeds
   flush records to **CE reactions only** and does **not** call
   `deliver_mutation_records`, so even innerHTML mutations done during page
   load are not delivered to MO via that path — only the per-frame
   `content/mod.rs:258` site delivers (§2.2).
-- **There are two mechanisms, and they answer two *different* questions.** They
-  are: (1) `EcsDom`'s `ConsumerDispatcher` — **engine-internal derived-state
-  reconciliation**, synchronous at the chokepoint, driving the 7 consumers
-  (live-range / node-iterator / base-url / form-control / event-handler-attr /
-  canvas / custom-element), **none of which is script-observable**; and (2)
-  `SessionCore`'s mutation buffer + `flush` → `deliver_mutation_records` — the
-  **script-observable** path that feeds `MutationObserver`, but which is fed today
-  only by innerHTML-class ops. They overlap only at innerHTML. Read as a *factual
-  map* (not a prescription): the dispatcher is an *engine-internal-reconcile*
-  mechanism whose 7 consumers are not script-observable, and the seam is the
-  *script-visibility* mechanism — and the gap is that script-visible mutations do
-  not all reach the seam. **How to close that gap while keeping the dispatcher
-  fan-out (invariant 2 above) and synchronous read-your-writes (invariant 1) is
-  the coupled design question §4 hands to B1** — it is *not* settled here as "one
-  mechanism wins". **In production (boa) Mechanism A's consumer fan-out is not even
-  installed**, which is fine — those consumers are not script-observable; the
-  script-visibility gap is in Mechanism B.
+- **There are two mechanisms, and they answer two *different* questions** — but
+  the consumer/mechanism map is **not** the clean "dispatcher = non-observable /
+  seam = MutationObserver" dichotomy an earlier draft drew (corrected, 8ykJ/8ykQ).
+  They are: (1) `EcsDom`'s `ConsumerDispatcher` — **mostly engine-internal
+  derived-state reconciliation**, synchronous at the chokepoint, driving 7
+  consumers (live-range / node-iterator / base-url / form-control /
+  event-handler-attr / canvas / custom-element). **Six are derived-state
+  reconcilers** (several feeding script-readable state); the seventh,
+  `CustomElementReactionConsumer`, is **script-visible** — it enqueues
+  `connected`/`disconnected`/`attributeChangedCallback` reactions drained by
+  `flush_ce_reactions` (§2.1), firing user JS. So the dispatcher is **not** purely
+  non-observable: `MutationObserver` is not among its consumers, but **CE
+  reactions are**. (2) `SessionCore`'s mutation buffer + `flush` →
+  `deliver_mutation_records` — the path that feeds `MutationObserver` (fed today
+  only by innerHTML-class ops) **and also feeds CE reactions**: the shell drains
+  flush records into `enqueue_ce_reactions_from_mutations`
+  (`pipeline.rs:29-34` `flush_with_ce_reactions`, `lib.rs:618-628` per-frame),
+  so CE reactions are driven from **both** mechanisms (8ykQ). They overlap at
+  innerHTML (both mechanisms) and at CE reactions (both mechanisms). Read as a
+  *factual map*: the dispatcher is a *mostly-reconcile + CE-tap* mechanism, the
+  seam is the *script-visibility + flush-side-CE* mechanism — and the gap is that
+  script-visible **MutationObserver** mutations do not all reach the seam. **How
+  to close that gap while keeping the dispatcher fan-out (invariant 2) and
+  synchronous read-your-writes (invariant 1) is the coupled design question §4
+  hands to B1** — not settled here as "one mechanism wins".
+- **Dual-runtime risk is broader than "MO is fine because it is separate"
+  (8ykJ).** In production (boa) the `ConsumerDispatcher` is **not installed** at
+  all (§2.1). It is **not** harmless to say "those consumers are not
+  script-observable, so fine": the dispatcher's CE-reaction enqueue *is*
+  script-visible, so a boa runtime that lacks the dispatcher lacks that
+  script-visible effect *via the dispatcher path* — boa instead drives CE
+  reactions through a **separate** wiring (`pipeline.rs:29-34` /
+  `ce.rs:137-145`), and B1 must show that wiring covers the same reactions the VM
+  dispatcher would. The script-visibility gap is **not** confined to Mechanism B;
+  any candidate that drops dispatcher fan-out must independently re-establish the
+  CE-reaction (and base-url / form-control / event-handler / canvas) effects, not
+  just the MutationObserver records.
 - **Canonical-path decision is deferred to B1's `/elidex-plan-review` (§4).**
   B0 does **not** prescribe the mechanism. §4 sits on an edge-dense
   coupled-invariant corner (≥3 intersecting axes — see the §4 status callout),
@@ -347,17 +387,38 @@ ScriptSession seam), and keep Mechanism A as the EcsDom-internal reconcile detai
 
 ### 2.1 Mechanism A — `EcsDom` `ConsumerDispatcher` (synchronous, at the chokepoint) — **engine-internal reconcile, VM-only today**
 
-> **Scope (mandate-relevant).** Every one of the 7 consumers below is
-> **engine-internal derived-state reconciliation** — live-range adjustment,
-> NodeIterator pre-removal, `<base href>` resolution, form-control state,
-> event-handler-attr compilation, canvas reset, CE reactions. **None is
-> script-observable** in the WHATWG-DOM sense (`MutationObserver` is *not* among
-> them — see the last bullet). So this mechanism is the EcsDom-internal
-> derived-state reconcile layer; whether `MutationObserver` records should be
-> derived from *its* events (Pole A) or emitted at the ScriptSession seam
-> (Pole B) is the §4 open question. Note the mandate (invariant 3) names MO as a
-> seam responsibility — a factor against Pole A — but invariants 1+2 cut the
-> other way; B1 weighs them.
+> **Scope (mandate-relevant) — corrected (8ykJ).** An earlier draft called all
+> 7 consumers "engine-internal derived-state reconciliation" and "**none is
+> script-observable**". That dichotomy was **too clean**. The consumers split:
+> - **Derived-state reconcilers** (live-range adjustment, NodeIterator
+>   pre-removal, `<base href>` resolution, form-control state,
+>   event-handler-attr compilation, canvas reset) feed engine-internal derived
+>   ECS components; these are not *directly* a `MutationObserver` source, but
+>   several drive **script-visible** state (Range boundary points,
+>   NodeIterator reference node, compiled `onclick` listeners, canvas bitmap,
+>   form-control value) that JS can read back — so "non-observable" overstated it.
+> - **`CustomElementReactionConsumer`** (`consumer_dispatcher.rs:84`, doc block
+>   `:75-84`) is **directly script-visible**: on the matching
+>   `MutationEvent::Insert`/`Remove`/`AttributeChange` it **enqueues**
+>   `connectedCallback` / `disconnectedCallback` / `attributeChangedCallback`
+>   reactions, drained by `VmInner::flush_ce_reactions`
+>   (`vm/host/custom_elements/flush.rs:40`, called from `interpreter.rs:54` /
+>   `natives_timer.rs:281`) — i.e. it **fires user JS lifecycle callbacks**. So
+>   the dispatcher is **not** a purely engine-internal mechanism: CE reactions
+>   are a *second* script-visible consumer alongside `MutationObserver`. The
+>   accurate statement is: `MutationObserver` is *not* a dispatcher consumer, but
+>   CE-reaction enqueue *is* — and it is script-visible.
+> So this mechanism is **mostly** EcsDom-internal reconcile **plus a
+> script-visible CE-reaction tap**; whether `MutationObserver` records should be
+> derived from its events (Pole A) or emitted at the ScriptSession seam (Pole B)
+> is the §4 open question. Note the mandate (invariant 3) names MO as a seam
+> responsibility — a factor against Pole A — but invariants 1+2 cut the other
+> way; B1 weighs them. **Dual-runtime consequence (§0/§2):** because CE reaction
+> *enqueue* is a dispatcher consumer, a runtime that lacks the dispatcher
+> fan-out lacks this script-visible effect *via this path* — see the boa caveat
+> in §2.1's Plumbing bullet (boa drives CE reactions through a separate wiring,
+> `pipeline.rs:29-34` / `ce.rs:137-145`, which must be shown to cover the same
+> reactions).
 
 - **Trigger:** every `EcsDom::set_attribute` / `remove_attribute` (via
   `dispatch_event`, `attribute.rs:118`/`:294`) and every tree mutation
@@ -433,11 +494,28 @@ ScriptSession seam), and keep Mechanism A as the EcsDom-internal reconcile detai
   `deliver_mutation_records`. So MutationObservers registered during page load
   miss mutations performed before the first per-frame re-render. B1's
   delivery wiring + tests must cover this flush path, not only `content/mod.rs`.
-- **Consumer driven:** `MutationObserver` only —
-  `Vm::deliver_mutation_records` (`vm_api.rs:867`) →
-  `VmInner::deliver_mutation_records` (`mutation_observer.rs:418`) →
-  `MutationObserverRegistry::notify` (per-record inclusive-ancestor walk over
-  `MutationObservedBy`, DOM §4.3.2) → observer callbacks.
+- **Consumers driven — `MutationObserver` *and* CE reactions (corrected, 8ykQ).**
+  An earlier draft said "MutationObserver only"; the flush records actually feed
+  **two** script-visible consumers:
+  1. **`MutationObserver`** — `Vm::deliver_mutation_records` (`vm_api.rs:867`) →
+     `VmInner::deliver_mutation_records` (`mutation_observer.rs:418`) →
+     `MutationObserverRegistry::notify` (per-record inclusive-ancestor walk over
+     `MutationObservedBy`, DOM §4.3.2) → observer callbacks. (In production/boa,
+     the boa `JsRuntime::deliver_mutation_records`, `runtime/observers.rs:20`,
+     called from `content/mod.rs:258` — see §0/8ykO for the VM-vs-boa split.)
+  2. **Custom-element reactions** — the shell hands the same flush records to
+     `enqueue_ce_reactions_from_mutations` (`elidex-js-boa/runtime/ce.rs:137-145`,
+     a CE-lifecycle source) before observer delivery:
+     `flush_with_ce_reactions` (`pipeline.rs:29-34`) and the per-frame `re_render`
+     (`lib.rs:618-628`) both do `session.flush(dom)` →
+     `enqueue_ce_reactions_from_mutations(&records, dom)` →
+     `drain_custom_element_reactions_public(...)`. So **Mechanism B is not
+     MutationObserver-only** — buffered records also drive CE
+     `connected`/`disconnected`/`attributeChangedCallback`. Consequently CE
+     reactions are driven from **both** mechanisms (dispatcher tap §2.1 *and*
+     flush-side here), and **B1's record production/delivery changes must preserve
+     CE-reaction semantics**, not treat the session buffer as MO-only (invariant
+     for §4.x / 8ykQ).
 - **There is NO existing flush→MO microtask drain hook (8YcR).** The
   `Microtask::NotifyMutationObservers` enum variant
   (`natives_promise.rs:51-59`) exists, but its drain arm (`:333-344`) dispatches
@@ -454,10 +532,19 @@ ScriptSession seam), and keep Mechanism A as the EcsDom-internal reconcile detai
 
 ### 2.3 Overlap
 
-The two mechanisms intersect **only at innerHTML/insertAdjacentHTML**:
-`apply_mutation(SetInnerHtml)` ultimately drives `EcsDom` tree ops (Mechanism A
-consumers fire) *and* yields a `MutationRecord` (Mechanism B → observer). For
-all other writes, Mechanism A fires and Mechanism B is empty.
+The two mechanisms intersect at the **HTML-fragment write family —
+innerHTML, outerHTML, and insertAdjacentHTML** (corrected, 8ykL; the earlier
+"only innerHTML/insertAdjacentHTML" omitted the VM `outerHTML` setter):
+`apply_mutation(SetInnerHtml)` / `apply_set_outer_html` ultimately drive `EcsDom`
+tree ops (Mechanism A consumers fire) *and* yield a `MutationRecord`
+(Mechanism B → observer). The VM `outerHTML` setter is concretely both:
+`native_element_set_outer_html` → `apply_set_outer_html`
+(`html_fragment.rs:116`) runs the replace through `EcsDom` tree ops (Mechanism A
+`Insert`/`Remove` fire per node) **and** emits the coalesced record delivered at
+`dom_inner_html.rs:362` (Mechanism B). So outerHTML is on the overlap with
+innerHTML — consistent with §3's "records ARE produced" list and §4.3's
+no-double-delivery / C5 coalescing caveat. For all other writes, Mechanism A
+fires and Mechanism B is empty.
 
 ---
 
@@ -717,6 +804,20 @@ B1's plan-review covers them:
   `deliver_mutation_records` at `dom_inner_html.rs:148`/`:362` is the only VM MO
   delivery. If B1 adds a flush→MO path, it must retire or reconcile these so a
   given innerHTML mutation is delivered exactly once.
+- **CE-reaction preservation (8ykQ — Mechanism B is not MO-only).** The session
+  buffer feeds **two** script-visible consumers: `MutationObserver` *and*
+  custom-element reactions (the shell drains flush records through
+  `enqueue_ce_reactions_from_mutations`, `ce.rs:137-145`, in both
+  `flush_with_ce_reactions` (`pipeline.rs:29-34`) and per-frame `re_render`
+  (`lib.rs:618-628`) — §2.2). So B1 must **not** treat `record_mutation` /
+  `flush` as an MO-only channel: any change to record *production*, *coalescing*,
+  or *delivery ordering* must preserve the CE-reaction scan (added/removed CE
+  nodes → `connected`/`disconnected`, attribute records →
+  `attributeChangedCallback`). In particular a Pole-B record-shape change (e.g.
+  coalescing or re-ordering childList records) must keep CE
+  `enqueue_ce_reactions_from_mutations` seeing the same added/removed node set,
+  and the flush→CE drain must continue to run on the page-load
+  (`flush_with_ce_reactions`) path, not only per-frame.
 - **CommentData notification (8YcL).** Comment characterData fires no event today
   (§1.4b); whichever mechanism is chosen must close this hole uniformly with Text.
 - **`oldValue` threading.** `characterDataOldValue` / attribute `oldValue` need
@@ -805,9 +906,12 @@ verdict here.
 - **WHATWG DOM §4.3** — MutationObserver; §4.3.2 "queue a mutation record"
   (per-observer queue, microtask delivery, inclusive-ancestor target walk);
   §4.3.3 Interface MutationRecord (record shape).
-- **`docs/design/ja/12-dom-cssom.md`** — line 5: read-only `&EcsDom`, "書き込みは
-  `session.record_mutation()`経由"; line 28: "MutationObserver … セッションflushが
-  バッファされた変更からMutationRecordsを生成。ファーストクラス." This is the design
+- **`docs/design/ja/12-dom-cssom.md`** — line 24: read-only `&EcsDom`, "書き込みは
+  `session.record_mutation()`経由" (the `DomApiHandler::invoke` `dom: &EcsDom`
+  comment, §12.1.1); line 47: "MutationObserver … セッションflushが
+  バッファされた変更からMutationRecordsを生成。ファーストクラス" (§12.1.2 core/compat
+  table row). (Corrected from an earlier draft's stale "line 5"/"line 28"
+  anchors — re-checked by direct read of `12-dom-cssom.md`.) This is the design
   *aspiration* B1 reconciles against the §4.1 invariants. B0 does **not** declare
   it satisfied or stale: §12 describes a seam-recorded MO path, but it does not by
   itself resolve how that coexists with synchronous read-your-writes (invariant 1)
