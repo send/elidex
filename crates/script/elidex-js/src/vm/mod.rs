@@ -1197,9 +1197,11 @@ pub(crate) struct VmInner {
     /// Monotonic source for [`MediaQueryEntry::seq`] — the recycle-immune
     /// creation identity / report order for `media_query_list_registry`
     /// (the `ObjectId` key is recycled by the GC free-list, so it cannot
-    /// serve either role). Bumped once per `create_media_query_list`;
-    /// never reset (a plain VM-lifetime counter, the `ws_next_conn_id`
-    /// precedent).
+    /// serve either role). Bumped once per `create_media_query_list`; never
+    /// reset — it must outlive `Vm::unbind` (the registry survives unbind),
+    /// so it follows the survive-unbind `observer_id` precedent (a
+    /// per-registry monotonic counter whose registry is never cleared), not
+    /// the `ws_next_conn_id` shape-precedent (which resets on unbind).
     #[cfg(feature = "engine")]
     pub(crate) media_query_list_next_seq: u64,
     /// Reverse index from a `ListenerId` (registered via

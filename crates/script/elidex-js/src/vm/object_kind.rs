@@ -317,7 +317,7 @@ pub enum ObjectKind {
     ///
     /// Per-MQL state (`MediaQueryEntry`: the parsed `MediaQueryList` AST,
     /// the `last_matches` flip-prior, a monotonic `seq` creation identity,
-    /// and the `bind_epoch` associated-document tag) lives **out-of-band**
+    /// and the `document` `Entity`) lives **out-of-band**
     /// in `VmInner::media_query_list_registry`, keyed by this object's
     /// `ObjectId`.  Payload-free here so the per-variant size discipline
     /// matches [`Self::AbortSignal`].  (The `ObjectId` key is recycled by

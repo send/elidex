@@ -110,9 +110,10 @@ pub(crate) struct MediaQueryEntry {
     ///   carries the snapshotted `seq` before firing, so a slot recycled
     ///   into a *different* MQL mid-dispatch is skipped rather than fired at.
     pub(crate) seq: u64,
-    /// The **associated document** — the creating document's `Entity`,
-    /// captured at construction. CSSOM-View §4.2 reports changes only for
-    /// `MediaQueryList`s whose associated document is the target document;
+    /// The **document** (CSSOM-View §4.2 `#mediaquerylist-document`) — the
+    /// creating document's `Entity`, captured at construction. §4.2 reports
+    /// changes only for `MediaQueryList`s whose document is the target
+    /// document;
     /// the registry survives `Vm::unbind` (DOM-free, `abort_signal_states`
     /// parity) so it can hold MQLs from a *prior* document, and
     /// `deliver_media_query_changes` filters to entries whose `document`
@@ -252,7 +253,7 @@ impl VmInner {
         // env) so the first `deliver_media_query_changes` only fires `change`
         // if the environment has actually moved since construction.
         let last_matches = evaluate(&parsed, &self.media_environment());
-        // Recycle-immune creation identity + associated-document tag —
+        // Recycle-immune creation identity + document tag —
         // captured BEFORE `alloc_object` (which may recycle a collected
         // `ObjectId` slot, the very hazard `seq` defends against). `matchMedia`
         // runs in bound JS so `document_entity_opt()` is `Some`; the unbound
@@ -309,7 +310,7 @@ impl VmInner {
     /// per-turn report-changes pass. Re-evaluates every live `MediaQueryList`
     /// **created for the current document** (document-`Entity` filter — the
     /// registry survives unbind, so it can hold prior-document MQLs; §4.2
-    /// scopes the pass to associated-document MQLs) against the current
+    /// scopes the pass to MQLs whose document is the target) against the current
     /// [`Self::media_environment`] and, for each whose result has **flipped**
     /// since its last delivery, updates `last_matches` and fires a trusted
     /// `change` ([`MediaQueryListEvent`]) at the MQL.
@@ -341,7 +342,7 @@ impl VmInner {
         }
 
         // CSSOM-View §4.2 reports changes only for `MediaQueryList`s whose
-        // associated document is the target document. The registry survives
+        // document is the target document. The registry survives
         // unbind (DOM-free), so it can hold MQLs from a *prior* document; each
         // entry's `document` (the creating document's `Entity`) is matched
         // against the currently-bound document so a retained prior-document MQL
@@ -374,12 +375,14 @@ impl VmInner {
         }
         flips.sort_unstable_by_key(|&(_, seq, _, _)| seq);
         if !flips.is_empty() {
-            // Update each flipped entry's reported prior BEFORE firing
-            // (CSSOM-View §4.2 sets the MQL's value to `now` before queuing the
-            // `change`), so a listener that re-reads is consistent and a
-            // re-entrant deliver is a no-op for these entries. (No JS runs in
-            // this loop, so the `seq` guard is belt-and-suspenders, kept for
-            // symmetry with the phase-B identity re-check.)
+            // Advance each flipped entry's `last_matches` flip-prior BEFORE
+            // firing (CSSOM-View §4.2 fires `change` with `matches` = the
+            // derived matches state; `last_matches` is the engine's own
+            // flip-prior, not a spec-stored value), so a listener that
+            // re-reads is consistent and a re-entrant deliver is a no-op for
+            // these entries. (No JS runs in this loop, so the `seq` guard is
+            // belt-and-suspenders, kept for symmetry with the phase-B
+            // identity re-check.)
             for &(id, seq, now, _) in &flips {
                 if let Some(e) = self.media_query_list_registry.get_mut(&id) {
                     if e.seq == seq {
