@@ -217,24 +217,21 @@ fn remove_event_listener_stops_delivery() {
     ));
 }
 
-// --- legacy addListener / removeListener (CSSOM-View §4.2) -----------------
+// --- legacy addListener / removeListener are OUT-OF-CORE (Codex R2) --------
 
 #[test]
-fn legacy_add_listener_brand_checks_receiver() {
-    // Codex R1: addListener/removeListener are MediaQueryList operations
-    // (CSSOM-View §4.2) — a non-MQL receiver throws TypeError, NOT a generic
-    // EventTarget alias. (`call` with an AbortSignal must not install a
-    // 'change' listener there.)
+fn legacy_add_remove_listener_not_in_core() {
+    // Codex R2: addListener/removeListener are CSSOM-View §4.2 legacy aliases
+    // ("basically aliases for addEventListener", superseded) → out-of-core per
+    // the core/compat/deprecated tiering (docs/design §14.1.1/§14.4.2). The
+    // modern addEventListener('change') is the core surface.
     let mut vm = new_vm();
     assert!(eval_bool(
         &mut vm,
-        "var sig = new AbortController().signal; \
-         var add = MediaQueryList.prototype.addListener; \
-         var rm = MediaQueryList.prototype.removeListener; \
-         var a = false, r = false; \
-         try { add.call(sig, function () {}); } catch (e) { a = e instanceof TypeError; } \
-         try { rm.call(sig, function () {}); } catch (e) { r = e instanceof TypeError; } \
-         a && r;"
+        "var m = matchMedia('(min-width: 1px)'); \
+         typeof m.addListener === 'undefined' \
+         && typeof m.removeListener === 'undefined' \
+         && typeof m.addEventListener === 'function';"
     ));
 }
 
@@ -251,7 +248,8 @@ fn media_query_list_not_exposed_in_worker_scope() {
     vm.install_host_data(super::super::host_data::HostData::new());
     assert!(eval_bool(
         &mut vm,
-        "typeof MediaQueryList === 'undefined' && typeof matchMedia === 'undefined';"
+        "typeof MediaQueryList === 'undefined' && typeof matchMedia === 'undefined' \
+         && typeof MediaQueryListEvent === 'undefined';"
     ));
 }
 
@@ -270,43 +268,49 @@ fn prototype_survives_severed_global_and_gc() {
     );
 }
 
+// --- MediaQueryListEvent (CSSOM-View §4.2) — Codex R2 -----------------------
+
 #[test]
-fn legacy_add_listener_fires() {
+fn media_query_list_event_constructible() {
+    // CSSOM-View §4.2: MediaQueryListEvent is [Exposed=Window] + constructible,
+    // a sibling of MediaQueryList. matches/media from the init dict; chains to
+    // Event.
     let mut vm = new_vm();
     assert!(eval_bool(
         &mut vm,
-        "var m = matchMedia('(min-width: 1px)'); var n = 0; \
-         m.addListener(function () { n++; }); \
-         m.dispatchEvent(new Event('change')); \
-         n === 1;"
+        "typeof MediaQueryListEvent === 'function'; \
+         var e = new MediaQueryListEvent('change', { matches: true, media: '(min-width: 1px)' }); \
+         e.type === 'change' && e.matches === true && e.media === '(min-width: 1px)' \
+         && e instanceof MediaQueryListEvent && e instanceof Event;"
     ));
 }
 
 #[test]
-fn legacy_remove_listener_stops() {
+fn media_query_list_event_defaults_and_readonly() {
+    // Defaults: matches=false, media="". matches/media are RO (strict assign
+    // throws).
     let mut vm = new_vm();
     assert!(eval_bool(
         &mut vm,
-        "var m = matchMedia('(min-width: 1px)'); var n = 0; \
-         function cb() { n++; } \
-         m.addListener(cb); m.removeListener(cb); \
-         m.dispatchEvent(new Event('change')); \
-         n === 0;"
+        "var e = new MediaQueryListEvent('change'); \
+         var okDefault = e.matches === false && e.media === ''; \
+         var threw = false; \
+         try { e.matches = true; } catch (err) { threw = err instanceof TypeError; } \
+         okDefault && threw;"
     ));
 }
 
 #[test]
-fn legacy_add_listener_dedupes_like_add_event_listener() {
-    // addListener(cb) twice = one registration (DOM §2.7 "add an event
-    // listener" step 5).
+fn media_query_list_event_dispatches_to_mql() {
+    // A constructed MediaQueryListEvent dispatched on an MQL reaches a
+    // 'change' listener with this === mql and the event's matches/media.
     let mut vm = new_vm();
     assert!(eval_bool(
         &mut vm,
-        "var m = matchMedia('(min-width: 1px)'); var n = 0; \
-         function cb() { n++; } \
-         m.addListener(cb); m.addListener(cb); \
-         m.dispatchEvent(new Event('change')); \
-         n === 1;"
+        "var m = matchMedia('(min-width: 1px)'); var okThis = false, okMatches = false; \
+         m.addEventListener('change', function (e) { okThis = (this === m); okMatches = (e.matches === true); }); \
+         m.dispatchEvent(new MediaQueryListEvent('change', { matches: true })); \
+         okThis && okMatches;"
     ));
 }
 

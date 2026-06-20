@@ -90,6 +90,10 @@ impl VmInner {
                 #[cfg(not(feature = "engine"))]
                 None,
                 #[cfg(feature = "engine")]
+                self.media_query_list_event_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
                 self.character_data_prototype,
                 #[cfg(not(feature = "engine"))]
                 None,

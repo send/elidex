@@ -705,6 +705,7 @@ define_well_known_strings! {
         media => "media",
         change => "change",
         onchange => "onchange",
+        media_query_list_event_global => "MediaQueryListEvent",
         // EventTarget method names — referenced by both the
         // EventTarget.prototype installer and AbortSignal.prototype's
         // shadowing installer.  Pre-interning here means each prototype

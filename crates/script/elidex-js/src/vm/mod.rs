@@ -1140,6 +1140,14 @@ pub(crate) struct VmInner {
     /// `register_media_query_list_global()` runs in `register_globals()`.
     #[cfg(feature = "engine")]
     pub(crate) media_query_list_prototype: Option<ObjectId>,
+    /// `MediaQueryListEvent.prototype` (CSSOM-View §4.2) — the `change`
+    /// event type, chained to `Event.prototype`. Constructible
+    /// (`new MediaQueryListEvent(type, {matches, media})`); no own
+    /// `ObjectKind` brand (built as `ObjectKind::Event` + precomputed shape,
+    /// the `MessageEvent`/`CloseEvent` precedent — lesson #276). `None` until
+    /// `register_media_query_list_global()` runs in `register_globals()`.
+    #[cfg(feature = "engine")]
+    pub(crate) media_query_list_event_prototype: Option<ObjectId>,
     /// Per-signal mutable state, keyed by the `AbortSignal`'s own
     /// `ObjectId`.  Out-of-band so [`ObjectKind::AbortSignal`] stays
     /// payload-free and per-variant size discipline is preserved.

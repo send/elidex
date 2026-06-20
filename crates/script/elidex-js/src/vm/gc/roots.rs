@@ -33,7 +33,7 @@ pub(super) struct GcRoots<'a> {
     /// moved the storage to this dedicated stack.
     pub(super) saved_completion_stack: &'a [JsValue],
     pub(super) current_exception: JsValue,
-    pub(super) proto_roots: [Option<ObjectId>; 191],
+    pub(super) proto_roots: [Option<ObjectId>; 192],
     /// Per-subclass TypedArray prototype slots, addressed by
     /// [`super::super::value::ElementKind::index`].  Held as a borrowed
     /// slice rather than inlined into `proto_roots` so all eleven

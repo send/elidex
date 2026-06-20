@@ -16,19 +16,20 @@
 //! Per-MQL state ([`MediaQueryEntry`]) lives **out of band** in
 //! [`VmInner::media_query_list_registry`], keyed by the MQL's own
 //! `ObjectId`, so [`ObjectKind::MediaQueryList`] stays payload-free
-//! (per-variant size discipline, matching `AbortSignal`). The entry is a
-//! plain `{parsed: MediaQueryList, last_matches: bool}` — `ObjectId`- and
-//! `JsValue`-free — so GC needs only a sweep-prune (no trace pass) and the
-//! registry survives `Vm::unbind` (it binds to no DOM entity); see the
-//! `ObjectKind::MediaQueryList` doc for the full canonical contract.
+//! (per-variant size discipline, matching `AbortSignal`). The entry holds
+//! ONLY the parsed query (`ObjectId`- and `JsValue`-free) — so GC needs only
+//! a sweep-prune (no trace pass) and the registry survives `Vm::unbind` (it
+//! binds to no DOM entity); see the `ObjectKind::MediaQueryList` doc for the
+//! full canonical contract.
 //!
 //! ## Evaluator (engine-independent SSoT)
 //!
 //! Parse / evaluate / serialize all live in `elidex_css::media` (Slice 1
 //! #360 + Slice 2a #364); this module only **marshals**: JS string ↔ query,
-//! build the MQL wrapper, snapshot `last_matches`, and surface the
-//! interface over the unified EventTarget core. No media-query algorithm
-//! runs here (Layering mandate).
+//! build the MQL wrapper, and surface the interface over the unified
+//! EventTarget core. `.matches` is evaluated **live** on each read (derived,
+//! never stored — §6), so it always reflects the current environment. No
+//! media-query algorithm runs here (Layering mandate).
 //!
 //! ## Listener model
 //!
@@ -37,16 +38,20 @@
 //! `dispatchEvent` are **inherited** from `EventTarget.prototype` (routed
 //! to its `vm_event_listeners` home via `DispatchTarget::VmObject`).
 //! `onchange` is an event-handler IDL attribute bound to the `'change'`
-//! type. The legacy `addListener` / `removeListener` (CSSOM-View §4.2, kept
-//! "for web compat") are thin aliases over `addEventListener('change')` /
-//! `removeEventListener('change')` — One-issue-one-way, no duplicate
-//! listener bookkeeping.
+//! type. The legacy `addListener` / `removeListener` (CSSOM-View §4.2,
+//! "basically aliases for `addEventListener`/`removeEventListener`" kept "for
+//! backwards compatibility") are **out-of-core** per the core/compat/
+//! deprecated tiering (docs/design §14.1.1 / §14.4.2): superseded-by-modern
+//! web APIs live in a future compat layer, not the strict core. Modern
+//! `addEventListener` / `onchange` ARE the core surface.
 //!
-//! The `change` event delivered on a media-state flip is a
-//! `MediaQueryListEvent`; that dispatched subclass + the host-driven
-//! report-changes fire land with the `HostDriver` transport in Slice 2b-ii
-//! (this slice wires the interface; delivery is exercised here via
-//! `dispatchEvent`).
+//! `MediaQueryListEvent` (CSSOM-View §4.2) — the `change` event type — IS
+//! exposed here (Window-only, constructible: `new MediaQueryListEvent(type,
+//! {matches, media})`), built as `ObjectKind::Event` + a precomputed shape
+//! (no own brand, MessageEvent precedent — lesson #276). The host-driven
+//! report-changes *fire* (transport → flip → dispatch) lands with the
+//! `HostDriver` transport in Slice 2b-ii; this slice provides the
+//! constructible interface, exercised via `dispatchEvent`.
 
 #![cfg(feature = "engine")]
 
@@ -63,18 +68,18 @@ use super::super::{NativeFn, VmInner};
 /// [`VmInner::media_query_list_registry`] and looked up via the MQL's
 /// `ObjectId`.
 ///
-/// `matches` is *derived* (`evaluate(&parsed, &env)`); `last_matches` is
-/// only the snapshot the `.matches` getter reads and the flip-detection
-/// prior for the Slice 2b-ii report-changes algorithm — never a competing
-/// source of truth.
+/// Holds ONLY the parsed query: `.matches` is **derived live** on each get
+/// (`evaluate(&parsed, &media_environment())`), never stored — so the value
+/// always reflects the current environment by construction (§6 "matches
+/// derived, never stored as truth"; Codex R2). Slice 2b-ii adds a
+/// `last_matches` flip-prior field here when it wires the report-changes
+/// `change`-firing (the only consumer of a stored prior).
 #[derive(Debug)]
 pub(crate) struct MediaQueryEntry {
-    /// The parsed query (engine-independent AST, #360). Serialized on
-    /// demand by the `.media` getter via `Display` (#364).
+    /// The parsed query (engine-independent AST, #360). Evaluated live by
+    /// the `.matches` getter; serialized on demand by `.media` via `Display`
+    /// (#364).
     pub(crate) parsed: MediaQueryList,
-    /// Snapshot of the last evaluation result. Seeded at `matchMedia`
-    /// time; updated only on a flip by the 2b-ii transport.
-    pub(crate) last_matches: bool,
 }
 
 // ---------------------------------------------------------------------------
@@ -106,7 +111,13 @@ impl VmInner {
             extensible: true,
         });
         self.install_media_query_list_accessors(proto_id);
-        self.install_media_query_list_methods(proto_id);
+        // `addEventListener` / `removeEventListener` / `dispatchEvent` are
+        // INHERITED from `EventTarget.prototype`; `onchange` is installed by
+        // the accessor pass above. The legacy `addListener` / `removeListener`
+        // aliases (CSSOM-View §4.2 "for backwards compatibility", superseded
+        // by `addEventListener`) are OUT-OF-CORE per the core/compat/deprecated
+        // tiering (docs/design §14.1.1 / §14.4.2; Codex R2) — they'd land in a
+        // future compat layer, not here. So there are no own methods to install.
         self.media_query_list_prototype = Some(proto_id);
 
         // ---- MediaQueryList global ----
@@ -136,6 +147,12 @@ impl VmInner {
         );
         let name = self.strings.intern("MediaQueryList");
         self.globals.insert(name, JsValue::Object(ctor));
+
+        // `MediaQueryListEvent` (CSSOM-View §4.2) — the sibling `change`
+        // event type. Window-only (this fn is Window-gated); chains to
+        // `Event.prototype`. Constructible independently of the 2b-ii
+        // host-fire, so the exposed surface is consistent (Codex R2).
+        self.register_media_query_list_event_global();
     }
 
     fn install_media_query_list_accessors(&mut self, proto_id: ObjectId) {
@@ -174,34 +191,10 @@ impl VmInner {
         );
     }
 
-    fn install_media_query_list_methods(&mut self, proto_id: ObjectId) {
-        // `addEventListener` / `removeEventListener` / `dispatchEvent` are
-        // INHERITED from `EventTarget.prototype`. Only the legacy
-        // `addListener` / `removeListener` aliases live here.
-        let add_sid = self.strings.intern("addListener");
-        let remove_sid = self.strings.intern("removeListener");
-        self.install_native_method(
-            proto_id,
-            add_sid,
-            native_media_query_list_add_listener,
-            PropertyAttrs::METHOD,
-        );
-        self.install_native_method(
-            proto_id,
-            remove_sid,
-            native_media_query_list_remove_listener,
-            PropertyAttrs::METHOD,
-        );
-    }
-
     /// Allocate a fresh `MediaQueryList` instance with its state row in
     /// [`Self::media_query_list_registry`]. Used by `matchMedia` — never
     /// directly callable from JS (`new MediaQueryList()` throws TypeError).
-    pub(in crate::vm) fn create_media_query_list(
-        &mut self,
-        parsed: MediaQueryList,
-        last_matches: bool,
-    ) -> ObjectId {
+    pub(in crate::vm) fn create_media_query_list(&mut self, parsed: MediaQueryList) -> ObjectId {
         let proto = self.media_query_list_prototype;
         let id = self.alloc_object(Object {
             kind: ObjectKind::MediaQueryList,
@@ -209,13 +202,8 @@ impl VmInner {
             prototype: proto,
             extensible: true,
         });
-        self.media_query_list_registry.insert(
-            id,
-            MediaQueryEntry {
-                parsed,
-                last_matches,
-            },
-        );
+        self.media_query_list_registry
+            .insert(id, MediaQueryEntry { parsed });
         id
     }
 
@@ -243,10 +231,10 @@ impl VmInner {
 // ---------------------------------------------------------------------------
 
 /// `window.matchMedia(query)` — CSSOM-View §4
-/// (`#dom-window-matchmedia`). Parses `query` (total parser, #360), builds a
-/// live `MediaQueryList`, snapshots the initial `matches` against the
-/// current environment, and returns the MQL. Marshalling only — parse /
-/// evaluate are `elidex_css::media` calls.
+/// (`#dom-window-matchmedia`). Parses `query` (total parser, #360) and
+/// returns a live `MediaQueryList`; `.matches` is evaluated live on read
+/// (no stored snapshot). Marshalling only — parse / evaluate are
+/// `elidex_css::media` calls.
 pub(super) fn native_window_match_media(
     ctx: &mut NativeContext<'_>,
     _this: JsValue,
@@ -265,14 +253,11 @@ pub(super) fn native_window_match_media(
     let query_sid = super::super::coerce::to_string(ctx.vm, arg)?;
     let query = ctx.vm.strings.get_utf8(query_sid);
 
-    // Engine-independent parse + evaluate (#360). `parse_media_query_list`
-    // is total (malformed → `not all`; unknown feature → Kleene-unknown →
-    // false), so there is no throw path.
+    // Engine-independent parse (#360). `parse_media_query_list` is total
+    // (malformed → `not all`; unknown feature → Kleene-unknown → false), so
+    // there is no throw path. `.matches` is evaluated live by the getter.
     let parsed = parse_media_query_list(&query);
-    let env = ctx.vm.media_environment();
-    let matches = evaluate(&parsed, &env);
-
-    let id = ctx.vm.create_media_query_list(parsed, matches);
+    let id = ctx.vm.create_media_query_list(parsed);
     Ok(JsValue::Object(id))
 }
 
@@ -300,20 +285,23 @@ fn require_media_query_list_this(
     }
 }
 
-/// `mql.matches` (RO) — the last evaluation snapshot. Absent entry →
-/// `false` (defensive-by-construction; matches the `AbortSignal.aborted`
-/// safe-default for a cleared/collected side-table slot).
+/// `mql.matches` (RO) — evaluated **live** against the current environment
+/// (CSSOM-View §4.2), so it always reflects the current viewport/media facts
+/// by construction (no stored snapshot to go stale; Codex R2). Absent entry
+/// → `false` (defensive-by-construction; `AbortSignal.aborted` safe-default
+/// for a cleared/collected side-table slot).
 fn native_media_query_list_get_matches(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let id = require_media_query_list_this(ctx, this, "matches")?;
+    let env = ctx.vm.media_environment();
     let matches = ctx
         .vm
         .media_query_list_registry
         .get(&id)
-        .is_some_and(|e| e.last_matches);
+        .is_some_and(|e| evaluate(&e.parsed, &env));
     Ok(JsValue::Boolean(matches))
 }
 
@@ -335,48 +323,4 @@ fn native_media_query_list_get_media(
         None => ctx.vm.strings.intern(""),
     };
     Ok(JsValue::String(sid))
-}
-
-// ---------------------------------------------------------------------------
-// Legacy MediaQueryList.addListener / removeListener (CSSOM-View §4.2)
-// ---------------------------------------------------------------------------
-
-/// `mql.addListener(callback)` — legacy alias for
-/// `addEventListener('change', callback)` (CSSOM-View §4.2, kept for web
-/// compat). Routes through the unified EventTarget core so dedupe /
-/// registration order match `addEventListener` exactly.
-fn native_media_query_list_add_listener(
-    ctx: &mut NativeContext<'_>,
-    this: JsValue,
-    args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    // `addListener` is a MediaQueryList operation (CSSOM-View §4.2), so a
-    // non-MQL receiver throws TypeError — same brand gate as `.matches` /
-    // `.media`, NOT a generic EventTarget alias (Codex R1).
-    require_media_query_list_this(ctx, this, "addListener")?;
-    let callback = args.first().copied().unwrap_or(JsValue::Undefined);
-    let change_sid = ctx.vm.well_known.change;
-    super::event_target::native_event_target_add_event_listener(
-        ctx,
-        this,
-        &[JsValue::String(change_sid), callback],
-    )
-}
-
-/// `mql.removeListener(callback)` — legacy alias for
-/// `removeEventListener('change', callback)`.
-fn native_media_query_list_remove_listener(
-    ctx: &mut NativeContext<'_>,
-    this: JsValue,
-    args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    // MQL brand gate (Codex R1) — see `addListener`.
-    require_media_query_list_this(ctx, this, "removeListener")?;
-    let callback = args.first().copied().unwrap_or(JsValue::Undefined);
-    let change_sid = ctx.vm.well_known.change;
-    super::event_target::native_event_target_remove_event_listener(
-        ctx,
-        this,
-        &[JsValue::String(change_sid), callback],
-    )
 }

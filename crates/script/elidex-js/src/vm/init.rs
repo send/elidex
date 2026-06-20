@@ -692,6 +692,8 @@ impl Vm {
                 #[cfg(feature = "engine")]
                 media_query_list_prototype: None,
                 #[cfg(feature = "engine")]
+                media_query_list_event_prototype: None,
+                #[cfg(feature = "engine")]
                 media_query_list_registry: HashMap::new(),
                 #[cfg(feature = "engine")]
                 abort_signal_states: HashMap::new(),

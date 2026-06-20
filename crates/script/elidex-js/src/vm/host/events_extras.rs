@@ -215,6 +215,20 @@ impl VmInner {
         );
     }
 
+    /// `MediaQueryListEvent` (CSSOM-View §4.2) — the `change` event type for
+    /// `MediaQueryList`. Chains to `Event.prototype`; no own `ObjectKind`
+    /// brand (`ObjectKind::Event` + precomputed shape, MessageEvent
+    /// precedent). Registered (Window-only) from `register_media_query_list_global`.
+    pub(in crate::vm) fn register_media_query_list_event_global(&mut self) {
+        register_event_subclass(
+            self,
+            "MediaQueryListEvent",
+            native_media_query_list_event_constructor,
+            self.well_known.media_query_list_event_global,
+            |vm, id| vm.media_query_list_event_prototype = Some(id),
+        );
+    }
+
     /// Finalise a freshly-built Event from `create_fresh_event_object`.
     /// Shared across the four non-UIEvent ctors (PromiseRejectionEvent
     /// / ErrorEvent / HashChangeEvent / PopStateEvent).
@@ -646,6 +660,55 @@ fn native_close_event_constructor(
         .vm
         .close_event_prototype
         .expect("CloseEvent.prototype must be registered before ctor");
+    let id = ctx
+        .vm
+        .build_event_subclass_instance(this, type_sid, base, shape_id, proto, slots, mode);
+    Ok(JsValue::Object(id))
+}
+
+// ---------------------------------------------------------------------------
+// MediaQueryListEvent (CSSOM-View §4.2)
+// ---------------------------------------------------------------------------
+
+/// `new MediaQueryListEvent(type, eventInitDict)` — CSSOM-View §4.2. The
+/// `change` event type delivered by `MediaQueryList`. READONLY `media` /
+/// `matches` payload (defaults `""` / `false`).
+fn native_media_query_list_event_constructor(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let mode = ctx.mode;
+    let type_sid = type_arg(ctx, args, "MediaQueryListEvent")?;
+    let init_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
+    let base = parse_event_init(ctx, init_arg, "MediaQueryListEvent")?;
+    let opts_id = opts_object_id(init_arg);
+    // Slot order matches `event_shapes.rs::media_query_list_event`: media,
+    // matches.  MediaQueryListEventInit defaults: media="", matches=false.
+    let (media_sid, matches) = if let Some(opts_id) = opts_id {
+        let k_media = ctx.vm.well_known.media;
+        let k_matches = ctx.vm.well_known.matches;
+        let m = read_string(ctx, opts_id, k_media)?;
+        let b = read_bool(ctx, opts_id, k_matches, false)?;
+        (m, b)
+    } else {
+        let empty = ctx.vm.strings.intern("");
+        (empty, false)
+    };
+    let shape_id = ctx
+        .vm
+        .precomputed_event_shapes
+        .as_ref()
+        .expect("precomputed_event_shapes missing")
+        .media_query_list_event;
+    let slots = vec![
+        PropertyValue::Data(JsValue::String(media_sid)),
+        PropertyValue::Data(JsValue::Boolean(matches)),
+    ];
+    let proto = ctx
+        .vm
+        .media_query_list_event_prototype
+        .expect("MediaQueryListEvent.prototype must be registered before ctor");
     let id = ctx
         .vm
         .build_event_subclass_instance(this, type_sid, base, shape_id, proto, slots, mode);
