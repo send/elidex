@@ -236,8 +236,19 @@ impl DomApiHandler for CreateElement {
             let _ = dom.world_mut().insert_one(entity, ce_state);
         }
         // HTML §4.8.5: attach the derived `IframeData` (present-default on the
-        // no-attrs createElement path) so the iframe is visible to the shell
-        // loader and the reconcile seam can later populate src/srcdoc.
+        // no-attrs createElement path) so the reconcile seam can populate
+        // src/srcdoc and the iframe is *discoverable* as an iframe.
+        //
+        // NB: this is the DOM-side prerequisite, not the whole story for
+        // *loading* a script-created iframe. The shell's `detect_iframe_mutations`
+        // only loads iframes it sees in `SessionCore::flush()` mutation records,
+        // but tree mutations (`appendChild`/`insertBefore`) bypass
+        // `record_mutation` today (see `child_node/mutations.rs` module doc:
+        // "tracked for a future milestone"), so `createElement('iframe')` +
+        // `appendChild` produces no ChildList record and the iframe does not yet
+        // load on connection. Routing tree mutations through `record_mutation`
+        // (which also fires CE connected/disconnected callbacks) is the coupled
+        // dependency tracked at `#11-tree-mutation-record-pipeline`.
         if let Some(iframe_data) = components.iframe_data {
             let _ = dom.world_mut().insert_one(entity, iframe_data);
         }
