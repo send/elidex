@@ -696,6 +696,8 @@ impl Vm {
                 #[cfg(feature = "engine")]
                 media_query_list_registry: HashMap::new(),
                 #[cfg(feature = "engine")]
+                media_query_list_next_seq: 0,
+                #[cfg(feature = "engine")]
                 abort_signal_states: HashMap::new(),
                 #[cfg(feature = "engine")]
                 abort_listener_back_refs: HashMap::new(),

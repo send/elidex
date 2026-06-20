@@ -9,6 +9,7 @@
 
 use std::time::Instant;
 
+use elidex_css::media::{ColorScheme, ReducedMotion};
 use elidex_ecs::Entity;
 use elidex_script_session::{
     DispatchEvent, EvalResult, HistoryAction, HostDriver, ListenerId, MutationRecord,
@@ -495,6 +496,27 @@ impl HostDriver for ElidexJsEngine {
 
     fn set_scroll_offset(&mut self, x: f64, y: f64) {
         self.vm.set_scroll_offset(x, y);
+    }
+
+    fn set_media_environment(
+        &mut self,
+        viewport_width: f64,
+        viewport_height: f64,
+        device_pixel_ratio: f64,
+        color_scheme: ColorScheme,
+        reduced_motion: ReducedMotion,
+    ) {
+        self.vm.set_media_environment(
+            viewport_width,
+            viewport_height,
+            device_pixel_ratio,
+            color_scheme,
+            reduced_motion,
+        );
+    }
+
+    fn deliver_media_query_changes(&mut self) {
+        self.vm.deliver_media_query_changes();
     }
 
     // ── host-resource install (construction-adjacent) ─────────────────────

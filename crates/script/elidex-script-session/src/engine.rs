@@ -5,6 +5,7 @@
 
 use std::time::Instant;
 
+use elidex_css::media::{ColorScheme, ReducedMotion};
 use elidex_ecs::{EcsDom, Entity};
 
 use crate::event_dispatch::DispatchEvent;
@@ -338,6 +339,44 @@ pub trait HostDriver {
     /// so `window.scrollX` / `scrollY` read the live value after a user
     /// (wheel/keyboard) scroll the shell applied.
     fn set_scroll_offset(&mut self, x: f64, y: f64);
+
+    // ── media-query environment transport (per-window; S2 Slice 2b) ────────
+    //
+    // The window's device facts the media-query evaluator reads (CSSOM-View
+    // §4 / Media Queries L4): viewport geometry + resolution + the
+    // `prefers-color-scheme` / `prefers-reduced-motion` user preferences.
+    // Like visibility/scroll, these are shell-driven transport (not per-entity
+    // DOM facts). Split into a state push + a delivery turn, mirroring
+    // scroll's `set_scroll_offset` + the observer `deliver_*` pair: the shell
+    // pushes facts whenever they change (winit `Resized` / `ScaleFactorChanged`
+    // / `ThemeChanged`), then runs the report-changes pass once per
+    // update-the-rendering step. (Producer wiring beyond viewport geometry is
+    // carved to `#11-media-prefers-features`; the VM path is exercised by VM
+    // tests and goes live with the boa→VM cutover, S5.)
+
+    /// Push the window's media-query device facts (CSSOM-View §4.2). Updates
+    /// the engine's environment so `window.innerWidth` / `innerHeight` /
+    /// `devicePixelRatio` and every live `MediaQueryList.matches` read the new
+    /// values. Does NOT fire `change` on its own — the shell calls
+    /// [`deliver_media_query_changes`](Self::deliver_media_query_changes) at
+    /// the update-the-rendering step to report flips (mirroring
+    /// `set_scroll_offset` + the observer deliver split).
+    fn set_media_environment(
+        &mut self,
+        viewport_width: f64,
+        viewport_height: f64,
+        device_pixel_ratio: f64,
+        color_scheme: ColorScheme,
+        reduced_motion: ReducedMotion,
+    );
+
+    /// Run the CSSOM-View §4.2 "evaluate media queries and report changes"
+    /// pass: re-evaluate every live `MediaQueryList` against the current
+    /// environment and fire `change` at each whose result flipped since the
+    /// last delivery. Idempotent and cheap when nothing flips. The shell calls
+    /// this once per update-the-rendering step (the media sibling of
+    /// [`deliver_resize_observations`](Self::deliver_resize_observations)).
+    fn deliver_media_query_changes(&mut self);
 
     // ── host-resource install (construction-adjacent) ──────────────────────
 
