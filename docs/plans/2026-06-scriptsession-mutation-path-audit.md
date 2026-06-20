@@ -496,13 +496,31 @@ component mutator with **no `record_mutation`**, so it is MutationObserver-silen
 per the §1 invariant. They are *examples* the B1 grep-diff must also surface, not
 a new exhaustive boundary.
 
-- **`textContent` / `nodeValue` setters (886F)** —
-  `node_methods/text_content.rs` `SetTextContentNodeKind` /
-  `SetNodeValue`: Text/CData branch → `dom.set_text_data` (`:93`/`:145`),
-  Comment branch → `CommentData.0` direct write + `rev_version`
-  (`:99-102`/`:148-151`), element branch → `remove_child` + `append_child`
-  (`:107-113`). **None calls `record_mutation`** — so `el.textContent = 'x'` and
-  `text.nodeValue = 'x'` are MO-silent (§3 gap rows).
+- **`textContent` / `nodeValue` setters (886F) — distinct mutation classes, do
+  NOT conflate (9_GX).** Both live in `node_methods/text_content.rs`, but
+  `SetTextContentNodeKind` and `SetNodeValue` have **different non-CharacterData
+  branches** and must be split:
+  - **`textContent =` (`SetTextContentNodeKind`)** is a **childList replace-all** on
+    non-CharacterData hosts: Text/CData branch → `dom.set_text_data` (`:93`),
+    Comment branch → `CommentData.0` direct write + `rev_version` (`:99-102`), and
+    the catch-all `_ =>` branch (**element / `DocumentFragment` / `ShadowRoot`**) →
+    `remove_child` loop + `append_child` (`:105-116`). So `el.textContent = 'x'`
+    on an element/fragment/shadow-root is a real (silent) childList mutation.
+  - **`nodeValue =` (`SetNodeValue`)** is **CharacterData-only**: Text/CData branch
+    → `dom.set_text_data` (`:143-145`), Comment branch → `CommentData.0` write +
+    `rev_version` (`:147-151`), and the catch-all `_ =>` branch (**Element,
+    Document, DocumentType, `DocumentFragment`**) is an **explicit no-op**
+    (`:153-155` — `// Element, Document, DocumentType, DocumentFragment — no-op`).
+    Per WHATWG DOM §4.4 Interface Node `#dom-node-nodevalue`, `nodeValue` is `null`
+    (setter no-op) for every non-`Attr`/non-CharacterData node, so
+    `element.nodeValue = 'x'` performs **no mutation at all** — it is **mutation-free
+    (not merely MO-silent)** and must not produce a spurious childList record.
+  **None of the *effective* branches calls `record_mutation`** — so the
+  characterData splices (`text.nodeValue`/`comment.nodeValue`/Text/Comment
+  `textContent`) and the `el.textContent` childList replace-all are MO-silent (§3
+  gap rows), but a non-CharacterData `nodeValue=` is silent **because it does
+  nothing**, not because a record was dropped (9_GX — do not gap-row it as a
+  missing childList record).
 - **`Text.prototype.splitText` (886H)** — VM
   `vm/host/text_proto.rs:119` (`native_text_split_text`) calls
   `split_text_at_offset` (`elidex-dom-api/char_data/split_text.rs:99`), which
@@ -532,6 +550,30 @@ B1's `/elidex-plan-review`** (§4); §2 does **not** prescribe a mechanism, and 
 particular does **not** assert "route every write into Mechanism B".
 
 ### 2.1 Mechanism A — `EcsDom` `ConsumerDispatcher` (synchronous, at the chokepoint) — **engine-internal reconcile, VM-only today**
+
+> **Mechanism-A fan-out invariant (the load-bearing statement — 9_GY).** A
+> Mechanism-A consumer (any `ConsumerDispatcher` consumer — live-range / NodeIterator
+> / base-url / form-control / event-handler-attr / canvas / CE-reaction) fans out for
+> a given mutation **iff both** hold:
+> - **(a) the mutated node/parent is in the light tree** — i.e. the `EcsDom` primitive
+>   actually fires the `MutationEvent`. Tree mutations whose node *or* parent is a
+>   shadow root are **suppressed at the fire site** (`fire_after_insert`/
+>   `fire_after_remove`, `tree/mutation.rs:289`/`:343` `return` early —
+>   light-tree-only contract, #367 finding 82, C3 §4.2a); and `set_char_data`'s
+>   Comment branch / the non-CharacterData `nodeValue=` branch fire no
+>   `MutationEvent` at all (§1.4b/§3); and
+> - **(b) a `ConsumerDispatcher` is installed** — installed **only** by `Vm::bind`
+>   (`vm_api.rs:279`); boa installs none, so under boa `dispatch_event` reaches a
+>   **no-op sink** (the inline `reconcile_*` + `rev_version` baked into the primitive
+>   still run, but no consumer fans out).
+> So shadow-root fragment writes (suppressed events) and boa fragment writes (no
+> dispatcher) **do not drive Mechanism A**, even though they may still deliver an MO
+> record by other means (direct-delivery / Mechanism B). The §2.3 overlap
+> classification is **derived from this invariant** — light fragment write = A ∩
+> direct-delivery, shadow fragment write = direct-delivery-only, boa fragment write =
+> Mechanism-B-only — and the **exact per-path classification is the §1/§6 B1
+> grep-diff's derivation from the dispatch path**, not a hand registry; the
+> representative three-member split is below.
 
 > **Scope (mandate-relevant) — corrected (8ykJ).** An earlier draft called all
 > 7 consumers "engine-internal derived-state reconciliation" and "**none is
@@ -722,22 +764,46 @@ particular does **not** assert "route every write into Mechanism B".
 ### 2.3 Overlap
 
 The two mechanisms touch the **HTML-fragment write family — innerHTML, outerHTML,
-and insertAdjacentHTML** — but **not** as a single uniform overlap across the whole
-family (corrected, 95C6; the earlier "the family overlaps both mechanisms" framing
-was stale). The overlap is **path-split** (and the callout below derives it):
-- the **VM** path (`apply_set_inner_html` / `apply_set_outer_html` via the VM
-  natives) is **Mechanism A ∩ direct-delivery** — it drives `EcsDom` tree ops
-  (Mechanism A consumers fire, *only* once a VM `ConsumerDispatcher` is bound) **and**
+setHTMLUnsafe, and insertAdjacentHTML** — but **not** as a single uniform overlap
+across the whole family (corrected, 95C6/9_GY; the earlier "the family overlaps both
+mechanisms" framing was stale, and the earlier "VM path = Mechanism A ∩
+direct-delivery" framing was **also** too coarse — it conflated a *light-tree*
+fragment write with a *shadow-root* fragment write, which differ on whether
+Mechanism A fan-out runs, 9_GY). The overlap classification follows directly from the
+**Mechanism-A fan-out invariant** (stated once below and applied here); the three
+representative members fall out of it:
+- **light-tree fragment write** (VM `innerHTML`/`outerHTML`/`setHTMLUnsafe` on an
+  Element in the light tree, via `apply_set_inner_html` / `apply_set_outer_html`) is
+  **Mechanism A ∩ direct-delivery** — it drives `EcsDom` tree ops whose
+  `fire_after_insert`/`fire_after_remove` fire `MutationEvent::Insert`/`Remove`
+  (Mechanism A consumers fan out, *only* once a VM `ConsumerDispatcher` is bound) **and**
   synchronously delivers its own `MutationRecord` via
   `ctx.vm.deliver_mutation_records` (`dom_inner_html.rs:148`/`:362`), **not** the
   buffered Mechanism B;
-- the **boa / dom-api** path (the `SetInnerHtml` / `InsertAdjacentHtml` `Mutation`
-  variants) is **Mechanism-B only** — boa never installs a `ConsumerDispatcher`
-  (R1 9nRb), so its `EcsDom` tree ops reach the no-op sink (no Mechanism-A fan-out)
-  and the record reaches the observer purely via `SessionCore::flush` →
-  `deliver_mutation_records`.
-So the family is **not** "two-mechanism overlap" wholesale; the VM and boa members
-overlap *different* mechanism pairs, per the three-way covered-set split below.
+- **shadow-root fragment write** (VM `ShadowRoot.innerHTML`/`ShadowRoot.setHTMLUnsafe`,
+  same shared `set_inner_html_for` → `apply_set_inner_html` → `deliver_mutation_records`
+  helper) is **direct-delivery *only* — NOT Mechanism A** (9_GY): the same
+  `set_inner_html_for` native still self-generates and synchronously delivers the
+  `MutationRecord`, but the underlying `EcsDom` tree ops fire into the
+  **shadow-root-suppressed** `fire_after_insert`/`fire_after_remove`
+  (`tree/mutation.rs:289`/`:343` `return` when node or parent is a shadow root —
+  light-tree-only contract, #367 finding 82, §2.1 C3), so **no** `MutationEvent` fires
+  and **no** `ConsumerDispatcher` consumer (CE / range / form-control / base-url) runs.
+  So a shadow-root fragment write is **direct-delivery to MO, with zero Mechanism-A
+  fan-out** — it is *not* "Mechanism A ∩ direct-delivery" the way a light-tree
+  fragment write is;
+- **boa fragment write** (the `SetInnerHtml` / `InsertAdjacentHtml` `Mutation`
+  variants on the boa / dom-api path) is **Mechanism-B only** — boa never installs a
+  `ConsumerDispatcher` (R1 9nRb), so its `EcsDom` tree ops reach the no-op sink (no
+  Mechanism-A fan-out) and the record reaches the observer purely via
+  `SessionCore::flush` → `deliver_mutation_records`.
+So the family is **not** "two-mechanism overlap" wholesale, **and not even a clean
+two-way VM/boa split**: it is a **three-way representative split** keyed by the
+Mechanism-A fan-out invariant — *light* fragment write = A ∩ direct-delivery, *shadow*
+fragment write = direct-delivery-only (no dispatcher fan-out), *boa* fragment write =
+Mechanism-B-only. The exact per-path classification is the §1/§6 grep-diff's
+derivation from the dispatch path; this three-member set is **representative**, not a
+hand registry.
 
 > **The VM innerHTML/outerHTML record path is *direct-delivery*, NOT Mechanism B
 > buffer-overlap (corrected, 9dTQ).** An earlier draft classified the VM
@@ -754,7 +820,10 @@ overlap *different* mechanism pairs, per the three-way covered-set split below.
 > boa iframe attr writes, §2.2), and a **VM direct-delivery** category (the VM
 > innerHTML/outerHTML setters self-generate a record and deliver it synchronously,
 > bypassing the buffer). The overlap at the HTML-fragment family is therefore
-> **Mechanism A (tree-op dispatcher events fire) ∩ VM direct-delivery** in the VM,
+> **Mechanism A (tree-op dispatcher events fire) ∩ VM direct-delivery** in the VM —
+> **but only for a *light-tree* VM fragment write; a *shadow-root* VM fragment write
+> (`ShadowRoot.innerHTML`/`setHTMLUnsafe`) is direct-delivery *only*, with Mechanism A
+> suppressed (9_GY, §2.3 path-split + the Mechanism-A fan-out invariant §2.1)** —
 > and **Mechanism B *only*** on the boa/dom-api `SetInnerHtml`/`InsertAdjacentHtml`
 > path (classification corrected, 9nRb — *not* "Mechanism A ∩ Mechanism B"): boa
 > **never installs a `ConsumerDispatcher`** (the only production
@@ -894,6 +963,20 @@ set is the §1 B1 grep-diff deliverable, not this table.
 
 **NO record is produced for (the gap):**
 
+> **Per-API rows are representative; each API's exact mutation class is its actual
+> write path (9_GX / 9_GW).** A row's "Mutation kind" column names the class
+> (`attributes` / `childList` / `characterData` / no-op) that **that write path**
+> actually performs — derived from the dispatch path, not assumed from the API name.
+> Two pitfalls this revision corrects: (a) `textContent =` is a **childList**
+> replace-all on non-CharacterData hosts, whereas `nodeValue =` is **characterData
+> only** and a **no-op (mutation-free)** on non-CharacterData — they are split into
+> two rows below (9_GX), not one combined row; (b) a cross-parent move (an
+> already-parented node passed to `replaceChild`/`appendChild`/… ) contributes a
+> **separate `childList` removal on the moved node's old parent**, distinct from the
+> destination childList record (C1/C7, 9_GW). The **exact per-API mutation class +
+> per-target record breakdown is the B1 grep-diff's derivation** from the write path,
+> not a fixed contract in this table; the rows are a representative known-set.
+
 | Mutation kind | Example JS | Why no record |
 |---|---|---|
 | Attribute set | `el.setAttribute('x','1')` | `SetAttribute` handler → `EcsDom::set_attribute` direct; no `record_mutation` |
@@ -904,7 +987,8 @@ set is the §1 B1 grep-diff deliverable, not this table.
 | ChildNode/ParentNode mixins | `el.remove()`, `el.before(x)`, `el.append(x)` | `child_node/mutations.rs` direct ops (self-documented `:4-9`) |
 | **`Range` mutations (8YcW)** | `r.deleteContents()`, `r.extractContents()`, `r.insertNode(n)` | direct `range.{delete,extract}_contents`/`insert_node(host.dom())` (`range_proto_mutation.rs:73`/`:102`/`:125`); no `record_mutation` |
 | **`Node.normalize` (8YcW)** | `el.normalize()` | bridge → `invoke_dom_api("normalize", …)` (`node_methods_extras.rs:270`); handler does direct EcsDom text removal/merge, no `record_mutation` |
-| **`textContent` / `nodeValue` setters (886F)** | `el.textContent='x'`, `text.nodeValue='x'` | `node_methods/text_content.rs` `SetTextContentNodeKind`/`SetNodeValue`: Text/CData → `set_text_data` (`:93`/`:145`), Comment → `CommentData` direct write + `rev_version` (`:99-102`/`:148-151`), element/`DocumentFragment`/`ShadowRoot` (catch-all `_ =>`) → `remove_child`+`append_child` (`:105-116`); **no `record_mutation`** on any branch (childList for element/fragment/shadow-root, characterData for Text/Comment all silent) |
+| **`textContent =` setter — childList replace-all (886F)** | `el.textContent='x'` (element / `DocumentFragment` / `ShadowRoot`); `text.textContent='x'` / `comment.textContent='x'` (characterData) | `node_methods/text_content.rs` `SetTextContentNodeKind`: Text/CData → `set_text_data` (`:93`, characterData), Comment → `CommentData` write + `rev_version` (`:99-102`, characterData), **element / `DocumentFragment` / `ShadowRoot` catch-all `_ =>` → `remove_child` loop + `append_child` (`:105-116`, childList replace-all)**; **no `record_mutation`** on any branch — all silent |
+| **`nodeValue =` setter — characterData-only (886F / 9_GX)** | `text.nodeValue='x'` / `comment.nodeValue='x'` (characterData); `el.nodeValue='x'` (**no-op, mutation-free**) | `node_methods/text_content.rs` `SetNodeValue`: Text/CData → `set_text_data` (`:143-145`, characterData), Comment → `CommentData` write + `rev_version` (`:147-151`, characterData), **catch-all `_ =>` (Element / Document / DocumentType / `DocumentFragment`) = explicit no-op (`:153-155`)** — per DOM §4.4 `#dom-node-nodevalue`, `nodeValue` is `null`/setter-no-op on non-CharacterData, so `el.nodeValue='x'` performs **no mutation** (silent because it does nothing, **not** a dropped childList record — 9_GX); the characterData branches record no `Mutation` so are MO-silent |
 | **`Text.prototype.splitText` (886H)** | `text.splitText(3)` | VM `text_proto.rs:119` → `split_text_at_offset` (`char_data/split_text.rs:99`): inserts new sibling (`append_child`/`insert_before`) + `fire_split_text` + truncates via `set_text_data`, **no `record_mutation`** — silent under `observe(parent,{childList,subtree,characterData})` |
 | CharacterData on **Text** | `t.data = 'x'` | direct `EcsDom::set_text_data`; `ConsumerDispatcher` `TextChange` fires (engine-internal), but **no observer record** |
 | CharacterData on **Comment (8YcL)** | `c.data = 'x'` | `set_char_data` Comment branch (`char_data_handlers.rs:59-73`) writes `CommentData.0` + `rev_version` **only — no `dispatch_event`**; so **neither** a `TextChange` event **nor** an observer record (worse than Text) |
@@ -1020,29 +1104,46 @@ for a particular mechanism; where a constraint discriminates between recording
 factor for B1 to weigh (it does **not** settle the choice — invariants 1 + 2 of
 §4.1 pull the other way):
 
-- **C1 — replaceChild coalescing.** `EcsDom::replace_child`
+- **C1 — replaceChild coalescing (target-scoped — 9_GW).** `EcsDom::replace_child`
   (`tree/mutation.rs:148-205`) fires `fire_after_remove(old)` (`:189`) then
   `fire_after_insert(new)` (`:201`) — **and, when `new_child` already had a
   parent, a *preceding* moved-node `Remove`** from the pre-detach move
-  (`detach_with_hook(new_child, parent)`, `:161-164`, firing the implicit
-  old-parent removal per the WHATWG replace algorithm). So replaceChild can fire
-  **two or three** events depending on whether `new_child` was already parented;
-  this pre-detach move `Remove` is **not** replaceChild-specific — it is the
+  (`detach_with_hook(new_child, parent)`, `:161-164`). **That move `Remove`
+  targets `new_child`'s *old* parent, NOT the replace destination `parent`
+  (9_GW):** `detach_with_hook` fires `fire_after_remove(child, old_parent, …)`
+  (`tree/mutation.rs:458` — `old_parent = self.get_parent(child)`, the moved
+  node's current parent), which is a **different target parent** from `parent`
+  (the destination of the replace). Per WHATWG DOM §4.2.3 the replace algorithm
+  queues the destination childList record on **`parent`**, and the
+  existing-parent removal of the inserted node is a **separate tree mutation on
+  the moved node's old parent** (the "if node has a parent, remove node" step run
+  during adopt/insert). So the **move `Remove` is its own independent record on
+  the old parent — it does NOT coalesce into the replace's destination record on
+  `parent`** (a prior revision's "an event-driven source must coalesce the
+  dispatcher events incl. the pre-detach move `Remove` into the replacement
+  record" was **wrong**, 9_GW: cross-parent removals are never folded into the
+  destination childList record; only same-`parent` add/remove can coalesce).
+  This pre-detach move `Remove` is **not** replaceChild-specific — it is the
   **class-level move invariant** (C7) shared by every move-capable (node-arg) op
   (`replaceChildren` / `appendChild` / `insertBefore` / + the other existing-Node
-  insertion ops — already-parented Node arg → leading move `Remove`; `textContent`
-  / `setHTMLUnsafe` are string→fresh-node and excluded, 95C3), so C1 here is just
-  replaceChild's
-  instance of it. The exact per-call sequence is B1's grep-diff/dispatch-path
-  derivation (this description is representative, not an exhaustive per-call
-  contract — C7). The
-  spec single childList record for a replace
-  carries `addedNodes` *and* `removedNodes` in **one** record, which the
+  insertion ops — already-parented Node arg → leading move `Remove` *on its old
+  parent*; `textContent` / `setHTMLUnsafe` are string→fresh-node and excluded,
+  95C3), so C1 here is just replaceChild's instance of it. The exact per-call
+  sequence (incl. how many distinct target parents the records span) is B1's
+  grep-diff/dispatch-path derivation (this description is representative, not an
+  exhaustive per-call contract — C7). The spec single childList record for a
+  replace carries `addedNodes` *and* `removedNodes` (the replaced-out `old_child`
+  + the inserted `new_child`) in **one** record **on `parent`**, which the
   intent-driven `apply_replace_child` (`mutation/mod.rs:268-285`) produces by
-  construction, whereas an event-driven source must coalesce the dispatcher
-  events (incl. the pre-detach move `Remove`, C7). *Favors recording from intent*
-  (Pole B), but B1 must still ensure the replaceChild record carries the replace
-  intent (not separate add/remove records).
+  construction; an event-driven source must coalesce the **same-`parent`**
+  destination `fire_after_remove(old)` + `fire_after_insert(new)` events into that
+  one record **while emitting the cross-parent move `Remove` as a *separate*
+  record on the moved node's old parent** (it is a removal observers of that old
+  parent are owed, not part of the destination replace record). *Favors recording
+  from intent* (Pole B), but B1 must still ensure the replaceChild destination
+  record carries the replace intent (not separate add/remove records) **and** that
+  the cross-parent move `Remove` stays a distinct record targeted at the old
+  parent.
 - **C2 — non-dispatching attribute writes (spec-observable, must be closed).**
   `set_attribute_without_dispatch` (`attribute.rs:146`) fires **no**
   `MutationEvent` (used inside consumers where re-entry forbids dispatch). Form
@@ -1092,9 +1193,16 @@ factor for B1 to weigh (it does **not** settle the choice — invariants 1 + 2 o
   preserves this bulk shape by construction (built from the `SetInnerHtml`
   intent); an event-driven source (Pole A) would shatter it into N+M records.
   *Favors recording from intent.* Whichever way B1 goes, it must reconcile the
-  *explicit* `deliver_mutation_records` at `dom_inner_html.rs:148`/`:362` so a
-  given innerHTML/outerHTML mutation is delivered exactly once (no double-delivery,
-  no per-node shattering).
+  *explicit* `deliver_mutation_records` at `dom_inner_html.rs:148`/`:362`
+  **— and the same shared `set_inner_html_for` → `apply_set_inner_html` →
+  `deliver_mutation_records` deliver site (`:125`/`:146`/`:148`) reached by
+  `Element`/`ShadowRoot.setHTMLUnsafe`, 9_GZ —** so a given
+  innerHTML/outerHTML/**setHTMLUnsafe** mutation is delivered exactly once (no
+  double-delivery, no per-node shattering). The no-double-delivery constraint covers
+  the **whole** direct-delivery producer set (innerHTML / outerHTML / setHTMLUnsafe;
+  exhaustive set = §1/§6 grep-diff), not innerHTML/outerHTML alone — B1's retire/
+  reconcile of the old direct-delivery path must cover every member, or a
+  flush→MO hook would double-deliver `setHTMLUnsafe`.
 - **C6 — "replace all" coalescing, stated as an invariant over all replace-all
   sources (9dTW / 9dTU; reframed from a hand-list to an invariant, 9rUT/9rUU).**
   **Invariant.** *Any script-reachable remove-all-then-insert (whole-subtree
@@ -1145,19 +1253,40 @@ factor for B1 to weigh (it does **not** settle the choice — invariants 1 + 2 o
   the empty no-op case. *Favors recording from intent.* B1 must produce **one**
   coalesced record per non-no-op replace-all (across the representative + grep-diff
   sites), matching the C5 innerHTML/outerHTML shape (§4.3 record-shape correctness).
+  - **Coalescing-target invariant (the scope of "coalesce" — 9_GW).** Coalescing is
+    **per target parent**: only add/remove events whose **target parent is the same
+    node** may be folded into one `ChildList` record (the spec queues each childList
+    record against a specific `target`, DOM §4.3.2 — `addedNodes`/`removedNodes` of a
+    single record all belong to that one `target`). A **cross-parent move `Remove`**
+    — the pre-detach removal a move-capable op fires on an *already-parented* node's
+    **old** parent (C1/C7) — is targeted at a **different** parent and is therefore an
+    **independent record**, **never coalesced into** the destination replace/insert
+    record. So a coalescer (or an event-driven Pole-A reconstruction) must group
+    dispatcher events **by target parent** and emit one record per non-no-op replace-all
+    *per target* — folding only same-`target` add/remove, and leaving each cross-parent
+    move `Remove` as its own record on its old parent. (This is the same
+    target-scoping the C1 replaceChild correction states; it generalises to every
+    coalesced/replace-all source.)
 - **C7 — CE-reaction *order* preservation across coalesced records, stated as an
   invariant over **all** coalesced/replace-all sources (9dTU / 9rUV — a named
   coupled invariant; site enumeration deferred to B1).** A coalesced childList
   record is **not** order-free: the spec/CE consumer cares about added-vs-removed
   ordering, and each source fixes a specific source order that a naive "node-set
   match" record loses.
-  **Invariant.** *Every coalesced / replace-all childList record must preserve the
-  actual source mutation-event order — **including any pre-detach move `Remove` a
-  source fires before its own add/remove** — and record production, coalescing,
-  **and** the flush-side CE scan must agree on that one order. The per-op orders
-  enumerated below are **illustrative / representative, not exhaustive**: B1 must
-  derive each source's **exact** per-op event sequence from the dispatch path
-  (grep-diff / plan-review), not from this list.*
+  **Invariant.** *Both **within** a single coalesced record (same-`target`
+  added-vs-removed ordering) **and across** the records a single op emits (the
+  cross-parent move `Remove` record on the moved node's old parent vs. the
+  destination add/remove record on the new parent — 9_GW), record production,
+  coalescing, **and** the flush-side CE scan must agree on **one** total source
+  order. The cross-parent move `Remove` is **not folded into** the destination
+  coalesced record (C1/C6 target-scoping); it is a **separate record on a different
+  target**, and what must be preserved is its **fire order relative to** the
+  destination record (it fires first), so the CE scan sees `disconnected`(old
+  parent) before `connected`/`disconnected`(new parent) in the right order. The
+  per-op orders enumerated below are **illustrative / representative, not
+  exhaustive**: B1 must derive each source's **exact** per-op event sequence (and
+  which records target which parent) from the dispatch path (grep-diff /
+  plan-review), not from this list.*
   **Class-level move invariant (stated once, not per-op — 9 1Gl; op-list
   restricted to node-arg ops, 95C3).** *Any op that inserts an
   **already-parented** Node **passed as a node argument** (`replaceChild`,
@@ -1166,7 +1295,10 @@ factor for B1 to weigh (it does **not** settle the choice — invariants 1 + 2 o
   pre-detach/pre-conversion `Remove` that unparents the moved node from its old
   parent (WHATWG DOM §4.2 "insert"/"replace" + §4.2.1 "converting nodes into a
   node" `#converting-nodes-into-a-node` move semantics — remove-then-insert /
-  fragment-conversion `append_child`).* This holds **uniformly across all
+  fragment-conversion `append_child`). **That move `Remove` targets the moved node's
+  *old* parent, so it is an independent childList record on that old parent — a
+  separate record from the op's own destination add/remove record, NOT a member of
+  the coalesced destination record (C1/C6 9_GW).*** This holds **uniformly across all
   move-capable (node-arg) ops** — it is **not** a property of `replaceChild`
   alone. **`textContent` and `setHTMLUnsafe` are NOT move-capable (95C3):**
   `textContent =` takes a **string** (it coerces the assigned value to a fresh
@@ -1200,10 +1332,16 @@ factor for B1 to weigh (it does **not** settle the choice — invariants 1 + 2 o
   - `EcsDom::replace_child` (`tree/mutation.rs:148-205`) dispatches **(when
     `new_child` already has a parent) the moved node's `Remove` first** via the
     pre-detach move (`detach_with_hook(new_child, parent)`, `:161-164`, firing the
-    implicit old-parent removal per the WHATWG replace algorithm), **then
+    implicit removal **on `new_child`'s old parent** per the WHATWG replace
+    algorithm — `fire_after_remove(child, old_parent, …)`, `:458`), **then
     `fire_after_remove(old)` (`:189`), then `fire_after_insert(new)` (`:201`)** —
-    pre-detach move Remove → old Remove → new Insert (so a coalesced source must
-    preserve this full source order, not just Remove-before-Insert).
+    event fire order: move Remove (old parent) → old Remove (destination parent) →
+    new Insert (destination parent). **The move `Remove` is on a *different* target
+    parent**, so a coalesced source coalesces only the destination old-Remove +
+    new-Insert into one record on `parent`, **emits the move `Remove` as a separate
+    record on the old parent** (9_GW), and preserves the *cross-record* fire order
+    (move Remove first) — it does **not** fold the move `Remove` into the destination
+    record, only orders the records.
   - The representative coalesced/replace-all sources fix **different** insertion-side
     source orders that a naive node-set match would erase (corrected, 9nRW;
     **illustrative / representative, not exhaustive — these describe the
@@ -1211,26 +1349,31 @@ factor for B1 to weigh (it does **not** settle the choice — invariants 1 + 2 o
     B1 grep-diff derives each source's exact event sequence from the dispatch path,
     same methodology as C6/§1). **Already-parented node args add a leading move
     `Remove` per the class-level move invariant above — uniformly, for every op
-    below — and B1 derives the exact resulting sequence; the orders here are the
-    base shape *before* that move `Remove` is layered in:**
+    below — but that move `Remove` lands on the moved node's *old* parent as a
+    **separate** record (9_GW), it is **not** merged into the op's own coalesced
+    destination record; B1 derives the exact resulting per-target sequence. The
+    orders here are the destination-side base shape, with the cross-parent move
+    `Remove` ordered *before* them as its own record:**
     - **`apply_set_inner_html`** (innerHTML) **removes the old children first, then
       appends the new** — remove-old → append-new.
     - **`apply_set_outer_html`** (outerHTML, `html_fragment.rs:146-149`) does the
       **opposite**: it `insert_before`s every parsed root *ahead of* `entity`
       (`:146-148`) **and only then** `remove_child`s `entity` (`:149`) —
       insert-new → remove-old (the reverse of innerHTML).
-    - **`replaceChild`** parentless case: old `Remove` → new `Insert`. When
-      `new_child` was already parented, the class move invariant prepends the moved
-      node's pre-detach `Remove` (`:161-164` → `:189` → `:201`) — but that move
-      `Remove` is the *same class-level* leading `Remove` every move-capable
-      (node-arg) op contributes, **not** a replaceChild-only property (B1 derives
-      exact).
+    - **`replaceChild`** parentless case: old `Remove` → new `Insert` (both on the
+      destination `parent`, one coalesced record). When `new_child` was already
+      parented, the class move invariant adds the moved node's pre-detach `Remove`
+      **first, on its old parent as a separate record** (`:161-164` → `:189` →
+      `:201`) — that move `Remove` is the *same class-level* cross-parent `Remove`
+      every move-capable (node-arg) op contributes, **not** a replaceChild-only
+      property and **not** part of the destination record (9_GW; B1 derives exact).
     - **`replaceChildren`** (C6 replace-all) is **remove-all → insert**
       (`parentnode.rs:223-236`) — same shape as innerHTML. It is **move-capable**:
-      an already-parented node arg is unparented (leading move `Remove`) during the
-      §4.2.1 node-conversion `append_child` before the insert, exactly as
-      `replaceChild`'s move `Remove` (B1 derives exact) — the base shape here is the
-      parentless case, with the class move invariant layering the move `Remove` in.
+      an already-parented node arg is unparented (leading cross-parent move `Remove`
+      **on its old parent**) during the §4.2.1 node-conversion `append_child` before
+      the insert, exactly as `replaceChild`'s move `Remove` (B1 derives exact) — the
+      destination-side base shape here is the parentless case, with the move `Remove`
+      ordered before it as a **separate** old-parent record (9_GW), not merged in.
     - **`textContent =`** (C6 replace-all) is **remove-all → insert**
       (`text_content.rs:105-116`) — same remove-all shape as innerHTML, but its
       appended content is a **string-derived fresh text node**, so it is **not**
@@ -1325,10 +1468,20 @@ B1's plan-review covers them:
   within a dispatch (the events are per-node, carrying no "part of a bulk replace"
   marker); a seam/intent-driven source gets it by construction. replaceChild (C1)
   is the same shape. This is the sharpest discriminator between the poles.
-- **No double-delivery for innerHTML/outerHTML.** Today the explicit
+- **No double-delivery for the whole direct-delivery producer set (innerHTML /
+  outerHTML / `setHTMLUnsafe` — 9_GZ).** Today the explicit
   `deliver_mutation_records` at `dom_inner_html.rs:148`/`:362` is the only VM MO
-  delivery. If B1 adds a flush→MO path, it must retire or reconcile these so a
-  given innerHTML mutation is delivered exactly once.
+  delivery — **and `Element`/`ShadowRoot.setHTMLUnsafe` deliver through the *same*
+  shared `set_inner_html_for` → `apply_set_inner_html` → `deliver_mutation_records`
+  site (`:125`/`:146`/`:148`)**, so they are direct-delivery producers on the same
+  footing as the named setters. If B1 adds a flush→MO path, it must retire or
+  reconcile this direct delivery for **every** direct-delivery producer (innerHTML,
+  outerHTML, **setHTMLUnsafe**; exhaustive set = §1/§6 grep-diff), not only the
+  named innerHTML/outerHTML setters — otherwise a B1 step that retires old
+  direct-delivery for the named setters alone would leave `setHTMLUnsafe`
+  double-delivering (once direct, once at flush). So the no-double-delivery
+  constraint is stated over the **direct-delivery producer set as a whole**, the
+  same way C5 / §2.3 already frame it.
 - **CE-reaction preservation (8ykQ — Mechanism B is not MO-only).** The session
   buffer feeds **two** script-visible consumers: `MutationObserver` *and*
   custom-element reactions (the shell drains flush records through
@@ -1342,8 +1495,11 @@ B1's plan-review covers them:
   coalescing or re-ordering childList records) must keep CE
   `enqueue_ce_reactions_from_mutations` seeing the same added/removed node set
   **in the same order** (each source's actual mutation-event order — incl. any
-  pre-detach move `Remove` — is a named constraint, **C7**, §4.2a, 9dTU; the exact
-  per-source order is B1's grep-diff derivation, not a fixed contract), and the
+  pre-detach move `Remove`, **which is a *separate* record on the moved node's old
+  parent, not a member of the destination coalesced record — C1/C7 target-scoping,
+  9_GW** — is a named constraint, **C7**, §4.2a, 9dTU; the exact per-source order,
+  and which records target which parent, is B1's grep-diff derivation, not a fixed
+  contract), and the
   flush→CE drain must continue to
   run on the page-load (`flush_with_ce_reactions`) path, not only per-frame.
 - **CommentData notification + live-range coupling (8YcL / 9WUB) — a *coupled*
@@ -1619,6 +1775,22 @@ verdict here.
   (`Insert`/`Remove` fire sites), `consumer_dispatcher.rs` (consumer list),
   and `mutation_observer.rs` (`deliver_mutation_records`). Do not carry this
   reframe forward on trust — Program B's correctness depends on it.
+- Re-confirm the **Mechanism-A fan-out invariant** (§2.1, 9_GY): the shadow-root
+  suppression `return` in `fire_after_insert`/`fire_after_remove`
+  (`tree/mutation.rs:289`/`:343`, `is_shadow_root(node) || is_shadow_root(parent)`)
+  **and** the dispatcher-install asymmetry (only `Vm::bind` `vm_api.rs:279`, no boa
+  install). This is what makes the §2.3 overlap a **three-way** split — light
+  fragment write = A ∩ direct-delivery / shadow fragment write
+  (`ShadowRoot.innerHTML`/`setHTMLUnsafe` via `set_inner_html_for`) =
+  direct-delivery-only (no Mechanism-A fan-out) / boa fragment write =
+  Mechanism-B-only — not a two-way VM/boa split.
+- Re-confirm the **`textContent =` vs `nodeValue =` split** (§1.6/§3, 9_GX):
+  `SetTextContentNodeKind` catch-all `_ =>` does `remove_child`+`append_child`
+  (childList replace-all, `node_methods/text_content.rs:105-116`), whereas
+  `SetNodeValue` catch-all `_ =>` is an **explicit no-op** (`:153-155`) — so
+  `element.nodeValue='x'` is mutation-free (DOM §4.4 `#dom-node-nodevalue` null on
+  non-CharacterData), **not** a dropped childList record. Do not gap-row it as a
+  missing record.
 - Re-confirm the §4 coupled-invariant anchors by direct read: `record_mutation`
   deferred-apply (`session.rs:78-90` — invariant 1), `apply_set_attribute`
   bypassing `EcsDom::set_attribute` / no `dispatch_event`
@@ -1641,12 +1813,17 @@ verdict here.
   anchors (`enqueue_ce_reactions_from_mutations` added-then-removed `ce.rs:145`,
   added-node loop `:160-173` before removed-node loop `:177-186`
   + `replace_child` Remove-before-Insert `tree/mutation.rs:189`/`:201`; **class-level
-  move invariant** [9 1Gl / 95C3] — already-parented Node **node-arg** → leading
+  move invariant** [9 1Gl / 95C3 / 9_GW] — already-parented Node **node-arg** → leading
   pre-detach/pre-conversion move `Remove` for **every** move-capable **node-arg** op
   (`replaceChild` `:161-164` + `replaceChildren`/`appendChild`/`insertBefore` via
   §4.2.1 node-conversion `append_child`; **`textContent`/`setHTMLUnsafe` are
   string→fresh-node and NOT move-capable — 95C3**), **not** replaceChild-specific,
-  exact sequence = B1 grep-diff; order invariant covers **all** coalesced/replace-all
+  **and the move `Remove` targets the moved node's *old* parent
+  (`detach_with_hook` → `fire_after_remove(child, old_parent, …)`,
+  `tree/mutation.rs:458`), so it is a *separate* childList record on the old parent
+  — NOT coalesced into the destination replace/insert record; coalescing is
+  per-target-parent only (C1/C6 9_GW)**, exact sequence = B1 grep-diff; order
+  invariant covers **all** coalesced/replace-all
   sources incl. `replaceChildren`/`textContent` remove-all→insert
   `parentnode.rs:223-236`/`text_content.rs:105-116` (for `textContent` the
   remove-ordering/coalescing applies but no move `Remove` — 95C3)
