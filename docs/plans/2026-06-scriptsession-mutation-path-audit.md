@@ -177,9 +177,12 @@ is a script-reachable DOM-mutating surface; its record/event/route behavior is
 ### 1.5 The bridge does NOT mean the session buffer
 
 Bridge-routing is **orthogonal** to MutationObserver coverage: it is a dispatch-
-routing fact, not a record/buffer fact. Both bridge and direct sites bottom out at
-the `EcsDom` chokepoint. Which handlers record a `Mutation` and which do not is
-B1's grep-diff — `bridge ≠ observable` and `direct ≠ unobservable`. (The
+routing fact, not a record/buffer fact. **The bridge handler write path — whether a
+given handler collapses to the `EcsDom::set_attribute` chokepoint, or instead
+buffers a `Mutation` record (a Mechanism-B producer) — is B1's grep-diff**; B0 does
+not blanket-assert that all bridge handlers collapse to the chokepoint (some are
+buffered-record producers). Likewise which handlers record a `Mutation` and which do
+not is B1's grep-diff — `bridge ≠ observable` and `direct ≠ unobservable`. (The
 `elidex-dom-api` handlers themselves annotate their recording behavior, e.g.
 `child_node/mutations.rs`; B1 reads those annotations directly.)
 
@@ -285,12 +288,13 @@ that B1 must show covers the same reactions (known-to-differ, moot at S5).
 
 ### 2.3 Overlap (derived from the §2.1 fan-out invariant)
 
-The two mechanisms intersect on the **HTML-fragment write family — innerHTML,
-outerHTML, setHTMLUnsafe, insertAdjacentHTML**. The per-member classification
+The two mechanisms intersect on the **HTML-fragment write family**. **Which
+fragment-write surfaces are members — and the per-member overlap classification**
 (which mechanism + which MO-delivery route applies to a light-tree fragment write
-vs a shadow-root fragment write vs a boa fragment write) **follows from the §2.1
-fan-out invariant and is B1's grep-diff derivation** — B0 names the family and the
-governing invariant, not each member's behavior. Likewise, the named corners where
+vs a shadow-root fragment write vs a boa fragment write) **is B1's grep-diff
+derivation** — B0 names the family and the governing §2.1 fan-out invariant, not
+its members' behavior (e.g. the fan-out classification of a fragment-write surface
+not installed in the VM is moot — §3 `insertAdjacentHTML` install note). Likewise, the named corners where
 the blanket "every non-fragment write fires Mechanism A" does **not** hold (the
 Comment characterData corner §1.6; the boa buffered `<iframe>` write; the
 value-mode value-attr migration `value_mode.rs:222`) are *named* here as
@@ -387,13 +391,14 @@ invariants. Each is named with its spec/code resolution pointer; the **exact
 per-op event sequence / per-target record breakdown / per-case behavior is B1's
 grep-diff / dispatch-path derivation** — B0 does not characterize it.
 
-- **`record-shape & coalescing` invariant.** A whole-subtree replace
-  (innerHTML / outerHTML / setHTMLUnsafe / `replaceChildren` / `textContent=` /
-  `replaceChild`) is governed by WHATWG DOM §4.2.3 "replace all"
-  (`#concept-node-replace-all`). B1 derives the coalesced-record shape, the
-  per-target-parent folding, and the no-op-empty case from the spec + the
-  `mutation/mod.rs` apply_* record builders. (Code anchors: the replace-all loops,
-  e.g. `parentnode.rs` `replaceChildren` + `text_content.rs:105-116`.)
+- **`record-shape & coalescing` invariant.** A remove-all-then-insert–shaped
+  operation forms a single coalesced "replace all" record governed by WHATWG DOM
+  §4.2.3 "replace all" (`#concept-node-replace-all`). **The exact set of ops that
+  bottom out in replace-all is B1's grep-diff** — B0 does not name which APIs do;
+  membership is API/node-kind/branch dependent. B1 derives the coalesced-record
+  shape, the per-target-parent folding, and the no-op-empty case from the spec +
+  the `mutation/mod.rs` apply_* record builders. (Code anchors a B1 grep-diff
+  visits: the replace-all loops, e.g. `parentnode.rs` + `text_content.rs:105-116`.)
 - **`move-record` / `CE-reaction timing-ordering` / `shadow-root boundary` —
   coupled invariants (behavior intentionally not characterized).** The MO record
   shape for node *moves* (already-parented insertions), the CE-reaction
