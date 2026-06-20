@@ -56,19 +56,24 @@ pub(in crate::content) fn detect_iframe_mutations(
                 if record
                     .attribute_name
                     .as_deref()
-                    .is_some_and(|name| name == "src") =>
+                    .is_some_and(|name| name == "src" || name == "srcdoc") =>
             {
-                // src attribute change on <iframe> → re-navigate.
+                // `src` OR `srcdoc` attribute change on <iframe> → re-navigate.
+                // Per HTML "process the iframe attributes", both trigger
+                // navigation (with `srcdoc` taking precedence over `src`); the
+                // shell previously re-navigated only on `src`, so a `srcdoc`
+                // mutation was silently ignored even though `load_iframe`
+                // fully supports the srcdoc resource.
                 let target = record.target;
                 if let Some(removed_entry) = state.iframes.remove(target) {
                     unload_iframe_entry(state, target, removed_entry);
                 }
-                // `IframeData` is already re-derived from the new `src` by the
-                // `EcsDom::set_attribute` / mutation-flush reconcile seam, so no
-                // manual sync is needed here — `try_load` reads the fresh
-                // `IframeData.src`.
+                // `IframeData` is already re-derived from the new `src`/`srcdoc`
+                // by the `EcsDom::set_attribute` / mutation-flush reconcile seam,
+                // so no manual sync is needed here — `try_load` reads the fresh
+                // `IframeData` (srcdoc-over-src precedence in `load_iframe`).
                 state.iframes.remove_lazy_pending(target);
-                // force=true: src change is explicit navigation.
+                // force=true: a src/srcdoc change is explicit navigation.
                 try_load_iframe_entity(state, target, true);
                 changed = true;
             }
