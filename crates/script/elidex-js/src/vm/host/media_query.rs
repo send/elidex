@@ -332,6 +332,23 @@ impl VmInner {
     /// MQL is seeded to the current env and simply isn't in the flip list,
     /// and a slot recycled mid-dispatch is caught by the phase-B `seq`
     /// identity re-check.
+    ///
+    /// **KNOWN GAP — listener-keepalive rooting (carved
+    /// `#11-eventtarget-listener-keepalive-rooting`, S5 prerequisite; Codex
+    /// R5)**: this pass only walks *surviving* `media_query_list_registry`
+    /// rows. An MQL kept alive ONLY by a `change` listener
+    /// (`matchMedia(q).addEventListener('change', cb)` with no retained JS
+    /// reference) is NOT rooted — `listener_store` roots the callback, not the
+    /// target — so a GC before the flip collects it and delivery is silently
+    /// lost. The spec-faithful fix is a **generic** "EventTarget kept alive
+    /// while it has listeners" mechanism shared by all VM `EventTarget`s
+    /// (unifying `AbortSignal`'s for-life root + the observers'
+    /// construct/disconnect rooting + this), which is edge-dense (GC ×
+    /// listener-lifecycle × unbind × per-kind) → its own PR + plan-review, NOT
+    /// an MQL-specific root that would add a 3rd divergent plumbing. Inert
+    /// while the VM media path is S5-dormant; the generic fix gates the S5
+    /// cutover so the feature is complete before it goes live. A retained-JS-
+    /// reference MQL (the other common pattern) delivers correctly today.
     pub(in crate::vm) fn deliver_media_query_changes(&mut self) {
         if !self
             .host_data
