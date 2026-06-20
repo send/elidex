@@ -281,19 +281,25 @@ write into Mechanism B".
 
 **Mechanism-A fan-out invariant (the load-bearing statement).** A Mechanism-A
 consumer fans out for a given mutation **iff both** hold:
-- **(a) the mutated node/parent is in the light tree** — the `EcsDom` primitive
-  actually fires the `MutationEvent`. Tree mutations whose node *or* parent is a
-  shadow root are **suppressed at the fire site** (`fire_after_insert`/
-  `fire_after_remove`, `tree/mutation.rs:289`/`:343` return early — light-tree-only
-  contract, #367 finding 82); and `set_char_data`'s Comment branch / the
-  non-CharacterData `nodeValue=` branch fire no `MutationEvent` at all (§1.6); **and**
+- **(a) the `EcsDom` primitive actually fires the `MutationEvent`.** Tree mutations
+  are **suppressed at the fire site only when the mutated node *or* its parent is
+  itself a `ShadowRoot`** — `fire_after_insert`/`fire_after_remove`
+  (`tree/mutation.rs:289`/`:343`) return early when `is_shadow_root(node) ||
+  is_shadow_root(parent)` (the shadow-host boundary; #367 finding 82). This is **not**
+  light-tree-only: a mutation deep inside a shadow tree, whose mutated node/parent is a
+  normal element (not the `ShadowRoot` itself), **does fire** — the suppression is the
+  host↔shadow-root boundary, not the whole shadow subtree (docstring `:274-276` is
+  explicit that deeper shadow-tree mutations are NOT filtered here). Separately,
+  `set_char_data`'s Comment branch / the non-CharacterData `nodeValue=` branch fire no
+  `MutationEvent` at all (§1.6); **and**
 - **(b) a `ConsumerDispatcher` is installed** — installed **only** by `Vm::bind`
   (`vm_api.rs:279`); boa installs none, so under boa `dispatch_event` reaches a
-  **no-op sink**.
+  **no-op sink** and **no** mutation drives Mechanism A regardless of tree position.
 
-So shadow-root fragment writes (suppressed events) and boa fragment writes (no
-dispatcher) **do not drive Mechanism A**. The per-path overlap classification (§2.3)
-is **derived from this invariant**, not a hand registry.
+So shadow-host-boundary writes (mutated node/parent is the `ShadowRoot` itself —
+suppressed events) and boa fragment writes (no dispatcher) **do not drive
+Mechanism A**. The per-path overlap classification (§2.3) is **derived from this
+invariant**, not a hand registry.
 
 **Consumers (mostly engine-internal reconcile + one script-visible CE tap).** The
 dispatcher drives 7 consumers in field/dispatch order
@@ -336,8 +342,10 @@ primitives (run in both runtimes); the consumer fan-out runs **only under the VM
   of a Mechanism-B attribute write without a `MutationEvent`.)** **No elidex-js VM
   attribute or tree native records a `Mutation`.**
 - **Flush drivers — not every flush delivers to MutationObserver.** The per-frame
-  `re_render` path hands records to `deliver_mutation_records` (`content/mod.rs:258`)
-  — the **only** MO delivery site. `flush_with_ce_reactions` (`pipeline.rs:25-34`),
+  `re_render` path hands records to the **boa `JsRuntime::deliver_mutation_records`**
+  (4-arg: records, session, dom, document) at `content/mod.rs:258` — the **only**
+  production MO delivery site (distinct from the VM-direct 1-arg
+  `Vm::deliver_mutation_records` used inside the innerHTML/outerHTML natives, §1 (b)). `flush_with_ce_reactions` (`pipeline.rs:25-34`),
   used for initial-script + lifecycle finalization, flushes records into **CE
   reactions only** and never calls `deliver_mutation_records`. So MutationObservers
   registered during page load miss mutations performed before the first per-frame
@@ -359,9 +367,13 @@ primitives (run in both runtimes); the consumer fan-out runs **only under the VM
 - **There is NO existing flush→MO microtask drain hook.** The
   `Microtask::NotifyMutationObservers` variant (`natives_promise.rs:51-59`) exists,
   but its drain arm dispatches **only the `slotchange` half** (`:342`); the
-  `MutationObserver`-callback half is embedder-driven via `Vm::deliver_mutation_records`,
-  which only `content/mod.rs:258` calls. So any seam-fed mechanism (§4) needs **new**
-  flush→MO wiring. The drain *point* (`flush`) exists; the *hook* does not.
+  `MutationObserver`-callback half is **embedder-driven by a per-frame delivery call,
+  not by any VM microtask**. The only production delivery site is the shell's
+  per-frame `re_render`, which calls **boa `JsRuntime::deliver_mutation_records(records,
+  session, dom, document)`** (4-arg) at `content/mod.rs:258` — this is **distinct**
+  wiring from the VM-direct 1-arg `Vm::deliver_mutation_records` invoked synchronously
+  inside the innerHTML/outerHTML natives (§1 case (b)). So any seam-fed mechanism (§4)
+  needs **new** flush→MO wiring. The drain *point* (`flush`) exists; the *hook* does not.
 
 ### 2.3 Overlap (derived from the §2.1 fan-out invariant)
 
@@ -375,9 +387,12 @@ representative members:
   is bound) **and** synchronously delivers its own record (`dom_inner_html.rs:148`/
   `:362`), not buffered Mechanism B.
 - **shadow-root fragment write** (`ShadowRoot.innerHTML`/`setHTMLUnsafe`, same shared
-  `set_inner_html_for` helper) = **direct-delivery *only*, NOT Mechanism A** — the
-  `EcsDom` tree ops fire into shadow-root-suppressed fire sites, so no
-  `MutationEvent` and no consumer runs.
+  `set_inner_html_for` helper) = **direct-delivery *only*, NOT Mechanism A** — these
+  replace the **direct children of the `ShadowRoot`** (parent == the `ShadowRoot`
+  entity), so the `EcsDom` tree ops hit the host-boundary suppression
+  (`is_shadow_root(parent)`) and fire no `MutationEvent`, so no consumer runs. (A
+  fragment write *deeper* in a shadow tree, where the parent is a normal element, is
+  **not** suppressed — that case fires; see the §2.1 invariant correction.)
 - **boa fragment write** (`SetInnerHtml`/`InsertAdjacentHtml` on the boa/dom-api
   path) = **Mechanism-B only** — boa installs no dispatcher, so its tree ops reach
   the no-op sink and the record reaches MO purely via `flush`.
@@ -408,14 +423,17 @@ The JS-level `MutationObserver` (WHATWG DOM §4.3) observes a mutation **iff a
 direct-delivery producer. **`record_mutation` is therefore NOT, by itself, equivalent
 to observation.**
 
-**Records ARE produced for (elidex-js VM):** the `innerHTML =` setter (deliver at
-`dom_inner_html.rs:148`), the `outerHTML =` setter (deliver at `:362` via
-`apply_set_outer_html`), `Element`/`ShadowRoot.setHTMLUnsafe` (same shared
-`set_inner_html_for` → deliver, `:125`/`:146`/`:148`), and the `SetInnerHtml` /
-`InsertAdjacentHtml` variants on the dom-api/boa path (via `flush` → deliver,
-per-frame site only). *Representative — the exhaustive direct-delivery producer set
-is the §1/§6 grep-diff.* (boa `DOMParser`/`outerHTML` are **not** counted as clean
-record-producing coverage — boa-specific, known-to-differ, moot at S5.)
+**Records ARE produced for:** *(elidex-js VM direct-delivery)* the `innerHTML =`
+setter (deliver at `dom_inner_html.rs:148`), the `outerHTML =` setter (deliver at
+`:362` via `apply_set_outer_html`), `Element`/`ShadowRoot.setHTMLUnsafe` (same shared
+`set_inner_html_for` → deliver, `:125`/`:146`/`:148`); *(dom-api/boa path, via
+`flush` → deliver, per-frame site only)* the `SetInnerHtml` and `InsertAdjacentHtml`
+handler variants. **Note `insertAdjacentHTML` is NOT installed in the elidex-js VM**
+(`well_known.rs:341-342` installs only `insertAdjacentElement`/`insertAdjacentText`,
+#367); `InsertAdjacentHtml` records only via the dom-api/boa handler path, never via a
+VM native. *Representative — the exhaustive direct-delivery producer set is the §1/§6
+grep-diff.* (boa `DOMParser`/`outerHTML` are **not** counted as clean record-producing
+coverage — boa-specific, known-to-differ, moot at S5.)
 
 **NO record is produced for (the gap — representative; B1 grep-diff derives the
 exhaustive set).** Each row's mutation class is *that write path's* actual class,
@@ -522,13 +540,20 @@ derivation**, not a fixed contract here.
   - **No-op guard:** a replace-all where both `addedNodes` and `removedNodes` are
     empty (`replaceChildren()` / `textContent=''` on an empty node) produces **no**
     record (step 7 queues only "if either is not empty"; webref-verified).
-  - **Cross-parent move:** any op that inserts an **already-parented Node passed as a
-    node argument** (`replaceChild`/`replaceChildren`/`appendChild`/`insertBefore`/…)
-    fires a leading pre-detach `Remove` **on the moved node's *old* parent**
-    (`detach_with_hook` → `fire_after_remove(child, old_parent, …)`,
-    `tree/mutation.rs:458`). That move `Remove` is a **separate record on a different
-    target**, **never coalesced into** the destination record. (`textContent=` /
-    `setHTMLUnsafe` take strings → fresh nodes and are **not** move-capable.)
+  - **Move (already-parented node):** any op that inserts an **already-parented Node
+    passed as a node argument** (`replaceChild`/`replaceChildren`/`appendChild`/
+    `insertBefore`/…) fires a leading pre-detach `Remove` **on the moved node's *old*
+    parent** (`detach_with_hook` → `fire_after_remove(child, old_parent, …)`,
+    `tree/mutation.rs:458`). That move `Remove`'s target is the **old parent — which may
+    be the *same* parent as the destination** (e.g. `parent.appendChild(parent.firstChild)`
+    / a re-order within one parent: `old_parent == new_parent`) **or a different
+    parent** (cross-parent move). Coalescing is decided **purely by target identity**
+    (§4.2 per-target-parent rule), independent of whether it is a move: the move
+    `Remove` folds into the destination `ChildList` record **iff** `old_parent ==
+    destination parent`, and is a separate record otherwise. (`detach_with_hook` skips
+    the redundant `rev_version(old_parent)` when `old_parent == new_parent`,
+    `:454-456`, but still fires the `Remove`.) (`textContent=` / `setHTMLUnsafe` take
+    strings → fresh nodes and are **not** move-capable.)
 
   *Illustrative:* `apply_set_inner_html` removes-old-then-appends-new;
   `apply_set_outer_html` does the reverse (insert-new before `entity`, then remove
@@ -543,9 +568,12 @@ derivation**, not a fixed contract here.
 - **Ordering invariant (coalesced-record + CE-reaction order).** Within a coalesced
   record, added-vs-removed ordering is **load-bearing**: record production,
   coalescing, **and** the flush-side CE scan must agree on **one** total source order
-  — and the cross-parent move `Remove` (a separate record) must keep its **fire order
-  relative to** the destination record (it fires first), so the CE scan sees
-  `disconnected`(old parent) before `connected`/`disconnected`(new parent). The
+  — and a **cross-parent** move `Remove` (a separate record, since `old_parent !=
+  destination`) must keep its **fire order relative to** the destination record (it
+  fires first), so the CE scan sees `disconnected`(old parent) before
+  `connected`/`disconnected`(new parent). (A *same-parent* move re-order does not
+  disconnect the node, so it queues no `disconnected`/`connected` reaction — this
+  ordering concern is cross-parent-only.) The
   flush-side CE scan `enqueue_ce_reactions_from_mutations` (`ce.rs:145`) iterates
   added-then-removed; if a Pole-A reconstruction reorders, the
   `connected`/`disconnected` firing order inverts relative to today. **B1 derives each
@@ -565,11 +593,14 @@ derivation**, not a fixed contract here.
   alone. (This is the content-attribute migration only; the text-like-mode live-value
   write leaves `Attributes` untouched and must stay record-free — 8kHF.)
 
-- **Shadow-root suppression.** `fire_after_insert`/`fire_after_remove`
-  (`tree/mutation.rs:289`/`:343`) suppress Insert/Remove when node/parent is a
-  ShadowRoot. An event-driven (Pole A) source silently misses shadow-root childList
-  mutations; a record emitted *upstream* of the dispatcher (Pole B) captures them.
-  *Favors recording upstream.* The §4.3.2 inclusive-ancestor walk still gates delivery.
+- **Shadow-host-boundary suppression.** `fire_after_insert`/`fire_after_remove`
+  (`tree/mutation.rs:289`/`:343`) suppress Insert/Remove **only when the mutated node
+  *or* its parent is itself a `ShadowRoot`** (the host↔shadow-root boundary) — a
+  mutation deeper in a shadow tree (parent is a normal element) still fires. An
+  event-driven (Pole A) source therefore silently misses the **boundary** childList
+  mutations (e.g. `ShadowRoot.innerHTML`, where parent == the `ShadowRoot`); a record
+  emitted *upstream* of the dispatcher (Pole B) captures them. *Favors recording
+  upstream.* The §4.3.2 inclusive-ancestor walk still gates delivery.
 
 - **boa buffered iframe writes.** `iframe.rs` already records
   `Mutation::SetAttribute`/`RemoveAttribute` via the buffered applier that
@@ -597,10 +628,15 @@ Independent of which mechanism B1 picks:
   a seam/intent source gets it by construction; an event-driven source must
   reconstruct it.
 - **No double-delivery for the whole direct-delivery producer set** (innerHTML /
-  outerHTML / `setHTMLUnsafe`; exhaustive set = §1/§6 grep-diff). All three deliver
-  through the same `set_inner_html_for` → `deliver_mutation_records` site, so if B1
-  adds a flush→MO path it must retire/reconcile direct delivery for **every** member,
-  or `setHTMLUnsafe` would double-deliver. Stated over the producer **set as a whole**.
+  outerHTML / `setHTMLUnsafe`; exhaustive set = §1/§6 grep-diff). Each self-generates
+  a `MutationRecord` and synchronously delivers it via `Vm::deliver_mutation_records`,
+  but **not through one shared helper**: innerHTML/`setHTMLUnsafe` deliver inside
+  `set_inner_html_for` (`dom_inner_html.rs:148`, via `apply_set_inner_html`), while
+  `outerHTML` delivers inside `native_element_set_outer_html` (`:362`, via
+  `apply_set_outer_html`) — separate helpers, same direct-delivery invariant. So if B1
+  adds a flush→MO path it must retire/reconcile direct delivery for **every** member
+  (across both helpers), or a member would double-deliver. Stated over the producer
+  **set as a whole**.
 - **CE-reaction preservation (Mechanism B is not MO-only).** The session buffer feeds
   `MutationObserver` *and* CE reactions (§2.2). Any change to record *production*,
   *coalescing*, or *delivery ordering* must preserve the CE-reaction scan (same
@@ -773,9 +809,12 @@ separate slice or the write-site half of B1 is itself a plan-review outcome.
   (representative: `parentnode.rs:181-249` `replaceChildren` [parent-kind gate `:75` =
   Element/Document/DocumentFragment] + `text_content.rs:105-116` `textContent` — DOM
   §4.2.3 "replace all" `#concept-node-replace-all` **step 7 no-op guard**; exhaustive
-  site list = B1 grep-diff); the class-level **cross-parent move `Remove`**
-  (`detach_with_hook` → `fire_after_remove(child, old_parent, …)`,
-  `tree/mutation.rs:458` — separate record on the *old* parent, never coalesced;
+  site list = B1 grep-diff); the class-level **move `Remove`** on a moved
+  already-parented node (`detach_with_hook` → `fire_after_remove(child, old_parent, …)`,
+  `tree/mutation.rs:458` — target = *old* parent, which is the **same** parent as the
+  destination for a same-parent re-order [`old_parent == new_parent`, `:454-456` skips
+  the redundant `rev_version`] and coalesces into the destination record, but a
+  **different** parent for a cross-parent move where it is a separate uncoalesced record;
   `textContent`/`setHTMLUnsafe` string→fresh-node, NOT move-capable); the CE-reaction
   order anchors (`enqueue_ce_reactions_from_mutations` added-then-removed `ce.rs:145`
   + `replace_child` Remove-before-Insert `tree/mutation.rs:189`/`:201`); and the
