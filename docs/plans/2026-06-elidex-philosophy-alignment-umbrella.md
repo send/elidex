@@ -320,8 +320,8 @@ Acceptance criteria (AC) are gate conditions, not aspirations.
 |---|---|---|---|---|---|---|
 | **A0 (= PR0, §5)** | Compat-split **audit + supported-surface inventory + boundary design** (doc only) | `docs/plans/` | any `.rs` | — | recommended (umbrella plan-review) | Inventory of every core-VM Window/Document/navigator API classified Modern/Legacy/Deprecated; decision on the gate/mode mechanism (§2.7); decision on where compat storage/cookie + async core equivalents live; explicit list of which subsequent PRs are needed |
 | **A1** | Introduce the **compat-gate / spec-level mechanism** the VM lacks (per A0's decision) | `elidex-js` VM host registration plumbing; possibly `elidex-plugin` SpecLevel | algorithm bodies; storage/cookie semantics | A0 | **PR-R** | A mechanism exists by which an API can be classified + conditionally installed; localStorage/cookie still installed (no behavior change yet); mechanism covered by tests |
-| **A2** | Move `Storage` (`localStorage`/`sessionStorage`) behind the compat boundary; stand up/route the async core equivalent per A0 | `vm/host/storage.rs`, `window.rs`; new `elidex-api-storage-compat` (if A0 so decides) | `document.rs` cookie code | A1 | **PR-R** | Sync storage reachable only via the compat boundary; opaque-origin slot `#11-storage-opaque-origin-securityerror` re-evaluated; observable behavior unchanged for browser-compat; tests green |
-| **A3** | Move `document.cookie` behind the cookies-compat boundary; confirm CookieStore as the core path | `vm/host/document.rs`; new `elidex-api-cookies-compat` (if so decided) | storage code | A1 (parallel to A2) | **PR-R** | `document.cookie` reachable only via compat boundary; **stale comments removed** (folds the F2 clerical fix if not already landed); tests green |
+| **A2** | **Gate** `Storage` (`localStorage`/`sessionStorage`) **+ `StorageEvent`** behind the compat boundary — **gate-only; the async core `elidex.storage` is OUT of A2 scope** (deferred via `#11-async-core-storage-cookiestore`, A0 §4.2) | `vm/host/storage.rs`, `window.rs`, `vm/globals.rs`; opt. `elidex-api-storage-compat` (per A0 §4.1) | `document.rs` cookie code; async-core build | A1 | **PR-R** | Sync storage + `StorageEvent` reachable only under `BrowserCompat`; opaque-origin slot `#11-storage-opaque-origin-securityerror` re-evaluated; behavior unchanged for browser-compat; tests green |
+| **A3** | **Gate** `document.cookie` behind the cookies-compat boundary **+ couple `navigator.cookieEnabled`** — **gate-only; CookieStore core path is OUT of A3 scope** (same async-core deferral) | `vm/host/document.rs`, `vm/host/navigator.rs`; opt. `elidex-api-cookies-compat` (per A0 §4.1) | storage code; async-core build | A1 (parallel to A2) | **PR-R** | `document.cookie` reachable only under `BrowserCompat`; `cookieEnabled` value tracks cookie reachability; cookie-file stale comments removed (full §1.5 sweep = independent F2 micro-PR, A0); tests green |
 
 A2 and A3 may proceed in parallel after A1. The **window.rs edits in A2 must be
 sequenced after JS-side media Slice 2b** (§7).
@@ -443,9 +443,12 @@ per the brief.
   per-entity `Send+Sync` side-store that should be an ECS component instead?
   (Storage/cookie are likely shared/session resources — exception (b) — but
   confirm.)
-- **Spec citation (Axis 4):** WHATWG HTML §11.2 (Storage), §12.2 (storage keys /
-  opaque-origin SecurityError), the CookieStore spec, design §14.4.2/§14.4.3 — all
-  cited in docstrings.
+- **Spec citation (Axis 4):** WHATWG HTML **§12.2** (Web storage — *The API*;
+  Storage interface §12.2.1, `sessionStorage` §12.2.2, `localStorage` §12.2.3,
+  `StorageEvent` §12.2.4; opaque-origin `SecurityError` in the getter algorithms
+  §12.2.2/§12.2.3), `document.cookie` = **§3.1.4** (Resource metadata management),
+  the CookieStore spec, design §14.4.2/§14.4.3 — all cited in docstrings. (The old
+  "§11.2" was a stale section number — A0 §1.5/§7 verified §12.2 via webref.)
 
 ### 6.2 F3 (Program B) — ScriptSession boundary + observer fan-out
 

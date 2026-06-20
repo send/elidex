@@ -32,7 +32,8 @@ Audience: Claude / maintainers (and Codex via `## Review guidelines` of the umbr
    `Window`/`Document`/`navigator` surface, exactly **three** API families are
    **Legacy** (compat-destined): the **Web Storage** family
    (`localStorage`/`sessionStorage` **+ `StorageEvent`**, Codex P2),
-   `document.cookie` (**+ the coupled `navigator.cookieEnabled`**, Codex P2), and
+   `document.cookie` (with **`navigator.cookieEnabled`** staying **Modern** but its
+   *value* coupled to the cookie policy — not itself demoted, Codex P2 R3-8), and
    the **live-collection** surface (`getElementsByClassName` confirmed by design
    §12.1.2; `getElementsByTagName`/`getElementsByName` **+ `forms`/`images`/`links`
    — all confirmed live, not snapshot — + the `Element`-side getters** need an
@@ -45,9 +46,10 @@ Audience: Claude / maintainers (and Codex via `## Review guidelines` of the umbr
 
 2. **Mechanism (§3).** The recommendation is a **two-part gate**: a per-API
    `WebApiSpecLevel`/`DomSpecLevel` classification *attached at the VM
-   registration site*, enforced by a **single runtime `SpecLevelPolicy`** resolved
-   once at VM/session construction from an embedder-supplied **mode**
-   (`browser-compat` / `browser-core` / `app`), **plus** a compile-time
+   registration site*, enforced by a **`SpecLevelPolicy` derived from one
+   engine-wide `EngineMode`** (`browser-compat` / `browser-core` / `app`) — fixed
+   at **VM construction, before `register_globals` runs** (R3-7), and shared by the
+   style/DOM layers too (R3-6, whole-engine consistency) — **plus** a compile-time
    `feature = "compat-webapi"` that lets `app` builds refuse to even *link* the
    compat shims. The gate is applied at **every install seam** — `install_*`
    tables **and** direct `register_*_global()` installers (Codex P2) — so the same
@@ -94,8 +96,8 @@ Audience: Claude / maintainers (and Codex via `## Review guidelines` of the umbr
 | WHATWG HTML §12.2.3 The localStorage getter | classify `localStorage` | Legacy | `window.rs:523` / getter `:530` → **A2** | yes | yes |
 | WHATWG HTML §12.2.4 The StorageEvent interface | classify `StorageEvent` global (Codex P2) | Legacy | `globals.rs:656` `register_globals` → **A2** | ✓ | no (ctor) |
 | WHATWG HTML §3.1.4 Resource metadata management | classify `document.cookie` | Legacy | `document.rs:1108` (getter `:600` / setter `:646`) → **A3** | ✓ (cookie attr) | yes (setter value) |
-| WHATWG HTML §3.1.7 DOM tree accessors | classify `getElementsByName` (live `NodeList`) | **Legacy? (open, §1.3)** | `document.rs:1029` → **B0** | ⚠ open | yes (name arg) |
-| WHATWG DOM §4.5 Interface Document | classify `getElementsByTagName`/`getElementsByClassName` + `forms`/`images`/`links` (all live, Codex P2) | **Legacy? (open, §1.3)** | `document.rs:1022`/`:1026`/`:722`/`:740`/`:912` → **B0** (+ §12.1.2 amend) | ⚠ open (broader live-collection sweep → §1.3) | yes (tag/class arg) |
+| WHATWG HTML §3.1.7 DOM tree accessors | classify **HTML** `Document` live accessors — `forms`/`images`/`links`/`getElementsByName` (Codex P2: these live on **HTML §3.1.7**, not DOM §4.5) | **Legacy? (open, §1.3)** | `document.rs:1029`/`:722`/`:740`/`:912` → **B0** | ⚠ open (B0-owned, §1.3) | yes |
+| WHATWG DOM §4.5 Interface Document | classify **DOM** `Document`/`Element` live methods — `getElementsByTagName`/`getElementsByClassName` (+ ParentNode `children`) | **Legacy? (open, §1.3)** | `document.rs:1022`/`:1026`, `parentnode.rs:336` → **B0** (+ §12.1.2 amend) | ⚠ open (B0-owned, §1.3) | yes |
 
 **Breadth**: K=2 specs (html, dom), M=8 entries → single-PR scope. This is the
 design doc; the *implementation* children A1/A2/A3/B0 each re-run their own
@@ -207,9 +209,27 @@ many **more** sites that B0 must enumerate before demoting the family — otherw
 `form.elements` (`html_form_proto.rs`); `table.rows`/`tBodies` +
 `tableSection.rows` (`html_table_proto.rs` / `html_table_section_proto.rs`);
 `select.options` (`html_options_collection.rs`); `map.areas`
-(`html_map_proto.rs`); `node.childNodes`. **B0's acceptance criterion must be
-"every `alloc_collection(LiveCollection::new(...))` site is classified,"** not
-just the three named getters. A0 records the surface; B0 owns the full sweep.
+(`html_map_proto.rs`); `node.childNodes`; `children` (ParentNode, both `Document`
+and `Element`).
+
+**Structural delegation (Codex P2, R3) — A0 stops enumerating; B0 owns the family
+whole.** After three review rounds kept surfacing individual live-collection
+instances and split spec-homes, the clean boundary is: **A0 declares the
+live-collection family open and hands its *entire* classification to B0** — A0
+does **not** try to enumerate or cite each member. B0's acceptance criterion is:
+
+> Classify **every live `HTMLCollection`/`NodeList`** the VM can return — found by
+> sweeping **every `LiveCollection::new(...)` allocation by *any* construction
+> shape**: direct `alloc_collection(LiveCollection::new(...))`, build-into-a-local
+> then `vm.alloc_collection(coll)`, **and** via a cache/helper — not just the
+> literal call shape. Assign each its correct spec home (HTML §3.1.7 for the
+> HTML `Document` accessors `forms`/`images`/`links`/`getElementsByName`; DOM §4.5
+> for `getElementsByTagName`/`getElementsByClassName`; the relevant interface for
+> `children`/`rows`/`elements`/`options`/`areas`/etc.) + `[SameObject]` behaviour,
+> and amend design §12.1.2.
+
+The lists above are **leads for B0**, not A0's closed enumeration. A1's *mechanism*
+must be able to express the demotion at the static-table seam (§3.4).
 
 ### 1.4 `navigator` (`crates/script/elidex-js/src/vm/host/navigator.rs`, `register_navigator_global` :32)
 
@@ -219,7 +239,7 @@ just the three named getters. A0 records the surface; B0 owns the full sweep.
 | `appName`/`appVersion`/`product`/`productSub`/`vendor`/`vendorSub` | :50–:55 | **(F)** | **Frozen-for-compat constants.** HTML mandates these hard-coded historical values (`"Netscape"`, `"Gecko"`, `"20030107"`, …) in *every* modern browser. They are neither removable Legacy nor a clean-core violation — they are spec-required compat constants. **Keep as-is**, document the (F) bucket. |
 | `platform`/`language` | :56/:57 | M (F-adjacent) | `platform` is OS-derived; HTML treats it as a near-frozen hint. |
 | `onLine` | :77 | M | |
-| `cookieEnabled` | :78 | M **(A3-coupled)** | **Correction (Codex P2):** hard-coded `false` today. But A3 makes `document.cookie` work in `BrowserCompat` (a real `CookieJar` is installed in the shell/content path), so leaving `cookieEnabled=false` is **inconsistent** — pages that gate cookie use on `navigator.cookieEnabled` would skip cookies while the compat API works. **A3 must flip/policy-gate `cookieEnabled` together with `document.cookie`** (not just fix its stale comment). Added to A3's AC (§5). |
+| `cookieEnabled` | :78 | **M** (value-coupled) | **Classification (Codex P2 R3-8): `cookieEnabled` is Modern and stays installed in *every* mode** — it is **not** Legacy, not demoted, not gated out. What A3 changes is only its **returned value**: it must report `true` exactly when `document.cookie` is reachable **and** a `CookieJar` is bound (today it is hard-coded `false`, which is inconsistent once A3 makes the cookie API work). So: *classification* = Modern (one answer); *value* = derived from the cookie policy. A3 fixes the value (§5 AC), not the classification. |
 | `javaEnabled` | :79 | M (F) | Spec-frozen no-op returning `false` (HTML keeps `navigator.javaEnabled()` as a hard `false`). Harmless constant. |
 | `hardwareConcurrency` | :92 | M | |
 | `languages` (Array) | :107 | M | |
@@ -358,12 +378,31 @@ seams the gate must cover (Codex P2 — the table-only form is incomplete):
 The gate is therefore "**a level at every install seam + one policy consulted by
 every installer**," not "a level on one table."
 
-**(b) One runtime `SpecLevelPolicy`, resolved once at VM/session construction.**
-The embedder (shell vs. the future app host) supplies a **mode**; the VM
-translates it into a policy that the installer consults:
+**(b) One *engine-wide* mode → a per-layer `SpecLevelPolicy`, fixed at VM
+construction.** Two corrections from Codex R3 over the original "`WebApiMode` at
+`bind_session`" draft:
+
+- **Engine-wide, not Web-API-specific (R3-6).** The mode (app vs. browser-core vs.
+  browser-compat) is a **whole-engine** concept — CSS style-compat (§F6/E0), DOM
+  `DomSpecLevel`, and the Web-API gate all need the *same* authority (requirement
+  1, whole-engine consistency). So the embedder supplies an engine-wide
+  **`EngineMode`**, and each layer derives its own policy from it (Web-API
+  `SpecLevelPolicy`, a style-compat policy, …). Reusing a Web-API-named enum for
+  the CSS pipeline would couple style to a foreign domain (the exact thing E0 must
+  avoid).
+- **Fixed at construction, before `register_globals` (R3-7).** The policy must be
+  available **before** any installer runs. `register_globals()` is called in the
+  VM constructor (`vm/init.rs:734`), *before* `bind_session`; if the mode arrived
+  at bind time the Window/Storage/StorageEvent properties would already be
+  installed and a later policy could not no-op the installer (it would need a
+  second *removal* path — a strangler). So `EngineMode` is a **VM-construction
+  parameter** (or a pre-registration builder), not bind-time state.
 
 ```
-enum WebApiMode { BrowserCompat, BrowserCore, App }   // embedder-supplied
+// engine-wide, supplied at VM construction (before register_globals):
+enum EngineMode { BrowserCompat, BrowserCore, App }
+//   Web-API layer derives:  SpecLevelPolicy  (which WebApiSpecLevel/DomSpecLevel to install)
+//   style layer derives:    style-compat policy (UA sheet + presentational hints on/off)
 // BrowserCompat → install Modern + Legacy (current behavior)
 // BrowserCore   → install Modern only  (⚠ not selectable for a real session until
 //                 the async core lands — a core session needs elidex.storage, §4.2)
@@ -371,10 +410,10 @@ enum WebApiMode { BrowserCompat, BrowserCore, App }   // embedder-supplied
 //                 precondition for storage, §4.2)
 ```
 
-The installer skips entries whose level the policy excludes. This is the single
-mode authority (requirement 5); it generalizes to **every** legacy API in §1
-(requirement 2); and it routes through the registration seam rather than scattered
-branches (requirement 3).
+The installer skips entries whose level the derived policy excludes. `EngineMode`
+is the single mode authority (requirement 5); the Web-API `SpecLevelPolicy` it
+derives generalizes to **every** legacy API in §1 (requirement 2) and routes
+through the registration seam rather than scattered branches (requirement 3).
 
 **(c) A compile-time `feature = "compat-webapi"` for the hard `app` build.** A
 runtime policy still *links* the compat shim code. The `elidex-app` build (ADR
@@ -388,10 +427,11 @@ in the binary?").
 **Where each piece lives:**
 
 - The **enums** stay in `elidex-plugin` (already correct home).
-- The **`WebApiMode`/`SpecLevelPolicy`** type lives in `elidex-plugin` (alongside
-  the enums) so every layer can name it; the **policy value** is threaded into the
-  VM at `bind_session`/VM construction from the embedder (shell supplies
-  `BrowserCompat` today — zero behavior change).
+- The engine-wide **`EngineMode`** + the derived **`SpecLevelPolicy`** types live
+  in `elidex-plugin` (alongside the enums) so every layer (Web-API, style, DOM) can
+  name them; the **mode value is supplied at VM construction** — *before*
+  `register_globals` runs (`vm/init.rs:734`), **not** at `bind_session` (R3-7) — by
+  the embedder (shell supplies `BrowserCompat` today → zero behavior change).
 - The **classification-at-registration + the VM-native JS glue** live in the VM
   host registration plumbing (`elidex-js`), since that is where `install_*` /
   `register_*_global` live — and (§4.1) the native glue **cannot relocate** out of
@@ -546,7 +586,7 @@ AC = gate conditions.
 
 | PR | Purpose | Main files / crates | Depends | Plan-review | Acceptance criteria |
 |---|---|---|---|---|---|
-| **A1** | Build the **gate**: (a) level at **every install seam** — `install_*` tables **and** direct `register_*_global()` installers (§3.2a, Codex P2); (b) `WebApiMode`/`SpecLevelPolicy` in `elidex-plugin`, threaded into VM construction; (c) enforcement that prunes excluded levels at every installer — covering the static tables, the global installers, **and** the `DomApiHandler` registry; (d) `feature = "compat-webapi"`. **No API moves yet; no behavior change** (shell supplies `BrowserCompat`). | `elidex-plugin` (policy type), `elidex-js` VM host registration plumbing incl. `vm/globals.rs`, `elidex-script-session` (registry enforcement) | A0 | **PR-R** | Policy classifies+conditionally-installs by level; `localStorage`/`cookie` still installed under `BrowserCompat`; unit tests show `BrowserCore`/`App` excludes a marked-`Legacy` API installed via **both** a table entry **and** a `register_*_global`; gate proven against a `DomApiHandler` too; `compat-webapi` compiles on/off. **`BrowserCore`/`App` exercised only by tests, never a real session (§4.2 async-core precondition).** |
+| **A1** | Build the **gate**: (a) level at **every install seam** — `install_*` tables **and** direct `register_*_global()` installers (§3.2a, Codex P2); (b) engine-wide `EngineMode` + derived `SpecLevelPolicy` in `elidex-plugin`, supplied at **VM construction before `register_globals`** (R3-7); (c) enforcement that prunes excluded levels at every installer — covering the static tables, the global installers, **and** the `DomApiHandler` registry; (d) `feature = "compat-webapi"`. **No API moves yet; no behavior change** (shell supplies `BrowserCompat`). | `elidex-plugin` (`EngineMode`/policy), `elidex-js` VM construction + host registration plumbing incl. `vm/init.rs`/`vm/globals.rs`, `elidex-script-session` (registry enforcement) | A0 | **PR-R** | Policy classifies+conditionally-installs by level; `localStorage`/`cookie` still installed under `BrowserCompat`; unit tests show `BrowserCore`/`App` excludes a marked-`Legacy` API installed via **both** a table entry **and** a `register_*_global`; gate proven against a `DomApiHandler` too; `compat-webapi` compiles on/off. **`BrowserCore`/`App` exercised only by tests, never a real session (§4.2 async-core precondition).** |
 | **A2** | Gate `Storage` (`localStorage`/`sessionStorage`) **+ `StorageEvent`** (Codex P2) behind the policy + `compat-webapi` feature, **in place** in `elidex-js` (native glue does not relocate — §4.1 dependency-cycle); classify them `Legacy`. | `vm/host/storage.rs`, `window.rs`, `vm/globals.rs` (StorageEvent), opt. new `elidex-api-storage-compat` (§4.1 — confirm need) | A1 | **PR-R** | Sync storage **and** `StorageEvent` reachable only under `BrowserCompat`; both absent together in `BrowserCore`/`App` (no `typeof StorageEvent==='function'` while storage absent); opaque-origin slot `#11-storage-opaque-origin-securityerror` re-evaluated; `BrowserCompat` byte-identical; tests green. **Sequence after JS-side media Slice 2b** (window.rs collision — §6). |
 | **A3** | Gate `document.cookie` **+ `navigator.cookieEnabled`** (Codex P2) behind the policy + feature, in place in `elidex-js`; classify cookie `Legacy`; **flip/policy-gate `cookieEnabled`** to match cookie reachability. **Cookie-file clerical only** (`document.rs`/`navigator.rs` stub comments + cookie citation) — the **full §1.5 sweep is the independent F2 micro-PR** (Codex P2), and A3 must **not** touch A2-owned storage citation files. | `vm/host/document.rs`, `vm/host/navigator.rs`, opt. new `elidex-api-cookies-compat` (§4.1 — confirm need) | A1 (∥ A2) | **PR-R** | `document.cookie` reachable only under `BrowserCompat`; `navigator.cookieEnabled` reports `true` exactly when `document.cookie` is reachable **and** a `CookieJar` is bound (no `cookieEnabled=false` while the compat API works); cookie-file stale comments + citation removed (storage citations belong to A2/F2, not A3); tests green. |
 
@@ -563,28 +603,37 @@ precondition** (not just `App`) for a later PR.
   `form.elements`, `select.options` — Codex P2), not just the named `Document`
   getters. B1's enforcement reuses **A1's gate** for any `Legacy` DOM method
   (don't build a second gate). Cross-reference A1 ⇄ B1.
-- **C0 (F4)** — unchanged (decide remove-vs-slot for iframe `contentDocument`/
-  `contentWindow`; the (M)(stub) Window browsing-context accessors §1.1 are the
-  same family — note the linkage).
+- **C0 (F4) — scope expanded (Codex P2 R3-4).** Beyond the iframe
+  `contentDocument`/`contentWindow` stubs, C0 also owns the **Window
+  browsing-context accessors** `self`/`parent`/`top`/`frames`/`frameElement`/
+  `opener`/`length`/`closed` (§1.1, `(M)(stub)`): in current code these are tracked
+  only by a narrative "future PR" comment (`window.rs:498`), the **same no-`#11-*`
+  defer-slot anti-pattern** F4 flags. **C0's AC must cover both stub families** —
+  decide remove-vs-slot for each, and if retained, register the slot(s) (e.g.
+  `#11-windowproxy-browsing-context`). They are one browsing-context family.
 - **D0 (F5)** — unchanged (plugin-metadata tag dispatch investigation).
-- **E0 (F6)** — **sharpened:** E0's "defer until a mode mechanism lands"
-  recommendation now has a concrete target — **A1's `WebApiMode`**. E0 should
-  recommend the shell pipeline take its compat-vs-core choice from the *same* mode
-  authority A1 introduces, not a separate style-only flag. Cross-reference E0 ⇄ A1.
-- **F2 clerical micro-PR** — now covers **two** comment classes (stub + citation,
-  §1.5); land any time `document.rs` is quiet, or fold into A3.
+- **E0 (F6) — corrected (Codex P2 R3-6).** E0's compat-vs-core choice must derive
+  from the **engine-wide `EngineMode`** (§3.2b), **not** the Web-API-specific
+  policy — a CSS/style pipeline must not depend on a Web-API enum (whole-engine
+  consistency). E0 recommends the shell take its style-compat policy from the same
+  `EngineMode` authority A1 introduces, with the style policy derived *parallel* to
+  (not via) the Web-API `SpecLevelPolicy`. Cross-reference E0 ⇄ A1.
+- **F2 clerical micro-PR** — covers the stub + citation + "snapshot arrays" comment
+  classes (§1.5); the **independent micro-PR is preferred** (it spans A2- and
+  A3-owned files; see §1.5 / the A3 row — do **not** fold the whole sweep into A3).
 
 ### 5.1 Dependency graph
 
 ```
 A0 (this doc) ──► A1 ──► A2  (storage; after JS-side Slice 2b, window.rs)
-                   ├──► A3  (cookie; folds F2 clerical)
+                   ├──► A3  (cookie; cookie-file clerical only)
                    └──(gate reused)──► B1   (F3 enforcement)
-B0 ──► B1 ──► B2          (B0 also owns §1.3 live-collection call + §12.1.2 amend)
-C0   (independent, cheap)
+B0 ──► B1 ──► B2          (B0 owns the whole live-collection family — §1.3 — + §12.1.2 amend)
+C0   (F4 + Window-proxy stubs §1.1; independent, cheap)
 D0   (independent, investigate)
-E0   (recommend: consume A1's WebApiMode)
-F2 clerical (stub + citation) — independent micro-PR, or folded into A3
+E0   (derive style-compat from the engine-wide EngineMode A1 introduces)
+F2 clerical (stub + "snapshot" + citation, spans A2+A3 files) — independent micro-PR
+            (NOT folded into A3; A2/A3 pick up only their own files if it slips)
 ```
 
 ---
@@ -638,11 +687,13 @@ Opaque-origin `SecurityError` for storage: the getter algorithms HTML §12.2.2 /
    `SpecLevelPolicy` at install" preferred over a full `WebApiHandler` dispatch
    trait mirroring `DomApiHandler`? (A0 recommends the lighter form for thin host
    bindings; confirm it is not under-modelling the plugin-first lens.)
-2. **Mode home (§3.2):** does `WebApiMode`/`SpecLevelPolicy` belong in
-   `elidex-plugin` next to the enums, or in a VM/session-construction crate? Is
-   threading it through `bind_session`/VM construction the right seam?
+2. **Mode home (§3.2):** does the engine-wide `EngineMode` + derived
+   `SpecLevelPolicy` belong in `elidex-plugin` next to the enums, or in a
+   VM-construction crate? Confirm it is supplied at **VM construction (before
+   `register_globals`)**, not `bind_session` (R3-7), and that one `EngineMode`
+   feeding Web-API + style + DOM policies is the right shared authority (R3-6).
 3. **Compile-time + runtime duo (§3.2c):** is having *both* `feature =
-   "compat-webapi"` and a runtime `WebApiMode` the right division (binary-absence
+   "compat-webapi"` and a runtime `EngineMode` the right division (binary-absence
    vs. per-session reachability), or does it create two overlapping authorities
    (strangler risk)?
 4. **Live-collection demotion (§1.3):** (α) demote all three live-collection
