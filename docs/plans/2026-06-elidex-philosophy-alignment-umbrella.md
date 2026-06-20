@@ -361,12 +361,14 @@ natural shape of the fix rather than a separable step.
 
 ```
 A0 (PR0) ──► A1 ──► A2  (window.rs; after JS-side Slice 2b)
-              └───► A3  (document.cookie; folds F2 clerical fix)
+              └───► A3  (document.cookie; cookie-file clerical only)
 B0 ──► B1 ──► B2
 C0  (independent; cheap)
 D0  (independent; investigate)
 E0  (depends conceptually on A0/A1's mode decision; investigate)
-F2 clerical comment fix  (independent micro-PR; or folded into A3)
+F2 clerical comment fix  (independent micro-PR — grep-defined sweep spanning
+     storage + cookie files; comment-only so collision-free; NOT folded into A3,
+     per A0 §1.5)
 ```
 
 A0 (PR0) and B0 are both design/audit docs and can be authored concurrently. C0,
