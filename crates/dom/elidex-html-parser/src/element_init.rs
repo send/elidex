@@ -34,7 +34,7 @@
 //! by `elidex_dom_api`'s `ensure_inline_style` — the single
 //! materialization point (One-issue-one-way).
 
-use elidex_ecs::{Attributes, EcsDom, Entity, IframeData, Namespace, TagType};
+use elidex_ecs::{Attributes, EcsDom, Entity, TagType};
 
 /// Attach parser-derived components to every element in `root`'s
 /// shadow-inclusive subtree.
@@ -62,47 +62,33 @@ pub(crate) fn derive_element_components(dom: &mut EcsDom, root: Entity) {
 /// components exist when a dispatcher-bound `innerHTML` insert fires) and
 /// per-subtree by [`derive_element_components`] for the strict backend.
 pub(crate) fn attach_derived(dom: &mut EcsDom, entity: Entity) {
-    // Phase 1: read (tag, is) under shared borrows, cloning out so no
-    // borrow is held across the mutating inserts below.
-    let (tag, is_attr) = {
+    // `namespace_of` returns `Html` by absence, so plain HTML elements (no
+    // `Namespace` component) pass; foreign elements derive neither component.
+    let namespace = dom.namespace_of(entity);
+
+    // Phase 1: read (tag, is, attrs) under shared borrows and build the
+    // derived-component set via the single canonical derivation (shared with
+    // the `elidex_dom_api` `createElement` handler); hold no borrow across the
+    // mutating inserts below. The parse-time `is` content attribute IS the is
+    // value at creation (DOM §4.9 step 6.3).
+    let components = {
         let world = dom.world();
         let Ok(tag_ref) = world.get::<&TagType>(entity) else {
             return; // not an element
         };
-        let tag = tag_ref.0.clone();
-        let is_attr = world
-            .get::<&Attributes>(entity)
-            .ok()
-            .and_then(|attrs| attrs.get("is").map(str::to_string));
-        (tag, is_attr)
+        let attrs = world.get::<&Attributes>(entity);
+        let is_value = attrs.as_ref().ok().and_then(|a| a.get("is"));
+        let empty = Attributes::default();
+        let attrs_ref = attrs.as_deref().unwrap_or(&empty);
+        elidex_custom_elements::derive_created_element_components(
+            &tag_ref.0, namespace, is_value, attrs_ref,
+        )
     };
 
-    // CustomElementState (§4.13.3) and IframeData (§4.8.5) are
-    // HTML-namespace-scoped. `namespace_of` returns `Html` by absence, so
-    // plain HTML elements (no `Namespace` component) pass.
-    if dom.namespace_of(entity) != Namespace::Html {
-        return;
-    }
-
-    // WHATWG DOM §4.9 "create an element" step 6.3 via the canonical
-    // derivation. The parse-time `is` content attribute IS the is value
-    // at creation; per step 6.3 a non-null `is` marks the element even
-    // when the value is not a valid custom element name (it then simply
-    // never matches a definition — `:defined` non-matching).
-    if let Some(ce_state) = elidex_custom_elements::CustomElementState::for_created_element(
-        &tag,
-        is_attr.as_deref(),
-        Namespace::Html,
-    ) {
+    if let Some(ce_state) = components.custom_element_state {
         let _ = dom.world_mut().insert_one(entity, ce_state);
     }
-
-    // WHATWG HTML §4.8.5 "the iframe element".
-    if tag == "iframe" {
-        let iframe_data = match dom.world().get::<&Attributes>(entity) {
-            Ok(attrs) => IframeData::from_attributes(&attrs),
-            Err(_) => IframeData::default(),
-        };
+    if let Some(iframe_data) = components.iframe_data {
         let _ = dom.world_mut().insert_one(entity, iframe_data);
     }
 }
@@ -111,7 +97,7 @@ pub(crate) fn attach_derived(dom: &mut EcsDom, entity: Entity) {
 mod tests {
     use super::*;
     use elidex_custom_elements::{CEState, CustomElementState};
-    use elidex_ecs::InlineStyle;
+    use elidex_ecs::{IframeData, InlineStyle, Namespace};
 
     /// Parse a conforming document through the RAW strict (Tier-1) backend
     /// (no derivation) and run [`derive_element_components`] explicitly, so
