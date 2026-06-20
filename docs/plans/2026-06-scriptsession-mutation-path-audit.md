@@ -540,20 +540,55 @@ derivation**, not a fixed contract here.
   - **No-op guard:** a replace-all where both `addedNodes` and `removedNodes` are
     empty (`replaceChildren()` / `textContent=''` on an empty node) produces **no**
     record (step 7 queues only "if either is not empty"; webref-verified).
-  - **Move (already-parented node):** any op that inserts an **already-parented Node
-    passed as a node argument** (`replaceChild`/`replaceChildren`/`appendChild`/
-    `insertBefore`/…) fires a leading pre-detach `Remove` **on the moved node's *old*
-    parent** (`detach_with_hook` → `fire_after_remove(child, old_parent, …)`,
-    `tree/mutation.rs:458`). That move `Remove`'s target is the **old parent — which may
-    be the *same* parent as the destination** (e.g. `parent.appendChild(parent.firstChild)`
-    / a re-order within one parent: `old_parent == new_parent`) **or a different
-    parent** (cross-parent move). Coalescing is decided **purely by target identity**
-    (§4.2 per-target-parent rule), independent of whether it is a move: the move
-    `Remove` folds into the destination `ChildList` record **iff** `old_parent ==
-    destination parent`, and is a separate record otherwise. (`detach_with_hook` skips
-    the redundant `rev_version(old_parent)` when `old_parent == new_parent`,
-    `:454-456`, but still fires the `Remove`.) (`textContent=` / `setHTMLUnsafe` take
-    strings → fresh nodes and are **not** move-capable.)
+  - **Move (already-parented node) — MutationObserver and CE reactions DIVERGE.** Any
+    op that inserts an **already-parented Node passed as a node argument**
+    (`replaceChild`/`replaceChildren`/`appendChild`/`insertBefore`/…) implies a
+    transient detach of that node from its **old parent** before the re-link: per
+    WHATWG DOM §4.2.3 "Mutation algorithms" (`#mutation-algorithms`) the insert
+    algorithm step 7.1 adopts the node, and `adopt` step 2 ("If node's parent is
+    non-null, then remove node") runs the **remove** algorithm on the old parent. The
+    two consumer axes see this transient detach **differently**, and conflating them
+    was the prior error here:
+    - **MutationObserver (Mechanism B record path): the moved-node old-parent removal
+      is NOT a separate MO removal record.** elidex's session `apply_append_child` /
+      `apply_insert_before` (`crates/script/elidex-script-session/src/mutation/mod.rs:212-251`)
+      emit a `ChildList` record carrying **`added_nodes` only** — no `removed_nodes`,
+      no second record on the old parent (`dom.append_child`/`insert_before` performs
+      the adopt-detach internally, but the *record* is insertion-only). This matches
+      DOM §4.2.3: the replace-family suppresses the move-removal explicitly (`replace
+      all` step 5 / `replace` step 11.2 remove with **suppressObservers = true**, so
+      §4.3.2 "Queuing a mutation record" (`#queue-a-tree-mutation-record`) queues only
+      the insertion record). So **a move does NOT yield an old-parent removal record on
+      the MO axis** — `parent.appendChild(parent.firstChild)` (same-parent reorder) and
+      cross-parent moves alike surface insertion records only, never a paired removal
+      record. *(Note: a plain `appendChild`/`insertBefore` move runs `adopt`'s remove
+      with the default `suppressObservers = false`, so DOM §4.2.3 would queue an
+      old-parent removal record there — elidex's insertion-only `apply_*` record is
+      arguably §4.2.3-incomplete on that exact corner; that fidelity question is a B1
+      record-shape item, NOT a license to assert the prior "move fires an old-parent MO
+      removal record" invariant, which is wrong as written.)*
+    - **CE reactions (both mechanisms): the move DOES fire `disconnected`/`connected`
+      callbacks, even on a same-parent reorder.** The transient detach fires
+      `fire_after_remove` → `MutationEvent::Remove` (`tree/mutation.rs`), and the
+      `CustomElementReactionConsumer` (`crates/dom/elidex-custom-elements/src/consumer.rs`)
+      `handle_remove` enqueues `Disconnected` on the `was_connected == true` transition,
+      while `handle_insert` **deliberately does NOT short-circuit on `was_connected`**
+      (`consumer.rs:98-106`) and enqueues `Connected` whenever the node is now-connected.
+      So `parent.appendChild(parent.firstChild)` on a connected custom element fires
+      `disconnectedCallback` then `connectedCallback` — matching Blink/Gecko
+      within-tree-move behaviour (`consumer.rs:15-22`) — per HTML §4.13.6 "Custom
+      element reactions" (`#custom-element-reactions`); cf. §4.13.2.1 "Preserving custom
+      element state when moved" (`#preserving-custom-element-state-when-moved`), which
+      a plain reparent does NOT invoke (`Node.moveBefore` is unimplemented).
+    - **The divergence is the coupled invariant.** MO and CE see a move's old-parent
+      removal *oppositely* (MO: suppressed/insertion-only; CE: fires the
+      disconnected→connected lifecycle). The **exact per-case behaviour** — which record
+      shape, which CE order, same- vs cross-parent — is derived by **B1 from the
+      dispatch path**, not pinned here. `detach_with_hook` skips the redundant
+      `rev_version(old_parent)` when `old_parent == new_parent` (`tree/mutation.rs:454-456`)
+      but still fires the dispatcher `Remove`, which is what drives the CE
+      disconnected callback on the same-parent case. (`textContent=` / `setHTMLUnsafe`
+      take strings → fresh nodes and are **not** move-capable.)
 
   *Illustrative:* `apply_set_inner_html` removes-old-then-appends-new;
   `apply_set_outer_html` does the reverse (insert-new before `entity`, then remove
@@ -567,15 +602,17 @@ derivation**, not a fixed contract here.
 
 - **Ordering invariant (coalesced-record + CE-reaction order).** Within a coalesced
   record, added-vs-removed ordering is **load-bearing**: record production,
-  coalescing, **and** the flush-side CE scan must agree on **one** total source order
-  — and a **cross-parent** move `Remove` (a separate record, since `old_parent !=
-  destination`) must keep its **fire order relative to** the destination record (it
-  fires first), so the CE scan sees `disconnected`(old parent) before
-  `connected`/`disconnected`(new parent). (A *same-parent* move re-order does not
-  disconnect the node, so it queues no `disconnected`/`connected` reaction — this
-  ordering concern is cross-parent-only.) The
-  flush-side CE scan `enqueue_ce_reactions_from_mutations` (`ce.rs:145`) iterates
-  added-then-removed; if a Pole-A reconstruction reorders, the
+  coalescing, **and** the flush-side CE scan must agree on **one** total source order.
+  The move case is a **CE-reaction-order** concern, **not** an MO-record-ordering one
+  (per the move-semantics invariant above, a move emits **no** old-parent MO removal
+  record — insertion-only — so there is no separate move `Remove` *record* to order on
+  the MO axis). On the **CE axis** the move's transient detach DOES fire a
+  `disconnected` reaction (even same-parent), so the dispatcher `Remove`/`Insert` fire
+  order must keep `disconnected`(detach) ordered before `connected`(re-link): a
+  **same-parent** reorder must see `disconnected` then `connected` on the *same*
+  element; a **cross-parent** move must see `disconnected`(old parent) before
+  `connected`(new parent). The flush-side CE scan `enqueue_ce_reactions_from_mutations`
+  (`ce.rs:145`) iterates added-then-removed; if a Pole-A reconstruction reorders, the
   `connected`/`disconnected` firing order inverts relative to today. **B1 derives each
   source's exact per-op order from the dispatch path** (it is *not* a fixed contract
   here); the load-bearing statement is only that the order must agree across record
@@ -809,13 +846,18 @@ separate slice or the write-site half of B1 is itself a plan-review outcome.
   (representative: `parentnode.rs:181-249` `replaceChildren` [parent-kind gate `:75` =
   Element/Document/DocumentFragment] + `text_content.rs:105-116` `textContent` — DOM
   §4.2.3 "replace all" `#concept-node-replace-all` **step 7 no-op guard**; exhaustive
-  site list = B1 grep-diff); the class-level **move `Remove`** on a moved
-  already-parented node (`detach_with_hook` → `fire_after_remove(child, old_parent, …)`,
-  `tree/mutation.rs:458` — target = *old* parent, which is the **same** parent as the
-  destination for a same-parent re-order [`old_parent == new_parent`, `:454-456` skips
-  the redundant `rev_version`] and coalesces into the destination record, but a
-  **different** parent for a cross-parent move where it is a separate uncoalesced record;
-  `textContent`/`setHTMLUnsafe` string→fresh-node, NOT move-capable); the CE-reaction
+  site list = B1 grep-diff); the class-level **move divergence** on a moved
+  already-parented node — **MO axis:** `apply_append_child`/`apply_insert_before`
+  (`mutation/mod.rs:212-251`) emit `added_nodes`-only `ChildList` records (no
+  old-parent removal record, per DOM §4.2.3 replace-family `suppressObservers=true`);
+  **CE axis:** the transient adopt-detach fires `fire_after_remove` → `MutationEvent::Remove`
+  (`detach_with_hook`, `tree/mutation.rs:458`; `:454-456` skips the redundant
+  `rev_version` when `old_parent == new_parent` but still fires the event), and the CE
+  consumer fires `disconnected`+`connected` **even on a same-parent reorder**
+  (`elidex-custom-elements/src/consumer.rs:98-106,144-146`, `was_connected` not
+  short-circuited on insert; HTML §4.13.6) — do NOT assert a same-parent move yields an
+  old-parent MO removal record; `textContent`/`setHTMLUnsafe` string→fresh-node, NOT
+  move-capable; the CE-reaction
   order anchors (`enqueue_ce_reactions_from_mutations` added-then-removed `ce.rs:145`
   + `replace_child` Remove-before-Insert `tree/mutation.rs:189`/`:201`); and the
   characterData `oldValue` capture-timing (`set_text_data` overwrite-before-dispatch
