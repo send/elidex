@@ -380,17 +380,20 @@ impl VmInner {
         // GC free-list recycles it, so it can invert creation order). The
         // common no-flip turn pays no sort.
         let env = self.media_environment();
-        let mut flips: Vec<(ObjectId, u64, bool, String)> = Vec::new();
+        let mut flips: Vec<(ObjectId, u64, bool)> = Vec::new();
         for (&id, entry) in &self.media_query_list_registry {
             if entry.document != current_document {
                 continue;
             }
             let now = evaluate(&entry.parsed, &env);
             if now != entry.last_matches {
-                flips.push((id, entry.seq, now, entry.parsed.to_string()));
+                // The media string is serialized lazily in phase B, *after* the
+                // listener gate — an unobserved flip pays no `to_string()`
+                // canonicalization (Codex R8).
+                flips.push((id, entry.seq, now));
             }
         }
-        flips.sort_unstable_by_key(|&(_, seq, _, _)| seq);
+        flips.sort_unstable_by_key(|&(_, seq, _)| seq);
         if !flips.is_empty() {
             // Advance each flipped entry's `last_matches` flip-prior BEFORE
             // firing (CSSOM-View §4.2 fires `change` with `matches` = the
@@ -400,7 +403,7 @@ impl VmInner {
             // these entries. (No JS runs in this loop, so the `seq` guard is
             // belt-and-suspenders, kept for symmetry with the phase-B
             // identity re-check.)
-            for &(id, seq, now, _) in &flips {
+            for &(id, seq, now) in &flips {
                 if let Some(e) = self.media_query_list_registry.get_mut(&id) {
                     if e.seq == seq {
                         e.last_matches = now;
@@ -420,7 +423,7 @@ impl VmInner {
                 .media_query_list_event;
             let proto = self.media_query_list_event_prototype;
             let change_sid = self.well_known.change;
-            for (id, seq, now, media) in flips {
+            for (id, seq, now) in flips {
                 // Per-id liveness + identity re-check: an earlier `change`
                 // listener this turn may have dropped this MQL, and a GC during
                 // dispatch may then have collected its `ObjectId` AND the
@@ -433,14 +436,25 @@ impl VmInner {
                     continue;
                 }
                 // Gate on a `change` listener BEFORE serializing/interning the
-                // media payload (Codex R2): interned strings are pool-permanent,
-                // so interning for a target that won't dispatch needlessly grows
-                // the pool. MQL `change` does not bubble, so only the target's
-                // own listeners matter — and `fire_vm_event` re-checks this gate
-                // anyway, so skipping here is a pure no-work fast path.
+                // media payload (Codex R2 + R8): an unobserved flip must pay
+                // ZERO per-flip work — neither the `to_string()`
+                // canonicalization (below) nor the (pool-permanent) intern. MQL
+                // `change` does not bubble, so only the target's own listeners
+                // matter — and `fire_vm_event` re-checks this gate anyway, so
+                // skipping here is a pure no-work fast path.
                 if !vm_path_has_listener(self, id, "change", false) {
                     continue;
                 }
+                // Serialize only now that the entry is live (seq-checked) AND
+                // observed (listener-gated). Re-fetch (cheap `HashMap` get); the
+                // immutable borrow ends before the `intern` mutable borrow.
+                let Some(media) = self
+                    .media_query_list_registry
+                    .get(&id)
+                    .map(|e| e.parsed.to_string())
+                else {
+                    continue;
+                };
                 let media_sid = self.strings.intern(&media);
                 // Slot order matches `event_shapes.rs::media_query_list_event`
                 // + the constructor: `media`, then `matches`.
