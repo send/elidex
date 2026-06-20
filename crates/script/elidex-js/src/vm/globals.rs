@@ -483,12 +483,10 @@ impl VmInner {
             // wrappers.  See `vm/host/window.rs`
             // `register_window_prototype`'s storage-getter install.
             //
-            // Seam-2 of the A1 core/compat gate: the Web Storage family is
-            // routed through the install policy. Classified `Modern` here in A1
-            // (no API moves) so it installs in every mode exactly as before; A2
-            // demotes it by changing only this level to `Legacy` (HTML §12.2) —
-            // the seam itself does not change.
-            if self.spec_level_policy.installs(WebApiSpecLevel::Modern) {
+            // Seam-2 of the A1 core/compat gate: the Web Storage family is routed
+            // through the single `installs_web_storage` gate (A2 flips it to
+            // `Legacy` in one place — HTML §12.2).
+            if self.installs_web_storage() {
                 self.register_storage_global();
             }
             // Crypto / SubtleCrypto (WebCrypto §10 / §14, slot
@@ -666,10 +664,10 @@ impl VmInner {
             // StorageEvent — chains to Event.prototype, paired with
             // the `Storage` interface above.  WHATWG HTML §12.2.4.
             //
-            // Seam-2: part of the Web Storage surface, routed through the policy
-            // at `Modern` for now; A2 flips this to `Legacy` together with the
-            // `Storage` install above so the two are gated as one family.
-            if self.spec_level_policy.installs(WebApiSpecLevel::Modern) {
+            // Seam-2: part of the Web Storage surface — same single
+            // `installs_web_storage` gate as the `Storage` install above, so the
+            // family is gated as one unit.
+            if self.installs_web_storage() {
                 self.register_storage_event_global();
             }
             // M4-12 slot `#11-events-misc` (D-10) — 10 NEW Event
@@ -1045,6 +1043,21 @@ impl VmInner {
                 PropertyAttrs::WEBIDL_RO_ACCESSOR,
             );
         }
+    }
+
+    /// Whether the **Web Storage family** installs for this VM — the single
+    /// gate the family's install seams consult (`localStorage` / `sessionStorage`
+    /// accessors at `register_window_prototype`; the `Storage` and `StorageEvent`
+    /// globals here in `register_globals`; and, in A2, `window.onstorage`).
+    ///
+    /// A1 classifies the family `Modern` (no API moves) so this is `true` in
+    /// every mode — byte-identical to the pre-gate engine. **A2 demotes the whole
+    /// family by changing the level here to [`WebApiSpecLevel::Legacy`] in one
+    /// place** (HTML §12.2), after which `BrowserCore`/`App` exclude all of it
+    /// together — no per-site lockstep, no seam re-touch.
+    #[cfg(feature = "engine")]
+    pub(crate) fn installs_web_storage(&self) -> bool {
+        self.spec_level_policy.installs(WebApiSpecLevel::Modern)
     }
 
     #[allow(clippy::too_many_lines)]

@@ -457,15 +457,12 @@ impl VmInner {
         // holds (`[SameObject]`).
         //
         // Seam-1 of the A1 Web-API core/compat gate: this is the Web Storage
-        // family's Window-accessor surface, routed through the install policy.
-        // Classified `Modern` here in A1 (no API moves — installs in every mode
-        // exactly as before); A2 demotes the whole Web Storage family by changing
-        // only this level to `Legacy`, together with the `Storage`/`StorageEvent`
-        // globals in `register_globals` (seam-2). The seam itself does not change.
-        if self
-            .spec_level_policy
-            .installs(elidex_plugin::WebApiSpecLevel::Modern)
-        {
+        // family's Window-accessor surface, gated by the single
+        // `installs_web_storage` predicate shared with the `Storage`/`StorageEvent`
+        // globals (seam-2). A1 classifies the family `Modern` (no API moves —
+        // installs in every mode exactly as before); A2 demotes the whole family
+        // in one place (see `installs_web_storage`).
+        if self.installs_web_storage() {
             self.install_ro_accessors(proto_id, WINDOW_STORAGE_ACCESSORS);
         }
         // Event-handler IDL attributes (WHATWG HTML §8.1.8.2.1): Window
