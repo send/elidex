@@ -8,7 +8,7 @@ Program B (ScriptSession mutation-path / F3). Its normative basis is the
 the F1–F6 philosophy-alignment umbrella charter is **forthcoming in a separate
 PR** and is referenced here only as a parent-program pointer, not as a
 verifiable basis. B0 confirms the F3 mechanism end-to-end against current `main`
-(HEAD `5a8b5388`) and hands the canonical-path question to B1's
+(HEAD `26d00c5a`) and hands the canonical-path question to B1's
 `/elidex-plan-review`.
 Audience: Claude / maintainers (and Codex via the review guidelines below).
 
@@ -76,7 +76,7 @@ Audience: Claude / maintainers (and Codex via the review guidelines below).
 > map (§1–§3) and to *enumerate the coupled invariants* the canonical fix must
 > satisfy (§4), **not** to pick the mechanism — that is B1's `/elidex-plan-review`
 > (see the §4 status callout above). Every claim below carries a `file:line`
-> anchor re-checked at HEAD `5a8b5388`.
+> anchor re-checked at HEAD `26d00c5a`.
 > Re-grep at PR-open; this doc is itself a snapshot.
 
 ---
@@ -269,22 +269,36 @@ Audience: Claude / maintainers (and Codex via the review guidelines below).
 >   produce the exhaustive write-site list by **grep-diff**, not by extending this
 >   table reactively. The *covered* side of the diff is **not** just
 >   `record_mutation` call-sites — it is the **union** of (a) every
->   `SessionCore::record_mutation` call-site **and** (b) every **direct
+>   `SessionCore::record_mutation` call-site **whose flush actually reaches
+>   `deliver_mutation_records`** **and** (b) every **direct
 >   `deliver_mutation_records` producer** (a mutator that self-generates a record
 >   and delivers it synchronously, e.g. the VM `innerHTML`/`outerHTML` setters at
->   `dom_inner_html.rs:148`/`:362` — see the corrected invariant above). Enumerate
->   that union, then enumerate every direct `EcsDom`/component-mutator call across
->   the four layers — `crates/script/elidex-js/src/vm/host/`,
->   `crates/dom/elidex-dom-api/`, `crates/script/elidex-js-boa/`, and the
->   `elidex-ecs` mutators themselves — and take the difference (mutators in neither
->   covered set = the gap set). **Diffing against `record_mutation` alone would
->   false-positive-flag VM `innerHTML`/`outerHTML` as a gap** even though they are
->   observable via the direct-delivery path. That mechanical sweep — covered =
->   `record_mutation` ∪ direct `deliver_mutation_records` producers — not this hand
->   list, is the SoT for completeness.
+>   `dom_inner_html.rs:148`/`:362` — see the corrected invariant above).
+>   **The flush-reaches-delivery qualifier on (a) is load-bearing, not pedantry:**
+>   `record_mutation` only *buffers*; whether that buffer becomes an MO record
+>   depends on *which flush* drains it. The per-frame `re_render` flush delivers
+>   (`content/mod.rs:258`), but `flush_with_ce_reactions`
+>   (`crates/shell/elidex-shell/src/pipeline.rs:25-34`) flushes the buffer into
+>   **CE reactions only** and never calls `deliver_mutation_records` (§2.2 / R4
+>   8ykQ/8ykJ). So a `record_mutation` call whose buffer is only ever drained by
+>   `flush_with_ce_reactions` is **MO-silent despite recording** — (a) covers a
+>   call-site only when its flush path is the delivering one. **The grep-diff must
+>   therefore enumerate flush/delivery sites alongside recording call-sites and
+>   judge "covered" by recording-call ∧ delivering-flush, not by the recording call
+>   alone.** Enumerate that union, then enumerate every direct
+>   `EcsDom`/component-mutator call across the four layers —
+>   `crates/script/elidex-js/src/vm/host/`, `crates/dom/elidex-dom-api/`,
+>   `crates/script/elidex-js-boa/`, and the `elidex-ecs` mutators themselves — and
+>   take the difference (mutators in neither covered set = the gap set). **Diffing
+>   against `record_mutation` alone would false-positive-flag VM
+>   `innerHTML`/`outerHTML` as a gap** even though they are observable via the
+>   direct-delivery path — and would **false-negative** a record-but-never-delivered
+>   site. That mechanical sweep — covered = (`record_mutation` ∧ delivering flush)
+>   ∪ direct `deliver_mutation_records` producers — not this hand list, is the SoT
+>   for completeness.
 
 Seeded from the original F3 write-site survey and **re-verified at HEAD
-`5a8b5388`** (the seed is not load-bearing — every row is re-checked by direct
+`26d00c5a`** (the seed is not load-bearing — every row is re-checked by direct
 read). Each site is
 classified and tagged **bridge** (routes through
 `dom_bridge::invoke_dom_api` → an `elidex-dom-api` `DomApiHandler`) or
@@ -309,7 +323,7 @@ means *dispatch* routing — it does **not** imply the session buffer; see §1.5
 All **direct**. These are content-attribute reflections (HTML §2.6.1
 "Reflecting content attributes in IDL attributes",
 `#reflecting-content-attributes-in-idl-attributes`, verified via webref at
-HEAD `5a8b5388`); each writes the backing content attribute through the
+HEAD `26d00c5a`); each writes the backing content attribute through the
 `EcsDom` chokepoint. Per that section the reflected IDL setter's contract is
 "set the content attribute" (set one content attribute via the
 `EcsDom::set_attribute` chokepoint) — which is why these are pure
@@ -403,7 +417,7 @@ boundary state back to the live-range registry. **No `record_mutation`.**
 > `MutationEvent::TextChange` via `dispatch_event`** (`:340-344`). The **Comment**
 > branch (`char_data_handlers.rs:59-73`) writes `CommentData.0` in place and bumps
 > `rev_version` **only — it calls no `dispatch_event`** (verified at HEAD
-> `5a8b5388`). So a `data=`/`appendData`/… on a **Comment** node fires **no**
+> `26d00c5a`). So a `data=`/`appendData`/… on a **Comment** node fires **no**
 > mutation event at all, and `observe(comment,{characterData:true})` is silent
 > even on the dispatcher path. A handler/seam-emitted `record_mutation` (Pole B,
 > §4.2) would close this uniformly — independent of whether the EcsDom primitive
@@ -411,6 +425,17 @@ boundary state back to the live-range registry. **No `record_mutation`.**
 > out explicitly: Comment
 > characterData currently has **no** notification of either kind, whereas Text has
 > `TextChange`. §3's characterData row must split Text vs Comment.
+>
+> **Coupled invariant for B1 (9WUB).** Comment implements CharacterData, and the
+> canonical fix is more than "emit the missing record": WHATWG DOM §4.10 Interface
+> CharacterData "replace data" (`#concept-cd-replace`) **queues the characterData
+> record (step 4) *and* adjusts live ranges whose boundary points fall in the
+> spliced node (steps 8–11**, over §5.5 Interface Range's "live range",
+> `#concept-live-range`). The current Comment path adjusts **neither** (no event →
+> `LiveRangeBridge` never runs; no record). So B1 must keep MO-record production
+> and live-range boundary adjustment **coupled at one source** for all
+> character-data splices — see §4.3's "CommentData notification + live-range
+> coupling" bullet, where this is named as a §4 coupled invariant.
 
 ### 1.5 The bridge does NOT mean the session buffer (critical refinement)
 
@@ -523,9 +548,26 @@ particular does **not** assert "route every write into Mechanism B".
 > `pipeline.rs:29-34` / `ce.rs:137-145`, which must be shown to cover the same
 > reactions).
 
-- **Trigger:** every `EcsDom::set_attribute` / `remove_attribute` (via
-  `dispatch_event`, `attribute.rs:118`/`:294`) and every tree mutation
-  (`tree/mutation.rs:292`/`:356` fire `MutationEvent::Insert`/`Remove`).
+- **Trigger:** the `MutationEvent` enum
+  (`crates/core/elidex-ecs/src/dom/mutation_event.rs`) carries **seven** variants,
+  all dispatched through the same `dispatch_event` sink:
+  - `AttributeChange` (`:306`) — every `EcsDom::set_attribute` / `remove_attribute`
+    (via `dispatch_event`, `attribute.rs:118`/`:294`).
+  - `Insert` / `Remove` (`:131`/`:172`) — every tree mutation
+    (`tree/mutation.rs:292`/`:356`).
+  - **Character-data variants** (the input list B1 needs to evaluate
+    `data=`/`appendData`/`splitText`/`normalize` coverage): `TextChange`
+    (`:191`) — fired AFTER a Text/CData entity's `set_text_data`
+    (`dom/mod.rs:340-344`); `ReplaceData` (`:209`) — fired AFTER
+    `appendData`/`insertData`/`deleteData`/`replaceData` on Text/CData;
+    `SplitText` (`:237`) — fired by `EcsDom::fire_split_text` AFTER
+    `Text.splitText`; `NormalizeMerge` (`:273`) — fired by
+    `EcsDom::fire_normalize_merge` during `Node.normalize`.
+  Note these character-data events are **Text/CData-only**: the **Comment** branch
+  of `set_char_data` (`char_data/char_data_handlers.rs:59-73`) and the Comment
+  branches of `textContent`/`nodeValue` fire **no** `MutationEvent` at all (§1.4b
+  8YcL), so `data=`/`appendData`/… on a Comment is silent on the dispatcher path
+  too — a coverage hole B1 must read off this list.
 - **Plumbing:** `EcsDom::dispatch_event` (`dom/mod.rs:191`) drives the single
   installed `Box<dyn MutationDispatcher>`. **That dispatcher is installed only by
   `Vm::bind` (`vm/vm_api.rs:279` → `ConsumerDispatcher`,
@@ -849,7 +891,7 @@ that mechanism must also reproduce.
 ### 4.2a Record-source constraints the canonical (seam) path must satisfy
 
 Whatever mechanism B1 chooses, its MO-record source must reproduce these, each
-verified at HEAD `5a8b5388`. They are stated as constraints, not as an argument
+verified at HEAD `26d00c5a`. They are stated as constraints, not as an argument
 for a particular mechanism; where a constraint discriminates between recording
 *at a dispatcher event* vs. *upstream of the dispatcher*, that is noted as a
 factor for B1 to weigh (it does **not** settle the choice — invariants 1 + 2 of
@@ -864,15 +906,27 @@ factor for B1 to weigh (it does **not** settle the choice — invariants 1 + 2 o
   events. *Favors recording from intent* (Pole B), but B1 must still ensure the
   replaceChild record carries the replace intent (not two separate add/remove
   records).
-- **C2 — non-dispatching attribute writes.** `set_attribute_without_dispatch`
-  (`attribute.rs:146`) fires **no** `MutationEvent` (used inside consumers where
-  re-entry forbids dispatch). Form value-mode/type-change calls it to move the
-  live value into the `value` content attribute (`elidex-form/value_mode.rs:222`).
-  An event-driven (Pole A) source would **never see** this — a hard hole — whereas
-  a record emitted independent of the event (Pole B) can capture it. B1 decides
-  per-spec whether this internal write is script-observable (it generally is
-  **not** — it is an internal reflection, not a script-initiated `setAttribute`);
-  document the decision either way.
+- **C2 — non-dispatching attribute writes (spec-observable, must be closed).**
+  `set_attribute_without_dispatch` (`attribute.rs:146`) fires **no**
+  `MutationEvent` (used inside consumers where re-entry forbids dispatch). Form
+  value-mode/type-change calls it via `apply_type_change_value_migration` to move
+  the live value into the `value` **content attribute** when the live value is
+  non-empty (`elidex-form/value_mode.rs:222`). **This is a real content-attribute
+  write, and per WHATWG DOM §4.9 Interface Element it is spec-observable, not
+  per-plan optional:** appending/changing/removing a content attribute runs "change
+  an attribute" → "handle attribute changes" (`#handle-attribute-changes`), whose
+  **step 1 queues an `"attributes"` mutation record** for the element. So a
+  `new MutationObserver(cb).observe(input, {attributes:true,
+  attributeFilter:['value']})` is **owed** a record when a type-change migrates the
+  live value into the `value` attribute. The earlier "generally not
+  script-observable / internal reflection" framing was **wrong** and is corrected
+  here: B1 **must** close this silent write (it is exactly an `attributes`
+  mutation the spec requires observers to see). An event-driven (Pole A) source
+  would **never see** it (no `MutationEvent`) — a hard hole that makes Pole A
+  insufficient by itself; a record emitted independent of the event (Pole B) can
+  capture it. Note this is the content-attribute migration step only — it does
+  **not** include the text-like-mode live-value write (which leaves `Attributes`
+  untouched and must stay record-free, 8kHF).
 - **C3 — shadow-root suppression.** `fire_after_insert`/`fire_after_remove`
   (`tree/mutation.rs:289`, `:343-344`) suppress Insert/Remove when node/parent is
   a ShadowRoot. An event-driven (Pole A) source would silently miss shadow-root
@@ -979,8 +1033,28 @@ B1's plan-review covers them:
   `enqueue_ce_reactions_from_mutations` seeing the same added/removed node set,
   and the flush→CE drain must continue to run on the page-load
   (`flush_with_ce_reactions`) path, not only per-frame.
-- **CommentData notification (8YcL).** Comment characterData fires no event today
-  (§1.4b); whichever mechanism is chosen must close this hole uniformly with Text.
+- **CommentData notification + live-range coupling (8YcL / 9WUB) — a *coupled*
+  invariant, not a lone missing record.** Comment characterData fires no event
+  today (§1.4b); the current Comment path writes only `CommentData` + `rev_version`
+  (`char_data/char_data_handlers.rs:59-73`). But Comment implements
+  CharacterData, and the canonical fix is **not** "emit one missing
+  `characterData` record": per WHATWG DOM §4.10 Interface CharacterData "replace
+  data" (`#concept-cd-replace`), the same algorithm that **queues the
+  `"characterData"` mutation record** (step 4) **also adjusts every live range
+  whose boundary point is inside the spliced node** (steps 8–11, over the
+  §5.5 Interface Range "live range" concept, `#concept-live-range`). So a
+  seam-emitted MO record **alone** leaves Range boundary points stale on a
+  `comment.data`/`appendData`/`deleteData`/… splice — the record and the
+  live-range boundary adjustment are **one coupled invariant** that B1 must satisfy
+  together, for **all** character-data splices (Comment *and* Text/CData), not just
+  the Comment record hole. (Today Text/CData boundary adjustment rides the
+  `LiveRangeBridge` consumer off the dispatcher `TextChange`/`ReplaceData` events;
+  Comment fires no event, so it gets **neither** the record **nor** the
+  boundary adjustment — the hole is double.) **B1 must therefore design the
+  character-data fix so MO-record production and live-range boundary adjustment
+  stay coupled at one source** (§4.10/§5.5), rather than wiring a seam record that
+  the dispatcher-side `LiveRangeBridge` no longer covers for Comment. This is a
+  named §4 coupled invariant handed to B1's `/elidex-plan-review`, not solved here.
 - **`oldValue` threading.** `characterDataOldValue` / attribute `oldValue` need
   the pre-write value captured before the `EcsDom` write (the handler has it in
   hand); `attributeNamespace` stays deferred to `#11-mutation-observer-extras`
@@ -1020,7 +1094,7 @@ whatever B2 does:
   (8kHF).** Today true reflections — `a.href`, `form.method`, `input.type`, etc. —
   call `EcsDom::set_attribute` **directly from `vm/host/`**
   (`html_input_proto.rs:460`/`:544`/…, `html_button_proto.rs`,
-  `html_textarea_proto.rs` — verified at HEAD `5a8b5388`). **`HTMLInputElement.value`
+  `html_textarea_proto.rs` — verified at HEAD `26d00c5a`). **`HTMLInputElement.value`
   is *not* a plain reflection** (8kHF): `html_input_value.rs:120-129` dispatches by
   value mode — text-like mode writes `FormControlState` live value
   (`ValueSetAction::SetLiveValue`, **no attribute mutation**), only default/default-on
@@ -1030,12 +1104,29 @@ whatever B2 does:
   not emit a spurious attribute `MutationRecord`. The Layering mandate (algorithm
   out of `vm/host/`) and the question of whether/where reflected writes carry an MO
   record are **inputs to B1's §4.1/§4.2 decision**, not a settled "route everything
-  through `record_mutation`": B0 does not pre-decide whether reflected writes are
-  script-observable mutations (per-spec they reflect, so a `setAttribute`-equivalent
-  record may be owed) nor at which layer the record originates. What B0 *does* fix:
-  if reflected writes are routed through a shared handler, the `input.value`
-  value-mode dispatch must be preserved (live-state vs. content-attribute split),
-  and `vm/host/` stays marshalling-only.
+  through `record_mutation`". **But the open question is narrower than "are
+  reflected writes observable at all" — tightened.** A true reflected IDL setter
+  (`a.href`, `form.method`, `input.type`, …) *is* an **observable attribute
+  mutation**: per HTML §2.6.1 "Reflecting content attributes in IDL attributes"
+  (`#reflecting-content-attributes-in-idl-attributes`, §1.2) its contract is "set
+  the content attribute", and it does so through the `EcsDom::set_attribute`
+  chokepoint (§2.6.1/§1.2), so the underlying attribute change is a DOM "change an
+  attribute" → "handle attribute changes" step (WHATWG DOM §4.9 Interface Element,
+  `#handle-attribute-changes`) which **queues an `"attributes"` mutation record**.
+  That a `{attributes:true, attributeFilter:['href']}` observer must see
+  `a.href = …` is therefore **spec-settled, not a per-plan option**. The open
+  question is **not** "observable or not" — it is **where/how the MO record is
+  recorded** (which layer / mechanism, per §4.1's coupled invariants). B1 must
+  **not** read this section as license for a plan that fixes `setAttribute` but
+  leaves `a.href = …` MO-silent. **The sole exception is `input.value` (8kHF):**
+  its setter is a value-mode dispatch, **not** "set the content attribute" — in
+  text-like mode it is a non-attribute live-state write
+  (`FormControlState`, `Attributes` untouched), so it must **not** emit a spurious
+  attribute `MutationRecord`. What B0 *does* fix: true reflections are observable
+  attribute mutations (record owed); `input.value` value-mode dispatch must be
+  preserved (live-state vs. content-attribute split); and `vm/host/` stays
+  marshalling-only. The remaining B1 choice is the recording mechanism/location,
+  not observability.
 - **`removeAttribute` symmetry carries the VM-local Attr detach (unchanged).**
   Routing VM `removeAttribute` through the bridge for symmetry with `setAttribute`
   must carry the `attr_remove` VM-local work forward — snapshot-freeze the JS-held
@@ -1115,11 +1206,21 @@ verdict here.
 
 - Re-grep every `file:line` here at PR-open — line numbers will drift.
 - **Produce the exhaustive write-site set by grep-diff, not by extending §1's
-  table** (the §1 invariant + methodology): enumerate `record_mutation` call-sites
-  and direct `EcsDom`/component-mutator calls across `vm/host/`, `elidex-dom-api`,
-  `elidex-js-boa`, and `elidex-ecs`, then diff. The R5 misses
+  table** (the §1 invariant + methodology). The *covered* side is the **union**
+  established in §1, not `record_mutation` call-sites alone: (a) every
+  `record_mutation` call-site **whose flush reaches `deliver_mutation_records`**
+  (per-frame `re_render` → `content/mod.rs:258`, **not** the CE-only
+  `flush_with_ce_reactions`, `pipeline.rs:25-34`) **∪** (b) every **direct
+  `deliver_mutation_records` producer** (the VM `innerHTML`/`outerHTML` setters,
+  `dom_inner_html.rs:148`/`:362`, which deliver their own record without
+  `record_mutation`). Then enumerate every direct `EcsDom`/component-mutator call
+  across `vm/host/`, `elidex-dom-api`, `elidex-js-boa`, and `elidex-ecs`, and diff.
+  **Diffing against `record_mutation` call-sites alone would both false-positive
+  the direct-delivery `innerHTML`/`outerHTML` natives (covered via (b)) and
+  false-negative a record-but-only-CE-flushed site** — so the grep-diff must
+  include flush/delivery sites, not just recording calls (§1). The R5 misses
   (textContent/nodeValue/splitText, §1.6) came from reactive hand-enumeration; the
-  grep-diff is the SoT for completeness.
+  grep-diff (with this union as the covered set) is the SoT for completeness.
 - Re-confirm both boa CE-reaction producers (886B): the flush-record scan
   (`enqueue_ce_reactions_from_mutations`, `ce.rs:137-145`) **and** the
   binding-direct enqueue (`globals/element/core.rs:152-176`/`:219`/`:292`), so a
