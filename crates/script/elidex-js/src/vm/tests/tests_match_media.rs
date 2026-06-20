@@ -220,6 +220,57 @@ fn remove_event_listener_stops_delivery() {
 // --- legacy addListener / removeListener (CSSOM-View §4.2) -----------------
 
 #[test]
+fn legacy_add_listener_brand_checks_receiver() {
+    // Codex R1: addListener/removeListener are MediaQueryList operations
+    // (CSSOM-View §4.2) — a non-MQL receiver throws TypeError, NOT a generic
+    // EventTarget alias. (`call` with an AbortSignal must not install a
+    // 'change' listener there.)
+    let mut vm = new_vm();
+    assert!(eval_bool(
+        &mut vm,
+        "var sig = new AbortController().signal; \
+         var add = MediaQueryList.prototype.addListener; \
+         var rm = MediaQueryList.prototype.removeListener; \
+         var a = false, r = false; \
+         try { add.call(sig, function () {}); } catch (e) { a = e instanceof TypeError; } \
+         try { rm.call(sig, function () {}); } catch (e) { r = e instanceof TypeError; } \
+         a && r;"
+    ));
+}
+
+#[test]
+fn media_query_list_not_exposed_in_worker_scope() {
+    // Codex R1: MediaQueryList is `[Exposed=Window]` (CSSOM-View §4.2) — a
+    // worker realm must NOT get the global constructor (nor matchMedia).
+    let mut vm = Vm::new_worker(
+        "w".to_string(),
+        url::Url::parse("https://example.com/w.js").unwrap(),
+        true,
+        elidex_net::CredentialsMode::SameOrigin,
+    );
+    vm.install_host_data(super::super::host_data::HostData::new());
+    assert!(eval_bool(
+        &mut vm,
+        "typeof MediaQueryList === 'undefined' && typeof matchMedia === 'undefined';"
+    ));
+}
+
+#[test]
+fn prototype_survives_severed_global_and_gc() {
+    // Codex R1: media_query_list_prototype is GC-rooted, so severing the
+    // `MediaQueryList` global + a GC cannot sweep the cached prototype out
+    // from under a later matchMedia() call.
+    let mut vm = new_vm();
+    vm.eval("globalThis.MediaQueryList = null;").unwrap();
+    vm.inner.collect_garbage();
+    // The cached prototype survived → matchMedia still yields a working MQL.
+    assert_eq!(
+        eval_string(&mut vm, "matchMedia('(min-width: 1px)').media;"),
+        "(min-width: 1px)"
+    );
+}
+
+#[test]
 fn legacy_add_listener_fires() {
     let mut vm = new_vm();
     assert!(eval_bool(

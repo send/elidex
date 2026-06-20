@@ -81,6 +81,14 @@ impl VmInner {
                 self.abort_signal_prototype,
                 #[cfg(not(feature = "engine"))]
                 None,
+                // `MediaQueryList.prototype` (CSSOM-View §4.2) — rooted like
+                // every cached interface prototype so a severed
+                // `globalThis.MediaQueryList` + GC can't sweep it out from
+                // under the `media_query_list_prototype` cache (Codex R1).
+                #[cfg(feature = "engine")]
+                self.media_query_list_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
                 #[cfg(feature = "engine")]
                 self.character_data_prototype,
                 #[cfg(not(feature = "engine"))]

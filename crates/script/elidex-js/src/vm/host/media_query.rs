@@ -350,6 +350,10 @@ fn native_media_query_list_add_listener(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
+    // `addListener` is a MediaQueryList operation (CSSOM-View §4.2), so a
+    // non-MQL receiver throws TypeError — same brand gate as `.matches` /
+    // `.media`, NOT a generic EventTarget alias (Codex R1).
+    require_media_query_list_this(ctx, this, "addListener")?;
     let callback = args.first().copied().unwrap_or(JsValue::Undefined);
     let change_sid = ctx.vm.well_known.change;
     super::event_target::native_event_target_add_event_listener(
@@ -366,6 +370,8 @@ fn native_media_query_list_remove_listener(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
+    // MQL brand gate (Codex R1) — see `addListener`.
+    require_media_query_list_this(ctx, this, "removeListener")?;
     let callback = args.first().copied().unwrap_or(JsValue::Undefined);
     let change_sid = ctx.vm.well_known.change;
     super::event_target::native_event_target_remove_event_listener(
