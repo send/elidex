@@ -34,10 +34,30 @@ pub struct ElidexJsEngine {
 }
 
 impl ElidexJsEngine {
-    /// Create a new engine with a fresh VM.
+    /// Create a new engine with a fresh VM under [`EngineMode::BrowserCompat`]
+    /// (the full compat surface — zero behavior change).
+    ///
+    /// [`EngineMode::BrowserCompat`]: elidex_plugin::EngineMode::BrowserCompat
     pub fn new() -> Self {
         Self {
             vm: Vm::new(),
+            bound: false,
+        }
+    }
+
+    /// Create a new engine with a fresh VM under an explicit
+    /// [`EngineMode`](elidex_plugin::EngineMode).
+    ///
+    /// The shell (embedder) supplies the engine-wide mode here; it is fixed at
+    /// VM construction and governs the Web-API core/compat install gate.
+    ///
+    /// ⚠ `BrowserCore` / `App` must not be selected for a real session until the
+    /// async core storage (`#11-async-core-storage-cookiestore`) lands — see
+    /// [`EngineMode`](elidex_plugin::EngineMode).
+    #[must_use]
+    pub fn new_with_mode(engine_mode: elidex_plugin::EngineMode) -> Self {
+        Self {
+            vm: Vm::new_with_mode(engine_mode),
             bound: false,
         }
     }

@@ -12,6 +12,15 @@ categories = ["web-programming", "parsing"]
 
 [features]
 default = []
+# A1 Web-API core/compat gate (independent of `engine`, additive — NOT
+# implied-by `engine`, so an `App`-profile build can select `engine` alone to
+# compile the compat shims out). The browser/default profile enables `engine`
+# + `compat-webapi` together; when off, the VM applies a hard ceiling that
+# excludes every `Legacy` Web/DOM API regardless of the runtime `EngineMode`
+# (see `vm/init.rs`). A1 marks nothing `Legacy` yet, so this gate is latent;
+# A2/A3 (storage/cookie) and B (live collections) demote into it. A1 does NOT
+# cfg-gate the storage *backend* (that is A2).
+compat-webapi = []
 engine = [
     "elidex-script-session",
     "elidex-ecs",

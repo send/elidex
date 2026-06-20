@@ -2546,6 +2546,21 @@ pub(crate) struct VmInner {
     /// the embedded name + script URL. Set once at construction.
     #[cfg(feature = "engine")]
     pub(crate) global_scope_kind: GlobalScopeKind,
+    /// The engine-wide install policy (derived from the embedder-supplied
+    /// [`EngineMode`](elidex_plugin::EngineMode) at construction). Consulted by
+    /// every Web-API install seam — the leveled install helpers, the demotable
+    /// `register_*_global` installers, and the event-handler-attr loop — to
+    /// decide whether a `Legacy`-classified API installs for this session.
+    ///
+    /// **Invariant (the one way the gate could silently no-op):** this field is
+    /// set in the construction struct literal (`vm/init.rs`), which completes
+    /// *before* `register_globals` (the sole install entry) is called at the tail
+    /// of `new_with_scope`. Every seam therefore reads a fully-derived policy. If
+    /// a future installer is ever added that runs *earlier* in construction it
+    /// MUST still observe a set policy — keep this field's initialization ahead
+    /// of any install. Set once at construction; never mutated.
+    #[cfg(feature = "engine")]
+    pub(crate) spec_level_policy: elidex_plugin::SpecLevelPolicy,
     /// Worker-side outgoing `postMessage` data (JSON strings), enqueued by the
     /// worker scope's `postMessage()` (WHATWG HTML §10.2.1.2) and drained by
     /// the worker thread loop into `WorkerToParent::PostMessage`. Empty in a

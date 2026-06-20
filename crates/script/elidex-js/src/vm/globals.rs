@@ -50,6 +50,8 @@ use super::value::{
 #[cfg(feature = "engine")]
 use super::GlobalScopeKind;
 use super::{NativeFn, VmInner};
+#[cfg(feature = "engine")]
+use elidex_plugin::WebApiSpecLevel;
 
 /// §20.2.3 Function.prototype — accepts any arguments, returns undefined.
 fn native_function_prototype_noop(
@@ -480,7 +482,15 @@ impl VmInner {
             // `storage_prototype` when they allocate the cached
             // wrappers.  See `vm/host/window.rs`
             // `register_window_prototype`'s storage-getter install.
-            self.register_storage_global();
+            //
+            // Seam-2 of the A1 core/compat gate: the Web Storage family is
+            // routed through the install policy. Classified `Modern` here in A1
+            // (no API moves) so it installs in every mode exactly as before; A2
+            // demotes it by changing only this level to `Legacy` (HTML §12.2) —
+            // the seam itself does not change.
+            if self.spec_level_policy.installs(WebApiSpecLevel::Modern) {
+                self.register_storage_global();
+            }
             // Crypto / SubtleCrypto (WebCrypto §10 / §14, slot
             // `#11-crypto-subtle-min`).  Both chain to
             // `Object.prototype`.  SubtleCrypto first so the eventual
@@ -654,8 +664,14 @@ impl VmInner {
             self.register_transition_event_global();
             self.register_close_event_global();
             // StorageEvent — chains to Event.prototype, paired with
-            // the `Storage` interface above.  WHATWG HTML §11.4.2.
-            self.register_storage_event_global();
+            // the `Storage` interface above.  WHATWG HTML §12.2.4.
+            //
+            // Seam-2: part of the Web Storage surface, routed through the policy
+            // at `Modern` for now; A2 flips this to `Legacy` together with the
+            // `Storage` install above so the two are gated as one family.
+            if self.spec_level_policy.installs(WebApiSpecLevel::Modern) {
+                self.register_storage_event_global();
+            }
             // M4-12 slot `#11-events-misc` (D-10) — 10 NEW Event
             // constructor classes.  8 chain to Event.prototype, 1
             // chains to UIEvent.prototype (CompositionEvent), 1 chains

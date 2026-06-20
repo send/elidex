@@ -454,7 +454,20 @@ impl VmInner {
         // §11.2).  Read-only getter that returns the cached `Storage`
         // wrapper from `VmInner::alloc_or_cached_storage` so
         // `localStorage === localStorage` holds (`[SameObject]`).
-        self.install_ro_accessors(proto_id, WINDOW_STORAGE_ACCESSORS);
+        //
+        // Seam-1 of the A1 Web-API core/compat gate: this is the Web Storage
+        // family's Window-accessor surface (HTML §12.2.2 / §12.2.3), routed
+        // through the install policy. Classified `Modern` here in A1 (no API
+        // moves — installs in every mode exactly as before); A2 demotes the
+        // whole Web Storage family by changing only this level to `Legacy`,
+        // together with the `Storage`/`StorageEvent` globals in `register_globals`
+        // (seam-2). The seam itself does not change.
+        if self
+            .spec_level_policy
+            .installs(elidex_plugin::WebApiSpecLevel::Modern)
+        {
+            self.install_ro_accessors(proto_id, WINDOW_STORAGE_ACCESSORS);
+        }
         // Event-handler IDL attributes (WHATWG HTML §8.1.8.2.1): Window
         // mixes in GlobalEventHandlers + WindowEventHandlers.  Both
         // target the Window entity directly (`entity_from_this(window)`),

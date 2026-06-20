@@ -430,3 +430,53 @@ elidex-script-session --all-features`.
 > A1 cites no new WHATWG algorithm prose (it implements no algorithm). The HTML rows are the
 > downstream clients of the seams A1 builds, named for traceability only. WHATWG anchors carried
 > verbatim from A0 §7 (already webref-verified there).
+
+---
+
+## §9. As-built notes (implementation, post-#372 rebase)
+
+Recorded so the plan and the landed code agree (no plan↔code drift). Three refinements were
+discovered during implementation; none changes A1's contract (gate mechanism, zero behavior
+change, A2/A3 remain pure level-flips). All built on `webapi-compat-a1` rebased onto
+`d8858d67` (#372 merged); `mise run ci` green.
+
+1. **Carrier = inline policy guard at the demotable install site, not pre-built leveled
+   helper variants (refines §2.1 / §3.3).** Pre-built `install_*_leveled` helpers whose first
+   real caller is A2 are **dead code in A1** (`pub(crate)` unused → `clippy -D warnings`
+   fails; CLAUDE.md forbids dead code). The clean realization is the same predicate inlined at
+   each demotable call site — `if self.spec_level_policy.installs(level) { …install… }` — which
+   is exactly the idiom already chosen for seam-2. A2/A3 still demote by flipping only the
+   `level` literal (`Modern → Legacy`); the seam is unchanged. One predicate
+   (`SpecLevelPolicy::installs` / `installs_dom`), no helper zoo.
+   - **seam-1** (`vm/host/window.rs`): the `WINDOW_STORAGE_ACCESSORS` install is wrapped at
+     `Modern`. (window.rs is collision-free now that #372 has merged.)
+   - **seam-2** (`vm/globals.rs`): `register_storage_global` + `register_storage_event_global`
+     wrapped at `Modern`.
+   - **seam-4** (`elidex-dom-api::create_dom_registry_with_policy`): per-handler withholding
+     closure (registration-time), VM builds it at `init.rs` with the derived policy.
+
+2. **seam-3 (`window.onstorage`) is deferred to A2 (refines §3.3 seam-3 / §5).** `onstorage`
+   is installed as one row of the shared `EVENT_HANDLER_ATTRS` family loop
+   (`install_handler_attr_family`), not a standalone call — it has **no clean Modern caller in
+   A1**, and gating it individually is coupled to A2's `StorageEvent`/`onstorage` demotion
+   (onstorage *fires* `StorageEvent`). A1 ships the policy field that a future seam-3 guard
+   reads; A2 builds the onstorage guard once, alongside the storage demotion (not a re-touch of
+   A1 infra — A1 builds no onstorage infra). The F1 "no seam re-touch" principle is preserved.
+
+3. **`compat-webapi` is a hard ceiling baked into the policy at construction (refines §2.3 /
+   F5).** Rather than per-site `cfg`, the ceiling is applied once in `vm/init.rs`: when
+   `compat-webapi` is off (the `App`-profile build), the derived policy is lowered via
+   `SpecLevelPolicy::with_legacy_excluded()`, so **every** seam inherits the
+   Legacy-exclusion with no per-seam `cfg`. A1 marks nothing `Legacy`, so this is latent today
+   (storage stays `Modern`, installs in all profiles); A2/A3/B rely on it for the app-absence
+   guarantee. A1 does **not** cfg-gate the storage backend (that is A2).
+
+**Anchor drift from #372** (Axis-5 open-time re-grep, superseding §1's pre-rebase lines):
+`register_globals()` call `init.rs:742`; `global_scope_kind` field-set `init.rs:730`; field decl
+`mod.rs:2548`; `engine.rs` `ElidexJsEngine::new` `:38`. The code uses the live lines.
+
+**Test coverage as-built**: policy predicate matrix (elidex-plugin, full mode × level);
+VM stores the mode-derived policy + `StorageEvent` present in all modes / no behavior change
+(elidex-js `tests_webapi_gate`); seam-4 end-to-end withholding with a mock `Legacy` handler +
+Living-survives-core (elidex-dom-api `registry` tests). End-to-end Legacy-exclusion at the VM
+install seams is latent (A1 has nothing `Legacy`) and lands with A2's storage demotion.

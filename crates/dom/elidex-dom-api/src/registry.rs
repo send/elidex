@@ -3,7 +3,7 @@
 //! These factory functions create registries that contain all built-in handlers,
 //! enabling engine-agnostic dispatch by name rather than direct handler references.
 
-use elidex_plugin::PluginRegistry;
+use elidex_plugin::{PluginRegistry, SpecLevelPolicy};
 use elidex_script_session::{CssomApiHandler, DomApiHandler};
 
 /// Type alias for a registry of DOM API handlers.
@@ -12,146 +12,175 @@ pub type DomHandlerRegistry = PluginRegistry<dyn DomApiHandler>;
 /// Type alias for a registry of CSSOM API handlers.
 pub type CssomHandlerRegistry = PluginRegistry<dyn CssomApiHandler>;
 
-/// Create a registry pre-populated with all standard DOM API handlers.
+/// Create a registry pre-populated with all standard DOM API handlers under
+/// the default ([`BrowserCompat`](elidex_plugin::EngineMode::BrowserCompat))
+/// policy — the full compat surface.
+///
+/// Convenience wrapper over [`create_dom_registry_with_policy`] for embedders
+/// that do not select an [`EngineMode`](elidex_plugin::EngineMode) (boa bridge,
+/// wasm-runtime, tests). The elidex-js VM uses the policy-aware variant.
+#[must_use]
+pub fn create_dom_registry() -> DomHandlerRegistry {
+    create_dom_registry_with_policy(SpecLevelPolicy::default())
+}
+
+/// Create a registry pre-populated with the standard DOM API handlers the
+/// `policy` installs (seam-4 of the A1 Web-API core/compat gate).
+///
+/// Handlers whose [`spec_level`](DomApiHandler::spec_level) the `policy`
+/// excludes are **withheld at registration time** — so resolve stays a pure
+/// name→handler map lookup and the policy is a single construction-time
+/// decision (no per-call hot-path check). Every handler is `Living` today, so
+/// `BrowserCompat` and `BrowserCore` currently produce the same set; when B0/B1
+/// classify the live-collection handlers `Legacy`, `BrowserCore`/`App` will
+/// withhold them here.
 #[must_use]
 #[allow(clippy::too_many_lines)]
-pub fn create_dom_registry() -> DomHandlerRegistry {
+pub fn create_dom_registry_with_policy(policy: SpecLevelPolicy) -> DomHandlerRegistry {
     let mut r: DomHandlerRegistry = PluginRegistry::new();
 
+    // Register a handler only if the policy installs its DOM spec level.
+    // (`spec_level()` is read before the handler is moved into the registry.)
+    let mut reg = |name: &'static str, handler: Box<dyn DomApiHandler>| {
+        if policy.installs_dom(handler.spec_level()) {
+            PluginRegistry::register_static(&mut r, name, handler);
+        }
+    };
+
     // --- Document ---
-    r.register_static("querySelector", Box::new(super::QuerySelector));
-    r.register_static("getElementById", Box::new(super::GetElementById));
-    r.register_static("createElement", Box::new(super::CreateElement));
-    r.register_static("createTextNode", Box::new(super::CreateTextNode));
-    r.register_static(
+    reg("querySelector", Box::new(super::QuerySelector));
+    reg("getElementById", Box::new(super::GetElementById));
+    reg("createElement", Box::new(super::CreateElement));
+    reg("createTextNode", Box::new(super::CreateTextNode));
+    reg(
         "createDocumentFragment",
         Box::new(super::char_data::CreateDocumentFragment),
     );
-    r.register_static("createComment", Box::new(super::char_data::CreateComment));
-    r.register_static(
+    reg("createComment", Box::new(super::char_data::CreateComment));
+    reg(
         "createAttribute",
         Box::new(super::char_data::CreateAttribute),
     );
 
     // --- Document properties ---
-    r.register_static("document.URL.get", Box::new(super::GetDocumentUrl));
+    reg("document.URL.get", Box::new(super::GetDocumentUrl));
     // D-31: WHATWG DOM §4.4 Interface Node `baseURI` getter
     // (anchor `#dom-node-baseuri`).  Document-receiver flavour +
     // Node-receiver flavour share the same underlying reader.
-    r.register_static(
+    reg(
         "document.baseURI.get",
         Box::new(super::char_data::GetDocumentBaseURI),
     );
-    r.register_static(
+    reg(
         "node.baseURI.get",
         Box::new(super::char_data::GetNodeBaseURI),
     );
-    r.register_static("document.readyState.get", Box::new(super::GetReadyState));
-    r.register_static("document.compatMode.get", Box::new(super::GetCompatMode));
-    r.register_static(
+    reg("document.readyState.get", Box::new(super::GetReadyState));
+    reg("document.compatMode.get", Box::new(super::GetCompatMode));
+    reg(
         "document.characterSet.get",
         Box::new(super::GetCharacterSet),
     );
-    r.register_static(
+    reg(
         "document.documentElement.get",
         Box::new(super::GetDocumentElement),
     );
-    r.register_static("document.head.get", Box::new(super::GetHead));
-    r.register_static("document.body.get", Box::new(super::GetBody));
-    r.register_static("document.title.get", Box::new(super::GetTitle));
-    r.register_static("document.title.set", Box::new(super::SetTitle));
-    r.register_static("doctype.get", Box::new(super::GetDoctype));
-    r.register_static("doctype.name.get", Box::new(super::GetDoctypeName));
-    r.register_static("doctype.publicId.get", Box::new(super::GetDoctypePublicId));
-    r.register_static("doctype.systemId.get", Box::new(super::GetDoctypeSystemId));
+    reg("document.head.get", Box::new(super::GetHead));
+    reg("document.body.get", Box::new(super::GetBody));
+    reg("document.title.get", Box::new(super::GetTitle));
+    reg("document.title.set", Box::new(super::SetTitle));
+    reg("doctype.get", Box::new(super::GetDoctype));
+    reg("doctype.name.get", Box::new(super::GetDoctypeName));
+    reg("doctype.publicId.get", Box::new(super::GetDoctypePublicId));
+    reg("doctype.systemId.get", Box::new(super::GetDoctypeSystemId));
 
     // --- Element — child mutations ---
-    r.register_static("appendChild", Box::new(super::AppendChild));
-    r.register_static("insertBefore", Box::new(super::InsertBefore));
-    r.register_static("removeChild", Box::new(super::RemoveChild));
-    r.register_static("replaceChild", Box::new(super::ReplaceChild));
+    reg("appendChild", Box::new(super::AppendChild));
+    reg("insertBefore", Box::new(super::InsertBefore));
+    reg("removeChild", Box::new(super::RemoveChild));
+    reg("replaceChild", Box::new(super::ReplaceChild));
 
     // --- Element — attributes ---
-    r.register_static("getAttribute", Box::new(super::GetAttribute));
-    r.register_static("setAttribute", Box::new(super::SetAttribute));
-    r.register_static("removeAttribute", Box::new(super::RemoveAttribute));
-    r.register_static("hasAttribute", Box::new(super::HasAttribute));
-    r.register_static("toggleAttribute", Box::new(super::ToggleAttribute));
-    r.register_static("getAttributeNames", Box::new(super::GetAttributeNames));
-    r.register_static("className.get", Box::new(super::GetClassName));
-    r.register_static("className.set", Box::new(super::SetClassName));
-    r.register_static("id.get", Box::new(super::GetId));
-    r.register_static("id.set", Box::new(super::SetId));
+    reg("getAttribute", Box::new(super::GetAttribute));
+    reg("setAttribute", Box::new(super::SetAttribute));
+    reg("removeAttribute", Box::new(super::RemoveAttribute));
+    reg("hasAttribute", Box::new(super::HasAttribute));
+    reg("toggleAttribute", Box::new(super::ToggleAttribute));
+    reg("getAttributeNames", Box::new(super::GetAttributeNames));
+    reg("className.get", Box::new(super::GetClassName));
+    reg("className.set", Box::new(super::SetClassName));
+    reg("id.get", Box::new(super::GetId));
+    reg("id.set", Box::new(super::SetId));
 
     // --- Attr node ---
-    r.register_static("getAttributeNode", Box::new(super::GetAttributeNode));
-    r.register_static("setAttributeNode", Box::new(super::SetAttributeNode));
-    r.register_static("removeAttributeNode", Box::new(super::RemoveAttributeNode));
-    r.register_static("attr.name.get", Box::new(super::GetAttrName));
-    r.register_static("attr.value.get", Box::new(super::GetAttrValue));
-    r.register_static("attr.value.set", Box::new(super::SetAttrValue));
-    r.register_static("attr.ownerElement.get", Box::new(super::GetOwnerElement));
-    r.register_static("attr.specified.get", Box::new(super::GetAttrSpecified));
+    reg("getAttributeNode", Box::new(super::GetAttributeNode));
+    reg("setAttributeNode", Box::new(super::SetAttributeNode));
+    reg("removeAttributeNode", Box::new(super::RemoveAttributeNode));
+    reg("attr.name.get", Box::new(super::GetAttrName));
+    reg("attr.value.get", Box::new(super::GetAttrValue));
+    reg("attr.value.set", Box::new(super::SetAttrValue));
+    reg("attr.ownerElement.get", Box::new(super::GetOwnerElement));
+    reg("attr.specified.get", Box::new(super::GetAttrSpecified));
 
     // --- Element — content ---
-    r.register_static("textContent.get", Box::new(super::GetTextContentNodeKind));
-    r.register_static("textContent.set", Box::new(super::SetTextContentNodeKind));
-    r.register_static("innerHTML.get", Box::new(super::GetInnerHtml));
-    r.register_static("innerHTML.set", Box::new(super::SetInnerHtml));
-    r.register_static("insertAdjacentHTML", Box::new(super::InsertAdjacentHtml));
+    reg("textContent.get", Box::new(super::GetTextContentNodeKind));
+    reg("textContent.set", Box::new(super::SetTextContentNodeKind));
+    reg("innerHTML.get", Box::new(super::GetInnerHtml));
+    reg("innerHTML.set", Box::new(super::SetInnerHtml));
+    reg("insertAdjacentHTML", Box::new(super::InsertAdjacentHtml));
 
     // --- Layout query ---
-    r.register_static(
+    reg(
         "getBoundingClientRect",
         Box::new(super::GetBoundingClientRect),
     );
-    r.register_static("offsetWidth.get", Box::new(super::GetOffsetWidth));
-    r.register_static("offsetHeight.get", Box::new(super::GetOffsetHeight));
-    r.register_static("offsetTop.get", Box::new(super::GetOffsetTop));
-    r.register_static("offsetLeft.get", Box::new(super::GetOffsetLeft));
-    r.register_static("offsetParent.get", Box::new(super::GetOffsetParent));
-    r.register_static("clientWidth.get", Box::new(super::GetClientWidth));
-    r.register_static("clientHeight.get", Box::new(super::GetClientHeight));
-    r.register_static("clientTop.get", Box::new(super::GetClientTop));
-    r.register_static("clientLeft.get", Box::new(super::GetClientLeft));
-    r.register_static("scrollWidth.get", Box::new(super::GetScrollWidth));
-    r.register_static("scrollHeight.get", Box::new(super::GetScrollHeight));
-    r.register_static("scrollTop.get", Box::new(super::GetScrollTop));
-    r.register_static("scrollLeft.get", Box::new(super::GetScrollLeft));
-    r.register_static("getClientRects", Box::new(super::GetClientRects));
-    r.register_static("scrollIntoView", Box::new(super::ScrollIntoView));
+    reg("offsetWidth.get", Box::new(super::GetOffsetWidth));
+    reg("offsetHeight.get", Box::new(super::GetOffsetHeight));
+    reg("offsetTop.get", Box::new(super::GetOffsetTop));
+    reg("offsetLeft.get", Box::new(super::GetOffsetLeft));
+    reg("offsetParent.get", Box::new(super::GetOffsetParent));
+    reg("clientWidth.get", Box::new(super::GetClientWidth));
+    reg("clientHeight.get", Box::new(super::GetClientHeight));
+    reg("clientTop.get", Box::new(super::GetClientTop));
+    reg("clientLeft.get", Box::new(super::GetClientLeft));
+    reg("scrollWidth.get", Box::new(super::GetScrollWidth));
+    reg("scrollHeight.get", Box::new(super::GetScrollHeight));
+    reg("scrollTop.get", Box::new(super::GetScrollTop));
+    reg("scrollLeft.get", Box::new(super::GetScrollLeft));
+    reg("getClientRects", Box::new(super::GetClientRects));
+    reg("scrollIntoView", Box::new(super::ScrollIntoView));
 
     // --- Element — insertAdjacent ---
-    r.register_static(
+    reg(
         "insertAdjacentElement",
         Box::new(super::InsertAdjacentElement),
     );
-    r.register_static("insertAdjacentText", Box::new(super::InsertAdjacentText));
+    reg("insertAdjacentText", Box::new(super::InsertAdjacentText));
 
     // --- Dataset ---
-    r.register_static("dataset.get", Box::new(super::DatasetGet));
-    r.register_static("dataset.set", Box::new(super::DatasetSet));
-    r.register_static("dataset.delete", Box::new(super::DatasetDelete));
-    r.register_static("dataset.keys", Box::new(super::DatasetKeys));
+    reg("dataset.get", Box::new(super::DatasetGet));
+    reg("dataset.set", Box::new(super::DatasetSet));
+    reg("dataset.delete", Box::new(super::DatasetDelete));
+    reg("dataset.keys", Box::new(super::DatasetKeys));
 
     // --- Style (CSSStyleDeclaration §6.6) ---
-    r.register_static("style.setProperty", Box::new(super::StyleSetProperty));
-    r.register_static(
+    reg("style.setProperty", Box::new(super::StyleSetProperty));
+    reg(
         "style.getPropertyValue",
         Box::new(super::StyleGetPropertyValue),
     );
-    r.register_static("style.removeProperty", Box::new(super::StyleRemoveProperty));
-    r.register_static(
+    reg("style.removeProperty", Box::new(super::StyleRemoveProperty));
+    reg(
         "style.getPropertyPriority",
         Box::new(super::style::StyleGetPropertyPriority),
     );
-    r.register_static("style.length", Box::new(super::style::StyleLength));
-    r.register_static("style.item", Box::new(super::style::StyleItem));
-    r.register_static("style.cssText.get", Box::new(super::style::StyleCssTextGet));
-    r.register_static("style.cssText.set", Box::new(super::style::StyleCssTextSet));
+    reg("style.length", Box::new(super::style::StyleLength));
+    reg("style.item", Box::new(super::style::StyleItem));
+    reg("style.cssText.get", Box::new(super::style::StyleCssTextGet));
+    reg("style.cssText.set", Box::new(super::style::StyleCssTextSet));
 
     // --- CSSOM (formerly via CssomApiHandler — see §M4-12 design review CRIT-2) ---
-    r.register_static("getComputedStyle", Box::new(super::GetComputedStyle));
+    reg("getComputedStyle", Box::new(super::GetComputedStyle));
 
     // --- CSS namespace (CSSOM §6.7) ---
     //
@@ -169,286 +198,286 @@ pub fn create_dom_registry() -> DomHandlerRegistry {
     // Single TokenListHandler factory dispatches by (attr_name, op);
     // /simplify H3 fold of slot `#11-tags-T2a-url-bearing` collapsed
     // 28 unit struct types into 28 const instances.
-    r.register_static("classList.add", Box::new(super::CLASS_LIST_ADD));
-    r.register_static("classList.remove", Box::new(super::CLASS_LIST_REMOVE));
-    r.register_static("classList.toggle", Box::new(super::CLASS_LIST_TOGGLE));
-    r.register_static("classList.contains", Box::new(super::CLASS_LIST_CONTAINS));
-    r.register_static("classList.replace", Box::new(super::CLASS_LIST_REPLACE));
-    r.register_static("classList.value.get", Box::new(super::CLASS_LIST_VALUE_GET));
-    r.register_static("classList.value.set", Box::new(super::CLASS_LIST_VALUE_SET));
-    r.register_static("classList.length", Box::new(super::CLASS_LIST_LENGTH));
-    r.register_static("classList.item", Box::new(super::CLASS_LIST_ITEM));
-    r.register_static("classList.supports", Box::new(super::CLASS_LIST_SUPPORTS));
+    reg("classList.add", Box::new(super::CLASS_LIST_ADD));
+    reg("classList.remove", Box::new(super::CLASS_LIST_REMOVE));
+    reg("classList.toggle", Box::new(super::CLASS_LIST_TOGGLE));
+    reg("classList.contains", Box::new(super::CLASS_LIST_CONTAINS));
+    reg("classList.replace", Box::new(super::CLASS_LIST_REPLACE));
+    reg("classList.value.get", Box::new(super::CLASS_LIST_VALUE_GET));
+    reg("classList.value.set", Box::new(super::CLASS_LIST_VALUE_SET));
+    reg("classList.length", Box::new(super::CLASS_LIST_LENGTH));
+    reg("classList.item", Box::new(super::CLASS_LIST_ITEM));
+    reg("classList.supports", Box::new(super::CLASS_LIST_SUPPORTS));
 
-    r.register_static("relList.add", Box::new(super::REL_LIST_ADD));
-    r.register_static("relList.remove", Box::new(super::REL_LIST_REMOVE));
-    r.register_static("relList.toggle", Box::new(super::REL_LIST_TOGGLE));
-    r.register_static("relList.contains", Box::new(super::REL_LIST_CONTAINS));
-    r.register_static("relList.replace", Box::new(super::REL_LIST_REPLACE));
-    r.register_static("relList.value.get", Box::new(super::REL_LIST_VALUE_GET));
-    r.register_static("relList.value.set", Box::new(super::REL_LIST_VALUE_SET));
-    r.register_static("relList.length", Box::new(super::REL_LIST_LENGTH));
-    r.register_static("relList.item", Box::new(super::REL_LIST_ITEM));
-    r.register_static("relList.supports", Box::new(super::REL_LIST_SUPPORTS));
+    reg("relList.add", Box::new(super::REL_LIST_ADD));
+    reg("relList.remove", Box::new(super::REL_LIST_REMOVE));
+    reg("relList.toggle", Box::new(super::REL_LIST_TOGGLE));
+    reg("relList.contains", Box::new(super::REL_LIST_CONTAINS));
+    reg("relList.replace", Box::new(super::REL_LIST_REPLACE));
+    reg("relList.value.get", Box::new(super::REL_LIST_VALUE_GET));
+    reg("relList.value.set", Box::new(super::REL_LIST_VALUE_SET));
+    reg("relList.length", Box::new(super::REL_LIST_LENGTH));
+    reg("relList.item", Box::new(super::REL_LIST_ITEM));
+    reg("relList.supports", Box::new(super::REL_LIST_SUPPORTS));
 
-    r.register_static("linkSizes.add", Box::new(super::LINK_SIZES_ADD));
-    r.register_static("linkSizes.remove", Box::new(super::LINK_SIZES_REMOVE));
-    r.register_static("linkSizes.toggle", Box::new(super::LINK_SIZES_TOGGLE));
-    r.register_static("linkSizes.contains", Box::new(super::LINK_SIZES_CONTAINS));
-    r.register_static("linkSizes.replace", Box::new(super::LINK_SIZES_REPLACE));
-    r.register_static("linkSizes.value.get", Box::new(super::LINK_SIZES_VALUE_GET));
-    r.register_static("linkSizes.value.set", Box::new(super::LINK_SIZES_VALUE_SET));
-    r.register_static("linkSizes.length", Box::new(super::LINK_SIZES_LENGTH));
-    r.register_static("linkSizes.item", Box::new(super::LINK_SIZES_ITEM));
-    r.register_static("linkSizes.supports", Box::new(super::LINK_SIZES_SUPPORTS));
+    reg("linkSizes.add", Box::new(super::LINK_SIZES_ADD));
+    reg("linkSizes.remove", Box::new(super::LINK_SIZES_REMOVE));
+    reg("linkSizes.toggle", Box::new(super::LINK_SIZES_TOGGLE));
+    reg("linkSizes.contains", Box::new(super::LINK_SIZES_CONTAINS));
+    reg("linkSizes.replace", Box::new(super::LINK_SIZES_REPLACE));
+    reg("linkSizes.value.get", Box::new(super::LINK_SIZES_VALUE_GET));
+    reg("linkSizes.value.set", Box::new(super::LINK_SIZES_VALUE_SET));
+    reg("linkSizes.length", Box::new(super::LINK_SIZES_LENGTH));
+    reg("linkSizes.item", Box::new(super::LINK_SIZES_ITEM));
+    reg("linkSizes.supports", Box::new(super::LINK_SIZES_SUPPORTS));
 
     // `<output>.htmlFor` DOMTokenList family — slot `#11-tags-T2d-interactive`.
-    r.register_static("outputHtmlFor.add", Box::new(super::OUTPUT_HTML_FOR_ADD));
-    r.register_static(
+    reg("outputHtmlFor.add", Box::new(super::OUTPUT_HTML_FOR_ADD));
+    reg(
         "outputHtmlFor.remove",
         Box::new(super::OUTPUT_HTML_FOR_REMOVE),
     );
-    r.register_static(
+    reg(
         "outputHtmlFor.toggle",
         Box::new(super::OUTPUT_HTML_FOR_TOGGLE),
     );
-    r.register_static(
+    reg(
         "outputHtmlFor.contains",
         Box::new(super::OUTPUT_HTML_FOR_CONTAINS),
     );
-    r.register_static(
+    reg(
         "outputHtmlFor.replace",
         Box::new(super::OUTPUT_HTML_FOR_REPLACE),
     );
-    r.register_static(
+    reg(
         "outputHtmlFor.value.get",
         Box::new(super::OUTPUT_HTML_FOR_VALUE_GET),
     );
-    r.register_static(
+    reg(
         "outputHtmlFor.value.set",
         Box::new(super::OUTPUT_HTML_FOR_VALUE_SET),
     );
-    r.register_static(
+    reg(
         "outputHtmlFor.length",
         Box::new(super::OUTPUT_HTML_FOR_LENGTH),
     );
-    r.register_static("outputHtmlFor.item", Box::new(super::OUTPUT_HTML_FOR_ITEM));
-    r.register_static(
+    reg("outputHtmlFor.item", Box::new(super::OUTPUT_HTML_FOR_ITEM));
+    reg(
         "outputHtmlFor.supports",
         Box::new(super::OUTPUT_HTML_FOR_SUPPORTS),
     );
 
     // --- HTMLHyperlinkElementUtils mixin (anchor / area, slot #11-tags-T2a-url-bearing) ---
-    r.register_static("hyperlink.href.get", Box::new(super::HyperlinkHrefGet));
-    r.register_static("hyperlink.href.set", Box::new(super::HyperlinkHrefSet));
-    r.register_static("hyperlink.origin.get", Box::new(super::HyperlinkOriginGet));
-    r.register_static(
+    reg("hyperlink.href.get", Box::new(super::HyperlinkHrefGet));
+    reg("hyperlink.href.set", Box::new(super::HyperlinkHrefSet));
+    reg("hyperlink.origin.get", Box::new(super::HyperlinkOriginGet));
+    reg(
         "hyperlink.protocol.get",
         Box::new(super::HyperlinkProtocolGet),
     );
-    r.register_static(
+    reg(
         "hyperlink.protocol.set",
         Box::new(super::HyperlinkProtocolSet),
     );
-    r.register_static(
+    reg(
         "hyperlink.username.get",
         Box::new(super::HyperlinkUsernameGet),
     );
-    r.register_static(
+    reg(
         "hyperlink.username.set",
         Box::new(super::HyperlinkUsernameSet),
     );
-    r.register_static(
+    reg(
         "hyperlink.password.get",
         Box::new(super::HyperlinkPasswordGet),
     );
-    r.register_static(
+    reg(
         "hyperlink.password.set",
         Box::new(super::HyperlinkPasswordSet),
     );
-    r.register_static("hyperlink.host.get", Box::new(super::HyperlinkHostGet));
-    r.register_static("hyperlink.host.set", Box::new(super::HyperlinkHostSet));
-    r.register_static(
+    reg("hyperlink.host.get", Box::new(super::HyperlinkHostGet));
+    reg("hyperlink.host.set", Box::new(super::HyperlinkHostSet));
+    reg(
         "hyperlink.hostname.get",
         Box::new(super::HyperlinkHostnameGet),
     );
-    r.register_static(
+    reg(
         "hyperlink.hostname.set",
         Box::new(super::HyperlinkHostnameSet),
     );
-    r.register_static("hyperlink.port.get", Box::new(super::HyperlinkPortGet));
-    r.register_static("hyperlink.port.set", Box::new(super::HyperlinkPortSet));
-    r.register_static(
+    reg("hyperlink.port.get", Box::new(super::HyperlinkPortGet));
+    reg("hyperlink.port.set", Box::new(super::HyperlinkPortSet));
+    reg(
         "hyperlink.pathname.get",
         Box::new(super::HyperlinkPathnameGet),
     );
-    r.register_static(
+    reg(
         "hyperlink.pathname.set",
         Box::new(super::HyperlinkPathnameSet),
     );
-    r.register_static("hyperlink.search.get", Box::new(super::HyperlinkSearchGet));
-    r.register_static("hyperlink.search.set", Box::new(super::HyperlinkSearchSet));
-    r.register_static("hyperlink.hash.get", Box::new(super::HyperlinkHashGet));
-    r.register_static("hyperlink.hash.set", Box::new(super::HyperlinkHashSet));
-    r.register_static("hyperlink.toString", Box::new(super::HyperlinkToString));
+    reg("hyperlink.search.get", Box::new(super::HyperlinkSearchGet));
+    reg("hyperlink.search.set", Box::new(super::HyperlinkSearchSet));
+    reg("hyperlink.hash.get", Box::new(super::HyperlinkHashGet));
+    reg("hyperlink.hash.set", Box::new(super::HyperlinkHashSet));
+    reg("hyperlink.toString", Box::new(super::HyperlinkToString));
 
     // --- Tree navigation ---
-    r.register_static("parentNode.get", Box::new(super::GetParentNode));
-    r.register_static("parentElement.get", Box::new(super::GetParentElement));
-    r.register_static("firstChild.get", Box::new(super::GetFirstChild));
-    r.register_static("lastChild.get", Box::new(super::GetLastChild));
-    r.register_static("nextSibling.get", Box::new(super::GetNextSibling));
-    r.register_static("previousSibling.get", Box::new(super::GetPrevSibling));
-    r.register_static(
+    reg("parentNode.get", Box::new(super::GetParentNode));
+    reg("parentElement.get", Box::new(super::GetParentElement));
+    reg("firstChild.get", Box::new(super::GetFirstChild));
+    reg("lastChild.get", Box::new(super::GetLastChild));
+    reg("nextSibling.get", Box::new(super::GetNextSibling));
+    reg("previousSibling.get", Box::new(super::GetPrevSibling));
+    reg(
         "firstElementChild.get",
         Box::new(super::GetFirstElementChild),
     );
-    r.register_static("lastElementChild.get", Box::new(super::GetLastElementChild));
-    r.register_static(
+    reg("lastElementChild.get", Box::new(super::GetLastElementChild));
+    reg(
         "nextElementSibling.get",
         Box::new(super::GetNextElementSibling),
     );
-    r.register_static(
+    reg(
         "previousElementSibling.get",
         Box::new(super::GetPrevElementSibling),
     );
 
     // --- Node info ---
-    r.register_static("tagName.get", Box::new(super::GetTagName));
-    r.register_static("nodeName.get", Box::new(super::GetNodeName));
-    r.register_static("nodeType.get", Box::new(super::GetNodeType));
-    r.register_static("nodeValue.get", Box::new(super::tree_nav::GetNodeValue));
-    r.register_static(
+    reg("tagName.get", Box::new(super::GetTagName));
+    reg("nodeName.get", Box::new(super::GetNodeName));
+    reg("nodeType.get", Box::new(super::GetNodeType));
+    reg("nodeValue.get", Box::new(super::tree_nav::GetNodeValue));
+    reg(
         "childElementCount.get",
         Box::new(super::GetChildElementCount),
     );
-    r.register_static("hasChildNodes", Box::new(super::HasChildNodes));
+    reg("hasChildNodes", Box::new(super::HasChildNodes));
 
     // --- Node methods ---
-    r.register_static("contains", Box::new(super::Contains));
-    r.register_static(
+    reg("contains", Box::new(super::Contains));
+    reg(
         "compareDocumentPosition",
         Box::new(super::CompareDocumentPosition),
     );
-    r.register_static("cloneNode", Box::new(super::CloneNode));
-    r.register_static("normalize", Box::new(super::Normalize));
-    r.register_static("isConnected.get", Box::new(super::IsConnected));
-    r.register_static("getRootNode", Box::new(super::GetRootNode));
-    r.register_static("nodeValue.set", Box::new(super::SetNodeValue));
-    r.register_static("ownerDocument.get", Box::new(super::OwnerDocument));
-    r.register_static("isSameNode", Box::new(super::IsSameNode));
-    r.register_static("isEqualNode", Box::new(super::IsEqualNode));
+    reg("cloneNode", Box::new(super::CloneNode));
+    reg("normalize", Box::new(super::Normalize));
+    reg("isConnected.get", Box::new(super::IsConnected));
+    reg("getRootNode", Box::new(super::GetRootNode));
+    reg("nodeValue.set", Box::new(super::SetNodeValue));
+    reg("ownerDocument.get", Box::new(super::OwnerDocument));
+    reg("isSameNode", Box::new(super::IsSameNode));
+    reg("isEqualNode", Box::new(super::IsEqualNode));
 
     // --- ChildNode mixin ---
-    r.register_static("before", Box::new(super::Before));
-    r.register_static("after", Box::new(super::After));
-    r.register_static("remove", Box::new(super::ChildNodeRemove));
-    r.register_static("replaceWith", Box::new(super::ReplaceWith));
+    reg("before", Box::new(super::Before));
+    reg("after", Box::new(super::After));
+    reg("remove", Box::new(super::ChildNodeRemove));
+    reg("replaceWith", Box::new(super::ReplaceWith));
 
     // --- ParentNode mixin ---
-    r.register_static("prepend", Box::new(super::Prepend));
-    r.register_static("append", Box::new(super::Append));
-    r.register_static("replaceChildren", Box::new(super::ReplaceChildren));
+    reg("prepend", Box::new(super::Prepend));
+    reg("append", Box::new(super::Append));
+    reg("replaceChildren", Box::new(super::ReplaceChildren));
 
     // --- Element selectors ---
-    r.register_static("matches", Box::new(super::Matches));
-    r.register_static("closest", Box::new(super::Closest));
+    reg("matches", Box::new(super::Matches));
+    reg("closest", Box::new(super::Closest));
 
     // --- CharacterData ---
-    r.register_static("data.get", Box::new(super::GetData));
-    r.register_static("data.set", Box::new(super::SetData));
-    r.register_static("length.get", Box::new(super::GetLength));
-    r.register_static("substringData", Box::new(super::SubstringData));
-    r.register_static("appendData", Box::new(super::AppendData));
-    r.register_static("insertData", Box::new(super::InsertData));
-    r.register_static("deleteData", Box::new(super::DeleteData));
-    r.register_static("replaceData", Box::new(super::ReplaceData));
-    r.register_static("splitText", Box::new(super::SplitText));
+    reg("data.get", Box::new(super::GetData));
+    reg("data.set", Box::new(super::SetData));
+    reg("length.get", Box::new(super::GetLength));
+    reg("substringData", Box::new(super::SubstringData));
+    reg("appendData", Box::new(super::AppendData));
+    reg("insertData", Box::new(super::InsertData));
+    reg("deleteData", Box::new(super::DeleteData));
+    reg("replaceData", Box::new(super::ReplaceData));
+    reg("splitText", Box::new(super::SplitText));
 
     // --- HTMLTable family (`#11-tags-T2c-table`) ---
-    r.register_static(
+    reg(
         "table.insertRow",
         Box::new(super::element::table_mutation::TableInsertRow),
     );
-    r.register_static(
+    reg(
         "table.deleteRow",
         Box::new(super::element::table_mutation::TableDeleteRow),
     );
-    r.register_static(
+    reg(
         "section.insertRow",
         Box::new(super::element::table_mutation::SectionInsertRow),
     );
-    r.register_static(
+    reg(
         "section.deleteRow",
         Box::new(super::element::table_mutation::SectionDeleteRow),
     );
-    r.register_static(
+    reg(
         "row.insertCell",
         Box::new(super::element::table_mutation::RowInsertCell),
     );
-    r.register_static(
+    reg(
         "row.deleteCell",
         Box::new(super::element::table_mutation::RowDeleteCell),
     );
-    r.register_static(
+    reg(
         "table.createTHead",
         Box::new(super::element::table_mutation::TableCreateTHead),
     );
-    r.register_static(
+    reg(
         "table.createTFoot",
         Box::new(super::element::table_mutation::TableCreateTFoot),
     );
-    r.register_static(
+    reg(
         "table.createCaption",
         Box::new(super::element::table_mutation::TableCreateCaption),
     );
-    r.register_static(
+    reg(
         "table.createTBody",
         Box::new(super::element::table_mutation::TableCreateTBody),
     );
-    r.register_static(
+    reg(
         "table.deleteTHead",
         Box::new(super::element::table_mutation::TableDeleteTHead),
     );
-    r.register_static(
+    reg(
         "table.deleteTFoot",
         Box::new(super::element::table_mutation::TableDeleteTFoot),
     );
-    r.register_static(
+    reg(
         "table.deleteCaption",
         Box::new(super::element::table_mutation::TableDeleteCaption),
     );
-    r.register_static(
+    reg(
         "table.tHead.set",
         Box::new(super::element::table_mutation::TableSetTHead),
     );
-    r.register_static(
+    reg(
         "table.tFoot.set",
         Box::new(super::element::table_mutation::TableSetTFoot),
     );
-    r.register_static(
+    reg(
         "table.caption.set",
         Box::new(super::element::table_mutation::TableSetCaption),
     );
 
     // --- CSSOM stylesheet (`#11-style-declaration` PR-B) ---
-    r.register_static("cssRules.length", Box::new(super::CssRulesLength));
-    r.register_static("cssRules.itemId", Box::new(super::CssRulesItemId));
-    r.register_static("stylesheet.insertRule", Box::new(super::InsertRule));
-    r.register_static("stylesheet.deleteRule", Box::new(super::DeleteRule));
-    r.register_static("rule.cssText.get", Box::new(super::RuleCssText));
-    r.register_static("rule.selectorText.get", Box::new(super::RuleSelectorText));
-    r.register_static(
+    reg("cssRules.length", Box::new(super::CssRulesLength));
+    reg("cssRules.itemId", Box::new(super::CssRulesItemId));
+    reg("stylesheet.insertRule", Box::new(super::InsertRule));
+    reg("stylesheet.deleteRule", Box::new(super::DeleteRule));
+    reg("rule.cssText.get", Box::new(super::RuleCssText));
+    reg("rule.selectorText.get", Box::new(super::RuleSelectorText));
+    reg(
         "rule.style.getPropertyValue",
         Box::new(super::RuleStyleGetPropertyValue),
     );
-    r.register_static(
+    reg(
         "rule.style.getPropertyPriority",
         Box::new(super::RuleStyleGetPropertyPriority),
     );
-    r.register_static("rule.style.length", Box::new(super::RuleStyleLength));
-    r.register_static("rule.style.item", Box::new(super::RuleStyleItem));
-    r.register_static("rule.style.cssText.get", Box::new(super::RuleStyleCssText));
+    reg("rule.style.length", Box::new(super::RuleStyleLength));
+    reg("rule.style.item", Box::new(super::RuleStyleItem));
+    reg("rule.style.cssText.get", Box::new(super::RuleStyleCssText));
 
     r
 }
@@ -643,5 +672,79 @@ mod tests {
     fn unknown_name_returns_none() {
         let registry = create_dom_registry();
         assert!(registry.resolve("nonExistentMethod").is_none());
+    }
+
+    // --- A1 Web-API core/compat gate (seam-4) ---
+
+    use elidex_ecs::{EcsDom, Entity};
+    use elidex_plugin::{DomSpecLevel, EngineMode, JsValue};
+    use elidex_script_session::{DomApiError, SessionCore};
+
+    /// A mock `Legacy`-classified DOM handler (e.g. a live-collection getter
+    /// once B0 demotes the family). Never invoked — only its `spec_level` and
+    /// registration/withholding are exercised.
+    struct MockLegacyHandler;
+    impl DomApiHandler for MockLegacyHandler {
+        fn method_name(&self) -> &str {
+            "mockLegacy"
+        }
+        fn spec_level(&self) -> DomSpecLevel {
+            DomSpecLevel::Legacy
+        }
+        fn invoke(
+            &self,
+            _this: Entity,
+            _args: &[JsValue],
+            _session: &mut SessionCore,
+            _dom: &mut EcsDom,
+        ) -> Result<JsValue, DomApiError> {
+            unreachable!("mock handler is never invoked")
+        }
+    }
+
+    #[test]
+    fn policy_wrapper_matches_default() {
+        // The no-arg convenience wrapper == the policy-aware variant under the
+        // default (BrowserCompat) policy.
+        let a = create_dom_registry();
+        let b = create_dom_registry_with_policy(EngineMode::BrowserCompat.spec_level_policy());
+        assert_eq!(a.len(), b.len());
+    }
+
+    #[test]
+    fn living_handlers_survive_a_legacy_excluding_policy() {
+        // Every real handler is `Living` today, so a BrowserCore (Legacy-
+        // excluding) policy must withhold none of them — no over-prune.
+        let compat = create_dom_registry_with_policy(EngineMode::BrowserCompat.spec_level_policy());
+        let core = create_dom_registry_with_policy(EngineMode::BrowserCore.spec_level_policy());
+        assert_eq!(compat.len(), core.len());
+        assert!(core.resolve("querySelector").is_some());
+        assert!(core.resolve("setAttribute").is_some());
+    }
+
+    #[test]
+    fn legacy_handler_withheld_under_core_policy() {
+        // Seam-4 end-to-end: a `Legacy`-classified handler registers under
+        // BrowserCompat but is withheld under BrowserCore/App — the exact
+        // `if policy.installs_dom(handler.spec_level()) { register }` gate that
+        // `create_dom_registry_with_policy` applies (here with an injectable
+        // mock, since the real handler set is all-`Living` today).
+        for (mode, expect_present) in [
+            (EngineMode::BrowserCompat, true),
+            (EngineMode::BrowserCore, false),
+            (EngineMode::App, false),
+        ] {
+            let policy = mode.spec_level_policy();
+            let mut r: DomHandlerRegistry = PluginRegistry::new();
+            let handler: Box<dyn DomApiHandler> = Box::new(MockLegacyHandler);
+            if policy.installs_dom(handler.spec_level()) {
+                r.register_static("mockLegacy", handler);
+            }
+            assert_eq!(
+                r.resolve("mockLegacy").is_some(),
+                expect_present,
+                "{mode:?}: Legacy handler presence mismatch"
+            );
+        }
     }
 }
