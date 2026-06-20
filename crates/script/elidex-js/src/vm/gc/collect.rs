@@ -1359,8 +1359,10 @@ impl VmInner {
                 .retain(|_, signal_id| bit_get(marks, signal_id.0));
             // Live `MediaQueryList` registry (CSSOM-View §4.2): prune
             // entries whose MQL `ObjectId` was collected so a recycled
-            // slot never inherits a stale `{parsed, last_matches}`.  The
-            // value is `ObjectId`/`JsValue`-free, so there is no trace
+            // slot never inherits a stale entry (the `seq` field also
+            // guards this in `deliver_media_query_changes`, but a dropped
+            // MQL still has its entry pruned here).  The value is
+            // `ObjectId`/`JsValue`-free, so there is no trace
             // pass — this sweep-prune is the ONLY GC delete-path and it
             // balances the `matchMedia` insert write-path.
             self.media_query_list_registry

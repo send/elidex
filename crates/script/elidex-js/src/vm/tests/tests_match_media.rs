@@ -664,3 +664,177 @@ fn deliver_is_noop_while_unbound() {
     vm.deliver_media_query_changes(); // unbound → no-op
     assert!(eval_bool(&mut vm, "fired === 0;"));
 }
+
+// --- Codex R1: ObjectId is recycle-prone, not a stable/monotonic identity ---
+
+#[test]
+fn report_order_follows_creation_seq_not_recycled_object_id() {
+    // C2 (CSSOM-View §4.2 creation order): `alloc_object` recycles a collected
+    // MQL's `ObjectId` via the GC free-list, so a *newer* MQL can hold a
+    // *lower* id than an older live one. Report order must follow creation
+    // order (`MediaQueryEntry::seq`), not the recycle-prone `ObjectId` key.
+    with_bound_vm(|vm| {
+        // `a` (lowest id) will be dropped; `b` stays live (higher id).
+        vm.eval(
+            "globalThis.log = []; \
+             globalThis.a = matchMedia('(min-width: 1500px)'); \
+             globalThis.b = matchMedia('(min-width: 1500px)'); \
+             b.addEventListener('change', function () { log.push('b'); });",
+        )
+        .unwrap();
+        let id_b = match vm.eval("globalThis.b;").unwrap() {
+            JsValue::Object(id) => id,
+            other => panic!("expected object, got {other:?}"),
+        };
+        // Drop `a` + GC: its (low) `ObjectId` slot goes on the free-list.
+        vm.eval("globalThis.a = null;").unwrap();
+        vm.inner.collect_garbage();
+        // `c` is created LAST (highest `seq`) but its MQL is the first object
+        // allocated after the GC, so it reuses `a`'s freed (low) slot.
+        vm.eval(
+            "globalThis.c = matchMedia('(min-width: 1500px)'); \
+             c.addEventListener('change', function () { log.push('c'); });",
+        )
+        .unwrap();
+        let id_c = match vm.eval("globalThis.c;").unwrap() {
+            JsValue::Object(id) => id,
+            other => panic!("expected object, got {other:?}"),
+        };
+        assert!(
+            id_c.0 < id_b.0,
+            "precondition: `c` must reuse `a`'s recycled (lower) slot so id \
+             order (c,b) inverts creation order (b,c) — id_c={}, id_b={}",
+            id_c.0,
+            id_b.0,
+        );
+        // 1024 → 1600: both `b` and `c` flip true. Report order must be the
+        // creation order b, then c (`seq`), NOT the id order c, then b.
+        vm.set_media_environment(
+            1600.0,
+            900.0,
+            1.0,
+            ColorScheme::Light,
+            ReducedMotion::NoPreference,
+        );
+        vm.deliver_media_query_changes();
+        assert_eq!(eval_string(vm, "log.join(',');"), "b,c");
+    });
+}
+
+#[test]
+fn recycle_during_dispatch_is_safe_and_fires_no_stale_change() {
+    // C1: a `change` listener drops another flipped MQL mid-dispatch and, under
+    // a GC that runs between phase A (snapshot) and phase B (fire), that MQL's
+    // `ObjectId` can be collected + recycled. The phase-B liveness check must
+    // re-verify the snapshotted `seq` (recycle-immune), not just `contains_key`,
+    // so a recycled slot never receives this turn's stale snapshot — and the
+    // pass must not panic on the freed entry.
+    //
+    // NOTE: forcing the recycled slot to be re-occupied by a *new MQL* is not
+    // deterministic here — MQL allocation runs inside the native `matchMedia`
+    // call where GC is disabled, so the collecting GC is necessarily a separate
+    // JS-level allocation (which itself consumes the freed slot first). The
+    // discriminating "`seq` is the post-recycle identity / report order"
+    // property is covered by `report_order_follows_creation_seq_*`; this test
+    // guards the GC-during-dispatch safety + no-spurious-fire half.
+    with_bound_vm(|vm| {
+        // `keeper` flips first (lowest `seq`); its listener drops `victim` then
+        // allocates at JS level to drive a GC while phase B is still in flight.
+        vm.eval(
+            "globalThis.recycledFired = false; \
+             globalThis.keeper = matchMedia('(min-width: 1500px)'); \
+             globalThis.victim = matchMedia('(min-width: 1500px)'); \
+             keeper.addEventListener('change', function () { \
+                 victim = null; \
+                 let sink = []; \
+                 for (let i = 0; i < 8; i++) { sink.push({}); } \
+                 globalThis.recycled = matchMedia('(min-width: 1500px)'); \
+                 recycled.addEventListener('change', function () { \
+                     recycledFired = true; \
+                 }); \
+             });",
+        )
+        .unwrap();
+        // GC on every JS-level allocation so the listener's `{}` literals
+        // collect the just-dropped `victim` mid-dispatch (the C1 race window).
+        vm.inner.gc_threshold = 0;
+        // 1024 → 1600: both `keeper` and `victim` flip; phase B fires `keeper`
+        // first, whose listener performs the drop + GC before the loop reaches
+        // `victim`'s snapshotted id.
+        vm.set_media_environment(
+            1600.0,
+            900.0,
+            1.0,
+            ColorScheme::Light,
+            ReducedMotion::NoPreference,
+        );
+        vm.deliver_media_query_changes(); // must not panic on the freed entry
+        assert!(
+            eval_bool(vm, "recycledFired === false;"),
+            "a slot recycled mid-dispatch must not receive the stale snapshot's \
+             `change` (seq identity re-check, not contains_key)",
+        );
+    });
+}
+
+#[test]
+fn retained_prior_document_mql_is_inert_after_rebind() {
+    // C3 (CSSOM-View §4.2 associated-document scope): the registry survives
+    // unbind, so a retained MQL from a prior document persists. Its `change`
+    // listener must NOT fire during a *new* document's report-changes pass —
+    // the `bind_epoch` tag scopes delivery to current-document MQLs, while a
+    // freshly-created MQL in the new document fires normally.
+    let mut vm = Vm::new();
+    vm.install_host_data(HostData::new());
+
+    // --- Document 1: create a live MQL + listener, then unbind. ---
+    let mut session_one = SessionCore::new();
+    let mut dom_one = EcsDom::new();
+    let root_one = dom_one.create_document_root();
+    #[allow(unsafe_code)]
+    unsafe {
+        vm.bind(&raw mut session_one, &raw mut dom_one, root_one);
+    }
+    vm.eval(
+        "globalThis.oldFired = 0; \
+         globalThis.oldM = matchMedia('(min-width: 1500px)'); \
+         oldM.addEventListener('change', function () { oldFired++; });",
+    )
+    .unwrap();
+    vm.unbind();
+
+    // --- Document 2: a different binding. ---
+    let mut session_two = SessionCore::new();
+    let mut dom_two = EcsDom::new();
+    let root_two = dom_two.create_document_root();
+    #[allow(unsafe_code)]
+    unsafe {
+        vm.bind(&raw mut session_two, &raw mut dom_two, root_two);
+    }
+    // A FRESH MQL created in document 2 (current epoch) — the control that
+    // proves the deliver path + listener mechanism still fire in the new
+    // document, so a missing `oldM` fire is the epoch filter, not a broken
+    // deliver.
+    vm.eval(
+        "globalThis.newFired = 0; \
+         globalThis.newM = matchMedia('(min-width: 1500px)'); \
+         newM.addEventListener('change', function () { newFired++; });",
+    )
+    .unwrap();
+    // 1024 → 1600 flips BOTH queries' results, but only the doc2 MQL is in the
+    // current document's pass.
+    vm.set_media_environment(
+        1600.0,
+        900.0,
+        1.0,
+        ColorScheme::Light,
+        ReducedMotion::NoPreference,
+    );
+    vm.deliver_media_query_changes();
+    assert!(
+        eval_bool(&mut vm, "oldFired === 0 && newFired === 1;"),
+        "the retained doc1 MQL must be inert (oldFired=0) while the doc2 MQL \
+         fires (newFired=1)",
+    );
+    vm.unbind();
+}

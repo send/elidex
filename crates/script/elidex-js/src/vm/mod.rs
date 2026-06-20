@@ -1164,14 +1164,20 @@ pub(crate) struct VmInner {
     /// Live `MediaQueryList` registry (CSSOM-View §4.2), keyed by the
     /// MQL's own `ObjectId`.  Full member of the `abort_signal_states`
     /// canonical ObjectId-keyed side-table contract: a `HashMap` (same
-    /// shape as `abort_signal_states`, not an order-keyed map —
-    /// registration order is recoverable from the monotonic `ObjectId`
-    /// when 2b-ii iterates for report-changes, so the canonical
-    /// `HashMap` is kept rather than pulling in a new ordered-map dep).
+    /// shape as `abort_signal_states`, not an order-keyed map). Creation
+    /// **order and identity are carried by [`MediaQueryEntry::seq`]**, NOT
+    /// the key: the GC free-list (`alloc_object` → `free_objects.pop()`)
+    /// recycles a collected MQL's `ObjectId`, so `ObjectId` is neither a
+    /// stable identity nor a monotonic creation order — `seq` (a
+    /// `media_query_list_next_seq`-sourced monotonic `u64`, the
+    /// `observer_id` precedent) is. So the canonical `HashMap` is kept
+    /// rather than pulling in an ordered-map dep, and report-changes sorts
+    /// by `seq`.
     ///
-    /// Value = [`host::media_query::MediaQueryEntry`] (the parsed AST +
-    /// the `last_matches` snapshot). The `matches` result is *derived*
-    /// via `elidex_css::media::evaluate`; `last_matches` is only the
+    /// Value = [`host::media_query::MediaQueryEntry`] (the parsed AST,
+    /// the `last_matches` flip-prior, `seq`, and the `bind_epoch`
+    /// associated-document tag). The `matches` result is *derived* via
+    /// `elidex_css::media::evaluate`; `last_matches` is only the
     /// flip-detection prior, never a competing SoT.
     ///
     /// GC contract (differs from `abort_signal_states` in the trace
@@ -1181,10 +1187,20 @@ pub(crate) struct VmInner {
     /// whose key `ObjectId` was collected so a recycled slot never
     /// inherits a stale entry. **Survives `Vm::unbind`** (the value
     /// binds to no DOM entity / browsing-context resource), matching
-    /// `abort_signal_states` — a retained MQL keeps evaluating after a
-    /// rebind.
+    /// `abort_signal_states`; but a survivor belongs to its creating
+    /// document, so `deliver_media_query_changes` filters by `bind_epoch`
+    /// (the `StaticRange` invalidate-don't-drop contract) — a retained MQL
+    /// is inert for a *foreign* document's report-changes pass.
     #[cfg(feature = "engine")]
     pub(crate) media_query_list_registry: HashMap<ObjectId, host::media_query::MediaQueryEntry>,
+    /// Monotonic source for [`MediaQueryEntry::seq`] — the recycle-immune
+    /// creation identity / report order for `media_query_list_registry`
+    /// (the `ObjectId` key is recycled by the GC free-list, so it cannot
+    /// serve either role). Bumped once per `create_media_query_list`;
+    /// never reset (a plain VM-lifetime counter, the `ws_next_conn_id`
+    /// precedent).
+    #[cfg(feature = "engine")]
+    pub(crate) media_query_list_next_seq: u64,
     /// Reverse index from a `ListenerId` (registered via
     /// `addEventListener(type, cb, {signal})`) back to the
     /// `AbortSignal` `ObjectId` that owns it.  Lets
