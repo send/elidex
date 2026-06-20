@@ -4,8 +4,27 @@ Audit date: 2026-06-20 JST
 Status: **DOC ONLY — no `.rs` change.** This is the B0 deliverable of the
 philosophy-alignment umbrella (`docs/plans/2026-06-elidex-philosophy-alignment-umbrella.md`,
 Program B). It confirms the F3 mechanism end-to-end against current `main`
-(HEAD `b09f2ba9`) and recommends the canonical path for B1/B2.
+(HEAD `76c1677f`) and recommends the canonical path for B1/B2.
 Audience: Claude / maintainers (and Codex via the review guidelines below).
+
+> **§4 direction correction (this revision).** An earlier revision recommended
+> Option 1 — making `MutationObserver` a consumer of the `EcsDom`
+> `ConsumerDispatcher`. That recommendation was **anchored to the current code's
+> shape** ("the code already fans out through `ConsumerDispatcher`, so ride it")
+> rather than to the root mandate, and it is **wrong**. `CLAUDE.md` L16 makes the
+> direction unique: *"ScriptSession as the sole Script↔ECS boundary … 書き込みは
+> session mutation と flush point に集約し、SameObject・**MutationObserver**・
+> atomic script-task visibility を同一機構で守る."* MutationObserver visibility is
+> a **ScriptSession-seam responsibility** (mutation buffer + flush), not an
+> `EcsDom`-layer one. Option 1 inverts this — it puts a *script-observable*
+> responsibility into the engine-internal `EcsDom` layer and **bypasses** the
+> ScriptSession boundary. §4 below is re-derived from the mandate: **the
+> ScriptSession seam owns MutationObserver record production** (a corrected
+> Option 2), while the `ConsumerDispatcher` is kept, honestly scoped, as the
+> engine-internal *derived-state reconciliation* mechanism it actually is
+> (§2.1 — it is **not** script-observable). See §4 for the flip and for how each
+> of the six Codex-R2 findings (8YcV / 8YcT / 8YcR / 8YcO / 8YcW / 8YcL) is
+> subsumed by this single structural correction.
 
 > **Runtime caveat (read first).** The audit below traces the **elidex-js VM**
 > (`crates/script/elidex-js`). But the **production shell still runs boa**:
@@ -16,16 +35,20 @@ Audience: Claude / maintainers (and Codex via the review guidelines below).
 > `set_mutation_dispatcher` install in `elidex-js-boa` or `elidex-shell`. So
 > Mechanism A (§2.1) is **VM-only**; today's production (boa) reaches
 > MutationObserver exclusively through the session buffer + `deliver_mutation_records`
-> path (§2.2). This makes the §4 recommendation **dual-runtime** and couples the
-> canonical-path landing to S5/boa removal — see §0, §2, §4.
+> path (§2.2). The corrected §4 (ScriptSession-seam-owned MO) is **runtime-uniform
+> in direction** — both runtimes route script-visible mutation through the seam —
+> but the *flush→MO-delivery hook* must be wired in both; see §0, §2, §4.
 
 > **Why B0 before B1/B2.** The original audit (F3 in
 > `docs/audits/2026-06-elidex-philosophy-implementation-audit.md`) framed the
 > problem as "DOM write paths bypass the `ScriptSession` mutation buffer / its
-> observers". The umbrella §2.3 already overturned that framing; this doc
-> **re-verifies the reframe by direct code read** (not by trusting the umbrella
-> prose) and then sharpens it further — the real gap is wider than §2.3 stated.
-> Every claim below carries a `file:line` anchor re-checked at HEAD `b09f2ba9`.
+> observers". The umbrella §2.3 already overturned the *attribute-write-bypass*
+> half of that framing; this doc **re-verifies the reframe by direct code read**
+> (not by trusting the umbrella prose) and then sharpens it further — the real gap
+> is wider than §2.3 stated. But note the §2.3 reframe did **not** license putting
+> MO production in the `EcsDom` layer: the mandate keeps MO on the ScriptSession
+> seam (see the §4 direction-correction callout above). Every claim below carries
+> a `file:line` anchor re-checked at HEAD `76c1677f`.
 > Re-grep at PR-open; this doc is itself a snapshot.
 
 ---
@@ -81,35 +104,47 @@ Audience: Claude / maintainers (and Codex via the review guidelines below).
   `deliver_mutation_records`, so even innerHTML mutations done during page
   load are not delivered to MO via that path — only the per-frame
   `content/mod.rs:258` site delivers (§2.2).
-- **The two mechanisms are real but not the ones the audit named.** They are:
-  (1) `EcsDom`'s `ConsumerDispatcher` (synchronous, the actual canonical path
-  for attributes + tree mutations **in the VM**), and (2) `SessionCore`'s
-  mutation buffer + `flush` → `deliver_mutation_records` (which feeds
-  MutationObserver but is fed only by innerHTML-class ops). They overlap only at
-  innerHTML. **In production (boa) Mechanism A's consumer fan-out is not even
-  installed** — so today only Mechanism B's flush path reaches MO at all (and
-  only for innerHTML-class ops, only at the per-frame flush site).
-- **Recommended canonical path (§4): make `MutationObserver` a
-  `ConsumerDispatcher` consumer** *for the VM*, *not* re-route VM writes through
-  the session buffer — **but this is conditional, not unconditional.** Rationale:
-  the implementation already converged on `ConsumerDispatcher` as canonical
-  (lesson #181), and re-routing everything through `record_mutation` would unwind
-  that and re-introduce a second write path. **The hard constraint** is that
-  Option 1 only covers production **after** S5/boa removal (the dispatcher is
-  VM-only); until then the boa runtime must keep its session-record delivery
-  path (or grow a dispatcher install). Option 1 must additionally satisfy the
-  record-source constraints §4 enumerates (replaceChild coalescing,
-  non-dispatching attribute writes, shadow-root suppression, boa buffered iframe
-  writes). The design-doc §12 picture (writes via `session.record_mutation`) is
-  the **stale aspiration**; the code chose the dispatcher. This is a "One issue,
-  one way" decision to make the design doc follow the code, not the reverse —
-  but the convergence is **coupled to S5** and gated on the constraint set.
+- **There are two mechanisms, and they answer two *different* questions.** They
+  are: (1) `EcsDom`'s `ConsumerDispatcher` — **engine-internal derived-state
+  reconciliation**, synchronous at the chokepoint, driving the 7 consumers
+  (live-range / node-iterator / base-url / form-control / event-handler-attr /
+  canvas / custom-element), **none of which is script-observable**; and (2)
+  `SessionCore`'s mutation buffer + `flush` → `deliver_mutation_records` — the
+  **script-observable** path that feeds `MutationObserver`, but which is fed today
+  only by innerHTML-class ops. They overlap only at innerHTML. The right reading
+  is **not** "two competing canonical write paths" — it is one
+  *engine-internal-reconcile* mechanism (the dispatcher) and one *script-visibility*
+  mechanism (the seam). The bug is that script-visible mutations don't all reach
+  the second one. **In production (boa) Mechanism A's consumer fan-out is not even
+  installed**, which is fine — those consumers are not script-observable; the
+  script-visibility gap is in Mechanism B.
+- **Recommended canonical path (§4): the ScriptSession seam owns
+  `MutationObserver` record production.** Per `CLAUDE.md` L16, MO visibility is a
+  ScriptSession-seam responsibility (mutation buffer + flush), so the fix is to
+  make **every script-visible mutation** (attribute / tree / characterData /
+  Range / `normalize` / innerHTML) enter the seam via `record_mutation` and have
+  `MutationObserver` drain at flush — **not** to make MO a `ConsumerDispatcher`
+  consumer (the earlier draft's Option 1, now rejected). Rejection reasons,
+  developed in §4: (a) Option 1 **inverts the mandate** — it puts a
+  script-observable responsibility in the `EcsDom` layer and bypasses the seam;
+  (b) Option 1 **breaks record shape** — innerHTML's single coalesced childList
+  record (8YcO) splits into N per-node records when driven off per-node
+  `Insert`/`Remove` events, whereas the seam's `apply_*` already produces the
+  spec-correct bulk record by construction. The `ConsumerDispatcher` is **kept**,
+  but honestly scoped to engine-internal reconcile (it is the EcsDom-internal
+  detail *below* the seam, not a second script-visible write path). **The design
+  §12 picture (writes via `session.record_mutation`) and ADR #17 (seam provides
+  "consistent MutationObserver records" in a single mechanism) are NOT stale —
+  they match the mandate; the *code* drifted.** This is a "One issue, one way"
+  decision to bring the code back to the design/mandate, not the reverse. A
+  flush→MO-delivery hook must be wired (it does not exist today, §2.2 / 8YcR);
+  `session.flush` is the natural drain point.
 
 ---
 
 ## 1. VM `vm/host/` DOM Write-Site Map
 
-Seeded from umbrella Appendix A, **re-verified at HEAD `b09f2ba9`**. Each site is
+Seeded from umbrella Appendix A, **re-verified at HEAD `76c1677f`**. Each site is
 classified and tagged **bridge** (routes through
 `dom_bridge::invoke_dom_api` → an `elidex-dom-api` `DomApiHandler`) or
 **direct** (calls `EcsDom::*` straight from `vm/host/`). Note: "bridge" here
@@ -175,6 +210,49 @@ writes the backing content attribute through the `EcsDom` chokepoint.
 > `InsertAdjacentHtml` `Mutation` variant (§1.5/§2.2) is therefore a boa-path /
 > dom-api-only producer, not a VM-native one.
 
+### 1.4a Range mutations — direct, no `record_mutation` (8YcW)
+
+The 3 mutating `Range` methods are script-visible **tree** (and, for
+`deleteContents`/`extractContents`, **characterData**) mutations that must enter
+the seam under the §4 direction. Today they bypass it entirely — each clones the
+registered `Range`, runs the engine-indep mutation through `host.dom()` (a raw
+`&mut EcsDom`), and commits boundary state back to the live-range registry. **No
+`record_mutation`.**
+
+| Site | Method | Path | Classification |
+|---|---|---|---|
+| `range_proto_mutation.rs:73`/`:97` (`native_range_delete_contents`) | `Range.deleteContents` | **direct** → `range.delete_contents(host.dom())` | tree (removed nodes) + characterData (partially-selected text split) |
+| `range_proto_mutation.rs:102`/`:120` (`native_range_extract_contents`) | `Range.extractContents` | **direct** → `range.extract_contents(host.dom())` | tree + characterData |
+| `range_proto_mutation.rs:125`/`:160` (`native_range_insert_node`) | `Range.insertNode` | **direct** → `transient.insert_node(host.dom())` | tree (added nodes) |
+
+> Underlying `EcsDom` tree ops *do* fire Mechanism-A `Insert`/`Remove` events
+> (so live-range / CE reconcile runs), but **no `MutationRecord`** is produced —
+> these mutations are MutationObserver-silent. B1's test matrix (§3) must include
+> `observe(parent,{childList:true})` + a `Range` mutation, which §3's earlier
+> table omitted.
+
+### 1.4b CharacterData splice + `normalize` — direct/bridge, characterData gap (8YcW / 8YcL)
+
+| Site | Method | Path | Classification |
+|---|---|---|---|
+| `character_data_proto.rs:189`/`:223`/`:236`/`:250`/`:264` | `data=` / `appendData` / `insertData` / `deleteData` / `replaceData` | **bridge** → `invoke_dom_api` → `char_data/char_data_handlers.rs` | characterData |
+| `node_methods_extras.rs:270` (`native_node_normalize`) | `Node.normalize` | **bridge** → `invoke_dom_api("normalize", …)` | tree (text-node removal) + characterData (merge) |
+
+> **CommentData characterData hole (8YcL — confirmed by Read).**
+> `set_char_data` (`elidex-dom-api/char_data/char_data_handlers.rs:45`) splits:
+> the **Text / CDATASection** branch routes through `EcsDom::set_text_data`
+> (`elidex-ecs/dom/mod.rs:332`), which bumps `rev_version` **and fires
+> `MutationEvent::TextChange` via `dispatch_event`** (`:340-344`). The **Comment**
+> branch (`char_data_handlers.rs:59-73`) writes `CommentData.0` in place and bumps
+> `rev_version` **only — it calls no `dispatch_event`** (verified at HEAD
+> `76c1677f`). So a `data=`/`appendData`/… on a **Comment** node fires **no**
+> mutation event at all, and `observe(comment,{characterData:true})` is silent
+> even on the dispatcher path. The §4 seam direction fixes this uniformly (the
+> `record_mutation` is emitted at the handler/seam, independent of whether the
+> EcsDom primitive dispatches), but B1 must call this out explicitly: Comment
+> characterData currently has **no** notification of either kind, whereas Text has
+> `TextChange`. §3's characterData row must split Text vs Comment.
+
 ### 1.5 The bridge does NOT mean the session buffer (critical refinement)
 
 The audit (and a naive read of "bridge = aligned") assumes bridge-routed
@@ -212,9 +290,26 @@ notifies the `ConsumerDispatcher` but not the observer registry.
 
 ## 2. The Two Notification Mechanisms
 
-There are exactly two, and they are disjoint in what they drive.
+There are exactly two, and they are disjoint in what they drive. **Read them as
+answering two different questions, not as two competing canonical write paths:**
+Mechanism A is **engine-internal derived-state reconciliation** (none of its
+consumers is script-observable); Mechanism B is the **script-visibility** path
+(`MutationObserver`). The §4 canonical-path decision is *not* "which mechanism
+wins" — it is "route every script-visible mutation into Mechanism B (the
+ScriptSession seam), and keep Mechanism A as the EcsDom-internal reconcile detail
+*below* the seam".
 
-### 2.1 Mechanism A — `EcsDom` `ConsumerDispatcher` (synchronous, at the chokepoint) — **VM-only today**
+### 2.1 Mechanism A — `EcsDom` `ConsumerDispatcher` (synchronous, at the chokepoint) — **engine-internal reconcile, VM-only today**
+
+> **Scope (mandate-relevant).** Every one of the 7 consumers below is
+> **engine-internal derived-state reconciliation** — live-range adjustment,
+> NodeIterator pre-removal, `<base href>` resolution, form-control state,
+> event-handler-attr compilation, canvas reset, CE reactions. **None is
+> script-observable** in the WHATWG-DOM sense (`MutationObserver` is *not* among
+> them — see the last bullet). So this mechanism is **not** the canonical path
+> for script-visible mutation; it is the EcsDom-internal detail *below* the
+> ScriptSession seam. Keeping it is correct (§4); making it *also* own MO records
+> (the rejected Option 1) is what violates the mandate.
 
 - **Trigger:** every `EcsDom::set_attribute` / `remove_attribute` (via
   `dispatch_event`, `attribute.rs:118`/`:294`) and every tree mutation
@@ -252,9 +347,13 @@ There are exactly two, and they are disjoint in what they drive.
   (`tree/mutation.rs:289` and `:343-344`) **suppress** the
   `MutationEvent::Insert`/`Remove` entirely when *either* the node or its
   parent is a shadow root (light-tree-only contract). So any consumer driven
-  off these events — including a future MutationObserver consumer (§4
-  Option 1) — observes **no** event for `ShadowRoot` childList mutations.
-- **Crucially: `MutationObserver` is NOT a consumer here.**
+  off these events observes **no** event for `ShadowRoot` childList mutations.
+  (This is why an event-driven MO source — the rejected §4 Option 1 — would also
+  miss shadow-root mutations; the seam-driven source must record them from the
+  `record_mutation` site, not from these suppressed events. See §4.2a C3.)
+- **Crucially: `MutationObserver` is NOT a consumer here, and must not become
+  one** — it belongs on the ScriptSession seam (§4), not in this
+  engine-internal-reconcile fan-out.
 
 ### 2.2 Mechanism B — `SessionCore` mutation buffer + `flush`
 
@@ -290,6 +389,18 @@ There are exactly two, and they are disjoint in what they drive.
   `VmInner::deliver_mutation_records` (`mutation_observer.rs:418`) →
   `MutationObserverRegistry::notify` (per-record inclusive-ancestor walk over
   `MutationObservedBy`, DOM §4.3.2) → observer callbacks.
+- **There is NO existing flush→MO microtask drain hook (8YcR).** The
+  `Microtask::NotifyMutationObservers` enum variant
+  (`natives_promise.rs:51-59`) exists, but its drain arm (`:333-344`) dispatches
+  **only the `slotchange` half** (`dispatch_pending_slotchange_signals`,
+  `:342`); the `MutationObserver`-callback half is **not** wired there — it is
+  embedder-driven via `Vm::deliver_mutation_records`, which only the per-frame
+  `content/mod.rs:258` site calls. So the corrected §4 direction still needs
+  **new** wiring: `session.flush` (which *does* exist and returns the records)
+  must drive MO delivery — either by extending `NotifyMutationObservers`'s drain
+  to deliver buffered records at the §4.3.2 microtask checkpoint, or by a
+  flush-tail delivery call. Either way the drain *point* (`flush`) exists; the
+  *hook* from flush to MO does not. B1 wires it.
 
 ### 2.3 Overlap
 
@@ -331,7 +442,10 @@ The JS-level `MutationObserver` (WHATWG DOM §4.3) observes a mutation **iff a
 | Reflected IDL setter | `input.value`, `a.href`, `form.method`, … | direct `EcsDom::set_attribute` in `vm/host/*_proto.rs` |
 | `appendChild` / `insertBefore` / `removeChild` / `replaceChild` | `p.appendChild(c)` | bridge handler → `EcsDom::append_child` direct; no `record_mutation` |
 | ChildNode/ParentNode mixins | `el.remove()`, `el.before(x)`, `el.append(x)` | `child_node/mutations.rs` direct ops (self-documented `:4-9`) |
-| `textContent` / CharacterData on text nodes | `t.data = 'x'` | direct `EcsDom::set_text_data`; `ConsumerDispatcher` `TextChange` fires, but no observer record |
+| **`Range` mutations (8YcW)** | `r.deleteContents()`, `r.extractContents()`, `r.insertNode(n)` | direct `range.{delete,extract}_contents`/`insert_node(host.dom())` (`range_proto_mutation.rs:73`/`:102`/`:125`); no `record_mutation` |
+| **`Node.normalize` (8YcW)** | `el.normalize()` | bridge → `invoke_dom_api("normalize", …)` (`node_methods_extras.rs:270`); handler does direct EcsDom text removal/merge, no `record_mutation` |
+| CharacterData on **Text** | `t.data = 'x'` | direct `EcsDom::set_text_data`; `ConsumerDispatcher` `TextChange` fires (engine-internal), but **no observer record** |
+| CharacterData on **Comment (8YcL)** | `c.data = 'x'` | `set_char_data` Comment branch (`char_data_handlers.rs:59-73`) writes `CommentData.0` + `rev_version` **only — no `dispatch_event`**; so **neither** a `TextChange` event **nor** an observer record (worse than Text) |
 
 So `new MutationObserver(cb).observe(el, {attributes:true, childList:true,
 characterData:true})` in the elidex-js VM fires `cb` **only** when the subtree
@@ -357,162 +471,227 @@ to `#11-mutation-observer-extras` (`mutation_event.rs:295-298`).
 > Written as **recommendation + trade-offs**, not a settled fix. The B1/B2
 > plan-memos run `/elidex-plan-review`; this section is their starting premise.
 
-### 4.1 The decision (conditional)
+### 4.1 The decision
 
-**Make `MutationObserver` a `ConsumerDispatcher` consumer** (Option 1 below) **for
-the elidex-js VM**, and converge the session buffer's role to the
-innerHTML-class ops it already owns — rather than re-routing every VM write
-through `SessionCore::record_mutation` (Option 2). This is a **recommendation
-under constraints**, not an unconditional fix:
+**The ScriptSession seam owns `MutationObserver` record production.** Every
+script-visible mutation — attribute set/remove, reflected IDL setters, tree
+mutation (`appendChild`/`insertBefore`/`removeChild`/`replaceChild` + ChildNode/
+ParentNode mixins), characterData (Text **and Comment**), `Range`
+delete/extract/insert, `Node.normalize`, and innerHTML/outerHTML — enters the
+seam via `SessionCore::record_mutation` (or is already buffered there), and
+`MutationObserver` drains at `flush` (the §4.3.2 microtask checkpoint). This is
+**Option 2 done correctly** (§4.3). The earlier draft's **Option 1**
+(MutationObserver as a `ConsumerDispatcher` consumer) is **rejected** (§4.2).
 
-1. **Dual-runtime / S5 coupling.** The `ConsumerDispatcher` is installed only by
-   `Vm::bind`; the production shell runs boa (`pipeline.rs:9`/`:68`). So Option 1
-   covers **production only after S5/boa removal**. Until then, the boa runtime
-   reaches MO solely through the session-record delivery path (§2.2) and that
-   path must be **preserved** (or boa must grow its own dispatcher install).
-   Treat the canonical-path landing as **coupled to S5**, not independent.
-2. **The new consumer must satisfy the record-source constraint set (§4.2a)** —
-   replaceChild coalescing, non-dispatching attribute writes, shadow-root
-   suppression, boa buffered iframe writes. Any of these silently breaks a
-   §4.3.3-correct record stream if not handled.
+**The root mandate makes the direction unique — this is not a balance of
+trade-offs.** `CLAUDE.md` L16: *"ScriptSession as the sole Script↔ECS boundary …
+書き込みは session mutation と flush point に集約し、SameObject・**MutationObserver**・
+atomic script-task visibility を同一機構で守る."* MutationObserver visibility is,
+by mandate, a ScriptSession-seam responsibility. Option 1 inverts the mandate by
+placing a script-observable responsibility in the engine-internal `EcsDom` layer.
+Two further reasons, developed below, independently rule Option 1 out:
 
-The two options' trade-offs (§4.2/§4.3) stand; the framing is "Option 1 is the
-recommended *target shape*, gated on S5 and on §4.2a", **not** "Option 1 is a
-drop-in fix today".
+1. **Record-shape destruction (8YcO).** innerHTML/outerHTML produce **one
+   coalesced** childList record (`apply_set_inner_html`,
+   `html_fragment.rs:85-89`, returns a single `ChildList` record with both
+   `added_nodes` and `removed_nodes`; delivered as a 1-element slice at
+   `dom_inner_html.rs:148`/`:362`). The underlying op fires **N+M** per-node
+   `Insert`/`Remove` events at the dispatcher. An event-driven Option-1 consumer
+   would emit **N+M** records — diverging from DOM §4.3.2's single-record shape.
+   The seam's `apply_*` already produces the spec-correct bulk record **by
+   construction**; this is a *positive* argument for the seam direction (§4.3a).
+2. **Mandate / SSoT alignment.** Design §12 (writes via `record_mutation`, flush
+   generates MutationRecords) and ADR #17 (seam provides "consistent
+   MutationObserver records" in a single mechanism) **match** the mandate. They
+   are **not stale** — the *code* drifted by routing innerHTML through an explicit
+   `deliver_mutation_records` rather than letting the seam own all script-visible
+   mutation. The correction brings the code back to the design, not the reverse
+   (§4.4 SSoT).
 
-### 4.2a Record-source constraints the canonical path must satisfy
+**The `ConsumerDispatcher` is kept**, honestly scoped: it is the
+engine-internal derived-state reconciliation mechanism (§2.1, 7 consumers, none
+script-observable). It sits **below** the ScriptSession seam as an EcsDom-internal
+detail. The "One issue, one way" convergence is therefore: **ScriptSession is the
+single write entry for script mutation; it delegates engine-internal reconcile to
+the `EcsDom` chokepoint (which fans out via `ConsumerDispatcher`) and owns the MO
+record at flush.** No second script-visible write path.
 
-Any canonical MO-record source — whether the §4.2 consumer or the §4.3 buffer —
-must reproduce these, each verified at HEAD `b09f2ba9`:
+> **Lesson #181 is *not* in tension with this direction** (correcting the earlier
+> draft, which treated #181 as forcing Option 1). #181 consolidated *attribute
+> writes* onto the `EcsDom::set_attribute` chokepoint so **derived components /
+> live ranges / form state reconcile synchronously at write time**. That is an
+> *engine-internal-reconcile* concern (Mechanism A) and stays exactly as-is under
+> this direction — `record_mutation`'s `apply_*` step still bottoms out at the
+> same `EcsDom::set_attribute` chokepoint (e.g. `props.rs:43` `SetAttribute`
+> handler), so the dispatcher fan-out is unchanged. What changes is only that the
+> **MO record** is emitted at the seam, not derived from dispatcher events. #181
+> governs *where reconcile happens*; the mandate governs *where MO visibility
+> happens*. They are orthogonal and both satisfied.
+
+### 4.2a Record-source constraints the canonical (seam) path must satisfy
+
+The seam-owned MO source must reproduce these, each verified at HEAD `76c1677f`.
+Note how the seam direction handles each **more cleanly** than an event-driven
+consumer would:
 
 - **C1 — replaceChild coalescing.** `EcsDom::replace_child`
-  (`tree/mutation.rs:185-205`) fires **two** events:
-  `fire_after_remove(old_child)` then `fire_after_insert(new_child)`. But the
-  spec single childList record for a replace carries `addedNodes` *and*
-  `removedNodes` in **one** record (the buffered `apply_replace_child`,
-  `mutation/mod.rs:268-285`, does exactly that). An event→record 1:1 mapping
-  would split replaceChild into **two** records, diverging from the buffer path
-  and from DOM §4.3.2. The event source (or the consumer) must carry an explicit
-  replace/coalescing shape, or the consumer must coalesce a remove+insert pair on
-  the same parent within a dispatch.
+  (`tree/mutation.rs:185-205`) fires **two** events: `fire_after_remove(old)`
+  then `fire_after_insert(new)`. The spec single childList record for a replace
+  carries `addedNodes` *and* `removedNodes` in **one** record — and the seam's
+  `apply_replace_child` (`mutation/mod.rs:268-285`) **already does exactly that
+  by construction**. *This is why the seam direction is cleaner:* the record is
+  built from the `Mutation::ReplaceChild` intent, not reconstructed from two
+  dispatcher events that a consumer would have to coalesce. B1 must ensure the
+  `record_mutation` for the bridge/direct `replaceChild` natives carries the
+  replace intent (not two separate add/remove records).
 - **C2 — non-dispatching attribute writes.** `set_attribute_without_dispatch`
-  (`attribute.rs:146`) fires **no** `MutationEvent` (it is used inside consumers
-  where re-entry forbids dispatch). Form value-mode/type-change calls it to move
-  the live value into the `value` content attribute
-  (`elidex-form/value_mode.rs:222`). A consumer-based MO source therefore **never
-  sees** that generated `value` attribute mutation — it stays silent even after
-  Option 1. Document this as a **known hole**; if observability of the generated
-  `value` write is required, it needs an explicit record emission at that site.
+  (`attribute.rs:146`) fires **no** `MutationEvent` (used inside consumers where
+  re-entry forbids dispatch). Form value-mode/type-change calls it to move the
+  live value into the `value` content attribute (`elidex-form/value_mode.rs:222`).
+  An event-driven Option-1 consumer would **never see** this — a hard hole. The
+  **seam direction does not depend on the event firing at all**: if the spec
+  requires this generated `value` write to be observable, the form algorithm
+  records a `Mutation` at the seam (it already runs through `elidex-form`, an
+  engine-indep crate that can call `record_mutation`). B1 decides per-spec whether
+  this internal write is script-observable (it generally is **not** — it is an
+  internal reflection, not a script-initiated `setAttribute`); document the
+  decision either way.
 - **C3 — shadow-root suppression.** `fire_after_insert`/`fire_after_remove`
   (`tree/mutation.rs:289`, `:343-344`) suppress Insert/Remove when node/parent is
-  a ShadowRoot. A MO observing a shadow root's `childList`, or `ShadowRoot.innerHTML`
-  after the explicit-record path is retired, gets **no** record unless either the
-  light-tree-only suppression is changed or a separate shadow-root record path is
-  added.
-- **C4 — boa buffered iframe writes.** `iframe.rs:99`/`:105`/`:206` record
-  `Mutation::SetAttribute`/`RemoveAttribute`, applied by
+  a ShadowRoot. An event-driven consumer would silently miss shadow-root
+  childList mutations. The **seam direction records at the `record_mutation`
+  site**, *upstream* of the dispatcher suppression, so shadow-root childList
+  mutations are recordable without touching the light-tree-only suppression
+  contract. B1 records them at the seam and lets the existing §4.3.2
+  inclusive-ancestor walk gate delivery (a MO must explicitly observe inside the
+  shadow tree).
+- **C4 — boa buffered iframe writes.** `iframe.rs:99`/`:105`/`:206` already
+  record `Mutation::SetAttribute`/`RemoveAttribute`, applied by
   `apply_set_attribute`/`apply_remove_attribute` (`mutation/mod.rs:288-332`)
-  which self-generate the record **without** entering `EcsDom::set_attribute` or
-  firing a `MutationEvent`. If Option 1 makes the dispatcher consumer the single
-  record source, this buffered write lands **outside** that source. Either keep
-  the buffer path producing its record for these, or route iframe attribute
-  writes through the chokepoint so the consumer sees them.
+  which self-generate the record. Under the seam direction these are **already on
+  the canonical path** — they are exactly the shape every other attribute write
+  should converge to. *This argues for the seam direction:* the residual buffered
+  iframe path is not an exception to route around (as it was under Option 1) but
+  the model the VM attribute natives should match. B1 converges VM attribute
+  writes onto `record_mutation` and these iframe writes need no special-casing.
+- **C5 — innerHTML/outerHTML bulk-coalescing (8YcO).** `apply_set_inner_html` /
+  `apply_set_outer_html` (`html_fragment.rs:55`/`:116`) emit **one** coalesced
+  `ChildList` record (`added_nodes` + `removed_nodes`) for a whole-subtree
+  replace, even though the underlying op does N `remove_child` + M `append_child`
+  (each firing a per-node dispatcher event). The seam path **preserves this bulk
+  shape by construction** (the record is built from the `SetInnerHtml` intent);
+  an event-driven Option-1 source would shatter it into N+M records. B1 must
+  retire the *explicit* `deliver_mutation_records` at `dom_inner_html.rs:148`/
+  `:362` and route innerHTML/outerHTML through the same seam-flush delivery as
+  every other mutation, so there is exactly **one** delivery path (no
+  double-delivery, no per-node shattering).
 
-### 4.2 Option 1 — MutationObserver as a `ConsumerDispatcher` consumer (RECOMMENDED)
+### 4.2 Option 1 — MutationObserver as a `ConsumerDispatcher` consumer (REJECTED)
 
-Add a `MutationObserverConsumer` (in `elidex-api-observers` /
-`elidex-script-session`) as a new typed field on `ConsumerDispatcher`. It
-translates each `MutationEvent` into a `MutationRecord` and routes it to the
-observer registry (queueing at the §4.3.2 microtask checkpoint, not
-synchronously inside dispatch — the consumer enqueues, the VM drains at the
-existing checkpoint, mirroring `CustomElementReactionConsumer`).
+Add a `MutationObserverConsumer` as a new typed field on `ConsumerDispatcher`,
+translating each `MutationEvent` into a `MutationRecord` routed to the observer
+registry. **Rejected.** It was attractive only because it rides the *current
+code shape* (the dispatcher already fans out at the chokepoint) — a
+reactive-to-current-code anchor, not a mandate-derived one. The three reasons it
+fails:
 
-- **Pros:**
-  - Single source of truth **in the VM**. The chokepoint already converged here
-    (lesson #181); every attribute write *that goes through
-    `EcsDom::set_attribute`*, reflected setter, tree mutation, and characterData
-    change flows through the dispatcher. Adding one consumer covers most of the
-    §3 gap in one place, with no per-site edits to the ~60 write sites of §1.
-    (Exceptions that do **not** reach the dispatcher even in the VM — the
-    non-dispatching `set_attribute_without_dispatch` write (C2), shadow-root
-    suppression (C3), and the boa buffered iframe path (C4) — are not covered by
-    consumer addition alone; see §4.2a.)
-  - "One issue, one way": no new seam; consumer-addition is the established
-    extension shape (event-as-data + typed composer field,
-    `mutation_event.rs:6-24`).
-  - No unwinding of lesson #181 / the `EcsDom`-chokepoint canonical write.
-  - Ordering with CE reactions is compile-time-visible (field order); the
-    `was_connected`/`old_value` data the observer record needs is already
-    carried on the `MutationEvent` variants.
-- **Cons / risks (for plan-review):**
-  - **Production not covered until S5.** The dispatcher is VM-only
-    (`vm_api.rs:279`); production runs boa. Option 1 covers production **only
-    after** S5/boa removal. Until then either (a) ship Option 1 as VM-only and
-    keep boa's session-record delivery path as the production MO source, or
-    (b) install a dispatcher in boa too — the first is the natural sequencing
-    given D-26 PR7 retires boa. Either way the canonical-path landing is
-    **coupled to S5**, and B1 must state which.
-  - **Record-source constraint set (§4.2a) — C1–C4.** The consumer must coalesce
-    replaceChild (C1), is blind to non-dispatching `value` writes (C2), gets no
-    shadow-root records (C3), and does not see boa buffered iframe writes (C4)
-    unless those are handled explicitly. None is a blocker, but each is a
-    correctness gap if unhandled.
-  - **Double-delivery at innerHTML.** Today innerHTML records flow through the
-    session buffer *and* would now also flow through the new consumer (the
-    underlying `EcsDom` tree ops fire `Insert`/`Remove`). B1 must pick **one**
-    path for innerHTML — almost certainly retire the explicit
-    `dom_inner_html.rs:148`/`:362` delivers and the `SetInnerHtml`/
-    `InsertAdjacentHtml` record production once the consumer covers tree ops,
-    so innerHTML is observed via the same consumer (no coexistence).
-  - **Record coalescing / batching semantics.** §4.3.2 queues records per
-    observer and delivers at the microtask checkpoint; the consumer must
-    enqueue (not deliver) to preserve atomic script-task visibility. Needs the
-    VM drain point wired (same checkpoint as CE-reaction drain).
-  - **characterData** `MutationEvent::TextChange`/`ReplaceData` carry UTF-16
-    lengths, not the old string; `oldValue` for `characterDataOldValue` needs
-    the pre-write value threaded (small `EcsDom` change — weigh in B1).
+- **Mandate inversion (decisive).** It places `MutationObserver` — a
+  *script-observable* responsibility — inside the engine-internal `EcsDom`
+  dispatcher, **bypassing the ScriptSession seam** that `CLAUDE.md` L16 makes the
+  *sole* Script↔ECS boundary. The mandate names MutationObserver explicitly as a
+  seam-and-flush responsibility. This alone rules Option 1 out, independent of
+  the mechanics below.
+- **Record-shape destruction (C5 / 8YcO).** Driving records off per-node
+  `Insert`/`Remove` events shatters innerHTML/outerHTML's single coalesced
+  childList record into N+M records, and forces ad-hoc coalescing for
+  replaceChild (C1). The seam path keeps the correct shape by construction.
+- **Coverage holes by construction (C2/C3/C4).** It is blind to the
+  non-dispatching `value` write (C2), the shadow-root-suppressed events (C3), and
+  would have to special-case the buffered iframe path (C4) — each a place where
+  *the dispatcher does not fire or is suppressed*, so an event-driven source
+  cannot see it. The seam records *upstream* of all three.
 
-### 4.3 Option 2 — Route all VM writes through `SessionCore::record_mutation` (NOT recommended)
+The only superficial appeal of Option 1 ("no per-site edits") is also weaker than
+it looks: the §1 write sites do **not** all reach the dispatcher (C2/C4), so
+Option 1 still needs per-site work for the holes — while *also* violating the
+mandate and breaking record shape. There is no version of Option 1 that is both
+mandate-compliant and shape-correct.
 
-Make every VM attribute/tree native (and the dom-api handlers) record a
-`Mutation` and rely on `flush` to produce records, matching design §12's
-literal prose (`12-dom-cssom.md:24`/`:71-72`).
+### 4.3 Option 2 — ScriptSession seam owns MO record production (RECOMMENDED)
 
-- **Pros:** matches the design doc's written model; one buffer, atomic flush.
-- **Cons:**
-  - **Unwinds lesson #181.** The codebase *deliberately* moved attribute writes
-    to the `EcsDom::set_attribute` chokepoint (away from buffered mutations) so
-    that derived components / live ranges / form state reconcile synchronously
-    at write time. Re-buffering would reintroduce the second write path the
-    chokepoint consolidated, and either duplicate or bypass the
-    `ConsumerDispatcher` consumers.
-    - **But the convergence is not total today** (correcting an over-stated
-      dismissal): the boa iframe path *still* records buffered
-      `Mutation::SetAttribute`/`RemoveAttribute` (C4, §4.2a) which
-      `apply_set_attribute`/`apply_remove_attribute` apply **without** entering
-      `EcsDom::set_attribute`. So a residual buffered attribute-write path
-      already coexists with the chokepoint. This does **not** rescue Option 2
-      (it argues for *removing* the residual buffered path, not generalizing
-      it), but it means Option 1 cannot assume *all* attribute writes pass the
-      chokepoint — the C4 buffered write must be handled explicitly.
-  - **Two-writers problem.** Either the dispatcher consumers also have to run
-    off `apply_mutation` (re-deriving the whole fan-out on a different seam), or
-    they keep firing at the `EcsDom` chokepoint *and* records flow through the
-    buffer — i.e. the very coexistence "One issue, one way" forbids.
-  - **Bigger blast radius:** edits ~60 write sites + the dom-api handlers, vs.
-    one consumer.
+Every script-visible mutation enters the seam via `SessionCore::record_mutation`
+(routing through `elidex-dom-api` / `DomApiHandler` so the algorithm stays in
+engine-independent crates per the Layering mandate), and `MutationObserver`
+drains at `flush`. The `apply_*` step still bottoms out at the `EcsDom`
+chokepoint, so the `ConsumerDispatcher` fan-out (engine-internal reconcile,
+lesson #181) is **unchanged** — only the MO record now originates at the seam.
 
-**Conclusion:** the design doc §12 (writes via `record_mutation`) describes an
-*earlier* intended architecture; the implementation converged on the
-`EcsDom` chokepoint + `ConsumerDispatcher` and that convergence is the better
-"one way". The right correction is to **make MutationObserver join that
-convergence (Option 1) and update design §12 to describe the chosen
-mechanism**, not to drag the code back to the buffer.
+- **Why this is the canonical "one way":**
+  - **Mandate-compliant.** MutationObserver visibility lives on the ScriptSession
+    seam, exactly as `CLAUDE.md` L16 and ADR #17 require — "SameObject,
+    MutationObserver, atomic script-task visibility 守られる by the same
+    mechanism" (the seam's identity map + mutation buffer + flush).
+  - **Record shape correct by construction.** innerHTML/outerHTML (C5) and
+    replaceChild (C1) already produce the spec-correct coalesced records on this
+    path (`apply_set_inner_html`, `apply_replace_child`). No event-coalescing
+    logic to get wrong.
+  - **No coverage holes from dispatcher suppression.** Recording at the
+    `record_mutation` site is upstream of shadow-root suppression (C3) and of the
+    non-dispatching attribute write (C2); the buffered iframe path (C4) is
+    *already* on this path. The seam is the natural superset.
+  - **One write path.** ScriptSession is the single script-mutation entry; it
+    delegates engine-internal reconcile to the `EcsDom` chokepoint and owns the
+    MO record. No "new seam + N legacy" strangler state — the legacy state is the
+    *current* split (innerHTML via explicit deliver, everything else silent), and
+    this collapses it.
+- **Work / risks (for plan-review):**
+  - **Blast radius.** The §1 write sites (and their `elidex-dom-api` handlers)
+    must record a `Mutation` (or the handler must, keeping `vm/host/`
+    marshalling-only). This is larger than "one consumer", but it is the *correct*
+    blast radius — it is what bringing every script-visible mutation onto the seam
+    requires, and §4.2a shows the event-driven shortcut does not actually avoid
+    per-site work. Sequence per §4.5; B2 (§4.6) folds the bridge/direct +
+    reflected-setter convergence into the same pass.
+  - **Flush→MO delivery hook is new (8YcR).** §2.2 confirmed no such hook exists
+    today (`Microtask::NotifyMutationObservers` wires only `slotchange`). B1 wires
+    `flush` → MO delivery at the §4.3.2 microtask checkpoint, covering **both** the
+    per-frame `re_render` flush and the `flush_with_ce_reactions` page-load flush
+    (§2.2) so observers registered during load are not missed.
+  - **Retire the explicit innerHTML/outerHTML deliver (C5).** Remove the
+    `deliver_mutation_records` calls at `dom_inner_html.rs:148`/`:362` once the
+    seam-flush path delivers, so there is exactly one delivery path (no
+    double-delivery).
+  - **CommentData notification (8YcL).** Comment characterData fires no event
+    today; the seam records it at the `set_char_data`/handler site regardless,
+    closing the hole uniformly with Text.
+  - **`oldValue` threading.** `characterDataOldValue` / attribute `oldValue` need
+    the pre-write value captured at the `record_mutation` site (the handler has it
+    in hand before calling `EcsDom`); `attributeNamespace` stays deferred to
+    `#11-mutation-observer-extras`.
+  - **Dual-runtime.** Both VM and boa flush through `SessionCore`, so the seam
+    direction is runtime-uniform; only the (new) flush→MO hook must exist in the
+    production (boa) flush path until S5 removes boa. This is *less* S5-coupled
+    than Option 1 (which needed the VM-only dispatcher), not more.
 
-### 4.4 B2 — bridge/direct + setAttribute/removeAttribute asymmetry
+### 4.3a Why innerHTML record-shape is a positive argument for the seam (8YcO)
 
-Independently of observer coverage, §1 surfaced a uniformity gap to fold into
-B2 (One issue, one way):
+The clearest single discriminator: `apply_set_inner_html`
+(`html_fragment.rs:85-89`) does N `remove_child` + M `append_child` internally
+(N+M dispatcher events) but returns **one** `ChildList` `MutationRecord` carrying
+both `added_nodes` and `removed_nodes`. DOM §4.3.2 specifies exactly this single
+coalesced record. The seam produces it from the *intent* (`SetInnerHtml`); an
+event-driven consumer (Option 1) would have to reconstruct it by coalescing N+M
+events on the same parent within a dispatch — fragile and not what the dispatcher
+events even carry (they are per-node, with no "this is part of a bulk replace"
+marker). The seam direction is correct *because* the record shape is owned where
+the bulk intent lives. The same argument applies to replaceChild (C1).
+
+### 4.5 B2 — bridge/direct + setAttribute/removeAttribute + reflected-setter convergence
+
+§1 surfaced a uniformity gap that folds naturally into the seam convergence
+(§4.3): every script-visible attribute write should reach the seam **through a
+`DomApiHandler`**, with `vm/host/` staying marshalling-only (Layering mandate).
+B2 collapses the decision surface in the same direction as B1:
 
 - `setAttribute` routes through `invoke_dom_api` (`element_attrs.rs:218`) but
   `removeAttribute` uses the file-local `attr_remove` helper
@@ -529,21 +708,45 @@ B2 (One issue, one way):
   move** (e.g. a VM-side post-step or having the handler signal the VM to freeze
   + invalidate), else held `Attr` objects regress across removal/re-add. This is
   a precondition on the symmetry fix, not an afterthought.
-- Reflected IDL setters write the content attribute directly in `vm/host/`
-  rather than through a `DomApiHandler`. Since the attribute-change algorithm
-  lives entirely in the `EcsDom` chokepoint, this is borderline-marshalling;
-  B2 should decide whether to keep it (documented marshalling exception) or
-  route reflected writes through a shared `set_attribute` seam. Either way, pick
-  **one** form and document it; do not leave "API path through bridge, reflected
-  path direct" as an undocumented split.
+- **Reflected IDL setters route through the seam, not a blessed exception
+  (8YcT — direction corrected).** Today `input.value`, `a.href`, `form.method`,
+  etc. call `EcsDom::set_attribute` **directly from `vm/host/`**
+  (`html_input_proto.rs:460`/`:544`/…, `html_input_value.rs:129`/`:182`/…,
+  `html_button_proto.rs`, `html_textarea_proto.rs` — verified at HEAD
+  `76c1677f`). The earlier draft offered "bless it as a documented direct-write
+  marshalling exception" as one acceptable outcome. **That option is removed.**
+  Under the seam direction these writes are exactly the ones that must become
+  observable, and the Layering mandate keeps algorithm out of `vm/host/`: the
+  layering-correct convergence is to route reflected setters through the **same
+  `DomApiHandler` / `record_mutation` seam** as the `setAttribute` API (a shared
+  `set_attribute` handler the reflected setter calls with the resolved content
+  attribute name + value). Blessing the direct write would freeze a
+  script-observable mutation outside the seam — the precise mandate violation B
+  exists to fix. So: **one form — reflected writes through the seam** — not an
+  exception.
+- **`removeAttribute` symmetry carries the VM-local Attr detach (unchanged).**
+  Routing VM `removeAttribute` through the bridge for symmetry with `setAttribute`
+  must carry the `attr_remove` VM-local work forward — snapshot-freeze the JS-held
+  `Attr` wrapper's `detached_value` + `invalidate_attr_cache_entry`
+  (`element_attrs.rs:180-187`), which the bridge `RemoveAttribute` handler
+  (`element/props.rs:108-122`) does not do (it invalidates only the ECS
+  `AttrEntityCache`). This is a precondition on the symmetry fix; with the seam
+  convergence it becomes a VM-side post-step the handler signals, not a reason to
+  keep the direct path.
 
-### 4.5 Sequencing
+### 4.6 Sequencing
 
-B1 (correctness: produce records, Option 1) before B2 (collapse the
-bridge/direct + setAttribute/removeAttribute decision surface). B2 may fold into
-B1 if plan-review finds the unification is the natural shape of the consumer
-change. Both are `/elidex-plan-review`-gated per the umbrella; each is a single
-invariant-axis-intersection terminal slice under the approved umbrella.
+B1 (correctness: route every script-visible mutation onto the seam + wire
+flush→MO delivery + close C1/C2/C3/C5/8YcL/8YcW) before — or folded with — B2
+(the bridge/direct + reflected-setter convergence of §4.5). Because both move in
+the **same** direction (everything onto the `DomApiHandler`/`record_mutation`
+seam), plan-review may find B2 is simply the write-site half of B1's change
+rather than a separate slice. Both are `/elidex-plan-review`-gated per the
+umbrella; each is a single invariant-axis-intersection terminal slice under the
+approved umbrella. **Dual-runtime note:** the seam path is runtime-uniform (both
+VM and boa flush through `SessionCore`); only the new flush→MO hook must exist in
+the boa flush path until S5 retires boa — a strictly smaller S5 coupling than the
+rejected Option 1 carried.
 
 ---
 
@@ -552,21 +755,36 @@ invariant-axis-intersection terminal slice under the approved umbrella.
 - **WHATWG DOM §4.3** — MutationObserver; §4.3.2 "queue a mutation record"
   (per-observer queue, microtask delivery, inclusive-ancestor target walk);
   §4.3.3 Interface MutationRecord (record shape).
-- **`docs/design/ja/12-dom-cssom.md`** — line 24 / 71-72: "writes go via
-  `session.record_mutation()`"; line 47: "session flush generates
-  MutationRecords from buffered mutations". **This is the stale aspiration**
-  the code diverged from; §4.2's recommendation is to update §12 to describe
-  the `ConsumerDispatcher` mechanism the code actually uses.
-- **`docs/design/ja/28-adr.md`** — ADR #17 (`ScriptSession` as the unified
-  Script↔ECS boundary providing Identity Map / Mutation Buffer / GC /
-  consistent MutationObserver records); ADR #14 (DomApiHandler + DomSpecLevel,
-  "MutationObserver maps naturally to ECS change detection").
-- **`CLAUDE.md`** — "ScriptSession as the sole Script↔ECS boundary"; "One issue,
+- **`docs/design/ja/12-dom-cssom.md`** — line 5: read-only `&EcsDom`, "書き込みは
+  `session.record_mutation()`経由"; line 28: "MutationObserver … セッションflushが
+  バッファされた変更からMutationRecordsを生成。ファーストクラス." **This is NOT a stale
+  aspiration — it matches the mandate (8YcV).** The §4 direction is to bring the
+  code back to §12, not to rewrite §12 to match drifted code. §12 needs at most a
+  clarifying note that the `EcsDom` chokepoint + `ConsumerDispatcher` is the
+  *engine-internal-reconcile* layer *below* the seam (so the two are not in
+  conflict: writes record at the seam, the seam's `apply_*` delegates reconcile to
+  the chokepoint). No SSoT-vs-code conflict remains once the code records at the
+  seam.
+- **`docs/design/ja/28-adr.md`** — ADR #17 (`ScriptSession` = unified Script↔ECS
+  boundary providing Identity Map / **Mutation Buffer** / GC / **consistent
+  MutationObserver records** "単一メカニズムで実現") — this is the **SSoT for the
+  boundary** and directly mandates the §4 seam direction. ADR #14 ("MutationObserver
+  がECS変更検出に自然にマッピング") describes the *implementation substrate* (ECS change
+  detection feeds the seam's record production); it does **not** authorize putting
+  MO production in the `EcsDom` layer — ADR #17 is the controlling SSoT for *where*
+  the boundary sits.
+- **`CLAUDE.md`** — L16 "ScriptSession as the sole Script↔ECS boundary … 書き込みは
+  session mutation と flush point に集約し、SameObject・MutationObserver・atomic
+  script-task visibility を同一機構で守る" (the decisive mandate, §4.1); "One issue,
   one way"; Layering mandate (Axis 1a — algorithm bodies belong in
-  engine-independent crates, `vm/host/` is marshalling-only).
+  engine-independent crates, `vm/host/` is marshalling-only — see §4.5
+  reflected-setter convergence).
 - **lesson #181** (cited in code: `attribute.rs:5-15`, `element/props.rs:61`)
-  — the canonical `EcsDom::set_attribute` write-path consolidation that Option 2
-  would unwind.
+  — the canonical `EcsDom::set_attribute` write-path consolidation. **Preserved**
+  under the §4 seam direction (§4.1 note): #181 governs *engine-internal reconcile
+  at write time* (Mechanism A), the mandate governs *MO visibility* (the seam);
+  they are orthogonal. The seam's `apply_*` still bottoms out at the #181
+  chokepoint, so the consolidation is not unwound.
 
 ---
 
@@ -578,6 +796,12 @@ invariant-axis-intersection terminal slice under the approved umbrella.
   (`Insert`/`Remove` fire sites), `consumer_dispatcher.rs` (consumer list),
   and `mutation_observer.rs` (`deliver_mutation_records`). Do not carry this
   reframe forward on trust — Program B's correctness depends on it.
+- Re-confirm the §4 seam-direction anchors by direct read: `set_char_data`
+  Comment branch (`char_data/char_data_handlers.rs:59-73`, no `dispatch_event` —
+  8YcL), `apply_set_inner_html` single-record shape (`html_fragment.rs:85-89` —
+  8YcO/C5), the missing flush→MO hook (`natives_promise.rs:333-344` dispatches
+  slotchange only — 8YcR), and the reflected-setter direct writes
+  (`html_input_value.rs:129`/`:182` etc. — 8YcT).
 - Re-check active branches (`git branch -r`) for convergence drift on
   `element_attrs.rs` / `vm/host/` attribute setters (the umbrella flags MED
   collision with JS-side work; low overlap with media Slice 2b today, but B is
@@ -589,10 +813,14 @@ invariant-axis-intersection terminal slice under the approved umbrella.
 
 - This is a **doc-only** audit. Verify the `file:line` anchors against
   `main` and challenge any mechanism claim that does not match the code —
-  especially §0/§3 (the MutationObserver gap) and §4.2 vs §4.3 (the
-  ConsumerDispatcher-vs-session-buffer canonical-path recommendation).
-- The recommendation is intentionally a recommendation, not a settled fix;
-  B1/B2 are `/elidex-plan-review`-gated. Flag if any §4 trade-off is
-  mis-stated or if Option 2 is unfairly dismissed.
+  especially §0/§3 (the MutationObserver gap, incl. Range/normalize/Comment
+  rows) and §4 (the **ScriptSession-seam-owned MO** canonical-path recommendation
+  and the rejection of the dispatcher-consumer alternative).
+- The §4 direction is **mandate-derived, not a balance of trade-offs**:
+  `CLAUDE.md` L16 makes ScriptSession the sole boundary and names MutationObserver
+  as a seam-and-flush responsibility. Flag if any step mis-reads that mandate, if
+  the rejected dispatcher-consumer (former Option 1) is dismissed for a reason
+  that does not hold, or if a §4.2a constraint (C1–C5) is mis-stated.
 - Out of scope: implementing B1/B2; touching `element_attrs.rs`, reflected
-  IDL setters, or `ConsumerDispatcher`.
+  IDL setters, `range_proto_mutation.rs`, `char_data` handlers, or
+  `ConsumerDispatcher`.
