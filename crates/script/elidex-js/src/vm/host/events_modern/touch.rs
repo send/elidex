@@ -356,9 +356,10 @@ fn native_touch_constructor(
 }
 
 /// Brand check for `required EventTarget target` — accepts any
-/// EventTarget shape (HostObject with bound entity / AbortSignal /
-/// future EventTarget variants).  Mirrors `events_ui::resolve_
-/// related_target` but for the required (non-nullable) case.
+/// EventTarget shape: a `HostObject` Node (bound entity) or any non-Node
+/// EventTarget brand ([`ObjectKind::is_non_node_event_target`], the single
+/// SoT). Mirrors `events_ui::resolve_related_target` for the required
+/// (non-nullable) case.
 fn coerce_event_target_required(
     vm: &VmInner,
     val: JsValue,
@@ -372,7 +373,7 @@ fn coerce_event_target_required(
             {
                 return Ok(val);
             }
-            ObjectKind::AbortSignal => return Ok(val),
+            ref k if k.is_non_node_event_target() => return Ok(val),
             _ => {}
         }
     }

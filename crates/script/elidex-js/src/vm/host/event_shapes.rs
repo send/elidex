@@ -90,6 +90,10 @@ pub(crate) struct PrecomputedEventShapes {
     pub(crate) clipboard: ShapeId,
     pub(crate) message: ShapeId,
     pub(crate) close_event: ShapeId,
+    /// Terminal shape for `new MediaQueryListEvent(type, init)` (CSSOM-View
+    /// §4.2). Extends `core` with `media` + `matches` (both WEBIDL_RO). Also
+    /// the shape the Slice 2b-ii host-fire builds for the `change` event.
+    pub(crate) media_query_list_event: ShapeId,
     pub(crate) hash_change: ShapeId,
     pub(crate) page_transition: ShapeId,
     pub(crate) storage: ShapeId,
@@ -689,6 +693,14 @@ impl VmInner {
                 self.well_known.was_clean,
             ],
         );
+        // MediaQueryListEvent (CSSOM-View §4.2): `media` + `matches`, in
+        // IDL dictionary order (the ctor + 2b-ii host-fire write slots in
+        // this order).
+        let media_query_list_event = extend(
+            self,
+            core,
+            &[self.well_known.media, self.well_known.matches],
+        );
         let hash_change = extend(
             self,
             core,
@@ -884,6 +896,7 @@ impl VmInner {
             clipboard,
             message,
             close_event,
+            media_query_list_event,
             hash_change,
             page_transition,
             storage,

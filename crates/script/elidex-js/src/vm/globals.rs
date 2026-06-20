@@ -713,6 +713,17 @@ impl VmInner {
         #[cfg(feature = "engine")]
         self.register_abort_signal_global();
 
+        // `MediaQueryList` global + prototype (CSSOM-View §4.2). WebIDL
+        // `[Exposed=Window]` — Window realm ONLY (instances come from the
+        // Window `matchMedia()` extension; worker realms have neither the
+        // global nor `matchMedia`, Codex R1). Must run after
+        // `register_event_target_prototype` (the MQL prototype chains to
+        // `EventTarget.prototype`).
+        #[cfg(feature = "engine")]
+        if matches!(self.global_scope_kind, GlobalScopeKind::Window) {
+            self.register_media_query_list_global();
+        }
+
         // IndexedDB: the `indexedDB` global + `IDBKeyRange` + every IDB
         // interface prototype (W3C Indexed Database API 3.0, slot
         // `#11-indexed-db-vm`).  Must run after

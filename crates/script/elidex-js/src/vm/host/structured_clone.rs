@@ -260,6 +260,11 @@ fn classify(kind: &ObjectKind) -> CloneKind {
         ObjectKind::AbortSignal | ObjectKind::AbortController { .. } => {
             CloneKind::Unclonable("AbortSignal")
         }
+        // `MediaQueryList` is not [Serializable] — it is a live per-VM
+        // object whose state (parsed AST + match snapshot) lives in the
+        // `media_query_list_registry` side table.
+        #[cfg(feature = "engine")]
+        ObjectKind::MediaQueryList => CloneKind::Unclonable("MediaQueryList"),
         ObjectKind::Headers => CloneKind::Unclonable("Headers"),
         // IndexedDB interfaces are not [Serializable]; identity is per-VM
         // (state lives on the `idb_*_states` side stores).  D-20.

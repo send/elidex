@@ -81,6 +81,18 @@ impl VmInner {
                 self.abort_signal_prototype,
                 #[cfg(not(feature = "engine"))]
                 None,
+                // `MediaQueryList.prototype` (CSSOM-View §4.2) — rooted like
+                // every cached interface prototype so a severed
+                // `globalThis.MediaQueryList` + GC can't sweep it out from
+                // under the `media_query_list_prototype` cache (Codex R1).
+                #[cfg(feature = "engine")]
+                self.media_query_list_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.media_query_list_event_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
                 #[cfg(feature = "engine")]
                 self.character_data_prototype,
                 #[cfg(not(feature = "engine"))]
@@ -1345,6 +1357,14 @@ impl VmInner {
                 .retain(|id, _| bit_get(marks, id.0));
             self.abort_listener_back_refs
                 .retain(|_, signal_id| bit_get(marks, signal_id.0));
+            // Live `MediaQueryList` registry (CSSOM-View §4.2): prune
+            // entries whose MQL `ObjectId` was collected so a recycled
+            // slot never inherits a stale `{parsed, last_matches}`.  The
+            // value is `ObjectId`/`JsValue`-free, so there is no trace
+            // pass — this sweep-prune is the ONLY GC delete-path and it
+            // balances the `matchMedia` insert write-path.
+            self.media_query_list_registry
+                .retain(|id, _| bit_get(marks, id.0));
             // DOMException out-of-band state: prune entries whose
             // instance was collected so a recycled slot can't
             // inherit stale `name` / `message`.  Payload is

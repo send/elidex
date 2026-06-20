@@ -78,19 +78,11 @@ pub(crate) fn target_from_this(ctx: &NativeContext<'_>, this: JsValue) -> Option
             }
             elidex_ecs::Entity::from_bits(entity_bits).map(DispatchTarget::Node)
         }
-        ObjectKind::AbortSignal
-        | ObjectKind::IdbRequest
-        | ObjectKind::IdbTransaction
-        | ObjectKind::IdbDatabase
-        | ObjectKind::WebSocket
-        | ObjectKind::EventSource
-        | ObjectKind::FileReader
-        // `navigator.serviceWorker` client EventTargets (SW §3.1/§3.2/§3.4,
-        // D-19 PR-3): the container (`controllerchange`/`message`), the worker
-        // (`statechange`), and the registration (`updatefound`).
-        | ObjectKind::ServiceWorkerContainer
-        | ObjectKind::ServiceWorker
-        | ObjectKind::ServiceWorkerRegistration => ctx
+        // Every non-Node EventTarget brand (AbortSignal / IDB family /
+        // WebSocket / EventSource / FileReader / serviceWorker clients /
+        // MediaQueryList) routes to its `vm_event_listeners` home. Single
+        // SoT for the brand set = `ObjectKind::is_non_node_event_target`.
+        ref k if k.is_non_node_event_target() => ctx
             .vm
             .host_data
             .as_ref()

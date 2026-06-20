@@ -81,16 +81,19 @@ fn resolve_view(
 /// - `undefined` / `null` / missing → JS `null`
 /// - DOM wrapper (`ObjectKind::HostObject` with a bound ECS entity) →
 ///   pass through as-is
-/// - [`ObjectKind::AbortSignal`] → pass through as-is (AbortSignal is
-///   an EventTarget per WHATWG DOM §3.1 without being a Node)
+/// - any non-Node EventTarget brand
+///   ([`ObjectKind::is_non_node_event_target`]: AbortSignal / WebSocket /
+///   EventSource / IDB family / FileReader / serviceWorker clients /
+///   MediaQueryList) → pass through as-is (these are EventTargets without
+///   being Nodes, per their respective specs)
 /// - Any other Object / primitive → TypeError
 ///
 /// The brand check rejects plain `{}`, arrays and primitives to
-/// match real-browser `EventTarget?` coercion.  If future EventTarget
-/// `ObjectKind` variants are introduced (e.g. `Worker`,
-/// `BroadcastChannel`), they must be added to the accept list to
-/// stay spec-compliant — add an exhaustive match or a `match_event_target`
-/// helper at that point.
+/// match real-browser `EventTarget?` coercion.  The accept-list routes
+/// through the single-SoT [`ObjectKind::is_non_node_event_target`]
+/// predicate, so a newly-introduced EventTarget brand is recognized here
+/// automatically (the `match_event_target` helper this doc previously
+/// anticipated).
 fn resolve_related_target(vm: &VmInner, val: JsValue, interface: &str) -> Result<JsValue, VmError> {
     match val {
         JsValue::Undefined | JsValue::Null => Ok(JsValue::Null),
@@ -103,7 +106,9 @@ fn resolve_related_target(vm: &VmInner, val: JsValue, interface: &str) -> Result
                 {
                     Ok(val)
                 }
-                ObjectKind::AbortSignal => Ok(val),
+                // Any non-Node EventTarget brand — single SoT predicate so
+                // this accept-list cannot drift from the brand set.
+                ref k if k.is_non_node_event_target() => Ok(val),
                 _ => Err(VmError::type_error(format!(
                     "Failed to construct '{interface}': \
                      member relatedTarget is not of type 'EventTarget'."

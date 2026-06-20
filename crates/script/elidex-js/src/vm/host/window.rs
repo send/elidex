@@ -487,6 +487,9 @@ const WINDOW_METHODS: &[(&str, super::super::NativeFn)] = &[
     // (see `vm/host/document.rs`).  Single-doc VM never returns null
     // here; gated to `InvalidStateError` if host is unbound.
     ("getSelection", native_window_get_selection),
+    // CSSOM-View §4 "Extensions to the Window Interface": `matchMedia(query)`
+    // returns a live `MediaQueryList` (CSSOM-View §4.2).
+    ("matchMedia", super::media_query::native_window_match_media),
 ];
 
 // `pageXOffset` / `pageYOffset` are spec aliases for `scrollX` /

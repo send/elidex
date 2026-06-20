@@ -309,6 +309,37 @@ pub enum ObjectKind {
     /// GC contract: trace marks `signal_id` so the paired signal
     /// survives as long as the controller is reachable.
     AbortController { signal_id: ObjectId },
+    /// `MediaQueryList` instance (CSSOM-View §4.2) — the live object
+    /// returned by `window.matchMedia(query)`.  An `EventTarget` that
+    /// is *not* a `Node`: the prototype chain skips `Node.prototype`
+    /// and goes `MediaQueryList.prototype → EventTarget.prototype →
+    /// Object.prototype` (same shape as `AbortSignal` / `Window`).
+    ///
+    /// Per-MQL state (`MediaQueryEntry`: the parsed `MediaQueryList` AST
+    /// and the `last_matches` snapshot) lives **out-of-band** in
+    /// `VmInner::media_query_list_registry`, keyed by this object's
+    /// `ObjectId`.  Payload-free here so the per-variant size discipline
+    /// matches [`Self::AbortSignal`].
+    ///
+    /// The `change` event delivered on a media-state flip is a
+    /// `MediaQueryListEvent`, but — exactly like `MessageEvent` /
+    /// `FetchEvent` / `ExtendableEvent` — that **dispatched** subclass
+    /// does NOT get its own brand (the dispatch core reads
+    /// `ObjectKind::Event` internal slots; an own brand only works for
+    /// a never-dispatched event like `StorageEvent`).  See the
+    /// `Client` variant doc for the full precedent.  (The event type
+    /// itself lands with the transport in Slice 2b-ii.)
+    ///
+    /// GC contract: the side-store value is `ObjectId`/`JsValue`-free
+    /// (a CSS AST + a `bool`), so — unlike [`Self::AbortSignal`], whose
+    /// `reason`/listener `ObjectId`s must be marked — there is **no
+    /// trace pass** (nothing to mark).  The sweep tail still prunes
+    /// `media_query_list_registry` entries whose key was collected so a
+    /// recycled slot does not inherit a stale entry.  Survives
+    /// `Vm::unbind` (the value binds to no DOM entity / browsing-context
+    /// resource), matching `abort_signal_states`.
+    #[cfg(feature = "engine")]
+    MediaQueryList,
     /// `Headers` instance (WHATWG Fetch §5.2) — the header list
     /// backing `Request.headers` / `Response.headers` and also
     /// constructible standalone via `new Headers(init)`.
@@ -1494,6 +1525,35 @@ impl ObjectKind {
                     | Self::PromiseFinallyStep { .. }
                     | Self::AsyncDriverStep { .. }
             )
+    }
+
+    /// Returns `true` if this kind is a **non-Node** EventTarget brand —
+    /// the canonical set that routes to a `vm_event_listeners` home
+    /// (`host::dispatch_target::target_from_this`) and is accepted by the
+    /// WebIDL `EventTarget?` / `EventTarget` coercions (`relatedTarget`,
+    /// `Touch.target`). Node EventTargets are `HostObject` wrappers, gated
+    /// separately by the entity check at each site.
+    ///
+    /// Single SoT so the brand list cannot drift across the three sites —
+    /// the `match_event_target` helper the `events_ui` accept-list doc
+    /// anticipated. Adding a new non-Node EventTarget brand updates here
+    /// only.
+    #[cfg(feature = "engine")]
+    pub(crate) fn is_non_node_event_target(&self) -> bool {
+        matches!(
+            self,
+            Self::AbortSignal
+                | Self::IdbRequest
+                | Self::IdbTransaction
+                | Self::IdbDatabase
+                | Self::WebSocket
+                | Self::EventSource
+                | Self::FileReader
+                | Self::ServiceWorkerContainer
+                | Self::ServiceWorker
+                | Self::ServiceWorkerRegistration
+                | Self::MediaQueryList
+        )
     }
 }
 

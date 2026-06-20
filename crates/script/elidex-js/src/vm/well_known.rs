@@ -700,6 +700,12 @@ define_well_known_strings! {
         onabort => "onabort",
         throw_if_aborted => "throwIfAborted",
         abort_error => "AbortError",
+        // CSSOM-View MediaQueryList (window.matchMedia) — §4.2.
+        // `matches` reuses the existing well-known above (§329).
+        media => "media",
+        change => "change",
+        onchange => "onchange",
+        media_query_list_event_global => "MediaQueryListEvent",
         // EventTarget method names — referenced by both the
         // EventTarget.prototype installer and AbortSignal.prototype's
         // shadowing installer.  Pre-interning here means each prototype
