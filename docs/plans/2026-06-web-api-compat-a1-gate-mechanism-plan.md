@@ -15,8 +15,9 @@ construction-ordering) **before** any implementation commit. Per CLAUDE.md
 > `compat-webapi` cargo feature. **It moves no API and changes no behavior** — the shell
 > supplies `BrowserCompat`, so every Modern + Legacy API installs exactly as today. The
 > *real* demotion of storage (A2) / cookie (A3) / live-collections (B0) is downstream and
-> reuses this gate. A1's proof-of-mechanism is a **test-only** marked-`Legacy` API
-> exercising all four seams.
+> reuses this gate. A1's proof-of-mechanism is the policy predicate + a **mock `Legacy`**
+> handler withheld at the DOM-registry seam (the seams it wires: 1/2/4; seam-3 `onstorage`
+> lands with A2 — §9).
 
 ---
 
@@ -76,10 +77,14 @@ plan-review"). The lens-determined calls:
    `bind_session` (A0 R3-7: installers run at construction, before any bind). The public
    engine/VM constructors default to `BrowserCompat` ⇒ zero behavior change.
 
-3. **One policy, four seams, uniform (§3.3).** `install_methods`/`install_ro_accessors`/
-   `install_rw_accessors` (tables) + direct `register_*_global()` installers +
-   `install_event_handler_attrs` (the `onstorage` seam) + the `DomApiHandler` registry
-   resolve path. A1 makes **all four** consult the same derived policy. No fifth bespoke gate.
+3. **One policy, one predicate, across the install seams (§3.3).** The gate design spans four
+   seam *kinds* — method/accessor tables, direct `register_*_global()` installers,
+   `install_event_handler_attrs` (the `onstorage` seam), and the `DomApiHandler` registry — all
+   ending at the single predicate `SpecLevelPolicy::installs`/`installs_dom`. **As-built, A1
+   wires three (seam-1 storage accessors, seam-2 storage globals, seam-4 DOM registry); seam-3
+   (`onstorage`) lands with A2** because onstorage is entangled in the shared
+   `EVENT_HANDLER_ATTRS` family loop and its per-attr `Legacy` classification is A2's data — see
+   §9 note 2. No fifth bespoke gate; A2 builds the onstorage guard once (not a re-touch).
 
 4. **`compat-webapi` is an independent cargo feature, declared but NOT yet load-bearing on
    the backend (§2.3 / §3.4).** A1 declares it and wires the policy/install plumbing to
@@ -89,8 +94,13 @@ plan-review"). The lens-determined calls:
    (A0 R5-1: features are additive — implied-by would make the app exclusion
    unimplementable).
 
-5. **Proof = a test-only `Legacy` marker across all four seams (§5).** A1 marks **no real**
-   Web API `Legacy`. Storage/cookie demotion is A2/A3.
+5. **Proof = the policy predicate + the wired seams (§5).** A1 marks **no real** Web API
+   `Legacy` (storage/cookie demotion is A2/A3), so end-to-end exclusion is proven where a
+   `Legacy` entity exists today: the policy predicate matrix (elidex-plugin) + seam-4
+   withholding a **mock `Legacy` handler** (elidex-dom-api) + the VM storing the mode-derived
+   policy the seams read (elidex-js). Exclusion at the VM install seams is latent until A2 marks
+   storage `Legacy`. (The original "test-only marker across *four* seams" is reduced to three
+   wired seams — §9 note 2 — for the seam-3 reason above.)
 
 These are lens-collapsed (One-issue-one-way + Ideal-over-pragmatic + collision-avoidance);
 they are *recommendations to the plan-review*, surfaced as Open Questions in §7 for the
@@ -239,12 +249,13 @@ modes by **unit test only**).
 
 | # | Seam | Site | A1 change |
 |---|---|---|---|
-| 1 | Method/accessor tables | `install_methods`/`install_ro_accessors`/`install_rw_accessors` `globals.rs:962/988/1013` | Add leveled variants (§2.1) that consult `policy.installs(level)`; existing zero-level callers default `Modern` (no-op for the 95 %). |
+| 1 | Method/accessor tables | `install_methods`/`install_ro_accessors`/`install_rw_accessors` (`globals.rs`) | **As-built (§9 note 1): inline guard, not a leveled helper variant** (pre-built `install_*_leveled` with no A1 caller would be dead code). A1 wraps the demotable storage-accessors install in `register_window_prototype` (`window.rs`): `if self.spec_level_policy.installs(Modern) { install_ro_accessors(.., WINDOW_STORAGE_ACCESSORS) }`. A2 flips the level to `Legacy`. |
 | 2 | Direct global installers | the `register_*_global()` sequence in `register_globals` `globals.rs:72…` (e.g. `register_storage_global` call `:483`, `register_storage_event_global` `:658`) | **Demotable-installer routing (F1, committed):** A1 routes the **demotable** `register_*_global` calls — the installers a future mode will exclude: **today `register_storage_global` (`:483`) + `register_storage_event_global` (`:658`); future XHR** — through the policy-aware install path **now**, at level `Modern` (no behavior change — `policy.installs(Modern)` is always true under `BrowserCompat`). A2/A3 then change **only the level argument** (`Modern → Legacy`) at those call sites — they do **not** re-touch the seam wiring (§7 Q6 resolved). Permanently-`Modern` globals (`crypto`/`websocket`/`fetch`/…) need **not** route through the gate (they are never excluded — gating them would be churn, not One-issue-one-way: the anti-pattern is *two ways to gate `Legacy`*, not gating `Modern`). A1 marks nothing real `Legacy`; the test API is the only excluded entry. |
-| 3 | Event-handler IDL attrs | `install_event_handler_attrs` def `event_handler_attrs.rs:73` → shared loop `install_handler_attrs_from_list:145` (`install_handler_attr_family:215` is a sibling scope-filtered loop) | Make the install loop level-aware so a `Legacy`-classified handler attr (the future `onstorage`, A2) is skipped when excluded. A1 adds the capability + a test handler attr; it does **not** classify `onstorage` (A2). |
+| 3 | Event-handler IDL attrs | `install_event_handler_attrs` / shared loops `install_handler_attrs_from_list` + `install_handler_attr_family` (`event_handler_attrs.rs`) | **Deferred to A2 (as-built §9 note 2).** `onstorage` is one row of the shared `EVENT_HANDLER_ATTRS` family loop with **no clean Modern caller in A1**, and its per-attr `Legacy` classification is A2's data (onstorage *fires* `StorageEvent`). A leveled helper here would be dead code in A1. A1 ships the `spec_level_policy` field a future seam-3 guard reads; A2 builds that guard once, alongside the storage demotion (new wiring, not a re-touch of A1 infra). |
 | 4 | `DomApiHandler` registry | enforcement home = **`elidex-dom-api::registry::DomHandlerRegistry`** (`= PluginRegistry<dyn DomApiHandler>`, `mod.rs:277` `Rc<…DomHandlerRegistry>`); carrier `DomApiHandler::spec_level` (`define_api_handler!`, default body `macros.rs:21`, default `Living`); live dispatch `invoke_dom_api` `dom_bridge.rs:475`/resolve `:490` | **Layering-pinned (F3, committed):** enforce by **withholding `Legacy` handlers at registration** into `DomHandlerRegistry` (the elidex-dom-api crate, where the concrete `DomApiHandler` trait + its `spec_level()` are visible) — **not** in the generic `elidex-plugin::PluginRegistry::resolve` (`registry.rs:32`; it is `T: ?Sized`-generic and cannot read `spec_level` without coupling the foundational crate to a DOM trait — a layering inversion), and **not** as a per-call check in the `invoke_dom_api` hot path (runs per DOM mutation). Registration-time withholding keeps resolve a pure map lookup and the policy a single-writer construction-time decision. (Live-collection getters that allocate directly in `document.rs` and bypass `invoke_dom_api` are gated at **seam-1**, not here — A0 §3.4; A1 only makes seam-4 *capable*, B0/B1 demote.) |
 
-**Uniformity check**: all four end at one predicate `policy.installs(level)`. No seam grows a
+**Uniformity check**: the wired seams (1, 2, 4) all end at one predicate
+`policy.installs`/`installs_dom`; seam-3 follows the same predicate in A2. No seam grows a
 bespoke `if mode == …` branch (requirement: One issue, one way).
 
 ### 3.4 Enforcement vs. classification (A1 vs A2/A3/B)
@@ -319,13 +330,16 @@ From A0 §5 A1 row, made concrete:
 1. **No behavior change under `BrowserCompat`** — existing VM/engine test suites pass
    unchanged (the default mode installs `Modern + Legacy` exactly as today). This is the
    primary regression guard.
-2. **Four-seam exclusion proof** — a **test-only** API marked `Legacy`, installed via **each
-   seam**, is:
-   - present under `BrowserCompat`,
-   - **absent** under `BrowserCore` **and** `App`,
-   for: (a) a method/accessor **table** entry (seam-1), (b) a **`register_*_global`** installer
-   (seam-2), (c) an **`install_event_handler_attrs`** handler attr — the `onstorage` seam
-   shape (seam-3, A0 R8-1), (d) a **`DomApiHandler`** registry handler (seam-4).
+2. **Exclusion proof (as-built — §9 note 2: seam-3 in A2, so three wired seams here).** Because
+   A1 marks **no real** API `Legacy`, exclusion is proven where a `Legacy` entity exists today:
+   - **predicate matrix** (elidex-plugin): `installs`/`installs_dom` × {BrowserCompat,
+     BrowserCore, App} — Legacy present only under BrowserCompat (covers all seams' shared gate);
+   - **seam-4 end-to-end** (elidex-dom-api): a **mock `Legacy` `DomApiHandler`** is registered
+     under `BrowserCompat` but **withheld** under `BrowserCore`/`App`;
+   - **VM threading** (elidex-js `tests_webapi_gate`): `Vm::new()`/`new_with_mode` store the
+     mode-derived policy the seams read; `StorageEvent` present in **all** modes (Modern in A1 =
+     no behavior change). Exclusion at the VM install seams (1/2) is latent until A2 marks
+     storage `Legacy`. seam-3 (`install_event_handler_attrs` / `onstorage`) proof lands with A2.
 3. **`compat-webapi` declared + read** — feature is independent of `engine` (additive); the
    install plumbing reads the cfg. Both profiles compile: browser (`engine` +
    `compat-webapi`) and a profile with `engine` alone. *A1 does NOT require the storage
@@ -471,9 +485,11 @@ change, A2/A3 remain pure level-flips). All built on `webapi-compat-a1` rebased 
    (storage stays `Modern`, installs in all profiles); A2/A3/B rely on it for the app-absence
    guarantee. A1 does **not** cfg-gate the storage backend (that is A2).
 
-**Anchor drift from #372** (Axis-5 open-time re-grep, superseding §1's pre-rebase lines):
-`register_globals()` call `init.rs:742`; `global_scope_kind` field-set `init.rs:730`; field decl
-`mod.rs:2548`; `engine.rs` `ElidexJsEngine::new` `:38`. The code uses the live lines.
+**Anchor note**: §1's pre-rebase line numbers are superseded by the landed code (#372 +
+A1's own additions shifted them). Rather than cite re-drifting line numbers, navigate by symbol:
+`Vm::new_with_scope` derives + stores `spec_level_policy` (set in the `VmInner` struct literal,
+before the tail `vm.inner.register_globals()` call); the field is declared on `VmInner` beside
+`global_scope_kind` (`vm/mod.rs`); `ElidexJsEngine::new` / `new_with_mode` are in `engine.rs`.
 
 **Test coverage as-built**: policy predicate matrix (elidex-plugin, full mode × level);
 VM stores the mode-derived policy + `StorageEvent` present in all modes / no behavior change

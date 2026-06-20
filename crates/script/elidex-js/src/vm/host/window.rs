@@ -451,17 +451,17 @@ impl VmInner {
         // an empty string and updated by the setter.
         self.install_rw_accessors(proto_id, WINDOW_RW_ACCESSORS);
         // `localStorage` / `sessionStorage` accessor pair (WHATWG HTML
-        // §11.2).  Read-only getter that returns the cached `Storage`
-        // wrapper from `VmInner::alloc_or_cached_storage` so
-        // `localStorage === localStorage` holds (`[SameObject]`).
+        // §12.2.3 localStorage getter / §12.2.2 sessionStorage getter).
+        // Read-only getter that returns the cached `Storage` wrapper from
+        // `VmInner::alloc_or_cached_storage` so `localStorage === localStorage`
+        // holds (`[SameObject]`).
         //
         // Seam-1 of the A1 Web-API core/compat gate: this is the Web Storage
-        // family's Window-accessor surface (HTML §12.2.2 / §12.2.3), routed
-        // through the install policy. Classified `Modern` here in A1 (no API
-        // moves — installs in every mode exactly as before); A2 demotes the
-        // whole Web Storage family by changing only this level to `Legacy`,
-        // together with the `Storage`/`StorageEvent` globals in `register_globals`
-        // (seam-2). The seam itself does not change.
+        // family's Window-accessor surface, routed through the install policy.
+        // Classified `Modern` here in A1 (no API moves — installs in every mode
+        // exactly as before); A2 demotes the whole Web Storage family by changing
+        // only this level to `Legacy`, together with the `Storage`/`StorageEvent`
+        // globals in `register_globals` (seam-2). The seam itself does not change.
         if self
             .spec_level_policy
             .installs(elidex_plugin::WebApiSpecLevel::Modern)
