@@ -650,12 +650,20 @@ fn iframe_under_detached_parent_loads_only_when_parent_connected() {
 fn lazy_iframe_srcdoc_change_while_offscreen_re_defers() {
     let (mut state, _browser) = build_iframe_test_state("<body></body>", "");
 
-    // A connected `loading="lazy"` iframe. On connection it is deferred to the
-    // lazy-pending queue (`try_load_iframe_entity` with `force=false` sees
-    // `LoadingAttribute::Lazy`) rather than loaded.
+    // A connected `loading="lazy"` iframe laid out *below the viewport* (a
+    // 5000px spacer pushes it past the 1024x768 default viewport + 200px lazy
+    // margin), so `check_lazy_iframes` — the lazy-visibility pass the real
+    // content loop runs right after detection (`content/mod.rs`) — must keep it
+    // pending rather than load it. Exercising that pass (not just the detector)
+    // is what makes the "while offscreen" condition real: a regression that
+    // force-loads offscreen pending iframes would otherwise stay green.
     let r = state.pipeline.eval_script(
-        "globalThis.f = document.createElement('iframe');\
+        "globalThis.spacer = document.createElement('div');\
+         spacer.setAttribute('style', 'display:block;height:5000px');\
+         document.body.appendChild(spacer);\
+         globalThis.f = document.createElement('iframe');\
          f.loading = 'lazy';\
+         f.setAttribute('style', 'display:block;width:100px;height:100px');\
          f.srcdoc = '<p>v1</p>';\
          document.body.appendChild(f);",
     );
@@ -667,6 +675,30 @@ fn lazy_iframe_srcdoc_change_while_offscreen_re_defers() {
         "lazy iframe should be connected"
     );
 
+    // Run layout (the free `re_render` flushes + lays out *without* the
+    // `ContentState::re_render` wrapper's detect/lazy side-effects, keeping this
+    // test in control of when those run). Then assert the iframe really is laid
+    // out below the viewport + lazy margin — the precondition `check_lazy_iframes`
+    // keys on — so the "offscreen" assertions below are not vacuous.
+    let _ = crate::re_render(&mut state.pipeline);
+    let frame_top = state
+        .pipeline
+        .dom
+        .world()
+        .get::<&elidex_plugin::LayoutBox>(f)
+        .expect("the lazy iframe should have a layout box")
+        .content
+        .origin
+        .y;
+    assert!(
+        frame_top > crate::DEFAULT_VIEWPORT_HEIGHT + 200.0,
+        "iframe must be laid out below the viewport + lazy margin to test the offscreen path \
+         (top {frame_top}, viewport {})",
+        crate::DEFAULT_VIEWPORT_HEIGHT
+    );
+
+    // Connect → detector defers the lazy iframe to the pending queue
+    // (`force=false` + `LoadingAttribute::Lazy`).
     let changed = iframe::detect_iframe_mutations(&[child_added_record(&state, f)], &mut state);
     assert!(changed, "connecting a lazy iframe registers it as pending");
     assert!(
@@ -678,10 +710,22 @@ fn lazy_iframe_srcdoc_change_while_offscreen_re_defers() {
         "a lazy iframe must be queued as lazy-pending on connection"
     );
 
-    // Change `srcdoc` while still offscreen (still only lazy-pending, never
-    // scrolled into view) → must RE-DEFER, not force-load: PR #373 runs the
-    // attribute-change reload with `force=false`, so the lazy iframe re-enters
-    // the lazy queue instead of loading eagerly.
+    // The lazy-visibility pass must NOT load the offscreen iframe — it stays
+    // pending. This is the half PR #373's lazy contract depends on; running it
+    // here (instead of only the detector) is what verifies the offscreen state.
+    let loaded_offscreen = iframe::check_lazy_iframes(&mut state);
+    assert!(
+        !loaded_offscreen,
+        "check_lazy_iframes must not load an iframe below the viewport"
+    );
+    assert!(
+        is_lazy_pending(&state, f),
+        "an offscreen lazy iframe must remain pending after the lazy-visibility pass"
+    );
+
+    // Change `srcdoc` while still offscreen → must RE-DEFER, not force-load:
+    // PR #373 runs the attribute-change reload with `force=false`, so the lazy
+    // iframe re-enters the lazy queue instead of loading eagerly.
     let r = state.pipeline.eval_script("f.srcdoc = '<p>v2</p>';");
     assert!(r.success, "srcdoc-change JS failed: {:?}", r.error);
 
@@ -689,12 +733,12 @@ fn lazy_iframe_srcdoc_change_while_offscreen_re_defers() {
         iframe::detect_iframe_mutations(&[attribute_record(f, "srcdoc")], &mut state);
     // Assert the srcdoc record was actually *processed* (the Attribute branch
     // ran: re-derive → remove-from-pending → re-defer). Without this the test
-    // would pass vacuously — `f` is already lazy-pending from the insertion
-    // above, so the "still pending" assertion alone holds even if the detector
-    // regressed to matching only `src` and ignored the `srcdoc` record
-    // (precisely the PR #373 path this test pins). `detect_iframe_mutations`
-    // only returns `true` when a matched mutation drove a load/defer, so the
-    // `srcdoc`-ignored regression flips this to `false`.
+    // would pass vacuously — `f` is already lazy-pending, so the "still pending"
+    // assertion alone holds even if the detector regressed to matching only
+    // `src` and ignored the `srcdoc` record (precisely the PR #373 path this
+    // test pins). `detect_iframe_mutations` only returns `true` when a matched
+    // mutation drove a load/defer, so the `srcdoc`-ignored regression flips this
+    // to `false`.
     assert!(
         srcdoc_changed,
         "a srcdoc attribute change on a connected iframe must be processed (PR #373 srcdoc reload path), not ignored"
@@ -706,6 +750,17 @@ fn lazy_iframe_srcdoc_change_while_offscreen_re_defers() {
     assert!(
         is_lazy_pending(&state, f),
         "a lazy iframe must remain lazy-pending after a srcdoc change"
+    );
+
+    // And the lazy-visibility pass still keeps it pending post-re-defer.
+    let loaded_after_change = iframe::check_lazy_iframes(&mut state);
+    assert!(
+        !loaded_after_change,
+        "check_lazy_iframes must still not load the offscreen iframe after the srcdoc re-defer"
+    );
+    assert!(
+        is_lazy_pending(&state, f),
+        "an offscreen lazy iframe must remain pending after a srcdoc re-defer + lazy-visibility pass"
     );
 }
 
