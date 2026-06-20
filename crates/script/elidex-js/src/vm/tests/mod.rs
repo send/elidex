@@ -33,6 +33,7 @@ mod tests_coerce;
 mod tests_console;
 mod tests_cookie_referrer;
 mod tests_core_eval;
+mod tests_create_element_iframe;
 mod tests_create_element_options;
 mod tests_create_event_object;
 mod tests_crypto;
