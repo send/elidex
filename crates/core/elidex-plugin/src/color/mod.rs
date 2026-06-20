@@ -4,8 +4,29 @@
 //! (`#RGB`, `#RRGGBB`, `#RGBA`, `#RRGGBBAA`), `rgb()`/`rgba()`,
 //! `hsl()`/`hsla()`, and the `transparent` keyword.
 
-use cssparser::Parser;
-use elidex_plugin::CssColor;
+use cssparser::{Parser, ParserInput};
+
+use crate::CssColor;
+
+impl CssColor {
+    /// Parse a complete CSS `<color>` string, rejecting trailing tokens.
+    ///
+    /// Wraps [`parse_color`] with a whole-string exhaustion check: `"red"`,
+    /// `"#ff0000"`, `"rgb(255 0 0)"` parse; `"red junk"` / `"#fff x"` /
+    /// `""` return `None`. The engine-independent string entry point used by
+    /// `elidex-form`'s `<input type=color>` value sanitization (HTML
+    /// §4.10.5.1.14) — co-located with the color grammar so CSS and form
+    /// share one parse home.
+    #[must_use]
+    pub fn parse_str(s: &str) -> Option<CssColor> {
+        let mut input = ParserInput::new(s);
+        let mut parser = Parser::new(&mut input);
+        let color = parse_color(&mut parser).ok()?;
+        // Reject leftover tokens (e.g. a second color or stray identifier).
+        parser.expect_exhausted().ok()?;
+        Some(color)
+    }
+}
 
 /// All 148 CSS Color Level 4 named colors, sorted for binary search.
 static NAMED_COLORS: &[(&str, CssColor)] = &[

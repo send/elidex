@@ -3,7 +3,6 @@
 //! Provides CSS tokenization, property parsing, selector matching,
 //! and typed CSS value representations.
 
-mod color;
 mod declaration;
 pub mod escape;
 pub mod media;
@@ -14,7 +13,9 @@ mod serialize;
 mod shorthand;
 mod values;
 
-pub use color::parse_color;
+// `parse_color` (+ the `CssColor` grammar) lives in `elidex-plugin`, co-located
+// with the `CssColor` type, so CSS and `elidex-form` share one color-parse home.
+// Re-exported here so existing `elidex_css::parse_color` callers stay unchanged.
 pub use declaration::{
     parse_declaration_block, parse_declaration_block_with_registry, parse_inline_style,
     parse_value_for_property, parse_var_function, serialize_declaration_value_for_storage,
@@ -34,6 +35,10 @@ pub use shorthand::serialize_shorthand_value;
 
 use cssparser::{Parser, ParserInput};
 use elidex_plugin::{CssValue, ParseError};
+// The color parser lives in `elidex-plugin` (co-located with `CssColor`); this
+// `pub use` both re-exports it as `elidex_css::parse_color` (external callers
+// unchanged) and brings it into scope for the internal callers below.
+pub use elidex_plugin::parse_color;
 
 /// Parse a CSS color value, handling `currentcolor` before attempting a full
 /// color parse.
@@ -55,7 +60,7 @@ pub fn parse_color_with_currentcolor(
     {
         return Ok(CssValue::Keyword("currentcolor".to_string()));
     }
-    color::parse_color(input)
+    parse_color(input)
         .map(CssValue::Color)
         .map_err(|()| ParseError::simple("invalid color value"))
 }
@@ -80,7 +85,7 @@ pub fn parse_raw_token_value(raw: &str) -> CssValue {
     }
 
     // Try color.
-    if let Ok(c) = try_parse_exhaustive(&mut parser, color::parse_color) {
+    if let Ok(c) = try_parse_exhaustive(&mut parser, parse_color) {
         return CssValue::Color(c);
     }
 

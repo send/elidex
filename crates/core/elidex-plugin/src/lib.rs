@@ -5,6 +5,7 @@
 
 pub mod background;
 mod channel;
+mod color;
 mod computed_style;
 pub mod css_resolve;
 mod error;
@@ -24,6 +25,9 @@ pub mod url_security;
 mod values;
 
 pub use channel::{channel_pair, LocalChannel};
+/// CSS `<color>` grammar, co-located with the [`CssColor`] type it produces so
+/// CSS (`elidex-css`) and form (`elidex-form`) share one parse home.
+pub use color::parse_color;
 pub use computed_style::{
     is_multicol, selectors_match, validate_area_rectangles, AlignContent, AlignItems, AlignSelf,
     AlignmentSafety, AutoRepeatMode, BorderCollapse, BorderSide, BorderStyle, BoxDecorationBreak,
