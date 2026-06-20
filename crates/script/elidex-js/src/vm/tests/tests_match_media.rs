@@ -612,6 +612,38 @@ fn change_fires_on_prefers_color_scheme_flip() {
 }
 
 #[test]
+fn change_listener_reentrancy_is_snapshot_safe() {
+    // A `change` listener that mutates the registry mid-dispatch (here: calls
+    // `matchMedia`, inserting a new MQL) must neither perturb this turn's flip
+    // set (phase-A snapshot iterates an owned Vec) nor panic. The re-entrantly
+    // created MQL is seeded to the current env, so it is NOT delivered this
+    // turn — only the original `m` fires.
+    with_bound_vm(|vm| {
+        vm.eval(
+            "globalThis.fired = 0; globalThis.added = null; \
+             globalThis.m = matchMedia('(min-width: 1500px)'); \
+             m.addEventListener('change', function () { \
+                 fired++; \
+                 added = matchMedia('(min-width: 1500px)'); \
+             });",
+        )
+        .unwrap();
+        vm.set_media_environment(
+            1600.0,
+            900.0,
+            1.0,
+            ColorScheme::Light,
+            ReducedMotion::NoPreference,
+        );
+        vm.deliver_media_query_changes();
+        assert!(eval_bool(
+            vm,
+            "fired === 1 && added !== null && added.matches === true;"
+        ));
+    });
+}
+
+#[test]
 fn deliver_is_noop_while_unbound() {
     // Parity with `deliver_resize_observations`: a stray delivery on an unbound
     // VM must not panic (no `host_data().dom()` deref) and must not fire.

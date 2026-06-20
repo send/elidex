@@ -279,38 +279,33 @@ impl VmInner {
             return;
         }
 
-        // Phase A: snapshot the flip set in deterministic `ObjectId` order
-        // (the registry is a `HashMap`; the report order must be stable —
-        // the canonical `abort_signal_states` shape recovers order from the
-        // monotonic id).
+        // Phase A: snapshot the flip set. Evaluation is side-effect-free, so
+        // iterate the `HashMap` in any order and sort only the (usually empty)
+        // flip set — the report order must be stable (the canonical
+        // `abort_signal_states` shape recovers order from the monotonic
+        // `ObjectId`), but the common no-flip turn pays no sort.
         let env = self.media_environment();
-        let mut ids: Vec<ObjectId> = self.media_query_list_registry.keys().copied().collect();
-        ids.sort_unstable_by_key(|id| id.0);
         let mut flips: Vec<(ObjectId, bool, String)> = Vec::new();
-        for id in ids {
-            let entry = &self.media_query_list_registry[&id];
+        for (&id, entry) in &self.media_query_list_registry {
             let now = evaluate(&entry.parsed, &env);
             if now != entry.last_matches {
                 flips.push((id, now, entry.parsed.to_string()));
             }
         }
-        if flips.is_empty() {
-            return;
-        }
-
-        // Update each flipped entry's reported prior BEFORE firing (CSSOM-View
-        // §4.2 sets the MQL's value to `now` before queuing the `change`), so
-        // a listener that re-reads is consistent and a re-entrant deliver is a
-        // no-op for these entries.
-        for &(id, now, _) in &flips {
-            if let Some(e) = self.media_query_list_registry.get_mut(&id) {
-                e.last_matches = now;
+        flips.sort_unstable_by_key(|&(id, _, _)| id.0);
+        if !flips.is_empty() {
+            // Update each flipped entry's reported prior BEFORE firing
+            // (CSSOM-View §4.2 sets the MQL's value to `now` before queuing the
+            // `change`), so a listener that re-reads is consistent and a
+            // re-entrant deliver is a no-op for these entries.
+            for &(id, now, _) in &flips {
+                if let Some(e) = self.media_query_list_registry.get_mut(&id) {
+                    e.last_matches = now;
+                }
             }
-        }
 
-        // Phase B: fire `change` (a trusted `MediaQueryListEvent`) at each
-        // flipped MQL through the unified EventTarget dispatch core.
-        {
+            // Phase B: fire `change` (a trusted `MediaQueryListEvent`) at each
+            // flipped MQL through the unified EventTarget dispatch core.
             let mut ctx = NativeContext::new_call(self);
             let shape = ctx
                 .vm
@@ -321,6 +316,19 @@ impl VmInner {
             let proto = ctx.vm.media_query_list_event_prototype;
             let change_sid = ctx.vm.well_known.change;
             for (id, now, media) in flips {
+                // Per-id liveness re-check (mirrors
+                // `deliver_to_observer_callbacks`' per-id binding lookup): an
+                // earlier `change` listener this turn may have dropped this MQL,
+                // and a GC during dispatch may then have collected + recycled
+                // its `ObjectId`. Skip a collected entry rather than fire at the
+                // recycled object.
+                if !ctx.vm.media_query_list_registry.contains_key(&id) {
+                    continue;
+                }
+                // `media` is author-bounded (a parsed query string), so
+                // interning it before the listener gate grows the pool by at
+                // most one entry per distinct query — and `.media` interns the
+                // identical string, so it is a dedup in practice.
                 let media_sid = ctx.vm.strings.intern(&media);
                 // Slot order matches `event_shapes.rs::media_query_list_event`
                 // + the constructor: `media`, then `matches`.
@@ -340,8 +348,9 @@ impl VmInner {
             }
         }
 
-        // Each report-changes pass is its own microtask checkpoint (parity
-        // with the other `deliver_*` members).
+        // Each report-changes pass is its own microtask checkpoint (parity with
+        // the other `deliver_*` members), even when nothing flipped — so a
+        // pending microtask is never deferred past this turn.
         self.drain_microtasks();
     }
 }
