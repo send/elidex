@@ -298,24 +298,19 @@ the factual map only; it does **not** prescribe a mechanism, and in particular d
 **Mechanism-A fan-out invariant (the load-bearing statement).** A Mechanism-A
 consumer fans out for a given mutation **iff both** hold:
 - **(a) the `EcsDom` primitive actually fires the `MutationEvent`.** Tree mutations
-  are **suppressed at the fire site only when the mutated node *or* its parent is
-  itself a `ShadowRoot`** — `fire_after_insert`/`fire_after_remove`
-  (`tree/mutation.rs:289`/`:343`) return early when `is_shadow_root(node) ||
-  is_shadow_root(parent)` (the shadow-host boundary; #367 finding 82). This is **not**
-  light-tree-only: a mutation deep inside a shadow tree, whose mutated node/parent is a
-  normal element (not the `ShadowRoot` itself), **does fire** — the suppression is the
-  host↔shadow-root boundary, not the whole shadow subtree (docstring `:274-276` is
-  explicit that deeper shadow-tree mutations are NOT filtered here). Separately,
-  `set_char_data`'s Comment branch / the non-CharacterData `nodeValue=` branch fire no
-  `MutationEvent` at all (§1.6); **and**
+  have a **shadow-root suppression** at the fire site
+  (`fire_after_insert`/`fire_after_remove`, `tree/mutation.rs:289`/`:343`); whether a
+  given mutation fires is the shadow-root half of the coupled-invariant paragraph in
+  §4.2 (B1 derives the per-case behavior). Separately, `set_char_data`'s Comment
+  branch / the non-CharacterData `nodeValue=` branch fire no `MutationEvent` at all
+  (§1.6); **and**
 - **(b) a `ConsumerDispatcher` is installed** — installed **only** by `Vm::bind`
   (`vm_api.rs:279`); boa installs none, so under boa `dispatch_event` reaches a
   **no-op sink** and **no** mutation drives Mechanism A regardless of tree position.
 
-So shadow-host-boundary writes (mutated node/parent is the `ShadowRoot` itself —
-suppressed events) and boa fragment writes (no dispatcher) **do not drive
-Mechanism A**. The per-path overlap classification (§2.3) is **derived from this
-invariant**, not a hand registry.
+So shadow-root-suppressed writes and boa fragment writes (no dispatcher) **do not
+drive Mechanism A**. The per-path overlap classification (§2.3) is **derived from
+this invariant**, not a hand registry.
 
 **Consumers (mostly engine-internal reconcile + one script-visible CE tap).** The
 dispatcher drives 7 consumers in field/dispatch order
@@ -405,12 +400,10 @@ representative members:
   (`dom_inner_html.rs:148`/`:362`), i.e. the direct-delivery route of §2's MO-delivery
   axis — *not* a third mechanism, and *not* a `record_mutation` buffer entry.
 - **shadow-root fragment write** (`ShadowRoot.innerHTML`/`setHTMLUnsafe`, same shared
-  `set_inner_html_for` helper) = **direct-delivery *only*, NOT Mechanism A** — these
-  replace the **direct children of the `ShadowRoot`** (parent == the `ShadowRoot`
-  entity), so the `EcsDom` tree ops hit the host-boundary suppression
-  (`is_shadow_root(parent)`) and fire no `MutationEvent`, so no consumer runs. (A
-  fragment write *deeper* in a shadow tree, where the parent is a normal element, is
-  **not** suppressed — that case fires; see the §2.1 invariant correction.)
+  `set_inner_html_for` helper) = **direct-delivery *only*, NOT Mechanism A** when the
+  shadow-root suppression applies — whether a given shadow-tree write is suppressed is
+  the shadow-root half of the coupled-invariant paragraph (§4.2; B1 derives the
+  per-case behavior).
 - **boa fragment write** (`SetInnerHtml`/`InsertAdjacentHtml` on the boa/dom-api
   path) = **Mechanism-B only** — boa installs no dispatcher, so its tree ops reach
   the no-op sink and the record reaches MO purely via `flush`.
@@ -548,113 +541,34 @@ Where a constraint discriminates between recording *at a dispatcher event* vs.
 per-op event sequence / per-target record breakdown is B1's grep-diff/dispatch-path
 derivation**, not a fixed contract here.
 
-- **Coalescing & move-semantics invariant.** A whole-subtree replace (innerHTML /
-  outerHTML / setHTMLUnsafe / `replaceChildren` / `textContent=` / `replaceChild`)
-  must yield **one coalesced `ChildList` record** carrying `addedNodes` *and*
-  `removedNodes` together, **per target parent** — WHATWG DOM §4.2.3 "replace all"
+- **Coalescing invariant.** A whole-subtree replace (innerHTML / outerHTML /
+  setHTMLUnsafe / `replaceChildren` / `textContent=` / `replaceChild`) must yield
+  **one coalesced `ChildList` record** carrying `addedNodes` *and* `removedNodes`
+  together, **per target parent** — WHATWG DOM §4.2.3 "replace all"
   (`#concept-node-replace-all`) step 7 (and §4.2.3 replace). **Coalescing is
   per-target-parent: only same-`target` add/remove events fold into one record.**
-  Two corollaries:
   - **No-op guard:** a replace-all where both `addedNodes` and `removedNodes` are
     empty (`replaceChildren()` / `textContent=''` on an empty node) produces **no**
     record (step 7 queues only "if either is not empty"; webref-verified).
-  - **Move (already-parented node) — MutationObserver and CE reactions DIVERGE.** Any
-    op that inserts an **already-parented Node passed as a node argument**
-    (`replaceChild`/`replaceChildren`/`appendChild`/`insertBefore`/…) implies a
-    transient detach of that node from its **old parent** before the re-link: per
-    WHATWG DOM §4.2.3 "Mutation algorithms" (`#mutation-algorithms`) the insert
-    algorithm step 7.1 adopts the node, and `adopt` step 2 ("If node's parent is
-    non-null, then remove node") runs the **remove** algorithm on the old parent. The
-    two consumer axes see this transient detach **differently**, and conflating them
-    was the prior error here:
-    - **MutationObserver (Mechanism B record path): the moved-node old-parent removal
-      record is *algorithm-dependent* — B0 does NOT prescribe its shape (B1 open
-      question).** The DOM §4.2.3 `suppressObservers` flag — which governs whether the
-      adopt-detach's old-parent `remove` queues a record — is set **only by the
-      replace-family**: "replace all" step 5 (remove all children with
-      **suppressObservers = true**) and "replace" step 11.2 (remove child with
-      **suppressObservers = true**); webref-verified at `#concept-node-replace`. **Plain
-      `appendChild` / `insertBefore` set no such flag** — their adopt step 2 ("If node's
-      parent is non-null, then remove node", webref `#concept-node-adopt`) runs `remove`
-      with the **default `suppressObservers = false`**, and the `remove` algorithm then
-      queues an old-parent tree mutation record (`insert` step 8 / `remove` queue both
-      run unsuppressed). So the spec MO shape **diverges by algorithm**:
-      - a **plain `appendChild`/`insertBefore` move** of an already-parented node
-        **should queue an old-parent `"childList"` removal record** (suppressObservers
-        = false), in addition to the insertion record on the new parent;
-      - a **replace-all / replace** (innerHTML / `replaceChildren` / `replaceChild` / …)
-        **suppresses** that old-parent removal record (suppressObservers = true), and
-        §4.3.2 "queue a tree mutation record" emits only the coalesced insertion record.
+  - Today these replace-all ops are per-node `remove_child`/`append_child` loops with
+    **no** record (§3 gap), carrying both the N+M-shatter risk and the missing-record
+    gap. A seam/intent-driven source yields the coalesced shape by construction; an
+    event-driven source must reconstruct it (and suppress the no-op case) — *favors
+    recording from intent*, but does not settle the choice. (`textContent=` /
+    `setHTMLUnsafe` take strings → fresh nodes, so they are not move-capable; see the
+    coupled-invariant paragraph below for the move/CE/shadow corner.)
 
-      elidex's session `apply_append_child` / `apply_insert_before`
-      (`crates/script/elidex-script-session/src/mutation/mod.rs:212`/`:232`) currently
-      emit a `ChildList` record carrying **`added_nodes` only** — no `removed_nodes`, no
-      second record on the old parent (`dom.append_child`/`insert_before` performs the
-      adopt-detach internally, but the *record* is insertion-only). For the **plain-move**
-      case this is **arguably §4.2.3-incomplete** (a `{childList:true}` observer on the
-      old parent is owed a removal record). **B0 does NOT prescribe the exact
-      per-algorithm move-record shape — it is a known-subtle B1 question that B1 derives
-      from the DOM §4.2.3 `suppressObservers` semantics + the code.** Do **not** read this
-      bullet as the prior invariant "a move never yields an old-parent MO removal record"
-      (wrong as written: it holds for replace-family, not for plain insert).
-    - **CE reactions (both mechanisms): the move DOES fire `disconnected`/`connected`
-      callbacks, even on a same-parent reorder.** The transient detach fires
-      `fire_after_remove` → `MutationEvent::Remove` (`tree/mutation.rs`), and the
-      `CustomElementReactionConsumer` (`crates/dom/elidex-custom-elements/src/consumer.rs`)
-      `handle_remove` enqueues `Disconnected` on the `was_connected == true` transition,
-      while `handle_insert` **deliberately does NOT short-circuit on `was_connected`**
-      (`consumer.rs:98-106`) and enqueues `Connected` whenever the node is now-connected.
-      So `parent.appendChild(parent.firstChild)` on a connected custom element fires
-      `disconnectedCallback` then `connectedCallback` — matching Blink/Gecko
-      within-tree-move behaviour (`consumer.rs:15-22`) — per HTML §4.13.6 "Custom
-      element reactions" (`#custom-element-reactions`); cf. §4.13.2.1 "Preserving custom
-      element state when moved" (`#preserving-custom-element-state-when-moved`), which
-      a plain reparent does NOT invoke (`Node.moveBefore` is unimplemented).
-    - **The divergence is the coupled invariant.** MO and CE see a move's old-parent
-      removal on **different rules**: the **CE** axis fires the disconnected→connected
-      lifecycle on *every* move (even same-parent, see above), whereas the **MO** axis is
-      **algorithm-dependent** — suppressed for the replace-family (`suppressObservers =
-      true`) but *queued* for a plain `appendChild`/`insertBefore` (`suppressObservers =
-      false`), per the move-semantics open question above; elidex emits insertion-only
-      MO records today, whose plain-move §4.2.3-completeness is a B1 record-shape item.
-      The **exact per-case behaviour** — which record shape, which CE order, same- vs
-      cross-parent — is derived by **B1 from the dispatch path + the DOM §4.2.3
-      `suppressObservers` semantics**, not pinned here. `detach_with_hook` skips the redundant
-      `rev_version(old_parent)` when `old_parent == new_parent` (`tree/mutation.rs:454-456`)
-      but still fires the dispatcher `Remove`, which is what drives the CE
-      disconnected callback on the same-parent case. (`textContent=` / `setHTMLUnsafe`
-      take strings → fresh nodes and are **not** move-capable.)
-
-  *Illustrative:* `apply_set_inner_html` removes-old-then-appends-new;
-  `apply_set_outer_html` does the reverse (insert-new before `entity`, then remove
-  `entity`); `replaceChild` parentless = old `Remove` → new `Insert` (one record on
-  `parent`). **B1 derives each source's exact per-call sequence and per-target record
-  span by grep-diff.** Today these replace-all ops are per-node `remove_child`/
-  `append_child` loops with **no** record (§3 gap), carrying both the N+M-shatter risk
-  and the missing-record gap. A seam/intent-driven source yields the coalesced shape
-  by construction; an event-driven source must reconstruct it (and suppress the no-op
-  case) — *favors recording from intent*, but does not settle the choice.
-
-- **Ordering invariant (coalesced-record + CE-reaction order).** Within a coalesced
-  record, added-vs-removed ordering is **load-bearing**: record production,
-  coalescing, **and** the flush-side CE scan must agree on **one** total source order.
-  The move case is **primarily** a **CE-reaction-order** concern (today elidex emits
-  insertion-only records, so there is currently no separate move `Remove` *record* to
-  order on the MO axis); whether a **plain** `appendChild`/`insertBefore` move should
-  *additionally* queue an old-parent removal record — and thus introduce an MO-ordering
-  question — is the algorithm-dependent **B1 open question** flagged in the
-  move-semantics invariant above, **not** settled here. On the **CE axis** the move's
-  transient detach DOES fire a
-  `disconnected` reaction (even same-parent), so the dispatcher `Remove`/`Insert` fire
-  order must keep `disconnected`(detach) ordered before `connected`(re-link): a
-  **same-parent** reorder must see `disconnected` then `connected` on the *same*
-  element; a **cross-parent** move must see `disconnected`(old parent) before
-  `connected`(new parent). The flush-side CE scan `enqueue_ce_reactions_from_mutations`
-  (`ce.rs:145`) iterates added-then-removed; if a Pole-A reconstruction reorders, the
-  `connected`/`disconnected` firing order inverts relative to today. **B1 derives each
-  source's exact per-op order from the dispatch path** (it is *not* a fixed contract
-  here); the load-bearing statement is only that the order must agree across record
-  production, coalescing, and the CE scan, for **all** coalesced/replace-all sources.
+- **Coupled invariants for B1 (behavior intentionally not characterized here).** The
+  exact MutationObserver record shape for node *moves* (already-parented insertions),
+  the *Custom Element reaction* timing/ordering/state across those moves, and the
+  effect of *shadow-root boundaries* on both MutationObserver delivery and CE
+  callbacks are tightly-coupled invariants whose behavior is algorithm- and
+  node-position-dependent. **B0 deliberately does not characterize their behavior** —
+  B1's `/elidex-plan-review` derives the exact per-case semantics from WHATWG DOM
+  §4.2.3 (insert / `suppressObservers`), HTML §4.13.6 (custom element reactions), and
+  the code (`mutation/mod.rs` apply_* record builders, `consumer.rs` CE handlers,
+  `tree/mutation.rs` shadow-root suppression). Treating any of these as a settled B0
+  rule is out of scope.
 
 - **Non-dispatching attribute writes (spec-observable, must be closed).**
   `set_attribute_without_dispatch` (`attribute.rs:146`) fires **no** `MutationEvent`.
@@ -668,14 +582,13 @@ derivation**, not a fixed contract here.
   alone. (This is the content-attribute migration only; the text-like-mode live-value
   write leaves `Attributes` untouched and must stay record-free — 8kHF.)
 
-- **Shadow-host-boundary suppression.** `fire_after_insert`/`fire_after_remove`
-  (`tree/mutation.rs:289`/`:343`) suppress Insert/Remove **only when the mutated node
-  *or* its parent is itself a `ShadowRoot`** (the host↔shadow-root boundary) — a
-  mutation deeper in a shadow tree (parent is a normal element) still fires. An
-  event-driven (Pole A) source therefore silently misses the **boundary** childList
-  mutations (e.g. `ShadowRoot.innerHTML`, where parent == the `ShadowRoot`); a record
-  emitted *upstream* of the dispatcher (Pole B) captures them. *Favors recording
-  upstream.* The §4.3.2 inclusive-ancestor walk still gates delivery.
+- **Shadow-root boundary (record source vs. dispatcher suppression).** The
+  `tree/mutation.rs` shadow-root suppression means an event-driven (Pole A) source and
+  a source emitted *upstream* of the dispatcher (Pole B) can diverge for shadow-root
+  boundary childList mutations — *which* mutations each sees, and the exact behavior,
+  is the shadow-root half of the coupled-invariant paragraph above (B1 derives it).
+  The bias is *toward recording upstream*; the §4.3.2 inclusive-ancestor walk still
+  gates delivery.
 
 - **boa buffered iframe writes.** `iframe.rs` already records
   `Mutation::SetAttribute`/`RemoveAttribute` via the buffered applier that
@@ -714,10 +627,10 @@ Independent of which mechanism B1 picks:
   **set as a whole**.
 - **CE-reaction preservation (Mechanism B is not MO-only).** The session buffer feeds
   `MutationObserver` *and* CE reactions (§2.2). Any change to record *production*,
-  *coalescing*, or *delivery ordering* must preserve the CE-reaction scan (same
-  added/removed node set, **same order** — the ordering invariant above is named C7),
-  and the flush→CE drain must keep running on the page-load
-  (`flush_with_ce_reactions`) path, not only per-frame.
+  *coalescing*, or *delivery ordering* must preserve the CE-reaction scan, and the
+  flush→CE drain must keep running on the page-load (`flush_with_ce_reactions`) path,
+  not only per-frame. The exact CE timing/ordering/state across moves is part of the
+  §4.2 coupled-invariant paragraph (B1 derives it; B0 does not characterize it).
 - **CommentData notification + live-range coupling — one coupled invariant, not a
   lone missing record.** Comment characterData fires no event today (§1.6). Per
   WHATWG DOM §4.10 CharacterData "replace data" (`#concept-cd-replace`), the same
@@ -884,32 +797,16 @@ separate slice or the write-site half of B1 is itself a plan-review outcome.
   (representative: `parentnode.rs:181-249` `replaceChildren` [parent-kind gate `:75` =
   Element/Document/DocumentFragment] + `text_content.rs:105-116` `textContent` — DOM
   §4.2.3 "replace all" `#concept-node-replace-all` **step 7 no-op guard**; exhaustive
-  site list = B1 grep-diff); the class-level **move divergence** on a moved
-  already-parented node — **MO axis (algorithm-dependent, B1 open question):**
-  `apply_append_child`/`apply_insert_before` (`mutation/mod.rs:212`/`:232`) emit
-  `added_nodes`-only `ChildList` records today, but the spec old-parent removal record
-  is **suppressed only for the replace-family** (`#concept-node-replace` "replace all"
-  step 5 / "replace" step 11.2 `suppressObservers=true`) — a **plain**
-  `appendChild`/`insertBefore` adopt-detach (`#concept-node-adopt` step 2) runs `remove`
-  with the **default `suppressObservers=false`** and so DOM §4.2.3 *queues* an old-parent
-  removal record there; whether elidex's insertion-only record is §4.2.3-complete for
-  the plain-move case is a **B1 record-shape question, not a B0 verdict** (do NOT carry
-  forward the prior "a move never yields an old-parent MO removal record" assertion);
-  **CE axis:** the transient adopt-detach fires `fire_after_remove` → `MutationEvent::Remove`
-  (`detach_with_hook`, `tree/mutation.rs:458`; `:454-456` skips the redundant
-  `rev_version` when `old_parent == new_parent` but still fires the event), and the CE
-  consumer fires `disconnected`+`connected` **even on a same-parent reorder**
-  (`elidex-custom-elements/src/consumer.rs:98-106,144-146`, `was_connected` not
-  short-circuited on insert; HTML §4.13.6) — keep the MO old-parent-removal-record shape
-  as the **algorithm-dependent B1 open question** above (suppressed for replace-family,
-  queued for plain insert per `suppressObservers=false`), NOT a blanket assertion either
-  way; `textContent`/`setHTMLUnsafe` string→fresh-node, NOT
-  move-capable; the CE-reaction
-  order anchors (`enqueue_ce_reactions_from_mutations` added-then-removed `ce.rs:145`
-  + `replace_child` Remove-before-Insert `tree/mutation.rs:189`/`:201`); and the
-  characterData `oldValue` capture-timing (`set_text_data` overwrite-before-dispatch
-  `dom/mod.rs:336`/`:340-344`, `TextChange`/`ReplaceData` carry no old value). **Exact
-  per-op sequences = B1 grep-diff, not this list.**
+  site list = B1 grep-diff); the **move / CE-reaction / shadow-root coupled
+  invariants** — anchors `apply_append_child`/`apply_insert_before`
+  (`mutation/mod.rs:212`/`:232`), `consumer.rs` CE handlers,
+  `tree/mutation.rs` shadow-root suppression — whose **behavior B0 deliberately does
+  not characterize** (the §4.2 coupled-invariant paragraph; B1 derives the per-case MO
+  record shape, CE timing/ordering/state, and shadow-boundary effect from DOM §4.2.3
+  `suppressObservers` + HTML §4.13.6 + the code); and the characterData `oldValue`
+  capture-timing (`set_text_data` overwrite-before-dispatch `dom/mod.rs:336`/`:340-344`,
+  `TextChange`/`ReplaceData` carry no old value). **Exact per-op sequences = B1
+  grep-diff, not this list.**
 - Re-check active branches (`git branch -r`) for convergence drift on
   `element_attrs.rs` / `vm/host/` attribute setters (MED collision risk with JS-side
   work; B is later — Axis 5).
