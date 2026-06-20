@@ -176,6 +176,16 @@ fn sanitize_range(state: &FormControlState) -> Option<String> {
 /// For the integer-component inputs this path handles (hex / named / integer
 /// `rgb()`), serialization is exact; fractional sRGB inputs round to nearest
 /// (≤1-LSB from the spec's toward-+∞), folded into that carve.
+///
+/// **Parser subset**: the shared [`CssColor::parse_str`] grammar is the engine's
+/// declared supported color surface (named / hex / `rgb()` / `hsl()` /
+/// `transparent`); CSS Color 4 *functions* outside it (`hwb()` / `lab()` /
+/// `lch()` / `oklab()` / `oklch()` / `color()`) currently fail to parse and so
+/// fall to opaque black here, exactly as they do anywhere the CSS engine parses
+/// a color.  Extending the parser is a CSS-layer concern (`hwb()` is sRGB and
+/// cheap; `lab()`/`oklab()`/`color()` need the same CSS Color 4 float pipeline),
+/// not part of this sanitization wiring — when `parse_str` gains them, color
+/// sanitization benefits automatically (one parse home).
 fn sanitize_color(value: &str) -> String {
     // Parse → opaque black on failure (update step 4); force opaque (serialize
     // step 3); serialize `#rrggbb` lowercase (the opaque `Display` branch).
