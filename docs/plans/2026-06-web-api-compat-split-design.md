@@ -40,9 +40,11 @@ Audience: Claude / maintainers (and Codex via `## Review guidelines` of the umbr
    explicit design call, routed to B0). Everything else is **Modern**. **No
    Deprecated API is implemented** (verified absent: `document.write`/`writeln`/
    `open`/`close`/`all`/`execCommand`, `XMLHttpRequest`, `alert`/`confirm`/
-   `prompt`, `attachEvent`). The `navigator` UA-compat constant fields
-   (`appName`/`appVersion`/`product`/…) are **frozen-for-compat constants**, not
-   removable Legacy — a distinct third bucket (§1.4).
+   `prompt`, `attachEvent`). On `navigator`, only the genuinely spec-constant
+   fields (`appName`/`product`/`appCodeName`/`vendorSub`) are a **frozen-for-compat
+   `(F)`** bucket (not removable Legacy); `appVersion`/`productSub`/`vendor` are
+   **UA/compat-derived** placeholders and `javaEnabled` is a method-shape bug —
+   both routed to a navigator follow-up, not frozen (§1.4).
 
 2. **Mechanism (§3).** The recommendation is a **two-part gate**: a per-API
    `WebApiSpecLevel`/`DomSpecLevel` classification *attached at the VM
@@ -140,6 +142,17 @@ core/compat), `12-dom-cssom.md` §12.1.2 (DOM core/compat), ADR #14/#16/#17.
 > `javaEnabled` method-shape gap). The tables below are authoritative for the
 > **core/compat boundary decision**; where a row says "→ B0 / F2 / follow-up", the
 > *exhaustive* classification is that PR's, not A0's.
+>
+> The same discipline applies to **implementation mechanics** (R5): A0 states the
+> **requirement + constraint** and delegates the **exact implementation** to the
+> implementing PR's plan-review, rather than prescribing a precise mechanism A0 can
+> get subtly wrong. E.g. A0 fixes the *requirement* "the app build must compile
+> `engine` without the sync-storage shim, and Cargo features are additive" (§3.2c)
+> but **A1 owns the exact `Cargo.toml` feature graph**; A0 fixes "Web Storage must
+> be absent in `BrowserCore`/`App` across **all realms and all delivery paths**, and
+> `cookieEnabled` follows HTML §8.10.1.5" but **A2/A3 own the exact gating + value
+> derivation + opaque-origin handling**. A0 = boundary + requirement + verified
+> leads; the implementing PRs own the precise wiring.
 
 ### 1.1 `Window` (`crates/script/elidex-js/src/vm/host/window.rs`, `register_window_prototype` :411)
 
@@ -250,11 +263,11 @@ must be able to express the demotion at the static-table seam (§3.4).
 | API | Site | Class | Notes |
 |---|---|---|---|
 | `userAgent` | :49 | M | Real UA string. |
-| `appName`/`product` (+ `appCodeName`) | :50/:52 | **(F)** | **Truly spec-constant** (NavigatorID, HTML §8.10.1.1): the spec mandates the literal values `"Netscape"` / `"Gecko"` (/ `"Mozilla"`) in *every* browser. Keep as-is. |
-| `appVersion`/`productSub`/`vendor`/`vendorSub` | :51/:53/:54/:55 | **M (derived — not (F))** | **Correction (Codex P2 R4-4):** these are **not** constants. HTML §8.10.1.1 derives `appVersion` from the User-Agent, and `productSub`/`vendor` are **compatibility-mode dependent**. The current hard-coded values are *placeholders* that a spec-faithful navigator must wire to the shell UA / compat mode — **not** a frozen `(F)` field. Flag: `#11-navigator-id-derived-fields` (or fold into the navigator follow-up). |
+| `appName`/`product`/`vendorSub` (+ `appCodeName`) | :50/:52/:55 | **(F)** | **Truly spec-constant** (NavigatorID, HTML §8.10.1.1): the spec mandates literal values — `appName="Netscape"`, `product="Gecko"`, `appCodeName="Mozilla"`, and **`vendorSub=""`** (empty string, Codex P2 R5-4 — `vendorSub` is a constant, not a derived field). Keep as-is. |
+| `appVersion`/`productSub`/`vendor` | :51/:53/:54 | **M (derived — not (F))** | **Correction (Codex P2 R4-4/R5-4):** these are **not** constants. HTML §8.10.1.1 derives `appVersion` from the User-Agent; `productSub`/`vendor` are **compatibility-mode dependent**. The current hard-coded values are *placeholders* a spec-faithful navigator must wire to the shell UA / compat mode — a **requirement** for the navigator follow-up (slot below), not an A0-frozen value. |
 | `platform`/`language` | :56/:57 | M | `platform` is UA/OS-derived (not frozen). |
 | `onLine` | :77 | M | |
-| `cookieEnabled` | :78 | **M** (value-coupled) | **Classification (Codex P2 R3-8/R4-2): `cookieEnabled` is Modern and stays installed in *every* mode** — **not** Legacy, **not** gated/removed. A3 changes only its **returned value**: report `true` exactly when `document.cookie` is reachable **and** a `CookieJar` is bound (today hard-coded `false`, inconsistent once A3 makes cookies work). *Classification* = Modern; *value* = derived from the cookie policy. A3 derives the value (§5 AC); it does **not** gate the property. |
+| `cookieEnabled` | :78 | **M** (value-derived) | **Classification (Codex P2 R3-8/R4-2/R5-2): Modern, installed in *every* mode** — not Legacy, not gated. A3 fixes only its **value**. **Correction (R5-2):** per HTML **§8.10.1.5** (NavigatorCookies), `cookieEnabled` reflects whether the **user agent handles cookies** (i.e. a `CookieJar` is bound / cookies are enabled) — **NOT** whether the legacy `document.cookie` accessor is exposed. So in `BrowserCore`/`App` (where `document.cookie` is hidden but HTTP cookies still work) `cookieEnabled` must still be `true`. Derive it from cookie *handling*, not from `document.cookie` reachability. |
 | `javaEnabled` | :79 | **M — spec-shape gap** | **Correction (Codex P2 R4-5):** spec defines `Navigator.javaEnabled()` (NavigatorPlugins, HTML §8.10.1.6) as a **method** returning `false`, but the VM installs a **boolean property** (`navigator.rs:79`) — so `navigator.javaEnabled()` is a **TypeError** today. Not a "harmless constant": a real spec-shape bug. Flag: `#11-navigator-javaenabled-method-shape`. |
 | `hardwareConcurrency` | :92 | M | |
 | `languages` (Array) | :107 | M | |
@@ -263,15 +276,24 @@ must be able to express the demotion at the static-table seam (§3.4).
 No callable methods today (`javaEnabled` *should* be one — above);
 `clipboard`/`storage`/`permissions`/`mediaDevices` not present.
 
-**`navigator` takeaway (corrected R4):** nothing on `navigator` is
+**`navigator` takeaway (corrected R4/R5):** nothing on `navigator` is
 *Legacy-destined-for-compat*, **but** the inventory's first pass over-claimed the
-`(F)` bucket. Only `appName`/`product`/`appCodeName` are truly spec-constant;
-`appVersion`/`productSub`/`vendor` are UA/compat-**derived** (placeholders to wire,
-not freeze), and `javaEnabled` is a **method-shape bug**. These two precise
-classifications are leads for a **navigator follow-up** (slots
-`#11-navigator-id-derived-fields`, `#11-navigator-javaenabled-method-shape`), not
-A0-frozen facts — same "A0 records leads, the follow-up owns the exact surface"
-discipline as §1.3 (live collections) / §1.5 (citations).
+`(F)` bucket. Truly spec-constant: `appName`/`product`/`appCodeName`/**`vendorSub`
+(="")**. UA/compat-**derived** (placeholders to wire, not freeze):
+`appVersion`/`productSub`/`vendor`. And `javaEnabled` is a **method-shape bug**.
+These are **requirements for a navigator follow-up**, not A0-frozen facts — same
+"A0 records leads, the follow-up owns the exact surface" discipline as §1.3 / §1.5.
+
+**Defer slots (registered here, Codex P3 R5-5 — why/trigger/date, not bare IDs):**
+- **`#11-navigator-id-derived-fields`** — *Why:* `appVersion`/`productSub`/`vendor`
+  are hard-coded placeholders; a spec-faithful navigator (HTML §8.10.1.1) derives
+  them from the shell UA / compat mode. *Trigger:* when the shell exposes a UA /
+  compat-mode source to the VM (same dependency as the F6/E0 mode work). *Date:*
+  revisit with the `EngineMode` work (§3.2 / A1).
+- **`#11-navigator-javaenabled-method-shape`** — *Why:* `javaEnabled` is installed
+  as a boolean property but HTML §8.10.1.6 defines a method; `navigator.javaEnabled()`
+  is a `TypeError` today. *Trigger:* a spec-faithful-navigator pass, or sooner if a
+  WPT/site needs the method. *Date:* next navigator-surface PR.
 
 ### 1.5 Newly-found clerical drift (fold into the F2 sweep)
 
@@ -382,7 +404,7 @@ Two cooperating parts, with a clear division of labor:
 VM's registration so every installed Web/DOM API carries a
 `WebApiSpecLevel`/`DomSpecLevel` (reusing the existing enums), defaulting to
 `Modern`/`Living` (mechanical, near-noise for the ~95% Modern surface). This is
-the **vocabulary made load-bearing** rather than decorative. There are **three**
+the **vocabulary made load-bearing** rather than decorative. There are **four**
 seams the gate must cover (Codex P2 — the table-only form is incomplete):
 
   1. **`install_methods`/`install_ro_accessors`/`install_rw_accessors` table
@@ -401,9 +423,17 @@ seams the gate must cover (Codex P2 — the table-only form is incomplete):
      the static `DOCUMENT_METHODS` table **and** allocate `LiveCollection` in
      `vm/host/document.rs`, *not* through the `DomApiHandler` registry, so they are
      gated at seam (1), not via registry pruning.
+  4. **Event-handler IDL attrs via `install_event_handler_attrs`** (Codex P2
+     R5-3) — `window.onstorage` (and any future legacy-surface handler) is
+     installed over `EVENT_HANDLER_ATTRS` (`event_handler_consumer.rs:165`),
+     **neither** a method/accessor table **nor** a `register_*_global`. The policy
+     must reach this seam too, else A2 cannot hide `onstorage` without a one-off
+     gate (violating the single mechanism). A1 makes `install_event_handler_attrs`
+     level-aware like the others.
 
-The gate is therefore "**a level at every install seam + one policy consulted by
-every installer**," not "a level on one table."
+The gate is therefore "**a level at every install seam (tables + global installers
++ event-handler attrs) + one policy consulted by every installer**," not "a level
+on one table."
 
 **(b) One *engine-wide* mode → a per-layer `SpecLevelPolicy`, fixed at VM
 construction.** Two corrections from Codex R3 over the original "`WebApiMode` at
@@ -451,20 +481,23 @@ core-vs-compat toggle; the feature handles the app's *absence* guarantee. They a
 not redundant — they answer different questions ("is it reachable now?" vs. "is it
 in the binary?").
 
-**Cargo wiring vs. the existing `engine` feature (Codex P2 R4-6 — must be in
+**Cargo wiring vs. the existing `engine` feature (Codex P2 R4-6/R5-1 — must be in
 A1/A2's AC).** `elidex-js` today is `default = []` with the whole VM host surface
-(incl. the storage backend dep) behind `feature = "engine"`. The new
-`compat-webapi` must be wired so that (i) **browser builds keep sync storage**:
-`engine` (or the browser profile) must imply `compat-webapi` — else a normal
-`--features engine` build silently loses `localStorage`/cookies; and (ii) **app
-builds actually drop it**: the sync-storage backend dependency and the glue must be
-gated by `compat-webapi` (not unconditionally pulled by `engine`) — else the app
-binary still compiles the sync-storage code despite the promised absence. So
-`compat-webapi` is **not** orthogonal to `engine`; A1 defines the feature graph
-(likely `engine`→`compat-webapi` on by default, app profile = `engine` without
-`compat-webapi`, storage-backend dep moved under `compat-webapi`) and A2 proves
-both build profiles. This is an explicit A1/A2 acceptance criterion, not an
-afterthought.
+(incl. the storage backend dep) behind `feature = "engine"`. The **requirement**:
+(i) the app build must be able to compile the VM (`engine`) **without** the
+sync-storage shim/backend; (ii) browser builds must keep sync storage. The
+**correction (R5-1):** `compat-webapi` must **not** be implied-by / a dependency-of
+`engine` — Cargo features are **additive and unified**, so if `engine` enabled
+`compat-webapi`, then *any* build with `engine` (incl. the app's
+`--features engine`) would force `compat-webapi` on, making the app exclusion
+**unimplementable**. Instead `compat-webapi` is an **independent** feature that the
+**browser/default profile enables separately** (e.g. a `browser` feature, or the
+binary crate's `default`, turns on `engine` + `compat-webapi`), while the **app
+profile selects `engine` alone**; the sync-storage backend dependency is
+`optional` and pulled **only** by `compat-webapi`. A0 states this requirement +
+the additive-semantics constraint; **A1 owns the exact `Cargo.toml` feature graph**
+and **A2 proves both profiles compile** (browser = storage present; app =
+`engine`-without-`compat-webapi` drops the backend). Explicit A1/A2 AC.
 
 **Where each piece lives:**
 
@@ -628,9 +661,9 @@ AC = gate conditions.
 
 | PR | Purpose | Main files / crates | Depends | Plan-review | Acceptance criteria |
 |---|---|---|---|---|---|
-| **A1** | Build the **gate**: (a) level at **every install seam** — `install_*` tables **and** direct `register_*_global()` installers (§3.2a, Codex P2); (b) engine-wide `EngineMode` + derived `SpecLevelPolicy` in `elidex-plugin`, supplied at **VM construction before `register_globals`** (R3-7); (c) enforcement that prunes excluded levels at every installer — covering the static tables, the global installers, **and** the `DomApiHandler` registry; (d) `feature = "compat-webapi"`. **No API moves yet; no behavior change** (shell supplies `BrowserCompat`). | `elidex-plugin` (`EngineMode`/policy), `elidex-js` VM construction + host registration plumbing incl. `vm/init.rs`/`vm/globals.rs`, `elidex-script-session` (registry enforcement) | A0 | **PR-R** | Policy classifies+conditionally-installs by level; `localStorage`/`cookie` still installed under `BrowserCompat`; unit tests show `BrowserCore`/`App` excludes a marked-`Legacy` API installed via **both** a table entry **and** a `register_*_global`; gate proven against a `DomApiHandler` too; **`compat-webapi` feature graph wired vs `engine`** (R4-6 — `engine`/browser implies `compat-webapi`; app profile = `engine` without it; sync-storage backend dep gated under `compat-webapi`), both profiles compile. **`BrowserCore`/`App` exercised only by tests, never a real session (§4.2 async-core precondition).** |
-| **A2** | Gate the **whole Web Storage surface** — `Storage` (`localStorage`/`sessionStorage`) **+ `StorageEvent`** **+ `window.onstorage`** (Codex P2 R4-1) — behind the policy + `compat-webapi` feature, **in place** in `elidex-js` (native glue does not relocate — §4.1 dependency-cycle); classify them `Legacy`. | `vm/host/storage.rs`, `window.rs`, `vm/globals.rs` (StorageEvent), event-handler seam (`onstorage`), opt. new `elidex-api-storage-compat` (§4.1 — confirm need) | A1 | **PR-R** | `localStorage`/`sessionStorage` **+ `StorageEvent` + `window.onstorage`** reachable only under `BrowserCompat`; **all** absent together in `BrowserCore`/`App` (no `typeof StorageEvent==='function'` / no `window.onstorage` while storage absent); `compat-webapi`-off (app) build drops the sync-storage backend dep (R4-6); opaque-origin slot `#11-storage-opaque-origin-securityerror` re-evaluated; `BrowserCompat` byte-identical; tests green. **Sequence after JS-side media Slice 2b** (window.rs collision — §6). |
-| **A3** | **Gate only `document.cookie`** behind the policy + feature, in place in `elidex-js`; classify cookie `Legacy`. **`navigator.cookieEnabled` is NOT gated** (Codex P2 R4-2 — it stays Modern/installed in every mode, §1.4); A3 only **derives its value** from cookie reachability. Cookie-file clerical only (`document.rs`/`navigator.rs` stub comments) — the **full §1.5 citation sweep is the independent F2 micro-PR**, not A3. | `vm/host/document.rs`, `vm/host/navigator.rs` (value-derive only), opt. new `elidex-api-cookies-compat` (§4.1 — confirm need) | A1 (∥ A2) | **PR-R** | `document.cookie` reachable only under `BrowserCompat`; `navigator.cookieEnabled` **stays present in all modes** and *returns* `true` exactly when `document.cookie` is reachable **and** a `CookieJar` is bound (value derived, property never removed); cookie-file stale comments removed (citations = F2 micro-PR); tests green. |
+| **A1** | Build the **gate**: (a) level at **every install seam** — `install_*` tables **and** direct `register_*_global()` installers (§3.2a, Codex P2); (b) engine-wide `EngineMode` + derived `SpecLevelPolicy` in `elidex-plugin`, supplied at **VM construction before `register_globals`** (R3-7); (c) enforcement that prunes excluded levels at every installer — covering the static tables, the global installers, **and** the `DomApiHandler` registry; (d) `feature = "compat-webapi"`. **No API moves yet; no behavior change** (shell supplies `BrowserCompat`). | `elidex-plugin` (`EngineMode`/policy), `elidex-js` VM construction + host registration plumbing incl. `vm/init.rs`/`vm/globals.rs`, `elidex-script-session` (registry enforcement) | A0 | **PR-R** | Policy classifies+conditionally-installs by level; `localStorage`/`cookie` still installed under `BrowserCompat`; unit tests show `BrowserCore`/`App` excludes a marked-`Legacy` API installed via **both** a table entry **and** a `register_*_global`; gate proven against a `DomApiHandler` too; **`compat-webapi` feature graph wired vs `engine`** (R4-6/R5-1 — `compat-webapi` is **independent** of `engine`, enabled by the browser/default profile separately [Cargo features are additive]; app profile = `engine` **alone**; sync-storage backend dep is `optional`, pulled only by `compat-webapi`), both profiles compile. **`BrowserCore`/`App` exercised only by tests, never a real session (§4.2 async-core precondition).** |
+| **A2** | Gate the **whole Web Storage surface** — `Storage` (`localStorage`/`sessionStorage`) **+ `StorageEvent`** **+ `window.onstorage`** (Codex P2 R4-1) — behind the policy + `compat-webapi` feature, **in place** in `elidex-js` (native glue does not relocate — §4.1 dependency-cycle); classify them `Legacy`. | `vm/host/storage.rs`, `window.rs`, `vm/globals.rs` (StorageEvent), event-handler seam (`onstorage`), opt. new `elidex-api-storage-compat` (§4.1 — confirm need) | A1 | **PR-R** | `localStorage`/`sessionStorage` **+ `StorageEvent` + `window.onstorage`** reachable only under `BrowserCompat`; **all** absent together in `BrowserCore`/`App` (no `typeof StorageEvent==='function'` / no `window.onstorage` while storage absent); `compat-webapi`-off (app) build drops the sync-storage backend dep (R5-1); **realm-scoped** — `Storage`/`StorageEvent` are `[Exposed=Window]` (HTML §12.2.1/§12.2.4) but `register_storage_global`/`register_storage_event_global` run **outside** the `GlobalScopeKind::Window` branch (`globals.rs:483`/`:658`), so worker VMs over-expose them; A2 confirms Window-only exposure **and** mode-gating (R5-6); **event-delivery suppressed** — hiding the constructor/handler is not enough: the shell broadcasts `BrowserToContent::StorageEvent` (`shell/app/mod.rs:580`, `ipc.rs:128`) and the content loop dispatches it regardless of Web-API mode, so `addEventListener('storage', …)` still observes storage; A2 must also suppress storage-event production/delivery for excluded sessions (R5-7); opaque-origin slot `#11-storage-opaque-origin-securityerror` re-evaluated; `BrowserCompat` byte-identical; tests green. **Sequence after JS-side media Slice 2b** (window.rs collision — §6). |
+| **A3** | **Gate only `document.cookie`** behind the policy + feature, in place in `elidex-js`; classify cookie `Legacy`. **`navigator.cookieEnabled` is NOT gated** (Codex P2 R4-2 — it stays Modern/installed in every mode, §1.4); A3 only **derives `cookieEnabled`'s value** from cookie *handling* (§8.10.1.5 — not `document.cookie` exposure, R5-2). Cookie-file clerical only (`document.rs`/`navigator.rs` stub comments) — the **full §1.5 citation sweep is the independent F2 micro-PR**, not A3. **Cookie opaque-origin SecurityError** (R5-8): the getter/setter silently return `""`/no-op for cookie-averse cases, but HTML §3.1.4 requires `SecurityError` for sandboxed/opaque origins — A3 registers slot **`#11-cookie-opaque-origin-securityerror`** (parallel to the storage one). | `vm/host/document.rs`, `vm/host/navigator.rs` (value-derive only), opt. new `elidex-api-cookies-compat` (§4.1 — confirm need) | A1 (∥ A2) | **PR-R** | `document.cookie` reachable only under `BrowserCompat`; `navigator.cookieEnabled` **stays present in all modes** and *returns* `true` when the UA **handles cookies** (a `CookieJar` is bound) — independent of `document.cookie` exposure (R5-2); cookie-file stale comments removed (citations = F2 micro-PR); cookie opaque-origin behavior fixed-or-slotted; tests green. |
 
 `elidex.storage` / CookieStore async core = **out of Program A** (§4.2, slot
 `#11-async-core-storage-cookiestore`), the **`BrowserCore`/`App` storage
