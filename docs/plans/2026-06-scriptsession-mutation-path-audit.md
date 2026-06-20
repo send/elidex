@@ -272,10 +272,26 @@ mis-conflations, not as an exhaustive boundary:
 
 ## 2. The Two Notification Mechanisms
 
-There are exactly two. **Read them as answering two different questions, not as two
-competing canonical write paths.** §2 establishes the factual map only; it does
-**not** prescribe a mechanism, and in particular does **not** assert "route every
-write into Mechanism B".
+There are exactly two **mechanisms** — **Mechanism A** (`EcsDom`
+`ConsumerDispatcher` = engine-internal reconcile + a script-visible CE tap) and
+**Mechanism B** (`SessionCore` mutation buffer + `flush`). **Read them as answering
+two different questions, not as two competing canonical write paths.** §2 establishes
+the factual map only; it does **not** prescribe a mechanism, and in particular does
+**not** assert "route every write into Mechanism B".
+
+> **Mechanism count vs MO delivery paths — do not conflate the two axes.** The "two"
+> above is the count of **mechanisms**. `MutationObserver` *delivery*, separately, has
+> **two routes**, both reaching `deliver_mutation_records`: **(i) buffer-flush
+> delivery** — a Mechanism-B record buffered by `record_mutation`, drained by a
+> *delivering* flush (per-frame `re_render` → `content/mod.rs:258`) — and **(ii)
+> direct-delivery** — `innerHTML`/`outerHTML`/`setHTMLUnsafe` self-generate a
+> `MutationRecord` and synchronously call `Vm::deliver_mutation_records`, bypassing the
+> buffer entirely (§1 case (b)). Direct-delivery is **not a third mechanism**: it is a
+> *delivery route* for the MutationObserver consumer, not a separate write-path /
+> consumer-fan-out machine. So §2.3's "Mechanism A ∩ VM direct-delivery" label means
+> a VM fragment write *drives Mechanism A's fan-out* (when on a light tree) **and**
+> *delivers its MO record via the direct-delivery route* — it is **not** a claim of a
+> third mechanism.
 
 ### 2.1 Mechanism A — `EcsDom` `ConsumerDispatcher` (synchronous, at the chokepoint; engine-internal reconcile, VM-only today)
 
@@ -382,10 +398,12 @@ setHTMLUnsafe, insertAdjacentHTML** — but **not** as a uniform overlap. The
 classification follows directly from the Mechanism-A fan-out invariant; the
 representative members:
 - **light-tree fragment write** (VM `innerHTML`/`outerHTML`/`setHTMLUnsafe` on a
-  light-tree element) = **Mechanism A ∩ VM direct-delivery** — drives `EcsDom` tree
-  ops whose fire sites fire `Insert`/`Remove` (consumers fan out once a VM dispatcher
-  is bound) **and** synchronously delivers its own record (`dom_inner_html.rs:148`/
-  `:362`), not buffered Mechanism B.
+  light-tree element) = **drives Mechanism-A fan-out, MO-delivered via the
+  direct-delivery route** (not via buffered Mechanism B) — its `EcsDom` tree ops fire
+  `Insert`/`Remove` whose consumers fan out once a VM dispatcher is bound (Mechanism
+  A), **and** it synchronously delivers its own MO record via `Vm::deliver_mutation_records`
+  (`dom_inner_html.rs:148`/`:362`), i.e. the direct-delivery route of §2's MO-delivery
+  axis — *not* a third mechanism, and *not* a `record_mutation` buffer entry.
 - **shadow-root fragment write** (`ShadowRoot.innerHTML`/`setHTMLUnsafe`, same shared
   `set_inner_html_for` helper) = **direct-delivery *only*, NOT Mechanism A** — these
   replace the **direct children of the `ShadowRoot`** (parent == the `ShadowRoot`
@@ -550,23 +568,35 @@ derivation**, not a fixed contract here.
     two consumer axes see this transient detach **differently**, and conflating them
     was the prior error here:
     - **MutationObserver (Mechanism B record path): the moved-node old-parent removal
-      is NOT a separate MO removal record.** elidex's session `apply_append_child` /
-      `apply_insert_before` (`crates/script/elidex-script-session/src/mutation/mod.rs:212-251`)
-      emit a `ChildList` record carrying **`added_nodes` only** — no `removed_nodes`,
-      no second record on the old parent (`dom.append_child`/`insert_before` performs
-      the adopt-detach internally, but the *record* is insertion-only). This matches
-      DOM §4.2.3: the replace-family suppresses the move-removal explicitly (`replace
-      all` step 5 / `replace` step 11.2 remove with **suppressObservers = true**, so
-      §4.3.2 "Queuing a mutation record" (`#queue-a-tree-mutation-record`) queues only
-      the insertion record). So **a move does NOT yield an old-parent removal record on
-      the MO axis** — `parent.appendChild(parent.firstChild)` (same-parent reorder) and
-      cross-parent moves alike surface insertion records only, never a paired removal
-      record. *(Note: a plain `appendChild`/`insertBefore` move runs `adopt`'s remove
-      with the default `suppressObservers = false`, so DOM §4.2.3 would queue an
-      old-parent removal record there — elidex's insertion-only `apply_*` record is
-      arguably §4.2.3-incomplete on that exact corner; that fidelity question is a B1
-      record-shape item, NOT a license to assert the prior "move fires an old-parent MO
-      removal record" invariant, which is wrong as written.)*
+      record is *algorithm-dependent* — B0 does NOT prescribe its shape (B1 open
+      question).** The DOM §4.2.3 `suppressObservers` flag — which governs whether the
+      adopt-detach's old-parent `remove` queues a record — is set **only by the
+      replace-family**: "replace all" step 5 (remove all children with
+      **suppressObservers = true**) and "replace" step 11.2 (remove child with
+      **suppressObservers = true**); webref-verified at `#concept-node-replace`. **Plain
+      `appendChild` / `insertBefore` set no such flag** — their adopt step 2 ("If node's
+      parent is non-null, then remove node", webref `#concept-node-adopt`) runs `remove`
+      with the **default `suppressObservers = false`**, and the `remove` algorithm then
+      queues an old-parent tree mutation record (`insert` step 8 / `remove` queue both
+      run unsuppressed). So the spec MO shape **diverges by algorithm**:
+      - a **plain `appendChild`/`insertBefore` move** of an already-parented node
+        **should queue an old-parent `"childList"` removal record** (suppressObservers
+        = false), in addition to the insertion record on the new parent;
+      - a **replace-all / replace** (innerHTML / `replaceChildren` / `replaceChild` / …)
+        **suppresses** that old-parent removal record (suppressObservers = true), and
+        §4.3.2 "queue a tree mutation record" emits only the coalesced insertion record.
+
+      elidex's session `apply_append_child` / `apply_insert_before`
+      (`crates/script/elidex-script-session/src/mutation/mod.rs:212`/`:232`) currently
+      emit a `ChildList` record carrying **`added_nodes` only** — no `removed_nodes`, no
+      second record on the old parent (`dom.append_child`/`insert_before` performs the
+      adopt-detach internally, but the *record* is insertion-only). For the **plain-move**
+      case this is **arguably §4.2.3-incomplete** (a `{childList:true}` observer on the
+      old parent is owed a removal record). **B0 does NOT prescribe the exact
+      per-algorithm move-record shape — it is a known-subtle B1 question that B1 derives
+      from the DOM §4.2.3 `suppressObservers` semantics + the code.** Do **not** read this
+      bullet as the prior invariant "a move never yields an old-parent MO removal record"
+      (wrong as written: it holds for replace-family, not for plain insert).
     - **CE reactions (both mechanisms): the move DOES fire `disconnected`/`connected`
       callbacks, even on a same-parent reorder.** The transient detach fires
       `fire_after_remove` → `MutationEvent::Remove` (`tree/mutation.rs`), and the
@@ -581,10 +611,15 @@ derivation**, not a fixed contract here.
       element state when moved" (`#preserving-custom-element-state-when-moved`), which
       a plain reparent does NOT invoke (`Node.moveBefore` is unimplemented).
     - **The divergence is the coupled invariant.** MO and CE see a move's old-parent
-      removal *oppositely* (MO: suppressed/insertion-only; CE: fires the
-      disconnected→connected lifecycle). The **exact per-case behaviour** — which record
-      shape, which CE order, same- vs cross-parent — is derived by **B1 from the
-      dispatch path**, not pinned here. `detach_with_hook` skips the redundant
+      removal on **different rules**: the **CE** axis fires the disconnected→connected
+      lifecycle on *every* move (even same-parent, see above), whereas the **MO** axis is
+      **algorithm-dependent** — suppressed for the replace-family (`suppressObservers =
+      true`) but *queued* for a plain `appendChild`/`insertBefore` (`suppressObservers =
+      false`), per the move-semantics open question above; elidex emits insertion-only
+      MO records today, whose plain-move §4.2.3-completeness is a B1 record-shape item.
+      The **exact per-case behaviour** — which record shape, which CE order, same- vs
+      cross-parent — is derived by **B1 from the dispatch path + the DOM §4.2.3
+      `suppressObservers` semantics**, not pinned here. `detach_with_hook` skips the redundant
       `rev_version(old_parent)` when `old_parent == new_parent` (`tree/mutation.rs:454-456`)
       but still fires the dispatcher `Remove`, which is what drives the CE
       disconnected callback on the same-parent case. (`textContent=` / `setHTMLUnsafe`
@@ -603,10 +638,13 @@ derivation**, not a fixed contract here.
 - **Ordering invariant (coalesced-record + CE-reaction order).** Within a coalesced
   record, added-vs-removed ordering is **load-bearing**: record production,
   coalescing, **and** the flush-side CE scan must agree on **one** total source order.
-  The move case is a **CE-reaction-order** concern, **not** an MO-record-ordering one
-  (per the move-semantics invariant above, a move emits **no** old-parent MO removal
-  record — insertion-only — so there is no separate move `Remove` *record* to order on
-  the MO axis). On the **CE axis** the move's transient detach DOES fire a
+  The move case is **primarily** a **CE-reaction-order** concern (today elidex emits
+  insertion-only records, so there is currently no separate move `Remove` *record* to
+  order on the MO axis); whether a **plain** `appendChild`/`insertBefore` move should
+  *additionally* queue an old-parent removal record — and thus introduce an MO-ordering
+  question — is the algorithm-dependent **B1 open question** flagged in the
+  move-semantics invariant above, **not** settled here. On the **CE axis** the move's
+  transient detach DOES fire a
   `disconnected` reaction (even same-parent), so the dispatcher `Remove`/`Insert` fire
   order must keep `disconnected`(detach) ordered before `connected`(re-link): a
   **same-parent** reorder must see `disconnected` then `connected` on the *same*
@@ -847,16 +885,25 @@ separate slice or the write-site half of B1 is itself a plan-review outcome.
   Element/Document/DocumentFragment] + `text_content.rs:105-116` `textContent` — DOM
   §4.2.3 "replace all" `#concept-node-replace-all` **step 7 no-op guard**; exhaustive
   site list = B1 grep-diff); the class-level **move divergence** on a moved
-  already-parented node — **MO axis:** `apply_append_child`/`apply_insert_before`
-  (`mutation/mod.rs:212-251`) emit `added_nodes`-only `ChildList` records (no
-  old-parent removal record, per DOM §4.2.3 replace-family `suppressObservers=true`);
+  already-parented node — **MO axis (algorithm-dependent, B1 open question):**
+  `apply_append_child`/`apply_insert_before` (`mutation/mod.rs:212`/`:232`) emit
+  `added_nodes`-only `ChildList` records today, but the spec old-parent removal record
+  is **suppressed only for the replace-family** (`#concept-node-replace` "replace all"
+  step 5 / "replace" step 11.2 `suppressObservers=true`) — a **plain**
+  `appendChild`/`insertBefore` adopt-detach (`#concept-node-adopt` step 2) runs `remove`
+  with the **default `suppressObservers=false`** and so DOM §4.2.3 *queues* an old-parent
+  removal record there; whether elidex's insertion-only record is §4.2.3-complete for
+  the plain-move case is a **B1 record-shape question, not a B0 verdict** (do NOT carry
+  forward the prior "a move never yields an old-parent MO removal record" assertion);
   **CE axis:** the transient adopt-detach fires `fire_after_remove` → `MutationEvent::Remove`
   (`detach_with_hook`, `tree/mutation.rs:458`; `:454-456` skips the redundant
   `rev_version` when `old_parent == new_parent` but still fires the event), and the CE
   consumer fires `disconnected`+`connected` **even on a same-parent reorder**
   (`elidex-custom-elements/src/consumer.rs:98-106,144-146`, `was_connected` not
-  short-circuited on insert; HTML §4.13.6) — do NOT assert a same-parent move yields an
-  old-parent MO removal record; `textContent`/`setHTMLUnsafe` string→fresh-node, NOT
+  short-circuited on insert; HTML §4.13.6) — keep the MO old-parent-removal-record shape
+  as the **algorithm-dependent B1 open question** above (suppressed for replace-family,
+  queued for plain insert per `suppressObservers=false`), NOT a blanket assertion either
+  way; `textContent`/`setHTMLUnsafe` string→fresh-node, NOT
   move-capable; the CE-reaction
   order anchors (`enqueue_ce_reactions_from_mutations` added-then-removed `ce.rs:145`
   + `replace_child` Remove-before-Insert `tree/mutation.rs:189`/`:201`); and the
