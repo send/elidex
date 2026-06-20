@@ -328,7 +328,7 @@ means *dispatch* routing — it does **not** imply the session buffer; see §1.5
 | `element_attrs.rs:205` (`native_element_set_attribute`) | `Element.setAttribute` | **bridge** → `invoke_dom_api("setAttribute", …)` (`:218`) | dom-api `SetAttribute` handler bottoms out at `EcsDom::set_attribute` (props.rs:70) |
 | `element_attrs.rs:191` (`native_element_get_attribute`) | `Element.getAttribute` | **bridge** → `invoke_dom_api("getAttribute", …)` (`:202`) | read |
 | `element_attrs.rs:226` (`native_element_remove_attribute`) | `Element.removeAttribute` | **direct** → `attr_remove` (`:235`) | **asymmetry: a `"removeAttribute"` handler is registered, but the VM bypasses it** (see §3) |
-| `attr_proto.rs:416` | `Attr.value =` setter | **direct** → `EcsDom::set_attribute` | reflected-attr value write |
+| `attr_proto.rs:416` | `Attr.value =` setter | **direct** → `EcsDom::set_attribute` (**attached only**) | conditional: detached wrapper updates `detached_value` + returns (no `EcsDom` write); only attached reaches `:416` (9wTv, §4.5) |
 | `named_node_map.rs:345`/`:431` | `NamedNodeMap.setNamedItem`/`removeNamedItem` | **direct** → `EcsDom::set_attribute`/`remove_attribute` | |
 | `element_attrs.rs:414`/`:535` | `setAttributeNode`/`removeAttributeNode` | **direct** → `EcsDom::set_attribute`/`remove_attribute` | |
 
@@ -845,6 +845,15 @@ set is the §1 B1 grep-diff deliverable, not this table.
   `insertAdjacentElement`/`insertAdjacentText`, `well_known.rs:341-342`); the
   HTML-parsing `insertAdjacentHTML` lives only as the dom-api `InsertAdjacentHtml`
   handler (`registry.rs:101`).
+- **`Element`/`ShadowRoot.setHTMLUnsafe`** — both natives
+  (`native_element_set_html_unsafe` `dom_inner_html.rs:406-421` /
+  `native_shadow_root_set_html_unsafe` `:460-476`) route through the shared
+  `set_inner_html_for` helper (`:125` → `apply_set_inner_html` `:146`) and then
+  `ctx.vm.deliver_mutation_records(&[rec])` (`:148`), exactly like the plain
+  `innerHTML` setter — i.e. another **direct-delivery** producer (§1). *This list
+  is representative, not exhaustive — the exhaustive direct-delivery producer set
+  is the §1 / §6 B1 grep-diff deliverable (covered = `record_mutation` ∧
+  delivering-flush ∪ direct `deliver_mutation_records` producers).*
 - `InsertAdjacentHtml` / `SetInnerHtml` `Mutation` variants on the dom-api /
   boa path (delivered via `SessionCore::flush` → `deliver_mutation_records`,
   per-frame site only).
@@ -991,14 +1000,21 @@ factor for B1 to weigh (it does **not** settle the choice — invariants 1 + 2 o
 §4.1 pull the other way):
 
 - **C1 — replaceChild coalescing.** `EcsDom::replace_child`
-  (`tree/mutation.rs:185-205`) fires **two** events: `fire_after_remove(old)`
-  then `fire_after_insert(new)`. The spec single childList record for a replace
+  (`tree/mutation.rs:148-205`) fires `fire_after_remove(old)` (`:189`) then
+  `fire_after_insert(new)` (`:201`) — **and, when `new_child` already had a
+  parent, a *preceding* moved-node `Remove`** from the pre-detach move
+  (`detach_with_hook(new_child, parent)`, `:161-164`, firing the implicit
+  old-parent removal per the WHATWG replace algorithm). So replaceChild can fire
+  **two or three** events depending on whether `new_child` was already parented;
+  the exact per-call sequence is B1's grep-diff/dispatch-path derivation (this
+  description is representative, not an exhaustive per-call contract — C7). The
+  spec single childList record for a replace
   carries `addedNodes` *and* `removedNodes` in **one** record, which the
   intent-driven `apply_replace_child` (`mutation/mod.rs:268-285`) produces by
-  construction, whereas an event-driven source must coalesce the two dispatcher
-  events. *Favors recording from intent* (Pole B), but B1 must still ensure the
-  replaceChild record carries the replace intent (not two separate add/remove
-  records).
+  construction, whereas an event-driven source must coalesce the dispatcher
+  events (incl. the pre-detach move `Remove`, C7). *Favors recording from intent*
+  (Pole B), but B1 must still ensure the replaceChild record carries the replace
+  intent (not separate add/remove records).
 - **C2 — non-dispatching attribute writes (spec-observable, must be closed).**
   `set_attribute_without_dispatch` (`attribute.rs:146`) fires **no**
   `MutationEvent` (used inside consumers where re-entry forbids dispatch). Form
@@ -1107,9 +1123,13 @@ factor for B1 to weigh (it does **not** settle the choice — invariants 1 + 2 o
   record is **not** order-free: the spec/CE consumer cares about added-vs-removed
   ordering, and each source fixes a specific source order that a naive "node-set
   match" record loses.
-  **Invariant.** *Every coalesced / replace-all childList record must preserve its
-  **source's** add-vs-remove mutation order; record production, coalescing, **and**
-  the flush-side CE scan must agree on that one order.* This applies to **all**
+  **Invariant.** *Every coalesced / replace-all childList record must preserve the
+  actual source mutation-event order — **including any pre-detach move `Remove` a
+  source fires before its own add/remove** — and record production, coalescing,
+  **and** the flush-side CE scan must agree on that one order. The per-op orders
+  enumerated below are **illustrative / representative, not exhaustive**: B1 must
+  derive each source's **exact** per-op event sequence from the dispatch path
+  (grep-diff / plan-review), not from this list.* This applies to **all**
   coalesced-childList sources, including the C6 replace-all family — `replaceChildren`
   and `textContent` are **also** remove-all-then-insert
   (`vm/host/parentnode.rs:223-236` / `node_methods/text_content.rs:105-116`,
@@ -1118,20 +1138,30 @@ factor for B1 to weigh (it does **not** settle the choice — invariants 1 + 2 o
   inserts, the `connected`/`disconnected` firing order inverts.
   - The flush-side CE scan `enqueue_ce_reactions_from_mutations`
     (`elidex-js-boa/runtime/ce.rs:145`) iterates **added nodes first** (connected,
-    `ce.rs:24` region) **then removed nodes** (disconnected) within a single record.
-  - `EcsDom::replace_child` (`tree/mutation.rs:185-205`) dispatches
-    **`fire_after_remove(old)` (`:189`) then `fire_after_insert(new)` (`:200`)** —
-    Remove **before** Insert.
+    added-node loop `ce.rs:160-173`) **then removed nodes** (disconnected,
+    removed-node loop `ce.rs:177-186`) within a single record.
+  - `EcsDom::replace_child` (`tree/mutation.rs:148-205`) dispatches **(when
+    `new_child` already has a parent) the moved node's `Remove` first** via the
+    pre-detach move (`detach_with_hook(new_child, parent)`, `:161-164`, firing the
+    implicit old-parent removal per the WHATWG replace algorithm), **then
+    `fire_after_remove(old)` (`:189`), then `fire_after_insert(new)` (`:201`)** —
+    pre-detach move Remove → old Remove → new Insert (so a coalesced source must
+    preserve this full source order, not just Remove-before-Insert).
   - The representative coalesced/replace-all sources fix **different** source orders
-    that a naive node-set match would erase (corrected, 9nRW; *representative*, not
-    exhaustive — B1 grep-diff enumerates the full set, same methodology as C6/§1):
+    that a naive node-set match would erase (corrected, 9nRW; **illustrative /
+    representative, not exhaustive** — these per-op orders are examples, **not** a
+    settled per-source contract; B1 grep-diff derives each source's exact event
+    sequence from the dispatch path, same methodology as C6/§1):
     - **`apply_set_inner_html`** (innerHTML) **removes the old children first, then
       appends the new** — remove-old → append-new.
     - **`apply_set_outer_html`** (outerHTML, `html_fragment.rs:146-149`) does the
       **opposite**: it `insert_before`s every parsed root *ahead of* `entity`
       (`:146-148`) **and only then** `remove_child`s `entity` (`:149`) —
       insert-new → remove-old (the reverse of innerHTML).
-    - **`replaceChild`** is **Remove → Insert** (the dispatcher order above).
+    - **`replaceChild`** fires, when `new_child` already had a parent, the moved
+      node's pre-detach `Remove` first, then old `Remove`, then new `Insert`
+      (`:161-164` → `:189` → `:201`, the dispatcher order above) — when `new_child`
+      was parentless, just old `Remove` → new `Insert`.
     - **`replaceChildren` / `textContent`** (C6 replace-all) are **remove-all →
       insert** (`parentnode.rs:223-236` / `text_content.rs:105-116`) — same shape as
       innerHTML.
@@ -1240,8 +1270,10 @@ B1's plan-review covers them:
   `attributeChangedCallback`). In particular a Pole-B record-shape change (e.g.
   coalescing or re-ordering childList records) must keep CE
   `enqueue_ce_reactions_from_mutations` seeing the same added/removed node set
-  **in the same order** (the added-then-removed / Remove-before-Insert order is a
-  named constraint — **C7**, §4.2a, 9dTU), and the flush→CE drain must continue to
+  **in the same order** (each source's actual mutation-event order — incl. any
+  pre-detach move `Remove` — is a named constraint, **C7**, §4.2a, 9dTU; the exact
+  per-source order is B1's grep-diff derivation, not a fixed contract), and the
+  flush→CE drain must continue to
   run on the page-load (`flush_with_ce_reactions`) path, not only per-frame.
 - **CommentData notification + live-range coupling (8YcL / 9WUB) — a *coupled*
   invariant, not a lone missing record.** Comment characterData fires no event
@@ -1319,7 +1351,17 @@ per the summary above), so B2 is *gated on* B1 rather than independently prescri
 >   (`:583` force=false / `:589` toggle) → `EcsDom::remove_attribute` (anchor
 >   corrected, 9nRZ — the removal half is the `attr_remove` calls, not the
 >   `:558` comment line). B2's re-grep must catch *both* the set and removal halves.
-> - **`Attr.value =` setter** — `attr_proto.rs:416` → `EcsDom::set_attribute` direct.
+> - **`Attr.value =` setter** — **conditional write path** (9wTv).
+>   `native_attr_set_value` (`attr_proto.rs`) dispatches on the wrapper's attach
+>   state: a **detached** `Attr` wrapper is handled **first** — it updates the
+>   in-place `detached_value` snapshot and **returns** (no `EcsDom` write, no
+>   attribute mutation, per WHATWG §4.9.2 "change an attribute" on a detached
+>   Attr); only an **attached** `Attr` whose backing attribute is still present
+>   reaches `host.dom().set_attribute(owner, …)` (`attr_proto.rs:416`). (A live
+>   wrapper whose attribute was already removed is a no-op.) So **`Attr.value =` is
+>   an `EcsDom` attribute write only when attached — detached is live-only**, and
+>   B2 must treat the `attr_proto.rs:416` write as the attached arm, not an
+>   unconditional reflection.
 > - **`NamedNodeMap.setNamedItem` / `removeNamedItem`** —
 >   `named_node_map.rs:345`/`:431` → `EcsDom::set_attribute`/`remove_attribute` direct.
 > - **`setAttributeNode` / `removeAttributeNode`** — `element_attrs.rs:414`/`:535` →
@@ -1331,6 +1373,17 @@ per the summary above), so B2 is *gated on* B1 rather than independently prescri
 > `EcsDom` attribute-write surface, not the two originally listed. (Each carries the
 > same VM-local `Attr`-detach precondition where it removes an attribute, per the
 > first bullet below.)
+>
+> **The enumerated APIs are representative, and each has its own *conditional*
+> write path (9wTv).** Several of these do **not** unconditionally reach
+> `EcsDom::set_attribute`/`remove_attribute`: `Attr.value =` writes only when the
+> wrapper is attached (above); `toggleAttribute` branches on `force`/current
+> presence (set vs. remove vs. no-op); `HTMLInputElement.value` is a value-mode
+> dispatch, not a reflection (text-mode = live-state, no attribute write — 8kHF).
+> So **B2 must confirm each API's *actual* write path per-API** (live-vs-detached,
+> force, value-mode, …) rather than assuming a uniform `EcsDom` attribute write —
+> the exact per-API semantics are a B1/B2 grep-diff / dispatch-path derivation, not
+> read off this list.
 
 The Layering
 mandate (`vm/host/` marshalling-only) and the following per-site facts constrain
@@ -1472,9 +1525,13 @@ verdict here.
   `record_mutation` call-site **whose flush reaches `deliver_mutation_records`**
   (per-frame `re_render` → `content/mod.rs:258`, **not** the CE-only
   `flush_with_ce_reactions`, `pipeline.rs:25-34`) **∪** (b) every **direct
-  `deliver_mutation_records` producer** (the VM `innerHTML`/`outerHTML` setters,
-  `dom_inner_html.rs:148`/`:362`, which deliver their own record without
-  `record_mutation`). Then enumerate every direct `EcsDom`/component-mutator call
+  `deliver_mutation_records` producer** (representative: the VM `innerHTML`/
+  `outerHTML` setters `dom_inner_html.rs:148`/`:362` **plus
+  `Element`/`ShadowRoot.setHTMLUnsafe`** `:406-421`/`:460-476` → `set_inner_html_for`
+  `:125` → `:148`, which deliver their own record without `record_mutation` —
+  *representative, not exhaustive; the direct-delivery producer set is itself a
+  grep-diff deliverable per the §1 invariant*). Then enumerate every direct
+  `EcsDom`/component-mutator call
   across `vm/host/`, `elidex-dom-api`, `elidex-js-boa`, and `elidex-ecs`, and diff.
   **Diffing against `record_mutation` call-sites alone would both false-positive
   the direct-delivery `innerHTML`/`outerHTML` natives (covered via (b)) and
@@ -1510,8 +1567,9 @@ verdict here.
   **step 7 no-op guard** [record queued only if `addedNodes` or `removedNodes`
   non-empty — 9rUU]; exhaustive replace-all site list = B1 grep-diff, not this hand
   list), the **CE-reaction order**
-  anchors (`enqueue_ce_reactions_from_mutations` added-then-removed `ce.rs:145`/`:24`
-  + `replace_child` Remove-before-Insert `tree/mutation.rs:189`/`:200`; order
+  anchors (`enqueue_ce_reactions_from_mutations` added-then-removed `ce.rs:145`,
+  added-node loop `:160-173` before removed-node loop `:177-186`
+  + `replace_child` Remove-before-Insert `tree/mutation.rs:189`/`:201`; order
   invariant covers **all** coalesced/replace-all sources incl. `replaceChildren`/
   `textContent` remove-all→insert `parentnode.rs:223-236`/`text_content.rs:105-116`
   — C7/9dTU/9rUV, site set = B1 grep-diff),
