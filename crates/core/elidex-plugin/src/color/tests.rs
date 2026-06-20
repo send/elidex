@@ -347,3 +347,32 @@ fn hsl_hue_above_360_wraps() {
     let c = parse("hsl(480, 100%, 50%)").unwrap();
     assert_eq!(c, CssColor::new(0, 255, 0, 255));
 }
+
+// ---- `CssColor::parse_str` (whole-string entry, exhaustion check) ----
+
+#[test]
+fn parse_str_accepts_full_color_strings() {
+    assert_eq!(CssColor::parse_str("red"), Some(CssColor::RED));
+    assert_eq!(CssColor::parse_str("#ff0000"), Some(CssColor::RED));
+    assert_eq!(CssColor::parse_str("#f00"), Some(CssColor::RED));
+    assert_eq!(CssColor::parse_str("rgb(255, 0, 0)"), Some(CssColor::RED));
+    assert_eq!(CssColor::parse_str("rgb(255 0 0)"), Some(CssColor::RED));
+    assert_eq!(
+        CssColor::parse_str("transparent"),
+        Some(CssColor::TRANSPARENT)
+    );
+    // Leading/trailing whitespace is tokenizer-skipped, not trailing junk.
+    assert_eq!(CssColor::parse_str("  red  "), Some(CssColor::RED));
+}
+
+#[test]
+fn parse_str_rejects_trailing_tokens_and_empty() {
+    // Trailing tokens after a valid color must fail (not silently accepted).
+    assert_eq!(CssColor::parse_str("red junk"), None);
+    assert_eq!(CssColor::parse_str("#fff x"), None);
+    assert_eq!(CssColor::parse_str("red blue"), None);
+    // Empty / whitespace-only / unparseable.
+    assert_eq!(CssColor::parse_str(""), None);
+    assert_eq!(CssColor::parse_str("   "), None);
+    assert_eq!(CssColor::parse_str("notacolor"), None);
+}

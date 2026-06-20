@@ -225,7 +225,7 @@ pub(super) fn parse_text_decoration_shorthand(input: &mut Parser) -> Vec<Declara
             // Try color value.
             if color_val.is_none() {
                 if let Ok(()) = input.try_parse(|i| -> Result<(), ()> {
-                    let c = crate::color::parse_color(i)?;
+                    let c = elidex_plugin::parse_color(i)?;
                     color_val = Some(CssValue::Color(c));
                     Ok(())
                 }) {
@@ -758,7 +758,7 @@ fn parse_color_or_currentcolor(input: &mut Parser) -> Result<CssValue, ()> {
     {
         return Ok(CssValue::Keyword("currentcolor".to_string()));
     }
-    let c = crate::color::parse_color(input)?;
+    let c = elidex_plugin::parse_color(input)?;
     Ok(CssValue::Color(c))
 }
 

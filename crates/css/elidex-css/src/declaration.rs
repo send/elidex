@@ -7,7 +7,8 @@
 use cssparser::{Parser, ParserInput, Token};
 use elidex_plugin::{CssPropertyRegistry, CssValue};
 
-use crate::color::parse_color;
+use elidex_plugin::parse_color;
+
 use crate::values::{
     parse_global_keyword, parse_length_or_percentage, parse_length_percentage_or_auto,
     parse_non_negative_length_or_percentage,

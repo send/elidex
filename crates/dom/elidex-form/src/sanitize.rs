@@ -11,6 +11,8 @@
 //! stepUp/stepDown, and constraint validation agree (the #344
 //! cancellation-aware tolerance).
 
+use elidex_plugin::CssColor;
+
 use crate::input::{
     aligned_above, aligned_below, allowed_value_step, is_step_aligned,
     is_valid_floating_point_string, maximum, minimum, step_base,
@@ -147,6 +149,55 @@ fn sanitize_range(state: &FormControlState) -> Option<String> {
     }
 }
 
+/// §4.10.5.1.14 Color-state value sanitization — "update a color well control
+/// color" → "serialize a color well control color", **default** (no `alpha` /
+/// `colorspace` attribute) Limited-sRGB-opaque path:
+///
+/// 1. parse `value` as a CSS `<color>` (any form: `red` / `#f00` / `rgb()` /
+///    `hsl()` / `transparent`);
+/// 2. parse failure → opaque black (update step 4);
+/// 3. force the color fully opaque (serialize step 3 — `alpha` not specified);
+/// 4. serialize as `#rrggbb` lowercase (steps 4 + 6 — the HTML-compatible
+///    serialization), via [`CssColor`]'s opaque `Display` branch.
+///
+/// **Dirty-value-flag source (spec step 2.1)**: the spec sources from the
+/// `value` *content attribute* when the dirty flag is set, else from the live
+/// value.  This engine deliberately sanitizes the **live value** at every
+/// establishment site (the interoperable behavior every browser ships): the
+/// content-attr branch, combined with the value-mode IDL setter — which sets
+/// the dirty flag *before* invoking sanitization (HTML §4.10.5.4) — would make
+/// `input.value = "#ff0000"` (no `value` attribute) serialize to `#000000`,
+/// breaking the universal `value` round-trip.  Re-evaluate that literalism only
+/// if the spec is clarified upstream or browsers adopt it.
+///
+/// **Scope**: `alpha` (alpha channel + `color()` form), `colorspace`
+/// (Display P3), and exact toward-+∞ component rounding require the CSS Color 4
+/// float color pipeline and are deferred (`#11-color-well-alpha-colorspace`).
+/// For the integer-component inputs this path handles (hex / named / integer
+/// `rgb()`), serialization is exact; fractional sRGB inputs round to nearest
+/// (≤1-LSB from the spec's toward-+∞), folded into that carve.
+///
+/// **Supported color surface**: the engine parses exactly the subset
+/// [`CssColor::parse_str`] accepts — named / hex / `rgb()` / `hsl()` /
+/// `transparent` (absolute sRGB colors). **Any other `<color>` syntax** — CSS
+/// Color 4 functions (`hwb()` / `lab()` / `lch()` / `oklab()` / `oklch()` /
+/// `color()`) and context-dependent keywords (`currentColor`, `<system-color>`)
+/// — fails to parse and so falls to opaque black here, exactly as it does
+/// anywhere the CSS engine parses a color (this is the engine's *declared*
+/// supported surface, not a color-well-specific cap). Extending the grammar is
+/// a CSS-layer concern (`hwb()` is cheap sRGB; `lab()`/`oklab()`/`color()` need
+/// the CSS Color 4 float pipeline; `currentColor`/system colors need
+/// element-context resolution, not a pure value transform) tracked at
+/// `#11-css-color4-extended-syntax` — when `parse_str` gains them, color
+/// sanitization benefits automatically (one parse home).
+fn sanitize_color(value: &str) -> String {
+    // Parse → opaque black on failure (update step 4); force opaque (serialize
+    // step 3); serialize `#rrggbb` lowercase (the opaque `Display` branch).
+    let mut color = CssColor::parse_str(value).unwrap_or(CssColor::BLACK);
+    color.a = 255;
+    color.to_string()
+}
+
 /// HTML §4.10.5.1.x **value sanitization algorithm**, dispatched per
 /// input `kind`.  Invoked at every value-establishment site — the IDL
 /// `value` / `valueAsNumber` / `defaultValue` setters, the `value`- and
@@ -228,10 +279,13 @@ pub(crate) fn sanitize_value(state: &mut FormControlState) {
         // them, with the coupled maxlength / `InputEvent` handling, is the
         // follow-up `#11-textarea-edit-path-newline-normalization`.
         FormControlKind::TextArea => Some(normalize_newlines(state.value())),
+        // §4.10.5.1.14 Color: parse as a CSS color → opaque black on failure →
+        // force opaque → `#rrggbb` lowercase (default Limited-sRGB-opaque path;
+        // alpha/colorspace deferred to `#11-color-well-alpha-colorspace`).
+        FormControlKind::Color => Some(sanitize_color(state.value())),
         // No value sanitization algorithm: hidden, checkbox, radio, file,
-        // submit/reset/image/button, color (§4.10.5.1.14 color-well
-        // control — deferred, `#11-input-color-well-sanitize`), and the
-        // remaining non-input kinds (select / output / meter / progress).
+        // submit/reset/image/button, and the remaining non-input kinds
+        // (select / output / meter / progress).
         FormControlKind::Hidden
         | FormControlKind::Checkbox
         | FormControlKind::Radio
@@ -239,7 +293,6 @@ pub(crate) fn sanitize_value(state: &mut FormControlState) {
         | FormControlKind::SubmitButton
         | FormControlKind::ResetButton
         | FormControlKind::Button
-        | FormControlKind::Color
         | FormControlKind::Select
         | FormControlKind::Output
         | FormControlKind::Meter
