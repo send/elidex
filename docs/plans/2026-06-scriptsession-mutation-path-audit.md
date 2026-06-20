@@ -219,6 +219,34 @@ Audience: Claude / maintainers (and Codex via the review guidelines below).
 
 ## 1. VM `vm/host/` DOM Write-Site Map
 
+> **Write-site invariant + B1 methodology (read first — this map is
+> representative, not a hand-maintained registry).** The R1→R5 review history
+> (R1 Range/normalize, R4 CE/outerHTML, R5 boa-CE/textContent/splitText) showed
+> that *hand-enumerating* write sites loses sites round after round. So this
+> section is framed as **invariant + representative known-set + B1 methodology**,
+> not an open-ended reactive list:
+> - **Invariant (the load-bearing statement).** *Any script-reachable mutation
+>   that reaches an `EcsDom` / component mutator
+>   (`set_attribute` / `remove_attribute` / `append_child` / `remove_child` /
+>   `insert_before` / `replace_child` / `set_text_data` / `Attributes::set` /
+>   `CommentData` direct write, etc.) **without** going through
+>   `SessionCore::record_mutation` is **MutationObserver-silent**.* This is the
+>   single property that defines the §3 gap; it holds regardless of whether the
+>   site is enumerated below. (The `EcsDom` chokepoint still drives Mechanism A —
+>   §2.1 — but Mechanism A is not a `MutationObserver` source; §2/§3.)
+> - **The tables below are a *representative known-set*, not exhaustive.** They
+>   pin the sites confirmed by direct read (incl. the R5 additions in §1.6), but a
+>   site's *absence* here does **not** mean it records a `Mutation` — apply the
+>   invariant.
+> - **Verified-exhaustive enumeration is a B1 plan-review deliverable.** B1 must
+>   produce the exhaustive write-site list by **grep-diff**, not by extending this
+>   table reactively: enumerate every `record_mutation` call-site **and** every
+>   direct `EcsDom`/component-mutator call across the four layers —
+>   `crates/script/elidex-js/src/vm/host/`, `crates/dom/elidex-dom-api/`,
+>   `crates/script/elidex-js-boa/`, and the `elidex-ecs` mutators themselves — and
+>   take the difference (mutators that never reach `record_mutation` = the gap
+>   set). That mechanical sweep, not this hand list, is the SoT for completeness.
+
 Seeded from the original F3 write-site survey and **re-verified at HEAD
 `280c53af`** (the seed is not load-bearing — every row is re-checked by direct
 read). Each site is
@@ -372,18 +400,48 @@ So **bridge ≠ observable**. The dispatch seam (bridge vs direct) is orthogonal
 to MutationObserver coverage; both bottom out at the `EcsDom` chokepoint, which
 notifies the `ConsumerDispatcher` but not the observer registry.
 
+### 1.6 Additional representative no-record sites (R5 grep-diff catches)
+
+These three are added to the representative known-set because the R5 review found
+them missing — each is a script-reachable mutation that hits an `EcsDom` /
+component mutator with **no `record_mutation`**, so it is MutationObserver-silent
+per the §1 invariant. They are *examples* the B1 grep-diff must also surface, not
+a new exhaustive boundary.
+
+- **`textContent` / `nodeValue` setters (886F)** —
+  `node_methods/text_content.rs` `SetTextContentNodeKind` /
+  `SetNodeValue`: Text/CData branch → `dom.set_text_data` (`:93`/`:145`),
+  Comment branch → `CommentData.0` direct write + `rev_version`
+  (`:99-102`/`:148-151`), element branch → `remove_child` + `append_child`
+  (`:107-113`). **None calls `record_mutation`** — so `el.textContent = 'x'` and
+  `text.nodeValue = 'x'` are MO-silent (§3 gap rows).
+- **`Text.prototype.splitText` (886H)** — VM
+  `vm/host/text_proto.rs:119` (`native_text_split_text`) calls
+  `split_text_at_offset` (`elidex-dom-api/char_data/split_text.rs:99`), which
+  inserts the new sibling (`append_child`/`insert_before`, firing `Insert`),
+  fires `fire_split_text` + the `set_text_data` `TextChange` (`:171`/`:179`), but
+  **records no `Mutation`**. So `text.splitText(n)` is MO-silent under
+  `observe(parent,{childList,subtree,characterData})` (§3 gap row).
+
+These confirm the invariant's reach across `node_methods/` and `char_data/`, both
+outside the §1.1–§1.4b tables — exactly the kind of site hand-enumeration kept
+missing.
+
 ---
 
 ## 2. The Two Notification Mechanisms
 
-There are exactly two, and they are disjoint in what they drive. **Read them as
-answering two different questions, not as two competing canonical write paths:**
-Mechanism A is **engine-internal derived-state reconciliation** (none of its
-consumers is script-observable); Mechanism B is the **script-visibility** path
-(`MutationObserver`). The §4 canonical-path decision is *not* "which mechanism
-wins" — it is "route every script-visible mutation into Mechanism B (the
-ScriptSession seam), and keep Mechanism A as the EcsDom-internal reconcile detail
-*below* the seam".
+There are exactly two. **Read them as answering two different questions, not as
+two competing canonical write paths.** The detail sections own the precise
+characterization (this intro does not restate it, to avoid the summary drift the
+R3/R4/R5 review flagged): §2.1 establishes that Mechanism A is *mostly*
+engine-internal reconcile **plus a script-visible CE-reaction tap** (so its
+consumers are **not** all non-observable), and §2.2 establishes that Mechanism B
+(the `SessionCore` buffer + flush) drives **both** `MutationObserver` *and* CE
+reactions. The §4 canonical-path decision — how a script-visible mutation reaches
+MutationObserver while preserving the §4.1 coupled invariants — is **deferred to
+B1's `/elidex-plan-review`** (§4); §2 does **not** prescribe a mechanism, and in
+particular does **not** assert "route every write into Mechanism B".
 
 ### 2.1 Mechanism A — `EcsDom` `ConsumerDispatcher` (synchronous, at the chokepoint) — **engine-internal reconcile, VM-only today**
 
@@ -516,6 +574,23 @@ ScriptSession seam), and keep Mechanism A as the EcsDom-internal reconcile detai
      flush-side here), and **B1's record production/delivery changes must preserve
      CE-reaction semantics**, not treat the session buffer as MO-only (invariant
      for §4.x / 8ykQ).
+     - **boa CE-reaction sources are *two* systems, not one (886B).** The
+       flush-record scan (`enqueue_ce_reactions_from_mutations`, above) is only
+       the **first**. boa also enqueues CE reactions **directly from the JS
+       binding**, with no `Mutation`/flush involved:
+       `elidex-js-boa/globals/element/core.rs` —
+       `appendChild`/`insertBefore`/`removeChild` call
+       `enqueue_ce_reactions_for_subtree` (`:152-176`, def `:323`) for
+       connected/disconnected, and `setAttribute`/`removeAttribute` enqueue
+       `CustomElementReaction::AttributeChanged` (`:219`/`:292`) for
+       `attributeChangedCallback`. So a CE reaction can originate from **(1) the
+       `session.flush` record scan or (2) the binding-direct enqueue** — two
+       independent producers. **B1 must hold both when it changes record
+       production:** an MO-record source layered onto the binding writes must not
+       *double-enqueue* a CE reaction the binding already fired, nor *miss* one
+       the binding does **not** fire (the binding covers append/insert/remove +
+       set/removeAttribute, not the full §1 write-site set). This is a coupling
+       on top of §2.2's flush-side CE scan, not a replacement for it.
 - **There is NO existing flush→MO microtask drain hook (8YcR).** The
   `Microtask::NotifyMutationObservers` enum variant
   (`natives_promise.rs:51-59`) exists, but its drain arm (`:333-344`) dispatches
@@ -553,6 +628,10 @@ fires and Mechanism B is empty.
 The JS-level `MutationObserver` (WHATWG DOM §4.3) observes a mutation **iff a
 `MutationRecord` is produced and delivered**, i.e. iff the mutation went through
 `SessionCore::record_mutation` (or a direct `dom_inner_html.rs` deliver call).
+This is the §1 invariant restated for the observer axis; the gap rows below are a
+**representative** list (incl. the R5 textContent/nodeValue/splitText additions),
+and the **verified-exhaustive** gap set is the §1 B1 grep-diff deliverable, not
+this table.
 
 **Records ARE produced for (in the elidex-js VM):**
 
@@ -582,6 +661,8 @@ The JS-level `MutationObserver` (WHATWG DOM §4.3) observes a mutation **iff a
 | ChildNode/ParentNode mixins | `el.remove()`, `el.before(x)`, `el.append(x)` | `child_node/mutations.rs` direct ops (self-documented `:4-9`) |
 | **`Range` mutations (8YcW)** | `r.deleteContents()`, `r.extractContents()`, `r.insertNode(n)` | direct `range.{delete,extract}_contents`/`insert_node(host.dom())` (`range_proto_mutation.rs:73`/`:102`/`:125`); no `record_mutation` |
 | **`Node.normalize` (8YcW)** | `el.normalize()` | bridge → `invoke_dom_api("normalize", …)` (`node_methods_extras.rs:270`); handler does direct EcsDom text removal/merge, no `record_mutation` |
+| **`textContent` / `nodeValue` setters (886F)** | `el.textContent='x'`, `text.nodeValue='x'` | `node_methods/text_content.rs` `SetTextContentNodeKind`/`SetNodeValue`: Text/CData → `set_text_data` (`:93`/`:145`), Comment → `CommentData` direct write + `rev_version` (`:99-102`/`:148-151`), element → `remove_child`+`append_child` (`:107-113`); **no `record_mutation`** on any branch (childList for element, characterData for Text/Comment all silent) |
+| **`Text.prototype.splitText` (886H)** | `text.splitText(3)` | VM `text_proto.rs:119` → `split_text_at_offset` (`char_data/split_text.rs:99`): inserts new sibling (`append_child`/`insert_before`) + `fire_split_text` + truncates via `set_text_data`, **no `record_mutation`** — silent under `observe(parent,{childList,subtree,characterData})` |
 | CharacterData on **Text** | `t.data = 'x'` | direct `EcsDom::set_text_data`; `ConsumerDispatcher` `TextChange` fires (engine-internal), but **no observer record** |
 | CharacterData on **Comment (8YcL)** | `c.data = 'x'` | `set_char_data` Comment branch (`char_data_handlers.rs:59-73`) writes `CommentData.0` + `rev_version` **only — no `dispatch_event`**; so **neither** a `TextChange` event **nor** an observer record (worse than Text) |
 
@@ -953,6 +1034,16 @@ verdict here.
 ## 6. Re-check Discipline (for B1/B2 plan-memos)
 
 - Re-grep every `file:line` here at PR-open — line numbers will drift.
+- **Produce the exhaustive write-site set by grep-diff, not by extending §1's
+  table** (the §1 invariant + methodology): enumerate `record_mutation` call-sites
+  and direct `EcsDom`/component-mutator calls across `vm/host/`, `elidex-dom-api`,
+  `elidex-js-boa`, and `elidex-ecs`, then diff. The R5 misses
+  (textContent/nodeValue/splitText, §1.6) came from reactive hand-enumeration; the
+  grep-diff is the SoT for completeness.
+- Re-confirm both boa CE-reaction producers (886B): the flush-record scan
+  (`enqueue_ce_reactions_from_mutations`, `ce.rs:137-145`) **and** the
+  binding-direct enqueue (`globals/element/core.rs:152-176`/`:219`/`:292`), so a
+  record-production change does not double-enqueue or miss CE reactions.
 - Re-confirm the §2 mechanism by direct read of `attribute.rs`
   (`set_attribute`/`dispatch_event`), `tree/mutation.rs`
   (`Insert`/`Remove` fire sites), `consumer_dispatcher.rs` (consumer list),
@@ -979,7 +1070,18 @@ verdict here.
 - This is a **doc-only** audit. Verify the `file:line` anchors against
   `main` and challenge any mechanism claim that does not match the code —
   especially §0/§3 (the MutationObserver gap, incl. Range/normalize/Comment
-  rows + the `input.value` non-reflection 8kHF) and §4.
+  rows + the `input.value` non-reflection 8kHF + the R5 textContent/nodeValue/
+  splitText rows 886F/886H) and §4.
+- **§1's write-site map is deliberately a *representative known-set + invariant +
+  B1 grep-diff methodology*, not an exhaustive hand registry** (R1→R5 showed
+  hand-enumeration keeps losing sites). So do **not** flag §1 for "missing site X"
+  as a registry defect — instead check that (a) the §1 invariant
+  (record_mutation-bypassing mutator = MO-silent) is correctly stated, and (b) any
+  site you find is consistent with it. A genuinely *mis-stated* invariant or a row
+  that contradicts the code is still in scope.
+- **CE-reaction sources are two systems (886B):** flush-record scan **and**
+  binding-direct enqueue (`globals/element/core.rs`). Challenge §2.2 if either
+  producer is mis-described.
 - **§4 is deliberately *not* a prescribed fix.** This revision downgrades it from
   the R2 "ScriptSession-seam-owned MO is canonical" prescription to an **open
   design question for B1's `/elidex-plan-review`**, because §4 is an edge-dense
