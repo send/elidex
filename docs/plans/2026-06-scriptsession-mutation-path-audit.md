@@ -271,9 +271,23 @@ Audience: Claude / maintainers (and Codex via the review guidelines below).
 >   `record_mutation` call-sites — it is the **union** of (a) every
 >   `SessionCore::record_mutation` call-site **whose flush actually reaches
 >   `deliver_mutation_records`** **and** (b) every **direct
->   `deliver_mutation_records` producer** (a mutator that self-generates a record
->   and delivers it synchronously, e.g. the VM `innerHTML`/`outerHTML` setters at
->   `dom_inner_html.rs:148`/`:362` — see the corrected invariant above).
+>   `deliver_mutation_records` producer**. **Direct-delivery producer = invariant,
+>   not a hand-list (9rUS):** a *direct-delivery producer* is any mutator that
+>   **self-generates a `MutationRecord` and synchronously delivers it via
+>   `Vm::deliver_mutation_records` without going through
+>   `SessionCore::record_mutation` / `flush`**. The *representative* known set is the
+>   VM `innerHTML`/`outerHTML` setters (`dom_inner_html.rs:148`/`:362`) **plus
+>   `Element`/`ShadowRoot.setHTMLUnsafe`** — both `setHTMLUnsafe` natives route
+>   through the same shared `set_inner_html_for` helper
+>   (`native_element_set_html_unsafe` `dom_inner_html.rs:406-421` /
+>   `native_shadow_root_set_html_unsafe` `:460-476` → `set_inner_html_for` `:125`),
+>   which calls `apply_set_inner_html` (`:146`) and then
+>   `ctx.vm.deliver_mutation_records(&[rec])` (`:148`), exactly like the plain
+>   `innerHTML` setter. **The exhaustive direct-delivery site list is a B1 grep-diff
+>   deliverable, not this hand list** (same methodology as the §1 write-site
+>   invariant) — do **not** treat this set as exhaustive; treat the *definition*
+>   (self-generated record + synchronous deliver, no `record_mutation`) as
+>   load-bearing and let the grep-diff enumerate every site.
 >   **The flush-reaches-delivery qualifier on (a) is load-bearing, not pedantry:**
 >   `record_mutation` only *buffers*; whether that buffer becomes an MO record
 >   depends on *which flush* drains it. The per-frame `re_render` flush delivers
@@ -1037,52 +1051,80 @@ factor for B1 to weigh (it does **not** settle the choice — invariants 1 + 2 o
   *explicit* `deliver_mutation_records` at `dom_inner_html.rs:148`/`:362` so a
   given innerHTML/outerHTML mutation is delivered exactly once (no double-delivery,
   no per-node shattering).
-- **C6 — "replace all" coalescing for `replaceChildren` / `textContent` on
-  element + `DocumentFragment` + `ShadowRoot` (9dTW; scope corrected, 9nRf).** Two
-  more script-reachable whole-subtree replaces are implemented as
-  **remove-all-then-insert** loops of per-node `EcsDom` ops, *not* as a single
-  intent — so they carry the **same** N+M-shatter risk as innerHTML (C5) but have
-  **no** record at all today (§3 gap rows):
-  - **`replaceChildren`** (`child_node/mutations.rs:275-283`) removes every existing
-    child via a `remove_child` loop, then inserts the new node(s).
-  - **`textContent =`** (`node_methods/text_content.rs:105-116`,
-    `SetTextContentNodeKind`'s catch-all `_ =>` branch) removes every child via a
-    `remove_child` loop, then optionally appends a single text node. `Node.prototype.textContent`
-    is defined on **every** `Node`, and the catch-all is reached for **all** node
-    kinds other than `Document`/`DocumentType` (null setter), `Text`/`CdataSection`,
-    and `Comment` (in-place data write) — i.e. it applies to **element,
-    `DocumentFragment`, *and* `ShadowRoot`** alike. So `node.textContent = 'x'` on a
-    `createDocumentFragment()` fragment or an open `shadowRoot` shatters the same way
-    and is equally MO-silent; B1's single-aggregate-record coalescing must cover the
-    fragment/shadow-root cases, not just element hosts.
-  Per **WHATWG DOM §4.2.3 Mutation algorithms**, "replace all" (`#concept-node-replace-all`)
-  removes all children **with `suppressObservers` true** and inserts the new node
-  **with `suppressObservers` true**, then (step 7) **queues a single tree mutation
-  record** for the parent carrying `addedNodes` *and* `removedNodes` together —
-  i.e. **one** aggregate `ChildList` record, not N+M per-node records. (Both
-  `replaceChildren`, DOM §4.2.6 Mixin ParentNode (`#dom-parentnode-replacechildren`),
-  and the `textContent` setter, DOM §4.4 Interface Node (`#dom-node-textcontent`),
-  are spec-defined in terms of "replace all".) So C6
-  is the same intent-vs-event discriminator as C5: a seam/intent-driven source
-  yields the single aggregate record by construction, while an event-driven source
-  (Pole A) must coalesce the per-node `remove_child`/`append_child` dispatcher events
-  back into one record. *Favors recording from intent.* B1 must produce **one**
-  coalesced record for `replaceChildren` and `textContent` (element /
-  `DocumentFragment` / `ShadowRoot`), matching the C5
-  innerHTML/outerHTML shape (§4.3 record-shape correctness).
-- **C7 — CE-reaction *order* preservation across coalesced records (9dTU — a named
-  coupled invariant).** A coalesced childList record (C1 replaceChild / C5
-  innerHTML / C6 replace-all) is **not** order-free: the spec/CE consumer cares
-  about added-vs-removed ordering, and the current sources fix a specific order that
-  a naive "node-set match" record loses:
+- **C6 — "replace all" coalescing, stated as an invariant over all replace-all
+  sources (9dTW / 9dTU; reframed from a hand-list to an invariant, 9rUT/9rUU).**
+  **Invariant.** *Any script-reachable remove-all-then-insert (whole-subtree
+  replace) operation must yield **one** coalesced `ChildList` mutation record
+  carrying `addedNodes` **and** `removedNodes` together (WHATWG DOM §4.2.3 Mutation
+  algorithms, "replace all" `#concept-node-replace-all`, step 7) — **except** that a
+  no-op replace-all where **both** `addedNodes` and `removedNodes` are empty
+  produces **no** record* (step 7 queues the record only "**if either `addedNodes`
+  or `removedNodes` is not empty**", verified via webref at HEAD `26d00c5a`). So
+  `node.replaceChildren()` / `node.textContent = ''` on an already-empty node is
+  record-silent **by spec**, and B1's coalescer must honour that guard, not emit an
+  empty record (9rUU). Today these replace-all ops are implemented as per-node
+  `remove_child`/`append_child` loops with **no** record at all (§3 gap rows), so
+  they carry the same N+M-shatter risk as innerHTML (C5) *and* the missing-record
+  gap.
+  - **Representative replace-all sources** (known-set, *not* exhaustive):
+    - **`replaceChildren`** — VM ParentNode mixin
+      (`vm/host/parentnode.rs:181-249`, `native_parent_node_replace_children`)
+      removes every existing child via a `remove_child` loop (`:223-225`/`:247-249`)
+      then inserts the new node(s) (`:236`). The parent-kind gate
+      (`parentnode.rs:75`) accepts `NodeKind::Element | NodeKind::Document |
+      NodeKind::DocumentFragment` (`ShadowRoot` is `NodeKind::DocumentFragment`,
+      comment `:68`) — so `replaceChildren` is defined on **every `ParentNode`,
+      `Document` included**, not just elements (DOM §4.2.6 Mixin ParentNode
+      `#dom-parentnode-replacechildren`); there is also a dom-api `ReplaceChildren`
+      handler. B1's coalescer must cover the `Document` host, not only elements.
+    - **`textContent =`** — VM `node_methods/text_content.rs:105-116`
+      (`SetTextContentNodeKind`'s catch-all `_ =>` branch) removes every child via a
+      `remove_child` loop then optionally appends a single text node.
+      `Node.prototype.textContent` is defined on **every** `Node` (DOM §4.4 Interface
+      Node `#dom-node-textcontent`), and the catch-all is reached for **all** node
+      kinds other than `Document`/`DocumentType` (null setter), `Text`/`CdataSection`,
+      and `Comment` (in-place data write) — i.e. **element, `DocumentFragment`, *and*
+      `ShadowRoot`** alike. So `node.textContent = 'x'` on a `createDocumentFragment()`
+      fragment or an open `shadowRoot` shatters the same way and is equally MO-silent.
+  - **The exhaustive replace-all site list is a B1 grep-diff deliverable, not this
+    hand list** (same methodology as the §1 write-site invariant) — do **not** treat
+    these two as exhaustive; treat the *invariant* (one coalesced record per
+    non-no-op replace-all, none for a no-op) as load-bearing and let the grep-diff
+    enumerate every site.
+  Per §4.2.3 "replace all", the removal and insertion both run with
+  `suppressObservers` true, and step 7 queues the single aggregate record — i.e.
+  **one** `ChildList` record (or none, no-op), not N+M per-node records. So C6 is the
+  same intent-vs-event discriminator as C5: a seam/intent-driven source yields the
+  single aggregate record (and the no-op guard) by construction, while an
+  event-driven source (Pole A) must coalesce the per-node
+  `remove_child`/`append_child` dispatcher events back into one record *and* suppress
+  the empty no-op case. *Favors recording from intent.* B1 must produce **one**
+  coalesced record per non-no-op replace-all (across the representative + grep-diff
+  sites), matching the C5 innerHTML/outerHTML shape (§4.3 record-shape correctness).
+- **C7 — CE-reaction *order* preservation across coalesced records, stated as an
+  invariant over **all** coalesced/replace-all sources (9dTU / 9rUV — a named
+  coupled invariant; site enumeration deferred to B1).** A coalesced childList
+  record is **not** order-free: the spec/CE consumer cares about added-vs-removed
+  ordering, and each source fixes a specific source order that a naive "node-set
+  match" record loses.
+  **Invariant.** *Every coalesced / replace-all childList record must preserve its
+  **source's** add-vs-remove mutation order; record production, coalescing, **and**
+  the flush-side CE scan must agree on that one order.* This applies to **all**
+  coalesced-childList sources, including the C6 replace-all family — `replaceChildren`
+  and `textContent` are **also** remove-all-then-insert
+  (`vm/host/parentnode.rs:223-236` / `node_methods/text_content.rs:105-116`,
+  remove-all → insert), so they are C7 order sites too, not just innerHTML/outerHTML/
+  replaceChild. If a CE scan processes added→removed while a source removes-before-
+  inserts, the `connected`/`disconnected` firing order inverts.
   - The flush-side CE scan `enqueue_ce_reactions_from_mutations`
     (`elidex-js-boa/runtime/ce.rs:145`) iterates **added nodes first** (connected,
     `ce.rs:24` region) **then removed nodes** (disconnected) within a single record.
   - `EcsDom::replace_child` (`tree/mutation.rs:185-205`) dispatches
     **`fire_after_remove(old)` (`:189`) then `fire_after_insert(new)` (`:200`)** —
     Remove **before** Insert.
-  - The three coalesced-childList sources fix **different** source orders that a
-    naive node-set match would erase (corrected, 9nRW):
+  - The representative coalesced/replace-all sources fix **different** source orders
+    that a naive node-set match would erase (corrected, 9nRW; *representative*, not
+    exhaustive — B1 grep-diff enumerates the full set, same methodology as C6/§1):
     - **`apply_set_inner_html`** (innerHTML) **removes the old children first, then
       appends the new** — remove-old → append-new.
     - **`apply_set_outer_html`** (outerHTML, `html_fragment.rs:146-149`) does the
@@ -1090,15 +1132,20 @@ factor for B1 to weigh (it does **not** settle the choice — invariants 1 + 2 o
       (`:146-148`) **and only then** `remove_child`s `entity` (`:149`) —
       insert-new → remove-old (the reverse of innerHTML).
     - **`replaceChild`** is **Remove → Insert** (the dispatcher order above).
+    - **`replaceChildren` / `textContent`** (C6 replace-all) are **remove-all →
+      insert** (`parentnode.rs:223-236` / `text_content.rs:105-116`) — same shape as
+      innerHTML.
   So if B1's record/coalesce step or its flush-side CE scan reorders added vs.
   removed (or treats a coalesced record as an unordered node-set), the CE
   `disconnected`-then-`connected` (or `connected`-then-`disconnected`) **callback
   firing order can invert** relative to today. **B1 must treat
   added/removed-node ordering inside a coalesced record as a load-bearing
   invariant** — record production, coalescing, *and* the flush-side CE scan must
-  agree on one order — alongside C1–C6, not as an afterthought. (This couples
-  record-shape coalescing with CE-reaction semantics — §4.3's CE-reaction
-  preservation bullet — at the same source.)
+  agree on one order — across **all** coalesced/replace-all sources (innerHTML,
+  outerHTML, replaceChild, replaceChildren, textContent, + grep-diff), alongside
+  C1–C6, not as an afterthought. (This couples record-shape coalescing with
+  CE-reaction semantics — §4.3's CE-reaction preservation bullet — at the same
+  source.)
 - **C8 — characterData `oldValue` capture *timing* (9dTY — a named coupled
   invariant).** `{characterDataOldValue:true}` (DOM §4.3.3) requires the **pre-write**
   character data, but on the Mechanism-A / `ConsumerDispatcher` path the old value is
@@ -1454,12 +1501,20 @@ verdict here.
   slotchange only — 8YcR), the `input.value` value-mode dispatch
   (`html_input_value.rs:120-129` — 8kHF, *not* a plain reflection), the
   reflected-setter direct writes (`html_input_proto.rs` etc. — 8YcT), the
-  **replace-all** remove-all-then-insert loops (`child_node/mutations.rs:275-283`
-  `replaceChildren` + `textContent` on element/`DocumentFragment`/`ShadowRoot`
-  `node_methods/text_content.rs:105-116` catch-all
-  — C6/9dTW, DOM §4.2.3 single tree mutation record), the **CE-reaction order**
+  **replace-all** remove-all-then-insert loops (representative: VM
+  `replaceChildren` `parentnode.rs:181-249` [parent-kind gate `:75` =
+  Element/Document/DocumentFragment, `Document` host included] + dom-api
+  `ReplaceChildren` `child_node/mutations.rs:275-283` + `textContent` on
+  element/`DocumentFragment`/`ShadowRoot` `node_methods/text_content.rs:105-116`
+  catch-all — C6/9dTW/9rUT, DOM §4.2.3 "replace all" `#concept-node-replace-all`
+  **step 7 no-op guard** [record queued only if `addedNodes` or `removedNodes`
+  non-empty — 9rUU]; exhaustive replace-all site list = B1 grep-diff, not this hand
+  list), the **CE-reaction order**
   anchors (`enqueue_ce_reactions_from_mutations` added-then-removed `ce.rs:145`/`:24`
-  + `replace_child` Remove-before-Insert `tree/mutation.rs:189`/`:200` — C7/9dTU),
+  + `replace_child` Remove-before-Insert `tree/mutation.rs:189`/`:200`; order
+  invariant covers **all** coalesced/replace-all sources incl. `replaceChildren`/
+  `textContent` remove-all→insert `parentnode.rs:223-236`/`text_content.rs:105-116`
+  — C7/9dTU/9rUV, site set = B1 grep-diff),
   and the **characterData `oldValue` capture-timing** anchors (`set_text_data`
   overwrite-before-dispatch `elidex-ecs/dom/mod.rs:336`/`:340-344`, `TextChange`/
   `ReplaceData` carry no old value `mutation_event.rs:191`/`:209` — C8/9dTY).
