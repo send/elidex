@@ -202,18 +202,25 @@ impl DomApiHandler for CreateElement {
         // explicit `create_element_with_owner` call; the handler now
         // owns the spec-precise behaviour so both boa and VM paths
         // observe the same ownerDocument semantics.
-        // WHATWG DOM §4.9 "create an element" step 6.3 — the canonical
-        // creation-time custom-element-state derivation (computed
+        // WHATWG DOM §4.9 "create an element" intrinsic-component derivation,
+        // via the single canonical `derive_created_element_components` shared
+        // with the parser's `attach_derived` (One-issue-one-way). Computed
         // before the entity spawn so `local_name` can move into
-        // `create_element_with_owner`). No `is` content attribute is
-        // set (DOM §4.5 createElement has no such step); serialization
-        // compensates via the HTML §13.3 is-value step in
-        // `serialize_node`.
-        let mut ce_state = elidex_custom_elements::CustomElementState::for_created_element(
+        // `create_element_with_owner`. `createElement` creates with NO
+        // attributes (DOM §4.5 has no `is`/attribute step), so an `<iframe>`
+        // derives a *present default* `IframeData` — the later
+        // `setAttribute("src",…)` then populates it through the presence-gated
+        // reconcile seam, and without it a script-created iframe is invisible
+        // to the shell loader. The `is` value here comes from the options
+        // argument; serialization compensates the absent `is` content
+        // attribute via the HTML §13.3 is-value step in `serialize_node`.
+        let components = elidex_custom_elements::derive_created_element_components(
             &local_name,
-            is_value,
             elidex_ecs::Namespace::Html,
+            is_value,
+            &Attributes::default(),
         );
+        let mut ce_state = components.custom_element_state;
         // DOM §4.9 "create an element internal" step 1: the created
         // element's custom element registry is the caller-supplied
         // one — an explicit null puts the element outside every
@@ -227,6 +234,23 @@ impl DomApiHandler for CreateElement {
         let entity = dom.create_element_with_owner(local_name, Attributes::default(), Some(this));
         if let Some(ce_state) = ce_state {
             let _ = dom.world_mut().insert_one(entity, ce_state);
+        }
+        // HTML §4.8.5: attach the derived `IframeData` (present-default on the
+        // no-attrs createElement path) so the reconcile seam can populate
+        // src/srcdoc and the iframe is *discoverable* as an iframe.
+        //
+        // NB: this is the DOM-side prerequisite, not the whole story for
+        // *loading* a script-created iframe. The shell's `detect_iframe_mutations`
+        // only loads iframes it sees in `SessionCore::flush()` mutation records,
+        // but tree mutations (`appendChild`/`insertBefore`) bypass
+        // `record_mutation` today (see `child_node/mutations.rs` module doc:
+        // "tracked for a future milestone"), so `createElement('iframe')` +
+        // `appendChild` produces no ChildList record and the iframe does not yet
+        // load on connection. Routing tree mutations through `record_mutation`
+        // (which also fires CE connected/disconnected callbacks) is the coupled
+        // dependency tracked at `#11-tree-mutation-record-pipeline`.
+        if let Some(iframe_data) = components.iframe_data {
+            let _ = dom.world_mut().insert_one(entity, iframe_data);
         }
         let obj_ref = session.get_or_create_wrapper(entity, ComponentKind::Element);
         Ok(JsValue::ObjectRef(obj_ref.to_raw()))

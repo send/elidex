@@ -31,6 +31,15 @@ pub(in crate::content) fn detect_iframe_mutations(
                         if state.iframes.get(iframe_entity).is_some() {
                             continue;
                         }
+                        // HTML §4.8.5: an iframe gets a content navigable (and
+                        // loads) only once connected to a document. A node added
+                        // under a *detached* parent still produces a ChildList
+                        // record, but its iframes must not load until they are
+                        // actually inserted (the later insertion fires its own
+                        // ChildList record, by which point `is_connected` holds).
+                        if !state.pipeline.dom.is_connected(iframe_entity) {
+                            continue;
+                        }
                         try_load_iframe_entity(state, iframe_entity, false);
                         changed = true;
                     }
@@ -56,20 +65,38 @@ pub(in crate::content) fn detect_iframe_mutations(
                 if record
                     .attribute_name
                     .as_deref()
-                    .is_some_and(|name| name == "src") =>
+                    .is_some_and(|name| name == "src" || name == "srcdoc") =>
             {
-                // src attribute change on <iframe> → re-navigate.
+                // `src` OR `srcdoc` attribute change on <iframe> → re-navigate.
+                // Per HTML "process the iframe attributes", both trigger
+                // navigation (with `srcdoc` taking precedence over `src`); the
+                // shell previously re-navigated only on `src`, so a `srcdoc`
+                // mutation was silently ignored even though `load_iframe`
+                // fully supports the srcdoc resource.
                 let target = record.target;
+                // HTML §4.8.5: "process the iframe attributes" reprocesses
+                // src/srcdoc only for an iframe with a non-null content
+                // navigable — i.e. a *connected* iframe. A detached iframe
+                // (e.g. `createElement('iframe'); f.srcdoc = …` before
+                // insertion) keeps its reconciled `IframeData` fresh and loads
+                // on insertion, not on the attribute change.
+                if !state.pipeline.dom.is_connected(target) {
+                    continue;
+                }
                 if let Some(removed_entry) = state.iframes.remove(target) {
                     unload_iframe_entry(state, target, removed_entry);
                 }
-                // `IframeData` is already re-derived from the new `src` by the
-                // `EcsDom::set_attribute` / mutation-flush reconcile seam, so no
-                // manual sync is needed here — `try_load` reads the fresh
-                // `IframeData.src`.
+                // `IframeData` is already re-derived from the new `src`/`srcdoc`
+                // by the `EcsDom::set_attribute` / mutation-flush reconcile seam,
+                // so no manual sync is needed here — `try_load` reads the fresh
+                // `IframeData` (srcdoc-over-src precedence in `load_iframe`).
                 state.iframes.remove_lazy_pending(target);
-                // force=true: src change is explicit navigation.
-                try_load_iframe_entity(state, target, true);
+                // force=false: run the will-lazy-load check — a `loading="lazy"`
+                // iframe whose src/srcdoc changes re-defers (loads when scrolled
+                // into view) rather than force-loading, consistent with every
+                // other load path (`scan_initial_iframes` / ChildList). A
+                // non-lazy iframe still loads immediately.
+                try_load_iframe_entity(state, target, false);
                 changed = true;
             }
             _ => {}

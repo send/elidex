@@ -6,6 +6,7 @@
 
 mod construction_stack;
 mod consumer;
+mod created_element;
 mod entity_spawn;
 mod reaction;
 mod registry;
@@ -15,6 +16,7 @@ mod validation;
 
 pub use construction_stack::ConstructionStackEntry;
 pub use consumer::CustomElementReactionConsumer;
+pub use created_element::{derive_created_element_components, CreatedElementComponents};
 pub use entity_spawn::spawn_custom_element_entity;
 pub use reaction::{scrub_entity_reactions, CustomElementReaction};
 pub use registry::{
