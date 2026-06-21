@@ -16,7 +16,7 @@
 
 use elidex_ecs::{Attributes, ShadowInit, ShadowRootMode, SlotAssignmentMode};
 
-use super::parse_state::InsertionMode;
+use super::parse_state::{ContentTarget, InsertionMode};
 use super::{parse_error, unsupported_fragment_construct, TreeBuilder};
 use crate::tokenizer::token::TagToken;
 use crate::StrictParseError;
@@ -113,8 +113,24 @@ impl TreeBuilder {
             }
         }
 
-        // Step 9: ordinary template.
-        self.insert_html_element(token)?;
+        // Step 9: ordinary template. Per HTML §4.12.3 the element gets its
+        // associated content `DocumentFragment` "when the template element is
+        // created"; the §13.2.6.1 appropriate-place redirect then routes the
+        // template's children into that fragment rather than the (in-tree)
+        // template element. The fragment's owner document is the parse document
+        // (`self.document`) — the C2 owner-doc approximation (slot
+        // `#11-template-contents-owner-document` for the faithful inert doc).
+        // Using the parse document directly (not `owner_document(template)`) is
+        // correct for a *nested* template too, whose in-tree parent is an outer
+        // template's detached content fragment, so the tree-root walk would
+        // otherwise stop at that fragment and yield no document.
+        let template = self.insert_html_element(token)?;
+        let fragment = self
+            .dom
+            .attach_template_contents(template, Some(self.document));
+        self.state
+            .template_content_targets
+            .insert(template, ContentTarget::ContentFragment(fragment));
         Ok(())
     }
 
@@ -147,15 +163,25 @@ impl TreeBuilder {
         // the shadow root, so children inserted while the template is the
         // current node route into the shadow (via the appropriate-place
         // template-contents redirect).
-        match self.dom.attach_shadow_with_init(host, init) {
-            Ok(shadow_root) => {
-                self.state
-                    .template_content_targets
-                    .insert(template, shadow_root);
-            }
-            Err(_) => {
-                self.append(fallback_parent, template);
-            }
+        if let Ok(shadow_root) = self.dom.attach_shadow_with_init(host, init) {
+            self.state
+                .template_content_targets
+                .insert(template, ContentTarget::ShadowRoot(shadow_root));
+        } else {
+            // Graceful fallback: the failed declarative shadow template
+            // becomes an ordinary in-tree `<template>` (§4.12.3), so it
+            // needs the same content fragment + redirect the ordinary path
+            // gives — otherwise its children would land as light children
+            // and `.content` would be empty (cross-tier divergence: the
+            // tolerant fallback already routes through the ordinary
+            // template arm).
+            self.append(fallback_parent, template);
+            let fragment = self
+                .dom
+                .attach_template_contents(template, Some(self.document));
+            self.state
+                .template_content_targets
+                .insert(template, ContentTarget::ContentFragment(fragment));
         }
     }
 
@@ -176,12 +202,16 @@ impl TreeBuilder {
         }
         // Step 3. The current node is the template being closed. If it is a
         // consumed declarative-shadow template (stack-only, never in the tree —
-        // identified by its content-target entry), despawn it after the pop so
-        // it does not dangle; capture it before pop clears the entry.
-        let consumed_shadow_template = self
-            .state
-            .current_node()
-            .filter(|t| self.state.template_content_targets.contains_key(t));
+        // identified by a `ShadowRoot`-kind content-target), despawn it after the
+        // pop so it does not dangle; capture it before pop clears the entry. An
+        // ordinary `ContentFragment`-kind template is in the tree and must NOT be
+        // despawned here (a missed kind branch = data loss).
+        let consumed_shadow_template = self.state.current_node().filter(|t| {
+            self.state
+                .template_content_targets
+                .get(t)
+                .is_some_and(|target| target.is_shadow_root())
+        });
         self.pop_until_tag("template");
         if let Some(template) = consumed_shadow_template {
             let _ = self.dom.destroy_entity(template);

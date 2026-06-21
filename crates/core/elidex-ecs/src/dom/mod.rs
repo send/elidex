@@ -27,7 +27,7 @@ pub use mutation_event::{MutationDispatcher, MutationEvent};
 
 use crate::components::{
     AssociatedDocument, AttrData, Attributes, CommentData, DocTypeData, DocumentBaseUrl, Namespace,
-    NodeKind, ShadowRoot, TagType, TextContent, TreeRelation,
+    NodeKind, ShadowRoot, TagType, TemplateContents, TextContent, TreeRelation,
 };
 use hecs::{Entity, World};
 
@@ -242,10 +242,10 @@ impl EcsDom {
     /// the `<template>` element's children.
     ///
     /// Tag-string compare matches the [`Self::is_base_element`]
-    /// precedent.  The `TemplateContent` component is reserved for
-    /// future plug-in use (e.g. signalling "this element owns a
-    /// detached contents fragment"); a content-attach pass would
-    /// piggyback on this predicate.
+    /// precedent.  The element's detached contents fragment, if any, is
+    /// reachable via
+    /// [`template_contents_fragment`](Self::template_contents_fragment)
+    /// ([`TemplateContents`](crate::TemplateContents) component).
     #[must_use]
     pub fn is_template_element(&self, entity: Entity) -> bool {
         self.world
@@ -696,6 +696,50 @@ impl EcsDom {
             let _ = self.world.insert_one(entity, AssociatedDocument(doc));
         }
         entity
+    }
+
+    /// HTML §4.12.3: give `template` its associated **template contents**
+    /// `DocumentFragment`, returning the fragment entity.
+    ///
+    /// Spawns a fresh detached [`NodeKind::DocumentFragment`] and forward-links
+    /// it via a [`TemplateContents`] component on `template`. Every
+    /// `<template>`-element creation site (both parser tiers, `createElement`,
+    /// and the clone post-pass) routes through this single helper so the
+    /// fragment / linkage / owner-document semantics stay identical across
+    /// tiers (the One-issue-one-way cross-tier consistency anchor) — only the
+    /// *redirect plumbing* (strict `template_content_targets` map vs tolerant
+    /// `template_contents` recursion) differs.
+    ///
+    /// `owner_doc` is the fragment's node document. Per §4.12.3 the faithful
+    /// value is a separate inert *"template contents owner document"* (one per
+    /// real document); this ships the **C2 approximation** `owner_doc =
+    /// template's own node document` — the faithful inert owner document is
+    /// deferred to slot `#11-template-contents-owner-document`. Callers pass
+    /// the document they know at creation time (strict: post-insert
+    /// `owner_document(template)`; `createElement`: the receiver document;
+    /// tolerant: the conversion's threaded document), so the fragment's
+    /// `ownerDocument` is uniform across tiers.
+    pub fn attach_template_contents(
+        &mut self,
+        template: Entity,
+        owner_doc: Option<Entity>,
+    ) -> Entity {
+        let fragment = self.create_document_fragment_with_owner(owner_doc);
+        let _ = self
+            .world
+            .insert_one(template, TemplateContents { fragment });
+        fragment
+    }
+
+    /// The content `DocumentFragment` linked to `template` by
+    /// [`attach_template_contents`](Self::attach_template_contents), or `None`
+    /// if `template` is not a `<template>` element with associated content.
+    #[must_use]
+    pub fn template_contents_fragment(&self, template: Entity) -> Option<Entity> {
+        self.world
+            .get::<&TemplateContents>(template)
+            .ok()
+            .map(|t| t.fragment)
     }
 
     /// Create a comment node.

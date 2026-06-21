@@ -262,6 +262,14 @@ impl EcsDom {
             if let Some(sr) = self.get_shadow_root(node) {
                 stack.push(sr);
             }
+            // A `<template>`'s content fragment (HTML §4.12.3) is likewise
+            // out-of-band (held only by the `TemplateContents` component, never
+            // a light child). Push it so teardown reaches it (else it orphans —
+            // "a complete teardown must reach every node or it leaks") and so
+            // §13.4 fragment adopt re-homes the contents with the template.
+            if let Some(fragment) = self.template_contents_fragment(node) {
+                stack.push(fragment);
+            }
             for child in self.child_list_uncapped(node) {
                 stack.push(child);
             }

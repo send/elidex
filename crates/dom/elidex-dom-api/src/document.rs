@@ -231,6 +231,7 @@ impl DomApiHandler for CreateElement {
                 state.registry = elidex_custom_elements::RegistryAssociation::Null;
             }
         }
+        let is_template = local_name == "template";
         let entity = dom.create_element_with_owner(local_name, Attributes::default(), Some(this));
         if let Some(ce_state) = ce_state {
             let _ = dom.world_mut().insert_one(entity, ce_state);
@@ -251,6 +252,16 @@ impl DomApiHandler for CreateElement {
         // dependency tracked at `#11-tree-mutation-record-pipeline`.
         if let Some(iframe_data) = components.iframe_data {
             let _ = dom.world_mut().insert_one(entity, iframe_data);
+        }
+        // HTML §4.12.3: a `<template>` element has an associated content
+        // `DocumentFragment` "created when the template element is created", so
+        // `createElement('template')` gets an (empty) fragment up front — the
+        // same eager attach the parser tiers do, via the one shared helper
+        // (One-issue-one-way). `this` is the receiver document = the fragment's
+        // owner document (C2 approximation; faithful inert owner document is
+        // slot `#11-template-contents-owner-document`).
+        if is_template {
+            let _ = dom.attach_template_contents(entity, Some(this));
         }
         let obj_ref = session.get_or_create_wrapper(entity, ComponentKind::Element);
         Ok(JsValue::ObjectRef(obj_ref.to_raw()))

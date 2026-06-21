@@ -69,6 +69,85 @@ fn clone_node_deep() {
 }
 
 #[test]
+fn clone_node_template_deep_clones_content_into_fresh_fragment() {
+    // HTML §4.12.3 cloning steps: a deep clone of a `<template>` gets its own
+    // fresh content fragment populated with deep-cloned children — never the
+    // source fragment (no aliasing).
+    let (mut dom, mut session) = setup();
+    let template = dom.create_element("template", Attributes::default());
+    let src_fragment = dom.attach_template_contents(template, None);
+    let span = dom.create_element("span", Attributes::default());
+    let txt = dom.create_text("hi");
+    dom.append_child(span, txt);
+    dom.append_child(src_fragment, span);
+    wrap(template, &mut session);
+
+    let r = CloneNode
+        .invoke(template, &[JsValue::Bool(true)], &mut session, &mut dom)
+        .unwrap();
+    let JsValue::ObjectRef(ref_id) = r else {
+        panic!("expected ObjectRef");
+    };
+    let (cloned, _) = session
+        .identity_map()
+        .get(JsObjectRef::from_raw(ref_id))
+        .unwrap();
+
+    let cloned_fragment = dom
+        .template_contents_fragment(cloned)
+        .expect("clone has its own content fragment");
+    assert_ne!(
+        cloned_fragment, src_fragment,
+        "clone must not alias the source content fragment"
+    );
+    let kids = dom.children(cloned_fragment);
+    assert_eq!(kids.len(), 1);
+    assert!(dom.has_tag(kids[0], "span"));
+    assert_ne!(kids[0], span, "content deep-cloned to fresh entities");
+    let cloned_text = dom.children(kids[0]);
+    assert_eq!(cloned_text.len(), 1);
+    assert_eq!(
+        dom.world().get::<&TextContent>(cloned_text[0]).unwrap().0,
+        "hi"
+    );
+    // Source fragment is unchanged.
+    assert_eq!(dom.children(src_fragment).len(), 1);
+}
+
+#[test]
+fn clone_node_template_shallow_gets_fresh_empty_fragment() {
+    // Per §4.12.3 cloning steps, the contents are cloned only when the
+    // clone-children flag is set; a shallow clone still gets its own *empty*
+    // content fragment (every template has one).
+    let (mut dom, mut session) = setup();
+    let template = dom.create_element("template", Attributes::default());
+    let src_fragment = dom.attach_template_contents(template, None);
+    let span = dom.create_element("span", Attributes::default());
+    dom.append_child(src_fragment, span);
+    wrap(template, &mut session);
+
+    let r = CloneNode
+        .invoke(template, &[JsValue::Bool(false)], &mut session, &mut dom)
+        .unwrap();
+    let JsValue::ObjectRef(ref_id) = r else {
+        panic!("expected ObjectRef");
+    };
+    let (cloned, _) = session
+        .identity_map()
+        .get(JsObjectRef::from_raw(ref_id))
+        .unwrap();
+
+    let cloned_fragment = dom
+        .template_contents_fragment(cloned)
+        .expect("shallow clone still has a content fragment");
+    assert_ne!(cloned_fragment, src_fragment);
+    assert!(
+        dom.children(cloned_fragment).is_empty(),
+        "shallow clone's content fragment is empty"
+    );
+}
+
+#[test]
 fn clone_node_no_identity() {
     let (mut dom, mut session) = setup();
     let div = dom.create_element("div", Attributes::default());

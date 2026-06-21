@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use elidex_ecs::{
     BackgroundImages, BoxFragment, EcsDom, Entity, FragmentContent, ImageData, ListItemMarker,
-    TemplateContent, MAX_ANCESTOR_DEPTH,
+    MAX_ANCESTOR_DEPTH,
 };
 use elidex_form::FormControlState;
 use elidex_layout_block::paint_order::{collect_sc_participants, is_float_entity, is_positioned};
@@ -95,10 +95,10 @@ pub(crate) fn walk(
     if depth > MAX_ANCESTOR_DEPTH {
         return;
     }
-    // Skip <template> elements — their content is inert.
-    if ctx.dom.world().get::<&TemplateContent>(entity).is_ok() {
-        return;
-    }
+    // `<template>` content is inert by construction: it lives in a *detached*
+    // `TemplateContents` fragment (HTML §4.12.3), so no light-tree walk reaches
+    // it. The `<template>` element itself stays in the tree but has no light
+    // children to render.
 
     // Per-fragment paged media: skip entities not belonging to this page.
     // Only check entities that HAVE a LayoutBox — text nodes and other

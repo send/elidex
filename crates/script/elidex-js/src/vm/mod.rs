@@ -950,8 +950,9 @@ pub(crate) struct VmInner {
     #[cfg(feature = "engine")]
     pub(crate) html_details_prototype: Option<ObjectId>,
     /// `HTMLTemplateElement.prototype` (HTML §4.12.3).  Carries the
-    /// `[SameObject]` `content` DocumentFragment accessor.  Lazy
-    /// allocation interned under `WrapperKind::TemplateContent`.
+    /// `content` DocumentFragment accessor; identity is the fragment
+    /// entity's own primary-Node wrapper cache (slot
+    /// `#11-template-parser-content`).
     #[cfg(feature = "engine")]
     pub(crate) html_template_prototype: Option<ObjectId>,
     /// `HTMLDataListElement.prototype` (HTML §4.10.10).  Carries the

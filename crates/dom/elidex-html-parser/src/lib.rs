@@ -146,7 +146,7 @@ pub fn parse_html_fragment(
     // attach to their real parent. (Strict rejects DSD-on-context and falls
     // back here — the slot `#11-strict-fragment-declarative-shadow-on-context`
     // is the strict-native handling, deferred; correctness is via this path.)
-    convert::convert_fragment_top_level(&children_owner, root, context, dom, opts);
+    convert::convert_fragment_top_level(&children_owner, root, context, dom, document, opts);
     let detached = dom.finish_detached_fragment(root, document, context);
     if let Some(dispatcher) = saved {
         dom.set_mutation_dispatcher(dispatcher);

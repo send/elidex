@@ -568,10 +568,19 @@ pub fn serialize_inner_html_with_options(
         .get::<&TagType>(entity)
         .ok()
         .is_some_and(|tag| RAW_TEXT_ELEMENTS.contains(&tag.0.as_str()));
-    for child in dom.children_iter(entity) {
+    // HTML §13.3: a `<template>`'s serialized children are its *template
+    // contents* (the detached fragment), not its (empty) light children.
+    for child in dom.children_iter(serialization_children_root(entity, dom)) {
         serialize_node(child, dom, &mut html, raw_text, opts);
     }
     html
+}
+
+/// The node whose children the HTML fragment serialization algorithm
+/// (HTML §13.3) walks for `entity`: a `<template>`'s content fragment ("let
+/// the node also be current node's template contents"), else `entity` itself.
+fn serialization_children_root(entity: Entity, dom: &EcsDom) -> Entity {
+    dom.template_contents_fragment(entity).unwrap_or(entity)
 }
 
 /// HTML void elements that must not have a closing tag.
@@ -740,7 +749,9 @@ fn serialize_node(
         }
         emit_own_shadow_root_if_needed(entity, dom, html, opts);
         let child_raw_text = RAW_TEXT_ELEMENTS.contains(&tag.0.as_str());
-        for child in dom.children_iter(entity) {
+        // HTML §13.3: a `<template>` serializes its template contents (the
+        // detached fragment), not its (empty) light children.
+        for child in dom.children_iter(serialization_children_root(entity, dom)) {
             serialize_node(child, dom, html, child_raw_text, opts);
         }
         html.push_str("</");

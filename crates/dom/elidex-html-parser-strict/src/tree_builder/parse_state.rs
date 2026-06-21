@@ -22,6 +22,51 @@ use std::collections::HashMap;
 
 use elidex_ecs::{EcsDom, Entity, Namespace};
 
+/// The redirect target of a `<template>`'s "template contents" — where the
+/// §13.2.6.1 "appropriate place" routes children inserted while the template
+/// is the current node.
+///
+/// Per HTML §4.12.3 / §13.2.6.4.4 the kind discriminates two structurally
+/// different templates that share the same `template_content_targets` map:
+///
+/// - [`ContentFragment`](ContentTarget::ContentFragment) — an **ordinary**
+///   `<template>`: children route into its detached content `DocumentFragment`
+///   (the `TemplateContents` link). The template element stays **in the tree**
+///   and must NOT be despawned as a consumed stack-only template.
+/// - [`ShadowRoot`](ContentTarget::ShadowRoot) — a **declarative shadow**
+///   `<template shadowrootmode>` (§13.2.6.4.4 step 10): children route into the
+///   attached shadow root. The template is **stack-only** (never appended to
+///   the light DOM) and is despawned once consumed.
+///
+/// The membership-as-discriminator the map previously relied on (every entry
+/// was a consumed declarative template) no longer holds now ordinary templates
+/// also have entries, so the two despawn sites branch on this kind; the
+/// stack-bounding `pop` removes both kinds unconditionally.
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum ContentTarget {
+    /// Ordinary template → its detached content fragment entity.
+    ContentFragment(Entity),
+    /// Declarative shadow template → the attached shadow root entity.
+    ShadowRoot(Entity),
+}
+
+impl ContentTarget {
+    /// The entity children route into (the §13.2.6.1 "appropriate place"
+    /// treats both kinds uniformly — just *where* children go).
+    pub(crate) fn entity(self) -> Entity {
+        match self {
+            ContentTarget::ContentFragment(e) | ContentTarget::ShadowRoot(e) => e,
+        }
+    }
+
+    /// Whether this is a consumed declarative-shadow template (stack-only,
+    /// never in the light DOM) — the despawn discriminator. An ordinary
+    /// `ContentFragment` template is in-tree and must never be despawned here.
+    pub(crate) fn is_shadow_root(self) -> bool {
+        matches!(self, ContentTarget::ShadowRoot(_))
+    }
+}
+
 /// The tree builder's insertion mode (WHATWG HTML §13.2.4.1).
 ///
 /// One variant per insertion mode named in §13.2.6.4.1–.21. The historical
@@ -218,13 +263,16 @@ pub(crate) struct ParseState {
     /// "in head" follows the generic raw text algorithm and the "in head
     /// noscript" mode is only reachable with scripting disabled.
     pub(crate) scripting: bool,
-    /// Per-`<template>` content insertion target, populated only for
-    /// declarative shadow templates (§13.2.6.4.4 step 10): the template's
-    /// "template contents" is the attached shadow root, so children inserted
-    /// while that template is the current node are routed to the shadow root
-    /// instead of the template element. Normal templates are absent from the
-    /// map and default to holding their content as direct children.
-    pub(crate) template_content_targets: HashMap<Entity, Entity>,
+    /// Per-`<template>` content insertion target (§13.2.6.1 step 3 "appropriate
+    /// place"): children inserted while a `<template>` is the current node are
+    /// routed to its [`ContentTarget`] rather than the template element itself.
+    /// Populated for **every** open `<template>` — ordinary templates map to
+    /// their detached content fragment
+    /// ([`ContentTarget::ContentFragment`]); declarative shadow templates map
+    /// to the attached shadow root ([`ContentTarget::ShadowRoot`],
+    /// §13.2.6.4.4 step 10). The kind discriminates the two at the despawn
+    /// sites (see [`ContentTarget::is_shadow_root`]).
+    pub(crate) template_content_targets: HashMap<Entity, ContentTarget>,
     /// Whether the next character token, if it is a U+000A LINE FEED, should
     /// be ignored. Set after inserting `<pre>` / `<listing>` / `<textarea>`,
     /// whose leading newline is dropped as an authoring convenience

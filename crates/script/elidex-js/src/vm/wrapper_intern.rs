@@ -75,7 +75,6 @@ pub(crate) enum WrapperKind {
     TableBodies,
     TableSectionRows,
     TableRowCells,
-    TemplateContent,
     DatalistOptions,
     /// `canvas.getContext('2d')` rendering-context wrapper — `owner =
     /// Entity(canvas)`. The wrapper shares the canvas `Element` entity in its
@@ -325,7 +324,6 @@ impl WrapperKind {
             | Self::TableBodies
             | Self::TableSectionRows
             | Self::TableRowCells
-            | Self::TemplateContent
             | Self::DatalistOptions
             | Self::Canvas2dContext
             | Self::OffscreenCanvas2dContext => MarkAgent::WeakViaOwnerEntity,
