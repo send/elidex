@@ -1033,10 +1033,23 @@ impl EcsDom {
             }
         }
         let root = self.find_tree_root(entity);
-        if matches!(self.node_kind(root), Some(NodeKind::Document)) {
-            return Some(root);
+        match self.node_kind(root) {
+            Some(NodeKind::Document) => Some(root),
+            // A node whose tree root is a detached `DocumentFragment` inherits
+            // that fragment's node document. Parser-built `<template>` content
+            // (HTML §4.12.3) sets `AssociatedDocument` on the fragment but not
+            // on its parsed descendants (tolerant nodes rely on the tree-root
+            // walk, which dead-ends at the fragment), so without this
+            // `template.content.firstChild.ownerDocument` would be null while
+            // `template.content.ownerDocument` is the document. Same dangling
+            // guard as above (the fragment may carry a stale/destroyed owner —
+            // e.g. a fragment-parse throwaway document — in which case the
+            // `contains` + kind check yields `None` rather than a ghost).
+            Some(NodeKind::DocumentFragment) => self.get_associated_document(root).filter(|&doc| {
+                self.contains(doc) && matches!(self.node_kind(doc), Some(NodeKind::Document))
+            }),
+            _ => None,
         }
-        None
     }
 }
 

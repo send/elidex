@@ -697,8 +697,9 @@ fn template_serializes_content_not_empty() {
 
 #[test]
 fn template_set_inner_html_targets_content_fragment() {
-    // HTML §4.12.3 "set the inner HTML": `template.innerHTML = …` parses into
-    // the template's content fragment, not its light children — so the
+    // HTML §8.5.4 "The innerHTML property" (the "set the inner HTML" steps):
+    // for a `<template>` the parsed fragment replaces the template's content
+    // fragment children (§4.12.3), not its light children — so the
     // setter/getter round-trips and the template element stays childless.
     let out = run("var t = document.createElement('template'); \
          t.innerHTML = '<p>hi</p><span>yo</span>'; \

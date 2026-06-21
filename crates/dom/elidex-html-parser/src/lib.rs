@@ -657,6 +657,71 @@ mod tests {
     }
 
     #[test]
+    fn template_content_custom_element_derived_strict_and_tolerant() {
+        // Codex PR380 (P1): a custom element inside `<template>` content must
+        // receive `CustomElementState` in BOTH tiers. The strict derivation
+        // post-pass (`derive_element_components`) must follow the detached
+        // `TemplateContents` fragment to match the tolerant inline derivation —
+        // else strict-parsed template content loses CE state (parity break;
+        // later breaks clone/upgrade for those nodes).
+        let html = "<!DOCTYPE html><template><my-widget></my-widget></template>";
+        for (tier, result) in [
+            ("tolerant", parse_html(html)),
+            ("strict", parse_strict(html).expect("strict parse")),
+        ] {
+            let dom = &result.dom;
+            let template = find_tag(dom, result.document, "template").expect("template");
+            let fragment = dom
+                .template_contents_fragment(template)
+                .expect("content fragment");
+            let widget = dom
+                .children(fragment)
+                .into_iter()
+                .find(|&e| {
+                    dom.world()
+                        .get::<&TagType>(e)
+                        .is_ok_and(|t| t.0 == "my-widget")
+                })
+                .unwrap_or_else(|| panic!("{tier}: <my-widget> present in template content"));
+            assert!(
+                dom.world()
+                    .get::<&elidex_custom_elements::CustomElementState>(widget)
+                    .is_ok(),
+                "{tier}: custom element in <template> content carries CustomElementState"
+            );
+        }
+    }
+
+    #[test]
+    fn template_content_descendant_owner_document() {
+        // Codex PR380 (P2): a parsed `<template>` content descendant inherits
+        // the fragment's node document (owner_document falls back through the
+        // DocumentFragment root), so `content.firstChild.ownerDocument` is the
+        // document, matching `content.ownerDocument` — not null.
+        let result = parse_html("<template><p>x</p></template>");
+        let dom = &result.dom;
+        let template = find_tag(dom, result.document, "template").expect("template");
+        let fragment = dom
+            .template_contents_fragment(template)
+            .expect("content fragment");
+        let p = dom
+            .children(fragment)
+            .into_iter()
+            .find(|&e| dom.world().get::<&TagType>(e).is_ok_and(|t| t.0 == "p"))
+            .expect("<p> present in template content");
+        assert_eq!(
+            dom.owner_document(p),
+            Some(result.document),
+            "template content descendant ownerDocument resolves to the document, not null"
+        );
+        assert_eq!(
+            dom.owner_document(fragment),
+            Some(result.document),
+            "the content fragment's own ownerDocument is the document (C2 approximation)"
+        );
+    }
+
+    #[test]
     fn fragment_returned_custom_element_carries_ce_state() {
         // Codex #329 R1 (P1), re-homed for §11.3 slice 2b: the fragment parser
         // now builds in isolation (mutation dispatch suppressed) and returns

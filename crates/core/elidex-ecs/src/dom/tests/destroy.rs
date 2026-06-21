@@ -308,9 +308,10 @@ fn despawn_subtree_destroys_template_content_fragment() {
 
 #[test]
 fn adopt_subtree_rehomes_template_content_fragment() {
-    // §13.4 fragment adopt re-homes the whole returned subtree into the
-    // context's document; the detached content fragment (and its contents)
-    // must follow, else its `ownerDocument` dangles on the throwaway document.
+    // The DOM §4.5 "adopt" of an HTML §13.4-fragment-parsed subtree re-homes
+    // the whole returned subtree into the context's document; the detached
+    // content fragment (and its contents) must follow, else its `ownerDocument`
+    // dangles on the throwaway document.
     let mut dom = EcsDom::new();
     let doc = dom.create_document_node();
     let root = elem(&mut dom, "div");

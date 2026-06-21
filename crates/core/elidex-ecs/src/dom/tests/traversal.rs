@@ -1,6 +1,33 @@
 use super::*;
 
 // ---------------------------------------------------------------------------
+// root_entities — detached template content fragment exclusion
+// ---------------------------------------------------------------------------
+
+#[test]
+fn root_entities_excludes_detached_template_content_fragment() {
+    // Codex PR380 (P1): a `<template>`'s detached content fragment is parentless
+    // and has children, so the render/layout/hit-test root discoveries (all
+    // keyed on `root_entities()` filtered to parentless-with-children) would
+    // treat it as an independent root and paint its content. `root_entities`
+    // must exclude detached `DocumentFragment`s so template content stays inert.
+    let mut dom = EcsDom::new();
+    let doc = dom.create_document_root();
+    let template = elem(&mut dom, "template");
+    assert!(dom.append_child(doc, template));
+    let fragment = dom.attach_template_contents(template, Some(doc));
+    let content_child = elem(&mut dom, "div");
+    assert!(dom.append_child(fragment, content_child));
+
+    let roots = dom.root_entities();
+    assert!(roots.contains(&doc), "the document is a root");
+    assert!(
+        !roots.contains(&fragment),
+        "the detached content fragment must NOT be a root (else it renders)"
+    );
+}
+
+// ---------------------------------------------------------------------------
 // traverse_descendants
 // ---------------------------------------------------------------------------
 
