@@ -229,7 +229,7 @@ impl CssColor {
    → return `n/100` as a `<number>` (trailing zeros trimmed, leading zero kept). *Common
    case* — `rgba(_, .5)` stores u8 128, `n=50` → `round(127.5)=128` → `"0.5"`; `n=10`→26→
    `"0.1"`; `n=93`→237→`"0.93"`.
-2. **No preimage (step 3, §16.1.1 numbered normative algorithm)**: `round(a/0.255)/1000` =
+2. **No preimage (step 3, §16.1 numbered normative algorithm)**: `round(a/0.255)/1000` =
    the integer `round(a*1000/255)` over `1000`, formatted as a `<number>` (trailing zeros
    trimmed, leading zero kept). E.g. `a=236` → `round(925.49)=925` → `"0.925"`; `a=127` →
    `"0.498"`; `a=1` → `"0.004"`. Implemented as `(a*1000 + 127)/255` (exact round-to-nearest;
@@ -329,7 +329,7 @@ Engine-independent unit tests (no VM needed) at the `serialize_resolved_value` /
 - translucent `CssColor::new(0,0,0,128)` → `"rgba(0, 0, 0, 0.5)"`.
 - `CssColor::new(0,0,0,0)` (transparent) → `"rgba(0, 0, 0, 0)"`.
 - alpha §16.1 table: 255→omitted (rgb form); 128→`0.5`; 26→`0.1` (n=10: round(25.5)=26);
-  237→`0.93`; step-3 no-preimage `236 → "0.925"` (§16.1.1 numbered step 3, `round(236/0.255)`),
+  237→`0.93`; step-3 no-preimage `236 → "0.925"` (§16.1 numbered step 3, `round(236/0.255)`),
   `127 → "0.498"`, `1 → "0.004"`. Round-trip property test over all `a` in `0..=255`: re-parsing the
   serialized alpha yields back `a`.
 - `text-decoration-color` initial (None) on element with `color: blue` →

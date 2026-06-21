@@ -412,7 +412,7 @@ fn resolved_value_distinct_from_display() {
 
 #[test]
 fn serialize_alpha_integer_percentage_preimage() {
-    // §16.1.1 step 2: integer-percentage preimage → n/100.
+    // §16.1 step 2: integer-percentage preimage → n/100.
     assert_eq!(serialize_alpha_u8(0), "0"); // n=0
     assert_eq!(serialize_alpha_u8(26), "0.1"); // n=10: round(25.5)=26 (ties up)
     assert_eq!(serialize_alpha_u8(128), "0.5"); // n=50: round(127.5)=128
@@ -422,7 +422,7 @@ fn serialize_alpha_integer_percentage_preimage() {
 
 #[test]
 fn serialize_alpha_no_preimage_step3_normative() {
-    // §16.1.1 step 3 (numbered normative algorithm): round(a/0.255)/1000.
+    // §16.1 step 3 (numbered normative algorithm): round(a/0.255)/1000.
     // 236 has no integer-% preimage (n=92→235, n=94→240); round(236/0.255)
     // = 925 → "0.925". (The spec's non-normative worked example shows
     // "0.92549"; the numbered step governs — see fn docstring.)

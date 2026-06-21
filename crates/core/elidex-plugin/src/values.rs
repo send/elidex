@@ -745,10 +745,12 @@ impl CssColor {
     }
 }
 
-/// Serialize an 8-bit alpha component per CSS Color 4 §16.1.1
-/// ("Serializing legacy alpha values") — the numbered 8-bit steps under
-/// §16.1 "Serializing alpha values" — following the **numbered normative
-/// steps** (the "For example" prose is non-normative).
+/// Serialize an 8-bit alpha component per CSS Color 4 §16.1
+/// ("Serializing alpha values", `#serializing-alpha-values`), following the
+/// **numbered normative steps** for an 8-bit-stored alpha (the "For example"
+/// prose is non-normative). (The editor's draft renders those steps under a
+/// §16.1.1 "Serializing legacy alpha values" subsection; the stable parent
+/// §16.1 is cited so the reference holds across spec versions.)
 ///
 /// - **Step 2 — integer-percentage preimage**: if some integer `n` in
 ///   `0..=100` satisfies `round(n * 2.55) == a` (ties rounding up), the
@@ -759,7 +761,7 @@ impl CssColor {
 ///   `a = 127` → `"0.498"`, `a = 236` → `"0.925"`). Always round-trips the
 ///   8-bit value.
 ///
-/// §16.1.1 is internally inconsistent here: its *worked example* serializes
+/// §16.1 is internally inconsistent here: its *worked example* serializes
 /// `a = 236` as `"0.92549"` (un-rounded `a/255` to 6 figures), which
 /// contradicts step 3's own "rounded to the closest integer … divided by
 /// 1000" (`"0.925"`). Per the W3C convention that a numbered normative
