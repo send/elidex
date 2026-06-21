@@ -262,6 +262,48 @@ fn real_subtree_observer_receives_descendant_child_mutation() {
 }
 
 #[test]
+fn real_same_parent_move_defers_record_no_malformed_delivery() {
+    // Codex P2 (R1): `root.appendChild(<existing child of root>)` is a *move*.
+    // `apply_append_child` snapshots previousSibling BEFORE the relink, so a
+    // naive record could carry previousSibling == the moved node (malformed).
+    // B1 defers move-record semantics to B1.2: the move applies but delivers NO
+    // record (rather than a malformed one).
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let (_doc, root) = setup_with_root(&mut vm, &mut session, &mut dom);
+    // Two children appended in Rust (no records); `a` is first, `b` is last.
+    let a = dom.create_element("a", Attributes::default());
+    let b = dom.create_element("b", Attributes::default());
+    assert!(dom.append_child(root, a));
+    assert!(dom.append_child(root, b));
+    let a_wrapper = vm.inner.create_element_wrapper(a);
+    vm.set_global("a", JsValue::Object(a_wrapper));
+
+    vm.eval(
+        "globalThis.fired = false; \
+         var mo = new MutationObserver(function(){ globalThis.fired = true; }); \
+         mo.observe(root, {childList:true}); \
+         root.appendChild(a);", // move `a` (currently first) to the end
+    )
+    .unwrap();
+
+    // The move applied (read-your-writes): `a` is now the last child.
+    assert_eq!(
+        vm.eval("root.lastChild === a").unwrap(),
+        JsValue::Boolean(true),
+        "the move must apply at the chokepoint"
+    );
+    // …but no (malformed) record was delivered — move-record semantics = B1.2.
+    assert_eq!(
+        vm.eval("fired").unwrap(),
+        JsValue::Boolean(false),
+        "B1 must not deliver a record for a move (deferred to B1.2), never a malformed one"
+    );
+    vm.unbind();
+}
+
+#[test]
 fn real_mutation_without_observer_delivers_nothing() {
     let mut vm = Vm::new();
     let mut session = SessionCore::new();

@@ -33,11 +33,23 @@ impl DomApiHandler for AppendChild {
             .identity_map()
             .get(JsObjectRef::from_raw(child_ref))
             .ok_or_else(|| not_found_error("child not found"))?;
+        // Move guard (B1 scope): an already-parented child is a *move*, whose
+        // record semantics (§4.2.3 sibling computation across the relink + any
+        // old-parent removal) are deferred to B1.2. `apply_append_child`
+        // snapshots `previousSibling` *before* the relink, so for a move it
+        // could be stale or the moved node itself — never emit that malformed
+        // record. The mutation still applies (read-your-writes); only the
+        // record is withheld until B1.2.
+        let is_move = dom.get_parent(child_entity).is_some();
         // Apply through the EcsDom chokepoint AND build the §4.3.2 childList
         // record in one step; `None` = the append failed (cycle / invalid
-        // parent). The record is staged for §4.3 microtask delivery.
+        // parent). A fresh-node record is staged for §4.3 microtask delivery.
         match apply_append_child(dom, this, child_entity) {
-            Some(record) => session.push_notify_record(record),
+            Some(record) => {
+                if !is_move {
+                    session.push_notify_record(record);
+                }
+            }
             None => {
                 return Err(DomApiError {
                     kind: DomApiErrorKind::HierarchyRequestError,
@@ -75,6 +87,11 @@ impl DomApiHandler for InsertBefore {
             .get(JsObjectRef::from_raw(new_ref))
             .ok_or_else(|| not_found_error("newChild not found"))?;
 
+        // Move guard (B1 scope): an already-parented newChild is a move; its
+        // record is deferred to B1.2 (the sibling snapshot would be stale across
+        // the relink). The mutation still applies. See `AppendChild`.
+        let is_move = dom.get_parent(new_entity).is_some();
+
         // WebIDL `Node?` — both `null` and `undefined` mean "no
         // reference child"; missing arg is the same.
         let ref_child_is_null =
@@ -82,7 +99,11 @@ impl DomApiHandler for InsertBefore {
         if ref_child_is_null {
             // null reference child = append (WHATWG DOM §4.2.3 pre-insert).
             match apply_append_child(dom, this, new_entity) {
-                Some(record) => session.push_notify_record(record),
+                Some(record) => {
+                    if !is_move {
+                        session.push_notify_record(record);
+                    }
+                }
                 None => {
                     return Err(DomApiError {
                         kind: DomApiErrorKind::HierarchyRequestError,
@@ -100,7 +121,11 @@ impl DomApiHandler for InsertBefore {
             .get(JsObjectRef::from_raw(ref_ref))
             .ok_or_else(|| not_found_error("refChild not found"))?;
         match apply_insert_before(dom, this, new_entity, ref_entity) {
-            Some(record) => session.push_notify_record(record),
+            Some(record) => {
+                if !is_move {
+                    session.push_notify_record(record);
+                }
+            }
             None => {
                 return Err(DomApiError {
                     kind: DomApiErrorKind::HierarchyRequestError,
@@ -211,11 +236,19 @@ impl DomApiHandler for ReplaceChild {
             return Ok(JsValue::ObjectRef(old_ref));
         }
 
+        // Move guard (B1 scope): if newChild is already parented, the replace is
+        // also a move of newChild — its record (including any old-parent removal)
+        // is deferred to B1.2. The mutation still applies. See `AppendChild`.
+        let is_move = dom.get_parent(new_entity).is_some();
         // §4.2.3 "replace" emits exactly ONE coalesced childList record
         // (added=[new], removed=[old]); the inner remove/insert run with
         // suppressObservers. `apply_replace_child` builds that single record.
         match apply_replace_child(dom, this, new_entity, old_entity) {
-            Some(record) => session.push_notify_record(record),
+            Some(record) => {
+                if !is_move {
+                    session.push_notify_record(record);
+                }
+            }
             None => {
                 return Err(DomApiError {
                     kind: DomApiErrorKind::HierarchyRequestError,
