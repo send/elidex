@@ -27,13 +27,33 @@ pub fn validate_cache_name(name: &str) -> Result<(), CacheError> {
 pub(crate) fn ensure_schema(conn: &SqliteConnection) -> Result<(), CacheError> {
     // Note: no migration from the previous per-cache-table schema.
     // M4-8 (PR #41) introduced Cache API; no production data exists yet.
-    conn.raw_connection().execute_batch(
+    let raw = conn.raw_connection();
+    // Drop a legacy `entries` table from before PR #389 (it lacks the `id`
+    // column). `CREATE TABLE IF NOT EXISTS` below would otherwise leave that
+    // table untouched, and `load_all_entries`' `ORDER BY id` would then fail
+    // with "no such column: id" on a persistent cache DB. The Cache API keeps
+    // no production data yet (see above) and elidex does not preserve cache
+    // data across schema changes ("後方互換性は維持しない"), so the legacy table
+    // is recreated, not migrated.
+    let legacy_entries = raw
+        .prepare(
+            "SELECT 1 FROM sqlite_master \
+             WHERE type='table' AND name='entries' \
+               AND NOT EXISTS (SELECT 1 FROM pragma_table_info('entries') WHERE name='id')",
+        )
+        .and_then(|mut stmt| stmt.exists([]))
+        .unwrap_or(false);
+    if legacy_entries {
+        raw.execute_batch("DROP TABLE entries")?;
+    }
+    raw.execute_batch(
         "CREATE TABLE IF NOT EXISTS caches (
                 id INTEGER PRIMARY KEY,
                 name TEXT UNIQUE NOT NULL,
                 created_at INTEGER NOT NULL
             );
             CREATE TABLE IF NOT EXISTS entries (
+                id INTEGER PRIMARY KEY,
                 cache_id INTEGER NOT NULL REFERENCES caches(id) ON DELETE CASCADE,
                 request_url TEXT NOT NULL,
                 request_method TEXT NOT NULL DEFAULT 'GET',
@@ -48,7 +68,15 @@ pub(crate) fn ensure_schema(conn: &SqliteConnection) -> Result<(), CacheError> {
                 body_size INTEGER NOT NULL DEFAULT 0,
                 is_opaque INTEGER NOT NULL DEFAULT 0,
                 created_at INTEGER NOT NULL,
-                PRIMARY KEY (cache_id, request_url, request_method)
+                -- `id` is an explicit `INTEGER PRIMARY KEY` (a durable rowid
+                -- alias, preserved by VACUUM/rebuild) so it can serve as the
+                -- request response list ordering key in `load_all_entries`; the
+                -- implicit rowid is NOT durable (SQLite may renumber it on
+                -- VACUUM, reordering a persistent cache DB). The request
+                -- identity is demoted from PRIMARY KEY to UNIQUE so
+                -- `INSERT OR REPLACE` on a re-put still deletes-then-reinserts
+                -- (fresh higher `id` ⇒ moves to list end).
+                UNIQUE (cache_id, request_url, request_method)
             );",
     )?;
     Ok(())
@@ -299,7 +327,23 @@ pub fn add_all(
     Ok(())
 }
 
-/// Load all entries for a cache_id.
+/// Load all entries for a cache_id, in the cache's **request response list**
+/// order (W3C Service Workers §5.1) — i.e. insertion order, NOT alphabetical.
+/// `keys()` (§5.4.7), `matchAll()`/`match()` (§5.4.2/§5.4.1, this crate's scan
+/// path) and the ignore-options `delete()` path all iterate the request
+/// response list in list order, so this is the one ordering chokepoint.
+///
+/// Ordering key = the explicit `id` column (`INTEGER PRIMARY KEY`, a *durable*
+/// rowid alias — see `ensure_schema`): a monotonic per-insert id whose order
+/// survives VACUUM/rebuild, unlike the implicit rowid (which SQLite may
+/// renumber, silently reordering a persistent cache DB). `created_at` is only
+/// seconds-resolution so it cannot break ties. `put`'s `INSERT OR REPLACE`
+/// (`insert_entry`) deletes the conflicting row and inserts a fresh row with a
+/// higher `id`, so re-putting an existing request moves it to the END — exactly
+/// the **Batch Cache Operations** algorithm (unnumbered, `#batch-cache-operations`,
+/// invoked by `Cache.put` §5.4.5): remove the matching entry, then append. The
+/// `keys_returns_insertion_order` test guards against a schema change that would
+/// silently break this.
 fn load_all_entries(
     raw: &rusqlite::Connection,
     cache_id: i64,
@@ -308,7 +352,7 @@ fn load_all_entries(
         "SELECT request_url, request_method, request_headers, \
              response_status, response_status_text, response_headers, \
              body, response_url_list, response_type, vary_header, is_opaque \
-             FROM entries WHERE cache_id = ?1 ORDER BY request_url",
+             FROM entries WHERE cache_id = ?1 ORDER BY id",
     )?;
     let entries: Vec<CachedEntry> = stmt
         .query_map([cache_id], entry_from_row)?
@@ -452,6 +496,156 @@ mod tests {
 
         let entries = keys(&conn, "v1").unwrap();
         assert_eq!(entries.len(), 2);
+    }
+
+    #[test]
+    fn keys_returns_insertion_order() {
+        // W3C Service Workers §5.4.7: keys() iterates the request response list
+        // in list (insertion) order, NOT alphabetical. Insert in a deliberately
+        // non-alphabetical order so an `ORDER BY request_url` regression would
+        // re-sort to [a, b, c] and fail.
+        let conn = setup();
+        put(&conn, "v1", &sample_entry("https://example.com/c")).unwrap();
+        put(&conn, "v1", &sample_entry("https://example.com/a")).unwrap();
+        put(&conn, "v1", &sample_entry("https://example.com/b")).unwrap();
+
+        let urls: Vec<String> = keys(&conn, "v1")
+            .unwrap()
+            .into_iter()
+            .map(|e| e.request_url)
+            .collect();
+        assert_eq!(
+            urls,
+            [
+                "https://example.com/c",
+                "https://example.com/a",
+                "https://example.com/b",
+            ]
+        );
+    }
+
+    #[test]
+    fn keys_order_survives_vacuum() {
+        // The request response list order is durable cache state (§5.1), so it
+        // must survive a storage compaction. VACUUM can renumber the implicit
+        // rowid of a non-`INTEGER PRIMARY KEY` table; ordering on the explicit
+        // `id` column (a durable rowid alias) keeps `keys()` stable across it.
+        let conn = setup();
+        put(&conn, "v1", &sample_entry("https://example.com/c")).unwrap();
+        put(&conn, "v1", &sample_entry("https://example.com/a")).unwrap();
+        put(&conn, "v1", &sample_entry("https://example.com/b")).unwrap();
+
+        // VACUUM rebuilds the database file (rewrites every table).
+        conn.raw_connection().execute_batch("VACUUM").unwrap();
+
+        let urls: Vec<String> = keys(&conn, "v1")
+            .unwrap()
+            .into_iter()
+            .map(|e| e.request_url)
+            .collect();
+        assert_eq!(
+            urls,
+            [
+                "https://example.com/c",
+                "https://example.com/a",
+                "https://example.com/b",
+            ]
+        );
+    }
+
+    #[test]
+    fn ensure_schema_recreates_legacy_entries_table() {
+        // A DB from the pre-#389 unified schema has an `entries` table with a
+        // composite PRIMARY KEY and no `id` column. `ensure_schema` must drop +
+        // recreate it so the new `ORDER BY id` path does not fail with "no such
+        // column: id" on a persistent cache DB.
+        let conn = SqliteConnection::open_in_memory().unwrap();
+        conn.raw_connection()
+            .execute_batch(
+                "CREATE TABLE caches (\
+                    id INTEGER PRIMARY KEY, name TEXT UNIQUE NOT NULL, created_at INTEGER NOT NULL\
+                 );\
+                 CREATE TABLE entries (\
+                    cache_id INTEGER NOT NULL, request_url TEXT NOT NULL,\
+                    request_method TEXT NOT NULL DEFAULT 'GET', request_headers TEXT,\
+                    vary_header TEXT, response_status INTEGER NOT NULL,\
+                    response_status_text TEXT NOT NULL DEFAULT '', response_headers TEXT NOT NULL,\
+                    response_url_list TEXT, response_type TEXT NOT NULL DEFAULT 'basic',\
+                    body BLOB, body_size INTEGER NOT NULL DEFAULT 0,\
+                    is_opaque INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL,\
+                    PRIMARY KEY (cache_id, request_url, request_method)\
+                 );",
+            )
+            .unwrap();
+
+        // `put` → `ensure_schema` recreates the table; `keys` (ORDER BY id) must
+        // not error.
+        put(&conn, "v1", &sample_entry("https://example.com/a")).unwrap();
+        let urls: Vec<String> = keys(&conn, "v1")
+            .unwrap()
+            .into_iter()
+            .map(|e| e.request_url)
+            .collect();
+        assert_eq!(urls, ["https://example.com/a"]);
+    }
+
+    #[test]
+    fn put_overwrite_moves_entry_to_end() {
+        // The Batch Cache Operations algorithm (#batch-cache-operations, invoked
+        // by Cache.put §5.4.5) removes the matching entry then appends, so
+        // re-putting an existing request moves it to the END of the request
+        // response list (a fresh higher `id` via INSERT OR REPLACE).
+        let conn = setup();
+        put(&conn, "v1", &sample_entry("https://example.com/a")).unwrap();
+        put(&conn, "v1", &sample_entry("https://example.com/b")).unwrap();
+        put(&conn, "v1", &sample_entry("https://example.com/c")).unwrap();
+
+        // Re-put /a (overwrite) → it should now be last, not first.
+        let mut updated = sample_entry("https://example.com/a");
+        updated.response_body = b"updated".to_vec();
+        put(&conn, "v1", &updated).unwrap();
+
+        let urls: Vec<String> = keys(&conn, "v1")
+            .unwrap()
+            .into_iter()
+            .map(|e| e.request_url)
+            .collect();
+        assert_eq!(
+            urls,
+            [
+                "https://example.com/b",
+                "https://example.com/c",
+                "https://example.com/a",
+            ]
+        );
+    }
+
+    #[test]
+    fn match_all_ignore_search_preserves_insertion_order() {
+        // The ignore-options scan path (`load_all_entries`) must also yield the
+        // request response list order, since `match()` returns its first
+        // element (§5.4.1) — here the oldest-inserted matching entry.
+        let conn = setup();
+        put(&conn, "v1", &sample_entry("https://example.com/page?z=1")).unwrap();
+        put(&conn, "v1", &sample_entry("https://example.com/page?a=2")).unwrap();
+
+        let opts = MatchOptions {
+            ignore_search: true,
+            ..MatchOptions::default()
+        };
+        let urls: Vec<String> =
+            match_all(&conn, "v1", "https://example.com/page", "GET", &[], &opts)
+                .unwrap()
+                .into_iter()
+                .map(|e| e.request_url)
+                .collect();
+        assert_eq!(
+            urls,
+            [
+                "https://example.com/page?z=1",
+                "https://example.com/page?a=2",
+            ]
+        );
     }
 
     #[test]
