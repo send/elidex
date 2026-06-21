@@ -118,10 +118,14 @@ separate `#11-navigator-spec-faithful-surface` slot — A3 touches only `cookieE
    property to a **getter** returning `host.cookie_jar().is_some()` (the UA "handles
    cookies" iff a jar is bound, HTML §8.10.1.5) — independent of `document.cookie`
    exposure (so `BrowserCore`/`App` with HTTP cookies report `true` while
-   `document.cookie` is hidden). Stays Modern, installed in all modes. Remove the now
+   `document.cookie` is hidden). Stays Modern, installed in all modes. Replace the now
    stale `navigator.rs:72-75` "deliberately false / writes silently dropped" comment
-   (writes are no longer dropped when a jar is bound — this *is* an A3-owned comment on
-   the line A3 changes, not the F2 cookie-stub sweep).
+   (this *is* an A3-owned comment on the line A3 changes, not the F2 cookie-stub sweep).
+   **Comment precision (plan-review F-A):** the new comment must attribute `true` to
+   cookie **handling** (a `CookieJar` bound → HTTP cookies processed, §8.10.1.5) — it
+   must **NOT** imply the `document.cookie` JS *write path* succeeds in `BrowserCore`/
+   `App` (there the accessor is gated off entirely; only the HTTP/jar path persists).
+   I.e. `cookieEnabled == true` ⇏ `document.cookie` is reachable.
 
 4. **No realm/variant/crate-feature facet** (§0.2/§0.3) — A3 is materially narrower
    than A2 on the gating axis.
