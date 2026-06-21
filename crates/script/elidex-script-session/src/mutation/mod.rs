@@ -838,3 +838,7 @@ fn apply_set_text(dom: &mut EcsDom, entity: Entity, text: &str) -> Option<Mutati
 #[cfg(test)]
 #[allow(unused_must_use)] // Test setup calls dom.append_child() etc. without checking return values
 mod tests;
+
+#[cfg(test)]
+#[allow(unused_must_use)] // see `tests`
+mod tests_replace_all;
