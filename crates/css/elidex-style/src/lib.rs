@@ -108,6 +108,7 @@ pub fn get_computed(property: &str, style: &ComputedStyle) -> CssValue {
 ///   resolved-value (getComputedStyle) path without a type change — lighter,
 ///   but resolved-value-only (declared-value path stays wrong) and needs a
 ///   CSS-wide property classification (edge-dense → its own plan-review).
+///
 /// Either way the fix lands in the engine, NOT in consumers: the WPT harness
 /// (`elidex-wpt`) mirrors this serializer verbatim, so fixing it here fixes
 /// the harness in lockstep (a harness-local list serializer was tried and
