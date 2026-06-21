@@ -1,5 +1,6 @@
 //! DOM tree walking for style resolution.
 
+use elidex_css::media::MediaEnvironment;
 use elidex_css::{parse_stylesheet, Declaration, Origin, PseudoElement, Stylesheet};
 use elidex_css_anim::resolve::{resolve_anim_property, ANIM_LONGHAND_NAMES};
 use elidex_css_anim::style::AnimStyle;
@@ -27,6 +28,11 @@ const MAX_WALK_DEPTH: usize = MAX_ANCESTOR_DEPTH;
 /// only 16 bytes (4× f32) so copies are cheap.
 pub(crate) struct WalkState<'a> {
     pub ctx: ResolveContext,
+    /// The media-query environment (`@media` cascade gate, CSS Conditional §2).
+    /// `Copy`, built once per resolve from the same `viewport` device-fact
+    /// `ctx` derives from (a derived view, not a competing SoT). Constant across
+    /// the walk — unlike `ctx`, it is not recomputed per level.
+    pub media_env: MediaEnvironment,
     pub hint_generator: &'a dyn Fn(Entity, &EcsDom) -> Vec<Declaration>,
     pub depth: usize,
     pub total_shadow_css: &'a mut usize,
@@ -207,6 +213,7 @@ fn walk_children_parallel(
             &inline_decls,
             &extra_decls,
             &ShadowCascade::Outer,
+            &state.media_env,
         );
         let idx = cascade_inputs.len();
         cascade_inputs.push(to_owned_map(&winners));
@@ -240,6 +247,7 @@ fn walk_children_parallel(
                     stylesheets,
                     &styles[idx],
                     &element_ctx,
+                    &state.media_env,
                     PseudoElement::Before,
                 );
                 generate_pseudo_entity(
@@ -248,6 +256,7 @@ fn walk_children_parallel(
                     stylesheets,
                     &styles[idx],
                     &element_ctx,
+                    &state.media_env,
                     PseudoElement::After,
                 );
             }
@@ -294,12 +303,18 @@ pub(crate) fn find_roots(dom: &EcsDom) -> Vec<Entity> {
 /// For non-element nodes: inherits the parent style.
 ///
 /// Returns the resolved `ComputedStyle` for use as the parent of child elements.
+// The walk's core resolve entry threads the decomposed cascade inputs (varying
+// `ctx` per caller + the constant `media_env`/`hint_generator`) rather than the
+// whole `WalkState`, so the param count is intrinsic — matches the established
+// `too_many_arguments` allow used across the engine's walk/layout entries.
+#[allow(clippy::too_many_arguments)]
 fn resolve_and_attach_style(
     dom: &mut EcsDom,
     entity: Entity,
     stylesheets: &[&Stylesheet],
     parent_style: &ComputedStyle,
     ctx: &ResolveContext,
+    media_env: &MediaEnvironment,
     hint_generator: &dyn Fn(Entity, &EcsDom) -> Vec<Declaration>,
     shadow_cascade: &ShadowCascade<'_>,
 ) -> ComputedStyle {
@@ -332,6 +347,7 @@ fn resolve_and_attach_style(
         &inline_decls,
         &extra_decls,
         shadow_cascade,
+        media_env,
     );
 
     // Build resolve context with parent's font-size.
@@ -364,6 +380,7 @@ fn resolve_and_attach_style(
             stylesheets,
             &style,
             &element_ctx,
+            media_env,
             PseudoElement::Before,
         );
         generate_pseudo_entity(
@@ -372,6 +389,7 @@ fn resolve_and_attach_style(
             stylesheets,
             &style,
             &element_ctx,
+            media_env,
             PseudoElement::After,
         );
     }
@@ -414,6 +432,7 @@ pub(crate) fn walk_tree(
             stylesheets,
             parent_style,
             &state.ctx,
+            &state.media_env,
             state.hint_generator,
             &ShadowCascade::Host(shadow_sheet),
         )
@@ -424,6 +443,7 @@ pub(crate) fn walk_tree(
             stylesheets,
             parent_style,
             &state.ctx,
+            &state.media_env,
             state.hint_generator,
             &ShadowCascade::Outer,
         )
@@ -551,6 +571,7 @@ fn walk_shadow_child(
             &shadow_ctx.shadow_sheets,
             parent_style,
             &state.ctx,
+            &state.media_env,
             state.hint_generator,
             &ShadowCascade::Host(&inner_shadow_sheet),
         );
@@ -579,6 +600,7 @@ fn walk_shadow_child(
         &shadow_ctx.shadow_sheets,
         parent_style,
         &state.ctx,
+        &state.media_env,
         state.hint_generator,
         &ShadowCascade::Outer,
     );
@@ -601,6 +623,7 @@ fn walk_shadow_child(
                     shadow_ctx.outer_sheets,
                     &entity_style,
                     &child_ctx,
+                    &state.media_env,
                     state.hint_generator,
                     &ShadowCascade::Slotted(shadow_ctx.shadow_sheet),
                 );
