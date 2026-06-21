@@ -27,7 +27,26 @@ pub fn validate_cache_name(name: &str) -> Result<(), CacheError> {
 pub(crate) fn ensure_schema(conn: &SqliteConnection) -> Result<(), CacheError> {
     // Note: no migration from the previous per-cache-table schema.
     // M4-8 (PR #41) introduced Cache API; no production data exists yet.
-    conn.raw_connection().execute_batch(
+    let raw = conn.raw_connection();
+    // Drop a legacy `entries` table from before PR #389 (it lacks the `id`
+    // column). `CREATE TABLE IF NOT EXISTS` below would otherwise leave that
+    // table untouched, and `load_all_entries`' `ORDER BY id` would then fail
+    // with "no such column: id" on a persistent cache DB. The Cache API keeps
+    // no production data yet (see above) and elidex does not preserve cache
+    // data across schema changes ("後方互換性は維持しない"), so the legacy table
+    // is recreated, not migrated.
+    let legacy_entries = raw
+        .prepare(
+            "SELECT 1 FROM sqlite_master \
+             WHERE type='table' AND name='entries' \
+               AND NOT EXISTS (SELECT 1 FROM pragma_table_info('entries') WHERE name='id')",
+        )
+        .and_then(|mut stmt| stmt.exists([]))
+        .unwrap_or(false);
+    if legacy_entries {
+        raw.execute_batch("DROP TABLE entries")?;
+    }
+    raw.execute_batch(
         "CREATE TABLE IF NOT EXISTS caches (
                 id INTEGER PRIMARY KEY,
                 name TEXT UNIQUE NOT NULL,
@@ -532,6 +551,42 @@ mod tests {
                 "https://example.com/b",
             ]
         );
+    }
+
+    #[test]
+    fn ensure_schema_recreates_legacy_entries_table() {
+        // A DB from the pre-#389 unified schema has an `entries` table with a
+        // composite PRIMARY KEY and no `id` column. `ensure_schema` must drop +
+        // recreate it so the new `ORDER BY id` path does not fail with "no such
+        // column: id" on a persistent cache DB.
+        let conn = SqliteConnection::open_in_memory().unwrap();
+        conn.raw_connection()
+            .execute_batch(
+                "CREATE TABLE caches (\
+                    id INTEGER PRIMARY KEY, name TEXT UNIQUE NOT NULL, created_at INTEGER NOT NULL\
+                 );\
+                 CREATE TABLE entries (\
+                    cache_id INTEGER NOT NULL, request_url TEXT NOT NULL,\
+                    request_method TEXT NOT NULL DEFAULT 'GET', request_headers TEXT,\
+                    vary_header TEXT, response_status INTEGER NOT NULL,\
+                    response_status_text TEXT NOT NULL DEFAULT '', response_headers TEXT NOT NULL,\
+                    response_url_list TEXT, response_type TEXT NOT NULL DEFAULT 'basic',\
+                    body BLOB, body_size INTEGER NOT NULL DEFAULT 0,\
+                    is_opaque INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL,\
+                    PRIMARY KEY (cache_id, request_url, request_method)\
+                 );",
+            )
+            .unwrap();
+
+        // `put` → `ensure_schema` recreates the table; `keys` (ORDER BY id) must
+        // not error.
+        put(&conn, "v1", &sample_entry("https://example.com/a")).unwrap();
+        let urls: Vec<String> = keys(&conn, "v1")
+            .unwrap()
+            .into_iter()
+            .map(|e| e.request_url)
+            .collect();
+        assert_eq!(urls, ["https://example.com/a"]);
     }
 
     #[test]
