@@ -696,19 +696,32 @@ impl App {
         }
     }
 
-    /// Push a logical-pixel viewport size to the active tab's content thread so
-    /// the CSS cascade `@media` width/height (and boa `matchMedia`) re-resolve
-    /// against the real window size. The single chokepoint for every viewport
-    /// producer (`WindowEvent::Resized`, `resumed`, and the dppx-driven
-    /// `ScaleFactorChanged` to come in the prefers-features slice). Non-positive
-    /// sizes (winit can emit them on minimize) are dropped; the consumer also
-    /// re-guards `is_finite`. No-op in inline mode (`send_to_content` is
-    /// `tab_manager`-gated).
-    fn send_viewport(&self, size: winit::dpi::LogicalSize<f32>) {
-        if size.width > 0.0 && size.height > 0.0 {
+    /// Push the page's CSS viewport — the **content area** (window inner size
+    /// minus browser chrome) — to the active tab's content thread so the CSS
+    /// cascade `@media` width/height (and boa `matchMedia`) re-resolve against
+    /// the visible page area. The single chokepoint for every viewport producer
+    /// (`WindowEvent::Resized`, `resumed`, and the dppx-driven
+    /// `ScaleFactorChanged` to come in the prefers-features slice); it subtracts
+    /// chrome via [`chrome::content_size`] so `@media` / `innerWidth` match
+    /// what is painted (the sibling `chrome_content_offset` positions it).
+    /// Non-positive sizes (winit minimize, or a window smaller than the chrome)
+    /// are dropped; the consumer also re-guards `is_finite`. No-op in inline
+    /// mode (`send_to_content` is `tab_manager`-gated).
+    ///
+    /// Scope (active tab only): seeding new tabs + fanning a resize out to
+    /// hidden tabs is `#11-shell-viewport-multi-tab-sync`; the corrected frame
+    /// repaints on the next event-driven redraw (there is no content→browser
+    /// wake) — `#11-content-message-eventloop-wake`.
+    fn send_viewport(&self, window_inner: winit::dpi::LogicalSize<f32>) {
+        let content = chrome::content_size(
+            window_inner.width,
+            window_inner.height,
+            self.tab_bar_position(),
+        );
+        if content.width > 0.0 && content.height > 0.0 {
             self.send_to_content(BrowserToContent::SetViewport {
-                width: size.width,
-                height: size.height,
+                width: content.width,
+                height: content.height,
             });
         }
     }
