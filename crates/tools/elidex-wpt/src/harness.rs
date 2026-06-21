@@ -147,22 +147,12 @@ fn css_value_to_string(value: &elidex_plugin::CssValue) -> String {
 fn css_value_to_string_inner(value: &elidex_plugin::CssValue, depth: usize) -> String {
     use elidex_plugin::CssValue;
     match value {
-        // CSS Color 4 §16.2 (Serializing sRGB values) + CSSOM §6.7.2
-        //   *resolved-value* form:
-        //   sRGB colors serialize as `rgb(r, g, b)` or `rgba(r, g, b, a)`
-        //   (the canonical declaration-form serializer uses hex).
-        //   Component values are integers 0–255; alpha is `<number>` 0–1.
-        CssValue::Color(c) => {
-            if c.a == 255 {
-                format!("rgb({}, {}, {})", c.r, c.g, c.b)
-            } else {
-                // CSSOM §6.7.2: alpha serialized as <number> in 0.0–1.0 range.
-                let alpha = f64::from(c.a) / 255.0;
-                // Round to avoid floating-point noise (at most 6 decimals).
-                let alpha = (alpha * 1_000_000.0).round() / 1_000_000.0;
-                format!("rgba({}, {}, {}, {alpha})", c.r, c.g, c.b)
-            }
-        }
+        // CSS Color 4 §16.2.2 (CSS serialization of sRGB values) + CSSOM
+        //   §6.7.2 *resolved-value* form: `rgb(r, g, b)` / `rgba(r, g, b, a)`
+        //   (the canonical declaration-form serializer uses hex). Delegates
+        //   to the single canonical resolved-value serializer (exact §16.1
+        //   alpha) — One-issue-one-way.
+        CssValue::Color(c) => c.to_resolved_value_string(),
         // Resolved-value lists are space-joined (the declaration form is
         // comma-joined), with a recursion cap for test robustness.
         CssValue::List(items) if depth < MAX_VALUE_DEPTH => items

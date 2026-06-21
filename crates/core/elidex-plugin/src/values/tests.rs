@@ -421,12 +421,15 @@ fn serialize_alpha_integer_percentage_preimage() {
 }
 
 #[test]
-fn serialize_alpha_no_preimage_minimal_roundtrip() {
-    // §16.1 step 3: 236 has no integer-% preimage (n=92→235, n=94→240).
-    // elidex emits the minimal toward-+∞ form that round-trips: "0.926".
-    assert_eq!(serialize_alpha_u8(236), "0.926");
-    // Round-trip (integer model): round(926/1000 * 255) == 236.
-    assert_eq!(reparse_alpha_u8("0.926"), 236);
+fn serialize_alpha_no_preimage_step3_formula() {
+    // §16.1 step 3 (closed form): round(a/0.255)/1000. 236 has no
+    // integer-% preimage (n=92→235, n=94→240); round(236/0.255)=925 → "0.925".
+    assert_eq!(serialize_alpha_u8(236), "0.925");
+    // Round-trip (integer model): round(925/1000 * 255) == 236.
+    assert_eq!(reparse_alpha_u8("0.925"), 236);
+    // 127 also has no preimage (n=49→125, n=50→128): round(127/0.255)=498.
+    assert_eq!(serialize_alpha_u8(127), "0.498");
+    assert_eq!(reparse_alpha_u8("0.498"), 127);
 }
 
 /// Re-parse a serialized alpha `<number>` back to an 8-bit value using the

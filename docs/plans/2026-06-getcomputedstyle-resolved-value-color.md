@@ -229,27 +229,24 @@ impl CssColor {
    → return `n/100` as a `<number>` (trailing zeros trimmed, leading zero kept). *Common
    case* — `rgba(_, .5)` stores u8 128, `n=50` → `round(127.5)=128` → `"0.5"`; `n=10`→26→
    `"0.1"`; `n=93`→237→`"0.93"`.
-2. **No preimage (step 3, governed by the §16.1 precision note)**: emit `a/255` as a
-   `<number>` at the **fewest decimal places `k` in `2..=6` such that, rounded toward +∞,
-   it round-trips** the 8-bit value (`round_half_up(num*255, 10^k) == a` where
-   `num = ceil(a*10^k / 255)`). Trailing zeros trimmed, leading zero kept. E.g.
-   `a=236` → k=2 `0.93`→re-parses 237 ✗ → k=3 `num=ceil(925.49)=926` → `"0.926"`,
-   `round(0.926*255)=236` ✓.
+2. **No preimage (step 3, §16.1 closed form)**: `round(a/0.255)/1000` = the integer
+   `round(a*1000/255)` over `1000`, formatted as a `<number>` (trailing zeros trimmed,
+   leading zero kept). E.g. `a=236` → `round(925.49)=925` → `"0.925"`; `a=127` →
+   `round(498.04)=498` → `"0.498"`. Always round-trips: the result is within 0.0005 of
+   `a/255`, so `round(v*255)==a`. Implemented as `(a*1000 + 127)/255` (round-to-nearest;
+   `a*1000 mod 255` is never exactly 127.5, so no tie).
 
-   **F1 plan-review NOTE — why minimal form, not the §16.1 example `0.92549`**: §16.1
-   states *"The precision … is not defined in this specification, but must at least be
-   sufficient to round-trip integer percentage values … at least two decimal places …
-   Values must be rounded towards +∞"*. The worked example `236 → "0.92549"` is therefore
-   **illustrative, not normative on digit count** — `"0.926"` (and even `"0.925"`) also
-   round-trip `236` and satisfy every normative constraint. elidex emits the **minimal
-   toward-+∞ round-tripping form** because it is deterministic and provably conformant;
-   the longer example output is one of several conformant serializations. (My earlier
-   draft mis-stated this as a "step vs example divergence" — corrected: the precision
-   note governs and the example is non-normative on precision.)
+   **NOTE (cross-round review correction)**: §16.1 step 3 gives this closed form
+   directly. The precision is "not defined … must at least round-trip", and the worked
+   example `236 → "0.92549"` is illustrative (a *longer* also-conformant form). An earlier
+   draft used a "fewest-decimals search" emitting `0.926`; both plan-review (Axis 4) and
+   /code-review re-flagged the step-3 area, so the implementation follows the **literal
+   normative closed form** `round(a/0.255)/1000` — simplest, deterministic, normative, and
+   it removes the search loop + the (previously dead) fallback branch entirely.
 
 `round_half_up(num, den)` = `(num + den/2) / den` on integers (den even ⇒ exact half-up);
-this is the alpha re-parse model `round(v*255)`, ties up. `ceil(a*10^k, 255)` =
-`(a*10^k + 254) / 255`. Number formatting: leading zero kept, trailing zeros trimmed.
+this is the alpha re-parse model `round(v*255)`, ties up. Number formatting: leading zero
+kept, trailing zeros trimmed.
 
 ### §5.2 `serialize_resolved_value` — `crates/css/elidex-style/src/resolve/mod.rs` (+ re-export `lib.rs`)
 
@@ -294,6 +291,20 @@ Custom properties (`--*`) are handled *inside* `get_computed_with_registry` (ret
 `RawTokens`) → flows through the `other => to_css_string()` arm unchanged. Confirm the
 `--bg` test (`computed_style.rs:112-131`) still passes.
 
+### §5.4 One-issue-one-way convergence (added after /code-review)
+
+`CssColor::to_resolved_value_string` is the **single canonical** resolved-value color
+serializer. Two pre-existing lossy-f64 copies of the `rgb()`/`rgba()` form are converged
+onto it so they don't form a strangler middle-state (CLAUDE.md "One issue, one way"):
+- `elidex-css-background::serialize_color` (gradient color stops, **in the live
+  getComputedStyle path** — previously serialized alpha as lossy 3-dp f64, e.g. `a=128`→
+  `"0.502"`, diverging from `color`'s `"0.5"`) → now delegates.
+- `elidex-wpt` harness `css_value_to_string` `Color` arm (test tooling, lossy 6-dp f64) →
+  now delegates.
+- **Kept distinct**: `elidex-web-canvas::serialize_canvas_color` — HTML Canvas serializes
+  opaque colors as `#rrggbb` (a *different* spec context), so it is correctly NOT
+  converged.
+
 ---
 
 ## §6. Test plan (supported-surface)
@@ -307,9 +318,9 @@ Engine-independent unit tests (no VM needed) at the `serialize_resolved_value` /
 - translucent `CssColor::new(0,0,0,128)` → `"rgba(0, 0, 0, 0.5)"`.
 - `CssColor::new(0,0,0,0)` (transparent) → `"rgba(0, 0, 0, 0)"`.
 - alpha §16.1 table: 255→omitted (rgb form); 128→`0.5`; 26→`0.1` (n=10: round(25.5)=26);
-  237→`0.93`; step-3 no-preimage `236 → "0.926"` (minimal toward-+∞ round-tripping form;
-  assert `round(0.926*255)==236`). Round-trip property test over all `a` in `0..=255`:
-  re-parsing the serialized alpha yields back `a`.
+  237→`0.93`; step-3 no-preimage `236 → "0.925"` (closed form `round(236/0.255)=925`),
+  `127 → "0.498"`. Round-trip property test over all `a` in `0..=255`: re-parsing the
+  serialized alpha yields back `a`.
 - `text-decoration-color` initial (None) on element with `color: blue` →
   `"rgb(0, 0, 255)"` (currentcolor → used value). With explicit color → that color.
 - **Separation guard**: `CssColor::RED.to_string()` (Display) still `"#ff0000"` and

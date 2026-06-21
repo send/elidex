@@ -752,15 +752,17 @@ impl CssColor {
 ///   `0..=100` satisfies `round(n * 2.55) == a` (ties rounding up), the
 ///   alpha is `n / 100` — the common case (e.g. `a = 128` → `n = 50` →
 ///   `"0.5"`).
-/// - **No preimage (step 3)**: emit `a / 255` at the fewest decimal places
-///   `k` in `2..=6` that, rounded toward +∞, round-trip the 8-bit value.
-///   §16.1 states the precision is "not defined … but must at least be
-///   sufficient to round-trip … rounded towards +∞", so the minimal
-///   toward-+∞ round-tripping form is conformant (the spec's longer
-///   illustrative `0.92549` is one of several conformant serializations).
+/// - **Otherwise (step 3)**: `round(a / 0.255) / 1000`, i.e. the integer
+///   `round(a * 1000 / 255)` over `1000` (e.g. `a = 236` → `925` →
+///   `"0.925"`). This is §16.1's closed-form step-3 value; it always
+///   round-trips the 8-bit alpha (the result is within 0.0005 of `a/255`,
+///   so `round(v * 255) == a`). §16.1 leaves the digit count undefined
+///   beyond "sufficient to round-trip", and explicitly permits dropping
+///   trailing zeros below two decimals, so this 3-decimal form is
+///   conformant.
 ///
-/// Leading zero kept, trailing zeros trimmed. All arithmetic is exact
-/// integer math on the `u8` — no floating point.
+/// Leading zero kept, trailing zeros trimmed. Exact integer arithmetic on
+/// the `u8` — no floating point.
 fn serialize_alpha_u8(a: u8) -> String {
     let a = u32::from(a);
 
@@ -771,19 +773,11 @@ fn serialize_alpha_u8(a: u8) -> String {
         }
     }
 
-    // Step 3: a/255 at the fewest decimals (2..=6) that round-trip toward +∞.
-    // num = ceil(a * 10^k / 255); re-parse model = round(num/10^k * 255), ties up.
-    for k in 2u32..=6 {
-        let scale = 10u32.pow(k);
-        let num = (a * scale).div_ceil(255); // round toward +∞
-        if (num * 255 + scale / 2) / scale == a {
-            return format_decimal_ratio(num, scale);
-        }
-    }
-
-    // Unreachable for any u8 (k=6 always round-trips); keep the function total.
-    let scale = 1_000_000u32;
-    format_decimal_ratio((a * scale).div_ceil(255), scale)
+    // Step 3: round(a / 0.255) / 1000 = round(a * 1000 / 255) / 1000.
+    // `+ 127` (= floor(255/2)) rounds to nearest; a*1000 mod 255 is never
+    // exactly 127.5, so there is no tie to break.
+    let m = (a * 1000 + 127) / 255;
+    format_decimal_ratio(m, 1000)
 }
 
 /// Format `num / den` (a value in `[0, 1]`, `den` a power of ten) as a CSS
