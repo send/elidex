@@ -234,6 +234,20 @@ impl App {
         )
     }
 
+    /// Map a physical-px cursor to window-logical CSS px (`cursor ÷ scale`) for
+    /// the DOM `clientX`/`clientY` fields. Scale-only — like [`cursor_to_content`]
+    /// it removes the device pixel ratio so content receives CSS px (B-D2), but
+    /// it keeps the *window-relative* origin the `client_point` field already
+    /// used (the content-area-relative origin convention for `clientX` is a
+    /// pre-existing, separate concern, untouched here). Identity at scale 1.
+    fn cursor_to_window_css(
+        cursor: elidex_plugin::Point<f64>,
+        scale: f32,
+    ) -> elidex_plugin::Point<f64> {
+        let s = f64::from(scale);
+        elidex_plugin::Point::new(cursor.x / s, cursor.y / s)
+    }
+
     fn handle_cursor_move_threaded(
         &mut self,
         client_pos: elidex_plugin::Point<f64>,
@@ -244,7 +258,7 @@ impl App {
             self.cursor_in_content = true;
             self.send_to_content(BrowserToContent::MouseMove {
                 point: content_pos,
-                client_point: client_pos,
+                client_point: Self::cursor_to_window_css(client_pos, placement.scale_factor),
             });
         } else if self.cursor_in_content {
             self.cursor_in_content = false;
@@ -264,7 +278,7 @@ impl App {
                 let mods = Self::to_modifier_state(self.modifiers.state());
                 self.send_to_content(BrowserToContent::MouseClick(crate::ipc::MouseClickEvent {
                     point: content_pos,
-                    client_point: cursor,
+                    client_point: Self::cursor_to_window_css(cursor, placement.scale_factor),
                     button: winit_button_to_dom(button),
                     mods,
                 }));
@@ -576,5 +590,18 @@ mod placement_input_tests {
                 assert!((back.y - c.y).abs() < 1e-3, "y {} != {}", back.y, c.y);
             }
         }
+    }
+
+    /// `client_point` (DOM `clientX`/`clientY`) is scaled to CSS px (`÷ scale`)
+    /// like `point`, not left raw-physical — so it does not double at scale 2.
+    /// Scale-only (window-relative origin preserved), identity at scale 1.
+    #[test]
+    fn cursor_to_window_css_removes_device_scale() {
+        // scale 1: identity.
+        let p1 = App::cursor_to_window_css(Point::<f64>::new(120.0, 200.0), 1.0);
+        assert!((p1.x - 120.0).abs() < 1e-9 && (p1.y - 200.0).abs() < 1e-9);
+        // scale 2: physical (120, 200) → CSS (60, 100), not left at 2×.
+        let p2 = App::cursor_to_window_css(Point::<f64>::new(120.0, 200.0), 2.0);
+        assert!((p2.x - 60.0).abs() < 1e-9 && (p2.y - 100.0).abs() < 1e-9);
     }
 }
