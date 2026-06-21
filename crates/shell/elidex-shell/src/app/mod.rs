@@ -187,12 +187,48 @@ pub struct App {
     browser_db: Option<elidex_storage_core::BrowserDb>,
     /// Last-synced CookieJar generation (for dirty-check persistence).
     cookie_gen: u64,
+    /// Proxy to wake the winit event loop for content-initiated repaints.
+    ///
+    /// `Some` in threaded mode (built from the `EventLoop` in `run`/`run_url`);
+    /// `None` in legacy inline mode (synchronous, no content thread to wake).
+    /// [`App::make_wake`] mints a per-content-thread [`crate::WakeHandle`] from a
+    /// clone of this proxy at each spawn (`new_threaded*` initial tab,
+    /// `window.open`, `open_new_tab`).
+    wake_proxy: Option<winit::event_loop::EventLoopProxy<crate::WakeEvent>>,
 }
 
 impl App {
+    /// Build a content-thread wake closure from a clone of the event-loop proxy.
+    /// The single way a [`crate::WakeHandle`] is minted (used by both the
+    /// `new_threaded*` initial-tab spawn and [`App::make_wake`] for later tabs).
+    fn wake_from_proxy(
+        proxy: &winit::event_loop::EventLoopProxy<crate::WakeEvent>,
+    ) -> crate::WakeHandle {
+        let proxy = proxy.clone();
+        Box::new(move || {
+            let _ = proxy.send_event(crate::WakeEvent::Repaint);
+        })
+    }
+
+    /// Mint a content-thread wake from an optional proxy, falling back to a no-op
+    /// (inline mode has no proxy — synchronous, nothing to wake). Takes the proxy
+    /// by `Option<&_>` rather than `&self` so spawn sites can call it while
+    /// holding a disjoint `&mut self.tab_manager` borrow.
+    fn wake_or_noop(
+        proxy: Option<&winit::event_loop::EventLoopProxy<crate::WakeEvent>>,
+    ) -> crate::WakeHandle {
+        match proxy {
+            Some(p) => Self::wake_from_proxy(p),
+            None => Box::new(|| {}),
+        }
+    }
     /// Create a threaded-mode `App` from a pre-initialized `TabManager`
     /// and `NetworkProcessHandle`.
-    fn from_tab_manager(mgr: TabManager, np: elidex_net::broker::NetworkProcessHandle) -> Self {
+    fn from_tab_manager(
+        mgr: TabManager,
+        np: elidex_net::broker::NetworkProcessHandle,
+        wake_proxy: winit::event_loop::EventLoopProxy<crate::WakeEvent>,
+    ) -> Self {
         let mut app = Self {
             render_state: None,
             tab_manager: Some(mgr),
@@ -205,6 +241,7 @@ impl App {
             sw_coordinator: sw_coordinator::SwCoordinator::new(),
             browser_db: None,
             cookie_gen: 0,
+            wake_proxy: Some(wake_proxy),
         };
         app.init_browser_db();
         app
@@ -273,13 +310,24 @@ impl App {
     }
 
     /// Create a new threaded application from HTML/CSS.
-    pub fn new_threaded(html: String, css: String) -> Self {
+    ///
+    /// `wake_proxy` (from the `EventLoop` in `run`) wakes the loop for
+    /// content-initiated repaints; the initial content thread is seeded with a
+    /// [`crate::WakeHandle`] minted from it, and the proxy is stored for later
+    /// tabs (`window.open` / `open_new_tab`).
+    pub fn new_threaded(
+        html: String,
+        css: String,
+        wake_proxy: winit::event_loop::EventLoopProxy<crate::WakeEvent>,
+    ) -> Self {
         let np = Self::create_network_process();
         let nh = np.create_renderer_handle();
         let cookie_jar = Arc::clone(np.cookie_jar());
         let (browser_ch, content_ch) =
             crate::ipc::channel_pair::<BrowserToContent, ContentToBrowser>();
-        let thread = crate::content::spawn_content_thread(content_ch, nh, cookie_jar, html, css);
+        let wake = Self::wake_from_proxy(&wake_proxy);
+        let thread =
+            crate::content::spawn_content_thread(content_ch, nh, cookie_jar, html, css, wake);
 
         let mut mgr = TabManager::new();
         mgr.create_tab(
@@ -289,11 +337,14 @@ impl App {
             "elidex".to_string(),
         );
 
-        Self::from_tab_manager(mgr, np)
+        Self::from_tab_manager(mgr, np, wake_proxy)
     }
 
     /// Create a new threaded application from a URL.
-    pub fn new_threaded_url(url: url::Url) -> Self {
+    pub fn new_threaded_url(
+        url: url::Url,
+        wake_proxy: winit::event_loop::EventLoopProxy<crate::WakeEvent>,
+    ) -> Self {
         let np = Self::create_network_process();
         let nh = np.create_renderer_handle();
         let cookie_jar = Arc::clone(np.cookie_jar());
@@ -301,12 +352,14 @@ impl App {
             crate::ipc::channel_pair::<BrowserToContent, ContentToBrowser>();
         let title = format!("elidex \u{2014} {url}");
         let chrome = crate::chrome::ChromeState::new(Some(&url));
-        let thread = crate::content::spawn_content_thread_url(content_ch, nh, cookie_jar, url);
+        let wake = Self::wake_from_proxy(&wake_proxy);
+        let thread =
+            crate::content::spawn_content_thread_url(content_ch, nh, cookie_jar, url, wake);
 
         let mut mgr = TabManager::new();
         mgr.create_tab(browser_ch, thread, chrome, title);
 
-        Self::from_tab_manager(mgr, np)
+        Self::from_tab_manager(mgr, np, wake_proxy)
     }
 
     /// Create a new legacy (inline) interactive application from a pipeline result.
@@ -333,6 +386,7 @@ impl App {
             sw_coordinator: sw_coordinator::SwCoordinator::new(),
             browser_db: None,
             cookie_gen: 0,
+            wake_proxy: None, // Inline mode is synchronous — nothing to wake.
         }
     }
 
@@ -365,6 +419,7 @@ impl App {
             sw_coordinator: sw_coordinator::SwCoordinator::new(),
             browser_db: None,
             cookie_gen: 0,
+            wake_proxy: None, // Inline mode is synchronous — nothing to wake.
         }
     }
 
@@ -669,7 +724,11 @@ impl App {
             if let Some(np) = &self.network_process {
                 let nh = np.create_renderer_handle();
                 let jar = Arc::clone(np.cookie_jar());
-                let thread = crate::content::spawn_content_thread_url(content_chan, nh, jar, url);
+                // Mint via the disjoint `wake_proxy` field (an associated fn, not
+                // `&self`) so it coexists with the active `&mut mgr` borrow.
+                let wake = Self::wake_or_noop(self.wake_proxy.as_ref());
+                let thread =
+                    crate::content::spawn_content_thread_url(content_chan, nh, jar, url, wake);
                 mgr.create_tab(browser_chan, thread, chrome, title);
             }
         }
@@ -731,7 +790,25 @@ impl Drop for App {
     }
 }
 
-impl ApplicationHandler for App {
+impl ApplicationHandler<crate::WakeEvent> for App {
+    /// A content thread asked for a repaint (a content-initiated frame is
+    /// pending: timer / rAF / animation / async DOM / `SetViewport` round-trip).
+    /// Schedule a redraw; the redraw handler drains the pending content messages
+    /// (`drain_content_messages`) before presenting, satisfying the
+    /// wake→redraw→drain→paint ordering. Best-effort: if the window is not yet
+    /// created (`render_state` is `None`, e.g. a wake arriving before `resumed`),
+    /// this no-ops — `resumed` issues its own `request_redraw` and the channel is
+    /// the source of truth for the pending frame, so no frame is lost.
+    fn user_event(&mut self, _event_loop: &ActiveEventLoop, event: crate::WakeEvent) {
+        match event {
+            crate::WakeEvent::Repaint => {
+                if let Some(state) = &self.render_state {
+                    state.window.request_redraw();
+                }
+            }
+        }
+    }
+
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if self.render_state.is_some() {
             return;

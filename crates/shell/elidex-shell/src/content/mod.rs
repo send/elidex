@@ -60,34 +60,62 @@ struct ContentState {
     /// Which iframe currently has focus (`None` = parent document has focus).
     /// Set by `try_route_click_to_iframe`, checked by `try_route_key_to_iframe`.
     focused_iframe: Option<Entity>,
+    /// Wake the browser event loop to schedule a repaint after a
+    /// display/chrome-affecting send. Under `ControlFlow::Wait` a content-initiated
+    /// frame (timer / rAF / animation / async DOM / `SetViewport` round-trip)
+    /// would otherwise paint only on the next OS event; calling `wake()` schedules
+    /// a rendering opportunity (WHATWG HTML §8.1.7.3). Windowing-agnostic
+    /// (`crate::WakeHandle = Box<dyn Fn() + Send>`) so the content thread stays
+    /// winit-free.
+    wake: crate::WakeHandle,
 }
 
 impl ContentState {
-    /// Send the current display list to the browser thread.
+    /// Send a `ContentToBrowser` message AND wake the browser event loop so a
+    /// content-initiated frame reaches a rendering opportunity (WHATWG HTML
+    /// §8.1.7.3) rather than stalling under `ControlFlow::Wait`.
+    ///
+    /// The single chokepoint for every **display/chrome-affecting** send; the
+    /// wake-set is defined by `ContentToBrowser` *variant* (`DisplayListReady` /
+    /// `TitleChanged` / `UrlChanged` / `NavigationState`), not by which helper was
+    /// called. Pure control acks that never change displayed state may keep the
+    /// bare `self.channel.send`.
+    fn notify_browser(&self, msg: ContentToBrowser) {
+        let _ = self.channel.send(msg);
+        (self.wake)();
+    }
+
+    /// Send the current display list to the browser thread (+ wake).
     fn send_display_list(&self) {
-        let _ = self.channel.send(ContentToBrowser::DisplayListReady(
+        self.notify_browser(ContentToBrowser::DisplayListReady(
             self.pipeline.display_list.clone(),
         ));
     }
 
-    /// Send current navigation state (`can_go_back`/`can_go_forward`) to the browser thread.
+    /// Send current navigation state (`can_go_back`/`can_go_forward`) (+ wake).
     fn send_navigation_state(&self) {
-        let _ = self.channel.send(ContentToBrowser::NavigationState {
+        self.notify_browser(ContentToBrowser::NavigationState {
             can_go_back: self.nav_controller.can_go_back(),
             can_go_forward: self.nav_controller.can_go_forward(),
         });
     }
 
-    /// Send URL change notification to the browser thread.
+    /// Send URL change notification to the browser thread (+ wake).
     fn send_url_changed(&self, url: &url::Url) {
-        let _ = self.channel.send(ContentToBrowser::UrlChanged(url.clone()));
+        self.notify_browser(ContentToBrowser::UrlChanged(url.clone()));
+    }
+
+    /// Send a window-title change to the browser thread (+ wake). The single
+    /// `TitleChanged` chokepoint (previously raw `channel.send` at two sites).
+    fn send_title(&self, title: String) {
+        self.notify_browser(ContentToBrowser::TitleChanged(title));
     }
 
     /// Send all post-navigation notifications to the browser thread
     /// (title, URL, navigation state, display list).
     fn notify_navigation(&self, url: &url::Url) {
         let title = format!("elidex \u{2014} {url}");
-        let _ = self.channel.send(ContentToBrowser::TitleChanged(title));
+        self.send_title(title);
         self.send_url_changed(url);
         self.send_navigation_state();
         self.send_display_list();
@@ -107,6 +135,7 @@ impl ContentState {
         channel: LocalChannel<ContentToBrowser, BrowserToContent>,
         nav_controller: NavigationController,
         pipeline: PipelineResult,
+        wake: crate::WakeHandle,
     ) -> Self {
         Self {
             channel,
@@ -120,6 +149,7 @@ impl ContentState {
             pipeline,
             iframes: iframe::IframeRegistry::new(),
             focused_iframe: None,
+            wake,
         }
     }
 
@@ -344,9 +374,10 @@ pub(crate) fn spawn_content_thread(
     cookie_jar: std::sync::Arc<elidex_net::CookieJar>,
     html: String,
     css: String,
+    wake: crate::WakeHandle,
 ) -> JoinHandle<()> {
     std::thread::spawn(move || {
-        content_thread_main(channel, network_handle, cookie_jar, &html, &css);
+        content_thread_main(channel, network_handle, cookie_jar, &html, &css, wake);
     })
 }
 
@@ -358,9 +389,10 @@ pub(crate) fn spawn_content_thread_url(
     network_handle: elidex_net::broker::NetworkHandle,
     cookie_jar: std::sync::Arc<elidex_net::CookieJar>,
     url: url::Url,
+    wake: crate::WakeHandle,
 ) -> JoinHandle<()> {
     std::thread::spawn(move || {
-        content_thread_main_url(channel, network_handle, cookie_jar, &url);
+        content_thread_main_url(channel, network_handle, cookie_jar, &url, wake);
     })
 }
 
@@ -371,6 +403,7 @@ pub(crate) fn spawn_content_thread_blank(
     channel: LocalChannel<ContentToBrowser, BrowserToContent>,
     network_handle: elidex_net::broker::NetworkHandle,
     cookie_jar: std::sync::Arc<elidex_net::CookieJar>,
+    wake: crate::WakeHandle,
 ) -> JoinHandle<()> {
     std::thread::spawn(move || {
         content_thread_main(
@@ -379,6 +412,7 @@ pub(crate) fn spawn_content_thread_blank(
             cookie_jar,
             crate::BLANK_TAB_HTML,
             crate::BLANK_TAB_CSS,
+            wake,
         );
     })
 }
@@ -389,6 +423,7 @@ fn content_thread_main(
     cookie_jar: std::sync::Arc<elidex_net::CookieJar>,
     html: &str,
     css: &str,
+    wake: crate::WakeHandle,
 ) {
     if let Err(e) = elidex_sandbox::apply_sandbox(&elidex_plugin::PlatformSandbox::Unsandboxed) {
         eprintln!("Sandbox enforcement failed (fatal): {e}");
@@ -397,7 +432,7 @@ fn content_thread_main(
 
     let nh = std::rc::Rc::new(network_handle);
     let pipeline = crate::build_pipeline_interactive_with_network(html, css, nh, cookie_jar);
-    let mut state = ContentState::new(channel, NavigationController::new(), pipeline);
+    let mut state = ContentState::new(channel, NavigationController::new(), pipeline, wake);
     scroll::update_viewport_scroll_dimensions(&mut state);
     // Scan for <iframe> elements present in the initial parsed DOM.
     // Mutation-based detection only catches dynamically added iframes;
@@ -415,6 +450,7 @@ fn content_thread_main_url(
     network_handle: elidex_net::broker::NetworkHandle,
     cookie_jar: std::sync::Arc<elidex_net::CookieJar>,
     url: &url::Url,
+    wake: crate::WakeHandle,
 ) {
     if let Err(e) = elidex_sandbox::apply_sandbox(&elidex_plugin::PlatformSandbox::Unsandboxed) {
         eprintln!("Sandbox enforcement failed (fatal): {e}");
@@ -441,7 +477,7 @@ fn content_thread_main_url(
     let mut nav_controller = NavigationController::new();
     nav_controller.push(url.clone());
 
-    let mut state = ContentState::new(channel, nav_controller, pipeline);
+    let mut state = ContentState::new(channel, nav_controller, pipeline, wake);
     scroll::update_viewport_scroll_dimensions(&mut state);
 
     // Notify browser thread of manifest discovery.

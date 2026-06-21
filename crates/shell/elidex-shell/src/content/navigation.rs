@@ -279,7 +279,7 @@ fn apply_push_replace_state(state: &mut ContentState, url_str: Option<&str>, rep
             .set_history_length(state.nav_controller.len());
 
         let title = format!("elidex \u{2014} {resolved_url}");
-        let _ = state.channel.send(ContentToBrowser::TitleChanged(title));
+        state.send_title(title);
         state.send_url_changed(&resolved_url);
         state.send_navigation_state();
     } else {
