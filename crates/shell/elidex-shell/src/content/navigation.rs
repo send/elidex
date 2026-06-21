@@ -181,9 +181,7 @@ pub(super) fn process_pending_actions(state: &mut ContentState) -> bool {
     if !open_tabs.is_empty() {
         state.send_display_list();
         for url in open_tabs {
-            let _ = state
-                .channel
-                .send(crate::ipc::ContentToBrowser::OpenNewTab(url));
+            state.notify_browser(crate::ipc::ContentToBrowser::OpenNewTab(url));
         }
         return true;
     }
@@ -202,9 +200,7 @@ pub(super) fn process_pending_actions(state: &mut ContentState) -> bool {
                 super::iframe::navigate_iframe(state, iframe_entity, &url);
             } else {
                 // No matching iframe → open in new tab.
-                let _ = state
-                    .channel
-                    .send(crate::ipc::ContentToBrowser::OpenNewTab(url));
+                state.notify_browser(crate::ipc::ContentToBrowser::OpenNewTab(url));
             }
         }
         state.re_render();
@@ -279,7 +275,7 @@ fn apply_push_replace_state(state: &mut ContentState, url_str: Option<&str>, rep
             .set_history_length(state.nav_controller.len());
 
         let title = format!("elidex \u{2014} {resolved_url}");
-        let _ = state.channel.send(ContentToBrowser::TitleChanged(title));
+        state.send_title(title);
         state.send_url_changed(&resolved_url);
         state.send_navigation_state();
     } else {

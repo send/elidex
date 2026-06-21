@@ -16,11 +16,115 @@ fn test_network() -> (
     (nh, jar, np)
 }
 
+/// Spawn a content thread for tests with a **no-op** wake. The wake mechanism
+/// itself (PR-A repaint-wake) is exercised by
+/// `content_thread_wake_fires_on_display_list`; every other test only needs the
+/// content thread to run, so it injects a do-nothing `WakeHandle`.
+fn spawn_test_content(
+    content: crate::ipc::LocalChannel<ContentToBrowser, BrowserToContent>,
+    nh: elidex_net::broker::NetworkHandle,
+    jar: std::sync::Arc<elidex_net::CookieJar>,
+    html: String,
+    css: String,
+) -> std::thread::JoinHandle<()> {
+    spawn_content_thread(content, nh, jar, html, css, Box::new(|| {}))
+}
+
+/// PR-A: a content-initiated frame must **wake** the browser event loop so it
+/// reaches a rendering opportunity (WHATWG HTML §8.1.7.3) under
+/// `ControlFlow::Wait`. Inject a counting `WakeHandle` and assert the initial
+/// `DisplayListReady` send (via `notify_browser`) invoked it.
+#[test]
+fn content_thread_wake_fires_on_display_list() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
+
+    let (browser, content) = ipc::channel_pair::<BrowserToContent, ContentToBrowser>();
+    let (nh, jar, _np) = test_network();
+    let wakes = Arc::new(AtomicUsize::new(0));
+    let wakes_for_thread = Arc::clone(&wakes);
+    let wake: crate::WakeHandle = Box::new(move || {
+        wakes_for_thread.fetch_add(1, Ordering::SeqCst);
+    });
+    let join = spawn_content_thread(
+        content,
+        nh,
+        jar,
+        "<div>Hi</div>".to_string(),
+        "div { display: block; }".to_string(),
+        wake,
+    );
+
+    // The content thread sends an initial DisplayListReady on startup.
+    let msg = browser.recv_timeout(Duration::from_secs(5)).unwrap();
+    assert!(matches!(msg, ContentToBrowser::DisplayListReady(_)));
+
+    // The send routes through `notify_browser`, which calls `wake()` right after
+    // the channel send — poll briefly for it to land (the wake runs on the
+    // content thread a hair after the message is enqueued).
+    let mut fired = false;
+    for _ in 0..200 {
+        if wakes.load(Ordering::SeqCst) >= 1 {
+            fired = true;
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert!(
+        fired,
+        "content-initiated DisplayListReady must invoke the injected wake"
+    );
+
+    browser.send(BrowserToContent::Shutdown).unwrap();
+    join.join().unwrap();
+}
+
+/// PR-A D1/F4 layering guard: the content thread is the CSS/renderer owner
+/// (*concurrency-by-ownership*) and must stay free of the windowing system. It
+/// signals repaints via `crate::WakeHandle` (a boxed `Fn`), never a `winit` type
+/// or the browser-internal `WakeEvent` payload. Fails if any non-comment line
+/// under `src/content/` references either.
+#[test]
+fn content_module_is_winit_free() {
+    fn walk(dir: &std::path::Path, offenders: &mut Vec<String>) {
+        for entry in std::fs::read_dir(dir).expect("read content dir") {
+            let path = entry.expect("dir entry").path();
+            if path.is_dir() {
+                walk(&path, offenders);
+                continue;
+            }
+            if path.extension().and_then(|e| e.to_str()) != Some("rs") {
+                continue;
+            }
+            let src = std::fs::read_to_string(&path).expect("read source");
+            for (i, line) in src.lines().enumerate() {
+                // Skip line/doc comments (`//`, `///`, `//!`) — prose like
+                // "winit-free" is allowed; only real usage is forbidden.
+                if line.trim_start().starts_with("//") {
+                    continue;
+                }
+                if line.contains("winit") || line.contains("WakeEvent") {
+                    offenders.push(format!("{}:{}: {}", path.display(), i + 1, line.trim()));
+                }
+            }
+        }
+    }
+
+    let content_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/content");
+    let mut offenders = Vec::new();
+    walk(&content_dir, &mut offenders);
+    assert!(
+        offenders.is_empty(),
+        "content/ must stay winit-free (PR-A D1/F4) — found windowing references:\n{}",
+        offenders.join("\n")
+    );
+}
+
 #[test]
 fn content_thread_startup_and_shutdown() {
     let (browser, content) = ipc::channel_pair::<BrowserToContent, ContentToBrowser>();
     let (nh, jar, _np) = test_network();
-    let handle = spawn_content_thread(
+    let handle = spawn_test_content(
         content,
         nh,
         jar,
@@ -41,7 +145,7 @@ fn content_thread_startup_and_shutdown() {
 fn content_thread_mouse_move() {
     let (browser, content) = ipc::channel_pair::<BrowserToContent, ContentToBrowser>();
     let (nh, jar, _np) = test_network();
-    let handle = spawn_content_thread(
+    let handle = spawn_test_content(
         content,
         nh,
         jar,
@@ -72,7 +176,7 @@ fn content_thread_mouse_move() {
 fn content_thread_click() {
     let (browser, content) = ipc::channel_pair::<BrowserToContent, ContentToBrowser>();
     let (nh, jar, _np) = test_network();
-    let handle = spawn_content_thread(
+    let handle = spawn_test_content(
         content,
         nh,
         jar,
@@ -106,7 +210,7 @@ fn content_thread_click() {
 fn content_thread_mouse_release_clears_active() {
     let (browser, content) = ipc::channel_pair::<BrowserToContent, ContentToBrowser>();
     let (nh, jar, _np) = test_network();
-    let handle = spawn_content_thread(
+    let handle = spawn_test_content(
         content,
         nh,
         jar,
@@ -153,7 +257,7 @@ fn content_thread_mouse_release_clears_active() {
 fn content_thread_disconnect() {
     let (browser, content) = ipc::channel_pair::<BrowserToContent, ContentToBrowser>();
     let (nh, jar, _np) = test_network();
-    let handle = spawn_content_thread(
+    let handle = spawn_test_content(
         content,
         nh,
         jar,
@@ -173,7 +277,7 @@ fn content_thread_disconnect() {
 fn content_thread_with_script() {
     let (browser, content) = ipc::channel_pair::<BrowserToContent, ContentToBrowser>();
     let (nh, jar, _np) = test_network();
-    let handle = spawn_content_thread(
+    let handle = spawn_test_content(
         content,
         nh,
         jar,
@@ -211,7 +315,7 @@ fn content_thread_with_script() {
 fn content_thread_keyboard() {
     let (browser, content) = ipc::channel_pair::<BrowserToContent, ContentToBrowser>();
     let (nh, jar, _np) = test_network();
-    let handle = spawn_content_thread(
+    let handle = spawn_test_content(
         content,
         nh,
         jar,
@@ -263,7 +367,7 @@ fn content_thread_mouse_wheel_scrolls_viewport() {
     let (browser, content) = ipc::channel_pair::<BrowserToContent, ContentToBrowser>();
     // Tall content that exceeds default viewport height (768px).
     let (nh, jar, _np) = test_network();
-    let handle = spawn_content_thread(
+    let handle = spawn_test_content(
         content,
         nh,
         jar,
@@ -295,7 +399,7 @@ fn content_thread_mouse_wheel_scrolls_viewport() {
 fn content_thread_mouse_wheel_no_scroll_overflow_hidden() {
     let (browser, content) = ipc::channel_pair::<BrowserToContent, ContentToBrowser>();
     let (nh, jar, _np) = test_network();
-    let handle = spawn_content_thread(
+    let handle = spawn_test_content(
         content,
         nh,
         jar,
@@ -327,7 +431,7 @@ fn content_thread_mouse_wheel_small_content() {
     let (browser, content) = ipc::channel_pair::<BrowserToContent, ContentToBrowser>();
     // Content smaller than viewport — no scroll needed.
     let (nh, jar, _np) = test_network();
-    let handle = spawn_content_thread(
+    let handle = spawn_test_content(
         content,
         nh,
         jar,
@@ -357,7 +461,7 @@ fn content_thread_mouse_wheel_small_content() {
 fn content_thread_viewport_resize_updates_scroll() {
     let (browser, content) = ipc::channel_pair::<BrowserToContent, ContentToBrowser>();
     let (nh, jar, _np) = test_network();
-    let handle = spawn_content_thread(
+    let handle = spawn_test_content(
         content,
         nh,
         jar,
@@ -481,7 +585,12 @@ fn build_iframe_test_state(
     let nh = std::rc::Rc::new(elidex_net::broker::NetworkHandle::disconnected());
     let jar = std::sync::Arc::new(elidex_net::CookieJar::new());
     let pipeline = crate::build_pipeline_interactive_with_network(html, css, nh, jar);
-    let mut state = ContentState::new(content, NavigationController::new(), pipeline);
+    let mut state = ContentState::new(
+        content,
+        NavigationController::new(),
+        pipeline,
+        Box::new(|| {}),
+    );
     scroll::update_viewport_scroll_dimensions(&mut state);
     iframe::scan_initial_iframes(&mut state);
     state.re_render();

@@ -462,7 +462,10 @@ impl App {
         let jar = std::sync::Arc::clone(np.cookie_jar());
         let (browser_ch, content_ch) =
             crate::ipc::channel_pair::<BrowserToContent, ContentToBrowser>();
-        let thread = crate::content::spawn_content_thread_blank(content_ch, nh, jar);
+        // Mint via the disjoint `wake_proxy` field (an associated fn, not `&self`)
+        // so it coexists with the active `&mut mgr` borrow.
+        let wake = Self::wake_or_noop(self.wake_proxy.as_ref());
+        let thread = crate::content::spawn_content_thread_blank(content_ch, nh, jar, wake);
         mgr.create_tab(
             browser_ch,
             thread,

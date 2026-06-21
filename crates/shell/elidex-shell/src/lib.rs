@@ -52,6 +52,30 @@ use animation::{
 
 use app::App;
 
+/// User event delivered to the winit event loop to schedule a repaint.
+///
+/// The content thread runs the browser loop under `ControlFlow::Wait`; a
+/// content-initiated frame (timers / rAF / animation / async DOM / the
+/// `SetViewport` round-trip's corrected frame) would otherwise paint only on the
+/// next OS-driven event. Sending this wakes the loop so the produced frame
+/// reaches a rendering opportunity (WHATWG HTML §8.1.7.3). Browser-internal: the
+/// content thread never references this type — it holds only a [`WakeHandle`].
+#[derive(Debug, Clone, Copy)]
+pub enum WakeEvent {
+    /// Request a redraw of the active window (drains pending content messages).
+    Repaint,
+}
+
+/// A windowing-agnostic "wake the browser to repaint" callback handed to a
+/// content thread at spawn.
+///
+/// Keeps `content/` free of `winit` types (the content thread is the CSS/renderer
+/// owner per *concurrency-by-ownership*): it calls `wake()` after a
+/// display/chrome-affecting send, knowing only "notify the host", not the winit
+/// `EventLoopProxy`. Each content thread owns its own boxed closure (built from a
+/// cloned `EventLoopProxy<WakeEvent>` in the browser half), so `Send` suffices.
+pub type WakeHandle = Box<dyn Fn() + Send>;
+
 /// Convert parsed `Stylesheet`s into lightweight `CssomSheet` representations
 /// suitable for the JS bridge.
 ///
@@ -336,8 +360,9 @@ fn resolve_with_compat(
 ///
 /// This function blocks until the window is closed.
 pub fn run(html: &str, css: &str) -> Result<(), Box<dyn std::error::Error>> {
-    let event_loop = EventLoop::new()?;
-    let mut app = App::new_threaded(html.to_string(), css.to_string());
+    let event_loop = EventLoop::<WakeEvent>::with_user_event().build()?;
+    let proxy = event_loop.create_proxy();
+    let mut app = App::new_threaded(html.to_string(), css.to_string(), proxy);
     event_loop.run_app(&mut app)?;
 
     Ok(())
@@ -879,8 +904,9 @@ pub fn run_url(url_str: &str) -> Result<(), Box<dyn std::error::Error>> {
     let url = url::Url::parse(url_str)
         .map_err(|e| elidex_navigation::LoadError::InvalidUrl(format!("{url_str}: {e}")))?;
 
-    let event_loop = EventLoop::new()?;
-    let mut app = App::new_threaded_url(url);
+    let event_loop = EventLoop::<WakeEvent>::with_user_event().build()?;
+    let proxy = event_loop.create_proxy();
+    let mut app = App::new_threaded_url(url, proxy);
     event_loop.run_app(&mut app)?;
 
     Ok(())
