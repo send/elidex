@@ -3,7 +3,7 @@
 //! Renders an egui overlay at the top of the window containing
 //! back/forward buttons, a reload button, an address bar, and a tab bar.
 
-use elidex_plugin::Point;
+use elidex_plugin::{Point, Size};
 
 use crate::app::tab::TabId;
 
@@ -252,6 +252,25 @@ pub fn chrome_content_offset(position: TabBarPosition) -> Point {
     }
 }
 
+/// Compute the content area size (CSS logical px) for a window of the given
+/// logical size, after reserving the chrome region.
+///
+/// [`chrome_content_offset`] gives the matching content-area top-left origin.
+/// `Left`/`Right` reserve the sidebar width on whichever side it sits, so both
+/// subtract the same `TAB_SIDEBAR_WIDTH`; only the origin (offset) differs.
+/// Clamped non-negative (a window smaller than the chrome → zero content area).
+#[must_use]
+pub fn content_size(window_width: f32, window_height: f32, position: TabBarPosition) -> Size {
+    let (reserve_w, reserve_h) = match position {
+        TabBarPosition::Top => (0.0, TAB_BAR_HEIGHT + CHROME_HEIGHT),
+        TabBarPosition::Left | TabBarPosition::Right => (TAB_SIDEBAR_WIDTH, CHROME_HEIGHT),
+    };
+    Size::new(
+        (window_width - reserve_w).max(0.0),
+        (window_height - reserve_h).max(0.0),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -300,6 +319,34 @@ mod tests {
         let p = chrome_content_offset(TabBarPosition::Right);
         assert_eq!(p.x, 0.0);
         assert_eq!(p.y, CHROME_HEIGHT);
+    }
+
+    #[test]
+    fn content_size_top() {
+        // Top: full width, height minus the tab bar + address bar.
+        let s = content_size(1024.0, 768.0, TabBarPosition::Top);
+        assert_eq!(s.width, 1024.0);
+        assert_eq!(s.height, 768.0 - (TAB_BAR_HEIGHT + CHROME_HEIGHT));
+    }
+
+    #[test]
+    fn content_size_left_and_right_reserve_sidebar() {
+        // Left/Right: width minus the sidebar, height minus the address bar —
+        // the same reservation regardless of which side the sidebar sits on.
+        for position in [TabBarPosition::Left, TabBarPosition::Right] {
+            let s = content_size(1024.0, 768.0, position);
+            assert_eq!(s.width, 1024.0 - TAB_SIDEBAR_WIDTH);
+            assert_eq!(s.height, 768.0 - CHROME_HEIGHT);
+        }
+    }
+
+    #[test]
+    fn content_size_clamps_to_non_negative() {
+        // A window narrower/shorter than the chrome yields a zero content area,
+        // never a negative dimension.
+        let s = content_size(10.0, 10.0, TabBarPosition::Left);
+        assert_eq!(s.width, 0.0);
+        assert_eq!(s.height, 0.0);
     }
 
     #[test]

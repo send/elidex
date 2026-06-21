@@ -218,6 +218,7 @@ fn render_egui_output(
 fn with_frame<T: Default>(
     state: &mut RenderState,
     display_list: &DisplayList,
+    content: Option<elidex_render::ContentPlacement>,
     egui_fn: impl FnOnce(&mut egui::Ui) -> T,
 ) -> T {
     let width = state.gpu.surface_config.width;
@@ -227,13 +228,17 @@ fn with_frame<T: Default>(
         return T::default();
     }
 
-    // Render the display list to an intermediate texture.
+    // Render the display list to an intermediate texture. `content` places the
+    // display list at the content-area origin + scale (clipped); `None` paints
+    // it full-surface at the identity transform (legacy/inline). The blit below
+    // stays full-surface either way — the offset/scale live in the scene.
     let texture = match state.renderer.render(
         &state.gpu.device,
         &state.gpu.queue,
         display_list,
         width,
         height,
+        content,
     ) {
         Ok(t) => t,
         Err(e) => {
@@ -297,16 +302,18 @@ fn with_frame<T: Default>(
 /// Render with tab bar + chrome bar, returning all chrome actions.
 ///
 /// Used in threaded (multi-tab) mode.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn handle_redraw_with_tabs(
     state: &mut RenderState,
     display_list: &DisplayList,
+    content: Option<elidex_render::ContentPlacement>,
     chrome: &mut crate::chrome::ChromeState,
     can_go_back: bool,
     can_go_forward: bool,
     tab_infos: &[crate::chrome::TabBarInfo],
     tab_position: crate::chrome::TabBarPosition,
 ) -> Vec<crate::chrome::ChromeAction> {
-    with_frame(state, display_list, |ui| {
+    with_frame(state, display_list, content, |ui| {
         let mut actions = Vec::new();
         // Tab bar (must be added before chrome bar for correct Top layout).
         if let Some(action) = crate::chrome::build_tab_bar(ui, tab_infos, tab_position) {
@@ -332,7 +339,9 @@ pub(super) fn handle_redraw(
     can_go_back: bool,
     can_go_forward: bool,
 ) -> Option<crate::chrome::ChromeAction> {
-    with_frame(state, display_list, |ui| {
+    // Legacy/inline + empty-tab fallback paint full-surface at identity (no
+    // chrome inset to reserve).
+    with_frame(state, display_list, None, |ui| {
         chrome.and_then(|chrome| chrome.build(ui, can_go_back, can_go_forward))
     })
 }

@@ -26,6 +26,50 @@ fn to_vello_rect(r: &Rect) -> VelloRect {
     VelloRect::new(x0, y0, x1, y1)
 }
 
+/// Where, and at what scale, the content display list lands on the physical
+/// surface — the compositor half of the shell's content-area placement SoT.
+///
+/// All fields are in **physical surface px** (already multiplied by the device
+/// pixel ratio). `VelloRenderer::render` paints the display list under the base
+/// transform `translate(offset) ∘ scale(scale)` (CSS px → physical surface),
+/// clipped to the content-area rect `offset..offset+size`; the chrome-reserved
+/// region outside the clip keeps the render `base_color` (the egui chrome draws
+/// over it). `None` at the render call site = legacy identity full-surface paint.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ContentPlacement {
+    /// Content-area top-left in physical surface px.
+    pub offset: Point,
+    /// Content-area size in physical surface px (the clip extent).
+    pub size: Size,
+    /// CSS-px → device-px scale applied to the display list.
+    pub scale: f32,
+}
+
+impl ContentPlacement {
+    /// Base transform mapping a content CSS-px point to physical surface px:
+    /// `translate(offset) ∘ scale(scale)` — a CSS point `p` maps to
+    /// `p × scale + offset`. The exact inverse of the shell input mapper
+    /// `(cursor ÷ scale) − origin`.
+    #[must_use]
+    pub fn base_transform(&self) -> Affine {
+        Affine::scale(f64::from(self.scale)).then_translate(vello::kurbo::Vec2::new(
+            f64::from(self.offset.x),
+            f64::from(self.offset.y),
+        ))
+    }
+
+    /// Content-area clip rect in physical surface px (`offset .. offset + size`).
+    #[must_use]
+    pub(crate) fn clip_rect(&self) -> VelloRect {
+        VelloRect::new(
+            f64::from(self.offset.x),
+            f64::from(self.offset.y),
+            f64::from(self.offset.x + self.size.width),
+            f64::from(self.offset.y + self.size.height),
+        )
+    }
+}
+
 /// GPU renderer backed by Vello.
 ///
 /// Holds the Vello `Renderer`, a reusable `Scene`, and a persistent font
@@ -75,14 +119,41 @@ impl VelloRenderer {
         display_list: &DisplayList,
         width: u32,
         height: u32,
+        content: Option<ContentPlacement>,
     ) -> Result<Texture, vello::Error> {
         // Clamp to 1×1 to avoid wgpu validation errors on zero-size textures.
         let width = width.max(1);
         let height = height.max(1);
 
-        // Build the Vello scene from the display list.
+        // Build the Vello scene from the display list. With a `ContentPlacement`,
+        // the content is painted under `translate(offset) ∘ scale` and clipped to
+        // the content-area physical rect — the offset/scale live in the scene
+        // transform, not the blit (which stays full-surface). The chrome-reserved
+        // region outside the clip keeps `base_color`. Without it (legacy/inline),
+        // the list is painted full-surface at the identity transform.
         self.scene.reset();
-        build_scene(&mut self.scene, display_list, &mut self.font_cache);
+        match content {
+            Some(cp) => {
+                // The clip rect is in physical surface coordinates, so the clip
+                // layer uses the identity transform; the content subtree below it
+                // carries the `base_transform` (offset+scale).
+                self.scene.push_layer(
+                    Fill::NonZero,
+                    Mix::Normal,
+                    1.0,
+                    Affine::IDENTITY,
+                    &cp.clip_rect(),
+                );
+                build_scene_with_transform(
+                    &mut self.scene,
+                    display_list,
+                    &mut self.font_cache,
+                    cp.base_transform(),
+                );
+                self.scene.pop_layer();
+            }
+            None => build_scene(&mut self.scene, display_list, &mut self.font_cache),
+        }
 
         // Create the render target texture.
         let texture = device.create_texture(&TextureDescriptor {

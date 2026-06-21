@@ -9,8 +9,8 @@ use winit::event_loop::ActiveEventLoop;
 use elidex_render::DisplayList;
 
 use super::render::{handle_redraw, handle_redraw_with_tabs};
-use super::{winit_button_to_dom, App};
-use crate::chrome::{self, ChromeAction};
+use super::{winit_button_to_dom, App, ContentAreaPlacement};
+use crate::chrome::ChromeAction;
 use crate::ipc::{BrowserToContent, ContentToBrowser};
 
 impl App {
@@ -46,8 +46,11 @@ impl App {
             .and_then(|mgr| mgr.active_tab())
             .is_some_and(|tab| tab.chrome.address_focused);
 
-        let position = self.tab_bar_position();
-        let offset = chrome::chrome_content_offset(position);
+        // Content-area origin + scale for input mapping come from the cached
+        // placement SoT — no second `chrome_content_offset` call (the builder
+        // `content_area_placement` is its single caller). `None` before the
+        // window exists; the input arms below skip mapping in that case.
+        let placement = self.placement;
 
         // Most event arms need a redraw; track exceptions explicitly.
         let mut needs_redraw = true;
@@ -60,10 +63,12 @@ impl App {
                 needs_redraw = false;
             }
             WindowEvent::CursorMoved { position, .. } => {
-                self.handle_cursor_move_threaded(
-                    elidex_plugin::Point::new(position.x, position.y),
-                    offset,
-                );
+                if let Some(placement) = placement {
+                    self.handle_cursor_move_threaded(
+                        elidex_plugin::Point::new(position.x, position.y),
+                        placement,
+                    );
+                }
             }
             WindowEvent::CursorLeft { .. } => {
                 self.cursor_in_content = false;
@@ -74,7 +79,9 @@ impl App {
                 button,
                 ..
             } => {
-                self.handle_mouse_press_threaded(button, offset);
+                if let Some(placement) = placement {
+                    self.handle_mouse_press_threaded(button, placement);
+                }
             }
             WindowEvent::MouseInput {
                 state: ElementState::Released,
@@ -86,7 +93,9 @@ impl App {
                 });
             }
             WindowEvent::MouseWheel { delta, .. } => {
-                self.handle_mouse_wheel_threaded(delta, offset);
+                if let Some(placement) = placement {
+                    self.handle_mouse_wheel_threaded(delta, placement);
+                }
             }
             WindowEvent::KeyboardInput {
                 event: key_event, ..
@@ -118,6 +127,23 @@ impl App {
         self.drain_content_messages();
         self.sync_cookies_if_dirty();
 
+        // Recompute the placement SoT for this frame from the current window —
+        // the authoritative per-frame snapshot (§2.3 / F8 coherence with the
+        // `surface_config` written on `Resized`). Then derive the compositor's
+        // physical-px content placement (offset/size/scale) for this frame.
+        if let Some(window) = self
+            .render_state
+            .as_ref()
+            .map(|s| std::sync::Arc::clone(&s.window))
+        {
+            self.placement = Some(self.content_area_placement(&window));
+        }
+        let content = self.placement.map(|p| elidex_render::ContentPlacement {
+            offset: p.origin_phys(),
+            size: p.size_phys(),
+            scale: p.scale_factor,
+        });
+
         // Apply pending window.focus() request.
         if self.pending_focus {
             self.pending_focus = false;
@@ -146,6 +172,7 @@ impl App {
                 handle_redraw_with_tabs(
                     state,
                     &tab.display_list,
+                    content,
                     &mut tab.chrome,
                     tab.can_go_back,
                     tab.can_go_forward,
@@ -191,12 +218,28 @@ impl App {
     /// Only sends to content thread when cursor is in the content area.
     /// When cursor first moves into chrome/tab bar, sends `CursorLeft`
     /// to clear hover state (otherwise `:hover` stays stuck).
+    /// Map a physical-px cursor position to content-area CSS px:
+    /// `(cursor ÷ scale_factor) − origin_logical` — the exact inverse of the
+    /// compositor transform (B-D2). The single input-mapping primitive shared by
+    /// all three threaded pointer handlers.
+    fn cursor_to_content(
+        cursor: elidex_plugin::Point<f64>,
+        placement: ContentAreaPlacement,
+    ) -> elidex_plugin::Point {
+        let p = cursor.to_f32();
+        let scale = placement.scale_factor;
+        elidex_plugin::Point::new(
+            p.x / scale - placement.origin_logical.x,
+            p.y / scale - placement.origin_logical.y,
+        )
+    }
+
     fn handle_cursor_move_threaded(
         &mut self,
         client_pos: elidex_plugin::Point<f64>,
-        offset: elidex_plugin::Point,
+        placement: ContentAreaPlacement,
     ) {
-        let content_pos = client_pos.to_f32() - offset.to_vector();
+        let content_pos = Self::cursor_to_content(client_pos, placement);
         if content_pos.x >= 0.0 && content_pos.y >= 0.0 {
             self.cursor_in_content = true;
             self.send_to_content(BrowserToContent::MouseMove {
@@ -213,10 +256,10 @@ impl App {
     fn handle_mouse_press_threaded(
         &mut self,
         button: winit::event::MouseButton,
-        offset: elidex_plugin::Point,
+        placement: ContentAreaPlacement,
     ) {
         if let Some(cursor) = self.cursor_pos {
-            let content_pos = cursor.to_f32() - offset.to_vector();
+            let content_pos = Self::cursor_to_content(cursor, placement);
             if content_pos.x >= 0.0 && content_pos.y >= 0.0 {
                 let mods = Self::to_modifier_state(self.modifiers.state());
                 self.send_to_content(BrowserToContent::MouseClick(crate::ipc::MouseClickEvent {
@@ -240,7 +283,7 @@ impl App {
     fn handle_mouse_wheel_threaded(
         &mut self,
         delta: MouseScrollDelta,
-        offset: elidex_plugin::Point,
+        placement: ContentAreaPlacement,
     ) {
         const LINE_SCROLL_PX: f64 = 40.0;
         let scroll_delta = match delta {
@@ -253,7 +296,7 @@ impl App {
         let point = self
             .cursor_pos
             .map_or(elidex_plugin::Point::ZERO, |cursor| {
-                cursor.to_f32() - offset.to_vector()
+                Self::cursor_to_content(cursor, placement)
             });
         self.send_to_content(BrowserToContent::MouseWheel {
             delta: scroll_delta,
@@ -472,5 +515,66 @@ impl App {
             crate::chrome::ChromeState::new(None),
             "New Tab".to_string(),
         );
+    }
+}
+
+#[cfg(test)]
+mod placement_input_tests {
+    use super::{App, ContentAreaPlacement};
+    use elidex_plugin::{Point, Size};
+
+    fn placement(origin: Point, scale: f32) -> ContentAreaPlacement {
+        ContentAreaPlacement {
+            origin_logical: origin,
+            size_logical: Size::new(800.0, 600.0),
+            scale_factor: scale,
+        }
+    }
+
+    #[test]
+    fn placement_phys_derivations_scale_by_factor() {
+        // origin_phys = origin_logical × scale; size_phys = size_logical × scale.
+        let pl = placement(Point::new(200.0, 36.0), 2.0);
+        let o = pl.origin_phys();
+        assert!((o.x - 400.0).abs() < f32::EPSILON);
+        assert!((o.y - 72.0).abs() < f32::EPSILON);
+        let s = pl.size_phys();
+        assert!((s.width - 1600.0).abs() < f32::EPSILON);
+        assert!((s.height - 1200.0).abs() < f32::EPSILON);
+    }
+
+    /// A click at the physical pixel where the compositor paints a content
+    /// CSS-px point round-trips back to that exact CSS point — the input mapper
+    /// `(cursor ÷ scale) − origin_logical` is the exact inverse of the
+    /// compositor transform `content × scale + origin_phys` (invariant I3), at
+    /// scale 1 and 2 for Top/Left/Right chrome.
+    #[test]
+    fn cursor_to_content_inverts_compositor_transform() {
+        // (origin_logical, scale): Top@1, Top@2, Left@2, Right@1.
+        let cases = [
+            (Point::new(0.0, 64.0), 1.0_f32),
+            (Point::new(0.0, 64.0), 2.0),
+            (Point::new(200.0, 36.0), 2.0),
+            (Point::new(0.0, 36.0), 1.0),
+        ];
+        let content_points = [
+            Point::new(0.0, 0.0),
+            Point::new(10.0, 10.0),
+            Point::new(799.0, 599.0),
+        ];
+        for (origin, scale) in cases {
+            let pl = placement(origin, scale);
+            for c in content_points {
+                // Compositor: a content CSS point `c` is painted at physical
+                // `(c + origin_logical) × scale`.
+                let phys = Point::<f64>::new(
+                    f64::from((c.x + origin.x) * scale),
+                    f64::from((c.y + origin.y) * scale),
+                );
+                let back = App::cursor_to_content(phys, pl);
+                assert!((back.x - c.x).abs() < 1e-3, "x {} != {}", back.x, c.x);
+                assert!((back.y - c.y).abs() < 1e-3, "y {} != {}", back.y, c.y);
+            }
+        }
     }
 }

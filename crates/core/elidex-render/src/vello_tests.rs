@@ -354,3 +354,55 @@ fn fixed_element_scroll_exclusion_update() {
         assert!((p.y - 80.0).abs() < f32::EPSILON);
     }
 }
+
+#[test]
+fn content_placement_base_transform_scale1() {
+    // Top chrome at scale 1: content-area origin (0, 64), size 1024×704 px.
+    let cp = ContentPlacement {
+        offset: Point::new(0.0, 64.0),
+        size: Size::new(1024.0, 704.0),
+        scale: 1.0,
+    };
+    // [a, b, c, d, e, f] = [scale, 0, 0, scale, offset.x, offset.y].
+    assert_eq!(
+        cp.base_transform().as_coeffs(),
+        [1.0, 0.0, 0.0, 1.0, 0.0, 64.0]
+    );
+    // A content CSS point (10, 10) lands at physical (10, 74) = p × scale + offset.
+    let p = cp.base_transform() * vello::kurbo::Point::new(10.0, 10.0);
+    assert!((p.x - 10.0).abs() < 1e-9);
+    assert!((p.y - 74.0).abs() < 1e-9);
+}
+
+#[test]
+fn content_placement_base_transform_scale2() {
+    // Top chrome at scale 2 (HiDPI): origin_phys (0, 128), size_phys 2048×1408.
+    let cp = ContentPlacement {
+        offset: Point::new(0.0, 128.0),
+        size: Size::new(2048.0, 1408.0),
+        scale: 2.0,
+    };
+    assert_eq!(
+        cp.base_transform().as_coeffs(),
+        [2.0, 0.0, 0.0, 2.0, 0.0, 128.0]
+    );
+    // A content CSS point (10, 10) lands at physical (20, 148) = 10 × 2 + offset.
+    let p = cp.base_transform() * vello::kurbo::Point::new(10.0, 10.0);
+    assert!((p.x - 20.0).abs() < 1e-9);
+    assert!((p.y - 148.0).abs() < 1e-9);
+}
+
+#[test]
+fn content_placement_clip_rect_matches_content_area() {
+    // Left chrome at scale 2: origin_phys (400, 72), size_phys 1248×1392.
+    let cp = ContentPlacement {
+        offset: Point::new(400.0, 72.0),
+        size: Size::new(1248.0, 1392.0),
+        scale: 2.0,
+    };
+    let r = cp.clip_rect();
+    assert!((r.x0 - 400.0).abs() < 1e-9);
+    assert!((r.y0 - 72.0).abs() < 1e-9);
+    assert!((r.x1 - 1648.0).abs() < 1e-9);
+    assert!((r.y1 - 1464.0).abs() < 1e-9);
+}

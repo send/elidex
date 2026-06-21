@@ -268,11 +268,11 @@ fn handle_message(msg: BrowserToContent, state: &mut ContentState) -> bool {
                 let bridge = state.pipeline.runtime.bridge().clone();
                 bridge.set_viewport(width, height);
 
-                let changed = bridge.re_evaluate_media_queries(width, height);
-                if !changed.is_empty() {
-                    dispatch_media_query_changes(&changed, state);
-                }
-
+                // HTML "update the rendering" (§8.1.7.3 Processing model):
+                // step 8 "run the resize steps" runs **before** step 10
+                // "evaluate media queries and report changes". Fire the `resize`
+                // event first so a `resize` listener that reads `matchMedia` sees
+                // state consistent with the MQL `change` that follows.
                 let mut resize_event = elidex_script_session::DispatchEvent::new_composed(
                     "resize",
                     state.pipeline.document,
@@ -280,6 +280,11 @@ fn handle_message(msg: BrowserToContent, state: &mut ContentState) -> bool {
                 resize_event.bubbles = false;
                 resize_event.cancelable = false;
                 state.pipeline.dispatch_event(&mut resize_event);
+
+                let changed = bridge.re_evaluate_media_queries(width, height);
+                if !changed.is_empty() {
+                    dispatch_media_query_changes(&changed, state);
+                }
 
                 state.re_render();
                 state.send_display_list();
