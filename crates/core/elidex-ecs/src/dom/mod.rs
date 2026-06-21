@@ -235,17 +235,17 @@ impl EcsDom {
     }
 
     /// HTML tag-name predicate: returns `true` iff `entity` is a
-    /// `<template>` element (HTML §4.12.3).  Tree walkers that
-    /// implement spec algorithms requiring the "template contents"
-    /// carve-out (HTML §2.4.3 "first base element in the document" —
-    /// template contents form a separate document) use this to skip
-    /// the `<template>` element's children.
+    /// `<template>` element (HTML §4.12.3). Tree walkers implementing the
+    /// §2.4.3 "first base element in the document" carve-out use this to
+    /// **skip recursing into a `<template>`'s light children** — a `<base>`
+    /// programmatically appended to a template element (e.g. via
+    /// `template.appendChild(base)`) must not affect the host document's base
+    /// URL. (Parsed template *content* lands in the detached
+    /// [`TemplateContents`](crate::TemplateContents) fragment, which no
+    /// light-tree walk reaches anyway; this predicate covers the light-child
+    /// case the fragment model does not.)
     ///
-    /// Tag-string compare matches the [`Self::is_base_element`]
-    /// precedent.  The element's detached contents fragment, if any, is
-    /// reachable via
-    /// [`template_contents_fragment`](Self::template_contents_fragment)
-    /// ([`TemplateContents`](crate::TemplateContents) component).
+    /// Tag-string compare matches the [`Self::is_base_element`] precedent.
     #[must_use]
     pub fn is_template_element(&self, entity: Entity) -> bool {
         self.world
@@ -724,6 +724,15 @@ impl EcsDom {
         template: Entity,
         owner_doc: Option<Entity>,
     ) -> Entity {
+        // Called exactly once per `<template>` creation (both parser tiers,
+        // `createElement`, clone post-pass). Re-attaching would orphan the
+        // prior fragment (no longer reachable by despawn/adopt), so enforce
+        // the single-attach contract in debug rather than silently leaking.
+        debug_assert!(
+            self.template_contents_fragment(template).is_none(),
+            "attach_template_contents called twice on the same <template> \
+             (would orphan the prior content fragment)"
+        );
         let fragment = self.create_document_fragment_with_owner(owner_doc);
         let _ = self
             .world

@@ -217,12 +217,7 @@ impl TreeBuilder {
                     .open_elements
                     .iter()
                     .copied()
-                    .filter(|e| {
-                        tb.state
-                            .template_content_targets
-                            .get(e)
-                            .is_some_and(|target| target.is_shadow_root())
-                    })
+                    .filter(|&e| tb.state.is_consumed_shadow_template(e))
                     .collect();
                 for template in stack_only_templates {
                     let _ = tb.dom.destroy_entity(template);

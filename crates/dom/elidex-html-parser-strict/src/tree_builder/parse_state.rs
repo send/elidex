@@ -320,6 +320,19 @@ impl ParseState {
         self.open_elements.last().copied()
     }
 
+    /// Whether `entity` is a **consumed declarative-shadow `<template>`**: one
+    /// whose content target is a [`ContentTarget::ShadowRoot`] — stack-only,
+    /// never appended to the light DOM (§13.2.6.4.4 step 10). The two despawn
+    /// sites (`</template>` step 3, fragment rollback) share this discriminator
+    /// to despawn exactly those; an ordinary `ContentFragment`-kind template is
+    /// in-tree and must never be despawned. Centralised so both sites stay in
+    /// lockstep if the rule changes.
+    pub(crate) fn is_consumed_shadow_template(&self, entity: Entity) -> bool {
+        self.template_content_targets
+            .get(&entity)
+            .is_some_and(|target| target.is_shadow_root())
+    }
+
     /// §13.2.4.2 The adjusted current node — the `context` element when this is
     /// the §13.4 fragment case and the stack of open elements holds only the
     /// synthetic root (so the fragment's content is dispatched as if directly

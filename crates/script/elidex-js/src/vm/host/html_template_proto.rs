@@ -97,16 +97,20 @@ fn template_get_content(
         // Post-unbind: no DOM world to read or allocate against.
         return Ok(JsValue::Null);
     }
-    // Read the eagerly-attached fragment. Defensively attach one via the same
-    // SSoT helper if a creation path somehow skipped it, so `content` is never
-    // null per IDL (unreachable post-B1; never a second identity store).
-    let fragment_entity =
-        if let Some(fragment) = ctx.host().dom().template_contents_fragment(entity) {
-            fragment
-        } else {
-            let owner_doc = ctx.host().dom().get_associated_document(entity);
-            ctx.host().dom().attach_template_contents(entity, owner_doc)
-        };
+    // Read the eagerly-attached fragment (Layering mandate — this getter is
+    // marshalling-only; fragment creation lives solely in the engine-indep
+    // `attach_template_contents` SSoT, called by every creation site). Every
+    // `<template>` has a fragment by construction, so the `None` arm is
+    // unreachable; assert in debug and surface `null` rather than fabricating a
+    // second creation path here.
+    let Some(fragment_entity) = ctx.host().dom().template_contents_fragment(entity) else {
+        debug_assert!(
+            false,
+            "every <template> has an eagerly-attached content fragment \
+             (#11-template-parser-content)"
+        );
+        return Ok(JsValue::Null);
+    };
     Ok(JsValue::Object(create_fragment_wrapper(
         ctx,
         fragment_entity,
