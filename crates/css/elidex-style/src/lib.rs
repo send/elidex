@@ -93,6 +93,25 @@ pub fn get_computed(property: &str, style: &ComputedStyle) -> CssValue {
 ///
 /// Every non-color value delegates to the unchanged declared-value
 /// serializer [`CssValue::to_css_string`].
+///
+/// KNOWN GAP — list separators (slot `#11-cssvalue-list-separator-fidelity`):
+/// list-valued resolved values are delegated to `to_css_string`, whose
+/// `List` arm comma-joins regardless of property. That is wrong for
+/// space-separated list properties (`text-decoration-line`, grid track
+/// lists, …) — the correct separator is property-specific. Two ways to
+/// close it:
+/// - **(D)** give `CssValue::List` separator semantics (type-level
+///   redesign, ~30 sites / 6 crates — the slot's primary scope; also fixes
+///   the *declared*-value path / `cssText`).
+/// - **(G)** since this fn already receives `property`, a property→separator
+///   classification could be applied to the `List` case *here*, fixing the
+///   resolved-value (getComputedStyle) path without a type change — lighter,
+///   but resolved-value-only (declared-value path stays wrong) and needs a
+///   CSS-wide property classification (edge-dense → its own plan-review).
+/// Either way the fix lands in the engine, NOT in consumers: the WPT harness
+/// (`elidex-wpt`) mirrors this serializer verbatim, so fixing it here fixes
+/// the harness in lockstep (a harness-local list serializer was tried and
+/// removed as an incomplete-by-construction generator layer — PR #385).
 #[must_use]
 pub fn serialize_resolved_value(property: &str, style: &ComputedStyle) -> String {
     match get_computed(property, style) {
