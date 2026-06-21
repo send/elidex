@@ -52,6 +52,7 @@ use super::GlobalScopeKind;
 use super::{NativeFn, VmInner};
 #[cfg(feature = "engine")]
 use elidex_plugin::{DomSpecLevel, WebApiSpecLevel};
+use elidex_script_session::web_storage_spec_level;
 
 /// §20.2.3 Function.prototype — accepts any arguments, returns undefined.
 fn native_function_prototype_noop(
@@ -484,11 +485,12 @@ impl VmInner {
             // `register_window_prototype`'s storage-getter install.
             //
             // Seam-2 of the A1 core/compat gate: the demotable `register_*_global`
-            // installers route through the single family-neutral `installs(level)`
-            // predicate at `Modern` (A2 flips this site's literal to `Legacy` —
-            // HTML §12.2). Permanently-`Modern` globals (crypto/fetch/ws) are not
-            // gated (never excluded).
-            if self.installs(WebApiSpecLevel::Modern) {
+            // installers route through the general `installs(level)` predicate
+            // reading the Web Storage family's SINGLE source `web_storage_spec_level()`
+            // (Codex R7 — same source as the accessors + StorageEvent + onstorage, so
+            // A2 flips the family in one place). Permanently-`Modern` globals
+            // (crypto/fetch/ws) are not gated (never excluded).
+            if self.installs(web_storage_spec_level()) {
                 self.register_storage_global();
             }
             // Crypto / SubtleCrypto (WebCrypto §10 / §14, slot
@@ -666,10 +668,10 @@ impl VmInner {
             // StorageEvent — chains to Event.prototype, paired with
             // the `Storage` interface above.  WHATWG HTML §12.2.4.
             //
-            // Seam-2: part of the Web Storage surface — same family-neutral
-            // `installs(level)` predicate at `Modern` as the `Storage` install
-            // above, so the family flips as one unit in A2.
-            if self.installs(WebApiSpecLevel::Modern) {
+            // Seam-2: part of the Web Storage surface — same single
+            // `web_storage_spec_level()` source as the `Storage` install above
+            // (Codex R7), so the whole family flips as one unit in A2.
+            if self.installs(web_storage_spec_level()) {
                 self.register_storage_event_global();
             }
             // M4-12 slot `#11-events-misc` (D-10) — 10 NEW Event

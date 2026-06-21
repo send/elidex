@@ -214,6 +214,57 @@ pub fn event_handler_attr_event_type(name: &str) -> Option<&str> {
     }
 }
 
+/// The spec level of the **Web Storage family** — the SINGLE classification
+/// source every Web Storage install seam reads (Codex R7).
+///
+/// The family spans several install surfaces — the `localStorage` /
+/// `sessionStorage` accessors (`window.rs`), the `Storage` / `StorageEvent`
+/// globals (`register_globals`), and the `window.onstorage` handler attribute
+/// (via [`event_handler_attr_spec_level`]). Routing them all through this one
+/// source means the family is demoted by **one edit** rather than N independent
+/// `Modern` literals that must be flipped in lockstep (a missed one would leave a
+/// split surface — `StorageEvent` without `localStorage`, accessors without the
+/// constructors). A1 = [`Modern`](elidex_plugin::WebApiSpecLevel::Modern)
+/// (installs in every mode — no behavior change); **A2 flips this to
+/// [`Legacy`](elidex_plugin::WebApiSpecLevel::Legacy) here, in one place** (HTML
+/// §12.2). The non-install storage surfaces — the `<body onstorage="…">`
+/// content-attribute path and `StorageEvent` delivery — are A2's broader
+/// suppression scope (A0 §5 A2 row, which spans the VM *and* the shell tab/IPC
+/// plumbing); A2 wires them to read this same source.
+#[must_use]
+pub fn web_storage_spec_level() -> elidex_plugin::WebApiSpecLevel {
+    elidex_plugin::WebApiSpecLevel::Modern
+}
+
+/// The spec level of `document.cookie` — the single classification source for the
+/// cookie surface (single install surface, but kept a source for uniformity so
+/// no demotable family is gated by a bare literal). A1 = `Modern`; **A3 flips
+/// this to `Legacy`** (HTML §3.1.4).
+#[must_use]
+pub fn document_cookie_spec_level() -> elidex_plugin::WebApiSpecLevel {
+    elidex_plugin::WebApiSpecLevel::Modern
+}
+
+/// The spec level of the **live-collection family** — the SINGLE classification
+/// source every live-collection install seam reads (Codex R7).
+///
+/// The family spans many surfaces: the `Document` getters
+/// `getElementsByTagName` / `getElementsByClassName` / `getElementsByName`
+/// (DOM §4.5 / HTML §3.1.7), the `forms` / `images` / `links` accessors, the
+/// ParentNode `children` mixin, plus `Element.prototype` getters / `table.rows` /
+/// `select.options` in sibling files. Routing them all through this one source
+/// makes the family a **one-edit demotion**. A1 = [`Living`](elidex_plugin::DomSpecLevel::Living)
+/// (installs in every mode); **B0/B1 flip this to
+/// [`Legacy`](elidex_plugin::DomSpecLevel::Legacy) here, in one place** (design
+/// §12.1.2). A1 wires the `Document` getters as the representative seam; the
+/// **full surface sweep** (`forms`/`images`/`links`/`children` + the cross-file
+/// surfaces) is B0's classification work (A0 §5 B0 row), routed through this same
+/// source — not a new gate.
+#[must_use]
+pub fn live_collection_spec_level() -> elidex_plugin::DomSpecLevel {
+    elidex_plugin::DomSpecLevel::Living
+}
+
 /// The Web-API spec level of an event-handler IDL attribute — seam-3 of the A1
 /// Web-API core/compat gate (the VM's `install_handler_attr_family` loop gates
 /// each row by `installs(level)`).
@@ -221,18 +272,21 @@ pub fn event_handler_attr_event_type(name: &str) -> Option<&str> {
 /// **Total over [`EVENT_HANDLER_ATTRS`]** (sibling of
 /// [`event_handler_attr_event_type`]): every attr — known or not — maps to a
 /// level, so a future row added to the family table can never silently
-/// mis-classify. In A1 every handler attr is
-/// [`Modern`](elidex_plugin::WebApiSpecLevel::Modern) (no API moves — installs in
-/// every mode). **A2** returns [`Legacy`](elidex_plugin::WebApiSpecLevel::Legacy)
-/// for `"onstorage"` (it fires `StorageEvent`, part of the Web Storage surface,
-/// HTML §12.2.4) so it is hidden together with `Storage`/`StorageEvent` when
-/// storage is demoted — a one-row flip here, no seam re-touch.
+/// mis-classify. `"onstorage"` reads [`web_storage_spec_level`] (it fires
+/// `StorageEvent`, part of the Web Storage surface, HTML §12.2.4), so it is
+/// withheld together with the rest of that family when A2 flips the one source;
+/// every other attr is [`Modern`](elidex_plugin::WebApiSpecLevel::Modern). In A1
+/// the source is `Modern`, so this installs in every mode (no behavior change).
 #[must_use]
-pub fn event_handler_attr_spec_level(_name: &str) -> elidex_plugin::WebApiSpecLevel {
-    // A1: the whole event-handler surface is Modern. The `match`-free
-    // total-default keeps this total over EVENT_HANDLER_ATTRS; A2 adds the
-    // explicit `"onstorage" => Legacy` arm.
-    elidex_plugin::WebApiSpecLevel::Modern
+pub fn event_handler_attr_spec_level(name: &str) -> elidex_plugin::WebApiSpecLevel {
+    match name {
+        // `window.onstorage` is part of the Web Storage family — tie it to the
+        // family's single source so A2's one flip hides it too.
+        "onstorage" => web_storage_spec_level(),
+        // Every other handler attr is Modern (total default — no silent
+        // mis-classification when the family table grows).
+        _ => elidex_plugin::WebApiSpecLevel::Modern,
+    }
 }
 
 /// If `name` is a known event-handler content attribute, return its event
@@ -380,5 +434,52 @@ fn clear_inline_handler(entity: Entity, event_type: &str, dom: &mut EcsDom) {
 fn ensure_event_listeners(entity: Entity, dom: &mut EcsDom) {
     if dom.world().get::<&EventListeners>(entity).is_err() {
         let _ = dom.world_mut().insert_one(entity, EventListeners::new());
+    }
+}
+
+#[cfg(test)]
+mod spec_level_tests {
+    use super::{
+        document_cookie_spec_level, event_handler_attr_spec_level, live_collection_spec_level,
+        web_storage_spec_level, EVENT_HANDLER_ATTRS,
+    };
+    use elidex_plugin::{DomSpecLevel, WebApiSpecLevel};
+
+    #[test]
+    fn a1_classifies_every_family_modern() {
+        // A1 marks nothing Legacy — every family's single source is Modern/Living
+        // so the install seams install in every mode (no behavior change). A2/A3/B
+        // flip exactly one source each; these assertions are the canaries that
+        // catch an accidental early demotion.
+        assert_eq!(web_storage_spec_level(), WebApiSpecLevel::Modern);
+        assert_eq!(document_cookie_spec_level(), WebApiSpecLevel::Modern);
+        assert_eq!(live_collection_spec_level(), DomSpecLevel::Living);
+    }
+
+    #[test]
+    fn onstorage_is_tied_to_the_web_storage_source() {
+        // `window.onstorage` is part of the Web Storage family, so it MUST read the
+        // family's single source — otherwise A2's one flip would hide the
+        // accessors / `Storage` / `StorageEvent` but leave `onstorage` exposed
+        // (Codex R7). This binds them so the tie cannot silently break.
+        assert_eq!(
+            event_handler_attr_spec_level("onstorage"),
+            web_storage_spec_level()
+        );
+    }
+
+    #[test]
+    fn spec_level_is_total_over_the_handler_attr_table() {
+        // Sibling of `event_handler_attr_event_type`'s totality: every row of
+        // `EVENT_HANDLER_ATTRS` resolves to a level (no panic / no fall-through to
+        // an unintended default), and only `onstorage` is non-Modern-by-source.
+        for (attr, _scope) in EVENT_HANDLER_ATTRS {
+            let level = event_handler_attr_spec_level(attr);
+            if *attr == "onstorage" {
+                assert_eq!(level, web_storage_spec_level());
+            } else {
+                assert_eq!(level, WebApiSpecLevel::Modern, "{attr} must be Modern");
+            }
+        }
     }
 }

@@ -33,7 +33,7 @@
 #![cfg(feature = "engine")]
 
 use elidex_css::media::{ColorScheme, ReducedMotion};
-use elidex_plugin::WebApiSpecLevel;
+use elidex_script_session::web_storage_spec_level;
 
 use super::super::coerce;
 use super::super::shape;
@@ -459,10 +459,12 @@ impl VmInner {
         //
         // Seam-1a of the A1 Web-API core/compat gate: the Web Storage family's
         // Window-accessor surface, gated by the family-neutral `installs(level)`
-        // predicate shared with the `Storage`/`StorageEvent` globals (seam-2). A1
-        // routes it at `Modern` (no API moves — installs in every mode exactly as
-        // before); A2 flips this site's literal to `Legacy` (HTML §12.2.2/§12.2.3).
-        if self.installs(WebApiSpecLevel::Modern) {
+        // predicate reading the family's SINGLE classification source
+        // `web_storage_spec_level()` (Codex R7) — shared with the
+        // `Storage`/`StorageEvent` globals (seam-2) and `window.onstorage` (seam-3),
+        // so A2 demotes the whole family by flipping that one source. A1's source
+        // is `Modern` (installs in every mode exactly as before).
+        if self.installs(web_storage_spec_level()) {
             self.install_ro_accessors(proto_id, WINDOW_STORAGE_ACCESSORS);
         }
         // Event-handler IDL attributes (WHATWG HTML §8.1.8.2.1): Window

@@ -64,6 +64,34 @@ the sites *are* the callers, and A2/A3/B become pure level-flips). The four R6 d
 `seen_findings` carried into the resumed loop = {F1, F2, F3(FP), F4, F5, F6, F7, F8, F9,
 F10, F11}. F1 (worker realm) + F7 (wasm realm) realm-inheritance fixes are **kept** (§3.6).
 
+### §R.1 — R7 refinement (per-family classification source)
+
+Codex **R7** (3× P2 on `0320d0c8`) is the same structural theme one layer deeper than R6: a
+*single level flip must make the whole family absent*, but the first redesign's **per-site
+`Modern` literals** captured only some surfaces of each family. The root (a missing
+abstraction) and its fix:
+
+- **R7-2 (window.rs — collapse Web Storage gates to one decision):** FIXED — introduced a
+  **single classification source per family** (`web_storage_spec_level()` /
+  `document_cookie_spec_level()` / `live_collection_spec_level()` in `elidex-script-session`,
+  beside `event_handler_attr_spec_level`); every install seam reads its family's source, so a
+  family demotes by flipping **one source** (§0.2 / §2.1). Enforcement stays the one general
+  `installs`/`installs_dom` predicate (F9); classification is now per-family-source — complementary.
+- **R7-1 (onstorage content-attribute path):** the `onstorage` *accessor* now reads
+  `web_storage_spec_level()` (tied to the family). The `<body onstorage="…">` /
+  `setAttribute("onstorage",…)` content-attribute registration in `EventHandlerAttributeConsumer`
+  + `StorageEvent` delivery are **A2's broader suppression scope** (A0 §5 A2 row — spans the VM
+  *and* the shell tab/IPC plumbing); A2 wires them to read the same source. Genuine cross-PR
+  boundary, not an edge-defer.
+- **R7-3 (live-collection family completeness):** the single source `live_collection_spec_level()`
+  is established and seam-1c reads it; the **full surface sweep** (`forms`/`images`/`links`/
+  `children` + `Element.prototype`/`table.rows`/`select.options` across sibling files) is **B0's**
+  classification work (A0 §5 B0 row / §1.3 / plan-review Q6), routed through the **same** source —
+  not a new gate. Genuine cross-PR boundary.
+
+Net: the per-family-source abstraction (the structural root) is fully landed in A1; each family's
+*surface-capture completeness* is its downstream owner's scope, now flowing through the one source.
+
 ---
 
 ## §A. Spec coverage map (preflight hard-gate)
@@ -113,16 +141,23 @@ the plan-review*, surfaced as Open Questions in §7 for the 5-agent gate to fals
    so cookie (A3) and live-collections (B) reuse the **same** predicate, never a new
    `installs_cookie()` / `installs_live_collection()`. *One issue, one way.*
 
-2. **Carrier = inline level-guard at each demotable install call (A0 §2.1, idiom-faithful).**
-   The level rides the **install call site** as a literal — `if self.installs(level) {
-   install_*(proto, TABLE) }` — exactly the shape A0 §2.1 chose (it mirrors the existing
-   `global_scope_kind` call-site wrap at `globals.rs`, *not* a third tuple element on every
-   table row, *not* a parallel `install_*_leveled` helper set). For A1 the literal is
-   `WebApiSpecLevel::Modern` / `DomSpecLevel::Living` at every site (no behavior change);
-   A2/A3/B flip **only that literal** to `Legacy`. **Leveled-helper variants are rejected**
-   (§2.1): they duplicate the call-site-wrap idiom A0 already blessed, for the demotable
-   *minority* only (the Modern 95% never routes through them), so they add a parallel helper
-   zoo without making the gate more uniform. *(Flagged Q1 — inline-guard vs leveled-helper.)*
+2. **Carrier = inline level-guard reading a per-family classification source (A0 §2.1 +
+   Codex R7 refinement).** Each demotable install seam is `if self.installs(<family>_spec_level())
+   { install_*(proto, TABLE) }` — the general predicate (the call-site-wrap idiom A0 §2.1
+   blessed, mirroring `global_scope_kind`; *not* a per-row tuple, *not* an `install_*_leveled`
+   helper set) reading the **single classification source for that API's family**:
+   `web_storage_spec_level()` (accessors + `Storage`/`StorageEvent` globals + `onstorage`),
+   `document_cookie_spec_level()`, `live_collection_spec_level()` (the `Document` getters +,
+   downstream, `forms`/`images`/`links`/`children`/…). **Codex R7 correction:** the first
+   redesign put an independent `Modern` *literal* at each site; for a family that spans several
+   install surfaces that means N literals to flip in lockstep — a missed one leaves a split
+   surface (`StorageEvent` without `localStorage`, the live-collection getters gone but
+   `forms`/`images`/`links` still live). So the level lives in **one source per family**; A2/A3/B
+   demote a whole family by flipping **one source**, and every surface of that family (including
+   ones a downstream PR adds) routes through the same source. *Enforcement stays the one general
+   `installs`/`installs_dom` predicate (F9); classification is per-family-source (R7) — the two
+   are complementary, not the storage-specific predicate F9 rejected.* Leveled-helper variants
+   stay rejected (parallel helper zoo for the demotable minority).
 
 3. **All four install seams routed, with a real `Modern` caller each (F8/F9/F11).** The gate
    spans four seam *kinds*; A1 wires **every demotable-destined site it can identify** at
