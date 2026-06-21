@@ -394,6 +394,70 @@ fn content_thread_viewport_resize_updates_scroll() {
     handle.join().unwrap();
 }
 
+/// A `@media (max-width: 900px)` rule flips a div's background blue→red. The
+/// default viewport is 1024px wide (rule does NOT match → blue); after a
+/// `SetViewport` to 800px the rule matches → red. Pins the LIVE CSS-cascade
+/// `@media` width path re-resolving against the transported viewport — the
+/// device fact this slice's shell producer (`WindowEvent::Resized` →
+/// `SetViewport`) drives (media-query Slice C-i). The winit producer itself is
+/// event-loop-driven (no unit harness, like the other shell window producers);
+/// this drives the real input contract — the `SetViewport` message — directly.
+#[test]
+fn content_thread_setviewport_flips_width_media_query() {
+    let (browser, content) = ipc::channel_pair::<BrowserToContent, ContentToBrowser>();
+    let (nh, jar, _np) = test_network();
+    let handle = spawn_content_thread(
+        content,
+        nh,
+        jar,
+        "<div id=\"box\">Box</div>".to_string(),
+        "div { display: block; width: 100px; height: 100px; background-color: blue; }\
+         @media (max-width: 900px) { div { background-color: red; } }"
+            .to_string(),
+    );
+
+    let has_red = |dl: &elidex_render::DisplayList| {
+        dl.iter().any(|item| {
+            matches!(
+                item,
+                elidex_render::DisplayItem::SolidRect { color, .. }
+                    if *color == elidex_plugin::CssColor::rgb(255, 0, 0)
+            )
+        })
+    };
+
+    // Initial frame at the 1024px default viewport → @media does not match → blue.
+    let ContentToBrowser::DisplayListReady(initial) =
+        browser.recv_timeout(Duration::from_secs(5)).unwrap()
+    else {
+        panic!("expected initial DisplayListReady");
+    };
+    assert!(
+        !has_red(&initial),
+        "default 1024px viewport must NOT match @media (max-width: 900px)"
+    );
+
+    // Resize to 800px wide → @media (max-width: 900px) now matches → red.
+    browser
+        .send(BrowserToContent::SetViewport {
+            width: 800.0,
+            height: 600.0,
+        })
+        .unwrap();
+    let ContentToBrowser::DisplayListReady(resized) =
+        browser.recv_timeout(Duration::from_secs(5)).unwrap()
+    else {
+        panic!("expected post-resize DisplayListReady");
+    };
+    assert!(
+        has_red(&resized),
+        "800px viewport must match @media (max-width: 900px) → red div"
+    );
+
+    browser.send(BrowserToContent::Shutdown).unwrap();
+    handle.join().unwrap();
+}
+
 #[test]
 fn focusable_cache_invalidates_on_all_focusability_attributes() {
     // The shell's Tab-order `focusable_cache` must rebuild whenever a mutation

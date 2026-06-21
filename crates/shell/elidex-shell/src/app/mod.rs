@@ -696,6 +696,23 @@ impl App {
         }
     }
 
+    /// Push a logical-pixel viewport size to the active tab's content thread so
+    /// the CSS cascade `@media` width/height (and boa `matchMedia`) re-resolve
+    /// against the real window size. The single chokepoint for every viewport
+    /// producer (`WindowEvent::Resized`, `resumed`, and the dppx-driven
+    /// `ScaleFactorChanged` to come in the prefers-features slice). Non-positive
+    /// sizes (winit can emit them on minimize) are dropped; the consumer also
+    /// re-guards `is_finite`. No-op in inline mode (`send_to_content` is
+    /// `tab_manager`-gated).
+    fn send_viewport(&self, size: winit::dpi::LogicalSize<f32>) {
+        if size.width > 0.0 && size.height > 0.0 {
+            self.send_to_content(BrowserToContent::SetViewport {
+                width: size.width,
+                height: size.height,
+            });
+        }
+    }
+
     /// Get the tab bar position from the active tab's chrome state.
     fn tab_bar_position(&self) -> chrome::TabBarPosition {
         self.tab_manager
@@ -752,7 +769,19 @@ impl ApplicationHandler for App {
         }
 
         state.window.request_redraw();
+        // Read the real initial viewport before moving `state` into self. The
+        // content thread spawned (and built its pipeline at `DEFAULT_VIEWPORT`)
+        // before this window existed (lazy `resumed` creation), so push the
+        // actual logical size now — the cascade re-resolves against it on the
+        // next frame. A residual startup default sub-frame is inherent to the
+        // threaded-content + lazy-window design (the display list is produced
+        // asynchronously by the content thread).
+        let initial_viewport = state
+            .window
+            .inner_size()
+            .to_logical::<f32>(state.window.scale_factor());
         self.render_state = Some(state);
+        self.send_viewport(initial_viewport);
     }
 
     fn suspended(&mut self, _event_loop: &ActiveEventLoop) {
@@ -781,15 +810,24 @@ impl ApplicationHandler for App {
                 return;
             }
             WindowEvent::Resized(new_size) => {
-                let Some(state) = self.render_state.as_mut() else {
-                    return;
+                let logical = {
+                    let Some(state) = self.render_state.as_mut() else {
+                        return;
+                    };
+                    state
+                        .gpu
+                        .resize(&state.surface, new_size.width, new_size.height);
+                    if new_size.width > 0 && new_size.height > 0 {
+                        state.window.request_redraw();
+                    }
+                    // winit `Resized` is physical px; the cascade / CSSOM
+                    // viewport is logical CSS px = physical ÷ scale_factor.
+                    new_size.to_logical::<f32>(state.window.scale_factor())
                 };
-                state
-                    .gpu
-                    .resize(&state.surface, new_size.width, new_size.height);
-                if new_size.width > 0 && new_size.height > 0 {
-                    state.window.request_redraw();
-                }
+                // Drive the content thread's viewport off the real window size.
+                // Without this producer the content thread stays pinned at the
+                // `DEFAULT_VIEWPORT` its pipeline was built with.
+                self.send_viewport(logical);
                 return;
             }
             _ => {}
