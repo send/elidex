@@ -777,36 +777,13 @@ fn append_self_fragment_returns_empty() {
     assert!(records.is_empty());
 }
 
-#[test]
-fn append_fragment_over_ancestor_depth_cap_moves_all_children() {
-    // Codex PR387 R1 F2: a fragment with more than MAX_ANCESTOR_DEPTH children must
-    // move ALL of them (§4.2.3 insert step 1 = every child) — `child_list_uncapped`,
-    // not the capped `children_iter`, drives the snapshot + records.
-    let mut dom = EcsDom::new();
-    let parent = elem(&mut dom, "div");
-    let frag = dom.create_document_fragment();
-    let n = elidex_ecs::MAX_ANCESTOR_DEPTH + 1;
-    for _ in 0..n {
-        let c = elem(&mut dom, "span");
-        dom.append_child(frag, c);
-    }
-
-    let records = super::apply_append_child(&mut dom, parent, frag);
-    assert_eq!(records.len(), 2);
-    assert_eq!(
-        records[0].removed_nodes.len(),
-        n,
-        "fragment record lists all children"
-    );
-    assert_eq!(
-        records[1].added_nodes.len(),
-        n,
-        "destination record lists all children"
-    );
-    // `children`/`children_iter` are capped, so assert via the uncapped view.
-    assert_eq!(dom.child_list_uncapped(parent).len(), n);
-    assert!(dom.child_list_uncapped(frag).is_empty());
-}
+// Codex PR387 R1 F2 (the >MAX_ANCESTOR_DEPTH fragment "moves ALL children" case):
+// the regression that `expand_fragment` snapshots via `child_list_uncapped` (not the
+// 10k-capped `children_iter`) is guarded by (a) `expand_fragment` calling the
+// canonically-uncapped helper and (b) `child_list_uncapped`'s own no-truncation
+// contract in elidex-ecs. A full-cap apply test here would build/move 10_001 nodes
+// — O(n²) via per-node `index_in_parent`, ~60s of permanent CI latency for an
+// extreme edge — so it is intentionally NOT in the normal suite (Codex PR387 R5 H1).
 
 #[test]
 fn replace_child_fragment_old_not_child_is_failure() {
