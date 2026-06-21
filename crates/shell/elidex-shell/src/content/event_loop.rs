@@ -270,7 +270,8 @@ fn handle_message(msg: BrowserToContent, state: &mut ContentState) -> bool {
 
                 // Refresh each `MediaQueryList`'s cached `matches` state to the
                 // new viewport **before** dispatching any event. Per CSSOM View
-                // the `matches` getter returns the *current* matches state, so a
+                // Module Level 1 §4.2 (The MediaQueryList Interface) the `matches`
+                // getter returns the *current* matches state, so a
                 // `resize` listener that reads a pre-existing `MediaQueryList`
                 // (`mql.matches`) must observe the post-resize value —
                 // `media_query_matches` reads the cache this call updates. This

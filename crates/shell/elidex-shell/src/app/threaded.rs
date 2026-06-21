@@ -226,7 +226,8 @@ impl App {
     /// so the two coordinates the content thread receives are the *same* viewport
     /// point — the `ipc` contract (both `point` and `client_point` are
     /// content-area/viewport-relative; `clientX`/`clientY` are viewport-relative
-    /// per CSSOM View, and the iframe router subtracts the iframe's
+    /// per CSSOM View Module Level 1 §10 (Extensions to the MouseEvent
+    /// Interface), and the iframe router subtracts the iframe's
     /// content-relative origin from both). Computed in f64 to preserve
     /// `clientX`/`clientY` precision.
     fn cursor_to_content(
