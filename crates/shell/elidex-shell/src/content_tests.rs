@@ -558,6 +558,94 @@ fn content_thread_setviewport_flips_width_media_query() {
     handle.join().unwrap();
 }
 
+/// A `resize` listener that reads a pre-existing `MediaQueryList`'s `matches`
+/// must see the **post-resize** value (CSSOM View: the `matches` getter returns
+/// the *current* matches state). The `SetViewport` consumer refreshes the MQL
+/// cache **before** dispatching `resize`, so `mql.matches` read inside the
+/// listener is already current; the MQL `change` *events* still fire after
+/// `resize` (§8.1.7.3 step 8 < step 10). Regression for the
+/// cache-refresh-before-resize ordering.
+///
+/// The query is `(min-width: 900px)` and the resize grows the viewport across
+/// that boundary: the boa `HostBridge` viewport defaults to 800 px (`bridge/mod`
+/// `viewport_width: 800.0`), so at script time `mql.matches` is **false**
+/// (`800 < 900`). Resizing to 1000 px must flip the cached state to **true**
+/// before the listener runs. The listener recolors the box from that read alone
+/// (no `@media` cascade, no MQL `change` event) — `red` ⇒ the listener saw the
+/// fresh `true`; `lime` ⇒ it ran but read the **stale** cached `false` (the bug);
+/// `blue` ⇒ the listener never ran. (A `max-width` query the other way is
+/// already `true` at the 800 px default and cannot detect staleness.)
+#[test]
+fn content_thread_resize_listener_sees_fresh_matchmedia() {
+    let (browser, content) = ipc::channel_pair::<BrowserToContent, ContentToBrowser>();
+    let (nh, jar, _np) = test_network();
+    let handle = spawn_test_content(
+        content,
+        nh,
+        jar,
+        "<div id=\"box\">Box</div>\
+         <script>\
+           var mql = matchMedia('(min-width: 900px)');\
+           window.addEventListener('resize', function() {\
+             if (mql.matches) {\
+               document.getElementById('box').style.setProperty('background-color', 'red');\
+             } else {\
+               document.getElementById('box').style.setProperty('background-color', 'lime');\
+             }\
+           });\
+         </script>"
+            .to_string(),
+        "div { display: block; width: 100px; height: 100px; background-color: blue; }".to_string(),
+    );
+
+    let has_color = |dl: &elidex_render::DisplayList, c: elidex_plugin::CssColor| {
+        dl.iter().any(|item| {
+            matches!(item, elidex_render::DisplayItem::SolidRect { color, .. } if *color == c)
+        })
+    };
+    let red = elidex_plugin::CssColor::rgb(255, 0, 0);
+    let lime = elidex_plugin::CssColor::rgb(0, 255, 0);
+
+    // Initial frame: `min-width: 900px` is false at the 800 px default and the
+    // listener has not run → box is its blue default (neither red nor lime).
+    let ContentToBrowser::DisplayListReady(initial) =
+        browser.recv_timeout(Duration::from_secs(5)).unwrap()
+    else {
+        panic!("expected initial DisplayListReady");
+    };
+    assert!(
+        !has_color(&initial, red) && !has_color(&initial, lime),
+        "box must start blue (listener not yet run)"
+    );
+
+    // Grow to 1000 px (crosses min-width: 900): during the resize listener
+    // `mql.matches` must already be true (cache refreshed before dispatch) → red.
+    browser
+        .send(BrowserToContent::SetViewport {
+            width: 1000.0,
+            height: 600.0,
+        })
+        .unwrap();
+    let ContentToBrowser::DisplayListReady(resized) =
+        browser.recv_timeout(Duration::from_secs(5)).unwrap()
+    else {
+        panic!("expected post-resize DisplayListReady");
+    };
+    assert!(
+        has_color(&resized, red),
+        "resize listener read stale mql.matches (cache not refreshed before resize dispatch): \
+         box is {}",
+        if has_color(&resized, lime) {
+            "lime (stale false)"
+        } else {
+            "blue (listener did not run)"
+        }
+    );
+
+    browser.send(BrowserToContent::Shutdown).unwrap();
+    handle.join().unwrap();
+}
+
 /// Grep-guard for the single-builder invariant (F1, §2.3): the content-area
 /// geometry primitives each have exactly one **production** caller — the
 /// placement builder `App::content_area_placement` — so the cached `placement`

@@ -220,32 +220,61 @@ impl App {
     /// to clear hover state (otherwise `:hover` stays stuck).
     /// Map a physical-px cursor position to content-area CSS px:
     /// `(cursor ÷ scale_factor) − origin_logical` — the exact inverse of the
-    /// compositor transform (B-D2). The single input-mapping primitive shared by
-    /// all three threaded pointer handlers.
+    /// compositor transform (B-D2). The single input-mapping primitive: both the
+    /// hit-test `point` (via `.to_f32()`) and the DOM `clientX`/`clientY`
+    /// `client_point` (f64) derive from this one content-area-relative mapping,
+    /// so the two coordinates the content thread receives are the *same* viewport
+    /// point — the `ipc` contract (both `point` and `client_point` are
+    /// content-area/viewport-relative; `clientX`/`clientY` are viewport-relative
+    /// per CSSOM View, and the iframe router subtracts the iframe's
+    /// content-relative origin from both). Computed in f64 to preserve
+    /// `clientX`/`clientY` precision.
     fn cursor_to_content(
         cursor: elidex_plugin::Point<f64>,
         placement: ContentAreaPlacement,
-    ) -> elidex_plugin::Point {
-        let p = cursor.to_f32();
-        let scale = placement.scale_factor;
+    ) -> elidex_plugin::Point<f64> {
+        let scale = f64::from(placement.scale_factor);
         elidex_plugin::Point::new(
-            p.x / scale - placement.origin_logical.x,
-            p.y / scale - placement.origin_logical.y,
+            cursor.x / scale - f64::from(placement.origin_logical.x),
+            cursor.y / scale - f64::from(placement.origin_logical.y),
         )
     }
 
-    /// Map a physical-px cursor to window-logical CSS px (`cursor ÷ scale`) for
-    /// the DOM `clientX`/`clientY` fields. Scale-only — like [`cursor_to_content`]
-    /// it removes the device pixel ratio so content receives CSS px (B-D2), but
-    /// it keeps the *window-relative* origin the `client_point` field already
-    /// used (the content-area-relative origin convention for `clientX` is a
-    /// pre-existing, separate concern, untouched here). Identity at scale 1.
-    fn cursor_to_window_css(
-        cursor: elidex_plugin::Point<f64>,
-        scale: f32,
-    ) -> elidex_plugin::Point<f64> {
-        let s = f64::from(scale);
-        elidex_plugin::Point::new(cursor.x / s, cursor.y / s)
+    /// Whether a content-area CSS-px point falls inside the placed content rect
+    /// `[0, size_logical)`. The compositor clips the page to `size_logical`, so a
+    /// point past the right/bottom edge (e.g. a `TabBarPosition::Right` sidebar,
+    /// where `x ≥ 0` but `x ≥ size_logical.width`) is over chrome, not painted
+    /// page content, and must not be treated as in-content. The shared in-content
+    /// gate for all three threaded pointer handlers (B-D2 / invariant I1: the
+    /// input rect equals the painted rect).
+    fn point_in_content(
+        content: elidex_plugin::Point<f64>,
+        placement: ContentAreaPlacement,
+    ) -> bool {
+        content.x >= 0.0
+            && content.y >= 0.0
+            && content.x < f64::from(placement.size_logical.width)
+            && content.y < f64::from(placement.size_logical.height)
+    }
+
+    /// Convert a winit scroll delta to CSS-px scroll vector (browser sign
+    /// convention: positive = scrollTop increases, so winit deltas are negated).
+    /// `LineDelta` → 40 CSS px per line. `PixelDelta` is **physical** px, divided
+    /// by `scale_factor` to CSS px (B-D2) so HiDPI scroll distance matches the
+    /// cursor mapping and the painted content (the `MouseWheel` IPC contract is
+    /// CSS px).
+    fn scroll_delta_to_css(delta: MouseScrollDelta, scale: f32) -> elidex_plugin::Vector<f64> {
+        const LINE_SCROLL_PX: f64 = 40.0;
+        match delta {
+            MouseScrollDelta::LineDelta(x, y) => elidex_plugin::Vector::new(
+                -f64::from(x) * LINE_SCROLL_PX,
+                -f64::from(y) * LINE_SCROLL_PX,
+            ),
+            MouseScrollDelta::PixelDelta(pos) => {
+                let s = f64::from(scale);
+                elidex_plugin::Vector::new(-pos.x / s, -pos.y / s)
+            }
+        }
     }
 
     fn handle_cursor_move_threaded(
@@ -253,12 +282,12 @@ impl App {
         client_pos: elidex_plugin::Point<f64>,
         placement: ContentAreaPlacement,
     ) {
-        let content_pos = Self::cursor_to_content(client_pos, placement);
-        if content_pos.x >= 0.0 && content_pos.y >= 0.0 {
+        let content = Self::cursor_to_content(client_pos, placement);
+        if Self::point_in_content(content, placement) {
             self.cursor_in_content = true;
             self.send_to_content(BrowserToContent::MouseMove {
-                point: content_pos,
-                client_point: Self::cursor_to_window_css(client_pos, placement.scale_factor),
+                point: content.to_f32(),
+                client_point: content,
             });
         } else if self.cursor_in_content {
             self.cursor_in_content = false;
@@ -273,12 +302,12 @@ impl App {
         placement: ContentAreaPlacement,
     ) {
         if let Some(cursor) = self.cursor_pos {
-            let content_pos = Self::cursor_to_content(cursor, placement);
-            if content_pos.x >= 0.0 && content_pos.y >= 0.0 {
+            let content = Self::cursor_to_content(cursor, placement);
+            if Self::point_in_content(content, placement) {
                 let mods = Self::to_modifier_state(self.modifiers.state());
                 self.send_to_content(BrowserToContent::MouseClick(crate::ipc::MouseClickEvent {
-                    point: content_pos,
-                    client_point: Self::cursor_to_window_css(cursor, placement.scale_factor),
+                    point: content.to_f32(),
+                    client_point: content,
                     button: winit_button_to_dom(button),
                     mods,
                 }));
@@ -288,34 +317,26 @@ impl App {
 
     /// Handle `MouseWheel` in threaded mode.
     ///
-    /// Converts winit scroll deltas to CSS pixels and sends to content thread.
-    /// Winit convention: positive = content moves right/down (natural scroll).
-    /// Browser convention: positive delta = scrollTop increases (scroll down).
-    /// These are opposite, so deltas are negated.
-    /// `LineDelta` is multiplied by 40px per line (typical browser behavior);
-    /// `PixelDelta` is used as-is (already in CSS pixels on most platforms).
+    /// Converts winit scroll deltas to CSS px ([`scroll_delta_to_css`]) and sends
+    /// to the content thread — only when the cursor is inside the content rect,
+    /// since the page under chrome is not painted and must not scroll (the
+    /// hover/click in-content gate, applied to the wheel too).
     fn handle_mouse_wheel_threaded(
         &mut self,
         delta: MouseScrollDelta,
         placement: ContentAreaPlacement,
     ) {
-        const LINE_SCROLL_PX: f64 = 40.0;
-        let scroll_delta = match delta {
-            MouseScrollDelta::LineDelta(x, y) => elidex_plugin::Vector::new(
-                -f64::from(x) * LINE_SCROLL_PX,
-                -f64::from(y) * LINE_SCROLL_PX,
-            ),
-            MouseScrollDelta::PixelDelta(pos) => elidex_plugin::Vector::new(-pos.x, -pos.y),
+        let scroll_delta = Self::scroll_delta_to_css(delta, placement.scale_factor);
+        let Some(cursor) = self.cursor_pos else {
+            return;
         };
-        let point = self
-            .cursor_pos
-            .map_or(elidex_plugin::Point::ZERO, |cursor| {
-                Self::cursor_to_content(cursor, placement)
+        let content = Self::cursor_to_content(cursor, placement);
+        if Self::point_in_content(content, placement) {
+            self.send_to_content(BrowserToContent::MouseWheel {
+                delta: scroll_delta,
+                point: content.to_f32(),
             });
-        self.send_to_content(BrowserToContent::MouseWheel {
-            delta: scroll_delta,
-            point,
-        });
+        }
     }
 
     /// Handle `KeyboardInput` in threaded mode.
@@ -586,22 +607,79 @@ mod placement_input_tests {
                     f64::from((c.y + origin.y) * scale),
                 );
                 let back = App::cursor_to_content(phys, pl);
-                assert!((back.x - c.x).abs() < 1e-3, "x {} != {}", back.x, c.x);
-                assert!((back.y - c.y).abs() < 1e-3, "y {} != {}", back.y, c.y);
+                assert!(
+                    (back.x - f64::from(c.x)).abs() < 1e-3,
+                    "x {} != {}",
+                    back.x,
+                    c.x
+                );
+                assert!(
+                    (back.y - f64::from(c.y)).abs() < 1e-3,
+                    "y {} != {}",
+                    back.y,
+                    c.y
+                );
             }
         }
     }
 
-    /// `client_point` (DOM `clientX`/`clientY`) is scaled to CSS px (`÷ scale`)
-    /// like `point`, not left raw-physical — so it does not double at scale 2.
-    /// Scale-only (window-relative origin preserved), identity at scale 1.
+    /// `client_point` (DOM `clientX`/`clientY`) and the hit-test `point` are the
+    /// **same** content-area-relative CSS-px coordinate — both come from
+    /// `cursor_to_content`, so `clientX`/`clientY` are viewport-relative (chrome
+    /// `origin_logical` subtracted) and scale-divided, not window-relative and
+    /// not raw-physical. At a top chrome of 64 CSS px and scale 2, a physical
+    /// cursor over content CSS `(10, 10)` yields `client_point (10, 10)` — not
+    /// `(10, 74)` (origin kept) and not `(20, 148)` (raw physical).
     #[test]
-    fn cursor_to_window_css_removes_device_scale() {
-        // scale 1: identity.
-        let p1 = App::cursor_to_window_css(Point::<f64>::new(120.0, 200.0), 1.0);
-        assert!((p1.x - 120.0).abs() < 1e-9 && (p1.y - 200.0).abs() < 1e-9);
-        // scale 2: physical (120, 200) → CSS (60, 100), not left at 2×.
-        let p2 = App::cursor_to_window_css(Point::<f64>::new(120.0, 200.0), 2.0);
-        assert!((p2.x - 60.0).abs() < 1e-9 && (p2.y - 100.0).abs() < 1e-9);
+    fn client_point_is_content_area_relative_css_px() {
+        // Top chrome 64 CSS px, scale 2. Content CSS (10, 10) is painted at
+        // physical ((10+0), (10+64)) × 2 = (20, 148).
+        let pl = placement(Point::new(0.0, 64.0), 2.0);
+        let phys = Point::<f64>::new(20.0, 148.0);
+        let client = App::cursor_to_content(phys, pl);
+        assert!((client.x - 10.0).abs() < 1e-9, "clientX {} != 10", client.x);
+        assert!((client.y - 10.0).abs() < 1e-9, "clientY {} != 10", client.y);
+    }
+
+    /// A point past the right/bottom edge of the placed content rect is rejected
+    /// (the compositor clips the page to `size_logical`, so it is over chrome,
+    /// not painted content) — e.g. a `TabBarPosition::Right` sidebar at `x ≥
+    /// width`. The lower edge `[0, …)` is accepted, the upper edge `size_logical`
+    /// is excluded (half-open `[0, size)`).
+    #[test]
+    fn point_in_content_rejects_outside_placed_rect() {
+        // 800×600 content rect (the `placement` helper's size_logical).
+        let pl = placement(Point::new(0.0, 0.0), 1.0);
+        assert!(App::point_in_content(Point::<f64>::new(0.0, 0.0), pl)); // top-left in
+        assert!(App::point_in_content(Point::<f64>::new(799.0, 599.0), pl)); // inside
+        assert!(!App::point_in_content(Point::<f64>::new(-1.0, 10.0), pl)); // left of origin
+        assert!(!App::point_in_content(Point::<f64>::new(10.0, -1.0), pl)); // above origin
+        assert!(!App::point_in_content(Point::<f64>::new(800.0, 10.0), pl)); // right edge (Right sidebar)
+        assert!(!App::point_in_content(Point::<f64>::new(10.0, 600.0), pl)); // bottom edge
+    }
+
+    /// `PixelDelta` scroll is physical px → divided by `scale_factor` to CSS px
+    /// (identity at scale 1, halved at scale 2), so HiDPI scroll distance matches
+    /// the cursor mapping. `LineDelta` (40 px/line) is scale-independent. Both are
+    /// negated (winit → browser scrollTop sign).
+    #[test]
+    fn scroll_delta_to_css_divides_pixeldelta_by_scale() {
+        use winit::dpi::PhysicalPosition;
+        use winit::event::MouseScrollDelta;
+        // PixelDelta at scale 1: identity (negated).
+        let d1 = App::scroll_delta_to_css(
+            MouseScrollDelta::PixelDelta(PhysicalPosition::new(40.0, 80.0)),
+            1.0,
+        );
+        assert!((d1.x + 40.0).abs() < 1e-9 && (d1.y + 80.0).abs() < 1e-9);
+        // PixelDelta at scale 2: physical (40, 80) → CSS (20, 40), negated.
+        let d2 = App::scroll_delta_to_css(
+            MouseScrollDelta::PixelDelta(PhysicalPosition::new(40.0, 80.0)),
+            2.0,
+        );
+        assert!((d2.x + 20.0).abs() < 1e-9 && (d2.y + 40.0).abs() < 1e-9);
+        // LineDelta is scale-independent: 1 line → 40 CSS px, negated.
+        let dl = App::scroll_delta_to_css(MouseScrollDelta::LineDelta(0.0, 1.0), 2.0);
+        assert!((dl.y + 40.0).abs() < 1e-9);
     }
 }
