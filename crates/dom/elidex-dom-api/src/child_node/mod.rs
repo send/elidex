@@ -293,6 +293,19 @@ pub(crate) fn collect_nodes(
                     .identity_map()
                     .get(JsObjectRef::from_raw(*id))
                     .ok_or_else(|| not_found_error("node not found in identity map"))?;
+                // A ShadowRoot is bound to its host by the immovable host edge (§4.8)
+                // and is not a movable node. Reject it HERE — before `convert_nodes_into_node`
+                // wraps the variadic args via the raw, non-expanding `EcsDom::append_child`,
+                // which would reparent the shadow root into the temporary fragment and on
+                // into the destination (the `apply_*` ShadowRoot guard only sees the temp
+                // fragment, not its shadow-root child). `collect_nodes` is the shared
+                // engine-independent resolution point for every ChildNode/ParentNode mixin
+                // arg (VM + boa + wasm), so the rejection covers all runtimes. (Codex PR393 R6.)
+                if dom.is_shadow_root(entity) {
+                    return Err(hierarchy_error(
+                        "a ShadowRoot cannot be inserted into the light DOM",
+                    ));
+                }
                 entities.push(entity);
             }
             JsValue::Null | JsValue::Undefined => {}

@@ -577,3 +577,42 @@ fn prepend_on_shadow_host_does_not_leak_shadow_root_as_reference() {
         "x is the only (first) light child"
     );
 }
+
+#[test]
+fn append_multiarg_rejects_shadow_root_arg_without_corruption() {
+    use elidex_ecs::ShadowRootMode;
+    let (mut dom, _body, _div, _span, _p, mut session) = setup();
+    let host = dom.create_element("div", Attributes::default());
+    let sr = dom
+        .attach_shadow(host, ShadowRootMode::Open)
+        .expect("attach_shadow");
+    let target = dom.create_element("div", Attributes::default());
+    let x = dom.create_element("x", Attributes::default());
+    let x_ref = session
+        .get_or_create_wrapper(x, ComponentKind::Element)
+        .to_raw();
+    let sr_ref = session
+        .get_or_create_wrapper(sr, ComponentKind::DocumentFragment)
+        .to_raw();
+
+    // `target.append(x, host.shadowRoot)` — a multi-arg list with a ShadowRoot. The
+    // shadow-root arg is rejected at `collect_nodes`, BEFORE `convert_nodes_into_node`
+    // wraps the variadic args via the raw `EcsDom::append_child` that would reparent it
+    // (the apply_* guard only sees the temp fragment, not its shadow-root child). So the
+    // op fails atomically — no reparenting, no partial mutation. (Codex PR393 R6.)
+    let result = Append.invoke(
+        target,
+        &[JsValue::ObjectRef(x_ref), JsValue::ObjectRef(sr_ref)],
+        &mut session,
+        &mut dom,
+    );
+    assert!(
+        result.is_err(),
+        "multi-arg append with a ShadowRoot must fail"
+    );
+    assert!(dom.is_shadow_root(sr), "shadow root still a shadow root");
+    assert!(
+        dom.children(target).is_empty(),
+        "atomic: neither the shadow root nor x was inserted"
+    );
+}
