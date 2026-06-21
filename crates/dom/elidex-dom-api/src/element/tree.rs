@@ -187,14 +187,15 @@ impl DomApiHandler for RemoveChild {
 // ---------------------------------------------------------------------------
 
 /// `parent.replaceChild(newChild, oldChild)` — replaces `oldChild` with
-/// `newChild` and returns the replaced node (WHATWG DOM §4.4 "replace").
+/// `newChild` and returns the replaced node (the §4.4 `replaceChild` method runs
+/// the WHATWG DOM §4.2.3 "replace" algorithm, `#concept-node-replace`).
 ///
-/// Error mapping:
+/// Error mapping (steps of the §4.2.3 "replace" algorithm):
 /// - `oldChild` is not a child of `parent` → `NotFoundError`
-///   (WHATWG §4.4 step 5; matches Chrome/Firefox/WebKit).
+///   (§4.2.3 step 3; matches Chrome/Firefox/WebKit).
 /// - `newChild` is `parent` itself, an ancestor of `parent`, or any other
 ///   pre-insertion validity violation → `HierarchyRequestError`
-///   (§4.4 steps 1-2, 4). Cross-document violations also map here per
+///   (§4.2.3 steps 1-2, 4). Cross-document violations also map here per
 ///   §4.2.3 — `WrongDocumentError` is not a separate `DomApiErrorKind`.
 ///
 /// The replace is delegated to a single `EcsDom::replace_child` op so the
@@ -230,7 +231,7 @@ impl DomApiHandler for ReplaceChild {
             .get(JsObjectRef::from_raw(old_ref))
             .ok_or_else(|| not_found_error("oldChild not found"))?;
 
-        // §4.4 step 5: if oldChild's parent is not parent, NotFoundError.
+        // §4.2.3 "replace" step 3: if oldChild's parent is not parent, NotFoundError.
         // EcsDom::replace_child collapses every failure to a single bool;
         // splitting the parent check out lets us distinguish NotFoundError
         // from HierarchyRequestError without re-implementing the rest of
@@ -243,8 +244,8 @@ impl DomApiHandler for ReplaceChild {
 
         // Self-replace (`parent.replaceChild(x, x)`) is a no-op per
         // browser parity (Chrome / Firefox / WebKit) — the spec
-        // §4.4 step 8 reference-child adjustment makes the insert+remove
-        // sequence collapse to nothing.  EcsDom::replace_child rejects
+        // §4.2.3 "replace" step 8 reference-child adjustment makes the
+        // insert+remove sequence collapse to nothing.  EcsDom::replace_child rejects
         // `new == old` early (would surface as HierarchyRequestError),
         // so handle it here before dispatching.
         if new_entity == old_entity {
