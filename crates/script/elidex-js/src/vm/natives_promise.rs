@@ -339,11 +339,17 @@ fn drain_queue_pass(vm: &mut VmInner) {
                 #[cfg(feature = "engine")]
                 {
                     vm.mutation_observer_microtask_queued = false;
+                    // Steps 4–5: snapshot + empty the signal-slots set BEFORE
+                    // the observer callbacks (step 6), so a slotchange signaled
+                    // by a callback body fires from a fresh notify-MO microtask,
+                    // not this one (WHATWG DOM §4.3 ordering; Codex PR379 R2).
+                    let slot_snapshot =
+                        super::host::html_slot_proto::snapshot_pending_slot_change_signals(vm);
                     // Steps 2–6: deliver each observer's queued records to
                     // its JS callback.
                     vm.deliver_pending_mutation_records();
-                    // Step 7: fire the pending slotchange events.
-                    super::host::html_slot_proto::dispatch_pending_slotchange_signals(vm);
+                    // Step 7: fire the pre-callback slotchange snapshot.
+                    super::host::html_slot_proto::fire_slot_change_signals(vm, slot_snapshot);
                 }
             }
         }

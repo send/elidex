@@ -1,6 +1,6 @@
 //! Tree mutation handlers: appendChild, insertBefore, removeChild, insertAdjacent*.
 
-use elidex_ecs::{EcsDom, Entity, TextContent};
+use elidex_ecs::{EcsDom, Entity, NodeKind, TextContent};
 use elidex_plugin::JsValue;
 use elidex_script_session::{
     apply_append_child, apply_insert_before, apply_remove_child, apply_replace_child, DomApiError,
@@ -8,6 +8,28 @@ use elidex_script_session::{
 };
 
 use crate::util::{not_found_error, require_object_ref_arg, require_string_arg};
+
+/// Whether the §4.3.2 childList record for inserting `node` into a parent must
+/// be **deferred to B1.2** rather than emitted by B1's single-node path.
+///
+/// B1 covers only **fresh single-node** inserts. Two cases are out of scope and
+/// would otherwise emit a malformed / incomplete record, so B1 applies the
+/// mutation (read-your-writes) but withholds the record:
+///
+/// - **Move** (`node` already has a parent): per WHATWG DOM the insert first
+///   `adopt`s `node` (§4.5 step 2 "remove node", NOT suppressed → §4.2.3 remove
+///   step 16 queues a removal record on the source) and then queues the
+///   destination insertion record — a **two-record** sequence. The single-node
+///   helper snapshots one stale sibling and emits neither correctly.
+/// - **DocumentFragment** (§4.2.3 insert step 1): the record's `addedNodes` are
+///   the fragment's *children*, not the fragment node itself — a multi-node
+///   expansion beyond B1's single-node scope.
+///
+/// Both are owned by B1.2 (move-record semantics + multi-node coalescing).
+fn record_deferred_to_b1_2(dom: &EcsDom, node: Entity) -> bool {
+    dom.get_parent(node).is_some()
+        || matches!(dom.node_kind(node), Some(NodeKind::DocumentFragment))
+}
 
 // ---------------------------------------------------------------------------
 // appendChild
@@ -33,20 +55,16 @@ impl DomApiHandler for AppendChild {
             .identity_map()
             .get(JsObjectRef::from_raw(child_ref))
             .ok_or_else(|| not_found_error("child not found"))?;
-        // Move guard (B1 scope): an already-parented child is a *move*, whose
-        // record semantics (§4.2.3 sibling computation across the relink + any
-        // old-parent removal) are deferred to B1.2. `apply_append_child`
-        // snapshots `previousSibling` *before* the relink, so for a move it
-        // could be stale or the moved node itself — never emit that malformed
-        // record. The mutation still applies (read-your-writes); only the
-        // record is withheld until B1.2.
-        let is_move = dom.get_parent(child_entity).is_some();
+        // B1 scope guard: defer the record for moves / fragments (§ helper) —
+        // apply the mutation but withhold the (would-be malformed / incomplete)
+        // record until B1.2. Fresh single-node inserts record normally.
+        let defer_record = record_deferred_to_b1_2(dom, child_entity);
         // Apply through the EcsDom chokepoint AND build the §4.3.2 childList
         // record in one step; `None` = the append failed (cycle / invalid
         // parent). A fresh-node record is staged for §4.3 microtask delivery.
         match apply_append_child(dom, this, child_entity) {
             Some(record) => {
-                if !is_move {
+                if !defer_record {
                     session.push_notify_record(record);
                 }
             }
@@ -87,10 +105,9 @@ impl DomApiHandler for InsertBefore {
             .get(JsObjectRef::from_raw(new_ref))
             .ok_or_else(|| not_found_error("newChild not found"))?;
 
-        // Move guard (B1 scope): an already-parented newChild is a move; its
-        // record is deferred to B1.2 (the sibling snapshot would be stale across
-        // the relink). The mutation still applies. See `AppendChild`.
-        let is_move = dom.get_parent(new_entity).is_some();
+        // B1 scope guard: defer the record for moves / fragments. See
+        // `AppendChild` + `record_deferred_to_b1_2`.
+        let defer_record = record_deferred_to_b1_2(dom, new_entity);
 
         // WebIDL `Node?` — both `null` and `undefined` mean "no
         // reference child"; missing arg is the same.
@@ -100,7 +117,7 @@ impl DomApiHandler for InsertBefore {
             // null reference child = append (WHATWG DOM §4.2.3 pre-insert).
             match apply_append_child(dom, this, new_entity) {
                 Some(record) => {
-                    if !is_move {
+                    if !defer_record {
                         session.push_notify_record(record);
                     }
                 }
@@ -122,7 +139,7 @@ impl DomApiHandler for InsertBefore {
             .ok_or_else(|| not_found_error("refChild not found"))?;
         match apply_insert_before(dom, this, new_entity, ref_entity) {
             Some(record) => {
-                if !is_move {
+                if !defer_record {
                     session.push_notify_record(record);
                 }
             }
@@ -236,16 +253,16 @@ impl DomApiHandler for ReplaceChild {
             return Ok(JsValue::ObjectRef(old_ref));
         }
 
-        // Move guard (B1 scope): if newChild is already parented, the replace is
-        // also a move of newChild — its record (including any old-parent removal)
-        // is deferred to B1.2. The mutation still applies. See `AppendChild`.
-        let is_move = dom.get_parent(new_entity).is_some();
+        // B1 scope guard: if newChild is a move/fragment its record is deferred
+        // to B1.2 (move = source-removal + dest-insert; fragment = multi-node).
+        // The mutation still applies. See `record_deferred_to_b1_2`.
+        let defer_record = record_deferred_to_b1_2(dom, new_entity);
         // §4.2.3 "replace" emits exactly ONE coalesced childList record
         // (added=[new], removed=[old]); the inner remove/insert run with
         // suppressObservers. `apply_replace_child` builds that single record.
         match apply_replace_child(dom, this, new_entity, old_entity) {
             Some(record) => {
-                if !is_move {
+                if !defer_record {
                     session.push_notify_record(record);
                 }
             }

@@ -471,9 +471,11 @@ pub(crate) struct VmInner {
     /// §4.2.2.5 "signal a slot change" + §4.3 "notify mutation
     /// observers").  Each `<slot>` entity appended here gets a
     /// `slotchange` Event fired at it (bubbles=true, composed=false)
-    /// at the next microtask checkpoint.  Drained from
-    /// [`crate::vm::host::html_slot_proto::dispatch_pending_slotchange_signals`]
-    /// at the end of `drain_microtasks`.
+    /// at the next microtask checkpoint.  Snapshotted by
+    /// [`crate::vm::host::html_slot_proto::snapshot_pending_slot_change_signals`]
+    /// (before observer callbacks) and fired by
+    /// [`crate::vm::host::html_slot_proto::fire_slot_change_signals`]
+    /// during `drain_microtasks`.
     ///
     /// `VecDeque` for O(1) front-pop in FIFO drain order; dedup on
     /// append uses a linear scan because the set is typically tiny

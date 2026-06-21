@@ -382,9 +382,15 @@ fn slot_assigned_elements(
 /// fresh notify-MO microtask, which runs later in the SAME drain
 /// pass.  Returns the number of events actually fired (telemetry /
 /// tests).
-pub(in crate::vm) fn dispatch_pending_slotchange_signals(vm: &mut VmInner) -> usize {
+/// Clone-and-empty the signal-slots set (WHATWG DOM §4.3 "notify mutation
+/// observers" steps 4–5). Must run **before** the mutation-observer callbacks
+/// (step 6) so a slot signaled by a callback body (re-entrant `slot.assign()`)
+/// is NOT in this checkpoint's snapshot — it re-arms the coalescing flag and
+/// fires from a fresh notify-MO microtask instead (Codex PR379 R2). Returns an
+/// empty vec when nothing is pending or the VM is unbound.
+pub(in crate::vm) fn snapshot_pending_slot_change_signals(vm: &mut VmInner) -> Vec<Entity> {
     if vm.pending_slot_change_signals.is_empty() {
-        return 0;
+        return Vec::new();
     }
     if !vm
         .host_data
@@ -397,16 +403,18 @@ pub(in crate::vm) fn dispatch_pending_slotchange_signals(vm: &mut VmInner) -> us
         // Drop the queue silently rather than panic in `host()` /
         // `dom()`.
         vm.pending_slot_change_signals.clear();
+        return Vec::new();
+    }
+    vm.pending_slot_change_signals.drain(..).collect()
+}
+
+/// Fire a `slotchange` Event at each slot in a previously-taken `snapshot`
+/// (WHATWG DOM §4.3 step 7). Slots destroyed before the fire are skipped.
+pub(in crate::vm) fn fire_slot_change_signals(vm: &mut VmInner, snapshot: Vec<Entity>) -> usize {
+    if snapshot.is_empty() {
         return 0;
     }
     let type_sid = vm.well_known.slotchange_event;
-    // Snapshot the signal-slots set BEFORE dispatch (WHATWG DOM
-    // §4.3 "notify mutation observers" steps 4–5 + 7: clone signal
-    // slots, empty signal slots, then fire `slotchange` for each slot
-    // in the clone).  Slots signaled by a `slotchange` listener body
-    // during this pass land on the live queue and fire in the next
-    // microtask checkpoint — NOT re-entrantly inside this dispatch.
-    let snapshot: Vec<Entity> = vm.pending_slot_change_signals.drain(..).collect();
     let mut fired = 0usize;
     for slot in snapshot {
         // `slot.assign()` followed by tree mutation

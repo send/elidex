@@ -304,6 +304,82 @@ fn real_same_parent_move_defers_record_no_malformed_delivery() {
 }
 
 #[test]
+fn real_document_fragment_append_defers_record_no_malformed_delivery() {
+    // Codex P2 (R2): `parent.appendChild(documentFragment)` must report the
+    // fragment's CHILDREN in addedNodes (§4.2.3 insert step 1), not the fragment
+    // node. B1's single-node helper would put the fragment itself in addedNodes
+    // (malformed). Fragment expansion is multi-node → B1.2; B1 defers the record
+    // (applies the mutation, delivers nothing malformed).
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let (_doc, _root) = setup_with_root(&mut vm, &mut session, &mut dom);
+
+    vm.eval(
+        "globalThis.fired = false; \
+         var mo = new MutationObserver(function(){ globalThis.fired = true; }); \
+         mo.observe(root, {childList:true}); \
+         var frag = document.createDocumentFragment(); \
+         frag.appendChild(document.createElement('span')); \
+         root.appendChild(frag);",
+    )
+    .unwrap();
+
+    assert_eq!(
+        vm.eval("fired").unwrap(),
+        JsValue::Boolean(false),
+        "B1 must not deliver a (malformed fragment-as-node) record; expansion deferred to B1.2"
+    );
+    vm.unbind();
+}
+
+#[test]
+fn mutation_observer_callback_slotchange_fires_in_later_microtask() {
+    // Codex P2 (R2): §4.3 "notify mutation observers" clones+empties the
+    // signal-slots set (steps 4–5) BEFORE invoking observer callbacks (step 6).
+    // So a slotchange signaled by an MO callback body (`slot.assign()`) must be
+    // handled by a FRESH notify microtask, not fired by the current one. This
+    // test drives a real childList mutation → MO callback → `slot.assign()`, and
+    // asserts the slotchange listener still fires (signal not lost) after the MO
+    // callback ran.
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let (_doc, _root) = setup_with_root(&mut vm, &mut session, &mut dom);
+    expose_detached(&mut vm, &mut dom, "span", "trigger");
+
+    vm.eval(
+        "globalThis.moRan = false; \
+         globalThis.slotFired = 0; \
+         var host = document.createElement('div'); \
+         var sr = host.attachShadow({mode:'open', slotAssignment:'manual'}); \
+         var slot = document.createElement('slot'); \
+         sr.appendChild(slot); \
+         var light = document.createElement('span'); \
+         host.appendChild(light); \
+         root.appendChild(host); \
+         slot.addEventListener('slotchange', function(){ globalThis.slotFired += 1; }); \
+         var mo = new MutationObserver(function(){ \
+           globalThis.moRan = true; \
+           slot.assign(light); \
+         }); \
+         mo.observe(root, {childList:true}); \
+         root.appendChild(trigger);",
+    )
+    .unwrap();
+
+    // The MO callback ran (driven by the real childList mutation), and the
+    // slotchange it signaled still fired (not lost by the snapshot reorder).
+    assert_eq!(vm.eval("moRan").unwrap(), JsValue::Boolean(true));
+    assert_eq!(
+        vm.eval("slotFired").unwrap(),
+        JsValue::Number(1.0),
+        "slotchange signaled from an MO callback must still fire (in a later microtask)"
+    );
+    vm.unbind();
+}
+
+#[test]
 fn real_mutation_without_observer_delivers_nothing() {
     let mut vm = Vm::new();
     let mut session = SessionCore::new();
