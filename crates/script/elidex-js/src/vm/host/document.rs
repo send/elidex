@@ -62,6 +62,7 @@ use super::dom_bridge::{
 };
 
 use elidex_ecs::{Entity, NodeKind};
+use elidex_script_session::{document_cookie_spec_level, live_collection_spec_level};
 
 // ---------------------------------------------------------------------------
 // Tree walk from the receiver document.
@@ -980,13 +981,42 @@ impl super::super::VmInner {
         if already_installed {
             return;
         }
-        self.install_methods(doc_wrapper, DOCUMENT_METHODS);
+        // The document own-methods install in three ordered slices so the gated
+        // live-collection getters land at their ORIGINAL ordinal position (between
+        // `querySelectorAll` and `createElement`). elidex installs document methods
+        // as the wrapper's OWN properties (no shared `Document.prototype`) and
+        // `install_methods` appends shape entries in call order, so install order IS
+        // the `Object.getOwnPropertyNames(document)` order — a single *trailing*
+        // gated install would reorder the live-collection names after `getSelection`,
+        // an observable enumeration-order change A1's no-behavior-change contract
+        // must not make (Codex R9).
+        self.install_methods(doc_wrapper, DOCUMENT_METHODS_PRE_LIVE_COLLECTION);
+        // Seam-1c (A1 core/compat gate): the live-collection getters route through
+        // the general `installs_dom(level)` predicate reading the family's SINGLE
+        // source `live_collection_spec_level()` (Codex R7). A1's source is `Living`
+        // (no API moves). B0/B1 demote the family by flipping that one source AND
+        // route the rest of the family — `forms`/`images`/`links`,
+        // ParentNode `children`, `Element.prototype` getters, `table.rows`,
+        // `select.options` — through the **same** source (the full surface sweep is
+        // B0's, A0 §5 B0 row; this gate is the representative `Document` seam, not
+        // the whole family).
+        if self.installs_dom(live_collection_spec_level()) {
+            self.install_methods(doc_wrapper, DOCUMENT_LIVE_COLLECTION_METHODS);
+        }
+        self.install_methods(doc_wrapper, DOCUMENT_METHODS_POST_LIVE_COLLECTION);
         // WHATWG DOM §4.4 / §6.1 / §6.4 traversal factories.  Slot
         // `#11-traversal-and-range-pr-a2-bindings`.  Installed
-        // separately to keep `DOCUMENT_METHODS` stable.
+        // separately to keep the document method tables stable.
         self.install_methods(doc_wrapper, super::document_traversal::FACTORIES);
         self.install_ro_accessors(doc_wrapper, DOCUMENT_RO_ACCESSORS);
         self.install_rw_accessors(doc_wrapper, DOCUMENT_RW_ACCESSORS);
+        // Seam-1b (A1 core/compat gate): `document.cookie` routes through the
+        // general `installs(level)` predicate reading its single source
+        // `document_cookie_spec_level()` (no API moves); A3 flips that one source
+        // to `Legacy` (HTML §3.1.4).
+        if self.installs(document_cookie_spec_level()) {
+            self.install_rw_accessors(doc_wrapper, DOCUMENT_COOKIE_RW_ACCESSOR);
+        }
         // ParentNode mixin (WHATWG §5.2.4) shared with
         // `Element.prototype`.
         self.install_parent_node_mixin(doc_wrapper);
@@ -1014,19 +1044,22 @@ impl super::super::VmInner {
 // Method + accessor tables are file-scope constants so they are not
 // rebuilt on every bind and so the `install_document_methods_if_needed`
 // body reads top-down.
-const DOCUMENT_METHODS: &[(&str, super::super::NativeFn)] = &[
+/// Document own-methods installed BEFORE the gated live-collection getters, kept
+/// in their original `DOCUMENT_METHODS` order (id + selector lookups). Split from
+/// [`DOCUMENT_METHODS_POST_LIVE_COLLECTION`] so the gated
+/// [`DOCUMENT_LIVE_COLLECTION_METHODS`] install lands at its original ordinal
+/// position — own-property enumeration order = install order (see the install
+/// comment in `install_document_methods_for_entity`; Codex R9).
+const DOCUMENT_METHODS_PRE_LIVE_COLLECTION: &[(&str, super::super::NativeFn)] = &[
     ("getElementById", native_document_get_element_by_id),
     ("querySelector", native_document_query_selector),
     ("querySelectorAll", native_document_query_selector_all),
-    (
-        "getElementsByTagName",
-        native_document_get_elements_by_tag_name,
-    ),
-    (
-        "getElementsByClassName",
-        native_document_get_elements_by_class_name,
-    ),
-    ("getElementsByName", native_document_get_elements_by_name),
+];
+
+/// Document own-methods installed AFTER the gated live-collection getters (node
+/// factories + focus / selection readers), kept in their original
+/// `DOCUMENT_METHODS` order — see [`DOCUMENT_METHODS_PRE_LIVE_COLLECTION`].
+const DOCUMENT_METHODS_POST_LIVE_COLLECTION: &[(&str, super::super::NativeFn)] = &[
     ("createElement", native_document_create_element),
     ("createTextNode", native_document_create_text_node),
     ("createComment", native_document_create_comment),
@@ -1045,6 +1078,34 @@ const DOCUMENT_METHODS: &[(&str, super::super::NativeFn)] = &[
     // Window-side binding; both resolve to the same singleton
     // wrapper held in `HostData::selection_instance`.
     ("getSelection", super::window::native_window_get_selection),
+];
+
+/// Seam-1c of the A1 Web-API core/compat gate: the `Document` live-collection
+/// getters, extracted from [`DOCUMENT_METHODS`] so their JS-property **install**
+/// can be gated by one [`installs_dom`](super::super::VmInner::installs_dom)
+/// guard (the install seam is the *property-absence* lever — these getters
+/// allocate a live `HTMLCollection`/`NodeList` directly and have no
+/// `DomApiHandler`, so the registry seam does not reach them).
+///
+/// A1 routes them at the live-collection family's single source
+/// `live_collection_spec_level()` ([`Living`](elidex_plugin::DomSpecLevel::Living)
+/// in A1 — no API moves, installed in every mode). **B0/B1 own the `Legacy`
+/// decision** (flip that one source) and the full-family sweep
+/// (`forms`/`images`/`links`/`children` + `Element.prototype` getters /
+/// `table.rows` / `select.options` / … — sites outside this `Document` set,
+/// routed through the **same** source). Spec homes differ:
+/// `getElementsByTagName`/`getElementsByClassName` = DOM §4.5;
+/// `getElementsByName` = **HTML §3.1.7** (DOM tree accessors) — B0 cites each home.
+const DOCUMENT_LIVE_COLLECTION_METHODS: &[(&str, super::super::NativeFn)] = &[
+    (
+        "getElementsByTagName",
+        native_document_get_elements_by_tag_name,
+    ),
+    (
+        "getElementsByClassName",
+        native_document_get_elements_by_class_name,
+    ),
+    ("getElementsByName", native_document_get_elements_by_name),
 ];
 
 const DOCUMENT_RO_ACCESSORS: &[(&str, super::super::NativeFn)] = &[
@@ -1095,18 +1156,25 @@ const DOCUMENT_RO_ACCESSORS: &[(&str, super::super::NativeFn)] = &[
     ),
 ];
 
-/// Read/write Document accessors.  `title` is WHATWG-backed; `cookie`
-/// is currently a stub whose setter silently drops writes (see the
-/// setter docstring for the PR6 integration path).
-const DOCUMENT_RW_ACCESSORS: &[(&str, super::super::NativeFn, super::super::NativeFn)] = &[
-    (
-        "title",
-        native_document_get_title,
-        native_document_set_title,
-    ),
-    (
-        "cookie",
-        native_document_get_cookie,
-        native_document_set_cookie,
-    ),
-];
+/// Read/write Document accessors.  `title` is WHATWG-backed.  (`document.cookie`
+/// was extracted into [`DOCUMENT_COOKIE_RW_ACCESSOR`] for the A1 core/compat gate
+/// — seam-1b.)
+const DOCUMENT_RW_ACCESSORS: &[(&str, super::super::NativeFn, super::super::NativeFn)] = &[(
+    "title",
+    native_document_get_title,
+    native_document_set_title,
+)];
+
+/// Seam-1b of the A1 Web-API core/compat gate: `document.cookie`, extracted from
+/// [`DOCUMENT_RW_ACCESSORS`] so its JS-property **install** can be gated by one
+/// [`installs`](super::super::VmInner::installs) guard (the install seam is the
+/// absence lever). A1 routes it at its single source `document_cookie_spec_level()`
+/// ([`Modern`](elidex_plugin::WebApiSpecLevel::Modern) in A1 — no API moves,
+/// installed in every mode); **A3** flips that one source to
+/// [`Legacy`](elidex_plugin::WebApiSpecLevel::Legacy) (HTML §3.1.4) — a pure
+/// one-source level-flip, no table re-extraction.
+const DOCUMENT_COOKIE_RW_ACCESSOR: &[(&str, super::super::NativeFn, super::super::NativeFn)] = &[(
+    "cookie",
+    native_document_get_cookie,
+    native_document_set_cookie,
+)];

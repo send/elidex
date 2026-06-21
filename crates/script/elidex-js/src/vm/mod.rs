@@ -2549,6 +2549,38 @@ pub(crate) struct VmInner {
     /// the embedded name + script URL. Set once at construction.
     #[cfg(feature = "engine")]
     pub(crate) global_scope_kind: GlobalScopeKind,
+    /// The engine-wide install policy (derived from the embedder-supplied
+    /// [`EngineMode`](elidex_plugin::EngineMode) at construction). Consulted by
+    /// each Web-API install seam through the family-neutral [`installs`] /
+    /// [`installs_dom`] predicates — the inline policy guards at the demotable
+    /// install sites (storage accessors / globals, `document.cookie`, the
+    /// live-collection getters, `onstorage`; the DOM-handler registry seam reads
+    /// the same policy when it is built) — to decide whether a `Legacy`-classified
+    /// API installs for this session. A1 classifies nothing `Legacy`, so the gate
+    /// is latent (everything installs); A2/A3/B demote into it.
+    ///
+    /// [`installs`]: VmInner::installs
+    /// [`installs_dom`]: VmInner::installs_dom
+    ///
+    /// **Invariant (the one way the gate could silently no-op):** this field is
+    /// set in the construction struct literal (`vm/init.rs`), which completes
+    /// *before* `register_globals` (the sole install entry) is called at the tail
+    /// of `new_with_scope`. Every seam therefore reads a fully-derived policy. If
+    /// a future installer is ever added that runs *earlier* in construction it
+    /// MUST still observe a set policy — keep this field's initialization ahead
+    /// of any install. Set once at construction; never mutated.
+    #[cfg(feature = "engine")]
+    pub(crate) spec_level_policy: elidex_plugin::SpecLevelPolicy,
+    /// The engine-wide [`EngineMode`](elidex_plugin::EngineMode) this VM was
+    /// constructed under — the authority [`spec_level_policy`] is derived from.
+    /// Retained (alongside the derived policy) so a realm this VM spawns inherits
+    /// the *same* mode: `vm/host/worker.rs` reads it to propagate to
+    /// `Vm::new_worker`, keeping a `BrowserCore`/`App` session's worker realms in
+    /// the same mode rather than silently resetting them to the default.
+    ///
+    /// [`spec_level_policy`]: VmInner::spec_level_policy
+    #[cfg(feature = "engine")]
+    pub(crate) engine_mode: elidex_plugin::EngineMode,
     /// Worker-side outgoing `postMessage` data (JSON strings), enqueued by the
     /// worker scope's `postMessage()` (WHATWG HTML §10.2.1.2) and drained by
     /// the worker thread loop into `WorkerToParent::PostMessage`. Empty in a

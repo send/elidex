@@ -50,6 +50,9 @@ use super::value::{
 #[cfg(feature = "engine")]
 use super::GlobalScopeKind;
 use super::{NativeFn, VmInner};
+#[cfg(feature = "engine")]
+use elidex_plugin::{DomSpecLevel, WebApiSpecLevel};
+use elidex_script_session::web_storage_spec_level;
 
 /// §20.2.3 Function.prototype — accepts any arguments, returns undefined.
 fn native_function_prototype_noop(
@@ -58,6 +61,19 @@ fn native_function_prototype_noop(
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     Ok(JsValue::Undefined)
+}
+
+/// Test-only RO-accessor getter backing the seam-1 A1 gate proof
+/// (`__a1LegacyAccessorProbe`, installed via `install_ro_accessors` in
+/// `register_globals`). The test asserts the property's presence/absence, not its
+/// value, so a constant getter suffices.
+#[cfg(all(test, feature = "engine"))]
+fn native_a1_legacy_probe_getter(
+    _ctx: &mut NativeContext<'_>,
+    _this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    Ok(JsValue::Boolean(true))
 }
 
 impl VmInner {
@@ -480,7 +496,16 @@ impl VmInner {
             // `storage_prototype` when they allocate the cached
             // wrappers.  See `vm/host/window.rs`
             // `register_window_prototype`'s storage-getter install.
-            self.register_storage_global();
+            //
+            // Seam-2 of the A1 core/compat gate: the demotable `register_*_global`
+            // installers route through the general `installs(level)` predicate
+            // reading the Web Storage family's SINGLE source `web_storage_spec_level()`
+            // (Codex R7 — same source as the accessors + StorageEvent + onstorage, so
+            // A2 flips the family in one place). Permanently-`Modern` globals
+            // (crypto/fetch/ws) are not gated (never excluded).
+            if self.installs(web_storage_spec_level()) {
+                self.register_storage_global();
+            }
             // Crypto / SubtleCrypto (WebCrypto §10 / §14, slot
             // `#11-crypto-subtle-min`).  Both chain to
             // `Object.prototype`.  SubtleCrypto first so the eventual
@@ -654,8 +679,14 @@ impl VmInner {
             self.register_transition_event_global();
             self.register_close_event_global();
             // StorageEvent — chains to Event.prototype, paired with
-            // the `Storage` interface above.  WHATWG HTML §11.4.2.
-            self.register_storage_event_global();
+            // the `Storage` interface above.  WHATWG HTML §12.2.4.
+            //
+            // Seam-2: part of the Web Storage surface — same single
+            // `web_storage_spec_level()` source as the `Storage` install above
+            // (Codex R7), so the whole family flips as one unit in A2.
+            if self.installs(web_storage_spec_level()) {
+                self.register_storage_event_global();
+            }
             // M4-12 slot `#11-events-misc` (D-10) — 10 NEW Event
             // constructor classes.  8 chain to Event.prototype, 1
             // chains to UIEvent.prototype (CompositionEvent), 1 chains
@@ -902,6 +933,33 @@ impl VmInner {
             let shapes = self.build_precomputed_event_shapes();
             self.precomputed_event_shapes = Some(shapes);
         }
+
+        // A1 gate proof (test-only): `Legacy`-classified probes routed through the
+        // **same** general `installs(level)` predicate the real seams use, so each
+        // VM install seam is shown to honor the gate end-to-end (the A0 acceptance
+        // row requires Legacy exclusion through **all four** seams). Present under
+        // `BrowserCompat` (+`compat-webapi`), withheld under `BrowserCore`/`App`.
+        // These are the ONLY `Legacy`-classified VM entries and exist ONLY under
+        // `cfg(test)`; real APIs stay `Modern` in A1 (no behavior change in
+        // production builds).
+        //   • seam-2 (direct `register_*_global`): `__a1LegacyProbe` via
+        //     `globals.insert` (F9's "direct table/global installs").
+        //   • seam-1 (method/accessor **table** install): `__a1LegacyAccessorProbe`
+        //     via `install_ro_accessors` — the property-absence lever the
+        //     window-storage / `document.cookie` / live-collection installs use.
+        // (seam-3 = the event-handler-attr install is proven in
+        // `install_handler_attr_family`; seam-4 = the `DomApiHandler` registry in
+        // `elidex-dom-api::registry`.)
+        #[cfg(all(test, feature = "engine"))]
+        if self.installs(WebApiSpecLevel::Legacy) {
+            let probe = self.strings.intern("__a1LegacyProbe");
+            self.globals.insert(probe, JsValue::Boolean(true));
+            let global_obj = self.global_object;
+            self.install_ro_accessors(
+                global_obj,
+                &[("__a1LegacyAccessorProbe", native_a1_legacy_probe_getter)],
+            );
+        }
     }
 
     /// Helper: register a native function as a global.
@@ -1029,6 +1087,30 @@ impl VmInner {
                 PropertyAttrs::WEBIDL_RO_ACCESSOR,
             );
         }
+    }
+
+    /// Whether a Web API classified at `level` installs for this VM — the single
+    /// **family-neutral** gate every demotable Web-API install seam consults
+    /// (storage accessors / `Storage` / `StorageEvent` globals, `document.cookie`,
+    /// `window.onstorage`). A1 routes every such site at [`WebApiSpecLevel::Modern`]
+    /// so it installs in all modes — byte-identical to the pre-gate engine; A2/A3
+    /// demote a family by flipping the level literal at its site to
+    /// [`WebApiSpecLevel::Legacy`] (no per-site lockstep, no new gate — One issue,
+    /// one way). Delegates to the engine-wide `elidex_plugin::SpecLevelPolicy`
+    /// derived from the construction-fixed [`EngineMode`](elidex_plugin::EngineMode).
+    #[cfg(feature = "engine")]
+    pub(crate) fn installs(&self, level: WebApiSpecLevel) -> bool {
+        self.spec_level_policy.installs(level)
+    }
+
+    /// DOM analogue of [`Self::installs`] — whether a DOM API classified at
+    /// `level` installs. The `Document` live-collection getters route here at
+    /// [`DomSpecLevel::Living`] (B0/B1 flip to [`DomSpecLevel::Legacy`]); the
+    /// `DomApiHandler` registry applies the *same* policy at registration as
+    /// dispatch-level defense-in-depth (`create_dom_registry_with_policy`).
+    #[cfg(feature = "engine")]
+    pub(crate) fn installs_dom(&self, level: DomSpecLevel) -> bool {
+        self.spec_level_policy.installs_dom(level)
     }
 
     #[allow(clippy::too_many_lines)]

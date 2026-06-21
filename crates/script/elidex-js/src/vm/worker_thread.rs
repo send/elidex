@@ -64,6 +64,7 @@ pub(crate) fn run_worker(
     is_secure_context: bool,
     credentials: elidex_net::CredentialsMode,
     network_handle: Option<NetworkHandle>,
+    engine_mode: elidex_plugin::EngineMode,
     channel: &WorkerChannel,
 ) {
     let source = match obtain_worker_source(script_url, credentials, network_handle.as_ref()) {
@@ -81,6 +82,7 @@ pub(crate) fn run_worker(
         is_secure_context,
         credentials,
         network_handle,
+        engine_mode,
         channel,
     );
 }
@@ -153,6 +155,7 @@ fn obtain_worker_source(
 /// passes a `Send` sibling minted on the main thread
 /// (`NetworkHandle::create_sibling_handle()`), which is wrapped in a
 /// thread-local `Rc` here.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn run_worker_with_source(
     source: &str,
     script_url: &url::Url,
@@ -160,6 +163,7 @@ pub(crate) fn run_worker_with_source(
     is_secure_context: bool,
     credentials: elidex_net::CredentialsMode,
     network_handle: Option<NetworkHandle>,
+    engine_mode: elidex_plugin::EngineMode,
     channel: &WorkerChannel,
 ) {
     // Declared before `vm` so they outlive it: `vm`'s `HostData` holds raw
@@ -170,7 +174,13 @@ pub(crate) fn run_worker_with_source(
     let document = dom.create_document_root();
     let mut session = SessionCore::new();
 
-    let mut vm = Vm::new_worker(name, script_url.clone(), is_secure_context, credentials);
+    let mut vm = Vm::new_worker(
+        name,
+        script_url.clone(),
+        is_secure_context,
+        credentials,
+        engine_mode,
+    );
     vm.install_host_data(HostData::new());
     if let Some(handle) = network_handle {
         vm.install_network_handle(Rc::new(handle));

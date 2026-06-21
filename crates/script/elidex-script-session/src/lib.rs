@@ -32,8 +32,10 @@ pub use event_dispatch::{
     DispatchFlags, DispatchPlan, ListenerPlanEntry,
 };
 pub use event_handler_consumer::{
-    event_handler_attr_event_type, EventHandlerAttributeConsumer, HandlerScope,
-    EVENT_HANDLER_ATTRS, WORKER_EVENT_HANDLER_ATTRS, WORKER_OBJECT_EVENT_HANDLER_ATTRS,
+    document_cookie_spec_level, event_handler_attr_event_type, event_handler_attr_spec_level,
+    live_collection_spec_level, web_storage_spec_level, EventHandlerAttributeConsumer,
+    HandlerScope, EVENT_HANDLER_ATTRS, WORKER_EVENT_HANDLER_ATTRS,
+    WORKER_OBJECT_EVENT_HANDLER_ATTRS,
 };
 pub use event_listener::{
     EventListeners, ListenerEntry, ListenerId, ListenerKind, UncompiledHandler,

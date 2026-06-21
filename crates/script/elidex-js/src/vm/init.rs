@@ -8,6 +8,8 @@
 
 use std::collections::{BinaryHeap, HashMap, HashSet, VecDeque};
 
+use elidex_plugin::EngineMode;
+
 use super::pools::{BigIntPool, StringPool};
 use super::shape;
 use super::value::{JsValue, ObjectId};
@@ -19,8 +21,33 @@ use super::host;
 
 impl Vm {
     /// Create a new main-thread (Window) VM with built-in globals registered.
+    ///
+    /// Uses [`EngineMode::BrowserCompat`] — the full compat surface, byte-identical
+    /// to the pre-gate engine. This is the **sole public production constructor**:
+    /// the non-compat modes are not selectable for a real session until the async
+    /// core storage (`#11-async-core-storage-cookiestore`) lands — see
+    /// `Vm::new_with_mode` (test-only, `#[cfg(test)]`).
     pub fn new() -> Self {
-        Self::new_with_scope(super::GlobalScopeKind::Window)
+        Self::new_with_scope(super::GlobalScopeKind::Window, EngineMode::BrowserCompat)
+    }
+
+    /// Create a new main-thread (Window) VM under an explicit [`EngineMode`].
+    ///
+    /// The mode is the single engine-wide authority for the core/compat/deprecated
+    /// split; it is fixed here at construction (before `register_globals` installs
+    /// any surface) and cannot be changed afterwards.
+    ///
+    /// **`#[cfg(test)]` — not a production surface (F10).** [`EngineMode::BrowserCore`]
+    /// / [`EngineMode::App`] must not be selected for a real session until the async
+    /// core storage (`#11-async-core-storage-cookiestore`) lands (a core session is
+    /// contracted to expose `elidex.storage`, design §14.4.3 — selecting these modes
+    /// before then yields a session with *no* storage API). Production embedders use
+    /// [`Vm::new`] (BrowserCompat); the `#[cfg(test)]` gate enforces the precondition
+    /// by construction rather than by doc warning. The async-core PR removes the gate.
+    #[cfg(test)]
+    #[must_use]
+    pub fn new_with_mode(engine_mode: EngineMode) -> Self {
+        Self::new_with_scope(super::GlobalScopeKind::Window, engine_mode)
     }
 
     /// Create a new dedicated-worker VM (WHATWG HTML §10.2.1.1).
@@ -32,20 +59,42 @@ impl Vm {
     /// creator's environment (WHATWG HTML §8.1.3.5 — not derived from
     /// `script_url`). The caller binds an empty `EcsDom` + worker scope entity
     /// and installs a worker-side `NetworkHandle` before eval.
+    ///
+    /// `engine_mode` is the engine-wide mode the spawning realm runs under — a
+    /// worker realm inherits its creator's mode (the worker installs the same
+    /// policy-gated surface, e.g. the DOM-handler registry and the currently
+    /// over-exposed storage globals A2 demotes), so it must NOT be reset to the
+    /// default. The caller (`vm/host/worker.rs`) propagates the parent VM's mode.
+    ///
+    /// **`pub(crate)` — not a production embedder surface (F10).** This constructor
+    /// takes an explicit `engine_mode`, so leaving it `pub` would let a production
+    /// embedder select [`EngineMode::BrowserCore`] / [`EngineMode::App`] for a
+    /// worker realm and create the same no-storage realm the `#[cfg(test)]` gate on
+    /// [`Vm::new_with_mode`] prevents on the main thread (a core session is
+    /// contracted to expose `elidex.storage`, design §14.4.3). Restricting it to the
+    /// crate keeps mode selection by-construction-safe: the only in-crate caller
+    /// (`vm/worker_thread.rs`, driven by `vm/host/worker.rs`) threads the
+    /// already-authorized parent mode, which is `BrowserCompat` until
+    /// `#11-async-core-storage-cookiestore` lands — that PR re-publishes this with
+    /// the explicit-mode capability.
     #[cfg(feature = "engine")]
     #[must_use]
-    pub fn new_worker(
+    pub(crate) fn new_worker(
         name: String,
         script_url: url::Url,
         is_secure_context: bool,
         credentials: elidex_net::CredentialsMode,
+        engine_mode: EngineMode,
     ) -> Self {
-        Self::new_with_scope(super::GlobalScopeKind::DedicatedWorker {
-            name,
-            script_url,
-            is_secure_context,
-            credentials,
-        })
+        Self::new_with_scope(
+            super::GlobalScopeKind::DedicatedWorker {
+                name,
+                script_url,
+                is_secure_context,
+                credentials,
+            },
+            engine_mode,
+        )
     }
 
     /// Create a new Service Worker VM (WHATWG Service Workers §4.1
@@ -60,31 +109,58 @@ impl Vm {
     /// (`vm/sw_thread.rs`) binds an empty `EcsDom` + SW scope entity,
     /// installs the shared cache backend + a `Send` `NetworkHandle`, and
     /// seeds the client snapshot before eval.
+    ///
+    /// `engine_mode` is the engine-wide mode supplied by the embedder for this
+    /// SW realm (the SW installs the same policy-gated surface as any realm). The
+    /// SW has no in-process parent VM, so the mode is threaded from the spawn
+    /// entry (`sw_thread::sw_thread_main`); the embedder supplies it when it wires
+    /// the elidex-js SW (today the shell still spawns SWs via the boa engine, so
+    /// this path is exercised by elidex-js tests, which pass `BrowserCompat`).
+    ///
+    /// **`pub(crate)` — not a production embedder surface (F10).** Like
+    /// [`Vm::new_worker`], the explicit `engine_mode` is restricted to the crate so
+    /// a production embedder cannot select [`EngineMode::BrowserCore`] /
+    /// [`EngineMode::App`] for a SW realm and create the no-storage realm the
+    /// `#[cfg(test)]` gate on [`Vm::new_with_mode`] prevents on the main thread. The
+    /// public SW spawn entry (`sw_thread::sw_thread_main`) hard-derives
+    /// `BrowserCompat` (a SW has no parent VM to inherit from); the explicit-mode
+    /// parameter here is exercised only by the crate-internal `run_service_worker`
+    /// (elidex-js tests). `#11-async-core-storage-cookiestore` threads the
+    /// authorized embedder mode through both when non-compat modes become
+    /// production-selectable.
     #[cfg(feature = "engine")]
     #[must_use]
-    pub fn new_service_worker(
+    pub(crate) fn new_service_worker(
         scope_url: url::Url,
         script_url: url::Url,
         is_secure_context: bool,
         credentials: elidex_net::CredentialsMode,
+        engine_mode: EngineMode,
     ) -> Self {
-        Self::new_with_scope(super::GlobalScopeKind::ServiceWorker {
-            scope_url,
-            script_url,
-            is_secure_context,
-            credentials,
-        })
+        Self::new_with_scope(
+            super::GlobalScopeKind::ServiceWorker {
+                scope_url,
+                script_url,
+                is_secure_context,
+                credentials,
+            },
+            engine_mode,
+        )
     }
 
-    /// Construct a VM for the given global scope kind, then register globals.
+    /// Construct a VM for the given global scope kind + engine mode, then
+    /// register globals.
     ///
     /// `register_globals` runs at the tail (before any caller can observe the
-    /// VM), so the scope kind must be threaded in here rather than flipped
-    /// afterwards. In non-`engine` builds the kind is unused (no DOM / worker
+    /// VM), so the scope kind **and** the engine mode must be threaded in here
+    /// rather than flipped afterwards — the install seams consult the derived
+    /// [`SpecLevelPolicy`](elidex_plugin::SpecLevelPolicy) at install time, so a
+    /// mode that arrived later could not *prevent* an install. In non-`engine`
+    /// builds the scope kind / mode are unused (no DOM / worker / Web-API
     /// surface exists) but accepted to keep one shared construction body.
     #[allow(clippy::too_many_lines)]
     #[cfg_attr(not(feature = "engine"), allow(unused_variables))]
-    fn new_with_scope(global_scope_kind: super::GlobalScopeKind) -> Self {
+    fn new_with_scope(global_scope_kind: super::GlobalScopeKind, engine_mode: EngineMode) -> Self {
         let mut strings = StringPool::new();
 
         let well_known = WellKnownStrings::intern_all(&mut strings);
@@ -92,6 +168,21 @@ impl Vm {
         // to seed `window_name` to the empty-string id.
         #[cfg(feature = "engine")]
         let initial_window_name = well_known.empty;
+        // The install policy is derived once here and consulted by every install
+        // seam. It is stored in the `spec_level_policy` field below (set before
+        // `register_globals` runs at the tail) and used inline to build the
+        // policy-aware DOM-handler registry (seam-4). Both readers see the same
+        // value — the gate cannot silently no-op (see field doc in `vm/mod.rs`).
+        #[cfg(feature = "engine")]
+        let spec_level_policy = engine_mode.spec_level_policy();
+        // `compat-webapi` is the hard compile-time ceiling above the runtime
+        // mode (the two faces of one mechanism): when the compat shims are not
+        // compiled in (the `App`-profile build selects `engine` without
+        // `compat-webapi`), no `Legacy` Web/DOM API may install regardless of
+        // the `EngineMode` chosen at runtime. A1 marks nothing `Legacy`, so this
+        // is latent today; A2/A3/B rely on it for the app-absence guarantee.
+        #[cfg(all(feature = "engine", not(feature = "compat-webapi")))]
+        let spec_level_policy = spec_level_policy.with_legacy_excluded();
         let (well_known_symbols, symbols) = WellKnownSymbols::alloc_all(&mut strings);
 
         let mut vm = Vm {
@@ -153,7 +244,9 @@ impl Vm {
                 active_bound_key: None,
                 host_data: None,
                 #[cfg(feature = "engine")]
-                dom_registry: std::rc::Rc::new(elidex_dom_api::registry::create_dom_registry()),
+                dom_registry: std::rc::Rc::new(
+                    elidex_dom_api::registry::create_dom_registry_with_policy(spec_level_policy),
+                ),
                 promise_prototype: None,
                 microtask_queue: VecDeque::new(),
                 microtask_drain_depth: 0,
@@ -728,6 +821,10 @@ impl Vm {
                 window_name: initial_window_name,
                 #[cfg(feature = "engine")]
                 global_scope_kind,
+                #[cfg(feature = "engine")]
+                spec_level_policy,
+                #[cfg(feature = "engine")]
+                engine_mode,
                 #[cfg(feature = "engine")]
                 worker_outgoing: Vec::new(),
                 #[cfg(feature = "engine")]

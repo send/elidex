@@ -75,6 +75,19 @@ type SwChannel = LocalChannel<SwToContent, ContentToSw>;
 /// F1), validates it, then runs the realm.  `cache_conn` is the shared
 /// origin `Arc<Mutex<SqliteConnection>>` (DR-A) both the window VM and this
 /// SW observe; `initial_clients` seeds `clients.matchAll()`.
+///
+/// **Derives [`BrowserCompat`](elidex_plugin::EngineMode::BrowserCompat) — not an
+/// embedder-selectable mode (F10).** A SW realm has no in-process parent VM to
+/// inherit a mode from, so the mode is the embedder's to supply. Taking it as a
+/// parameter here would let a production embedder select
+/// [`BrowserCore`](elidex_plugin::EngineMode::BrowserCore) /
+/// [`App`](elidex_plugin::EngineMode::App) and create the no-storage SW realm the
+/// `#[cfg(test)]` gate on `Vm::new_with_mode` prevents on the main thread (a core
+/// session is contracted to expose `elidex.storage`, design §14.4.3). Until
+/// `#11-async-core-storage-cookiestore` makes non-compat modes production-
+/// selectable, this spawn entry hard-derives `BrowserCompat`; that PR threads the
+/// authorized embedder mode in. (Tests exercise non-compat SW realms via the
+/// crate-internal `run_service_worker`, which keeps the explicit-mode parameter.)
 #[allow(clippy::needless_pass_by_value)]
 pub fn sw_thread_main(
     script_url: url::Url,
@@ -109,6 +122,9 @@ pub fn sw_thread_main(
         cache_conn,
         initial_clients,
         DEFAULT_IDLE_TIMEOUT,
+        // No parent VM to inherit from; the SW realm runs BrowserCompat until
+        // `#11-async-core-storage-cookiestore` lets the embedder supply a mode (F10).
+        elidex_plugin::EngineMode::BrowserCompat,
     );
 }
 
@@ -156,6 +172,7 @@ pub(crate) fn run_service_worker(
     cache_conn: Arc<Mutex<SqliteConnection>>,
     initial_clients: Vec<ClientSnapshot>,
     pump_timeout: Duration,
+    engine_mode: elidex_plugin::EngineMode,
 ) {
     // Declared before `vm` so they outlive it: the VM's `HostData` holds raw
     // pointers into `session` / `dom` and must drop first (reverse order).
@@ -168,6 +185,7 @@ pub(crate) fn run_service_worker(
         script_url.clone(),
         true,
         CredentialsMode::SameOrigin,
+        engine_mode,
     );
     vm.install_host_data(HostData::new());
     vm.install_network_handle(Rc::new(network_handle));

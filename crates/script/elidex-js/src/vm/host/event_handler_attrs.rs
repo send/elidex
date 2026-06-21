@@ -47,8 +47,8 @@
 
 use elidex_ecs::NodeKind;
 use elidex_script_session::{
-    event_handler_attr_event_type, EventListeners, HandlerScope, ListenerId, EVENT_HANDLER_ATTRS,
-    WORKER_EVENT_HANDLER_ATTRS, WORKER_OBJECT_EVENT_HANDLER_ATTRS,
+    event_handler_attr_event_type, event_handler_attr_spec_level, EventListeners, HandlerScope,
+    ListenerId, EVENT_HANDLER_ATTRS, WORKER_EVENT_HANDLER_ATTRS, WORKER_OBJECT_EVENT_HANDLER_ATTRS,
 };
 
 use super::super::shape::PropertyAttrs;
@@ -142,6 +142,12 @@ impl VmInner {
     /// keyed by each attribute's event-type SID (bound key). Shared by the
     /// `WorkerGlobalScope` and `Worker` surfaces, whose attribute sets are
     /// hand-picked subsets rather than [`HandlerScope`]-tagged rows.
+    ///
+    /// Intentionally **not** seam-3-gated: these lists hold permanently-`Modern`
+    /// worker/SW messaging handlers with no demotable member (the only demotable
+    /// handler attr, `onstorage`, is Window-only and lives in
+    /// `install_handler_attr_family`, which carries the gate). See that loop for
+    /// the §3.3 seam-2 "don't gate permanently-Modern sites" rationale.
     fn install_handler_attrs_from_list(&mut self, target: ObjectId, attrs: &[&str]) {
         for attr_name in attrs {
             let event_type = event_handler_attr_event_type(attr_name)
@@ -223,6 +229,26 @@ impl VmInner {
             if !scopes.contains(scope) {
                 continue;
             }
+            // Seam-3 of the A1 Web-API core/compat gate: each handler attr routes
+            // through the family-neutral `installs(level)` predicate. A1 returns
+            // `Modern` for every attr (no API moves); A2 returns `Legacy` for
+            // `onstorage` so it is hidden together with the Web Storage surface.
+            //
+            // This is the ONLY handler-attr install loop that carries the seam-3
+            // gate, because `EVENT_HANDLER_ATTRS` is the only list holding a
+            // demotable member (`onstorage`). The sibling installers
+            // (`install_handler_attrs_from_list` for worker scopes,
+            // `install_sw_handler_attrs`, `install_vm_object_handler_attrs`)
+            // install permanently-`Modern` handler attrs only (worker/SW messaging
+            // + IndexedDB/WebSocket events — never Web-Storage-bound), so they are
+            // intentionally ungated: gating a list with no demotable member is the
+            // churn the §3.3 seam-2 "don't gate permanently-Modern sites" principle
+            // rejects (the anti-pattern is *two ways to gate Legacy*, not gating
+            // Modern). If a worker/SW/VmObject handler attr ever becomes demotable,
+            // its loop adopts this same one-line guard.
+            if !self.installs(event_handler_attr_spec_level(attr_name)) {
+                continue;
+            }
             let event_type = event_handler_attr_event_type(attr_name)
                 .expect("EVENT_HANDLER_ATTRS row must be a known event-handler attribute");
             let attr_name_sid = self.strings.intern(attr_name);
@@ -233,6 +259,29 @@ impl VmInner {
                 get,
                 Some(set),
                 event_type_sid,
+                PropertyAttrs::WEBIDL_RO_ACCESSOR,
+            );
+        }
+
+        // Seam-3 A1 gate proof (test-only): a `Legacy`-classified handler attr
+        // installed through the **same** `install_bound_accessor_pair` primitive +
+        // `installs(level)` gate the real loop above uses, co-located in this
+        // production family fn so the proof rides the seam-3 install path (the A0
+        // acceptance row requires Legacy exclusion via an `install_event_handler_attrs`
+        // handler attr). Withheld under `BrowserCore`/`App`, present under
+        // `BrowserCompat` (+`compat-webapi`). Real handler attrs stay `Modern` in A1
+        // (`onstorage` flips at A2); this is the only `Legacy` one and exists ONLY
+        // under `cfg(test)`.
+        #[cfg(all(test, feature = "engine"))]
+        if self.installs(elidex_plugin::WebApiSpecLevel::Legacy) {
+            let attr = self.strings.intern("__a1LegacyHandlerProbe");
+            let key = self.strings.intern("__a1legacyhandlerprobe");
+            self.install_bound_accessor_pair(
+                target,
+                attr,
+                get,
+                Some(set),
+                key,
                 PropertyAttrs::WEBIDL_RO_ACCESSOR,
             );
         }
