@@ -1,10 +1,11 @@
 //! `navigator` global — the `Navigator` interface (WHATWG HTML §8.10.1).
 //!
-//! Phase 2 scope: all fields are static constants — no privacy /
+//! Phase 2 scope: fields are mostly static constants — no privacy /
 //! language-negotiation / real UA string derivation yet.  The intent is
 //! to answer feature-detection probes like `navigator.userAgent` or
 //! `navigator.hardwareConcurrency` without coupling to a shell layer
-//! that has not been designed yet.
+//! that has not been designed yet.  The one value-derived member is
+//! `cookieEnabled` (an RO accessor reading the bound `CookieJar`, A3).
 //!
 //! Future work (PR5+):
 //!
@@ -23,16 +24,16 @@ use super::super::VmInner;
 
 impl VmInner {
     /// Install `globalThis.navigator` — a plain object with the
-    /// static `Navigator` fields listed in [`self`] module docs.
+    /// `Navigator` fields listed in [`self`] module docs (mostly static
+    /// data props; `cookieEnabled` is a value-derived RO accessor).
     ///
     /// Called from `register_globals()` after
     /// `register_event_target_prototype` / `register_window_prototype`
     /// so that the prototype chain (`navigator → Object.prototype`)
     /// is well-formed.
     pub(in crate::vm) fn register_navigator_global(&mut self) {
-        // Navigator has no methods in Phase 2, only static fields — an
-        // empty method slice gives us the ordinary plain-object
-        // allocation + prototype wiring for free.
+        // Navigator has no methods — an empty method slice gives us the
+        // ordinary plain-object allocation + prototype wiring for free.
         let obj_id = self.create_object_with_methods(&[]);
 
         // --- String-valued fields ---
@@ -67,35 +68,27 @@ impl VmInner {
             );
         }
 
-        // --- Boolean-valued fields ---
+        // --- Boolean + cookie fields, in WebIDL declaration order ---
         //
-        // `cookieEnabled` is NOT here — it is value-derived (a getter
-        // reading the bound `CookieJar`), installed below. The other
-        // booleans are static.
-        let bool_fields: &[(&str, bool)] = &[("onLine", true), ("javaEnabled", false)];
-        for &(name, value) in bool_fields {
-            let key = PropertyKey::String(self.strings.intern(name));
-            self.define_shaped_property(
-                obj_id,
-                key,
-                PropertyValue::Data(JsValue::Boolean(value)),
-                PropertyAttrs::WEBIDL_RO,
-            );
-        }
-
-        // `cookieEnabled` (WHATWG HTML §8.10.1.5, NavigatorCookies) — a
-        // value-derived RO accessor: `true` iff the UA handles cookies,
-        // i.e. a `CookieJar` is bound to this session. This is the *cookie
-        // handling* signal, independent of whether the `document.cookie`
-        // script accessor is exposed: a `BrowserCore` / `App` session
-        // processes HTTP cookies (jar bound → `true`) even though A3 hides
-        // `document.cookie`. So `cookieEnabled === true` does NOT imply the
-        // `document.cookie` write path succeeds (there the accessor is gated
-        // off; only the HTTP/jar path persists). An accessor — not a static
-        // data prop — because the jar binds *after* navigator install.
-        self.install_ro_accessors(
+        // `cookieEnabled` (WHATWG HTML §8.10.1.5; see the getter for what it
+        // reads) is an RO **accessor** — not a static data prop — because the jar
+        // binds *after* navigator install. It is installed between `onLine` and
+        // `javaEnabled`, its historical bool-field slot, so own-property
+        // enumeration order is unchanged.
+        let on_line = PropertyKey::String(self.strings.intern("onLine"));
+        self.define_shaped_property(
             obj_id,
-            &[("cookieEnabled", native_navigator_get_cookie_enabled)],
+            on_line,
+            PropertyValue::Data(JsValue::Boolean(true)),
+            PropertyAttrs::WEBIDL_RO,
+        );
+        self.install_ro_accessors(obj_id, NAVIGATOR_RO_ACCESSORS);
+        let java_enabled = PropertyKey::String(self.strings.intern("javaEnabled"));
+        self.define_shaped_property(
+            obj_id,
+            java_enabled,
+            PropertyValue::Data(JsValue::Boolean(false)),
+            PropertyAttrs::WEBIDL_RO,
         );
 
         // --- Number fields ---
@@ -140,6 +133,14 @@ impl VmInner {
         self.globals.insert(name, JsValue::Object(obj_id));
     }
 }
+
+/// `navigator`'s value-derived RO accessors (WebIDL `readonly attribute`s whose
+/// value is computed at access time, not fixed at install). Currently just
+/// `cookieEnabled`; named const for parity with the sibling host globals
+/// (`DOCUMENT_RO_ACCESSORS`, `WINDOW_RO_ACCESSORS`, …) so a future navigator
+/// accessor extends the table rather than an inline literal.
+const NAVIGATOR_RO_ACCESSORS: &[(&str, super::super::NativeFn)] =
+    &[("cookieEnabled", native_navigator_get_cookie_enabled)];
 
 /// `navigator.cookieEnabled` getter (WHATWG HTML §8.10.1.5). Returns `true` iff a
 /// `CookieJar` is bound to this session — the UA "handles cookies" signal. Reads
