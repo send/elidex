@@ -11,11 +11,25 @@ use crate::util::{not_found_error, require_object_ref_arg, require_string_arg};
 
 // The `apply_*` childList builders expand a `DocumentFragment` into its children
 // (WHATWG DOM §4.2.3 "insert" step 1) and return an **empty** record list for an
-// *empty* fragment — a valid no-op (§4.2.3 step 3), NOT a failure. The handlers
-// below disambiguate that no-op from a genuine hierarchy failure (which also
-// returns an empty list) via `EcsDom::is_document_fragment`: an empty list is an
-// error only when the node is **not** a fragment (and, for `insertBefore`, when
-// the reference child is valid).
+// *empty* fragment — a valid no-op (§4.2.3 step 3), NOT a failure. They also
+// return an empty list for a genuine failure (cycle / self-ancestor / bad
+// reference child). The handlers below disambiguate via [`is_empty_fragment_noop`].
+
+/// Whether an empty `apply_*` record list for `child` inserted under `parent` is a
+/// valid **empty-`DocumentFragment` no-op** (§4.2.3 insert step 3) rather than a
+/// hierarchy failure.
+///
+/// A genuinely empty fragment is a no-op ONLY when it would pass §4.2.1 "ensure
+/// pre-insertion validity" step 2: it must not be `parent` itself nor a
+/// host-including inclusive ancestor of `parent` — so `frag.appendChild(frag)`
+/// still throws. A non-empty fragment never reaches the empty-list branch unless
+/// it was rejected (cycle ⇒ ancestor-of-`parent`), which the same predicate
+/// catches; the explicit emptiness check keeps the intent legible.
+fn is_empty_fragment_noop(dom: &EcsDom, parent: Entity, child: Entity) -> bool {
+    dom.is_document_fragment(child)
+        && dom.children_iter(child).next().is_none()
+        && !dom.is_ancestor_or_self(child, parent)
+}
 
 // ---------------------------------------------------------------------------
 // appendChild
@@ -48,9 +62,9 @@ impl DomApiHandler for AppendChild {
         // are staged for §4.3 microtask delivery.
         let records = apply_append_child(dom, this, child_entity);
         if records.is_empty() {
-            // Empty list = failure (cycle / invalid parent) EXCEPT for an empty
-            // DocumentFragment, which is a valid no-op (§4.2.3 insert step 3).
-            if dom.is_document_fragment(child_entity) {
+            // Empty list = failure (cycle / invalid parent) EXCEPT a valid empty
+            // DocumentFragment no-op (§4.2.3 insert step 3).
+            if is_empty_fragment_noop(dom, this, child_entity) {
                 return Ok(JsValue::ObjectRef(child_ref));
             }
             return Err(DomApiError {
@@ -98,9 +112,9 @@ impl DomApiHandler for InsertBefore {
             // null reference child = append (WHATWG DOM §4.2.3 pre-insert).
             let records = apply_append_child(dom, this, new_entity);
             if records.is_empty() {
-                // Empty = failure EXCEPT an empty DocumentFragment no-op (§4.2.3
-                // step 3); a null ref is always valid so no ref check is needed.
-                if dom.is_document_fragment(new_entity) {
+                // Empty = failure EXCEPT a valid empty DocumentFragment no-op
+                // (§4.2.3 step 3); a null ref needs no reference-child check.
+                if is_empty_fragment_noop(dom, this, new_entity) {
                     return Ok(JsValue::ObjectRef(new_ref));
                 }
                 return Err(DomApiError {
@@ -122,11 +136,13 @@ impl DomApiHandler for InsertBefore {
             .ok_or_else(|| not_found_error("refChild not found"))?;
         let records = apply_insert_before(dom, this, new_entity, ref_entity);
         if records.is_empty() {
-            // Empty = failure (invalid reference child or cycle) EXCEPT an empty
-            // DocumentFragment inserted before a *valid* reference child, which is
-            // a no-op (§4.2.3 step 3). A bad reference child is always an error,
-            // even for an empty fragment — so the no-op requires ref ∈ parent.
-            if dom.is_document_fragment(new_entity) && dom.get_parent(ref_entity) == Some(this) {
+            // Empty = failure (invalid reference child or cycle) EXCEPT a valid
+            // empty DocumentFragment inserted before a *valid* reference child
+            // (§4.2.3 step 3). A bad reference child is always an error, even for an
+            // empty fragment — so the no-op additionally requires ref ∈ parent.
+            if is_empty_fragment_noop(dom, this, new_entity)
+                && dom.get_parent(ref_entity) == Some(this)
+            {
                 return Ok(JsValue::ObjectRef(new_ref));
             }
             return Err(DomApiError {
@@ -848,4 +864,48 @@ pub fn validate_attribute_name(name: &str) -> Result<(), DomApiError> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_empty_fragment_noop;
+    use elidex_ecs::{Attributes, EcsDom};
+
+    // Codex PR387 R1 F1/F3: the empty-fragment-vs-failure disambiguation must
+    // enforce §4.2.1 step-2 pre-insert validity — an empty fragment that is
+    // `parent` itself or an ancestor of `parent` is a hierarchy error, NOT a no-op.
+    #[test]
+    fn empty_fragment_valid_placement_is_noop() {
+        let mut dom = EcsDom::new();
+        let parent = dom.create_element("div", Attributes::default());
+        let frag = dom.create_document_fragment();
+        assert!(is_empty_fragment_noop(&dom, parent, frag));
+    }
+
+    #[test]
+    fn empty_self_fragment_is_not_noop() {
+        // `frag.appendChild(frag)` — inclusive-ancestor of itself → hierarchy error.
+        let mut dom = EcsDom::new();
+        let frag = dom.create_document_fragment();
+        assert!(!is_empty_fragment_noop(&dom, frag, frag));
+    }
+
+    #[test]
+    fn empty_fragment_ancestor_of_parent_is_not_noop() {
+        // frag > parent: the (empty after a move, say) fragment is an ancestor of
+        // `parent` → hierarchy error, not a no-op.
+        let mut dom = EcsDom::new();
+        let frag = dom.create_document_fragment();
+        let parent = dom.create_element("div", Attributes::default());
+        let _ = dom.append_child(frag, parent);
+        assert!(!is_empty_fragment_noop(&dom, parent, frag));
+    }
+
+    #[test]
+    fn empty_non_fragment_is_not_noop() {
+        let mut dom = EcsDom::new();
+        let parent = dom.create_element("div", Attributes::default());
+        let elem = dom.create_element("span", Attributes::default());
+        assert!(!is_empty_fragment_noop(&dom, parent, elem));
+    }
 }

@@ -293,16 +293,20 @@ fn move_record_list(
 /// The records are built from the children that **actually relinked** (not the raw
 /// step-1 snapshot): the per-node `EcsDom` primitive rejects a relink whose child
 /// would create a cycle / is destroyed, in which case that child stays in the
-/// fragment and must NOT appear in `addedNodes`/`removedNodes`. For a well-formed
-/// detached fragment every child relinks (its children cannot be ancestors of an
-/// in-tree parent), so `moved == nodes`; this guards the records' truthfulness by
-/// construction rather than trusting that invariant.
+/// fragment and must NOT appear in `addedNodes`/`removedNodes`. Callers run the
+/// §4.2.1 step-2 ancestor check (`is_ancestor_or_self(fragment, parent)`) BEFORE
+/// calling this, so no child can be an ancestor of `parent` and every child
+/// relinks (`moved == nodes`); the per-child filter is then defence-in-depth that
+/// keeps the records truthful by construction rather than trusting that invariant.
 fn expand_fragment(
     dom: &mut EcsDom,
     fragment: Entity,
     mut link_each: impl FnMut(&mut EcsDom, Entity) -> bool,
 ) -> Option<(MutationRecord, Vec<Entity>)> {
-    let nodes: Vec<Entity> = dom.children_iter(fragment).collect(); // step 1, static snapshot
+    // step 1, static snapshot — `child_list_uncapped` (NOT `children_iter`, which
+    // truncates at MAX_ANCESTOR_DEPTH): §4.2.3 operates on ALL the fragment's
+    // children, so a >cap fragment must not silently drop its tail.
+    let nodes: Vec<Entity> = dom.child_list_uncapped(fragment);
     if nodes.is_empty() {
         return None; // step 3: count 0 → return
     }
@@ -334,6 +338,15 @@ fn expand_fragment(
 /// (One-issue-one-way).
 pub fn apply_append_child(dom: &mut EcsDom, parent: Entity, child: Entity) -> Vec<MutationRecord> {
     if dom.is_document_fragment(child) {
+        // §4.2.1 ensure pre-insertion validity step 2: a fragment that is a
+        // host-including inclusive ancestor of `parent` (incl. `parent` itself, e.g.
+        // `frag.appendChild(frag)`) is a HierarchyRequestError — reject ATOMICALLY
+        // before moving any child. Without this a non-empty cyclic fragment would
+        // move its non-cyclic children, skip the cyclic one, and report success
+        // (partial mutation). Empty list → the handler maps it to a hierarchy error.
+        if dom.is_ancestor_or_self(child, parent) {
+            return Vec::new();
+        }
         // DocumentFragment: §4.2.3 "insert" expands the fragment's children into
         // `parent` (the fragment itself is never linked). `previousSibling` =
         // step 6 = parent's last child, captured BEFORE the move (`children_iter_rev`
@@ -386,6 +399,12 @@ pub fn apply_insert_before(
     ref_child: Entity,
 ) -> Vec<MutationRecord> {
     if dom.is_document_fragment(new_child) {
+        // §4.2.1 step 2 (atomic, before any move): a fragment that is a
+        // host-including inclusive ancestor of `parent` is a HierarchyRequestError.
+        // See `apply_append_child`.
+        if dom.is_ancestor_or_self(new_child, parent) {
+            return Vec::new();
+        }
         // Validate the reference child up front: `EcsDom::insert_before` rejects a
         // `ref_child` that is not a child of `parent` (returns false), but the
         // fragment path drives the per-node relink through a closure that ignores
@@ -475,6 +494,12 @@ pub fn apply_replace_child(
 ) -> Vec<MutationRecord> {
     if dom.is_document_fragment(new_child) {
         // DocumentFragment newChild — §4.2.3 "replace" steps 7-14 with expansion.
+        // §4.2.3 replace step 2 (atomic, before removing oldChild): a fragment that
+        // is a host-including inclusive ancestor of `parent` is a
+        // HierarchyRequestError. See `apply_append_child`.
+        if dom.is_ancestor_or_self(new_child, parent) {
+            return Vec::new();
+        }
         // Deferred-flush safety: `apply_mutation(Mutation::ReplaceChild)` skips the
         // dom-api handler's oldChild∈parent precheck, and this branch bypasses
         // `EcsDom::replace_child` (which would otherwise validate), so re-check here
@@ -484,7 +509,9 @@ pub fn apply_replace_child(
         }
         // step 7: referenceChild = oldChild's next sibling. Step 8's
         // "if referenceChild is node" adjustment cannot fire — a fragment is
-        // detached, never a sibling of oldChild.
+        // detached, never a sibling of oldChild (a fragment is never a live child;
+        // the only producer of a live fragment child is the legacy variadic path,
+        // converged in B1.2b — see PR #387 Codex R1 F4 defer).
         let reference_child = dom.next_exposed_sibling(old_child);
         // step 9: previousSibling = oldChild's previous sibling (pre-removal).
         let previous_sibling = dom.prev_exposed_sibling(old_child);

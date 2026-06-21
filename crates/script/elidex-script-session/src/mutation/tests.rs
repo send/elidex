@@ -741,6 +741,74 @@ fn replace_child_empty_fragment() {
 }
 
 #[test]
+fn append_fragment_that_is_ancestor_of_parent_rejects_atomically() {
+    // Codex PR387 R1 F1: a non-empty fragment that is a host-including inclusive
+    // ancestor of `parent` (frag > ancestor > parent) must be rejected ATOMICALLY
+    // (§4.2.1 step 2) — no partial move of the non-cyclic children, empty record
+    // list (the handler maps it to a hierarchy error).
+    let mut dom = EcsDom::new();
+    let frag = dom.create_document_fragment();
+    let ancestor = elem(&mut dom, "div");
+    let other = elem(&mut dom, "span");
+    dom.append_child(frag, ancestor);
+    dom.append_child(frag, other); // frag = [ancestor, other]
+    let parent = elem(&mut dom, "p");
+    dom.append_child(ancestor, parent); // ancestor > parent, so frag is an ancestor of parent
+
+    let records = super::apply_append_child(&mut dom, parent, frag);
+    assert!(
+        records.is_empty(),
+        "cyclic fragment append rejected, no records"
+    );
+    // Nothing moved: `other` (non-cyclic) must NOT have been partially relinked.
+    assert_eq!(dom.children(frag), vec![ancestor, other]);
+    assert!(dom.children(parent).is_empty());
+}
+
+#[test]
+fn append_self_fragment_returns_empty() {
+    // Codex PR387 R1 F3 (apply side): `frag.appendChild(frag)` — parent == child ==
+    // an (empty) fragment is a host-including inclusive ancestor of itself, so
+    // apply returns empty (the handler then raises a hierarchy error rather than
+    // the prior silent success).
+    let mut dom = EcsDom::new();
+    let frag = dom.create_document_fragment();
+    let records = super::apply_append_child(&mut dom, frag, frag);
+    assert!(records.is_empty());
+}
+
+#[test]
+fn append_fragment_over_ancestor_depth_cap_moves_all_children() {
+    // Codex PR387 R1 F2: a fragment with more than MAX_ANCESTOR_DEPTH children must
+    // move ALL of them (§4.2.3 insert step 1 = every child) — `child_list_uncapped`,
+    // not the capped `children_iter`, drives the snapshot + records.
+    let mut dom = EcsDom::new();
+    let parent = elem(&mut dom, "div");
+    let frag = dom.create_document_fragment();
+    let n = elidex_ecs::MAX_ANCESTOR_DEPTH + 1;
+    for _ in 0..n {
+        let c = elem(&mut dom, "span");
+        dom.append_child(frag, c);
+    }
+
+    let records = super::apply_append_child(&mut dom, parent, frag);
+    assert_eq!(records.len(), 2);
+    assert_eq!(
+        records[0].removed_nodes.len(),
+        n,
+        "fragment record lists all children"
+    );
+    assert_eq!(
+        records[1].added_nodes.len(),
+        n,
+        "destination record lists all children"
+    );
+    // `children`/`children_iter` are capped, so assert via the uncapped view.
+    assert_eq!(dom.child_list_uncapped(parent).len(), n);
+    assert!(dom.child_list_uncapped(frag).is_empty());
+}
+
+#[test]
 fn replace_child_fragment_old_not_child_is_failure() {
     // Deferred-flush safety: apply_replace_child's fragment branch re-checks
     // oldChild ∈ parent (the apply_mutation path lacks the dom-api precheck).
