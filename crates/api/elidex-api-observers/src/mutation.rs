@@ -199,13 +199,18 @@ impl MutationObserverRegistry {
     /// target's inclusive ancestors and, for each node's registered observer
     /// list, queue a record for observers whose options match (proper
     /// ancestors require `subtree`).
-    pub fn notify(&mut self, dom: &EcsDom, record: &elidex_script_session::MutationRecord) {
+    /// Returns `true` if at least one observer's record queue received a record
+    /// (so the caller knows whether to "queue a mutation observer microtask",
+    /// WHATWG DOM §4.3.2 step 5). `false` means no interested observer — the
+    /// caller can skip scheduling the (otherwise no-op) microtask.
+    pub fn notify(&mut self, dom: &EcsDom, record: &elidex_script_session::MutationRecord) -> bool {
         use elidex_script_session::MutationKind;
 
         if !dom.contains(record.target) {
-            return;
+            return false;
         }
 
+        let mut enqueued = false;
         let mut node = Some(record.target);
         let mut is_target = true;
         // Cap the ancestor walk against a corrupted tree (cycle / self-parent),
@@ -281,12 +286,14 @@ impl MutationObserverRegistry {
                             attribute_name: record.attribute_name.clone(),
                             old_value,
                         });
+                        enqueued = true;
                     }
                 }
             }
             node = dom.get_parent(n);
             is_target = false;
         }
+        enqueued
     }
 
     /// Returns `true` if any observer has pending records.

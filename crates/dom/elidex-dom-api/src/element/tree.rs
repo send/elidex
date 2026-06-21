@@ -1,12 +1,35 @@
 //! Tree mutation handlers: appendChild, insertBefore, removeChild, insertAdjacent*.
 
-use elidex_ecs::{EcsDom, Entity, TextContent};
+use elidex_ecs::{EcsDom, Entity, NodeKind, TextContent};
 use elidex_plugin::JsValue;
 use elidex_script_session::{
-    DomApiError, DomApiErrorKind, DomApiHandler, JsObjectRef, Mutation, SessionCore,
+    apply_append_child, apply_insert_before, apply_remove_child, apply_replace_child, DomApiError,
+    DomApiErrorKind, DomApiHandler, JsObjectRef, Mutation, SessionCore,
 };
 
 use crate::util::{not_found_error, require_object_ref_arg, require_string_arg};
+
+/// Whether the §4.3.2 childList record for inserting `node` into a parent must
+/// be **deferred to B1.2** rather than emitted by B1's single-node path.
+///
+/// B1 covers only **fresh single-node** inserts. Two cases are out of scope and
+/// would otherwise emit a malformed / incomplete record, so B1 applies the
+/// mutation (read-your-writes) but withholds the record:
+///
+/// - **Move** (`node` already has a parent): per WHATWG DOM the insert first
+///   `adopt`s `node` (§4.5 step 2 "remove node", NOT suppressed → §4.2.3 remove
+///   step 16 queues a removal record on the source) and then queues the
+///   destination insertion record — a **two-record** sequence. The single-node
+///   helper snapshots one stale sibling and emits neither correctly.
+/// - **DocumentFragment** (§4.2.3 insert step 1): the record's `addedNodes` are
+///   the fragment's *children*, not the fragment node itself — a multi-node
+///   expansion beyond B1's single-node scope.
+///
+/// Both are owned by B1.2 (move-record semantics + multi-node coalescing).
+fn record_deferred_to_b1_2(dom: &EcsDom, node: Entity) -> bool {
+    dom.get_parent(node).is_some()
+        || matches!(dom.node_kind(node), Some(NodeKind::DocumentFragment))
+}
 
 // ---------------------------------------------------------------------------
 // appendChild
@@ -32,11 +55,26 @@ impl DomApiHandler for AppendChild {
             .identity_map()
             .get(JsObjectRef::from_raw(child_ref))
             .ok_or_else(|| not_found_error("child not found"))?;
-        if !dom.append_child(this, child_entity) {
-            return Err(DomApiError {
-                kind: DomApiErrorKind::HierarchyRequestError,
-                message: "appendChild: hierarchy request error (cycle or invalid parent)".into(),
-            });
+        // B1 scope guard: defer the record for moves / fragments (§ helper) —
+        // apply the mutation but withhold the (would-be malformed / incomplete)
+        // record until B1.2. Fresh single-node inserts record normally.
+        let defer_record = record_deferred_to_b1_2(dom, child_entity);
+        // Apply through the EcsDom chokepoint AND build the §4.3.2 childList
+        // record in one step; `None` = the append failed (cycle / invalid
+        // parent). A fresh-node record is staged for §4.3 microtask delivery.
+        match apply_append_child(dom, this, child_entity) {
+            Some(record) => {
+                if !defer_record {
+                    session.push_notify_record(record);
+                }
+            }
+            None => {
+                return Err(DomApiError {
+                    kind: DomApiErrorKind::HierarchyRequestError,
+                    message: "appendChild: hierarchy request error (cycle or invalid parent)"
+                        .into(),
+                });
+            }
         }
         Ok(JsValue::ObjectRef(child_ref))
     }
@@ -67,17 +105,29 @@ impl DomApiHandler for InsertBefore {
             .get(JsObjectRef::from_raw(new_ref))
             .ok_or_else(|| not_found_error("newChild not found"))?;
 
+        // B1 scope guard: defer the record for moves / fragments. See
+        // `AppendChild` + `record_deferred_to_b1_2`.
+        let defer_record = record_deferred_to_b1_2(dom, new_entity);
+
         // WebIDL `Node?` — both `null` and `undefined` mean "no
         // reference child"; missing arg is the same.
         let ref_child_is_null =
             matches!(args.get(1), None | Some(JsValue::Null | JsValue::Undefined));
         if ref_child_is_null {
-            if !dom.append_child(this, new_entity) {
-                return Err(DomApiError {
-                    kind: DomApiErrorKind::HierarchyRequestError,
-                    message: "insertBefore: hierarchy request error (cycle or invalid parent)"
-                        .into(),
-                });
+            // null reference child = append (WHATWG DOM §4.2.3 pre-insert).
+            match apply_append_child(dom, this, new_entity) {
+                Some(record) => {
+                    if !defer_record {
+                        session.push_notify_record(record);
+                    }
+                }
+                None => {
+                    return Err(DomApiError {
+                        kind: DomApiErrorKind::HierarchyRequestError,
+                        message: "insertBefore: hierarchy request error (cycle or invalid parent)"
+                            .into(),
+                    });
+                }
             }
             return Ok(JsValue::ObjectRef(new_ref));
         }
@@ -87,12 +137,20 @@ impl DomApiHandler for InsertBefore {
             .identity_map()
             .get(JsObjectRef::from_raw(ref_ref))
             .ok_or_else(|| not_found_error("refChild not found"))?;
-        if !dom.insert_before(this, new_entity, ref_entity) {
-            return Err(DomApiError {
-                kind: DomApiErrorKind::HierarchyRequestError,
-                message: "insertBefore: hierarchy request error (invalid reference child or cycle)"
-                    .into(),
-            });
+        match apply_insert_before(dom, this, new_entity, ref_entity) {
+            Some(record) => {
+                if !defer_record {
+                    session.push_notify_record(record);
+                }
+            }
+            None => {
+                return Err(DomApiError {
+                    kind: DomApiErrorKind::HierarchyRequestError,
+                    message:
+                        "insertBefore: hierarchy request error (invalid reference child or cycle)"
+                            .into(),
+                });
+            }
         }
         Ok(JsValue::ObjectRef(new_ref))
     }
@@ -122,8 +180,9 @@ impl DomApiHandler for RemoveChild {
             .identity_map()
             .get(JsObjectRef::from_raw(child_ref))
             .ok_or_else(|| not_found_error("child not found"))?;
-        if !dom.remove_child(this, child_entity) {
-            return Err(not_found_error("child is not a child of this element"));
+        match apply_remove_child(dom, this, child_entity) {
+            Some(record) => session.push_notify_record(record),
+            None => return Err(not_found_error("child is not a child of this element")),
         }
         Ok(JsValue::ObjectRef(child_ref))
     }
@@ -194,13 +253,27 @@ impl DomApiHandler for ReplaceChild {
             return Ok(JsValue::ObjectRef(old_ref));
         }
 
-        if !dom.replace_child(this, new_entity, old_entity) {
-            return Err(DomApiError {
-                kind: DomApiErrorKind::HierarchyRequestError,
-                message: "replaceChild: hierarchy request error (cycle, invalid kind, \
-                          or self/ancestor receiver)"
-                    .into(),
-            });
+        // B1 scope guard: if newChild is a move/fragment its record is deferred
+        // to B1.2 (move = source-removal + dest-insert; fragment = multi-node).
+        // The mutation still applies. See `record_deferred_to_b1_2`.
+        let defer_record = record_deferred_to_b1_2(dom, new_entity);
+        // §4.2.3 "replace" emits exactly ONE coalesced childList record
+        // (added=[new], removed=[old]); the inner remove/insert run with
+        // suppressObservers. `apply_replace_child` builds that single record.
+        match apply_replace_child(dom, this, new_entity, old_entity) {
+            Some(record) => {
+                if !defer_record {
+                    session.push_notify_record(record);
+                }
+            }
+            None => {
+                return Err(DomApiError {
+                    kind: DomApiErrorKind::HierarchyRequestError,
+                    message: "replaceChild: hierarchy request error (cycle, invalid kind, \
+                              or self/ancestor receiver)"
+                        .into(),
+                });
+            }
         }
         Ok(JsValue::ObjectRef(old_ref))
     }

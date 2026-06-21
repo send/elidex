@@ -41,7 +41,8 @@ pub use event_listener::{
 pub use event_queue::{EventQueue, QueuedEvent};
 pub use identity_map::IdentityMap;
 pub use mutation::{
-    apply_mutation, apply_set_inner_html, apply_set_outer_html, Mutation, MutationKind,
+    apply_append_child, apply_insert_before, apply_mutation, apply_remove_child,
+    apply_replace_child, apply_set_inner_html, apply_set_outer_html, Mutation, MutationKind,
     MutationRecord, OuterHtmlError, SetInnerHtmlOptions,
 };
 pub use navigation::{HistoryAction, NavigationRequest};

@@ -209,7 +209,16 @@ pub(super) fn empty_record(kind: MutationKind, target: Entity) -> MutationRecord
     }
 }
 
-fn apply_append_child(dom: &mut EcsDom, parent: Entity, child: Entity) -> Option<MutationRecord> {
+/// Append `child` to `parent` through the `EcsDom` chokepoint and build the
+/// §4.3.2 "queue a tree mutation record" childList record (or `None` if the
+/// append fails). Shared by the deferred-flush path (`apply_mutation`) and the
+/// synchronous VM bridge handler (`AppendChild`) so both runtimes produce the
+/// identical record shape — one record source (One-issue-one-way).
+pub fn apply_append_child(
+    dom: &mut EcsDom,
+    parent: Entity,
+    child: Entity,
+) -> Option<MutationRecord> {
     // Capture previous sibling before mutation (the current last
     // exposed child). `get_last_child` would return a `ShadowRoot`
     // entity on a shadow host with no light-tree children, leaking
@@ -229,7 +238,10 @@ fn apply_append_child(dom: &mut EcsDom, parent: Entity, child: Entity) -> Option
     })
 }
 
-fn apply_insert_before(
+/// Insert `new_child` before `ref_child` under `parent` through the `EcsDom`
+/// chokepoint and build the §4.3.2 childList record (or `None` on failure).
+/// Shared by the deferred-flush path and the VM `insertBefore` handler.
+pub fn apply_insert_before(
     dom: &mut EcsDom,
     parent: Entity,
     new_child: Entity,
@@ -251,7 +263,14 @@ fn apply_insert_before(
     })
 }
 
-fn apply_remove_child(dom: &mut EcsDom, parent: Entity, child: Entity) -> Option<MutationRecord> {
+/// Remove `child` from `parent` through the `EcsDom` chokepoint and build the
+/// §4.3.2 childList record (or `None` if `child` is not a child). Shared by the
+/// deferred-flush path and the VM `removeChild` handler.
+pub fn apply_remove_child(
+    dom: &mut EcsDom,
+    parent: Entity,
+    child: Entity,
+) -> Option<MutationRecord> {
     let prev_sibling = dom.prev_exposed_sibling(child);
     let next_sibling = dom.next_exposed_sibling(child);
     if !dom.remove_child(parent, child) {
@@ -265,7 +284,11 @@ fn apply_remove_child(dom: &mut EcsDom, parent: Entity, child: Entity) -> Option
     })
 }
 
-fn apply_replace_child(
+/// Replace `old_child` with `new_child` under `parent` through the `EcsDom`
+/// chokepoint and build the **single coalesced** §4.2.3 "replace" childList
+/// record (`added_nodes` = new child, `removed_nodes` = old child; `None` on
+/// failure). Shared by the deferred-flush path and the VM `replaceChild` handler.
+pub fn apply_replace_child(
     dom: &mut EcsDom,
     parent: Entity,
     new_child: Entity,
