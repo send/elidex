@@ -746,40 +746,41 @@ impl CssColor {
 }
 
 /// Serialize an 8-bit alpha component per CSS Color 4 §16.1
-/// ("Serializing alpha values").
+/// ("Serializing alpha values"), following the **numbered normative
+/// steps** (the "For example" prose is non-normative).
 ///
-/// - **Integer-percentage preimage (step 2)**: if some integer `n` in
+/// - **Step 2 — integer-percentage preimage**: if some integer `n` in
 ///   `0..=100` satisfies `round(n * 2.55) == a` (ties rounding up), the
 ///   alpha is `n / 100` — the common case (e.g. `a = 128` → `n = 50` →
-///   `"0.5"`). Exact integer arithmetic.
-/// - **Otherwise (step 3)**: `a / 255` serialized to at most six decimal
-///   places, trailing zeros trimmed. This reproduces §16.1's worked
-///   example (`a = 236` → `"0.92549"`) — the form `getComputedStyle` and
-///   WPT color serialization checks expect. (§16.1's step-3 prose rounds
-///   `a / 0.255` to an integer before dividing by 1000, which would yield
-///   `"0.925"`, but the spec's own example serializes the un-rounded
-///   `a / 255` value; we follow the example, which is what implementations
-///   and the WPT corpus assert.) Six decimal places is far finer than the
-///   8-bit resolution, so every value round-trips.
+///   `"0.5"`).
+/// - **Step 3 — otherwise**: `round(a / 0.255) / 1000`, i.e. the integer
+///   `round(a * 1000 / 255)` over `1000` (e.g. `a = 1` → `"0.004"`,
+///   `a = 127` → `"0.498"`, `a = 236` → `"0.925"`). Always round-trips the
+///   8-bit value.
 ///
+/// §16.1 is internally inconsistent here: its *worked example* serializes
+/// `a = 236` as `"0.92549"` (un-rounded `a/255` to 6 figures), which
+/// contradicts step 3's own "rounded to the closest integer … divided by
+/// 1000" (`"0.925"`). Per the W3C convention that a numbered normative
+/// step governs over illustrative "For example" prose, we follow step 3.
+///
+/// All arithmetic is exact integer math on the `u8` — no floating point.
 /// Leading zero kept, trailing zeros trimmed.
 fn serialize_alpha_u8(a: u8) -> String {
-    let ai = u32::from(a);
+    let a = u32::from(a);
 
     // Step 2: integer-percentage preimage. round(n * 2.55) = round(n*255/100), ties up.
     for n in 0u32..=100 {
-        if (n * 255 + 50) / 100 == ai {
+        if (n * 255 + 50) / 100 == a {
             return format_decimal_ratio(n, 100);
         }
     }
 
-    // Step 3 (§16.1 worked example): a/255 to <=6 decimal places, trailing
-    // zeros trimmed. `f64::from(a)` is lossless (u8 → f64); the division and
-    // 6-decimal rounding are display-only (a/255 is well-conditioned in
-    // [0, 1] — no cancellation), so floating point is appropriate here.
-    let s = format!("{:.6}", f64::from(a) / 255.0);
-    let trimmed = s.trim_end_matches('0').trim_end_matches('.');
-    trimmed.to_string()
+    // Step 3: round(a / 0.255) / 1000 = round(a * 1000 / 255) / 1000.
+    // `+ 127` (= floor(255/2)) rounds to the closest integer; `a*1000 mod
+    // 255` is never exactly 127.5, so there is no tie to break.
+    let m = (a * 1000 + 127) / 255;
+    format_decimal_ratio(m, 1000)
 }
 
 /// Format `num / den` (a value in `[0, 1]`, `den` a power of ten) as a CSS

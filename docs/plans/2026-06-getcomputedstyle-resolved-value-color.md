@@ -229,19 +229,21 @@ impl CssColor {
    → return `n/100` as a `<number>` (trailing zeros trimmed, leading zero kept). *Common
    case* — `rgba(_, .5)` stores u8 128, `n=50` → `round(127.5)=128` → `"0.5"`; `n=10`→26→
    `"0.1"`; `n=93`→237→`"0.93"`.
-2. **No preimage (step 3, §16.1 worked example)**: `a/255` to at most six decimal places,
-   trailing zeros trimmed, leading zero kept. E.g. `a=236` → `236/255 = 0.925490…` →
-   `"0.92549"`; `a=127` → `0.498039…` → `"0.498039"`. Six decimal places is far finer than
-   the 8-bit resolution (`1/255 ≈ 0.0039`), so every value round-trips.
+2. **No preimage (step 3, §16.1 numbered normative algorithm)**: `round(a/0.255)/1000` =
+   the integer `round(a*1000/255)` over `1000`, formatted as a `<number>` (trailing zeros
+   trimmed, leading zero kept). E.g. `a=236` → `round(925.49)=925` → `"0.925"`; `a=127` →
+   `"0.498"`; `a=1` → `"0.004"`. Implemented as `(a*1000 + 127)/255` (exact round-to-nearest;
+   `a*1000 mod 255` is never exactly 127.5, so no tie). Always round-trips.
 
-   **NOTE (cross-round review convergence)**: §16.1 is internally inconsistent here — the
-   step-3 *prose* rounds `a/0.255` to an integer before `/1000` (→ `"0.925"` for 236), but
-   the spec's own *worked example* serializes the un-rounded `a/255` value (→ `"0.92549"`).
-   This spot was flagged across three review passes (plan-review Axis 4 → example;
-   /code-review → prose; Codex R2 #1 → example, asserting WPT checks it). The
-   **worked example is what implementations and the WPT corpus assert**, so the
-   implementation matches it (`format!("{:.6}", a as f64 / 255.0)` trimmed). `f64` is used
-   only for the display rounding — `a/255` is well-conditioned in `[0, 1]`, no cancellation.
+   **NOTE (cross-round review convergence — webref-verified)**: §16.1 is internally
+   inconsistent — its *numbered step 3* rounds `a/0.255` to an integer before `/1000`
+   (→ `"0.925"`), its *non-normative "For example" prose* shows the un-rounded `a/255` value
+   (→ `"0.92549"`), and its *precision note* ("rounded towards +∞") would give `"0.926"`.
+   All three disagree. This spot oscillated across review passes (plan-review → example,
+   /code-review → step-3, Codex R2 → example, Codex R5 → step-3). Resolved by the W3C
+   convention that **a numbered normative step governs over illustrative "For example"
+   prose**: follow step 3 (`"0.925"`). This is also the simpler exact-integer closed form
+   (no `f64`).
 
 Number formatting: leading zero kept, trailing zeros trimmed. The all-`u8` round-trip
 property test (`reparse(serialize(a)) == a` for every `a`) guards both steps.
@@ -316,8 +318,8 @@ Engine-independent unit tests (no VM needed) at the `serialize_resolved_value` /
 - translucent `CssColor::new(0,0,0,128)` → `"rgba(0, 0, 0, 0.5)"`.
 - `CssColor::new(0,0,0,0)` (transparent) → `"rgba(0, 0, 0, 0)"`.
 - alpha §16.1 table: 255→omitted (rgb form); 128→`0.5`; 26→`0.1` (n=10: round(25.5)=26);
-  237→`0.93`; step-3 no-preimage `236 → "0.92549"` (§16.1 worked example, `236/255`),
-  `127 → "0.498039"`. Round-trip property test over all `a` in `0..=255`: re-parsing the
+  237→`0.93`; step-3 no-preimage `236 → "0.925"` (§16.1 numbered step 3, `round(236/0.255)`),
+  `127 → "0.498"`, `1 → "0.004"`. Round-trip property test over all `a` in `0..=255`: re-parsing the
   serialized alpha yields back `a`.
 - `text-decoration-color` initial (None) on element with `color: blue` →
   `"rgb(0, 0, 255)"` (currentcolor → used value). With explicit color → that color.
