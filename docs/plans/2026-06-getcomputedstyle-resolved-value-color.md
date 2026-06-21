@@ -175,7 +175,7 @@ currentcolor branch.
 **Pros**: field-level uniformity — all 8 color fields concrete `CssColor`; boundary
 serializer is pure (Color arm only).
 **Cons**: **couples a getComputedStyle serialization slice into text-decoration render
-propagation** (CSS Text Decoration §1.3 — a decoration introduced by an ancestor is
+propagation** (CSS Text Decoration §2.1 `text-decoration-line` — a decoration introduced by an ancestor is
 painted by that ancestor's box and propagated to descendants; the `None`="resolve at
 render time" convention exists so the decoration picks up the *originating* element's
 color, `paint/mod.rs:736` + `font.rs:362-365`). Collapsing `None`→`style.color` at
