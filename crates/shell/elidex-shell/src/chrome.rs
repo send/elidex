@@ -16,6 +16,15 @@ pub const TAB_BAR_HEIGHT: f32 = 28.0;
 /// Width of the tab sidebar in logical pixels (vertical mode).
 pub const TAB_SIDEBAR_WIDTH: f32 = 200.0;
 
+/// Minimum content-area dimension (CSS logical px). When the window is smaller
+/// than the reserved chrome the content area would be zero, but the SoT floors it
+/// here so the placement never produces a degenerate-zero viewport: a zero
+/// `SetViewport` is rejected by the consumer (`content/event_loop.rs`, `width >
+/// 0.0`) while the compositor still clips to the zero rect, so producer and
+/// painted size would diverge (I1) exactly at the collapse edge. Flooring at a
+/// positive minimum keeps told-size == painted-size by construction.
+pub const MIN_CONTENT_DIMENSION: f32 = 1.0;
+
 /// Tab bar position relative to the content area.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 #[allow(dead_code)]
@@ -258,7 +267,9 @@ pub fn chrome_content_offset(position: TabBarPosition) -> Point {
 /// [`chrome_content_offset`] gives the matching content-area top-left origin.
 /// `Left`/`Right` reserve the sidebar width on whichever side it sits, so both
 /// subtract the same `TAB_SIDEBAR_WIDTH`; only the origin (offset) differs.
-/// Clamped non-negative (a window smaller than the chrome → zero content area).
+/// Floored at [`MIN_CONTENT_DIMENSION`] (a window smaller than the chrome →
+/// minimum content area, never a degenerate-zero the `SetViewport` consumer
+/// rejects — keeps producer/compositor size consistent at the collapse edge).
 #[must_use]
 pub fn content_size(window_width: f32, window_height: f32, position: TabBarPosition) -> Size {
     let (reserve_w, reserve_h) = match position {
@@ -266,8 +277,8 @@ pub fn content_size(window_width: f32, window_height: f32, position: TabBarPosit
         TabBarPosition::Left | TabBarPosition::Right => (TAB_SIDEBAR_WIDTH, CHROME_HEIGHT),
     };
     Size::new(
-        (window_width - reserve_w).max(0.0),
-        (window_height - reserve_h).max(0.0),
+        (window_width - reserve_w).max(MIN_CONTENT_DIMENSION),
+        (window_height - reserve_h).max(MIN_CONTENT_DIMENSION),
     )
 }
 
@@ -341,12 +352,13 @@ mod tests {
     }
 
     #[test]
-    fn content_size_clamps_to_non_negative() {
-        // A window narrower/shorter than the chrome yields a zero content area,
-        // never a negative dimension.
+    fn content_size_floors_at_minimum_dimension() {
+        // A window narrower/shorter than the chrome yields the minimum content
+        // dimension, never zero (degenerate) or negative — so the placement SoT
+        // and the `SetViewport` consumer agree at the collapse edge.
         let s = content_size(10.0, 10.0, TabBarPosition::Left);
-        assert_eq!(s.width, 0.0);
-        assert_eq!(s.height, 0.0);
+        assert_eq!(s.width, MIN_CONTENT_DIMENSION);
+        assert_eq!(s.height, MIN_CONTENT_DIMENSION);
     }
 
     #[test]

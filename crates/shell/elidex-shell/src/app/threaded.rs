@@ -315,26 +315,42 @@ impl App {
         }
     }
 
+    /// Resolve the content-area scroll target for a wheel event, or `None` to
+    /// drop it. With a **known** cursor the in-content gate applies (a cursor over
+    /// chrome must not scroll the unpainted page under it — the hover/click rule
+    /// applied to the wheel). But before the first `CursorMoved` (`cursor_pos` is
+    /// `None` — e.g. the first input after focus is a wheel), fall back to the
+    /// content origin so the page still scrolls: `content::scroll::handle_wheel`
+    /// scrolls the viewport without a hit target, so dropping the wheel here would
+    /// regress wheel scrolling until the pointer is first moved.
+    fn wheel_target_point(
+        cursor_pos: Option<elidex_plugin::Point<f64>>,
+        placement: ContentAreaPlacement,
+    ) -> Option<elidex_plugin::Point> {
+        match cursor_pos {
+            Some(cursor) => {
+                let content = Self::cursor_to_content(cursor, placement);
+                Self::point_in_content(content, placement).then(|| content.to_f32())
+            }
+            None => Some(elidex_plugin::Point::ZERO),
+        }
+    }
+
     /// Handle `MouseWheel` in threaded mode.
     ///
     /// Converts winit scroll deltas to CSS px ([`scroll_delta_to_css`]) and sends
-    /// to the content thread — only when the cursor is inside the content rect,
-    /// since the page under chrome is not painted and must not scroll (the
-    /// hover/click in-content gate, applied to the wheel too).
+    /// to the content thread at the [`wheel_target_point`] (skipped only when a
+    /// known cursor is over chrome).
     fn handle_mouse_wheel_threaded(
         &mut self,
         delta: MouseScrollDelta,
         placement: ContentAreaPlacement,
     ) {
         let scroll_delta = Self::scroll_delta_to_css(delta, placement.scale_factor);
-        let Some(cursor) = self.cursor_pos else {
-            return;
-        };
-        let content = Self::cursor_to_content(cursor, placement);
-        if Self::point_in_content(content, placement) {
+        if let Some(point) = Self::wheel_target_point(self.cursor_pos, placement) {
             self.send_to_content(BrowserToContent::MouseWheel {
                 delta: scroll_delta,
-                point: content.to_f32(),
+                point,
             });
         }
     }
@@ -681,5 +697,30 @@ mod placement_input_tests {
         // LineDelta is scale-independent: 1 line → 40 CSS px, negated.
         let dl = App::scroll_delta_to_css(MouseScrollDelta::LineDelta(0.0, 1.0), 2.0);
         assert!((dl.y + 40.0).abs() < 1e-9);
+    }
+
+    /// Wheel target resolution: a known cursor inside the content rect scrolls at
+    /// that content point; a known cursor over chrome (outside the rect) drops the
+    /// wheel (`None`); but an **unknown** cursor (`None`, before the first
+    /// `CursorMoved`) falls back to the content origin so the page still scrolls —
+    /// the early-`None`-return regression guard.
+    #[test]
+    fn wheel_target_point_falls_back_before_first_cursor_move() {
+        let pl = placement(Point::new(0.0, 64.0), 1.0); // 800×600 content rect
+                                                        // Unknown cursor → fall back to origin (still scrolls), NOT dropped.
+        assert_eq!(
+            App::wheel_target_point(None, pl),
+            Some(Point::new(0.0, 0.0))
+        );
+        // Known cursor inside content (physical (10, 74) → content (10, 10)).
+        assert_eq!(
+            App::wheel_target_point(Some(Point::<f64>::new(10.0, 74.0)), pl),
+            Some(Point::new(10.0, 10.0))
+        );
+        // Known cursor over chrome (physical y=10 < origin 64 → content y=-54) → drop.
+        assert_eq!(
+            App::wheel_target_point(Some(Point::<f64>::new(10.0, 10.0)), pl),
+            None
+        );
     }
 }
