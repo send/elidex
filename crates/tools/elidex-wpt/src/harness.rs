@@ -6,7 +6,7 @@ use elidex_css::{parse_selector_from_str, parse_stylesheet, Origin};
 use elidex_ecs::{EcsDom, Entity, TagType};
 use elidex_html_parser::parse_html;
 use elidex_plugin::ComputedStyle;
-use elidex_style::{get_computed, resolve_styles};
+use elidex_style::{resolve_styles, serialize_resolved_value};
 
 /// A single WPT-style test case.
 #[derive(Debug, Clone, serde::Deserialize)]
@@ -64,8 +64,13 @@ pub fn run_test_case(test: &WptTestCase) -> WptTestResult {
         };
 
         for (prop, expected_str) in props {
-            let computed = get_computed(prop, &style);
-            let computed_str = css_value_to_string(&computed);
+            // Serialize via the SAME canonical resolved-value path the
+            // getComputedStyle DOM API uses (`serialize_resolved_value`),
+            // so the harness compares against exactly what the engine
+            // returns to script — including `currentcolor` used-value
+            // resolution (CSSOM-1 §9), which a value-only serializer
+            // (lacking the `&ComputedStyle` context) cannot perform.
+            let computed_str = serialize_resolved_value(prop, &style);
             if computed_str != *expected_str {
                 failures.push(format!(
                     "{selector_str} {{ {prop}: expected '{expected_str}', got '{computed_str}' }}"
@@ -126,45 +131,6 @@ fn find_matching(
         }
     }
     None
-}
-
-/// Maximum nesting depth for `CssValue::List` serialization.
-const MAX_VALUE_DEPTH: usize = 32;
-
-/// Serialize a `CssValue` to its CSSOM resolved-value string.
-///
-/// Follows CSSOM §6.7.2 (Serializing CSS Values) and CSS Color 4
-/// §16 (Serializing `<color>` Values):
-///   - Opaque colors → `rgb(r, g, b)` (legacy comma syntax)
-///   - Translucent colors → `rgba(r, g, b, a)` with alpha as `<number>` 0–1
-///   - Lengths → `<number><unit>` (computed values are resolved to `px` by
-///     the style engine; other units preserved here for test flexibility)
-///   - Numbers → shortest `<number>` representation (no trailing `.0` for integers)
-fn css_value_to_string(value: &elidex_plugin::CssValue) -> String {
-    css_value_to_string_inner(value, 0)
-}
-
-fn css_value_to_string_inner(value: &elidex_plugin::CssValue, depth: usize) -> String {
-    use elidex_plugin::CssValue;
-    match value {
-        // CSS Color 4 §16.2.2 (CSS serialization of sRGB values) + CSSOM
-        //   §6.7.2 *resolved-value* form: `rgb(r, g, b)` / `rgba(r, g, b, a)`
-        //   (the canonical declaration-form serializer uses hex). Delegates
-        //   to the single canonical resolved-value serializer (exact §16.1
-        //   alpha) — One-issue-one-way.
-        CssValue::Color(c) => c.to_resolved_value_string(),
-        // Resolved-value lists are space-joined (the declaration form is
-        // comma-joined), with a recursion cap for test robustness.
-        CssValue::List(items) if depth < MAX_VALUE_DEPTH => items
-            .iter()
-            .map(|v| css_value_to_string_inner(v, depth + 1))
-            .collect::<Vec<_>>()
-            .join(" "),
-        // Everything else is byte-identical to the canonical
-        // declaration-form serializer — delegate so there is exactly one
-        // copy of those arms in the workspace.
-        _ => value.to_css_string(),
-    }
 }
 
 #[cfg(test)]
@@ -231,6 +197,24 @@ mod tests {
             "<div id=\"p\" style=\"color: green;\"><span id=\"c\">text</span></div>",
             "",
             &[("#c", "color", "rgb(0, 128, 0)")],
+        );
+        let result = run_test_case(&test);
+        assert!(result.passed, "failures: {:?}", result.failures);
+    }
+
+    #[test]
+    fn currentcolor_resolved_to_used_value() {
+        // Regression (Codex R1): the harness must serialize via the SAME
+        // resolved-value path as the getComputedStyle DOM API, so a residual
+        // `currentcolor` (text-decoration-color default = None) resolves to
+        // the element's used-value `color` (CSSOM-1 §9) — `rgb(0, 0, 255)`,
+        // NOT the unresolved `currentcolor` keyword a value-only serializer
+        // would emit.
+        let test = case(
+            "text-decoration-color-currentcolor",
+            "<div id=\"t\" style=\"color: blue;\">text</div>",
+            "",
+            &[("#t", "text-decoration-color", "rgb(0, 0, 255)")],
         );
         let result = run_test_case(&test);
         assert!(result.passed, "failures: {:?}", result.failures);
