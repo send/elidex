@@ -224,6 +224,62 @@ pub struct TokenListHandler {
     pub op: TokenListOp,
 }
 
+/// `<link>` `rel` supported tokens — HTML §4.2.4 defines these as the possible
+/// keywords **intersected with the keywords whose processing model the user
+/// agent implements**, so `supports()` is an honest feature-detection signal
+/// rather than a keyword-recognition one. elidex fully implements exactly one:
+/// `stylesheet` (the external CSS load + cascade pipeline, `LinkStylesheet`).
+///
+/// Every other possible `<link>` keyword (alternate, dns-prefetch, expect, icon,
+/// manifest, modulepreload, next, pingback, preconnect, prefetch, preload,
+/// search) has **no** end-to-end processing model here — e.g. `manifest` is
+/// discovered + forwarded but not fetched/parsed/applied (`ManifestDiscovered`
+/// is a `TODO`), so advertising it would make `link.relList.supports(…)` lie.
+/// Add a keyword here only once its processing model actually lands.
+const LINK_REL_IMPLEMENTED: &[&str] = &["stylesheet"];
+
+/// `<a>` / `<area>` `rel` supported tokens — the possible hyperlink keywords are
+/// `noopener` / `noreferrer` / `opener` (HTML §4.6.2 `#attr-hyperlink-rel`), but
+/// elidex implements **none** of their processing models: `target=_blank` never
+/// consults `rel`, and `window.opener` is inert. The implemented subset is
+/// therefore empty — `relList.supports(…)` returns `false` (not a throw, since
+/// hyperlink `rel` *does* define supported tokens; the UA-implemented subset is
+/// just empty). Grows as the processing models land.
+const HYPERLINK_REL_IMPLEMENTED: &[&str] = &[];
+
+/// Resolve the DOM §7.1 *supported tokens* set for a DOMTokenList — the
+/// UA-implemented subset (see [`LINK_REL_IMPLEMENTED`] /
+/// [`HYPERLINK_REL_IMPLEMENTED`]) — or `None` when the backing attribute defines
+/// no supported tokens at all (then `supports()` throws). Only `rel` defines
+/// supported tokens, and the set depends on the owning element. `class` /
+/// `sizes` define none.
+///
+/// `<form>` `rel` also defines supported tokens (HTML §4.10.3), but
+/// `HTMLFormElement.relList` is not yet wired (no `relList` accessor), so the
+/// branch is unreachable from web content and intentionally omitted; add
+/// `form => Some(HYPERLINK_REL_IMPLEMENTED)` here when that surface is wired.
+///
+/// These supported tokens are defined for the **HTML** `link`/`a`/`area`
+/// elements only, so a foreign-content element with the same local name (e.g. an
+/// SVG `<a>`) defines none — gate on the HTML namespace so it throws per DOM
+/// §7.1 rather than matching by local tag name alone.
+fn rel_supported_tokens(
+    attr_name: &str,
+    entity: Entity,
+    dom: &EcsDom,
+) -> Option<&'static [&'static str]> {
+    if attr_name != "rel" || !dom.is_html_namespace(entity) {
+        return None;
+    }
+    dom.with_tag_name(entity, |tag| match tag {
+        Some(t) if t.eq_ignore_ascii_case("link") => Some(LINK_REL_IMPLEMENTED),
+        Some(t) if t.eq_ignore_ascii_case("a") || t.eq_ignore_ascii_case("area") => {
+            Some(HYPERLINK_REL_IMPLEMENTED)
+        }
+        _ => None,
+    })
+}
+
 impl DomApiHandler for TokenListHandler {
     fn method_name(&self) -> &str {
         self.method_name
@@ -362,13 +418,25 @@ impl DomApiHandler for TokenListHandler {
                     None => Ok(JsValue::Null),
                 }
             }
-            TokenListOp::Supports => Err(DomApiError {
-                kind: DomApiErrorKind::TypeError,
-                message: format!(
-                    "{} is not supported for this DOMTokenList",
-                    self.method_name
-                ),
-            }),
+            TokenListOp::Supports => {
+                // DOM §7.1 `supports(token)` = the attribute's *validation
+                // steps*: if the backing attribute defines supported tokens,
+                // return whether `token` is one of them (ASCII case-insensitive,
+                // no token-syntax validation); otherwise throw a `TypeError`.
+                let token = require_string_arg(args, 0)?;
+                match rel_supported_tokens(self.attr_name, this, dom) {
+                    Some(set) => Ok(JsValue::Bool(
+                        set.iter().any(|t| t.eq_ignore_ascii_case(&token)),
+                    )),
+                    None => Err(DomApiError {
+                        kind: DomApiErrorKind::TypeError,
+                        message: format!(
+                            "{} is not supported for this DOMTokenList",
+                            self.method_name
+                        ),
+                    }),
+                }
+            }
         }
     }
 }

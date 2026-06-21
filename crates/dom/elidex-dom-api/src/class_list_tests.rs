@@ -483,6 +483,129 @@ fn supports_throws() {
 }
 
 // -----------------------------------------------------------------------
+// relList.supports — DOM §7.1 supported tokens (HTML §4.2.4 / §4.6.2)
+// -----------------------------------------------------------------------
+
+fn supports_on(tag: &str, token: &str) -> Result<JsValue, DomApiError> {
+    let mut dom = EcsDom::new();
+    let mut session = SessionCore::new();
+    let elem = dom.create_element(tag, Attributes::default());
+    REL_LIST_SUPPORTS.invoke(
+        elem,
+        &[JsValue::String(token.into())],
+        &mut session,
+        &mut dom,
+    )
+}
+
+#[test]
+fn rellist_supports_link_implemented_tokens() {
+    // `supports()` reflects the UA-*implemented* rel processing models, not the
+    // full spec enumeration (HTML §4.2.4: possible keywords ∩ implemented).
+    // elidex fully implements only `stylesheet` (CSS load + cascade).
+    assert_eq!(
+        supports_on("link", "stylesheet").unwrap(),
+        JsValue::Bool(true)
+    );
+    // Possible `<link>` keywords with no end-to-end processing model → false
+    // (advertising them would make feature detection lie). `manifest` is
+    // discovered but not fetched/parsed/applied, so it is NOT advertised.
+    for unimpl in [
+        "manifest",
+        "preload",
+        "modulepreload",
+        "preconnect",
+        "icon",
+        "bogus",
+    ] {
+        assert_eq!(
+            supports_on("link", unimpl).unwrap(),
+            JsValue::Bool(false),
+            "link.relList.supports({unimpl:?}) must be false (no processing model)"
+        );
+    }
+    // `noopener` is a hyperlink keyword, never a `<link>` one.
+    assert_eq!(
+        supports_on("link", "noopener").unwrap(),
+        JsValue::Bool(false)
+    );
+}
+
+#[test]
+fn rellist_supports_is_ascii_case_insensitive() {
+    // DOM §7.1 validation steps compare tokens ASCII case-insensitively.
+    assert_eq!(
+        supports_on("link", "StyleSheet").unwrap(),
+        JsValue::Bool(true)
+    );
+    assert_eq!(
+        supports_on("link", "STYLESHEET").unwrap(),
+        JsValue::Bool(true)
+    );
+}
+
+#[test]
+fn rellist_supports_foreign_namespace_throws() {
+    // Supported tokens are defined for HTML `link`/`a`/`area` only; a foreign
+    // element with the same local name (e.g. an SVG `<a>`) defines none → throws
+    // (DOM §7.1), not a tag-name-only match against the HTML set.
+    let mut dom = EcsDom::new();
+    let mut session = SessionCore::new();
+    let svg_a = dom.create_element_ns("a", elidex_ecs::Namespace::Svg, Attributes::default(), None);
+    let err = REL_LIST_SUPPORTS
+        .invoke(
+            svg_a,
+            &[JsValue::String("noopener".into())],
+            &mut session,
+            &mut dom,
+        )
+        .unwrap_err();
+    assert_eq!(err.kind, DomApiErrorKind::TypeError);
+}
+
+#[test]
+fn rellist_supports_hyperlink_returns_false_not_throw() {
+    // `<a>` / `<area>` `rel` *defines* supported tokens (noopener/noreferrer/
+    // opener, HTML §4.6.2), so `supports()` does NOT throw — but elidex
+    // implements none of those processing models, so the implemented subset is
+    // empty and every token returns `false`.
+    for tag in ["a", "area"] {
+        for token in ["noopener", "noreferrer", "opener", "stylesheet"] {
+            assert_eq!(
+                supports_on(tag, token).unwrap(),
+                JsValue::Bool(false),
+                "{tag}.relList.supports({token:?}) must be false (not implemented), not throw"
+            );
+        }
+    }
+}
+
+#[test]
+fn rellist_supports_unknown_element_throws() {
+    // A `rel` token list on an element whose `rel` defines no supported tokens
+    // (e.g. a `<div>`) → `supports()` throws (DOM §7.1).
+    let err = supports_on("div", "stylesheet").unwrap_err();
+    assert_eq!(err.kind, DomApiErrorKind::TypeError);
+}
+
+#[test]
+fn linksizes_supports_throws() {
+    // `<link>.sizes` defines no supported tokens → throws, even on a `<link>`.
+    let mut dom = EcsDom::new();
+    let mut session = SessionCore::new();
+    let elem = dom.create_element("link", Attributes::default());
+    let err = LINK_SIZES_SUPPORTS
+        .invoke(
+            elem,
+            &[JsValue::String("any".into())],
+            &mut session,
+            &mut dom,
+        )
+        .unwrap_err();
+    assert_eq!(err.kind, DomApiErrorKind::TypeError);
+}
+
+// -----------------------------------------------------------------------
 // Step 3 spec-compliance tests
 // -----------------------------------------------------------------------
 
