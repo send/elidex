@@ -48,12 +48,14 @@ impl ElidexJsEngine {
     /// Create a new engine with a fresh VM under an explicit
     /// [`EngineMode`](elidex_plugin::EngineMode).
     ///
-    /// The shell (embedder) supplies the engine-wide mode here; it is fixed at
-    /// VM construction and governs the Web-API core/compat install gate.
-    ///
-    /// ⚠ `BrowserCore` / `App` must not be selected for a real session until the
-    /// async core storage (`#11-async-core-storage-cookiestore`) lands — see
-    /// [`EngineMode`](elidex_plugin::EngineMode).
+    /// **`#[cfg(test)]` — not a production surface (F10).** The engine-wide mode
+    /// is fixed at VM construction and governs the Web-API core/compat install
+    /// gate, but `BrowserCore` / `App` must not be selected for a real session
+    /// until the async core storage (`#11-async-core-storage-cookiestore`) lands
+    /// — see [`EngineMode`](elidex_plugin::EngineMode). Production embedders use
+    /// [`ElidexJsEngine::new`] (BrowserCompat); the cfg gate enforces this by
+    /// construction. The async-core PR removes the gate.
+    #[cfg(test)]
     #[must_use]
     pub fn new_with_mode(engine_mode: elidex_plugin::EngineMode) -> Self {
         Self {

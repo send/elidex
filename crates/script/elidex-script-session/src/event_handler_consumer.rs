@@ -214,6 +214,27 @@ pub fn event_handler_attr_event_type(name: &str) -> Option<&str> {
     }
 }
 
+/// The Web-API spec level of an event-handler IDL attribute — seam-3 of the A1
+/// Web-API core/compat gate (the VM's `install_handler_attr_family` loop gates
+/// each row by `installs(level)`).
+///
+/// **Total over [`EVENT_HANDLER_ATTRS`]** (sibling of
+/// [`event_handler_attr_event_type`]): every attr — known or not — maps to a
+/// level, so a future row added to the family table can never silently
+/// mis-classify. In A1 every handler attr is
+/// [`Modern`](elidex_plugin::WebApiSpecLevel::Modern) (no API moves — installs in
+/// every mode). **A2** returns [`Legacy`](elidex_plugin::WebApiSpecLevel::Legacy)
+/// for `"onstorage"` (it fires `StorageEvent`, part of the Web Storage surface,
+/// HTML §12.2.4) so it is hidden together with `Storage`/`StorageEvent` when
+/// storage is demoted — a one-row flip here, no seam re-touch.
+#[must_use]
+pub fn event_handler_attr_spec_level(_name: &str) -> elidex_plugin::WebApiSpecLevel {
+    // A1: the whole event-handler surface is Modern. The `match`-free
+    // total-default keeps this total over EVENT_HANDLER_ATTRS; A2 adds the
+    // explicit `"onstorage" => Legacy` arm.
+    elidex_plugin::WebApiSpecLevel::Modern
+}
+
 /// If `name` is a known event-handler content attribute, return its event
 /// type (name minus `on`) and [`HandlerScope`]. Linear scan, off the hot
 /// path. The scope drives `<body>` WindowEventHandlers delegation (below).

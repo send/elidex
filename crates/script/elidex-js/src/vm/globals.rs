@@ -51,7 +51,7 @@ use super::value::{
 use super::GlobalScopeKind;
 use super::{NativeFn, VmInner};
 #[cfg(feature = "engine")]
-use elidex_plugin::WebApiSpecLevel;
+use elidex_plugin::{DomSpecLevel, WebApiSpecLevel};
 
 /// §20.2.3 Function.prototype — accepts any arguments, returns undefined.
 fn native_function_prototype_noop(
@@ -483,10 +483,12 @@ impl VmInner {
             // wrappers.  See `vm/host/window.rs`
             // `register_window_prototype`'s storage-getter install.
             //
-            // Seam-2 of the A1 core/compat gate: the Web Storage family is routed
-            // through the single `installs_web_storage` gate (A2 flips it to
-            // `Legacy` in one place — HTML §12.2).
-            if self.installs_web_storage() {
+            // Seam-2 of the A1 core/compat gate: the demotable `register_*_global`
+            // installers route through the single family-neutral `installs(level)`
+            // predicate at `Modern` (A2 flips this site's literal to `Legacy` —
+            // HTML §12.2). Permanently-`Modern` globals (crypto/fetch/ws) are not
+            // gated (never excluded).
+            if self.installs(WebApiSpecLevel::Modern) {
                 self.register_storage_global();
             }
             // Crypto / SubtleCrypto (WebCrypto §10 / §14, slot
@@ -664,10 +666,10 @@ impl VmInner {
             // StorageEvent — chains to Event.prototype, paired with
             // the `Storage` interface above.  WHATWG HTML §12.2.4.
             //
-            // Seam-2: part of the Web Storage surface — same single
-            // `installs_web_storage` gate as the `Storage` install above, so the
-            // family is gated as one unit.
-            if self.installs_web_storage() {
+            // Seam-2: part of the Web Storage surface — same family-neutral
+            // `installs(level)` predicate at `Modern` as the `Storage` install
+            // above, so the family flips as one unit in A2.
+            if self.installs(WebApiSpecLevel::Modern) {
                 self.register_storage_event_global();
             }
             // M4-12 slot `#11-events-misc` (D-10) — 10 NEW Event
@@ -916,6 +918,21 @@ impl VmInner {
             let shapes = self.build_precomputed_event_shapes();
             self.precomputed_event_shapes = Some(shapes);
         }
+
+        // A1 gate proof (test-only): a `Legacy`-classified probe global routed
+        // through the **same** general `installs(level)` predicate the real seams
+        // use — so a VM **direct-global install seam** (exactly F9's "direct
+        // table/global installs", which the storage-specific first A1 left
+        // unproven for the general case) is shown to honor the gate end-to-end,
+        // not only the seam-4 registry. Present under `BrowserCompat` (+
+        // `compat-webapi`), withheld under `BrowserCore`/`App`. This is the ONLY
+        // `Legacy`-classified VM entry and it exists ONLY under `cfg(test)`; real
+        // APIs stay `Modern` in A1 (no behavior change in production builds).
+        #[cfg(all(test, feature = "engine"))]
+        if self.installs(WebApiSpecLevel::Legacy) {
+            let probe = self.strings.intern("__a1LegacyProbe");
+            self.globals.insert(probe, JsValue::Boolean(true));
+        }
     }
 
     /// Helper: register a native function as a global.
@@ -1045,19 +1062,28 @@ impl VmInner {
         }
     }
 
-    /// Whether the **Web Storage family** installs for this VM — the single
-    /// gate the family's install seams consult (`localStorage` / `sessionStorage`
-    /// accessors at `register_window_prototype`; the `Storage` and `StorageEvent`
-    /// globals here in `register_globals`; and, in A2, `window.onstorage`).
-    ///
-    /// A1 classifies the family `Modern` (no API moves) so this is `true` in
-    /// every mode — byte-identical to the pre-gate engine. **A2 demotes the whole
-    /// family by changing the level here to [`WebApiSpecLevel::Legacy`] in one
-    /// place** (HTML §12.2), after which `BrowserCore`/`App` exclude all of it
-    /// together — no per-site lockstep, no seam re-touch.
+    /// Whether a Web API classified at `level` installs for this VM — the single
+    /// **family-neutral** gate every demotable Web-API install seam consults
+    /// (storage accessors / `Storage` / `StorageEvent` globals, `document.cookie`,
+    /// `window.onstorage`). A1 routes every such site at [`WebApiSpecLevel::Modern`]
+    /// so it installs in all modes — byte-identical to the pre-gate engine; A2/A3
+    /// demote a family by flipping the level literal at its site to
+    /// [`WebApiSpecLevel::Legacy`] (no per-site lockstep, no new gate — One issue,
+    /// one way). Delegates to the engine-wide `elidex_plugin::SpecLevelPolicy`
+    /// derived from the construction-fixed [`EngineMode`](elidex_plugin::EngineMode).
     #[cfg(feature = "engine")]
-    pub(crate) fn installs_web_storage(&self) -> bool {
-        self.spec_level_policy.installs(WebApiSpecLevel::Modern)
+    pub(crate) fn installs(&self, level: WebApiSpecLevel) -> bool {
+        self.spec_level_policy.installs(level)
+    }
+
+    /// DOM analogue of [`Self::installs`] — whether a DOM API classified at
+    /// `level` installs. The `Document` live-collection getters route here at
+    /// [`DomSpecLevel::Living`] (B0/B1 flip to [`DomSpecLevel::Legacy`]); the
+    /// `DomApiHandler` registry applies the *same* policy at registration as
+    /// dispatch-level defense-in-depth (`create_dom_registry_with_policy`).
+    #[cfg(feature = "engine")]
+    pub(crate) fn installs_dom(&self, level: DomSpecLevel) -> bool {
+        self.spec_level_policy.installs_dom(level)
     }
 
     #[allow(clippy::too_many_lines)]

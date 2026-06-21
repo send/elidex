@@ -374,26 +374,37 @@ Files A1 does **not** touch: `storage.rs` / `navigator.rs` bodies (A2/A3), the s
 
 1. **No behavior change under `BrowserCompat`** — existing VM/engine suites pass unchanged
    (default mode installs Modern + Legacy as today). Primary regression guard.
-2. **General predicate, all four seams (F9).** A marked-**`Legacy` test API** installed via
-   **each** seam — (1) a method/accessor table sub-table, (2) a `register_*_global`, (3) an
-   `install_handler_attr_family` handler attr, (4) a `DomApiHandler` registry handler — is
-   **present under `BrowserCompat`** and **absent/withheld under `BrowserCore`/`App`**. The
-   predicate is family-neutral (no `installs_web_storage`).
-3. **Pre-wired-at-`Modern` sites install in every mode (no premature demotion).** Storage,
-   cookie, and the Document live-collection getters are **present in all modes** (A1
-   classifies nothing `Legacy`); the extraction is behavior-preserving (same properties, same
-   `[SameObject]`, same order-observable shape).
+2. **General predicate + end-to-end VM-seam exclusion (F9).** Proven at three levels:
+   (i) the **predicate matrix** (`installs`/`installs_dom` × modes) — the one family-neutral
+   predicate (no `installs_web_storage`) every seam shares; (ii) **two concrete VM-seam
+   end-to-end exclusions** — a mock `Legacy` `DomApiHandler` withheld at the **seam-4 registry**
+   (`elidex-dom-api`), and a test-only `Legacy`-classified **direct-global probe**
+   (`register_globals`, `legacy_probe_withheld_in_core_modes`) withheld under
+   `BrowserCore`/`App` (the seam-2 shape — closes F9's "direct table/global installs" doubt the
+   storage-specific first A1 left open); (iii) **behavior-preservation** (next item). End-to-end
+   exclusion at the table/accessor/handler-attr seams (1a/1b/1c/3) lands when A2/A3/B mark a
+   *real* API `Legacy` (one literal flip) — A1 proves the mechanism, not a premature demotion.
+3. **Behavior-preservation of the rewired/extracted seams (no premature demotion).** A1
+   classifies nothing `Legacy`, so the storage accessors + `onstorage`
+   (`rewired_window_seams_present_in_all_modes`), `document.cookie`, and the live-collection
+   getters are **present in all modes**; the cookie/live-collection sub-table extraction is
+   behavior-preserving (same properties, `[SameObject]`, order-observable shape — guarded by the
+   broad elidex-js DOM suite, which regresses if the extraction drops a property).
 4. **F10 — non-compat modes are not production-selectable.** `new_with_mode` is `#[cfg(test)]`;
    a non-test build exposes only `new()` (BrowserCompat). Asserted by the shell default
    unchanged + the cfg gate compiling.
-5. **F11 — `onstorage` routed.** The handler-attr seam test shows `onstorage` (and the family)
-   install at `Modern` and that a `Legacy`-classified handler attr is withheld under
-   `BrowserCore` — proving A2 can hide `onstorage` by one SoT-lookup flip.
+5. **F11 — `onstorage` routed.** `onstorage` installs at `Modern` in every mode
+   (`rewired_window_seams_present_in_all_modes`); the per-attr `event_handler_attr_spec_level`
+   is total over `EVENT_HANDLER_ATTRS`, so A2 hides `onstorage` by one SoT-lookup flip
+   (its end-to-end exclusion is A2's test).
 6. **F1/F7 — realm inheritance via the general predicate.** A worker/SW/wasm child under
-   `BrowserCore` withholds the marked-`Legacy` API at every seam (extend R1/R5 tests).
-7. **F8 — absence-lever.** The seam-1c (live-collection table) test shows the *property* is
-   **absent** under exclusion (`typeof === 'undefined'`), not merely a `TypeError` at call —
-   the install seam, not the registry, is the lever.
+   `BrowserCore`/`App` derives a Legacy-excluding policy (`worker_realms_inherit_engine_mode`),
+   so the general predicate threads identically in child realms.
+7. **F8 — absence-lever.** The **install seam** (table/global) is the property-absence lever:
+   the direct-global probe is *absent* under exclusion (`get_global` → `None`), not a present
+   property whose call throws. The seam-4 registry is dispatch-level defense-in-depth. (When B0
+   marks the live-collection getters `Legacy`, their seam-1c *property* goes absent the same
+   way — A1 makes the seam capable; B0 flips.)
 8. **`compat-webapi`** declared independent of `engine`; both profiles compile (browser =
    `engine`+`compat-webapi`; a profile with `engine` alone). A1 does **not** require the
    storage backend to drop under `engine`-alone (that is A2).

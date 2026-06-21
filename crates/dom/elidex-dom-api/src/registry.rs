@@ -27,6 +27,18 @@ pub fn create_dom_registry() -> DomHandlerRegistry {
 /// Create a registry pre-populated with the standard DOM API handlers the
 /// `policy` installs (seam-4 of the A1 Web-API core/compat gate).
 ///
+/// **Defense-in-depth, not the absence lever (F8).** The user-visible lever that
+/// makes a DOM API *absent* (`typeof === 'undefined'`) is the JS-**property
+/// install** seam (the VM host table install, seam-1 — e.g. the live-collection
+/// getters gated at `vm/host/document.rs`). This registry seam is **downstream of
+/// dispatch**: withholding a handler makes a *present* property's call fail
+/// cleanly rather than mis-execute — useful as defense-in-depth, but it does not
+/// remove the property. So a demoted DOM method is gated at its install seam
+/// **and** (when it is bridge-dispatched) withheld here. The live-collection
+/// getters allocate directly and have **no** handler here, so seam-1 is their
+/// only lever; this seam covers *future* bridge-dispatched `Legacy` handlers
+/// (none today).
+///
 /// Handlers whose [`spec_level`](DomApiHandler::spec_level) the `policy`
 /// excludes are **withheld at registration time** — so resolve stays a pure
 /// name→handler map lookup and the policy is a single construction-time

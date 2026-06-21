@@ -47,8 +47,8 @@
 
 use elidex_ecs::NodeKind;
 use elidex_script_session::{
-    event_handler_attr_event_type, EventListeners, HandlerScope, ListenerId, EVENT_HANDLER_ATTRS,
-    WORKER_EVENT_HANDLER_ATTRS, WORKER_OBJECT_EVENT_HANDLER_ATTRS,
+    event_handler_attr_event_type, event_handler_attr_spec_level, EventListeners, HandlerScope,
+    ListenerId, EVENT_HANDLER_ATTRS, WORKER_EVENT_HANDLER_ATTRS, WORKER_OBJECT_EVENT_HANDLER_ATTRS,
 };
 
 use super::super::shape::PropertyAttrs;
@@ -221,6 +221,13 @@ impl VmInner {
     ) {
         for (attr_name, scope) in EVENT_HANDLER_ATTRS {
             if !scopes.contains(scope) {
+                continue;
+            }
+            // Seam-3 of the A1 Web-API core/compat gate: each handler attr routes
+            // through the family-neutral `installs(level)` predicate. A1 returns
+            // `Modern` for every attr (no API moves); A2 returns `Legacy` for
+            // `onstorage` so it is hidden together with the Web Storage surface.
+            if !self.installs(event_handler_attr_spec_level(attr_name)) {
                 continue;
             }
             let event_type = event_handler_attr_event_type(attr_name)

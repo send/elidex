@@ -62,6 +62,7 @@ use super::dom_bridge::{
 };
 
 use elidex_ecs::{Entity, NodeKind};
+use elidex_plugin::{DomSpecLevel, WebApiSpecLevel};
 
 // ---------------------------------------------------------------------------
 // Tree walk from the receiver document.
@@ -981,12 +982,24 @@ impl super::super::VmInner {
             return;
         }
         self.install_methods(doc_wrapper, DOCUMENT_METHODS);
+        // Seam-1c (A1 core/compat gate): the live-collection getters route
+        // through the family-neutral `installs_dom(level)` predicate at `Living`
+        // (no API moves); B0/B1 flip this literal to `Legacy` (design §12.1.2).
+        if self.installs_dom(DomSpecLevel::Living) {
+            self.install_methods(doc_wrapper, DOCUMENT_LIVE_COLLECTION_METHODS);
+        }
         // WHATWG DOM §4.4 / §6.1 / §6.4 traversal factories.  Slot
         // `#11-traversal-and-range-pr-a2-bindings`.  Installed
         // separately to keep `DOCUMENT_METHODS` stable.
         self.install_methods(doc_wrapper, super::document_traversal::FACTORIES);
         self.install_ro_accessors(doc_wrapper, DOCUMENT_RO_ACCESSORS);
         self.install_rw_accessors(doc_wrapper, DOCUMENT_RW_ACCESSORS);
+        // Seam-1b (A1 core/compat gate): `document.cookie` routes through the
+        // family-neutral `installs(level)` predicate at `Modern` (no API moves);
+        // A3 flips this literal to `Legacy` (HTML §3.1.4).
+        if self.installs(WebApiSpecLevel::Modern) {
+            self.install_rw_accessors(doc_wrapper, DOCUMENT_COOKIE_RW_ACCESSOR);
+        }
         // ParentNode mixin (WHATWG §5.2.4) shared with
         // `Element.prototype`.
         self.install_parent_node_mixin(doc_wrapper);
@@ -1018,15 +1031,6 @@ const DOCUMENT_METHODS: &[(&str, super::super::NativeFn)] = &[
     ("getElementById", native_document_get_element_by_id),
     ("querySelector", native_document_query_selector),
     ("querySelectorAll", native_document_query_selector_all),
-    (
-        "getElementsByTagName",
-        native_document_get_elements_by_tag_name,
-    ),
-    (
-        "getElementsByClassName",
-        native_document_get_elements_by_class_name,
-    ),
-    ("getElementsByName", native_document_get_elements_by_name),
     ("createElement", native_document_create_element),
     ("createTextNode", native_document_create_text_node),
     ("createComment", native_document_create_comment),
@@ -1045,6 +1049,31 @@ const DOCUMENT_METHODS: &[(&str, super::super::NativeFn)] = &[
     // Window-side binding; both resolve to the same singleton
     // wrapper held in `HostData::selection_instance`.
     ("getSelection", super::window::native_window_get_selection),
+];
+
+/// Seam-1c of the A1 Web-API core/compat gate: the `Document` live-collection
+/// getters, extracted from [`DOCUMENT_METHODS`] so their JS-property **install**
+/// can be gated by one [`installs_dom`](super::super::VmInner::installs_dom)
+/// guard (the install seam is the *property-absence* lever — these getters
+/// allocate a live `HTMLCollection`/`NodeList` directly and have no
+/// `DomApiHandler`, so the registry seam does not reach them).
+///
+/// A1 routes them at [`DomSpecLevel::Living`] (no API moves — installed in every
+/// mode). **B0/B1 own the `Legacy` decision** and the full-family sweep
+/// (`Element.prototype` getters / `table.rows` / `form.elements` / … — sites
+/// outside this `Document` set). Spec homes differ:
+/// `getElementsByTagName`/`getElementsByClassName` = DOM §4.5;
+/// `getElementsByName` = **HTML §3.1.7** (DOM tree accessors) — B0 cites each home.
+const DOCUMENT_LIVE_COLLECTION_METHODS: &[(&str, super::super::NativeFn)] = &[
+    (
+        "getElementsByTagName",
+        native_document_get_elements_by_tag_name,
+    ),
+    (
+        "getElementsByClassName",
+        native_document_get_elements_by_class_name,
+    ),
+    ("getElementsByName", native_document_get_elements_by_name),
 ];
 
 const DOCUMENT_RO_ACCESSORS: &[(&str, super::super::NativeFn)] = &[
@@ -1098,15 +1127,21 @@ const DOCUMENT_RO_ACCESSORS: &[(&str, super::super::NativeFn)] = &[
 /// Read/write Document accessors.  `title` is WHATWG-backed; `cookie`
 /// is currently a stub whose setter silently drops writes (see the
 /// setter docstring for the PR6 integration path).
-const DOCUMENT_RW_ACCESSORS: &[(&str, super::super::NativeFn, super::super::NativeFn)] = &[
-    (
-        "title",
-        native_document_get_title,
-        native_document_set_title,
-    ),
-    (
-        "cookie",
-        native_document_get_cookie,
-        native_document_set_cookie,
-    ),
-];
+const DOCUMENT_RW_ACCESSORS: &[(&str, super::super::NativeFn, super::super::NativeFn)] = &[(
+    "title",
+    native_document_get_title,
+    native_document_set_title,
+)];
+
+/// Seam-1b of the A1 Web-API core/compat gate: `document.cookie`, extracted from
+/// [`DOCUMENT_RW_ACCESSORS`] so its JS-property **install** can be gated by one
+/// [`installs`](super::super::VmInner::installs) guard (the install seam is the
+/// absence lever). A1 routes it at [`WebApiSpecLevel::Modern`] (no API moves —
+/// installed in every mode); **A3** flips this site's literal to
+/// [`WebApiSpecLevel::Legacy`] (HTML §3.1.4) — a pure one-literal level-flip, no
+/// table re-extraction.
+const DOCUMENT_COOKIE_RW_ACCESSOR: &[(&str, super::super::NativeFn, super::super::NativeFn)] = &[(
+    "cookie",
+    native_document_get_cookie,
+    native_document_set_cookie,
+)];
