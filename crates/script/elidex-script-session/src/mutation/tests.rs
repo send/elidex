@@ -801,3 +801,68 @@ fn replace_child_fragment_old_not_child_is_failure() {
     assert!(records.is_empty());
     assert_eq!(dom.children(frag), vec![a], "fragment untouched on failure");
 }
+
+// --- B1.2b: replace all (§4.2.3 #concept-node-replace-all) ---
+
+#[test]
+fn apply_replace_all_clears_then_inserts_single_combined_record() {
+    let mut dom = EcsDom::new();
+    let parent = elem(&mut dom, "div");
+    let old1 = elem(&mut dom, "a");
+    let old2 = elem(&mut dom, "b");
+    dom.append_child(parent, old1);
+    dom.append_child(parent, old2);
+    let fresh = elem(&mut dom, "c");
+
+    let record = expect_one(super::apply_replace_all(&mut dom, parent, Some(fresh)));
+    assert_eq!(record.kind, MutationKind::ChildList);
+    assert_eq!(record.target, parent);
+    assert_eq!(record.removed_nodes, vec![old1, old2]);
+    assert_eq!(record.added_nodes, vec![fresh]);
+    assert_eq!(record.previous_sibling, None);
+    assert_eq!(record.next_sibling, None);
+    assert_eq!(dom.children(parent), vec![fresh]);
+}
+
+#[test]
+fn apply_replace_all_fragment_added_nodes_are_expanded_children() {
+    let mut dom = EcsDom::new();
+    let parent = elem(&mut dom, "div");
+    let old = elem(&mut dom, "a");
+    dom.append_child(parent, old);
+    let c1 = elem(&mut dom, "x");
+    let c2 = elem(&mut dom, "y");
+    let frag = fragment_of(&mut dom, &[c1, c2]);
+
+    let record = expect_one(super::apply_replace_all(&mut dom, parent, Some(frag)));
+    // addedNodes = the fragment's children (not the fragment node), removedNodes = old.
+    assert_eq!(record.added_nodes, vec![c1, c2]);
+    assert_eq!(record.removed_nodes, vec![old]);
+    assert_eq!(dom.children(parent), vec![c1, c2]);
+    assert!(
+        dom.children(frag).is_empty(),
+        "fragment emptied by expansion"
+    );
+}
+
+#[test]
+fn apply_replace_all_null_node_clears_with_one_record() {
+    let mut dom = EcsDom::new();
+    let parent = elem(&mut dom, "div");
+    let old = elem(&mut dom, "a");
+    dom.append_child(parent, old);
+
+    let record = expect_one(super::apply_replace_all(&mut dom, parent, None));
+    assert_eq!(record.removed_nodes, vec![old]);
+    assert!(record.added_nodes.is_empty());
+    assert!(dom.children(parent).is_empty());
+}
+
+#[test]
+fn apply_replace_all_empty_parent_null_node_emits_no_record() {
+    let mut dom = EcsDom::new();
+    let parent = elem(&mut dom, "div");
+    // §4.2.3 replace-all step 7: addedNodes ∪ removedNodes empty ⇒ no record.
+    let records = super::apply_replace_all(&mut dom, parent, None);
+    assert!(records.is_empty());
+}

@@ -465,3 +465,78 @@ fn viable_prev_basic() {
     // Previous of div -> None (first child).
     assert_eq!(viable_prev_sibling(div, &[], &dom), None);
 }
+
+// ---- transient wrapper cleanup (no entity leak) ----
+
+/// Count live `DocumentFragment` entities in the world.
+fn count_document_fragments(dom: &EcsDom) -> usize {
+    dom.world()
+        .iter()
+        .filter(|e| dom.is_document_fragment(e.entity()))
+        .count()
+}
+
+#[test]
+fn append_multiple_frees_transient_wrapper_fragment() {
+    let (mut dom, _body, _div, span, _p, mut session) = setup();
+    let a = dom.create_element("a", Attributes::default());
+    let a_ref = session
+        .get_or_create_wrapper(a, ComponentKind::Element)
+        .to_raw();
+    let b = dom.create_element("b", Attributes::default());
+    let b_ref = session
+        .get_or_create_wrapper(b, ComponentKind::Element)
+        .to_raw();
+
+    let frags_before = count_document_fragments(&dom);
+    Append
+        .invoke(
+            span,
+            &[JsValue::ObjectRef(a_ref), JsValue::ObjectRef(b_ref)],
+            &mut session,
+            &mut dom,
+        )
+        .unwrap();
+
+    // a, b are appended to span; the transient multi-arg wrapper DocumentFragment
+    // that `convert_nodes_into_node` built must be destroyed once `apply_*` expanded
+    // it (regression guard: the VM's `finalize_pair` cleanup was dropped in the
+    // B1.2b convergence, so without `destroy_temp_fragment` every multi-arg call
+    // would orphan a fragment entity).
+    assert_eq!(dom.children(span), vec![a, b]);
+    assert_eq!(
+        count_document_fragments(&dom),
+        frags_before,
+        "transient wrapper DocumentFragment must be freed (no entity leak)"
+    );
+}
+
+#[test]
+fn replace_children_multiple_frees_transient_wrapper_fragment() {
+    let (mut dom, _body, _div, span, _p, mut session) = setup();
+    let a = dom.create_element("a", Attributes::default());
+    let a_ref = session
+        .get_or_create_wrapper(a, ComponentKind::Element)
+        .to_raw();
+    let b = dom.create_element("b", Attributes::default());
+    let b_ref = session
+        .get_or_create_wrapper(b, ComponentKind::Element)
+        .to_raw();
+
+    let frags_before = count_document_fragments(&dom);
+    ReplaceChildren
+        .invoke(
+            span,
+            &[JsValue::ObjectRef(a_ref), JsValue::ObjectRef(b_ref)],
+            &mut session,
+            &mut dom,
+        )
+        .unwrap();
+
+    assert_eq!(dom.children(span), vec![a, b]);
+    assert_eq!(
+        count_document_fragments(&dom),
+        frags_before,
+        "replaceChildren transient wrapper DocumentFragment must be freed"
+    );
+}

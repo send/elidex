@@ -287,8 +287,8 @@ fn move_record_list(
 /// `link_each` performs the append or insert-before the caller needs, returning
 /// whether the per-node relink succeeded, and is the One-issue-one-way home for
 /// the fragment-children move (the canonical record-producing expansion — the
-/// record-free `insert_node_expanding_fragment` in `elidex-dom-api` migrates onto
-/// this in the B1.2b slice).
+/// record-free `insert_node_expanding_fragment` that previously lived in
+/// `elidex-dom-api` was retired onto this in B1.2b).
 ///
 /// The records are built from the children that **actually relinked** (not the raw
 /// step-1 snapshot): the per-node `EcsDom` primitive rejects a relink whose child
@@ -591,6 +591,70 @@ pub fn apply_replace_child(
     };
     // Order: source-removal (from step 13's adopt) THEN coalesced (step 14).
     move_record_list(source, new_child, coalesced)
+}
+
+/// WHATWG DOM §4.2.3 "replace all" (`#concept-node-replace-all`): remove **all**
+/// of `parent`'s children then insert `node` (or nothing, for `None`), both with
+/// `suppressObservers` set — so there are **no** per-child removal records and **no**
+/// destination/fragment insertion record. Exactly **one** coalesced `ChildList`
+/// record is queued for `parent` (step 7) **iff** `addedNodes ∪ removedNodes` is
+/// non-empty: `removedNodes` = the prior children, `addedNodes` = `node`'s children
+/// (a `DocumentFragment`) or «`node`» (any other) or «» (`None`), `previousSibling`
+/// and `nextSibling` both null.
+///
+/// Because the insert's adopt is suppressed too, a `node` that was already parented
+/// (a move into `parent`) produces **no** source-parent removal record — unlike
+/// `apply_append_child`/`apply_insert_before`, this primitive does NOT use
+/// `move_record_list`. The algorithm makes no tree-constraint checks (the spec note);
+/// callers (`replaceChildren`, later `textContent`) run `ensure_pre_insertion_validity`
+/// first. The sole b-1 consumer is `replaceChildren`; B1.2c reuses it for `textContent`.
+pub fn apply_replace_all(
+    dom: &mut EcsDom,
+    parent: Entity,
+    node: Option<Entity>,
+) -> Vec<MutationRecord> {
+    // step 1: removedNodes = parent's children. `child_list_uncapped` (NOT
+    // `children`/`children_iter`, which truncate at MAX_ANCESTOR_DEPTH) so a >cap
+    // parent does not silently drop its removedNodes tail (the #387 discipline).
+    let removed_nodes: Vec<Entity> = dom.child_list_uncapped(parent);
+    // step 5: remove all children, in tree order, suppressObservers (no per-child
+    // record). `removed_nodes` is a static snapshot, so removing as we go is safe.
+    for &child in &removed_nodes {
+        let ok = dom.remove_child(parent, child);
+        debug_assert!(
+            ok,
+            "replace all: child from child_list_uncapped must be removable"
+        );
+    }
+    // steps 3/4/6: addedNodes + insert node before null, suppressObservers.
+    let added_nodes: Vec<Entity> = match node {
+        None => Vec::new(),
+        Some(n) if dom.is_document_fragment(n) => {
+            // Fragment: its children move into parent (the fragment is never linked).
+            // Reuse the canonical `expand_fragment` (single snapshot+relink+moved
+            // -filter home — the #387 `child_list_uncapped`/never-truncate discipline)
+            // and discard its step-4.2 fragment record: replace-all suppresses
+            // observers, so only the moved children feed the one combined record.
+            expand_fragment(dom, n, |d, c| d.append_child(parent, c))
+                .map_or_else(Vec::new, |(_frag_record, moved)| moved)
+        }
+        Some(n) => {
+            if dom.append_child(parent, n) {
+                vec![n]
+            } else {
+                Vec::new()
+            }
+        }
+    };
+    // step 7: queue one record iff either set is non-empty.
+    if added_nodes.is_empty() && removed_nodes.is_empty() {
+        return Vec::new();
+    }
+    vec![MutationRecord {
+        added_nodes,
+        removed_nodes,
+        ..empty_record(MutationKind::ChildList, parent)
+    }]
 }
 
 fn apply_set_attribute(

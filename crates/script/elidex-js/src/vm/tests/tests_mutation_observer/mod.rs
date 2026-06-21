@@ -17,6 +17,7 @@
 #![cfg(feature = "engine")]
 
 mod delivery;
+mod direct_tree_ops;
 mod integration;
 mod lifecycle;
 mod setup;

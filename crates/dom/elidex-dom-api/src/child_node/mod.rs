@@ -320,70 +320,27 @@ pub(crate) fn convert_nodes_into_node(nodes: Vec<Entity>, dom: &mut EcsDom) -> (
     }
     let fragment = dom.create_document_fragment();
     for node in nodes {
-        let ok = dom.append_child(fragment, node);
-        debug_assert!(ok, "append_child to fresh fragment should not fail");
+        // WHATWG DOM §4.2.6 "convert nodes into a node" step 4 "append node to
+        // fragment" uses the DOM "append" (the mutation method, which EXPANDS a
+        // `DocumentFragment` arg into its children). `EcsDom::append_child` is the raw,
+        // non-expanding primitive, so a fragment arg is expanded one level by hand —
+        // moving its children in — keeping the temp fragment flat (a fragment's
+        // children are never fragments; B1.2-fragment "never nests"). Without this an
+        // `append(frag1, frag2)` would nest fragments under the temp fragment and the
+        // single-level `apply_*`/`expand_fragment` would link them nested into the
+        // parent. The temp fragment is transient/unobserved, so the moves emit NO
+        // records (the outer insertion's records are produced once by `apply_*`).
+        if dom.is_document_fragment(node) {
+            for child in dom.child_list_uncapped(node) {
+                let ok = dom.append_child(fragment, child);
+                debug_assert!(ok, "append_child to fresh fragment should not fail");
+            }
+        } else {
+            let ok = dom.append_child(fragment, node);
+            debug_assert!(ok, "append_child to fresh fragment should not fail");
+        }
     }
     (fragment, true)
-}
-
-/// Insert a node before `ref_child` under `parent`, expanding `DocumentFragment`
-/// contents.
-///
-/// If `node` is a `DocumentFragment`, its children are moved one-by-one into
-/// `parent` before `ref_child`. Otherwise `node` itself is inserted/appended.
-pub(crate) fn insert_node_expanding_fragment(
-    parent: Entity,
-    node: Entity,
-    ref_child: Option<Entity>,
-    dom: &mut EcsDom,
-) -> Result<(), DomApiError> {
-    let is_fragment = matches!(dom.node_kind(node), Some(NodeKind::DocumentFragment));
-
-    if is_fragment {
-        // Collect fragment children first to avoid iterator invalidation.
-        let children = dom.children(node);
-        for child in children {
-            match ref_child {
-                Some(ref_entity) => {
-                    if !dom.insert_before(parent, child, ref_entity) {
-                        return Err(DomApiError {
-                            kind: DomApiErrorKind::HierarchyRequestError,
-                            message: "failed to insert fragment child".into(),
-                        });
-                    }
-                }
-                None => {
-                    if !dom.append_child(parent, child) {
-                        return Err(DomApiError {
-                            kind: DomApiErrorKind::HierarchyRequestError,
-                            message: "failed to append fragment child".into(),
-                        });
-                    }
-                }
-            }
-        }
-    } else {
-        match ref_child {
-            Some(ref_entity) => {
-                if !dom.insert_before(parent, node, ref_entity) {
-                    return Err(DomApiError {
-                        kind: DomApiErrorKind::HierarchyRequestError,
-                        message: "failed to insert node".into(),
-                    });
-                }
-            }
-            None => {
-                if !dom.append_child(parent, node) {
-                    return Err(DomApiError {
-                        kind: DomApiErrorKind::HierarchyRequestError,
-                        message: "failed to append node".into(),
-                    });
-                }
-            }
-        }
-    }
-
-    Ok(())
 }
 
 /// Walk next siblings of `entity`, skipping any in `exclude`. Returns the first

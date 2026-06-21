@@ -12,23 +12,25 @@
 //! [`super::document::DOCUMENT_RO_ACCESSORS`] and keeps its existing
 //! `native_document_query_selector*` own-properties.
 //!
-//! Argument normalisation for the mutation methods reuses
-//! [`super::childnode::convert_nodes_to_single_node_or_fragment`] so
-//! the Phase 2 (spec §4.2.5) rules are identical.
+//! The mutation methods are **thin dispatchers** (B1.2b convergence): they
+//! brand-check the receiver and route to the engine-independent dom-api handler
+//! via [`super::childnode::dispatch_child_parent_mixin`], which owns "convert
+//! nodes into a node" (§4.2.6), validity, the insert/replace-all, and
+//! `MutationRecord` production. Same path boa uses (One-issue-one-way).
 
 #![cfg(feature = "engine")]
 
 use super::super::shape;
 use super::super::value::{JsValue, NativeContext, ObjectId, VmError};
 use super::super::{NativeFn, VmInner};
-use super::childnode::{convert_nodes_to_single_node_or_fragment, finalize_pair};
+use super::childnode::dispatch_child_parent_mixin;
 use super::dom_bridge::{
-    coerce_first_arg_to_string, coerce_first_arg_to_string_id, invoke_dom_api, nodes_to_insert,
+    coerce_first_arg_to_string, coerce_first_arg_to_string_id, invoke_dom_api,
     query_selector_all_snapshot, tree_nav_getter,
 };
 use super::event_target::entity_from_this;
 
-use elidex_ecs::{Entity, NodeKind};
+use elidex_ecs::NodeKind;
 
 impl VmInner {
     /// Install `prepend` / `append` / `replaceChildren` on
@@ -50,20 +52,6 @@ impl VmInner {
     }
 }
 
-/// Thin wrapper over [`super::dom_exception::hierarchy_request_error`]
-/// that fills in the `'ParentNode'` interface label.  Mixin is
-/// installed on `Element.prototype` and the document wrapper, so
-/// `document.append(...)` and `element.prepend(...)` both surface
-/// through this factory.
-fn hierarchy_request_error(ctx: &NativeContext<'_>, method: &str) -> VmError {
-    super::dom_exception::hierarchy_request_error(
-        ctx.vm.well_known.dom_exc_hierarchy_request_error,
-        "ParentNode",
-        method,
-        "the new child node cannot be inserted.",
-    )
-}
-
 /// ParentNode mixin receivers per WHATWG §4.2.6 — Element,
 /// Document, DocumentFragment.  ShadowRoot is `NodeKind::DocumentFragment`
 /// in our model (it carries the `elidex_ecs::ShadowRoot` brand
@@ -81,58 +69,14 @@ fn native_parent_node_prepend(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let Some(parent) = super::event_target::require_receiver(
+    dispatch_child_parent_mixin(
         ctx,
         this,
+        args,
         "ParentNode",
         "prepend",
         is_parent_node_kind,
-    )?
-    else {
-        return Ok(JsValue::Undefined);
-    };
-    let Some(pair) = convert_nodes_to_single_node_or_fragment(ctx, args)? else {
-        return Ok(JsValue::Undefined);
-    };
-    let children = nodes_to_insert(ctx, pair.0);
-    // Pre-insertion validity (WHATWG §4.2.3): reject ancestor
-    // cycles and self-insert BEFORE mutating the tree so a throw
-    // leaves the parent unchanged.  Same pattern as
-    // `replaceChildren` / `replaceWith`.
-    for &child in &children {
-        if ctx
-            .host()
-            .dom()
-            .is_light_tree_ancestor_or_self(child, parent)
-        {
-            finalize_pair(ctx, pair, false);
-            return Err(hierarchy_request_error(ctx, "prepend"));
-        }
-    }
-    // Track the "reference child" we insert before.  Starts as the
-    // parent's current first child; if we'd insert a node as its own
-    // reference, advance to that node's next sibling (WHATWG
-    // pre-insert no-op).  Snapshotting is correct because
-    // `insert_before` leaves the reference child's position intact
-    // relative to nodes inserted in front of it.
-    let mut ref_child = ctx.host().dom().children_iter(parent).next();
-    let mut err = None;
-    for child in children {
-        if ref_child == Some(child) {
-            ref_child = ctx.host().dom().get_next_sibling(child);
-            continue;
-        }
-        let ok = match ref_child {
-            Some(r) => ctx.host().dom().insert_before(parent, child, r),
-            None => ctx.host().dom().append_child(parent, child),
-        };
-        if !ok {
-            err = Some(hierarchy_request_error(ctx, "prepend"));
-            break;
-        }
-    }
-    finalize_pair(ctx, pair, err.is_none());
-    err.map_or(Ok(JsValue::Undefined), Err)
+    )
 }
 
 fn native_parent_node_append(
@@ -140,42 +84,7 @@ fn native_parent_node_append(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let Some(parent) = super::event_target::require_receiver(
-        ctx,
-        this,
-        "ParentNode",
-        "append",
-        is_parent_node_kind,
-    )?
-    else {
-        return Ok(JsValue::Undefined);
-    };
-    let Some(pair) = convert_nodes_to_single_node_or_fragment(ctx, args)? else {
-        return Ok(JsValue::Undefined);
-    };
-    let children = nodes_to_insert(ctx, pair.0);
-    // Pre-insertion validity (WHATWG §4.2.3): cycle / self-insert
-    // rejection BEFORE any mutation, matching the rest of the
-    // ParentNode / ChildNode mixin.
-    for &child in &children {
-        if ctx
-            .host()
-            .dom()
-            .is_light_tree_ancestor_or_self(child, parent)
-        {
-            finalize_pair(ctx, pair, false);
-            return Err(hierarchy_request_error(ctx, "append"));
-        }
-    }
-    let mut err = None;
-    for child in children {
-        if !ctx.host().dom().append_child(parent, child) {
-            err = Some(hierarchy_request_error(ctx, "append"));
-            break;
-        }
-    }
-    finalize_pair(ctx, pair, err.is_none());
-    err.map_or(Ok(JsValue::Undefined), Err)
+    dispatch_child_parent_mixin(ctx, this, args, "ParentNode", "append", is_parent_node_kind)
 }
 
 fn native_parent_node_replace_children(
@@ -183,73 +92,14 @@ fn native_parent_node_replace_children(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let Some(parent) = super::event_target::require_receiver(
+    dispatch_child_parent_mixin(
         ctx,
         this,
+        args,
         "ParentNode",
         "replaceChildren",
         is_parent_node_kind,
-    )?
-    else {
-        return Ok(JsValue::Undefined);
-    };
-    // WHATWG §4.2.3 order: "convert nodes into a node" → "ensure
-    // pre-insertion validity" → "replace all".  If validity fails,
-    // the replace-all step never runs, so the tree is unchanged.
-    // Our earlier implementation inverted the validity check (tried
-    // the insertion and rolled back on failure), which broke when an
-    // argument was one of `parent`'s own children: normalisation
-    // already reparented it into the wrapper fragment, so the
-    // rollback snapshot was incomplete and the original tree could
-    // not be restored.  We now validate up-front and only mutate
-    // after we know every child is insertable.
-    let pair = convert_nodes_to_single_node_or_fragment(ctx, args)?;
-    if let Some(p) = pair {
-        let to_insert = nodes_to_insert(ctx, p.0);
-        // Pre-validate every leaf — `EcsDom::append_child` rejects
-        // self-insert (`child == parent`) and ancestor cycles
-        // (`child` is an ancestor of `parent`).  Checking with
-        // `is_light_tree_ancestor_or_self` covers both in one call.
-        for &child in &to_insert {
-            if ctx
-                .host()
-                .dom()
-                .is_light_tree_ancestor_or_self(child, parent)
-            {
-                finalize_pair(ctx, p, false);
-                return Err(hierarchy_request_error(ctx, "replaceChildren"));
-            }
-        }
-        let existing: Vec<Entity> = ctx.host().dom().children_iter(parent).collect();
-        for child in existing {
-            let _ = ctx.host().dom().remove_child(parent, child);
-        }
-        let mut err = None;
-        for child in to_insert {
-            // Pre-validation covers `EcsDom::append_child`'s documented
-            // rejection modes (self-insert, ancestor cycle), so this
-            // branch is unreachable under the current invariants.
-            // Surface an error anyway as defence-in-depth: silently
-            // dropping a child would hide any future ECS invariant
-            // regression and still leave the parent half-populated,
-            // which is worse than an explicit throw.
-            if !ctx.host().dom().append_child(parent, child) {
-                err = Some(hierarchy_request_error(ctx, "replaceChildren"));
-                break;
-            }
-        }
-        finalize_pair(ctx, p, err.is_none());
-        if let Some(e) = err {
-            return Err(e);
-        }
-    } else {
-        // No args — clear the parent.
-        let existing: Vec<Entity> = ctx.host().dom().children_iter(parent).collect();
-        for child in existing {
-            let _ = ctx.host().dom().remove_child(parent, child);
-        }
-    }
-    Ok(JsValue::Undefined)
+    )
 }
 
 // === Read surface (WHATWG §4.2.6) ===

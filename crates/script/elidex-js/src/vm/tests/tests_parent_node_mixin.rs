@@ -174,17 +174,15 @@ fn element_replace_children_preserves_tree_when_conversion_throws() {
 
 #[test]
 fn element_append_user_node_survives_later_arg_throw() {
-    // The guard. `convert_nodes_to_single_node_or_fragment`
-    // must validate all args BEFORE moving any user Node into the
-    // wrapper fragment.  Pre-fix, a flow like
-    // `target.append(existingUserNode, Symbol())` would:
-    //   1. Alloc fragment
-    //   2. append_child(fragment, existingUserNode). detaches
-    //      existingUserNode from its current parent
-    //   3. ToString(Symbol()) throws
-    //   4. destroy_entity(fragment). destroys existingUserNode too
-    // After the side-effect-free reorder, Symbol() throws before
-    // step 1 so existingUserNode stays attached.
+    // Atomicity guard: a throw during argument conversion must leave the DOM
+    // untouched. The VM marshalling step (`normalize_mixin_arg`) is
+    // side-effect-free — it classifies each arg (keep a Node wrapper, or
+    // ToString-coerce a non-Node to a string) WITHOUT touching the tree — so for
+    // `target.append(existingUserNode, Symbol())` the `ToString(Symbol())` throws
+    // BEFORE `invoke_dom_api` runs any insertion, and `existingUserNode` stays
+    // attached. (Pre-B1.2b the VM built a wrapper fragment first and could strand
+    // the user node on a later-arg throw; the convergence onto the dom-api handler
+    // removed that hazard by deferring all tree mutation past arg normalisation.)
     let (mut vm, mut session, mut dom, doc) = setup();
     #[allow(unsafe_code)]
     unsafe {
@@ -350,7 +348,7 @@ fn append_child_never_nests_a_document_fragment() {
     // return), and of a non-empty fragment expands its children (step 1/7). So a
     // fragment cannot be nested inside another via `appendChild` — the prior elidex
     // behavior that linked an empty fragment as a child node was a bug (it made the
-    // `flatten_into` recursion reachable from JS). This is the B1.2-fragment fix.
+    // recursive fragment-flatten path reachable from JS). This is the B1.2-fragment fix.
     //
     // `outer.appendChild(inner)` runs while `inner` is empty ⇒ no-op (outer stays
     // empty, inner not linked). Populating `inner` afterward and `append`-ing it to
@@ -413,23 +411,37 @@ fn document_append_adds_to_document_root() {
 }
 
 #[test]
-fn document_replace_children_single_element_replaces() {
+fn document_replace_children_with_element_child_throws_hierarchy_error() {
     let (mut vm, mut session, mut dom, doc) = setup();
     #[allow(unsafe_code)]
     unsafe {
         bind_vm(&mut vm, &mut session, &mut dom, doc);
     }
-    // Seed the document with a couple of placeholder children, then
-    // replaceChildren with exactly one element.
-    vm.eval(
-        "document.appendChild(document.createElement('a'));\n\
-         document.appendChild(document.createElement('b'));",
-    )
-    .unwrap();
-    vm.eval("document.replaceChildren(document.createElement('root'));")
+    // Seed the document with one element child. (`document.appendChild` does not
+    // yet enforce the Document element-child constraint — that fold is B1.2b-3 —
+    // so this seed currently succeeds.)
+    vm.eval("document.appendChild(document.createElement('a'));")
         .unwrap();
+    // `replaceChildren` runs "ensure pre-insertion validity" (WHATWG DOM §4.2.3
+    // step 6, Element branch: "parent has an element child") BEFORE the
+    // "replace all" step clears the children — so a Document that already has an
+    // element child rejects a replacement element with HierarchyRequestError.
+    // This matches the spec + boa; the VM previously skipped the check (a lax
+    // path removed by the B1.2b convergence onto the dom-api handler).
+    let threw = eval_num(
+        &mut vm,
+        "var err = null;\n\
+         try { document.replaceChildren(document.createElement('root')); }\n\
+         catch (e) { err = e; }\n\
+         (err !== null && err.name === 'HierarchyRequestError') ? 1 : 0;",
+    );
+    assert_eq!(
+        threw, 1.0,
+        "replaceChildren must throw HierarchyRequestError"
+    );
+    // Validity throws before "replace all" mutates, so the document is unchanged.
     assert_eq!(eval_num(&mut vm, "document.childNodes.length;"), 1.0);
-    assert_eq!(eval_str(&mut vm, "document.childNodes[0].tagName;"), "ROOT");
+    assert_eq!(eval_str(&mut vm, "document.childNodes[0].tagName;"), "A");
     vm.unbind();
 }
 
