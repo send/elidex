@@ -34,6 +34,18 @@ pub fn create_dom_registry() -> DomHandlerRegistry {
 /// `BrowserCompat` and `BrowserCore` currently produce the same set; when B0/B1
 /// classify the live-collection handlers `Legacy`, `BrowserCore`/`App` will
 /// withhold them here.
+///
+/// **Scope of the gate (Codex R2):** this withholds by policy across the
+/// **static built-in** handler set — the only registration path the VM uses
+/// (the VM wraps the returned registry in `Rc` immediately at construction and
+/// never mutates it, so no handler is added post-build). The returned
+/// `DomHandlerRegistry`'s public `register_dynamic` path is **not** policy-gated
+/// here: doing so would require teaching the generic `elidex-plugin`
+/// `PluginRegistry` about `spec_level` (the foundational-crate coupling the A1
+/// plan-review rejected). Policy-aware *runtime* DOM-handler registration is
+/// deferred to the DOM enforcement work (slot `#11-dom-registry-dynamic-policy-gate`),
+/// which only becomes reachable once both a selectable `BrowserCore`/`App` mode
+/// and dynamic DOM-handler extensions exist — neither does today.
 #[must_use]
 #[allow(clippy::too_many_lines)]
 pub fn create_dom_registry_with_policy(policy: SpecLevelPolicy) -> DomHandlerRegistry {
