@@ -363,3 +363,121 @@ fn to_css_string_translate_calc_argument() {
     ))]);
     assert_eq!(val.to_css_string(), "translateX(calc(100% - 10px))");
 }
+
+// ---------------------------------------------------------------------------
+// CSSOM resolved-value color serialization (CSS Color 4 §16.2.2 + §16.1)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn resolved_value_opaque_uses_rgb() {
+    // §16.2.2: opaque sRGB → rgb(), comma + single space, no alpha.
+    assert_eq!(CssColor::RED.to_resolved_value_string(), "rgb(255, 0, 0)");
+    assert_eq!(CssColor::BLACK.to_resolved_value_string(), "rgb(0, 0, 0)");
+    assert_eq!(
+        CssColor::rgb(29, 164, 192).to_resolved_value_string(),
+        "rgb(29, 164, 192)"
+    );
+}
+
+#[test]
+fn resolved_value_translucent_uses_rgba() {
+    // §16.2.2: alpha != 1 → rgba() with explicit alpha (§16.1).
+    assert_eq!(
+        CssColor::new(0, 0, 0, 128).to_resolved_value_string(),
+        "rgba(0, 0, 0, 0.5)"
+    );
+    // Fully transparent: rgba(..., 0).
+    assert_eq!(
+        CssColor::new(0, 0, 0, 0).to_resolved_value_string(),
+        "rgba(0, 0, 0, 0)"
+    );
+}
+
+#[test]
+fn resolved_value_distinct_from_display() {
+    // The declared-value Display form (#rrggbb / rgba with {:.2}) must stay
+    // separate from the resolved-value form — they are different spec
+    // serialization contexts and must not be unified.
+    assert_eq!(CssColor::RED.to_string(), "#ff0000");
+    assert_eq!(CssColor::RED.to_resolved_value_string(), "rgb(255, 0, 0)");
+    assert_eq!(
+        CssColor::new(0, 0, 0, 128).to_string(),
+        "rgba(0, 0, 0, 0.50)"
+    );
+    assert_eq!(
+        CssColor::new(0, 0, 0, 128).to_resolved_value_string(),
+        "rgba(0, 0, 0, 0.5)"
+    );
+}
+
+#[test]
+fn serialize_alpha_integer_percentage_preimage() {
+    // §16.1 step 2: integer-percentage preimage → n/100.
+    assert_eq!(serialize_alpha_u8(0), "0"); // n=0
+    assert_eq!(serialize_alpha_u8(26), "0.1"); // n=10: round(25.5)=26 (ties up)
+    assert_eq!(serialize_alpha_u8(128), "0.5"); // n=50: round(127.5)=128
+    assert_eq!(serialize_alpha_u8(237), "0.93"); // n=93: round(237.15)=237
+    assert_eq!(serialize_alpha_u8(255), "1"); // n=100 (only via to_resolved... rgb path)
+}
+
+#[test]
+fn serialize_alpha_no_preimage_step3_normative() {
+    // §16.1 step 3 (numbered normative algorithm): round(a/0.255)/1000.
+    // 236 has no integer-% preimage (n=92→235, n=94→240); round(236/0.255)
+    // = 925 → "0.925". (The spec's non-normative worked example shows
+    // "0.92549"; the numbered step governs — see fn docstring.)
+    assert_eq!(serialize_alpha_u8(236), "0.925");
+    assert_eq!(reparse_alpha_u8("0.925"), 236);
+    // 127: round(127/0.255) = 498 → "0.498"; 1: round(1/0.255) = 4 → "0.004".
+    assert_eq!(serialize_alpha_u8(127), "0.498");
+    assert_eq!(reparse_alpha_u8("0.498"), 127);
+    assert_eq!(serialize_alpha_u8(1), "0.004");
+    assert_eq!(reparse_alpha_u8("0.004"), 1);
+}
+
+/// Re-parse a serialized alpha `<number>` back to an 8-bit value using the
+/// CSSOM model `round(v * 255)` (ties up) — pure integer arithmetic so the
+/// round-trip test mirrors [`serialize_alpha_u8`] without floating point.
+fn reparse_alpha_u8(s: &str) -> u8 {
+    let (int_str, frac_str) = s.split_once('.').unwrap_or((s, ""));
+    let scale = 10u32.pow(u32::try_from(frac_str.len()).unwrap());
+    let int_part: u32 = int_str.parse().unwrap();
+    let frac_part: u32 = if frac_str.is_empty() {
+        0
+    } else {
+        frac_str.parse().unwrap()
+    };
+    let num = int_part * scale + frac_part; // value = num / scale
+                                            // round(num/scale * 255), ties up.
+    u8::try_from((num * 255 + scale / 2) / scale).unwrap()
+}
+
+#[test]
+fn serialize_alpha_roundtrips_all_u8() {
+    // Every 8-bit alpha must round-trip through its serialization
+    // (§16.1: precision "must at least be sufficient to round-trip").
+    for a in 0u16..=255 {
+        let a = u8::try_from(a).unwrap();
+        let s = serialize_alpha_u8(a);
+        assert_eq!(
+            reparse_alpha_u8(&s),
+            a,
+            "alpha {a} serialized as {s:?} did not round-trip"
+        );
+        // Leading zero kept (never bare ".5"); no trailing-zero fraction.
+        assert!(!s.starts_with('.'), "missing leading zero in {s:?}");
+        assert!(
+            !s.ends_with('0') || !s.contains('.'),
+            "trailing zero in {s:?}"
+        );
+    }
+}
+
+#[test]
+fn format_decimal_ratio_trims_and_keeps_leading_zero() {
+    assert_eq!(format_decimal_ratio(50, 100), "0.5");
+    assert_eq!(format_decimal_ratio(926, 1000), "0.926");
+    assert_eq!(format_decimal_ratio(0, 100), "0");
+    assert_eq!(format_decimal_ratio(100, 100), "1");
+    assert_eq!(format_decimal_ratio(5, 100), "0.05");
+}

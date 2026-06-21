@@ -164,16 +164,13 @@ fn bg_image_to_css_value(img: &BackgroundImage) -> CssValue {
     }
 }
 
-/// Format a color as `rgba(r, g, b, a)` or `rgb(r, g, b)`.
+/// Format a color in the CSSOM resolved-value `rgb()` / `rgba()` form.
+///
+/// Delegates to the canonical [`CssColor::to_resolved_value_string`] so
+/// gradient color stops serialize identically (and with the exact §16.1
+/// alpha) to every other `getComputedStyle` color — One-issue-one-way.
 fn serialize_color(c: elidex_plugin::CssColor) -> String {
-    if c.a == 255 {
-        format!("rgb({}, {}, {})", c.r, c.g, c.b)
-    } else {
-        let alpha = f64::from(c.a) / 255.0;
-        // Round to 3 decimal places to avoid excessive precision
-        let alpha = (alpha * 1000.0).round() / 1000.0;
-        format!("rgba({}, {}, {}, {alpha})", c.r, c.g, c.b)
-    }
+    c.to_resolved_value_string()
 }
 
 /// Format a float without unnecessary trailing zeros (e.g. `45` not `45.000`).

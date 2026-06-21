@@ -715,6 +715,91 @@ impl CssColor {
     pub const GREEN: Self = Self::rgb(0, 128, 0);
     /// Blue (`#0000ff`).
     pub const BLUE: Self = Self::rgb(0, 0, 255);
+
+    /// CSSOM **resolved/used-value** serialization of this sRGB color
+    /// (CSS Color 4 §16.2.2 "CSS serialization of sRGB values"): the
+    /// legacy `rgb()` / `rgba()` form — comma separators, exactly one
+    /// ASCII space after each comma, base-10 components in `[0, 255]`,
+    /// `rgb()` when alpha is `255` (implicit opaque) else `rgba()` with an
+    /// explicit alpha serialized per §16.1.
+    ///
+    /// This is the form `getComputedStyle` returns (CSSOM-1 §9: a color
+    /// longhand's resolved value is its *used* value). It is deliberately
+    /// **distinct from [`fmt::Display`]** (`#rrggbb`), which is the
+    /// *declared* value / inline-style round-trip form backing `cssText`
+    /// and the `<input type=color>` sanitizer — those two serialization
+    /// contexts are different per spec and must not be unified.
+    #[must_use]
+    pub fn to_resolved_value_string(&self) -> String {
+        if self.a == 255 {
+            format!("rgb({}, {}, {})", self.r, self.g, self.b)
+        } else {
+            format!(
+                "rgba({}, {}, {}, {})",
+                self.r,
+                self.g,
+                self.b,
+                serialize_alpha_u8(self.a)
+            )
+        }
+    }
+}
+
+/// Serialize an 8-bit alpha component per CSS Color 4 §16.1
+/// ("Serializing alpha values", `#serializing-alpha-values`), following the
+/// **numbered normative steps** for an 8-bit-stored alpha (the "For example"
+/// prose is non-normative). (The editor's draft renders those steps under a
+/// §16.1.1 "Serializing legacy alpha values" subsection; the stable parent
+/// §16.1 is cited so the reference holds across spec versions.)
+///
+/// - **Step 2 — integer-percentage preimage**: if some integer `n` in
+///   `0..=100` satisfies `round(n * 2.55) == a` (ties rounding up), the
+///   alpha is `n / 100` — the common case (e.g. `a = 128` → `n = 50` →
+///   `"0.5"`).
+/// - **Step 3 — otherwise**: `round(a / 0.255) / 1000`, i.e. the integer
+///   `round(a * 1000 / 255)` over `1000` (e.g. `a = 1` → `"0.004"`,
+///   `a = 127` → `"0.498"`, `a = 236` → `"0.925"`). Always round-trips the
+///   8-bit value.
+///
+/// §16.1 is internally inconsistent here: its *worked example* serializes
+/// `a = 236` as `"0.92549"` (un-rounded `a/255` to 6 figures), which
+/// contradicts step 3's own "rounded to the closest integer … divided by
+/// 1000" (`"0.925"`). Per the W3C convention that a numbered normative
+/// step governs over illustrative "For example" prose, we follow step 3.
+///
+/// All arithmetic is exact integer math on the `u8` — no floating point.
+/// Leading zero kept, trailing zeros trimmed.
+fn serialize_alpha_u8(a: u8) -> String {
+    let a = u32::from(a);
+
+    // Step 2: integer-percentage preimage. round(n * 2.55) = round(n*255/100), ties up.
+    for n in 0u32..=100 {
+        if (n * 255 + 50) / 100 == a {
+            return format_decimal_ratio(n, 100);
+        }
+    }
+
+    // Step 3: round(a / 0.255) / 1000 = round(a * 1000 / 255) / 1000.
+    // `+ 127` (= floor(255/2)) rounds to the closest integer; `a*1000 mod
+    // 255` is never exactly 127.5, so there is no tie to break.
+    let m = (a * 1000 + 127) / 255;
+    format_decimal_ratio(m, 1000)
+}
+
+/// Format `num / den` (a value in `[0, 1]`, `den` a power of ten) as a CSS
+/// `<number>`: leading zero kept, trailing zeros trimmed (e.g. `50/100` →
+/// `"0.5"`, `926/1000` → `"0.926"`, `0/100` → `"0"`).
+fn format_decimal_ratio(num: u32, den: u32) -> String {
+    let int_part = num / den;
+    let frac = num % den;
+    if frac == 0 {
+        return int_part.to_string();
+    }
+    // Fractional width = digits in `den` (a power of ten) minus 1.
+    let width = den.to_string().len() - 1;
+    let frac_str = format!("{frac:0width$}");
+    let frac_str = frac_str.trim_end_matches('0');
+    format!("{int_part}.{frac_str}")
 }
 
 /// Serializes to the canonical hex form (`#rrggbb`, or legacy `rgba()`
