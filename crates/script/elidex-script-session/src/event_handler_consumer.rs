@@ -224,16 +224,25 @@ pub fn event_handler_attr_event_type(name: &str) -> Option<&str> {
 /// source means the family is demoted by **one edit** rather than N independent
 /// `Modern` literals that must be flipped in lockstep (a missed one would leave a
 /// split surface — `StorageEvent` without `localStorage`, accessors without the
-/// constructors). A1 = [`Modern`](elidex_plugin::WebApiSpecLevel::Modern)
-/// (installs in every mode — no behavior change); **A2 flips this to
+/// constructors). A1 was [`Modern`](elidex_plugin::WebApiSpecLevel::Modern)
+/// (installed in every mode — no behavior change); **A2 demotes the family to
 /// [`Legacy`](elidex_plugin::WebApiSpecLevel::Legacy) here, in one place** (HTML
-/// §12.2). The non-install storage surfaces — the `<body onstorage="…">`
-/// content-attribute path and `StorageEvent` delivery — are A2's broader
-/// suppression scope (A0 §5 A2 row, which spans the VM *and* the shell tab/IPC
-/// plumbing); A2 wires them to read this same source.
+/// §12.2): under `BrowserCompat` (the only production mode) `Legacy` still
+/// installs — byte-identical Window surface — while `BrowserCore` / `App`
+/// (test-only until the async core lands) and any `compat-webapi`-off build drop
+/// the whole family together.
+///
+/// One non-install surface is **out of A2's scope**: incoming `StorageEvent`
+/// *delivery* (the shell broadcasts `BrowserToContent::StorageEvent` with no
+/// `EngineMode` metadata). Suppressing delivery for a Web-Storage-excluded session
+/// needs per-session mode plumbing the shell does not have yet (it still runs the
+/// boa engine, not this VM), and no production session selects an excluded mode —
+/// so it is deferred to slot `#11-storage-event-mode-aware-delivery`. The
+/// `window.onstorage` *handler-attr install* (via [`event_handler_attr_spec_level`])
+/// IS gated here — the page cannot observe the event in an excluded mode regardless.
 #[must_use]
 pub fn web_storage_spec_level() -> elidex_plugin::WebApiSpecLevel {
-    elidex_plugin::WebApiSpecLevel::Modern
+    elidex_plugin::WebApiSpecLevel::Legacy
 }
 
 /// The spec level of `document.cookie` — the single classification source for the
@@ -446,12 +455,13 @@ mod spec_level_tests {
     use elidex_plugin::{DomSpecLevel, WebApiSpecLevel};
 
     #[test]
-    fn a1_classifies_every_family_modern() {
-        // A1 marks nothing Legacy — every family's single source is Modern/Living
-        // so the install seams install in every mode (no behavior change). A2/A3/B
-        // flip exactly one source each; these assertions are the canaries that
-        // catch an accidental early demotion.
-        assert_eq!(web_storage_spec_level(), WebApiSpecLevel::Modern);
+    fn family_classification_sources() {
+        // Each family's single classification source. A2 demoted Web Storage to
+        // `Legacy` (HTML §12.2) — it now installs only under `BrowserCompat`.
+        // `document.cookie` (A3) and the live-collection family (B0/B1) remain
+        // un-demoted; these assertions are the canaries that catch an accidental
+        // early demotion of those two before their PRs land.
+        assert_eq!(web_storage_spec_level(), WebApiSpecLevel::Legacy);
         assert_eq!(document_cookie_spec_level(), WebApiSpecLevel::Modern);
         assert_eq!(live_collection_spec_level(), DomSpecLevel::Living);
     }

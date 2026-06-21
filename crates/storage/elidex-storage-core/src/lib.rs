@@ -9,6 +9,9 @@ pub mod origin_manager;
 pub mod quota;
 pub mod sqlite;
 pub mod util;
+/// Synchronous Web Storage backend — gated behind `feature = "web-storage"` so
+/// the `elidex-app` profile drops it from the binary (A2 absence guarantee).
+#[cfg(feature = "web-storage")]
 pub mod web_storage;
 
 pub use backend::{
@@ -20,4 +23,5 @@ pub use origin_manager::{OriginKey, OriginStorageManager, StorageType};
 pub use quota::{QuotaEstimate, QuotaManager};
 pub use sqlite::{SqliteBackend, SqliteConnection};
 pub use util::sanitize_sql_name;
+#[cfg(feature = "web-storage")]
 pub use web_storage::{SessionStorageState, StorageArea, WebStorageManager, STORAGE_QUOTA_BYTES};

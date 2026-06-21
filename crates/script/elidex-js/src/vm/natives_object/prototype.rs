@@ -137,7 +137,7 @@ pub(in super::super) fn native_object_has_own_property(
     }
     // Storage `hasOwnProperty` — stored keys are own properties at
     // the WebIDL level.
-    #[cfg(feature = "engine")]
+    #[cfg(all(feature = "engine", feature = "compat-webapi"))]
     if matches!(ctx.get_object(obj_id).kind, ObjectKind::Storage { .. }) {
         if let Some(result) = super::super::host::storage::try_has(ctx.vm, obj_id, prop) {
             return result.map(JsValue::Boolean);

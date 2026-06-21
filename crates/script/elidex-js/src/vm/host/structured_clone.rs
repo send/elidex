@@ -327,7 +327,9 @@ fn classify(kind: &ObjectKind) -> CloneKind {
         // on HostData side tables).  Surface the spec-correct
         // interface name from the inline `ObserverKind` discriminator.
         ObjectKind::Observer { kind, .. } => CloneKind::Unclonable(kind.interface_name()),
+        #[cfg(feature = "compat-webapi")]
         ObjectKind::Storage { .. } => CloneKind::Unclonable("Storage"),
+        #[cfg(feature = "compat-webapi")]
         ObjectKind::StorageEvent => CloneKind::Unclonable("StorageEvent"),
         #[cfg(feature = "engine")]
         ObjectKind::ValidityState { .. } => CloneKind::Unclonable("ValidityState"),

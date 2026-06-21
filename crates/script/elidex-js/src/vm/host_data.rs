@@ -21,8 +21,12 @@ mod engine_feature {
     use super::super::wrapper_intern::{WrapperKey, WrapperKind};
     use elidex_ecs::{Entity, NodeKind};
     use elidex_script_session::ListenerId;
+    // A2: the Web Storage backends are `Legacy`-only — dropped from `App` builds.
+    #[cfg(feature = "compat-webapi")]
     use elidex_storage_core::{SessionStorageState, WebStorageManager};
     use std::collections::{HashMap, HashSet};
+    // Used only by the (compat-webapi-gated) opaque-origin counter.
+    #[cfg(feature = "compat-webapi")]
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::sync::Arc;
 
@@ -31,14 +35,18 @@ mod engine_feature {
     /// and uses it to scope `localStorage` entries so two opaque-origin
     /// VMs do not see each other's data through the manager's
     /// origin-keyed registry.  Resets on process restart.
+    /// A2: used only for `localStorage` scoping — `compat-webapi`-gated.
+    #[cfg(feature = "compat-webapi")]
     static OPAQUE_ORIGIN_COUNTER: AtomicU64 = AtomicU64::new(0);
 
     /// Prefix on per-VM opaque-origin sentinel strings.  Distinct
     /// from any `url::Origin::ascii_serialization()` output (which is
     /// always `scheme://host[:port]`) so the sentinel cannot collide
     /// with a real origin.
+    #[cfg(feature = "compat-webapi")]
     const OPAQUE_ORIGIN_PREFIX: &str = "opaque-origin:";
 
+    #[cfg(feature = "compat-webapi")]
     fn next_opaque_origin_id() -> String {
         let n = OPAQUE_ORIGIN_COUNTER.fetch_add(1, Ordering::Relaxed);
         format!("{OPAQUE_ORIGIN_PREFIX}{n}")
@@ -292,6 +300,8 @@ mod engine_feature {
         /// backend is installed (no panic, but the data is per-VM
         /// in-memory and lost on `Vm::unbind`, matching Chrome's
         /// "cookie-averse" fallback for `document.cookie`).
+        /// A2: `Legacy` Web Storage backend — absent in `App` builds.
+        #[cfg(feature = "compat-webapi")]
         web_storage: Option<Arc<WebStorageManager>>,
         /// Origin-keyed Cache API backend (WHATWG Service Workers §5,
         /// `#11-cache-api-vm` / D-19 PR-1, DR-A).  Wrapped in `Arc` so the
@@ -308,6 +318,7 @@ mod engine_feature {
         /// memory only; cleared on `Vm::unbind` (the spec models
         /// sessionStorage as scoped to a browsing context, so the
         /// existing bind/unbind cycle expresses that boundary).
+        #[cfg(feature = "compat-webapi")]
         pub(crate) session_storage: SessionStorageState,
         /// Stable per-`HostData` opaque-origin sentinel — used for
         /// localStorage scoping when `Vm::navigation`'s URL has an
@@ -315,6 +326,8 @@ mod engine_feature {
         /// `HostData::new` via [`OPAQUE_ORIGIN_COUNTER`] so two such
         /// VMs in the same process do not alias on the manager's
         /// origin-keyed registry.
+        /// A2: only `localStorage` scoping reads it — `compat-webapi`-gated.
+        #[cfg(feature = "compat-webapi")]
         opaque_origin_sentinel: String,
         /// Fallback in-memory `localStorage` used when no
         /// `WebStorageManager` is installed.  Same `IndexMap` shape
@@ -325,6 +338,7 @@ mod engine_feature {
         /// `session_storage` lifetime).  Tests that exercise
         /// localStorage persistence install a real
         /// `WebStorageManager`.
+        #[cfg(feature = "compat-webapi")]
         pub(crate) fallback_local_storage: SessionStorageState,
         // -------------------------------------------------------------
         // D-8 PR-A2: Range / TreeWalker / NodeIterator live state
@@ -785,10 +799,14 @@ mod engine_feature {
                 intersection_observers:
                     elidex_api_observers::intersection::IntersectionObserverRegistry::new(),
                 intersection_observer_bindings: HashMap::new(),
+                #[cfg(feature = "compat-webapi")]
                 web_storage: None,
                 cache_backend: None,
+                #[cfg(feature = "compat-webapi")]
                 session_storage: SessionStorageState::new(),
+                #[cfg(feature = "compat-webapi")]
                 opaque_origin_sentinel: next_opaque_origin_id(),
+                #[cfg(feature = "compat-webapi")]
                 fallback_local_storage: SessionStorageState::new(),
                 live_range_registry,
                 node_iterator_states_shared: std::sync::Arc::new(std::sync::Mutex::new(
@@ -933,6 +951,7 @@ mod engine_feature {
         /// across VM lifetimes pass a `tempfile::tempdir()`-based
         /// manager here; production embedders share one
         /// `Arc<WebStorageManager>` across browsing-context VMs.
+        #[cfg(feature = "compat-webapi")]
         pub fn install_web_storage(&mut self, manager: Arc<WebStorageManager>) {
             self.web_storage = Some(manager);
         }
@@ -943,6 +962,7 @@ mod engine_feature {
         /// `localStorage`.  Returns `None` when no backend is
         /// installed; callers fall back to
         /// [`Self::fallback_local_storage`] in that case.
+        #[cfg(feature = "compat-webapi")]
         pub(crate) fn web_storage(&self) -> Option<&Arc<WebStorageManager>> {
             self.web_storage.as_ref()
         }
@@ -973,6 +993,7 @@ mod engine_feature {
         /// Stable per-VM opaque-origin string (e.g. `"opaque-origin:7"`).
         /// Used by `vm/host/storage.rs` for `localStorage` scoping when
         /// the current navigation URL's origin is opaque.
+        #[cfg(feature = "compat-webapi")]
         pub(crate) fn opaque_origin_sentinel(&self) -> &str {
             &self.opaque_origin_sentinel
         }

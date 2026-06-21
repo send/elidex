@@ -122,8 +122,13 @@ impl VmInner {
                 return Ok(Some(result?));
             }
         }
-        let kind = self.objects[obj_id.0 as usize].as_ref().map(|o| &o.kind);
-        if matches!(kind, Some(ObjectKind::Storage { .. })) {
+        // Storage [[OwnPropertyKeys]] — gated with the `Legacy` Web Storage
+        // surface (A2); absent in `App`-profile builds.
+        #[cfg(all(feature = "engine", feature = "compat-webapi"))]
+        if matches!(
+            self.objects[obj_id.0 as usize].as_ref().map(|o| &o.kind),
+            Some(ObjectKind::Storage { .. })
+        ) {
             if let Some(result) = super::host::storage::collect_keys(self, obj_id) {
                 return Ok(Some(result?));
             }

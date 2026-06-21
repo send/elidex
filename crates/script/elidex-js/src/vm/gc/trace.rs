@@ -714,7 +714,7 @@ pub(super) fn trace_work_list(
             // via `VmInner::storage_local_instance` /
             // `VmInner::storage_session_instance` (mark-roots step).
             // No trace fan-out here.
-            #[cfg(feature = "engine")]
+            #[cfg(all(feature = "engine", feature = "compat-webapi"))]
             ObjectKind::Storage { .. } => {}
             // `Crypto` / `SubtleCrypto` are payload-free singletons.
             // The cached `crypto` / `crypto.subtle` wrappers are rooted
@@ -752,7 +752,7 @@ pub(super) fn trace_work_list(
             // 5 IDL attributes (`key` / `oldValue` / `newValue` /
             // `url` / `storageArea`) live as own-data props on the
             // shape, traced through the ordinary shaped-storage walk.
-            #[cfg(feature = "engine")]
+            #[cfg(all(feature = "engine", feature = "compat-webapi"))]
             ObjectKind::StorageEvent => {}
             // `ValidityState` carries only an `entity_bits: u64` —
             // no inline `ObjectId` payload to trace.  The

@@ -52,6 +52,8 @@ use super::GlobalScopeKind;
 use super::{NativeFn, VmInner};
 #[cfg(feature = "engine")]
 use elidex_plugin::{DomSpecLevel, WebApiSpecLevel};
+// Only the (compat-webapi-gated) Web Storage install blocks read this source.
+#[cfg(all(feature = "engine", feature = "compat-webapi"))]
 use elidex_script_session::web_storage_spec_level;
 
 /// §20.2.3 Function.prototype — accepts any arguments, returns undefined.
@@ -503,7 +505,15 @@ impl VmInner {
             // (Codex R7 — same source as the accessors + StorageEvent + onstorage, so
             // A2 flips the family in one place). Permanently-`Modern` globals
             // (crypto/fetch/ws) are not gated (never excluded).
-            if self.installs(web_storage_spec_level()) {
+            //
+            // Window-scope only: `Storage` is `[Exposed=Window]` (HTML §12.2.1), so
+            // worker / SW realms must not expose it (A2 realm-scope correction — the
+            // accessors are already Window-only via `register_window_prototype`).
+            // The whole glue is `compat-webapi`-gated (A2): absent in `App` builds.
+            #[cfg(feature = "compat-webapi")]
+            if matches!(self.global_scope_kind, super::GlobalScopeKind::Window)
+                && self.installs(web_storage_spec_level())
+            {
                 self.register_storage_global();
             }
             // Crypto / SubtleCrypto (WebCrypto §10 / §14, slot
@@ -684,7 +694,14 @@ impl VmInner {
             // Seam-2: part of the Web Storage surface — same single
             // `web_storage_spec_level()` source as the `Storage` install above
             // (Codex R7), so the whole family flips as one unit in A2.
-            if self.installs(web_storage_spec_level()) {
+            //
+            // Window-scope only: `StorageEvent` is `[Exposed=Window]` (HTML
+            // §12.2.4) — paired with the `Storage` realm gate above.
+            // `compat-webapi`-gated (A2) with the rest of the family.
+            #[cfg(feature = "compat-webapi")]
+            if matches!(self.global_scope_kind, GlobalScopeKind::Window)
+                && self.installs(web_storage_spec_level())
+            {
                 self.register_storage_event_global();
             }
             // M4-12 slot `#11-events-misc` (D-10) — 10 NEW Event

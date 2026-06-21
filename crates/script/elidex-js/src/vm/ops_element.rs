@@ -378,7 +378,7 @@ impl VmInner {
             // `localStorage["k"]` reads the stored value, falling
             // through to the prototype chain for built-in method
             // names.
-            #[cfg(feature = "engine")]
+            #[cfg(all(feature = "engine", feature = "compat-webapi"))]
             if matches!(self.get_object(id).kind, ObjectKind::Storage { .. }) {
                 if let Some(result) = super::host::storage::try_get(self, id, key) {
                     return result;
@@ -728,7 +728,7 @@ impl VmInner {
             // Storage named-property exotic [[Set]] — bracket-form
             // `localStorage["k"] = v` mirrors `setItem`.  May surface
             // a QuotaExceededError DOMException.
-            #[cfg(feature = "engine")]
+            #[cfg(all(feature = "engine", feature = "compat-webapi"))]
             if matches!(self.get_object(id).kind, ObjectKind::Storage { .. }) {
                 if let Some(result) = super::host::storage::try_set(self, id, key, val) {
                     return result;

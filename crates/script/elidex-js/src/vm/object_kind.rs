@@ -889,7 +889,14 @@ pub enum ObjectKind {
     /// not an `ObjectId`); the caches in `VmInner` are cleared on
     /// `Vm::unbind` so a retained reference cannot leak the previous
     /// origin's data after a rebind.
-    #[cfg(feature = "engine")]
+    ///
+    /// A2: gated by `compat-webapi` (in addition to `engine`) — the whole
+    /// Web Storage surface is `Legacy`, so an `App`-profile build that compiles
+    /// `engine` without `compat-webapi` drops this variant (and all its glue)
+    /// from the binary. Exhaustive `match`es over `ObjectKind` already compile
+    /// with this variant absent (the pre-existing `engine`-off case), so
+    /// tightening the gate needs no new catch-all arm.
+    #[cfg(all(feature = "engine", feature = "compat-webapi"))]
     Storage { is_local: bool },
     /// `StorageEvent` instance (WHATWG HTML §11.4.2). Subclass of
     /// `Event`; the `key` / `oldValue` / `newValue` / `url` /
@@ -900,7 +907,10 @@ pub enum ObjectKind {
     /// GC contract: this variant carries no inline `ObjectId`; the
     /// shape-resident `storageArea` slot (potentially a Storage
     /// reference) is traced via the ordinary shaped-storage walk.
-    #[cfg(feature = "engine")]
+    ///
+    /// A2: gated by `compat-webapi` (with `engine`) — part of the `Legacy`
+    /// Web Storage surface, dropped from the `App`-profile binary.
+    #[cfg(all(feature = "engine", feature = "compat-webapi"))]
     StorageEvent,
     /// `ValidityState` wrapper (HTML §4.10.20.3).  Carries the
     /// owning form-control entity so brand-checked accessor natives

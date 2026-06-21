@@ -19,10 +19,16 @@ default = []
 # ceiling that excludes every `Legacy` Web/DOM API regardless of the runtime
 # `EngineMode` (see `vm/init.rs`). No such embedder wires `elidex-js` yet — the
 # shell still runs the boa engine (S5 cutover pending) — so today this feature
-# is exercised only via `--all-features` (CI) and the VM's own tests; the gate
-# is latent because A1 marks nothing `Legacy` (A2/A3 storage/cookie + B live
-# collections demote into it). A1 does NOT cfg-gate the storage *backend* (A2).
-compat-webapi = []
+# is exercised only via `--all-features` (CI) and the VM's own tests.
+#
+# A2 demotes the Web Storage family into `Legacy`, so `compat-webapi` now also
+# (a) compile-gates the in-`elidex-js` storage glue (`vm/host/storage*.rs` +
+# `HostData` fields) and (b) turns on the `elidex-storage-core/web-storage`
+# backend. The `?` is a weak-dep feature: it enables that backend feature ONLY
+# when `engine` already pulled `elidex-storage-core` in (additive — `compat-webapi`
+# alone never pulls the dep, so an `App` build selecting `engine` alone drops the
+# Web Storage backend *and* glue while Cache API / SW keep `elidex-storage-core`).
+compat-webapi = ["elidex-storage-core?/web-storage"]
 engine = [
     "elidex-script-session",
     "elidex-ecs",

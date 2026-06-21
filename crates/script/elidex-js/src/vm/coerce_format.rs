@@ -41,9 +41,10 @@ pub(crate) fn collect_own_keys_es_order(
             }
         }
         // Storage [[OwnPropertyKeys]] — stored keys in insertion
-        // order, prototype-shadowed names filtered.
-        let is_storage = matches!(vm.get_object(obj_id).kind, ObjectKind::Storage { .. });
-        if is_storage {
+        // order, prototype-shadowed names filtered. Gated with the rest of the
+        // `Legacy` Web Storage surface (A2): absent in `App`-profile builds.
+        #[cfg(all(feature = "engine", feature = "compat-webapi"))]
+        if matches!(vm.get_object(obj_id).kind, ObjectKind::Storage { .. }) {
             if let Some(result) = super::host::storage::collect_keys(vm, obj_id) {
                 return result;
             }

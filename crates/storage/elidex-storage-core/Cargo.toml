@@ -13,6 +13,16 @@ categories = ["web-programming"]
 [lints]
 workspace = true
 
+[features]
+# The synchronous Web Storage backend (`WebStorageManager` / `SessionStorageState`)
+# backing the legacy `localStorage` / `sessionStorage` DOM API. Gated so an
+# `elidex-app`-profile build (which compiles `elidex-js` without `compat-webapi`)
+# drops these types from the binary entirely (A2 absence guarantee). Off by
+# default — Cache API / Service Worker / IndexedDB consume only the SQLite /
+# origin / quota surface, never Web Storage. `elidex-js`'s `compat-webapi`
+# feature turns this on.
+web-storage = []
+
 [dependencies]
 rusqlite.workspace = true
 tracing.workspace = true
