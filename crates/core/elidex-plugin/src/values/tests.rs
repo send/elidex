@@ -425,8 +425,25 @@ fn serialize_alpha_no_preimage_minimal_roundtrip() {
     // §16.1 step 3: 236 has no integer-% preimage (n=92→235, n=94→240).
     // elidex emits the minimal toward-+∞ form that round-trips: "0.926".
     assert_eq!(serialize_alpha_u8(236), "0.926");
-    // Round-trip: round(0.926 * 255) == 236.
-    assert_eq!((0.926_f64 * 255.0).round() as u8, 236);
+    // Round-trip (integer model): round(926/1000 * 255) == 236.
+    assert_eq!(reparse_alpha_u8("0.926"), 236);
+}
+
+/// Re-parse a serialized alpha `<number>` back to an 8-bit value using the
+/// CSSOM model `round(v * 255)` (ties up) — pure integer arithmetic so the
+/// round-trip test mirrors [`serialize_alpha_u8`] without floating point.
+fn reparse_alpha_u8(s: &str) -> u8 {
+    let (int_str, frac_str) = s.split_once('.').unwrap_or((s, ""));
+    let scale = 10u32.pow(u32::try_from(frac_str.len()).unwrap());
+    let int_part: u32 = int_str.parse().unwrap();
+    let frac_part: u32 = if frac_str.is_empty() {
+        0
+    } else {
+        frac_str.parse().unwrap()
+    };
+    let num = int_part * scale + frac_part; // value = num / scale
+                                            // round(num/scale * 255), ties up.
+    u8::try_from((num * 255 + scale / 2) / scale).unwrap()
 }
 
 #[test]
@@ -434,20 +451,19 @@ fn serialize_alpha_roundtrips_all_u8() {
     // Every 8-bit alpha must round-trip through its serialization
     // (§16.1: precision "must at least be sufficient to round-trip").
     for a in 0u16..=255 {
-        let a = a as u8;
+        let a = u8::try_from(a).unwrap();
         let s = serialize_alpha_u8(a);
-        let parsed: f64 = s.parse().unwrap();
-        // Re-parse model: 8-bit alpha = round(v * 255).
-        let back = (parsed * 255.0).round() as u8;
-        assert_eq!(back, a, "alpha {a} serialized as {s:?} did not round-trip");
-        // Leading zero kept, no trailing-zero fraction.
+        assert_eq!(
+            reparse_alpha_u8(&s),
+            a,
+            "alpha {a} serialized as {s:?} did not round-trip"
+        );
+        // Leading zero kept (never bare ".5"); no trailing-zero fraction.
+        assert!(!s.starts_with('.'), "missing leading zero in {s:?}");
         assert!(
             !s.ends_with('0') || !s.contains('.'),
             "trailing zero in {s:?}"
         );
-        if s.starts_with('.') {
-            panic!("missing leading zero in {s:?}");
-        }
     }
 }
 

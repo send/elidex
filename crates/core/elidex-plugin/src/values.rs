@@ -775,7 +775,7 @@ fn serialize_alpha_u8(a: u8) -> String {
     // num = ceil(a * 10^k / 255); re-parse model = round(num/10^k * 255), ties up.
     for k in 2u32..=6 {
         let scale = 10u32.pow(k);
-        let num = (a * scale + 254) / 255; // ceil(a*scale/255)
+        let num = (a * scale).div_ceil(255); // round toward +∞
         if (num * 255 + scale / 2) / scale == a {
             return format_decimal_ratio(num, scale);
         }
@@ -783,7 +783,7 @@ fn serialize_alpha_u8(a: u8) -> String {
 
     // Unreachable for any u8 (k=6 always round-trips); keep the function total.
     let scale = 1_000_000u32;
-    format_decimal_ratio((a * scale + 254) / 255, scale)
+    format_decimal_ratio((a * scale).div_ceil(255), scale)
 }
 
 /// Format `num / den` (a value in `[0, 1]`, `den` a power of ten) as a CSS
