@@ -333,13 +333,13 @@ cooperating gates:
 
 ## §7. Open questions for `/elidex-plan-review`
 
-1. **(PRIMARY) Shell event-delivery suppression — defer vs. in-A2 (diverges from
-   A0 R5-7/R8-6).** §3 recommends **defer to slot
-   `#11-storage-event-mode-aware-delivery`** (shell has no `EngineMode`; VM not
-   wired to shell [boa runs]; `BrowserCore`/`App` non-selectable ⟹ zero live
-   consumer; active `shell/app/` collision; narrow-slot lens). Is the deferral
-   philosophy-sound, or does completeness/one-issue-one-way demand A2 build the
-   per-session mode propagation now despite no selectable consumer?
+1. **(PRIMARY) Shell event-delivery suppression — RESOLVED: defer (ratified).**
+   `/elidex-plan-review` Axis 3 independently assessed the deferral as a legitimate
+   philosophy-driven scope boundary (not a pragmatic scope-cut); the user ratified
+   the lens-driven decision. Deferred to slot `#11-storage-event-mode-aware-delivery`
+   (registered in the ledger at landing). Rationale unchanged (§3): shell has no
+   `EngineMode`; VM not wired to shell [boa runs]; `BrowserCore`/`App` non-selectable
+   ⟹ zero live consumer; active `shell/app/` collision; narrow-slot lens.
 2. **`elidex-storage-core` feature split — RESOLVED (yes, a storage-core feature).**
    Implementation showed that gating only the elidex-js glue would leave
    `WebStorageManager`/`SessionStorageState` *compiled* in the still-linked
@@ -350,12 +350,23 @@ cooperating gates:
    compile without the feature (verified: `cargo check -p elidex-storage-core` default
    + `--features web-storage` + the `engine`-only elidex-js profile both green). §4 C1.
 3. **`compat-webapi`-off field shape — RESOLVED (no `cfg(not)` counterpart needed).**
-   The gated fields have **no** always-compiled readers: every reader
+   The gated `HostData` fields have **no** always-compiled readers: every reader
    (`storage.rs`, the `vm_api.rs` unbind clears, the dispatch blocks) is itself
    `compat-webapi`-gated, so the fields are simply absent — no dual field shape, no
-   strangler. The only always-compiled neighbours are the type-free
-   `storage_local_instance`/`storage_session_instance` `ObjectId`s (always-`None` in
-   `App` builds). `engine`-only build compiles clean under `clippy -D warnings`. §4 C2.
+   strangler. `engine`-only build compiles clean under `clippy -D warnings`. §4 C2.
+   **The 4 `VmInner` `ObjectId` cache slots** (`storage_prototype` /
+   `storage_event_prototype` / `storage_local_instance` / `storage_session_instance`)
+   intentionally stay at the looser gate (always-compiled field; `engine`-gated read
+   in the GC roots array with a `None` fallback) — this is the **established
+   VmInner-slot convention** (`gc/collect.rs`'s counted intrinsic-roots array gates
+   every slot `#[cfg(engine)] self.X / #[cfg(not engine)] None`; the slots are
+   correctly always-`None` in `App` builds because all writers are `compat-webapi`-
+   gated). They are type-free (carry no `elidex-storage-core` type), so the A2
+   absence guarantee ("drop the `WebStorageManager`/`SessionStorageState` *code*")
+   is fully met; tightening these 4 to `all(engine, compat-webapi)` would make them
+   the only feature-gated `VmInner` slots and fragment the uniform roots array for
+   zero runtime effect. (`/elidex-review` Axis 2+3 flagged the asymmetry as MIN;
+   accepted-as-is per this convention — Trigger-B root check.)
 4. **Opaque-origin slot.** A0 says re-evaluate
    `#11-storage-opaque-origin-securityerror` at A2. Recommendation: keep as-is
    (orthogonal to gating; depends on sandbox/opaque-origin plumbing, same trigger
@@ -399,7 +410,7 @@ cooperating gates:
   self-suppression via the session's `EngineMode`). *Trigger:* S5 boa removal OR
   `#11-async-core-storage-cookiestore` landing. *Re-evaluation date:* revisit with
   the S5 / world_id dual-mode program (MEMORY.md Active state), or sooner if a
-  `BrowserCore`/`App` storage mode is scheduled. *(Subject to plan-review Q1 — if
-  plan-review pulls suppression into A2, this slot is not created.)*
+  `BrowserCore`/`App` storage mode is scheduled. *(Q1 resolved = defer; slot
+  registered in the ledger at landing.)*
 - Pre-existing slot **`#11-storage-opaque-origin-securityerror`** re-evaluated
   (§7 Q4): unchanged, kept.
