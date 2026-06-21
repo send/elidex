@@ -29,6 +29,7 @@ use elidex_script_session::{ScriptContext, ScriptEngine, SessionCore};
 
 use crate::engine::ElidexJsEngine;
 use crate::vm::host_data::HostData;
+use crate::vm::test_helpers::bind_vm;
 use crate::vm::value::JsValue;
 use crate::vm::Vm;
 
@@ -152,7 +153,45 @@ fn rewired_window_seams_present_in_all_modes() {
     // The document-side rewired seams (1b `document.cookie`, 1c live-collection
     // getters) are extracted into their own gated sub-tables at `Modern`/`Living`;
     // their presence + behavior is covered by the broader elidex-js DOM suite
-    // (the 5.9k-test run would regress if the extraction dropped a property).
+    // (the 5.9k-test run would regress if the extraction dropped a property). The
+    // extraction's *enumeration order* is pinned separately by
+    // `live_collection_methods_keep_original_property_order`.
+}
+
+#[test]
+fn live_collection_methods_keep_original_property_order() {
+    // Codex R9 regression: A1 extracts the `Document` live-collection getters into
+    // a gated sub-table (seam-1c), but elidex installs document methods as the
+    // wrapper's OWN properties (no shared `Document.prototype`), so install order
+    // IS `Object.getOwnPropertyNames(document)` order. The gated install must land
+    // at its ORIGINAL ordinal position (between `querySelectorAll` and
+    // `createElement`) — a trailing install would reorder the names after
+    // `getSelection`, an observable change A1's no-behavior-change contract forbids.
+    let mut vm = Vm::new(); // BrowserCompat (production default)
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = dom.create_document_root();
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    let order_ok = vm
+        .eval(
+            "const n = Object.getOwnPropertyNames(document); \
+             n.indexOf('querySelectorAll') >= 0 && \
+             n.indexOf('createElement') >= 0 && \
+             n.indexOf('querySelectorAll') < n.indexOf('getElementsByTagName') && \
+             n.indexOf('getElementsByTagName') < n.indexOf('getElementsByClassName') && \
+             n.indexOf('getElementsByClassName') < n.indexOf('getElementsByName') && \
+             n.indexOf('getElementsByName') < n.indexOf('createElement');",
+        )
+        .unwrap();
+    assert!(
+        matches!(order_ok, JsValue::Boolean(true)),
+        "live-collection getters must enumerate between querySelectorAll and \
+         createElement (original DOCUMENT_METHODS order); got {order_ok:?}"
+    );
+    vm.unbind();
 }
 
 #[test]

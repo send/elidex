@@ -75,6 +75,19 @@ type SwChannel = LocalChannel<SwToContent, ContentToSw>;
 /// F1), validates it, then runs the realm.  `cache_conn` is the shared
 /// origin `Arc<Mutex<SqliteConnection>>` (DR-A) both the window VM and this
 /// SW observe; `initial_clients` seeds `clients.matchAll()`.
+///
+/// **Derives [`BrowserCompat`](elidex_plugin::EngineMode::BrowserCompat) — not an
+/// embedder-selectable mode (F10).** A SW realm has no in-process parent VM to
+/// inherit a mode from, so the mode is the embedder's to supply. Taking it as a
+/// parameter here would let a production embedder select
+/// [`BrowserCore`](elidex_plugin::EngineMode::BrowserCore) /
+/// [`App`](elidex_plugin::EngineMode::App) and create the no-storage SW realm the
+/// `#[cfg(test)]` gate on `Vm::new_with_mode` prevents on the main thread (a core
+/// session is contracted to expose `elidex.storage`, design §14.4.3). Until
+/// `#11-async-core-storage-cookiestore` makes non-compat modes production-
+/// selectable, this spawn entry hard-derives `BrowserCompat`; that PR threads the
+/// authorized embedder mode in. (Tests exercise non-compat SW realms via the
+/// crate-internal `run_service_worker`, which keeps the explicit-mode parameter.)
 #[allow(clippy::needless_pass_by_value)]
 pub fn sw_thread_main(
     script_url: url::Url,
@@ -83,7 +96,6 @@ pub fn sw_thread_main(
     network_handle: NetworkHandle,
     cache_conn: Arc<Mutex<SqliteConnection>>,
     initial_clients: Vec<ClientSnapshot>,
-    engine_mode: elidex_plugin::EngineMode,
 ) {
     let source = match obtain_sw_source(&script_url, &network_handle) {
         Ok(source) => source,
@@ -110,7 +122,9 @@ pub fn sw_thread_main(
         cache_conn,
         initial_clients,
         DEFAULT_IDLE_TIMEOUT,
-        engine_mode,
+        // No parent VM to inherit from; the SW realm runs BrowserCompat until
+        // `#11-async-core-storage-cookiestore` lets the embedder supply a mode (F10).
+        elidex_plugin::EngineMode::BrowserCompat,
     );
 }
 

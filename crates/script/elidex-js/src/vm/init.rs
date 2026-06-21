@@ -65,9 +65,21 @@ impl Vm {
     /// policy-gated surface, e.g. the DOM-handler registry and the currently
     /// over-exposed storage globals A2 demotes), so it must NOT be reset to the
     /// default. The caller (`vm/host/worker.rs`) propagates the parent VM's mode.
+    ///
+    /// **`pub(crate)` — not a production embedder surface (F10).** This constructor
+    /// takes an explicit `engine_mode`, so leaving it `pub` would let a production
+    /// embedder select [`EngineMode::BrowserCore`] / [`EngineMode::App`] for a
+    /// worker realm and create the same no-storage realm the `#[cfg(test)]` gate on
+    /// [`Vm::new_with_mode`] prevents on the main thread (a core session is
+    /// contracted to expose `elidex.storage`, design §14.4.3). Restricting it to the
+    /// crate keeps mode selection by-construction-safe: the only in-crate caller
+    /// (`vm/worker_thread.rs`, driven by `vm/host/worker.rs`) threads the
+    /// already-authorized parent mode, which is `BrowserCompat` until
+    /// `#11-async-core-storage-cookiestore` lands — that PR re-publishes this with
+    /// the explicit-mode capability.
     #[cfg(feature = "engine")]
     #[must_use]
-    pub fn new_worker(
+    pub(crate) fn new_worker(
         name: String,
         script_url: url::Url,
         is_secure_context: bool,
@@ -104,9 +116,21 @@ impl Vm {
     /// entry (`sw_thread::sw_thread_main`); the embedder supplies it when it wires
     /// the elidex-js SW (today the shell still spawns SWs via the boa engine, so
     /// this path is exercised by elidex-js tests, which pass `BrowserCompat`).
+    ///
+    /// **`pub(crate)` — not a production embedder surface (F10).** Like
+    /// [`Vm::new_worker`], the explicit `engine_mode` is restricted to the crate so
+    /// a production embedder cannot select [`EngineMode::BrowserCore`] /
+    /// [`EngineMode::App`] for a SW realm and create the no-storage realm the
+    /// `#[cfg(test)]` gate on [`Vm::new_with_mode`] prevents on the main thread. The
+    /// public SW spawn entry (`sw_thread::sw_thread_main`) hard-derives
+    /// `BrowserCompat` (a SW has no parent VM to inherit from); the explicit-mode
+    /// parameter here is exercised only by the crate-internal `run_service_worker`
+    /// (elidex-js tests). `#11-async-core-storage-cookiestore` threads the
+    /// authorized embedder mode through both when non-compat modes become
+    /// production-selectable.
     #[cfg(feature = "engine")]
     #[must_use]
-    pub fn new_service_worker(
+    pub(crate) fn new_service_worker(
         scope_url: url::Url,
         script_url: url::Url,
         is_secure_context: bool,

@@ -981,7 +981,16 @@ impl super::super::VmInner {
         if already_installed {
             return;
         }
-        self.install_methods(doc_wrapper, DOCUMENT_METHODS);
+        // The document own-methods install in three ordered slices so the gated
+        // live-collection getters land at their ORIGINAL ordinal position (between
+        // `querySelectorAll` and `createElement`). elidex installs document methods
+        // as the wrapper's OWN properties (no shared `Document.prototype`) and
+        // `install_methods` appends shape entries in call order, so install order IS
+        // the `Object.getOwnPropertyNames(document)` order — a single *trailing*
+        // gated install would reorder the live-collection names after `getSelection`,
+        // an observable enumeration-order change A1's no-behavior-change contract
+        // must not make (Codex R9).
+        self.install_methods(doc_wrapper, DOCUMENT_METHODS_PRE_LIVE_COLLECTION);
         // Seam-1c (A1 core/compat gate): the live-collection getters route through
         // the general `installs_dom(level)` predicate reading the family's SINGLE
         // source `live_collection_spec_level()` (Codex R7). A1's source is `Living`
@@ -994,9 +1003,10 @@ impl super::super::VmInner {
         if self.installs_dom(live_collection_spec_level()) {
             self.install_methods(doc_wrapper, DOCUMENT_LIVE_COLLECTION_METHODS);
         }
+        self.install_methods(doc_wrapper, DOCUMENT_METHODS_POST_LIVE_COLLECTION);
         // WHATWG DOM §4.4 / §6.1 / §6.4 traversal factories.  Slot
         // `#11-traversal-and-range-pr-a2-bindings`.  Installed
-        // separately to keep `DOCUMENT_METHODS` stable.
+        // separately to keep the document method tables stable.
         self.install_methods(doc_wrapper, super::document_traversal::FACTORIES);
         self.install_ro_accessors(doc_wrapper, DOCUMENT_RO_ACCESSORS);
         self.install_rw_accessors(doc_wrapper, DOCUMENT_RW_ACCESSORS);
@@ -1034,10 +1044,22 @@ impl super::super::VmInner {
 // Method + accessor tables are file-scope constants so they are not
 // rebuilt on every bind and so the `install_document_methods_if_needed`
 // body reads top-down.
-const DOCUMENT_METHODS: &[(&str, super::super::NativeFn)] = &[
+/// Document own-methods installed BEFORE the gated live-collection getters, kept
+/// in their original `DOCUMENT_METHODS` order (id + selector lookups). Split from
+/// [`DOCUMENT_METHODS_POST_LIVE_COLLECTION`] so the gated
+/// [`DOCUMENT_LIVE_COLLECTION_METHODS`] install lands at its original ordinal
+/// position — own-property enumeration order = install order (see the install
+/// comment in `install_document_methods_for_entity`; Codex R9).
+const DOCUMENT_METHODS_PRE_LIVE_COLLECTION: &[(&str, super::super::NativeFn)] = &[
     ("getElementById", native_document_get_element_by_id),
     ("querySelector", native_document_query_selector),
     ("querySelectorAll", native_document_query_selector_all),
+];
+
+/// Document own-methods installed AFTER the gated live-collection getters (node
+/// factories + focus / selection readers), kept in their original
+/// `DOCUMENT_METHODS` order — see [`DOCUMENT_METHODS_PRE_LIVE_COLLECTION`].
+const DOCUMENT_METHODS_POST_LIVE_COLLECTION: &[(&str, super::super::NativeFn)] = &[
     ("createElement", native_document_create_element),
     ("createTextNode", native_document_create_text_node),
     ("createComment", native_document_create_comment),
