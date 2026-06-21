@@ -305,6 +305,17 @@ onto it so they don't form a strangler middle-state (CLAUDE.md "One issue, one w
   opaque colors as `#rrggbb` (a *different* spec context), so it is correctly NOT
   converged.
 
+The `elidex-wpt` harness's whole getComputedStyle path is collapsed onto the production
+`serialize_resolved_value(prop, style)` — it is a thin **mirror of production**, testing
+exactly what the engine returns to script (incl. `currentcolor` resolution). It carries
+**no harness-local list serializer**: list-valued resolved values comma-join via
+production `to_css_string` (the tracked `#11-cssvalue-list-separator-fidelity` gap —
+`CssValue::List` has no separator, and the correct separator is property-specific). That
+gap is fixed in production (which fixes the harness in lockstep), not worked around in the
+harness; an earlier per-round attempt to give the harness a spec-anchored list serializer
+was reverted as an incomplete-by-construction generator layer (Codex external-converge
+R2/R3/R6).
+
 ---
 
 ## §6. Test plan (supported-surface)

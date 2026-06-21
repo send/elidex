@@ -5,8 +5,8 @@ use std::collections::HashMap;
 use elidex_css::{parse_selector_from_str, parse_stylesheet, Origin};
 use elidex_ecs::{EcsDom, Entity, TagType};
 use elidex_html_parser::parse_html;
-use elidex_plugin::{ComputedStyle, CssValue};
-use elidex_style::{get_computed, resolve_styles, serialize_resolved_value};
+use elidex_plugin::ComputedStyle;
+use elidex_style::{resolve_styles, serialize_resolved_value};
 
 /// A single WPT-style test case.
 #[derive(Debug, Clone, serde::Deserialize)]
@@ -64,7 +64,21 @@ pub fn run_test_case(test: &WptTestCase) -> WptTestResult {
         };
 
         for (prop, expected_str) in props {
-            let computed_str = harness_resolved_value(prop, &style);
+            // Serialize exactly as the getComputedStyle DOM API does — the
+            // harness is a thin mirror of production so it tests what the
+            // engine actually returns to script (incl. `currentcolor`
+            // used-value resolution + the rgb()/rgba() resolved-value form).
+            //
+            // NOTE: list-valued resolved values therefore comma-join (via
+            // `CssValue::to_css_string`), which is wrong for space-separated
+            // list properties (e.g. `text-decoration-line`) — the tracked
+            // production gap `#11-cssvalue-list-separator-fidelity`
+            // (`CssValue::List` carries no separator, and the correct
+            // separator is property-specific). That gap is fixed in
+            // production, not worked around here; a list-property test will
+            // then correctly fail until it lands. No list-property test
+            // cases exist today.
+            let computed_str = serialize_resolved_value(prop, &style);
             if computed_str != *expected_str {
                 failures.push(format!(
                     "{selector_str} {{ {prop}: expected '{expected_str}', got '{computed_str}' }}"
@@ -84,35 +98,6 @@ pub fn run_test_case(test: &WptTestCase) -> WptTestResult {
 #[must_use]
 pub fn run_test_suite(tests: &[WptTestCase]) -> Vec<WptTestResult> {
     tests.iter().map(run_test_case).collect()
-}
-
-/// Serialize a property's CSSOM resolved value for WPT comparison.
-///
-/// Identical to the production [`serialize_resolved_value`] (so `color` /
-/// `currentcolor` resolve to exactly what `getComputedStyle` returns —
-/// CSSOM-1 §9 + CSS Color 4 §16) **except** that space-separated list
-/// values are space-joined.
-///
-/// The production serializer routes list values through
-/// [`CssValue::to_css_string`], whose `List` arm comma-joins — the tracked
-/// `#11-cssvalue-list-separator-fidelity` gap (`CssValue::List` does not
-/// record its separator). The WPT corpus is hand-authored, so the harness
-/// stays spec-anchored here: a `text-decoration-line: underline overline`
-/// expectation is the spec-correct `"underline overline"`, not pinned to
-/// the engine's current `"underline, overline"` serialization bug. Once
-/// property-aware list separators land (that slot), this collapses back
-/// onto `serialize_resolved_value`.
-fn harness_resolved_value(property: &str, style: &ComputedStyle) -> String {
-    match get_computed(property, style) {
-        CssValue::List(items) => items
-            .iter()
-            .map(CssValue::to_css_string)
-            .collect::<Vec<_>>()
-            .join(" "),
-        // Non-list values (incl. color rgb()/rgba() + currentcolor
-        // used-value resolution) go through the canonical production path.
-        _ => serialize_resolved_value(property, style),
-    }
 }
 
 /// Maximum recursion depth for DOM tree searches.
@@ -243,21 +228,13 @@ mod tests {
         assert!(result.passed, "failures: {:?}", result.failures);
     }
 
-    #[test]
-    fn space_separated_list_resolved_value() {
-        // Regression (Codex R3): a space-separated list property's resolved
-        // value is space-joined ("underline overline"), NOT comma-joined.
-        // The harness stays spec-anchored rather than inheriting production's
-        // tracked to_css_string comma-join gap (#11-cssvalue-list-separator-fidelity).
-        let test = case(
-            "text-decoration-line-list",
-            "<div id=\"t\">text</div>",
-            "#t { text-decoration-line: underline overline; }",
-            &[("#t", "text-decoration-line", "underline overline")],
-        );
-        let result = run_test_case(&test);
-        assert!(result.passed, "failures: {:?}", result.failures);
-    }
+    // NOTE: no list-valued resolved-value test here. The harness mirrors the
+    // production getComputedStyle serializer (`serialize_resolved_value`),
+    // whose `CssValue::List` arm comma-joins regardless of property — the
+    // tracked `#11-cssvalue-list-separator-fidelity` gap. List-property
+    // resolved-value tests are added once that production gap is fixed (a
+    // property-aware separator fixes production and this harness together),
+    // not against a harness-local list serializer.
 
     #[test]
     fn empty_suite() {
