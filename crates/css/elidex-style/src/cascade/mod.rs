@@ -7,9 +7,17 @@
 
 use std::collections::HashMap;
 
+use elidex_css::media::{evaluate, MediaEnvironment};
 use elidex_css::{Declaration, Origin, PseudoElement, Specificity, Stylesheet};
 use elidex_ecs::{Attributes, EcsDom, Entity};
 use elidex_plugin::CssValue;
+
+/// True if a rule's `@media` condition chain (CSS Conditional §2) is satisfied
+/// by `env` — every ancestor `MediaQueryList` must `evaluate` true. An empty
+/// chain (unconditional rule, the common case) is always active.
+fn media_conditions_match(rule: &elidex_css::CssRule, env: &MediaEnvironment) -> bool {
+    rule.media_conditions.iter().all(|q| evaluate(q, env))
+}
 
 /// A single declaration entry in the cascade, annotated with priority metadata.
 struct CascadeEntry<'a> {
@@ -158,6 +166,7 @@ pub(crate) fn collect_and_cascade<'a>(
     inline_declarations: &'a [Declaration],
     extra_declarations: &'a [Declaration],
     shadow_cascade: &ShadowCascade<'a>,
+    env: &MediaEnvironment,
 ) -> HashMap<&'a str, &'a CssValue> {
     let mut entries: Vec<CascadeEntry<'a>> = Vec::new();
 
@@ -176,7 +185,7 @@ pub(crate) fn collect_and_cascade<'a>(
     }
 
     // Collect from stylesheets (only selectors without pseudo-elements).
-    collect_matching_rules(&mut entries, entity, dom, stylesheets, None, true);
+    collect_matching_rules(&mut entries, entity, dom, stylesheets, None, true, env);
 
     // Collect shadow-internal rules at lower priority (is_outer_context = false).
     match shadow_cascade {
@@ -188,6 +197,7 @@ pub(crate) fn collect_and_cascade<'a>(
                 shadow_sheet,
                 elidex_css::Selector::has_host,
                 None,
+                env,
             );
         }
         ShadowCascade::Slotted(shadow_sheet) => {
@@ -198,6 +208,7 @@ pub(crate) fn collect_and_cascade<'a>(
                 shadow_sheet,
                 elidex_css::Selector::has_slotted,
                 None,
+                env,
             );
         }
         ShadowCascade::Outer => {}
@@ -236,11 +247,17 @@ fn collect_matching_rules<'a>(
     stylesheets: &'a [&'a Stylesheet],
     pseudo: Option<&PseudoElement>,
     is_outer_context: bool,
+    env: &MediaEnvironment,
 ) {
     for (sheet_idx, stylesheet) in stylesheets.iter().enumerate() {
         #[allow(clippy::cast_possible_truncation)] // Stylesheet count won't exceed u32::MAX.
         let sheet_index = sheet_idx as u32;
         for rule in &stylesheet.rules {
+            // CSS Conditional §2: skip a rule whose `@media` condition chain is
+            // not satisfied by the current environment (unconditional rules pass).
+            if !media_conditions_match(rule, env) {
+                continue;
+            }
             // Single-pass: find max specificity among matching selectors
             // filtered by pseudo-element.
             // B2: Skip :host/:host()/ ::slotted() selectors in outer context —
@@ -284,10 +301,19 @@ pub(crate) fn collect_and_cascade_pseudo<'a>(
     dom: &EcsDom,
     stylesheets: &'a [&'a Stylesheet],
     pseudo: PseudoElement,
+    env: &MediaEnvironment,
 ) -> HashMap<&'a str, &'a CssValue> {
     let mut entries: Vec<CascadeEntry<'a>> = Vec::new();
 
-    collect_matching_rules(&mut entries, entity, dom, stylesheets, Some(&pseudo), true);
+    collect_matching_rules(
+        &mut entries,
+        entity,
+        dom,
+        stylesheets,
+        Some(&pseudo),
+        true,
+        env,
+    );
 
     compute_winners(&mut entries)
 }
@@ -309,8 +335,13 @@ fn collect_shadow_rules<'a>(
     shadow_sheet: &'a Stylesheet,
     selector_filter: fn(&elidex_css::Selector) -> bool,
     pseudo: Option<&PseudoElement>,
+    env: &MediaEnvironment,
 ) {
     for rule in &shadow_sheet.rules {
+        // CSS Conditional §2: `@media`-gated shadow rules obey the same gate.
+        if !media_conditions_match(rule, env) {
+            continue;
+        }
         let max_specificity = rule
             .selectors
             .iter()

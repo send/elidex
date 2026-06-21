@@ -64,6 +64,11 @@ fn stylesheets_to_cssom(sheets: &[Stylesheet]) -> Vec<elidex_js_boa::bridge::Css
             let rules = sheet
                 .rules
                 .iter()
+                // Flattened `@media` rules (non-empty `media_conditions`) are not
+                // surfaced as top-level CSSOM rules until `CSSMediaRule` lands
+                // (`#11-css-media-rule`) — they must not leak in as bogus
+                // unwrapped rules. Matches the dom-api `cssom_sheet` view.
+                .filter(|rule| rule.media_conditions.is_empty())
                 .map(|rule| {
                     let selector_text = rule
                         .selectors
@@ -178,11 +183,39 @@ fn sync_stylesheets_to_bridge(runtime: &JsRuntime, stylesheets: &[Stylesheet]) {
     runtime.bridge().set_stylesheets(cssom_sheets);
 }
 
+/// Map a CSSOM `cssRules` index (visible/unconditional rules only — flattened
+/// `@media` rules are not surfaced until `CSSMediaRule` lands,
+/// `#11-css-media-rule`) to the actual index into `Stylesheet::rules`. Returns
+/// `rules.len()` for an append (`cssom_index == visible count`). Mirrors the
+/// dom-api `cssom_sheet` view + `stylesheets_to_cssom`'s filter, so the boa
+/// CSSOM index space and the underlying rule list stay aligned when `@media`
+/// rules are interleaved. (Dies with the boa path at the S5 cutover.)
+fn cssom_actual_rule_index(rules: &[elidex_css::CssRule], cssom_index: usize) -> usize {
+    rules
+        .iter()
+        .enumerate()
+        .filter(|(_, r)| r.media_conditions.is_empty())
+        .nth(cssom_index)
+        .map_or(rules.len(), |(actual, _)| actual)
+}
+
+/// Count of CSSOM-visible (unconditional) rules — the bounds for boa
+/// `insertRule`/`deleteRule` indices (flattened `@media` rules are excluded; see
+/// [`cssom_actual_rule_index`]).
+fn cssom_visible_count(rules: &[elidex_css::CssRule]) -> usize {
+    rules
+        .iter()
+        .filter(|r| r.media_conditions.is_empty())
+        .count()
+}
+
 /// Apply CSSOM mutations (insertRule/deleteRule) to real `Stylesheet` objects.
 ///
 /// Parses rule text using the CSS parser and inserts/deletes rules at the
 /// specified positions. Invalid indices or unparseable rules are silently
-/// skipped (matching browser behavior for error recovery).
+/// skipped (matching browser behavior for error recovery). Indices are in the
+/// CSSOM-visible space (excludes flattened `@media` rules) — see
+/// [`cssom_actual_rule_index`].
 fn apply_cssom_mutations(
     stylesheets: &mut [Stylesheet],
     mutations: &[elidex_js_boa::bridge::CssomMutation],
@@ -201,7 +234,7 @@ fn apply_cssom_mutations(
                 let Some(sheet) = stylesheets.get_mut(*sheet_index) else {
                     continue;
                 };
-                if *rule_index > sheet.rules.len() {
+                if *rule_index > cssom_visible_count(&sheet.rules) {
                     continue;
                 }
                 let parsed = elidex_css::parse_stylesheet_with_registry(
@@ -210,9 +243,20 @@ fn apply_cssom_mutations(
                     Some(registry),
                 );
                 if let Some(mut rule) = parsed.rules.into_iter().next() {
-                    rule.source_order = 0;
-                    sheet.rules.insert(*rule_index, rule);
-                    dirty_sheets.insert(*sheet_index);
+                    // Reject an `@media`-conditioned insert (the parsed rule
+                    // carries a non-empty `media_conditions` chain), matching the
+                    // dom-api path's `parse_single_rule` rejection — a
+                    // `CSSMediaRule` insert is deferred (`#11-css-media-rule`).
+                    // Without this, the rule would be filtered out of `cssRules`
+                    // yet still affect rendering and resist `deleteRule` — an
+                    // inconsistent, un-addressable mutation. Skipping restores the
+                    // pre-`@media`-retention no-op for `insertRule("@media …")`.
+                    if rule.media_conditions.is_empty() {
+                        rule.source_order = 0;
+                        let actual = cssom_actual_rule_index(&sheet.rules, *rule_index);
+                        sheet.rules.insert(actual, rule);
+                        dirty_sheets.insert(*sheet_index);
+                    }
                 }
             }
             elidex_js_boa::bridge::CssomMutation::DeleteRule {
@@ -222,8 +266,9 @@ fn apply_cssom_mutations(
                 let Some(sheet) = stylesheets.get_mut(*sheet_index) else {
                     continue;
                 };
-                if *rule_index < sheet.rules.len() {
-                    sheet.rules.remove(*rule_index);
+                if *rule_index < cssom_visible_count(&sheet.rules) {
+                    let actual = cssom_actual_rule_index(&sheet.rules, *rule_index);
+                    sheet.rules.remove(actual);
                     dirty_sheets.insert(*sheet_index);
                 }
             }
@@ -267,6 +312,7 @@ fn resolve_with_compat(
     author_stylesheets: &[&Stylesheet],
     registry: &elidex_plugin::CssPropertyRegistry,
     viewport: Size,
+    medium: elidex_css::media::Medium,
 ) -> ViewportOverflow {
     let legacy_ua = legacy_ua_stylesheet();
     resolve_styles_with_compat(
@@ -275,6 +321,7 @@ fn resolve_with_compat(
         &[legacy_ua],
         &get_presentational_hints,
         viewport,
+        medium,
         Some(registry),
     )
 }
@@ -706,6 +753,7 @@ pub(crate) fn re_render(result: &mut PipelineResult) -> Vec<elidex_script_sessio
         &stylesheet_refs,
         &result.registry,
         result.viewport,
+        elidex_css::media::Medium::Screen,
     );
 
     // Phase 3: Detect transitions by comparing old vs new computed values.

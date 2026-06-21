@@ -35,11 +35,18 @@
 //!
 //! ## CSSMediaRule deferral
 //!
-//! `@media` is silently dropped by [`elidex_css::parse_stylesheet`] (the
-//! cascade ignores grouping rules).  Surfacing CSSMediaRule via CSSOM
-//! requires a parser extension that retains `@media` blocks + nested
-//! `CSSRuleList`; tracked as deferred slot `#11-css-media-rule`.  PR-B
-//! exposes only `CSSStyleRule`.
+//! `@media` blocks are now **retained** by [`elidex_css::parse_stylesheet`] —
+//! their inner rules are flattened into `Stylesheet::rules`, each tagged with a
+//! non-empty `media_conditions` chain, so the cascade can gate them (CSS
+//! Conditional §2). The CSSOM grouping tree (`CSSMediaRule` + its nested
+//! `CSSRuleList`) is still **deferred** (`#11-css-media-rule`): until it lands,
+//! `cssRules` exposes only **unconditional** `CSSStyleRule`s and filters out the
+//! flattened `@media` rules (`cssom_visible_count` / `cssom_actual_index`).
+//! This keeps `cssRules` exactly as it was before `@media` retention (no
+//! web-observable regression — the flattened rules must NOT leak in as bogus
+//! top-level rules without their `@media` wrapper). The serialize round-trip
+//! ([`elidex_css::serialize_stylesheet`]) still **preserves** the `@media`
+//! wrappers, so an `insertRule`/`deleteRule` mutation does not drop them.
 
 use elidex_css::{parse_single_rule, parse_stylesheet, serialize_stylesheet, Origin};
 use elidex_ecs::{EcsDom, Entity, LinkStylesheet};
@@ -200,6 +207,44 @@ fn index_size_error(message: impl Into<String>) -> DomApiError {
 }
 
 // ---------------------------------------------------------------------------
+// CSSOM-visible rule view (excludes flattened `@media` rules)
+// ---------------------------------------------------------------------------
+//
+// `Stylesheet::rules` now contains both top-level style rules and the rules
+// flattened out of `@media` blocks (the latter carry a non-empty
+// `media_conditions` chain). The CSSOM `cssRules` list must expose only the
+// former until `CSSMediaRule` lands (`#11-css-media-rule`) — see the module
+// doc. These helpers map between the CSSOM index space (visible rules only)
+// and the actual `Stylesheet::rules` index space.
+
+/// Number of CSSOM-visible (unconditional) rules.
+fn cssom_visible_count(rules: &[elidex_css::CssRule]) -> usize {
+    rules
+        .iter()
+        .filter(|r| r.media_conditions.is_empty())
+        .count()
+}
+
+/// The actual `Stylesheet::rules` index of the `cssom_index`-th visible rule.
+/// `None` when `cssom_index` is past the last visible rule (callers handle the
+/// `insertRule` append case — `cssom_index == cssom_visible_count` — separately).
+fn cssom_actual_index(rules: &[elidex_css::CssRule], cssom_index: usize) -> Option<usize> {
+    rules
+        .iter()
+        .enumerate()
+        .filter(|(_, r)| r.media_conditions.is_empty())
+        .nth(cssom_index)
+        .map(|(actual, _)| actual)
+}
+
+/// The actual `Stylesheet::rules` insert position for CSSOM `insertRule(_, index)`:
+/// before the `index`-th visible rule, or at the end of `rules` when `index`
+/// equals the visible count (append). Caller validates `index <= visible count`.
+fn cssom_insert_position(rules: &[elidex_css::CssRule], cssom_index: usize) -> usize {
+    cssom_actual_index(rules, cssom_index).unwrap_or(rules.len())
+}
+
+// ---------------------------------------------------------------------------
 // Sheet-level handlers
 // ---------------------------------------------------------------------------
 
@@ -220,7 +265,9 @@ impl DomApiHandler for CssRulesLength {
     ) -> Result<JsValue, DomApiError> {
         let state = sync_and_get_state(this, session, dom);
         #[allow(clippy::cast_precision_loss)]
-        Ok(JsValue::Number(state.parsed.rules.len() as f64))
+        Ok(JsValue::Number(
+            cssom_visible_count(&state.parsed.rules) as f64
+        ))
     }
 }
 
@@ -252,10 +299,10 @@ impl DomApiHandler for CssRulesItemId {
         #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
         let idx = idx_f as usize;
         let state = sync_and_get_state(this, session, dom);
-        let id = state
-            .parsed
-            .rules
-            .get(idx)
+        // CSSOM-visible (unconditional) rules only — flattened `@media` rules
+        // are not surfaced (`#11-css-media-rule`).
+        let id = cssom_actual_index(&state.parsed.rules, idx)
+            .and_then(|actual| state.parsed.rules.get(actual))
             .map(|r| r.rule_id)
             .map_or(-1.0, |id| {
                 #[allow(clippy::cast_precision_loss)]
@@ -300,11 +347,12 @@ impl DomApiHandler for InsertRule {
         let index = index_f as usize;
 
         let state = sync_and_get_state(this, session, dom);
-        if index > state.parsed.rules.len() {
+        // Bounds + insert position are in the CSSOM-visible index space
+        // (excludes flattened `@media` rules — `#11-css-media-rule`).
+        let visible = cssom_visible_count(&state.parsed.rules);
+        if index > visible {
             return Err(index_size_error(format!(
-                "Failed to execute 'insertRule' on 'CSSStyleSheet': index {} is larger than rule count {}",
-                index,
-                state.parsed.rules.len()
+                "Failed to execute 'insertRule' on 'CSSStyleSheet': index {index} is larger than rule count {visible}"
             )));
         }
         let mut new_rule = parse_single_rule(&rule_text).ok_or_else(|| {
@@ -314,7 +362,8 @@ impl DomApiHandler for InsertRule {
         })?;
         new_rule.rule_id = state.parsed.next_rule_id;
         state.parsed.next_rule_id = state.parsed.next_rule_id.saturating_add(1);
-        state.parsed.rules.insert(index, new_rule);
+        let actual = cssom_insert_position(&state.parsed.rules, index);
+        state.parsed.rules.insert(actual, new_rule);
         // No need to renumber `source_order` here: `flush_sheet_mutation`
         // re-serialises the sheet and writes back to the owner's source
         // (`<style>.textContent` or the `<link>` `LinkStylesheet` component),
@@ -358,12 +407,14 @@ impl DomApiHandler for DeleteRule {
         let index = idx_f as usize;
 
         let state = sync_and_get_state(this, session, dom);
-        if index >= state.parsed.rules.len() {
+        // Bounds + removal target are in the CSSOM-visible index space
+        // (excludes flattened `@media` rules — `#11-css-media-rule`).
+        let Some(actual) = cssom_actual_index(&state.parsed.rules, index) else {
             return Err(index_size_error(format!(
                 "Failed to execute 'deleteRule' on 'CSSStyleSheet': index {index} is out of range",
             )));
-        }
-        state.parsed.rules.remove(index);
+        };
+        state.parsed.rules.remove(actual);
         // No `source_order` renumbering here — the next `sync_and_get_state`
         // re-parses from the post-flush source and assigns fresh sequential
         // values (mirrors `InsertRule` above).
@@ -716,5 +767,49 @@ fn walk_styles_inner(entity: Entity, dom: &EcsDom, visit: &mut impl FnMut(Entity
     }
     for child in dom.children_iter(entity) {
         walk_styles_inner(child, dom, visit);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{cssom_actual_index, cssom_insert_position, cssom_visible_count};
+    use elidex_css::{parse_stylesheet, Origin};
+
+    /// `div{}` (0) / `@media screen{p{}}` (1, flattened+conditioned) / `span{}` (2).
+    /// The CSSOM view is `[div, span]` — the `@media`-flattened `p` is hidden.
+    fn mixed() -> elidex_css::Stylesheet {
+        parse_stylesheet(
+            "div { color: red } @media screen { p { color: blue } } span { color: green }",
+            Origin::Author,
+        )
+    }
+
+    #[test]
+    fn visible_count_excludes_media_rules() {
+        let ss = mixed();
+        assert_eq!(ss.rules.len(), 3, "all three rules are in the cascade list");
+        assert_eq!(
+            cssom_visible_count(&ss.rules),
+            2,
+            "cssRules hides the flattened @media rule"
+        );
+    }
+
+    #[test]
+    fn actual_index_skips_media_rules() {
+        let ss = mixed();
+        // CSSOM index 0 → `div` (actual 0); CSSOM index 1 → `span` (actual 2,
+        // skipping the @media `p` at actual 1).
+        assert_eq!(cssom_actual_index(&ss.rules, 0), Some(0));
+        assert_eq!(cssom_actual_index(&ss.rules, 1), Some(2));
+        assert_eq!(cssom_actual_index(&ss.rules, 2), None); // past the last visible
+    }
+
+    #[test]
+    fn insert_position_maps_visible_to_actual() {
+        let ss = mixed();
+        assert_eq!(cssom_insert_position(&ss.rules, 0), 0); // before `div`
+        assert_eq!(cssom_insert_position(&ss.rules, 1), 2); // before `span`
+        assert_eq!(cssom_insert_position(&ss.rules, 2), 3); // append (end of rules)
     }
 }

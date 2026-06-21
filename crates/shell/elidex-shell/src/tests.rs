@@ -831,3 +831,48 @@ fn animation_event_dispatched_to_js_listener() {
         "Expected animationend with animationName=fadeIn, got: {messages:?}"
     );
 }
+
+#[test]
+fn boa_insert_rule_skips_media_conditioned_rule() {
+    // R1-3: a boa CSSOM `insertRule("@media …")` must NOT land a conditioned
+    // rule in the real stylesheet — it would be filtered out of `cssRules` yet
+    // still affect rendering and resist `deleteRule` (an un-addressable
+    // mutation). The applier skips conditioned inserts (CSSMediaRule deferred,
+    // `#11-css-media-rule`); plain rules still insert.
+    let registry = create_css_property_registry();
+    let mut sheets = vec![elidex_css::parse_stylesheet(
+        "div { color: red }",
+        elidex_css::Origin::Author,
+    )];
+    let before = sheets[0].rules.len();
+
+    apply_cssom_mutations(
+        &mut sheets,
+        &[elidex_js_boa::bridge::CssomMutation::InsertRule {
+            sheet_index: 0,
+            rule_index: 0,
+            rule_text: "@media screen { p { color: blue } }".to_string(),
+        }],
+        &registry,
+    );
+    assert_eq!(
+        sheets[0].rules.len(),
+        before,
+        "@media insert must be skipped (no conditioned rule lands)"
+    );
+
+    apply_cssom_mutations(
+        &mut sheets,
+        &[elidex_js_boa::bridge::CssomMutation::InsertRule {
+            sheet_index: 0,
+            rule_index: 0,
+            rule_text: "span { color: green }".to_string(),
+        }],
+        &registry,
+    );
+    assert_eq!(
+        sheets[0].rules.len(),
+        before + 1,
+        "a plain qualified rule still inserts"
+    );
+}

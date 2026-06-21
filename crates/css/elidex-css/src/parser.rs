@@ -11,8 +11,17 @@ use cssparser::{
 use elidex_plugin::{CssPropertyRegistry, PageRule};
 
 use crate::declaration::{parse_property_value, Declaration, Origin};
+use crate::media::{parse_media_query_list, MediaQueryList};
 use crate::page::parse_page_rules;
 use crate::selector::{parse_selector_list, Selector};
+
+/// Maximum `@media` (conditional group rule) block-nesting depth before a
+/// deeper block is dropped via CSS error recovery. This bounds the recursion
+/// in [`RuleListParser`]'s at-rule handling — a DoS guard for untrusted CSS
+/// (`@media{@media{@media …}}`). It is a **distinct** concern from
+/// `media::MAX_MEDIA_NESTING_DEPTH` (which bounds `( … )` depth *inside* one
+/// media query); this caps the depth of *rule* grouping.
+const MAX_AT_RULE_NESTING_DEPTH: usize = 32;
 
 /// A parsed CSS stylesheet.
 #[derive(Clone, Debug, Default)]
@@ -66,6 +75,19 @@ pub struct CssRule {
     /// heuristic — the heuristic mis-slices selectors that contain
     /// `{` inside an attribute value (e.g. `[data-x="{"]`).
     pub selector_text: String,
+    /// The chain of ancestor `@media` conditions gating this rule, outermost
+    /// first — CSS Conditional Rules §2: a rule inside nested conditional group
+    /// rules "applies only when all of the rules' conditions are true". Empty
+    /// for an unconditional rule (the common case; no allocation). The cascade
+    /// includes this rule's declarations iff every `MediaQueryList` here
+    /// `evaluate`s true against the current `MediaEnvironment`.
+    ///
+    /// `@media`-nested rules are flattened into [`Stylesheet::rules`] in source
+    /// order (CSS Conditional §2 "as though they were at the group rule's
+    /// location") with this chain attached — the spec keeps the grouping tree in
+    /// the CSS object model (`CSSMediaRule`, deferred), separate from cascade
+    /// application, so the cascade stores only the activation predicate.
+    pub media_conditions: Vec<MediaQueryList>,
 }
 
 /// Parse a CSS string into a [`Stylesheet`].
@@ -97,32 +119,42 @@ pub fn parse_single_rule(css: &str) -> Option<CssRule> {
     }
     let mut pi = ParserInput::new(trimmed);
     let mut input = Parser::new(&mut pi);
+    let mut rules = Vec::new();
     let mut source_order: u32 = 0;
     let mut next_rule_id: u64 = 0;
     let mut keyframes_raw = Vec::new();
     let mut page_rules = Vec::new();
-    let mut rule_parser = RuleListParser {
-        source_order: &mut source_order,
-        next_rule_id: &mut next_rule_id,
-        keyframes_raw: &mut keyframes_raw,
-        page_rules: &mut page_rules,
-        registry: None,
-    };
-    // Strict: must yield exactly one `Ok(rule)` and then end-of-stream.
+    // Strict: the input must be exactly one qualified rule, then end-of-stream.
     // - Any `Err` (parse error / unrecognized at-rule) = skipped content
-    //   → `insertRule` must reject per CSSOM §6.4 SyntaxError, despite
-    //   the broader `parse_stylesheet` path's CSS error-recovery.
-    // - `@keyframes` / `@page` end up in the side-channel vecs even when
-    //   their parse_block returns Err; reject if either fired.
-    let (first, second) = {
+    //   → `insertRule` must reject per CSSOM §6.4 SyntaxError, despite the
+    //   broader `parse_stylesheet` path's CSS error-recovery.
+    // - `@keyframes` / `@page` populate the side-channel vecs; `@media` makes
+    //   the at-rule yield `Err` (its `parse_block` returns Err after flattening)
+    //   AND pushes inner rules with non-empty `media_conditions` — both reject:
+    //   a `CSSMediaRule` via `insertRule` is deferred (`#11-css-media-rule`).
+    let (first_ok, has_second) = {
+        let mut rule_parser = RuleListParser {
+            rules: &mut rules,
+            media_stack: Vec::new(),
+            source_order: &mut source_order,
+            next_rule_id: &mut next_rule_id,
+            keyframes_raw: &mut keyframes_raw,
+            page_rules: &mut page_rules,
+            registry: None,
+        };
         let mut iter = StyleSheetParser::new(&mut input, &mut rule_parser);
-        (iter.next(), iter.next())
+        let first = iter.next();
+        let second = iter.next();
+        (matches!(first, Some(Ok(()))), second.is_some())
     };
-    if !keyframes_raw.is_empty() || !page_rules.is_empty() {
+    if !keyframes_raw.is_empty() || !page_rules.is_empty() || has_second || !first_ok {
         return None;
     }
-    match (first, second) {
-        (Some(Ok(rule)), None) => Some(rule),
+    // Exactly one successful qualified rule; accept only if unconditional
+    // (an `@media`-wrapped rule has `first_ok == false` above, but guard the
+    // condition chain too for defence-in-depth).
+    match rules.len() {
+        1 if rules[0].media_conditions.is_empty() => Some(rules.swap_remove(0)),
         _ => None,
     }
 }
@@ -148,16 +180,20 @@ pub fn parse_stylesheet_with_registry(
     let mut keyframes_raw = Vec::new();
     let mut page_rules = Vec::new();
 
-    let mut rule_parser = RuleListParser {
-        source_order: &mut source_order,
-        next_rule_id: &mut next_rule_id,
-        keyframes_raw: &mut keyframes_raw,
-        page_rules: &mut page_rules,
-        registry,
-    };
-
-    for rule in StyleSheetParser::new(&mut input, &mut rule_parser).flatten() {
-        rules.push(rule);
+    {
+        let mut rule_parser = RuleListParser {
+            rules: &mut rules,
+            media_stack: Vec::new(),
+            source_order: &mut source_order,
+            next_rule_id: &mut next_rule_id,
+            keyframes_raw: &mut keyframes_raw,
+            page_rules: &mut page_rules,
+            registry,
+        };
+        // Drive to exhaustion; every produced rule is pushed into `rules` via
+        // `self` (the yielded items are `()`/`Err` sentinels). The block scopes
+        // the `&mut rules` borrow so the `Stylesheet` can take ownership below.
+        for _ in StyleSheetParser::new(&mut input, &mut rule_parser) {}
     }
 
     Stylesheet {
@@ -172,6 +208,16 @@ pub fn parse_stylesheet_with_registry(
 // --- cssparser trait implementations ---
 
 struct RuleListParser<'a> {
+    /// The output sink — ALL produced rules (top-level and `@media`-nested)
+    /// are pushed here in source order, so `source_order` interleaves
+    /// correctly across `@media` boundaries (One-issue-one-way: one collection
+    /// path, like `@keyframes`/`@page` already push via `self`). The
+    /// `StyleSheetParser` driver's yielded items are sentinels (`()`).
+    rules: &'a mut Vec<CssRule>,
+    /// The current chain of enclosing `@media` conditions (outermost first),
+    /// pushed/popped as the parser descends into / ascends out of `@media`
+    /// blocks. Each rule produced is tagged with a clone of this chain.
+    media_stack: Vec<MediaQueryList>,
     source_order: &'a mut u32,
     next_rule_id: &'a mut u64,
     keyframes_raw: &'a mut Vec<(String, String)>,
@@ -185,13 +231,22 @@ enum AtRuleKind {
     Keyframes(String),
     /// `@page <selectors>` — prelude text for page pseudo-classes.
     Page(String),
+    /// `@media <media-query-list>` — the parsed condition (CSS Conditional
+    /// Rules §5). The block's inner rules are flattened into [`Stylesheet::rules`]
+    /// each tagged with this condition appended to the ancestor chain.
+    Media(MediaQueryList),
 }
 
-/// `@keyframes` and `@page` rules are parsed and stored in their
-/// respective fields. All other at-rules are silently dropped.
+/// `@keyframes` and `@page` rules are parsed and stored in their respective
+/// fields; `@media` blocks are flattened into `rules` (each inner rule tagged
+/// with its condition chain). All other at-rules are silently dropped.
+///
+/// `AtRule = ()` (a sentinel): produced rules are pushed into `self.rules`, not
+/// returned via the `StyleSheetParser` item, so a single `@media` block can
+/// yield many rules with continuous `source_order`.
 impl<'i> AtRuleParser<'i> for RuleListParser<'_> {
     type Prelude = AtRuleKind;
-    type AtRule = CssRule;
+    type AtRule = ();
     type Error = ();
 
     fn parse_prelude<'t>(
@@ -231,6 +286,15 @@ impl<'i> AtRuleParser<'i> for RuleListParser<'_> {
             while input.next_including_whitespace_and_comments().is_ok() {}
             let prelude_text = input.slice_from(start_pos).trim().to_string();
             Ok(AtRuleKind::Page(prelude_text))
+        } else if name.eq_ignore_ascii_case("media") {
+            // CSS Conditional Rules §5: @media <media-query-list> { <rule-list> }.
+            // Parse the prelude (raw text) via the engine-independent SSoT
+            // (#360, total — never errors). The block's rules are handled in
+            // `parse_block` below.
+            let start_pos = input.position();
+            while input.next_including_whitespace_and_comments().is_ok() {}
+            let prelude_text = input.slice_from(start_pos).trim();
+            Ok(AtRuleKind::Media(parse_media_query_list(prelude_text)))
         } else {
             Err(input.new_custom_error(()))
         }
@@ -242,24 +306,57 @@ impl<'i> AtRuleParser<'i> for RuleListParser<'_> {
         _start: &ParserState,
         input: &mut Parser<'i, 't>,
     ) -> Result<Self::AtRule, ParseError<'i, ()>> {
-        // Collect the raw block text by consuming all tokens (including
-        // nested curly-bracket blocks) and using slice_from.
-        let start_pos = input.position();
-        while input.next_including_whitespace_and_comments().is_ok() {}
-        let body = input.slice_from(start_pos).to_string();
-
         match prelude {
+            AtRuleKind::Media(query) => {
+                // CSS Conditional Rules §2: the block's rules apply "as though
+                // they were at the group rule's location" → flatten them into
+                // `self.rules` (in source order, continuous `source_order`) with
+                // the condition pushed onto the ancestor chain, so the cascade
+                // gates each on the full chain. Recurse with the SAME parser so
+                // nested `@media` deepens the chain and reuses the qualified-rule
+                // / declaration machinery (no raw-text re-parse).
+                if self.media_stack.len() >= MAX_AT_RULE_NESTING_DEPTH {
+                    // DoS guard: drop the over-deep block (CSS error recovery).
+                    while input.next_including_whitespace_and_comments().is_ok() {}
+                } else {
+                    self.media_stack.push(query);
+                    for _ in StyleSheetParser::new(input, &mut *self) {}
+                    self.media_stack.pop();
+                }
+            }
             AtRuleKind::Keyframes(name) => {
-                self.keyframes_raw.push((name, body));
+                // Collect the raw block text for the animation handler.
+                let start_pos = input.position();
+                while input.next_including_whitespace_and_comments().is_ok() {}
+                let body = input.slice_from(start_pos).to_string();
+                // The keyframes side-channel carries no media condition, and its
+                // consumer registers every entry unconditionally — so a
+                // `@keyframes` nested inside a (possibly non-matching) `@media`
+                // must NOT be side-channeled (it would animate regardless of the
+                // condition, CSS Conditional Rules §2 violation). Drop it inside
+                // any `@media` (matches pre-`@media`-retention behavior, where the
+                // whole `@media` block was skipped). Conditional `@keyframes`/
+                // `@page` support is a follow-up (`#11-css-media-conditional-side-rules`).
+                if self.media_stack.is_empty() {
+                    self.keyframes_raw.push((name, body));
+                }
             }
             AtRuleKind::Page(prelude_text) => {
-                let rules = parse_page_rules(&prelude_text, &body);
-                self.page_rules.extend(rules);
+                let start_pos = input.position();
+                while input.next_including_whitespace_and_comments().is_ok() {}
+                // Same as `@keyframes`: `@page` is side-channeled without a media
+                // condition, so a `@page` nested inside `@media` is dropped rather
+                // than fed to paged layout unconditionally (`#11-css-media-conditional-side-rules`).
+                if self.media_stack.is_empty() {
+                    let body = input.slice_from(start_pos).to_string();
+                    let rules = parse_page_rules(&prelude_text, &body);
+                    self.page_rules.extend(rules);
+                }
             }
         }
 
-        // Return Err so no CssRule is produced — @keyframes/@page are stored
-        // separately in their respective Stylesheet fields.
+        // Return Err so the `StyleSheetParser` item is empty — every produced
+        // rule was pushed into `self.rules` (or a side-channel field).
         Err(input.new_custom_error(()))
     }
 }
@@ -269,7 +366,10 @@ impl<'i> QualifiedRuleParser<'i> for RuleListParser<'_> {
     /// CSSOM `CSSStyleRule.cssText` / `selectorText` can return the source
     /// text without re-implementing selector serialisation.
     type Prelude = (Vec<Selector>, String);
-    type QualifiedRule = CssRule;
+    /// Sentinel (`()`): the produced [`CssRule`] is pushed into `self.rules`
+    /// (tagged with the current `media_stack` chain), not returned — see the
+    /// `AtRuleParser` impl doc.
+    type QualifiedRule = ();
     type Error = ();
 
     fn parse_prelude<'t>(
@@ -313,14 +413,20 @@ impl<'i> QualifiedRuleParser<'i> for RuleListParser<'_> {
             format!("{selector_text} {{ {body_text} }}")
         };
 
-        Ok(CssRule {
+        // Push into the shared sink, tagged with the enclosing `@media` chain
+        // (empty for an unconditional rule). The chain is cloned per rule so
+        // sibling rules in the same block carry an independent condition list.
+        let media_conditions = self.media_stack.clone();
+        self.rules.push(CssRule {
             selectors,
             declarations,
             source_order: order,
             rule_id,
             source_text,
             selector_text,
-        })
+            media_conditions,
+        });
+        Ok(())
     }
 }
 
@@ -419,12 +525,110 @@ mod tests {
     }
 
     #[test]
-    fn at_rule_silently_dropped() {
+    fn media_block_flattened_into_rules() {
+        // CSS Conditional §2: `@media` rules apply "as though they were at the
+        // group rule's location" → flattened into `rules`, in source order,
+        // each tagged with its condition chain. (Formerly `@media` was dropped.)
         let css = "@media screen { div { color: red; } } p { display: block; }";
         let ss = parse_stylesheet(css, Origin::Author);
-        // @media is skipped; p rule survives.
+        assert_eq!(ss.rules.len(), 2);
+        // The `div` rule from inside @media, tagged with the `screen` condition.
+        assert_eq!(ss.rules[0].selector_text, "div");
+        assert_eq!(ss.rules[0].declarations[0].property, "color");
+        assert_eq!(ss.rules[0].media_conditions.len(), 1);
+        // The sibling `p` rule, unconditional, keeps its later source order.
+        assert_eq!(ss.rules[1].selector_text, "p");
+        assert_eq!(ss.rules[1].declarations[0].property, "display");
+        assert!(ss.rules[1].media_conditions.is_empty());
+        assert!(ss.rules[0].source_order < ss.rules[1].source_order);
+    }
+
+    #[test]
+    fn media_source_order_interleaves_with_siblings() {
+        // CSS Cascade §6.1 source-order tiebreak must survive flattening: a rule
+        // after an `@media` block gets a higher `source_order` than the block's
+        // inner rules, and vice versa.
+        let css = "div { color: red } @media screen { div { color: blue } }";
+        let ss = parse_stylesheet(css, Origin::Author);
+        assert_eq!(ss.rules.len(), 2);
+        assert!(ss.rules[0].media_conditions.is_empty()); // bare `div{red}`
+        assert_eq!(ss.rules[1].media_conditions.len(), 1); // `@media` `div{blue}`
+        assert!(ss.rules[0].source_order < ss.rules[1].source_order); // blue wins
+    }
+
+    #[test]
+    fn nested_media_accumulates_condition_chain() {
+        let css = "@media screen { @media (min-width: 1px) { x { top: 0 } } }";
+        let ss = parse_stylesheet(css, Origin::Author);
         assert_eq!(ss.rules.len(), 1);
-        assert_eq!(ss.rules[0].declarations[0].property, "display");
+        assert_eq!(ss.rules[0].selector_text, "x");
+        // Both ancestor conditions are retained, outermost first.
+        assert_eq!(ss.rules[0].media_conditions.len(), 2);
+    }
+
+    #[test]
+    fn empty_media_block_produces_no_rules() {
+        let ss = parse_stylesheet("@media screen {}", Origin::Author);
+        assert!(ss.rules.is_empty());
+    }
+
+    #[test]
+    fn deeply_nested_media_does_not_overflow() {
+        // DoS guard: pathological `@media` nesting must not stack-overflow; the
+        // over-cap block is dropped via CSS error recovery.
+        let depth = MAX_AT_RULE_NESTING_DEPTH + 50;
+        let css = format!(
+            "{}x {{ top: 0 }}{}",
+            "@media screen {".repeat(depth),
+            "}".repeat(depth)
+        );
+        let ss = parse_stylesheet(&css, Origin::Author);
+        // Either the rule is dropped (over cap) or retained with a bounded
+        // chain; the contract is "no panic" + bounded depth.
+        for rule in &ss.rules {
+            assert!(rule.media_conditions.len() <= MAX_AT_RULE_NESTING_DEPTH);
+        }
+        // A sane nesting depth still parses + retains the chain.
+        let ok = parse_stylesheet(
+            "@media screen { @media print { y { left: 0 } } }",
+            Origin::Author,
+        );
+        assert_eq!(ok.rules.len(), 1);
+        assert_eq!(ok.rules[0].media_conditions.len(), 2);
+    }
+
+    #[test]
+    fn conditional_keyframes_and_page_are_not_side_channeled() {
+        // CSS Conditional §2: a `@keyframes`/`@page` nested inside `@media` must
+        // not be registered unconditionally (the side-channels carry no media
+        // condition). They are dropped (matching pre-retention behavior); only
+        // top-level `@keyframes`/`@page` reach the side-channels.
+        let ss = parse_stylesheet(
+            "@media print { @keyframes spin { from { opacity: 0 } to { opacity: 1 } } } \
+             @keyframes fade { from { opacity: 0 } to { opacity: 1 } }",
+            Origin::Author,
+        );
+        // Only the top-level `fade` is registered; the print-gated `spin` is not.
+        assert_eq!(ss.keyframes_raw.len(), 1);
+        assert_eq!(ss.keyframes_raw[0].0, "fade");
+
+        let pg = parse_stylesheet(
+            "@media screen { @page { size: A4 } } @page { size: letter }",
+            Origin::Author,
+        );
+        // Only the top-level `@page` is retained; the screen-gated one is not.
+        assert_eq!(pg.page_rules.len(), 1);
+    }
+
+    #[test]
+    fn insert_rule_rejects_media() {
+        // CSSOM `insertRule("@media …")` = a `CSSMediaRule` = deferred
+        // (`#11-css-media-rule`) → reject (None), not a flattened bare rule.
+        // (`super::` because a sibling test fn shadows the name in this module.)
+        assert!(super::parse_single_rule("@media screen { div { color: red } }").is_none());
+        // A plain qualified rule still parses, with an empty condition chain.
+        let rule = super::parse_single_rule("div { color: red }").expect("plain rule parses");
+        assert!(rule.media_conditions.is_empty());
     }
 
     #[test]

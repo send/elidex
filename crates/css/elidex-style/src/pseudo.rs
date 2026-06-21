@@ -1,5 +1,6 @@
 //! Pseudo-element (`::before`/`::after`) generation for style resolution.
 
+use elidex_css::media::MediaEnvironment;
 use elidex_css::{PseudoElement, Stylesheet};
 use elidex_ecs::{EcsDom, Entity, PseudoElementMarker};
 use elidex_plugin::{ComputedStyle, ContentValue, Display};
@@ -29,10 +30,11 @@ pub(crate) fn generate_pseudo_entity(
     stylesheets: &[&Stylesheet],
     parent_style: &ComputedStyle,
     ctx: &ResolveContext,
+    media_env: &MediaEnvironment,
     pseudo: PseudoElement,
 ) {
-    // Cascade pseudo-element rules.
-    let winners = collect_and_cascade_pseudo(entity, dom, stylesheets, pseudo);
+    // Cascade pseudo-element rules (gated by the `@media` environment).
+    let winners = collect_and_cascade_pseudo(entity, dom, stylesheets, pseudo, media_env);
     if winners.is_empty() {
         return;
     }

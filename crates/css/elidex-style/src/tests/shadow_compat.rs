@@ -43,6 +43,7 @@ fn compat_extra_ua_and_hints_combined() {
         &[&extra_ua],
         &hint_gen,
         Size::new(1920.0, 1080.0),
+        elidex_css::media::Medium::Screen,
         None,
     );
 
@@ -78,6 +79,7 @@ fn compat_hint_loses_to_author_selector() {
         &[],
         &hint_gen,
         Size::new(1920.0, 1080.0),
+        elidex_css::media::Medium::Screen,
         None,
     );
 
