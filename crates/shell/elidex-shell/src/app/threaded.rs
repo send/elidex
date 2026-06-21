@@ -257,6 +257,31 @@ impl App {
             && content.y < f64::from(placement.size_logical.height)
     }
 
+    /// Whether a stationary cursor at `cursor_pos` now falls **outside** the
+    /// content rect under `placement` — i.e. a placement change (a resize that
+    /// shrinks/moves the content area) left a previously-in-content cursor over
+    /// chrome. `None` cursor → never "left" (nothing to clear).
+    fn cursor_left_content(
+        cursor_pos: Option<elidex_plugin::Point<f64>>,
+        placement: ContentAreaPlacement,
+    ) -> bool {
+        cursor_pos.is_some_and(|c| {
+            !Self::point_in_content(Self::cursor_to_content(c, placement), placement)
+        })
+    }
+
+    /// After the placement changes without a `CursorMoved` (e.g. an OS resize),
+    /// re-run the in-content gate for the cached cursor: if it was inside content
+    /// and the new content rect no longer contains it, clear `cursor_in_content`
+    /// and send `CursorLeft` so `:hover` does not stay stuck until the next
+    /// pointer move. No-op in legacy mode (`send_to_content` has no active tab).
+    pub(super) fn reclip_cursor_after_placement_change(&mut self, placement: ContentAreaPlacement) {
+        if self.cursor_in_content && Self::cursor_left_content(self.cursor_pos, placement) {
+            self.cursor_in_content = false;
+            self.send_to_content(BrowserToContent::CursorLeft);
+        }
+    }
+
     /// Convert a winit scroll delta to CSS-px scroll vector (browser sign
     /// convention: positive = scrollTop increases, so winit deltas are negated).
     /// `LineDelta` → 40 CSS px per line. `PixelDelta` is **physical** px, divided
@@ -722,5 +747,26 @@ mod placement_input_tests {
             App::wheel_target_point(Some(Point::<f64>::new(10.0, 10.0)), pl),
             None
         );
+    }
+
+    /// A resize that shrinks the content rect under a stationary cursor must be
+    /// detected so stuck `:hover` is cleared. `cursor_left_content` is true only
+    /// when a known cursor falls outside the *new* placement's content rect.
+    #[test]
+    fn cursor_left_content_detects_shrunk_rect_under_cursor() {
+        // Cursor at content (700, 500) under an 800×600 rect — inside.
+        let cursor = Point::<f64>::new(700.0, 500.0); // origin 0, scale 1 → content == cursor
+        let big = placement(Point::new(0.0, 0.0), 1.0); // 800×600
+        assert!(!App::cursor_left_content(Some(cursor), big));
+        // Shrink the content rect to 400×300 (e.g. window narrowed): the cursor
+        // is now outside → it "left" content.
+        let small = ContentAreaPlacement {
+            origin_logical: Point::new(0.0, 0.0),
+            size_logical: Size::new(400.0, 300.0),
+            scale_factor: 1.0,
+        };
+        assert!(App::cursor_left_content(Some(cursor), small));
+        // No cursor → never "left".
+        assert!(!App::cursor_left_content(None, small));
     }
 }

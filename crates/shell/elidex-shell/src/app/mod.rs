@@ -972,6 +972,11 @@ impl ApplicationHandler<crate::WakeEvent> for App {
                 // re-deliver the viewport to the active content thread.
                 self.placement = Some(self.content_area_placement(&window));
                 self.send_viewport();
+                // The content rect may have shrunk/moved out from under a
+                // stationary cursor — clear stuck `:hover` if it left content.
+                if let Some(placement) = self.placement {
+                    self.reclip_cursor_after_placement_change(placement);
+                }
                 return;
             }
             _ => {}
