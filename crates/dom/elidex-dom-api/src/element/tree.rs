@@ -19,7 +19,7 @@ use crate::util::{not_found_error, require_object_ref_arg, require_string_arg};
 /// valid **empty-`DocumentFragment` no-op** (§4.2.3 insert step 3) rather than a
 /// hierarchy failure.
 ///
-/// A genuinely empty fragment is a no-op ONLY when it would pass §4.2.1 "ensure
+/// A genuinely empty fragment is a no-op ONLY when it would pass §4.2.3 "ensure
 /// pre-insertion validity" step 2: it must not be `parent` itself nor a
 /// host-including inclusive ancestor of `parent` — so `frag.appendChild(frag)`
 /// still throws. A non-empty fragment never reaches the empty-list branch unless
@@ -872,7 +872,7 @@ mod tests {
     use elidex_ecs::{Attributes, EcsDom};
 
     // Codex PR387 R1 F1/F3: the empty-fragment-vs-failure disambiguation must
-    // enforce §4.2.1 step-2 pre-insert validity — an empty fragment that is
+    // enforce §4.2.3 step-2 pre-insert validity — an empty fragment that is
     // `parent` itself or an ancestor of `parent` is a hierarchy error, NOT a no-op.
     #[test]
     fn empty_fragment_valid_placement_is_noop() {

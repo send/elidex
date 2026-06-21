@@ -294,7 +294,7 @@ fn move_record_list(
 /// step-1 snapshot): the per-node `EcsDom` primitive rejects a relink whose child
 /// would create a cycle / is destroyed, in which case that child stays in the
 /// fragment and must NOT appear in `addedNodes`/`removedNodes`. Callers run the
-/// §4.2.1 step-2 ancestor check (`is_ancestor_or_self(fragment, parent)`) BEFORE
+/// §4.2.3 step-2 ancestor check (`is_ancestor_or_self(fragment, parent)`) BEFORE
 /// calling this, so no child can be an ancestor of `parent` and every child
 /// relinks (`moved == nodes`); the per-child filter is then defence-in-depth that
 /// keeps the records truthful by construction rather than trusting that invariant.
@@ -338,7 +338,7 @@ fn expand_fragment(
 /// (One-issue-one-way).
 pub fn apply_append_child(dom: &mut EcsDom, parent: Entity, child: Entity) -> Vec<MutationRecord> {
     if dom.is_document_fragment(child) {
-        // §4.2.1 ensure pre-insertion validity step 2: a fragment that is a
+        // §4.2.3 ensure pre-insertion validity step 2: a fragment that is a
         // host-including inclusive ancestor of `parent` (incl. `parent` itself, e.g.
         // `frag.appendChild(frag)`) is a HierarchyRequestError — reject ATOMICALLY
         // before moving any child. Without this a non-empty cyclic fragment would
@@ -399,7 +399,7 @@ pub fn apply_insert_before(
     ref_child: Entity,
 ) -> Vec<MutationRecord> {
     if dom.is_document_fragment(new_child) {
-        // §4.2.1 step 2 (atomic, before any move): a fragment that is a
+        // §4.2.3 step 2 (atomic, before any move): a fragment that is a
         // host-including inclusive ancestor of `parent` is a HierarchyRequestError.
         // See `apply_append_child`.
         if dom.is_ancestor_or_self(new_child, parent) {
