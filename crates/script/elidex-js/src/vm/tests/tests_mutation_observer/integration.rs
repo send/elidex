@@ -271,7 +271,9 @@ fn real_mutation_without_observer_delivers_nothing() {
 
     // An observer EXISTS but never called `observe()` — so the append below has
     // no interested observer: `notify` returns false, no microtask is scheduled,
-    // and the callback never fires (the no-observer fast path, §6 item 1).
+    // and the callback never fires (the no-interested-observer fast path:
+    // WHATWG DOM §4.3.2 "queue a mutation record" step 4 is a no-op when
+    // interestedObservers is empty, so `notify` returns false → no schedule).
     vm.eval(
         "globalThis.fired = false; \
          var mo = new MutationObserver(function(){ globalThis.fired = true; }); \
