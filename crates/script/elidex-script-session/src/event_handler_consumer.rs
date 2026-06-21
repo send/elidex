@@ -328,19 +328,21 @@ fn is_body_element(entity: Entity, dom: &EcsDom) -> bool {
         .is_ok_and(|t| t.0.eq_ignore_ascii_case("body"))
 }
 
-/// Inline event-handler content attribute consumer. Unit struct — all
-/// state lives in the [`EventListeners`] ECS component.
-/// Inline event-handler content-attribute consumer.
+/// Inline event-handler content-attribute consumer. Per-entity handler state lives
+/// in the [`EventListeners`] ECS component; the struct itself carries only the
+/// session's [`SpecLevelPolicy`](elidex_plugin::SpecLevelPolicy) (immutable, set at
+/// construction).
 ///
-/// Carries the session's [`SpecLevelPolicy`](elidex_plugin::SpecLevelPolicy) so the
-/// **content-attribute** install seam is gated by the SAME Web-API core/compat policy
-/// as the **IDL accessor** seam (`install_handler_attr_family`, VM-side): a `Legacy`
-/// handler attr — today only `onstorage`, tied to [`web_storage_spec_level`] — is
-/// withheld in `BrowserCore`/`App` so the surface is **absent together**. Without this,
-/// a `<body onstorage="…">` content attribute (or `setAttribute('onstorage', …)`) would
-/// re-wire `window.onstorage` after the IDL accessor was excluded, leaving a split
-/// surface (A2). `Default` = [`BrowserCompat`](elidex_plugin::EngineMode::BrowserCompat)
-/// → installs everything (zero behavior change for the boa path / unconfigured callers).
+/// The policy gates the **content-attribute** install seam by the SAME Web-API
+/// core/compat policy as the **IDL accessor** seam (`install_handler_attr_family`,
+/// VM-side): a `Legacy` handler attr — today only `onstorage`, tied to
+/// [`web_storage_spec_level`] — is withheld in `BrowserCore`/`App` so the surface is
+/// **absent together**. Without this, a `<body onstorage="…">` content attribute (or
+/// `setAttribute('onstorage', …)`) would re-wire `window.onstorage` after the IDL
+/// accessor was excluded, leaving a split surface (A2). `Default` =
+/// [`BrowserCompat`](elidex_plugin::EngineMode::BrowserCompat) → installs everything,
+/// so an unconfigured caller (no `with_policy`) wires every handler attr exactly as
+/// before this change.
 #[derive(Default)]
 pub struct EventHandlerAttributeConsumer {
     policy: elidex_plugin::SpecLevelPolicy,
