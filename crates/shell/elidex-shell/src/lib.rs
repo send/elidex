@@ -199,6 +199,16 @@ fn cssom_actual_rule_index(rules: &[elidex_css::CssRule], cssom_index: usize) ->
         .map_or(rules.len(), |(actual, _)| actual)
 }
 
+/// Count of CSSOM-visible (unconditional) rules — the bounds for boa
+/// `insertRule`/`deleteRule` indices (flattened `@media` rules are excluded; see
+/// [`cssom_actual_rule_index`]).
+fn cssom_visible_count(rules: &[elidex_css::CssRule]) -> usize {
+    rules
+        .iter()
+        .filter(|r| r.media_conditions.is_empty())
+        .count()
+}
+
 /// Apply CSSOM mutations (insertRule/deleteRule) to real `Stylesheet` objects.
 ///
 /// Parses rule text using the CSS parser and inserts/deletes rules at the
@@ -224,12 +234,7 @@ fn apply_cssom_mutations(
                 let Some(sheet) = stylesheets.get_mut(*sheet_index) else {
                     continue;
                 };
-                let visible = sheet
-                    .rules
-                    .iter()
-                    .filter(|r| r.media_conditions.is_empty())
-                    .count();
-                if *rule_index > visible {
+                if *rule_index > cssom_visible_count(&sheet.rules) {
                     continue;
                 }
                 let parsed = elidex_css::parse_stylesheet_with_registry(
@@ -237,6 +242,14 @@ fn apply_cssom_mutations(
                     sheet.origin,
                     Some(registry),
                 );
+                // NOTE: unlike the dom-api path (which uses `parse_single_rule`
+                // and rejects `@media` as an unsupported `CSSMediaRule` insert,
+                // `#11-css-media-rule`), this boa path takes the first parsed
+                // rule, so `insertRule("@media …")` would insert a conditioned
+                // rule (filtered from `cssRules`, gated in the cascade). This
+                // leniency asymmetry is left as-is — the boa CSSOM path is
+                // deleted at the S5 cutover and this is not a regression (it was
+                // a silent no-op before `@media` retention).
                 if let Some(mut rule) = parsed.rules.into_iter().next() {
                     rule.source_order = 0;
                     let actual = cssom_actual_rule_index(&sheet.rules, *rule_index);
@@ -251,12 +264,7 @@ fn apply_cssom_mutations(
                 let Some(sheet) = stylesheets.get_mut(*sheet_index) else {
                     continue;
                 };
-                let visible = sheet
-                    .rules
-                    .iter()
-                    .filter(|r| r.media_conditions.is_empty())
-                    .count();
-                if *rule_index < visible {
+                if *rule_index < cssom_visible_count(&sheet.rules) {
                     let actual = cssom_actual_rule_index(&sheet.rules, *rule_index);
                     sheet.rules.remove(actual);
                     dirty_sheets.insert(*sheet_index);
