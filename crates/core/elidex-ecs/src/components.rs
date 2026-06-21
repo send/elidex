@@ -560,9 +560,13 @@ pub struct SlottedMarker;
 /// [`NodeKind::DocumentFragment`](crate::NodeKind::DocumentFragment) held
 /// **only** by this component, i.e. *detached* (never `append_child`'d into
 /// the template, unlike [`ShadowRoot`], which is in-tree-but-skipped). Being
-/// detached means no light-tree walk (style / render / `child_nodes`)
-/// reaches it, so its inertness needs no skip-filter — it is inert by
-/// construction.
+/// detached means no **light-tree** walk (style / render / `child_nodes`
+/// descending from the document) reaches it, so those need no skip-filter.
+/// It is, however, a parentless node *with children*, so the render / layout /
+/// hit-test **root discovery** must explicitly skip it (it would otherwise
+/// treat the fragment as an independent paint root) —
+/// [`root_entities`](crate::EcsDom::root_entities) excludes detached
+/// `DocumentFragment`s for exactly this reason.
 ///
 /// The despawn / adopt traversal
 /// ([`despawn_subtree`](crate::EcsDom::despawn_subtree) /
