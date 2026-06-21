@@ -94,13 +94,17 @@ impl ConsumerDispatcher {
         live_range: LiveRangeBridge,
         node_iter: NodeIteratorAdjuster,
         custom_elements: CustomElementReactionConsumer,
+        spec_level_policy: elidex_plugin::SpecLevelPolicy,
     ) -> Self {
         Self {
             live_range,
             node_iter,
             base_url: BaseUrlMaintainer,
             form_control: FormControlReconciler,
-            event_handler_attrs: EventHandlerAttributeConsumer,
+            // A2: gate the content-attribute handler-attr seam by the same engine-wide
+            // policy as the IDL accessor seam, so a `Legacy` attr (`onstorage`) is absent
+            // together in `BrowserCore`/`App` (no split surface via `<body onstorage=…>`).
+            event_handler_attrs: EventHandlerAttributeConsumer::with_policy(spec_level_policy),
             canvas: CanvasReconciler,
             custom_elements,
         }

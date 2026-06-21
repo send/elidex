@@ -259,6 +259,7 @@ impl Vm {
                 live_range,
                 node_iter,
                 custom_elements,
+                self.inner.spec_level_policy,
             );
             // D-31 init pass: pre-bind tree state (e.g. parser-
             // created `<base href>`) never went through
