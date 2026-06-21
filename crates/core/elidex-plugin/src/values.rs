@@ -715,6 +715,91 @@ impl CssColor {
     pub const GREEN: Self = Self::rgb(0, 128, 0);
     /// Blue (`#0000ff`).
     pub const BLUE: Self = Self::rgb(0, 0, 255);
+
+    /// CSSOM **resolved/used-value** serialization of this sRGB color
+    /// (CSS Color 4 §16.2.2 "CSS serialization of sRGB values"): the
+    /// legacy `rgb()` / `rgba()` form — comma separators, exactly one
+    /// ASCII space after each comma, base-10 components in `[0, 255]`,
+    /// `rgb()` when alpha is `255` (implicit opaque) else `rgba()` with an
+    /// explicit alpha serialized per §16.1.
+    ///
+    /// This is the form `getComputedStyle` returns (CSSOM-1 §9: a color
+    /// longhand's resolved value is its *used* value). It is deliberately
+    /// **distinct from [`fmt::Display`]** (`#rrggbb`), which is the
+    /// *declared* value / inline-style round-trip form backing `cssText`
+    /// and the `<input type=color>` sanitizer — those two serialization
+    /// contexts are different per spec and must not be unified.
+    #[must_use]
+    pub fn to_resolved_value_string(&self) -> String {
+        if self.a == 255 {
+            format!("rgb({}, {}, {})", self.r, self.g, self.b)
+        } else {
+            format!(
+                "rgba({}, {}, {}, {})",
+                self.r,
+                self.g,
+                self.b,
+                serialize_alpha_u8(self.a)
+            )
+        }
+    }
+}
+
+/// Serialize an 8-bit alpha component per CSS Color 4 §16.1
+/// ("Serializing alpha values").
+///
+/// - **Integer-percentage preimage (step 2)**: if some integer `n` in
+///   `0..=100` satisfies `round(n * 2.55) == a` (ties rounding up), the
+///   alpha is `n / 100` — the common case (e.g. `a = 128` → `n = 50` →
+///   `"0.5"`).
+/// - **No preimage (step 3)**: emit `a / 255` at the fewest decimal places
+///   `k` in `2..=6` that, rounded toward +∞, round-trip the 8-bit value.
+///   §16.1 states the precision is "not defined … but must at least be
+///   sufficient to round-trip … rounded towards +∞", so the minimal
+///   toward-+∞ round-tripping form is conformant (the spec's longer
+///   illustrative `0.92549` is one of several conformant serializations).
+///
+/// Leading zero kept, trailing zeros trimmed. All arithmetic is exact
+/// integer math on the `u8` — no floating point.
+fn serialize_alpha_u8(a: u8) -> String {
+    let a = u32::from(a);
+
+    // Step 2: integer-percentage preimage. round(n * 2.55) = round(n*255/100), ties up.
+    for n in 0u32..=100 {
+        if (n * 255 + 50) / 100 == a {
+            return format_decimal_ratio(n, 100);
+        }
+    }
+
+    // Step 3: a/255 at the fewest decimals (2..=6) that round-trip toward +∞.
+    // num = ceil(a * 10^k / 255); re-parse model = round(num/10^k * 255), ties up.
+    for k in 2u32..=6 {
+        let scale = 10u32.pow(k);
+        let num = (a * scale + 254) / 255; // ceil(a*scale/255)
+        if (num * 255 + scale / 2) / scale == a {
+            return format_decimal_ratio(num, scale);
+        }
+    }
+
+    // Unreachable for any u8 (k=6 always round-trips); keep the function total.
+    let scale = 1_000_000u32;
+    format_decimal_ratio((a * scale + 254) / 255, scale)
+}
+
+/// Format `num / den` (a value in `[0, 1]`, `den` a power of ten) as a CSS
+/// `<number>`: leading zero kept, trailing zeros trimmed (e.g. `50/100` →
+/// `"0.5"`, `926/1000` → `"0.926"`, `0/100` → `"0"`).
+fn format_decimal_ratio(num: u32, den: u32) -> String {
+    let int_part = num / den;
+    let frac = num % den;
+    if frac == 0 {
+        return int_part.to_string();
+    }
+    // Fractional width = digits in `den` (a power of ten) minus 1.
+    let width = den.to_string().len() - 1;
+    let frac_str = format!("{frac:0width$}");
+    let frac_str = frac_str.trim_end_matches('0');
+    format!("{int_part}.{frac_str}")
 }
 
 /// Serializes to the canonical hex form (`#rrggbb`, or legacy `rgba()`

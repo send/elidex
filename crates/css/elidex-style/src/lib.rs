@@ -72,6 +72,38 @@ pub fn get_computed(property: &str, style: &ComputedStyle) -> CssValue {
     resolve::get_computed_with_registry(property, style, default_css_property_registry())
 }
 
+/// Serialize a property's CSSOM **resolved value** (CSSOM-1 §9 +
+/// §6.7.2 "serialize a CSS value") — the string `getComputedStyle`
+/// returns.
+///
+/// This differs from `get_computed(..).to_css_string()` (the *declared*
+/// value serialization) for **color** properties only:
+///
+/// - A concrete [`CssValue::Color`] serializes in the CSSOM resolved/used
+///   form `rgb()` / `rgba()` (CSS Color 4 §16.2.2) via
+///   [`CssColor::to_resolved_value_string`][elidex_plugin::CssColor::to_resolved_value_string],
+///   not the declared `#rrggbb` form.
+/// - A residual `currentcolor` keyword (CSSOM-1 §9: a color longhand's
+///   resolved value is its *used* value) resolves to the element's own
+///   `color`. This is reachable today only via `text-decoration-color`
+///   whose `None` field surfaces `currentcolor` — every other color
+///   longhand is already concretized to a `CssColor` during the cascade.
+///   Any future color longhand whose used value is the element color
+///   inherits this resolution for free.
+///
+/// Every non-color value delegates to the unchanged declared-value
+/// serializer [`CssValue::to_css_string`].
+#[must_use]
+pub fn serialize_resolved_value(property: &str, style: &ComputedStyle) -> String {
+    match get_computed(property, style) {
+        CssValue::Color(c) => c.to_resolved_value_string(),
+        CssValue::Keyword(ref k) if k.eq_ignore_ascii_case("currentcolor") => {
+            style.color.to_resolved_value_string()
+        }
+        other => other.to_css_string(),
+    }
+}
+
 use resolve::ResolveContext;
 use walk::{find_roots, walk_tree, WalkState};
 

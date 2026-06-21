@@ -3,7 +3,7 @@
 use elidex_ecs::{EcsDom, Entity};
 use elidex_plugin::{ComputedStyle, JsValue};
 use elidex_script_session::{DomApiError, DomApiErrorKind, DomApiHandler, SessionCore};
-use elidex_style::get_computed;
+use elidex_style::serialize_resolved_value;
 
 use crate::util::require_string_arg;
 
@@ -51,8 +51,11 @@ impl DomApiHandler for GetComputedStyle {
         // not produce separate :visited computed values — the stored
         // ComputedStyle already reflects the unvisited style — so no
         // divergence is needed until :visited styling exists.
-        let css_value = get_computed(&property, &style);
-        Ok(JsValue::String(css_value.to_css_string()))
+        // CSSOM-1 §9: a color longhand's resolved value is its used value,
+        // serialized in the `rgb()`/`rgba()` form (CSS Color 4 §16.2.2) — NOT
+        // the declared `#rrggbb` form. `serialize_resolved_value` applies that
+        // resolved-value transform; non-color properties are unchanged.
+        Ok(JsValue::String(serialize_resolved_value(&property, &style)))
     }
 }
 
@@ -104,8 +107,57 @@ mod tests {
                 &mut dom,
             )
             .unwrap();
-        // CssColor::RED display format.
-        assert!(matches!(result, JsValue::String(_)));
+        // CSSOM resolved value = used value, serialized as rgb() (CSS Color 4
+        // §16.2.2) — NOT the declared #rrggbb form.
+        assert_eq!(result, JsValue::String("rgb(255, 0, 0)".into()));
+    }
+
+    #[test]
+    fn get_computed_color_translucent() {
+        let mut dom = EcsDom::new();
+        let elem = dom.create_element("div", Attributes::default());
+        let style = ComputedStyle {
+            // 50% alpha (u8 128) → "0.5" per CSS Color 4 §16.1.
+            background_color: CssColor::new(0, 0, 0, 128),
+            ..ComputedStyle::default()
+        };
+        let _ = dom.world_mut().insert_one(elem, style);
+
+        let mut session = SessionCore::new();
+        let result = GetComputedStyle
+            .invoke(
+                elem,
+                &[JsValue::String("background-color".into())],
+                &mut session,
+                &mut dom,
+            )
+            .unwrap();
+        assert_eq!(result, JsValue::String("rgba(0, 0, 0, 0.5)".into()));
+    }
+
+    #[test]
+    fn get_computed_text_decoration_color_currentcolor() {
+        // text-decoration-color default (None = currentcolor) resolves to the
+        // element's own `color` used value (CSSOM-1 §9).
+        let mut dom = EcsDom::new();
+        let elem = dom.create_element("div", Attributes::default());
+        let style = ComputedStyle {
+            color: CssColor::BLUE,
+            // text_decoration_color stays None (default) = currentcolor.
+            ..ComputedStyle::default()
+        };
+        let _ = dom.world_mut().insert_one(elem, style);
+
+        let mut session = SessionCore::new();
+        let result = GetComputedStyle
+            .invoke(
+                elem,
+                &[JsValue::String("text-decoration-color".into())],
+                &mut session,
+                &mut dom,
+            )
+            .unwrap();
+        assert_eq!(result, JsValue::String("rgb(0, 0, 255)".into()));
     }
 
     #[test]
