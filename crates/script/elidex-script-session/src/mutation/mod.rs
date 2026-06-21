@@ -383,6 +383,19 @@ fn expand_fragment(
     Some((frag_record, moved))
 }
 
+/// A `ShadowRoot` entity is bound to its host by the unique, immovable host edge
+/// (WHATWG DOM §4.8) — it is NOT a movable node, and `EcsDom::is_document_fragment`
+/// deliberately excludes it, so without this guard the `apply_*` layer would treat a
+/// shadow root passed as an insertion `node` as an ordinary node and reparent it out
+/// of its host, corrupting the host↔shadow-root invariant. Inserting a shadow root is
+/// a HierarchyRequestError; because it is a DOM tree-constraint (not WebIDL
+/// marshalling), the guard lives here in the engine-independent record layer so EVERY
+/// consumer (VM, boa, wasm) is protected — not only the VM's `normalize_mixin_arg` /
+/// `reject_shadow_root_insertion`. Callers map the empty list to the error. (Codex PR393 R5.)
+fn rejects_shadow_root_insertion(dom: &EcsDom, node: Entity) -> bool {
+    dom.is_shadow_root(node)
+}
+
 /// Append `child` to `parent` through the `EcsDom` chokepoint and build the
 /// §4.3.2 "queue a tree mutation record" childList record list — empty on
 /// failure, one record for a fresh node, **two** for a move (an already-parented
@@ -392,6 +405,9 @@ fn expand_fragment(
 /// both runtimes produce the identical record shape — one record source
 /// (One-issue-one-way).
 pub fn apply_append_child(dom: &mut EcsDom, parent: Entity, child: Entity) -> Vec<MutationRecord> {
+    if rejects_shadow_root_insertion(dom, child) {
+        return Vec::new();
+    }
     if dom.is_document_fragment(child) {
         // §4.2.3 ensure pre-insertion validity step 2: a fragment that is a
         // host-including inclusive ancestor of `parent` (incl. `parent` itself, e.g.
@@ -453,6 +469,10 @@ pub fn apply_insert_before(
     new_child: Entity,
     ref_child: Entity,
 ) -> Vec<MutationRecord> {
+    // A shadow root is not a movable node (see `rejects_shadow_root_insertion`).
+    if rejects_shadow_root_insertion(dom, new_child) {
+        return Vec::new();
+    }
     // §4.2.3 "ensure pre-insertion validity" step 3 (NotFoundError): referenceChild
     // (`child`) must be a child of `parent` — run from pre-insert step 1, BEFORE the
     // pre-insert step-3 self-reference advance below and before any move. So
@@ -563,6 +583,12 @@ pub fn apply_replace_child(
     new_child: Entity,
     old_child: Entity,
 ) -> Vec<MutationRecord> {
+    // A shadow root is not a movable node (see `rejects_shadow_root_insertion`) —
+    // reject before removing `old_child`, so a failed `replaceChild(shadowRoot, old)`
+    // leaves the tree intact.
+    if rejects_shadow_root_insertion(dom, new_child) {
+        return Vec::new();
+    }
     if dom.is_document_fragment(new_child) {
         // DocumentFragment newChild — §4.2.3 "replace" steps 7-14 with expansion.
         // §4.2.3 replace step 2 (atomic, before removing oldChild): a fragment that
@@ -688,6 +714,12 @@ pub fn apply_replace_all(
     parent: Entity,
     node: Option<Entity>,
 ) -> Vec<MutationRecord> {
+    // A shadow root is not a movable node (see `rejects_shadow_root_insertion`) —
+    // reject BEFORE the remove-all so `replaceChildren(shadowRoot)` leaves the parent
+    // intact rather than clearing it then failing.
+    if node.is_some_and(|n| rejects_shadow_root_insertion(dom, n)) {
+        return Vec::new();
+    }
     // step 1: removedNodes = parent's children. `child_list_uncapped` (NOT
     // `children`/`children_iter`, which truncate at MAX_ANCESTOR_DEPTH) so a >cap
     // parent does not silently drop its removedNodes tail (the #387 discipline).

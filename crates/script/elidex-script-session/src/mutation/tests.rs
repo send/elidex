@@ -984,3 +984,30 @@ fn apply_insert_before_self_reference_with_other_parent_ref_is_rejected() {
         "x stays under its real parent"
     );
 }
+
+#[test]
+fn apply_layer_rejects_shadow_root_as_inserted_node() {
+    use elidex_ecs::ShadowRootMode;
+    let mut dom = EcsDom::new();
+    let host = elem(&mut dom, "div");
+    let sr = dom
+        .attach_shadow(host, ShadowRootMode::Open)
+        .expect("attach_shadow");
+    let other = elem(&mut dom, "div");
+    let kid = elem(&mut dom, "kid");
+    dom.append_child(other, kid); // other = [kid]
+
+    // A ShadowRoot is bound to its host by the immovable host edge (§4.8) — inserting
+    // it into the light tree is a HierarchyRequestError. The engine-independent apply_*
+    // layer rejects it for ALL runtimes (Codex PR393 R5: boa's arg path lacks the VM's
+    // `normalize_mixin_arg` ShadowRoot rejection, so the shared layer must enforce it).
+    assert!(super::apply_append_child(&mut dom, other, sr).is_empty());
+    assert!(super::apply_insert_before(&mut dom, other, sr, kid).is_empty());
+    assert!(super::apply_replace_child(&mut dom, other, sr, kid).is_empty());
+    assert!(super::apply_replace_all(&mut dom, other, Some(sr)).is_empty());
+
+    // The shadow root stays attached to its host, and `other` is untouched —
+    // crucially `apply_replace_all` did NOT clear `other`'s children before rejecting.
+    assert!(dom.is_shadow_root(sr), "shadow root still a shadow root");
+    assert_eq!(dom.children(other), vec![kid], "other left intact");
+}
