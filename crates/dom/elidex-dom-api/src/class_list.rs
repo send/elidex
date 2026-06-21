@@ -227,17 +227,16 @@ pub struct TokenListHandler {
 /// `<link>` `rel` supported tokens — HTML §4.2.4 defines these as the possible
 /// keywords **intersected with the keywords whose processing model the user
 /// agent implements**, so `supports()` is an honest feature-detection signal
-/// rather than a keyword-recognition one. elidex implements:
-/// - `stylesheet` — the external CSS load + cascade pipeline (`LinkStylesheet`),
-/// - `manifest` — Web App Manifest discovery + resolution
-///   (`elidex-navigation` loader / `elidex-api-sw`).
+/// rather than a keyword-recognition one. elidex fully implements exactly one:
+/// `stylesheet` (the external CSS load + cascade pipeline, `LinkStylesheet`).
 ///
-/// The remaining possible `<link>` keywords (alternate, dns-prefetch, expect,
-/// icon, modulepreload, next, pingback, preconnect, prefetch, preload, search)
-/// have **no** processing model here — advertising them would make
-/// `link.relList.supports(…)` lie. Add a keyword here when its processing model
-/// lands (and not before).
-const LINK_REL_IMPLEMENTED: &[&str] = &["manifest", "stylesheet"];
+/// Every other possible `<link>` keyword (alternate, dns-prefetch, expect, icon,
+/// manifest, modulepreload, next, pingback, preconnect, prefetch, preload,
+/// search) has **no** end-to-end processing model here — e.g. `manifest` is
+/// discovered + forwarded but not fetched/parsed/applied (`ManifestDiscovered`
+/// is a `TODO`), so advertising it would make `link.relList.supports(…)` lie.
+/// Add a keyword here only once its processing model actually lands.
+const LINK_REL_IMPLEMENTED: &[&str] = &["stylesheet"];
 
 /// `<a>` / `<area>` `rel` supported tokens — the possible hyperlink keywords are
 /// `noopener` / `noreferrer` / `opener` (HTML §4.6.2 `#attr-hyperlink-rel`), but
@@ -259,12 +258,17 @@ const HYPERLINK_REL_IMPLEMENTED: &[&str] = &[];
 /// `HTMLFormElement.relList` is not yet wired (no `relList` accessor), so the
 /// branch is unreachable from web content and intentionally omitted; add
 /// `form => Some(HYPERLINK_REL_IMPLEMENTED)` here when that surface is wired.
+///
+/// These supported tokens are defined for the **HTML** `link`/`a`/`area`
+/// elements only, so a foreign-content element with the same local name (e.g. an
+/// SVG `<a>`) defines none — gate on the HTML namespace so it throws per DOM
+/// §7.1 rather than matching by local tag name alone.
 fn rel_supported_tokens(
     attr_name: &str,
     entity: Entity,
     dom: &EcsDom,
 ) -> Option<&'static [&'static str]> {
-    if attr_name != "rel" {
+    if attr_name != "rel" || !dom.is_html_namespace(entity) {
         return None;
     }
     dom.with_tag_name(entity, |tag| match tag {

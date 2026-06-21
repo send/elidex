@@ -502,18 +502,22 @@ fn supports_on(tag: &str, token: &str) -> Result<JsValue, DomApiError> {
 fn rellist_supports_link_implemented_tokens() {
     // `supports()` reflects the UA-*implemented* rel processing models, not the
     // full spec enumeration (HTML §4.2.4: possible keywords ∩ implemented).
-    // elidex implements `stylesheet` (CSS load) and `manifest` (PWA manifest).
+    // elidex fully implements only `stylesheet` (CSS load + cascade).
     assert_eq!(
         supports_on("link", "stylesheet").unwrap(),
         JsValue::Bool(true)
     );
-    assert_eq!(
-        supports_on("link", "manifest").unwrap(),
-        JsValue::Bool(true)
-    );
-    // Possible `<link>` keywords with no processing model in elidex → false
-    // (advertising them would make feature detection lie).
-    for unimpl in ["preload", "modulepreload", "preconnect", "icon", "bogus"] {
+    // Possible `<link>` keywords with no end-to-end processing model → false
+    // (advertising them would make feature detection lie). `manifest` is
+    // discovered but not fetched/parsed/applied, so it is NOT advertised.
+    for unimpl in [
+        "manifest",
+        "preload",
+        "modulepreload",
+        "preconnect",
+        "icon",
+        "bogus",
+    ] {
         assert_eq!(
             supports_on("link", unimpl).unwrap(),
             JsValue::Bool(false),
@@ -535,9 +539,28 @@ fn rellist_supports_is_ascii_case_insensitive() {
         JsValue::Bool(true)
     );
     assert_eq!(
-        supports_on("link", "MANIFEST").unwrap(),
+        supports_on("link", "STYLESHEET").unwrap(),
         JsValue::Bool(true)
     );
+}
+
+#[test]
+fn rellist_supports_foreign_namespace_throws() {
+    // Supported tokens are defined for HTML `link`/`a`/`area` only; a foreign
+    // element with the same local name (e.g. an SVG `<a>`) defines none → throws
+    // (DOM §7.1), not a tag-name-only match against the HTML set.
+    let mut dom = EcsDom::new();
+    let mut session = SessionCore::new();
+    let svg_a = dom.create_element_ns("a", elidex_ecs::Namespace::Svg, Attributes::default(), None);
+    let err = REL_LIST_SUPPORTS
+        .invoke(
+            svg_a,
+            &[JsValue::String("noopener".into())],
+            &mut session,
+            &mut dom,
+        )
+        .unwrap_err();
+    assert_eq!(err.kind, DomApiErrorKind::TypeError);
 }
 
 #[test]
