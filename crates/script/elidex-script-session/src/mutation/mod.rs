@@ -158,9 +158,13 @@ pub struct MutationRecord {
 /// and applying them with [`SessionCore::flush()`](crate::SessionCore::flush)
 /// to ensure consistent buffering and future `MutationObserver` support.
 ///
-/// Returns `Some(MutationRecord)` on success, `None` if the operation failed
-/// (e.g. entity not found, tree constraint violation, or stub operation).
-pub fn apply_mutation(mutation: &Mutation, dom: &mut EcsDom) -> Option<MutationRecord> {
+/// Returns the list of [`MutationRecord`]s the mutation produced — empty on
+/// failure (e.g. entity not found, tree constraint violation, or stub
+/// operation). A childList **move** (an already-parented node passed to
+/// `appendChild`/`insertBefore`/`replaceChild`) yields **two** records (a
+/// source-parent removal + a destination record, WHATWG DOM §4.5 adopt +
+/// §4.2.3); every other successful mutation yields exactly one.
+pub fn apply_mutation(mutation: &Mutation, dom: &mut EcsDom) -> Vec<MutationRecord> {
     match mutation {
         Mutation::AppendChild { parent, child } => apply_append_child(dom, *parent, *child),
         Mutation::InsertBefore {
@@ -168,7 +172,9 @@ pub fn apply_mutation(mutation: &Mutation, dom: &mut EcsDom) -> Option<MutationR
             new_child,
             ref_child,
         } => apply_insert_before(dom, *parent, *new_child, *ref_child),
-        Mutation::RemoveChild { parent, child } => apply_remove_child(dom, *parent, *child),
+        Mutation::RemoveChild { parent, child } => apply_remove_child(dom, *parent, *child)
+            .into_iter()
+            .collect(),
         Mutation::ReplaceChild {
             parent,
             new_child,
@@ -178,21 +184,31 @@ pub fn apply_mutation(mutation: &Mutation, dom: &mut EcsDom) -> Option<MutationR
             entity,
             name,
             value,
-        } => apply_set_attribute(dom, *entity, name, value),
-        Mutation::RemoveAttribute { entity, name } => apply_remove_attribute(dom, *entity, name),
-        Mutation::SetTextContent { entity, text } => apply_set_text(dom, *entity, text),
+        } => apply_set_attribute(dom, *entity, name, value)
+            .into_iter()
+            .collect(),
+        Mutation::RemoveAttribute { entity, name } => apply_remove_attribute(dom, *entity, name)
+            .into_iter()
+            .collect(),
+        Mutation::SetTextContent { entity, text } => {
+            apply_set_text(dom, *entity, text).into_iter().collect()
+        }
         Mutation::SetInnerHtml { entity, html } => {
             apply_set_inner_html(dom, *entity, html, SetInnerHtmlOptions::default())
+                .into_iter()
+                .collect()
         }
         Mutation::InsertAdjacentHtml {
             entity,
             position,
             html,
-        } => apply_insert_adjacent_html(dom, *entity, position, html),
+        } => apply_insert_adjacent_html(dom, *entity, position, html)
+            .into_iter()
+            .collect(),
         // CSS rule mutations are handled directly by the HostBridge CSSOM layer
         // (not through the EcsDom mutation system). These variants are kept for
         // backward compat but are no longer reached in normal operation.
-        Mutation::InsertCssRule { .. } | Mutation::DeleteCssRule { .. } => None,
+        Mutation::InsertCssRule { .. } | Mutation::DeleteCssRule { .. } => Vec::new(),
     }
 }
 
@@ -209,58 +225,111 @@ pub(super) fn empty_record(kind: MutationKind, target: Entity) -> MutationRecord
     }
 }
 
-/// Append `child` to `parent` through the `EcsDom` chokepoint and build the
-/// §4.3.2 "queue a tree mutation record" childList record (or `None` if the
-/// append fails). Shared by the deferred-flush path (`apply_mutation`) and the
-/// synchronous VM bridge handler (`AppendChild`) so both runtimes produce the
-/// identical record shape — one record source (One-issue-one-way).
-pub fn apply_append_child(
-    dom: &mut EcsDom,
-    parent: Entity,
-    child: Entity,
-) -> Option<MutationRecord> {
-    // Capture previous sibling before mutation (the current last
-    // exposed child). `get_last_child` would return a `ShadowRoot`
-    // entity on a shadow host with no light-tree children, leaking
-    // it via `MutationRecord.previousSibling`; `children_iter_rev`
-    // skips internal ShadowRoot entities so the captured sibling
-    // matches the DOM-visible chain — same encapsulation invariant
-    // the insert/remove/replace paths enforce via
-    // `prev_exposed_sibling` / `next_exposed_sibling`.
-    let prev_sibling = dom.children_iter_rev(parent).next();
-    if !dom.append_child(parent, child) {
-        return None;
-    }
-    Some(MutationRecord {
-        added_nodes: vec![child],
-        previous_sibling: prev_sibling,
-        ..empty_record(MutationKind::ChildList, parent)
+/// The move source-removal context for a node passed to a childList op: its old
+/// parent + exposed siblings, captured **before** the relink (which destroys
+/// them), or `None` if the node was unparented (a fresh insert). This is the
+/// move-vs-fresh source of truth for `appendChild` / `insertBefore`; `replace`
+/// needs the `old_child` step-over and captures its own.
+type MoveSource = Option<(Entity, Option<Entity>, Option<Entity>)>;
+
+/// Capture the [`MoveSource`] for `node` (append/insert): old parent + `node`'s
+/// exposed prev/next. The exposed-sibling helpers skip internal `ShadowRoot`
+/// entities (§4.8 encapsulation). Must run before the `EcsDom` relink.
+fn capture_move_source(dom: &EcsDom, node: Entity) -> MoveSource {
+    dom.get_parent(node).map(|old_parent| {
+        (
+            old_parent,
+            dom.prev_exposed_sibling(node),
+            dom.next_exposed_sibling(node),
+        )
     })
 }
 
+/// Assemble the §4.3.2 childList record list: the source-parent removal of
+/// `node` (when `source` is `Some`, i.e. a move) **precedes** the `primary`
+/// (destination / coalesced) record, matching the WHATWG adopt→insert order.
+/// One source of truth for the move two-record shape (One-issue-one-way).
+fn move_record_list(
+    source: MoveSource,
+    node: Entity,
+    primary: MutationRecord,
+) -> Vec<MutationRecord> {
+    match source {
+        Some((old_parent, previous_sibling, next_sibling)) => vec![
+            MutationRecord {
+                removed_nodes: vec![node],
+                previous_sibling,
+                next_sibling,
+                ..empty_record(MutationKind::ChildList, old_parent)
+            },
+            primary,
+        ],
+        None => vec![primary],
+    }
+}
+
+/// Append `child` to `parent` through the `EcsDom` chokepoint and build the
+/// §4.3.2 "queue a tree mutation record" childList record list — empty on
+/// failure, one record for a fresh node, **two** for a move (an already-parented
+/// `child`: WHATWG DOM §4.5 adopt → §4.2.3 remove source record, NOT suppressed,
+/// then the destination insertion record). Shared by the deferred-flush path
+/// (`apply_mutation`) and the synchronous VM bridge handler (`AppendChild`) so
+/// both runtimes produce the identical record shape — one record source
+/// (One-issue-one-way).
+pub fn apply_append_child(dom: &mut EcsDom, parent: Entity, child: Entity) -> Vec<MutationRecord> {
+    // Move-vs-fresh source of truth: `child`'s old parent + siblings, captured
+    // **before** the relink destroys them (`Some` ⇒ move, `None` ⇒ fresh).
+    let source = capture_move_source(dom, child);
+    // Destination `previousSibling` per DOM §4.2.3 insert **step 6**
+    // (`previousSibling` = parent's last child for an append) — captured **before**
+    // the adopt at step 7.1, NOT after the relink. For `appendChild(<current last
+    // child>)` (a no-position-change same-parent move) this is the moved node
+    // itself: a spec-mandated self-sibling, NOT a bug (Codex PR384 R1). The append
+    // reference child is null, so `nextSibling` is null. `children_iter_rev` skips
+    // internal `ShadowRoot` entities so the captured sibling matches the DOM-visible
+    // chain (§4.8 encapsulation), same as `prev_exposed_sibling` for insert/replace.
+    let prev_sibling = dom.children_iter_rev(parent).next();
+    if !dom.append_child(parent, child) {
+        return Vec::new();
+    }
+    let dest = MutationRecord {
+        added_nodes: vec![child],
+        previous_sibling: prev_sibling,
+        ..empty_record(MutationKind::ChildList, parent)
+    };
+    move_record_list(source, child, dest)
+}
+
 /// Insert `new_child` before `ref_child` under `parent` through the `EcsDom`
-/// chokepoint and build the §4.3.2 childList record (or `None` on failure).
-/// Shared by the deferred-flush path and the VM `insertBefore` handler.
+/// chokepoint and build the §4.3.2 childList record list — empty on failure, one
+/// for a fresh node, **two** for a move (source-parent removal + destination
+/// insertion). Shared by the deferred-flush path and the VM `insertBefore`
+/// handler.
 pub fn apply_insert_before(
     dom: &mut EcsDom,
     parent: Entity,
     new_child: Entity,
     ref_child: Entity,
-) -> Option<MutationRecord> {
-    // Sibling fields surface to JS via MutationObserver; use the
-    // exposed-sibling helpers so a closed `ShadowRoot` (which IS a real
-    // ECS sibling but is filtered out of the DOM children view per
-    // §4.8 encapsulation) cannot leak as `previousSibling`/`nextSibling`.
+) -> Vec<MutationRecord> {
+    // Move-vs-fresh SoT + source-removal context, captured before the relink.
+    let source = capture_move_source(dom, new_child);
+    // Destination `previousSibling` per DOM §4.2.3 insert **step 6** = `ref_child`'s
+    // previous sibling, captured **before** the adopt — so for an
+    // `insertBefore(node, node.nextSibling)` no-op move it is the moved node itself
+    // (spec-mandated self-sibling, Codex PR384 R1), not its post-move predecessor.
+    // `nextSibling` is `ref_child` (the insert reference child). `prev_exposed_sibling`
+    // skips a closed `ShadowRoot` (a real ECS sibling filtered from the DOM view, §4.8).
     let prev_sibling = dom.prev_exposed_sibling(ref_child);
     if !dom.insert_before(parent, new_child, ref_child) {
-        return None;
+        return Vec::new();
     }
-    Some(MutationRecord {
+    let dest = MutationRecord {
         added_nodes: vec![new_child],
         previous_sibling: prev_sibling,
         next_sibling: Some(ref_child),
         ..empty_record(MutationKind::ChildList, parent)
-    })
+    };
+    move_record_list(source, new_child, dest)
 }
 
 /// Remove `child` from `parent` through the `EcsDom` chokepoint and build the
@@ -285,27 +354,69 @@ pub fn apply_remove_child(
 }
 
 /// Replace `old_child` with `new_child` under `parent` through the `EcsDom`
-/// chokepoint and build the **single coalesced** §4.2.3 "replace" childList
-/// record (`added_nodes` = new child, `removed_nodes` = old child; `None` on
-/// failure). Shared by the deferred-flush path and the VM `replaceChild` handler.
+/// chokepoint and build the §4.2.3 "replace" childList record list — empty on
+/// failure, the **single coalesced** record for a fresh `new_child`, and **two**
+/// when `new_child` is already parented (a move into the replace slot): the
+/// coalesced record (step 14) **plus** a source-parent removal record from
+/// `new_child`'s adopt (step 13's insert calls adopt → remove with
+/// `suppressObservers` left at its default, so the source removal is observed).
+///
+/// Capture follows `#concept-node-replace` literally and is **distinct** from the
+/// append/insert node-relative post-write rule — replace reads siblings
+/// pre-removal, `old_child`-relative (steps 7–9). Shared by the deferred-flush
+/// path and the VM `replaceChild` handler.
 pub fn apply_replace_child(
     dom: &mut EcsDom,
     parent: Entity,
     new_child: Entity,
     old_child: Entity,
-) -> Option<MutationRecord> {
-    let prev_sibling = dom.prev_exposed_sibling(old_child);
-    let next_sibling = dom.next_exposed_sibling(old_child);
+) -> Vec<MutationRecord> {
+    // Coalesced-record siblings (steps 7–9), captured pre-removal, old_child-relative:
+    //  - previousSibling = step 9 = old_child's prev. NO adjustment exists, so this
+    //    MAY legitimately equal `new_child` (e.g. `[A,B,C].replaceChild(A,B)` →
+    //    previousSibling == A == new_child) — spec-faithful, do not "fix" it.
+    let coalesced_prev = dom.prev_exposed_sibling(old_child);
+    //  - nextSibling = step 7 (old_child's next) WITH the step-8 adjustment: if that
+    //    next is `new_child` itself (a move where new_child was old_child's next
+    //    sibling), referenceChild becomes new_child's next sibling instead. Step 8
+    //    only fires on a move, so it is first observable here (B1 deferred moves).
+    let coalesced_next = match dom.next_exposed_sibling(old_child) {
+        Some(next) if next == new_child => dom.next_exposed_sibling(new_child),
+        other => other,
+    };
+    // Source-removal record context from new_child's adopt, captured pre-write
+    // when new_child is already parented. Self-replace (`replaceChild(X, X)`) is
+    // rejected by `EcsDom::replace_child` below (returns false → empty list), so
+    // it produces no record at all — matching the VM handler's browser-parity
+    // no-op short-circuit; this context is simply discarded in that case.
+    let source = dom.get_parent(new_child).map(|old_parent| {
+        // Source siblings = new_child's exposed prev/next, **stepping over
+        // old_child** (spec removes old_child at step 11, before new_child's adopt
+        // at step 13, so old_child is gone from new_child's sibling chain by adopt
+        // time). The EcsDom primitive detaches new_child BEFORE old_child (reverse
+        // order), so the step-over must be applied here.
+        let prev = match dom.prev_exposed_sibling(new_child) {
+            Some(s) if s == old_child => dom.prev_exposed_sibling(old_child),
+            other => other,
+        };
+        let next = match dom.next_exposed_sibling(new_child) {
+            Some(s) if s == old_child => dom.next_exposed_sibling(old_child),
+            other => other,
+        };
+        (old_parent, prev, next)
+    });
     if !dom.replace_child(parent, new_child, old_child) {
-        return None;
+        return Vec::new();
     }
-    Some(MutationRecord {
+    let coalesced = MutationRecord {
         added_nodes: vec![new_child],
         removed_nodes: vec![old_child],
-        previous_sibling: prev_sibling,
-        next_sibling,
+        previous_sibling: coalesced_prev,
+        next_sibling: coalesced_next,
         ..empty_record(MutationKind::ChildList, parent)
-    })
+    };
+    // Order: source-removal (from step 13's adopt) THEN coalesced (step 14).
+    move_record_list(source, new_child, coalesced)
 }
 
 fn apply_set_attribute(
@@ -371,286 +482,4 @@ fn apply_set_text(dom: &mut EcsDom, entity: Entity, text: &str) -> Option<Mutati
 
 #[cfg(test)]
 #[allow(unused_must_use)] // Test setup calls dom.append_child() etc. without checking return values
-mod tests {
-    use super::*;
-    use elidex_ecs::Attributes;
-
-    fn elem(dom: &mut EcsDom, tag: &str) -> Entity {
-        dom.create_element(tag, Attributes::default())
-    }
-
-    #[test]
-    fn apply_append_child() {
-        let mut dom = EcsDom::new();
-        let parent = elem(&mut dom, "div");
-        let child = elem(&mut dom, "span");
-
-        let m = Mutation::AppendChild { parent, child };
-        let record = apply_mutation(&m, &mut dom).expect("should succeed");
-        assert_eq!(record.kind, MutationKind::ChildList);
-        assert_eq!(record.target, parent);
-        assert_eq!(record.added_nodes, vec![child]);
-        assert!(record.removed_nodes.is_empty());
-        assert_eq!(record.previous_sibling, None);
-        assert_eq!(dom.children(parent), vec![child]);
-    }
-
-    #[test]
-    fn apply_append_child_records_previous_sibling() {
-        let mut dom = EcsDom::new();
-        let parent = elem(&mut dom, "div");
-        let first = elem(&mut dom, "span");
-        let second = elem(&mut dom, "p");
-        dom.append_child(parent, first);
-
-        let m = Mutation::AppendChild {
-            parent,
-            child: second,
-        };
-        let record = apply_mutation(&m, &mut dom).expect("should succeed");
-        assert_eq!(record.previous_sibling, Some(first));
-        assert_eq!(record.added_nodes, vec![second]);
-    }
-
-    #[test]
-    fn apply_insert_before() {
-        let mut dom = EcsDom::new();
-        let parent = elem(&mut dom, "div");
-        let a = elem(&mut dom, "span");
-        let b = elem(&mut dom, "span");
-        dom.append_child(parent, b);
-
-        let m = Mutation::InsertBefore {
-            parent,
-            new_child: a,
-            ref_child: b,
-        };
-        let record = apply_mutation(&m, &mut dom).expect("should succeed");
-        assert_eq!(record.kind, MutationKind::ChildList);
-        assert_eq!(record.added_nodes, vec![a]);
-        assert_eq!(record.next_sibling, Some(b));
-        assert_eq!(dom.children(parent), vec![a, b]);
-    }
-
-    #[test]
-    fn apply_set_attribute() {
-        let mut dom = EcsDom::new();
-        let e = elem(&mut dom, "div");
-
-        let m = Mutation::SetAttribute {
-            entity: e,
-            name: "class".into(),
-            value: "active".into(),
-        };
-        let record = apply_mutation(&m, &mut dom).expect("should succeed");
-        assert_eq!(record.kind, MutationKind::Attribute);
-        assert_eq!(record.attribute_name.as_deref(), Some("class"));
-        assert_eq!(record.old_value, None);
-
-        let attrs = dom.world().get::<&Attributes>(e).unwrap();
-        assert_eq!(attrs.get("class"), Some("active"));
-    }
-
-    #[test]
-    fn apply_set_attribute_records_old_value() {
-        let mut dom = EcsDom::new();
-        let e = elem(&mut dom, "div");
-        {
-            let mut attrs = dom.world_mut().get::<&mut Attributes>(e).unwrap();
-            attrs.set("class", "old");
-        }
-
-        let m = Mutation::SetAttribute {
-            entity: e,
-            name: "class".into(),
-            value: "new".into(),
-        };
-        let record = apply_mutation(&m, &mut dom).expect("should succeed");
-        assert_eq!(record.old_value.as_deref(), Some("old"));
-    }
-
-    #[test]
-    fn apply_remove_attribute() {
-        let mut dom = EcsDom::new();
-        let e = elem(&mut dom, "div");
-        {
-            let mut attrs = dom.world_mut().get::<&mut Attributes>(e).unwrap();
-            attrs.set("id", "test");
-        }
-
-        let m = Mutation::RemoveAttribute {
-            entity: e,
-            name: "id".into(),
-        };
-        let record = apply_mutation(&m, &mut dom).expect("should succeed");
-        assert_eq!(record.kind, MutationKind::Attribute);
-        assert_eq!(record.attribute_name.as_deref(), Some("id"));
-        assert_eq!(record.old_value.as_deref(), Some("test"));
-
-        let attrs = dom.world().get::<&Attributes>(e).unwrap();
-        assert!(!attrs.contains("id"));
-    }
-
-    #[test]
-    fn apply_set_text_content() {
-        let mut dom = EcsDom::new();
-        let text = dom.create_text("hello");
-
-        let m = Mutation::SetTextContent {
-            entity: text,
-            text: "world".into(),
-        };
-        let record = apply_mutation(&m, &mut dom).expect("should succeed");
-        assert_eq!(record.kind, MutationKind::CharacterData);
-        assert_eq!(record.old_value.as_deref(), Some("hello"));
-
-        let tc = dom.world().get::<&TextContent>(text).unwrap();
-        assert_eq!(tc.0, "world");
-    }
-
-    #[test]
-    fn apply_remove_child() {
-        let mut dom = EcsDom::new();
-        let parent = elem(&mut dom, "div");
-        let a = elem(&mut dom, "span");
-        let b = elem(&mut dom, "p");
-        dom.append_child(parent, a);
-        dom.append_child(parent, b);
-
-        let m = Mutation::RemoveChild { parent, child: a };
-        let record = apply_mutation(&m, &mut dom).expect("should succeed");
-        assert_eq!(record.kind, MutationKind::ChildList);
-        assert_eq!(record.target, parent);
-        assert_eq!(record.removed_nodes, vec![a]);
-        assert_eq!(record.previous_sibling, None);
-        assert_eq!(record.next_sibling, Some(b));
-        assert_eq!(dom.children(parent), vec![b]);
-    }
-
-    #[test]
-    fn apply_replace_child() {
-        let mut dom = EcsDom::new();
-        let parent = elem(&mut dom, "div");
-        let old = elem(&mut dom, "span");
-        let new = elem(&mut dom, "p");
-        dom.append_child(parent, old);
-
-        let m = Mutation::ReplaceChild {
-            parent,
-            new_child: new,
-            old_child: old,
-        };
-        let record = apply_mutation(&m, &mut dom).expect("should succeed");
-        assert_eq!(record.kind, MutationKind::ChildList);
-        assert_eq!(record.added_nodes, vec![new]);
-        assert_eq!(record.removed_nodes, vec![old]);
-        assert_eq!(dom.children(parent), vec![new]);
-        assert_eq!(dom.get_parent(old), None);
-    }
-
-    #[test]
-    fn apply_append_child_does_not_leak_shadow_root_as_previous_sibling() {
-        // PR201 Copilot R4 / F3 regression: `apply_append_child` was
-        // capturing `prev_sibling` via raw `get_last_child(parent)`,
-        // which returns the internal ShadowRoot when the host has no
-        // light-tree children yet. The fix walks via
-        // `children_iter_rev` (which skips ShadowRoot entities).
-        let mut dom = EcsDom::new();
-        let root = dom.create_document_root();
-        let host = elem(&mut dom, "div");
-        let _ = dom.append_child(root, host);
-        let shadow_root = dom
-            .attach_shadow(host, elidex_ecs::ShadowRootMode::Closed)
-            .expect("attach closed shadow");
-        // Sanity: raw `get_last_child(host)` IS the shadow root —
-        // confirms the helper would leak without the fix.
-        assert_eq!(
-            dom.get_last_child(host),
-            Some(shadow_root),
-            "shadow root is the only sibling at this point"
-        );
-        let new_child = elem(&mut dom, "span");
-        let m = Mutation::AppendChild {
-            parent: host,
-            child: new_child,
-        };
-        let record = apply_mutation(&m, &mut dom).expect("append should succeed");
-        assert_ne!(
-            record.previous_sibling,
-            Some(shadow_root),
-            "MutationRecord.previous_sibling must not leak shadow root"
-        );
-        assert_eq!(
-            record.previous_sibling, None,
-            "no exposed prev sibling (shadow root skipped)"
-        );
-    }
-
-    #[test]
-    fn apply_remove_child_does_not_leak_shadow_root_as_previous_sibling() {
-        // Pre-existing apply_remove_child path now uses
-        // `prev_exposed_sibling` too. Lock the no-leak invariant.
-        let mut dom = EcsDom::new();
-        let root = dom.create_document_root();
-        let host = elem(&mut dom, "div");
-        let _ = dom.append_child(root, host);
-        let shadow_root = dom
-            .attach_shadow(host, elidex_ecs::ShadowRootMode::Closed)
-            .expect("attach closed shadow");
-        let child = elem(&mut dom, "span");
-        let _ = dom.append_child(host, child);
-        assert_eq!(dom.get_prev_sibling(child), Some(shadow_root));
-        let m = Mutation::RemoveChild {
-            parent: host,
-            child,
-        };
-        let record = apply_mutation(&m, &mut dom).expect("remove should succeed");
-        assert_ne!(record.previous_sibling, Some(shadow_root));
-        assert_eq!(record.previous_sibling, None);
-    }
-
-    /// Codex #335 R10 F31: a buffered `style` attribute mutation applied via
-    /// the deferred flush (which bypasses `EcsDom::set_attribute`) must
-    /// still invalidate a lazily-hydrated `InlineStyle` cache, else a later
-    /// CSSOM read resurrects stale declarations.
-    #[test]
-    fn apply_style_attribute_invalidates_inline_style_cache() {
-        let mut dom = EcsDom::new();
-        let e = elem(&mut dom, "div");
-        {
-            let mut attrs = dom.world_mut().get::<&mut Attributes>(e).unwrap();
-            attrs.set("style", "color: red");
-        }
-        // Simulate a prior `el.style.*` read that hydrated the cache.
-        let mut style = elidex_ecs::InlineStyle::default();
-        style.set("color", "red");
-        dom.world_mut().insert_one(e, style).unwrap();
-        assert!(dom.world().get::<&elidex_ecs::InlineStyle>(e).is_ok());
-
-        // A buffered SetAttribute("style", …) must drop the stale cache.
-        let m = Mutation::SetAttribute {
-            entity: e,
-            name: "style".into(),
-            value: "color: blue".into(),
-        };
-        apply_mutation(&m, &mut dom).expect("should succeed");
-        assert!(
-            dom.world().get::<&elidex_ecs::InlineStyle>(e).is_err(),
-            "buffered SetAttribute('style') left a stale InlineStyle cache"
-        );
-
-        // Re-hydrate, then a buffered RemoveAttribute must also drop it.
-        let mut style = elidex_ecs::InlineStyle::default();
-        style.set("color", "blue");
-        dom.world_mut().insert_one(e, style).unwrap();
-        let m = Mutation::RemoveAttribute {
-            entity: e,
-            name: "style".into(),
-        };
-        apply_mutation(&m, &mut dom).expect("should succeed");
-        assert!(
-            dom.world().get::<&elidex_ecs::InlineStyle>(e).is_err(),
-            "buffered RemoveAttribute('style') left a stale InlineStyle cache"
-        );
-    }
-}
+mod tests;

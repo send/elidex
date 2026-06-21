@@ -29,7 +29,7 @@ fn flush_with_ce_reactions(
     dom: &mut EcsDom,
     document: Entity,
 ) {
-    let records: Vec<_> = session.flush(dom).into_iter().flatten().collect();
+    let records: Vec<_> = session.flush(dom);
     runtime.enqueue_ce_reactions_from_mutations(&records, dom);
     runtime.drain_custom_element_reactions_public(session, dom, document);
 }

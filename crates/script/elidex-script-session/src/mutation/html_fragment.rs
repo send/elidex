@@ -277,9 +277,9 @@ mod tests {
             entity: e,
             html: "<p>new</p>".into(),
         };
-        let record = apply_mutation(&m, &mut dom);
-        assert!(record.is_some(), "SetInnerHtml should return a record");
-        let record = record.unwrap();
+        let records = apply_mutation(&m, &mut dom);
+        assert_eq!(records.len(), 1, "SetInnerHtml should return one record");
+        let record = &records[0];
         assert_eq!(record.removed_nodes.len(), 1, "should remove old child");
         assert_eq!(record.added_nodes.len(), 1, "should add <p>");
     }

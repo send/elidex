@@ -262,12 +262,13 @@ fn real_subtree_observer_receives_descendant_child_mutation() {
 }
 
 #[test]
-fn real_same_parent_move_defers_record_no_malformed_delivery() {
-    // Codex P2 (R1): `root.appendChild(<existing child of root>)` is a *move*.
-    // `apply_append_child` snapshots previousSibling BEFORE the relink, so a
-    // naive record could carry previousSibling == the moved node (malformed).
-    // B1 defers move-record semantics to B1.2: the move applies but delivers NO
-    // record (rather than a malformed one).
+fn real_same_parent_move_delivers_two_records_source_then_dest() {
+    // B1.2a: `root.appendChild(<existing child of root>)` is a *move*. Per WHATWG
+    // DOM it adopts (source-parent removal, §4.5 step 2, NOT suppressed) then
+    // inserts (§4.2.3) → TWO childList records on root: removal of `a`, then
+    // insertion of `a` after `b`. The destination previousSibling is `b` =
+    // root's last child captured pre-adopt (§4.2.3 insert step 6); since `a` is
+    // not the last child the self-sibling case does not arise here.
     let mut vm = Vm::new();
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
@@ -279,10 +280,12 @@ fn real_same_parent_move_defers_record_no_malformed_delivery() {
     assert!(dom.append_child(root, b));
     let a_wrapper = vm.inner.create_element_wrapper(a);
     vm.set_global("a", JsValue::Object(a_wrapper));
+    let b_wrapper = vm.inner.create_element_wrapper(b);
+    vm.set_global("b", JsValue::Object(b_wrapper));
 
     vm.eval(
-        "globalThis.fired = false; \
-         var mo = new MutationObserver(function(){ globalThis.fired = true; }); \
+        "globalThis.records = null; \
+         var mo = new MutationObserver(function(r){ globalThis.records = r; }); \
          mo.observe(root, {childList:true}); \
          root.appendChild(a);", // move `a` (currently first) to the end
     )
@@ -294,11 +297,153 @@ fn real_same_parent_move_defers_record_no_malformed_delivery() {
         JsValue::Boolean(true),
         "the move must apply at the chokepoint"
     );
-    // …but no (malformed) record was delivered — move-record semantics = B1.2.
+    // Two records delivered on the microtask, in order: source-removal, then dest.
     assert_eq!(
-        vm.eval("fired").unwrap(),
-        JsValue::Boolean(false),
-        "B1 must not deliver a record for a move (deferred to B1.2), never a malformed one"
+        vm.eval("records.length").unwrap(),
+        JsValue::Number(2.0),
+        "a move delivers two records (source-removal + destination)"
+    );
+    // Record 0 = source-parent removal of `a` (added empty, removed = [a]).
+    assert_eq!(
+        vm.eval("records[0].removedNodes.length").unwrap(),
+        JsValue::Number(1.0)
+    );
+    assert_eq!(
+        vm.eval("records[0].removedNodes[0] === a").unwrap(),
+        JsValue::Boolean(true)
+    );
+    assert_eq!(
+        vm.eval("records[0].addedNodes.length").unwrap(),
+        JsValue::Number(0.0)
+    );
+    assert_eq!(
+        vm.eval("records[0].target === root").unwrap(),
+        JsValue::Boolean(true)
+    );
+    // Record 1 = destination insertion of `a`; previousSibling = b, NOT a.
+    assert_eq!(
+        vm.eval("records[1].addedNodes[0] === a").unwrap(),
+        JsValue::Boolean(true)
+    );
+    assert_eq!(
+        vm.eval("records[1].previousSibling === b").unwrap(),
+        JsValue::Boolean(true),
+        "destination previousSibling is b (root's last child, captured pre-adopt)"
+    );
+    assert_eq!(
+        vm.eval("records[1].target === root").unwrap(),
+        JsValue::Boolean(true)
+    );
+    vm.unbind();
+}
+
+#[test]
+fn real_cross_parent_move_routes_removal_to_source_insertion_to_dest() {
+    // B1.2a cross-parent move: the source-removal record reaches an observer on
+    // the OLD parent; the destination-insertion record reaches an observer on the
+    // NEW parent — each via its own §4.3.2 inclusive-ancestor walk.
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let (_doc, root) = setup_with_root(&mut vm, &mut session, &mut dom);
+    let src = dom.create_element("div", Attributes::default());
+    let dst = dom.create_element("div", Attributes::default());
+    let kid = dom.create_element("span", Attributes::default());
+    assert!(dom.append_child(root, src));
+    assert!(dom.append_child(root, dst));
+    assert!(dom.append_child(src, kid)); // src = [kid], dst = []
+    let src_wrapper = vm.inner.create_element_wrapper(src);
+    vm.set_global("src", JsValue::Object(src_wrapper));
+    let dst_wrapper = vm.inner.create_element_wrapper(dst);
+    vm.set_global("dst", JsValue::Object(dst_wrapper));
+    let kid_wrapper = vm.inner.create_element_wrapper(kid);
+    vm.set_global("kid", JsValue::Object(kid_wrapper));
+
+    vm.eval(
+        "globalThis.srcRec = null; globalThis.dstRec = null; \
+         var moSrc = new MutationObserver(function(r){ globalThis.srcRec = r; }); \
+         var moDst = new MutationObserver(function(r){ globalThis.dstRec = r; }); \
+         moSrc.observe(src, {childList:true}); \
+         moDst.observe(dst, {childList:true}); \
+         dst.appendChild(kid);",
+    )
+    .unwrap();
+
+    // Source observer: one removal record.
+    assert_eq!(vm.eval("srcRec.length").unwrap(), JsValue::Number(1.0));
+    assert_eq!(
+        vm.eval("srcRec[0].removedNodes[0] === kid").unwrap(),
+        JsValue::Boolean(true)
+    );
+    assert_eq!(
+        vm.eval("srcRec[0].target === src").unwrap(),
+        JsValue::Boolean(true)
+    );
+    // Destination observer: one insertion record.
+    assert_eq!(vm.eval("dstRec.length").unwrap(), JsValue::Number(1.0));
+    assert_eq!(
+        vm.eval("dstRec[0].addedNodes[0] === kid").unwrap(),
+        JsValue::Boolean(true)
+    );
+    assert_eq!(
+        vm.eval("dstRec[0].target === dst").unwrap(),
+        JsValue::Boolean(true)
+    );
+    vm.unbind();
+}
+
+#[test]
+fn real_replace_child_move_delivers_source_removal_and_coalesced() {
+    // B1.2a: `root.replaceChild(newc, oldc)` with `newc` already parented (in
+    // `src`) delivers TWO records — the source-parent removal of `newc` (from the
+    // adopt, NOT suppressed) to an observer on `src`, and the coalesced replace
+    // record (added=newc, removed=oldc) to an observer on `root`.
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let (_doc, root) = setup_with_root(&mut vm, &mut session, &mut dom);
+    let src = dom.create_element("div", Attributes::default());
+    let oldc = dom.create_element("b", Attributes::default());
+    let newc = dom.create_element("i", Attributes::default());
+    assert!(dom.append_child(root, src));
+    assert!(dom.append_child(root, oldc)); // root = [src, oldc]
+    assert!(dom.append_child(src, newc)); // src = [newc]
+    let src_wrapper = vm.inner.create_element_wrapper(src);
+    vm.set_global("src", JsValue::Object(src_wrapper));
+    let oldc_wrapper = vm.inner.create_element_wrapper(oldc);
+    vm.set_global("oldc", JsValue::Object(oldc_wrapper));
+    let newc_wrapper = vm.inner.create_element_wrapper(newc);
+    vm.set_global("newc", JsValue::Object(newc_wrapper));
+
+    vm.eval(
+        "globalThis.srcRec = null; globalThis.rootRec = null; \
+         var moSrc = new MutationObserver(function(r){ globalThis.srcRec = r; }); \
+         var moRoot = new MutationObserver(function(r){ globalThis.rootRec = r; }); \
+         moSrc.observe(src, {childList:true}); \
+         moRoot.observe(root, {childList:true}); \
+         root.replaceChild(newc, oldc);",
+    )
+    .unwrap();
+
+    // Source observer (on `src`): the adopt's removal of `newc`.
+    assert_eq!(vm.eval("srcRec.length").unwrap(), JsValue::Number(1.0));
+    assert_eq!(
+        vm.eval("srcRec[0].removedNodes[0] === newc").unwrap(),
+        JsValue::Boolean(true)
+    );
+    // Root observer: the coalesced replace record (added newc, removed oldc).
+    assert_eq!(vm.eval("rootRec.length").unwrap(), JsValue::Number(1.0));
+    assert_eq!(
+        vm.eval("rootRec[0].addedNodes[0] === newc").unwrap(),
+        JsValue::Boolean(true)
+    );
+    assert_eq!(
+        vm.eval("rootRec[0].removedNodes[0] === oldc").unwrap(),
+        JsValue::Boolean(true)
+    );
+    assert_eq!(
+        vm.eval("rootRec[0].target === root").unwrap(),
+        JsValue::Boolean(true)
     );
     vm.unbind();
 }

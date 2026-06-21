@@ -107,9 +107,11 @@ impl SessionCore {
     /// Apply all pending mutations to the ECS DOM and return their records.
     ///
     /// The mutation buffer is drained regardless of individual success/failure.
-    /// Each mutation is applied in order; failed mutations produce `None` in
-    /// the returned vector.
-    pub fn flush(&mut self, dom: &mut EcsDom) -> Vec<Option<MutationRecord>> {
+    /// Each mutation is applied in order; a failed mutation contributes no
+    /// records, and a childList **move** contributes two (a source-parent removal
+    /// followed by a destination record), so the result is a flat record stream
+    /// in mutation order rather than one entry per mutation.
+    pub fn flush(&mut self, dom: &mut EcsDom) -> Vec<MutationRecord> {
         // Leak-guard: the synchronous-op `notify_records` scratch is drained by
         // the VM per bridge op (so it is empty here under the VM). A non-draining
         // embedder (the boa runtime, which shares these dom-api handlers but does
@@ -117,7 +119,10 @@ impl SessionCore {
         // accumulate records forever; clear them at the natural per-turn boundary.
         self.notify_records.clear();
         let mutations = std::mem::take(&mut self.pending);
-        mutations.iter().map(|m| apply_mutation(m, dom)).collect()
+        mutations
+            .iter()
+            .flat_map(|m| apply_mutation(m, dom))
+            .collect()
     }
 
     /// Enqueue an event for deferred dispatch after the current JS execution.
@@ -219,7 +224,6 @@ mod tests {
 
         let records = session.flush(&mut dom);
         assert_eq!(records.len(), 1);
-        assert!(records[0].is_some());
         assert_eq!(dom.children(parent), vec![child]);
     }
 
@@ -237,7 +241,7 @@ mod tests {
     }
 
     #[test]
-    fn flush_returns_none_for_failed_mutations() {
+    fn flush_returns_no_record_for_failed_mutations() {
         let mut dom = EcsDom::new();
         let parent = elem(&mut dom, "div");
         let child = elem(&mut dom, "span");
@@ -249,9 +253,9 @@ mod tests {
             parent: child,
             child: parent,
         });
+        // A failed mutation contributes no records to the flat stream.
         let records = session.flush(&mut dom);
-        assert_eq!(records.len(), 1);
-        assert!(records[0].is_none());
+        assert!(records.is_empty());
     }
 
     #[test]
@@ -272,7 +276,6 @@ mod tests {
 
         let records = session.flush(&mut dom);
         assert_eq!(records.len(), 3);
-        assert!(records.iter().all(Option::is_some));
         assert_eq!(dom.children(parent), vec![a, b]);
 
         let attrs = dom.world().get::<&Attributes>(parent).unwrap();
