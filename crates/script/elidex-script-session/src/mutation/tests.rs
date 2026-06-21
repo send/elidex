@@ -955,9 +955,9 @@ fn apply_insert_before_self_reference_with_orphan_ref_is_rejected() {
     let orphan = elem(&mut dom, "orphan"); // not a child of parent
 
     // `insertBefore(orphan, orphan)`: referenceChild (orphan) ∉ parent → §4.2.3
-    // pre-insert step 3 NotFound (empty list → handler error). The self-reference
-    // advance must NOT fire before ref ∈ parent is established, else it would append
-    // the orphan. (Codex PR393 R2 regression of R1 finding 3.)
+    // "ensure pre-insertion validity" step 3 NotFound (empty list → handler error).
+    // The pre-insert step-3 self-reference advance must NOT fire before ref ∈ parent is
+    // established, else it would append the orphan. (Codex PR393 R2 regression of R1 finding 3.)
     let records = super::apply_insert_before(&mut dom, parent, orphan, orphan);
     assert!(records.is_empty(), "ref ∉ parent must fail, not append");
     assert_eq!(dom.children(parent), vec![a], "tree unchanged");

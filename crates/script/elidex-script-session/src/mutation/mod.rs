@@ -453,9 +453,10 @@ pub fn apply_insert_before(
     new_child: Entity,
     ref_child: Entity,
 ) -> Vec<MutationRecord> {
-    // §4.2.3 pre-insert step 3 (NotFoundError): referenceChild must be a child of
-    // `parent`. Establish this BEFORE the self-reference advance and before any move,
-    // so `insertBefore(orphan, orphan)` / `insertBefore(otherChild, otherChild)` fail
+    // §4.2.3 "ensure pre-insertion validity" step 3 (NotFoundError): referenceChild
+    // (`child`) must be a child of `parent` — run from pre-insert step 1, BEFORE the
+    // pre-insert step-3 self-reference advance below and before any move. So
+    // `insertBefore(orphan, orphan)` / `insertBefore(otherChild, otherChild)` fail
     // (empty list → the handler maps it to an error) instead of being treated as a
     // valid self-reference no-op. Also the up-front guard the fragment path needs
     // (`EcsDom::insert_before` would reject a bad `ref_child`, but the per-node
