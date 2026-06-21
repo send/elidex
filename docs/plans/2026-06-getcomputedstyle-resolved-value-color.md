@@ -1,8 +1,8 @@
 # Plan: getComputedStyle resolved-value color serialization (`#11-getcomputedstyle-resolved-value-color`)
 
-**Status**: plan-memo (pre-`/elidex-plan-review`)
+**Status**: ✅ `/elidex-plan-review` passed (5-agent: 0 CRIT, 1 IMP + 7 MIN, all resolved — fork (a) ratified) → implemented → `/pre-push` green → PR [#385](https://github.com/send/elidex/pull/385), `/external-converge` in progress
 **Branch**: `getcomputedstyle-resolved-color`
-**Scope**: single PR (narrowly-scoped slice; edge-dense → mandatory plan-review per CLAUDE.md "Edge-dense work" rule)
+**Scope**: single PR (narrowly-scoped slice; edge-dense → mandatory plan-review per CLAUDE.md "Edge-dense work" rule — done)
 
 ---
 
@@ -229,24 +229,22 @@ impl CssColor {
    → return `n/100` as a `<number>` (trailing zeros trimmed, leading zero kept). *Common
    case* — `rgba(_, .5)` stores u8 128, `n=50` → `round(127.5)=128` → `"0.5"`; `n=10`→26→
    `"0.1"`; `n=93`→237→`"0.93"`.
-2. **No preimage (step 3, §16.1 closed form)**: `round(a/0.255)/1000` = the integer
-   `round(a*1000/255)` over `1000`, formatted as a `<number>` (trailing zeros trimmed,
-   leading zero kept). E.g. `a=236` → `round(925.49)=925` → `"0.925"`; `a=127` →
-   `round(498.04)=498` → `"0.498"`. Always round-trips: the result is within 0.0005 of
-   `a/255`, so `round(v*255)==a`. Implemented as `(a*1000 + 127)/255` (round-to-nearest;
-   `a*1000 mod 255` is never exactly 127.5, so no tie).
+2. **No preimage (step 3, §16.1 worked example)**: `a/255` to at most six decimal places,
+   trailing zeros trimmed, leading zero kept. E.g. `a=236` → `236/255 = 0.925490…` →
+   `"0.92549"`; `a=127` → `0.498039…` → `"0.498039"`. Six decimal places is far finer than
+   the 8-bit resolution (`1/255 ≈ 0.0039`), so every value round-trips.
 
-   **NOTE (cross-round review correction)**: §16.1 step 3 gives this closed form
-   directly. The precision is "not defined … must at least round-trip", and the worked
-   example `236 → "0.92549"` is illustrative (a *longer* also-conformant form). An earlier
-   draft used a "fewest-decimals search" emitting `0.926`; both plan-review (Axis 4) and
-   /code-review re-flagged the step-3 area, so the implementation follows the **literal
-   normative closed form** `round(a/0.255)/1000` — simplest, deterministic, normative, and
-   it removes the search loop + the (previously dead) fallback branch entirely.
+   **NOTE (cross-round review convergence)**: §16.1 is internally inconsistent here — the
+   step-3 *prose* rounds `a/0.255` to an integer before `/1000` (→ `"0.925"` for 236), but
+   the spec's own *worked example* serializes the un-rounded `a/255` value (→ `"0.92549"`).
+   This spot was flagged across three review passes (plan-review Axis 4 → example;
+   /code-review → prose; Codex R2 #1 → example, asserting WPT checks it). The
+   **worked example is what implementations and the WPT corpus assert**, so the
+   implementation matches it (`format!("{:.6}", a as f64 / 255.0)` trimmed). `f64` is used
+   only for the display rounding — `a/255` is well-conditioned in `[0, 1]`, no cancellation.
 
-`round_half_up(num, den)` = `(num + den/2) / den` on integers (den even ⇒ exact half-up);
-this is the alpha re-parse model `round(v*255)`, ties up. Number formatting: leading zero
-kept, trailing zeros trimmed.
+Number formatting: leading zero kept, trailing zeros trimmed. The all-`u8` round-trip
+property test (`reparse(serialize(a)) == a` for every `a`) guards both steps.
 
 ### §5.2 `serialize_resolved_value` — `crates/css/elidex-style/src/resolve/mod.rs` (+ re-export `lib.rs`)
 
@@ -318,8 +316,8 @@ Engine-independent unit tests (no VM needed) at the `serialize_resolved_value` /
 - translucent `CssColor::new(0,0,0,128)` → `"rgba(0, 0, 0, 0.5)"`.
 - `CssColor::new(0,0,0,0)` (transparent) → `"rgba(0, 0, 0, 0)"`.
 - alpha §16.1 table: 255→omitted (rgb form); 128→`0.5`; 26→`0.1` (n=10: round(25.5)=26);
-  237→`0.93`; step-3 no-preimage `236 → "0.925"` (closed form `round(236/0.255)=925`),
-  `127 → "0.498"`. Round-trip property test over all `a` in `0..=255`: re-parsing the
+  237→`0.93`; step-3 no-preimage `236 → "0.92549"` (§16.1 worked example, `236/255`),
+  `127 → "0.498039"`. Round-trip property test over all `a` in `0..=255`: re-parsing the
   serialized alpha yields back `a`.
 - `text-decoration-color` initial (None) on element with `color: blue` →
   `"rgb(0, 0, 255)"` (currentcolor → used value). With explicit color → that color.
