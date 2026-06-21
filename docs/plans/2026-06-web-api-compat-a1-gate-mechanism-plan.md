@@ -62,15 +62,22 @@ A0 delegated the *exact mechanism* to this plan-review (A0 §1 R5 discipline: "A
 requirement + constraint and delegates the exact implementation to the implementing PR's
 plan-review"). The lens-determined calls:
 
+> **⚠ Post-#372-merge correction (supersedes the `window.rs`-avoidance framing in §0.1(b),
+> §1, §2.1 below):** #372 merged (`d8858d67`) before A1 was implemented, so the carrier no
+> longer avoids `window.rs` — seam-1 gates the storage accessors **in** `register_window_prototype`
+> (`window.rs`), per §3.3 seam-1 and §9 note 1, §6. The pre-merge "avoid `window.rs` to dodge
+> the #372 conflict" reasoning is preserved below as design history but no longer reflects the
+> as-built; the as-built carrier is **inline policy guards at the demotable install sites** (no
+> leveled-helper variants — §9 note 1).
+
 1. **Carrier form = leveled *install call*, default-`Modern`, NO table-literal edits
    (§2.1).** The level travels at the **install call site / via a leveled helper variant**,
    not as a third tuple element on every `(&str, NativeFn)` table row. Decisive because:
    (a) editing the ~95 % Modern surface's table consts is mechanical noise that buys
-   nothing (the default is `Modern`); (b) it keeps A1 **out of `window.rs` / `document.rs`
-   entirely**, dissolving the #372 (media Slice 2b) collision for A1 — only A2 touches the
-   `window.rs` storage table, and A2 is already sequenced *after* Slice 2b (A0 §6); (c) it
-   mirrors the existing `global_scope_kind` gating idiom, which already wraps installs in a
-   mode check (`globals.rs:503`) rather than tagging table rows. *One issue, one way.*
+   nothing (the default is `Modern`); (b) [*pre-merge rationale, superseded — see the banner
+   above*] it kept A1 out of `window.rs` / `document.rs` to dodge the then-open #372 collision;
+   (c) it mirrors the existing `global_scope_kind` gating idiom, which already wraps installs in
+   a mode check (`globals.rs:503`) rather than tagging table rows. *One issue, one way.*
 
 2. **`EngineMode` + `SpecLevelPolicy` live in `elidex-plugin`, threaded as a
    VM-construction parameter exactly like `global_scope_kind` (§2.2 / §3.2).** Not
@@ -121,8 +128,8 @@ Every site below was grepped against `main` HEAD in this session, not transcribe
 | `register_globals()` **call** | `vm/init.rs:740` | **A0 DRIFT** — A0 §2/§3.2b cites `:734`; actual `:740` |
 | `fn register_globals` body | `vm/globals.rs:72` | — |
 | `install_methods` / `install_ro_accessors` / `install_rw_accessors` | `vm/globals.rs:962` / `:988` / `:1013` | all `&[(&str, NativeFn[, NativeFn])]`; ro/rw `#[cfg(feature="engine")]` |
-| `register_window_prototype` | `vm/host/window.rs:411` | A1 does **not** edit (decision §2.1) |
-| storage accessor install call | `window.rs:438` `install_ro_accessors(proto_id, WINDOW_STORAGE_ACCESSORS)` | A2 site, not A1 |
+| `register_window_prototype` | `vm/host/window.rs:411` | **A1 edits (seam-1)** — wraps the storage-accessor install in the policy guard (post-#372-merge; see banner above + §9 note 1) |
+| storage accessor install call | `window.rs:438` `install_ro_accessors(proto_id, WINDOW_STORAGE_ACCESSORS)` | **seam-1 (A1)** wraps this at `Modern`; A2 flips to `Legacy` |
 | `install_event_handler_attrs` **call** | `window.rs:445` | A1 makes the *def* policy-aware, not this call |
 | `WINDOW_STORAGE_ACCESSORS` const | `window.rs:525` | A2 site |
 | `fn install_event_handler_attrs` | `vm/host/event_handler_attrs.rs:73`; shared loop `install_handler_attrs_from_list:145` (sibling `install_handler_attr_family:215`); `EVENT_HANDLER_ATTRS` import `:50` | seam-3 (line re-verified 2026-06-20) |
@@ -314,12 +321,11 @@ live-collection family (B0) — flips specific install calls to the leveled vari
    that #372 edits (§6).
 9. **Tests** — §5.
 
-Files A1 **does not** touch: `window.rs`, `document.rs`, `navigator.rs`, `storage.rs`
-(beyond possibly reading the new helper) — all are A2/A3 sites — **and**
+A1 **does** touch `vm/host/window.rs` (seam-1 storage-accessors guard — §3.3 seam-1, §9
+note 1; safe because #372 has merged). Files A1 does **not** touch: `document.rs`,
+`navigator.rs`, `storage.rs` (beyond reading the new helper) — A2/A3 sites — **and**
 `elidex-script-session/src/engine.rs` (seam-4 is pinned to `elidex-dom-api` by F3, so A1's
-DOM-registry enforcement does not enter `elidex-script-session`). This keeps A1 off the #372
-`window.rs` path and off the `elidex-script-session/src/engine.rs` file #372 edits; the one
-remaining #372 overlap is `elidex-js/src/engine.rs` (§6).
+DOM-registry enforcement does not enter `elidex-script-session`).
 
 ---
 
@@ -363,22 +369,16 @@ elidex-script-session --all-features`.
 
 ## §6. Collision / sequencing (re-confirmed)
 
-- **#372 (media Slice 2b-ii, branch `media-query-slice2bii`) is OPEN** (verified this
-  session: state OPEN/UNSTABLE, Codex `/external-converge` R1 in flight). #372's edited files
-  are (verified `gh pr view 372 --json files`): **`crates/script/elidex-js/src/vm/host/window.rs`**,
-  **`crates/script/elidex-js/src/engine.rs`**, **`crates/script/elidex-script-session/src/engine.rs`**.
-  **A1's chosen carrier form (§2.1) keeps A1 out of `window.rs` entirely** — but the collision
-  is **not fully dissolved** (F2 correction): A1's `engine.rs` touch (§4 item 5,
-  `ElidexJsEngine::new` mode param) **overlaps `elidex-js/src/engine.rs`**, which #372 also
-  edits (different region — A1 ctor `:35`; #372 `HostDriver` impl `~:497`). Overlap-surfaces
-  to re-check at open-time, **enumerated**:
-  - `crates/script/elidex-js/src/engine.rs` — **overlaps #372** (A1 ctor vs #372 `HostDriver` impl; LOW, distinct regions).
-  - `crates/script/elidex-script-session/src/engine.rs` — #372 edits it; **A1 no longer touches it** (F3 pins seam-4 to `elidex-dom-api`, not `elidex-script-session` — overlap removed by the F3 fix).
-  - `crates/script/elidex-js/src/vm/globals.rs` — A1-only (not on the Slice 2b path).
-
-  So A1 *implementation* proceeds once #372 lands and `main` is rebased, with **low** residual
-  collision risk concentrated on `elidex-js/src/engine.rs`. **A2** (which *does* edit the
-  `window.rs` storage table) remains hard-sequenced *after* Slice 2b (A0 §6).
+- **#372 (media Slice 2b-ii) is MERGED** (`d8858d67`); A1 was implemented on a branch rebased
+  onto it, so the #372 collision is resolved (no live conflict). **As-built, A1 *does* edit
+  `vm/host/window.rs`** (seam-1 storage-accessors guard — §3.3 seam-1 / §9 note 1): the
+  pre-merge carrier plan avoided `window.rs` only to dodge the then-open #372 conflict; once
+  #372 merged that constraint lifted, and seam-1 is the natural home for gating the storage
+  accessors. A1's other `elidex-js` touches (`globals.rs`, `init.rs`, `engine.rs`,
+  `event_handler_attrs.rs`, `mod.rs`) + `elidex-plugin` + `elidex-dom-api` are all on
+  `d8858d67`-rebased `main` with no outstanding overlap. (The §0–§2 references to "A1 avoids
+  `window.rs`" are pre-merge design reasoning, superseded here and in §9.) **A2** (which moves
+  the `window.rs` storage *table*) is the next storage step.
 - **`#11-async-core-storage-cookiestore` precondition** — A1 must not let any real session
   select `BrowserCore`/`App` (those modes have no storage API until the async core lands,
   design §14.4.3). Enforced by: shell default = `BrowserCompat`; the two non-compat modes
@@ -494,6 +494,14 @@ change, A2/A3 remain pure level-flips). All built on `webapi-compat-a1` rebased 
    SW spawn entry (`sw_thread_main`) threads the embedder-supplied mode. (Latent today — the
    shell still spawns workers/SWs via the boa engine, S5 pending — but the constructor contract
    is correct and regression-tested.)
+
+**Defer slot spawned (Codex R2 / F4 → F5):** `#11-dom-registry-dynamic-policy-gate` —
+`create_dom_registry_with_policy` gates the **static built-in** handler set only (the VM's sole
+path; it freezes the registry via `Rc`); the registry's `register_dynamic` path is not
+policy-gated (gating it = the `elidex-plugin` coupling the plan-review rejected; no caller
+exists). *Trigger:* a selectable `BrowserCore`/`App` mode **and** runtime dynamic DOM-handler
+extensions both exist (DOM enforcement / B-program). Registered in the project defer-slot ledger
+(`memory/project_open-defer-slots.md`, the project's slot SoT).
 
 **Anchor note**: §1's pre-rebase line numbers are superseded by the landed code (#372 +
 A1's own additions shifted them). Rather than cite re-drifting line numbers, navigate by symbol:
