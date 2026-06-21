@@ -410,3 +410,139 @@ fn real_append_multiple_fragments_flattens_into_added_nodes() {
     );
     vm.unbind();
 }
+
+#[test]
+fn real_append_multiarg_move_reports_source_removal_on_old_parent() {
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let (_doc, _root) = setup_with_root(&mut vm, &mut session, &mut dom);
+
+    // `root.append(kid, b)` where `kid` belongs to `other`: the "convert nodes into a
+    // node" wrapper build moves `kid` out of `other`, and §4.5 adopt's unsuppressed
+    // remove must record that source-parent removal — observable on `other`. (Codex
+    // PR393 R1 finding 1: multi-arg moves under-reported the source removal.)
+    vm.eval(
+        "globalThis.records = null; \
+         globalThis.other = document.createElement('section'); \
+         globalThis.kid = document.createElement('kid'); \
+         other.appendChild(kid); \
+         globalThis.b = document.createElement('b'); \
+         var mo = new MutationObserver(function(r){ globalThis.records = r; }); \
+         mo.observe(other, {childList:true}); \
+         root.append(kid, b);",
+    )
+    .unwrap();
+
+    assert_eq!(
+        vm.eval("records.length").unwrap(),
+        JsValue::Number(1.0),
+        "observer on the old parent sees the source removal of the moved child"
+    );
+    assert_eq!(
+        vm.eval("records[0].target === other").unwrap(),
+        JsValue::Boolean(true)
+    );
+    assert_eq!(
+        vm.eval("records[0].removedNodes.length === 1 && records[0].removedNodes[0] === kid")
+            .unwrap(),
+        JsValue::Boolean(true)
+    );
+    assert_eq!(
+        vm.eval("other.childNodes.length").unwrap(),
+        JsValue::Number(0.0)
+    );
+    vm.unbind();
+}
+
+#[test]
+fn real_prepend_self_reference_first_child_is_noop_move_with_records() {
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let (_doc, root) = setup_with_root(&mut vm, &mut session, &mut dom);
+    seed_child(&mut vm, &mut dom, root, "first", "first");
+    seed_child(&mut vm, &mut dom, root, "second", "second");
+
+    // `root.prepend(root.firstChild)` — the reference child IS the node, so §4.2.3
+    // pre-insert step 3 advances the reference to its next sibling, making it a
+    // no-position-change move (source removal + destination) rather than the
+    // self-reference rejection that would drop it silently. (Codex PR393 R1 finding 3.)
+    vm.eval(
+        "globalThis.records = null; \
+         var mo = new MutationObserver(function(r){ globalThis.records = r; }); \
+         mo.observe(root, {childList:true}); \
+         root.prepend(first);",
+    )
+    .unwrap();
+
+    assert_eq!(
+        vm.eval("records.length").unwrap(),
+        JsValue::Number(2.0),
+        "no-position-change self-move delivers source removal + destination records"
+    );
+    assert_eq!(
+        vm.eval("records[0].removedNodes.length === 1 && records[0].removedNodes[0] === first")
+            .unwrap(),
+        JsValue::Boolean(true)
+    );
+    assert_eq!(
+        vm.eval("records[1].addedNodes.length === 1 && records[1].addedNodes[0] === first")
+            .unwrap(),
+        JsValue::Boolean(true)
+    );
+    assert_eq!(
+        vm.eval("root.childNodes[0] === first && root.childNodes[1] === second")
+            .unwrap(),
+        JsValue::Boolean(true),
+        "first stays first (no position change)"
+    );
+    vm.unbind();
+}
+
+#[test]
+fn real_replace_children_fragment_arg_records_fragment_emptying() {
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let (_doc, _root) = setup_with_root(&mut vm, &mut session, &mut dom);
+
+    // `root.replaceChildren(frag)` empties `frag` via §4.2.3 insert step 4.2, whose
+    // fragment record is NOT suppressed even under replace-all's suppressObservers —
+    // so an observer on `frag` sees its children leave. (Codex PR393 R1 finding 2.)
+    vm.eval(
+        "globalThis.fragRecords = null; \
+         globalThis.frag = document.createDocumentFragment(); \
+         globalThis.c1 = document.createElement('c1'); \
+         globalThis.c2 = document.createElement('c2'); \
+         frag.appendChild(c1); frag.appendChild(c2); \
+         var mo = new MutationObserver(function(r){ globalThis.fragRecords = r; }); \
+         mo.observe(frag, {childList:true}); \
+         root.replaceChildren(frag);",
+    )
+    .unwrap();
+
+    assert_eq!(
+        vm.eval("fragRecords.length").unwrap(),
+        JsValue::Number(1.0),
+        "observer on the fragment sees the step-4.2 fragment record"
+    );
+    assert_eq!(
+        vm.eval("fragRecords[0].target === frag").unwrap(),
+        JsValue::Boolean(true)
+    );
+    assert_eq!(
+        vm.eval(
+            "fragRecords[0].removedNodes.length === 2 \
+             && fragRecords[0].removedNodes[0] === c1 && fragRecords[0].removedNodes[1] === c2"
+        )
+        .unwrap(),
+        JsValue::Boolean(true)
+    );
+    assert_eq!(
+        vm.eval("root.childNodes.length").unwrap(),
+        JsValue::Number(2.0),
+        "frag's children moved into root"
+    );
+    vm.unbind();
+}

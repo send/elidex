@@ -17,7 +17,9 @@ pub use selectors::{Closest, Matches};
 
 use elidex_ecs::{EcsDom, Entity, NodeKind, TagType, TextContent};
 use elidex_plugin::JsValue;
-use elidex_script_session::{DomApiError, DomApiErrorKind, JsObjectRef, SessionCore};
+use elidex_script_session::{
+    convert_arg_source_records, DomApiError, DomApiErrorKind, JsObjectRef, SessionCore,
+};
 
 use crate::util::not_found_error;
 
@@ -314,22 +316,36 @@ pub(crate) fn collect_nodes(
 ///
 /// Returns `(entity, is_temp)` where `is_temp` is true if a temporary
 /// `DocumentFragment` was created.
-pub(crate) fn convert_nodes_into_node(nodes: Vec<Entity>, dom: &mut EcsDom) -> (Entity, bool) {
+///
+/// For the multi-node (wrapper) case, each arg is appended to the temp fragment per
+/// WHATWG DOM §4.2.6 step 4 ("append node to fragment" = the DOM mutation "append" =
+/// a §4.2.3 insert into the wrapper). The wrapper is transient/unobserved so its
+/// destination records are irrelevant, BUT the spec also queues unsuppressed **source**
+/// records the observer DOES see — an already-parented arg's §4.5 adopt source-parent
+/// removal, and a `DocumentFragment` arg's §4.2.3 step-4.2 fragment record — so those
+/// are pushed to `session` here ([`convert_arg_source_records`], captured pre-move).
+/// (The single-node case returns the arg directly and lets `apply_*` produce its
+/// records, so no source push is needed there.)
+pub(crate) fn convert_nodes_into_node(
+    nodes: Vec<Entity>,
+    session: &mut SessionCore,
+    dom: &mut EcsDom,
+) -> (Entity, bool) {
     if nodes.len() == 1 {
         return (nodes[0], false);
     }
     let fragment = dom.create_document_fragment();
     for node in nodes {
-        // WHATWG DOM §4.2.6 "convert nodes into a node" step 4 "append node to
-        // fragment" uses the DOM "append" (the mutation method, which EXPANDS a
-        // `DocumentFragment` arg into its children). `EcsDom::append_child` is the raw,
-        // non-expanding primitive, so a fragment arg is expanded one level by hand —
-        // moving its children in — keeping the temp fragment flat (a fragment's
-        // children are never fragments; B1.2-fragment "never nests"). Without this an
-        // `append(frag1, frag2)` would nest fragments under the temp fragment and the
-        // single-level `apply_*`/`expand_fragment` would link them nested into the
-        // parent. The temp fragment is transient/unobserved, so the moves emit NO
-        // records (the outer insertion's records are produced once by `apply_*`).
+        // Queue the unsuppressed source records (adopt removal / fragment record)
+        // BEFORE the raw move detaches the arg (which would destroy the pre-move
+        // sibling/child state the records capture).
+        for record in convert_arg_source_records(dom, node) {
+            session.push_notify_record(record);
+        }
+        // A `DocumentFragment` arg is expanded one level by hand (the raw
+        // `EcsDom::append_child` does not expand) so the wrapper stays flat — a
+        // fragment's children are never fragments (B1.2-fragment "never nests"); without
+        // this `append(frag1, frag2)` would nest fragments under the wrapper.
         if dom.is_document_fragment(node) {
             for child in dom.child_list_uncapped(node) {
                 let ok = dom.append_child(fragment, child);

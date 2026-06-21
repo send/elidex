@@ -99,7 +99,7 @@ impl DomApiHandler for Before {
         // nodes (changing the sibling chain). The exclude list ensures that nodes
         // about to be moved are skipped during the walk.
         let viable_prev = viable_prev_sibling(this, &nodes, dom);
-        let (node, is_temp) = convert_nodes_into_node(nodes, dom);
+        let (node, is_temp) = convert_nodes_into_node(nodes, session, dom);
 
         // Re-derive actual_ref from viable_prev AFTER conversion, using the
         // now-stable tree. viable_prev itself was not moved (it's not in the
@@ -145,7 +145,7 @@ impl DomApiHandler for After {
 
         // Compute viable_next BEFORE convert, same rationale as Before.
         let ref_sibling = viable_next_sibling(this, &nodes, dom);
-        let (node, is_temp) = convert_nodes_into_node(nodes, dom);
+        let (node, is_temp) = convert_nodes_into_node(nodes, session, dom);
 
         ensure_pre_insertion_validity(parent, node, ref_sibling, dom)?;
         route_insert(session, dom, parent, node, ref_sibling, is_temp);
@@ -222,7 +222,7 @@ impl DomApiHandler for ReplaceWith {
 
         // step 3: viableNextSibling captured BEFORE convert (which reparents the args).
         let ref_sibling = viable_next_sibling(this, &nodes, dom);
-        let (node, is_temp) = convert_nodes_into_node(nodes, dom);
+        let (node, is_temp) = convert_nodes_into_node(nodes, session, dom);
 
         if dom.get_parent(this) == Some(parent) {
             // step 5: this is still under parent → "replace this with node within
@@ -266,7 +266,7 @@ impl DomApiHandler for Prepend {
             return Ok(JsValue::Undefined);
         }
 
-        let (node, is_temp) = convert_nodes_into_node(nodes, dom);
+        let (node, is_temp) = convert_nodes_into_node(nodes, session, dom);
         let first_child = dom.get_first_child(this);
         ensure_pre_insertion_validity(this, node, first_child, dom)?;
         route_insert(session, dom, this, node, first_child, is_temp);
@@ -298,7 +298,7 @@ impl DomApiHandler for Append {
             return Ok(JsValue::Undefined);
         }
 
-        let (node, is_temp) = convert_nodes_into_node(nodes, dom);
+        let (node, is_temp) = convert_nodes_into_node(nodes, session, dom);
         ensure_pre_insertion_validity(this, node, None, dom)?;
         route_insert(session, dom, this, node, None, is_temp);
         Ok(JsValue::Undefined)
@@ -329,7 +329,7 @@ impl DomApiHandler for ReplaceChildren {
         let converted = if nodes.is_empty() {
             None
         } else {
-            Some(convert_nodes_into_node(nodes, dom)) // (entity, is_temp)
+            Some(convert_nodes_into_node(nodes, session, dom)) // (entity, is_temp)
         };
         let node = converted.map(|(n, _)| n);
 

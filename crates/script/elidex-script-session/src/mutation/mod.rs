@@ -248,6 +248,41 @@ fn capture_move_source(dom: &EcsDom, node: Entity) -> MoveSource {
     })
 }
 
+/// The §4.5 adopt source-parent removal record for `node` leaving `old_parent`
+/// (siblings captured pre-relink). One builder for the move source-removal shape
+/// (One-issue-one-way), shared by `move_record_list`, [`source_removal_record`], and
+/// the convert-into-fragment source path.
+fn source_removal_record_from(
+    old_parent: Entity,
+    node: Entity,
+    previous_sibling: Option<Entity>,
+    next_sibling: Option<Entity>,
+) -> MutationRecord {
+    MutationRecord {
+        removed_nodes: vec![node],
+        previous_sibling,
+        next_sibling,
+        ..empty_record(MutationKind::ChildList, old_parent)
+    }
+}
+
+/// The §4.5 adopt source-parent removal record for `node` if it is currently
+/// parented (read live, so call BEFORE the relink), else `None`. The adopt step's
+/// remove is NOT covered by an enclosing insert's `suppressObservers` (§4.2.3 step
+/// 7.1 → §4.5 adopt step 2 invokes a plain "remove"), so a move's source removal is
+/// always observed — even from `replace all` and the "convert nodes into a node"
+/// wrapper build.
+fn source_removal_record(dom: &EcsDom, node: Entity) -> Option<MutationRecord> {
+    dom.get_parent(node).map(|old_parent| {
+        source_removal_record_from(
+            old_parent,
+            node,
+            dom.prev_exposed_sibling(node),
+            dom.next_exposed_sibling(node),
+        )
+    })
+}
+
 /// Assemble the §4.3.2 childList record list: the source-parent removal of
 /// `node` (when `source` is `Some`, i.e. a move) **precedes** the `primary`
 /// (destination / coalesced) record, matching the WHATWG adopt→insert order.
@@ -258,17 +293,37 @@ fn move_record_list(
     primary: MutationRecord,
 ) -> Vec<MutationRecord> {
     match source {
-        Some((old_parent, previous_sibling, next_sibling)) => vec![
-            MutationRecord {
-                removed_nodes: vec![node],
-                previous_sibling,
-                next_sibling,
-                ..empty_record(MutationKind::ChildList, old_parent)
-            },
-            primary,
-        ],
+        Some((old_parent, previous_sibling, next_sibling)) => {
+            vec![
+                source_removal_record_from(old_parent, node, previous_sibling, next_sibling),
+                primary,
+            ]
+        }
         None => vec![primary],
     }
+}
+
+/// Source-side `MutationRecord`s the spec queues when "convert nodes into a node"
+/// (WHATWG DOM §4.2.6 step 4) appends `node` into the transient (unobserved) wrapper
+/// `DocumentFragment` — the wrapper's own destination records are unobserved, but the
+/// source records the spec does NOT suppress must still be queued: a `DocumentFragment`
+/// arg's §4.2.3 step-4.2 fragment record (its children leaving it), or an
+/// already-parented plain node's §4.5 adopt source-parent removal. Empty for a fresh
+/// plain node. **Call BEFORE the raw move** (reads pre-move siblings/children).
+pub fn convert_arg_source_records(dom: &EcsDom, node: Entity) -> Vec<MutationRecord> {
+    if dom.is_document_fragment(node) {
+        // step 4.2 fragment record: removedNodes = the fragment's children (which are
+        // about to move out). Empty fragment → no record (count-0 insert, step 3).
+        let children = dom.child_list_uncapped(node);
+        if children.is_empty() {
+            return Vec::new();
+        }
+        return vec![MutationRecord {
+            removed_nodes: children,
+            ..empty_record(MutationKind::ChildList, node)
+        }];
+    }
+    source_removal_record(dom, node).into_iter().collect()
 }
 
 /// Expand a `DocumentFragment` per WHATWG DOM §4.2.3 "insert" steps 1/4/7: take a
@@ -398,6 +453,21 @@ pub fn apply_insert_before(
     new_child: Entity,
     ref_child: Entity,
 ) -> Vec<MutationRecord> {
+    // §4.2.3 pre-insert step 3: "if referenceChild is node, set referenceChild to
+    // node's next sibling" — a self-reference (`insertBefore(x, x)`,
+    // `first.before(first)`, `parent.prepend(parent.firstChild)`) is a
+    // no-position-change move, NOT an error. `EcsDom::insert_before` rejects
+    // `new_child == ref_child` outright, so apply the spec advance here (the single
+    // canonical home, shared by node_proto + the ChildNode/ParentNode mixin path)
+    // before the rejection swallows the move + its records. Advancing to the next
+    // sibling (or appending when `new_child` is last) yields the spec-mandated
+    // self-sibling move records (B1.2a). `next != new_child`, so no infinite loop.
+    if new_child == ref_child {
+        return match dom.next_exposed_sibling(new_child) {
+            Some(next) => apply_insert_before(dom, parent, new_child, next),
+            None => apply_append_child(dom, parent, new_child),
+        };
+    }
     if dom.is_document_fragment(new_child) {
         // §4.2.3 step 2 (atomic, before any move): a fragment that is a
         // host-including inclusive ancestor of `parent` is a HierarchyRequestError.
@@ -593,21 +663,25 @@ pub fn apply_replace_child(
     move_record_list(source, new_child, coalesced)
 }
 
-/// WHATWG DOM §4.2.3 "replace all" (`#concept-node-replace-all`): remove **all**
-/// of `parent`'s children then insert `node` (or nothing, for `None`), both with
-/// `suppressObservers` set — so there are **no** per-child removal records and **no**
-/// destination/fragment insertion record. Exactly **one** coalesced `ChildList`
-/// record is queued for `parent` (step 7) **iff** `addedNodes ∪ removedNodes` is
-/// non-empty: `removedNodes` = the prior children, `addedNodes` = `node`'s children
-/// (a `DocumentFragment`) or «`node`» (any other) or «» (`None`), `previousSibling`
-/// and `nextSibling` both null.
+/// WHATWG DOM §4.2.3 "replace all" (`#concept-node-replace-all`): remove **all** of
+/// `parent`'s children (step 5, `suppressObservers` — no per-child removal records),
+/// then insert `node` (step 6, `suppressObservers` — destination record folded into
+/// the step-7 combined record), then queue the **one** coalesced `ChildList` record
+/// for `parent` (step 7) **iff** `addedNodes ∪ removedNodes` is non-empty:
+/// `removedNodes` = the prior children, `addedNodes` = `node`'s children (a
+/// `DocumentFragment`) or «`node`» (any other) or «» (`None`), prev/next both null.
 ///
-/// Because the insert's adopt is suppressed too, a `node` that was already parented
-/// (a move into `parent`) produces **no** source-parent removal record — unlike
-/// `apply_append_child`/`apply_insert_before`, this primitive does NOT use
-/// `move_record_list`. The algorithm makes no tree-constraint checks (the spec note);
-/// callers (`replaceChildren`, later `textContent`) run `ensure_pre_insertion_validity`
-/// first. The sole b-1 consumer is `replaceChildren`; B1.2c reuses it for `textContent`.
+/// `suppressObservers` only suppresses the step-8 **destination** record. The records
+/// the insert (step 6) still queues are emitted **before** the combined record:
+/// a `DocumentFragment`'s step-4.2 fragment record (§4.2.3 "intentionally does not pay
+/// attention to suppressObservers"), and an already-parented `node`'s §4.5 adopt
+/// source-parent removal (the adopt's "remove" is unsuppressed). So a cross-parent
+/// `replaceChildren(existingChild)` reports the source removal, and
+/// `replaceChildren(frag)` reports `frag` emptying — both observable, matching spec.
+///
+/// The algorithm makes no tree-constraint checks (the spec note); callers
+/// (`replaceChildren`, later `textContent`) run `ensure_pre_insertion_validity` first.
+/// The sole b-1 consumer is `replaceChildren`; B1.2c reuses it for `textContent`.
 pub fn apply_replace_all(
     dom: &mut EcsDom,
     parent: Entity,
@@ -626,35 +700,45 @@ pub fn apply_replace_all(
             "replace all: child from child_list_uncapped must be removable"
         );
     }
-    // steps 3/4/6: addedNodes + insert node before null, suppressObservers.
+    // step 6 insert: the unsuppressed source records (fragment step-4.2 record /
+    // adopt source-parent removal) precede the step-7 combined record.
+    let mut records: Vec<MutationRecord> = Vec::new();
     let added_nodes: Vec<Entity> = match node {
         None => Vec::new(),
         Some(n) if dom.is_document_fragment(n) => {
             // Fragment: its children move into parent (the fragment is never linked).
-            // Reuse the canonical `expand_fragment` (single snapshot+relink+moved
-            // -filter home — the #387 `child_list_uncapped`/never-truncate discipline)
-            // and discard its step-4.2 fragment record: replace-all suppresses
-            // observers, so only the moved children feed the one combined record.
-            expand_fragment(dom, n, |d, c| d.append_child(parent, c))
-                .map_or_else(Vec::new, |(_frag_record, moved)| moved)
+            // `expand_fragment` is the canonical snapshot+relink+moved-filter home
+            // (#387 `child_list_uncapped`/never-truncate discipline); its step-4.2
+            // fragment record (`frag` emptied) is NOT suppressed, so emit it.
+            match expand_fragment(dom, n, |d, c| d.append_child(parent, c)) {
+                Some((frag_record, moved)) => {
+                    records.push(frag_record);
+                    moved
+                }
+                None => Vec::new(),
+            }
         }
         Some(n) => {
+            // adopt source-parent removal (unsuppressed) for an already-parented node,
+            // captured before the relink and pushed only once the relink lands.
+            let source = source_removal_record(dom, n);
             if dom.append_child(parent, n) {
+                records.extend(source);
                 vec![n]
             } else {
                 Vec::new()
             }
         }
     };
-    // step 7: queue one record iff either set is non-empty.
-    if added_nodes.is_empty() && removed_nodes.is_empty() {
-        return Vec::new();
+    // step 7: queue the combined record iff either set is non-empty.
+    if !(added_nodes.is_empty() && removed_nodes.is_empty()) {
+        records.push(MutationRecord {
+            added_nodes,
+            removed_nodes,
+            ..empty_record(MutationKind::ChildList, parent)
+        });
     }
-    vec![MutationRecord {
-        added_nodes,
-        removed_nodes,
-        ..empty_record(MutationKind::ChildList, parent)
-    }]
+    records
 }
 
 fn apply_set_attribute(
