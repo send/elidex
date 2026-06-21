@@ -14,8 +14,9 @@
 //!   `onstorage` Window seams now install only under `BrowserCompat` + the
 //!   `compat-webapi` feature, and are `[Exposed=Window]` (absent in worker realms)
 //!   — see `storage_*_legacy_gated` / `storage_globals_absent_in_worker_realm_*`.
-//!   `document.cookie` (A3) and the live-collection getters (B) remain
-//!   `Modern`/`Living` until their PRs flip those sources.
+//!   **A3 has since demoted `document.cookie` to `Legacy`** (HTML §3.1.4) — see
+//!   `document_cookie_legacy_gated`. The live-collection getters (B) remain
+//!   `Living` until their PR flips that source.
 //!
 //! End-to-end exclusion of a `Legacy` API *at a VM seam* is proven concretely
 //! two ways: (i) seam-4 in `elidex-dom-api::registry` (a mock `Legacy`
@@ -193,11 +194,57 @@ fn storage_window_seams_legacy_gated() {
             "{mode:?}: localStorage/sessionStorage/onstorage must be absent (Legacy, A2)"
         );
     }
-    // The document-side rewired seams (1b `document.cookie`, 1c live-collection
-    // getters) are still `Modern`/`Living` (A3 / B0 demote them); their presence +
-    // behavior is covered by the broader elidex-js DOM suite, and the
-    // live-collection enumeration order is pinned by
-    // `live_collection_methods_keep_original_property_order`.
+    // The `document.cookie` seam (1b) is demoted to `Legacy` by A3 — its gating is
+    // covered by `document_cookie_legacy_gated` below. The live-collection getters
+    // (1c) are still `Living` (B0/B1 demote them); their enumeration order is pinned
+    // by `live_collection_methods_keep_original_property_order`.
+}
+
+fn document_cookie_present(mode: EngineMode) -> bool {
+    // `document.cookie` installs on the Document *wrapper*, so the document must be
+    // bound (the proven path: `bind_vm` + `vm.eval`, as in
+    // `live_collection_methods_keep_original_property_order`) — the engine/
+    // ScriptContext path leaves `document` unbound.
+    let mut vm = Vm::new_with_mode(mode);
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = dom.create_document_root();
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    let present = matches!(
+        vm.eval("'cookie' in document;").unwrap(),
+        JsValue::Boolean(true)
+    );
+    vm.unbind();
+    present
+}
+
+#[test]
+fn document_cookie_legacy_gated() {
+    // A3 demoted `document.cookie` to `Legacy` (HTML §3.1.4) via its single source
+    // `document_cookie_spec_level()` (seam-1b). So the accessor is present ONLY
+    // under `BrowserCompat` + compat-webapi, and absent otherwise — the `CookieJar`
+    // (HTTP cookies + `navigator.cookieEnabled`) stays in every mode regardless.
+    let present = document_cookie_present(EngineMode::BrowserCompat);
+    #[cfg(feature = "compat-webapi")]
+    assert!(
+        present,
+        "BrowserCompat (compat-webapi on) must expose document.cookie"
+    );
+    #[cfg(not(feature = "compat-webapi"))]
+    assert!(
+        !present,
+        "compat-webapi off: hard ceiling must hide document.cookie"
+    );
+
+    for mode in [EngineMode::BrowserCore, EngineMode::App] {
+        assert!(
+            !document_cookie_present(mode),
+            "{mode:?}: document.cookie must be absent (Legacy, demoted in A3)"
+        );
+    }
 }
 
 #[test]

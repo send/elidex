@@ -77,6 +77,11 @@ unsafe fn bind_at_url(
     Some(jar)
 }
 
+// The `document.cookie` accessor is `Legacy` (A3) — its glue compiles out of
+// `App` builds (`compat-webapi` off). These cookie-surface tests are therefore
+// gated to the profile where the accessor exists; `navigator.cookieEnabled` (the
+// always-present cookie-handling signal) is tested separately, un-gated.
+#[cfg(feature = "compat-webapi")]
 #[test]
 fn cookie_default_is_empty_when_no_jar() {
     // With document bound but no CookieJar, the surface stays
@@ -104,6 +109,7 @@ fn cookie_default_is_empty_when_no_jar() {
     vm.unbind();
 }
 
+#[cfg(feature = "compat-webapi")]
 #[test]
 fn cookie_setter_no_op_when_no_jar() {
     let mut vm = Vm::new();
@@ -132,6 +138,7 @@ fn cookie_setter_no_op_when_no_jar() {
     vm.unbind();
 }
 
+#[cfg(feature = "compat-webapi")]
 #[test]
 fn cookie_setter_no_jar_does_not_throw_on_symbol() {
     // Cookie-averse Documents must silently ignore assignments
@@ -161,6 +168,7 @@ fn cookie_setter_no_jar_does_not_throw_on_symbol() {
     vm.unbind();
 }
 
+#[cfg(feature = "compat-webapi")]
 #[test]
 fn cookie_setter_writes_to_jar_and_getter_reads_back() {
     let mut vm = Vm::new();
@@ -188,6 +196,7 @@ fn cookie_setter_writes_to_jar_and_getter_reads_back() {
     vm.unbind();
 }
 
+#[cfg(feature = "compat-webapi")]
 #[test]
 fn cookie_getter_filters_http_only_cookies() {
     let mut vm = Vm::new();
@@ -230,6 +239,7 @@ fn cookie_getter_filters_http_only_cookies() {
     vm.unbind();
 }
 
+#[cfg(feature = "compat-webapi")]
 #[test]
 fn cookie_getter_returns_multiple_cookies_separated_by_semicolons() {
     let mut vm = Vm::new();
@@ -266,6 +276,117 @@ fn cookie_getter_returns_multiple_cookies_separated_by_semicolons() {
     );
 
     vm.unbind();
+}
+
+// ---------------------------------------------------------------------------
+// navigator.cookieEnabled (value-derived, A3) — present in ALL profiles
+// ---------------------------------------------------------------------------
+//
+// `cookieEnabled` is the *cookie-handling* signal (a bound `CookieJar`), NOT
+// `document.cookie` reachability — so it is installed un-gated (HTML §8.10.1.5)
+// and reports `true` whenever a jar is bound, even on `App` builds where the
+// `document.cookie` accessor is compiled out. These tests therefore run on both
+// Cargo profiles; they bind a jar via the same scaffolding as the cookie tests.
+
+#[test]
+fn navigator_cookie_enabled_true_with_jar() {
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    #[allow(unsafe_code)]
+    let _jar = unsafe {
+        bind_at_url(
+            &mut vm,
+            &mut session,
+            &mut dom,
+            "https://example.com/",
+            true,
+        )
+    };
+
+    let v = vm.eval("navigator.cookieEnabled").unwrap();
+    assert!(
+        matches!(v, JsValue::Boolean(true)),
+        "a bound CookieJar must make navigator.cookieEnabled true (HTML §8.10.1.5), \
+         independent of document.cookie exposure; got {v:?}"
+    );
+
+    vm.unbind();
+}
+
+#[test]
+fn navigator_cookie_enabled_false_without_jar() {
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    #[allow(unsafe_code)]
+    let _ = unsafe {
+        bind_at_url(
+            &mut vm,
+            &mut session,
+            &mut dom,
+            "https://example.com/",
+            false,
+        )
+    };
+
+    let v = vm.eval("navigator.cookieEnabled").unwrap();
+    assert!(
+        matches!(v, JsValue::Boolean(false)),
+        "a cookie-averse session (no jar) must report cookieEnabled false; got {v:?}"
+    );
+
+    vm.unbind();
+}
+
+#[test]
+fn navigator_cookie_enabled_true_at_about_blank_with_jar() {
+    // `navigator.cookieEnabled` is the UA-level cookie-capability signal (HTML
+    // §8.10.1.5: "the user agent attempts to handle cookies"), NOT per-document
+    // write-eligibility. A cookie-capable session (a jar bound) reports `true`
+    // even at host-less `about:blank` — matching real browsers and the A3 design
+    // SSoT (independent of the current document's origin). The host-less
+    // `document.cookie` write behavior is the separate
+    // `#11-cookie-opaque-origin-securityerror` concern, not this signal. This
+    // guards against re-narrowing `cookieEnabled` by host (a reverted R1 attempt).
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    #[allow(unsafe_code)]
+    let _jar = unsafe { bind_at_url(&mut vm, &mut session, &mut dom, "about:blank", true) };
+
+    let v = vm.eval("navigator.cookieEnabled").unwrap();
+    assert!(
+        matches!(v, JsValue::Boolean(true)),
+        "about:blank with a jar bound must report cookieEnabled true (UA handles \
+         cookies, HTML §8.10.1.5 — not narrowed by host); got {v:?}"
+    );
+
+    vm.unbind();
+}
+
+#[test]
+fn navigator_cookie_enabled_true_when_jar_installed_but_unbound() {
+    // Codex R4: the cookie jar persists across bind/unbind cycles (a session
+    // resource), and `cookieEnabled` is a resource-presence check (no DOM op), so
+    // it must read the installed `HostData` bind-independently (`host_opt`), not
+    // gated on a current DOM bind (`host_if_bound`). A VM with a jar installed but
+    // between bind cycles still handles cookies → `true`.
+    let mut vm = Vm::new();
+    vm.install_host_data(super::super::host_data::HostData::new());
+    let jar = Arc::new(CookieJar::new());
+    vm.host_data()
+        .expect("host_data installed")
+        .install_cookie_jar(jar);
+    // NB: no `bind_vm` — the VM is unbound (`is_bound()` == false) but the jar
+    // resource is present: the exact state R4 flagged.
+
+    let v = vm.eval("navigator.cookieEnabled").unwrap();
+    assert!(
+        matches!(v, JsValue::Boolean(true)),
+        "a jar-installed but unbound session must report cookieEnabled true \
+         (jar persists across bind/unbind); got {v:?}"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -400,6 +521,7 @@ fn referrer_clears_back_to_empty_on_none() {
 // referrer accessors must do the same so detached calls cannot leak
 // or mutate the bound document's storage.
 
+#[cfg(feature = "compat-webapi")]
 #[test]
 fn cookie_getter_call_with_plain_object_returns_empty_string() {
     let mut vm = Vm::new();
@@ -443,6 +565,7 @@ fn cookie_getter_call_with_plain_object_returns_empty_string() {
     vm.unbind();
 }
 
+#[cfg(feature = "compat-webapi")]
 #[test]
 fn cookie_setter_call_with_plain_object_does_not_mutate_jar() {
     let mut vm = Vm::new();
@@ -476,6 +599,7 @@ fn cookie_setter_call_with_plain_object_does_not_mutate_jar() {
     vm.unbind();
 }
 
+#[cfg(feature = "compat-webapi")]
 #[test]
 fn cookie_getter_on_cloned_document_returns_empty_string() {
     // `document.cloneNode(true)` produces a HostObject whose kind is
@@ -522,6 +646,7 @@ fn cookie_getter_on_cloned_document_returns_empty_string() {
     vm.unbind();
 }
 
+#[cfg(feature = "compat-webapi")]
 #[test]
 fn cookie_setter_on_cloned_document_does_not_mutate_jar() {
     let mut vm = Vm::new();
