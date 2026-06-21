@@ -142,6 +142,12 @@ impl VmInner {
     /// keyed by each attribute's event-type SID (bound key). Shared by the
     /// `WorkerGlobalScope` and `Worker` surfaces, whose attribute sets are
     /// hand-picked subsets rather than [`HandlerScope`]-tagged rows.
+    ///
+    /// Intentionally **not** seam-3-gated: these lists hold permanently-`Modern`
+    /// worker/SW messaging handlers with no demotable member (the only demotable
+    /// handler attr, `onstorage`, is Window-only and lives in
+    /// `install_handler_attr_family`, which carries the gate). See that loop for
+    /// the §3.3 seam-2 "don't gate permanently-Modern sites" rationale.
     fn install_handler_attrs_from_list(&mut self, target: ObjectId, attrs: &[&str]) {
         for attr_name in attrs {
             let event_type = event_handler_attr_event_type(attr_name)
@@ -227,6 +233,19 @@ impl VmInner {
             // through the family-neutral `installs(level)` predicate. A1 returns
             // `Modern` for every attr (no API moves); A2 returns `Legacy` for
             // `onstorage` so it is hidden together with the Web Storage surface.
+            //
+            // This is the ONLY handler-attr install loop that carries the seam-3
+            // gate, because `EVENT_HANDLER_ATTRS` is the only list holding a
+            // demotable member (`onstorage`). The sibling installers
+            // (`install_handler_attrs_from_list` for worker scopes,
+            // `install_sw_handler_attrs`, `install_vm_object_handler_attrs`)
+            // install permanently-`Modern` handler attrs only (worker/SW messaging
+            // + IndexedDB/WebSocket events — never Web-Storage-bound), so they are
+            // intentionally ungated: gating a list with no demotable member is the
+            // churn the §3.3 seam-2 "don't gate permanently-Modern sites" principle
+            // rejects (the anti-pattern is *two ways to gate Legacy*, not gating
+            // Modern). If a worker/SW/VmObject handler attr ever becomes demotable,
+            // its loop adopts this same one-line guard.
             if !self.installs(event_handler_attr_spec_level(attr_name)) {
                 continue;
             }

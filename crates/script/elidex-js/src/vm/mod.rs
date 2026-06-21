@@ -2548,14 +2548,16 @@ pub(crate) struct VmInner {
     pub(crate) global_scope_kind: GlobalScopeKind,
     /// The engine-wide install policy (derived from the embedder-supplied
     /// [`EngineMode`](elidex_plugin::EngineMode) at construction). Consulted by
-    /// each Web-API install seam — the inline policy guards at the demotable
-    /// install sites (the Web Storage family via [`installs_web_storage`]; the
-    /// DOM-handler registry seam reads the same policy when it is built) — to
-    /// decide whether a `Legacy`-classified API installs for this session. A1
-    /// classifies nothing `Legacy`, so the gate is latent (everything installs);
-    /// A2/A3/B demote into it.
+    /// each Web-API install seam through the family-neutral [`installs`] /
+    /// [`installs_dom`] predicates — the inline policy guards at the demotable
+    /// install sites (storage accessors / globals, `document.cookie`, the
+    /// live-collection getters, `onstorage`; the DOM-handler registry seam reads
+    /// the same policy when it is built) — to decide whether a `Legacy`-classified
+    /// API installs for this session. A1 classifies nothing `Legacy`, so the gate
+    /// is latent (everything installs); A2/A3/B demote into it.
     ///
-    /// [`installs_web_storage`]: VmInner::installs_web_storage
+    /// [`installs`]: VmInner::installs
+    /// [`installs_dom`]: VmInner::installs_dom
     ///
     /// **Invariant (the one way the gate could silently no-op):** this field is
     /// set in the construction struct literal (`vm/init.rs`), which completes

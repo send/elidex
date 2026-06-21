@@ -1124,9 +1124,9 @@ const DOCUMENT_RO_ACCESSORS: &[(&str, super::super::NativeFn)] = &[
     ),
 ];
 
-/// Read/write Document accessors.  `title` is WHATWG-backed; `cookie`
-/// is currently a stub whose setter silently drops writes (see the
-/// setter docstring for the PR6 integration path).
+/// Read/write Document accessors.  `title` is WHATWG-backed.  (`document.cookie`
+/// was extracted into [`DOCUMENT_COOKIE_RW_ACCESSOR`] for the A1 core/compat gate
+/// — seam-1b.)
 const DOCUMENT_RW_ACCESSORS: &[(&str, super::super::NativeFn, super::super::NativeFn)] = &[(
     "title",
     native_document_get_title,
