@@ -14,8 +14,9 @@
 //!   `onstorage` Window seams now install only under `BrowserCompat` + the
 //!   `compat-webapi` feature, and are `[Exposed=Window]` (absent in worker realms)
 //!   — see `storage_*_legacy_gated` / `storage_globals_absent_in_worker_realm_*`.
-//!   `document.cookie` (A3) and the live-collection getters (B) remain
-//!   `Modern`/`Living` until their PRs flip those sources.
+//!   **A3 has since demoted `document.cookie` to `Legacy`** (HTML §3.1.4) — see
+//!   `document_cookie_legacy_gated`. The live-collection getters (B) remain
+//!   `Living` until their PR flips that source.
 //!
 //! End-to-end exclusion of a `Legacy` API *at a VM seam* is proven concretely
 //! two ways: (i) seam-4 in `elidex-dom-api::registry` (a mock `Legacy`

@@ -601,10 +601,10 @@ pub(super) fn native_document_get_doctype(
 /// suppression both live there).  When no jar is installed (test
 /// harness, standalone VM) we fall back to the cookie-averse path
 /// and return `""`.
-///
-/// `compat-webapi`-gated (A3): `document.cookie` is `Legacy`, so the accessor
-/// glue is compiled out of `App` builds (the `CookieJar` itself stays — HTTP
-/// cookies + `navigator.cookieEnabled` need it in every mode).
+// `compat-webapi`-gated (A3): `document.cookie` is `Legacy`, so the accessor glue
+// is compiled out of `App` builds (the `CookieJar` itself stays — HTTP cookies +
+// `navigator.cookieEnabled` need it in every mode). (The §6.5.2 cite above is
+// pre-existing drift owned by the F2 clerical cookie-comment micro-PR, not A3.)
 #[cfg(feature = "compat-webapi")]
 pub(super) fn native_document_get_cookie(
     ctx: &mut NativeContext<'_>,
@@ -652,8 +652,7 @@ pub(super) fn native_document_get_cookie(
 /// Secure-over-HTTP per RFC 6265 §5.3).  When no jar is installed
 /// the assignment silently no-ops, matching the cookie-averse
 /// Document path the spec permits.
-///
-/// `compat-webapi`-gated (A3): see [`native_document_get_cookie`].
+// `compat-webapi`-gated (A3): see [`native_document_get_cookie`].
 #[cfg(feature = "compat-webapi")]
 pub(super) fn native_document_set_cookie(
     ctx: &mut NativeContext<'_>,
