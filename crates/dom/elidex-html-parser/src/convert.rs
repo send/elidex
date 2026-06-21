@@ -20,7 +20,7 @@ pub(crate) fn convert_document(rc_dom: RcDom) -> ParseResult {
         &rc_dom.document,
         document,
         &mut dom,
-        document,
+        Some(document),
         ParseFragmentOptions::default(),
     );
     let errors = rc_dom
@@ -60,7 +60,7 @@ pub(crate) fn convert_children(
     rc_handle: &Handle,
     parent: Entity,
     dom: &mut EcsDom,
-    owner_document: Entity,
+    owner_document: Option<Entity>,
     opts: ParseFragmentOptions,
 ) {
     for child in &*rc_handle.children.borrow() {
@@ -96,7 +96,7 @@ pub(crate) fn convert_fragment_top_level(
     root: Entity,
     context: Entity,
     dom: &mut EcsDom,
-    owner_document: Entity,
+    owner_document: Option<Entity>,
     opts: ParseFragmentOptions,
 ) {
     for child in &*rc_handle.children.borrow() {
@@ -128,7 +128,7 @@ fn try_attach_declarative_shadow(
     rc_handle: &Handle,
     parent: Entity,
     dom: &mut EcsDom,
-    owner_document: Entity,
+    owner_document: Option<Entity>,
     opts: ParseFragmentOptions,
 ) -> bool {
     let NodeData::Element {
@@ -244,7 +244,7 @@ fn build_element_data(handle: &Handle) -> Option<(String, Namespace, Attributes)
 fn convert_node(
     handle: &Handle,
     dom: &mut EcsDom,
-    owner_document: Entity,
+    owner_document: Option<Entity>,
     opts: ParseFragmentOptions,
 ) -> Option<Entity> {
     match &handle.data {
@@ -285,7 +285,7 @@ fn convert_node(
             // attach was rejected, which becomes ordinary per §4.12.3 and whose
             // stored `template_contents` is its template content.
             if namespace == Namespace::Html && tag == "template" {
-                let fragment = dom.attach_template_contents(entity, Some(owner_document));
+                let fragment = dom.attach_template_contents(entity, owner_document);
                 if let Some(contents) = template_contents.borrow().clone() {
                     convert_children(&contents, fragment, dom, owner_document, opts);
                 }

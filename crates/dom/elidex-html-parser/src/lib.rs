@@ -146,7 +146,17 @@ pub fn parse_html_fragment(
     // attach to their real parent. (Strict rejects DSD-on-context and falls
     // back here — the slot `#11-strict-fragment-declarative-shadow-on-context`
     // is the strict-native handling, deferred; correctness is via this path.)
-    convert::convert_fragment_top_level(&children_owner, root, context, dom, document, opts);
+    // Stamp parsed `<template>` content fragments (light top-level + any
+    // DSD-on-context shadow content) with the **context's** node document, not
+    // the throwaway fragment `document`: the light nodes are adopted into the
+    // context document by `finish_detached_fragment`, and the DSD-on-context
+    // content is attached to `context`'s shadow tree (never under `root`, so it
+    // is NOT adopted) — stamping the throwaway doc would leave that content's
+    // owner dangling once the throwaway document is destroyed (Codex PR380 R2).
+    // `None` (documentless context) leaves the fragments owner-less, matching
+    // the orphan-detached light nodes `finish_detached_fragment` returns then.
+    let owner_doc = dom.owner_document(context);
+    convert::convert_fragment_top_level(&children_owner, root, context, dom, owner_doc, opts);
     let detached = dom.finish_detached_fragment(root, document, context);
     if let Some(dispatcher) = saved {
         dom.set_mutation_dispatcher(dispatcher);
@@ -718,6 +728,50 @@ mod tests {
             dom.owner_document(fragment),
             Some(result.document),
             "the content fragment's own ownerDocument is the document (C2 approximation)"
+        );
+    }
+
+    #[test]
+    fn fragment_parsed_template_content_owner_is_context_document() {
+        // Codex PR380 R2 (P2): fragment-parsed `<template>` content fragments
+        // are stamped with the *context's* node document, not the throwaway
+        // fragment document (which is destroyed by `finish_detached_fragment`) —
+        // otherwise the content's ownerDocument dangles.
+        let mut dom = EcsDom::new();
+        let doc = dom.create_document_root();
+        let context = dom.create_element("div", Attributes::default());
+        let _ = dom.append_child(doc, context);
+        let added = parse_html_fragment(
+            "<template><p>x</p></template>",
+            context,
+            &mut dom,
+            ParseFragmentOptions::default(),
+        );
+        let template = *added
+            .iter()
+            .find(|&&e| {
+                dom.world()
+                    .get::<&TagType>(e)
+                    .is_ok_and(|t| t.0 == "template")
+            })
+            .expect("the <template> is returned");
+        let fragment = dom
+            .template_contents_fragment(template)
+            .expect("content fragment");
+        assert_eq!(
+            dom.owner_document(fragment),
+            Some(doc),
+            "fragment-parsed template content fragment ownerDocument is the context document"
+        );
+        let p = dom
+            .children(fragment)
+            .into_iter()
+            .find(|&e| dom.world().get::<&TagType>(e).is_ok_and(|t| t.0 == "p"))
+            .expect("<p> in content");
+        assert_eq!(
+            dom.owner_document(p),
+            Some(doc),
+            "content descendant inherits the context document, not a dangling throwaway doc"
         );
     }
 

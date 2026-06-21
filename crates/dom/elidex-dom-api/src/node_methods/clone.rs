@@ -174,7 +174,7 @@ pub fn clone_node_with_shadow_honor(src: Entity, dom: &mut EcsDom, deep: bool) -
         // the clone-children flag (`deep`) is set. Pushes the deep-clone's pairs
         // onto this same worklist, so templates nested inside template content
         // converge here too.
-        replicate_template_contents(s, d, dom, deep, &mut pairs);
+        replicate_template_contents(s, d, dom, deep, shadow_doc, &mut pairs);
         let Some((init, src_shadow_root)) = read_clonable_shadow_init(s, dom) else {
             continue;
         };
@@ -298,20 +298,24 @@ fn replicate_template_contents(
     dst: Entity,
     dom: &mut EcsDom,
     deep: bool,
+    clone_doc: Option<Entity>,
     pairs: &mut Vec<(Entity, Entity)>,
 ) {
     let Some(src_fragment) = dom.template_contents_fragment(src) else {
         return;
     };
-    // The clone's content fragment's node document is the clone's own node
-    // document (set by the ECS cloner's doc threading on `dst`).
-    let owner = dom.owner_document(dst);
-    let new_fragment = dom.attach_template_contents(dst, owner);
+    // The clone's content fragment's node document is the *operation's* node
+    // document (`clone_doc` — the source's owner document, or the clone itself
+    // for a Document clone), NOT `owner_document(dst)`: a shallow
+    // `cloneNode(false)` leaves `dst` parentless with no `AssociatedDocument`
+    // (the shallow cloner stamps none), so deriving from `dst` would yield
+    // `None` and leave the content fragment document-less (Codex PR380 R2).
+    let new_fragment = dom.attach_template_contents(dst, clone_doc);
     if !deep {
         return;
     }
     for child in dom.children(src_fragment) {
-        if let Some(child_clone) = clone_recording(dom, child, deep, owner, pairs) {
+        if let Some(child_clone) = clone_recording(dom, child, deep, clone_doc, pairs) {
             let _ = dom.append_child(new_fragment, child_clone);
         }
     }

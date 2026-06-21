@@ -148,6 +148,38 @@ fn clone_node_template_shallow_gets_fresh_empty_fragment() {
 }
 
 #[test]
+fn clone_node_template_shallow_preserves_owner_document() {
+    // Codex PR380 R2 (P2): `cloneNode(false)` on a document-owned `<template>`
+    // must give the (empty) clone fragment the operation's node document — the
+    // shallow cloner leaves `dst` parentless with no `AssociatedDocument`, so
+    // deriving the owner from `dst` would yield a null `content.ownerDocument`.
+    let (mut dom, mut session) = setup();
+    let doc = dom.create_document_root();
+    let template = dom.create_element_with_owner("template", Attributes::default(), Some(doc));
+    let _ = dom.attach_template_contents(template, Some(doc));
+    wrap(template, &mut session);
+
+    let r = CloneNode
+        .invoke(template, &[JsValue::Bool(false)], &mut session, &mut dom)
+        .unwrap();
+    let JsValue::ObjectRef(ref_id) = r else {
+        panic!("expected ObjectRef");
+    };
+    let (cloned, _) = session
+        .identity_map()
+        .get(JsObjectRef::from_raw(ref_id))
+        .unwrap();
+    let cloned_fragment = dom
+        .template_contents_fragment(cloned)
+        .expect("shallow clone has a content fragment");
+    assert_eq!(
+        dom.owner_document(cloned_fragment),
+        Some(doc),
+        "shallow template clone's content fragment ownerDocument is the document, not null"
+    );
+}
+
+#[test]
 fn clone_node_no_identity() {
     let (mut dom, mut session) = setup();
     let div = dom.create_element("div", Attributes::default());
