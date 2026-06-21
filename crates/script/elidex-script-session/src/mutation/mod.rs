@@ -225,6 +225,49 @@ pub(super) fn empty_record(kind: MutationKind, target: Entity) -> MutationRecord
     }
 }
 
+/// The move source-removal context for a node passed to a childList op: its old
+/// parent + exposed siblings, captured **before** the relink (which destroys
+/// them), or `None` if the node was unparented (a fresh insert). This is the
+/// move-vs-fresh source of truth for `appendChild` / `insertBefore`; `replace`
+/// needs the `old_child` step-over and captures its own.
+type MoveSource = Option<(Entity, Option<Entity>, Option<Entity>)>;
+
+/// Capture the [`MoveSource`] for `node` (append/insert): old parent + `node`'s
+/// exposed prev/next. The exposed-sibling helpers skip internal `ShadowRoot`
+/// entities (§4.8 encapsulation). Must run before the `EcsDom` relink.
+fn capture_move_source(dom: &EcsDom, node: Entity) -> MoveSource {
+    dom.get_parent(node).map(|old_parent| {
+        (
+            old_parent,
+            dom.prev_exposed_sibling(node),
+            dom.next_exposed_sibling(node),
+        )
+    })
+}
+
+/// Assemble the §4.3.2 childList record list: the source-parent removal of
+/// `node` (when `source` is `Some`, i.e. a move) **precedes** the `primary`
+/// (destination / coalesced) record, matching the WHATWG adopt→insert order.
+/// One source of truth for the move two-record shape (One-issue-one-way).
+fn move_record_list(
+    source: MoveSource,
+    node: Entity,
+    primary: MutationRecord,
+) -> Vec<MutationRecord> {
+    match source {
+        Some((old_parent, previous_sibling, next_sibling)) => vec![
+            MutationRecord {
+                removed_nodes: vec![node],
+                previous_sibling,
+                next_sibling,
+                ..empty_record(MutationKind::ChildList, old_parent)
+            },
+            primary,
+        ],
+        None => vec![primary],
+    }
+}
+
 /// Append `child` to `parent` through the `EcsDom` chokepoint and build the
 /// §4.3.2 "queue a tree mutation record" childList record list — empty on
 /// failure, one record for a fresh node, **two** for a move (an already-parented
@@ -234,18 +277,9 @@ pub(super) fn empty_record(kind: MutationKind, target: Entity) -> MutationRecord
 /// both runtimes produce the identical record shape — one record source
 /// (One-issue-one-way).
 pub fn apply_append_child(dom: &mut EcsDom, parent: Entity, child: Entity) -> Vec<MutationRecord> {
-    // Move-vs-fresh source of truth: `child`'s old parent, captured **before**
-    // the relink (which destroys it). `Some` ⇒ a move that owes a source-parent
-    // removal record; `None` ⇒ a fresh insert. The source siblings are `child`'s
-    // exposed prev/next in the old parent (the exposed-sibling helpers skip
-    // internal `ShadowRoot` entities per §4.8 encapsulation).
-    let source = dom.get_parent(child).map(|old_parent| {
-        (
-            old_parent,
-            dom.prev_exposed_sibling(child),
-            dom.next_exposed_sibling(child),
-        )
-    });
+    // Move-vs-fresh source of truth: `child`'s old parent + siblings, captured
+    // **before** the relink destroys them (`Some` ⇒ move, `None` ⇒ fresh).
+    let source = capture_move_source(dom, child);
     if !dom.append_child(parent, child) {
         return Vec::new();
     }
@@ -258,18 +292,7 @@ pub fn apply_append_child(dom: &mut EcsDom, parent: Entity, child: Entity) -> Ve
         next_sibling: dom.next_exposed_sibling(child),
         ..empty_record(MutationKind::ChildList, parent)
     };
-    match source {
-        Some((old_parent, prev, next)) => vec![
-            MutationRecord {
-                removed_nodes: vec![child],
-                previous_sibling: prev,
-                next_sibling: next,
-                ..empty_record(MutationKind::ChildList, old_parent)
-            },
-            dest,
-        ],
-        None => vec![dest],
-    }
+    move_record_list(source, child, dest)
 }
 
 /// Insert `new_child` before `ref_child` under `parent` through the `EcsDom`
@@ -283,16 +306,8 @@ pub fn apply_insert_before(
     new_child: Entity,
     ref_child: Entity,
 ) -> Vec<MutationRecord> {
-    // Move-vs-fresh SoT + source-removal context, captured before the relink
-    // (which destroys it). Exposed-sibling helpers skip a closed `ShadowRoot`
-    // (a real ECS sibling filtered out of the DOM children view per §4.8).
-    let source = dom.get_parent(new_child).map(|old_parent| {
-        (
-            old_parent,
-            dom.prev_exposed_sibling(new_child),
-            dom.next_exposed_sibling(new_child),
-        )
-    });
+    // Move-vs-fresh SoT + source-removal context, captured before the relink.
+    let source = capture_move_source(dom, new_child);
     if !dom.insert_before(parent, new_child, ref_child) {
         return Vec::new();
     }
@@ -304,18 +319,7 @@ pub fn apply_insert_before(
         next_sibling: dom.next_exposed_sibling(new_child),
         ..empty_record(MutationKind::ChildList, parent)
     };
-    match source {
-        Some((old_parent, prev, next)) => vec![
-            MutationRecord {
-                removed_nodes: vec![new_child],
-                previous_sibling: prev,
-                next_sibling: next,
-                ..empty_record(MutationKind::ChildList, old_parent)
-            },
-            dest,
-        ],
-        None => vec![dest],
-    }
+    move_record_list(source, new_child, dest)
 }
 
 /// Remove `child` from `parent` through the `EcsDom` chokepoint and build the
@@ -401,19 +405,8 @@ pub fn apply_replace_child(
         next_sibling: coalesced_next,
         ..empty_record(MutationKind::ChildList, parent)
     };
-    match source {
-        // Order: source-removal (from step 13's adopt) THEN coalesced (step 14).
-        Some((old_parent, prev, next)) => vec![
-            MutationRecord {
-                removed_nodes: vec![new_child],
-                previous_sibling: prev,
-                next_sibling: next,
-                ..empty_record(MutationKind::ChildList, old_parent)
-            },
-            coalesced,
-        ],
-        None => vec![coalesced],
-    }
+    // Order: source-removal (from step 13's adopt) THEN coalesced (step 14).
+    move_record_list(source, new_child, coalesced)
 }
 
 fn apply_set_attribute(

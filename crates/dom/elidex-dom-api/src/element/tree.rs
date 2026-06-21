@@ -197,10 +197,14 @@ impl DomApiHandler for RemoveChild {
 ///   (§4.4 steps 1-2, 4). Cross-document violations also map here per
 ///   §4.2.3 — `WrongDocumentError` is not a separate `DomApiErrorKind`.
 ///
-/// The replace is delegated to a single `EcsDom::replace_child` op so that
-/// the future `MutationObserver` integration emits exactly one mutation
-/// record per spec (§4.4 step 10), not the two records a naive
-/// remove-then-insert composition would produce.
+/// The replace is delegated to a single `EcsDom::replace_child` op so the
+/// `MutationObserver` integration coalesces the old-child removal + new-child
+/// insertion into **one** record per spec (`#concept-node-replace` step 14),
+/// not the two a naive remove-then-insert composition would produce. A
+/// **move** into the replace slot (an already-parented `newChild`) additionally
+/// emits the source-parent removal record from `newChild`'s adopt (B1.2a, §4.5
+/// step 2, NOT suppressed) — that is a distinct record on a different parent,
+/// not a split of the coalesced one.
 pub struct ReplaceChild;
 
 impl DomApiHandler for ReplaceChild {
