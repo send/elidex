@@ -299,7 +299,22 @@ pub fn add_all(
     Ok(())
 }
 
-/// Load all entries for a cache_id.
+/// Load all entries for a cache_id, in the cache's **request response list**
+/// order (W3C Service Workers §5.1) — i.e. insertion order, NOT alphabetical.
+/// `keys()` (§5.4.7), `matchAll()`/`match()` (§5.4.2/§5.4.1, this crate's scan
+/// path) and the ignore-options `delete()` path all iterate the request
+/// response list in list order, so this is the one ordering chokepoint.
+///
+/// Ordering key = SQLite implicit `rowid` (the canonical monotonic
+/// insertion-order column): `created_at` is only seconds-resolution so it ties
+/// for same-second writes, and an explicit sequence column would just duplicate
+/// rowid. `put`'s `INSERT OR REPLACE` (`insert_entry`) deletes the conflicting
+/// row and inserts a fresh row with a higher rowid, so re-putting an existing
+/// request moves it to the END — exactly the §5.3 Batch Cache Operations "put"
+/// semantics (remove matching, then append). `entries` is a normal rowid table
+/// (composite PRIMARY KEY, not `WITHOUT ROWID`), so the rowid exists; the
+/// `keys_returns_insertion_order` test guards against a schema change that would
+/// silently break this.
 fn load_all_entries(
     raw: &rusqlite::Connection,
     cache_id: i64,
@@ -308,7 +323,7 @@ fn load_all_entries(
         "SELECT request_url, request_method, request_headers, \
              response_status, response_status_text, response_headers, \
              body, response_url_list, response_type, vary_header, is_opaque \
-             FROM entries WHERE cache_id = ?1 ORDER BY request_url",
+             FROM entries WHERE cache_id = ?1 ORDER BY rowid",
     )?;
     let entries: Vec<CachedEntry> = stmt
         .query_map([cache_id], entry_from_row)?
@@ -452,6 +467,90 @@ mod tests {
 
         let entries = keys(&conn, "v1").unwrap();
         assert_eq!(entries.len(), 2);
+    }
+
+    #[test]
+    fn keys_returns_insertion_order() {
+        // W3C Service Workers §5.4.7: keys() iterates the request response list
+        // in list (insertion) order, NOT alphabetical. Insert in a deliberately
+        // non-alphabetical order so an `ORDER BY request_url` regression would
+        // re-sort to [a, b, c] and fail.
+        let conn = setup();
+        put(&conn, "v1", &sample_entry("https://example.com/c")).unwrap();
+        put(&conn, "v1", &sample_entry("https://example.com/a")).unwrap();
+        put(&conn, "v1", &sample_entry("https://example.com/b")).unwrap();
+
+        let urls: Vec<String> = keys(&conn, "v1")
+            .unwrap()
+            .into_iter()
+            .map(|e| e.request_url)
+            .collect();
+        assert_eq!(
+            urls,
+            [
+                "https://example.com/c",
+                "https://example.com/a",
+                "https://example.com/b",
+            ]
+        );
+    }
+
+    #[test]
+    fn put_overwrite_moves_entry_to_end() {
+        // §5.3 Batch Cache Operations "put" removes the matching entry then
+        // appends, so re-putting an existing request moves it to the END of the
+        // request response list (a fresh higher rowid via INSERT OR REPLACE).
+        let conn = setup();
+        put(&conn, "v1", &sample_entry("https://example.com/a")).unwrap();
+        put(&conn, "v1", &sample_entry("https://example.com/b")).unwrap();
+        put(&conn, "v1", &sample_entry("https://example.com/c")).unwrap();
+
+        // Re-put /a (overwrite) → it should now be last, not first.
+        let mut updated = sample_entry("https://example.com/a");
+        updated.response_body = b"updated".to_vec();
+        put(&conn, "v1", &updated).unwrap();
+
+        let urls: Vec<String> = keys(&conn, "v1")
+            .unwrap()
+            .into_iter()
+            .map(|e| e.request_url)
+            .collect();
+        assert_eq!(
+            urls,
+            [
+                "https://example.com/b",
+                "https://example.com/c",
+                "https://example.com/a",
+            ]
+        );
+    }
+
+    #[test]
+    fn match_all_ignore_search_preserves_insertion_order() {
+        // The ignore-options scan path (`load_all_entries`) must also yield the
+        // request response list order, since `match()` returns its first
+        // element (§5.4.1) — here the oldest-inserted matching entry.
+        let conn = setup();
+        put(&conn, "v1", &sample_entry("https://example.com/page?z=1")).unwrap();
+        put(&conn, "v1", &sample_entry("https://example.com/page?a=2")).unwrap();
+
+        let opts = MatchOptions {
+            ignore_search: true,
+            ..MatchOptions::default()
+        };
+        let urls: Vec<String> =
+            match_all(&conn, "v1", "https://example.com/page", "GET", &[], &opts)
+                .unwrap()
+                .into_iter()
+                .map(|e| e.request_url)
+                .collect();
+        assert_eq!(
+            urls,
+            [
+                "https://example.com/page?z=1",
+                "https://example.com/page?a=2",
+            ]
+        );
     }
 
     #[test]
