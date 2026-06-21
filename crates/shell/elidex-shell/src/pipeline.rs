@@ -3,6 +3,7 @@
 use std::rc::Rc;
 use std::sync::Arc;
 
+use elidex_css::media::Medium;
 use elidex_css::Stylesheet;
 use elidex_ecs::EcsDom;
 use elidex_ecs::Entity;
@@ -61,7 +62,13 @@ pub(super) fn run_scripts_and_finalize(
 
     // Initial style resolution (with compat layer).
     let default_viewport = Size::new(DEFAULT_VIEWPORT_WIDTH, DEFAULT_VIEWPORT_HEIGHT);
-    resolve_with_compat(dom, &stylesheet_refs, registry, default_viewport);
+    resolve_with_compat(
+        dom,
+        &stylesheet_refs,
+        registry,
+        default_viewport,
+        Medium::Screen,
+    );
 
     // Script execution phase.
     let mut session = SessionCore::new();
@@ -93,7 +100,13 @@ pub(super) fn run_scripts_and_finalize(
     flush_with_ce_reactions(&mut runtime, &mut session, dom, document);
 
     // Re-resolve styles after DOM mutations from scripts (with compat layer).
-    let viewport_overflow = resolve_with_compat(dom, &stylesheet_refs, registry, default_viewport);
+    let viewport_overflow = resolve_with_compat(
+        dom,
+        &stylesheet_refs,
+        registry,
+        default_viewport,
+        Medium::Screen,
+    );
 
     layout_tree(dom, default_viewport, font_db);
 
@@ -118,7 +131,9 @@ pub(super) fn build_paged_pipeline(
 ) -> elidex_render::PagedDisplayList {
     let stylesheet_refs: Vec<&Stylesheet> = stylesheets.iter().collect();
     let viewport = Size::new(page_ctx.page_width, page_ctx.page_height);
-    resolve_with_compat(dom, &stylesheet_refs, registry, viewport);
+    // Paged/print output → `Medium::Print` so `@media print` rules apply and
+    // `@media screen` rules do not (mediaqueries-5 §2.3 / CSS Conditional §2).
+    resolve_with_compat(dom, &stylesheet_refs, registry, viewport, Medium::Print);
 
     elidex_render::build_paged_display_lists_interleaved(dom, font_db, page_ctx)
 }

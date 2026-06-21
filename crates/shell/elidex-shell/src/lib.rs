@@ -242,19 +242,21 @@ fn apply_cssom_mutations(
                     sheet.origin,
                     Some(registry),
                 );
-                // NOTE: unlike the dom-api path (which uses `parse_single_rule`
-                // and rejects `@media` as an unsupported `CSSMediaRule` insert,
-                // `#11-css-media-rule`), this boa path takes the first parsed
-                // rule, so `insertRule("@media …")` would insert a conditioned
-                // rule (filtered from `cssRules`, gated in the cascade). This
-                // leniency asymmetry is left as-is — the boa CSSOM path is
-                // deleted at the S5 cutover and this is not a regression (it was
-                // a silent no-op before `@media` retention).
                 if let Some(mut rule) = parsed.rules.into_iter().next() {
-                    rule.source_order = 0;
-                    let actual = cssom_actual_rule_index(&sheet.rules, *rule_index);
-                    sheet.rules.insert(actual, rule);
-                    dirty_sheets.insert(*sheet_index);
+                    // Reject an `@media`-conditioned insert (the parsed rule
+                    // carries a non-empty `media_conditions` chain), matching the
+                    // dom-api path's `parse_single_rule` rejection — a
+                    // `CSSMediaRule` insert is deferred (`#11-css-media-rule`).
+                    // Without this, the rule would be filtered out of `cssRules`
+                    // yet still affect rendering and resist `deleteRule` — an
+                    // inconsistent, un-addressable mutation. Skipping restores the
+                    // pre-`@media`-retention no-op for `insertRule("@media …")`.
+                    if rule.media_conditions.is_empty() {
+                        rule.source_order = 0;
+                        let actual = cssom_actual_rule_index(&sheet.rules, *rule_index);
+                        sheet.rules.insert(actual, rule);
+                        dirty_sheets.insert(*sheet_index);
+                    }
                 }
             }
             elidex_js_boa::bridge::CssomMutation::DeleteRule {
@@ -310,6 +312,7 @@ fn resolve_with_compat(
     author_stylesheets: &[&Stylesheet],
     registry: &elidex_plugin::CssPropertyRegistry,
     viewport: Size,
+    medium: elidex_css::media::Medium,
 ) -> ViewportOverflow {
     let legacy_ua = legacy_ua_stylesheet();
     resolve_styles_with_compat(
@@ -318,6 +321,7 @@ fn resolve_with_compat(
         &[legacy_ua],
         &get_presentational_hints,
         viewport,
+        medium,
         Some(registry),
     )
 }
@@ -749,6 +753,7 @@ pub(crate) fn re_render(result: &mut PipelineResult) -> Vec<elidex_script_sessio
         &stylesheet_refs,
         &result.registry,
         result.viewport,
+        elidex_css::media::Medium::Screen,
     );
 
     // Phase 3: Detect transitions by comparing old vs new computed values.

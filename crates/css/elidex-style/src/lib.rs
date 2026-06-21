@@ -91,7 +91,18 @@ pub fn resolve_styles(
     author_stylesheets: &[&Stylesheet],
     viewport: Size,
 ) -> ViewportOverflow {
-    resolve_styles_with_compat(dom, author_stylesheets, &[], &no_hints, viewport, None)
+    // Screen medium — the continuous-output default. Paged/print output resolves
+    // via `resolve_styles_with_compat(.., Medium::Print, ..)` so `@media print`
+    // applies (mediaqueries-5 §2.3 / CSS Conditional §2).
+    resolve_styles_with_compat(
+        dom,
+        author_stylesheets,
+        &[],
+        &no_hints,
+        viewport,
+        Medium::Screen,
+        None,
+    )
 }
 
 /// Extended style resolution accepting compat layer data.
@@ -107,6 +118,7 @@ pub fn resolve_styles_with_compat(
     extra_ua_sheets: &[&Stylesheet],
     hint_generator: &dyn Fn(Entity, &EcsDom) -> Vec<Declaration>,
     viewport: Size,
+    medium: Medium,
     _registry: Option<&CssPropertyRegistry>,
 ) -> ViewportOverflow {
     let ua = ua::ua_stylesheet();
@@ -126,14 +138,14 @@ pub fn resolve_styles_with_compat(
 
     // The `@media` cascade environment (CSS Conditional §2 / mediaqueries-5).
     // Derived from the same `viewport` device-fact `ctx` uses — a derived view,
-    // not a competing SoT. `medium = Screen` (no paged-output restyle driver
-    // exists yet; a future print pass would pass `Medium::Print`, which the
-    // evaluator + field already support — so `@media print` correctly does NOT
-    // match here). The non-viewport device facts (dppx / prefers-* / color)
-    // take `MediaEnvironment::default()` until shell producers light them up
-    // (carved `#11-media-prefers-features` / `#11-media-css-values-fidelity`).
+    // not a competing SoT. `medium` is caller-supplied: the screen pipeline
+    // passes `Medium::Screen`, the paged/print pipeline passes `Medium::Print`
+    // so `@media print` applies in paged output (mediaqueries-5 §2.3). The
+    // non-viewport device facts (dppx / prefers-* / color) take
+    // `MediaEnvironment::default()` until shell producers light them up (carved
+    // `#11-media-prefers-features` / `#11-media-css-values-fidelity`).
     let media_env = MediaEnvironment {
-        medium: Medium::Screen,
+        medium,
         viewport_width: f64::from(viewport.width),
         viewport_height: f64::from(viewport.height),
         root_font_size_px: 16.0,

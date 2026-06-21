@@ -329,14 +329,29 @@ impl<'i> AtRuleParser<'i> for RuleListParser<'_> {
                 let start_pos = input.position();
                 while input.next_including_whitespace_and_comments().is_ok() {}
                 let body = input.slice_from(start_pos).to_string();
-                self.keyframes_raw.push((name, body));
+                // The keyframes side-channel carries no media condition, and its
+                // consumer registers every entry unconditionally — so a
+                // `@keyframes` nested inside a (possibly non-matching) `@media`
+                // must NOT be side-channeled (it would animate regardless of the
+                // condition, CSS Conditional Rules §2 violation). Drop it inside
+                // any `@media` (matches pre-`@media`-retention behavior, where the
+                // whole `@media` block was skipped). Conditional `@keyframes`/
+                // `@page` support is a follow-up (`#11-css-media-conditional-side-rules`).
+                if self.media_stack.is_empty() {
+                    self.keyframes_raw.push((name, body));
+                }
             }
             AtRuleKind::Page(prelude_text) => {
                 let start_pos = input.position();
                 while input.next_including_whitespace_and_comments().is_ok() {}
-                let body = input.slice_from(start_pos).to_string();
-                let rules = parse_page_rules(&prelude_text, &body);
-                self.page_rules.extend(rules);
+                // Same as `@keyframes`: `@page` is side-channeled without a media
+                // condition, so a `@page` nested inside `@media` is dropped rather
+                // than fed to paged layout unconditionally (`#11-css-media-conditional-side-rules`).
+                if self.media_stack.is_empty() {
+                    let body = input.slice_from(start_pos).to_string();
+                    let rules = parse_page_rules(&prelude_text, &body);
+                    self.page_rules.extend(rules);
+                }
             }
         }
 
@@ -580,6 +595,29 @@ mod tests {
         );
         assert_eq!(ok.rules.len(), 1);
         assert_eq!(ok.rules[0].media_conditions.len(), 2);
+    }
+
+    #[test]
+    fn conditional_keyframes_and_page_are_not_side_channeled() {
+        // CSS Conditional §2: a `@keyframes`/`@page` nested inside `@media` must
+        // not be registered unconditionally (the side-channels carry no media
+        // condition). They are dropped (matching pre-retention behavior); only
+        // top-level `@keyframes`/`@page` reach the side-channels.
+        let ss = parse_stylesheet(
+            "@media print { @keyframes spin { from { opacity: 0 } to { opacity: 1 } } } \
+             @keyframes fade { from { opacity: 0 } to { opacity: 1 } }",
+            Origin::Author,
+        );
+        // Only the top-level `fade` is registered; the print-gated `spin` is not.
+        assert_eq!(ss.keyframes_raw.len(), 1);
+        assert_eq!(ss.keyframes_raw[0].0, "fade");
+
+        let pg = parse_stylesheet(
+            "@media screen { @page { size: A4 } } @page { size: letter }",
+            Origin::Author,
+        );
+        // Only the top-level `@page` is retained; the screen-gated one is not.
+        assert_eq!(pg.page_rules.len(), 1);
     }
 
     #[test]
