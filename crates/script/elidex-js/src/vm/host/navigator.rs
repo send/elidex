@@ -155,11 +155,19 @@ const NAVIGATOR_RO_ACCESSORS: &[(&str, super::super::NativeFn)] =
 /// cross-cutting cookie state (always-compiled in every mode), so it is independent
 /// of the `compat-webapi`-gated `document.cookie` accessor: a session that handles
 /// cookies reports `true` even where `document.cookie` is hidden.
+///
+/// Reads the installed `HostData` via [`host_opt`](NativeContext::host_opt), NOT
+/// [`host_if_bound`](NativeContext::host_if_bound): the cookie jar is a session
+/// resource documented to persist across bind/unbind cycles, and this is a
+/// resource-presence check (no DOM operation), so it must not be gated on a
+/// current DOM bind — a jar-installed session between bind cycles still handles
+/// cookies and must report `true`. (`host_if_bound` is for natives that perform a
+/// `host.dom()` operation and need a bound DOM.)
 fn native_navigator_get_cookie_enabled(
     ctx: &mut NativeContext<'_>,
     _this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let enabled = ctx.host_if_bound().and_then(|hd| hd.cookie_jar()).is_some();
+    let enabled = ctx.host_opt().and_then(|hd| hd.cookie_jar()).is_some();
     Ok(JsValue::Boolean(enabled))
 }

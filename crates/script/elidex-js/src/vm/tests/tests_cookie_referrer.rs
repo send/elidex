@@ -365,6 +365,30 @@ fn navigator_cookie_enabled_true_at_about_blank_with_jar() {
     vm.unbind();
 }
 
+#[test]
+fn navigator_cookie_enabled_true_when_jar_installed_but_unbound() {
+    // Codex R4: the cookie jar persists across bind/unbind cycles (a session
+    // resource), and `cookieEnabled` is a resource-presence check (no DOM op), so
+    // it must read the installed `HostData` bind-independently (`host_opt`), not
+    // gated on a current DOM bind (`host_if_bound`). A VM with a jar installed but
+    // between bind cycles still handles cookies → `true`.
+    let mut vm = Vm::new();
+    vm.install_host_data(super::super::host_data::HostData::new());
+    let jar = Arc::new(CookieJar::new());
+    vm.host_data()
+        .expect("host_data installed")
+        .install_cookie_jar(jar);
+    // NB: no `bind_vm` — the VM is unbound (`is_bound()` == false) but the jar
+    // resource is present: the exact state R4 flagged.
+
+    let v = vm.eval("navigator.cookieEnabled").unwrap();
+    assert!(
+        matches!(v, JsValue::Boolean(true)),
+        "a jar-installed but unbound session must report cookieEnabled true \
+         (jar persists across bind/unbind); got {v:?}"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // document.referrer
 // ---------------------------------------------------------------------------
