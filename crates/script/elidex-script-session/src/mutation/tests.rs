@@ -945,3 +945,42 @@ fn apply_insert_before_self_reference_last_child_appends() {
     assert_eq!(records[1].added_nodes, vec![b]);
     assert_eq!(dom.children(parent), vec![a, b], "b stays last");
 }
+
+#[test]
+fn apply_insert_before_self_reference_with_orphan_ref_is_rejected() {
+    let mut dom = EcsDom::new();
+    let parent = elem(&mut dom, "div");
+    let a = elem(&mut dom, "a");
+    dom.append_child(parent, a); // parent = [a]
+    let orphan = elem(&mut dom, "orphan"); // not a child of parent
+
+    // `insertBefore(orphan, orphan)`: referenceChild (orphan) ∉ parent → §4.2.3
+    // pre-insert step 3 NotFound (empty list → handler error). The self-reference
+    // advance must NOT fire before ref ∈ parent is established, else it would append
+    // the orphan. (Codex PR393 R2 regression of R1 finding 3.)
+    let records = super::apply_insert_before(&mut dom, parent, orphan, orphan);
+    assert!(records.is_empty(), "ref ∉ parent must fail, not append");
+    assert_eq!(dom.children(parent), vec![a], "tree unchanged");
+    assert!(
+        dom.get_parent(orphan).is_none(),
+        "orphan not moved into parent"
+    );
+}
+
+#[test]
+fn apply_insert_before_self_reference_with_other_parent_ref_is_rejected() {
+    let mut dom = EcsDom::new();
+    let parent = elem(&mut dom, "div");
+    let other = elem(&mut dom, "div");
+    let x = elem(&mut dom, "x");
+    dom.append_child(other, x); // x ∈ other, not parent
+
+    // `parent.insertBefore(x, x)` where x belongs to `other` → ref ∉ parent → reject.
+    let records = super::apply_insert_before(&mut dom, parent, x, x);
+    assert!(records.is_empty());
+    assert_eq!(
+        dom.get_parent(x),
+        Some(other),
+        "x stays under its real parent"
+    );
+}

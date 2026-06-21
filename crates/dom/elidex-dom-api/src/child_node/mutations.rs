@@ -103,10 +103,13 @@ impl DomApiHandler for Before {
 
         // Re-derive actual_ref from viable_prev AFTER conversion, using the
         // now-stable tree. viable_prev itself was not moved (it's not in the
-        // exclude list), so its next_sibling is valid.
+        // exclude list), so its next sibling is valid. Use EXPOSED navigation
+        // (first exposed child / `next_exposed_sibling`) so an internal `ShadowRoot`
+        // never becomes the reference child / `nextSibling` record field (§4.8;
+        // Codex PR393 R2).
         let actual_ref = match viable_prev {
-            None => dom.get_first_child(parent),
-            Some(prev) => dom.get_next_sibling(prev),
+            None => dom.children_iter(parent).next(),
+            Some(prev) => dom.next_exposed_sibling(prev),
         };
 
         ensure_pre_insertion_validity(parent, node, actual_ref, dom)?;
@@ -267,7 +270,11 @@ impl DomApiHandler for Prepend {
         }
 
         let (node, is_temp) = convert_nodes_into_node(nodes, session, dom);
-        let first_child = dom.get_first_child(this);
+        // First EXPOSED child (`children_iter` skips an internal `ShadowRoot`, §4.8) so
+        // `prepend` on a shadow host with no light children inserts before null (append)
+        // rather than before the shadow root — which would leak into the record's
+        // `nextSibling`. (Codex PR393 R2.)
+        let first_child = dom.children_iter(this).next();
         ensure_pre_insertion_validity(this, node, first_child, dom)?;
         route_insert(session, dom, this, node, first_child, is_temp);
         Ok(JsValue::Undefined)

@@ -366,29 +366,34 @@ pub(crate) fn viable_next_sibling(
     exclude: &[Entity],
     dom: &EcsDom,
 ) -> Option<Entity> {
-    let mut current = dom.get_next_sibling(entity);
+    // Walk the **exposed** sibling chain (`next_exposed_sibling` skips internal
+    // `ShadowRoot` entities, §4.8) so a shadow host's shadow root can never become a
+    // reference child — otherwise it would leak into `MutationRecord.nextSibling`,
+    // which the Node accessors hide from `firstChild`/`nextSibling`. (Codex PR393 R2.)
+    let mut current = dom.next_exposed_sibling(entity);
     while let Some(sibling) = current {
         if !exclude.contains(&sibling) {
             return Some(sibling);
         }
-        current = dom.get_next_sibling(sibling);
+        current = dom.next_exposed_sibling(sibling);
     }
     None
 }
 
-/// Walk previous siblings of `entity`, skipping any in `exclude`. Returns the
-/// first sibling not in the exclude list, or `None`.
+/// Walk previous siblings of `entity`, skipping any in `exclude` (and internal
+/// `ShadowRoot` entities — see [`viable_next_sibling`]). Returns the first viable
+/// exposed sibling, or `None`.
 pub(crate) fn viable_prev_sibling(
     entity: Entity,
     exclude: &[Entity],
     dom: &EcsDom,
 ) -> Option<Entity> {
-    let mut current = dom.get_prev_sibling(entity);
+    let mut current = dom.prev_exposed_sibling(entity);
     while let Some(sibling) = current {
         if !exclude.contains(&sibling) {
             return Some(sibling);
         }
-        current = dom.get_prev_sibling(sibling);
+        current = dom.prev_exposed_sibling(sibling);
     }
     None
 }

@@ -540,3 +540,40 @@ fn replace_children_multiple_frees_transient_wrapper_fragment() {
         "replaceChildren transient wrapper DocumentFragment must be freed"
     );
 }
+
+// ---- shadow-root reference-child exposure ----
+
+#[test]
+fn prepend_on_shadow_host_does_not_leak_shadow_root_as_reference() {
+    use elidex_ecs::ShadowRootMode;
+    let (mut dom, _body, _div, _span, _p, mut session) = setup();
+    // A shadow host with a shadow root but NO light children: `get_first_child`
+    // returns the internal ShadowRoot, but `prepend` must use the first EXPOSED child
+    // (none → append) so the ShadowRoot never becomes the reference child / leaks into
+    // the record's `nextSibling`. (Codex PR393 R2.)
+    let host = dom.create_element("div", Attributes::default());
+    let _sr = dom
+        .attach_shadow(host, ShadowRootMode::Open)
+        .expect("attach_shadow");
+    let x = dom.create_element("x", Attributes::default());
+    let x_ref = session
+        .get_or_create_wrapper(x, ComponentKind::Element)
+        .to_raw();
+
+    Prepend
+        .invoke(host, &[JsValue::ObjectRef(x_ref)], &mut session, &mut dom)
+        .unwrap();
+
+    let records = session.take_notify_records();
+    assert_eq!(records.len(), 1);
+    assert_eq!(records[0].added_nodes, vec![x]);
+    assert_eq!(
+        records[0].next_sibling, None,
+        "shadow root must not leak as the record's nextSibling"
+    );
+    assert_eq!(
+        dom.children(host),
+        vec![x],
+        "x is the only (first) light child"
+    );
+}

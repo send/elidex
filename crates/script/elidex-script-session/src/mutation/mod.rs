@@ -453,14 +453,24 @@ pub fn apply_insert_before(
     new_child: Entity,
     ref_child: Entity,
 ) -> Vec<MutationRecord> {
+    // §4.2.3 pre-insert step 3 (NotFoundError): referenceChild must be a child of
+    // `parent`. Establish this BEFORE the self-reference advance and before any move,
+    // so `insertBefore(orphan, orphan)` / `insertBefore(otherChild, otherChild)` fail
+    // (empty list → the handler maps it to an error) instead of being treated as a
+    // valid self-reference no-op. Also the up-front guard the fragment path needs
+    // (`EcsDom::insert_before` would reject a bad `ref_child`, but the per-node
+    // closure ignores that). (Codex PR393 R2.)
+    if dom.get_parent(ref_child) != Some(parent) {
+        return Vec::new();
+    }
     // §4.2.3 pre-insert step 3: "if referenceChild is node, set referenceChild to
     // node's next sibling" — a self-reference (`insertBefore(x, x)`,
-    // `first.before(first)`, `parent.prepend(parent.firstChild)`) is a
-    // no-position-change move, NOT an error. `EcsDom::insert_before` rejects
-    // `new_child == ref_child` outright, so apply the spec advance here (the single
-    // canonical home, shared by node_proto + the ChildNode/ParentNode mixin path)
-    // before the rejection swallows the move + its records. Advancing to the next
-    // sibling (or appending when `new_child` is last) yields the spec-mandated
+    // `first.before(first)`, `parent.prepend(parent.firstChild)`) where `x ∈ parent`
+    // (now established) is a no-position-change move, NOT an error. `EcsDom::insert_before`
+    // rejects `new_child == ref_child` outright, so apply the spec advance here (the
+    // single canonical home, shared by node_proto + the ChildNode/ParentNode mixin
+    // path) before the rejection swallows the move + its records. Advancing to the next
+    // exposed sibling (or appending when `new_child` is last) yields the spec-mandated
     // self-sibling move records (B1.2a). `next != new_child`, so no infinite loop.
     if new_child == ref_child {
         return match dom.next_exposed_sibling(new_child) {
@@ -471,18 +481,8 @@ pub fn apply_insert_before(
     if dom.is_document_fragment(new_child) {
         // §4.2.3 step 2 (atomic, before any move): a fragment that is a
         // host-including inclusive ancestor of `parent` is a HierarchyRequestError.
-        // See `apply_append_child`.
+        // See `apply_append_child`. (`ref_child ∈ parent` already established above.)
         if dom.is_ancestor_or_self(new_child, parent) {
-            return Vec::new();
-        }
-        // Validate the reference child up front: `EcsDom::insert_before` rejects a
-        // `ref_child` that is not a child of `parent` (returns false), but the
-        // fragment path drives the per-node relink through a closure that ignores
-        // that failure — so without this check a bad reference would emit records
-        // for children that were never inserted. Empty list ⇒ failure (the handler
-        // maps it to an error; a *valid* empty-fragment no-op is distinguished by
-        // the handler via fragment-ness, see `element/tree.rs`).
-        if dom.get_parent(ref_child) != Some(parent) {
             return Vec::new();
         }
         // DocumentFragment: expand its children before `ref_child`. `previousSibling`
