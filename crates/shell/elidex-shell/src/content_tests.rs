@@ -1,34 +1,8 @@
+use super::test_support::{spawn_test_content, test_network};
 use super::*;
 use crate::ipc::{self, BrowserToContent, ContentToBrowser, ModifierState};
 use elidex_plugin::Point;
 use std::time::Duration;
-
-/// Create a `NetworkHandle` + `CookieJar` backed by a test broker.
-/// Returns the `NetworkProcessHandle` so the caller keeps the broker alive.
-fn test_network() -> (
-    elidex_net::broker::NetworkHandle,
-    std::sync::Arc<elidex_net::CookieJar>,
-    elidex_net::broker::NetworkProcessHandle,
-) {
-    let np = elidex_net::broker::spawn_network_process(elidex_net::NetClient::new());
-    let nh = np.create_renderer_handle();
-    let jar = std::sync::Arc::clone(np.cookie_jar());
-    (nh, jar, np)
-}
-
-/// Spawn a content thread for tests with a **no-op** wake. The wake mechanism
-/// itself (PR-A repaint-wake) is exercised by
-/// `content_thread_wake_fires_on_display_list`; every other test only needs the
-/// content thread to run, so it injects a do-nothing `WakeHandle`.
-fn spawn_test_content(
-    content: crate::ipc::LocalChannel<ContentToBrowser, BrowserToContent>,
-    nh: elidex_net::broker::NetworkHandle,
-    jar: std::sync::Arc<elidex_net::CookieJar>,
-    html: String,
-    css: String,
-) -> std::thread::JoinHandle<()> {
-    spawn_content_thread(content, nh, jar, html, css, Box::new(|| {}))
-}
 
 /// PR-A: a content-initiated frame must **wake** the browser event loop so it
 /// reaches a rendering opportunity (WHATWG HTML §8.1.7.3) under

@@ -9,8 +9,8 @@ use winit::event_loop::ActiveEventLoop;
 use elidex_render::DisplayList;
 
 use super::render::{handle_redraw, handle_redraw_with_tabs};
-use super::{winit_button_to_dom, App};
-use crate::chrome::{self, ChromeAction};
+use super::{winit_button_to_dom, App, ContentAreaPlacement};
+use crate::chrome::ChromeAction;
 use crate::ipc::{BrowserToContent, ContentToBrowser};
 
 impl App {
@@ -46,8 +46,11 @@ impl App {
             .and_then(|mgr| mgr.active_tab())
             .is_some_and(|tab| tab.chrome.address_focused);
 
-        let position = self.tab_bar_position();
-        let offset = chrome::chrome_content_offset(position);
+        // Content-area origin + scale for input mapping come from the cached
+        // placement SoT — no second `chrome_content_offset` call (the builder
+        // `content_area_placement` is its single caller). `None` before the
+        // window exists; the input arms below skip mapping in that case.
+        let placement = self.placement;
 
         // Most event arms need a redraw; track exceptions explicitly.
         let mut needs_redraw = true;
@@ -60,10 +63,12 @@ impl App {
                 needs_redraw = false;
             }
             WindowEvent::CursorMoved { position, .. } => {
-                self.handle_cursor_move_threaded(
-                    elidex_plugin::Point::new(position.x, position.y),
-                    offset,
-                );
+                if let Some(placement) = placement {
+                    self.handle_cursor_move_threaded(
+                        elidex_plugin::Point::new(position.x, position.y),
+                        placement,
+                    );
+                }
             }
             WindowEvent::CursorLeft { .. } => {
                 self.cursor_in_content = false;
@@ -74,7 +79,9 @@ impl App {
                 button,
                 ..
             } => {
-                self.handle_mouse_press_threaded(button, offset);
+                if let Some(placement) = placement {
+                    self.handle_mouse_press_threaded(button, placement);
+                }
             }
             WindowEvent::MouseInput {
                 state: ElementState::Released,
@@ -86,7 +93,9 @@ impl App {
                 });
             }
             WindowEvent::MouseWheel { delta, .. } => {
-                self.handle_mouse_wheel_threaded(delta, offset);
+                if let Some(placement) = placement {
+                    self.handle_mouse_wheel_threaded(delta, placement);
+                }
             }
             WindowEvent::KeyboardInput {
                 event: key_event, ..
@@ -118,6 +127,23 @@ impl App {
         self.drain_content_messages();
         self.sync_cookies_if_dirty();
 
+        // Recompute the placement SoT for this frame from the current window —
+        // the authoritative per-frame snapshot (§2.3 / F8 coherence with the
+        // `surface_config` written on `Resized`). Then derive the compositor's
+        // physical-px content placement (offset/size/scale) for this frame.
+        if let Some(window) = self
+            .render_state
+            .as_ref()
+            .map(|s| std::sync::Arc::clone(&s.window))
+        {
+            self.placement = Some(self.content_area_placement(&window));
+        }
+        let content = self.placement.map(|p| elidex_render::ContentPlacement {
+            offset: p.origin_phys(),
+            size: p.size_phys(),
+            scale: p.scale_factor,
+        });
+
         // Apply pending window.focus() request.
         if self.pending_focus {
             self.pending_focus = false;
@@ -146,6 +172,7 @@ impl App {
                 handle_redraw_with_tabs(
                     state,
                     &tab.display_list,
+                    content,
                     &mut tab.chrome,
                     tab.can_go_back,
                     tab.can_go_forward,
@@ -191,17 +218,102 @@ impl App {
     /// Only sends to content thread when cursor is in the content area.
     /// When cursor first moves into chrome/tab bar, sends `CursorLeft`
     /// to clear hover state (otherwise `:hover` stays stuck).
+    /// Map a physical-px cursor position to content-area CSS px:
+    /// `(cursor ÷ scale_factor) − origin_logical` — the exact inverse of the
+    /// compositor transform (B-D2). The single input-mapping primitive: both the
+    /// hit-test `point` (via `.to_f32()`) and the DOM `clientX`/`clientY`
+    /// `client_point` (f64) derive from this one content-area-relative mapping,
+    /// so the two coordinates the content thread receives are the *same* viewport
+    /// point — the `ipc` contract (both `point` and `client_point` are
+    /// content-area/viewport-relative; `clientX`/`clientY` are viewport-relative
+    /// per CSSOM View Module Level 1 §10 (Extensions to the MouseEvent
+    /// Interface), and the iframe router subtracts the iframe's
+    /// content-relative origin from both). Computed in f64 to preserve
+    /// `clientX`/`clientY` precision.
+    fn cursor_to_content(
+        cursor: elidex_plugin::Point<f64>,
+        placement: ContentAreaPlacement,
+    ) -> elidex_plugin::Point<f64> {
+        let scale = f64::from(placement.scale_factor);
+        elidex_plugin::Point::new(
+            cursor.x / scale - f64::from(placement.origin_logical.x),
+            cursor.y / scale - f64::from(placement.origin_logical.y),
+        )
+    }
+
+    /// Whether a content-area CSS-px point falls inside the placed content rect
+    /// `[0, size_logical)`. The compositor clips the page to `size_logical`, so a
+    /// point past the right/bottom edge (e.g. a `TabBarPosition::Right` sidebar,
+    /// where `x ≥ 0` but `x ≥ size_logical.width`) is over chrome, not painted
+    /// page content, and must not be treated as in-content. The shared in-content
+    /// gate for all three threaded pointer handlers (B-D2 / invariant I1: the
+    /// input rect equals the painted rect).
+    fn point_in_content(
+        content: elidex_plugin::Point<f64>,
+        placement: ContentAreaPlacement,
+    ) -> bool {
+        content.x >= 0.0
+            && content.y >= 0.0
+            && content.x < f64::from(placement.size_logical.width)
+            && content.y < f64::from(placement.size_logical.height)
+    }
+
+    /// Whether a stationary cursor at `cursor_pos` now falls **outside** the
+    /// content rect under `placement` — i.e. a placement change (a resize that
+    /// shrinks/moves the content area) left a previously-in-content cursor over
+    /// chrome. `None` cursor → never "left" (nothing to clear).
+    fn cursor_left_content(
+        cursor_pos: Option<elidex_plugin::Point<f64>>,
+        placement: ContentAreaPlacement,
+    ) -> bool {
+        cursor_pos.is_some_and(|c| {
+            !Self::point_in_content(Self::cursor_to_content(c, placement), placement)
+        })
+    }
+
+    /// After the placement changes without a `CursorMoved` (e.g. an OS resize),
+    /// re-run the in-content gate for the cached cursor: if it was inside content
+    /// and the new content rect no longer contains it, clear `cursor_in_content`
+    /// and send `CursorLeft` so `:hover` does not stay stuck until the next
+    /// pointer move. No-op in legacy mode (`send_to_content` has no active tab).
+    pub(super) fn reclip_cursor_after_placement_change(&mut self, placement: ContentAreaPlacement) {
+        if self.cursor_in_content && Self::cursor_left_content(self.cursor_pos, placement) {
+            self.cursor_in_content = false;
+            self.send_to_content(BrowserToContent::CursorLeft);
+        }
+    }
+
+    /// Convert a winit scroll delta to CSS-px scroll vector (browser sign
+    /// convention: positive = scrollTop increases, so winit deltas are negated).
+    /// `LineDelta` → 40 CSS px per line. `PixelDelta` is **physical** px, divided
+    /// by `scale_factor` to CSS px (B-D2) so HiDPI scroll distance matches the
+    /// cursor mapping and the painted content (the `MouseWheel` IPC contract is
+    /// CSS px).
+    fn scroll_delta_to_css(delta: MouseScrollDelta, scale: f32) -> elidex_plugin::Vector<f64> {
+        const LINE_SCROLL_PX: f64 = 40.0;
+        match delta {
+            MouseScrollDelta::LineDelta(x, y) => elidex_plugin::Vector::new(
+                -f64::from(x) * LINE_SCROLL_PX,
+                -f64::from(y) * LINE_SCROLL_PX,
+            ),
+            MouseScrollDelta::PixelDelta(pos) => {
+                let s = f64::from(scale);
+                elidex_plugin::Vector::new(-pos.x / s, -pos.y / s)
+            }
+        }
+    }
+
     fn handle_cursor_move_threaded(
         &mut self,
         client_pos: elidex_plugin::Point<f64>,
-        offset: elidex_plugin::Point,
+        placement: ContentAreaPlacement,
     ) {
-        let content_pos = client_pos.to_f32() - offset.to_vector();
-        if content_pos.x >= 0.0 && content_pos.y >= 0.0 {
+        let content = Self::cursor_to_content(client_pos, placement);
+        if Self::point_in_content(content, placement) {
             self.cursor_in_content = true;
             self.send_to_content(BrowserToContent::MouseMove {
-                point: content_pos,
-                client_point: client_pos,
+                point: content.to_f32(),
+                client_point: content,
             });
         } else if self.cursor_in_content {
             self.cursor_in_content = false;
@@ -213,15 +325,15 @@ impl App {
     fn handle_mouse_press_threaded(
         &mut self,
         button: winit::event::MouseButton,
-        offset: elidex_plugin::Point,
+        placement: ContentAreaPlacement,
     ) {
         if let Some(cursor) = self.cursor_pos {
-            let content_pos = cursor.to_f32() - offset.to_vector();
-            if content_pos.x >= 0.0 && content_pos.y >= 0.0 {
+            let content = Self::cursor_to_content(cursor, placement);
+            if Self::point_in_content(content, placement) {
                 let mods = Self::to_modifier_state(self.modifiers.state());
                 self.send_to_content(BrowserToContent::MouseClick(crate::ipc::MouseClickEvent {
-                    point: content_pos,
-                    client_point: cursor,
+                    point: content.to_f32(),
+                    client_point: content,
                     button: winit_button_to_dom(button),
                     mods,
                 }));
@@ -229,36 +341,44 @@ impl App {
         }
     }
 
+    /// Resolve the content-area scroll target for a wheel event, or `None` to
+    /// drop it. With a **known** cursor the in-content gate applies (a cursor over
+    /// chrome must not scroll the unpainted page under it — the hover/click rule
+    /// applied to the wheel). But before the first `CursorMoved` (`cursor_pos` is
+    /// `None` — e.g. the first input after focus is a wheel), fall back to the
+    /// content origin so the page still scrolls: `content::scroll::handle_wheel`
+    /// scrolls the viewport without a hit target, so dropping the wheel here would
+    /// regress wheel scrolling until the pointer is first moved.
+    fn wheel_target_point(
+        cursor_pos: Option<elidex_plugin::Point<f64>>,
+        placement: ContentAreaPlacement,
+    ) -> Option<elidex_plugin::Point> {
+        match cursor_pos {
+            Some(cursor) => {
+                let content = Self::cursor_to_content(cursor, placement);
+                Self::point_in_content(content, placement).then(|| content.to_f32())
+            }
+            None => Some(elidex_plugin::Point::ZERO),
+        }
+    }
+
     /// Handle `MouseWheel` in threaded mode.
     ///
-    /// Converts winit scroll deltas to CSS pixels and sends to content thread.
-    /// Winit convention: positive = content moves right/down (natural scroll).
-    /// Browser convention: positive delta = scrollTop increases (scroll down).
-    /// These are opposite, so deltas are negated.
-    /// `LineDelta` is multiplied by 40px per line (typical browser behavior);
-    /// `PixelDelta` is used as-is (already in CSS pixels on most platforms).
+    /// Converts winit scroll deltas to CSS px ([`scroll_delta_to_css`]) and sends
+    /// to the content thread at the [`wheel_target_point`] (skipped only when a
+    /// known cursor is over chrome).
     fn handle_mouse_wheel_threaded(
         &mut self,
         delta: MouseScrollDelta,
-        offset: elidex_plugin::Point,
+        placement: ContentAreaPlacement,
     ) {
-        const LINE_SCROLL_PX: f64 = 40.0;
-        let scroll_delta = match delta {
-            MouseScrollDelta::LineDelta(x, y) => elidex_plugin::Vector::new(
-                -f64::from(x) * LINE_SCROLL_PX,
-                -f64::from(y) * LINE_SCROLL_PX,
-            ),
-            MouseScrollDelta::PixelDelta(pos) => elidex_plugin::Vector::new(-pos.x, -pos.y),
-        };
-        let point = self
-            .cursor_pos
-            .map_or(elidex_plugin::Point::ZERO, |cursor| {
-                cursor.to_f32() - offset.to_vector()
+        let scroll_delta = Self::scroll_delta_to_css(delta, placement.scale_factor);
+        if let Some(point) = Self::wheel_target_point(self.cursor_pos, placement) {
+            self.send_to_content(BrowserToContent::MouseWheel {
+                delta: scroll_delta,
+                point,
             });
-        self.send_to_content(BrowserToContent::MouseWheel {
-            delta: scroll_delta,
-            point,
-        });
+        }
     }
 
     /// Handle `KeyboardInput` in threaded mode.
@@ -472,5 +592,182 @@ impl App {
             crate::chrome::ChromeState::new(None),
             "New Tab".to_string(),
         );
+    }
+}
+
+#[cfg(test)]
+mod placement_input_tests {
+    use super::{App, ContentAreaPlacement};
+    use elidex_plugin::{Point, Size};
+
+    fn placement(origin: Point, scale: f32) -> ContentAreaPlacement {
+        ContentAreaPlacement {
+            origin_logical: origin,
+            size_logical: Size::new(800.0, 600.0),
+            scale_factor: scale,
+        }
+    }
+
+    #[test]
+    fn placement_phys_derivations_scale_by_factor() {
+        // origin_phys = origin_logical × scale; size_phys = size_logical × scale.
+        let pl = placement(Point::new(200.0, 36.0), 2.0);
+        let o = pl.origin_phys();
+        assert!((o.x - 400.0).abs() < f32::EPSILON);
+        assert!((o.y - 72.0).abs() < f32::EPSILON);
+        let s = pl.size_phys();
+        assert!((s.width - 1600.0).abs() < f32::EPSILON);
+        assert!((s.height - 1200.0).abs() < f32::EPSILON);
+    }
+
+    /// A click at the physical pixel where the compositor paints a content
+    /// CSS-px point round-trips back to that exact CSS point — the input mapper
+    /// `(cursor ÷ scale) − origin_logical` is the exact inverse of the
+    /// compositor transform `content × scale + origin_phys` (invariant I3), at
+    /// scale 1 and 2 for Top/Left/Right chrome.
+    #[test]
+    fn cursor_to_content_inverts_compositor_transform() {
+        // (origin_logical, scale): Top@1, Top@2, Left@2, Right@1.
+        let cases = [
+            (Point::new(0.0, 64.0), 1.0_f32),
+            (Point::new(0.0, 64.0), 2.0),
+            (Point::new(200.0, 36.0), 2.0),
+            (Point::new(0.0, 36.0), 1.0),
+        ];
+        let content_points = [
+            Point::new(0.0, 0.0),
+            Point::new(10.0, 10.0),
+            Point::new(799.0, 599.0),
+        ];
+        for (origin, scale) in cases {
+            let pl = placement(origin, scale);
+            for c in content_points {
+                // Compositor: a content CSS point `c` is painted at physical
+                // `(c + origin_logical) × scale`.
+                let phys = Point::<f64>::new(
+                    f64::from((c.x + origin.x) * scale),
+                    f64::from((c.y + origin.y) * scale),
+                );
+                let back = App::cursor_to_content(phys, pl);
+                assert!(
+                    (back.x - f64::from(c.x)).abs() < 1e-3,
+                    "x {} != {}",
+                    back.x,
+                    c.x
+                );
+                assert!(
+                    (back.y - f64::from(c.y)).abs() < 1e-3,
+                    "y {} != {}",
+                    back.y,
+                    c.y
+                );
+            }
+        }
+    }
+
+    /// `client_point` (DOM `clientX`/`clientY`) and the hit-test `point` are the
+    /// **same** content-area-relative CSS-px coordinate — both come from
+    /// `cursor_to_content`, so `clientX`/`clientY` are viewport-relative (chrome
+    /// `origin_logical` subtracted) and scale-divided, not window-relative and
+    /// not raw-physical. At a top chrome of 64 CSS px and scale 2, a physical
+    /// cursor over content CSS `(10, 10)` yields `client_point (10, 10)` — not
+    /// `(10, 74)` (origin kept) and not `(20, 148)` (raw physical).
+    #[test]
+    fn client_point_is_content_area_relative_css_px() {
+        // Top chrome 64 CSS px, scale 2. Content CSS (10, 10) is painted at
+        // physical ((10+0), (10+64)) × 2 = (20, 148).
+        let pl = placement(Point::new(0.0, 64.0), 2.0);
+        let phys = Point::<f64>::new(20.0, 148.0);
+        let client = App::cursor_to_content(phys, pl);
+        assert!((client.x - 10.0).abs() < 1e-9, "clientX {} != 10", client.x);
+        assert!((client.y - 10.0).abs() < 1e-9, "clientY {} != 10", client.y);
+    }
+
+    /// A point past the right/bottom edge of the placed content rect is rejected
+    /// (the compositor clips the page to `size_logical`, so it is over chrome,
+    /// not painted content) — e.g. a `TabBarPosition::Right` sidebar at `x ≥
+    /// width`. The lower edge `[0, …)` is accepted, the upper edge `size_logical`
+    /// is excluded (half-open `[0, size)`).
+    #[test]
+    fn point_in_content_rejects_outside_placed_rect() {
+        // 800×600 content rect (the `placement` helper's size_logical).
+        let pl = placement(Point::new(0.0, 0.0), 1.0);
+        assert!(App::point_in_content(Point::<f64>::new(0.0, 0.0), pl)); // top-left in
+        assert!(App::point_in_content(Point::<f64>::new(799.0, 599.0), pl)); // inside
+        assert!(!App::point_in_content(Point::<f64>::new(-1.0, 10.0), pl)); // left of origin
+        assert!(!App::point_in_content(Point::<f64>::new(10.0, -1.0), pl)); // above origin
+        assert!(!App::point_in_content(Point::<f64>::new(800.0, 10.0), pl)); // right edge (Right sidebar)
+        assert!(!App::point_in_content(Point::<f64>::new(10.0, 600.0), pl)); // bottom edge
+    }
+
+    /// `PixelDelta` scroll is physical px → divided by `scale_factor` to CSS px
+    /// (identity at scale 1, halved at scale 2), so HiDPI scroll distance matches
+    /// the cursor mapping. `LineDelta` (40 px/line) is scale-independent. Both are
+    /// negated (winit → browser scrollTop sign).
+    #[test]
+    fn scroll_delta_to_css_divides_pixeldelta_by_scale() {
+        use winit::dpi::PhysicalPosition;
+        use winit::event::MouseScrollDelta;
+        // PixelDelta at scale 1: identity (negated).
+        let d1 = App::scroll_delta_to_css(
+            MouseScrollDelta::PixelDelta(PhysicalPosition::new(40.0, 80.0)),
+            1.0,
+        );
+        assert!((d1.x + 40.0).abs() < 1e-9 && (d1.y + 80.0).abs() < 1e-9);
+        // PixelDelta at scale 2: physical (40, 80) → CSS (20, 40), negated.
+        let d2 = App::scroll_delta_to_css(
+            MouseScrollDelta::PixelDelta(PhysicalPosition::new(40.0, 80.0)),
+            2.0,
+        );
+        assert!((d2.x + 20.0).abs() < 1e-9 && (d2.y + 40.0).abs() < 1e-9);
+        // LineDelta is scale-independent: 1 line → 40 CSS px, negated.
+        let dl = App::scroll_delta_to_css(MouseScrollDelta::LineDelta(0.0, 1.0), 2.0);
+        assert!((dl.y + 40.0).abs() < 1e-9);
+    }
+
+    /// Wheel target resolution: a known cursor inside the content rect scrolls at
+    /// that content point; a known cursor over chrome (outside the rect) drops the
+    /// wheel (`None`); but an **unknown** cursor (`None`, before the first
+    /// `CursorMoved`) falls back to the content origin so the page still scrolls —
+    /// the early-`None`-return regression guard.
+    #[test]
+    fn wheel_target_point_falls_back_before_first_cursor_move() {
+        let pl = placement(Point::new(0.0, 64.0), 1.0); // 800×600 content rect
+                                                        // Unknown cursor → fall back to origin (still scrolls), NOT dropped.
+        assert_eq!(
+            App::wheel_target_point(None, pl),
+            Some(Point::new(0.0, 0.0))
+        );
+        // Known cursor inside content (physical (10, 74) → content (10, 10)).
+        assert_eq!(
+            App::wheel_target_point(Some(Point::<f64>::new(10.0, 74.0)), pl),
+            Some(Point::new(10.0, 10.0))
+        );
+        // Known cursor over chrome (physical y=10 < origin 64 → content y=-54) → drop.
+        assert_eq!(
+            App::wheel_target_point(Some(Point::<f64>::new(10.0, 10.0)), pl),
+            None
+        );
+    }
+
+    /// A resize that shrinks the content rect under a stationary cursor must be
+    /// detected so stuck `:hover` is cleared. `cursor_left_content` is true only
+    /// when a known cursor falls outside the *new* placement's content rect.
+    #[test]
+    fn cursor_left_content_detects_shrunk_rect_under_cursor() {
+        // Cursor at content (700, 500) under an 800×600 rect — inside.
+        let cursor = Point::<f64>::new(700.0, 500.0); // origin 0, scale 1 → content == cursor
+        let big = placement(Point::new(0.0, 0.0), 1.0); // 800×600
+        assert!(!App::cursor_left_content(Some(cursor), big));
+        // Shrink the content rect to 400×300 (e.g. window narrowed): the cursor
+        // is now outside → it "left" content.
+        let small = ContentAreaPlacement {
+            origin_logical: Point::new(0.0, 0.0),
+            size_logical: Size::new(400.0, 300.0),
+            scale_factor: 1.0,
+        };
+        assert!(App::cursor_left_content(Some(cursor), small));
+        // No cursor → never "left".
+        assert!(!App::cursor_left_content(None, small));
     }
 }

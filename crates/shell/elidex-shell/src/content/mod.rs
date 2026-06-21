@@ -699,5 +699,13 @@ fn apply_script_animations(state: &mut ContentState) {
 }
 
 #[cfg(test)]
+#[path = "../content_test_support.rs"]
+mod test_support;
+
+#[cfg(test)]
 #[path = "../content_tests.rs"]
 mod content_tests;
+
+#[cfg(test)]
+#[path = "../viewport_tests.rs"]
+mod viewport_tests;

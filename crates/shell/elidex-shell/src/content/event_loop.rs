@@ -268,11 +268,22 @@ fn handle_message(msg: BrowserToContent, state: &mut ContentState) -> bool {
                 let bridge = state.pipeline.runtime.bridge().clone();
                 bridge.set_viewport(width, height);
 
+                // Refresh each `MediaQueryList`'s cached `matches` state to the
+                // new viewport **before** dispatching any event. Per CSSOM View
+                // Module Level 1 §4.2 (The MediaQueryList Interface) the `matches`
+                // getter returns the *current* matches state, so a
+                // `resize` listener that reads a pre-existing `MediaQueryList`
+                // (`mql.matches`) must observe the post-resize value —
+                // `media_query_matches` reads the cache this call updates. This
+                // only refreshes state + collects the changed set; the `change`
+                // *events* are fired after `resize` below.
                 let changed = bridge.re_evaluate_media_queries(width, height);
-                if !changed.is_empty() {
-                    dispatch_media_query_changes(&changed, state);
-                }
 
+                // HTML "update the rendering" (§8.1.7.3 Processing model): step 8
+                // "run the resize steps" runs **before** step 10 "evaluate media
+                // queries and report changes". Fire `resize` first, then the MQL
+                // `change` events — spec-correct event order, while the cache a
+                // `resize` listener reads is already current (refreshed above).
                 let mut resize_event = elidex_script_session::DispatchEvent::new_composed(
                     "resize",
                     state.pipeline.document,
@@ -280,6 +291,10 @@ fn handle_message(msg: BrowserToContent, state: &mut ContentState) -> bool {
                 resize_event.bubbles = false;
                 resize_event.cancelable = false;
                 state.pipeline.dispatch_event(&mut resize_event);
+
+                if !changed.is_empty() {
+                    dispatch_media_query_changes(&changed, state);
+                }
 
                 state.re_render();
                 state.send_display_list();

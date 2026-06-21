@@ -30,7 +30,7 @@ use winit::window::{Window, WindowId};
 
 use elidex_ecs::Entity;
 use elidex_navigation::NavigationController;
-use elidex_plugin::Point;
+use elidex_plugin::{Point, Size};
 use wgpu::util::TextureBlitter;
 use wgpu::{Instance, Surface};
 
@@ -149,6 +149,45 @@ pub(super) struct RenderState {
     pub(super) a11y_adapter: accesskit_winit::Adapter,
 }
 
+/// Browser-process (shell-owned) device-fact descriptor: the single source of
+/// truth tying the three coordinate spaces — content/CSS px, window-logical px,
+/// physical surface px — used by the producer (`SetViewport` size), the
+/// compositor (paint transform + clip), and the input mapper (cursor → CSS px).
+///
+/// Built **only** by [`App::content_area_placement`] (the sole caller of
+/// `chrome_content_offset` + `chrome::content_size` + `window.scale_factor()`)
+/// and cached on [`App::placement`] so the three primitives are snapshotted
+/// atomically once per frame / device-fact event. It is browser-process device
+/// state (not per-DOM-entity content state) → a shell-local value, not an ECS
+/// component.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(super) struct ContentAreaPlacement {
+    /// Content-area top-left in window-logical px (the chrome-reserved offset).
+    pub(super) origin_logical: Point,
+    /// Content-area size in CSS logical px (window-logical minus chrome).
+    pub(super) size_logical: Size,
+    /// Device pixel ratio (`window.scale_factor()`); CSS-px → device-px scale.
+    pub(super) scale_factor: f32,
+}
+
+impl ContentAreaPlacement {
+    /// Content-area top-left in physical surface px (`origin_logical × scale`).
+    pub(super) fn origin_phys(&self) -> Point {
+        Point::new(
+            self.origin_logical.x * self.scale_factor,
+            self.origin_logical.y * self.scale_factor,
+        )
+    }
+
+    /// Content-area size in physical surface px (`size_logical × scale`).
+    pub(super) fn size_phys(&self) -> Size {
+        Size::new(
+            self.size_logical.width * self.scale_factor,
+            self.size_logical.height * self.scale_factor,
+        )
+    }
+}
+
 /// Legacy inline interactive state (all processing on the main thread).
 ///
 /// Kept for backward compatibility with `build_pipeline()` test API.
@@ -195,6 +234,15 @@ pub struct App {
     /// a clone of this proxy at each spawn (`new_threaded*` initial tab,
     /// `window.open`, `open_new_tab`).
     wake_proxy: Option<winit::event_loop::EventLoopProxy<crate::WakeEvent>>,
+    /// Cached content-area placement SoT (size↔origin↔scale), the single
+    /// descriptor the producer/compositor/input mapper all read.
+    ///
+    /// `Some` once the window exists — **seeded in `resumed` together with
+    /// `render_state`** and recomputed at redraw top + on `Resized`, so any
+    /// input event that passes the `render_state.is_some()` gate sees a built
+    /// placement by construction. `None` before the first `resumed` / after
+    /// `suspended`.
+    placement: Option<ContentAreaPlacement>,
 }
 
 impl App {
@@ -242,6 +290,7 @@ impl App {
             browser_db: None,
             cookie_gen: 0,
             wake_proxy: Some(wake_proxy),
+            placement: None,
         };
         app.init_browser_db();
         app
@@ -387,6 +436,7 @@ impl App {
             browser_db: None,
             cookie_gen: 0,
             wake_proxy: None, // Inline mode is synchronous — nothing to wake.
+            placement: None,
         }
     }
 
@@ -420,6 +470,7 @@ impl App {
             browser_db: None,
             cookie_gen: 0,
             wake_proxy: None, // Inline mode is synchronous — nothing to wake.
+            placement: None,
         }
     }
 
@@ -744,6 +795,47 @@ impl App {
         }
     }
 
+    /// Build the content-area placement SoT from the current window + active-tab
+    /// chrome position.
+    ///
+    /// The **only** caller of `window.scale_factor()`, [`chrome::content_size`],
+    /// and [`chrome::chrome_content_offset`] (egui's own DPI read at render-init
+    /// excepted) — the three primitives are snapshotted atomically (one
+    /// `scale_factor` read per build). Callers cache the result in
+    /// [`App::placement`]; nothing else recomputes a content-area size/origin.
+    // Window dimensions (< 2^23 px) and the scale factor lose no meaningful
+    // precision narrowing to the `f32` the layout/CSS coordinate space uses.
+    #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
+    fn content_area_placement(&self, window: &Window) -> ContentAreaPlacement {
+        let scale_factor = window.scale_factor() as f32;
+        let phys = window.inner_size();
+        let win_logical_w = phys.width as f32 / scale_factor;
+        let win_logical_h = phys.height as f32 / scale_factor;
+        let position = self.tab_bar_position();
+        ContentAreaPlacement {
+            origin_logical: chrome::chrome_content_offset(position),
+            size_logical: chrome::content_size(win_logical_w, win_logical_h, position),
+            scale_factor,
+        }
+    }
+
+    /// Send the current content-area size (CSS logical px) to the active tab's
+    /// content thread — the producer half of the SoT.
+    ///
+    /// Content stays device-agnostic: only `size_logical` crosses the IPC, never
+    /// `scale_factor`. Called on the initial `resumed`/tab-ready (**load-bearing**:
+    /// without it a non-resized tab keeps the content thread's `DEFAULT_VIEWPORT`
+    /// while the painted area uses `placement.size_logical`) and on every
+    /// `Resized`. No-op until `placement` is seeded.
+    fn send_viewport(&self) {
+        if let Some(placement) = self.placement {
+            self.send_to_content(BrowserToContent::SetViewport {
+                width: placement.size_logical.width,
+                height: placement.size_logical.height,
+            });
+        }
+    }
+
     /// Send a message to the active tab's content thread.
     fn send_to_content(&self, msg: BrowserToContent) {
         if let Some(mgr) = &self.tab_manager {
@@ -829,11 +921,19 @@ impl ApplicationHandler<crate::WakeEvent> for App {
         }
 
         state.window.request_redraw();
+        // Seed the placement SoT together with `render_state` (the §2.3 init
+        // invariant): any input that later passes the `render_state.is_some()`
+        // gate now sees a built placement. Then deliver the initial viewport to
+        // content (load-bearing — a tab that never resizes would otherwise keep
+        // the content thread's `DEFAULT_VIEWPORT`).
+        self.placement = Some(self.content_area_placement(&state.window));
         self.render_state = Some(state);
+        self.send_viewport();
     }
 
     fn suspended(&mut self, _event_loop: &ActiveEventLoop) {
         self.render_state = None;
+        self.placement = None;
     }
 
     fn window_event(
@@ -864,8 +964,18 @@ impl ApplicationHandler<crate::WakeEvent> for App {
                 state
                     .gpu
                     .resize(&state.surface, new_size.width, new_size.height);
+                let window = Arc::clone(&state.window);
                 if new_size.width > 0 && new_size.height > 0 {
-                    state.window.request_redraw();
+                    window.request_redraw();
+                }
+                // Recompute the placement SoT (the window size changed) and
+                // re-deliver the viewport to the active content thread.
+                self.placement = Some(self.content_area_placement(&window));
+                self.send_viewport();
+                // The content rect may have shrunk/moved out from under a
+                // stationary cursor — clear stuck `:hover` if it left content.
+                if let Some(placement) = self.placement {
+                    self.reclip_cursor_after_placement_change(placement);
                 }
                 return;
             }
