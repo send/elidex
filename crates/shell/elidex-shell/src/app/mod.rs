@@ -191,8 +191,8 @@ pub struct App {
     ///
     /// `Some` in threaded mode (built from the `EventLoop` in `run`/`run_url`);
     /// `None` in legacy inline mode (synchronous, no content thread to wake).
-    /// [`App::make_wake`] mints a per-content-thread [`crate::WakeHandle`] from a
-    /// clone of this proxy at each spawn (`new_threaded*` initial tab,
+    /// [`App::wake_or_noop`] mints a per-content-thread [`crate::WakeHandle`] from
+    /// a clone of this proxy at each spawn (`new_threaded*` initial tab,
     /// `window.open`, `open_new_tab`).
     wake_proxy: Option<winit::event_loop::EventLoopProxy<crate::WakeEvent>>,
 }
@@ -200,7 +200,7 @@ pub struct App {
 impl App {
     /// Build a content-thread wake closure from a clone of the event-loop proxy.
     /// The single way a [`crate::WakeHandle`] is minted (used by both the
-    /// `new_threaded*` initial-tab spawn and [`App::make_wake`] for later tabs).
+    /// `new_threaded*` initial-tab spawn and [`App::wake_or_noop`] for later tabs).
     fn wake_from_proxy(
         proxy: &winit::event_loop::EventLoopProxy<crate::WakeEvent>,
     ) -> crate::WakeHandle {

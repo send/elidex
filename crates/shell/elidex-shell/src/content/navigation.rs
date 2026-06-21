@@ -181,9 +181,7 @@ pub(super) fn process_pending_actions(state: &mut ContentState) -> bool {
     if !open_tabs.is_empty() {
         state.send_display_list();
         for url in open_tabs {
-            let _ = state
-                .channel
-                .send(crate::ipc::ContentToBrowser::OpenNewTab(url));
+            state.notify_browser(crate::ipc::ContentToBrowser::OpenNewTab(url));
         }
         return true;
     }
@@ -202,9 +200,7 @@ pub(super) fn process_pending_actions(state: &mut ContentState) -> bool {
                 super::iframe::navigate_iframe(state, iframe_entity, &url);
             } else {
                 // No matching iframe → open in new tab.
-                let _ = state
-                    .channel
-                    .send(crate::ipc::ContentToBrowser::OpenNewTab(url));
+                state.notify_browser(crate::ipc::ContentToBrowser::OpenNewTab(url));
             }
         }
         state.re_render();

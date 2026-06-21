@@ -140,11 +140,13 @@ pub(super) fn run_event_loop(state: &mut ContentState) {
         elidex_js_boa::bridge::local_storage::flush_dirty_stores();
 
         for url in state.pipeline.runtime.bridge().drain_pending_open_tabs() {
-            let _ = state.channel.send(ContentToBrowser::OpenNewTab(url));
+            // OpenNewTab is a user-visible chrome action — wake (a pure-async
+            // window.open with no DOM change would otherwise stall under Wait).
+            state.notify_browser(ContentToBrowser::OpenNewTab(url));
         }
 
         if state.pipeline.runtime.bridge().take_pending_focus() {
-            let _ = state.channel.send(ContentToBrowser::FocusWindow);
+            state.notify_browser(ContentToBrowser::FocusWindow);
         }
 
         {

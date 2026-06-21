@@ -239,11 +239,12 @@ the ≥5-axis coordinate work in PR-B/PR-C; PR-A is the narrow infra root).
 
 ---
 
-## §6.1 Proposed defer slot (register at PR-A landing) — F1
+## §6.1 Proposed defer slots (register at PR-A landing) — F1 + diff-review
 
 | Slot | Why deferred | Re-evaluation trigger | Date |
 |---|---|---|---|
 | `#11-oop-iframe-parent-rerender-on-child-frame` | An out-of-process iframe's own async frame (`IframeToBrowser::DisplayListReady`) is cached by the parent (`iframe/mod.rs:111-112`, `drain_oop_messages` at `event_loop.rs:80`) **without** setting `needs_render`, so the parent does not re-render/re-emit → the OOP child frame neither composites nor wakes. This is a **parent-frame-production** gap *upstream of* PR-A's wake (PR-A correctly wakes on every frame the content thread *sends*; here the parent never sends one), and it is entangled with partial OOP-iframe support (M4-13 — cf. `#11-oop-iframe-focus-lifecycle` / `#11-cross-frame-visibility-propagation`). | OOP-iframe rendering productionization (M4-13), OR a test demanding an OOP-iframe-initiated animation frame to appear/wake. | 2026-06-21 (re-eval at PR-A landing / M4-13 OOP-iframe work) |
+| `#11-content-message-coordination-wake` | **(diff-review, Agent 2 IMP boundary)** Non-rendering `ContentToBrowser` *coordination* messages — `StorageChanged` / `IdbVersionChangeRequest` / `SwRegister` / `IdbConnectionsClosed` / `ManifestDiscovered` — keep the bare `channel.send` (no wake): they change no on-screen state. Under `ControlFlow::Wait` they are processed on the next *drain* (next OS event / wake), not immediately. This is a delivery-*latency* concern on a different axis from repaint (cross-tab storage relay timeliness, IDB upgrade latency), **pre-existing** (nothing wakes today). PR-A wakes the rendering/chrome/window-action variants (incl. `OpenNewTab` / `FocusWindow`); coordination-message timeliness is out of its repaint scope. | A test/report showing a coordination message (storage event to another tab, IDB versionchange) is observably late because the browser was idle, OR the event loop moves off `ControlFlow::Wait`. | 2026-06-21 (re-eval at PR-A landing) |
 
 ## §6. Collision / sequencing
 
@@ -336,4 +337,30 @@ the ≥5-axis coordinate work in PR-B/PR-C; PR-A is the narrow infra root).
   (`build_iframe_test_state`) also threads a no-op wake.
 - **Verification**: `cargo check -p elidex-shell --all-features --all-targets`
   clean (0 warnings); `cargo test -p elidex-shell --all-features` = 120 passed,
-  0 failed.
+  0 failed; `mise run ci` green.
+
+### Diff-review fixes (5-agent `/elidex-review`, 0 CRIT / 1 IMP / 3 MIN → all applied)
+- **IMP (Agent 2 — wake-set incompleteness)**: `OpenNewTab` + `FocusWindow` are
+  user-visible chrome/window actions reachable from a *pure-async* callback (a
+  `setTimeout` doing only `window.open`/`window.focus`, no DOM change) — they
+  bypassed `notify_browser` and would stall under `Wait`. Routed all 5 send sites
+  (`event_loop.rs` ×2, `navigation.rs` ×2, `event_handlers.rs` ×1) through
+  `notify_browser` for a uniform "rendering/chrome/window-action variants always
+  wake" invariant (the per-variant enumeration that *missed* them — and that I
+  myself missed `IdbVersionChangeRequest` in a grep — is the One-issue-one-way
+  smell). Non-rendering coordination messages stay bare, carved to
+  `#11-content-message-coordination-wake` (§6.1).
+- **MIN (Agent 2)**: stale `[App::make_wake]` intra-doc ref (method renamed to
+  `wake_or_noop`) → fixed. (Not a doc-CI break — it was on a *private* field,
+  which rustdoc does not document; `mise run ci` doc passed.)
+- **MIN (Agent 4)**: `wake()` doc "schedules a rendering opportunity" → "schedules
+  a redraw so the frame reaches a rendering opportunity" (the spec leaves
+  *selecting* opportunities to the UA).
+- **MIN (Agent 5)**: register `#11-oop-iframe-parent-rerender-on-child-frame` +
+  `#11-content-message-coordination-wake` in `project_open-defer-slots.md` at
+  landing (done).
+- **Clean (FP)**: Layering (content/ winit-free, guard adequate), `Box<dyn Fn()+Send>`
+  shape (not a component — per-thread egress, correct), OOP carve (verified: OOP
+  `display_list` written but never read → compositing unwired → nothing to wake),
+  inline no-op wake, the wake test (real, would-fail-if-broken assertion), spec
+  citations (§8.1.7.3 / rendering-opportunity verbatim-correct).

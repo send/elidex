@@ -64,7 +64,8 @@ struct ContentState {
     /// display/chrome-affecting send. Under `ControlFlow::Wait` a content-initiated
     /// frame (timer / rAF / animation / async DOM / `SetViewport` round-trip)
     /// would otherwise paint only on the next OS event; calling `wake()` schedules
-    /// a rendering opportunity (WHATWG HTML §8.1.7.3). Windowing-agnostic
+    /// a redraw so the frame reaches a rendering opportunity (WHATWG HTML
+    /// §8.1.7.3). Windowing-agnostic
     /// (`crate::WakeHandle = Box<dyn Fn() + Send>`) so the content thread stays
     /// winit-free.
     wake: crate::WakeHandle,
@@ -72,14 +73,22 @@ struct ContentState {
 
 impl ContentState {
     /// Send a `ContentToBrowser` message AND wake the browser event loop so a
-    /// content-initiated frame reaches a rendering opportunity (WHATWG HTML
+    /// content-initiated UI change reaches a rendering opportunity (WHATWG HTML
     /// §8.1.7.3) rather than stalling under `ControlFlow::Wait`.
     ///
-    /// The single chokepoint for every **display/chrome-affecting** send; the
-    /// wake-set is defined by `ContentToBrowser` *variant* (`DisplayListReady` /
-    /// `TitleChanged` / `UrlChanged` / `NavigationState`), not by which helper was
-    /// called. Pure control acks that never change displayed state may keep the
-    /// bare `self.channel.send`.
+    /// The chokepoint for every **rendering / chrome / window-action** variant —
+    /// `DisplayListReady`, `TitleChanged`, `UrlChanged`, `NavigationState` (via the
+    /// `send_*` helpers below) plus `OpenNewTab` / `FocusWindow` (routed at their
+    /// call sites). Defined by `ContentToBrowser` *variant* (the read contract),
+    /// not by which helper was called.
+    ///
+    /// Pure **non-rendering coordination** messages (`StorageChanged` /
+    /// `IdbVersionChangeRequest` / `SwRegister` / `IdbConnectionsClosed` /
+    /// `ManifestDiscovered`) keep the bare `self.channel.send`: they change no
+    /// on-screen state, so they need no repaint. Their delivery latency under
+    /// `ControlFlow::Wait` (processed on the next drain rather than an immediate
+    /// wake) is a pre-existing, separate concern — slot
+    /// `#11-content-message-coordination-wake`.
     fn notify_browser(&self, msg: ContentToBrowser) {
         let _ = self.channel.send(msg);
         (self.wake)();

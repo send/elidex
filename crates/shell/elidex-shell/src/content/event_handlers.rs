@@ -192,9 +192,7 @@ pub(super) fn handle_click(state: &mut ContentState, click: &crate::ipc::MouseCl
                             return;
                         }
                         // Open in a new tab.
-                        let _ = state
-                            .channel
-                            .send(crate::ipc::ContentToBrowser::OpenNewTab(target_url));
+                        state.notify_browser(crate::ipc::ContentToBrowser::OpenNewTab(target_url));
                         state.send_display_list();
                         return;
                     }
