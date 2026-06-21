@@ -63,6 +63,19 @@ fn native_function_prototype_noop(
     Ok(JsValue::Undefined)
 }
 
+/// Test-only RO-accessor getter backing the seam-1 A1 gate proof
+/// (`__a1LegacyAccessorProbe`, installed via `install_ro_accessors` in
+/// `register_globals`). The test asserts the property's presence/absence, not its
+/// value, so a constant getter suffices.
+#[cfg(all(test, feature = "engine"))]
+fn native_a1_legacy_probe_getter(
+    _ctx: &mut NativeContext<'_>,
+    _this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    Ok(JsValue::Boolean(true))
+}
+
 impl VmInner {
     // -- Global registration -------------------------------------------------
 
@@ -921,19 +934,31 @@ impl VmInner {
             self.precomputed_event_shapes = Some(shapes);
         }
 
-        // A1 gate proof (test-only): a `Legacy`-classified probe global routed
-        // through the **same** general `installs(level)` predicate the real seams
-        // use — so a VM **direct-global install seam** (exactly F9's "direct
-        // table/global installs", which the storage-specific first A1 left
-        // unproven for the general case) is shown to honor the gate end-to-end,
-        // not only the seam-4 registry. Present under `BrowserCompat` (+
-        // `compat-webapi`), withheld under `BrowserCore`/`App`. This is the ONLY
-        // `Legacy`-classified VM entry and it exists ONLY under `cfg(test)`; real
-        // APIs stay `Modern` in A1 (no behavior change in production builds).
+        // A1 gate proof (test-only): `Legacy`-classified probes routed through the
+        // **same** general `installs(level)` predicate the real seams use, so each
+        // VM install seam is shown to honor the gate end-to-end (the A0 acceptance
+        // row requires Legacy exclusion through **all four** seams). Present under
+        // `BrowserCompat` (+`compat-webapi`), withheld under `BrowserCore`/`App`.
+        // These are the ONLY `Legacy`-classified VM entries and exist ONLY under
+        // `cfg(test)`; real APIs stay `Modern` in A1 (no behavior change in
+        // production builds).
+        //   • seam-2 (direct `register_*_global`): `__a1LegacyProbe` via
+        //     `globals.insert` (F9's "direct table/global installs").
+        //   • seam-1 (method/accessor **table** install): `__a1LegacyAccessorProbe`
+        //     via `install_ro_accessors` — the property-absence lever the
+        //     window-storage / `document.cookie` / live-collection installs use.
+        // (seam-3 = the event-handler-attr install is proven in
+        // `install_handler_attr_family`; seam-4 = the `DomApiHandler` registry in
+        // `elidex-dom-api::registry`.)
         #[cfg(all(test, feature = "engine"))]
         if self.installs(WebApiSpecLevel::Legacy) {
             let probe = self.strings.intern("__a1LegacyProbe");
             self.globals.insert(probe, JsValue::Boolean(true));
+            let global_obj = self.global_object;
+            self.install_ro_accessors(
+                global_obj,
+                &[("__a1LegacyAccessorProbe", native_a1_legacy_probe_getter)],
+            );
         }
     }
 

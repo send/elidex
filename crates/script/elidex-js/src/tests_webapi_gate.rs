@@ -225,6 +225,78 @@ fn legacy_probe_withheld_in_core_modes() {
 }
 
 #[test]
+fn legacy_excluded_via_table_and_handler_attr_seams() {
+    // A0 acceptance row (Codex R11): Legacy exclusion must be proven through **all
+    // four** install seams. `legacy_probe_withheld_in_core_modes` covers seam-2
+    // (direct `register_*_global`); the `DomApiHandler` registry covers seam-4
+    // (elidex-dom-api). This closes the remaining two:
+    //   • seam-1 = method/accessor **table** install (`install_ro_accessors`):
+    //     `__a1LegacyAccessorProbe` on `globalThis`.
+    //   • seam-3 = event-handler-attr install (`install_bound_accessor_pair` in the
+    //     `install_handler_attr_family` loop): `__a1LegacyHandlerProbe` on `document`.
+    // bind_vm exposes both `globalThis` and `document` (the accessor probe installs
+    // at construction; the handler probe at the document bind).
+    fn probes_present(mode: EngineMode) -> (bool, bool) {
+        let mut vm = Vm::new_with_mode(mode);
+        let mut session = SessionCore::new();
+        let mut dom = EcsDom::new();
+        let doc = dom.create_document_root();
+        #[allow(unsafe_code)]
+        unsafe {
+            bind_vm(&mut vm, &mut session, &mut dom, doc);
+        }
+        let accessor = matches!(
+            vm.eval("'__a1LegacyAccessorProbe' in globalThis;").unwrap(),
+            JsValue::Boolean(true)
+        );
+        let handler = matches!(
+            vm.eval("'__a1LegacyHandlerProbe' in document;").unwrap(),
+            JsValue::Boolean(true)
+        );
+        vm.unbind();
+        (accessor, handler)
+    }
+
+    // BrowserCore / App withhold the Legacy probes at both seams, both profiles.
+    for mode in [EngineMode::BrowserCore, EngineMode::App] {
+        let (accessor, handler) = probes_present(mode);
+        assert!(
+            !accessor,
+            "{mode:?}: seam-1 (accessor table) Legacy probe must be withheld"
+        );
+        assert!(
+            !handler,
+            "{mode:?}: seam-3 (handler attr) Legacy probe must be withheld"
+        );
+    }
+
+    // BrowserCompat installs them only when the compat shims are compiled in.
+    let (accessor, handler) = probes_present(EngineMode::BrowserCompat);
+    #[cfg(feature = "compat-webapi")]
+    {
+        assert!(
+            accessor,
+            "BrowserCompat (+compat-webapi): seam-1 accessor-table probe must install"
+        );
+        assert!(
+            handler,
+            "BrowserCompat (+compat-webapi): seam-3 handler-attr probe must install"
+        );
+    }
+    #[cfg(not(feature = "compat-webapi"))]
+    {
+        assert!(
+            !accessor,
+            "compat-webapi-off ceiling must withhold the seam-1 probe under BrowserCompat"
+        );
+        assert!(
+            !handler,
+            "compat-webapi-off ceiling must withhold the seam-3 probe under BrowserCompat"
+        );
+    }
+}
+
+#[test]
 fn worker_realms_inherit_engine_mode() {
     // Codex R1 regression: the dedicated-worker and service-worker constructors
     // must honor the supplied engine mode, not reset it to `BrowserCompat` — a

@@ -516,3 +516,31 @@ elidex-script-session --all-features`.
 > A1 cites no new WHATWG algorithm prose (it implements no algorithm). The HTML/DOM rows are
 > the downstream clients of the seams A1 routes, named for traceability. Anchors carried
 > verbatim from A0 §7 (webref-verified there).
+
+## §9. Defer slots registered by this PR (Codex R11)
+
+A1 introduces one defer slot; recorded here with full metadata (sibling of the
+design doc's `#11-cookie-opaque-origin-securityerror` registration format) so the
+deferred path is tracked, not a bare code/plan reference. Also mirrored in the
+memory defer-ledger SoT (`project_open-defer-slots.md`).
+
+### `#11-dom-registry-dynamic-policy-gate` (F4 / §3.3 seam-4)
+
+- **Site:** `elidex-dom-api/src/registry.rs` — `create_dom_registry_with_policy`
+  gates the **static built-in** `DomApiHandler` set by `policy.installs_dom(level)`;
+  the public `register_dynamic` path is **not** policy-gated.
+- **Why:** gating `register_dynamic` would require teaching the generic
+  `elidex-plugin` `PluginRegistry` about `spec_level` — the foundational-crate
+  coupling the A1 plan-review rejected. The VM wraps the registry in `Rc` at
+  construction and never mutates it, so no built-in handler is added post-build;
+  the unguarded path is unreachable today.
+- **Trigger:** when **both** a selectable `BrowserCore`/`App` mode (after
+  `#11-async-core-storage-cookiestore`) **and** dynamic DOM-handler extensions
+  via `register_dynamic` exist — neither does today. Until then a `BrowserCore`
+  registry cannot accept a `Legacy` handler (no dynamic registration occurs).
+- **Date:** with the DOM enforcement work (B-tier, when a bridge-dispatched
+  method first demotes to `Legacy`), or the dynamic-extension plumbing —
+  whichever lands first.
+- **Cap:** no-cap structural slot (not an edge-defer; a genuine cross-PR scope
+  boundary — the policy mechanism exists, only the *dynamic* registration arm is
+  deferred).

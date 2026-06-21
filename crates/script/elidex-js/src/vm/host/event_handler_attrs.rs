@@ -262,6 +262,29 @@ impl VmInner {
                 PropertyAttrs::WEBIDL_RO_ACCESSOR,
             );
         }
+
+        // Seam-3 A1 gate proof (test-only): a `Legacy`-classified handler attr
+        // installed through the **same** `install_bound_accessor_pair` primitive +
+        // `installs(level)` gate the real loop above uses, co-located in this
+        // production family fn so the proof rides the seam-3 install path (the A0
+        // acceptance row requires Legacy exclusion via an `install_event_handler_attrs`
+        // handler attr). Withheld under `BrowserCore`/`App`, present under
+        // `BrowserCompat` (+`compat-webapi`). Real handler attrs stay `Modern` in A1
+        // (`onstorage` flips at A2); this is the only `Legacy` one and exists ONLY
+        // under `cfg(test)`.
+        #[cfg(all(test, feature = "engine"))]
+        if self.installs(elidex_plugin::WebApiSpecLevel::Legacy) {
+            let attr = self.strings.intern("__a1LegacyHandlerProbe");
+            let key = self.strings.intern("__a1legacyhandlerprobe");
+            self.install_bound_accessor_pair(
+                target,
+                attr,
+                get,
+                Some(set),
+                key,
+                PropertyAttrs::WEBIDL_RO_ACCESSOR,
+            );
+        }
     }
 }
 
