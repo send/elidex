@@ -7,7 +7,8 @@
 //! - `<dialog>` open / returnValue / show / showModal / close round-trip
 //!   + `close` event firing + InvalidStateError on double-modal
 //! - `<details>` open / name reflect (NO ToggleEvent fire)
-//! - `<template>.content` `[SameObject]` DocumentFragment + lazy alloc
+//! - `<template>.content` stable DocumentFragment (§4.12.3) + eager
+//!   parser/createElement/clone population + inner-HTML round-trip
 //! - `<datalist>.options` `[SameObject]` HTMLCollection + descendant filter
 //! - `<output>.htmlFor` `[SameObject]` DOMTokenList + add/contains +
 //!   PutForwards-via-string-set
@@ -605,7 +606,7 @@ fn details_exclusion_pre_collects_siblings_snapshot() {
 }
 
 // =====================================================================
-// <template>.content — SameObject + lazy alloc + DocumentFragment
+// <template>.content — SameObject + eager fragment + DocumentFragment
 // =====================================================================
 
 #[test]
@@ -646,6 +647,84 @@ fn template_content_isolated_from_template_element() {
          var p = document.createElement('p'); \
          t.content.appendChild(p); \
          (t.childNodes.length === 0) ? 'ok' : 'fail:' + t.childNodes.length;");
+    assert_eq!(out, "ok");
+}
+
+#[test]
+fn template_content_populated_after_inner_html_parse() {
+    // HTML §4.12.3 (slot `#11-template-parser-content`): parsing
+    // `<template>…</template>` routes the children into the content fragment,
+    // NOT the template element's light children, and `.content` reads them.
+    let out = run("var d = document.createElement('div'); \
+         d.innerHTML = '<template><p>hi</p></template>'; \
+         var t = d.firstChild; \
+         (t.tagName === 'TEMPLATE' \
+            && t.childNodes.length === 0 \
+            && t.content.childNodes.length === 1 \
+            && t.content.firstChild.tagName === 'P' \
+            && t.content.firstChild.textContent === 'hi') \
+            ? 'ok' \
+            : 'fail:tag=' + t.tagName + ',lightKids=' + t.childNodes.length \
+              + ',contentKids=' + t.content.childNodes.length;");
+    assert_eq!(out, "ok");
+}
+
+#[test]
+fn template_content_same_object_after_parse() {
+    // Stable identity (§4.12.3 associated DocumentFragment) holds for a
+    // *parsed* template too, not just createElement.
+    let out = run("var d = document.createElement('div'); \
+         d.innerHTML = '<template><p>hi</p></template>'; \
+         var t = d.firstChild; \
+         (t.content === t.content) ? 'ok' : 'fail';");
+    assert_eq!(out, "ok");
+}
+
+#[test]
+fn template_serializes_content_not_empty() {
+    // HTML §13.3: serializing a `<template>` emits its template *contents*, so
+    // `outerHTML`/`innerHTML` round-trip the content fragment, not an empty
+    // element. `template.innerHTML` itself is the content serialization.
+    let out = run("var d = document.createElement('div'); \
+         d.innerHTML = '<template><p>hi</p></template>'; \
+         var t = d.firstChild; \
+         (d.innerHTML === '<template><p>hi</p></template>' \
+            && t.innerHTML === '<p>hi</p>') \
+            ? 'ok' \
+            : 'fail:div=' + d.innerHTML + ',tpl=' + t.innerHTML;");
+    assert_eq!(out, "ok");
+}
+
+#[test]
+fn template_set_inner_html_targets_content_fragment() {
+    // HTML §8.5.4 "The innerHTML property" (the "set the inner HTML" steps):
+    // for a `<template>` the parsed fragment replaces the template's content
+    // fragment children (§4.12.3), not its light children — so the
+    // setter/getter round-trips and the template element stays childless.
+    let out = run("var t = document.createElement('template'); \
+         t.innerHTML = '<p>hi</p><span>yo</span>'; \
+         (t.childNodes.length === 0 \
+            && t.content.childNodes.length === 2 \
+            && t.content.firstChild.tagName === 'P' \
+            && t.innerHTML === '<p>hi</p><span>yo</span>') \
+            ? 'ok' \
+            : 'fail:lightKids=' + t.childNodes.length \
+              + ',contentKids=' + t.content.childNodes.length \
+              + ',html=' + t.innerHTML;");
+    assert_eq!(out, "ok");
+}
+
+#[test]
+fn template_content_inert_to_parent_query_selector() {
+    // The content fragment is detached, so a query on the *light* tree never
+    // descends into it; only `template.content.querySelector` does.
+    let out = run("var d = document.createElement('div'); \
+         d.innerHTML = '<template><p>hi</p></template>'; \
+         (d.querySelector('p') === null \
+            && d.firstChild.content.querySelector('p') !== null) \
+            ? 'ok' \
+            : 'fail:light=' + d.querySelector('p') + ',content=' \
+              + d.firstChild.content.querySelector('p');");
     assert_eq!(out, "ok");
 }
 

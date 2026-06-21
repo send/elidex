@@ -3,15 +3,18 @@
 //! `#11-tags-T2d-interactive`).
 //!
 //! IDL surface (HTML §4.12.3):
-//! - `content` — `[SameObject]` DocumentFragment.  Each `<template>`
-//!   element has an associated DocumentFragment that holds its parsed
-//!   children; M4-12 ships **lazy allocation** (first JS-side access
-//!   creates a fresh fragment Entity, cached per-template).  Parser-
-//!   side population (where html5ever inserts children directly into
-//!   the fragment) is deferred to slot `#11-template-parser-content`
-//!   paired with the html5ever replacement (Phase 5).  Until then
-//!   dynamic JS `<template>` (e.g. `document.createElement('template')`
-//!   followed by `tpl.content.appendChild(...)`) works.
+//! - `content` — the associated DocumentFragment that holds the
+//!   template's parsed children.  The fragment is created **eagerly at
+//!   element creation** (slot `#11-template-parser-content`) by the
+//!   shared `EcsDom::attach_template_contents` helper — both parser
+//!   tiers, `createElement('template')`, and the `cloneNode` post-pass
+//!   route through it — so by the time JS reads `.content` the fragment
+//!   already exists and (for parsed templates) is already populated.
+//!   This getter just returns the linked fragment.  Its stable identity
+//!   (the §4.12.3 *associated DocumentFragment* — two reads return the
+//!   same object) comes from the fragment entity's own primary-Node
+//!   wrapper cache (`create_element_wrapper` dedups on the entity), not
+//!   a dedicated wrapper-intern key.
 //!
 //! Declarative shadow-DOM IDL attrs (`shadowRootMode` /
 //! `shadowRootDelegatesFocus` / `shadowRootClonable` /
@@ -22,9 +25,11 @@
 //!
 //! ## Layering
 //!
-//! Per CLAUDE.md "Layering mandate", marshalling-only.  DocumentFragment
-//! creation is the existing engine-indep
-//! `EcsDom::create_document_fragment_with_owner` path.
+//! Per CLAUDE.md "Layering mandate", marshalling-only.  The content
+//! fragment's creation / linkage lives in the engine-indep
+//! `EcsDom::attach_template_contents` helper (shared with both parser
+//! tiers, `createElement`, and clone); this getter only reads the link
+//! and marshals the fragment entity to a wrapper.
 
 #![cfg(feature = "engine")]
 
@@ -32,7 +37,6 @@ use elidex_ecs::{Entity, NodeKind};
 
 use super::super::shape;
 use super::super::value::{JsValue, NativeContext, ObjectId, VmError};
-use super::super::wrapper_intern::{WrapperKey, WrapperKind};
 use super::super::VmInner;
 
 impl VmInner {
@@ -74,12 +78,13 @@ fn require_template_receiver(
     Ok(Some(entity))
 }
 
-/// `<template>.content` — `[SameObject]` DocumentFragment.  Lazy-
-/// allocated on first JS-side read; interned per-template Entity in
-/// the unified wrapper store under [`WrapperKind::TemplateContent`].
-/// The fragment's owner document mirrors the template's owner
-/// document (via
-/// `EcsDom::associated_document`).
+/// `<template>.content` — the associated content DocumentFragment
+/// (HTML §4.12.3).  Returns the fragment linked by
+/// `EcsDom::attach_template_contents` (attached eagerly at element
+/// creation across every tier).  SameObject identity is the fragment
+/// entity's own primary-Node wrapper cache (`create_element_wrapper`
+/// dedups on the entity), so repeated reads return the same object — no
+/// separate wrapper-intern key (§8 One-issue-one-way).
 fn template_get_content(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -88,30 +93,28 @@ fn template_get_content(
     let Some(entity) = require_template_receiver(ctx, this, "content")? else {
         return Ok(JsValue::Null);
     };
-    if let Some(cached) = ctx
-        .vm
-        .get_wrapper(WrapperKey::entity(entity, WrapperKind::TemplateContent))
-    {
-        return Ok(JsValue::Object(cached));
-    }
     if ctx.host_if_bound().is_none() {
-        // Post-unbind: nothing to allocate against (no DOM world).
+        // Post-unbind: no DOM world to read or allocate against.
         return Ok(JsValue::Null);
     }
-    let owner_doc = ctx.host().dom().get_associated_document(entity);
-    let fragment_entity = ctx
-        .host()
-        .dom()
-        .create_document_fragment_with_owner(owner_doc);
-    let wrapper_id = create_fragment_wrapper(ctx, fragment_entity);
-    // The alloc needs the full `NativeContext` (DOM access), so this
-    // interns the already-built wrapper via `set_wrapper` rather than
-    // the `intern_wrapper` get-or-create closure.
-    ctx.vm.set_wrapper(
-        WrapperKey::entity(entity, WrapperKind::TemplateContent),
-        wrapper_id,
-    );
-    Ok(JsValue::Object(wrapper_id))
+    // Read the eagerly-attached fragment (Layering mandate — this getter is
+    // marshalling-only; fragment creation lives solely in the engine-indep
+    // `attach_template_contents` SSoT, called by every creation site). Every
+    // `<template>` has a fragment by construction, so the `None` arm is
+    // unreachable; assert in debug and surface `null` rather than fabricating a
+    // second creation path here.
+    let Some(fragment_entity) = ctx.host().dom().template_contents_fragment(entity) else {
+        debug_assert!(
+            false,
+            "every <template> has an eagerly-attached content fragment \
+             (#11-template-parser-content)"
+        );
+        return Ok(JsValue::Null);
+    };
+    Ok(JsValue::Object(create_fragment_wrapper(
+        ctx,
+        fragment_entity,
+    )))
 }
 
 /// Create the wrapper for `fragment_entity` via the canonical

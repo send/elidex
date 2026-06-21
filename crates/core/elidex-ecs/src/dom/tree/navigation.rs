@@ -5,7 +5,7 @@
 use std::collections::HashSet;
 
 use super::super::{ChildrenIter, ChildrenIterRev, EcsDom, MAX_ANCESTOR_DEPTH};
-use crate::components::{ShadowRoot, TagType};
+use crate::components::{NodeKind, ShadowRoot, TagType};
 use hecs::Entity;
 
 impl EcsDom {
@@ -347,16 +347,30 @@ impl EcsDom {
             .collect()
     }
 
-    /// Returns all entities that have no parent, sorted by entity ID.
+    /// Returns all parentless entities that are valid **tree-walk roots** for
+    /// layout / render / hit-testing, sorted by entity ID.
     ///
-    /// Useful for finding layout roots or document roots for tree walks.
+    /// Excludes detached [`NodeKind::DocumentFragment`] entities: a parentless
+    /// fragment with children (a `<template>`'s content fragment per HTML
+    /// §4.12.3, or a script-built `createDocumentFragment()` not yet inserted)
+    /// is an **inert container**, never an independent layout/render root —
+    /// without this guard the render/layout/hit-test root discoveries that call
+    /// this method (`elidex-render` `find_roots`/`find_roots_mut`,
+    /// `elidex-layout` `find_roots`, `hit_test`, all keyed on parentless +
+    /// has-children) would treat it as one and paint its contents. (Style's own
+    /// `find_roots` starts from `document_root()`, not this method, so it is
+    /// unaffected either way.) A shadow root is never parentless
+    /// (`attach_shadow` parents it to its host), so it too is unaffected.
     #[must_use]
     pub fn root_entities(&self) -> Vec<Entity> {
         let mut roots: Vec<Entity> = self
             .world
             .query::<Entity>()
             .iter()
-            .filter(|&entity| self.get_parent(entity).is_none())
+            .filter(|&entity| {
+                self.get_parent(entity).is_none()
+                    && !matches!(self.node_kind(entity), Some(NodeKind::DocumentFragment))
+            })
             .collect();
         roots.sort_by_key(|e| e.to_bits());
         roots

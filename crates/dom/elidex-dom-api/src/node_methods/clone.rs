@@ -169,6 +169,12 @@ pub fn clone_node_with_shadow_honor(src: Entity, dom: &mut EcsDom, deep: bool) -
         let (s, d) = pairs[idx];
         idx += 1;
         propagate_ce_identity(s, d, dom);
+        // Pass 3 (HTML §4.12.3 cloning steps): a cloned `<template>` gets its
+        // own fresh content fragment, deep-cloned from the source's only when
+        // the clone-children flag (`deep`) is set. Pushes the deep-clone's pairs
+        // onto this same worklist, so templates nested inside template content
+        // converge here too.
+        replicate_template_contents(s, d, dom, deep, shadow_doc, &mut pairs);
         let Some((init, src_shadow_root)) = read_clonable_shadow_init(s, dom) else {
             continue;
         };
@@ -269,6 +275,50 @@ fn propagate_ce_identity(src: Entity, dst: Entity, dom: &mut EcsDom) {
             registry,
         },
     );
+}
+
+/// Pass 3 of [`clone_node_with_shadow_honor`]: HTML §4.12.3 "cloning steps"
+/// for a `<template>` element.
+///
+/// Per the spec every template clone has its own associated content
+/// `DocumentFragment` (never the source's — the `TemplateContents` component
+/// is in `tree_clone`'s deliberate-non-copy row precisely so a shallow clone
+/// cannot alias it). The contents are cloned **only when the clone-children
+/// flag is set** (`deep`): a shallow `cloneNode(false)` of a template still
+/// gets a *fresh empty* fragment, while a deep clone deep-copies the source
+/// fragment's children into it (threading the clone's node document, the C2
+/// owner-doc approximation).
+///
+/// No-op when `src` is not a template (no `TemplateContents` link). Cloned
+/// fragment children are recorded onto `pairs` via [`clone_recording`], so a
+/// template nested inside template content is itself replicated when its pair
+/// is reached.
+fn replicate_template_contents(
+    src: Entity,
+    dst: Entity,
+    dom: &mut EcsDom,
+    deep: bool,
+    clone_doc: Option<Entity>,
+    pairs: &mut Vec<(Entity, Entity)>,
+) {
+    let Some(src_fragment) = dom.template_contents_fragment(src) else {
+        return;
+    };
+    // The clone's content fragment's node document is the *operation's* node
+    // document (`clone_doc` — the source's owner document, or the clone itself
+    // for a Document clone), NOT `owner_document(dst)`: a shallow
+    // `cloneNode(false)` leaves `dst` parentless with no `AssociatedDocument`
+    // (the shallow cloner stamps none), so deriving from `dst` would yield
+    // `None` and leave the content fragment document-less (Codex PR380 R2).
+    let new_fragment = dom.attach_template_contents(dst, clone_doc);
+    if !deep {
+        return;
+    }
+    for child in dom.children(src_fragment) {
+        if let Some(child_clone) = clone_recording(dom, child, deep, clone_doc, pairs) {
+            let _ = dom.append_child(new_fragment, child_clone);
+        }
+    }
 }
 
 /// Extract the `ShadowInit` for `entity`'s shadow root if it is a

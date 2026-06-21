@@ -22,14 +22,16 @@ impl TreeBuilder {
     /// Foster parenting is never enabled in strict mode, so the adjusted
     /// insertion location is simply the current node (or the Document when the
     /// stack is empty, before the `html` element is pushed). Step 3 redirects
-    /// insertion inside a `<template>` to its template contents: for a normal
-    /// template that is the template element itself (children held directly),
-    /// for a declarative shadow template it is the attached shadow root.
+    /// insertion inside a `<template>` to its template contents: for an ordinary
+    /// template that is its detached content `DocumentFragment`
+    /// (`ContentTarget::ContentFragment`); for a declarative shadow template
+    /// it is the attached shadow root (`ContentTarget::ShadowRoot`). Both
+    /// kinds resolve uniformly here via `ContentTarget::entity`.
     pub(super) fn appropriate_place(&self) -> Entity {
         let target = self.state.current_node().unwrap_or(self.document);
         if self.dom.has_tag(target, "template") {
-            if let Some(&content) = self.state.template_content_targets.get(&target) {
-                return content;
+            if let Some(content) = self.state.template_content_targets.get(&target) {
+                return content.entity();
             }
         }
         target
@@ -220,14 +222,17 @@ impl TreeBuilder {
     // ----- stack of open elements (§13.2.4.2) -----
 
     /// Pop the current node off the stack of open elements, returning it.
-    /// Drops any declarative-shadow content-target override the element
-    /// carried, keeping the override map bounded by the live stack.
+    /// Drops any `<template>` content-target override the element carried
+    /// (**both** kinds — ordinary content-fragment and declarative shadow —
+    /// unconditionally), keeping the override map bounded by the live stack. A
+    /// kind branch here would leak ordinary entries past their stack lifetime.
     ///
     /// Returns the popped entity for the caller to inspect (e.g. `pop_until_tag`
     /// checks its tag), so it does NOT despawn it. A consumed declarative-shadow
     /// template (stack-only, never in the tree) is despawned at its consumption
     /// sites (`</template>` / fragment rollback), which capture its
-    /// content-target presence before this clears the map entry.
+    /// content-target *kind* before this clears the map entry; an ordinary
+    /// template stays in the tree and is never despawned there.
     pub(super) fn pop(&mut self) -> Option<Entity> {
         let popped = self.state.open_elements.pop();
         if let Some(entity) = popped {

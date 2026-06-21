@@ -549,12 +549,39 @@ pub struct SlotAssignment {
 #[derive(Clone, Copy, Debug)]
 pub struct SlottedMarker;
 
-/// Marker for `<template>` elements (inert — not rendered/styled).
+/// Forward-link from a `<template>` element to its associated **template
+/// contents** `DocumentFragment` (HTML §4.12.3, slot
+/// `#11-template-parser-content`).
 ///
-/// Template content is not part of the rendered document. Elements
-/// with this marker are excluded from style resolution and rendering.
+/// Per §4.12.3 every `<template>` element has an associated
+/// `DocumentFragment` ("created when the template element is created") into
+/// which the parser inserts the template's children and which JS reads as
+/// `template.content`.  `fragment` is that fragment entity — a
+/// [`NodeKind::DocumentFragment`](crate::NodeKind::DocumentFragment) held
+/// **only** by this component, i.e. *detached* (never `append_child`'d into
+/// the template, unlike [`ShadowRoot`], which is in-tree-but-skipped). Being
+/// detached means no **light-tree** walk (style / render / `child_nodes`
+/// descending from the document) reaches it, so those need no skip-filter.
+/// It is, however, a parentless node *with children*, so the render / layout /
+/// hit-test **root discovery** must explicitly skip it (it would otherwise
+/// treat the fragment as an independent paint root) —
+/// [`root_entities`](crate::EcsDom::root_entities) excludes detached
+/// `DocumentFragment`s for exactly this reason.
+///
+/// The despawn / adopt traversal
+/// ([`despawn_subtree`](crate::EcsDom::despawn_subtree) /
+/// [`adopt_subtree`](crate::EcsDom::adopt_subtree)) reaches the fragment
+/// out-of-band (like a shadow root) so teardown leaves no orphan and the
+/// DOM §4.5 "adopt" of an HTML §13.4-fragment-parsed subtree re-homes the
+/// contents with the template. `clone a node`
+/// (DOM §4.4 + §4.12.3 cloning steps) relinks a freshly-cloned fragment —
+/// this component is in the deliberate-non-copy row, so a shallow clone
+/// never aliases the source fragment.
 #[derive(Clone, Copy, Debug)]
-pub struct TemplateContent;
+pub struct TemplateContents {
+    /// The associated content `DocumentFragment` entity.
+    pub fragment: Entity,
+}
 
 /// Marker set on `<dialog>` entities by `dialog.showModal()`, cleared
 /// by `dialog.close()` (HTML §4.11.4, slot `#11-tags-T2d-interactive`).

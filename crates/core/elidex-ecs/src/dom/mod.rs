@@ -27,7 +27,7 @@ pub use mutation_event::{MutationDispatcher, MutationEvent};
 
 use crate::components::{
     AssociatedDocument, AttrData, Attributes, CommentData, DocTypeData, DocumentBaseUrl, Namespace,
-    NodeKind, ShadowRoot, TagType, TextContent, TreeRelation,
+    NodeKind, ShadowRoot, TagType, TemplateContents, TextContent, TreeRelation,
 };
 use hecs::{Entity, World};
 
@@ -235,17 +235,17 @@ impl EcsDom {
     }
 
     /// HTML tag-name predicate: returns `true` iff `entity` is a
-    /// `<template>` element (HTML §4.12.3).  Tree walkers that
-    /// implement spec algorithms requiring the "template contents"
-    /// carve-out (HTML §2.4.3 "first base element in the document" —
-    /// template contents form a separate document) use this to skip
-    /// the `<template>` element's children.
+    /// `<template>` element (HTML §4.12.3). Tree walkers implementing the
+    /// §2.4.3 "first base element in the document" carve-out use this to
+    /// **skip recursing into a `<template>`'s light children** — a `<base>`
+    /// programmatically appended to a template element (e.g. via
+    /// `template.appendChild(base)`) must not affect the host document's base
+    /// URL. (Parsed template *content* lands in the detached
+    /// [`TemplateContents`](crate::TemplateContents) fragment, which no
+    /// light-tree walk reaches anyway; this predicate covers the light-child
+    /// case the fragment model does not.)
     ///
-    /// Tag-string compare matches the [`Self::is_base_element`]
-    /// precedent.  The `TemplateContent` component is reserved for
-    /// future plug-in use (e.g. signalling "this element owns a
-    /// detached contents fragment"); a content-attach pass would
-    /// piggyback on this predicate.
+    /// Tag-string compare matches the [`Self::is_base_element`] precedent.
     #[must_use]
     pub fn is_template_element(&self, entity: Entity) -> bool {
         self.world
@@ -698,6 +698,59 @@ impl EcsDom {
         entity
     }
 
+    /// HTML §4.12.3: give `template` its associated **template contents**
+    /// `DocumentFragment`, returning the fragment entity.
+    ///
+    /// Spawns a fresh detached [`NodeKind::DocumentFragment`] and forward-links
+    /// it via a [`TemplateContents`] component on `template`. Every
+    /// `<template>`-element creation site (both parser tiers, `createElement`,
+    /// and the clone post-pass) routes through this single helper so the
+    /// fragment / linkage / owner-document semantics stay identical across
+    /// tiers (the One-issue-one-way cross-tier consistency anchor) — only the
+    /// *redirect plumbing* (strict `template_content_targets` map vs tolerant
+    /// `template_contents` recursion) differs.
+    ///
+    /// `owner_doc` is the fragment's node document. Per §4.12.3 the faithful
+    /// value is a separate inert *"template contents owner document"* (one per
+    /// real document); this ships the **C2 approximation** `owner_doc =
+    /// template's own node document` — the faithful inert owner document is
+    /// deferred to slot `#11-template-contents-owner-document`. Callers pass
+    /// the document they know at creation time (strict: post-insert
+    /// `owner_document(template)`; `createElement`: the receiver document;
+    /// tolerant: the conversion's threaded document), so the fragment's
+    /// `ownerDocument` is uniform across tiers.
+    pub fn attach_template_contents(
+        &mut self,
+        template: Entity,
+        owner_doc: Option<Entity>,
+    ) -> Entity {
+        // Called exactly once per `<template>` creation (both parser tiers,
+        // `createElement`, clone post-pass). Re-attaching would orphan the
+        // prior fragment (no longer reachable by despawn/adopt), so enforce
+        // the single-attach contract in debug rather than silently leaking.
+        debug_assert!(
+            self.template_contents_fragment(template).is_none(),
+            "attach_template_contents called twice on the same <template> \
+             (would orphan the prior content fragment)"
+        );
+        let fragment = self.create_document_fragment_with_owner(owner_doc);
+        let _ = self
+            .world
+            .insert_one(template, TemplateContents { fragment });
+        fragment
+    }
+
+    /// The content `DocumentFragment` linked to `template` by
+    /// [`attach_template_contents`](Self::attach_template_contents), or `None`
+    /// if `template` is not a `<template>` element with associated content.
+    #[must_use]
+    pub fn template_contents_fragment(&self, template: Entity) -> Option<Entity> {
+        self.world
+            .get::<&TemplateContents>(template)
+            .ok()
+            .map(|t| t.fragment)
+    }
+
     /// Create a comment node.
     ///
     /// Shim over [`create_comment_with_owner`](Self::create_comment_with_owner)
@@ -980,10 +1033,23 @@ impl EcsDom {
             }
         }
         let root = self.find_tree_root(entity);
-        if matches!(self.node_kind(root), Some(NodeKind::Document)) {
-            return Some(root);
+        match self.node_kind(root) {
+            Some(NodeKind::Document) => Some(root),
+            // A node whose tree root is a detached `DocumentFragment` inherits
+            // that fragment's node document. Parser-built `<template>` content
+            // (HTML §4.12.3) sets `AssociatedDocument` on the fragment but not
+            // on its parsed descendants (tolerant nodes rely on the tree-root
+            // walk, which dead-ends at the fragment), so without this
+            // `template.content.firstChild.ownerDocument` would be null while
+            // `template.content.ownerDocument` is the document. Same dangling
+            // guard as above (the fragment may carry a stale/destroyed owner —
+            // e.g. a fragment-parse throwaway document — in which case the
+            // `contains` + kind check yields `None` rather than a ghost).
+            Some(NodeKind::DocumentFragment) => self.get_associated_document(root).filter(|&doc| {
+                self.contains(doc) && matches!(self.node_kind(doc), Some(NodeKind::Document))
+            }),
+            _ => None,
         }
-        None
     }
 }
 

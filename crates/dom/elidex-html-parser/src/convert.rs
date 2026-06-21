@@ -20,6 +20,7 @@ pub(crate) fn convert_document(rc_dom: RcDom) -> ParseResult {
         &rc_dom.document,
         document,
         &mut dom,
+        Some(document),
         ParseFragmentOptions::default(),
     );
     let errors = rc_dom
@@ -59,16 +60,18 @@ pub(crate) fn convert_children(
     rc_handle: &Handle,
     parent: Entity,
     dom: &mut EcsDom,
+    owner_document: Option<Entity>,
     opts: ParseFragmentOptions,
 ) {
     for child in &*rc_handle.children.borrow() {
-        if opts.allow_declarative_shadow && try_attach_declarative_shadow(child, parent, dom, opts)
+        if opts.allow_declarative_shadow
+            && try_attach_declarative_shadow(child, parent, dom, owner_document, opts)
         {
             // Template was consumed as declarative shadow root markup;
             // the host entity already received the new shadow tree.
             continue;
         }
-        if let Some(entity) = convert_node(child, dom, opts) {
+        if let Some(entity) = convert_node(child, dom, owner_document, opts) {
             let ok = dom.append_child(parent, entity);
             debug_assert!(ok, "append_child failed during RcDom conversion");
         }
@@ -93,16 +96,18 @@ pub(crate) fn convert_fragment_top_level(
     root: Entity,
     context: Entity,
     dom: &mut EcsDom,
+    owner_document: Option<Entity>,
     opts: ParseFragmentOptions,
 ) {
     for child in &*rc_handle.children.borrow() {
         // Top-level declarative shadow attaches to the CONTEXT (the fragment
         // adjusted current node), not the synthetic root.
-        if opts.allow_declarative_shadow && try_attach_declarative_shadow(child, context, dom, opts)
+        if opts.allow_declarative_shadow
+            && try_attach_declarative_shadow(child, context, dom, owner_document, opts)
         {
             continue;
         }
-        if let Some(entity) = convert_node(child, dom, opts) {
+        if let Some(entity) = convert_node(child, dom, owner_document, opts) {
             let ok = dom.append_child(root, entity);
             debug_assert!(ok, "append_child failed during RcDom conversion");
         }
@@ -123,6 +128,7 @@ fn try_attach_declarative_shadow(
     rc_handle: &Handle,
     parent: Entity,
     dom: &mut EcsDom,
+    owner_document: Option<Entity>,
     opts: ParseFragmentOptions,
 ) -> bool {
     let NodeData::Element {
@@ -197,7 +203,7 @@ fn try_attach_declarative_shadow(
     // DocumentFragment-like handle), not its direct `children`, per
     // html5ever's RcDom representation.
     if let Some(contents) = template_contents.borrow().clone() {
-        convert_children(&contents, shadow_root, dom, opts);
+        convert_children(&contents, shadow_root, dom, owner_document, opts);
     }
     true
 }
@@ -235,9 +241,16 @@ fn build_element_data(handle: &Handle) -> Option<(String, Namespace, Attributes)
     Some((tag, namespace, attributes))
 }
 
-fn convert_node(handle: &Handle, dom: &mut EcsDom, opts: ParseFragmentOptions) -> Option<Entity> {
+fn convert_node(
+    handle: &Handle,
+    dom: &mut EcsDom,
+    owner_document: Option<Entity>,
+    opts: ParseFragmentOptions,
+) -> Option<Entity> {
     match &handle.data {
-        NodeData::Element { .. } => {
+        NodeData::Element {
+            template_contents, ..
+        } => {
             let (tag, namespace, attributes) = build_element_data(handle)?;
             // `create_element_ns` attaches a `Namespace` component only for
             // non-HTML namespaces (HTML stays component-free), so the foreign
@@ -259,7 +272,26 @@ fn convert_node(handle: &Handle, dom: &mut EcsDom, opts: ParseFragmentOptions) -
             // `parse_strict` (it is DOM-semantics-free and cannot reach this
             // crate's deps). All paths share the one `attach_derived` impl.
             attach_derived(dom, entity);
-            convert_children(handle, entity, dom, opts);
+            // HTML §4.12.3: an HTML `<template>` holds its children in a
+            // detached content `DocumentFragment`, not as light children.
+            // html5ever stores those children in `template_contents` (its RcDom
+            // DocumentFragment-like handle), separate from `children` (empty for
+            // a template); recurse them into the content fragment built by the
+            // shared `attach_template_contents` helper (the same one the strict
+            // tier + createElement use — cross-tier One-issue-one-way). A
+            // declarative-shadow `<template>` was already consumed by
+            // `try_attach_declarative_shadow` in the caller, so reaching here
+            // means an ordinary template — including a declarative one whose
+            // attach was rejected, which becomes ordinary per §4.12.3 and whose
+            // stored `template_contents` is its template content.
+            if namespace == Namespace::Html && tag == "template" {
+                let fragment = dom.attach_template_contents(entity, owner_document);
+                if let Some(contents) = template_contents.borrow().clone() {
+                    convert_children(&contents, fragment, dom, owner_document, opts);
+                }
+            } else {
+                convert_children(handle, entity, dom, owner_document, opts);
+            }
             Some(entity)
         }
         NodeData::Text { contents } => {
@@ -300,9 +332,39 @@ fn convert_node(handle: &Handle, dom: &mut EcsDom, opts: ParseFragmentOptions) -
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::parse_html;
     use crate::test_helpers::{child_text, find_tag};
+    use crate::{parse_html, parse_strict};
     use elidex_ecs::{InlineStyle, TagType};
+
+    /// Serialize a subtree (tag + sorted attrs + text, recursively) into a
+    /// tier-independent string for the cross-tier parity AC.
+    fn serialize_subtree(dom: &EcsDom, entity: Entity, out: &mut String) {
+        use std::fmt::Write as _;
+        if let Ok(t) = dom.world().get::<&TagType>(entity) {
+            out.push('<');
+            out.push_str(&t.0);
+            let mut attrs: Vec<(String, String)> = dom
+                .world()
+                .get::<&elidex_ecs::Attributes>(entity)
+                .map(|a| {
+                    a.iter()
+                        .map(|(k, v)| (k.to_string(), v.to_string()))
+                        .collect()
+                })
+                .unwrap_or_default();
+            attrs.sort();
+            for (k, v) in attrs {
+                let _ = write!(out, " {k}=\"{v}\"");
+            }
+            out.push('>');
+            for child in dom.children(entity) {
+                serialize_subtree(dom, child, out);
+            }
+            out.push_str("</>");
+        } else if let Ok(tc) = dom.world().get::<&elidex_ecs::TextContent>(entity) {
+            let _ = write!(out, "\"{}\"", tc.0);
+        }
+    }
 
     #[test]
     fn basic_div_with_text() {
@@ -526,5 +588,95 @@ mod tests {
         let attrs = dom.world().get::<&Attributes>(img).unwrap();
         assert_eq!(attrs.get("style"), Some("width: 200px"));
         assert!(dom.world().get::<&InlineStyle>(img).is_err());
+    }
+
+    // HTML §4.12.3: `<template>` content routes into the detached content
+    // fragment, not the template's light children (previously the tolerant
+    // tier dropped it entirely — html5ever stores template children in
+    // `template_contents`, which `convert_children` never read for ordinary
+    // templates).
+    #[test]
+    fn template_content_routed_to_fragment() {
+        let result = parse_html("<template><div>x</div></template>");
+        let dom = &result.dom;
+        let doc = result.document;
+
+        let template = find_tag(dom, doc, "template").expect("template");
+        // The template element has NO light children — content is detached.
+        assert_eq!(
+            dom.children(template).len(),
+            0,
+            "template content must not be light children of the template element"
+        );
+        // The content lives in the associated fragment.
+        let fragment = dom
+            .template_contents_fragment(template)
+            .expect("template must have a content fragment");
+        let frag_children = dom.children(fragment);
+        assert_eq!(frag_children.len(), 1, "one child <div> in the fragment");
+        let div = frag_children[0];
+        assert!(dom.has_tag(div, "div"));
+        assert_eq!(child_text(dom, div), "x");
+    }
+
+    #[test]
+    fn nested_template_content_routed_to_inner_fragment() {
+        // A `<template>` inside another template's content gets its own
+        // fragment; the deepest `<span>` lives two fragments down.
+        let result = parse_html("<template><template><span>y</span></template></template>");
+        let dom = &result.dom;
+        let doc = result.document;
+
+        let outer = find_tag(dom, doc, "template").expect("outer template");
+        let outer_frag = dom
+            .template_contents_fragment(outer)
+            .expect("outer content fragment");
+        let inner = dom.children(outer_frag);
+        assert_eq!(inner.len(), 1);
+        let inner = inner[0];
+        assert!(dom.has_tag(inner, "template"), "inner is a <template>");
+        let inner_frag = dom
+            .template_contents_fragment(inner)
+            .expect("inner content fragment");
+        let span = dom.children(inner_frag);
+        assert_eq!(span.len(), 1);
+        assert!(dom.has_tag(span[0], "span"));
+        assert_eq!(child_text(dom, span[0]), "y");
+    }
+
+    // §10.8 cross-tier parity AC (the load-bearing One-issue-one-way
+    // invariant): the SAME `<template>` markup yields structurally identical
+    // content-fragment subtrees under the strict (Tier-1) and tolerant
+    // (Tier-2) backends — both route through the one `attach_template_contents`
+    // helper, differing only in redirect plumbing.
+    #[test]
+    fn template_content_strict_tolerant_parity() {
+        // Strict (Tier-1) requires a doctype; tolerant accepts it too, so the
+        // same input drives both backends.
+        let html = "<!DOCTYPE html><template><div class=\"a\" id=\"d\">x</div><p>y</p></template>";
+
+        let tolerant = parse_html(html);
+        let strict = parse_strict(html).expect("strict parse");
+
+        let frag_serialized = |result: &ParseResult| {
+            let dom = &result.dom;
+            let template = find_tag(dom, result.document, "template").expect("template present");
+            let fragment = dom
+                .template_contents_fragment(template)
+                .expect("content fragment present");
+            let mut out = String::new();
+            for child in dom.children(fragment) {
+                serialize_subtree(dom, child, &mut out);
+            }
+            out
+        };
+
+        let tolerant_tree = frag_serialized(&tolerant);
+        let strict_tree = frag_serialized(&strict);
+        assert_eq!(
+            tolerant_tree, strict_tree,
+            "strict and tolerant template content fragments must be structurally identical"
+        );
+        assert_eq!(strict_tree, "<div class=\"a\" id=\"d\">\"x\"</><p>\"y\"</>");
     }
 }

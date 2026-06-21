@@ -146,7 +146,17 @@ pub fn parse_html_fragment(
     // attach to their real parent. (Strict rejects DSD-on-context and falls
     // back here — the slot `#11-strict-fragment-declarative-shadow-on-context`
     // is the strict-native handling, deferred; correctness is via this path.)
-    convert::convert_fragment_top_level(&children_owner, root, context, dom, opts);
+    // Stamp parsed `<template>` content fragments (light top-level + any
+    // DSD-on-context shadow content) with the **context's** node document, not
+    // the throwaway fragment `document`: the light nodes are adopted into the
+    // context document by `finish_detached_fragment`, and the DSD-on-context
+    // content is attached to `context`'s shadow tree (never under `root`, so it
+    // is NOT adopted) — stamping the throwaway doc would leave that content's
+    // owner dangling once the throwaway document is destroyed (Codex PR380 R2).
+    // `None` (documentless context) leaves the fragments owner-less, matching
+    // the orphan-detached light nodes `finish_detached_fragment` returns then.
+    let owner_doc = dom.owner_document(context);
+    convert::convert_fragment_top_level(&children_owner, root, context, dom, owner_doc, opts);
     let detached = dom.finish_detached_fragment(root, document, context);
     if let Some(dispatcher) = saved {
         dom.set_mutation_dispatcher(dispatcher);
@@ -654,6 +664,115 @@ mod tests {
             .get::<&TextContent>(added[1])
             .expect("middle node is the preserved whitespace text node");
         assert_eq!(ws.0, "\n  ", "the whitespace run is preserved verbatim");
+    }
+
+    #[test]
+    fn template_content_custom_element_derived_strict_and_tolerant() {
+        // Codex PR380 (P1): a custom element inside `<template>` content must
+        // receive `CustomElementState` in BOTH tiers. The strict derivation
+        // post-pass (`derive_element_components`) must follow the detached
+        // `TemplateContents` fragment to match the tolerant inline derivation —
+        // else strict-parsed template content loses CE state (parity break;
+        // later breaks clone/upgrade for those nodes).
+        let html = "<!DOCTYPE html><template><my-widget></my-widget></template>";
+        for (tier, result) in [
+            ("tolerant", parse_html(html)),
+            ("strict", parse_strict(html).expect("strict parse")),
+        ] {
+            let dom = &result.dom;
+            let template = find_tag(dom, result.document, "template").expect("template");
+            let fragment = dom
+                .template_contents_fragment(template)
+                .expect("content fragment");
+            let widget = dom
+                .children(fragment)
+                .into_iter()
+                .find(|&e| {
+                    dom.world()
+                        .get::<&TagType>(e)
+                        .is_ok_and(|t| t.0 == "my-widget")
+                })
+                .unwrap_or_else(|| panic!("{tier}: <my-widget> present in template content"));
+            assert!(
+                dom.world()
+                    .get::<&elidex_custom_elements::CustomElementState>(widget)
+                    .is_ok(),
+                "{tier}: custom element in <template> content carries CustomElementState"
+            );
+        }
+    }
+
+    #[test]
+    fn template_content_descendant_owner_document() {
+        // Codex PR380 (P2): a parsed `<template>` content descendant inherits
+        // the fragment's node document (owner_document falls back through the
+        // DocumentFragment root), so `content.firstChild.ownerDocument` is the
+        // document, matching `content.ownerDocument` — not null.
+        let result = parse_html("<template><p>x</p></template>");
+        let dom = &result.dom;
+        let template = find_tag(dom, result.document, "template").expect("template");
+        let fragment = dom
+            .template_contents_fragment(template)
+            .expect("content fragment");
+        let p = dom
+            .children(fragment)
+            .into_iter()
+            .find(|&e| dom.world().get::<&TagType>(e).is_ok_and(|t| t.0 == "p"))
+            .expect("<p> present in template content");
+        assert_eq!(
+            dom.owner_document(p),
+            Some(result.document),
+            "template content descendant ownerDocument resolves to the document, not null"
+        );
+        assert_eq!(
+            dom.owner_document(fragment),
+            Some(result.document),
+            "the content fragment's own ownerDocument is the document (C2 approximation)"
+        );
+    }
+
+    #[test]
+    fn fragment_parsed_template_content_owner_is_context_document() {
+        // Codex PR380 R2 (P2): fragment-parsed `<template>` content fragments
+        // are stamped with the *context's* node document, not the throwaway
+        // fragment document (which is destroyed by `finish_detached_fragment`) —
+        // otherwise the content's ownerDocument dangles.
+        let mut dom = EcsDom::new();
+        let doc = dom.create_document_root();
+        let context = dom.create_element("div", Attributes::default());
+        let _ = dom.append_child(doc, context);
+        let added = parse_html_fragment(
+            "<template><p>x</p></template>",
+            context,
+            &mut dom,
+            ParseFragmentOptions::default(),
+        );
+        let template = *added
+            .iter()
+            .find(|&&e| {
+                dom.world()
+                    .get::<&TagType>(e)
+                    .is_ok_and(|t| t.0 == "template")
+            })
+            .expect("the <template> is returned");
+        let fragment = dom
+            .template_contents_fragment(template)
+            .expect("content fragment");
+        assert_eq!(
+            dom.owner_document(fragment),
+            Some(doc),
+            "fragment-parsed template content fragment ownerDocument is the context document"
+        );
+        let p = dom
+            .children(fragment)
+            .into_iter()
+            .find(|&e| dom.world().get::<&TagType>(e).is_ok_and(|t| t.0 == "p"))
+            .expect("<p> in content");
+        assert_eq!(
+            dom.owner_document(p),
+            Some(doc),
+            "content descendant inherits the context document, not a dangling throwaway doc"
+        );
     }
 
     #[test]

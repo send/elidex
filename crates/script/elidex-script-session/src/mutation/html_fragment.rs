@@ -40,7 +40,11 @@ pub struct SetInnerHtmlOptions {
 /// the shadow root's **host** for `ShadowRoot.innerHTML` (step 2 "Let context
 /// be this's host") — the parsing rules follow the host's tag/namespace while
 /// the parsed nodes still replace the shadow root's own children. The
-/// placement **target** is always `entity`.
+/// placement **target** is `entity`, except for a `<template>`: "set the inner
+/// HTML" redirects the replacement to the template's **content fragment**
+/// (HTML §4.12.3 — "if context is a template element, then set context to the
+/// template's template contents"), so `template.innerHTML = …` populates
+/// `template.content`, not the (always-empty) template light children.
 ///
 /// The single `opts` parameter selects between the two JS-visible APIs:
 /// `opts.allow_declarative_shadow = false` (the default) implements
@@ -74,18 +78,23 @@ pub fn apply_set_inner_html(
     };
     let added = elidex_html_parser::parse_fragment_progressive(html, context, dom, parse_opts);
 
-    let removed: Vec<Entity> = dom.children(entity);
+    // HTML "set the inner HTML": for a `<template>` the parsed fragment
+    // replaces the template's *content* fragment children (§4.12.3), not the
+    // template element's (always-empty) light children. Non-templates and
+    // shadow roots have no content fragment, so the target stays `entity`.
+    let placement_target = dom.template_contents_fragment(entity).unwrap_or(entity);
+    let removed: Vec<Entity> = dom.children(placement_target);
     for &child in &removed {
-        let _ = dom.remove_child(entity, child);
+        let _ = dom.remove_child(placement_target, child);
     }
     for &node in &added {
-        let _ = dom.append_child(entity, node);
+        let _ = dom.append_child(placement_target, node);
     }
 
     Some(MutationRecord {
         added_nodes: added,
         removed_nodes: removed,
-        ..empty_record(MutationKind::ChildList, entity)
+        ..empty_record(MutationKind::ChildList, placement_target)
     })
 }
 

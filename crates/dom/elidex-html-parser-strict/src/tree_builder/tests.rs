@@ -26,6 +26,19 @@ fn children(dom: &EcsDom, entity: Entity) -> Vec<Entity> {
     out
 }
 
+/// Find the first light-tree descendant of `root` with tag `tag` (depth-first).
+fn find_descendant_tag(dom: &EcsDom, root: Entity, tag: &str) -> Option<Entity> {
+    for child in children(dom, root) {
+        if dom.has_tag(child, tag) {
+            return Some(child);
+        }
+        if let Some(found) = find_descendant_tag(dom, child, tag) {
+            return Some(found);
+        }
+    }
+    None
+}
+
 /// Serialize a parsed document into the html5lib tree-construction
 /// `#document` format: one `| `-prefixed line per node, two spaces of indent
 /// per depth level, attributes sorted by name, and `<template>` content under
@@ -73,11 +86,13 @@ pub(super) fn serialize_node(dom: &EcsDom, entity: Entity, depth: usize, out: &m
             }
             if tag == "template" {
                 // html5lib serializes template contents under a `content`
-                // pseudo-node; strict mode holds them as the template's direct
-                // children.
+                // pseudo-node; elidex holds them in the template's detached
+                // `TemplateContents` fragment (HTML §4.12.3).
                 let _ = writeln!(out, "| {}content", "  ".repeat(depth + 1));
-                for child in children(dom, entity) {
-                    serialize_node(dom, child, depth + 2, out);
+                if let Some(fragment) = dom.template_contents_fragment(entity) {
+                    for child in children(dom, fragment) {
+                        serialize_node(dom, child, depth + 2, out);
+                    }
                 }
             } else {
                 for child in children(dom, entity) {
@@ -329,6 +344,29 @@ fn template_in_head_holds_content() {
 }
 
 #[test]
+fn template_content_in_detached_fragment_not_light_children() {
+    // HTML §4.12.3: the parser routes `<template>` children into the detached
+    // content fragment (the appropriate-place redirect), not the template
+    // element's light children.
+    let result = TreeBuilder::build(
+        "<!DOCTYPE html><html><head><template><div>x</div></template></head></html>",
+    )
+    .expect("valid template parses");
+    let dom = &result.dom;
+    let template = find_descendant_tag(dom, result.document, "template").expect("template");
+    assert!(
+        children(dom, template).is_empty(),
+        "template content must not be light children"
+    );
+    let fragment = dom
+        .template_contents_fragment(template)
+        .expect("content fragment");
+    let frag_children = children(dom, fragment);
+    assert_eq!(frag_children.len(), 1);
+    assert!(dom.has_tag(frag_children[0], "div"));
+}
+
+#[test]
 fn hr_in_select_is_sibling_of_option() {
     // `<hr>` is valid `<select>` content: with a select in scope the spec
     // generates implied end tags first, popping the open option, so the `<hr>`
@@ -438,6 +476,42 @@ fn declarative_shadow_disallowed_leaves_template() {
         dom.get_shadow_root(div).is_none(),
         "no shadow root should be attached when declarative shadow is disabled"
     );
+}
+
+#[test]
+fn failed_declarative_shadow_template_falls_back_to_ordinary_with_content_fragment() {
+    // A second `<template shadowrootmode>` on a host that already has a shadow
+    // root fails to attach and gracefully becomes an *ordinary* template
+    // (§4.12.3). It must then get a content fragment like any ordinary
+    // template — its `<span>` lands in the fragment, not its light children.
+    let html = "<!DOCTYPE html><html><body><div>\
+        <template shadowrootmode=\"open\"></template>\
+        <template shadowrootmode=\"open\"><span>x</span></template>\
+        </div></body></html>";
+    let result = TreeBuilder::build_with_declarative_shadow(html, true)
+        .expect("valid templates should parse");
+    let dom = &result.dom;
+    // The div is a shadow host (first declarative template succeeded) and has
+    // exactly one light child: the fallback ordinary template.
+    let div = find_descendant_tag(dom, result.document, "div").expect("div");
+    assert!(
+        dom.get_shadow_root(div).is_some(),
+        "first template shadowed div"
+    );
+    let fallback = children(dom, div)
+        .into_iter()
+        .find(|&e| dom.has_tag(e, "template"))
+        .expect("fallback ordinary template in light DOM");
+    assert!(
+        children(dom, fallback).is_empty(),
+        "fallback template content must not be light children"
+    );
+    let fragment = dom
+        .template_contents_fragment(fallback)
+        .expect("fallback template has a content fragment");
+    let frag_children = children(dom, fragment);
+    assert_eq!(frag_children.len(), 1);
+    assert!(dom.has_tag(frag_children[0], "span"));
 }
 
 // ----- strict-reject cases (no error recovery) -----

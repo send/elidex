@@ -28,6 +28,39 @@ fn associated_document_for_text_comment_fragment() {
 }
 
 #[test]
+fn owner_document_resolves_through_detached_fragment_root() {
+    // A child appended under a detached `DocumentFragment` (e.g. a
+    // `createDocumentFragment()`'s content, or parsed `<template>` content)
+    // has no `AssociatedDocument` of its own, so its tree root is the
+    // fragment — `owner_document` resolves THROUGH the fragment's own
+    // `AssociatedDocument` rather than dead-ending at `None`. (General DOM
+    // node-document inheritance; the template path relies on this.)
+    let mut dom = EcsDom::new();
+    let doc = dom.create_document_root();
+    let frag = dom.create_document_fragment_with_owner(Some(doc));
+    // The child gets NO owner of its own (mirrors a tolerant-parsed node).
+    let child = dom.create_element("span", crate::components::Attributes::default());
+    let grandchild = dom.create_text("x");
+    assert!(dom.append_child(child, grandchild));
+    assert!(dom.append_child(frag, child));
+    assert_eq!(
+        dom.owner_document(child),
+        Some(doc),
+        "fragment child inherits the fragment's node document"
+    );
+    assert_eq!(
+        dom.owner_document(grandchild),
+        Some(doc),
+        "deep fragment descendant also inherits it"
+    );
+    // A fragment with NO owner leaves its descendants owner-less (unchanged).
+    let orphan_frag = dom.create_document_fragment();
+    let orphan_child = dom.create_element("p", crate::components::Attributes::default());
+    assert!(dom.append_child(orphan_frag, orphan_child));
+    assert_eq!(dom.owner_document(orphan_child), None);
+}
+
+#[test]
 fn owner_document_fallback_without_component() {
     // Legacy creation paths (no owner argument) leave the component
     // absent.  `owner_document` then falls back to the tree-root walk:

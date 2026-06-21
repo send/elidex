@@ -280,6 +280,54 @@ fn despawn_subtree_destroys_shadow_root_unlike_destroy_entity() {
 }
 
 #[test]
+fn despawn_subtree_destroys_template_content_fragment() {
+    // HTML §4.12.3: a `<template>`'s content fragment is detached (held only by
+    // the `TemplateContents` component, never a light child), so the despawn
+    // walk must reach it out-of-band — like a shadow root — or it leaks.
+    let mut dom = EcsDom::new();
+    let root = elem(&mut dom, "div");
+    let template = elem(&mut dom, "template");
+    dom.append_child(root, template);
+    let fragment = dom.attach_template_contents(template, None);
+    let content_child = elem(&mut dom, "span");
+    dom.append_child(fragment, content_child);
+
+    assert!(dom.despawn_subtree(root));
+
+    assert!(!dom.contains(root));
+    assert!(!dom.contains(template));
+    assert!(
+        !dom.contains(fragment),
+        "the detached content fragment must be despawned, not leaked"
+    );
+    assert!(
+        !dom.contains(content_child),
+        "the fragment's contents must be torn down too"
+    );
+}
+
+#[test]
+fn adopt_subtree_rehomes_template_content_fragment() {
+    // The DOM §4.5 "adopt" of an HTML §13.4-fragment-parsed subtree re-homes
+    // the whole returned subtree into the context's document; the detached
+    // content fragment (and its contents) must follow, else its `ownerDocument`
+    // dangles on the throwaway document.
+    let mut dom = EcsDom::new();
+    let doc = dom.create_document_node();
+    let root = elem(&mut dom, "div");
+    let template = elem(&mut dom, "template");
+    dom.append_child(root, template);
+    let fragment = dom.attach_template_contents(template, None);
+    let content_child = elem(&mut dom, "span");
+    dom.append_child(fragment, content_child);
+
+    dom.adopt_subtree(root, doc);
+
+    assert_eq!(dom.get_associated_document(fragment), Some(doc));
+    assert_eq!(dom.get_associated_document(content_child), Some(doc));
+}
+
+#[test]
 fn despawn_subtree_is_event_free_even_on_a_connected_shadow_host() {
     // `despawn_subtree` is a raw structural teardown, not a DOM removal: it
     // suppresses dispatch for the whole walk. So tearing a *connected* subtree

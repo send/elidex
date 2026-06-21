@@ -206,14 +206,18 @@ impl TreeBuilder {
                 // Rollback. Any consumed declarative-shadow template still on
                 // the stack (its `</template>` never arrived) is stack-only —
                 // not reachable from `document` — so despawn those first, then
-                // tear the whole throwaway document subtree out. The caller's
-                // dom is left with no orphaned live entities.
+                // tear the whole throwaway document subtree out. Ordinary
+                // (`ContentFragment`-kind) templates are in-tree and are torn
+                // down by `despawn_subtree(document)` below (which reaches their
+                // detached content fragments out-of-band), so only the
+                // `ShadowRoot`-kind ones are despawned individually here. The
+                // caller's dom is left with no orphaned live entities.
                 let stack_only_templates: Vec<Entity> = tb
                     .state
                     .open_elements
                     .iter()
                     .copied()
-                    .filter(|e| tb.state.template_content_targets.contains_key(e))
+                    .filter(|&e| tb.state.is_consumed_shadow_template(e))
                     .collect();
                 for template in stack_only_templates {
                     let _ = tb.dom.destroy_entity(template);

@@ -28,7 +28,7 @@ pub use components::{
     InlineFlowRun, InlineFragment, InlineStyle, IsModalDialog, LinkStylesheet, ListItemMarker,
     LoadingAttribute, Namespace, NodeKind, OutputDefaultValue, OutputValueOverride,
     PseudoElementMarker, ScrollState, ShadowHost, ShadowRoot, ShadowRootMode, SlotAssignment,
-    SlotAssignmentMode, SlottedMarker, TagType, TemplateContent, TextContent,
+    SlotAssignmentMode, SlottedMarker, TagType, TemplateContents, TextContent,
 };
 pub use dom::equality::{
     DOCUMENT_POSITION_CONTAINED_BY, DOCUMENT_POSITION_CONTAINS, DOCUMENT_POSITION_DISCONNECTED,

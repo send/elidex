@@ -14,9 +14,9 @@
 //! with the compat path is [`EcsDom::attach_shadow_with_init`]; host-tag
 //! validation lives inside it.
 
-use elidex_ecs::{Attributes, ShadowInit, ShadowRootMode, SlotAssignmentMode};
+use elidex_ecs::{Attributes, Entity, ShadowInit, ShadowRootMode, SlotAssignmentMode};
 
-use super::parse_state::InsertionMode;
+use super::parse_state::{ContentTarget, InsertionMode};
 use super::{parse_error, unsupported_fragment_construct, TreeBuilder};
 use crate::tokenizer::token::TagToken;
 use crate::StrictParseError;
@@ -113,9 +113,31 @@ impl TreeBuilder {
             }
         }
 
-        // Step 9: ordinary template.
-        self.insert_html_element(token)?;
+        // Step 9: ordinary template. Per HTML §4.12.3 the element gets its
+        // associated content `DocumentFragment` "when the template element is
+        // created"; the §13.2.6.1 appropriate-place redirect then routes the
+        // template's children into that fragment rather than the (in-tree)
+        // template element.
+        let template = self.insert_html_element(token)?;
+        self.attach_ordinary_template_contents(template);
         Ok(())
+    }
+
+    /// Give an **ordinary** `<template>` its content fragment + §13.2.6.1
+    /// appropriate-place redirect (HTML §4.12.3). Shared by the Step-9 ordinary
+    /// arm and the declarative-shadow graceful fallback (a failed DSD template
+    /// becomes ordinary), so the fragment / owner-doc / redirect semantics stay
+    /// identical at both sites (One-issue-one-way). Owner doc is the parse
+    /// document directly — correct for a nested template whose in-tree parent is
+    /// an outer template's detached content fragment (where the tree-root walk
+    /// would dead-end).
+    fn attach_ordinary_template_contents(&mut self, template: Entity) {
+        let fragment = self
+            .dom
+            .attach_template_contents(template, Some(self.document));
+        self.state
+            .template_content_targets
+            .insert(template, ContentTarget::ContentFragment(fragment));
     }
 
     /// WHATWG HTML §13.2.6.4.4 step 10 — the declarative shadow root branch.
@@ -147,15 +169,19 @@ impl TreeBuilder {
         // the shadow root, so children inserted while the template is the
         // current node route into the shadow (via the appropriate-place
         // template-contents redirect).
-        match self.dom.attach_shadow_with_init(host, init) {
-            Ok(shadow_root) => {
-                self.state
-                    .template_content_targets
-                    .insert(template, shadow_root);
-            }
-            Err(_) => {
-                self.append(fallback_parent, template);
-            }
+        if let Ok(shadow_root) = self.dom.attach_shadow_with_init(host, init) {
+            self.state
+                .template_content_targets
+                .insert(template, ContentTarget::ShadowRoot(shadow_root));
+        } else {
+            // Graceful fallback: the failed declarative shadow template
+            // becomes an ordinary in-tree `<template>` (§4.12.3), so it gets
+            // the same content fragment + redirect as the ordinary arm —
+            // otherwise its children would land as light children and
+            // `.content` would be empty (the tolerant fallback already routes
+            // through the ordinary template arm).
+            self.append(fallback_parent, template);
+            self.attach_ordinary_template_contents(template);
         }
     }
 
@@ -176,12 +202,14 @@ impl TreeBuilder {
         }
         // Step 3. The current node is the template being closed. If it is a
         // consumed declarative-shadow template (stack-only, never in the tree —
-        // identified by its content-target entry), despawn it after the pop so
-        // it does not dangle; capture it before pop clears the entry.
+        // identified by a `ShadowRoot`-kind content-target), despawn it after the
+        // pop so it does not dangle; capture it before pop clears the entry. An
+        // ordinary `ContentFragment`-kind template is in the tree and must NOT be
+        // despawned here (a missed kind branch = data loss).
         let consumed_shadow_template = self
             .state
             .current_node()
-            .filter(|t| self.state.template_content_targets.contains_key(t));
+            .filter(|&t| self.state.is_consumed_shadow_template(t));
         self.pop_until_tag("template");
         if let Some(template) = consumed_shadow_template {
             let _ = self.dom.destroy_entity(template);

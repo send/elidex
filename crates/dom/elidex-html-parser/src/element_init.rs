@@ -37,7 +37,8 @@
 use elidex_ecs::{Attributes, EcsDom, Entity, TagType};
 
 /// Attach parser-derived components to every element in `root`'s
-/// shadow-inclusive subtree.
+/// shadow-inclusive subtree, **including `<template>` content** (HTML
+/// §4.12.3).
 ///
 /// Two-phase (collect entities under the read-only
 /// [`EcsDom::for_each_shadow_inclusive_descendant`] walker, then mutate)
@@ -45,10 +46,35 @@ use elidex_ecs::{Attributes, EcsDom, Entity, TagType};
 /// `&mut`. Mirrors `elidex_form::init_form_controls`. Declarative-shadow
 /// content is covered (the walker is shadow-inclusive), so custom
 /// elements inside a `<template shadowrootmode>` tree are marked too.
+///
+/// A `<template>`'s ordinary content lives in a **detached**
+/// `TemplateContents` fragment the shadow-inclusive walker does not reach,
+/// so each discovered template's fragment is queued for its own walk (nested
+/// templates + shadow-in-template converge through the frontier). Without
+/// this, strict-parsed `<template><my-widget></my-widget><iframe></template>`
+/// would lose the `CustomElementState` / `IframeData` derivation that the
+/// tolerant backend attaches inline — a strict/tolerant parity break that
+/// later breaks clone / upgrade / iframe-load for those nodes. The derivation
+/// is inert (it only marks components; it does not upgrade or connect), so
+/// reaching template content here is correct — unlike the upgrade/connect
+/// walks, which must stay template-exclusive.
 pub(crate) fn derive_element_components(dom: &mut EcsDom, root: Entity) {
-    let mut entities = Vec::new();
-    dom.for_each_shadow_inclusive_descendant(root, &mut |e| entities.push(e));
-    for entity in entities {
+    let mut targets = Vec::new();
+    let mut frontier = vec![root];
+    while let Some(walk_root) = frontier.pop() {
+        let mut batch = Vec::new();
+        dom.for_each_shadow_inclusive_descendant(walk_root, &mut |e| batch.push(e));
+        // Queue each discovered template's detached content fragment for its
+        // own shadow-inclusive walk (read after the walk completes — the
+        // walker holds `&self` for its duration).
+        for &e in &batch {
+            if let Some(fragment) = dom.template_contents_fragment(e) {
+                frontier.push(fragment);
+            }
+        }
+        targets.append(&mut batch);
+    }
+    for entity in targets {
         attach_derived(dom, entity);
     }
 }
