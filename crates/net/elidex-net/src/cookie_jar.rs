@@ -341,6 +341,22 @@ impl CookieJar {
         !is_same_site(request_domain, cookie_domain)
     }
 
+    /// Whether cookie change requests are honored for `url` — the shared
+    /// eligibility precondition of every cookie operation on this jar.
+    ///
+    /// All the per-URL methods (`set_cookie_from_script`, `cookies_for_script`,
+    /// `cookies_for_url`, `store_from_response`, `cookie_header_for_url`) gate on
+    /// `url.host_str()`: a host-less URL (`about:blank`, `data:`, opaque-origin
+    /// documents) has no cookie domain, so writes are dropped and reads return
+    /// nothing. This predicate names that gate so callers that only need the
+    /// boolean — chiefly `navigator.cookieEnabled` (HTML §8.10.1.5, which must
+    /// return **false when cookie change requests are ignored**) — read the same
+    /// source of truth instead of re-deriving the host check.
+    #[must_use]
+    pub fn cookies_enabled_for(&self, url: &url::Url) -> bool {
+        url.host_str().is_some()
+    }
+
     /// Return cookies for script access (`document.cookie` getter).
     ///
     /// Filters out `HttpOnly` cookies (RFC 6265 §5.3) and `Secure` cookies
@@ -991,5 +1007,34 @@ mod tests {
         assert_eq!(jar.len(), 1);
         let cookies = jar.cookies_for_url(&url);
         assert_eq!(cookies[0].1, "2");
+    }
+
+    #[test]
+    fn cookies_enabled_for_tracks_host_eligibility() {
+        // The eligibility predicate (the SoT `navigator.cookieEnabled` reads)
+        // matches the host gate every cookie op uses: writes/reads are honored
+        // only for a URL with a host, and dropped for host-less URLs.
+        let jar = make_jar();
+        for (url, expected) in [
+            ("https://example.com/", true),
+            ("http://example.com/path", true),
+            ("about:blank", false),
+            ("data:text/html,hi", false),
+        ] {
+            let parsed = url::Url::parse(url).unwrap();
+            assert_eq!(
+                jar.cookies_enabled_for(&parsed),
+                expected,
+                "cookies_enabled_for({url}) should be {expected}"
+            );
+            // The predicate agrees with the actual write behavior: a host-less URL
+            // drops the write, so a subsequent read stays empty.
+            jar.set_cookie_from_script(&parsed, "probe=1");
+            assert_eq!(
+                jar.cookies_for_script(&parsed).contains("probe=1"),
+                expected,
+                "write honored iff cookies_enabled_for for {url}"
+            );
+        }
     }
 }

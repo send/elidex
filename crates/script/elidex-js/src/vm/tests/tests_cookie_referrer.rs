@@ -339,6 +339,28 @@ fn navigator_cookie_enabled_false_without_jar() {
     vm.unbind();
 }
 
+#[test]
+fn navigator_cookie_enabled_false_at_about_blank_even_with_jar() {
+    // Codex R1: HTML §8.10.1.5 requires `cookieEnabled` to be `false` when cookie
+    // change requests are *ignored*. The jar drops writes for a host-less URL
+    // (`CookieJar::set_cookie_from_script` returns on `host_str() == None`), so a
+    // session at `about:blank` must report `false` even though a jar is bound.
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    #[allow(unsafe_code)]
+    let _jar = unsafe { bind_at_url(&mut vm, &mut session, &mut dom, "about:blank", true) };
+
+    let v = vm.eval("navigator.cookieEnabled").unwrap();
+    assert!(
+        matches!(v, JsValue::Boolean(false)),
+        "about:blank (host-less, writes dropped) must report cookieEnabled false \
+         even with a jar bound (HTML §8.10.1.5); got {v:?}"
+    );
+
+    vm.unbind();
+}
+
 // ---------------------------------------------------------------------------
 // document.referrer
 // ---------------------------------------------------------------------------

@@ -142,16 +142,24 @@ impl VmInner {
 const NAVIGATOR_RO_ACCESSORS: &[(&str, super::super::NativeFn)] =
     &[("cookieEnabled", native_navigator_get_cookie_enabled)];
 
-/// `navigator.cookieEnabled` getter (WHATWG HTML §8.10.1.5). Returns `true` iff a
-/// `CookieJar` is bound to this session — the UA "handles cookies" signal. Reads
-/// shared cross-cutting cookie state (always-compiled in every mode), so it is
-/// independent of the `compat-webapi`-gated `document.cookie` accessor: a session
-/// with HTTP cookies reports `true` even where `document.cookie` is hidden.
+/// `navigator.cookieEnabled` getter (WHATWG HTML §8.10.1.5): returns `true` iff
+/// the UA attempts to handle cookies, and `false` if it ignores cookie change
+/// requests. That is `true` iff a `CookieJar` is bound **and** it would honor a
+/// cookie change for the current document — the jar drops writes for a host-less
+/// URL (`about:blank`, `data:`, opaque origins), so a bound-but-host-less session
+/// correctly reports `false` (`CookieJar::cookies_enabled_for` is the shared SoT
+/// for that gate). Reads shared cross-cutting cookie state (always-compiled in
+/// every mode), so it is independent of the `compat-webapi`-gated `document.cookie`
+/// accessor: a session that handles HTTP cookies reports `true` even where
+/// `document.cookie` is hidden.
 fn native_navigator_get_cookie_enabled(
     ctx: &mut NativeContext<'_>,
     _this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let enabled = ctx.host_if_bound().and_then(|hd| hd.cookie_jar()).is_some();
+    // Clone the `Arc` to release the `host_if_bound` mutable borrow before reading
+    // `ctx.vm.navigation` (mirrors the `document.cookie` natives' guard).
+    let jar = ctx.host_if_bound().and_then(|hd| hd.cookie_jar()).cloned();
+    let enabled = jar.is_some_and(|jar| jar.cookies_enabled_for(&ctx.vm.navigation.current_url));
     Ok(JsValue::Boolean(enabled))
 }
