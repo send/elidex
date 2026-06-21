@@ -574,3 +574,50 @@ not modified** (no MO consumer added).
 > `docs/design/ja/28-adr.md` ADR #17 (seam owns MO records — invariant 3) / ADR #14 (MO ↔ ECS change-detection
 > *substrate*, not a license to produce in `EcsDom`); lesson #181 (`attribute.rs:5-15` chokepoint, in tension
 > with naive seam-only routing — honored by writing at the chokepoint, §2.4(2)).
+
+---
+
+## §11. As-built notes (implementation — `b1-mutationobserver`)
+
+Recorded so plan and landed code agree. Three refinements; none changes B1's contract (mechanism,
+single-node childList coverage, microtask delivery for JS mutations). `mise run ci` green; new + existing MO
+suites pass (51 existing + 7 new integration).
+
+1. **`apply_*` builders made `pub` and reused by the VM handlers (refines §3.2 / §6 item 3).** The four
+   `apply_append_child` / `apply_insert_before` / `apply_remove_child` / `apply_replace_child`
+   (`mutation/mod.rs`) already apply-through-the-chokepoint **and** build the record; the dom-api child-node
+   handlers (`element/tree.rs`) now call them directly (replacing their bare `dom.append_child` calls) and
+   `session.push_notify_record(record)`. One record source shared by the deferred-flush path (`apply_mutation`)
+   and the synchronous bridge path — *One issue, one way*. (`Mutation::AppendChild`-family records are
+   unwired in production, so no double-apply.)
+
+2. **The embedder API `deliver_mutation_records` stays SYNCHRONOUS; only the internal JS-mutation path defers
+   (refines §0.5 / §6 item 6 / §9 Q3).** The plan said "repoint the VM trait impl onto queue+microtask". As
+   built, `VmInner::deliver_mutation_records` keeps its synchronous contract (`notify_one` each +
+   `deliver_pending_mutation_records()` now) — the **embedder's call site *is* its chosen checkpoint** (mirrors
+   how the shell drives boa's delivery post-layout). The split is by *caller*, not two-ways-to-do-one-thing:
+   internal producers (innerHTML/outerHTML/bridge childList) use `queue_mutation_record` (→ §4.3 microtask,
+   deferred — the spec timing fix); the host-driver entry delivers when called. This keeps the 22 synthetic
+   gating tests valid (they cover attribute/characterData record *shapes* B1 cannot yet produce via real
+   mutations) and required **no `engine.rs` change** (the trait impl delegates unchanged). `deliver_pending_mutation_records`
+   is the extracted callback-delivery half shared by both the synchronous API and the microtask arm.
+
+3. **Record out-channel = `SessionCore.notify_records` + bridge drain + flush leak-guard (refines §3.2 F2
+   callout / §6 items 2/5).** As planned: handlers push to the session scratch; `invoke_dom_api`
+   (`dom_bridge.rs`) drains it once via `host_data.session().take_notify_records()` → `ctx.vm.queue_mutation_record`.
+   **Added leak-guard**: `SessionCore::flush` clears `notify_records` — because boa **also** routes
+   `appendChild` through these dom-api handlers (`globals/element/core.rs` → `dom_registry().resolve`) but never
+   drains the scratch; without the per-turn clear boa would accumulate records forever. The VM drains
+   synchronously per bridge op, so the guard is a no-op for it. (Removed at S5 with boa.)
+
+4. **Microtask delivery (as planned).** `Microtask::NotifyMutationObservers` arm (`natives_promise.rs`) extended
+   with §4.3 steps 2–6 (`deliver_pending_mutation_records`) before the slotchange step 7; the existing
+   `mutation_observer_microtask_queued` flag (shared with slotchange) coalesces one microtask per checkpoint.
+   `notify` (`elidex-api-observers`) now returns whether it enqueued, so `queue_mutation_record` skips
+   scheduling for the no-observer common case.
+
+5. **Tests (refines §6 item 9).** Existing 51 MO tests pass unchanged (the synchronous embedder API preserved
+   their semantics). New `tests_mutation_observer/integration.rs` drives **real JS mutations** end-to-end:
+   appendChild/insertBefore/removeChild/replaceChild/innerHTML/subtree + the no-observer fast path + microtask
+   deferral probes (callback NOT synchronous in the setter) + the §4.2.3 single-coalesced-record assertion for
+   replaceChild. This closes the B0 test-invisible gap.

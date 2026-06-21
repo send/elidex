@@ -145,7 +145,9 @@ fn set_inner_html_for(
     let record = host_data
         .with_session_and_dom(|_session, dom| apply_set_inner_html(dom, entity, &html, opts));
     if let Some(rec) = record {
-        ctx.vm.deliver_mutation_records(&[rec]);
+        // Queue for §4.3 microtask delivery (not synchronous-in-setter) —
+        // unified with every other producer through `queue_mutation_record`.
+        ctx.vm.queue_mutation_record(&rec);
     }
     Ok(JsValue::Undefined)
 }
@@ -359,7 +361,7 @@ pub(super) fn native_element_set_outer_html(
         host_data.with_session_and_dom(|_session, dom| apply_set_outer_html(dom, entity, &html));
     match result {
         Ok(rec) => {
-            ctx.vm.deliver_mutation_records(&[rec]);
+            ctx.vm.queue_mutation_record(&rec);
             Ok(JsValue::Undefined)
         }
         // Only variant today; the enum is `#[non_exhaustive]` so this

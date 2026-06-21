@@ -51,6 +51,13 @@ pub struct CssomSheetState {
 pub struct SessionCore {
     identity: IdentityMap,
     pending: Vec<Mutation>,
+    /// MutationObserver records produced by **already-applied** synchronous DOM
+    /// operations, awaiting `notify` + microtask delivery (WHATWG DOM §4.3.2).
+    /// Distinct from `pending` (which holds *deferred* mutations applied at
+    /// `flush`): records here are for writes that already went through the
+    /// `EcsDom` chokepoint, so they preserve read-your-writes. The VM drains
+    /// this once per bridge op (`invoke_dom_api`) into `queue_mutation_record`.
+    notify_records: Vec<MutationRecord>,
     event_queue: EventQueue,
     /// Current document ready state.
     pub document_ready_state: ReadyState,
@@ -64,6 +71,7 @@ impl SessionCore {
         Self {
             identity: IdentityMap::new(),
             pending: Vec::new(),
+            notify_records: Vec::new(),
             event_queue: EventQueue::new(),
             document_ready_state: ReadyState::default(),
             cssom_sheets: HashMap::new(),
@@ -80,12 +88,34 @@ impl SessionCore {
         self.pending.push(mutation);
     }
 
+    /// Record a `MutationRecord` for an **already-applied** synchronous DOM
+    /// operation, to be delivered via `notify` + the §4.3 microtask. Pushed by
+    /// engine-independent DOM-algorithm handlers (e.g. `appendChild`); drained
+    /// by the VM at the `invoke_dom_api` boundary via [`Self::take_notify_records`].
+    pub fn push_notify_record(&mut self, record: MutationRecord) {
+        self.notify_records.push(record);
+    }
+
+    /// Drain the synchronous-op `MutationRecord` scratch (see
+    /// [`Self::push_notify_record`]). The VM calls this once per bridge op and
+    /// feeds each record to `Vm::queue_mutation_record`.
+    #[must_use]
+    pub fn take_notify_records(&mut self) -> Vec<MutationRecord> {
+        std::mem::take(&mut self.notify_records)
+    }
+
     /// Apply all pending mutations to the ECS DOM and return their records.
     ///
     /// The mutation buffer is drained regardless of individual success/failure.
     /// Each mutation is applied in order; failed mutations produce `None` in
     /// the returned vector.
     pub fn flush(&mut self, dom: &mut EcsDom) -> Vec<Option<MutationRecord>> {
+        // Leak-guard: the synchronous-op `notify_records` scratch is drained by
+        // the VM per bridge op (so it is empty here under the VM). A non-draining
+        // embedder (the boa runtime, which shares these dom-api handlers but does
+        // not yet wire `queue_mutation_record` — removed at S5) would otherwise
+        // accumulate records forever; clear them at the natural per-turn boundary.
+        self.notify_records.clear();
         let mutations = std::mem::take(&mut self.pending);
         mutations.iter().map(|m| apply_mutation(m, dom)).collect()
     }

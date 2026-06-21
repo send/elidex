@@ -518,6 +518,15 @@ pub(super) fn invoke_dom_api(
         })
     });
 
+    // Phase 2.5: Drain the MutationObserver records the handler produced for
+    // its (already-applied) synchronous mutation, and queue each for §4.3
+    // microtask delivery. Taken while `host_data` is still borrowed, then the
+    // borrow ends so `queue_mutation_record` can re-acquire `host_data`.
+    let notify_records = host_data.session().take_notify_records();
+    for record in &notify_records {
+        ctx.vm.queue_mutation_record(record);
+    }
+
     // Phase 3: Error map + final wrapper allocation
     match result {
         Ok(HandlerOut::Primitive(v)) => plugin_primitive_to_vm_value(ctx, v),

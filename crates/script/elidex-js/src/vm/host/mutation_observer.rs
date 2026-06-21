@@ -419,8 +419,14 @@ impl VmInner {
         &mut self,
         records: &[elidex_script_session::MutationRecord],
     ) {
-        // Silent no-op post-unbind so a stray late delivery from the
-        // shell does not panic via `host_data.dom()`.
+        // Embedder / `HostDriver`-trait entry: the host pushes externally-built
+        // records (e.g. layout-derived) AND drives the "notify mutation
+        // observers" checkpoint in the same call — the embedder's call site *is*
+        // the checkpoint (this mirrors how the shell drives the boa runtime's
+        // delivery post-layout). Internal JS mutations instead use
+        // `queue_mutation_record` (deferred to the engine's own §4.3 microtask).
+        // Both share `notify_one` + `deliver_pending_mutation_records`; they
+        // differ only in *when* the callbacks run (embedder-chosen vs microtask).
         if !self
             .host_data
             .as_deref()
@@ -431,14 +437,51 @@ impl VmInner {
         for record in records {
             self.notify_one(record);
         }
+        self.deliver_pending_mutation_records();
+    }
 
+    /// "Queue a mutation record" + "queue a mutation observer microtask"
+    /// (WHATWG DOM §4.3.2 steps 4–5) for a single already-applied mutation.
+    /// Synchronously enqueues the record into each interested observer's queue
+    /// (the ancestor walk), and — if any observer was interested — schedules the
+    /// `NotifyMutationObservers` microtask that invokes the callbacks. The flag
+    /// coalesces one microtask per checkpoint (shared with slotchange).
+    pub(crate) fn queue_mutation_record(&mut self, record: &elidex_script_session::MutationRecord) {
+        // Silent no-op post-unbind so a stray late record does not panic via
+        // `host_data` access.
+        if !self
+            .host_data
+            .as_deref()
+            .is_some_and(super::super::host_data::HostData::is_bound)
+        {
+            return;
+        }
+        if self.notify_one(record) && !self.mutation_observer_microtask_queued {
+            self.mutation_observer_microtask_queued = true;
+            self.microtask_queue
+                .push_back(super::super::natives_promise::Microtask::NotifyMutationObservers);
+        }
+    }
+
+    /// Deliver all pending observer records to their JS callbacks (WHATWG DOM
+    /// §4.3 "notify mutation observers" steps 2–6). Called from the
+    /// `NotifyMutationObservers` microtask, alongside the slotchange step 7.
+    pub(crate) fn deliver_pending_mutation_records(&mut self) {
+        // Silent no-op post-unbind (mirrors the producer guard).
+        if !self
+            .host_data
+            .as_deref()
+            .is_some_and(super::super::host_data::HostData::is_bound)
+        {
+            return;
+        }
         // Collect observer IDs up front so re-entrant
         // `mo.observe` / `mo.disconnect` calls from callbacks see the
         // post-callback registry state rather than a mid-loop snapshot.
         let host = self
             .host_data
             .as_deref_mut()
-            .expect("deliver_mutation_records: HostData required when bound");
+            .expect("deliver_pending_mutation_records: HostData required when bound");
         let observer_ids: Vec<u64> = host
             .mutation_observers
             .observers_with_records()
@@ -454,7 +497,7 @@ impl VmInner {
                 let host = vm
                     .host_data
                     .as_deref_mut()
-                    .expect("deliver_mutation_records: HostData required when bound");
+                    .expect("deliver_pending_mutation_records: HostData required when bound");
                 let records = host.mutation_observers.take_records(mo_id);
                 if records.is_empty() {
                     return None;
@@ -473,14 +516,15 @@ impl VmInner {
     /// each node's `MutationObservedBy` component while walking the
     /// record target's inclusive ancestors (WHATWG DOM §4.3.2). The
     /// shared `&EcsDom` lets the registry perform the ancestor walk via
-    /// `EcsDom::get_parent` directly.
-    fn notify_one(&mut self, record: &elidex_script_session::MutationRecord) {
+    /// `EcsDom::get_parent` directly. Returns whether any observer was
+    /// interested (so the caller can decide to schedule the microtask).
+    fn notify_one(&mut self, record: &elidex_script_session::MutationRecord) -> bool {
         let host = self
             .host_data
             .as_deref_mut()
             .expect("notify_one: HostData required when bound");
         let (dom, observers) = host.split_dom_and_observers();
-        observers.notify(dom, record);
+        observers.notify(dom, record)
     }
 }
 
