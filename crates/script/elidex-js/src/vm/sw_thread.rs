@@ -83,6 +83,7 @@ pub fn sw_thread_main(
     network_handle: NetworkHandle,
     cache_conn: Arc<Mutex<SqliteConnection>>,
     initial_clients: Vec<ClientSnapshot>,
+    engine_mode: elidex_plugin::EngineMode,
 ) {
     let source = match obtain_sw_source(&script_url, &network_handle) {
         Ok(source) => source,
@@ -109,6 +110,7 @@ pub fn sw_thread_main(
         cache_conn,
         initial_clients,
         DEFAULT_IDLE_TIMEOUT,
+        engine_mode,
     );
 }
 
@@ -156,6 +158,7 @@ pub(crate) fn run_service_worker(
     cache_conn: Arc<Mutex<SqliteConnection>>,
     initial_clients: Vec<ClientSnapshot>,
     pump_timeout: Duration,
+    engine_mode: elidex_plugin::EngineMode,
 ) {
     // Declared before `vm` so they outlive it: the VM's `HostData` holds raw
     // pointers into `session` / `dom` and must drop first (reverse order).
@@ -168,6 +171,7 @@ pub(crate) fn run_service_worker(
         script_url.clone(),
         true,
         CredentialsMode::SameOrigin,
+        engine_mode,
     );
     vm.install_host_data(HostData::new());
     vm.install_network_handle(Rc::new(network_handle));

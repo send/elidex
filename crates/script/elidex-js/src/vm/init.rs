@@ -52,6 +52,12 @@ impl Vm {
     /// creator's environment (WHATWG HTML §8.1.3.5 — not derived from
     /// `script_url`). The caller binds an empty `EcsDom` + worker scope entity
     /// and installs a worker-side `NetworkHandle` before eval.
+    ///
+    /// `engine_mode` is the engine-wide mode the spawning realm runs under — a
+    /// worker realm inherits its creator's mode (the worker installs the same
+    /// policy-gated surface, e.g. the DOM-handler registry and the currently
+    /// over-exposed storage globals A2 demotes), so it must NOT be reset to the
+    /// default. The caller (`vm/host/worker.rs`) propagates the parent VM's mode.
     #[cfg(feature = "engine")]
     #[must_use]
     pub fn new_worker(
@@ -59,6 +65,7 @@ impl Vm {
         script_url: url::Url,
         is_secure_context: bool,
         credentials: elidex_net::CredentialsMode,
+        engine_mode: EngineMode,
     ) -> Self {
         Self::new_with_scope(
             super::GlobalScopeKind::DedicatedWorker {
@@ -67,9 +74,7 @@ impl Vm {
                 is_secure_context,
                 credentials,
             },
-            // Workers expose no Web Storage / cookie surface, so the mode is
-            // immaterial to them; BrowserCompat keeps the construction call uniform.
-            EngineMode::BrowserCompat,
+            engine_mode,
         )
     }
 
@@ -85,6 +90,13 @@ impl Vm {
     /// (`vm/sw_thread.rs`) binds an empty `EcsDom` + SW scope entity,
     /// installs the shared cache backend + a `Send` `NetworkHandle`, and
     /// seeds the client snapshot before eval.
+    ///
+    /// `engine_mode` is the engine-wide mode supplied by the embedder for this
+    /// SW realm (the SW installs the same policy-gated surface as any realm). The
+    /// SW has no in-process parent VM, so the mode is threaded from the spawn
+    /// entry (`sw_thread::sw_thread_main`); the embedder supplies it when it wires
+    /// the elidex-js SW (today the shell still spawns SWs via the boa engine, so
+    /// this path is exercised by elidex-js tests, which pass `BrowserCompat`).
     #[cfg(feature = "engine")]
     #[must_use]
     pub fn new_service_worker(
@@ -92,6 +104,7 @@ impl Vm {
         script_url: url::Url,
         is_secure_context: bool,
         credentials: elidex_net::CredentialsMode,
+        engine_mode: EngineMode,
     ) -> Self {
         Self::new_with_scope(
             super::GlobalScopeKind::ServiceWorker {
@@ -100,7 +113,7 @@ impl Vm {
                 is_secure_context,
                 credentials,
             },
-            EngineMode::BrowserCompat,
+            engine_mode,
         )
     }
 
@@ -779,6 +792,8 @@ impl Vm {
                 global_scope_kind,
                 #[cfg(feature = "engine")]
                 spec_level_policy,
+                #[cfg(feature = "engine")]
+                engine_mode,
                 #[cfg(feature = "engine")]
                 worker_outgoing: Vec::new(),
                 #[cfg(feature = "engine")]

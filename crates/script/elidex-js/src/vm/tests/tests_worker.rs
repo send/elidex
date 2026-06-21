@@ -88,6 +88,7 @@ where
         Url::parse(url).unwrap(),
         secure,
         CredentialsMode::SameOrigin,
+        elidex_plugin::EngineMode::BrowserCompat,
     );
     unsafe { bind_worker_vm(&mut vm, &mut session, &mut dom, doc) };
     let result = f(&mut vm);
@@ -328,6 +329,7 @@ fn worker_thread_round_trip_echo() {
             true,
             CredentialsMode::SameOrigin,
             None,
+            elidex_plugin::EngineMode::BrowserCompat,
             &ch,
         );
     });
@@ -361,6 +363,7 @@ fn worker_thread_accepts_sibling_network_handle() {
             true,
             CredentialsMode::SameOrigin,
             Some(sibling),
+            elidex_plugin::EngineMode::BrowserCompat,
             &ch,
         );
     });
@@ -389,6 +392,7 @@ fn worker_data_url_non_js_mime_rejected() {
             true,
             CredentialsMode::SameOrigin,
             None,
+            elidex_plugin::EngineMode::BrowserCompat,
             &ch,
         );
     });
@@ -410,6 +414,7 @@ fn worker_thread_close_sends_closed_and_exits() {
             true,
             CredentialsMode::SameOrigin,
             None,
+            elidex_plugin::EngineMode::BrowserCompat,
             &ch,
         );
     });

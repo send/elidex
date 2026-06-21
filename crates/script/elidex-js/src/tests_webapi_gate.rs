@@ -29,13 +29,25 @@ use crate::vm::Vm;
 
 #[test]
 fn vm_stores_mode_derived_policy() {
-    // Default (BrowserCompat) installs Legacy.
+    // Default (BrowserCompat) installs Legacy — but only when the compat shims
+    // are compiled in. Under the app profile (`engine` without `compat-webapi`)
+    // the construction-time hard ceiling (`with_legacy_excluded`) excludes Legacy
+    // regardless of the runtime mode, so `Vm::new()` (BrowserCompat) must report
+    // Legacy excluded there. This assertion is therefore cfg-split so it holds on
+    // BOTH supported build profiles.
+    #[cfg(feature = "compat-webapi")]
     assert!(Vm::new()
         .inner
         .spec_level_policy
         .installs(WebApiSpecLevel::Legacy));
+    #[cfg(not(feature = "compat-webapi"))]
+    assert!(!Vm::new()
+        .inner
+        .spec_level_policy
+        .installs(WebApiSpecLevel::Legacy));
 
-    // BrowserCore / App exclude Legacy but keep Modern.
+    // BrowserCore / App exclude Legacy but keep Modern (holds in both profiles —
+    // the ceiling only tightens, never loosens).
     for mode in [EngineMode::BrowserCore, EngineMode::App] {
         let vm = Vm::new_with_mode(mode);
         assert!(
@@ -105,4 +117,42 @@ fn new_with_mode_constructs_every_mode() {
             "{mode:?}: eval side effect lost"
         );
     }
+}
+
+#[test]
+fn worker_realms_inherit_engine_mode() {
+    // Codex R1 regression: the dedicated-worker and service-worker constructors
+    // must honor the supplied engine mode, not reset it to `BrowserCompat` — a
+    // `BrowserCore`/`App` document's worker realms install the same policy-gated
+    // surface (the DOM-handler registry + the currently over-exposed storage
+    // globals A2 demotes), so resetting would re-expose the compat surface in a
+    // core/app worker. (Under `compat-webapi`-off the ceiling already excludes
+    // Legacy for every mode, so this catches the reset on the `--all-features`
+    // profile, where BrowserCompat would otherwise install Legacy.)
+    let worker = Vm::new_worker(
+        "w".to_string(),
+        url::Url::parse("https://example.com/w.js").unwrap(),
+        true,
+        elidex_net::CredentialsMode::SameOrigin,
+        EngineMode::BrowserCore,
+    );
+    assert!(
+        !worker
+            .inner
+            .spec_level_policy
+            .installs(WebApiSpecLevel::Legacy),
+        "dedicated worker must inherit BrowserCore (Legacy excluded), not reset to BrowserCompat"
+    );
+
+    let sw = Vm::new_service_worker(
+        url::Url::parse("https://example.com/").unwrap(),
+        url::Url::parse("https://example.com/sw.js").unwrap(),
+        true,
+        elidex_net::CredentialsMode::SameOrigin,
+        EngineMode::App,
+    );
+    assert!(
+        !sw.inner.spec_level_policy.installs(WebApiSpecLevel::Legacy),
+        "service worker must inherit App (Legacy excluded), not reset to BrowserCompat"
+    );
 }

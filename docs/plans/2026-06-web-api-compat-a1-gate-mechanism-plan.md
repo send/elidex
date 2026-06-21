@@ -485,6 +485,16 @@ change, A2/A3 remain pure level-flips). All built on `webapi-compat-a1` rebased 
    (storage stays `Modern`, installs in all profiles); A2/A3/B rely on it for the app-absence
    guarantee. A1 does **not** cfg-gate the storage backend (that is A2).
 
+4. **Engine mode propagates to worker realms (Codex R1).** The mode is *engine-wide*, so a
+   `BrowserCore`/`App` document's dedicated workers and service workers must inherit it rather
+   than reset to `BrowserCompat` (worker realms build the same policy-gated `dom_registry` and
+   currently install the over-exposed storage globals A2 demotes). `VmInner` retains the
+   `engine_mode` alongside the derived policy; `new_worker`/`new_service_worker` take the mode;
+   `vm/host/worker.rs` propagates the in-process parent's mode through the spawn path, and the
+   SW spawn entry (`sw_thread_main`) threads the embedder-supplied mode. (Latent today — the
+   shell still spawns workers/SWs via the boa engine, S5 pending — but the constructor contract
+   is correct and regression-tested.)
+
 **Anchor note**: §1's pre-rebase line numbers are superseded by the landed code (#372 +
 A1's own additions shifted them). Rather than cite re-drifting line numbers, navigate by symbol:
 `Vm::new_with_scope` derives + stores `spec_level_policy` (set in the `VmInner` struct literal,

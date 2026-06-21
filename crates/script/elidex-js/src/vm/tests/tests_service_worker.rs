@@ -74,6 +74,7 @@ impl Harness {
                 cache_conn,
                 clients,
                 pump_timeout,
+                elidex_plugin::EngineMode::BrowserCompat,
             );
         });
         Harness {

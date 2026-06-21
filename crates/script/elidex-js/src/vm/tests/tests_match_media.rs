@@ -256,6 +256,7 @@ fn media_query_list_not_exposed_in_worker_scope() {
         url::Url::parse("https://example.com/w.js").unwrap(),
         true,
         elidex_net::CredentialsMode::SameOrigin,
+        elidex_plugin::EngineMode::BrowserCompat,
     );
     vm.install_host_data(super::super::host_data::HostData::new());
     assert!(eval_bool(

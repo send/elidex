@@ -368,6 +368,10 @@ fn native_worker_constructor(
     let name = options.name;
     let worker_url = resolved.clone();
     let worker_name = name.clone();
+    // The worker realm inherits this (the creator's) engine-wide mode — a
+    // `BrowserCore`/`App` document's workers must not silently reset to the
+    // default (they install the same policy-gated surface).
+    let engine_mode = ctx.vm.engine_mode;
     let handle = spawn_worker(name, resolved, move |channel| {
         crate::vm::worker_thread::run_worker(
             &worker_url,
@@ -375,6 +379,7 @@ fn native_worker_constructor(
             is_secure_context,
             credentials,
             sibling,
+            engine_mode,
             &channel,
         );
     });

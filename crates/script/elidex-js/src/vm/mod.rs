@@ -2566,6 +2566,16 @@ pub(crate) struct VmInner {
     /// of any install. Set once at construction; never mutated.
     #[cfg(feature = "engine")]
     pub(crate) spec_level_policy: elidex_plugin::SpecLevelPolicy,
+    /// The engine-wide [`EngineMode`](elidex_plugin::EngineMode) this VM was
+    /// constructed under — the authority [`spec_level_policy`] is derived from.
+    /// Retained (alongside the derived policy) so a realm this VM spawns inherits
+    /// the *same* mode: `vm/host/worker.rs` reads it to propagate to
+    /// `Vm::new_worker`, keeping a `BrowserCore`/`App` session's worker realms in
+    /// the same mode rather than silently resetting them to the default.
+    ///
+    /// [`spec_level_policy`]: VmInner::spec_level_policy
+    #[cfg(feature = "engine")]
+    pub(crate) engine_mode: elidex_plugin::EngineMode,
     /// Worker-side outgoing `postMessage` data (JSON strings), enqueued by the
     /// worker scope's `postMessage()` (WHATWG HTML §10.2.1.2) and drained by
     /// the worker thread loop into `WorkerToParent::PostMessage`. Empty in a
