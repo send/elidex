@@ -62,7 +62,10 @@ use super::dom_bridge::{
 };
 
 use elidex_ecs::{Entity, NodeKind};
-use elidex_script_session::{document_cookie_spec_level, live_collection_spec_level};
+use elidex_script_session::live_collection_spec_level;
+// Read only by the (compat-webapi-gated) `document.cookie` accessor install (A3).
+#[cfg(feature = "compat-webapi")]
+use elidex_script_session::document_cookie_spec_level;
 
 // ---------------------------------------------------------------------------
 // Tree walk from the receiver document.
@@ -598,6 +601,11 @@ pub(super) fn native_document_get_doctype(
 /// suppression both live there).  When no jar is installed (test
 /// harness, standalone VM) we fall back to the cookie-averse path
 /// and return `""`.
+///
+/// `compat-webapi`-gated (A3): `document.cookie` is `Legacy`, so the accessor
+/// glue is compiled out of `App` builds (the `CookieJar` itself stays — HTTP
+/// cookies + `navigator.cookieEnabled` need it in every mode).
+#[cfg(feature = "compat-webapi")]
 pub(super) fn native_document_get_cookie(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -644,6 +652,9 @@ pub(super) fn native_document_get_cookie(
 /// Secure-over-HTTP per RFC 6265 §5.3).  When no jar is installed
 /// the assignment silently no-ops, matching the cookie-averse
 /// Document path the spec permits.
+///
+/// `compat-webapi`-gated (A3): see [`native_document_get_cookie`].
+#[cfg(feature = "compat-webapi")]
 pub(super) fn native_document_set_cookie(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -1012,8 +1023,12 @@ impl super::super::VmInner {
         self.install_rw_accessors(doc_wrapper, DOCUMENT_RW_ACCESSORS);
         // Seam-1b (A1 core/compat gate): `document.cookie` routes through the
         // general `installs(level)` predicate reading its single source
-        // `document_cookie_spec_level()` (no API moves); A3 flips that one source
-        // to `Legacy` (HTML §3.1.4).
+        // `document_cookie_spec_level()`; A3 demoted that one source to `Legacy`
+        // (HTML §3.1.4), so the accessor + its natives are now `compat-webapi`-gated
+        // — present under `BrowserCompat` (byte-identical), dropped from `App`
+        // builds. The `CookieJar` itself stays always-compiled (HTTP cookies +
+        // `navigator.cookieEnabled` read it in every mode).
+        #[cfg(feature = "compat-webapi")]
         if self.installs(document_cookie_spec_level()) {
             self.install_rw_accessors(doc_wrapper, DOCUMENT_COOKIE_RW_ACCESSOR);
         }
@@ -1172,7 +1187,9 @@ const DOCUMENT_RW_ACCESSORS: &[(&str, super::super::NativeFn, super::super::Nati
 /// ([`Modern`](elidex_plugin::WebApiSpecLevel::Modern) in A1 — no API moves,
 /// installed in every mode); **A3** flips that one source to
 /// [`Legacy`](elidex_plugin::WebApiSpecLevel::Legacy) (HTML §3.1.4) — a pure
-/// one-source level-flip, no table re-extraction.
+/// one-source level-flip, no table re-extraction. `compat-webapi`-gated (A3): the
+/// table + its natives compile out of `App` builds, the `CookieJar` stays.
+#[cfg(feature = "compat-webapi")]
 const DOCUMENT_COOKIE_RW_ACCESSOR: &[(&str, super::super::NativeFn, super::super::NativeFn)] = &[(
     "cookie",
     native_document_get_cookie,

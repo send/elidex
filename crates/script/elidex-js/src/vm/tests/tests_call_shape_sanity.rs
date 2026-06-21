@@ -115,7 +115,6 @@ fn illegal_constructor_both_modes_all_sites() {
     for interface in [
         "Crypto",
         "SubtleCrypto",
-        "Storage",
         "Selection",
         "TreeWalker",
         "NodeIterator",
@@ -134,6 +133,12 @@ fn illegal_constructor_both_modes_all_sites() {
     ] {
         assert_illegal_constructor(interface);
     }
+    // `Storage` is part of the Web Storage family A2 demoted to `Legacy` — its
+    // interface object compiles out of `App` builds (`compat-webapi` off), so it is
+    // only an illegal-constructor site where it actually installs. (A2 gated
+    // `tests_storage` but missed this sibling; surfaced by A3's App-profile sweep.)
+    #[cfg(feature = "compat-webapi")]
+    assert_illegal_constructor("Storage");
 }
 
 #[test]

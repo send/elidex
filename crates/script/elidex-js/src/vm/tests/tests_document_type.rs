@@ -173,6 +173,10 @@ fn document_forms_returns_new_collection_each_call() {
 
 // --- cookie / referrer stubs ----------------------------------------
 
+// `document.cookie` is `Legacy` (A3) — its accessor compiles out of `App` builds
+// (`compat-webapi` off), so these surface tests are gated to the profile where it
+// exists. (`document.referrer` below stays — it is not part of the cookie family.)
+#[cfg(feature = "compat-webapi")]
 #[test]
 fn cookie_getter_returns_empty_string() {
     let out = run_with("typeof document.cookie + ':' + document.cookie;", |dom| {
@@ -181,6 +185,7 @@ fn cookie_getter_returns_empty_string() {
     assert_eq!(out, "string:");
 }
 
+#[cfg(feature = "compat-webapi")]
 #[test]
 fn cookie_setter_is_noop() {
     let out = run_with("document.cookie = 'k=v'; document.cookie;", |dom| {

@@ -247,11 +247,23 @@ pub fn web_storage_spec_level() -> elidex_plugin::WebApiSpecLevel {
 
 /// The spec level of `document.cookie` — the single classification source for the
 /// cookie surface (single install surface, but kept a source for uniformity so
-/// no demotable family is gated by a bare literal). A1 = `Modern`; **A3 flips
-/// this to `Legacy`** (HTML §3.1.4).
+/// no demotable family is gated by a bare literal). A1 was `Modern`; **A3 demotes
+/// it to [`Legacy`](elidex_plugin::WebApiSpecLevel::Legacy) here, in one place**
+/// (HTML §3.1.4): under `BrowserCompat` (the only production mode) `Legacy` still
+/// installs — byte-identical `document.cookie` accessor — while `BrowserCore` /
+/// `App` (test-only until the async core lands) and any `compat-webapi`-off build
+/// drop the JS accessor together.
+///
+/// This gates only the `document.cookie` **JS glue** — never the underlying
+/// `CookieJar`, which is shared cross-cutting browsing-context state (CLAUDE.md
+/// side-store exception (b)) that HTTP cookie handling and
+/// `navigator.cookieEnabled` both read in every mode. So a `BrowserCore` / `App`
+/// session still processes HTTP cookies (and reports `cookieEnabled === true`)
+/// while the `document.cookie` script accessor is hidden — the demotion is of the
+/// *script-reachable* surface, not the cookie store.
 #[must_use]
 pub fn document_cookie_spec_level() -> elidex_plugin::WebApiSpecLevel {
-    elidex_plugin::WebApiSpecLevel::Modern
+    elidex_plugin::WebApiSpecLevel::Legacy
 }
 
 /// The spec level of the **live-collection family** — the SINGLE classification
@@ -495,13 +507,13 @@ mod spec_level_tests {
 
     #[test]
     fn family_classification_sources() {
-        // Each family's single classification source. A2 demoted Web Storage to
-        // `Legacy` (HTML §12.2) — it now installs only under `BrowserCompat`.
-        // `document.cookie` (A3) and the live-collection family (B0/B1) remain
-        // un-demoted; these assertions are the canaries that catch an accidental
-        // early demotion of those two before their PRs land.
+        // Each family's single classification source. A2 demoted Web Storage and
+        // A3 demoted `document.cookie` to `Legacy` (HTML §12.2 / §3.1.4) — both now
+        // install only under `BrowserCompat`. The live-collection family (B0/B1)
+        // remains un-demoted; this assertion is the canary that catches an
+        // accidental early demotion before that PR lands.
         assert_eq!(web_storage_spec_level(), WebApiSpecLevel::Legacy);
-        assert_eq!(document_cookie_spec_level(), WebApiSpecLevel::Modern);
+        assert_eq!(document_cookie_spec_level(), WebApiSpecLevel::Legacy);
         assert_eq!(live_collection_spec_level(), DomSpecLevel::Living);
     }
 

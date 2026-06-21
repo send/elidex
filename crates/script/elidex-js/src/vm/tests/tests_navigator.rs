@@ -66,8 +66,11 @@ fn navigator_online_is_true() {
 }
 
 #[test]
-fn navigator_cookie_enabled_is_false_until_cookies_ship() {
-    // Honest reporting — we have no cookie jar yet.
+fn navigator_cookie_enabled_false_without_jar() {
+    // `cookieEnabled` is value-derived (A3): a getter reading the bound
+    // `CookieJar` (WHATWG HTML §8.10.1.5). An unbound `Vm::new()` has no
+    // jar, so it reports `false`. The `true`-with-jar case is covered in
+    // `tests_cookie_referrer` (it owns the bind+jar scaffolding).
     assert!(eval_bool("navigator.cookieEnabled === false;"));
 }
 

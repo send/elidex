@@ -18,7 +18,7 @@
 #![cfg(feature = "engine")]
 
 use super::super::shape::PropertyAttrs;
-use super::super::value::{JsValue, PropertyKey, PropertyValue};
+use super::super::value::{JsValue, NativeContext, PropertyKey, PropertyValue, VmError};
 use super::super::VmInner;
 
 impl VmInner {
@@ -69,15 +69,10 @@ impl VmInner {
 
         // --- Boolean-valued fields ---
         //
-        // `cookieEnabled` is deliberately `false` until Phase 3: the VM
-        // has no cookie jar yet, and reporting `true` would lead
-        // scripts to call `document.cookie` setters whose writes we
-        // silently drop (a worse failure mode than "disabled").
-        let bool_fields: &[(&str, bool)] = &[
-            ("onLine", true),
-            ("cookieEnabled", false),
-            ("javaEnabled", false),
-        ];
+        // `cookieEnabled` is NOT here — it is value-derived (a getter
+        // reading the bound `CookieJar`), installed below. The other
+        // booleans are static.
+        let bool_fields: &[(&str, bool)] = &[("onLine", true), ("javaEnabled", false)];
         for &(name, value) in bool_fields {
             let key = PropertyKey::String(self.strings.intern(name));
             self.define_shaped_property(
@@ -87,6 +82,21 @@ impl VmInner {
                 PropertyAttrs::WEBIDL_RO,
             );
         }
+
+        // `cookieEnabled` (WHATWG HTML §8.10.1.5, NavigatorCookies) — a
+        // value-derived RO accessor: `true` iff the UA handles cookies,
+        // i.e. a `CookieJar` is bound to this session. This is the *cookie
+        // handling* signal, independent of whether the `document.cookie`
+        // script accessor is exposed: a `BrowserCore` / `App` session
+        // processes HTTP cookies (jar bound → `true`) even though A3 hides
+        // `document.cookie`. So `cookieEnabled === true` does NOT imply the
+        // `document.cookie` write path succeeds (there the accessor is gated
+        // off; only the HTTP/jar path persists). An accessor — not a static
+        // data prop — because the jar binds *after* navigator install.
+        self.install_ro_accessors(
+            obj_id,
+            &[("cookieEnabled", native_navigator_get_cookie_enabled)],
+        );
 
         // --- Number fields ---
         let key = PropertyKey::String(self.strings.intern("hardwareConcurrency"));
@@ -129,4 +139,18 @@ impl VmInner {
         let name = self.well_known.navigator;
         self.globals.insert(name, JsValue::Object(obj_id));
     }
+}
+
+/// `navigator.cookieEnabled` getter (WHATWG HTML §8.10.1.5). Returns `true` iff a
+/// `CookieJar` is bound to this session — the UA "handles cookies" signal. Reads
+/// shared cross-cutting cookie state (always-compiled in every mode), so it is
+/// independent of the `compat-webapi`-gated `document.cookie` accessor: a session
+/// with HTTP cookies reports `true` even where `document.cookie` is hidden.
+fn native_navigator_get_cookie_enabled(
+    ctx: &mut NativeContext<'_>,
+    _this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let enabled = ctx.host_if_bound().and_then(|hd| hd.cookie_jar()).is_some();
+    Ok(JsValue::Boolean(enabled))
 }
