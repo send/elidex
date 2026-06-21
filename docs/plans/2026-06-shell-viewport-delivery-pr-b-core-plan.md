@@ -435,13 +435,19 @@ From branch `media-prefers-producers` (`8cd501a1` + `a14f3123`) on origin:
 
 ## §9. Proposed defer slots (register in the ledger at PR-B landing)
 
+> Canonical 3-element form (Why / Re-evaluation trigger / Re-evaluation date) for both slots is the
+> umbrella plan-memo §10.1 (`2026-06-shell-viewport-delivery-plan.md`) SSoT; the dates below are
+> inherited from it verbatim (no second incomplete copy — One-issue-one-way).
+
 - `#11-forced-style-layout-flush-on-script-read` — a script layout/computed-style read inside an
   event handler must force a sync style/layout flush before returning the value (HTML
   "update the rendering" macro-order is already correct; this is the *intra-handler* read path).
   **General engine concern, not viewport-specific** — PR-B fixes only the resize↔MQL event
   *order* (I4). **Trigger**: a test/report showing a handler reads stale geometry, OR a forced-flush
-  program. (B-D5 / umbrella §10 Q2.)
+  program. **Re-evaluation date**: 2026-06-21 — re-eval at PR-B landing (umbrella §10.1).
+  (B-D5 / umbrella §10 Q2.)
 - `#11-hidpi-render-fidelity` — HiDPI fidelity beyond geometric scale: sub-pixel text
   positioning, hairline/1px snapping, fractional-dppx image resampling. PR-B delivers geometric
   scale (`size_phys`, input `÷scale`) only and refuses to re-bake `scale==1`. **Trigger**: a
-  HiDPI fidelity program, OR a fractional-scale display test. (B-D2 / umbrella §10 Q3.)
+  HiDPI fidelity program, OR a fractional-scale display test. **Re-evaluation date**: 2026-06-21 —
+  re-eval at PR-B landing (umbrella §10.1). (B-D2 / umbrella §10 Q3.)
