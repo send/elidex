@@ -34,6 +34,7 @@ pub(crate) fn ensure_schema(conn: &SqliteConnection) -> Result<(), CacheError> {
                 created_at INTEGER NOT NULL
             );
             CREATE TABLE IF NOT EXISTS entries (
+                id INTEGER PRIMARY KEY,
                 cache_id INTEGER NOT NULL REFERENCES caches(id) ON DELETE CASCADE,
                 request_url TEXT NOT NULL,
                 request_method TEXT NOT NULL DEFAULT 'GET',
@@ -48,7 +49,15 @@ pub(crate) fn ensure_schema(conn: &SqliteConnection) -> Result<(), CacheError> {
                 body_size INTEGER NOT NULL DEFAULT 0,
                 is_opaque INTEGER NOT NULL DEFAULT 0,
                 created_at INTEGER NOT NULL,
-                PRIMARY KEY (cache_id, request_url, request_method)
+                -- `id` is an explicit `INTEGER PRIMARY KEY` (a durable rowid
+                -- alias, preserved by VACUUM/rebuild) so it can serve as the
+                -- request response list ordering key in `load_all_entries`; the
+                -- implicit rowid is NOT durable (SQLite may renumber it on
+                -- VACUUM, reordering a persistent cache DB). The request
+                -- identity is demoted from PRIMARY KEY to UNIQUE so
+                -- `INSERT OR REPLACE` on a re-put still deletes-then-reinserts
+                -- (fresh higher `id` ⇒ moves to list end).
+                UNIQUE (cache_id, request_url, request_method)
             );",
     )?;
     Ok(())
@@ -305,14 +314,15 @@ pub fn add_all(
 /// path) and the ignore-options `delete()` path all iterate the request
 /// response list in list order, so this is the one ordering chokepoint.
 ///
-/// Ordering key = SQLite implicit `rowid` (the canonical monotonic
-/// insertion-order column): `created_at` is only seconds-resolution so it ties
-/// for same-second writes, and an explicit sequence column would just duplicate
-/// rowid. `put`'s `INSERT OR REPLACE` (`insert_entry`) deletes the conflicting
-/// row and inserts a fresh row with a higher rowid, so re-putting an existing
-/// request moves it to the END — exactly the §5.3 Batch Cache Operations "put"
-/// semantics (remove matching, then append). `entries` is a normal rowid table
-/// (composite PRIMARY KEY, not `WITHOUT ROWID`), so the rowid exists; the
+/// Ordering key = the explicit `id` column (`INTEGER PRIMARY KEY`, a *durable*
+/// rowid alias — see `ensure_schema`): a monotonic per-insert id whose order
+/// survives VACUUM/rebuild, unlike the implicit rowid (which SQLite may
+/// renumber, silently reordering a persistent cache DB). `created_at` is only
+/// seconds-resolution so it cannot break ties. `put`'s `INSERT OR REPLACE`
+/// (`insert_entry`) deletes the conflicting row and inserts a fresh row with a
+/// higher `id`, so re-putting an existing request moves it to the END — exactly
+/// the **Batch Cache Operations** algorithm (unnumbered, `#batch-cache-operations`,
+/// invoked by `Cache.put` §5.4.5): remove the matching entry, then append. The
 /// `keys_returns_insertion_order` test guards against a schema change that would
 /// silently break this.
 fn load_all_entries(
@@ -323,7 +333,7 @@ fn load_all_entries(
         "SELECT request_url, request_method, request_headers, \
              response_status, response_status_text, response_headers, \
              body, response_url_list, response_type, vary_header, is_opaque \
-             FROM entries WHERE cache_id = ?1 ORDER BY rowid",
+             FROM entries WHERE cache_id = ?1 ORDER BY id",
     )?;
     let entries: Vec<CachedEntry> = stmt
         .query_map([cache_id], entry_from_row)?
@@ -496,10 +506,40 @@ mod tests {
     }
 
     #[test]
+    fn keys_order_survives_vacuum() {
+        // The request response list order is durable cache state (§5.1), so it
+        // must survive a storage compaction. VACUUM can renumber the implicit
+        // rowid of a non-`INTEGER PRIMARY KEY` table; ordering on the explicit
+        // `id` column (a durable rowid alias) keeps `keys()` stable across it.
+        let conn = setup();
+        put(&conn, "v1", &sample_entry("https://example.com/c")).unwrap();
+        put(&conn, "v1", &sample_entry("https://example.com/a")).unwrap();
+        put(&conn, "v1", &sample_entry("https://example.com/b")).unwrap();
+
+        // VACUUM rebuilds the database file (rewrites every table).
+        conn.raw_connection().execute_batch("VACUUM").unwrap();
+
+        let urls: Vec<String> = keys(&conn, "v1")
+            .unwrap()
+            .into_iter()
+            .map(|e| e.request_url)
+            .collect();
+        assert_eq!(
+            urls,
+            [
+                "https://example.com/c",
+                "https://example.com/a",
+                "https://example.com/b",
+            ]
+        );
+    }
+
+    #[test]
     fn put_overwrite_moves_entry_to_end() {
-        // §5.3 Batch Cache Operations "put" removes the matching entry then
-        // appends, so re-putting an existing request moves it to the END of the
-        // request response list (a fresh higher rowid via INSERT OR REPLACE).
+        // The Batch Cache Operations algorithm (#batch-cache-operations, invoked
+        // by Cache.put §5.4.5) removes the matching entry then appends, so
+        // re-putting an existing request moves it to the END of the request
+        // response list (a fresh higher `id` via INSERT OR REPLACE).
         let conn = setup();
         put(&conn, "v1", &sample_entry("https://example.com/a")).unwrap();
         put(&conn, "v1", &sample_entry("https://example.com/b")).unwrap();
