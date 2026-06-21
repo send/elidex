@@ -143,23 +143,23 @@ const NAVIGATOR_RO_ACCESSORS: &[(&str, super::super::NativeFn)] =
     &[("cookieEnabled", native_navigator_get_cookie_enabled)];
 
 /// `navigator.cookieEnabled` getter (WHATWG HTML §8.10.1.5): returns `true` iff
-/// the UA attempts to handle cookies, and `false` if it ignores cookie change
-/// requests. That is `true` iff a `CookieJar` is bound **and** it would honor a
-/// cookie change for the current document — the jar drops writes for a host-less
-/// URL (`about:blank`, `data:`, opaque origins), so a bound-but-host-less session
-/// correctly reports `false` (`CookieJar::cookies_enabled_for` is the shared SoT
-/// for that gate). Reads shared cross-cutting cookie state (always-compiled in
-/// every mode), so it is independent of the `compat-webapi`-gated `document.cookie`
-/// accessor: a session that handles HTTP cookies reports `true` even where
-/// `document.cookie` is hidden.
+/// the user agent attempts to handle cookies — i.e. a `CookieJar` is bound to this
+/// session (the UA-level cookie capability). It is deliberately **not** narrowed
+/// by the current document's origin: a cookie-capable session reports `true` even
+/// at host-less `about:blank` / `data:` or before the first HTTP navigation,
+/// matching real browsers (which expose `cookieEnabled` as the global cookie
+/// setting, not per-document write-eligibility) and the normative §8.10.1.5 text
+/// ("the user agent attempts to handle cookies", not "a write at this URL would
+/// succeed"). The host-less `document.cookie` write behavior is the separate
+/// `#11-cookie-opaque-origin-securityerror` concern, not this signal. Reads shared
+/// cross-cutting cookie state (always-compiled in every mode), so it is independent
+/// of the `compat-webapi`-gated `document.cookie` accessor: a session that handles
+/// cookies reports `true` even where `document.cookie` is hidden.
 fn native_navigator_get_cookie_enabled(
     ctx: &mut NativeContext<'_>,
     _this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    // Clone the `Arc` to release the `host_if_bound` mutable borrow before reading
-    // `ctx.vm.navigation` (mirrors the `document.cookie` natives' guard).
-    let jar = ctx.host_if_bound().and_then(|hd| hd.cookie_jar()).cloned();
-    let enabled = jar.is_some_and(|jar| jar.cookies_enabled_for(&ctx.vm.navigation.current_url));
+    let enabled = ctx.host_if_bound().and_then(|hd| hd.cookie_jar()).is_some();
     Ok(JsValue::Boolean(enabled))
 }

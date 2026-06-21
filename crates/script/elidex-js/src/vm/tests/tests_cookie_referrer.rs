@@ -340,11 +340,15 @@ fn navigator_cookie_enabled_false_without_jar() {
 }
 
 #[test]
-fn navigator_cookie_enabled_false_at_about_blank_even_with_jar() {
-    // Codex R1: HTML §8.10.1.5 requires `cookieEnabled` to be `false` when cookie
-    // change requests are *ignored*. The jar drops writes for a host-less URL
-    // (`CookieJar::set_cookie_from_script` returns on `host_str() == None`), so a
-    // session at `about:blank` must report `false` even though a jar is bound.
+fn navigator_cookie_enabled_true_at_about_blank_with_jar() {
+    // `navigator.cookieEnabled` is the UA-level cookie-capability signal (HTML
+    // §8.10.1.5: "the user agent attempts to handle cookies"), NOT per-document
+    // write-eligibility. A cookie-capable session (a jar bound) reports `true`
+    // even at host-less `about:blank` — matching real browsers and the A3 design
+    // SSoT (independent of the current document's origin). The host-less
+    // `document.cookie` write behavior is the separate
+    // `#11-cookie-opaque-origin-securityerror` concern, not this signal. This
+    // guards against re-narrowing `cookieEnabled` by host (a reverted R1 attempt).
     let mut vm = Vm::new();
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
@@ -353,9 +357,9 @@ fn navigator_cookie_enabled_false_at_about_blank_even_with_jar() {
 
     let v = vm.eval("navigator.cookieEnabled").unwrap();
     assert!(
-        matches!(v, JsValue::Boolean(false)),
-        "about:blank (host-less, writes dropped) must report cookieEnabled false \
-         even with a jar bound (HTML §8.10.1.5); got {v:?}"
+        matches!(v, JsValue::Boolean(true)),
+        "about:blank with a jar bound must report cookieEnabled true (UA handles \
+         cookies, HTML §8.10.1.5 — not narrowed by host); got {v:?}"
     );
 
     vm.unbind();
