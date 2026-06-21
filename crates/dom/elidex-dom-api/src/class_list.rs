@@ -224,6 +224,65 @@ pub struct TokenListHandler {
     pub op: TokenListOp,
 }
 
+/// `<link>` `rel` supported tokens — HTML §4.2.4 ("the possible supported
+/// tokens" for `HTMLLinkElement.relList`). These are the link-element keywords
+/// that impact the processing model.
+///
+/// DOM §7.1 strictly defines `rel`'s supported tokens as this enumerated list
+/// *intersected with the keywords whose processing model the user agent
+/// implements*. elidex advertises the full spec-enumerated set rather than a
+/// per-keyword "do we implement it yet?" subset: the enumerated list is the
+/// canonical recognized set (and what `relList.supports` returns in shipping
+/// browsers), whereas an implemented-subset would be drift-prone and would make
+/// `supports()` a moving target as processing models land. Reviewers wanting the
+/// strict subset can narrow this list.
+const LINK_REL_SUPPORTED_TOKENS: &[&str] = &[
+    "alternate",
+    "dns-prefetch",
+    "expect",
+    "icon",
+    "manifest",
+    "modulepreload",
+    "next",
+    "pingback",
+    "preconnect",
+    "prefetch",
+    "preload",
+    "search",
+    "stylesheet",
+];
+
+/// `<a>` / `<area>` / `<form>` `rel` supported tokens — HTML §4.6.2
+/// (`#attr-hyperlink-rel`) and §4.10.3; the processing-model-impacting hyperlink
+/// keywords. Identical across the three elements, so one table backs them all.
+const HYPERLINK_REL_SUPPORTED_TOKENS: &[&str] = &["noopener", "noreferrer", "opener"];
+
+/// Resolve the DOM §7.1 *supported tokens* set for a DOMTokenList, or `None`
+/// when the backing attribute defines none (so `supports()` must throw). Only
+/// `rel` defines supported tokens, and the set depends on the owning element —
+/// `<link>` vs the `<a>`/`<area>`/`<form>` hyperlink family (HTML §4.2.4 /
+/// §4.6.2 / §4.10.3). `class` / `sizes` define no supported tokens.
+fn rel_supported_tokens(
+    attr_name: &str,
+    entity: Entity,
+    dom: &EcsDom,
+) -> Option<&'static [&'static str]> {
+    if attr_name != "rel" {
+        return None;
+    }
+    dom.with_tag_name(entity, |tag| match tag {
+        Some(t) if t.eq_ignore_ascii_case("link") => Some(LINK_REL_SUPPORTED_TOKENS),
+        Some(t)
+            if t.eq_ignore_ascii_case("a")
+                || t.eq_ignore_ascii_case("area")
+                || t.eq_ignore_ascii_case("form") =>
+        {
+            Some(HYPERLINK_REL_SUPPORTED_TOKENS)
+        }
+        _ => None,
+    })
+}
+
 impl DomApiHandler for TokenListHandler {
     fn method_name(&self) -> &str {
         self.method_name
@@ -362,13 +421,25 @@ impl DomApiHandler for TokenListHandler {
                     None => Ok(JsValue::Null),
                 }
             }
-            TokenListOp::Supports => Err(DomApiError {
-                kind: DomApiErrorKind::TypeError,
-                message: format!(
-                    "{} is not supported for this DOMTokenList",
-                    self.method_name
-                ),
-            }),
+            TokenListOp::Supports => {
+                // DOM §7.1 `supports(token)` = the attribute's *validation
+                // steps*: if the backing attribute defines supported tokens,
+                // return whether `token` is one of them (ASCII case-insensitive,
+                // no token-syntax validation); otherwise throw a `TypeError`.
+                let token = require_string_arg(args, 0)?;
+                match rel_supported_tokens(self.attr_name, this, dom) {
+                    Some(set) => Ok(JsValue::Bool(
+                        set.iter().any(|t| t.eq_ignore_ascii_case(&token)),
+                    )),
+                    None => Err(DomApiError {
+                        kind: DomApiErrorKind::TypeError,
+                        message: format!(
+                            "{} is not supported for this DOMTokenList",
+                            self.method_name
+                        ),
+                    }),
+                }
+            }
         }
     }
 }

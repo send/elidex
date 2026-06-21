@@ -483,6 +483,93 @@ fn supports_throws() {
 }
 
 // -----------------------------------------------------------------------
+// relList.supports — DOM §7.1 supported tokens (HTML §4.2.4 / §4.6.2)
+// -----------------------------------------------------------------------
+
+fn supports_on(tag: &str, token: &str) -> Result<JsValue, DomApiError> {
+    let mut dom = EcsDom::new();
+    let mut session = SessionCore::new();
+    let elem = dom.create_element(tag, Attributes::default());
+    REL_LIST_SUPPORTS.invoke(
+        elem,
+        &[JsValue::String(token.into())],
+        &mut session,
+        &mut dom,
+    )
+}
+
+#[test]
+fn rellist_supports_link_tokens() {
+    // `<link>` advertises its enumerated rel supported tokens (HTML §4.2.4).
+    assert_eq!(
+        supports_on("link", "stylesheet").unwrap(),
+        JsValue::Bool(true)
+    );
+    assert_eq!(supports_on("link", "preload").unwrap(), JsValue::Bool(true));
+    assert_eq!(
+        supports_on("link", "modulepreload").unwrap(),
+        JsValue::Bool(true)
+    );
+    // Not a recognized link rel keyword.
+    assert_eq!(supports_on("link", "bogus").unwrap(), JsValue::Bool(false));
+    // `noopener` is a hyperlink (a/area) keyword, not a `<link>` one.
+    assert_eq!(
+        supports_on("link", "noopener").unwrap(),
+        JsValue::Bool(false)
+    );
+}
+
+#[test]
+fn rellist_supports_is_ascii_case_insensitive() {
+    // DOM §7.1 validation steps compare tokens ASCII case-insensitively.
+    assert_eq!(
+        supports_on("link", "StyleSheet").unwrap(),
+        JsValue::Bool(true)
+    );
+    assert_eq!(supports_on("a", "NoOpener").unwrap(), JsValue::Bool(true));
+}
+
+#[test]
+fn rellist_supports_hyperlink_tokens() {
+    // `<a>` / `<area>` share the {noopener, noreferrer, opener} set (HTML §4.6.2).
+    for tag in ["a", "area"] {
+        assert_eq!(supports_on(tag, "noopener").unwrap(), JsValue::Bool(true));
+        assert_eq!(supports_on(tag, "noreferrer").unwrap(), JsValue::Bool(true));
+        assert_eq!(supports_on(tag, "opener").unwrap(), JsValue::Bool(true));
+        // `stylesheet` is link-only.
+        assert_eq!(
+            supports_on(tag, "stylesheet").unwrap(),
+            JsValue::Bool(false)
+        );
+    }
+}
+
+#[test]
+fn rellist_supports_unknown_element_throws() {
+    // A `rel` token list on an element with no defined supported tokens (e.g. a
+    // `<div>`) has no supported tokens → `supports()` throws (DOM §7.1).
+    let err = supports_on("div", "stylesheet").unwrap_err();
+    assert_eq!(err.kind, DomApiErrorKind::TypeError);
+}
+
+#[test]
+fn linksizes_supports_throws() {
+    // `<link>.sizes` defines no supported tokens → throws, even on a `<link>`.
+    let mut dom = EcsDom::new();
+    let mut session = SessionCore::new();
+    let elem = dom.create_element("link", Attributes::default());
+    let err = LINK_SIZES_SUPPORTS
+        .invoke(
+            elem,
+            &[JsValue::String("any".into())],
+            &mut session,
+            &mut dom,
+        )
+        .unwrap_err();
+    assert_eq!(err.kind, DomApiErrorKind::TypeError);
+}
+
+// -----------------------------------------------------------------------
 // Step 3 spec-compliance tests
 // -----------------------------------------------------------------------
 
