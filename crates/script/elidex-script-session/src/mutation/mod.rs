@@ -159,11 +159,14 @@ pub struct MutationRecord {
 /// to ensure consistent buffering and future `MutationObserver` support.
 ///
 /// Returns the list of [`MutationRecord`]s the mutation produced — empty on
-/// failure (e.g. entity not found, tree constraint violation, or stub
-/// operation). A childList **move** (an already-parented node passed to
-/// `appendChild`/`insertBefore`/`replaceChild`) yields **two** records (a
-/// source-parent removal + a destination record, WHATWG DOM §4.5 adopt +
-/// §4.2.3); every other successful mutation yields exactly one.
+/// failure (e.g. entity not found or tree constraint violation) and also for a
+/// no-op such as appending an empty `DocumentFragment` (WHATWG DOM §4.2.3 insert
+/// step 3, count 0 → return). A childList **move** (an already-parented node
+/// passed to `appendChild`/`insertBefore`/`replaceChild`) yields **two** records
+/// (a source-parent removal + a destination record, WHATWG DOM §4.5 adopt +
+/// §4.2.3). A **`DocumentFragment`** insert/replace also yields **two** (the
+/// step-4.2 fragment record + the destination/coalesced record carrying the
+/// expanded children); every other successful mutation yields exactly one.
 pub fn apply_mutation(mutation: &Mutation, dom: &mut EcsDom) -> Vec<MutationRecord> {
     match mutation {
         Mutation::AppendChild { parent, child } => apply_append_child(dom, *parent, *child),
@@ -268,6 +271,59 @@ fn move_record_list(
     }
 }
 
+/// Expand a `DocumentFragment` per WHATWG DOM §4.2.3 "insert" steps 1/4/7: take a
+/// **static** snapshot of `fragment`'s children (step 1 binds `nodes` to the
+/// fragment's children once, before step 4.1 removes them and step 7 relinks them;
+/// iterating the live child chain while moving would skip nodes), emit the
+/// step-4.2 fragment record
+/// (`addedNodes`=«», `removedNodes`=nodes; queued even when the enclosing insert
+/// is suppressed — the step "intentionally does not pay attention to
+/// suppressObservers"), then move each child into the tree via `link_each` (the
+/// step-7 "for each node in nodes" per-node relink, which runs the per-node
+/// insertion steps + custom-element reactions through the `EcsDom` primitive).
+///
+/// Returns `None` for an **empty** fragment (count 0 → §4.2.3 insert step 3
+/// early return: no records at all), or when **no** child actually relinked.
+/// `link_each` performs the append or insert-before the caller needs, returning
+/// whether the per-node relink succeeded, and is the One-issue-one-way home for
+/// the fragment-children move (the canonical record-producing expansion — the
+/// record-free `insert_node_expanding_fragment` in `elidex-dom-api` migrates onto
+/// this in the B1.2b slice).
+///
+/// The records are built from the children that **actually relinked** (not the raw
+/// step-1 snapshot): the per-node `EcsDom` primitive rejects a relink whose child
+/// would create a cycle / is destroyed, in which case that child stays in the
+/// fragment and must NOT appear in `addedNodes`/`removedNodes`. For a well-formed
+/// detached fragment every child relinks (its children cannot be ancestors of an
+/// in-tree parent), so `moved == nodes`; this guards the records' truthfulness by
+/// construction rather than trusting that invariant.
+fn expand_fragment(
+    dom: &mut EcsDom,
+    fragment: Entity,
+    mut link_each: impl FnMut(&mut EcsDom, Entity) -> bool,
+) -> Option<(MutationRecord, Vec<Entity>)> {
+    let nodes: Vec<Entity> = dom.children_iter(fragment).collect(); // step 1, static snapshot
+    if nodes.is_empty() {
+        return None; // step 3: count 0 → return
+    }
+    // step 7: per-node adopt + insert + insertion steps + CE reactions. Keep only
+    // the children that actually relinked, so the records reflect the real moves.
+    let mut moved = Vec::with_capacity(nodes.len());
+    for node in nodes {
+        if link_each(dom, node) {
+            moved.push(node);
+        }
+    }
+    if moved.is_empty() {
+        return None; // nothing relinked → no records
+    }
+    let frag_record = MutationRecord {
+        removed_nodes: moved.clone(), // step 4.2: only the children actually removed
+        ..empty_record(MutationKind::ChildList, fragment)
+    };
+    Some((frag_record, moved))
+}
+
 /// Append `child` to `parent` through the `EcsDom` chokepoint and build the
 /// §4.3.2 "queue a tree mutation record" childList record list — empty on
 /// failure, one record for a fresh node, **two** for a move (an already-parented
@@ -277,6 +333,24 @@ fn move_record_list(
 /// both runtimes produce the identical record shape — one record source
 /// (One-issue-one-way).
 pub fn apply_append_child(dom: &mut EcsDom, parent: Entity, child: Entity) -> Vec<MutationRecord> {
+    if dom.is_document_fragment(child) {
+        // DocumentFragment: §4.2.3 "insert" expands the fragment's children into
+        // `parent` (the fragment itself is never linked). `previousSibling` =
+        // step 6 = parent's last child, captured BEFORE the move (`children_iter_rev`
+        // skips internal `ShadowRoot`, §4.8). `nextSibling` is null for an append.
+        let prev_sibling = dom.children_iter_rev(parent).next();
+        let Some((frag_record, nodes)) =
+            expand_fragment(dom, child, |d, n| d.append_child(parent, n))
+        else {
+            return Vec::new(); // empty fragment → §4.2.3 step 3
+        };
+        let dest = MutationRecord {
+            added_nodes: nodes,
+            previous_sibling: prev_sibling,
+            ..empty_record(MutationKind::ChildList, parent) // step 8
+        };
+        return vec![frag_record, dest]; // step 4.2 record THEN step 8 record
+    }
     // Move-vs-fresh source of truth: `child`'s old parent + siblings, captured
     // **before** the relink destroys them (`Some` ⇒ move, `None` ⇒ fresh).
     let source = capture_move_source(dom, child);
@@ -311,6 +385,34 @@ pub fn apply_insert_before(
     new_child: Entity,
     ref_child: Entity,
 ) -> Vec<MutationRecord> {
+    if dom.is_document_fragment(new_child) {
+        // Validate the reference child up front: `EcsDom::insert_before` rejects a
+        // `ref_child` that is not a child of `parent` (returns false), but the
+        // fragment path drives the per-node relink through a closure that ignores
+        // that failure — so without this check a bad reference would emit records
+        // for children that were never inserted. Empty list ⇒ failure (the handler
+        // maps it to an error; a *valid* empty-fragment no-op is distinguished by
+        // the handler via fragment-ness, see `element/tree.rs`).
+        if dom.get_parent(ref_child) != Some(parent) {
+            return Vec::new();
+        }
+        // DocumentFragment: expand its children before `ref_child`. `previousSibling`
+        // = step 6 = `ref_child`'s previous sibling, captured BEFORE the move;
+        // `nextSibling` = `ref_child` (the insert reference child).
+        let prev_sibling = dom.prev_exposed_sibling(ref_child);
+        let Some((frag_record, nodes)) =
+            expand_fragment(dom, new_child, |d, n| d.insert_before(parent, n, ref_child))
+        else {
+            return Vec::new(); // empty fragment → §4.2.3 step 3
+        };
+        let dest = MutationRecord {
+            added_nodes: nodes,
+            previous_sibling: prev_sibling,
+            next_sibling: Some(ref_child),
+            ..empty_record(MutationKind::ChildList, parent) // step 8
+        };
+        return vec![frag_record, dest];
+    }
     // Move-vs-fresh SoT + source-removal context, captured before the relink.
     let source = capture_move_source(dom, new_child);
     // Destination `previousSibling` per DOM §4.2.3 insert **step 6** = `ref_child`'s
@@ -371,6 +473,51 @@ pub fn apply_replace_child(
     new_child: Entity,
     old_child: Entity,
 ) -> Vec<MutationRecord> {
+    if dom.is_document_fragment(new_child) {
+        // DocumentFragment newChild — §4.2.3 "replace" steps 7-14 with expansion.
+        // Deferred-flush safety: `apply_mutation(Mutation::ReplaceChild)` skips the
+        // dom-api handler's oldChild∈parent precheck, and this branch bypasses
+        // `EcsDom::replace_child` (which would otherwise validate), so re-check here
+        // (replace step 3).
+        if dom.get_parent(old_child) != Some(parent) {
+            return Vec::new();
+        }
+        // step 7: referenceChild = oldChild's next sibling. Step 8's
+        // "if referenceChild is node" adjustment cannot fire — a fragment is
+        // detached, never a sibling of oldChild.
+        let reference_child = dom.next_exposed_sibling(old_child);
+        // step 9: previousSibling = oldChild's previous sibling (pre-removal).
+        let previous_sibling = dom.prev_exposed_sibling(old_child);
+        // step 11: remove oldChild (suppressObservers — no standalone record).
+        if !dom.remove_child(parent, old_child) {
+            return Vec::new();
+        }
+        // steps 12-13: nodes = fragment's children; insert each before referenceChild
+        // (or append when oldChild was last). Step 13's insert is suppressObservers,
+        // so its destination record is withheld; its step-4.2 fragment record is not.
+        let frag_and_nodes = expand_fragment(dom, new_child, |d, n| match reference_child {
+            Some(rc) => d.insert_before(parent, n, rc),
+            None => d.append_child(parent, n),
+        });
+        // step 14: one coalesced record (addedNodes = expanded children, removedNodes
+        // = «oldChild»). Build it inside each arm so the expanded `nodes` move in (no
+        // extra clone). For an empty fragment `addedNodes` is «» but the record is
+        // still queued — oldChild was removed at step 11.
+        let coalesced = |added_nodes: Vec<Entity>| MutationRecord {
+            added_nodes,
+            removed_nodes: vec![old_child],
+            previous_sibling,
+            next_sibling: reference_child,
+            ..empty_record(MutationKind::ChildList, parent)
+        };
+        return match frag_and_nodes {
+            // Order: step-13's fragment record (4.2) THEN step-14 coalesced.
+            Some((frag_record, nodes)) => vec![frag_record, coalesced(nodes)],
+            // Empty fragment: no fragment record (nested insert returned at step 3),
+            // but oldChild was still removed, so the coalesced record stands alone.
+            None => vec![coalesced(Vec::new())],
+        };
+    }
     // Coalesced-record siblings (steps 7–9), captured pre-removal, old_child-relative:
     //  - previousSibling = step 9 = old_child's prev. NO adjustment exists, so this
     //    MAY legitimately equal `new_child` (e.g. `[A,B,C].replaceChild(A,B)` →

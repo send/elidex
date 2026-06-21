@@ -517,3 +517,242 @@ fn apply_style_attribute_invalidates_inline_style_cache() {
         "buffered RemoveAttribute('style') left a stale InlineStyle cache"
     );
 }
+
+// ---------------------------------------------------------------------------
+// DocumentFragment expansion (B1.2-fragment) — WHATWG DOM §4.2.3 insert/replace
+// ---------------------------------------------------------------------------
+
+/// Build a detached `DocumentFragment` holding `children` (in order).
+fn fragment_of(dom: &mut EcsDom, children: &[Entity]) -> Entity {
+    let frag = dom.create_document_fragment();
+    for &c in children {
+        dom.append_child(frag, c);
+    }
+    frag
+}
+
+#[test]
+fn append_fragment_two_children() {
+    // appendChild(frag[a, b]) — §4.2.3 insert: expand the fragment's children,
+    // emit the step-4.2 fragment record THEN the step-8 destination record.
+    let mut dom = EcsDom::new();
+    let parent = elem(&mut dom, "div");
+    let first = elem(&mut dom, "span");
+    dom.append_child(parent, first); // parent = [first]
+    let a = elem(&mut dom, "i");
+    let b = elem(&mut dom, "u");
+    let frag = fragment_of(&mut dom, &[a, b]);
+
+    let records = super::apply_append_child(&mut dom, parent, frag);
+    assert_eq!(records.len(), 2, "fragment record + destination record");
+    // step 4.2 fragment record: on the fragment, removedNodes = its children.
+    assert_eq!(records[0].kind, MutationKind::ChildList);
+    assert_eq!(records[0].target, frag);
+    assert_eq!(records[0].added_nodes, Vec::<Entity>::new());
+    assert_eq!(records[0].removed_nodes, vec![a, b]);
+    assert_eq!(records[0].previous_sibling, None);
+    assert_eq!(records[0].next_sibling, None);
+    // step 8 destination record: addedNodes = the expanded children, previousSibling
+    // = parent's last child before the move (= `first`), nextSibling null (append).
+    assert_eq!(records[1].target, parent);
+    assert_eq!(records[1].added_nodes, vec![a, b]);
+    assert!(records[1].removed_nodes.is_empty());
+    assert_eq!(records[1].previous_sibling, Some(first));
+    assert_eq!(records[1].next_sibling, None);
+    // Tree: children moved out of the fragment into the parent.
+    assert_eq!(dom.children(parent), vec![first, a, b]);
+    assert!(
+        dom.children(frag).is_empty(),
+        "fragment emptied after expand"
+    );
+}
+
+#[test]
+fn append_fragment_one_child() {
+    let mut dom = EcsDom::new();
+    let parent = elem(&mut dom, "div");
+    let only = elem(&mut dom, "span");
+    let frag = fragment_of(&mut dom, &[only]);
+
+    let records = super::apply_append_child(&mut dom, parent, frag);
+    assert_eq!(records.len(), 2);
+    assert_eq!(records[0].target, frag);
+    assert_eq!(records[0].removed_nodes, vec![only]);
+    assert_eq!(records[1].added_nodes, vec![only]);
+    assert_eq!(records[1].previous_sibling, None);
+    assert_eq!(dom.children(parent), vec![only]);
+}
+
+#[test]
+fn append_empty_fragment_no_record() {
+    // §4.2.3 insert step 3: count 0 → return, NO record at all.
+    let mut dom = EcsDom::new();
+    let parent = elem(&mut dom, "div");
+    let existing = elem(&mut dom, "span");
+    dom.append_child(parent, existing);
+    let frag = dom.create_document_fragment();
+
+    let records = super::apply_append_child(&mut dom, parent, frag);
+    assert!(records.is_empty(), "empty-fragment append yields no record");
+    assert_eq!(dom.children(parent), vec![existing], "parent unchanged");
+}
+
+#[test]
+fn insert_before_fragment() {
+    // insertBefore(frag[a, b], ref) — expand before ref; dest prev = ref's old
+    // prev sibling, dest next = ref.
+    let mut dom = EcsDom::new();
+    let parent = elem(&mut dom, "div");
+    let x = elem(&mut dom, "x");
+    let r = elem(&mut dom, "r");
+    dom.append_child(parent, x);
+    dom.append_child(parent, r); // [x, r]
+    let a = elem(&mut dom, "a");
+    let b = elem(&mut dom, "b");
+    let frag = fragment_of(&mut dom, &[a, b]);
+
+    let records = super::apply_insert_before(&mut dom, parent, frag, r);
+    assert_eq!(records.len(), 2);
+    assert_eq!(records[0].target, frag);
+    assert_eq!(records[0].removed_nodes, vec![a, b]);
+    assert_eq!(records[1].target, parent);
+    assert_eq!(records[1].added_nodes, vec![a, b]);
+    assert_eq!(records[1].previous_sibling, Some(x));
+    assert_eq!(records[1].next_sibling, Some(r));
+    assert_eq!(dom.children(parent), vec![x, a, b, r]);
+    assert!(dom.children(frag).is_empty());
+}
+
+#[test]
+fn insert_before_empty_fragment_no_record() {
+    let mut dom = EcsDom::new();
+    let parent = elem(&mut dom, "div");
+    let r = elem(&mut dom, "r");
+    dom.append_child(parent, r);
+    let frag = dom.create_document_fragment();
+
+    let records = super::apply_insert_before(&mut dom, parent, frag, r);
+    assert!(records.is_empty());
+    assert_eq!(dom.children(parent), vec![r]);
+}
+
+#[test]
+fn insert_before_fragment_bad_reference_is_failure() {
+    // A reference child not in `parent` must NOT emit records (else a bad ref
+    // would surface records for children that were never inserted). Empty list
+    // ⇒ the handler maps it to a hierarchy error.
+    let mut dom = EcsDom::new();
+    let parent = elem(&mut dom, "div");
+    let other = elem(&mut dom, "div");
+    let stray = elem(&mut dom, "span");
+    dom.append_child(other, stray); // stray ∈ other, NOT parent
+    let a = elem(&mut dom, "a");
+    let frag = fragment_of(&mut dom, &[a]);
+
+    let records = super::apply_insert_before(&mut dom, parent, frag, stray);
+    assert!(records.is_empty(), "bad reference child yields no records");
+    // The fragment children were not moved.
+    assert_eq!(dom.children(frag), vec![a]);
+    assert!(dom.children(parent).is_empty());
+}
+
+#[test]
+fn replace_child_fragment() {
+    // replaceChild(frag[a, b], old) — §4.2.3 replace: fragment record THEN one
+    // coalesced record (added = expanded children, removed = [old]).
+    let mut dom = EcsDom::new();
+    let parent = elem(&mut dom, "div");
+    let x = elem(&mut dom, "x");
+    let old = elem(&mut dom, "old");
+    let y = elem(&mut dom, "y");
+    dom.append_child(parent, x);
+    dom.append_child(parent, old);
+    dom.append_child(parent, y); // [x, old, y]
+    let a = elem(&mut dom, "a");
+    let b = elem(&mut dom, "b");
+    let frag = fragment_of(&mut dom, &[a, b]);
+
+    let records = super::apply_replace_child(&mut dom, parent, frag, old);
+    assert_eq!(records.len(), 2);
+    assert_eq!(records[0].target, frag);
+    assert_eq!(records[0].removed_nodes, vec![a, b]);
+    let coalesced = &records[1];
+    assert_eq!(coalesced.target, parent);
+    assert_eq!(coalesced.added_nodes, vec![a, b]);
+    assert_eq!(coalesced.removed_nodes, vec![old]);
+    assert_eq!(coalesced.previous_sibling, Some(x)); // old's prev (step 9)
+    assert_eq!(coalesced.next_sibling, Some(y)); // old's next (step 7)
+    assert_eq!(dom.children(parent), vec![x, a, b, y]);
+    assert!(dom.children(frag).is_empty());
+}
+
+#[test]
+fn replace_child_fragment_at_end() {
+    // old is the last child → referenceChild = None → children appended after
+    // old's previous sibling; coalesced nextSibling = None.
+    let mut dom = EcsDom::new();
+    let parent = elem(&mut dom, "div");
+    let x = elem(&mut dom, "x");
+    let old = elem(&mut dom, "old");
+    dom.append_child(parent, x);
+    dom.append_child(parent, old); // [x, old]
+    let a = elem(&mut dom, "a");
+    let b = elem(&mut dom, "b");
+    let frag = fragment_of(&mut dom, &[a, b]);
+
+    let records = super::apply_replace_child(&mut dom, parent, frag, old);
+    assert_eq!(records.len(), 2);
+    let coalesced = &records[1];
+    assert_eq!(coalesced.added_nodes, vec![a, b]);
+    assert_eq!(coalesced.removed_nodes, vec![old]);
+    assert_eq!(coalesced.previous_sibling, Some(x));
+    assert_eq!(coalesced.next_sibling, None);
+    assert_eq!(dom.children(parent), vec![x, a, b]);
+}
+
+#[test]
+fn replace_child_empty_fragment() {
+    // §4.2.3 replace: even an empty fragment removes oldChild (step 11) and
+    // queues ONE coalesced record (added = «», removed = [old]) — no fragment
+    // record (the nested insert returns at step 3).
+    let mut dom = EcsDom::new();
+    let parent = elem(&mut dom, "div");
+    let x = elem(&mut dom, "x");
+    let old = elem(&mut dom, "old");
+    let y = elem(&mut dom, "y");
+    dom.append_child(parent, x);
+    dom.append_child(parent, old);
+    dom.append_child(parent, y);
+    let frag = dom.create_document_fragment();
+
+    let records = super::apply_replace_child(&mut dom, parent, frag, old);
+    assert_eq!(
+        records.len(),
+        1,
+        "only the coalesced record, no fragment record"
+    );
+    let coalesced = &records[0];
+    assert_eq!(coalesced.target, parent);
+    assert!(coalesced.added_nodes.is_empty());
+    assert_eq!(coalesced.removed_nodes, vec![old]);
+    assert_eq!(coalesced.previous_sibling, Some(x));
+    assert_eq!(coalesced.next_sibling, Some(y));
+    assert_eq!(dom.children(parent), vec![x, y]);
+}
+
+#[test]
+fn replace_child_fragment_old_not_child_is_failure() {
+    // Deferred-flush safety: apply_replace_child's fragment branch re-checks
+    // oldChild ∈ parent (the apply_mutation path lacks the dom-api precheck).
+    let mut dom = EcsDom::new();
+    let parent = elem(&mut dom, "div");
+    let other = elem(&mut dom, "div");
+    let stray = elem(&mut dom, "old");
+    dom.append_child(other, stray); // stray ∈ other, not parent
+    let a = elem(&mut dom, "a");
+    let frag = fragment_of(&mut dom, &[a]);
+
+    let records = super::apply_replace_child(&mut dom, parent, frag, stray);
+    assert!(records.is_empty());
+    assert_eq!(dom.children(frag), vec![a], "fragment untouched on failure");
+}

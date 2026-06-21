@@ -1,6 +1,6 @@
 //! Tree mutation handlers: appendChild, insertBefore, removeChild, insertAdjacent*.
 
-use elidex_ecs::{EcsDom, Entity, NodeKind, TextContent};
+use elidex_ecs::{EcsDom, Entity, TextContent};
 use elidex_plugin::JsValue;
 use elidex_script_session::{
     apply_append_child, apply_insert_before, apply_remove_child, apply_replace_child, DomApiError,
@@ -9,25 +9,13 @@ use elidex_script_session::{
 
 use crate::util::{not_found_error, require_object_ref_arg, require_string_arg};
 
-/// Whether the §4.3.2 childList record for inserting `node` into a parent must
-/// be **deferred to the B1.2-fragment slice** rather than emitted now.
-///
-/// B1.2a completed the **move** case (an already-parented `node` now emits the
-/// two-record source-removal + destination sequence via `apply_*`), so only one
-/// case remains out of scope:
-///
-/// - **DocumentFragment** (§4.2.3 insert step 1): the record's `addedNodes` are
-///   the fragment's *children*, not the fragment node itself — a multi-node
-///   expansion that also needs an `EcsDom::append_child` apply-layer fix (it
-///   currently links the fragment entity instead of expanding it). The mutation
-///   is applied but the (would-be malformed) record withheld until then.
-///
-/// This guard is **orthogonal to the move/fresh split**: move-vs-fresh dispatch
-/// is decided inside the `apply_*` builders (by the node's pre-write parent), not
-/// here. This predicate reports fragment-ness only.
-fn record_deferred_to_b1_2(dom: &EcsDom, node: Entity) -> bool {
-    matches!(dom.node_kind(node), Some(NodeKind::DocumentFragment))
-}
+// The `apply_*` childList builders expand a `DocumentFragment` into its children
+// (WHATWG DOM §4.2.3 "insert" step 1) and return an **empty** record list for an
+// *empty* fragment — a valid no-op (§4.2.3 step 3), NOT a failure. The handlers
+// below disambiguate that no-op from a genuine hierarchy failure (which also
+// returns an empty list) via `EcsDom::is_document_fragment`: an empty list is an
+// error only when the node is **not** a fragment (and, for `insertBefore`, when
+// the reference child is valid).
 
 // ---------------------------------------------------------------------------
 // appendChild
@@ -53,25 +41,25 @@ impl DomApiHandler for AppendChild {
             .identity_map()
             .get(JsObjectRef::from_raw(child_ref))
             .ok_or_else(|| not_found_error("child not found"))?;
-        // Scope guard: defer only the DocumentFragment record (apply-layer fix
-        // pending) — apply the mutation but withhold the would-be-malformed
-        // record. Moves now record normally (two records, built by `apply_*`).
-        let defer_record = record_deferred_to_b1_2(dom, child_entity);
-        // Apply through the EcsDom chokepoint AND build the §4.3.2 childList
-        // record list in one step; an empty list = the append failed (cycle /
-        // invalid parent). Records are staged for §4.3 microtask delivery (a
-        // move yields two: source-parent removal + destination insertion).
+        // Apply through the EcsDom chokepoint AND build the §4.3.2 childList record
+        // list in one step. A move yields two records (source-parent removal +
+        // destination); a DocumentFragment yields two (the §4.2.3 step-4.2 fragment
+        // record + the destination record carrying the expanded children). Records
+        // are staged for §4.3 microtask delivery.
         let records = apply_append_child(dom, this, child_entity);
         if records.is_empty() {
+            // Empty list = failure (cycle / invalid parent) EXCEPT for an empty
+            // DocumentFragment, which is a valid no-op (§4.2.3 insert step 3).
+            if dom.is_document_fragment(child_entity) {
+                return Ok(JsValue::ObjectRef(child_ref));
+            }
             return Err(DomApiError {
                 kind: DomApiErrorKind::HierarchyRequestError,
                 message: "appendChild: hierarchy request error (cycle or invalid parent)".into(),
             });
         }
-        if !defer_record {
-            for record in records {
-                session.push_notify_record(record);
-            }
+        for record in records {
+            session.push_notify_record(record);
         }
         Ok(JsValue::ObjectRef(child_ref))
     }
@@ -102,10 +90,6 @@ impl DomApiHandler for InsertBefore {
             .get(JsObjectRef::from_raw(new_ref))
             .ok_or_else(|| not_found_error("newChild not found"))?;
 
-        // Scope guard: defer only the DocumentFragment record. See `AppendChild`
-        // + `record_deferred_to_b1_2`. Moves record normally (two records).
-        let defer_record = record_deferred_to_b1_2(dom, new_entity);
-
         // WebIDL `Node?` — both `null` and `undefined` mean "no
         // reference child"; missing arg is the same.
         let ref_child_is_null =
@@ -114,16 +98,19 @@ impl DomApiHandler for InsertBefore {
             // null reference child = append (WHATWG DOM §4.2.3 pre-insert).
             let records = apply_append_child(dom, this, new_entity);
             if records.is_empty() {
+                // Empty = failure EXCEPT an empty DocumentFragment no-op (§4.2.3
+                // step 3); a null ref is always valid so no ref check is needed.
+                if dom.is_document_fragment(new_entity) {
+                    return Ok(JsValue::ObjectRef(new_ref));
+                }
                 return Err(DomApiError {
                     kind: DomApiErrorKind::HierarchyRequestError,
                     message: "insertBefore: hierarchy request error (cycle or invalid parent)"
                         .into(),
                 });
             }
-            if !defer_record {
-                for record in records {
-                    session.push_notify_record(record);
-                }
+            for record in records {
+                session.push_notify_record(record);
             }
             return Ok(JsValue::ObjectRef(new_ref));
         }
@@ -135,16 +122,21 @@ impl DomApiHandler for InsertBefore {
             .ok_or_else(|| not_found_error("refChild not found"))?;
         let records = apply_insert_before(dom, this, new_entity, ref_entity);
         if records.is_empty() {
+            // Empty = failure (invalid reference child or cycle) EXCEPT an empty
+            // DocumentFragment inserted before a *valid* reference child, which is
+            // a no-op (§4.2.3 step 3). A bad reference child is always an error,
+            // even for an empty fragment — so the no-op requires ref ∈ parent.
+            if dom.is_document_fragment(new_entity) && dom.get_parent(ref_entity) == Some(this) {
+                return Ok(JsValue::ObjectRef(new_ref));
+            }
             return Err(DomApiError {
                 kind: DomApiErrorKind::HierarchyRequestError,
                 message: "insertBefore: hierarchy request error (invalid reference child or cycle)"
                     .into(),
             });
         }
-        if !defer_record {
-            for record in records {
-                session.push_notify_record(record);
-            }
+        for record in records {
+            session.push_notify_record(record);
         }
         Ok(JsValue::ObjectRef(new_ref))
     }
@@ -252,13 +244,15 @@ impl DomApiHandler for ReplaceChild {
             return Ok(JsValue::ObjectRef(old_ref));
         }
 
-        // Scope guard: defer only a DocumentFragment newChild's record (apply-layer
-        // fix pending). See `record_deferred_to_b1_2`.
-        let defer_record = record_deferred_to_b1_2(dom, new_entity);
         // §4.2.3 "replace": for a fresh newChild, one coalesced childList record
         // (added=[new], removed=[old]); for an already-parented newChild (a move
         // into the replace slot), `apply_replace_child` adds the source-parent
-        // removal record from newChild's adopt (NOT suppressed) → two records.
+        // removal record from newChild's adopt (NOT suppressed) → two records. A
+        // **DocumentFragment** newChild expands its children into the coalesced
+        // record's addedNodes and prepends the §4.2.3 step-4.2 fragment record;
+        // an *empty* fragment still removes oldChild and yields one coalesced
+        // record (added=«», removed=[old]) — so the empty list below is always a
+        // genuine failure here (no fragment no-op short-circuit, unlike append).
         let records = apply_replace_child(dom, this, new_entity, old_entity);
         if records.is_empty() {
             return Err(DomApiError {
@@ -268,10 +262,8 @@ impl DomApiHandler for ReplaceChild {
                     .into(),
             });
         }
-        if !defer_record {
-            for record in records {
-                session.push_notify_record(record);
-            }
+        for record in records {
+            session.push_notify_record(record);
         }
         Ok(JsValue::ObjectRef(old_ref))
     }

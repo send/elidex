@@ -885,6 +885,16 @@ impl EcsDom {
         self.world.get::<&NodeKind>(entity).ok().map(|k| *k)
     }
 
+    /// Returns `true` if the entity is a `DocumentFragment` node.
+    ///
+    /// The canonical brand-check for the kind whose children are *expanded* into
+    /// the tree by the WHATWG DOM §4.2.3 "insert" algorithm (step 1) rather than
+    /// the node itself being linked (mirrors [`is_element`](Self::is_element)).
+    #[must_use]
+    pub fn is_document_fragment(&self, entity: Entity) -> bool {
+        matches!(self.node_kind(entity), Some(NodeKind::DocumentFragment))
+    }
+
     /// Whether `entity` is an element in the HTML namespace.
     ///
     /// `true` iff `entity` is an element AND its [`namespace_of`] is

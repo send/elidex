@@ -344,11 +344,17 @@ fn element_append_document_fragment_flattens() {
 }
 
 #[test]
-fn element_append_nested_document_fragment_flattens_and_empties_all() {
-    // Nested fragment: outer > inner > text.  After
-    // `parent.append(outer)`, every fragment along the path must
-    // be empty (WHATWG).  Before this fix, `outer.childNodes`
-    // still contained `inner` because only leaves moved.
+fn append_child_never_nests_a_document_fragment() {
+    // A DocumentFragment is NEVER linked as a child node: `appendChild` of an
+    // EMPTY fragment is a no-op (WHATWG DOM §4.2.3 insert step 3 — count 0 →
+    // return), and of a non-empty fragment expands its children (step 1/7). So a
+    // fragment cannot be nested inside another via `appendChild` — the prior elidex
+    // behavior that linked an empty fragment as a child node was a bug (it made the
+    // `flatten_into` recursion reachable from JS). This is the B1.2-fragment fix.
+    //
+    // `outer.appendChild(inner)` runs while `inner` is empty ⇒ no-op (outer stays
+    // empty, inner not linked). Populating `inner` afterward and `append`-ing it to
+    // `p` then flattens `inner`'s child into `p` and empties `inner`.
     let (mut vm, mut session, mut dom, doc) = setup();
     #[allow(unsafe_code)]
     unsafe {
@@ -359,16 +365,28 @@ fn element_append_nested_document_fragment_flattens_and_empties_all() {
          globalThis.outer = document.createDocumentFragment();\n\
          globalThis.inner = document.createDocumentFragment();\n\
          outer.appendChild(inner);\n\
+         globalThis.outerLenAfterAppendChild = outer.childNodes.length;\n\
+         globalThis.appendChildReturnedInner = (outer.appendChild(inner) === inner);\n\
          inner.appendChild(document.createElement('leaf'));\n\
-         p.append(outer);",
+         p.append(inner);",
     )
     .unwrap();
-    // Leaf ended up in parent.
+    // appendChild of the (empty) fragment did NOT nest it as a child of `outer`.
+    assert_eq!(
+        eval_num(&mut vm, "outerLenAfterAppendChild;"),
+        0.0,
+        "appendChild of an empty fragment must be a no-op, not link it as a child"
+    );
+    assert_eq!(
+        vm.eval("appendChildReturnedInner").unwrap(),
+        JsValue::Boolean(true),
+        "appendChild still returns its argument (the fragment) per WebIDL"
+    );
+    // The populated fragment then flattens into `p` and empties.
     assert_eq!(eval_num(&mut vm, "p.childNodes.length;"), 1.0);
     assert_eq!(eval_str(&mut vm, "p.childNodes[0].tagName;"), "LEAF");
-    // Both fragments must be empty after the insert.
-    assert_eq!(eval_num(&mut vm, "outer.childNodes.length;"), 0.0);
     assert_eq!(eval_num(&mut vm, "inner.childNodes.length;"), 0.0);
+    assert_eq!(eval_num(&mut vm, "outer.childNodes.length;"), 0.0);
     vm.unbind();
 }
 
