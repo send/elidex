@@ -52,11 +52,14 @@ impl VmInner {
     /// Lazily-initialized accessor for the engine-bridge `WasmRuntime`
     /// singleton (plan-memo §4.1 / §5 Stage 1.3).
     ///
-    /// First access calls [`WasmRuntime::new`] which builds fresh
-    /// `Arc<DomHandlerRegistry>` + `Arc<CssomHandlerRegistry>`
-    /// internally — those registries are runtime-internal (not
-    /// per-DOM-session) so the runtime is cross-DOM reusable and
-    /// retained across `Vm::unbind` per plan-memo §2.4.
+    /// First access builds the runtime via [`WasmRuntime::with_registries`]
+    /// with a **policy-aware** DOM registry derived from this VM's engine mode
+    /// (`spec_level_policy`) — so the A1 Web-API core/compat gate is engine-wide
+    /// for Wasm-enabled sessions too: a `BrowserCore`/`App` VM's Wasm `elidex`
+    /// imports cannot reach a `Legacy` DOM handler the mode excludes (Codex R5).
+    /// The registries are runtime-internal (not per-DOM-session) so the runtime
+    /// is cross-DOM reusable and retained across `Vm::unbind` per plan-memo §2.4
+    /// — sound because the policy is fixed at VM construction and never mutated.
     ///
     /// # Errors
     ///
@@ -73,7 +76,14 @@ impl VmInner {
         if let Some(rt) = self.wasm_runtime.get() {
             return Ok(rt);
         }
-        let rt = WasmRuntime::new()?;
+        // Build the runtime's DOM registry under THIS VM's engine-mode policy
+        // (not the default `BrowserCompat`), so the gate covers the Wasm
+        // `elidex` import path as well as the direct DOM bridge (Codex R5).
+        let dom_registry = Arc::new(elidex_dom_api::registry::create_dom_registry_with_policy(
+            self.spec_level_policy,
+        ));
+        let cssom_registry = Arc::new(elidex_dom_api::registry::create_cssom_registry());
+        let rt = WasmRuntime::with_registries(dom_registry, cssom_registry)?;
         // First-write wins — `OnceCell::set` returns `Err(value)` if
         // a concurrent setter beat us (impossible in single-threaded
         // VM, but the API surface is uniform).  On a `set` collision
