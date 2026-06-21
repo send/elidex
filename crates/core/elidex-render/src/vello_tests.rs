@@ -406,3 +406,37 @@ fn content_placement_clip_rect_matches_content_area() {
     assert!((r.x1 - 1648.0).abs() < 1e-9);
     assert!((r.y1 - 1464.0).abs() < 1e-9);
 }
+
+#[test]
+fn iframe_sub_transform_scales_offset_under_content_root() {
+    // A scale-2 content root: an iframe at CSS (100, 50) must render its local
+    // origin at physical (offset × scale) = (200, 100), and local (10, 10) at
+    // ((offset + local) × scale) = (220, 120) — the offset inherits the root
+    // scale (the #B fix: `pre_translate`, not `then_translate`).
+    let root = ContentPlacement {
+        offset: Point::new(0.0, 0.0),
+        size: Size::new(800.0, 600.0),
+        scale: 2.0,
+    }
+    .base_transform();
+    let sub = super::iframe_sub_transform(root, Point::new(100.0, 50.0));
+    let origin = sub * vello::kurbo::Point::new(0.0, 0.0);
+    assert!(
+        (origin.x - 200.0).abs() < 1e-9 && (origin.y - 100.0).abs() < 1e-9,
+        "{origin:?}"
+    );
+    let local = sub * vello::kurbo::Point::new(10.0, 10.0);
+    assert!(
+        (local.x - 220.0).abs() < 1e-9 && (local.y - 120.0).abs() < 1e-9,
+        "{local:?}"
+    );
+
+    // The previous `then_translate` left the offset unscaled (the bug): the iframe
+    // origin would have landed at the raw CSS offset (100, 50).
+    let buggy = root.then_translate(vello::kurbo::Vec2::new(100.0, 50.0));
+    let buggy_origin = buggy * vello::kurbo::Point::new(0.0, 0.0);
+    assert!(
+        (buggy_origin.x - 100.0).abs() < 1e-9,
+        "then_translate unscaled: {buggy_origin:?}"
+    );
+}

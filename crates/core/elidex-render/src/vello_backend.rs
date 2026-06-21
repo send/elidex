@@ -396,6 +396,21 @@ pub(crate) fn build_scene(
     build_scene_with_transform(scene, display_list, font_cache, Affine::IDENTITY);
 }
 
+/// Sub-transform for an iframe `SubDisplayList`: compose the iframe `offset`
+/// (parent CSS px) **inside** the parent transform via `pre_translate`, so the
+/// offset inherits the parent's scale. `then_translate` would add the offset in
+/// physical-surface space *after* the parent scale, leaving the iframe at raw
+/// CSS-px coordinates under a scaled content root — at scale 2 an iframe at
+/// `x = 100` CSS px would paint at `x = 100` physical px instead of `x = 200`,
+/// while normal items (`parent × local`) scale correctly. Both the clip layer and
+/// the recursive sub-list use this single transform, keeping them aligned.
+fn iframe_sub_transform(current: Affine, offset: Point) -> Affine {
+    current.pre_translate(vello::kurbo::Vec2::new(
+        f64::from(offset.x),
+        f64::from(offset.y),
+    ))
+}
+
 /// Build a Vello scene from a display list with an initial base transform.
 ///
 /// Used by `SubDisplayList` rendering to apply the iframe offset transform
@@ -771,33 +786,25 @@ fn build_scene_with_transform(
                 }
             }
             DisplayItem::SubDisplayList { offset, clip, list } => {
-                // Render iframe content: translate by offset, clip to bounds, then
-                // recursively render the sub-display-list.
+                // Render iframe content: compose the iframe sub-transform
+                // (`current_transform ∘ translate(offset)`, see
+                // `iframe_sub_transform`), clip to the iframe box, then render the
+                // sub-list under it.
                 //
-                // The clip rect is in parent coordinates, but `push_layer` applies
-                // the given transform before clipping. Use iframe-local coordinates
-                // (0,0 to size) for the clip rect to avoid double-offsetting.
+                // `push_layer` transforms the clip shape by the given transform, so
+                // an iframe-local clip rect (0,0 to size) under the *sub-transform*
+                // lands exactly at the iframe box without double-offsetting — the
+                // clip and the sub-list share one transform, so they stay aligned
+                // at every scale.
+                let sub_transform = iframe_sub_transform(current_transform, *offset);
                 let local_clip = vello::kurbo::Rect::new(
                     0.0,
                     0.0,
                     f64::from(clip.size.width),
                     f64::from(clip.size.height),
                 );
-                let translate = current_transform.then_translate(vello::kurbo::Vec2::new(
-                    f64::from(offset.x),
-                    f64::from(offset.y),
-                ));
-                // Clip to the iframe's content area, then render the sub-list
-                // with the translate as the base transform so all items are
-                // drawn at the correct offset.
-                scene.push_layer(
-                    Fill::NonZero,
-                    Mix::Normal,
-                    1.0,
-                    current_transform,
-                    &local_clip,
-                );
-                build_scene_with_transform(scene, list, font_cache, translate);
+                scene.push_layer(Fill::NonZero, Mix::Normal, 1.0, sub_transform, &local_clip);
+                build_scene_with_transform(scene, list, font_cache, sub_transform);
                 scene.pop_layer();
             }
             DisplayItem::Text {
