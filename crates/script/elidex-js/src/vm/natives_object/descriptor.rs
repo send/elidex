@@ -377,7 +377,7 @@ pub(in super::super) fn native_object_get_own_property_descriptor(
     // names are own properties (writable/enumerable/configurable per
     // WebIDL §3.10) so `Object.getOwnPropertyDescriptor(localStorage,
     // 'k')` reflects the stored entry.
-    #[cfg(feature = "engine")]
+    #[cfg(all(feature = "engine", feature = "compat-webapi"))]
     if matches!(ctx.get_object(obj_id).kind, ObjectKind::Storage { .. }) {
         if let Some(result) = super::super::host::storage::try_get(ctx.vm, obj_id, prop) {
             let value = result?;

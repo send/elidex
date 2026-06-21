@@ -109,7 +109,7 @@ impl VmInner {
                 // property exotic [[Get]] — `localStorage.k` reads
                 // the stored value, falling through to prototype
                 // for built-in method names.
-                #[cfg(feature = "engine")]
+                #[cfg(all(feature = "engine", feature = "compat-webapi"))]
                 if matches!(self.get_object(id).kind, ObjectKind::Storage { .. }) {
                     if let Some(result) =
                         super::host::storage::try_get(self, id, JsValue::String(key))
@@ -345,7 +345,7 @@ impl VmInner {
         // localStorage.k` removes the stored entry.  Built-in method
         // names fall through to the ordinary delete path (WebIDL §3.10
         // non-`[LegacyOverrideBuiltIns]`).
-        #[cfg(feature = "engine")]
+        #[cfg(all(feature = "engine", feature = "compat-webapi"))]
         if matches!(
             self.get_object(id).kind,
             super::value::ObjectKind::Storage { .. }
@@ -551,7 +551,7 @@ impl VmInner {
         // Storage named-property exotic [[Set]] — `localStorage.k =
         // v` writes via the storage backend; setItem path enforces
         // the 5 MiB origin quota.
-        #[cfg(feature = "engine")]
+        #[cfg(all(feature = "engine", feature = "compat-webapi"))]
         if matches!(self.get_object(target_id).kind, ObjectKind::Storage { .. }) {
             if let Some(result) =
                 super::host::storage::try_set(self, target_id, JsValue::String(key), val)

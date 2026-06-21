@@ -8,11 +8,14 @@
 //!   / `installs_dom(level)` predicate (no storage-specific helper);
 //! - `BrowserCompat` (the default) installs `Legacy`, `BrowserCore` / `App`
 //!   exclude it — the one predicate every seam consults;
-//! - **no behavior change**: A1 classifies every real API `Modern`/`Living` (no
-//!   API moves), so the `StorageEvent` global, the rewired Window accessors
-//!   (`localStorage` / `onstorage`), `document.cookie`, and the live-collection
-//!   getters all install in *every* mode. A2/A3/B demote a family by flipping
-//!   one level literal at its site — that exclusion is their test, not A1's.
+//! - A1 classified every real API `Modern`/`Living` (no API moves). **A2 has
+//!   since demoted the Web Storage family to `Legacy`** (HTML §12.2), so the
+//!   `Storage`/`StorageEvent` globals + the `localStorage`/`sessionStorage`/
+//!   `onstorage` Window seams now install only under `BrowserCompat` + the
+//!   `compat-webapi` feature, and are `[Exposed=Window]` (absent in worker realms)
+//!   — see `storage_*_legacy_gated` / `storage_globals_absent_in_worker_realm_*`.
+//!   `document.cookie` (A3) and the live-collection getters (B) remain
+//!   `Modern`/`Living` until their PRs flip those sources.
 //!
 //! End-to-end exclusion of a `Legacy` API *at a VM seam* is proven concretely
 //! two ways: (i) seam-4 in `elidex-dom-api::registry` (a mock `Legacy`
@@ -80,27 +83,48 @@ fn global_true(engine: &mut ElidexJsEngine, name: &str) -> bool {
     matches!(engine.vm().get_global(name), Some(JsValue::Boolean(true)))
 }
 
+fn storage_event_is_function(
+    engine: &mut ElidexJsEngine,
+    session: &mut SessionCore,
+    dom: &mut EcsDom,
+    doc: Entity,
+) -> bool {
+    let mut ctx = ScriptContext::new(session, dom, doc);
+    let r = ScriptEngine::eval(
+        engine,
+        "globalThis.ok = (typeof StorageEvent === 'function');",
+        &mut ctx,
+    );
+    assert!(r.success, "eval failed");
+    global_true(engine, "ok")
+}
+
 #[test]
-fn storage_event_global_present_in_all_modes() {
-    // A1 keeps the Web Storage family `Modern` (no API moves), so the
-    // `StorageEvent` constructor installs in every mode — the no-behavior-change
-    // guarantee. (After A2 demotes it to `Legacy`, BrowserCore/App will omit it.)
-    for mode in [
-        EngineMode::BrowserCompat,
-        EngineMode::BrowserCore,
-        EngineMode::App,
-    ] {
+fn storage_event_global_legacy_gated() {
+    // A2 demoted the Web Storage family to `Legacy` (HTML §12.2.4). The
+    // `StorageEvent` constructor therefore installs ONLY under `BrowserCompat`
+    // with the compat shims compiled in; `BrowserCore` / `App` (and any
+    // `compat-webapi`-off build, via the construction-time hard ceiling) omit it —
+    // gated through the same family source as the `Storage` global + the accessors.
+    let (mut engine, mut session, mut dom, doc) = fresh(EngineMode::BrowserCompat);
+    let present = storage_event_is_function(&mut engine, &mut session, &mut dom, doc);
+    #[cfg(feature = "compat-webapi")]
+    assert!(
+        present,
+        "BrowserCompat (compat-webapi on) must expose StorageEvent"
+    );
+    #[cfg(not(feature = "compat-webapi"))]
+    assert!(
+        !present,
+        "compat-webapi off: hard ceiling must hide StorageEvent"
+    );
+
+    // Core modes never expose it, on either profile.
+    for mode in [EngineMode::BrowserCore, EngineMode::App] {
         let (mut engine, mut session, mut dom, doc) = fresh(mode);
-        let mut ctx = ScriptContext::new(&mut session, &mut dom, doc);
-        let r = ScriptEngine::eval(
-            &mut engine,
-            "globalThis.ok = (typeof StorageEvent === 'function');",
-            &mut ctx,
-        );
-        assert!(r.success, "{mode:?}: eval failed");
         assert!(
-            global_true(&mut engine, "ok"),
-            "{mode:?}: StorageEvent global must be present (Modern in A1)"
+            !storage_event_is_function(&mut engine, &mut session, &mut dom, doc),
+            "{mode:?}: StorageEvent must be absent (Legacy, demoted in A2)"
         );
     }
 }
@@ -125,36 +149,54 @@ fn new_with_mode_constructs_every_mode() {
     }
 }
 
+fn storage_window_seams_present(
+    engine: &mut ElidexJsEngine,
+    session: &mut SessionCore,
+    dom: &mut EcsDom,
+    doc: Entity,
+) -> bool {
+    let mut ctx = ScriptContext::new(session, dom, doc);
+    let r = ScriptEngine::eval(
+        engine,
+        "globalThis.ok = (('localStorage' in globalThis) && ('sessionStorage' in globalThis) \
+            && ('onstorage' in globalThis));",
+        &mut ctx,
+    );
+    assert!(r.success, "eval failed");
+    global_true(engine, "ok")
+}
+
 #[test]
-fn rewired_window_seams_present_in_all_modes() {
-    // The redesign re-expresses seam-1a (`localStorage` accessor) through the
-    // general `installs(level)` predicate and routes seam-3 (`onstorage`) through
-    // the per-attr handler-attr gate — both at `Modern`. A1 classifies nothing
-    // `Legacy`, so both Window accessors must remain present in EVERY mode
-    // (behavior-preserving rewiring; A2 demotes them later).
-    for mode in [
-        EngineMode::BrowserCompat,
-        EngineMode::BrowserCore,
-        EngineMode::App,
-    ] {
+fn storage_window_seams_legacy_gated() {
+    // The Web Storage Window seams — seam-1a (`localStorage`/`sessionStorage`
+    // accessors) and seam-3 (`onstorage` handler attr) — read the same family
+    // source A2 demoted to `Legacy`. So all three are present together ONLY under
+    // `BrowserCompat` + compat-webapi, and absent together otherwise (no split
+    // surface: accessors-without-onstorage etc.).
+    let (mut engine, mut session, mut dom, doc) = fresh(EngineMode::BrowserCompat);
+    let present = storage_window_seams_present(&mut engine, &mut session, &mut dom, doc);
+    #[cfg(feature = "compat-webapi")]
+    assert!(
+        present,
+        "BrowserCompat (compat-webapi on) must expose the storage Window seams"
+    );
+    #[cfg(not(feature = "compat-webapi"))]
+    assert!(
+        !present,
+        "compat-webapi off: hard ceiling must hide the storage Window seams"
+    );
+
+    for mode in [EngineMode::BrowserCore, EngineMode::App] {
         let (mut engine, mut session, mut dom, doc) = fresh(mode);
-        let mut ctx = ScriptContext::new(&mut session, &mut dom, doc);
-        let r = ScriptEngine::eval(
-            &mut engine,
-            "globalThis.ok = (('localStorage' in globalThis) && ('onstorage' in globalThis));",
-            &mut ctx,
-        );
-        assert!(r.success, "{mode:?}: eval failed");
         assert!(
-            global_true(&mut engine, "ok"),
-            "{mode:?}: localStorage + onstorage accessors must stay present (Modern in A1)"
+            !storage_window_seams_present(&mut engine, &mut session, &mut dom, doc),
+            "{mode:?}: localStorage/sessionStorage/onstorage must be absent (Legacy, A2)"
         );
     }
     // The document-side rewired seams (1b `document.cookie`, 1c live-collection
-    // getters) are extracted into their own gated sub-tables at `Modern`/`Living`;
-    // their presence + behavior is covered by the broader elidex-js DOM suite
-    // (the 5.9k-test run would regress if the extraction dropped a property). The
-    // extraction's *enumeration order* is pinned separately by
+    // getters) are still `Modern`/`Living` (A3 / B0 demote them); their presence +
+    // behavior is covered by the broader elidex-js DOM suite, and the
+    // live-collection enumeration order is pinned by
     // `live_collection_methods_keep_original_property_order`.
 }
 
@@ -331,5 +373,56 @@ fn worker_realms_inherit_engine_mode() {
     assert!(
         !sw.inner.spec_level_policy.installs(WebApiSpecLevel::Legacy),
         "service worker must inherit App (Legacy excluded), not reset to BrowserCompat"
+    );
+}
+
+#[cfg(feature = "compat-webapi")]
+#[test]
+fn storage_globals_absent_in_worker_realm_under_compat() {
+    // A2 realm-scope correction: `Storage` / `StorageEvent` are `[Exposed=Window]`
+    // (HTML §12.2.1 / §12.2.4), so even under `BrowserCompat` — where `Legacy`
+    // installs — a dedicated-worker / service-worker realm must NOT expose them.
+    // This is orthogonal to the mode gate (the Window VM below is the positive
+    // control proving they DO install when the realm is right).
+    let win = Vm::new(); // Window, BrowserCompat
+    assert!(
+        win.get_global("Storage").is_some(),
+        "Window must expose Storage under BrowserCompat (positive control)"
+    );
+    assert!(
+        win.get_global("StorageEvent").is_some(),
+        "Window must expose StorageEvent under BrowserCompat (positive control)"
+    );
+
+    let worker = Vm::new_worker(
+        "w".to_string(),
+        url::Url::parse("https://example.com/w.js").unwrap(),
+        true,
+        elidex_net::CredentialsMode::SameOrigin,
+        EngineMode::BrowserCompat,
+    );
+    assert!(
+        worker.get_global("Storage").is_none(),
+        "dedicated worker must not expose Storage ([Exposed=Window])"
+    );
+    assert!(
+        worker.get_global("StorageEvent").is_none(),
+        "dedicated worker must not expose StorageEvent ([Exposed=Window])"
+    );
+
+    let sw = Vm::new_service_worker(
+        url::Url::parse("https://example.com/").unwrap(),
+        url::Url::parse("https://example.com/sw.js").unwrap(),
+        true,
+        elidex_net::CredentialsMode::SameOrigin,
+        EngineMode::BrowserCompat,
+    );
+    assert!(
+        sw.get_global("Storage").is_none(),
+        "service worker must not expose Storage ([Exposed=Window])"
+    );
+    assert!(
+        sw.get_global("StorageEvent").is_none(),
+        "service worker must not expose StorageEvent ([Exposed=Window])"
     );
 }

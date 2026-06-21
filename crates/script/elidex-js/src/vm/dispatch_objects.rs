@@ -401,7 +401,7 @@ impl VmInner {
         // stored-name set.  Built-in method names (`getItem` /
         // `length` / …) take precedence via prototype-chain
         // shadowing per `host::storage::key_on_prototype_chain`.
-        #[cfg(feature = "engine")]
+        #[cfg(all(feature = "engine", feature = "compat-webapi"))]
         if matches!(self.get_object(obj_id).kind, ObjectKind::Storage { .. }) {
             if let Some(result) = super::host::storage::try_has(self, obj_id, lhs) {
                 return result;

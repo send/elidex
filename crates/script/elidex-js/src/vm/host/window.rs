@@ -33,6 +33,8 @@
 #![cfg(feature = "engine")]
 
 use elidex_css::media::{ColorScheme, ReducedMotion};
+// Read only by the (compat-webapi-gated) Web Storage accessor install (A2).
+#[cfg(feature = "compat-webapi")]
 use elidex_script_session::web_storage_spec_level;
 
 use super::super::coerce;
@@ -462,8 +464,10 @@ impl VmInner {
         // predicate reading the family's SINGLE classification source
         // `web_storage_spec_level()` (Codex R7) — shared with the
         // `Storage`/`StorageEvent` globals (seam-2) and `window.onstorage` (seam-3),
-        // so A2 demotes the whole family by flipping that one source. A1's source
-        // is `Modern` (installs in every mode exactly as before).
+        // so A2 demotes the whole family by flipping that one source — present
+        // only under `BrowserCompat`. The accessors + their natives are
+        // `compat-webapi`-gated (A2) so `App` builds drop them entirely.
+        #[cfg(feature = "compat-webapi")]
         if self.installs(web_storage_spec_level()) {
             self.install_ro_accessors(proto_id, WINDOW_STORAGE_ACCESSORS);
         }
@@ -553,6 +557,7 @@ const WINDOW_RO_ACCESSORS: &[(&str, super::super::NativeFn)] = &[
 const WINDOW_RW_ACCESSORS: &[(&str, super::super::NativeFn, super::super::NativeFn)] =
     &[("name", native_window_get_name, native_window_set_name)];
 
+#[cfg(feature = "compat-webapi")]
 const WINDOW_STORAGE_ACCESSORS: &[(&str, super::super::NativeFn)] = &[
     ("localStorage", native_window_get_local_storage),
     ("sessionStorage", native_window_get_session_storage),
@@ -561,6 +566,8 @@ const WINDOW_STORAGE_ACCESSORS: &[(&str, super::super::NativeFn)] = &[
 /// `window.localStorage` getter (WHATWG HTML §11.2).  `[SameObject]`:
 /// returns the same `Storage` wrapper across reads, allocated lazily
 /// on the first access via [`crate::vm::VmInner::alloc_or_cached_storage`].
+/// `compat-webapi`-gated (A2): the `Storage` glue is `Legacy`.
+#[cfg(feature = "compat-webapi")]
 fn native_window_get_local_storage(
     ctx: &mut NativeContext<'_>,
     _this: JsValue,
@@ -572,6 +579,7 @@ fn native_window_get_local_storage(
 
 /// `window.sessionStorage` getter — sibling of
 /// [`native_window_get_local_storage`] for the per-VM in-memory area.
+#[cfg(feature = "compat-webapi")]
 fn native_window_get_session_storage(
     ctx: &mut NativeContext<'_>,
     _this: JsValue,

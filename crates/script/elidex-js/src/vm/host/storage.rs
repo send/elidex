@@ -49,7 +49,10 @@
 //!   `HostData::opaque_origin_sentinel`, a per-VM stable string so
 //!   two VMs with `about:blank` documents do not alias.
 
-#![cfg(feature = "engine")]
+// A2: the whole Web Storage glue is `Legacy` (HTML §12.2) — compile-excluded from
+// `App`-profile builds (`engine` without `compat-webapi`). The mod is also gated
+// in `host/mod.rs`; this inner gate keeps the file self-documenting.
+#![cfg(all(feature = "engine", feature = "compat-webapi"))]
 
 use std::sync::Arc;
 

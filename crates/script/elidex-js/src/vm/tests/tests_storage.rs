@@ -8,7 +8,11 @@
 //! Phase C6: Window prototype `localStorage` / `sessionStorage`
 //!           accessors with `[SameObject]` identity.
 
-#![cfg(feature = "engine")]
+// A2: the Web Storage glue is `compat-webapi`-gated, so these functional tests
+// (which assume `Storage`/`StorageEvent` installed) only apply when the family is
+// compiled in. The `App` profile (`engine` without `compat-webapi`) excludes storage;
+// its absence is covered by `tests_webapi_gate` instead.
+#![cfg(all(feature = "engine", feature = "compat-webapi"))]
 
 use elidex_ecs::EcsDom;
 use elidex_script_session::SessionCore;

@@ -311,9 +311,11 @@ pub(super) mod selection_api;
 pub(crate) mod service_worker;
 #[cfg(feature = "engine")]
 pub(super) mod static_range_proto;
-#[cfg(feature = "engine")]
+// A2: the Web Storage glue (`Storage` + `StorageEvent`) is `Legacy`, so it is
+// compile-excluded from `App`-profile builds (`engine` without `compat-webapi`).
+#[cfg(all(feature = "engine", feature = "compat-webapi"))]
 pub(super) mod storage;
-#[cfg(feature = "engine")]
+#[cfg(all(feature = "engine", feature = "compat-webapi"))]
 pub(super) mod storage_event;
 #[cfg(feature = "engine")]
 pub(super) mod structured_clone;

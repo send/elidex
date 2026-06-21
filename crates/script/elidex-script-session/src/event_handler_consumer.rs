@@ -224,16 +224,25 @@ pub fn event_handler_attr_event_type(name: &str) -> Option<&str> {
 /// source means the family is demoted by **one edit** rather than N independent
 /// `Modern` literals that must be flipped in lockstep (a missed one would leave a
 /// split surface — `StorageEvent` without `localStorage`, accessors without the
-/// constructors). A1 = [`Modern`](elidex_plugin::WebApiSpecLevel::Modern)
-/// (installs in every mode — no behavior change); **A2 flips this to
+/// constructors). A1 was [`Modern`](elidex_plugin::WebApiSpecLevel::Modern)
+/// (installed in every mode — no behavior change); **A2 demotes the family to
 /// [`Legacy`](elidex_plugin::WebApiSpecLevel::Legacy) here, in one place** (HTML
-/// §12.2). The non-install storage surfaces — the `<body onstorage="…">`
-/// content-attribute path and `StorageEvent` delivery — are A2's broader
-/// suppression scope (A0 §5 A2 row, which spans the VM *and* the shell tab/IPC
-/// plumbing); A2 wires them to read this same source.
+/// §12.2): under `BrowserCompat` (the only production mode) `Legacy` still
+/// installs — byte-identical Window surface — while `BrowserCore` / `App`
+/// (test-only until the async core lands) and any `compat-webapi`-off build drop
+/// the whole family together.
+///
+/// One non-install surface is **out of A2's scope**: incoming `StorageEvent`
+/// *delivery* (the shell broadcasts `BrowserToContent::StorageEvent` with no
+/// `EngineMode` metadata). Suppressing delivery for a Web-Storage-excluded session
+/// needs per-session mode plumbing the shell does not have yet (it still runs the
+/// boa engine, not this VM), and no production session selects an excluded mode —
+/// so it is deferred to slot `#11-storage-event-mode-aware-delivery`. The
+/// `window.onstorage` *handler-attr install* (via [`event_handler_attr_spec_level`])
+/// IS gated here — the page cannot observe the event in an excluded mode regardless.
 #[must_use]
 pub fn web_storage_spec_level() -> elidex_plugin::WebApiSpecLevel {
-    elidex_plugin::WebApiSpecLevel::Modern
+    elidex_plugin::WebApiSpecLevel::Legacy
 }
 
 /// The spec level of `document.cookie` — the single classification source for the
@@ -319,11 +328,35 @@ fn is_body_element(entity: Entity, dom: &EcsDom) -> bool {
         .is_ok_and(|t| t.0.eq_ignore_ascii_case("body"))
 }
 
-/// Inline event-handler content attribute consumer. Unit struct — all
-/// state lives in the [`EventListeners`] ECS component.
-pub struct EventHandlerAttributeConsumer;
+/// Inline event-handler content-attribute consumer. Per-entity handler state lives
+/// in the [`EventListeners`] ECS component; the struct itself carries only the
+/// session's [`SpecLevelPolicy`](elidex_plugin::SpecLevelPolicy) (immutable, set at
+/// construction).
+///
+/// The policy gates the **content-attribute** install seam by the SAME Web-API
+/// core/compat policy as the **IDL accessor** seam (`install_handler_attr_family`,
+/// VM-side): a `Legacy` handler attr — today only `onstorage`, tied to
+/// [`web_storage_spec_level`] — is withheld in `BrowserCore`/`App` so the surface is
+/// **absent together**. Without this, a `<body onstorage="…">` content attribute (or
+/// `setAttribute('onstorage', …)`) would re-wire `window.onstorage` after the IDL
+/// accessor was excluded, leaving a split surface (A2). `Default` =
+/// [`BrowserCompat`](elidex_plugin::EngineMode::BrowserCompat) → installs everything,
+/// so an unconfigured caller (no `with_policy`) wires every handler attr exactly as
+/// before this change.
+#[derive(Default)]
+pub struct EventHandlerAttributeConsumer {
+    policy: elidex_plugin::SpecLevelPolicy,
+}
 
 impl EventHandlerAttributeConsumer {
+    /// Construct a consumer that gates handler-attr wiring by `policy` — the session's
+    /// engine-wide [`SpecLevelPolicy`](elidex_plugin::SpecLevelPolicy) derived from its
+    /// [`EngineMode`](elidex_plugin::EngineMode) (VM-side, at construction).
+    #[must_use]
+    pub fn with_policy(policy: elidex_plugin::SpecLevelPolicy) -> Self {
+        Self { policy }
+    }
+
     /// Dispatch entry invoked by the binding-layer composer.
     pub fn handle(&mut self, event: &MutationEvent<'_>, dom: &mut EcsDom) {
         match *event {
@@ -332,8 +365,8 @@ impl EventHandlerAttributeConsumer {
                 name,
                 old_value,
                 new_value,
-            } => handle_attribute_change(node, name, old_value, new_value, dom),
-            MutationEvent::Insert { node, .. } => handle_insert(node, dom),
+            } => handle_attribute_change(self.policy, node, name, old_value, new_value, dom),
+            MutationEvent::Insert { node, .. } => handle_insert(self.policy, node, dom),
             _ => {}
         }
     }
@@ -342,6 +375,7 @@ impl EventHandlerAttributeConsumer {
 /// Arm 1 — dynamic `setAttribute` / `removeAttribute` (WHATWG DOM §4.9
 /// attribute change steps + HTML §8.1.8.1).
 fn handle_attribute_change(
+    policy: elidex_plugin::SpecLevelPolicy,
     node: Entity,
     name: &str,
     old_value: Option<&str>,
@@ -351,6 +385,14 @@ fn handle_attribute_change(
     let Some((event_type, scope)) = event_handler_attr_lookup(name) else {
         return;
     };
+    // A2: gate the content-attribute install seam by the same source as the IDL seam.
+    // A `Legacy` handler attr (`onstorage`) excluded in `BrowserCore`/`App` must not be
+    // wired here either — else the content-attribute path re-exposes `window.onstorage`
+    // after the IDL accessor was withheld (split surface). Skipping covers both the set
+    // (no wire) and the remove (nothing was wired to clear).
+    if !policy.installs(event_handler_attr_spec_level(name)) {
+        return;
+    }
     let event_type = event_type.to_string();
     let target = resolve_handler_target(node, scope, dom);
     match new_value {
@@ -370,7 +412,7 @@ fn handle_attribute_change(
 /// `Insert` fires per inserted root only (no descendants slice), and
 /// [`EcsDom::traverse_descendants`] excludes the root, so process the
 /// inserted `node` itself plus every descendant.
-fn handle_insert(node: Entity, dom: &mut EcsDom) {
+fn handle_insert(policy: elidex_plugin::SpecLevelPolicy, node: Entity, dom: &mut EcsDom) {
     // Collect the subtree's entities first (closure captures only the
     // Vec), then read attributes + mutate EventListeners — avoids
     // overlapping borrows of `dom`.
@@ -387,6 +429,12 @@ fn handle_insert(node: Entity, dom: &mut EcsDom) {
         if let Ok(attrs) = dom.world().get::<&Attributes>(entity) {
             for (attr_name, attr_value) in attrs.iter() {
                 if let Some((event_type, scope)) = event_handler_attr_lookup(attr_name) {
+                    // A2: skip a policy-excluded handler attr (`onstorage` in
+                    // `BrowserCore`/`App`) — same gate as the AttributeChange arm + the
+                    // IDL seam, so baked-in `<body onstorage=…>` markup stays inert too.
+                    if !policy.installs(event_handler_attr_spec_level(attr_name)) {
+                        continue;
+                    }
                     pending.push((
                         entity,
                         scope,
@@ -446,12 +494,13 @@ mod spec_level_tests {
     use elidex_plugin::{DomSpecLevel, WebApiSpecLevel};
 
     #[test]
-    fn a1_classifies_every_family_modern() {
-        // A1 marks nothing Legacy — every family's single source is Modern/Living
-        // so the install seams install in every mode (no behavior change). A2/A3/B
-        // flip exactly one source each; these assertions are the canaries that
-        // catch an accidental early demotion.
-        assert_eq!(web_storage_spec_level(), WebApiSpecLevel::Modern);
+    fn family_classification_sources() {
+        // Each family's single classification source. A2 demoted Web Storage to
+        // `Legacy` (HTML §12.2) — it now installs only under `BrowserCompat`.
+        // `document.cookie` (A3) and the live-collection family (B0/B1) remain
+        // un-demoted; these assertions are the canaries that catch an accidental
+        // early demotion of those two before their PRs land.
+        assert_eq!(web_storage_spec_level(), WebApiSpecLevel::Legacy);
         assert_eq!(document_cookie_spec_level(), WebApiSpecLevel::Modern);
         assert_eq!(live_collection_spec_level(), DomSpecLevel::Living);
     }
@@ -480,6 +529,50 @@ mod spec_level_tests {
             } else {
                 assert_eq!(level, WebApiSpecLevel::Modern, "{attr} must be Modern");
             }
+        }
+    }
+
+    // A2 regression (Codex R1 P2): the content-attribute install seam must honor the
+    // same policy as the IDL seam, so `onstorage` is NOT wired in `BrowserCore`/`App`.
+    // Without the gate, `<body onstorage=…>` / `setAttribute('onstorage', …)` would
+    // re-expose `window.onstorage` after the IDL accessor was excluded (split surface).
+    #[test]
+    fn onstorage_content_attribute_gated_by_policy() {
+        use super::EventHandlerAttributeConsumer;
+        use crate::EventListeners;
+        use elidex_ecs::{Attributes, EcsDom, MutationEvent};
+        use elidex_plugin::EngineMode;
+
+        fn wires_onstorage(policy: elidex_plugin::SpecLevelPolicy) -> bool {
+            let mut dom = EcsDom::new();
+            let el = dom.create_element("div", Attributes::default());
+            let mut consumer = EventHandlerAttributeConsumer::with_policy(policy);
+            consumer.handle(
+                &MutationEvent::AttributeChange {
+                    node: el,
+                    name: "onstorage",
+                    old_value: None,
+                    new_value: Some("globalThis.hit = 1"),
+                },
+                &mut dom,
+            );
+            dom.world()
+                .get::<&EventListeners>(el)
+                .is_ok_and(|l| l.find_event_handler("storage").is_some())
+        }
+
+        // BrowserCompat installs Legacy → onstorage IS wired (positive control,
+        // byte-identical to the pre-A2 behavior).
+        assert!(
+            wires_onstorage(EngineMode::BrowserCompat.spec_level_policy()),
+            "BrowserCompat must wire onstorage content attribute"
+        );
+        // BrowserCore / App exclude Legacy → onstorage NOT wired (the A2 fix).
+        for mode in [EngineMode::BrowserCore, EngineMode::App] {
+            assert!(
+                !wires_onstorage(mode.spec_level_policy()),
+                "{mode:?}: onstorage content attribute must NOT be wired (Legacy excluded)"
+            );
         }
     }
 }

@@ -259,6 +259,7 @@ impl Vm {
                 live_range,
                 node_iter,
                 custom_elements,
+                self.inner.spec_level_policy,
             );
             // D-31 init pass: pre-bind tree state (e.g. parser-
             // created `<base href>`) never went through
@@ -755,7 +756,9 @@ impl Vm {
             // (cross-origin data leak).  `sessionStorage` is also
             // cleared because its data lives on `HostData::session_storage`,
             // which is per-VM by spec — see the `session_storage.clear()`
-            // call below.
+            // call below. A2: gated with the `Legacy` Web Storage glue (the
+            // instance-cache fields are always-`None` in `App` builds).
+            #[cfg(feature = "compat-webapi")]
             self.inner.clear_storage_instance_cache();
             // Cached `crypto` / `crypto.subtle` singletons.  Wrappers
             // are stateless (every method reuses the global OS CSPRNG /
@@ -779,6 +782,8 @@ impl Vm {
             // in-memory stand-in for localStorage when no backend
             // is installed; treating it as session-storage-shaped
             // matches its tests-only purpose).
+            // A2: `compat-webapi`-gated — the fields are absent in `App` builds.
+            #[cfg(feature = "compat-webapi")]
             if let Some(hd) = self.inner.host_data.as_deref_mut() {
                 hd.session_storage.clear();
                 hd.fallback_local_storage.clear();
