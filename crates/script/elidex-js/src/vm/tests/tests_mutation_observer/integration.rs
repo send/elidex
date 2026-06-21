@@ -266,8 +266,9 @@ fn real_same_parent_move_delivers_two_records_source_then_dest() {
     // B1.2a: `root.appendChild(<existing child of root>)` is a *move*. Per WHATWG
     // DOM it adopts (source-parent removal, §4.5 step 2, NOT suppressed) then
     // inserts (§4.2.3) → TWO childList records on root: removal of `a`, then
-    // insertion of `a` after `b`. The destination previousSibling is `b`, never
-    // `a` itself (the B1 R1 self-sibling case fixed by post-write capture).
+    // insertion of `a` after `b`. The destination previousSibling is `b` =
+    // root's last child captured pre-adopt (§4.2.3 insert step 6); since `a` is
+    // not the last child the self-sibling case does not arise here.
     let mut vm = Vm::new();
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
@@ -327,7 +328,7 @@ fn real_same_parent_move_delivers_two_records_source_then_dest() {
     assert_eq!(
         vm.eval("records[1].previousSibling === b").unwrap(),
         JsValue::Boolean(true),
-        "destination previousSibling is b, never the moved node itself"
+        "destination previousSibling is b (root's last child, captured pre-adopt)"
     );
     assert_eq!(
         vm.eval("records[1].target === root").unwrap(),

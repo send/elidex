@@ -280,16 +280,21 @@ pub fn apply_append_child(dom: &mut EcsDom, parent: Entity, child: Entity) -> Ve
     // Move-vs-fresh source of truth: `child`'s old parent + siblings, captured
     // **before** the relink destroys them (`Some` ⇒ move, `None` ⇒ fresh).
     let source = capture_move_source(dom, child);
+    // Destination `previousSibling` per DOM §4.2.3 insert **step 6**
+    // (`previousSibling` = parent's last child for an append) — captured **before**
+    // the adopt at step 7.1, NOT after the relink. For `appendChild(<current last
+    // child>)` (a no-position-change same-parent move) this is the moved node
+    // itself: a spec-mandated self-sibling, NOT a bug (Codex PR384 R1). The append
+    // reference child is null, so `nextSibling` is null. `children_iter_rev` skips
+    // internal `ShadowRoot` entities so the captured sibling matches the DOM-visible
+    // chain (§4.8 encapsulation), same as `prev_exposed_sibling` for insert/replace.
+    let prev_sibling = dom.children_iter_rev(parent).next();
     if !dom.append_child(parent, child) {
         return Vec::new();
     }
-    // Destination siblings: captured **post-write, node-relative** — correct for
-    // both fresh and move (and never `child` itself, fixing the B1 R1 degenerate
-    // `previousSibling == child` by construction). Uniform with insert/replace.
     let dest = MutationRecord {
         added_nodes: vec![child],
-        previous_sibling: dom.prev_exposed_sibling(child),
-        next_sibling: dom.next_exposed_sibling(child),
+        previous_sibling: prev_sibling,
         ..empty_record(MutationKind::ChildList, parent)
     };
     move_record_list(source, child, dest)
@@ -308,15 +313,20 @@ pub fn apply_insert_before(
 ) -> Vec<MutationRecord> {
     // Move-vs-fresh SoT + source-removal context, captured before the relink.
     let source = capture_move_source(dom, new_child);
+    // Destination `previousSibling` per DOM §4.2.3 insert **step 6** = `ref_child`'s
+    // previous sibling, captured **before** the adopt — so for an
+    // `insertBefore(node, node.nextSibling)` no-op move it is the moved node itself
+    // (spec-mandated self-sibling, Codex PR384 R1), not its post-move predecessor.
+    // `nextSibling` is `ref_child` (the insert reference child). `prev_exposed_sibling`
+    // skips a closed `ShadowRoot` (a real ECS sibling filtered from the DOM view, §4.8).
+    let prev_sibling = dom.prev_exposed_sibling(ref_child);
     if !dom.insert_before(parent, new_child, ref_child) {
         return Vec::new();
     }
-    // Destination siblings: post-write, node-relative (`next` resolves to
-    // `ref_child`; uniform with append/replace, fixes the move self-sibling case).
     let dest = MutationRecord {
         added_nodes: vec![new_child],
-        previous_sibling: dom.prev_exposed_sibling(new_child),
-        next_sibling: dom.next_exposed_sibling(new_child),
+        previous_sibling: prev_sibling,
+        next_sibling: Some(ref_child),
         ..empty_record(MutationKind::ChildList, parent)
     };
     move_record_list(source, new_child, dest)
@@ -565,7 +575,9 @@ mod tests {
         assert!(src.added_nodes.is_empty());
         assert_eq!(src.previous_sibling, None);
         assert_eq!(src.next_sibling, Some(b));
-        // Destination: prev = b, NOT a — the B1 R1 self-sibling fix by construction.
+        // Destination prev = b = parent's last child captured pre-adopt (step 6).
+        // (`a` is not the last child, so the self-sibling case does not arise here —
+        // see apply_append_child_move_last_child_dest_prev_is_self_sibling.)
         let dst = &records[1];
         assert_eq!(dst.target, parent);
         assert_eq!(dst.added_nodes, vec![a]);
@@ -618,6 +630,59 @@ mod tests {
         assert_eq!(dst.previous_sibling, None);
         assert_eq!(dst.next_sibling, Some(r));
         assert_eq!(dom.children(p2), vec![moved, r]);
+    }
+
+    #[test]
+    fn apply_append_child_move_last_child_dest_prev_is_self_sibling() {
+        // `appendChild(<current last child>)` — DOM §4.2.3 insert step 6 captures
+        // `previousSibling` (= parent's last child) BEFORE the adopt at step 7.1, so
+        // the destination record's previousSibling is the moved node itself (spec
+        // self-sibling). Codex PR384 R1.
+        let mut dom = EcsDom::new();
+        let parent = elem(&mut dom, "div");
+        let a = elem(&mut dom, "span");
+        let b = elem(&mut dom, "span");
+        dom.append_child(parent, a);
+        dom.append_child(parent, b); // [a, b]; b is last
+
+        let records = super::apply_append_child(&mut dom, parent, b);
+        assert_eq!(records.len(), 2);
+        // Source-removal of b from its old slot: prev=a, next=None.
+        assert_eq!(records[0].removed_nodes, vec![b]);
+        assert_eq!(records[0].previous_sibling, Some(a));
+        assert_eq!(records[0].next_sibling, None);
+        // Destination: previousSibling == b itself (spec step-6 pre-adopt capture).
+        assert_eq!(records[1].added_nodes, vec![b]);
+        assert_eq!(records[1].previous_sibling, Some(b));
+        assert_eq!(records[1].next_sibling, None);
+        assert_eq!(dom.children(parent), vec![a, b]);
+    }
+
+    #[test]
+    fn apply_insert_before_noop_move_dest_prev_is_self_sibling() {
+        // `insertBefore(node, node.nextSibling)` — no-position-change move. Step 6
+        // captures previousSibling = refChild's previous sibling = the moved node
+        // itself, before the adopt. Codex PR384 R1.
+        let mut dom = EcsDom::new();
+        let parent = elem(&mut dom, "div");
+        let a = elem(&mut dom, "span");
+        let b = elem(&mut dom, "span");
+        let c = elem(&mut dom, "span");
+        dom.append_child(parent, a);
+        dom.append_child(parent, b);
+        dom.append_child(parent, c); // [a, b, c]; b is c's previous sibling
+
+        let records = super::apply_insert_before(&mut dom, parent, b, c);
+        assert_eq!(records.len(), 2);
+        // Source-removal of b: prev=a, next=c.
+        assert_eq!(records[0].removed_nodes, vec![b]);
+        assert_eq!(records[0].previous_sibling, Some(a));
+        assert_eq!(records[0].next_sibling, Some(c));
+        // Destination: previousSibling == b itself, nextSibling == c.
+        assert_eq!(records[1].added_nodes, vec![b]);
+        assert_eq!(records[1].previous_sibling, Some(b));
+        assert_eq!(records[1].next_sibling, Some(c));
+        assert_eq!(dom.children(parent), vec![a, b, c]);
     }
 
     #[test]
