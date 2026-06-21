@@ -63,7 +63,15 @@ Historical **Copilot** R-loop incidents that calibrated the loop's defensive rul
 
 ## wakeup_poll
 
-`120s` — fixed poll cadence while waiting for Codex's review to land, **NOT a latency prediction**. Codex (OpenAI cloud) review latency is **unmeasured for the programmatic-trigger loop**: prior "~2 min" (#288) was a *manual-trigger one-off*, and #295's ~30–90 min round gaps were *fix-time between rounds* (Claude fixing), not review latency. So poll at this cadence (120s < 300s prompt-cache TTL = cache-warm) until the review lands; tune toward observed loop latency only after a few real `/external-converge` runs — never hard-code a predicted median off manual one-offs.
+`300s` — poll cadence while waiting for Codex's review to land, **NOT a latency prediction**.
+
+**Observed latency (user-confirmed 2026-06-21, #390): a single Codex review normally takes ~15 minutes to land.** (Prior "~2 min" [#288] was a *manual-trigger one-off*; #295's ~30–90 min round gaps were *fix-time between rounds* [Claude fixing], not review latency.) So:
+
+- **~15 min is NORMAL, not stuck** — do **not** re-trigger or "surface as slow" at ~14–15 min. At that point the first review is almost certainly still running, and re-triggering interrupts/duplicates a live review rather than recovering a stuck one (#390 re-triggered at ~14 min into a still-running first review — premature).
+- **Poll patiently** — 300s cadence is fine (not-spamming the reviewer matters more than the 300s prompt-cache TTL here; widen toward 600s if preferred). `ScheduleWakeup` IS the poll.
+- **Surface / re-trigger threshold = ~25–30 min** of zero Codex activity on head (no formal review, no marker-bearing issue-comment, no inline thread) — NOT the generic SKILL.md "~15 min" sanity cap, which is too aggressive for this reviewer. Only then treat it as queued/slow/trigger-not-taken and surface to the user.
+
+→ `memory/feedback_external-converge-codex-latency.md`.
 
 ## reviewer
 
