@@ -499,20 +499,28 @@ fn supports_on(tag: &str, token: &str) -> Result<JsValue, DomApiError> {
 }
 
 #[test]
-fn rellist_supports_link_tokens() {
-    // `<link>` advertises its enumerated rel supported tokens (HTML §4.2.4).
+fn rellist_supports_link_implemented_tokens() {
+    // `supports()` reflects the UA-*implemented* rel processing models, not the
+    // full spec enumeration (HTML §4.2.4: possible keywords ∩ implemented).
+    // elidex implements `stylesheet` (CSS load) and `manifest` (PWA manifest).
     assert_eq!(
         supports_on("link", "stylesheet").unwrap(),
         JsValue::Bool(true)
     );
-    assert_eq!(supports_on("link", "preload").unwrap(), JsValue::Bool(true));
     assert_eq!(
-        supports_on("link", "modulepreload").unwrap(),
+        supports_on("link", "manifest").unwrap(),
         JsValue::Bool(true)
     );
-    // Not a recognized link rel keyword.
-    assert_eq!(supports_on("link", "bogus").unwrap(), JsValue::Bool(false));
-    // `noopener` is a hyperlink (a/area) keyword, not a `<link>` one.
+    // Possible `<link>` keywords with no processing model in elidex → false
+    // (advertising them would make feature detection lie).
+    for unimpl in ["preload", "modulepreload", "preconnect", "icon", "bogus"] {
+        assert_eq!(
+            supports_on("link", unimpl).unwrap(),
+            JsValue::Bool(false),
+            "link.relList.supports({unimpl:?}) must be false (no processing model)"
+        );
+    }
+    // `noopener` is a hyperlink keyword, never a `<link>` one.
     assert_eq!(
         supports_on("link", "noopener").unwrap(),
         JsValue::Bool(false)
@@ -526,28 +534,33 @@ fn rellist_supports_is_ascii_case_insensitive() {
         supports_on("link", "StyleSheet").unwrap(),
         JsValue::Bool(true)
     );
-    assert_eq!(supports_on("a", "NoOpener").unwrap(), JsValue::Bool(true));
+    assert_eq!(
+        supports_on("link", "MANIFEST").unwrap(),
+        JsValue::Bool(true)
+    );
 }
 
 #[test]
-fn rellist_supports_hyperlink_tokens() {
-    // `<a>` / `<area>` share the {noopener, noreferrer, opener} set (HTML §4.6.2).
+fn rellist_supports_hyperlink_returns_false_not_throw() {
+    // `<a>` / `<area>` `rel` *defines* supported tokens (noopener/noreferrer/
+    // opener, HTML §4.6.2), so `supports()` does NOT throw — but elidex
+    // implements none of those processing models, so the implemented subset is
+    // empty and every token returns `false`.
     for tag in ["a", "area"] {
-        assert_eq!(supports_on(tag, "noopener").unwrap(), JsValue::Bool(true));
-        assert_eq!(supports_on(tag, "noreferrer").unwrap(), JsValue::Bool(true));
-        assert_eq!(supports_on(tag, "opener").unwrap(), JsValue::Bool(true));
-        // `stylesheet` is link-only.
-        assert_eq!(
-            supports_on(tag, "stylesheet").unwrap(),
-            JsValue::Bool(false)
-        );
+        for token in ["noopener", "noreferrer", "opener", "stylesheet"] {
+            assert_eq!(
+                supports_on(tag, token).unwrap(),
+                JsValue::Bool(false),
+                "{tag}.relList.supports({token:?}) must be false (not implemented), not throw"
+            );
+        }
     }
 }
 
 #[test]
 fn rellist_supports_unknown_element_throws() {
-    // A `rel` token list on an element with no defined supported tokens (e.g. a
-    // `<div>`) has no supported tokens → `supports()` throws (DOM §7.1).
+    // A `rel` token list on an element whose `rel` defines no supported tokens
+    // (e.g. a `<div>`) → `supports()` throws (DOM §7.1).
     let err = supports_on("div", "stylesheet").unwrap_err();
     assert_eq!(err.kind, DomApiErrorKind::TypeError);
 }

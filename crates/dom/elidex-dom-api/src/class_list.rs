@@ -224,44 +224,41 @@ pub struct TokenListHandler {
     pub op: TokenListOp,
 }
 
-/// `<link>` `rel` supported tokens — HTML §4.2.4 ("the possible supported
-/// tokens" for `HTMLLinkElement.relList`). These are the link-element keywords
-/// that impact the processing model.
+/// `<link>` `rel` supported tokens — HTML §4.2.4 defines these as the possible
+/// keywords **intersected with the keywords whose processing model the user
+/// agent implements**, so `supports()` is an honest feature-detection signal
+/// rather than a keyword-recognition one. elidex implements:
+/// - `stylesheet` — the external CSS load + cascade pipeline (`LinkStylesheet`),
+/// - `manifest` — Web App Manifest discovery + resolution
+///   (`elidex-navigation` loader / `elidex-api-sw`).
 ///
-/// DOM §7.1 strictly defines `rel`'s supported tokens as this enumerated list
-/// *intersected with the keywords whose processing model the user agent
-/// implements*. elidex advertises the full spec-enumerated set rather than a
-/// per-keyword "do we implement it yet?" subset: the enumerated list is the
-/// canonical recognized set (and what `relList.supports` returns in shipping
-/// browsers), whereas an implemented-subset would be drift-prone and would make
-/// `supports()` a moving target as processing models land. Reviewers wanting the
-/// strict subset can narrow this list.
-const LINK_REL_SUPPORTED_TOKENS: &[&str] = &[
-    "alternate",
-    "dns-prefetch",
-    "expect",
-    "icon",
-    "manifest",
-    "modulepreload",
-    "next",
-    "pingback",
-    "preconnect",
-    "prefetch",
-    "preload",
-    "search",
-    "stylesheet",
-];
+/// The remaining possible `<link>` keywords (alternate, dns-prefetch, expect,
+/// icon, modulepreload, next, pingback, preconnect, prefetch, preload, search)
+/// have **no** processing model here — advertising them would make
+/// `link.relList.supports(…)` lie. Add a keyword here when its processing model
+/// lands (and not before).
+const LINK_REL_IMPLEMENTED: &[&str] = &["manifest", "stylesheet"];
 
-/// `<a>` / `<area>` / `<form>` `rel` supported tokens — HTML §4.6.2
-/// (`#attr-hyperlink-rel`) and §4.10.3; the processing-model-impacting hyperlink
-/// keywords. Identical across the three elements, so one table backs them all.
-const HYPERLINK_REL_SUPPORTED_TOKENS: &[&str] = &["noopener", "noreferrer", "opener"];
+/// `<a>` / `<area>` `rel` supported tokens — the possible hyperlink keywords are
+/// `noopener` / `noreferrer` / `opener` (HTML §4.6.2 `#attr-hyperlink-rel`), but
+/// elidex implements **none** of their processing models: `target=_blank` never
+/// consults `rel`, and `window.opener` is inert. The implemented subset is
+/// therefore empty — `relList.supports(…)` returns `false` (not a throw, since
+/// hyperlink `rel` *does* define supported tokens; the UA-implemented subset is
+/// just empty). Grows as the processing models land.
+const HYPERLINK_REL_IMPLEMENTED: &[&str] = &[];
 
-/// Resolve the DOM §7.1 *supported tokens* set for a DOMTokenList, or `None`
-/// when the backing attribute defines none (so `supports()` must throw). Only
-/// `rel` defines supported tokens, and the set depends on the owning element —
-/// `<link>` vs the `<a>`/`<area>`/`<form>` hyperlink family (HTML §4.2.4 /
-/// §4.6.2 / §4.10.3). `class` / `sizes` define no supported tokens.
+/// Resolve the DOM §7.1 *supported tokens* set for a DOMTokenList — the
+/// UA-implemented subset (see [`LINK_REL_IMPLEMENTED`] /
+/// [`HYPERLINK_REL_IMPLEMENTED`]) — or `None` when the backing attribute defines
+/// no supported tokens at all (then `supports()` throws). Only `rel` defines
+/// supported tokens, and the set depends on the owning element. `class` /
+/// `sizes` define none.
+///
+/// `<form>` `rel` also defines supported tokens (HTML §4.10.3), but
+/// `HTMLFormElement.relList` is not yet wired (no `relList` accessor), so the
+/// branch is unreachable from web content and intentionally omitted; add
+/// `form => Some(HYPERLINK_REL_IMPLEMENTED)` here when that surface is wired.
 fn rel_supported_tokens(
     attr_name: &str,
     entity: Entity,
@@ -271,13 +268,9 @@ fn rel_supported_tokens(
         return None;
     }
     dom.with_tag_name(entity, |tag| match tag {
-        Some(t) if t.eq_ignore_ascii_case("link") => Some(LINK_REL_SUPPORTED_TOKENS),
-        Some(t)
-            if t.eq_ignore_ascii_case("a")
-                || t.eq_ignore_ascii_case("area")
-                || t.eq_ignore_ascii_case("form") =>
-        {
-            Some(HYPERLINK_REL_SUPPORTED_TOKENS)
+        Some(t) if t.eq_ignore_ascii_case("link") => Some(LINK_REL_IMPLEMENTED),
+        Some(t) if t.eq_ignore_ascii_case("a") || t.eq_ignore_ascii_case("area") => {
+            Some(HYPERLINK_REL_IMPLEMENTED)
         }
         _ => None,
     })
