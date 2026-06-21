@@ -885,6 +885,27 @@ impl EcsDom {
         self.world.get::<&NodeKind>(entity).ok().map(|k| *k)
     }
 
+    /// Returns `true` if the entity is a `DocumentFragment` node — and is **not**
+    /// a [`ShadowRoot`](crate::ShadowRoot).
+    ///
+    /// The canonical brand-check for the kind whose children are *expanded* into
+    /// the tree by the WHATWG DOM §4.2.3 "insert" algorithm (step 1) rather than
+    /// the node itself being linked (mirrors [`is_element`](Self::is_element)).
+    ///
+    /// **ShadowRoot exclusion**: a shadow root is spawned with
+    /// [`NodeKind::DocumentFragment`](crate::NodeKind::DocumentFragment) (it
+    /// inherits the `DocumentFragment` interface per DOM), but it is **not** an
+    /// expandable fragment — it must never be moved/expanded into a tree (it
+    /// violates the ShadowRoot non-move invariant + §4.2.3 host-including-ancestor
+    /// handling). Excluding it here keeps every shared apply-layer entry point
+    /// (`apply_*` / `DomApiHandler`, not just the VM `node_proto` frontend guard)
+    /// from treating a shadow root as a fragment.
+    #[must_use]
+    pub fn is_document_fragment(&self, entity: Entity) -> bool {
+        matches!(self.node_kind(entity), Some(NodeKind::DocumentFragment))
+            && !self.is_shadow_root(entity)
+    }
+
     /// Whether `entity` is an element in the HTML namespace.
     ///
     /// `true` iff `entity` is an element AND its [`namespace_of`] is

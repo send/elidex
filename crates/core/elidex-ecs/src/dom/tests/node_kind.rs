@@ -37,6 +37,27 @@ fn create_document_fragment_has_node_kind() {
 }
 
 #[test]
+fn is_document_fragment_excludes_shadow_root() {
+    // Codex PR387 R3 G1: a ShadowRoot is spawned with NodeKind::DocumentFragment
+    // but is NOT an expandable fragment — `is_document_fragment` must return false
+    // for it so the shared apply layer never expands/empties a shadow root.
+    let mut dom = EcsDom::new();
+    let frag = dom.create_document_fragment();
+    assert!(
+        dom.is_document_fragment(frag),
+        "a real fragment is expandable"
+    );
+
+    let host = elem(&mut dom, "div");
+    let sr = dom.attach_shadow(host, ShadowRootMode::Open).unwrap();
+    assert_eq!(dom.node_kind(sr), Some(NodeKind::DocumentFragment));
+    assert!(
+        !dom.is_document_fragment(sr),
+        "a shadow root must NOT be treated as an expandable fragment"
+    );
+}
+
+#[test]
 fn create_comment_has_node_kind() {
     let mut dom = EcsDom::new();
     let c = dom.create_comment("test comment");

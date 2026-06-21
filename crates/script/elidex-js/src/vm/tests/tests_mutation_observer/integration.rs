@@ -449,31 +449,121 @@ fn real_replace_child_move_delivers_source_removal_and_coalesced() {
 }
 
 #[test]
-fn real_document_fragment_append_defers_record_no_malformed_delivery() {
-    // Codex P2 (R2): `parent.appendChild(documentFragment)` must report the
-    // fragment's CHILDREN in addedNodes (§4.2.3 insert step 1), not the fragment
-    // node. B1's single-node helper would put the fragment itself in addedNodes
-    // (malformed). Fragment expansion is multi-node → B1.2; B1 defers the record
-    // (applies the mutation, delivers nothing malformed).
+fn real_document_fragment_append_expands_children_into_added_nodes() {
+    // B1.2-fragment: `parent.appendChild(documentFragment)` reports the fragment's
+    // CHILDREN in addedNodes (§4.2.3 insert step 1), not the fragment node. The
+    // observer on `root` receives ONE destination record (target=root, addedNodes
+    // = the expanded children); the §4.2.3 step-4.2 fragment record targets the
+    // now-detached, empty fragment, which `root`'s observer does not see (it is not
+    // an ancestor of the fragment). The fragment is emptied by the expansion.
     let mut vm = Vm::new();
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
     let (_doc, _root) = setup_with_root(&mut vm, &mut session, &mut dom);
 
     vm.eval(
-        "globalThis.fired = false; \
-         var mo = new MutationObserver(function(){ globalThis.fired = true; }); \
+        "globalThis.records = null; \
+         var mo = new MutationObserver(function(r){ globalThis.records = r; }); \
          mo.observe(root, {childList:true}); \
          var frag = document.createDocumentFragment(); \
-         frag.appendChild(document.createElement('span')); \
-         root.appendChild(frag);",
+         globalThis.s1 = document.createElement('span'); \
+         globalThis.s2 = document.createElement('i'); \
+         frag.appendChild(s1); frag.appendChild(s2); \
+         globalThis.fragEmptyBefore = (frag.childNodes.length === 2); \
+         root.appendChild(frag); \
+         globalThis.fragEmptyAfter = (frag.childNodes.length === 0);",
     )
     .unwrap();
 
     assert_eq!(
-        vm.eval("fired").unwrap(),
-        JsValue::Boolean(false),
-        "B1 must not deliver a (malformed fragment-as-node) record; expansion deferred to B1.2"
+        vm.eval("fragEmptyBefore").unwrap(),
+        JsValue::Boolean(true),
+        "fragment held its two children before the append"
+    );
+    assert_eq!(
+        vm.eval("fragEmptyAfter").unwrap(),
+        JsValue::Boolean(true),
+        "fragment is emptied by expansion (children moved into root)"
+    );
+    // The observer on root sees exactly the destination record.
+    assert_eq!(
+        vm.eval("records.length").unwrap(),
+        JsValue::Number(1.0),
+        "root observer receives one destination record (fragment record targets the detached fragment)"
+    );
+    assert_eq!(string_global(&mut vm, "records[0].type"), "childList");
+    assert_eq!(
+        vm.eval("records[0].target === root").unwrap(),
+        JsValue::Boolean(true)
+    );
+    assert_eq!(
+        vm.eval("records[0].addedNodes.length").unwrap(),
+        JsValue::Number(2.0),
+        "addedNodes = the fragment's expanded children, not the fragment node"
+    );
+    assert_eq!(
+        vm.eval("records[0].addedNodes[0] === s1 && records[0].addedNodes[1] === s2")
+            .unwrap(),
+        JsValue::Boolean(true)
+    );
+    assert_eq!(
+        vm.eval(
+            "root.childNodes[root.childNodes.length-2] === s1 \
+                 && root.childNodes[root.childNodes.length-1] === s2"
+        )
+        .unwrap(),
+        JsValue::Boolean(true),
+        "children were appended into root in order"
+    );
+    vm.unbind();
+}
+
+#[test]
+fn real_document_fragment_replace_child_delivers_coalesced_expansion() {
+    // B1.2-fragment + §4.2.3 "replace": `parent.replaceChild(frag, old)` removes
+    // `old` and inserts the fragment's children at its slot, delivering ONE
+    // coalesced record (addedNodes = expanded children, removedNodes = [old]).
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let (_doc, root) = setup_with_root(&mut vm, &mut session, &mut dom);
+    // `old` appended in Rust (no record) so it is the replacement target.
+    let old = dom.create_element("b", Attributes::default());
+    assert!(dom.append_child(root, old));
+    let old_wrapper = vm.inner.create_element_wrapper(old);
+    vm.set_global("old", JsValue::Object(old_wrapper));
+
+    vm.eval(
+        "globalThis.records = null; \
+         var mo = new MutationObserver(function(r){ globalThis.records = r; }); \
+         mo.observe(root, {childList:true}); \
+         var frag = document.createDocumentFragment(); \
+         globalThis.a = document.createElement('span'); \
+         globalThis.b = document.createElement('i'); \
+         frag.appendChild(a); frag.appendChild(b); \
+         root.replaceChild(frag, old);",
+    )
+    .unwrap();
+
+    assert_eq!(
+        vm.eval("records.length").unwrap(),
+        JsValue::Number(1.0),
+        "one coalesced record on root"
+    );
+    assert_eq!(string_global(&mut vm, "records[0].type"), "childList");
+    assert_eq!(
+        vm.eval("records[0].addedNodes.length").unwrap(),
+        JsValue::Number(2.0)
+    );
+    assert_eq!(
+        vm.eval("records[0].addedNodes[0] === a && records[0].addedNodes[1] === b")
+            .unwrap(),
+        JsValue::Boolean(true)
+    );
+    assert_eq!(
+        vm.eval("records[0].removedNodes.length === 1 && records[0].removedNodes[0] === old")
+            .unwrap(),
+        JsValue::Boolean(true)
     );
     vm.unbind();
 }
