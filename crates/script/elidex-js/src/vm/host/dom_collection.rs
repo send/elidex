@@ -588,8 +588,9 @@ fn native_collection_named_item(
     // rejects non-HTMLCollection kinds.
     let (id, _is_html_collection) =
         require_collection_receiver(ctx, this, "namedItem", "HTMLCollection")?;
-    // WebIDL `HTMLCollection namedItem(DOMString name)` — REQUIRED argument;
-    // a zero-arg call throws `TypeError` (it does not return null).
+    // WebIDL `getter Element? namedItem(DOMString name)` (DOM §4.2.10.2) —
+    // REQUIRED argument; a zero-arg call throws `TypeError` (it does not
+    // return null).
     let Some(arg) = args.first().copied() else {
         return Err(VmError::type_error(
             "Failed to execute 'namedItem' on 'HTMLCollection': 1 argument required, but only 0 present.",
