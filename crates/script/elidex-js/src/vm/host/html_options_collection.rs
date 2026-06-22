@@ -1,21 +1,23 @@
 //! `HTMLOptionsCollection.prototype` intrinsic — the `select.options`
-//! mutable surface (HTML §4.10.10.2).  Subclass of
-//! `HTMLCollection.prototype`; everything inherited (`length` /
+//! mutable surface (HTML §2.6.4.3 `#the-htmloptionscollection-interface`).
+//! Subclass of `HTMLCollection.prototype`; everything inherited (`length` /
 //! `item` / `namedItem` / `[Symbol.iterator]`) flows through the
 //! parent prototype, while this module installs the four
 //! Options-only members:
 //!
 //! - `add(option, before?)` — same algorithm as
-//!   `HTMLSelectElement.prototype.add` (HTML §4.10.7.5), reached
-//!   here via the collection's root entity.
+//!   `HTMLSelectElement.prototype.add` (HTML §4.10.7 `#dom-select-add`),
+//!   reached here via the collection's root entity.
 //! - `remove(idx)` — option-at-index detach.  Mirrors
 //!   `HTMLSelectElement.prototype.remove(idx)` numeric overload
-//!   (HTML §4.10.7.6 / §4.10.10.2).
+//!   (HTML §4.10.7 `#dom-select-remove` / §2.6.4.3
+//!   `#dom-htmloptionscollection-remove`).
 //! - `length` setter — extends with bare `<option>` elements or
-//!   truncates from the end (HTML §4.10.10.2).  The getter is
+//!   truncates from the end (HTML §2.6.4.3
+//!   `#dom-htmloptionscollection-length`).  The getter is
 //!   inherited from `HTMLCollection.prototype.length` accessor.
 //! - `selectedIndex` (R/W) — alias for `select.selectedIndex`,
-//!   exposed on the collection per HTML §4.10.10.2.
+//!   exposed on the collection per HTML §2.6.4.3.
 //!
 //! ## Layering
 //!

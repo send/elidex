@@ -521,9 +521,10 @@ fn apply_adjacent_insert(
     }
 }
 
-/// `HierarchyRequestError` for a failed insert-adjacent (cycle / invalid
-/// insertion point).
-fn hierarchy_error(method: &str) -> DomApiError {
+/// `HierarchyRequestError` for a failed insert (cycle / invalid insertion
+/// point). Shared by the insert-adjacent handlers here and the option
+/// add/length handlers in [`super::select`].
+pub(crate) fn hierarchy_error(method: &str) -> DomApiError {
     DomApiError {
         kind: DomApiErrorKind::HierarchyRequestError,
         message: format!("{method}: hierarchy request error (cycle or invalid insertion point)"),

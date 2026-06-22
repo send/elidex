@@ -40,6 +40,7 @@ use elidex_script_session::{
     DomApiHandler, JsObjectRef, SessionCore,
 };
 
+use super::tree::hierarchy_error;
 use crate::util::{not_found_error, require_object_ref_arg};
 use crate::{CollectionFilter, CollectionKind, LiveCollection};
 
@@ -113,15 +114,6 @@ fn long_to_index(index: f64) -> Option<usize> {
 /// Single index→node home, folding the deleted VM `resolve_options_index`.
 fn options_index_to_node(select: Entity, index: f64, dom: &EcsDom) -> Option<Entity> {
     options_collection(select).item(long_to_index(index)?, dom)
-}
-
-/// `HierarchyRequestError` for an option insert that the `apply_*` primitive
-/// rejected (cycle / invalid insertion point).
-fn hierarchy_error(method: &str) -> DomApiError {
-    DomApiError {
-        kind: DomApiErrorKind::HierarchyRequestError,
-        message: format!("{method}: hierarchy request error (cycle or invalid insertion point)"),
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -308,8 +300,11 @@ impl DomApiHandler for OptionsSetLength {
             return Ok(JsValue::Undefined);
         }
 
-        // step 1: current = number of options.
-        let current = options_collection(select).length(dom);
+        // step 1: current = number of options. Hold one collection instance so the
+        // truncate path's `snapshot` reuses this `length` walk (version unchanged
+        // → cache hit) instead of walking the child tree a second time.
+        let mut opts = options_collection(select);
+        let current = opts.length(dom);
 
         if target > current {
             // step 2: append (target − current) new option elements to select.
@@ -341,7 +336,7 @@ impl DomApiHandler for OptionsSetLength {
         } else if target < current {
             // step 3: remove the last (current − target) nodes from their parents —
             // per-node removal (the spec loops), so each is a distinct record.
-            let snapshot: Vec<Entity> = options_collection(select).snapshot(dom).to_vec();
+            let snapshot: Vec<Entity> = opts.snapshot(dom).to_vec();
             for &opt in snapshot[target..].iter().rev() {
                 if let Some(parent) = dom.get_parent(opt) {
                     if let Some(record) = apply_remove_child(dom, parent, opt) {

@@ -186,7 +186,7 @@ impl VmInner {
             m,
         );
         self.install_native_method(proto_id, self.well_known.add, native_select_add, m);
-        // `select.remove(idx)` (HTML §4.10.7.6) overrides
+        // `select.remove(idx)` (HTML §4.10.7 `#dom-select-remove`) overrides
         // `ChildNode.remove()`.  Spec says when called with no args
         // it falls through to ChildNode.remove (detach this element);
         // with a numeric arg it detaches the option at that index.
