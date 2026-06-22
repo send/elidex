@@ -435,5 +435,21 @@ D3 as the ideal.
   on `SetViewport` but **not** `bridge.set_viewport` (the same bridge/cascade asymmetry F1 fixes for
   top-level). **Re-evaluation trigger**: impl reads `iframe/load.rs`/`iframe/thread.rs:79` and confirms
   the latent default. **Re-evaluation date**: C1 impl (decided then; no pre-commitment here).
+- **`#11-window-level-tab-bar-position`** (NEW, registered at Codex R2) — `open_new_tab` /
+  `window.open` / `broadcast_viewport` all deliver the cached `placement.size_logical`, which
+  `content_area_placement` derives from the **active** tab's `tab_bar_position`. A new tab gets a fresh
+  `ChromeState::new(None)` (default `Top`), so the delivered size is exact **only while every tab shares
+  the same tab-bar position** — which holds today: `tab_bar_position` is never assigned a non-`Top`
+  value (sole writes = the struct field decl + `ChromeState::new`'s `TabBarPosition::default()`).
+  **Why deferred**: the divergence is unreachable until per-tab non-`Top` positions exist, and a cheap
+  local recompute is forbidden by the single-builder strangler invariant (`content_size` /
+  `chrome_content_offset` asserted to have exactly one production caller in
+  `placement_builder_is_sole_caller_of_geometry_primitives`). **Ideal fix**: the tab bar is one
+  window-level chrome region showing all tabs, so `tab_bar_position` should be a window/browser-level
+  fact, not a per-`ChromeState` field — hoisting it there makes `placement` correct for every tab by
+  construction and dissolves the divergence (chrome-modeling work, orthogonal to C1 viewport delivery).
+  **Carrier sites** (in-code comments): `app/mod.rs` `broadcast_viewport` + window.open viewport,
+  `app/threaded.rs` `open_new_tab` viewport. **Re-evaluation trigger**: any change introducing a
+  non-`Top` or per-tab `tab_bar_position`.
 - Untouched umbrella slots `#11-forced-style-layout-flush-on-script-read` /
   `#11-hidpi-render-fidelity` remain deferred (not C1 scope).
