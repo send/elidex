@@ -84,6 +84,13 @@ Per `feedback_plan-memo-pre-verify-grep.md` (F3 + D-16 plan-review R3-R6 由来)
 
 **Migration phase 1** (current): all soft-warn 状態で discipline 周知。Phase 2 で既存 plan-memo backlog 解消、Phase 3 で `--strict-enum` default on 検討。
 
+## Pre-condition #3 — Coupled-invariant enumeration (§2, edge-dense plans only)
+
+Per `feedback_coupled-invariant-design-corner.md` (D-19 PR-3 SW-client container 由来), an **edge-dense** plan-memo (the MANDATORY trigger above: ≥3 intersecting invariant axes, or a subsystem with no canonical algorithm) MUST **enumerate its coupled invariants in §2** — a bullet list (or small matrix) naming each invariant the design simultaneously satisfies, plus **each pair's intersection** in one line (e.g. identity × GC = "interned wrapper の GC root read path" / promise × op-type = "op ごとに別 pending list か tag"). Prose 一筆書き ("既存 seam を再利用") は **NG**: 個々の seam が正しくても cross-cutting な機構詳細が必ず抜け、review が毎 round その交点 gap を発掘する (D-19 は 4 周 = R1→Step-4.5→panel→R2→Step-4.5 を要した)。
+
+- This is an **authoring checklist expectation, not a preflight gate** — `preflight.py` does not parse §2 (unlike §3). A reviewing agent surfaces its absence: edge-dense plan with §2 lacking the coupling enumeration → **MIN** (Axis 3's edge-dense `[both]` entry owns the *split* decision; this is the orthogonal *enumeration* requirement, not a second edge-dense detector).
+- Expect **2+ review passes** for this class — convergence = findings moving from "open design tension" to "fixed concrete mechanism (どの list / key / loop)"; further passes are impl-detail the tests catch.
+
 ## Workflow
 
 ### Step 0 — Identify plan-memo + Spec coverage map preflight (hard gate)

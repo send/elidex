@@ -45,6 +45,7 @@ Mechanical (no agent), before dispatching Step 2. For each renamed/reframed toke
 1. Grep the **old** form across the **whole repo** (not just changed files) — every surviving hit is a candidate un-propagated site.
 2. Grep around the **new** form's neighbours (sibling files, same-cluster docs) for the stale variant.
 3. Separate *historical* uses that must stay (incident descriptors, changelogs, "PR #X had N R-loop rounds") from *present-tense* claims that must propagate — only the latter are findings.
+4. **Prose-substantive entries (not token swaps) → surface, never auto-apply.** If a swept site needs *prose rewriting* — an AO was removed/renamed, or the claim is no longer spec-accurate — rather than a mechanical §-number / token swap, flag it `prose-substantive`, surface the OLD + proposed NEW prose for review, and do NOT apply it inline (especially when the sweep is delegated to a sub-agent). Layered technical claims get the layering wrong while sounding authoritative — a sub-agent rewrote an `IsLittleEndian` docstring to "implementation-defined" at the TypedArray layer where the spec mandates little-endian (`feedback_r0-subagent-prose-claim-error-mode.md`, PR #231 R6).
 
 Surviving present-tense stale sites → feed into Step 3 as `consistency`-category findings. (Plan-review's analogue is `grep_pass.py` — this step is the diff-review counterpart; both enforce the same sibling-scan mandate.)
 
@@ -127,6 +128,7 @@ For each fix-tier finding, produce a user-visible decision record using these pr
 2. **Symptom vs root?** — Symptom: rename / const / doc / accept-as-is / debug_assert.  Root: drop dead code / replace with existing abstraction / use ECS-native pattern / restructure caller / **carve out prerequisite PR**.  Default root unless concrete cost overrides.
 3. **Subsumption check?** — Can one structural fix close multiple findings?  Look for cross-finding root cause before fixing each in isolation.
 4. **Polish-domination smell?** — If your fix-option list is mostly polish with no structural option, **suspect the framing**.  Re-read through ECS-native + ideal-over-pragmatic lens.
+5. **Fix-time sibling sweep (when the fix adds a gate/invariant)?** — If the chosen fix introduces a *new gate / invariant / predicate*, immediately `grep` for sibling **sites** expressing the same semantic class (esp. the adjacent fns you just read while making the fix) and apply the gate to ALL of them in one commit.  This is distinct from the subsumption check (point 3 closes multiple *findings*): here you proactively close sibling *sites the reviewer hasn't flagged yet*, so it can't surface them one-per-round (`feedback_gate-fix-sweep-sibling-sites-one-pass.md`, #339 — a namespace gate added at one site over 3 rounds when one sweep would have closed it).  The fix-time/code-level analogue of Step 1.6's citation sibling-scan.
 
 Emit one block per fix-tier finding:
 
