@@ -45,7 +45,7 @@ Mechanical (no agent), before dispatching Step 2. For each renamed/reframed toke
 1. Grep the **old** form across the **whole repo** (not just changed files) — every surviving hit is a candidate un-propagated site.
 2. Grep around the **new** form's neighbours (sibling files, same-cluster docs) for the stale variant.
 3. Separate *historical* uses that must stay (incident descriptors, changelogs, "PR #X had N R-loop rounds") from *present-tense* claims that must propagate — only the latter are findings.
-4. **Prose-substantive entries (not token swaps) → surface, never auto-apply.** If a swept site needs *prose rewriting* — an AO was removed/renamed, or the claim is no longer spec-accurate — rather than a mechanical §-number / token swap, flag it `prose-substantive`, surface the OLD + proposed NEW prose for review, and do NOT apply it inline (especially when the sweep is delegated to a sub-agent). Layered technical claims get the layering wrong while sounding authoritative — a sub-agent rewrote an `IsLittleEndian` docstring to "implementation-defined" at the TypedArray layer where the spec mandates little-endian (`feedback_r0-subagent-prose-claim-error-mode.md`, PR #231 R6).
+4. **Prose-substantive entries (not token swaps) → surface, never auto-apply.** If a swept site needs *prose rewriting* — an AO was removed/renamed, or the claim is no longer spec-accurate — rather than a mechanical §-number / token swap, flag it `prose-substantive`, surface the OLD + proposed NEW prose for review, and do NOT apply it inline (especially when the sweep is delegated to a sub-agent). Layered technical claims get the layering wrong while sounding authoritative — a sub-agent rewrote an `IsLittleEndian` docstring to "implementation-defined" at the TypedArray layer where the spec mandates little-endian (ECMA-262 §10.4.5.17 TypedArrayGetElement / §10.4.5.18 TypedArraySetElement invoke GetValueFromBuffer/SetValueInBuffer with `isLittleEndian = true`; "implementation-defined" is true only at the §25.1.3.16/.18 AO-parameter layer) (`feedback_r0-subagent-prose-claim-error-mode.md`, PR #231 R6).
 
 Surviving present-tense stale sites → feed into Step 3 as `consistency`-category findings. (Plan-review's analogue is `grep_pass.py` — this step is the diff-review counterpart; both enforce the same sibling-scan mandate.)
 
@@ -140,8 +140,9 @@ Emit one block per fix-tier finding:
 - **Root-level alternative**: <structural fix OR "separate prerequisite PR" OR "none — agent suggestion already structural">
 - **Subsumption check**: <other F<M> this fix resolves, OR "none">
 - **Polish-domination smell**: <triggered? — if yes the alternative is the proposed fix>
+- **Sibling-site sweep** (point 5): <if the fix adds a new gate/invariant/predicate: the sibling sites grepped + folded into Concrete action; ELSE "n/a — no new gate/invariant">
 - **Proposed fix**: <chosen, one sentence>
-- **Concrete action**: <skill-specific — code-edit OR plan-memo edit OR prerequisite PR carve-out>
+- **Concrete action**: <skill-specific — code-edit OR plan-memo edit OR prerequisite PR carve-out; includes the swept sibling sites>
 ```
 
 The aggregate of these blocks IS the philosophy-aligned fix proposal.  Step 4 references these IDs.
