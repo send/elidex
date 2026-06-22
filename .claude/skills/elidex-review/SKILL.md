@@ -32,11 +32,11 @@ user-invocable: true
 | 1 Layering mandate | 0 | No `vm/host/` Rust code touched (e.g. docstring/comment-only) |
 | 2 ECS-native lens | 0 | No ECS state / code-logic touch |
 | 3 Pragmatic shortcut | 0 | No `// stub` / `// for now` markers introduced (grep clean) |
-| 4 Spec citation | 0 | A Codex / Copilot R-loop reaching consecutive silent-zero on the same delta IS Axis-4 ground truth; another 5-agent pass = near-zero marginal yield |
+| 4 Spec citation | 0 | **Only if the delta has NO spec-citation changes.** An external silent-zero round does NOT prove webref §/AO lookups were performed — so a citation *renumber/edit* sweep STILL requires the webref Axis-4 pass regardless of any external clean pass (else drift ships in exactly the sweep case this gate catches). No-citation-delta → external silent-zero is reasonable ground truth |
 | 5 Project-context | 0 | Slot refs drift-hoist precedent; no defer-ledger changes; no past-lesson re-introduction (grep clean) |
 
-**Skip-justified shapes**: docstring/comment sweep with high external-review R count (≥5 rounds, consecutive silent-zero TERMINAL) / pure-tooling PR (Python/shell/CI, no Rust crate touch) / skill·memory·overlay text edits (no project code).
-**NOT-skip-justified**: anything touching `crates/script/elidex-js/src/vm/host/` (Axis 1+2 always non-trivial) / new Rust file in an engine crate (Axis 2) / new spec citation (Axis 4 worth re-verifying even after a clean external pass) / ECS component-def changes (Axis 2 sub-check 2b) / `m4-12-platform-gap-roadmap.md` slot-def changes (Axis 5). When in doubt, run it.
+**Skip-justified shapes**: docstring/comment sweep with high external-review R count (≥5 rounds, consecutive silent-zero TERMINAL) / pure-tooling PR (Python/shell/CI, no Rust crate touch) / skill·memory·overlay edits that are **inert text** (typo / wording / formatting / pure prose clarification).
+**NOT-skip-justified**: anything touching `crates/script/elidex-js/src/vm/host/` (Axis 1+2 always non-trivial) / new Rust file in an engine crate (Axis 2) / new or renumbered/edited spec citation (Axis 4 worth re-verifying even after a clean external pass — see the Axis-4 row) / ECS component-def changes (Axis 2 sub-check 2b) / `m4-12-platform-gap-roadmap.md` slot-def changes (Axis 5) / **any `.claude/skills/**` edit that changes a detect entry, workflow step, gate, skip-rule, or other enforcement logic** (it alters review behavior despite touching no Rust — review it like a code change, NOT as "inert skill text"). When in doubt, run it.
 
 ## Workflow
 
