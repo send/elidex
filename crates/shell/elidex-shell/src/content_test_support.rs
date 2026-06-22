@@ -1,9 +1,10 @@
 //! Shared test helpers for the content-thread test modules
 //! (`content_tests`, `viewport_tests`) — spawning a content thread over a test
-//! network broker. Kept in one place so neither test module owns the scaffolding.
+//! network broker, and building a `ContentState` to drive on the test thread.
+//! Kept in one place so neither test module owns the scaffolding.
 
-use super::spawn_content_thread;
-use crate::ipc::{BrowserToContent, ContentToBrowser};
+use super::{spawn_content_thread, ContentState};
+use crate::ipc::{BrowserToContent, ContentToBrowser, LocalChannel};
 
 /// Create a `NetworkHandle` + `CookieJar` backed by a test broker.
 /// Returns the `NetworkProcessHandle` so the caller keeps the broker alive.
@@ -55,4 +56,43 @@ pub(super) fn spawn_test_content_sized(
     viewport: elidex_plugin::Size,
 ) -> std::thread::JoinHandle<()> {
     spawn_content_thread(content, nh, jar, html, css, viewport, Box::new(|| {}))
+}
+
+/// Build a `ContentState` directly (over a disconnected network handle) for tests
+/// that drive the content thread **synchronously on the test thread** — e.g.
+/// iframe lifecycle, or `run_event_loop` shutdown handling (the pipeline is
+/// `!Send`, so it cannot move to a spawned thread).
+///
+/// Returns the live browser channel end alongside the state so it stays in scope
+/// — dropping it would disconnect the content channel.
+pub(super) fn build_test_content_state(
+    html: &str,
+    css: &str,
+) -> (
+    ContentState,
+    LocalChannel<BrowserToContent, ContentToBrowser>,
+) {
+    let (browser, content) = crate::ipc::channel_pair::<BrowserToContent, ContentToBrowser>();
+    let nh = std::rc::Rc::new(elidex_net::broker::NetworkHandle::disconnected());
+    let jar = std::sync::Arc::new(elidex_net::CookieJar::new());
+    let pipeline = crate::build_pipeline_interactive_with_network(
+        html,
+        css,
+        nh,
+        jar,
+        elidex_plugin::Size::new(
+            crate::DEFAULT_VIEWPORT_WIDTH,
+            crate::DEFAULT_VIEWPORT_HEIGHT,
+        ),
+    );
+    let mut state = ContentState::new(
+        content,
+        elidex_navigation::NavigationController::new(),
+        pipeline,
+        Box::new(|| {}),
+    );
+    super::scroll::update_viewport_scroll_dimensions(&mut state);
+    super::iframe::scan_initial_iframes(&mut state);
+    state.re_render();
+    (state, browser)
 }

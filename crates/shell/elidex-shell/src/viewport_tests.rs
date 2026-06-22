@@ -4,7 +4,9 @@
 //! `content_tests` (the catch-all content module) to keep each test file focused
 //! and under the project's 1000-line guideline (axes.md Axis 5).
 
-use super::test_support::{spawn_test_content, spawn_test_content_sized, test_network};
+use super::test_support::{
+    build_test_content_state, spawn_test_content, spawn_test_content_sized, test_network,
+};
 use crate::ipc::{self, BrowserToContent, ContentToBrowser};
 use std::time::Duration;
 
@@ -304,6 +306,44 @@ fn content_thread_same_size_setviewport_is_idempotent() {
 
     browser.send(BrowserToContent::Shutdown).unwrap();
     handle.join().unwrap();
+}
+
+/// F9: a `Shutdown` queued during a blocking `load_document` is replayed via
+/// `handle_message_public`, which dispatches unload and returns `false` — but that
+/// signal is consumed inside the replay loop, so it is carried to `run_event_loop`
+/// as `ContentState::pending_shutdown`, which must break the loop. Otherwise
+/// `Tab::shutdown()` holds the channel sender across `join()` (no disconnect to
+/// fall back on) and the join blocks forever.
+///
+/// The pipeline is `!Send`, so the loop runs on the test thread. A **cancellable**
+/// watchdog keeps the channel alive: on success (flag honored, loop returns
+/// instantly) the main thread cancels it, so the test pays no sleep; on a
+/// regression the watchdog force-sends `Shutdown` after 2s so the loop terminates
+/// and the assertion **fails** on elapsed time instead of hanging the suite.
+#[test]
+fn run_event_loop_honors_pending_shutdown_flag() {
+    let (mut state, browser) = build_test_content_state("<div>x</div>", "");
+    state.pending_shutdown = true;
+
+    let (cancel_tx, cancel_rx) = std::sync::mpsc::channel::<()>();
+    let watchdog = std::thread::spawn(move || {
+        if cancel_rx.recv_timeout(Duration::from_secs(2)).is_err() {
+            // Timed out → run_event_loop never exited (regression) → break it.
+            let _ = browser.send(BrowserToContent::Shutdown);
+        }
+    });
+
+    let start = std::time::Instant::now();
+    super::event_loop::run_event_loop(&mut state);
+    let elapsed = start.elapsed();
+    let _ = cancel_tx.send(()); // success path: cancel the watchdog (no sleep paid)
+    let _ = watchdog.join();
+
+    assert!(
+        elapsed < Duration::from_secs(1),
+        "run_event_loop did not honor pending_shutdown ({elapsed:?}); \
+         Tab::shutdown()'s join() would deadlock"
+    );
 }
 
 /// Grep-guard for the single-builder invariant (F1, §2.3): the content-area

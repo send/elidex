@@ -1,4 +1,4 @@
-use super::test_support::{spawn_test_content, test_network};
+use super::test_support::{build_test_content_state, spawn_test_content, test_network};
 use super::*;
 use crate::ipc::{self, BrowserToContent, ContentToBrowser, ModifierState};
 use elidex_plugin::Point;
@@ -548,78 +548,6 @@ fn focusable_cache_invalidates_on_all_focusability_attributes() {
 // `is_connected` gate + lazy re-deferral PR #373 added, independent of that
 // upstream recording gap.
 
-/// Build a `ContentState` directly for synchronous iframe-lifecycle driving.
-///
-/// Returns the live browser channel end alongside the state so it stays in
-/// scope — dropping it would disconnect the content channel.
-fn build_iframe_test_state(
-    html: &str,
-    css: &str,
-) -> (
-    ContentState,
-    ipc::LocalChannel<BrowserToContent, ContentToBrowser>,
-) {
-    let (browser, content) = ipc::channel_pair::<BrowserToContent, ContentToBrowser>();
-    let nh = std::rc::Rc::new(elidex_net::broker::NetworkHandle::disconnected());
-    let jar = std::sync::Arc::new(elidex_net::CookieJar::new());
-    let pipeline = crate::build_pipeline_interactive_with_network(
-        html,
-        css,
-        nh,
-        jar,
-        elidex_plugin::Size::new(
-            crate::DEFAULT_VIEWPORT_WIDTH,
-            crate::DEFAULT_VIEWPORT_HEIGHT,
-        ),
-    );
-    let mut state = ContentState::new(
-        content,
-        NavigationController::new(),
-        pipeline,
-        Box::new(|| {}),
-    );
-    scroll::update_viewport_scroll_dimensions(&mut state);
-    iframe::scan_initial_iframes(&mut state);
-    state.re_render();
-    (state, browser)
-}
-
-/// F9: a `Shutdown` replayed after a blocking load sets `pending_shutdown` (its
-/// `handle_message` return is consumed by the replay loop); `run_event_loop` must
-/// honor that flag and exit. Otherwise `Tab::shutdown()` holds the channel sender
-/// across `join()`, so there is no disconnect to fall back on and the join blocks
-/// forever.
-///
-/// Build a state, set the flag, and run the loop on this thread (the pipeline is
-/// `!Send`, so it cannot move to another thread). A watchdog keeps the channel
-/// alive then force-sends `Shutdown` after 2s — so a regression (no flag check)
-/// terminates and **fails** on elapsed time instead of hanging the suite, while
-/// the fix returns essentially instantly.
-#[test]
-fn run_event_loop_honors_pending_shutdown_flag() {
-    let (mut state, browser) = build_iframe_test_state("<div>x</div>", "");
-    state.pending_shutdown = true;
-
-    let watchdog = std::thread::spawn(move || {
-        std::thread::sleep(Duration::from_secs(2));
-        // If the flag was honored, the content side already exited and this send
-        // hits a closed channel — harmless. If not, it breaks the otherwise-
-        // infinite loop so the assert below fails cleanly rather than hanging.
-        let _ = browser.send(BrowserToContent::Shutdown);
-    });
-
-    let start = std::time::Instant::now();
-    event_loop::run_event_loop(&mut state);
-    let elapsed = start.elapsed();
-    let _ = watchdog.join();
-
-    assert!(
-        elapsed < Duration::from_secs(1),
-        "run_event_loop did not honor pending_shutdown ({elapsed:?}); \
-         Tab::shutdown()'s join() would deadlock"
-    );
-}
-
 /// The single `<iframe>` entity in the parent DOM (the one carrying `IframeData`).
 fn iframe_entity(state: &ContentState) -> elidex_ecs::Entity {
     (&mut state
@@ -677,7 +605,7 @@ fn attribute_record(
 
 #[test]
 fn detached_iframe_with_srcdoc_set_loads_only_on_insertion() {
-    let (mut state, _browser) = build_iframe_test_state("<body></body>", "");
+    let (mut state, _browser) = build_test_content_state("<body></body>", "");
 
     // `createElement('iframe')` + set `srcdoc` while detached. HTML §4.8.5 only
     // gives an iframe a content navigable once it is connected, so the
@@ -727,7 +655,7 @@ fn detached_iframe_with_srcdoc_set_loads_only_on_insertion() {
 
 #[test]
 fn iframe_under_detached_parent_loads_only_when_parent_connected() {
-    let (mut state, _browser) = build_iframe_test_state("<body></body>", "");
+    let (mut state, _browser) = build_test_content_state("<body></body>", "");
 
     // Build `<div><iframe srcdoc></iframe></div>` with the div NOT inserted.
     // The ChildList record for `d.appendChild(f)` reaches detection, but the
@@ -780,7 +708,7 @@ fn iframe_under_detached_parent_loads_only_when_parent_connected() {
 
 #[test]
 fn lazy_iframe_srcdoc_change_while_offscreen_re_defers() {
-    let (mut state, _browser) = build_iframe_test_state("<body></body>", "");
+    let (mut state, _browser) = build_test_content_state("<body></body>", "");
 
     // A connected `loading="lazy"` iframe laid out *below the viewport* (a
     // 5000px spacer pushes it past the 1024x768 default viewport + 200px lazy
@@ -898,7 +826,7 @@ fn lazy_iframe_srcdoc_change_while_offscreen_re_defers() {
 
 #[test]
 fn connected_iframe_append_loads() {
-    let (mut state, _browser) = build_iframe_test_state("<body></body>", "");
+    let (mut state, _browser) = build_test_content_state("<body></body>", "");
 
     // Baseline positive control: a normal eager iframe appended into the
     // connected body loads immediately.

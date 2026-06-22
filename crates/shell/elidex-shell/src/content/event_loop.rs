@@ -48,7 +48,14 @@ pub(super) fn run_event_loop(state: &mut ContentState) {
 
         match state.channel.recv_timeout(timeout) {
             Ok(msg) => {
-                if !handle_message(msg, state) {
+                // Break here — before this iteration's frame tick — on either a
+                // direct `Shutdown` (`handle_message` → `false`) or a `Shutdown`
+                // *replayed* inside a navigation rebuild's queued-message drain
+                // (which sets `pending_shutdown` and returns up through the
+                // `Navigate` arm as `true`). Both must stop the loop at the same
+                // point so no script/render work (animations, due timers,
+                // postMessage drains, rendering) runs after unload.
+                if !handle_message(msg, state) || state.pending_shutdown {
                     break;
                 }
                 if state.pipeline.animation_engine.has_active() {
