@@ -4,10 +4,78 @@
 //! used between the browser thread (window, events, rendering) and the
 //! content thread (DOM, JS, style, layout).
 
-use elidex_plugin::{Point, Vector};
+use std::sync::{Arc, Mutex, PoisonError};
+
+use elidex_plugin::{Point, Size, Vector};
 use elidex_render::DisplayList;
 
 pub use elidex_plugin::{channel_pair, LocalChannel};
+
+/// Browser-published latest content-area viewport (CSS logical px) that content
+/// threads read as a **pull source** at build time, plus a monotonic `seq`
+/// correlating each build's cell-read with the FIFO [`BrowserToContent::SetViewport`]
+/// message stream.
+///
+/// **Why a cell + seq** (see `docs/plans/2026-06-viewport-latest-value-cell-plan.md`):
+/// a content thread that blocks on `load_document` before its first build can have
+/// the window resized *during* that load. A spawn-time `Size` snapshot would then
+/// build (cascade `@media`, run initial `innerWidth`/`matchMedia` scripts, lay out)
+/// at the stale pre-resize size — and the script having already run, no later resize
+/// re-runs it. Reading this cell *after* the load returns makes the build observe the
+/// **latest** size by construction (no reconcile-after-the-fact).
+///
+/// The `seq` reconciles that cell-read build with the in-flight `SetViewport` stream:
+/// the build records the read seq as its high-water mark, and the consumer drops any
+/// `SetViewport` whose `seq` is `≤` that mark (already consumed by the build or a
+/// prior apply), so the cell does not introduce a backward "flash" to a replayed
+/// intermediate. Any genuinely newer resize carries `seq >` the mark and applies — no
+/// lost update.
+///
+/// **Single writer** (the browser main thread, via [`Self::publish`]); **many readers**
+/// (each content thread, via [`Self::read`]). One per window — all tabs share the
+/// window content area, so they share one `Arc<ViewportCell>`.
+#[derive(Debug)]
+pub struct ViewportCell {
+    inner: Mutex<ViewportCellValue>,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct ViewportCellValue {
+    size: Size,
+    seq: u64,
+}
+
+impl ViewportCell {
+    /// Construct a cell seeded with `size` at **seq 0** — the pre-publish baseline.
+    /// The first [`publish`](Self::publish) bumps to seq 1, so a content thread that
+    /// reads the cell before any real publish sees seq 0 (and any later real
+    /// `SetViewport` carries `seq ≥ 1 >` 0, hence applies).
+    #[must_use]
+    pub fn new(size: Size) -> Arc<Self> {
+        Arc::new(Self {
+            inner: Mutex::new(ViewportCellValue { size, seq: 0 }),
+        })
+    }
+
+    /// Browser writer: store a new content-area `size` and bump the monotonic seq.
+    ///
+    /// Poison-recovers (`into_inner`): the guarded value is two plain fields written
+    /// as one assignment, so a reader panicking mid-critical-section leaves no broken
+    /// invariant and the browser must not panic in turn.
+    pub fn publish(&self, size: Size) {
+        let mut guard = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
+        guard.size = size;
+        guard.seq += 1;
+    }
+
+    /// Content reader: the latest `(size, seq)` pair atomically (a lock-copy-release;
+    /// no lock is held across the caller's subsequent build / `load_document`).
+    #[must_use]
+    pub fn read(&self) -> (Size, u64) {
+        let guard = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
+        (guard.size, guard.seq)
+    }
+}
 
 /// Winit-independent modifier key state.
 #[derive(Clone, Copy, Debug, Default)]
@@ -37,6 +105,10 @@ pub struct MouseClickEvent {
     pub button: u8,
     /// Modifier keys held during click.
     pub mods: ModifierState,
+    /// The [`ViewportCell`] seq the `point`/`client_point` were mapped against
+    /// (browser-stamped at send time). See [`BrowserToContent::MouseMove`] for the
+    /// drop contract.
+    pub placement_seq: u64,
 }
 
 /// Data for `BrowserToContent::SwRegistered` (boxed to reduce enum size).
@@ -71,6 +143,17 @@ pub enum BrowserToContent {
         point: Point,
         /// Position in viewport (for DOM event clientX/clientY).
         client_point: Point<f64>,
+        /// The [`ViewportCell`] seq the coordinates were mapped against
+        /// (browser-stamped at send time). The content thread **drops** this input
+        /// when `placement_seq < applied_viewport_seq` — it was hit-mapped against a
+        /// viewport the seq guard has since dropped (a resize that landed during a
+        /// blocking load and was superseded by the build), so hit-testing the stale
+        /// coordinates against the current layout would target the wrong element.
+        /// Dropping is the spec-aligned choice (re-mapping coordinates onto a
+        /// different layout is ill-defined). Coordinate-bearing input only
+        /// (`MouseClick`/`MouseMove`/`MouseWheel`); key/release/cursor-leave target
+        /// the focused/active element and need no placement seq. See plan-memo §10.
+        placement_seq: u64,
     },
     /// Cursor left the content area.
     CursorLeft,
@@ -102,6 +185,12 @@ pub enum BrowserToContent {
         width: f32,
         /// New height in logical pixels.
         height: f32,
+        /// Monotonic [`ViewportCell`] sequence this delivery corresponds to. The
+        /// content thread drops a delivery whose `seq` is `≤` its build-time
+        /// high-water mark (already consumed by the build or a prior apply), so a
+        /// resize that landed during a blocking load — already reflected in the
+        /// cell the build read — does not re-fire as a backward flash.
+        seq: u64,
     },
     /// Navigate back in history.
     GoBack,
@@ -115,6 +204,9 @@ pub enum BrowserToContent {
         delta: Vector<f64>,
         /// Content-relative coordinates for scroll target hit testing.
         point: Point,
+        /// The [`ViewportCell`] seq the `point` was mapped against (browser-stamped
+        /// at send time). See [`BrowserToContent::MouseMove`] for the drop contract.
+        placement_seq: u64,
     },
     /// IME event.
     Ime {

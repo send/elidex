@@ -311,9 +311,11 @@ impl App {
         let content = Self::cursor_to_content(client_pos, placement);
         if Self::point_in_content(content, placement) {
             self.cursor_in_content = true;
+            let placement_seq = self.current_placement_seq();
             self.send_to_content(BrowserToContent::MouseMove {
                 point: content.to_f32(),
                 client_point: content,
+                placement_seq,
             });
         } else if self.cursor_in_content {
             self.cursor_in_content = false;
@@ -331,11 +333,13 @@ impl App {
             let content = Self::cursor_to_content(cursor, placement);
             if Self::point_in_content(content, placement) {
                 let mods = Self::to_modifier_state(self.modifiers.state());
+                let placement_seq = self.current_placement_seq();
                 self.send_to_content(BrowserToContent::MouseClick(crate::ipc::MouseClickEvent {
                     point: content.to_f32(),
                     client_point: content,
                     button: winit_button_to_dom(button),
                     mods,
+                    placement_seq,
                 }));
             }
         }
@@ -374,9 +378,11 @@ impl App {
     ) {
         let scroll_delta = Self::scroll_delta_to_css(delta, placement.scale_factor);
         if let Some(point) = Self::wheel_target_point(self.cursor_pos, placement) {
+            let placement_seq = self.current_placement_seq();
             self.send_to_content(BrowserToContent::MouseWheel {
                 delta: scroll_delta,
                 point,
+                placement_seq,
             });
         }
     }
@@ -585,7 +591,17 @@ impl App {
         // Mint via the disjoint `wake_proxy` field (an associated fn, not `&self`)
         // so it coexists with the active `&mut mgr` borrow.
         let wake = Self::wake_or_noop(self.wake_proxy.as_ref());
-        let thread = crate::content::spawn_content_thread_blank(content_ch, nh, jar, wake);
+        // Born at the real viewport (C1): the new content thread reads the shared
+        // `viewport_cell` (this `Arc`-clone — a disjoint `self.viewport_cell` read
+        // that coexists with `&mut mgr`) at build time. Post-`resumed` the cell holds
+        // the window's published size. It is keyed to the *active* tab's chrome; exact
+        // while every tab uses the default (`Top`) tab-bar position — the only
+        // position ever assigned (`chrome::ChromeState::new`). A future per-tab
+        // non-`Top` position would make the active tab's content size differ from this
+        // new (default-chrome) tab's → slot #11-window-level-tab-bar-position.
+        let viewport_cell = std::sync::Arc::clone(&self.viewport_cell);
+        let thread =
+            crate::content::spawn_content_thread_blank(content_ch, nh, jar, viewport_cell, wake);
         mgr.create_tab(
             browser_ch,
             thread,

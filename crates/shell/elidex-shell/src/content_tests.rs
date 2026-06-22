@@ -1,4 +1,4 @@
-use super::test_support::{spawn_test_content, test_network};
+use super::test_support::{build_test_content_state, spawn_test_content, test_network};
 use super::*;
 use crate::ipc::{self, BrowserToContent, ContentToBrowser, ModifierState};
 use elidex_plugin::Point;
@@ -26,6 +26,10 @@ fn content_thread_wake_fires_on_display_list() {
         jar,
         "<div>Hi</div>".to_string(),
         "div { display: block; }".to_string(),
+        crate::ipc::ViewportCell::new(elidex_plugin::Size::new(
+            crate::DEFAULT_VIEWPORT_WIDTH,
+            crate::DEFAULT_VIEWPORT_HEIGHT,
+        )),
         wake,
     );
 
@@ -135,6 +139,7 @@ fn content_thread_mouse_move() {
         .send(BrowserToContent::MouseMove {
             point: Point::new(50.0, 50.0),
             client_point: Point::new(50.0, 86.0),
+            placement_seq: 0,
         })
         .unwrap();
 
@@ -169,6 +174,7 @@ fn content_thread_click() {
             client_point: Point::new(50.0, 86.0),
             button: 0,
             mods: ModifierState::default(),
+            placement_seq: 0,
         }))
         .unwrap();
 
@@ -201,6 +207,7 @@ fn content_thread_mouse_release_clears_active() {
         .send(BrowserToContent::MouseMove {
             point: Point::new(50.0, 50.0),
             client_point: Point::new(50.0, 86.0),
+            placement_seq: 0,
         })
         .unwrap();
     let _ = browser.recv_timeout(Duration::from_secs(5)).unwrap();
@@ -212,6 +219,7 @@ fn content_thread_mouse_release_clears_active() {
             client_point: Point::new(50.0, 86.0),
             button: 0,
             mods: ModifierState::default(),
+            placement_seq: 0,
         }))
         .unwrap();
     let _ = browser.recv_timeout(Duration::from_secs(5)).unwrap();
@@ -274,6 +282,7 @@ fn content_thread_with_script() {
             client_point: Point::new(50.0, 86.0),
             button: 0,
             mods: ModifierState::default(),
+            placement_seq: 0,
         }))
         .unwrap();
 
@@ -313,6 +322,7 @@ fn content_thread_keyboard() {
             client_point: Point::new(50.0, 86.0),
             button: 0,
             mods: ModifierState::default(),
+            placement_seq: 0,
         }))
         .unwrap();
     let _ = browser.recv_timeout(Duration::from_secs(5)).unwrap();
@@ -358,6 +368,7 @@ fn content_thread_mouse_wheel_scrolls_viewport() {
         .send(BrowserToContent::MouseWheel {
             delta: elidex_plugin::Vector::new(0.0, 100.0),
             point: Point::new(100.0, 100.0),
+            placement_seq: 0,
         })
         .unwrap();
 
@@ -389,6 +400,7 @@ fn content_thread_mouse_wheel_no_scroll_overflow_hidden() {
         .send(BrowserToContent::MouseWheel {
             delta: elidex_plugin::Vector::new(0.0, 100.0),
             point: Point::new(100.0, 100.0),
+            placement_seq: 0,
         })
         .unwrap();
 
@@ -421,6 +433,7 @@ fn content_thread_mouse_wheel_small_content() {
         .send(BrowserToContent::MouseWheel {
             delta: elidex_plugin::Vector::new(0.0, 50.0),
             point: Point::new(50.0, 50.0),
+            placement_seq: 0,
         })
         .unwrap();
 
@@ -447,21 +460,26 @@ fn content_thread_viewport_resize_updates_scroll() {
     let _ = browser.recv_timeout(Duration::from_secs(5)).unwrap();
 
     // Resize viewport — triggers re_render which calls update_viewport_scroll_dimensions.
+    // `seq: 1` clears the build's high-water mark (0) so the changed size applies.
     browser
         .send(BrowserToContent::SetViewport {
             width: 800.0,
             height: 600.0,
+            seq: 1,
         })
         .unwrap();
 
     let msg = browser.recv_timeout(Duration::from_secs(5)).unwrap();
     assert!(matches!(msg, ContentToBrowser::DisplayListReady(_)));
 
-    // Now scroll should work with the new dimensions.
+    // Now scroll should work with the new dimensions. The wheel is mapped against the
+    // post-resize placement (seq 1, set by the SetViewport above), so it carries
+    // `placement_seq: 1` — `placement_seq: 0` would be dropped as mapped-against-stale.
     browser
         .send(BrowserToContent::MouseWheel {
             delta: elidex_plugin::Vector::new(0.0, 100.0),
             point: Point::new(100.0, 100.0),
+            placement_seq: 1,
         })
         .unwrap();
 
@@ -544,33 +562,6 @@ fn focusable_cache_invalidates_on_all_focusability_attributes() {
 // `is_connected` gate + lazy re-deferral PR #373 added, independent of that
 // upstream recording gap.
 
-/// Build a `ContentState` directly for synchronous iframe-lifecycle driving.
-///
-/// Returns the live browser channel end alongside the state so it stays in
-/// scope — dropping it would disconnect the content channel.
-fn build_iframe_test_state(
-    html: &str,
-    css: &str,
-) -> (
-    ContentState,
-    ipc::LocalChannel<BrowserToContent, ContentToBrowser>,
-) {
-    let (browser, content) = ipc::channel_pair::<BrowserToContent, ContentToBrowser>();
-    let nh = std::rc::Rc::new(elidex_net::broker::NetworkHandle::disconnected());
-    let jar = std::sync::Arc::new(elidex_net::CookieJar::new());
-    let pipeline = crate::build_pipeline_interactive_with_network(html, css, nh, jar);
-    let mut state = ContentState::new(
-        content,
-        NavigationController::new(),
-        pipeline,
-        Box::new(|| {}),
-    );
-    scroll::update_viewport_scroll_dimensions(&mut state);
-    iframe::scan_initial_iframes(&mut state);
-    state.re_render();
-    (state, browser)
-}
-
 /// The single `<iframe>` entity in the parent DOM (the one carrying `IframeData`).
 fn iframe_entity(state: &ContentState) -> elidex_ecs::Entity {
     (&mut state
@@ -628,7 +619,7 @@ fn attribute_record(
 
 #[test]
 fn detached_iframe_with_srcdoc_set_loads_only_on_insertion() {
-    let (mut state, _browser) = build_iframe_test_state("<body></body>", "");
+    let (mut state, _browser) = build_test_content_state("<body></body>", "");
 
     // `createElement('iframe')` + set `srcdoc` while detached. HTML §4.8.5 only
     // gives an iframe a content navigable once it is connected, so the
@@ -678,7 +669,7 @@ fn detached_iframe_with_srcdoc_set_loads_only_on_insertion() {
 
 #[test]
 fn iframe_under_detached_parent_loads_only_when_parent_connected() {
-    let (mut state, _browser) = build_iframe_test_state("<body></body>", "");
+    let (mut state, _browser) = build_test_content_state("<body></body>", "");
 
     // Build `<div><iframe srcdoc></iframe></div>` with the div NOT inserted.
     // The ChildList record for `d.appendChild(f)` reaches detection, but the
@@ -731,7 +722,7 @@ fn iframe_under_detached_parent_loads_only_when_parent_connected() {
 
 #[test]
 fn lazy_iframe_srcdoc_change_while_offscreen_re_defers() {
-    let (mut state, _browser) = build_iframe_test_state("<body></body>", "");
+    let (mut state, _browser) = build_test_content_state("<body></body>", "");
 
     // A connected `loading="lazy"` iframe laid out *below the viewport* (a
     // 5000px spacer pushes it past the 1024x768 default viewport + 200px lazy
@@ -849,7 +840,7 @@ fn lazy_iframe_srcdoc_change_while_offscreen_re_defers() {
 
 #[test]
 fn connected_iframe_append_loads() {
-    let (mut state, _browser) = build_iframe_test_state("<body></body>", "");
+    let (mut state, _browser) = build_test_content_state("<body></body>", "");
 
     // Baseline positive control: a normal eager iframe appended into the
     // connected body loads immediately.
@@ -874,4 +865,86 @@ fn connected_iframe_append_loads() {
         "a connected eager iframe must load on insertion"
     );
     assert!(state.iframes.get(f).is_some());
+}
+
+/// Read the value of an attribute on the `<div>` with the given `id`.
+fn probe_attr(pipeline: &crate::PipelineResult, id: &str, attr: &str) -> Option<String> {
+    let entity = pipeline.dom.query_by_tag("div").into_iter().find(|&e| {
+        pipeline
+            .dom
+            .world()
+            .get::<&elidex_ecs::Attributes>(e)
+            .ok()
+            .is_some_and(|a| a.get("id") == Some(id))
+    })?;
+    pipeline
+        .dom
+        .world()
+        .get::<&elidex_ecs::Attributes>(entity)
+        .ok()
+        .and_then(|a| a.get(attr).map(str::to_owned))
+}
+
+/// C1 (F1): a pipeline built at a non-default viewport must seed BOTH the CSS
+/// cascade AND the JS bridge **before** initial scripts run, so an inline script
+/// reading `window.innerWidth`/`innerHeight` at load observes the real size —
+/// not the bridge's `800×600` default nor the cascade's `1024×768` default.
+/// This is the path `content_thread_main` uses for the initial tab (C1).
+#[test]
+fn initial_scripts_observe_real_viewport() {
+    let nh = std::rc::Rc::new(elidex_net::broker::NetworkHandle::disconnected());
+    let jar = std::sync::Arc::new(elidex_net::CookieJar::new());
+    let pipeline = crate::build_pipeline_interactive_with_network(
+        "<div id=\"probe\"></div>\
+         <script>\
+           var p = document.getElementById('probe');\
+           p.setAttribute('data-w', String(window.innerWidth));\
+           p.setAttribute('data-h', String(window.innerHeight));\
+         </script>",
+        "",
+        nh,
+        jar,
+        elidex_plugin::Size::new(640.0, 480.0),
+    );
+
+    // Construction input reached the cascade/layout SoT.
+    assert_eq!(pipeline.viewport, elidex_plugin::Size::new(640.0, 480.0));
+    // ...and the JS bridge SoT that `innerWidth`/`matchMedia` read.
+    assert_eq!(pipeline.runtime.bridge().viewport_width(), 640.0);
+    assert_eq!(pipeline.runtime.bridge().viewport_height(), 480.0);
+    // The initial script OBSERVED the real size — proves the bridge was seeded
+    // BEFORE the script-eval loop (the F1 ordering, not merely set post-build).
+    assert_eq!(
+        probe_attr(&pipeline, "probe", "data-w").as_deref(),
+        Some("640")
+    );
+    assert_eq!(
+        probe_attr(&pipeline, "probe", "data-h").as_deref(),
+        Some("480")
+    );
+}
+
+/// C1 (D6/F1): the single construction input retires the pre-C1 split where the
+/// JS bridge defaulted to `800×600` while the cascade used `1024×768`. A
+/// window-less build that passes `DEFAULT` explicitly now feeds both, so the
+/// bridge and `PipelineResult.viewport` agree.
+#[test]
+fn default_viewport_unifies_bridge_and_cascade() {
+    let nh = std::rc::Rc::new(elidex_net::broker::NetworkHandle::disconnected());
+    let jar = std::sync::Arc::new(elidex_net::CookieJar::new());
+    let pipeline = crate::build_pipeline_interactive_with_network(
+        "<div></div>",
+        "",
+        nh,
+        jar,
+        elidex_plugin::Size::new(
+            crate::DEFAULT_VIEWPORT_WIDTH,
+            crate::DEFAULT_VIEWPORT_HEIGHT,
+        ),
+    );
+    assert_eq!(
+        pipeline.runtime.bridge().viewport_width(),
+        crate::DEFAULT_VIEWPORT_WIDTH
+    );
+    assert_eq!(pipeline.viewport.width, crate::DEFAULT_VIEWPORT_WIDTH);
 }

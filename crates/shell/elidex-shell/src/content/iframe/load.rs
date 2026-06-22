@@ -156,11 +156,25 @@ fn load_iframe_from_url(
             } else {
                 ctx.cookie_jar.clone()
             };
+            // iframe initial build: the sub-browsing-context box is not yet known
+            // (the parent lays out the <iframe> element + delivers it via
+            // SetViewport later), so build at DEFAULT. NOTE C1's
+            // `run_scripts_and_finalize` now also seeds the JS bridge from this
+            // viewport before initial scripts run (the same cascade/bridge
+            // unification F1 applies to top-level), so iframe initial-script
+            // `innerWidth`/`matchMedia` observe DEFAULT — where pre-C1 the bridge
+            // stayed at its 800x600 default while the cascade used DEFAULT. Both
+            // are placeholders for the real iframe box; the correct box-at-build is
+            // deferred → slot #11-iframe-build-viewport.
             let mut pipeline = crate::build_pipeline_from_loaded(
                 loaded,
                 pipeline_handle,
                 ctx.font_db.clone(),
                 iframe_cookies,
+                elidex_plugin::Size::new(
+                    crate::DEFAULT_VIEWPORT_WIDTH,
+                    crate::DEFAULT_VIEWPORT_HEIGHT,
+                ),
             );
             // Keep credentialless broker alive for the iframe pipeline's lifetime.
             if let Some(cb) = credentialless_broker {
@@ -244,7 +258,20 @@ fn make_out_of_process_entry(
         // Use the already-fetched LoadedDocument — no redundant HTTP request.
         let network_handle = std::rc::Rc::new(elidex_net::broker::NetworkHandle::disconnected());
         let font_db = std::sync::Arc::new(elidex_text::FontDatabase::new());
-        let oop_pipeline = crate::build_pipeline_from_loaded(loaded, network_handle, font_db, None);
+        // OOP iframe initial build at DEFAULT — box delivered later via SetViewport
+        // (slot #11-iframe-build-viewport, same as the in-process path). As there,
+        // C1 now seeds the bridge from this DEFAULT before initial scripts (was the
+        // boa 800x600 bridge default pre-C1); a placeholder pending the real box.
+        let oop_pipeline = crate::build_pipeline_from_loaded(
+            loaded,
+            network_handle,
+            font_db,
+            None,
+            elidex_plugin::Size::new(
+                crate::DEFAULT_VIEWPORT_WIDTH,
+                crate::DEFAULT_VIEWPORT_HEIGHT,
+            ),
+        );
 
         oop_pipeline
             .runtime
@@ -313,6 +340,11 @@ fn build_iframe_pipeline(
         ctx.network_handle.clone(),
         ctx.registry.clone(),
         ctx.cookie_jar.clone(),
+        // iframe build at DEFAULT — box not yet known (slot #11-iframe-build-viewport).
+        elidex_plugin::Size::new(
+            crate::DEFAULT_VIEWPORT_WIDTH,
+            crate::DEFAULT_VIEWPORT_HEIGHT,
+        ),
     )
 }
 

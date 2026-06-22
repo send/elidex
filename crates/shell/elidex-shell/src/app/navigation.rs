@@ -91,8 +91,16 @@ impl App {
         match elidex_navigation::load_document(url, &network_handle, None) {
             Ok(loaded) => {
                 let cookie_jar = interactive.pipeline.runtime.bridge().cookie_jar_clone();
-                let new_pipeline =
-                    crate::build_pipeline_from_loaded(loaded, network_handle, font_db, cookie_jar);
+                // Rebuild at the current viewport, not `DEFAULT` (C1 — same as the
+                // content-thread navigation path).
+                let viewport = interactive.pipeline.viewport;
+                let new_pipeline = crate::build_pipeline_from_loaded(
+                    loaded,
+                    network_handle,
+                    font_db,
+                    cookie_jar,
+                    viewport,
+                );
                 interactive.pipeline = new_pipeline;
                 interactive
                     .pipeline
