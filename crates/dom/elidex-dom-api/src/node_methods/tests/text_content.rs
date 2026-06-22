@@ -6,6 +6,7 @@
 //! `elidex-js` `vm::tests::tests_mutation_observer::text_content`.
 
 use super::*;
+use elidex_script_session::CssomSheetState;
 
 #[test]
 fn textcontent_replaces_children_with_one_text() {
@@ -65,4 +66,35 @@ fn textcontent_empty_string_on_empty_element_is_noop() {
         .unwrap();
 
     assert!(dom.children(div).is_empty());
+}
+
+#[test]
+fn textcontent_prunes_cssom_cache_for_removed_style_child() {
+    // Codex R5 regression: a `<style>`/`<link>` child whose `.sheet` was accessed
+    // has a `SessionCore::cssom_sheets` entry (a GC mark-roots input). When
+    // textContent removes it, that engine-internal cache entry must be pruned —
+    // the cache half of the old `session.release` (the sole production pruner).
+    // Dropping it without this would leak the parsed sheet + its rule-id roots.
+    let (mut dom, mut session) = setup();
+    let div = dom.create_element("div", Attributes::default());
+    let style = dom.create_element("style", Attributes::default());
+    dom.append_child(div, style);
+    // Simulate "sheet accessed": a cssom_sheets entry keyed by the <style>.
+    session.cssom_sheets.insert(
+        style,
+        CssomSheetState {
+            parsed: elidex_css::parse_stylesheet("p{}", elidex_css::Origin::Author),
+            snapshot_version: 0,
+        },
+    );
+    assert!(session.cssom_sheets.contains_key(&style));
+
+    SetTextContentNodeKind
+        .invoke(div, &[JsValue::String("hi".into())], &mut session, &mut dom)
+        .unwrap();
+
+    assert!(
+        !session.cssom_sheets.contains_key(&style),
+        "removed <style>'s CSSOM cache entry must be pruned"
+    );
 }

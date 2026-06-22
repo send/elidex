@@ -109,10 +109,7 @@ impl DomApiHandler for SetTextContentNodeKind {
                 // all with node within this" = the canonical record-producing
                 // `apply_replace_all` (§4.2.3 `#concept-node-replace-all`) → ONE coalesced
                 // ChildList record (removed = prior children, added = [text] | «», queued
-                // iff non-empty). Removed children are NOT `session.release`d — they must
-                // stay valid JS objects for MutationObserver / SameObject (matching
-                // `replaceChildren`; the `cssom_sheets` prune moves to the removal
-                // chokepoint, slot `#11-cssom-sheets-prune-at-removal-chokepoint`).
+                // iff non-empty).
                 let node = if text.is_empty() {
                     None
                 } else {
@@ -120,6 +117,20 @@ impl DomApiHandler for SetTextContentNodeKind {
                     Some(dom.create_text_with_owner(text, owner))
                 };
                 for record in apply_replace_all(dom, this, node) {
+                    // Prune the engine-internal CSSOM cache for any removed
+                    // `<style>`/`<link>` child whose `sheet` was accessed — the
+                    // cache half of the old `session.release` (the identity-map
+                    // clear half is intentionally NOT done: removed nodes must stay
+                    // valid JS objects for MutationObserver / SameObject). This
+                    // preserves the prior textContent behavior (its `release` was the
+                    // sole production pruner of `cssom_sheets`, a GC mark-roots input
+                    // via `active_cssom_rule_ids`). The *uniform* prune across ALL
+                    // removal paths (removeChild/replaceChildren never pruned it
+                    // either) belongs at the GC-owned removal chokepoint —
+                    // slot `#11-cssom-sheets-prune-at-removal-chokepoint`.
+                    for removed in &record.removed_nodes {
+                        session.cssom_sheets.remove(removed);
+                    }
                     session.push_notify_record(record);
                 }
                 Ok(JsValue::Undefined)
