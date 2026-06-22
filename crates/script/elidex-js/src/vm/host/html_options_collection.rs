@@ -19,13 +19,15 @@
 //!
 //! ## Layering
 //!
-//! Per CLAUDE.md "Layering mandate", every algorithm body (option
-//! insertion, removal, selectedness fallback) lives in
-//! `html_select_proto::*_impl` helpers (which themselves delegate to
-//! `elidex_form` for the spec algorithms — D-3 / D-4 of the drift-
-//! hoist PR).  This module is purely brand-check + entity resolution
-//! glue between the OptionsCollection wrapper and the shared
-//! algorithm helpers.
+//! Per CLAUDE.md "Layering mandate", the option insert/remove/length
+//! **algorithm** + `MutationRecord` production lives in the
+//! engine-independent dom-api handlers
+//! (`elidex_dom_api::element::select::{OptionsAdd, OptionsRemove,
+//! OptionsSetLength}`); this module + `html_select_proto` only marshal
+//! (brand-check + WebIDL union / `ToInt32` / `ToUint32` coercion) and
+//! route through the shared `dispatch_options_*` helpers (B1.2b-2-select
+//! convergence — One handler, both receivers).  `selectedIndex` stays a
+//! selectedness query hoisted to `elidex_form` (D-3 / D-4 drift-hoist).
 //!
 //! ## Brand check
 //!
@@ -44,7 +46,7 @@ use elidex_ecs::Entity;
 
 use super::super::value::{JsValue, NativeContext, ObjectKind, VmError};
 use super::html_select_proto::{
-    select_add_impl, select_remove_option_at_impl, select_set_options_length_impl,
+    dispatch_options_add, dispatch_options_remove_index, dispatch_options_set_length,
     select_set_selected_index_impl,
 };
 
@@ -116,7 +118,7 @@ pub(super) fn native_options_add(
     let Some(select_entity) = require_options_collection_receiver(ctx, this, "add")? else {
         return Ok(JsValue::Undefined);
     };
-    select_add_impl(ctx, select_entity, args)
+    dispatch_options_add(ctx, select_entity, args)
 }
 
 pub(super) fn native_options_remove(
@@ -128,7 +130,7 @@ pub(super) fn native_options_remove(
         return Ok(JsValue::Undefined);
     };
     let idx_arg = args.first().copied().unwrap_or(JsValue::Undefined);
-    select_remove_option_at_impl(ctx, select_entity, &idx_arg)
+    dispatch_options_remove_index(ctx, select_entity, idx_arg)
 }
 
 pub(super) fn native_options_set_length(
@@ -139,7 +141,7 @@ pub(super) fn native_options_set_length(
     let Some(select_entity) = require_options_collection_receiver(ctx, this, "length")? else {
         return Ok(JsValue::Undefined);
     };
-    select_set_options_length_impl(ctx, select_entity, args)
+    dispatch_options_set_length(ctx, select_entity, args)
 }
 
 pub(super) fn native_options_get_selected_index(

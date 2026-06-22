@@ -90,8 +90,9 @@ pub use element::{
     GetClientTop, GetClientWidth, GetId, GetInnerHtml, GetOffsetHeight, GetOffsetLeft,
     GetOffsetParent, GetOffsetTop, GetOffsetWidth, GetScrollHeight, GetScrollLeft, GetScrollTop,
     GetScrollWidth, HasAttribute, InsertAdjacentElement, InsertAdjacentHtml, InsertAdjacentText,
-    InsertBefore, RemoveAttribute, RemoveChild, ReplaceChild, ScrollIntoView, SerializeOptions,
-    SetAttribute, SetClassName, SetId, SetInnerHtml, ToggleAttribute,
+    InsertBefore, OptionsAdd, OptionsRemove, OptionsSetLength, RemoveAttribute, RemoveChild,
+    ReplaceChild, ScrollIntoView, SerializeOptions, SetAttribute, SetClassName, SetId,
+    SetInnerHtml, ToggleAttribute,
 };
 pub use live_collection::{CollectionFilter, CollectionKind, LiveCollection};
 pub use node_methods::{

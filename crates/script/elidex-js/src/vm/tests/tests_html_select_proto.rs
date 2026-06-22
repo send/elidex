@@ -204,10 +204,24 @@ fn select_add_with_before_inserts_at_position() {
 
 #[test]
 fn select_add_rejects_non_option_element() {
+    // B1.2b-2-select: the WebIDL `(HTMLOptionElement or HTMLOptGroupElement)`
+    // union-conversion failure is a **TypeError**, not a HierarchyRequestError
+    // (the pre-convergence VM mis-mapped this).
     let out = run("var s = document.createElement('select'); \
          var d = document.createElement('div'); \
          try { s.add(d); 'no-throw'; } \
-         catch (e) { (e.name === 'HierarchyRequestError') ? 'ok' : 'other:' + e.name; }");
+         catch (e) { (e.name === 'TypeError') ? 'ok' : 'other:' + e.name; }");
+    assert_eq!(out, "ok");
+}
+
+#[test]
+fn select_add_accepts_optgroup() {
+    // The WebIDL union accepts `<optgroup>` (pre-convergence the VM threw
+    // HierarchyRequestError for any non-option arg).
+    let out = run("var s = document.createElement('select'); \
+         var g = document.createElement('optgroup'); \
+         s.add(g); \
+         (s.firstChild === g) ? 'ok' : 'bad';");
     assert_eq!(out, "ok");
 }
 
@@ -778,15 +792,16 @@ fn options_collection_length_setter_truncates_from_end() {
 }
 
 #[test]
-fn options_collection_length_setter_caps_at_implementation_limit() {
-    // Spec allows an implementation-defined upper bound (HTML §4.10.10.2);
-    // we cap at `elidex_ecs::MAX_ANCESTOR_DEPTH` (10 000), which also
-    // bounds `children_iter_rev` engine-wide.  Verify the cap engages:
-    // a request for `2³² - 1` clamps via ToUint32 then via the cap.
+fn options_collection_length_setter_over_cap_is_noop() {
+    // B1.2b-2-select: a target length above the engine cap
+    // (`elidex_ecs::MAX_ANCESTOR_DEPTH`, 10 000 — the addressable-option ceiling
+    // coupled to the `children_iter` walk limit) is a silent **no-op**, preserving
+    // the spec's ">100,000 → return" *shape* (HTML §2.6.4.3 length-setter step
+    // 2.1) rather than clamping. So `2³² − 1` (> cap) leaves the count unchanged.
     let out = run("var s = document.createElement('select'); \
          s.options.length = 4294967295; \
          '' + s.options.length;");
-    assert_eq!(out, "10000");
+    assert_eq!(out, "0");
 }
 
 #[test]
