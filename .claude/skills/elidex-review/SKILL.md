@@ -20,7 +20,9 @@ user-invocable: true
 
 ## Skip OK
 
-- doc-only PR (no src changes) → 各 agent が trivially 0 finding、明示 skip 可。**ただし `.claude/skills/**` の enforcement-logic 編集 (detect entry / workflow step / gate / skip rule / axis 定義) は除外** — review 挙動を変えるので inert text でなく、下記 "Skip justification" 通り Stage 6 相当の本 review 必須
+> **Override (governs EVERY skip path below — present and future — and the pre-push gate)**: a `.claude/skills/**` edit that changes a **detect entry / workflow step / gate / skip rule / axis definition** is **never skip-justified**. It alters review behavior despite touching no Rust, so the "Skip justification" per-axis table is the **sole authority** for it and **none** of the convenience bullets below apply. (This single clause is the home — attaching the carve-out per-bullet drifts: a sibling bullet always gets missed.) Pure *inert* skill/doc text (typo / wording / formatting) remains bullet-skippable.
+
+- doc-only PR (no src changes) → 各 agent が trivially 0 finding、明示 skip 可
 - diff < 30 LoC かつ既存 pattern minor extension のみ → judgment skip 可、landing memo に理由明示
 
 ### Skip justification — per-axis expected-yield gate (`feedback_terminal-elidex-review-skip-justification.md`, #231)
