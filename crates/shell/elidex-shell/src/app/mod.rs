@@ -876,10 +876,15 @@ impl App {
         let Some(pending) = self.pending_initial_spawn.take() else {
             return;
         };
-        let (Some(np), Some(mgr)) = (self.network_process.as_ref(), self.tab_manager.as_mut())
-        else {
-            return;
-        };
+        // `pending` is `Some` only in threaded mode (set by `new_threaded*`), and
+        // `from_tab_manager` guarantees `network_process` + `tab_manager` are then
+        // `Some`. Surface a broken invariant rather than silently dropping the
+        // initial tab (a blank window) — mirrors the `tab_manager.expect` in
+        // `handle_redraw_threaded`.
+        let np = self
+            .network_process
+            .as_ref()
+            .expect("threaded-mode initial spawn requires a network process");
         let nh = np.create_renderer_handle();
         let jar = Arc::clone(np.cookie_jar());
         let wake = Self::wake_or_noop(self.wake_proxy.as_ref());
@@ -902,7 +907,10 @@ impl App {
                 (thread, chrome, title)
             }
         };
-        mgr.create_tab(browser_ch, thread, chrome, title);
+        self.tab_manager
+            .as_mut()
+            .expect("threaded mode requires a tab manager")
+            .create_tab(browser_ch, thread, chrome, title);
     }
 
     /// Send a message to the active tab's content thread.
