@@ -75,8 +75,86 @@ fn navigator_cookie_enabled_false_without_jar() {
 }
 
 #[test]
-fn navigator_java_enabled_is_false() {
-    assert!(eval_bool("navigator.javaEnabled === false;"));
+fn navigator_java_enabled_is_a_method_returning_false() {
+    // WHATWG HTML §8.10.1.6 (NavigatorPlugins): `javaEnabled()` is a **method**
+    // whose steps "are to return false" — NOT a bool data property (the former
+    // shape made `navigator.javaEnabled()` throw a TypeError).
+    assert!(eval_bool("typeof navigator.javaEnabled === 'function';"));
+    assert!(eval_bool("navigator.javaEnabled() === false;"));
+}
+
+#[test]
+fn navigator_app_code_name_is_mozilla_per_spec() {
+    // WHATWG HTML §8.10.1.1 (NavigatorID) fixes `appCodeName` to "Mozilla".
+    assert_eq!(eval_string("navigator.appCodeName;"), "Mozilla");
+}
+
+#[test]
+fn navigator_plugins_is_empty_collection() {
+    // WHATWG HTML §8.10.1.6: elidex's *PDF viewer supported* is `false`, so the
+    // `plugins` PluginArray is the empty list — but the interface shape is
+    // present (length + item/namedItem/refresh).
+    assert!(eval_bool("typeof navigator.plugins === 'object';"));
+    assert_eq!(eval_number("navigator.plugins.length;"), 0.0);
+    assert!(eval_bool("navigator.plugins.item(0) === null;"));
+    assert!(eval_bool("navigator.plugins.namedItem('x') === null;"));
+    assert!(eval_bool(
+        "typeof navigator.plugins.refresh === 'function';"
+    ));
+    assert!(eval_bool("navigator.plugins.refresh() === undefined;"));
+    // `[SameObject]`: repeated access yields the same object.
+    assert!(eval_bool("navigator.plugins === navigator.plugins;"));
+}
+
+#[test]
+fn navigator_mime_types_is_empty_collection() {
+    // WHATWG HTML §8.10.1.6: empty MimeTypeArray (no `refresh()` — that is
+    // PluginArray-only).
+    assert!(eval_bool("typeof navigator.mimeTypes === 'object';"));
+    assert_eq!(eval_number("navigator.mimeTypes.length;"), 0.0);
+    assert!(eval_bool("navigator.mimeTypes.item(0) === null;"));
+    assert!(eval_bool("navigator.mimeTypes.namedItem('x') === null;"));
+    assert!(eval_bool("navigator.mimeTypes.refresh === undefined;"));
+    assert!(eval_bool("navigator.mimeTypes === navigator.mimeTypes;"));
+}
+
+#[test]
+fn navigator_collection_item_webidl_arity_and_conversion() {
+    // WHATWG HTML §8.10.1.6 declares `item(unsigned long index)` /
+    // `namedItem(DOMString name)` with REQUIRED parameters. Per WebIDL §3.7 a
+    // missing required argument throws `TypeError` (browser/WPT parity, and the
+    // VM-wide convention — `storage.rs` `getItem`, `url_search_params`, etc.),
+    // and a present argument is run through the type conversion (observable side
+    // effects) before the empty-list lookup returns `null`.
+    //
+    // Missing argument → TypeError.
+    assert!(eval_bool(
+        "(() => { try { navigator.plugins.item(); return false; } \
+         catch (e) { return e instanceof TypeError; } })();"
+    ));
+    assert!(eval_bool(
+        "(() => { try { navigator.mimeTypes.namedItem(); return false; } \
+         catch (e) { return e instanceof TypeError; } })();"
+    ));
+    // Present argument with a throwing conversion propagates.
+    assert!(eval_bool(
+        "(() => { try { navigator.plugins.item({ valueOf() { throw 'x'; } }); return false; } \
+         catch (e) { return true; } })();"
+    ));
+    assert!(eval_bool(
+        "(() => { try { navigator.mimeTypes.namedItem({ toString() { throw 'x'; } }); return false; } \
+         catch (e) { return true; } })();"
+    ));
+    // Non-throwing present arg returns null (empty collection).
+    assert!(eval_bool("navigator.plugins.item(3) === null;"));
+    assert!(eval_bool("navigator.mimeTypes.namedItem('Foo') === null;"));
+}
+
+#[test]
+fn navigator_pdf_viewer_enabled_is_false() {
+    // WHATWG HTML §8.10.1.6: `pdfViewerEnabled` returns the UA's *PDF viewer
+    // supported* boolean, which is `false` for elidex.
+    assert!(eval_bool("navigator.pdfViewerEnabled === false;"));
 }
 
 #[test]

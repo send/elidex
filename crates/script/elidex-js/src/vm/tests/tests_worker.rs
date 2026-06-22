@@ -141,6 +141,60 @@ fn worker_name_and_location_and_navigator() {
 }
 
 #[test]
+fn worker_navigator_realm_scoping_omits_navigator_only_members() {
+    // WHATWG HTML §10.3.2: `WorkerNavigator` includes ONLY NavigatorID
+    // (§8.10.1.1), NavigatorLanguage (§8.10.1.2), NavigatorOnLine (§8.10.1.3),
+    // and NavigatorConcurrentHardware (§10.2.7). The `Navigator`-only mixins
+    // NavigatorCookies / NavigatorPlugins and the `[Exposed=Window]` NavigatorID
+    // members must NOT leak into the worker realm.
+    with_worker_vm("", WORKER_URL, true, |vm| {
+        // Shared NavigatorID member present (appCodeName, both realms).
+        assert_eq!(eval_str_on(vm, "self.navigator.appCodeName"), "Mozilla");
+        // Included mixins present.
+        assert!(eval_bool_on(vm, "self.navigator.onLine === true"));
+        assert!(eval_bool_on(
+            vm,
+            "typeof self.navigator.hardwareConcurrency === 'number'"
+        ));
+        // NavigatorCookies — Navigator-only.
+        assert!(eval_bool_on(
+            vm,
+            "typeof self.navigator.cookieEnabled === 'undefined'"
+        ));
+        // NavigatorPlugins — Navigator-only.
+        assert!(eval_bool_on(
+            vm,
+            "typeof self.navigator.plugins === 'undefined'"
+        ));
+        assert!(eval_bool_on(
+            vm,
+            "typeof self.navigator.mimeTypes === 'undefined'"
+        ));
+        assert!(eval_bool_on(
+            vm,
+            "typeof self.navigator.javaEnabled === 'undefined'"
+        ));
+        assert!(eval_bool_on(
+            vm,
+            "typeof self.navigator.pdfViewerEnabled === 'undefined'"
+        ));
+        // `[Exposed=Window]` NavigatorID members.
+        assert!(eval_bool_on(
+            vm,
+            "typeof self.navigator.productSub === 'undefined'"
+        ));
+        assert!(eval_bool_on(
+            vm,
+            "typeof self.navigator.vendor === 'undefined'"
+        ));
+        assert!(eval_bool_on(
+            vm,
+            "typeof self.navigator.vendorSub === 'undefined'"
+        ));
+    });
+}
+
+#[test]
 fn worker_is_secure_context_inherits_from_creator_not_script_url() {
     // The flag is threaded from the creator, NOT derived from the worker script
     // URL (WHATWG HTML §8.1.3.5). An https script URL with a non-secure creator

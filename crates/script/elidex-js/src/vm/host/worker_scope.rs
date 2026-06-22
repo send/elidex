@@ -53,13 +53,25 @@ impl VmInner {
     }
 
     /// Install `self.navigator` as a `WorkerNavigator` (WHATWG HTML §10.3.2):
-    /// the worker-appropriate subset of the Navigator surface.
+    /// the worker-appropriate subset of the Navigator surface. Per §10.3.2,
+    /// `WorkerNavigator` includes **only** `NavigatorID` (§8.10.1.1),
+    /// `NavigatorLanguage` (§8.10.1.2), `NavigatorOnLine` (§8.10.1.3), and
+    /// `NavigatorConcurrentHardware` (§10.2.7). It deliberately omits the
+    /// `Navigator`-only mixins `NavigatorCookies` (`cookieEnabled`) and
+    /// `NavigatorPlugins` (`plugins` / `mimeTypes` / `javaEnabled` /
+    /// `pdfViewerEnabled`), and the `[Exposed=Window]` `NavigatorID` members
+    /// `productSub` / `vendor` / `vendorSub` — none of which appear here. See
+    /// `host/navigator.rs::register_navigator_global` for the full `Navigator`.
     pub(in crate::vm) fn register_worker_navigator_global(&mut self) {
         let obj_id = self.create_object_with_methods(&[]);
 
         let hw = std::thread::available_parallelism()
             .map_or(1u32, |n| u32::try_from(n.get()).unwrap_or(u32::MAX));
         let string_fields: &[(&str, &str)] = &[
+            // `appCodeName` is a NavigatorID spec constant (HTML §8.10.1.1) —
+            // shared with the Window `Navigator`. `productSub` / `vendor` /
+            // `vendorSub` are `[Exposed=Window]`, so they are intentionally absent.
+            ("appCodeName", "Mozilla"),
             ("userAgent", "Mozilla/5.0 (compatible; Elidex/0.1)"),
             ("appName", "Netscape"),
             ("appVersion", "5.0 (compatible; Elidex/0.1)"),

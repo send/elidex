@@ -292,25 +292,60 @@ surface (Codex P2 R8-4/R8-5; one slot, not per-field).** A0 records leads; it do
 the same over-enumeration A0 must delegate). Single slot:
 
 - **`#11-navigator-spec-faithful-surface`** — *Why:* the VM's `navigator` is a
-  partial, partly-wrong placeholder. A spec-faithful pass (HTML §8.10.1) must cover:
-  NavigatorID derived fields `appVersion`/`productSub`/`vendor` wired to shell
-  UA/compat mode (§8.10.1.1) + the **missing `appCodeName`** (="Mozilla"); the
-  **full `NavigatorPlugins` mixin** (§8.10.1.6) — `javaEnabled()` as a **method**
-  (currently a boolean property → `TypeError`) **and** `plugins`/`mimeTypes`/
-  `pdfViewerEnabled`, none installed today (R8-5); and `cookieEnabled` per §8.10.1.5
-  (A3 does the value-derive interim). **The exact `Navigator` vs `WorkerNavigator`
-  exposure split is the follow-up's to get right (Codex P2 R9-2), not A0's:**
-  `WorkerNavigator` (§10.3.2) includes **only** `NavigatorID` + `NavigatorLanguage`
-  + `NavigatorOnLine` + `NavigatorConcurrentHardware`; `NavigatorCookies`/
-  `NavigatorPlugins` are **`Navigator`-only**, and `productSub`/`vendor`/`vendorSub`
-  are `[Exposed=Window]` — so `plugins`/`mimeTypes`/`pdfViewerEnabled`/`cookieEnabled`
-  and those ID fields must **not** appear in workers. A0 flags only that the shared
-  `NavigatorID` members (incl. `appCodeName`) are missing on both surfaces; the
-  per-member realm scoping is the follow-up's plan-review work.
+  partial, partly-wrong placeholder. A spec-faithful pass (HTML §8.10.1).
+  **DONE (navigator follow-up PR — UA-independent surface):**
+  - ✅ **`appCodeName`** (="Mozilla", NavigatorID §8.10.1.1) installed on **both**
+    `Navigator` and `WorkerNavigator`.
+  - ✅ **`NavigatorPlugins` mixin** (§8.10.1.6) installed on `Navigator` (only):
+    `javaEnabled()` is now a **method** returning `false` (was a bool property →
+    `TypeError`); `plugins`/`mimeTypes` are empty collections with the member
+    shape (`length` 0 + WebIDL-faithful `item`/`namedItem` — required-arg
+    `TypeError` + present-arg conversion, then empty-list `null` — + PluginArray
+    `refresh()`); `pdfViewerEnabled` is `false` (elidex's *PDF viewer supported*
+    boolean is `false`). *Interface-object branding* (`instanceof PluginArray`,
+    receiver brand-checks) deferred → `#11-navigator-interface-object-branding`.
+  - ✅ **Realm scoping** (§10.3.2) asserted by test: `WorkerNavigator` exposes
+    **only** `NavigatorID` + `NavigatorLanguage` + `NavigatorOnLine` +
+    `NavigatorConcurrentHardware`; `NavigatorCookies` (`cookieEnabled`),
+    `NavigatorPlugins`, and the `[Exposed=Window]` `productSub`/`vendor`/`vendorSub`
+    are absent in workers.
+
+  **STILL DEFERRED (UA/compat-mode-dependent — same dependency as F6/E0):** the
+  NavigatorID derived fields `userAgent`/`appVersion`/`productSub`/`vendor`/`platform`
+  are still hard-coded **placeholders**. A spec-faithful pass must wire them to a
+  shell-provided UA / compatibility-mode profile (§8.10.1.1); the engine must not
+  fabricate a real-browser UA in the interim. (`cookieEnabled` value-derive = done by
+  A3; spec-constant `appName`/`product`/`vendorSub` already correct.)
   *Trigger:* when the shell exposes a UA/compat-mode source to the VM (same
-  dependency as the F6/E0 mode work), or sooner if a WPT/site needs a missing member.
-  *Date:* revisit with the `EngineMode` work (§3.2 / A1). The exhaustive member list
-  is the follow-up's, not A0's.
+  dependency as the F6/E0 mode work), or sooner if a WPT/site needs the real value.
+  *Date:* revisit with the `EngineMode` work (§3.2 / A1).
+
+- **`#11-navigator-interface-object-branding`** (Codex P2 on the navigator
+  follow-up PR, #398) — *Why:* the navigator follow-up installs `plugins`/
+  `mimeTypes` as plain `Ordinary` objects chained to `Object.prototype`, and
+  `navigator` itself is an unbranded plain object (as are `location`/`history`/
+  `screen` — the whole BarProp/Navigator/Location family). Full WebIDL fidelity
+  wants: (a) `PluginArray`/`MimeTypeArray`/`Plugin`/`MimeType` registered as
+  `[Exposed=Window]` interface objects + prototypes (so `navigator.plugins
+  instanceof PluginArray` resolves), following the existing `HTMLCollection`/
+  `NodeList` branding machinery (`ObjectKind` variant + dedicated prototype), and
+  (b) `Navigator.prototype` brand so operation methods (`javaEnabled()`) can
+  brand-check their receiver per WebIDL §3.7.7 (e.g. reject
+  `navigator.javaEnabled.call({})`). Deferred as a single program because doing
+  it for the empty plugin collections alone — while `navigator`/`location` stay
+  unbranded — is the "new seam + N legacy" strangler state One-issue-one-way
+  forbids; it is a VM-wide interface-object decision, not part of the
+  member-surface task. **No regression:** `instanceof PluginArray` threw
+  `ReferenceError` before this PR too (`navigator.plugins` was `undefined`), and
+  the common detection path (`navigator.plugins.length === 0`) works. The present
+  PR DID make `item`/`namedItem` WebIDL-faithful on arguments — required-argument
+  `TypeError` on a missing arg + type conversion of a present arg (the VM-wide
+  convention, e.g. `storage.rs`/`url_search_params.rs`; **not** `dom_collection.rs`'s
+  pre-existing lenient null-return, which is the outlier) — so only the
+  interface-identity branding is deferred. *Trigger:* a VM interface-object pass for
+  the navigator family (or a WPT/site that brand-checks `PluginArray`/
+  `MimeTypeArray`). *Date:* with the navigator UA-wiring follow-up or a dedicated
+  interface-object program.
 
 ### 1.5 Newly-found clerical drift (fold into the F2 sweep)
 
