@@ -20,7 +20,7 @@ user-invocable: true
 
 ## Skip OK
 
-- doc-only PR (no src changes) → 各 agent が trivially 0 finding、明示 skip 可
+- doc-only PR (no src changes) → 各 agent が trivially 0 finding、明示 skip 可。**ただし `.claude/skills/**` の enforcement-logic 編集 (detect entry / workflow step / gate / skip rule / axis 定義) は除外** — review 挙動を変えるので inert text でなく、下記 "Skip justification" 通り Stage 6 相当の本 review 必須
 - diff < 30 LoC かつ既存 pattern minor extension のみ → judgment skip 可、landing memo に理由明示
 
 ### Skip justification — per-axis expected-yield gate (`feedback_terminal-elidex-review-skip-justification.md`, #231)
