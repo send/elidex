@@ -94,18 +94,21 @@ fn require_option_or_optgroup(dom: &EcsDom, element: Entity) -> Result<(), DomAp
     }
 }
 
-/// Convert an already-`ToInt32`-coerced WebIDL `long` index `f64` to a
-/// non-negative `usize`; negative / non-finite → `None` (= append for `add`,
-/// no-op for `remove`). The VM coerces the index through `ToInt32` before
-/// dispatch, so the value is an integral `f64` in `i32` range — the cast is exact
-/// after the `>= 0` guard (a `boa`/`wasm` caller that forwards a raw number
-/// relies on this same conversion).
-#[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+/// Resolve a WebIDL `long` index `f64` to a non-negative collection index;
+/// negative → `None` (= append for `add`, no-op for `remove`). Runs the full
+/// `ToInt32` conversion via [`crate::util::webidl_long`] (NaN/±∞ → 0, wrap modulo
+/// 2³²) so a handler-direct boa/wasm caller forwarding a raw number is spec-correct
+/// — e.g. `options.add(opt, 2³²)` targets `options[0]` and `options.remove(NaN)`
+/// removes `options[0]`, not append / no-op. The VM pre-coerces (`ToInt32`
+/// idempotent), so its path is unaffected.
+#[expect(clippy::cast_sign_loss)] // guarded: the `< 0` branch returns before the cast.
 fn long_to_index(index: f64) -> Option<usize> {
-    if !index.is_finite() || index < 0.0 {
-        return None;
+    let n = crate::util::webidl_long(index);
+    if n < 0 {
+        None
+    } else {
+        Some(n as usize)
     }
-    Some(index as usize)
 }
 
 /// Resolve the `index`th option in `select`'s `Options` live collection

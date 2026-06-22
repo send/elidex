@@ -266,6 +266,93 @@ fn options_remove_out_of_range_is_noop() {
 }
 
 // ---------------------------------------------------------------------------
+// WebIDL `long` (ToInt32) coercion on the handler-direct path (Codex R2)
+// ---------------------------------------------------------------------------
+//
+// A boa/wasm caller reaches the handler with a RAW number (no VM pre-coercion),
+// so the handler itself must apply `ToInt32` to the `long` index: NaN/±∞ → 0,
+// 2³² wraps → 0. (The VM path pre-coerces, so these exercise the direct path.)
+
+#[test]
+fn options_add_before_index_wraps_via_to_int32() {
+    // ToInt32(2³²) == 0 → insert before options[0], NOT append.
+    let (mut dom, select, mut session) = setup();
+    let (a, a_ref) = elem(&mut dom, &mut session, "option");
+    let (b, b_ref) = elem(&mut dom, &mut session, "option");
+    for r in [a_ref, b_ref] {
+        OptionsAdd
+            .invoke(
+                select,
+                &[JsValue::ObjectRef(r), JsValue::Null],
+                &mut session,
+                &mut dom,
+            )
+            .unwrap();
+    }
+    let (c, c_ref) = elem(&mut dom, &mut session, "option");
+    OptionsAdd
+        .invoke(
+            select,
+            &[JsValue::ObjectRef(c_ref), JsValue::Number(4_294_967_296.0)],
+            &mut session,
+            &mut dom,
+        )
+        .unwrap();
+    assert_eq!(dom.children(select), vec![c, a, b]);
+}
+
+#[test]
+fn options_remove_nan_index_targets_zero_via_to_int32() {
+    // ToInt32(NaN) == 0 → remove options[0], NOT a no-op.
+    let (mut dom, select, mut session) = setup();
+    let (a, a_ref) = elem(&mut dom, &mut session, "option");
+    let (b, b_ref) = elem(&mut dom, &mut session, "option");
+    for r in [a_ref, b_ref] {
+        OptionsAdd
+            .invoke(
+                select,
+                &[JsValue::ObjectRef(r), JsValue::Null],
+                &mut session,
+                &mut dom,
+            )
+            .unwrap();
+    }
+    OptionsRemove
+        .invoke(select, &[JsValue::Number(f64::NAN)], &mut session, &mut dom)
+        .unwrap();
+    let _ = a;
+    assert_eq!(dom.children(select), vec![b]);
+}
+
+#[test]
+fn options_remove_wrapping_index_targets_zero_via_to_int32() {
+    // ToInt32(2³²) == 0 → remove options[0].
+    let (mut dom, select, mut session) = setup();
+    let (a, a_ref) = elem(&mut dom, &mut session, "option");
+    let (b, b_ref) = elem(&mut dom, &mut session, "option");
+    for r in [a_ref, b_ref] {
+        OptionsAdd
+            .invoke(
+                select,
+                &[JsValue::ObjectRef(r), JsValue::Null],
+                &mut session,
+                &mut dom,
+            )
+            .unwrap();
+    }
+    OptionsRemove
+        .invoke(
+            select,
+            &[JsValue::Number(4_294_967_296.0)],
+            &mut session,
+            &mut dom,
+        )
+        .unwrap();
+    let _ = a;
+    assert_eq!(dom.children(select), vec![b]);
+}
+
+// ---------------------------------------------------------------------------
 // length setter
 // ---------------------------------------------------------------------------
 
