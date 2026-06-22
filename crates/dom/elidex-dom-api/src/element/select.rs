@@ -296,13 +296,6 @@ impl DomApiHandler for OptionsSetLength {
         // boa/wasm caller forwarding a raw number is handled identically.
         let target = crate::util::webidl_unsigned_long(*value);
 
-        // step 2.1: over the engine cap → silent no-op (preserves the spec's
-        // >100,000 → return shape; see `MAX_OPTIONS`). Checked BEFORE any
-        // allocation so an out-of-range request never creates options.
-        if target > MAX_OPTIONS {
-            return Ok(JsValue::Undefined);
-        }
-
         // step 1: current = number of options. Hold one collection instance so the
         // truncate path's `snapshot` reuses this `length` walk (version unchanged
         // → cache hit) instead of walking the child tree a second time.
@@ -310,7 +303,19 @@ impl DomApiHandler for OptionsSetLength {
         let current = opts.length(dom);
 
         if target > current {
-            // step 2: append (target − current) new option elements to select.
+            // step 2.1: over the engine cap → silent no-op. The cap gate lives
+            // ONLY in the grow branch per HTML §2.6.4.3 (the spec's over-100,000 →
+            // return is step 2.1, inside `value > current`): a SHRINK must still run
+            // even when `current` itself exceeds the cap — options spread across
+            // multiple `<optgroup>`s flatten past `MAX_OPTIONS` in the Options
+            // collection (the `children_iter` sibling cap is per child list, but the
+            // descendant walk is not), so `options.length = N` with
+            // `MAX_OPTIONS < N < current` must shrink, not no-op. Checked here,
+            // before the grow loop allocates anything.
+            if target > MAX_OPTIONS {
+                return Ok(JsValue::Undefined);
+            }
+            // step 2.2: append (target − current) new option elements to select.
             // §2.6.4.3 "append new option elements to a select element select given
             // count": fragment whose node document is select's, append count options
             // to it, append the fragment to select. The fragment-append is ONE

@@ -385,10 +385,61 @@ fn options_set_length_truncate_removes_from_end() {
 }
 
 #[test]
-fn options_set_length_over_cap_is_noop() {
+fn options_set_length_over_cap_grow_is_noop() {
+    // Grow above the cap on an empty select → no-op (HTML §2.6.4.3 step 2.1).
     let (mut dom, select, mut session) = setup();
     OptionsSetLength
         .invoke(select, &[JsValue::Number(10_001.0)], &mut session, &mut dom)
         .unwrap();
     assert!(dom.children(select).is_empty());
+}
+
+#[test]
+fn options_set_length_shrink_runs_even_above_cap() {
+    // Codex R3: the over-cap gate must live ONLY in the grow branch. When the
+    // Options collection already exceeds `MAX_OPTIONS` (reachable by spreading
+    // options across multiple `<optgroup>`s — the per-child-list sibling cap does
+    // NOT bound the flattened descendant walk), a shrink to a target that is still
+    // above the cap must remove the last `current - target` options, not no-op.
+    let (mut dom, select, mut session) = setup();
+    // Build current = MAX_OPTIONS + 2 across two optgroups (each child list under
+    // the sibling cap), so the flattened Options count exceeds the cap.
+    let half = elidex_ecs::MAX_ANCESTOR_DEPTH / 2 + 1; // 5001 each → 10002 total
+    for _ in 0..2 {
+        let og = dom.create_element("optgroup", Attributes::default());
+        dom.append_child(select, og);
+        for _ in 0..half {
+            let opt = dom.create_element("option", Attributes::default());
+            dom.append_child(og, opt);
+        }
+    }
+    let current = elidex_ecs::MAX_ANCESTOR_DEPTH + 2;
+    let mut opts = crate::LiveCollection::new(
+        select,
+        crate::CollectionFilter::Options,
+        crate::CollectionKind::HtmlCollection,
+    );
+    assert_eq!(
+        opts.length(&dom),
+        current,
+        "precondition: current exceeds the cap"
+    );
+
+    // target = current - 1 (a shrink), still > MAX_OPTIONS.
+    #[expect(clippy::cast_precision_loss)]
+    let target = (current - 1) as f64;
+    OptionsSetLength
+        .invoke(select, &[JsValue::Number(target)], &mut session, &mut dom)
+        .unwrap();
+
+    let mut opts_after = crate::LiveCollection::new(
+        select,
+        crate::CollectionFilter::Options,
+        crate::CollectionKind::HtmlCollection,
+    );
+    assert_eq!(
+        opts_after.length(&dom),
+        current - 1,
+        "shrink above the cap must remove the last option, not no-op"
+    );
 }
