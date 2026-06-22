@@ -20,6 +20,7 @@ mod delivery;
 mod direct_tree_ops;
 mod integration;
 mod lifecycle;
+mod select_options;
 mod setup;
 
 use elidex_ecs::EcsDom;

@@ -29,11 +29,13 @@
 //! - `selectedIndex` / `value` reflect the current selection.
 //!
 //! Methods:
-//! - `add(opt, before?)` — inserts an option before `before` (entity
-//!   reference or numeric index) or appends.  Hierarchy errors map
-//!   to `HierarchyRequestError` via `appendChild` semantics.
-//! - `remove(idx)` — removes the option at `idx`; out-of-range
-//!   silently no-ops (HTML §4.10.7.6).
+//! - `add(opt, before?)` / `remove(idx?)` — thin marshalling
+//!   dispatchers (B1.2b-2-select convergence): brand-check the
+//!   receiver + WebIDL unions, then route to the engine-independent
+//!   `options.add` / `options.remove` dom-api handlers (HTML §4.10.7
+//!   "act like" §2.6.4.3), which own the algorithm + `MutationRecord`
+//!   production.  `remove()` no-arg falls through to the converged
+//!   `ChildNode.remove` handler (detach the select itself).
 //! - `item(idx)` / `namedItem(name)` — proxy to the options live
 //!   collection.
 
@@ -184,7 +186,7 @@ impl VmInner {
             m,
         );
         self.install_native_method(proto_id, self.well_known.add, native_select_add, m);
-        // `select.remove(idx)` (HTML §4.10.7.6) overrides
+        // `select.remove(idx)` (HTML §4.10.7 `#dom-select-remove`) overrides
         // `ChildNode.remove()`.  Spec says when called with no args
         // it falls through to ChildNode.remove (detach this element);
         // with a numeric arg it detaches the option at that index.
@@ -668,11 +670,15 @@ fn native_select_named_item(
     Ok(JsValue::Null)
 }
 
-/// `select.add(option, before?)` — HTML §4.10.7.7.
+/// `select.add(option, before?)` — HTML §4.10.7 (`#dom-select-add`),
+/// which "acts like" `HTMLOptionsCollection.add` (§2.6.4.3).
 ///
-/// `before` may be `null` / `undefined` (append), an option entity,
-/// or a numeric index.  We reject non-`<option>` first arguments
-/// with `HierarchyRequestError`.
+/// Thin marshalling dispatcher (B1.2b-2-select convergence): brand-check the
+/// receiver + the `(HTMLOptionElement or HTMLOptGroupElement)` element arg, then
+/// normalise the `(HTMLElement or long)?` `before` union and route to the
+/// engine-independent `options.add` dom-api handler. The algorithm (validity
+/// ordering + `MutationRecord` production) lives in
+/// `elidex_dom_api::element::select::OptionsAdd`.
 fn native_select_add(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -681,132 +687,16 @@ fn native_select_add(
     let Some(entity) = require_select_receiver(ctx, this, "add")? else {
         return Ok(JsValue::Undefined);
     };
-    select_add_impl(ctx, entity, args)
+    dispatch_options_add(ctx, entity, args)
 }
 
-/// HTML §4.10.7.5 `add(opt, before?)` algorithm shared by
-/// `HTMLSelectElement.prototype.add` and
-/// `HTMLOptionsCollection.prototype.add`.  `select_entity` is the
-/// `<select>` element to insert the option into.
-pub(super) fn select_add_impl(
-    ctx: &mut NativeContext<'_>,
-    entity: Entity,
-    args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    // First argument: must be an Option element wrapper.
-    let opt_arg = args.first().copied().unwrap_or(JsValue::Undefined);
-    let opt_entity = match opt_arg {
-        JsValue::Object(obj_id) => match ctx.vm.get_object(obj_id).kind {
-            ObjectKind::HostObject { entity_bits } => {
-                Entity::from_bits(entity_bits).ok_or_else(|| {
-                    VmError::dom_exception(
-                        ctx.vm.well_known.dom_exc_hierarchy_request_error,
-                        "select.add: invalid entity",
-                    )
-                })?
-            }
-            _ => {
-                return Err(VmError::dom_exception(
-                    ctx.vm.well_known.dom_exc_hierarchy_request_error,
-                    "select.add: argument is not an HTMLOptionElement",
-                ));
-            }
-        },
-        _ => {
-            return Err(VmError::dom_exception(
-                ctx.vm.well_known.dom_exc_hierarchy_request_error,
-                "select.add: argument is not an HTMLOptionElement",
-            ));
-        }
-    };
-    if !ctx.host().tag_matches_ascii_case(opt_entity, "option") {
-        return Err(VmError::dom_exception(
-            ctx.vm.well_known.dom_exc_hierarchy_request_error,
-            "select.add: argument must be an HTMLOptionElement",
-        ));
-    }
-    // Resolve `before` argument per WebIDL overload resolution for
-    // `(HTMLElement or long)`:
-    //   - null / undefined / not-supplied → append (no before)
-    //   - platform object implementing HTMLElement → element reference
-    //   - everything else (Number / String / Boolean / non-host
-    //     Object) → ToInt32 → long
-    let before_arg = args.get(1).copied().unwrap_or(JsValue::Null);
-    let before_entity: Option<Entity> = match before_arg {
-        JsValue::Null | JsValue::Undefined => None,
-        JsValue::Object(obj_id) => match ctx.vm.get_object(obj_id).kind {
-            ObjectKind::HostObject { entity_bits } => {
-                // WebIDL `(HTMLElement or long)` overload: the
-                // HostObject only enters the HTMLElement arm when
-                // the backing entity is actually an Element node.
-                // Text / Comment / Document / etc. host wrappers
-                // fall through to the `long` branch (ToInt32 of a
-                // non-Number Object goes through ToPrimitive →
-                // typically NaN → 0).
-                let candidate = Entity::from_bits(entity_bits);
-                let is_element = candidate.is_some_and(|e| {
-                    ctx.host().dom().node_kind_inferred(e) == Some(NodeKind::Element)
-                });
-                if is_element {
-                    candidate
-                } else {
-                    resolve_options_index(ctx, entity, before_arg)?
-                }
-            }
-            // Non-HostObject (plain JS object) falls into the
-            // `long` branch.
-            _ => resolve_options_index(ctx, entity, before_arg)?,
-        },
-        // Number / String / Boolean / BigInt all coerce through
-        // `to_int32` (which calls `to_number` first per ECMA-262 §7.1.4).
-        _ => resolve_options_index(ctx, entity, before_arg)?,
-    };
-    // Insert via the underlying DOM; if `before` is provided it
-    // must be a descendant of the select (HTML §4.10.7.5: "before
-    // must be a descendant of the select element"), and the new
-    // option is inserted into `before`'s actual parent so a
-    // `<option>` inside an `<optgroup>` works as a reference.
-    // DOM mutation calls return false on failure (cycle / destroyed
-    // entities / invalid ref) — surface these as
-    // `HierarchyRequestError` rather than silently swallowing.
-    if let Some(before) = before_entity {
-        let dom = ctx.host().dom();
-        let in_select = dom.is_ancestor_or_self(entity, before) && before != entity;
-        if !in_select {
-            return Err(VmError::dom_exception(
-                ctx.vm.well_known.dom_exc_not_found_error,
-                "select.add: before is not a descendant of this select",
-            ));
-        }
-        let Some(parent_of_before) = dom.get_parent(before) else {
-            return Err(VmError::dom_exception(
-                ctx.vm.well_known.dom_exc_not_found_error,
-                "select.add: before has no parent",
-            ));
-        };
-        if !ctx
-            .host()
-            .dom()
-            .insert_before(parent_of_before, opt_entity, before)
-        {
-            return Err(VmError::dom_exception(
-                ctx.vm.well_known.dom_exc_hierarchy_request_error,
-                "select.add: insertBefore failed (cycle or detached entity)",
-            ));
-        }
-    } else if !ctx.host().dom().append_child(entity, opt_entity) {
-        return Err(VmError::dom_exception(
-            ctx.vm.well_known.dom_exc_hierarchy_request_error,
-            "select.add: appendChild failed (cycle or detached entity)",
-        ));
-    }
-    Ok(JsValue::Undefined)
-}
-
-/// `select.remove(idx)` — HTML §4.10.7.6.  No-arg form delegates to
-/// `ChildNode.remove()` (detach the select itself); numeric form
-/// removes the option at the given index (silent no-op when out of
-/// range).
+/// `select.remove(index?)` — HTML §4.10.7 (`#dom-select-remove`).  No-arg /
+/// `undefined` form falls through to `ChildNode.remove()` (detach the select
+/// itself); a numeric form removes the option at the given index.
+///
+/// Thin marshalling dispatcher: the no-arg path routes to the converged `remove`
+/// (ChildNode) handler (One-issue-one-way — no inline detach duplicate); the
+/// numeric path `ToInt32`-coerces and routes to `options.remove`.
 fn native_select_remove(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -815,119 +705,168 @@ fn native_select_remove(
     let Some(entity) = require_select_receiver(ctx, this, "remove")? else {
         return Ok(JsValue::Undefined);
     };
-    // No-arg: ChildNode.remove() — detach `entity` from its parent.
+    // No-arg / undefined: ChildNode.remove() — detach `entity` via the converged
+    // record-producing handler (#393), NOT an inline `remove_child` duplicate.
     if args.is_empty() || matches!(args[0], JsValue::Undefined) {
-        if let Some(parent) = ctx.host().dom().get_parent(entity) {
-            let _ = ctx.host().dom().remove_child(parent, entity);
-        }
-        return Ok(JsValue::Undefined);
+        return super::dom_bridge::invoke_dom_api(ctx, "remove", entity, &[]);
     }
-    select_remove_option_at_impl(ctx, entity, &args[0])
+    dispatch_options_remove_index(ctx, entity, args[0])
 }
 
-/// HTML §4.10.7.6 / §4.10.10.2 `remove(idx)` algorithm shared by
-/// `HTMLSelectElement.prototype.remove` (numeric overload) and
-/// `HTMLOptionsCollection.prototype.remove`.  Walks the select's
-/// `Options` filter and detaches the option at `idx_arg` (after
-/// ToInt32 coercion); silent no-op when out of range.
-pub(super) fn select_remove_option_at_impl(
+// ---------------------------------------------------------------------------
+// Shared marshalling dispatchers (HTMLSelectElement + HTMLOptionsCollection)
+// ---------------------------------------------------------------------------
+//
+// `select.add`/`remove(idx)` and `options.add`/`remove`/`length` route through
+// the same engine-independent dom-api handlers (One handler per algorithm, both
+// receivers — HTML §4.10.7 "act like" §2.6.4.3). These helpers own only the
+// engine-bound marshalling: receiver-resolved `select` entity in, WebIDL union /
+// `ToInt32` / `ToUint32` coercion, then `invoke_dom_api`.
+
+/// TypeError for an `add` `element` argument that is not an
+/// `HTMLOptionElement`/`HTMLOptGroupElement` wrapper (WebIDL union-conversion
+/// failure). Distinct from the detached form so a stale wrapper surfaces as
+/// "detached", mirroring `element_insert_adjacent::require_element_arg`.
+fn option_arg_type_error() -> VmError {
+    VmError::type_error(
+        "Failed to execute 'add' on 'HTMLSelectElement': The element provided is not an \
+         HTMLOptionElement or HTMLOptGroupElement."
+            .to_owned(),
+    )
+}
+
+/// TypeError for an `add` `element` argument whose backing entity has been
+/// destroyed / recycled.
+fn option_arg_detached_error() -> VmError {
+    VmError::type_error(
+        "Failed to execute 'add' on 'HTMLSelectElement': the element provided is detached \
+         (invalid entity)."
+            .to_owned(),
+    )
+}
+
+/// WebIDL `(HTMLOptionElement or HTMLOptGroupElement)` union brand-check
+/// (marshalling): the `element` arg must be a live `<option>`/`<optgroup>`
+/// wrapper. Kept VM-side — like `require_element_arg` (#399) — because (a) it
+/// distinguishes a *detached* wrapper (recycled entity) from a *wrong-type* one,
+/// a `JsValue`/`ObjectKind`-identity distinction the engine-independent handler
+/// cannot make (the bridge's `materialize` rejects a destroyed entity
+/// generically before the handler runs), and (b) running the full union check
+/// here keeps the WebIDL conversion order correct — a wrong-type `element` throws
+/// before `before`'s `ToInt32` side effects. The `options.add` handler re-guards
+/// the tag for boa/wasm parity + defense-in-depth.
+fn require_option_or_optgroup_arg(
     ctx: &mut NativeContext<'_>,
-    entity: Entity,
-    idx_arg: &JsValue,
-) -> Result<JsValue, VmError> {
-    let n = super::super::coerce::to_int32(ctx.vm, *idx_arg)?;
-    let Ok(idx) = usize::try_from(n) else {
-        return Ok(JsValue::Undefined);
+    value: JsValue,
+) -> Result<(), VmError> {
+    let JsValue::Object(id) = value else {
+        return Err(option_arg_type_error());
     };
-    let mut opts = elidex_dom_api::LiveCollection::new(
-        entity,
-        elidex_dom_api::CollectionFilter::Options,
-        elidex_dom_api::CollectionKind::HtmlCollection,
-    );
-    if let Some(target) = opts.item(idx, ctx.host().dom()) {
-        if let Some(parent) = ctx.host().dom().get_parent(target) {
-            let _ = ctx.host().dom().remove_child(parent, target);
-        }
+    let ObjectKind::HostObject { entity_bits } = ctx.vm.get_object(id).kind else {
+        return Err(option_arg_type_error());
+    };
+    let entity = Entity::from_bits(entity_bits).ok_or_else(option_arg_detached_error)?;
+    // Stale-entity check before the tag lookup: a destroyed entity has no
+    // components, so a tag probe would masquerade as "wrong type".
+    if !ctx.host().dom().contains(entity) {
+        return Err(option_arg_detached_error());
     }
-    Ok(JsValue::Undefined)
+    let is_member = ctx.host().tag_matches_ascii_case(entity, "option")
+        || ctx.host().tag_matches_ascii_case(entity, "optgroup");
+    if is_member {
+        Ok(())
+    } else {
+        Err(option_arg_type_error())
+    }
 }
 
-/// HTML §4.10.10.2 `HTMLOptionsCollection.length` setter.
-///
-/// `select_entity` is the `<select>` element backing the
-/// HTMLOptionsCollection.  When the new length exceeds the current
-/// option count, append (`new_len` - `current_len`) bare `<option>`
-/// elements (no attributes, no children — per spec).  When the new
-/// length is smaller, detach options from the end until the count
-/// matches.
-///
-/// Per HTML §4.10.10.2 step 1, negative `unsigned long` values wrap
-/// modulo 2³² (handled here via `to_uint32`) and the resulting count
-/// is bounded by an implementation-defined limit.  We cap at
-/// [`elidex_ecs::MAX_ANCESTOR_DEPTH`] (10 000) because that's also
-/// the engine-wide ceiling on `children_iter_rev` traversal, so any
-/// options created past that point would be invisible to subsequent
-/// `select.options` walks anyway.
-pub(super) fn select_set_options_length_impl(
+/// Normalise the `add` `before` argument `(HTMLElement or long)?` to what the
+/// `options.add` handler consumes: `Null` (append), the element `Object` (a node
+/// reference), or a `Number` (the `ToInt32` index). The element-vs-long
+/// discrimination inspects `ObjectKind`/Element identity, so it is engine-bound
+/// marshalling and stays VM-side.
+fn normalize_before_arg(
     ctx: &mut NativeContext<'_>,
-    select_entity: Entity,
+    before_arg: JsValue,
+) -> Result<JsValue, VmError> {
+    let coerce_long = |ctx: &mut NativeContext<'_>, v: JsValue| -> Result<JsValue, VmError> {
+        // ToInt32 (which calls ToNumber first per ECMA-262 §7.1.4); a non-Number
+        // Object goes through ToPrimitive → typically NaN → 0.
+        Ok(JsValue::Number(f64::from(super::super::coerce::to_int32(
+            ctx.vm, v,
+        )?)))
+    };
+    match before_arg {
+        JsValue::Null | JsValue::Undefined => Ok(JsValue::Null),
+        JsValue::Object(obj_id) => match ctx.vm.get_object(obj_id).kind {
+            ObjectKind::HostObject { entity_bits } => {
+                // The HostObject enters the HTMLElement arm only when its backing
+                // entity is actually an Element node; Text / Comment / Document
+                // wrappers fall through to the `long` branch.
+                let is_element = Entity::from_bits(entity_bits).is_some_and(|e| {
+                    ctx.host().dom().node_kind_inferred(e) == Some(NodeKind::Element)
+                });
+                if is_element {
+                    Ok(before_arg)
+                } else {
+                    coerce_long(ctx, before_arg)
+                }
+            }
+            // Non-HostObject (plain JS object) falls into the `long` branch.
+            _ => coerce_long(ctx, before_arg),
+        },
+        // Number / String / Boolean / BigInt all coerce through ToInt32.
+        _ => coerce_long(ctx, before_arg),
+    }
+}
+
+/// HTML §2.6.4.3 / §4.10.7 `add(element, before?)` marshalling shared by
+/// `HTMLSelectElement.add` and `HTMLOptionsCollection.add`. `select` is the
+/// receiver-resolved `<select>` entity.
+pub(super) fn dispatch_options_add(
+    ctx: &mut NativeContext<'_>,
+    select: Entity,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    const MAX_OPTIONS: usize = elidex_ecs::MAX_ANCESTOR_DEPTH;
-    let val = args.first().copied().unwrap_or(JsValue::Undefined);
-    let new_len = super::super::coerce::to_uint32(ctx.vm, val)? as usize;
-    let new_len = new_len.min(MAX_OPTIONS);
-    let mut opts = elidex_dom_api::LiveCollection::new(
-        select_entity,
-        elidex_dom_api::CollectionFilter::Options,
-        elidex_dom_api::CollectionKind::HtmlCollection,
-    );
-    let current: Vec<Entity> = opts.snapshot(ctx.host().dom()).to_vec();
-    let cur_len = current.len();
-    if new_len > cur_len {
-        // Inherit ownerDocument from the select so the new options
-        // satisfy WHATWG DOM §4.4 "node document" before insertion
-        // (matches `document.createElement("option")` semantics).
-        let owner = ctx.host().dom().get_associated_document(select_entity);
-        // Snapshot is taken before the loop; growth appends past
-        // `cur_len`, so we never observe the newly-created entities
-        // in `current`.
-        for _ in 0..(new_len - cur_len) {
-            let opt_entity = ctx.host().dom().create_element_with_owner(
-                "option",
-                elidex_ecs::Attributes::default(),
-                owner,
-            );
-            let _ = ctx.host().dom().append_child(select_entity, opt_entity);
-        }
-    } else if new_len < cur_len {
-        // Detach from the end so earlier indices remain stable.
-        for &target in current[new_len..].iter().rev() {
-            if let Some(parent) = ctx.host().dom().get_parent(target) {
-                let _ = ctx.host().dom().remove_child(parent, target);
-            }
-        }
-    }
-    Ok(JsValue::Undefined)
+    // WebIDL conversion order: element union first, then before.
+    let opt_arg = args.first().copied().unwrap_or(JsValue::Undefined);
+    require_option_or_optgroup_arg(ctx, opt_arg)?;
+    let before_arg = args.get(1).copied().unwrap_or(JsValue::Null);
+    let before_norm = normalize_before_arg(ctx, before_arg)?;
+    super::dom_bridge::invoke_dom_api(ctx, "options.add", select, &[opt_arg, before_norm])
 }
 
-/// WebIDL ToInt32(`before`) → index into the select's options
-/// list; returns the option entity at that index, or `None` for
-/// negative / out-of-range indices (which spec-defines as no
-/// before reference, i.e. append).
-fn resolve_options_index(
+/// HTML §2.6.4.3 / §4.10.7 `remove(index)` marshalling: `ToInt32`-coerce the
+/// index and route to the `options.remove` handler. `select` is the
+/// receiver-resolved `<select>` entity.
+pub(super) fn dispatch_options_remove_index(
     ctx: &mut NativeContext<'_>,
-    select_entity: Entity,
-    before_arg: JsValue,
-) -> Result<Option<Entity>, VmError> {
-    let coerced = super::super::coerce::to_int32(ctx.vm, before_arg)?;
-    if coerced < 0 {
-        return Ok(None);
-    }
-    let mut opts = elidex_dom_api::LiveCollection::new(
-        select_entity,
-        elidex_dom_api::CollectionFilter::Options,
-        elidex_dom_api::CollectionKind::HtmlCollection,
-    );
-    Ok(opts.item(coerced as usize, ctx.host().dom()))
+    select: Entity,
+    idx_arg: JsValue,
+) -> Result<JsValue, VmError> {
+    let n = super::super::coerce::to_int32(ctx.vm, idx_arg)?;
+    super::dom_bridge::invoke_dom_api(
+        ctx,
+        "options.remove",
+        select,
+        &[JsValue::Number(f64::from(n))],
+    )
+}
+
+/// HTML §2.6.4.3 `length` setter marshalling: `ToUint32`-coerce the value and
+/// route to the `options.length.set` handler. `select` is the receiver-resolved
+/// `<select>` entity.
+pub(super) fn dispatch_options_set_length(
+    ctx: &mut NativeContext<'_>,
+    select: Entity,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let val = args.first().copied().unwrap_or(JsValue::Undefined);
+    let value = super::super::coerce::to_uint32(ctx.vm, val)?;
+    super::dom_bridge::invoke_dom_api(
+        ctx,
+        "options.length.set",
+        select,
+        &[JsValue::Number(f64::from(value))],
+    )
 }

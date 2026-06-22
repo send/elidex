@@ -1,31 +1,35 @@
 //! `HTMLOptionsCollection.prototype` intrinsic — the `select.options`
-//! mutable surface (HTML §4.10.10.2).  Subclass of
-//! `HTMLCollection.prototype`; everything inherited (`length` /
+//! mutable surface (HTML §2.6.4.3 `#the-htmloptionscollection-interface`).
+//! Subclass of `HTMLCollection.prototype`; everything inherited (`length` /
 //! `item` / `namedItem` / `[Symbol.iterator]`) flows through the
 //! parent prototype, while this module installs the four
 //! Options-only members:
 //!
 //! - `add(option, before?)` — same algorithm as
-//!   `HTMLSelectElement.prototype.add` (HTML §4.10.7.5), reached
-//!   here via the collection's root entity.
+//!   `HTMLSelectElement.prototype.add` (HTML §4.10.7 `#dom-select-add`),
+//!   reached here via the collection's root entity.
 //! - `remove(idx)` — option-at-index detach.  Mirrors
 //!   `HTMLSelectElement.prototype.remove(idx)` numeric overload
-//!   (HTML §4.10.7.6 / §4.10.10.2).
+//!   (HTML §4.10.7 `#dom-select-remove` / §2.6.4.3
+//!   `#dom-htmloptionscollection-remove`).
 //! - `length` setter — extends with bare `<option>` elements or
-//!   truncates from the end (HTML §4.10.10.2).  The getter is
+//!   truncates from the end (HTML §2.6.4.3
+//!   `#dom-htmloptionscollection-length`).  The getter is
 //!   inherited from `HTMLCollection.prototype.length` accessor.
 //! - `selectedIndex` (R/W) — alias for `select.selectedIndex`,
-//!   exposed on the collection per HTML §4.10.10.2.
+//!   exposed on the collection per HTML §2.6.4.3.
 //!
 //! ## Layering
 //!
-//! Per CLAUDE.md "Layering mandate", every algorithm body (option
-//! insertion, removal, selectedness fallback) lives in
-//! `html_select_proto::*_impl` helpers (which themselves delegate to
-//! `elidex_form` for the spec algorithms — D-3 / D-4 of the drift-
-//! hoist PR).  This module is purely brand-check + entity resolution
-//! glue between the OptionsCollection wrapper and the shared
-//! algorithm helpers.
+//! Per CLAUDE.md "Layering mandate", the option insert/remove/length
+//! **algorithm** + `MutationRecord` production lives in the
+//! engine-independent dom-api handlers
+//! (`elidex_dom_api::element::select::{OptionsAdd, OptionsRemove,
+//! OptionsSetLength}`); this module + `html_select_proto` only marshal
+//! (brand-check + WebIDL union / `ToInt32` / `ToUint32` coercion) and
+//! route through the shared `dispatch_options_*` helpers (B1.2b-2-select
+//! convergence — One handler, both receivers).  `selectedIndex` stays a
+//! selectedness query hoisted to `elidex_form` (D-3 / D-4 drift-hoist).
 //!
 //! ## Brand check
 //!
@@ -44,7 +48,7 @@ use elidex_ecs::Entity;
 
 use super::super::value::{JsValue, NativeContext, ObjectKind, VmError};
 use super::html_select_proto::{
-    select_add_impl, select_remove_option_at_impl, select_set_options_length_impl,
+    dispatch_options_add, dispatch_options_remove_index, dispatch_options_set_length,
     select_set_selected_index_impl,
 };
 
@@ -116,7 +120,7 @@ pub(super) fn native_options_add(
     let Some(select_entity) = require_options_collection_receiver(ctx, this, "add")? else {
         return Ok(JsValue::Undefined);
     };
-    select_add_impl(ctx, select_entity, args)
+    dispatch_options_add(ctx, select_entity, args)
 }
 
 pub(super) fn native_options_remove(
@@ -128,7 +132,7 @@ pub(super) fn native_options_remove(
         return Ok(JsValue::Undefined);
     };
     let idx_arg = args.first().copied().unwrap_or(JsValue::Undefined);
-    select_remove_option_at_impl(ctx, select_entity, &idx_arg)
+    dispatch_options_remove_index(ctx, select_entity, idx_arg)
 }
 
 pub(super) fn native_options_set_length(
@@ -139,7 +143,7 @@ pub(super) fn native_options_set_length(
     let Some(select_entity) = require_options_collection_receiver(ctx, this, "length")? else {
         return Ok(JsValue::Undefined);
     };
-    select_set_options_length_impl(ctx, select_entity, args)
+    dispatch_options_set_length(ctx, select_entity, args)
 }
 
 pub(super) fn native_options_get_selected_index(

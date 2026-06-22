@@ -88,6 +88,31 @@ pub(crate) fn webidl_unsigned_long(n: f64) -> usize {
     (n.trunc().rem_euclid(4_294_967_296.0)) as usize
 }
 
+/// WebIDL `long` conversion (ECMAScript `ToInt32`, ECMA-262 §7.1.7) — the signed
+/// twin of [`webidl_unsigned_long`], for indexed handler args typed `long`
+/// (e.g. `HTMLOptionsCollection.add`'s `before` integer / `remove(index)`).
+///
+/// NaN / ±∞ / ±0 → `0`; otherwise truncate toward zero, take modulo 2³², then map
+/// `[2³¹, 2³²)` to the negative range (so `2³²` wraps to `0`, `2³²+5` to `5`,
+/// `-1` stays `-1`). An engine that pre-coerces (the VM host's `to_int32`) passes
+/// an already-`i32`-valued `f64`, for which this is the identity (`ToInt32` is
+/// idempotent); an engine that forwards the raw number (boa/wasm) relies on this,
+/// so the handler stays WebIDL-correct regardless of caller.
+#[expect(clippy::cast_possible_truncation)]
+pub(crate) fn webidl_long(n: f64) -> i32 {
+    if !n.is_finite() {
+        return 0;
+    }
+    // `rem_euclid` keeps the result in `[0, 2³²)`; values at or above 2³¹ denote
+    // negative i32s (two's-complement wrap), so subtract 2³² to recover them.
+    let int32bit = n.trunc().rem_euclid(4_294_967_296.0);
+    if int32bit >= 2_147_483_648.0 {
+        (int32bit - 4_294_967_296.0) as i32
+    } else {
+        int32bit as i32
+    }
+}
+
 /// Ensure `entity` is a live Element receiver, returning `NotFoundError`
 /// otherwise.
 ///

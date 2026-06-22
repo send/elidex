@@ -11,6 +11,7 @@ pub(crate) mod layout_query;
 pub mod numeric_reflect;
 mod option_disabled;
 mod props;
+pub(crate) mod select;
 pub mod table_mutation;
 pub(crate) mod tree;
 
@@ -27,6 +28,7 @@ pub use layout_query::{
 };
 pub use option_disabled::is_option_disabled;
 pub use props::{GetAttribute, RemoveAttribute, SetAttribute};
+pub use select::{OptionsAdd, OptionsRemove, OptionsSetLength};
 pub use tree::{
     collect_text_content, serialize_inner_html, serialize_inner_html_with_options,
     serialize_outer_html, validate_attribute_name, AppendChild, GetInnerHtml,
@@ -46,6 +48,9 @@ mod tests_attrs;
 #[cfg(test)]
 #[allow(unused_must_use)]
 mod tests_insert_adjacent;
+#[cfg(test)]
+#[allow(unused_must_use)]
+mod tests_select;
 #[cfg(test)]
 #[allow(unused_must_use)]
 mod tests_tree;

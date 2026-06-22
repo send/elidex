@@ -181,6 +181,14 @@ pub fn create_dom_registry_with_policy(policy: SpecLevelPolicy) -> DomHandlerReg
     );
     reg("insertAdjacentText", Box::new(super::InsertAdjacentText));
 
+    // --- HTMLSelectElement / HTMLOptionsCollection — option tree ops ---
+    // One handler serves both receivers (`select.add`/`remove` "act like" the
+    // options-collection namesakes, HTML §4.10.7 / §2.6.4.3); the VM/boa
+    // brand-check resolves both to the `<select>` entity (`this`).
+    reg("options.add", Box::new(super::OptionsAdd));
+    reg("options.remove", Box::new(super::OptionsRemove));
+    reg("options.length.set", Box::new(super::OptionsSetLength));
+
     // --- Dataset ---
     reg("dataset.get", Box::new(super::DatasetGet));
     reg("dataset.set", Box::new(super::DatasetSet));
@@ -557,6 +565,9 @@ mod tests {
             "innerHTML.get",
             "insertAdjacentElement",
             "insertAdjacentText",
+            "options.add",
+            "options.remove",
+            "options.length.set",
             "dataset.get",
             "dataset.set",
             "dataset.delete",
