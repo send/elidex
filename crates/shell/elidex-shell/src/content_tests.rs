@@ -584,6 +584,42 @@ fn build_iframe_test_state(
     (state, browser)
 }
 
+/// F9: a `Shutdown` replayed after a blocking load sets `pending_shutdown` (its
+/// `handle_message` return is consumed by the replay loop); `run_event_loop` must
+/// honor that flag and exit. Otherwise `Tab::shutdown()` holds the channel sender
+/// across `join()`, so there is no disconnect to fall back on and the join blocks
+/// forever.
+///
+/// Build a state, set the flag, and run the loop on this thread (the pipeline is
+/// `!Send`, so it cannot move to another thread). A watchdog keeps the channel
+/// alive then force-sends `Shutdown` after 2s — so a regression (no flag check)
+/// terminates and **fails** on elapsed time instead of hanging the suite, while
+/// the fix returns essentially instantly.
+#[test]
+fn run_event_loop_honors_pending_shutdown_flag() {
+    let (mut state, browser) = build_iframe_test_state("<div>x</div>", "");
+    state.pending_shutdown = true;
+
+    let watchdog = std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_secs(2));
+        // If the flag was honored, the content side already exited and this send
+        // hits a closed channel — harmless. If not, it breaks the otherwise-
+        // infinite loop so the assert below fails cleanly rather than hanging.
+        let _ = browser.send(BrowserToContent::Shutdown);
+    });
+
+    let start = std::time::Instant::now();
+    event_loop::run_event_loop(&mut state);
+    let elapsed = start.elapsed();
+    let _ = watchdog.join();
+
+    assert!(
+        elapsed < Duration::from_secs(1),
+        "run_event_loop did not honor pending_shutdown ({elapsed:?}); \
+         Tab::shutdown()'s join() would deadlock"
+    );
+}
+
 /// The single `<iframe>` entity in the parent DOM (the one carrying `IframeData`).
 fn iframe_entity(state: &ContentState) -> elidex_ecs::Entity {
     (&mut state

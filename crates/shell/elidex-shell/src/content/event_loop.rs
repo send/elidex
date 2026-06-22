@@ -20,6 +20,14 @@ pub(super) fn run_event_loop(state: &mut ContentState) {
     let mut last_frame = Instant::now();
 
     loop {
+        // A `Shutdown` replayed after a blocking load (initial URL spawn /
+        // navigation rebuild) dispatched unload + set this flag instead of
+        // breaking the loop directly; honor it here so the thread exits and
+        // `Tab::shutdown`'s `join()` returns.
+        if state.pending_shutdown {
+            break;
+        }
+
         let animations_running = state.pipeline.animation_engine.has_running();
 
         let now_for_timeout = Instant::now();
