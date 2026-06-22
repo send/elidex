@@ -20,25 +20,19 @@ user-invocable: true
 
 ## Skip OK
 
-> **Override (governs EVERY skip path below — present and future — and the pre-push gate)**: an edit to **review/enforcement tooling** — `.claude/skills/**`, `.claude/tools/**` (e.g. `webref`, the Axis-4 spec-citation verifier), or `.claude/hooks/**` (gate trip-wires) — alters how review/gates behave despite touching no Rust, so it is **never skip-justified**; the "Skip justification" per-axis table is the **sole authority** and **none** of the convenience bullets below apply. **Two tiers**: (a) **executable** enforcement code (`.py` / `.sh` / `webref`) ALSO needs Stages 3 & 5 (correctness / quality — `mise run ci` is cargo-only and does NOT cover Python/shell gate code); (b) **inert** rule text (Markdown detect / workflow / gate / skip / axis prose) needs Stage 6 `/elidex-review` (design / SSoT-consistency). (Single home — a per-bullet / per-path carve-out drifts: a sibling always gets missed.) Pure *non-enforcement* doc/text (typo / wording / formatting; tooling unrelated to review/gates) remains bullet-skippable.
+**Default = run the full review** (5-agent cost ~5 min + audit trail). Skipping (this pre-push pass OR the `/external-converge` TERMINAL fix-delta pass) is justified **only when you can honestly fill a per-axis expected-yield=0 table** (`feedback_terminal-elidex-review-skip-justification.md`, #231) — state, per axis, why this change cannot plausibly trip it. **When in doubt, run it.**
 
-- doc-only PR (no src changes) → 各 agent が trivially 0 finding、明示 skip 可
-- diff < 30 LoC かつ既存 pattern minor extension のみ → judgment skip 可、landing memo に理由明示
+The decision is a **per-PR judgment per axis ("could this change plausibly trip this axis?"), NOT a pre-baked lookup of skippable shapes** — an enumerated shape-list always leaks the next uncovered combination. Yield is 0 only when (illustrative, judge per PR — not exhaustive):
 
-### Skip justification — per-axis expected-yield gate (`feedback_terminal-elidex-review-skip-justification.md`, #231)
+| Axis | Expected yield 0 when… |
+|---|---|
+| 1 Layering | no `vm/host/` change **and** no core-vs-compat VM change (`crates/script/elidex-js/src/vm/` outside `host/` — a sloppy-mode / Annex-B slot in core VM trips this) |
+| 2 ECS-native | no ECS component / code-logic change |
+| 3 Pragmatic | no stub / scope-cut / edge-dense bundling introduced |
+| 4 Spec citation | no spec citation added / renumbered / edited (an external silent-zero round does NOT prove webref §/AO lookups ran — a citation sweep still needs the Axis-4 pass) |
+| 5 Project-context | no defer-ledger / slot / roadmap change, no past-lesson re-introduction |
 
-**Default = run it** (5-agent cost is bounded ~5 min + produces an audit trail). Skipping (whether this pre-push pass or the `/external-converge` TERMINAL fix-delta pass) is justified **only when every axis has expected yield 0**, argued **per-axis** in the landing memo with a table like:
-
-| Axis | Expected yield | Justification |
-|---|---|---|
-| 1 Layering mandate | 0 | No `vm/host/` Rust code touched (e.g. docstring/comment-only) |
-| 2 ECS-native lens | 0 | No ECS state / code-logic touch |
-| 3 Pragmatic shortcut | 0 | No `// stub` / `// for now` markers introduced (grep clean) |
-| 4 Spec citation | 0 | **Only if the delta has NO spec-citation changes.** An external silent-zero round does NOT prove webref §/AO lookups were performed — so a citation *renumber/edit* sweep STILL requires the webref Axis-4 pass regardless of any external clean pass (else drift ships in exactly the sweep case this gate catches). No-citation-delta → external silent-zero is reasonable ground truth |
-| 5 Project-context | 0 | Slot refs drift-hoist precedent; no defer-ledger changes; no past-lesson re-introduction (grep clean) |
-
-**Skip-justified shapes**: docstring/comment sweep with high external-review R count (≥5 rounds, consecutive silent-zero TERMINAL) / pure-tooling PR (Python/shell/CI, no Rust crate touch) **that is NOT review/enforcement tooling** (per the Override, `webref` / `preflight.py` / `grep_pass.py` / hooks are enforcement code → not skip-justified) / skill·memory·overlay edits that are **inert text** (typo / wording / formatting / pure prose clarification).
-**NOT-skip-justified**: anything touching `crates/script/elidex-js/src/vm/host/` (Axis 1+2 always non-trivial) / new Rust file in an engine crate (Axis 2) / new or renumbered/edited spec citation (Axis 4 worth re-verifying even after a clean external pass — see the Axis-4 row) / ECS component-def changes (Axis 2 sub-check 2b) / `m4-12-platform-gap-roadmap.md` slot-def changes (Axis 5) / **any review/enforcement-tooling edit per the Override above** (`.claude/skills/**`, `.claude/tools/**`, `.claude/hooks/**`; executable code also runs Stages 3/5). When in doubt, run it.
+**The one non-obvious case**: an edit that changes *review/enforcement behavior itself* — a detect entry, workflow step, gate, skip rule, axis definition, or the gate tooling (`.claude/skills/**`, `.claude/tools/**` e.g. `webref`, `.claude/hooks/**`) — **cannot honestly show yield 0** (it alters how the gates behave despite touching no Rust), so it is never skippable. Inert *rule prose* → run Stage 6 `/elidex-review`; **executable gate code** (`.py` / `.sh` / `webref`, not covered by cargo-only `mise run ci`) → run the **full** gate (`/code-review` + `/simplify` + `/review` + `/elidex-review`). Genuinely skippable = pure inert doc/comment text (typo / wording / formatting) tripping none of the rows above.
 
 ## Workflow
 
