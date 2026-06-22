@@ -105,6 +105,10 @@ pub struct MouseClickEvent {
     pub button: u8,
     /// Modifier keys held during click.
     pub mods: ModifierState,
+    /// The [`ViewportCell`] seq the `point`/`client_point` were mapped against
+    /// (browser-stamped at send time). See [`BrowserToContent::MouseMove`] for the
+    /// drop contract.
+    pub placement_seq: u64,
 }
 
 /// Data for `BrowserToContent::SwRegistered` (boxed to reduce enum size).
@@ -139,6 +143,17 @@ pub enum BrowserToContent {
         point: Point,
         /// Position in viewport (for DOM event clientX/clientY).
         client_point: Point<f64>,
+        /// The [`ViewportCell`] seq the coordinates were mapped against
+        /// (browser-stamped at send time). The content thread **drops** this input
+        /// when `placement_seq < applied_viewport_seq` — it was hit-mapped against a
+        /// viewport the seq guard has since dropped (a resize that landed during a
+        /// blocking load and was superseded by the build), so hit-testing the stale
+        /// coordinates against the current layout would target the wrong element.
+        /// Dropping is the spec-aligned choice (re-mapping coordinates onto a
+        /// different layout is ill-defined). Coordinate-bearing input only
+        /// (`MouseClick`/`MouseMove`/`MouseWheel`); key/release/cursor-leave target
+        /// the focused/active element and need no placement seq. See plan-memo §10.
+        placement_seq: u64,
     },
     /// Cursor left the content area.
     CursorLeft,
@@ -189,6 +204,9 @@ pub enum BrowserToContent {
         delta: Vector<f64>,
         /// Content-relative coordinates for scroll target hit testing.
         point: Point,
+        /// The [`ViewportCell`] seq the `point` was mapped against (browser-stamped
+        /// at send time). See [`BrowserToContent::MouseMove`] for the drop contract.
+        placement_seq: u64,
     },
     /// IME event.
     Ime {

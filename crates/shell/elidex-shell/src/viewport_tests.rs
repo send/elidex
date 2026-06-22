@@ -465,6 +465,100 @@ fn content_thread_drops_stale_seq_viewport() {
     handle.join().unwrap();
 }
 
+/// Coordinate-bearing input mapped against a placement the seq guard has
+/// **superseded** is dropped, not hit-tested against the current layout (Codex R2 /
+/// plan-memo §10 — the input half of the `ViewportCell` seq reconciliation). A resize
+/// during a blocked load can leave a queued click whose coordinates were mapped
+/// against a placement the build dropped; hit-testing it against the build layout
+/// would target the wrong element, so it is dropped. Here: advance the high-water mark
+/// with `SetViewport(seq 1)`, then a `placement_seq: 0` click (mapped against the
+/// superseded placement) must fire no click handler, while a fresh `placement_seq: 1`
+/// click is processed.
+#[test]
+fn content_thread_drops_input_mapped_against_stale_placement() {
+    let (browser, content) = ipc::channel_pair::<BrowserToContent, ContentToBrowser>();
+    let (nh, jar, _np) = test_network();
+    let handle = spawn_test_content_sized(
+        content,
+        nh,
+        jar,
+        "<div id=\"box\" style=\"width:100px;height:100px;background-color:blue\"></div>\
+         <script>\
+           document.getElementById('box').addEventListener('click', function() {\
+             document.getElementById('box').style.setProperty('background-color', 'red');\
+           });\
+         </script>"
+            .to_string(),
+        "div { display: block; }".to_string(),
+        elidex_plugin::Size::new(800.0, 600.0),
+    );
+
+    let has_red = |dl: &elidex_render::DisplayList| {
+        dl.iter().any(|item| {
+            matches!(item, elidex_render::DisplayItem::SolidRect { color, .. }
+                if *color == elidex_plugin::CssColor::rgb(255, 0, 0))
+        })
+    };
+    let click_at = |placement_seq: u64| {
+        BrowserToContent::MouseClick(crate::ipc::MouseClickEvent {
+            point: elidex_plugin::Point::new(50.0, 50.0),
+            client_point: elidex_plugin::Point::new(50.0, 50.0),
+            button: 0,
+            mods: crate::ipc::ModifierState::default(),
+            placement_seq,
+        })
+    };
+
+    // Initial frame: blue (no click yet).
+    let ContentToBrowser::DisplayListReady(initial) =
+        browser.recv_timeout(Duration::from_secs(5)).unwrap()
+    else {
+        panic!("expected initial DisplayListReady");
+    };
+    assert!(!has_red(&initial), "box must start blue");
+
+    // Advance the high-water mark to seq 1 (a genuine resize).
+    browser
+        .send(BrowserToContent::SetViewport {
+            width: 1000.0,
+            height: 600.0,
+            seq: 1,
+        })
+        .unwrap();
+    let _resize_frame = browser.recv_timeout(Duration::from_secs(5)).unwrap();
+
+    // Stale click (placement_seq 0 < applied 1) must be DROPPED → click handler never
+    // runs. The `VisibilityChanged` fence always frames; a blue fenced frame ⇒ dropped.
+    browser.send(click_at(0)).unwrap();
+    browser
+        .send(BrowserToContent::VisibilityChanged { visible: true })
+        .unwrap();
+    let ContentToBrowser::DisplayListReady(fenced) =
+        browser.recv_timeout(Duration::from_secs(5)).unwrap()
+    else {
+        panic!("expected fenced DisplayListReady");
+    };
+    assert!(
+        !has_red(&fenced),
+        "stale-placement click fired the handler (should be dropped: placement_seq < applied)"
+    );
+
+    // Fresh click (placement_seq 1 == applied 1, not stale) is processed → box red.
+    browser.send(click_at(1)).unwrap();
+    let ContentToBrowser::DisplayListReady(clicked) =
+        browser.recv_timeout(Duration::from_secs(5)).unwrap()
+    else {
+        panic!("expected post-click DisplayListReady");
+    };
+    assert!(
+        has_red(&clicked),
+        "fresh-placement click must be processed (placement_seq == applied) → red"
+    );
+
+    browser.send(BrowserToContent::Shutdown).unwrap();
+    handle.join().unwrap();
+}
+
 /// Grep-guard for the single-builder invariant (F1, §2.3): the content-area
 /// geometry primitives each have exactly one **production** caller — the
 /// placement builder `App::content_area_placement` — so the cached `placement`

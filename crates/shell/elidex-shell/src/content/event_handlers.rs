@@ -845,6 +845,11 @@ pub(super) fn try_route_click_to_iframe(
         ),
         button: click.button,
         mods: click.mods,
+        // Pass through the parent's placement seq. The child iframe is a separate
+        // viewport mechanism (its own `BrowserToIframe::SetViewport`, builds at
+        // DEFAULT — slot #11-iframe-build-viewport) and does not act on this seq;
+        // the field is carried only to satisfy the shared `MouseClickEvent` shape.
+        placement_seq: click.placement_seq,
     };
 
     // Focus is moving into the iframe's browsing context, so in the PARENT

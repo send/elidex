@@ -311,9 +311,11 @@ impl App {
         let content = Self::cursor_to_content(client_pos, placement);
         if Self::point_in_content(content, placement) {
             self.cursor_in_content = true;
+            let placement_seq = self.current_placement_seq();
             self.send_to_content(BrowserToContent::MouseMove {
                 point: content.to_f32(),
                 client_point: content,
+                placement_seq,
             });
         } else if self.cursor_in_content {
             self.cursor_in_content = false;
@@ -331,11 +333,13 @@ impl App {
             let content = Self::cursor_to_content(cursor, placement);
             if Self::point_in_content(content, placement) {
                 let mods = Self::to_modifier_state(self.modifiers.state());
+                let placement_seq = self.current_placement_seq();
                 self.send_to_content(BrowserToContent::MouseClick(crate::ipc::MouseClickEvent {
                     point: content.to_f32(),
                     client_point: content,
                     button: winit_button_to_dom(button),
                     mods,
+                    placement_seq,
                 }));
             }
         }
@@ -374,9 +378,11 @@ impl App {
     ) {
         let scroll_delta = Self::scroll_delta_to_css(delta, placement.scale_factor);
         if let Some(point) = Self::wheel_target_point(self.cursor_pos, placement) {
+            let placement_seq = self.current_placement_seq();
             self.send_to_content(BrowserToContent::MouseWheel {
                 delta: scroll_delta,
                 point,
+                placement_seq,
             });
         }
     }

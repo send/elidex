@@ -139,6 +139,7 @@ fn content_thread_mouse_move() {
         .send(BrowserToContent::MouseMove {
             point: Point::new(50.0, 50.0),
             client_point: Point::new(50.0, 86.0),
+            placement_seq: 0,
         })
         .unwrap();
 
@@ -173,6 +174,7 @@ fn content_thread_click() {
             client_point: Point::new(50.0, 86.0),
             button: 0,
             mods: ModifierState::default(),
+            placement_seq: 0,
         }))
         .unwrap();
 
@@ -205,6 +207,7 @@ fn content_thread_mouse_release_clears_active() {
         .send(BrowserToContent::MouseMove {
             point: Point::new(50.0, 50.0),
             client_point: Point::new(50.0, 86.0),
+            placement_seq: 0,
         })
         .unwrap();
     let _ = browser.recv_timeout(Duration::from_secs(5)).unwrap();
@@ -216,6 +219,7 @@ fn content_thread_mouse_release_clears_active() {
             client_point: Point::new(50.0, 86.0),
             button: 0,
             mods: ModifierState::default(),
+            placement_seq: 0,
         }))
         .unwrap();
     let _ = browser.recv_timeout(Duration::from_secs(5)).unwrap();
@@ -278,6 +282,7 @@ fn content_thread_with_script() {
             client_point: Point::new(50.0, 86.0),
             button: 0,
             mods: ModifierState::default(),
+            placement_seq: 0,
         }))
         .unwrap();
 
@@ -317,6 +322,7 @@ fn content_thread_keyboard() {
             client_point: Point::new(50.0, 86.0),
             button: 0,
             mods: ModifierState::default(),
+            placement_seq: 0,
         }))
         .unwrap();
     let _ = browser.recv_timeout(Duration::from_secs(5)).unwrap();
@@ -362,6 +368,7 @@ fn content_thread_mouse_wheel_scrolls_viewport() {
         .send(BrowserToContent::MouseWheel {
             delta: elidex_plugin::Vector::new(0.0, 100.0),
             point: Point::new(100.0, 100.0),
+            placement_seq: 0,
         })
         .unwrap();
 
@@ -393,6 +400,7 @@ fn content_thread_mouse_wheel_no_scroll_overflow_hidden() {
         .send(BrowserToContent::MouseWheel {
             delta: elidex_plugin::Vector::new(0.0, 100.0),
             point: Point::new(100.0, 100.0),
+            placement_seq: 0,
         })
         .unwrap();
 
@@ -425,6 +433,7 @@ fn content_thread_mouse_wheel_small_content() {
         .send(BrowserToContent::MouseWheel {
             delta: elidex_plugin::Vector::new(0.0, 50.0),
             point: Point::new(50.0, 50.0),
+            placement_seq: 0,
         })
         .unwrap();
 
@@ -463,11 +472,14 @@ fn content_thread_viewport_resize_updates_scroll() {
     let msg = browser.recv_timeout(Duration::from_secs(5)).unwrap();
     assert!(matches!(msg, ContentToBrowser::DisplayListReady(_)));
 
-    // Now scroll should work with the new dimensions.
+    // Now scroll should work with the new dimensions. The wheel is mapped against the
+    // post-resize placement (seq 1, set by the SetViewport above), so it carries
+    // `placement_seq: 1` — `placement_seq: 0` would be dropped as mapped-against-stale.
     browser
         .send(BrowserToContent::MouseWheel {
             delta: elidex_plugin::Vector::new(0.0, 100.0),
             point: Point::new(100.0, 100.0),
+            placement_seq: 1,
         })
         .unwrap();
 

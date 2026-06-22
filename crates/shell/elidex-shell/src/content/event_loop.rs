@@ -191,6 +191,20 @@ pub(super) fn run_event_loop(state: &mut ContentState) {
     }
 }
 
+/// Whether a coordinate-bearing input event mapped against `placement_seq` is stale:
+/// the browser hit-mapped its coordinates against a viewport the build/runtime has
+/// since **superseded** (its seq is below the high-water mark `applied_viewport_seq`).
+/// This happens when a resize lands during a blocking load, input is sent against that
+/// resize's placement, then a newer resize (or the build) advances the mark past it —
+/// the `SetViewport` staleness guard drops the intermediate resize, so its coordinates
+/// no longer match any applied layout. Such input is dropped rather than hit-tested
+/// against the current layout (which would target the wrong element). The input half
+/// of the `ViewportCell` seq reconciliation (plan-memo §10), completing the
+/// `SetViewport` viewport-staleness guard above; see `BrowserToContent::MouseMove`.
+fn input_placement_stale(placement_seq: u64, state: &ContentState) -> bool {
+    placement_seq < state.applied_viewport_seq
+}
+
 /// Handle a single message. Returns `false` for Shutdown.
 ///
 /// Also exposed as `handle_message_public` for re-dispatch from navigation.rs.
@@ -232,6 +246,9 @@ fn handle_message(msg: BrowserToContent, state: &mut ContentState) -> bool {
         }
 
         BrowserToContent::MouseClick(ref click) => {
+            if input_placement_stale(click.placement_seq, state) {
+                return true;
+            }
             event_handlers::handle_click(state, click);
         }
 
@@ -239,7 +256,14 @@ fn handle_message(msg: BrowserToContent, state: &mut ContentState) -> bool {
             event_handlers::handle_mouse_release(state);
         }
 
-        BrowserToContent::MouseMove { point, .. } => {
+        BrowserToContent::MouseMove {
+            point,
+            placement_seq,
+            ..
+        } => {
+            if input_placement_stale(placement_seq, state) {
+                return true;
+            }
             event_handlers::handle_mouse_move(state, point);
         }
 
@@ -392,7 +416,14 @@ fn handle_message(msg: BrowserToContent, state: &mut ContentState) -> bool {
             }
         }
 
-        BrowserToContent::MouseWheel { delta, point } => {
+        BrowserToContent::MouseWheel {
+            delta,
+            point,
+            placement_seq,
+        } => {
+            if input_placement_stale(placement_seq, state) {
+                return true;
+            }
             scroll::handle_wheel(state, delta, point);
         }
 

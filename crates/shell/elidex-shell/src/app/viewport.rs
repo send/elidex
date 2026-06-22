@@ -87,6 +87,19 @@ impl App {
         }
     }
 
+    /// The current [`crate::ipc::ViewportCell`] placement-seq — the seq that a
+    /// coordinate-bearing input event's coordinates are mapped against when sent
+    /// **now**. It corresponds to `self.placement` by construction: a resize
+    /// republishes the cell (bumping the seq) right after caching the new placement
+    /// (`resumed`/`Resized`), and the browser thread is the single writer, so no
+    /// resize can interleave between an input handler's `self.placement` read and this
+    /// cell read. Stamped onto `MouseClick`/`MouseMove`/`MouseWheel` so the content
+    /// thread can drop input mapped against a placement its build/runtime has since
+    /// superseded (`content/event_loop.rs`, plan-memo §10).
+    pub(super) fn current_placement_seq(&self) -> u64 {
+        self.viewport_cell.read().1
+    }
+
     /// Spawn the deferred initial content thread (C1), now that the window exists. The
     /// thread reads its build size from the shared `viewport_cell` (already published
     /// with the real size by the `resumed` caller), so it is born at the real viewport
