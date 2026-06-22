@@ -298,10 +298,11 @@ the same over-enumeration A0 must delegate). Single slot:
     `Navigator` and `WorkerNavigator`.
   - ✅ **`NavigatorPlugins` mixin** (§8.10.1.6) installed on `Navigator` (only):
     `javaEnabled()` is now a **method** returning `false` (was a bool property →
-    `TypeError`); `plugins`/`mimeTypes` are empty `PluginArray`/`MimeTypeArray`
-    (correct interface shape — `length` 0 + `item`/`namedItem`→null + PluginArray
+    `TypeError`); `plugins`/`mimeTypes` are empty collections with the member
+    shape (`length` 0 + arg-converting `item`/`namedItem`→null + PluginArray
     `refresh()`); `pdfViewerEnabled` is `false` (elidex's *PDF viewer supported*
-    boolean is `false`).
+    boolean is `false`). *Interface-object branding* (`instanceof PluginArray`,
+    receiver brand-checks) deferred → `#11-navigator-interface-object-branding`.
   - ✅ **Realm scoping** (§10.3.2) asserted by test: `WorkerNavigator` exposes
     **only** `NavigatorID` + `NavigatorLanguage` + `NavigatorOnLine` +
     `NavigatorConcurrentHardware`; `NavigatorCookies` (`cookieEnabled`),
@@ -317,6 +318,30 @@ the same over-enumeration A0 must delegate). Single slot:
   *Trigger:* when the shell exposes a UA/compat-mode source to the VM (same
   dependency as the F6/E0 mode work), or sooner if a WPT/site needs the real value.
   *Date:* revisit with the `EngineMode` work (§3.2 / A1).
+
+- **`#11-navigator-interface-object-branding`** (Codex P2 on the navigator
+  follow-up PR, #398) — *Why:* the navigator follow-up installs `plugins`/
+  `mimeTypes` as plain `Ordinary` objects chained to `Object.prototype`, and
+  `navigator` itself is an unbranded plain object (as are `location`/`history`/
+  `screen` — the whole BarProp/Navigator/Location family). Full WebIDL fidelity
+  wants: (a) `PluginArray`/`MimeTypeArray`/`Plugin`/`MimeType` registered as
+  `[Exposed=Window]` interface objects + prototypes (so `navigator.plugins
+  instanceof PluginArray` resolves), following the existing `HTMLCollection`/
+  `NodeList` branding machinery (`ObjectKind` variant + dedicated prototype), and
+  (b) `Navigator.prototype` brand so operation methods (`javaEnabled()`) can
+  brand-check their receiver per WebIDL §3.7.7 (e.g. reject
+  `navigator.javaEnabled.call({})`). Deferred as a single program because doing
+  it for the empty plugin collections alone — while `navigator`/`location` stay
+  unbranded — is the "new seam + N legacy" strangler state One-issue-one-way
+  forbids; it is a VM-wide interface-object decision, not part of the
+  member-surface task. **No regression:** `instanceof PluginArray` threw
+  `ReferenceError` before this PR too (`navigator.plugins` was `undefined`), and
+  the common detection path (`navigator.plugins.length === 0`) works. The present
+  PR DID adopt the lenient-arity argument-conversion idiom for `item`/`namedItem`
+  (matching `host/dom_collection.rs`), so only the interface-identity branding is
+  deferred. *Trigger:* a VM interface-object pass for the navigator family (or a
+  WPT/site that brand-checks `PluginArray`/`MimeTypeArray`). *Date:* with the
+  navigator UA-wiring follow-up or a dedicated interface-object program.
 
 ### 1.5 Newly-found clerical drift (fold into the F2 sweep)
 

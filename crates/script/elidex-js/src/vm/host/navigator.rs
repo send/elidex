@@ -245,22 +245,37 @@ fn native_navigator_java_enabled(
 
 /// `PluginArray`/`MimeTypeArray` `item(index)` getter (WHATWG HTML §8.10.1.6):
 /// returns the entry at `index` or `null`. elidex's collections are always empty
-/// (*PDF viewer supported* is `false`), so this is unconditionally `null`.
+/// (*PDF viewer supported* is `false`), so the lookup is unconditionally `null` —
+/// but a **present** `index` argument is still run through the WebIDL `unsigned
+/// long` conversion first (the conversion's side effects, e.g. a throwing
+/// `valueOf`, are observable before the empty-list algorithm returns). A missing
+/// argument returns `null` without throwing, matching the sibling
+/// `collection_item_impl` (`host/dom_collection.rs`) — the VM's collection idiom
+/// is lenient on arity, not WebIDL-strict.
 fn native_navigator_collection_item(
-    _ctx: &mut NativeContext<'_>,
+    ctx: &mut NativeContext<'_>,
     _this: JsValue,
-    _args: &[JsValue],
+    args: &[JsValue],
 ) -> Result<JsValue, VmError> {
+    if let Some(v) = args.first() {
+        super::super::coerce::to_int32(ctx.vm, *v)?;
+    }
     Ok(JsValue::Null)
 }
 
 /// `PluginArray`/`MimeTypeArray` `namedItem(name)` getter (WHATWG HTML §8.10.1.6):
-/// returns the named entry or `null`. Always `null` for elidex's empty collections.
+/// returns the named entry or `null`. Always `null` for elidex's empty collections,
+/// but a **present** `name` argument is run through the WebIDL `DOMString`
+/// conversion first (observable side effects), mirroring `namedItem` in
+/// `host/dom_collection.rs`; a missing argument returns `null` without throwing.
 fn native_navigator_collection_named_item(
-    _ctx: &mut NativeContext<'_>,
+    ctx: &mut NativeContext<'_>,
     _this: JsValue,
-    _args: &[JsValue],
+    args: &[JsValue],
 ) -> Result<JsValue, VmError> {
+    if let Some(v) = args.first() {
+        super::super::coerce::to_string(ctx.vm, *v)?;
+    }
     Ok(JsValue::Null)
 }
 
