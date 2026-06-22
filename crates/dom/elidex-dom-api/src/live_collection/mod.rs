@@ -497,7 +497,7 @@ fn matches_filter(entity: Entity, filter: &CollectionFilter, dom: &EcsDom) -> bo
             }
         }
         CollectionFilter::ByName(name) => {
-            // WHATWG HTML §3.1.5 — `getElementsByName` is a list-of-elements
+            // WHATWG HTML §3.1.7 — `getElementsByName` is a list-of-elements
             // query, mirroring the ByClassNames Element-only guard.
             if !dom.is_element(entity) {
                 return false;

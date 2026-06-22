@@ -1,7 +1,8 @@
 //! Document host globals — `document.getElementById`,
 //! `document.createElement`, `document.createTextNode`, and the
 //! getters for `body` / `head` / `documentElement` / `title` / `URL` /
-//! `readyState` (WHATWG DOM §4.5 + HTML §3.2.9, §7.1, §12.2.8).
+//! `readyState` (`title`/`URL` = WHATWG HTML §3.1.4 Resource metadata
+//! management; `readyState` = §3.1.5 Reporting document loading status).
 //!
 //! # Scope
 //!
@@ -249,7 +250,7 @@ pub(super) fn native_document_get_elements_by_class_name(
     Ok(JsValue::Object(id))
 }
 
-/// `document.getElementsByName(name)` — WHATWG HTML §3.1.5.
+/// `document.getElementsByName(name)` — WHATWG HTML §3.1.7 (DOM tree accessors).
 /// Returns a **live NodeList** matching every descendant whose
 /// `name` content attribute equals the argument (case-sensitive).
 pub(super) fn native_document_get_elements_by_name(
@@ -267,7 +268,7 @@ pub(super) fn native_document_get_elements_by_name(
     let id = ctx.vm.alloc_collection(elidex_dom_api::LiveCollection::new(
         doc,
         elidex_dom_api::CollectionFilter::ByName(name),
-        // WHATWG HTML §3.1.5: getElementsByName returns NodeList.
+        // WHATWG HTML §3.1.7: getElementsByName returns NodeList.
         elidex_dom_api::CollectionKind::NodeList,
     ));
     Ok(JsValue::Object(id))
@@ -595,7 +596,7 @@ pub(super) fn native_document_get_doctype(
 // cookie / referrer (stubs) + forms / images / links (snapshot arrays)
 // ---------------------------------------------------------------------------
 
-/// `document.cookie` getter (WHATWG §6.5.2).  Delegates to
+/// `document.cookie` getter (WHATWG HTML §3.1.4).  Delegates to
 /// [`elidex_net::CookieJar::cookies_for_script`], which is the
 /// canonical script-visible filter (`HttpOnly` and Secure-on-non-HTTPS
 /// suppression both live there).  When no jar is installed (test
@@ -603,8 +604,7 @@ pub(super) fn native_document_get_doctype(
 /// and return `""`.
 // `compat-webapi`-gated (A3): `document.cookie` is `Legacy`, so the accessor glue
 // is compiled out of `App` builds (the `CookieJar` itself stays — HTTP cookies +
-// `navigator.cookieEnabled` need it in every mode). (The §6.5.2 cite above is
-// pre-existing drift owned by the F2 clerical cookie-comment micro-PR, not A3.)
+// `navigator.cookieEnabled` need it in every mode).
 #[cfg(feature = "compat-webapi")]
 pub(super) fn native_document_get_cookie(
     ctx: &mut NativeContext<'_>,
@@ -645,7 +645,7 @@ pub(super) fn native_document_get_cookie(
     Ok(JsValue::String(sid))
 }
 
-/// `document.cookie = value` (WHATWG §6.5.2).  Forwards a single
+/// `document.cookie = value` (WHATWG HTML §3.1.4).  Forwards a single
 /// `Set-Cookie`-syntax string to
 /// [`elidex_net::CookieJar::set_cookie_from_script`], which is the
 /// canonical attribute parser (rejecting `HttpOnly` and
@@ -694,7 +694,7 @@ pub(super) fn native_document_set_cookie(
     Ok(JsValue::Undefined)
 }
 
-/// `document.referrer` (WHATWG HTML §3.1.5).  Returns the URL of
+/// `document.referrer` (WHATWG HTML §3.1.4).  Returns the URL of
 /// the previous Document if the embedding shell has populated
 /// `NavigationState::referrer` via
 /// [`super::super::Vm::set_navigation_referrer`]; otherwise the empty

@@ -199,7 +199,7 @@ fn dispatch_lifecycle_events(
 
 /// Transition `document.readyState` and dispatch `readystatechange`.
 ///
-/// Per HTML spec §8.2.6: The `readystatechange` event fires on the Document
+/// Per HTML spec §3.1.5: The `readystatechange` event fires on the Document
 /// object each time the readyState attribute's value changes.
 fn transition_ready_state(
     runtime: &mut JsRuntime,

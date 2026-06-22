@@ -169,7 +169,7 @@ mod engine_feature {
         /// harnesses that have not opted into cookie storage;
         /// `document.cookie` getter returns the empty string and
         /// the setter is a no-op in that case (the
-        /// "cookie-averse" path of WHATWG §6.5.2).
+        /// "cookie-averse" path of WHATWG HTML §3.1.4).
         cookie_jar: Option<std::sync::Arc<elidex_net::CookieJar>>,
         /// Iframe sandbox flags for this document's browsing context
         /// (WHATWG HTML §7.1.5 Sandboxing).  `None` for top-level /
@@ -1010,7 +1010,7 @@ mod engine_feature {
 
         /// Borrow the installed cookie jar, or `None` when the shell
         /// did not call [`Self::install_cookie_jar`] (cookie-averse
-        /// fallback, WHATWG §6.5.2).
+        /// fallback, WHATWG HTML §3.1.4).
         pub(crate) fn cookie_jar(&self) -> Option<&std::sync::Arc<elidex_net::CookieJar>> {
             self.cookie_jar.as_ref()
         }

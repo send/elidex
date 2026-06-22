@@ -129,7 +129,7 @@ impl Vm {
         self.inner.host_data.as_deref_mut()
     }
 
-    /// Set the URL surfaced by `document.referrer` (WHATWG HTML §3.1.5).
+    /// Set the URL surfaced by `document.referrer` (WHATWG HTML §3.1.4).
     /// Pass `None` to clear the slot back to the empty-string default.
     /// The shell calls this once before each post-navigation `bind`
     /// cycle when a previous Document URL is known and the referrer
