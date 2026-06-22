@@ -26,6 +26,10 @@ fn content_thread_wake_fires_on_display_list() {
         jar,
         "<div>Hi</div>".to_string(),
         "div { display: block; }".to_string(),
+        elidex_plugin::Size::new(
+            crate::DEFAULT_VIEWPORT_WIDTH,
+            crate::DEFAULT_VIEWPORT_HEIGHT,
+        ),
         wake,
     );
 
@@ -558,7 +562,16 @@ fn build_iframe_test_state(
     let (browser, content) = ipc::channel_pair::<BrowserToContent, ContentToBrowser>();
     let nh = std::rc::Rc::new(elidex_net::broker::NetworkHandle::disconnected());
     let jar = std::sync::Arc::new(elidex_net::CookieJar::new());
-    let pipeline = crate::build_pipeline_interactive_with_network(html, css, nh, jar);
+    let pipeline = crate::build_pipeline_interactive_with_network(
+        html,
+        css,
+        nh,
+        jar,
+        elidex_plugin::Size::new(
+            crate::DEFAULT_VIEWPORT_WIDTH,
+            crate::DEFAULT_VIEWPORT_HEIGHT,
+        ),
+    );
     let mut state = ContentState::new(
         content,
         NavigationController::new(),
@@ -874,4 +887,86 @@ fn connected_iframe_append_loads() {
         "a connected eager iframe must load on insertion"
     );
     assert!(state.iframes.get(f).is_some());
+}
+
+/// Read the value of an attribute on the `<div>` with the given `id`.
+fn probe_attr(pipeline: &crate::PipelineResult, id: &str, attr: &str) -> Option<String> {
+    let entity = pipeline.dom.query_by_tag("div").into_iter().find(|&e| {
+        pipeline
+            .dom
+            .world()
+            .get::<&elidex_ecs::Attributes>(e)
+            .ok()
+            .is_some_and(|a| a.get("id") == Some(id))
+    })?;
+    pipeline
+        .dom
+        .world()
+        .get::<&elidex_ecs::Attributes>(entity)
+        .ok()
+        .and_then(|a| a.get(attr).map(str::to_owned))
+}
+
+/// C1 (F1): a pipeline built at a non-default viewport must seed BOTH the CSS
+/// cascade AND the JS bridge **before** initial scripts run, so an inline script
+/// reading `window.innerWidth`/`innerHeight` at load observes the real size —
+/// not the bridge's `800×600` default nor the cascade's `1024×768` default.
+/// This is the path `content_thread_main` uses for the initial tab (C1).
+#[test]
+fn initial_scripts_observe_real_viewport() {
+    let nh = std::rc::Rc::new(elidex_net::broker::NetworkHandle::disconnected());
+    let jar = std::sync::Arc::new(elidex_net::CookieJar::new());
+    let pipeline = crate::build_pipeline_interactive_with_network(
+        "<div id=\"probe\"></div>\
+         <script>\
+           var p = document.getElementById('probe');\
+           p.setAttribute('data-w', String(window.innerWidth));\
+           p.setAttribute('data-h', String(window.innerHeight));\
+         </script>",
+        "",
+        nh,
+        jar,
+        elidex_plugin::Size::new(640.0, 480.0),
+    );
+
+    // Construction input reached the cascade/layout SoT.
+    assert_eq!(pipeline.viewport, elidex_plugin::Size::new(640.0, 480.0));
+    // ...and the JS bridge SoT that `innerWidth`/`matchMedia` read.
+    assert_eq!(pipeline.runtime.bridge().viewport_width(), 640.0);
+    assert_eq!(pipeline.runtime.bridge().viewport_height(), 480.0);
+    // The initial script OBSERVED the real size — proves the bridge was seeded
+    // BEFORE the script-eval loop (the F1 ordering, not merely set post-build).
+    assert_eq!(
+        probe_attr(&pipeline, "probe", "data-w").as_deref(),
+        Some("640")
+    );
+    assert_eq!(
+        probe_attr(&pipeline, "probe", "data-h").as_deref(),
+        Some("480")
+    );
+}
+
+/// C1 (D6/F1): the single construction input retires the pre-C1 split where the
+/// JS bridge defaulted to `800×600` while the cascade used `1024×768`. A
+/// window-less build that passes `DEFAULT` explicitly now feeds both, so the
+/// bridge and `PipelineResult.viewport` agree.
+#[test]
+fn default_viewport_unifies_bridge_and_cascade() {
+    let nh = std::rc::Rc::new(elidex_net::broker::NetworkHandle::disconnected());
+    let jar = std::sync::Arc::new(elidex_net::CookieJar::new());
+    let pipeline = crate::build_pipeline_interactive_with_network(
+        "<div></div>",
+        "",
+        nh,
+        jar,
+        elidex_plugin::Size::new(
+            crate::DEFAULT_VIEWPORT_WIDTH,
+            crate::DEFAULT_VIEWPORT_HEIGHT,
+        ),
+    );
+    assert_eq!(
+        pipeline.runtime.bridge().viewport_width(),
+        crate::DEFAULT_VIEWPORT_WIDTH
+    );
+    assert_eq!(pipeline.viewport.width, crate::DEFAULT_VIEWPORT_WIDTH);
 }

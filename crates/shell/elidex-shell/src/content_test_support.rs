@@ -29,5 +29,10 @@ pub(super) fn spawn_test_content(
     html: String,
     css: String,
 ) -> std::thread::JoinHandle<()> {
-    spawn_content_thread(content, nh, jar, html, css, Box::new(|| {}))
+    // Window-less test spawn: DEFAULT viewport is the explicit choice (D6).
+    let viewport = elidex_plugin::Size::new(
+        crate::DEFAULT_VIEWPORT_WIDTH,
+        crate::DEFAULT_VIEWPORT_HEIGHT,
+    );
+    spawn_content_thread(content, nh, jar, html, css, viewport, Box::new(|| {}))
 }

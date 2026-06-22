@@ -494,6 +494,9 @@ pub fn build_pipeline_interactive(html: &str, css: &str) -> PipelineResult {
         &font_db,
         None,
         &registry,
+        // Standalone/test build: no window, so the default viewport is the
+        // explicit choice (D6 — not a silent in-pipeline guess).
+        Size::new(DEFAULT_VIEWPORT_WIDTH, DEFAULT_VIEWPORT_HEIGHT),
     );
 
     let display_list = build_display_list(&dom, &font_db);
@@ -535,6 +538,7 @@ pub(crate) fn build_pipeline_interactive_with_network(
     css: &str,
     network_handle: Rc<elidex_net::broker::NetworkHandle>,
     cookie_jar: Arc<elidex_net::CookieJar>,
+    viewport: Size,
 ) -> PipelineResult {
     let parse_result = parse_progressive_str(html);
     for err in &parse_result.errors {
@@ -565,6 +569,7 @@ pub(crate) fn build_pipeline_interactive_with_network(
         &font_db,
         None,
         &registry,
+        viewport,
     );
 
     let display_list = build_display_list(&dom, &font_db);
@@ -582,7 +587,7 @@ pub(crate) fn build_pipeline_interactive_with_network(
         network_handle,
         registry,
         animation_engine,
-        viewport: Size::new(DEFAULT_VIEWPORT_WIDTH, DEFAULT_VIEWPORT_HEIGHT),
+        viewport,
         caret_visible: true,
         ancestor_cache: elidex_form::AncestorCache::new(),
         viewport_overflow,
@@ -607,6 +612,7 @@ pub(crate) fn build_pipeline_interactive_shared(
     network_handle: Rc<elidex_net::broker::NetworkHandle>,
     registry: Arc<elidex_plugin::CssPropertyRegistry>,
     cookie_jar: Option<Arc<elidex_net::CookieJar>>,
+    viewport: Size,
 ) -> PipelineResult {
     let parse_result = parse_progressive_str(html);
     for err in &parse_result.errors {
@@ -636,6 +642,7 @@ pub(crate) fn build_pipeline_interactive_shared(
         &font_db,
         url.as_ref(),
         &registry,
+        viewport,
     );
 
     let display_list = build_display_list(&dom, &font_db);
@@ -653,7 +660,7 @@ pub(crate) fn build_pipeline_interactive_shared(
         network_handle,
         registry,
         animation_engine,
-        viewport: Size::new(DEFAULT_VIEWPORT_WIDTH, DEFAULT_VIEWPORT_HEIGHT),
+        viewport,
         caret_visible: true,
         ancestor_cache: elidex_form::AncestorCache::new(),
         viewport_overflow,
@@ -809,6 +816,7 @@ pub fn build_pipeline_from_loaded(
     network_handle: Rc<elidex_net::broker::NetworkHandle>,
     font_db: Arc<FontDatabase>,
     cookie_jar: Option<Arc<elidex_net::CookieJar>>,
+    viewport: Size,
 ) -> PipelineResult {
     let elidex_navigation::LoadedDocument {
         mut dom,
@@ -836,6 +844,7 @@ pub fn build_pipeline_from_loaded(
         &font_db,
         Some(&url),
         &registry,
+        viewport,
     );
 
     let display_list = build_display_list(&dom, &font_db);
@@ -854,7 +863,7 @@ pub fn build_pipeline_from_loaded(
         network_handle,
         registry,
         animation_engine,
-        viewport: Size::new(DEFAULT_VIEWPORT_WIDTH, DEFAULT_VIEWPORT_HEIGHT),
+        viewport,
         caret_visible: true,
         ancestor_cache: elidex_form::AncestorCache::new(),
         viewport_overflow,
@@ -877,6 +886,7 @@ pub fn build_pipeline_from_loaded(
 /// Content threads should use `build_pipeline_from_loaded` with a proper `NetworkHandle`.
 pub fn build_pipeline_from_url(
     url: &url::Url,
+    viewport: Size,
 ) -> Result<PipelineResult, elidex_navigation::LoadError> {
     // Standalone mode: use a disconnected handle for pipeline (no broker).
     // load_document still routes through NetworkHandle::fetch_blocking which
@@ -887,7 +897,8 @@ pub fn build_pipeline_from_url(
     let loaded = elidex_navigation::load_document(url, &network_handle, None)?;
     let font_db = Arc::new(FontDatabase::new());
     let cookie_jar = Arc::clone(np.cookie_jar());
-    let mut result = build_pipeline_from_loaded(loaded, network_handle, font_db, Some(cookie_jar));
+    let mut result =
+        build_pipeline_from_loaded(loaded, network_handle, font_db, Some(cookie_jar), viewport);
     result.broker_keepalive = Some(np); // Keep broker alive for pipeline lifetime.
     Ok(result)
 }

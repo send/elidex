@@ -196,7 +196,10 @@ fn handle_navigate(
     url: &url::Url,
     channel: &LocalChannel<IframeToBrowser, BrowserToIframe>,
 ) {
-    match crate::build_pipeline_from_url(url) {
+    // Rebuild at the iframe's current box (tracked in `pipeline.viewport` via
+    // SetViewport), not DEFAULT — consistent with the top-level navigation fix (C1).
+    let viewport = pipeline.viewport;
+    match crate::build_pipeline_from_url(url, viewport) {
         Ok(new_pipeline) => {
             // Preserve sandbox flags from the old pipeline.
             let sandbox = pipeline.runtime.bridge().sandbox_flags();

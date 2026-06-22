@@ -156,11 +156,19 @@ fn load_iframe_from_url(
             } else {
                 ctx.cookie_jar.clone()
             };
+            // iframe initial build: the sub-browsing-context box is not yet known
+            // (the parent lays out the <iframe> element + delivers it via
+            // SetViewport later), so build at DEFAULT — preserving pre-C1 behavior.
+            // Proper iframe-box-at-build is deferred → slot #11-iframe-build-viewport.
             let mut pipeline = crate::build_pipeline_from_loaded(
                 loaded,
                 pipeline_handle,
                 ctx.font_db.clone(),
                 iframe_cookies,
+                elidex_plugin::Size::new(
+                    crate::DEFAULT_VIEWPORT_WIDTH,
+                    crate::DEFAULT_VIEWPORT_HEIGHT,
+                ),
             );
             // Keep credentialless broker alive for the iframe pipeline's lifetime.
             if let Some(cb) = credentialless_broker {
@@ -244,7 +252,18 @@ fn make_out_of_process_entry(
         // Use the already-fetched LoadedDocument — no redundant HTTP request.
         let network_handle = std::rc::Rc::new(elidex_net::broker::NetworkHandle::disconnected());
         let font_db = std::sync::Arc::new(elidex_text::FontDatabase::new());
-        let oop_pipeline = crate::build_pipeline_from_loaded(loaded, network_handle, font_db, None);
+        // OOP iframe initial build at DEFAULT — box delivered later via SetViewport
+        // (slot #11-iframe-build-viewport, same as the in-process path).
+        let oop_pipeline = crate::build_pipeline_from_loaded(
+            loaded,
+            network_handle,
+            font_db,
+            None,
+            elidex_plugin::Size::new(
+                crate::DEFAULT_VIEWPORT_WIDTH,
+                crate::DEFAULT_VIEWPORT_HEIGHT,
+            ),
+        );
 
         oop_pipeline
             .runtime
@@ -313,6 +332,11 @@ fn build_iframe_pipeline(
         ctx.network_handle.clone(),
         ctx.registry.clone(),
         ctx.cookie_jar.clone(),
+        // iframe build at DEFAULT — box not yet known (slot #11-iframe-build-viewport).
+        elidex_plugin::Size::new(
+            crate::DEFAULT_VIEWPORT_WIDTH,
+            crate::DEFAULT_VIEWPORT_HEIGHT,
+        ),
     )
 }
 

@@ -585,7 +585,19 @@ impl App {
         // Mint via the disjoint `wake_proxy` field (an associated fn, not `&self`)
         // so it coexists with the active `&mut mgr` borrow.
         let wake = Self::wake_or_noop(self.wake_proxy.as_ref());
-        let thread = crate::content::spawn_content_thread_blank(content_ch, nh, jar, wake);
+        // Born at the real viewport (C1) — post-`resumed`, `placement` is `Some`;
+        // `DEFAULT` only as a defensive fallback (disjoint `self.placement` read).
+        let viewport = self.placement.map_or_else(
+            || {
+                elidex_plugin::Size::new(
+                    crate::DEFAULT_VIEWPORT_WIDTH,
+                    crate::DEFAULT_VIEWPORT_HEIGHT,
+                )
+            },
+            |p| p.size_logical,
+        );
+        let thread =
+            crate::content::spawn_content_thread_blank(content_ch, nh, jar, viewport, wake);
         mgr.create_tab(
             browser_ch,
             thread,

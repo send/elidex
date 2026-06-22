@@ -383,10 +383,19 @@ pub(crate) fn spawn_content_thread(
     cookie_jar: std::sync::Arc<elidex_net::CookieJar>,
     html: String,
     css: String,
+    viewport: elidex_plugin::Size,
     wake: crate::WakeHandle,
 ) -> JoinHandle<()> {
     std::thread::spawn(move || {
-        content_thread_main(channel, network_handle, cookie_jar, &html, &css, wake);
+        content_thread_main(
+            channel,
+            network_handle,
+            cookie_jar,
+            &html,
+            &css,
+            viewport,
+            wake,
+        );
     })
 }
 
@@ -398,10 +407,11 @@ pub(crate) fn spawn_content_thread_url(
     network_handle: elidex_net::broker::NetworkHandle,
     cookie_jar: std::sync::Arc<elidex_net::CookieJar>,
     url: url::Url,
+    viewport: elidex_plugin::Size,
     wake: crate::WakeHandle,
 ) -> JoinHandle<()> {
     std::thread::spawn(move || {
-        content_thread_main_url(channel, network_handle, cookie_jar, &url, wake);
+        content_thread_main_url(channel, network_handle, cookie_jar, &url, viewport, wake);
     })
 }
 
@@ -412,6 +422,7 @@ pub(crate) fn spawn_content_thread_blank(
     channel: LocalChannel<ContentToBrowser, BrowserToContent>,
     network_handle: elidex_net::broker::NetworkHandle,
     cookie_jar: std::sync::Arc<elidex_net::CookieJar>,
+    viewport: elidex_plugin::Size,
     wake: crate::WakeHandle,
 ) -> JoinHandle<()> {
     std::thread::spawn(move || {
@@ -421,6 +432,7 @@ pub(crate) fn spawn_content_thread_blank(
             cookie_jar,
             crate::BLANK_TAB_HTML,
             crate::BLANK_TAB_CSS,
+            viewport,
             wake,
         );
     })
@@ -432,6 +444,7 @@ fn content_thread_main(
     cookie_jar: std::sync::Arc<elidex_net::CookieJar>,
     html: &str,
     css: &str,
+    viewport: elidex_plugin::Size,
     wake: crate::WakeHandle,
 ) {
     if let Err(e) = elidex_sandbox::apply_sandbox(&elidex_plugin::PlatformSandbox::Unsandboxed) {
@@ -440,7 +453,8 @@ fn content_thread_main(
     }
 
     let nh = std::rc::Rc::new(network_handle);
-    let pipeline = crate::build_pipeline_interactive_with_network(html, css, nh, cookie_jar);
+    let pipeline =
+        crate::build_pipeline_interactive_with_network(html, css, nh, cookie_jar, viewport);
     let mut state = ContentState::new(channel, NavigationController::new(), pipeline, wake);
     scroll::update_viewport_scroll_dimensions(&mut state);
     // Scan for <iframe> elements present in the initial parsed DOM.
@@ -459,6 +473,7 @@ fn content_thread_main_url(
     network_handle: elidex_net::broker::NetworkHandle,
     cookie_jar: std::sync::Arc<elidex_net::CookieJar>,
     url: &url::Url,
+    viewport: elidex_plugin::Size,
     wake: crate::WakeHandle,
 ) {
     if let Err(e) = elidex_sandbox::apply_sandbox(&elidex_plugin::PlatformSandbox::Unsandboxed) {
@@ -481,7 +496,8 @@ fn content_thread_main_url(
     // Extract manifest URL before pipeline builder consumes LoadedDocument.
     let manifest_url = loaded.manifest_url.clone();
     let font_db = std::sync::Arc::new(elidex_text::FontDatabase::new());
-    let pipeline = crate::build_pipeline_from_loaded(loaded, nh, font_db, Some(cookie_jar));
+    let pipeline =
+        crate::build_pipeline_from_loaded(loaded, nh, font_db, Some(cookie_jar), viewport);
 
     let mut nav_controller = NavigationController::new();
     nav_controller.push(url.clone());

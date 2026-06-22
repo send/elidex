@@ -38,7 +38,7 @@ use crate::chrome::{self, TabBarInfo};
 use crate::ipc::{BrowserToContent, ContentToBrowser, ModifierState};
 
 use render::try_init_render_state;
-use tab::{TabId, TabManager};
+use tab::{Tab, TabId, TabManager};
 
 /// Convert a `CookieSnapshot` to a `PersistedCookie` for DB persistence.
 fn snap_to_persisted(
@@ -202,6 +202,19 @@ pub(super) struct InteractiveState {
     pub(super) chrome: crate::chrome::ChromeState,
 }
 
+/// The initial content-thread spawn, **deferred** from `new_threaded*` until the
+/// window — and thus the content-area [`ContentAreaPlacement`] — exists in
+/// `resumed`. Spawning at `resumed` (not at construction) lets the initial tab be
+/// born at its real viewport *by construction* (C1): the viewport is a spawn
+/// argument, not a value raced-in after the first layout. `take()`-d once on the
+/// first `resumed` (re-entry-guarded), so a suspend→resume cycle does not re-spawn.
+enum PendingSpawn {
+    /// Inline HTML/CSS (`new_threaded`).
+    Html { html: String, css: String },
+    /// A URL to load (`new_threaded_url`).
+    Url(url::Url),
+}
+
 /// winit application that renders a display list to a window.
 pub struct App {
     pub(super) render_state: Option<RenderState>,
@@ -243,6 +256,10 @@ pub struct App {
     /// placement by construction. `None` before the first `resumed` / after
     /// `suspended`.
     placement: Option<ContentAreaPlacement>,
+    /// The initial tab's content-thread spawn, deferred until `resumed` so it is
+    /// born at the real viewport (C1). `Some` between `new_threaded*` and the
+    /// first `resumed`; `None` afterwards (inline mode is always `None`).
+    pending_initial_spawn: Option<PendingSpawn>,
 }
 
 impl App {
@@ -291,6 +308,7 @@ impl App {
             cookie_gen: 0,
             wake_proxy: Some(wake_proxy),
             placement: None,
+            pending_initial_spawn: None,
         };
         app.init_browser_db();
         app
@@ -361,54 +379,33 @@ impl App {
     /// Create a new threaded application from HTML/CSS.
     ///
     /// `wake_proxy` (from the `EventLoop` in `run`) wakes the loop for
-    /// content-initiated repaints; the initial content thread is seeded with a
-    /// [`crate::WakeHandle`] minted from it, and the proxy is stored for later
-    /// tabs (`window.open` / `open_new_tab`).
+    /// content-initiated repaints; it is stored and used to mint a
+    /// [`crate::WakeHandle`] for every spawned tab. The **initial** content thread
+    /// is *not* spawned here — it is deferred to `resumed` (see
+    /// [`PendingSpawn`]) so it is born at the window's real viewport (C1).
     pub fn new_threaded(
         html: String,
         css: String,
         wake_proxy: winit::event_loop::EventLoopProxy<crate::WakeEvent>,
     ) -> Self {
         let np = Self::create_network_process();
-        let nh = np.create_renderer_handle();
-        let cookie_jar = Arc::clone(np.cookie_jar());
-        let (browser_ch, content_ch) =
-            crate::ipc::channel_pair::<BrowserToContent, ContentToBrowser>();
-        let wake = Self::wake_from_proxy(&wake_proxy);
-        let thread =
-            crate::content::spawn_content_thread(content_ch, nh, cookie_jar, html, css, wake);
-
-        let mut mgr = TabManager::new();
-        mgr.create_tab(
-            browser_ch,
-            thread,
-            crate::chrome::ChromeState::new(None),
-            "elidex".to_string(),
-        );
-
-        Self::from_tab_manager(mgr, np, wake_proxy)
+        let mut app = Self::from_tab_manager(TabManager::new(), np, wake_proxy);
+        app.pending_initial_spawn = Some(PendingSpawn::Html { html, css });
+        app
     }
 
     /// Create a new threaded application from a URL.
+    ///
+    /// As with [`Self::new_threaded`], the initial content thread is deferred to
+    /// `resumed` so it builds at the real viewport (C1).
     pub fn new_threaded_url(
         url: url::Url,
         wake_proxy: winit::event_loop::EventLoopProxy<crate::WakeEvent>,
     ) -> Self {
         let np = Self::create_network_process();
-        let nh = np.create_renderer_handle();
-        let cookie_jar = Arc::clone(np.cookie_jar());
-        let (browser_ch, content_ch) =
-            crate::ipc::channel_pair::<BrowserToContent, ContentToBrowser>();
-        let title = format!("elidex \u{2014} {url}");
-        let chrome = crate::chrome::ChromeState::new(Some(&url));
-        let wake = Self::wake_from_proxy(&wake_proxy);
-        let thread =
-            crate::content::spawn_content_thread_url(content_ch, nh, cookie_jar, url, wake);
-
-        let mut mgr = TabManager::new();
-        mgr.create_tab(browser_ch, thread, chrome, title);
-
-        Self::from_tab_manager(mgr, np, wake_proxy)
+        let mut app = Self::from_tab_manager(TabManager::new(), np, wake_proxy);
+        app.pending_initial_spawn = Some(PendingSpawn::Url(url));
+        app
     }
 
     /// Create a new legacy (inline) interactive application from a pipeline result.
@@ -437,6 +434,7 @@ impl App {
             cookie_gen: 0,
             wake_proxy: None, // Inline mode is synchronous — nothing to wake.
             placement: None,
+            pending_initial_spawn: None, // Inline mode spawns no content thread.
         }
     }
 
@@ -471,6 +469,7 @@ impl App {
             cookie_gen: 0,
             wake_proxy: None, // Inline mode is synchronous — nothing to wake.
             placement: None,
+            pending_initial_spawn: None, // Inline mode spawns no content thread.
         }
     }
 
@@ -767,7 +766,18 @@ impl App {
             }
         }
 
-        // Open new tabs requested by window.open().
+        // Open new tabs requested by window.open(). Post-`resumed`, so `placement`
+        // is `Some` — born at the real viewport (C1); `DEFAULT` only as a defensive
+        // fallback (disjoint `self.placement` read coexists with `&mut mgr`).
+        let viewport = self.placement.map_or_else(
+            || {
+                Size::new(
+                    crate::DEFAULT_VIEWPORT_WIDTH,
+                    crate::DEFAULT_VIEWPORT_HEIGHT,
+                )
+            },
+            |p| p.size_logical,
+        );
         for url in new_tab_urls {
             let (browser_chan, content_chan) = crate::ipc::channel_pair();
             let title = format!("elidex \u{2014} {url}");
@@ -778,8 +788,14 @@ impl App {
                 // Mint via the disjoint `wake_proxy` field (an associated fn, not
                 // `&self`) so it coexists with the active `&mut mgr` borrow.
                 let wake = Self::wake_or_noop(self.wake_proxy.as_ref());
-                let thread =
-                    crate::content::spawn_content_thread_url(content_chan, nh, jar, url, wake);
+                let thread = crate::content::spawn_content_thread_url(
+                    content_chan,
+                    nh,
+                    jar,
+                    url,
+                    viewport,
+                    wake,
+                );
                 mgr.create_tab(browser_chan, thread, chrome, title);
             }
         }
@@ -819,21 +835,74 @@ impl App {
         }
     }
 
-    /// Send the current content-area size (CSS logical px) to the active tab's
-    /// content thread — the producer half of the SoT.
+    /// Send the cached content-area size (CSS logical px) to **one** tab's content
+    /// thread — the single per-tab viewport-delivery primitive (C1).
     ///
     /// Content stays device-agnostic: only `size_logical` crosses the IPC, never
-    /// `scale_factor`. Called on the initial `resumed`/tab-ready (**load-bearing**:
-    /// without it a non-resized tab keeps the content thread's `DEFAULT_VIEWPORT`
-    /// while the painted area uses `placement.size_logical`) and on every
-    /// `Resized`. No-op until `placement` is seeded.
-    fn send_viewport(&self) {
-        if let Some(placement) = self.placement {
-            self.send_to_content(BrowserToContent::SetViewport {
+    /// `scale_factor`. An associated fn (not `&self`) so it composes with an active
+    /// `&mut self.tab_manager` borrow (mirrors [`Self::wake_or_noop`]). No-op until
+    /// `placement` is seeded. `BrowserToContent` is not `Clone`, so each recipient
+    /// gets a freshly-constructed message.
+    fn seed_tab_viewport(placement: Option<ContentAreaPlacement>, tab: &Tab) {
+        if let Some(placement) = placement {
+            if let Err(e) = tab.channel.send(BrowserToContent::SetViewport {
                 width: placement.size_logical.width,
                 height: placement.size_logical.height,
-            });
+            }) {
+                eprintln!("Failed to send viewport to content thread (disconnected): {e}");
+            }
         }
+    }
+
+    /// Fan the cached viewport out to **every** tab — all share the window's
+    /// content area, so a resize must reach background tabs too (their
+    /// `innerWidth`/`matchMedia` stay spec-correct). Called on `Resized` (and C2's
+    /// `ScaleFactorChanged`). Initial/`window.open`/new tabs are instead born at the
+    /// real size via the construction-input spawn (C1), so they need no seed message.
+    fn broadcast_viewport(&self) {
+        if let Some(mgr) = &self.tab_manager {
+            for tab in mgr.tabs() {
+                Self::seed_tab_viewport(self.placement, tab);
+            }
+        }
+    }
+
+    /// Spawn the deferred initial content thread (C1) at the real `viewport`, now
+    /// that the window exists. No-op if there is no pending spawn (already spawned,
+    /// or inline mode) or no network process. The minted [`crate::WakeHandle`]
+    /// comes from the disjoint `wake_proxy` field (mirrors the `window.open` /
+    /// `open_new_tab` spawn sites).
+    fn spawn_pending_initial_tab(&mut self, viewport: Size) {
+        let Some(pending) = self.pending_initial_spawn.take() else {
+            return;
+        };
+        let (Some(np), Some(mgr)) = (self.network_process.as_ref(), self.tab_manager.as_mut())
+        else {
+            return;
+        };
+        let nh = np.create_renderer_handle();
+        let jar = Arc::clone(np.cookie_jar());
+        let wake = Self::wake_or_noop(self.wake_proxy.as_ref());
+        let (browser_ch, content_ch) =
+            crate::ipc::channel_pair::<BrowserToContent, ContentToBrowser>();
+        let (thread, chrome, title) = match pending {
+            PendingSpawn::Html { html, css } => (
+                crate::content::spawn_content_thread(
+                    content_ch, nh, jar, html, css, viewport, wake,
+                ),
+                crate::chrome::ChromeState::new(None),
+                "elidex".to_string(),
+            ),
+            PendingSpawn::Url(url) => {
+                let title = format!("elidex \u{2014} {url}");
+                let chrome = crate::chrome::ChromeState::new(Some(&url));
+                let thread = crate::content::spawn_content_thread_url(
+                    content_ch, nh, jar, url, viewport, wake,
+                );
+                (thread, chrome, title)
+            }
+        };
+        mgr.create_tab(browser_ch, thread, chrome, title);
     }
 
     /// Send a message to the active tab's content thread.
@@ -911,24 +980,33 @@ impl ApplicationHandler<crate::WakeEvent> for App {
             return;
         };
 
-        // Set initial window title.
-        if let Some(mgr) = &self.tab_manager {
-            if let Some(tab) = mgr.active_tab() {
-                state.window.set_title(&tab.window_title);
-            }
-        } else if let Some(interactive) = &self.interactive {
-            state.window.set_title(&interactive.window_title);
-        }
-
-        state.window.request_redraw();
-        // Seed the placement SoT together with `render_state` (the §2.3 init
+        // Build the placement SoT now that the window exists (the §2.3 init
         // invariant): any input that later passes the `render_state.is_some()`
-        // gate now sees a built placement. Then deliver the initial viewport to
-        // content (load-bearing — a tab that never resizes would otherwise keep
-        // the content thread's `DEFAULT_VIEWPORT`).
-        self.placement = Some(self.content_area_placement(&state.window));
+        // gate sees a built placement. The deferred initial tab is not yet
+        // spawned, so `tab_bar_position` falls back to its default (`Top`) —
+        // identical to the initial tab's default chrome, so the size is correct.
+        let placement = self.content_area_placement(&state.window);
+        self.placement = Some(placement);
         self.render_state = Some(state);
-        self.send_viewport();
+
+        // Spawn the deferred initial content thread (C1) at the real viewport —
+        // it is born resolving styles, running initial scripts, and laying out at
+        // `placement.size_logical`, never a guessed `DEFAULT_VIEWPORT`. This
+        // replaces the old initial `send_viewport()`: the size is a spawn
+        // argument, not a value raced-in after the first layout.
+        self.spawn_pending_initial_tab(placement.size_logical);
+
+        // Set the initial window title from the now-present active tab.
+        if let Some(state) = &self.render_state {
+            if let Some(mgr) = &self.tab_manager {
+                if let Some(tab) = mgr.active_tab() {
+                    state.window.set_title(&tab.window_title);
+                }
+            } else if let Some(interactive) = &self.interactive {
+                state.window.set_title(&interactive.window_title);
+            }
+            state.window.request_redraw();
+        }
     }
 
     fn suspended(&mut self, _event_loop: &ActiveEventLoop) {
@@ -969,9 +1047,10 @@ impl ApplicationHandler<crate::WakeEvent> for App {
                     window.request_redraw();
                 }
                 // Recompute the placement SoT (the window size changed) and
-                // re-deliver the viewport to the active content thread.
+                // fan the new viewport out to **every** tab — all share the
+                // window content area, so background tabs must re-lay-out too (C1).
                 self.placement = Some(self.content_area_placement(&window));
-                self.send_viewport();
+                self.broadcast_viewport();
                 // The content rect may have shrunk/moved out from under a
                 // stationary cursor — clear stuck `:hover` if it left content.
                 if let Some(placement) = self.placement {

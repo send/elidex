@@ -15,7 +15,7 @@ use elidex_plugin::ViewportOverflow;
 
 use elidex_plugin::Size;
 
-use crate::{resolve_with_compat, DEFAULT_VIEWPORT_HEIGHT, DEFAULT_VIEWPORT_WIDTH};
+use crate::resolve_with_compat;
 
 /// Flush pending DOM mutations and drain custom element reactions.
 ///
@@ -57,18 +57,13 @@ pub(super) fn run_scripts_and_finalize(
     font_db: &Arc<elidex_text::FontDatabase>,
     current_url: Option<&url::Url>,
     registry: &elidex_plugin::CssPropertyRegistry,
+    viewport: Size,
 ) -> (SessionCore, JsRuntime, ViewportOverflow) {
     let stylesheet_refs: Vec<&Stylesheet> = stylesheets.iter().collect();
 
-    // Initial style resolution (with compat layer).
-    let default_viewport = Size::new(DEFAULT_VIEWPORT_WIDTH, DEFAULT_VIEWPORT_HEIGHT);
-    resolve_with_compat(
-        dom,
-        &stylesheet_refs,
-        registry,
-        default_viewport,
-        Medium::Screen,
-    );
+    // Initial style resolution (with compat layer) at the real content-area
+    // viewport — so `@media (width)` evaluates correctly at the first cascade.
+    resolve_with_compat(dom, &stylesheet_refs, registry, viewport, Medium::Screen);
 
     // Script execution phase.
     let mut session = SessionCore::new();
@@ -85,6 +80,15 @@ pub(super) fn run_scripts_and_finalize(
             .set_origin(elidex_plugin::SecurityOrigin::from_url(url));
     }
 
+    // Seed the JS bridge viewport BEFORE running scripts so initial scripts read
+    // the real `window.innerWidth`/`matchMedia` (the bridge defaults to 800×600
+    // otherwise). This is the bridge half of the single construction-input
+    // injection (`run_scripts_and_finalize` feeds cascade + bridge + layout from
+    // one `viewport`); it mirrors the per-message resize path (`event_loop.rs`).
+    runtime
+        .bridge()
+        .set_viewport(viewport.width, viewport.height);
+
     for source in script_sources {
         let mut ctx = ScriptContext::new(&mut session, dom, document);
         elidex_script_session::ScriptEngine::eval(&mut runtime, source, &mut ctx);
@@ -100,15 +104,10 @@ pub(super) fn run_scripts_and_finalize(
     flush_with_ce_reactions(&mut runtime, &mut session, dom, document);
 
     // Re-resolve styles after DOM mutations from scripts (with compat layer).
-    let viewport_overflow = resolve_with_compat(
-        dom,
-        &stylesheet_refs,
-        registry,
-        default_viewport,
-        Medium::Screen,
-    );
+    let viewport_overflow =
+        resolve_with_compat(dom, &stylesheet_refs, registry, viewport, Medium::Screen);
 
-    layout_tree(dom, default_viewport, font_db);
+    layout_tree(dom, viewport, font_db);
 
     (session, runtime, viewport_overflow)
 }

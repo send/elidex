@@ -126,8 +126,18 @@ pub(super) fn handle_navigate(
             state.pipeline.runtime.bridge().shutdown_all_realtime();
             // Preserve cookie jar across navigations.
             let cookie_jar = state.pipeline.runtime.bridge().cookie_jar_clone();
-            let new_pipeline =
-                crate::build_pipeline_from_loaded(loaded, network_handle, font_db, cookie_jar);
+            // Rebuild at the tab's CURRENT viewport (the old pipeline's last
+            // `SetViewport` size), not `DEFAULT` — so post-navigation initial
+            // scripts + layout see the real `innerWidth` (C1; the new runtime's
+            // JS bridge is seeded from this viewport inside the builder).
+            let viewport = state.pipeline.viewport;
+            let new_pipeline = crate::build_pipeline_from_loaded(
+                loaded,
+                network_handle,
+                font_db,
+                cookie_jar,
+                viewport,
+            );
             state.pipeline = new_pipeline;
             // Focus lives in the new pipeline's `EcsDom` (empty by construction
             // — a fresh document); no field to reset, no blur to dispatch.
