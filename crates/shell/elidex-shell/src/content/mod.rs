@@ -496,6 +496,16 @@ fn content_thread_main_url(
     // Extract manifest URL before pipeline builder consumes LoadedDocument.
     let manifest_url = loaded.manifest_url.clone();
     let font_db = std::sync::Arc::new(elidex_text::FontDatabase::new());
+    // A window resize delivered while `load_document` was blocking sits queued on
+    // the channel as a `SetViewport`; fold the latest into the build viewport so
+    // the initial scripts + first-pass media queries see the real size (C1 "real
+    // viewport before scripts"), not the spawn-time size. Non-viewport messages
+    // are buffered and replayed once `ContentState` exists (below), the same place
+    // the event loop would have processed them. (Mirrors the navigation rebuild;
+    // these are the only two top-level paths that block on `load_document` then
+    // build at a captured viewport.)
+    let (viewport, queued_during_load) =
+        navigation::drain_viewport_queued_during_load(&channel, viewport);
     let pipeline =
         crate::build_pipeline_from_loaded(loaded, nh, font_db, Some(cookie_jar), viewport);
 
@@ -516,6 +526,12 @@ fn content_thread_main_url(
     iframe::scan_initial_iframes(&mut state);
     state.re_render();
     state.notify_navigation(url);
+    // Replay messages that queued during the blocking load onto the now-live
+    // document, in order, before entering the event loop (the latest queued
+    // `SetViewport` was already folded into the build viewport above).
+    for msg in queued_during_load {
+        event_loop::handle_message_public(msg, &mut state);
+    }
     event_loop::run_event_loop(&mut state);
 }
 

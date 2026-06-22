@@ -193,7 +193,11 @@ pub(super) fn handle_navigate(
 /// viewport, a degenerate one is dropped (the `SetViewport` consumer rejects it
 /// anyway). Non-viewport messages are buffered for the caller to replay, which
 /// preserves their ordering relative to the navigation (e.g. a queued `Navigate`).
-fn drain_viewport_queued_during_load(
+///
+/// Shared by the two top-level content-thread paths that block on
+/// `load_document` then build at a captured viewport: the navigation rebuild
+/// (here) and the initial URL-backed spawn (`content_thread_main_url`).
+pub(super) fn drain_viewport_queued_during_load(
     channel: &crate::ipc::LocalChannel<ContentToBrowser, crate::ipc::BrowserToContent>,
     current: elidex_plugin::Size,
 ) -> (elidex_plugin::Size, Vec<crate::ipc::BrowserToContent>) {
