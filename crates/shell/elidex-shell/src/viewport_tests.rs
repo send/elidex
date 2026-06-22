@@ -4,7 +4,7 @@
 //! `content_tests` (the catch-all content module) to keep each test file focused
 //! and under the project's 1000-line guideline (axes.md Axis 5).
 
-use super::test_support::{spawn_test_content, test_network};
+use super::test_support::{spawn_test_content, spawn_test_content_sized, test_network};
 use crate::ipc::{self, BrowserToContent, ContentToBrowser};
 use std::time::Duration;
 
@@ -125,10 +125,13 @@ fn content_thread_first_frame_at_spawn_viewport() {
 /// cache-refresh-before-resize ordering.
 ///
 /// The query is `(min-width: 900px)` and the resize grows the viewport across
-/// that boundary: the boa `HostBridge` viewport defaults to 800 px (`bridge/mod`
-/// `viewport_width: 800.0`), so at script time `mql.matches` is **false**
-/// (`800 < 900`). Resizing to 1000 px must flip the cached state to **true**
-/// before the listener runs. The listener recolors the box from that read alone
+/// that boundary: the content thread is spawned at an explicit **800 px**
+/// viewport (C1 seeds the JS bridge from the spawn viewport in
+/// `run_scripts_and_finalize`, so the DEFAULT 1024 px spawn would start
+/// `mql.matches` already `true` and erase the threshold crossing), so at script
+/// time `mql.matches` is **false** (`800 < 900`). Resizing to 1000 px must flip
+/// the cached state to **true** before the listener runs. The listener recolors
+/// the box from that read alone
 /// (no `@media` cascade, no MQL `change` event) — `red` ⇒ the listener saw the
 /// fresh `true`; `lime` ⇒ it ran but read the **stale** cached `false` (the bug);
 /// `blue` ⇒ the listener never ran. (A `max-width` query the other way is
@@ -137,7 +140,10 @@ fn content_thread_first_frame_at_spawn_viewport() {
 fn content_thread_resize_listener_sees_fresh_matchmedia() {
     let (browser, content) = ipc::channel_pair::<BrowserToContent, ContentToBrowser>();
     let (nh, jar, _np) = test_network();
-    let handle = spawn_test_content(
+    // Spawn below the 900 px threshold so the resize to 1000 px crosses it (C1
+    // seeds the bridge from the spawn viewport, so the DEFAULT 1024 px would
+    // start `mql.matches` true and defeat this regression).
+    let handle = spawn_test_content_sized(
         content,
         nh,
         jar,
@@ -154,6 +160,7 @@ fn content_thread_resize_listener_sees_fresh_matchmedia() {
          </script>"
             .to_string(),
         "div { display: block; width: 100px; height: 100px; background-color: blue; }".to_string(),
+        elidex_plugin::Size::new(800.0, 600.0),
     );
 
     let has_color = |dl: &elidex_render::DisplayList, c: elidex_plugin::CssColor| {
@@ -164,8 +171,8 @@ fn content_thread_resize_listener_sees_fresh_matchmedia() {
     let red = elidex_plugin::CssColor::rgb(255, 0, 0);
     let lime = elidex_plugin::CssColor::rgb(0, 255, 0);
 
-    // Initial frame: `min-width: 900px` is false at the 800 px default and the
-    // listener has not run → box is its blue default (neither red nor lime).
+    // Initial frame: `min-width: 900px` is false at the 800 px spawn viewport and
+    // the listener has not run → box is its blue default (neither red nor lime).
     let ContentToBrowser::DisplayListReady(initial) =
         browser.recv_timeout(Duration::from_secs(5)).unwrap()
     else {
@@ -198,6 +205,101 @@ fn content_thread_resize_listener_sees_fresh_matchmedia() {
         } else {
             "blue (listener did not run)"
         }
+    );
+
+    browser.send(BrowserToContent::Shutdown).unwrap();
+    handle.join().unwrap();
+}
+
+/// Idempotent viewport delivery (CSSOM View §13.1 "run the resize steps"
+/// `#document-run-the-resize-steps` step 1): a `SetViewport` whose size equals the
+/// content thread's current viewport must **not** fire `resize`, re-evaluate media
+/// queries, or repaint. This is the invariant that lets C1's `broadcast_viewport`
+/// fan the cached size to every tab on `resumed` unconditionally — the
+/// just-spawned initial tab, already born at that size, drops the redundant
+/// delivery instead of dispatching a spurious `resize`/double-painting.
+///
+/// A `resize` listener paints the box red. After the initial frame (blue) we send
+/// a **same-size** `SetViewport` (must no-op) followed by a `VisibilityChanged`
+/// fence (always produces a frame): a blue fenced frame ⇒ the same-size delivery
+/// did not fire `resize`. A later **changed-size** `SetViewport` then flips the
+/// box red, proving genuine resizes still fire.
+#[test]
+fn content_thread_same_size_setviewport_is_idempotent() {
+    let (browser, content) = ipc::channel_pair::<BrowserToContent, ContentToBrowser>();
+    let (nh, jar, _np) = test_network();
+    let handle = spawn_test_content_sized(
+        content,
+        nh,
+        jar,
+        "<div id=\"box\">Box</div>\
+         <script>\
+           window.addEventListener('resize', function() {\
+             document.getElementById('box').style.setProperty('background-color', 'red');\
+           });\
+         </script>"
+            .to_string(),
+        "div { display: block; width: 100px; height: 100px; background-color: blue; }".to_string(),
+        elidex_plugin::Size::new(800.0, 600.0),
+    );
+
+    let has_color = |dl: &elidex_render::DisplayList, c: elidex_plugin::CssColor| {
+        dl.iter().any(|item| {
+            matches!(item, elidex_render::DisplayItem::SolidRect { color, .. } if *color == c)
+        })
+    };
+    let red = elidex_plugin::CssColor::rgb(255, 0, 0);
+
+    // Initial frame: the listener has not run → box is its blue default.
+    let ContentToBrowser::DisplayListReady(initial) =
+        browser.recv_timeout(Duration::from_secs(5)).unwrap()
+    else {
+        panic!("expected initial DisplayListReady");
+    };
+    assert!(
+        !has_color(&initial, red),
+        "box must start blue (listener not yet run)"
+    );
+
+    // Same-size `SetViewport` must NOT fire `resize` (§13.1). The following
+    // `VisibilityChanged` is a fence that always produces a frame; processed in
+    // order, it follows the no-op SetViewport, so the first frame received is
+    // still blue. Had the same-size delivery fired `resize`, its (red) frame would
+    // be received first instead.
+    browser
+        .send(BrowserToContent::SetViewport {
+            width: 800.0,
+            height: 600.0,
+        })
+        .unwrap();
+    browser
+        .send(BrowserToContent::VisibilityChanged { visible: true })
+        .unwrap();
+    let ContentToBrowser::DisplayListReady(fenced) =
+        browser.recv_timeout(Duration::from_secs(5)).unwrap()
+    else {
+        panic!("expected fenced DisplayListReady");
+    };
+    assert!(
+        !has_color(&fenced, red),
+        "same-size SetViewport fired a spurious resize (box went red before any size change)"
+    );
+
+    // A genuine size change still fires `resize` → box red.
+    browser
+        .send(BrowserToContent::SetViewport {
+            width: 1000.0,
+            height: 600.0,
+        })
+        .unwrap();
+    let ContentToBrowser::DisplayListReady(resized) =
+        browser.recv_timeout(Duration::from_secs(5)).unwrap()
+    else {
+        panic!("expected post-resize DisplayListReady");
+    };
+    assert!(
+        has_color(&resized, red),
+        "changed-size SetViewport must fire resize (box stayed blue — resize not dispatched)"
     );
 
     browser.send(BrowserToContent::Shutdown).unwrap();

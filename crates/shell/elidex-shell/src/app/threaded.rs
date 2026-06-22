@@ -587,6 +587,11 @@ impl App {
         let wake = Self::wake_or_noop(self.wake_proxy.as_ref());
         // Born at the real viewport (C1) — post-`resumed`, `placement` is `Some`;
         // `DEFAULT` only as a defensive fallback (disjoint `self.placement` read).
+        // `placement` is keyed to the *active* tab's chrome; this is exact while
+        // every tab uses the default (`Top`) tab-bar position — the only position
+        // ever assigned (`chrome::ChromeState::new`). A future per-tab non-`Top`
+        // position would make the active tab's content size differ from this new
+        // (default-chrome) tab's → slot #11-window-level-tab-bar-position.
         let viewport = self.placement.map_or_else(
             || {
                 elidex_plugin::Size::new(

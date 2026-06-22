@@ -769,6 +769,9 @@ impl App {
         // Open new tabs requested by window.open(). Post-`resumed`, so `placement`
         // is `Some` — born at the real viewport (C1); `DEFAULT` only as a defensive
         // fallback (disjoint `self.placement` read coexists with `&mut mgr`).
+        // `placement` is keyed to the active tab's chrome; exact while every tab is
+        // the default (`Top`) tab-bar position (cf. `open_new_tab`) →
+        // slot #11-window-level-tab-bar-position.
         let viewport = self.placement.map_or_else(
             || {
                 Size::new(
@@ -857,8 +860,11 @@ impl App {
     /// Fan the cached viewport out to **every** tab — all share the window's
     /// content area, so a resize must reach background tabs too (their
     /// `innerWidth`/`matchMedia` stay spec-correct). Called on `Resized` (and C2's
-    /// `ScaleFactorChanged`). Initial/`window.open`/new tabs are instead born at the
-    /// real size via the construction-input spawn (C1), so they need no seed message.
+    /// `ScaleFactorChanged`) and on re-`resumed` (plan-memo Q3). Initial/`window.open`/
+    /// new tabs are instead born at the real size via the construction-input spawn
+    /// (C1), so they need no seed message. The cached `placement` is keyed to the
+    /// active tab's chrome; one size fits every tab while all use the default
+    /// (`Top`) tab-bar position → slot #11-window-level-tab-bar-position.
     fn broadcast_viewport(&self) {
         if let Some(mgr) = &self.tab_manager {
             for tab in mgr.tabs() {
@@ -1003,6 +1009,15 @@ impl ApplicationHandler<crate::WakeEvent> for App {
         // replaces the old initial `send_viewport()`: the size is a spawn
         // argument, not a value raced-in after the first layout.
         self.spawn_pending_initial_tab(placement.size_logical);
+
+        // Re-resume after `suspended` (plan-memo Q3): content threads persist
+        // across a suspend but `placement` was dropped, so the content area may
+        // have changed size while the window was gone. Fan the freshly-rebuilt
+        // viewport to every persisted tab. On the *first* resume this is an
+        // idempotent no-op — the just-spawned initial tab was born at exactly
+        // this size and the `SetViewport` consumer drops an unchanged-size
+        // delivery (CSSOM View §13.1) without a spurious `resize`/repaint.
+        self.broadcast_viewport();
 
         // Set the initial window title from the now-present active tab.
         if let Some(state) = &self.render_state {

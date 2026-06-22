@@ -263,7 +263,19 @@ fn handle_message(msg: BrowserToContent, state: &mut ContentState) -> bool {
         }
 
         BrowserToContent::SetViewport { width, height } => {
-            if width > 0.0 && width.is_finite() && height > 0.0 && height.is_finite() {
+            // Per CSSOM View §13.1 "run the resize steps"
+            // (#document-run-the-resize-steps) step 1, a `resize` event fires only
+            // when the viewport's width or height has changed **since the last time
+            // these steps were run**. Drop an unchanged-size delivery here — no
+            // `resize`, no MQL re-evaluation, no repaint. This also makes viewport
+            // delivery idempotent so C1's resume-time `broadcast_viewport` can fan
+            // the cached size to *every* tab unconditionally without firing a
+            // spurious `resize` / double-painting a tab already at that size (the
+            // just-spawned initial tab is born at exactly the broadcast size).
+            let unchanged =
+                width == state.pipeline.viewport.width && height == state.pipeline.viewport.height;
+            if width > 0.0 && width.is_finite() && height > 0.0 && height.is_finite() && !unchanged
+            {
                 state.pipeline.viewport = elidex_plugin::Size::new(width, height);
                 let bridge = state.pipeline.runtime.bridge().clone();
                 bridge.set_viewport(width, height);
