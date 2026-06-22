@@ -1,8 +1,9 @@
 //! Document host globals — `document.getElementById`,
 //! `document.createElement`, `document.createTextNode`, and the
 //! getters for `body` / `head` / `documentElement` / `title` / `URL` /
-//! `readyState` (`title`/`URL` = WHATWG HTML §3.1.4 Resource metadata
-//! management; `readyState` = §3.1.5 Reporting document loading status).
+//! `readyState` (`body`/`head`/`title` = WHATWG HTML §3.1.7 DOM tree
+//! accessors; `documentElement`/`URL` = WHATWG DOM §4.5 Interface Document;
+//! `readyState` = HTML §3.1.5 Reporting document loading status).
 //!
 //! # Scope
 //!
