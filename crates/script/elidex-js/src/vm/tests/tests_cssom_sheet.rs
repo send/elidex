@@ -437,6 +437,26 @@ fn insert_rule_round_trips_through_text_content() {
 }
 
 #[test]
+fn insert_rule_does_not_deliver_childlist_mutation_record() {
+    // B1.2c Codex R2 regression: the engine-internal CSSOM→source re-serialization
+    // (flush_sheet_mutation re-writing the <style>'s text after insertRule) must NOT
+    // be observed by a MutationObserver on the <style>'s children. CSSOM rule edits
+    // are invisible to MutationObserver; only a real Node.textContent / child-tree
+    // edit delivers a childList record. `apply_replace_all`'s records are discarded
+    // on the cssom path (vs delivered on the public textContent setter).
+    let out = run_with_css(
+        "div {}",
+        "var s = document.getElementsByTagName('style')[0]; \
+         globalThis.records = null; \
+         var mo = new MutationObserver(function(r){ globalThis.records = r; }); \
+         mo.observe(s, {childList:true}); \
+         s.sheet.insertRule('p { color: green; }', 1); \
+         String(globalThis.records);",
+    );
+    assert_eq!(out, "null");
+}
+
+#[test]
 fn insert_rule_coerces_string_index() {
     // R1 IMP regression: WebIDL `unsigned long` ToUint32 coercion must
     // run on `index`, so `insertRule(rule, '1')` lands at index 1
