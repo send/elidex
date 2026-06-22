@@ -22,15 +22,15 @@ user-invocable: true
 
 **Default = run the full review** (5-agent cost ~5 min + audit trail). Skipping (this pre-push pass OR the `/external-converge` TERMINAL fix-delta pass) is justified **only when you can honestly fill a per-axis expected-yield=0 table** (`feedback_terminal-elidex-review-skip-justification.md`, #231) — state, per axis, why this change cannot plausibly trip it. **When in doubt, run it.**
 
-The decision is a **per-PR judgment per axis ("could this change plausibly trip this axis?"), NOT a pre-baked lookup of skippable shapes** — an enumerated shape-list always leaks the next uncovered combination. Yield is 0 only when (illustrative, judge per PR — not exhaustive):
+The decision is a **per-PR judgment per axis ("could this change plausibly trip this axis?"), NOT a pre-baked lookup of skippable shapes**. The triggers below are framed **fail-safe — "the axis FIRES (→ run, don't skip) when…"**, deliberately non-exhaustive: an incomplete trigger list only makes you over-run (safe), never wrongly-skip. **An axis is yield-0 only when none of its triggers fire AND you cannot otherwise see this PR tripping it. When in doubt, run it.**
 
-| Axis | Expected yield 0 when… |
+| Axis | Fires (→ run, not skip) when… (non-exhaustive) |
 |---|---|
-| 1 Layering | no `vm/host/` change **and** no core-vs-compat VM change (`crates/script/elidex-js/src/vm/` outside `host/` — a sloppy-mode / Annex-B slot in core VM trips this) |
-| 2 ECS-native | no ECS component / code-logic change |
-| 3 Pragmatic | no stub / scope-cut / edge-dense bundling introduced |
-| 4 Spec citation | no spec citation added / renumbered / edited (an external silent-zero round does NOT prove webref §/AO lookups ran — a citation sweep still needs the Axis-4 pass) |
-| 5 Project-context | no defer-ledger / slot / roadmap change, no past-lesson re-introduction |
+| 1 Layering | a `vm/host/` change, OR a core-vs-compat VM change (`crates/script/elidex-js/src/vm/` outside `host/` — e.g. a sloppy-mode / Annex-B slot in core VM) |
+| 2 ECS-native | any ECS component / code-logic change |
+| 3 Pragmatic | a stub / scope-cut / edge-dense bundling |
+| 4 Spec citation | a spec citation added / renumbered / edited, OR a **new citation-required surface** (native / DomApiHandler / engine-indep algorithm that should carry a spec citation, even if one wasn't added) — and an external silent-zero round does NOT prove webref §/AO lookups ran |
+| 5 Project-context | a defer-ledger / slot / roadmap change, or a past-lesson re-introduction |
 
 **The one non-obvious case**: an edit that changes *review/enforcement behavior itself* — a detect entry, workflow step, gate, skip rule, axis definition, or the gate tooling (`.claude/skills/**`, `.claude/tools/**` e.g. `webref`, `.claude/hooks/**`) — **cannot honestly show yield 0** (it alters how the gates behave despite touching no Rust), so it is never skippable. Inert *rule prose* → run Stage 6 `/elidex-review`; **executable gate code** (`.py` / `.sh` / `webref`, not covered by cargo-only `mise run ci`) → run the **full** gate (`/code-review` + `/simplify` + `/review` + `/elidex-review`). Genuinely skippable = pure inert doc/comment text (typo / wording / formatting) tripping none of the rows above.
 
