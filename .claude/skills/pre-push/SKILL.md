@@ -61,7 +61,7 @@ Then surface the push / PR proposal to the user (do not push autonomously unless
 ## Skip-OK (whole skill)
 
 - Pure inert doc / non-code PR — no `**/*.rs` change **and** no change to review/enforcement behavior — → skip Stages 3–6; note the skip in the landing memo. Stages 1–2 still run.
-  - A **review/enforcement-tooling edit** (`.claude/skills/**`, `.claude/tools/**` e.g. `webref`, `.claude/hooks/**`) is NOT inert — it alters how the gates behave, so it is **not eligible for this whole-skill skip: run the whole gate (Stages 3–6)** like any code change. (No per-stage carve — that would violate the "No skipping" hard rule above.) This matters most for executable gate code (`.py` / `.sh` / `webref`): `mise run ci` is cargo-only, so Stages 3/5 are the only coverage of its correctness/quality. Single source for this rule: `/elidex-review` "Skip OK".
+  - **EXCEPT a review/enforcement-tooling edit**, which is NOT inert → it runs the **whole gate (Stages 3–6)**, not this skip (no per-stage carve — that would violate the "No skipping" hard rule above). For *what counts* as such an edit (which paths, executable-vs-inert, why) → **`/elidex-review` "Skip OK" is the single source**; not restated here.
 - Otherwise: run the whole gate.
 
 (This isn't a *new* skip — `/code-review`, `/simplify`, `/review`, and `/elidex-review` each independently treat *inert* doc-only as skip-OK and would return 0 findings. This clause hoists it to avoid four no-op invocations. The carve-out — review/enforcement-tooling edits aren't inert — lives in `/elidex-review`'s "Skip OK"; this references it, doesn't restate it.)
