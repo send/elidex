@@ -698,7 +698,7 @@ pub fn register_document(ctx: &mut Context, bridge: &HostBridge) {
         );
     }
 
-    // document.cookie — getter/setter (RFC 6265, WHATWG HTML §3.1.3).
+    // document.cookie — getter/setter (RFC 6265, WHATWG HTML §3.1.4).
     {
         let b_cg = b.clone();
         let cookie_getter = NativeFunction::from_copy_closure_with_captures(

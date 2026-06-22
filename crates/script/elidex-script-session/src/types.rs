@@ -120,7 +120,7 @@ impl ComponentKind {
     }
 }
 
-/// Document ready state (WHATWG HTML §12.2.8).
+/// Document ready state (WHATWG HTML §3.1.5).
 #[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
 pub enum ReadyState {
     /// The document is still loading.
