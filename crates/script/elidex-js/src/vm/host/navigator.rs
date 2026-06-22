@@ -113,7 +113,7 @@ impl VmInner {
         // steps "are to return false" — installing it as a bool data property
         // (the historical mistake) made `navigator.javaEnabled()` a TypeError.
         self.install_methods(obj_id, NAVIGATOR_PLUGINS_METHODS);
-        let plugins = self.create_empty_navigator_collection(true);
+        let plugins = self.create_empty_navigator_collection(PLUGIN_ARRAY_METHODS);
         let key = PropertyKey::String(self.strings.intern("plugins"));
         self.define_shaped_property(
             obj_id,
@@ -121,7 +121,7 @@ impl VmInner {
             PropertyValue::Data(JsValue::Object(plugins)),
             PropertyAttrs::WEBIDL_RO,
         );
-        let mime_types = self.create_empty_navigator_collection(false);
+        let mime_types = self.create_empty_navigator_collection(MIME_TYPE_ARRAY_METHODS);
         let key = PropertyKey::String(self.strings.intern("mimeTypes"));
         self.define_shaped_property(
             obj_id,
@@ -180,29 +180,18 @@ impl VmInner {
     }
 
     /// Build an **empty** `PluginArray` / `MimeTypeArray` (WHATWG HTML §8.10.1.6):
-    /// `length === 0`, with the IDL `item(index)` / `namedItem(name)` getters (both
-    /// always `null` for an empty collection) and — when `with_refresh` — the
-    /// `PluginArray.refresh()` no-op. Both arrays are the empty list because
-    /// elidex's *PDF viewer supported* boolean is `false`; the objects exist only
-    /// so feature-detection probes (`navigator.plugins.length`, `…item(0)`) see the
-    /// correct interface shape rather than `undefined`. Installed as `[SameObject]`
-    /// readonly attributes — a stable data property is SameObject for free.
+    /// `length === 0`, with the `methods` table for that interface (`item` /
+    /// `namedItem`, plus `refresh` for `PluginArray`). Both arrays are the empty
+    /// list because elidex's *PDF viewer supported* boolean is `false`; the objects
+    /// exist only so feature-detection probes (`navigator.plugins.length`,
+    /// `…item(0)`) see the member shape rather than `undefined`. Installed as
+    /// `[SameObject]` readonly attributes — a stable data property is SameObject for
+    /// free. (Interface-object branding — `instanceof PluginArray`, receiver
+    /// brand-checks — is deferred to slot `#11-navigator-interface-object-branding`.)
     fn create_empty_navigator_collection(
         &mut self,
-        with_refresh: bool,
+        methods: &[(&str, super::super::NativeFn)],
     ) -> super::super::value::ObjectId {
-        let methods: &[(&str, super::super::NativeFn)] = if with_refresh {
-            &[
-                ("item", native_navigator_collection_item),
-                ("namedItem", native_navigator_collection_named_item),
-                ("refresh", native_plugin_array_refresh),
-            ]
-        } else {
-            &[
-                ("item", native_navigator_collection_item),
-                ("namedItem", native_navigator_collection_named_item),
-            ]
-        };
         let obj_id = self.create_object_with_methods(methods);
         let key = PropertyKey::String(self.strings.intern("length"));
         self.define_shaped_property(
@@ -243,39 +232,91 @@ fn native_navigator_java_enabled(
     Ok(JsValue::Boolean(false))
 }
 
-/// `PluginArray`/`MimeTypeArray` `item(index)` getter (WHATWG HTML §8.10.1.6):
-/// returns the entry at `index` or `null`. elidex's collections are always empty
-/// (*PDF viewer supported* is `false`), so the lookup is unconditionally `null` —
-/// but a **present** `index` argument is still run through the WebIDL `unsigned
-/// long` conversion first (the conversion's side effects, e.g. a throwing
-/// `valueOf`, are observable before the empty-list algorithm returns). A missing
-/// argument returns `null` without throwing, matching the sibling
-/// `collection_item_impl` (`host/dom_collection.rs`) — the VM's collection idiom
-/// is lenient on arity, not WebIDL-strict.
-fn native_navigator_collection_item(
+/// `PluginArray` method table (WHATWG HTML §8.10.1.6): `item` / `namedItem` +
+/// the PluginArray-only `refresh()`. Per-interface natives (vs `MimeTypeArray`'s)
+/// so the WebIDL missing-required-argument `TypeError` names the right interface.
+const PLUGIN_ARRAY_METHODS: &[(&str, super::super::NativeFn)] = &[
+    ("item", native_plugin_array_item),
+    ("namedItem", native_plugin_array_named_item),
+    ("refresh", native_plugin_array_refresh),
+];
+
+/// `MimeTypeArray` method table (WHATWG HTML §8.10.1.6): `item` / `namedItem`
+/// (no `refresh` — that is PluginArray-only).
+const MIME_TYPE_ARRAY_METHODS: &[(&str, super::super::NativeFn)] = &[
+    ("item", native_mime_type_array_item),
+    ("namedItem", native_mime_type_array_named_item),
+];
+
+fn native_plugin_array_item(
     ctx: &mut NativeContext<'_>,
     _this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    if let Some(v) = args.first() {
-        super::super::coerce::to_int32(ctx.vm, *v)?;
-    }
+    nav_collection_item(ctx, args, "PluginArray")
+}
+
+fn native_mime_type_array_item(
+    ctx: &mut NativeContext<'_>,
+    _this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    nav_collection_item(ctx, args, "MimeTypeArray")
+}
+
+fn native_plugin_array_named_item(
+    ctx: &mut NativeContext<'_>,
+    _this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    nav_collection_named_item(ctx, args, "PluginArray")
+}
+
+fn native_mime_type_array_named_item(
+    ctx: &mut NativeContext<'_>,
+    _this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    nav_collection_named_item(ctx, args, "MimeTypeArray")
+}
+
+/// `PluginArray`/`MimeTypeArray` `item(unsigned long index)` getter (WHATWG HTML
+/// §8.10.1.6). elidex's collections are always empty (*PDF viewer supported* is
+/// `false`), so the lookup is unconditionally `null` — but the spec-declared
+/// **required** `index` is honoured per WebIDL §3.7: a *missing* argument throws
+/// `TypeError` (browser/WPT parity, and the VM-wide convention — see `storage.rs`
+/// `getItem` / `url_search_params.rs` / `Selection` `arg_offset_required`), and a
+/// *present* argument is run through the `unsigned long` conversion (observable
+/// side effects, e.g. a throwing `valueOf`) before the empty-list `null`.
+fn nav_collection_item(
+    ctx: &mut NativeContext<'_>,
+    args: &[JsValue],
+    interface: &str,
+) -> Result<JsValue, VmError> {
+    let Some(v) = args.first() else {
+        return Err(VmError::type_error(format!(
+            "Failed to execute 'item' on '{interface}': 1 argument required, but only 0 present."
+        )));
+    };
+    super::super::coerce::to_int32(ctx.vm, *v)?;
     Ok(JsValue::Null)
 }
 
-/// `PluginArray`/`MimeTypeArray` `namedItem(name)` getter (WHATWG HTML §8.10.1.6):
-/// returns the named entry or `null`. Always `null` for elidex's empty collections,
-/// but a **present** `name` argument is run through the WebIDL `DOMString`
-/// conversion first (observable side effects), mirroring `namedItem` in
-/// `host/dom_collection.rs`; a missing argument returns `null` without throwing.
-fn native_navigator_collection_named_item(
+/// `PluginArray`/`MimeTypeArray` `namedItem(DOMString name)` getter (WHATWG HTML
+/// §8.10.1.6). Always `null` for elidex's empty collections, but the required
+/// `name` is honoured: a missing argument throws `TypeError`, a present argument
+/// is run through the `DOMString` conversion first. Mirrors `nav_collection_item`.
+fn nav_collection_named_item(
     ctx: &mut NativeContext<'_>,
-    _this: JsValue,
     args: &[JsValue],
+    interface: &str,
 ) -> Result<JsValue, VmError> {
-    if let Some(v) = args.first() {
-        super::super::coerce::to_string(ctx.vm, *v)?;
-    }
+    let Some(v) = args.first() else {
+        return Err(VmError::type_error(format!(
+            "Failed to execute 'namedItem' on '{interface}': 1 argument required, but only 0 present."
+        )));
+    };
+    super::super::coerce::to_string(ctx.vm, *v)?;
     Ok(JsValue::Null)
 }
 

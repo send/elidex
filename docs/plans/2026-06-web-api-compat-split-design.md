@@ -299,7 +299,8 @@ the same over-enumeration A0 must delegate). Single slot:
   - ✅ **`NavigatorPlugins` mixin** (§8.10.1.6) installed on `Navigator` (only):
     `javaEnabled()` is now a **method** returning `false` (was a bool property →
     `TypeError`); `plugins`/`mimeTypes` are empty collections with the member
-    shape (`length` 0 + arg-converting `item`/`namedItem`→null + PluginArray
+    shape (`length` 0 + WebIDL-faithful `item`/`namedItem` — required-arg
+    `TypeError` + present-arg conversion, then empty-list `null` — + PluginArray
     `refresh()`); `pdfViewerEnabled` is `false` (elidex's *PDF viewer supported*
     boolean is `false`). *Interface-object branding* (`instanceof PluginArray`,
     receiver brand-checks) deferred → `#11-navigator-interface-object-branding`.
@@ -337,11 +338,14 @@ the same over-enumeration A0 must delegate). Single slot:
   member-surface task. **No regression:** `instanceof PluginArray` threw
   `ReferenceError` before this PR too (`navigator.plugins` was `undefined`), and
   the common detection path (`navigator.plugins.length === 0`) works. The present
-  PR DID adopt the lenient-arity argument-conversion idiom for `item`/`namedItem`
-  (matching `host/dom_collection.rs`), so only the interface-identity branding is
-  deferred. *Trigger:* a VM interface-object pass for the navigator family (or a
-  WPT/site that brand-checks `PluginArray`/`MimeTypeArray`). *Date:* with the
-  navigator UA-wiring follow-up or a dedicated interface-object program.
+  PR DID make `item`/`namedItem` WebIDL-faithful on arguments — required-argument
+  `TypeError` on a missing arg + type conversion of a present arg (the VM-wide
+  convention, e.g. `storage.rs`/`url_search_params.rs`; **not** `dom_collection.rs`'s
+  pre-existing lenient null-return, which is the outlier) — so only the
+  interface-identity branding is deferred. *Trigger:* a VM interface-object pass for
+  the navigator family (or a WPT/site that brand-checks `PluginArray`/
+  `MimeTypeArray`). *Date:* with the navigator UA-wiring follow-up or a dedicated
+  interface-object program.
 
 ### 1.5 Newly-found clerical drift (fold into the F2 sweep)
 

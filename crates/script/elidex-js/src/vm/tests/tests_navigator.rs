@@ -119,12 +119,24 @@ fn navigator_mime_types_is_empty_collection() {
 }
 
 #[test]
-fn navigator_collection_item_converts_present_arg_before_null() {
-    // WHATWG HTML §8.10.1.6 `item(unsigned long)` / `namedItem(DOMString)` run
-    // the WebIDL argument conversion before the (empty-list) lookup, so a present
-    // argument with a throwing conversion propagates — matching the sibling
-    // `collection_item_impl` in host/dom_collection.rs. A *missing* argument
-    // returns `null` without throwing (the VM's lenient-arity collection idiom).
+fn navigator_collection_item_webidl_arity_and_conversion() {
+    // WHATWG HTML §8.10.1.6 declares `item(unsigned long index)` /
+    // `namedItem(DOMString name)` with REQUIRED parameters. Per WebIDL §3.7 a
+    // missing required argument throws `TypeError` (browser/WPT parity, and the
+    // VM-wide convention — `storage.rs` `getItem`, `url_search_params`, etc.),
+    // and a present argument is run through the type conversion (observable side
+    // effects) before the empty-list lookup returns `null`.
+    //
+    // Missing argument → TypeError.
+    assert!(eval_bool(
+        "(() => { try { navigator.plugins.item(); return false; } \
+         catch (e) { return e instanceof TypeError; } })();"
+    ));
+    assert!(eval_bool(
+        "(() => { try { navigator.mimeTypes.namedItem(); return false; } \
+         catch (e) { return e instanceof TypeError; } })();"
+    ));
+    // Present argument with a throwing conversion propagates.
     assert!(eval_bool(
         "(() => { try { navigator.plugins.item({ valueOf() { throw 'x'; } }); return false; } \
          catch (e) { return true; } })();"
@@ -133,10 +145,7 @@ fn navigator_collection_item_converts_present_arg_before_null() {
         "(() => { try { navigator.mimeTypes.namedItem({ toString() { throw 'x'; } }); return false; } \
          catch (e) { return true; } })();"
     ));
-    // Missing argument: no throw, returns null.
-    assert!(eval_bool("navigator.plugins.item() === null;"));
-    assert!(eval_bool("navigator.mimeTypes.namedItem() === null;"));
-    // Non-throwing present arg still returns null (empty collection).
+    // Non-throwing present arg returns null (empty collection).
     assert!(eval_bool("navigator.plugins.item(3) === null;"));
     assert!(eval_bool("navigator.mimeTypes.namedItem('Foo') === null;"));
 }
