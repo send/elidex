@@ -1,20 +1,39 @@
-//! `navigator` global — the `Navigator` interface (WHATWG HTML §8.10.1).
+//! `navigator` global — the `Navigator` interface (WHATWG HTML §8.10.1
+//! *The `Navigator` object*).
 //!
-//! Phase 2 scope: fields are mostly static constants — no privacy /
-//! language-negotiation / real UA string derivation yet.  The intent is
-//! to answer feature-detection probes like `navigator.userAgent` or
-//! `navigator.hardwareConcurrency` without coupling to a shell layer
-//! that has not been designed yet.  The one value-derived member is
-//! `cookieEnabled` (an RO accessor reading the bound `CookieJar`, A3).
+//! Surface (mixin → spec section):
 //!
-//! Future work (PR5+):
+//! - **`NavigatorID`** (§8.10.1.1 *Client identification*): `appCodeName`
+//!   (constant `"Mozilla"`), `appName` (`"Netscape"`), `product` (`"Gecko"`),
+//!   `vendorSub` (`""`) are spec-mandated constants; `appVersion` / `productSub`
+//!   / `vendor` are UA/compat-mode-**derived** placeholders awaiting a shell UA
+//!   source (see the slot note below); `userAgent` / `platform` are likewise
+//!   placeholders. `productSub` / `vendor` / `vendorSub` are `[Exposed=Window]`
+//!   — **absent on `WorkerNavigator`** (`host/worker_scope.rs`).
+//! - **`NavigatorLanguage`** (§8.10.1.2): `language` / `languages`.
+//! - **`NavigatorOnLine`** (§8.10.1.3): `onLine`.
+//! - **`NavigatorCookies`** (§8.10.1.5): `cookieEnabled`, a value-derived RO
+//!   accessor reading the bound `CookieJar` (A3). `Navigator`-only.
+//! - **`NavigatorPlugins`** (§8.10.1.6 *PDF viewing support*): `plugins` /
+//!   `mimeTypes` (empty collections — elidex's *PDF viewer supported* is
+//!   `false`), `javaEnabled()` (a method returning `false`), `pdfViewerEnabled`
+//!   (`false`). `Navigator`-only.
+//! - **`NavigatorConcurrentHardware`** (§10.2.7): `hardwareConcurrency`.
 //!
-//! - `userAgent` / `language` read from a shell-provided profile.
-//! - `navigator.serviceWorker`, `navigator.clipboard`, `storage`, etc.
-//!   arrive alongside their respective primitives.
-//! - `permissions` / `mediaDevices` are intentionally **not** surfaced
-//!   so that hostile detection does not inflate feature-capability
-//!   signals.
+//! The intent is to answer feature-detection probes without coupling to a shell
+//! layer that has not been designed yet, while keeping each member's WebIDL
+//! *shape* spec-faithful (e.g. `javaEnabled` is a callable method, not a bool).
+//!
+//! Future work (slot `#11-navigator-spec-faithful-surface`):
+//!
+//! - `userAgent` / `appVersion` / `productSub` / `vendor` / `platform` wired to
+//!   a shell-provided UA / compatibility-mode profile (§8.10.1.1) — placeholders
+//!   until that source exists (same dependency as the E0/F6 mode work). The
+//!   engine does **not** fabricate a real-browser UA string in the interim.
+//! - `navigator.clipboard` / `storage` arrive alongside their respective
+//!   primitives.
+//! - `permissions` / `mediaDevices` are intentionally **not** surfaced so that
+//!   hostile detection does not inflate feature-capability signals.
 
 #![cfg(feature = "engine")]
 
@@ -47,6 +66,9 @@ impl VmInner {
             .map_or(1u32, |n| u32::try_from(n.get()).unwrap_or(u32::MAX));
         let hardware_concurrency = f64::from(hw);
         let string_fields: &[(&str, &str)] = &[
+            // `appCodeName` is a NavigatorID spec constant (HTML §8.10.1.1): the
+            // standard mandates the literal "Mozilla" for every UA.
+            ("appCodeName", "Mozilla"),
             ("userAgent", "Mozilla/5.0 (compatible; Elidex/0.1)"),
             ("appName", "Netscape"),
             ("appVersion", "5.0 (compatible; Elidex/0.1)"),
@@ -68,13 +90,11 @@ impl VmInner {
             );
         }
 
-        // --- Boolean + cookie fields, in WebIDL declaration order ---
+        // --- `onLine` (NavigatorOnLine §8.10.1.3) + `cookieEnabled` ---
         //
-        // `cookieEnabled` (WHATWG HTML §8.10.1.5; see the getter for what it
-        // reads) is an RO **accessor** — not a static data prop — because the jar
-        // binds *after* navigator install. It is installed between `onLine` and
-        // `javaEnabled`, its historical bool-field slot, so own-property
-        // enumeration order is unchanged.
+        // `cookieEnabled` (NavigatorCookies, WHATWG HTML §8.10.1.5; see the getter
+        // for what it reads) is an RO **accessor** — not a static data prop —
+        // because the jar binds *after* navigator install.
         let on_line = PropertyKey::String(self.strings.intern("onLine"));
         self.define_shaped_property(
             obj_id,
@@ -83,10 +103,36 @@ impl VmInner {
             PropertyAttrs::WEBIDL_RO,
         );
         self.install_ro_accessors(obj_id, NAVIGATOR_RO_ACCESSORS);
-        let java_enabled = PropertyKey::String(self.strings.intern("javaEnabled"));
+
+        // --- `NavigatorPlugins` mixin (WHATWG HTML §8.10.1.6 *PDF viewing
+        // support*) — Navigator-only (NOT exposed on `WorkerNavigator`) ---
+        //
+        // elidex's *PDF viewer supported* boolean is `false`, so per §8.10.1.6
+        // the `plugins` / `mime types` arrays are the empty list and
+        // `pdfViewerEnabled` is `false`. `javaEnabled()` is a **method** whose
+        // steps "are to return false" — installing it as a bool data property
+        // (the historical mistake) made `navigator.javaEnabled()` a TypeError.
+        self.install_methods(obj_id, NAVIGATOR_PLUGINS_METHODS);
+        let plugins = self.create_empty_navigator_collection(true);
+        let key = PropertyKey::String(self.strings.intern("plugins"));
         self.define_shaped_property(
             obj_id,
-            java_enabled,
+            key,
+            PropertyValue::Data(JsValue::Object(plugins)),
+            PropertyAttrs::WEBIDL_RO,
+        );
+        let mime_types = self.create_empty_navigator_collection(false);
+        let key = PropertyKey::String(self.strings.intern("mimeTypes"));
+        self.define_shaped_property(
+            obj_id,
+            key,
+            PropertyValue::Data(JsValue::Object(mime_types)),
+            PropertyAttrs::WEBIDL_RO,
+        );
+        let key = PropertyKey::String(self.strings.intern("pdfViewerEnabled"));
+        self.define_shaped_property(
+            obj_id,
+            key,
             PropertyValue::Data(JsValue::Boolean(false)),
             PropertyAttrs::WEBIDL_RO,
         );
@@ -132,6 +178,41 @@ impl VmInner {
         let name = self.well_known.navigator;
         self.globals.insert(name, JsValue::Object(obj_id));
     }
+
+    /// Build an **empty** `PluginArray` / `MimeTypeArray` (WHATWG HTML §8.10.1.6):
+    /// `length === 0`, with the IDL `item(index)` / `namedItem(name)` getters (both
+    /// always `null` for an empty collection) and — when `with_refresh` — the
+    /// `PluginArray.refresh()` no-op. Both arrays are the empty list because
+    /// elidex's *PDF viewer supported* boolean is `false`; the objects exist only
+    /// so feature-detection probes (`navigator.plugins.length`, `…item(0)`) see the
+    /// correct interface shape rather than `undefined`. Installed as `[SameObject]`
+    /// readonly attributes — a stable data property is SameObject for free.
+    fn create_empty_navigator_collection(
+        &mut self,
+        with_refresh: bool,
+    ) -> super::super::value::ObjectId {
+        let methods: &[(&str, super::super::NativeFn)] = if with_refresh {
+            &[
+                ("item", native_navigator_collection_item),
+                ("namedItem", native_navigator_collection_named_item),
+                ("refresh", native_plugin_array_refresh),
+            ]
+        } else {
+            &[
+                ("item", native_navigator_collection_item),
+                ("namedItem", native_navigator_collection_named_item),
+            ]
+        };
+        let obj_id = self.create_object_with_methods(methods);
+        let key = PropertyKey::String(self.strings.intern("length"));
+        self.define_shaped_property(
+            obj_id,
+            key,
+            PropertyValue::Data(JsValue::Number(0.0)),
+            PropertyAttrs::WEBIDL_RO,
+        );
+        obj_id
+    }
 }
 
 /// `navigator`'s value-derived RO accessors (WebIDL `readonly attribute`s whose
@@ -141,6 +222,57 @@ impl VmInner {
 /// accessor extends the table rather than an inline literal.
 const NAVIGATOR_RO_ACCESSORS: &[(&str, super::super::NativeFn)] =
     &[("cookieEnabled", native_navigator_get_cookie_enabled)];
+
+/// `NavigatorPlugins` mixin methods (WHATWG HTML §8.10.1.6) — currently just
+/// `javaEnabled()`. `plugins` / `mimeTypes` are `[SameObject]` data attributes
+/// (built by [`create_empty_navigator_collection`](VmInner::create_empty_navigator_collection)),
+/// not methods; `pdfViewerEnabled` is a plain bool. Navigator-only (the mixin is
+/// not included by `WorkerNavigator`).
+const NAVIGATOR_PLUGINS_METHODS: &[(&str, super::super::NativeFn)] =
+    &[("javaEnabled", native_navigator_java_enabled)];
+
+/// `navigator.javaEnabled()` (WHATWG HTML §8.10.1.6): the spec defines the
+/// method's steps "are to return false". It is a **method**, not a bool data
+/// property — the latter (the historical shape) made `navigator.javaEnabled()`
+/// throw a TypeError.
+fn native_navigator_java_enabled(
+    _ctx: &mut NativeContext<'_>,
+    _this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    Ok(JsValue::Boolean(false))
+}
+
+/// `PluginArray`/`MimeTypeArray` `item(index)` getter (WHATWG HTML §8.10.1.6):
+/// returns the entry at `index` or `null`. elidex's collections are always empty
+/// (*PDF viewer supported* is `false`), so this is unconditionally `null`.
+fn native_navigator_collection_item(
+    _ctx: &mut NativeContext<'_>,
+    _this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    Ok(JsValue::Null)
+}
+
+/// `PluginArray`/`MimeTypeArray` `namedItem(name)` getter (WHATWG HTML §8.10.1.6):
+/// returns the named entry or `null`. Always `null` for elidex's empty collections.
+fn native_navigator_collection_named_item(
+    _ctx: &mut NativeContext<'_>,
+    _this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    Ok(JsValue::Null)
+}
+
+/// `PluginArray.refresh()` (WHATWG HTML §8.10.1.6): a no-op — there are no
+/// plugins to re-enumerate (*PDF viewer supported* is `false`).
+fn native_plugin_array_refresh(
+    _ctx: &mut NativeContext<'_>,
+    _this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    Ok(JsValue::Undefined)
+}
 
 /// `navigator.cookieEnabled` getter (WHATWG HTML §8.10.1.5): returns `true` iff
 /// the user agent attempts to handle cookies — i.e. a `CookieJar` is bound to this

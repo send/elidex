@@ -292,25 +292,31 @@ surface (Codex P2 R8-4/R8-5; one slot, not per-field).** A0 records leads; it do
 the same over-enumeration A0 must delegate). Single slot:
 
 - **`#11-navigator-spec-faithful-surface`** — *Why:* the VM's `navigator` is a
-  partial, partly-wrong placeholder. A spec-faithful pass (HTML §8.10.1) must cover:
-  NavigatorID derived fields `appVersion`/`productSub`/`vendor` wired to shell
-  UA/compat mode (§8.10.1.1) + the **missing `appCodeName`** (="Mozilla"); the
-  **full `NavigatorPlugins` mixin** (§8.10.1.6) — `javaEnabled()` as a **method**
-  (currently a boolean property → `TypeError`) **and** `plugins`/`mimeTypes`/
-  `pdfViewerEnabled`, none installed today (R8-5); and `cookieEnabled` per §8.10.1.5
-  (A3 does the value-derive interim). **The exact `Navigator` vs `WorkerNavigator`
-  exposure split is the follow-up's to get right (Codex P2 R9-2), not A0's:**
-  `WorkerNavigator` (§10.3.2) includes **only** `NavigatorID` + `NavigatorLanguage`
-  + `NavigatorOnLine` + `NavigatorConcurrentHardware`; `NavigatorCookies`/
-  `NavigatorPlugins` are **`Navigator`-only**, and `productSub`/`vendor`/`vendorSub`
-  are `[Exposed=Window]` — so `plugins`/`mimeTypes`/`pdfViewerEnabled`/`cookieEnabled`
-  and those ID fields must **not** appear in workers. A0 flags only that the shared
-  `NavigatorID` members (incl. `appCodeName`) are missing on both surfaces; the
-  per-member realm scoping is the follow-up's plan-review work.
+  partial, partly-wrong placeholder. A spec-faithful pass (HTML §8.10.1).
+  **DONE (navigator follow-up PR — UA-independent surface):**
+  - ✅ **`appCodeName`** (="Mozilla", NavigatorID §8.10.1.1) installed on **both**
+    `Navigator` and `WorkerNavigator`.
+  - ✅ **`NavigatorPlugins` mixin** (§8.10.1.6) installed on `Navigator` (only):
+    `javaEnabled()` is now a **method** returning `false` (was a bool property →
+    `TypeError`); `plugins`/`mimeTypes` are empty `PluginArray`/`MimeTypeArray`
+    (correct interface shape — `length` 0 + `item`/`namedItem`→null + PluginArray
+    `refresh()`); `pdfViewerEnabled` is `false` (elidex's *PDF viewer supported*
+    boolean is `false`).
+  - ✅ **Realm scoping** (§10.3.2) asserted by test: `WorkerNavigator` exposes
+    **only** `NavigatorID` + `NavigatorLanguage` + `NavigatorOnLine` +
+    `NavigatorConcurrentHardware`; `NavigatorCookies` (`cookieEnabled`),
+    `NavigatorPlugins`, and the `[Exposed=Window]` `productSub`/`vendor`/`vendorSub`
+    are absent in workers.
+
+  **STILL DEFERRED (UA/compat-mode-dependent — same dependency as F6/E0):** the
+  NavigatorID derived fields `userAgent`/`appVersion`/`productSub`/`vendor`/`platform`
+  are still hard-coded **placeholders**. A spec-faithful pass must wire them to a
+  shell-provided UA / compatibility-mode profile (§8.10.1.1); the engine must not
+  fabricate a real-browser UA in the interim. (`cookieEnabled` value-derive = done by
+  A3; spec-constant `appName`/`product`/`vendorSub` already correct.)
   *Trigger:* when the shell exposes a UA/compat-mode source to the VM (same
-  dependency as the F6/E0 mode work), or sooner if a WPT/site needs a missing member.
-  *Date:* revisit with the `EngineMode` work (§3.2 / A1). The exhaustive member list
-  is the follow-up's, not A0's.
+  dependency as the F6/E0 mode work), or sooner if a WPT/site needs the real value.
+  *Date:* revisit with the `EngineMode` work (§3.2 / A1).
 
 ### 1.5 Newly-found clerical drift (fold into the F2 sweep)
 
