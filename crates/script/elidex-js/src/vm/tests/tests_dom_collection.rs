@@ -363,6 +363,45 @@ fn item_out_of_range_returns_null() {
     assert_eq!(out, "ok");
 }
 
+// --- item() / namedItem() arity (required argument) --------------
+// WebIDL declares `item(unsigned long index)` and
+// `namedItem(DOMString name)` with REQUIRED arguments, so a zero-arg
+// call throws `TypeError` (not null) — matching the VM-wide canonical
+// arity message and real browsers.
+
+#[test]
+fn html_collection_item_without_argument_throws_type_error() {
+    let out = run("var hc = document.body.children; \
+         try { hc.item(); 'no-throw'; } \
+         catch (e) { (e instanceof TypeError \
+                       && e.message.indexOf('1 argument required') >= 0 \
+                       && e.message.indexOf('HTMLCollection') >= 0) \
+                        ? 'ok' : 'bad:' + (e && e.message); }");
+    assert_eq!(out, "ok");
+}
+
+#[test]
+fn node_list_item_without_argument_throws_type_error() {
+    let out = run("var nl = document.body.childNodes; \
+         try { nl.item(); 'no-throw'; } \
+         catch (e) { (e instanceof TypeError \
+                       && e.message.indexOf('1 argument required') >= 0 \
+                       && e.message.indexOf('NodeList') >= 0) \
+                        ? 'ok' : 'bad:' + (e && e.message); }");
+    assert_eq!(out, "ok");
+}
+
+#[test]
+fn html_collection_named_item_without_argument_throws_type_error() {
+    let out = run("var hc = document.body.children; \
+         try { hc.namedItem(); 'no-throw'; } \
+         catch (e) { (e instanceof TypeError \
+                       && e.message.indexOf('1 argument required') >= 0 \
+                       && e.message.indexOf('HTMLCollection') >= 0) \
+                        ? 'ok' : 'bad:' + (e && e.message); }");
+    assert_eq!(out, "ok");
+}
+
 // ---------------------------------------------------------------------------
 // Cross-interface brand checks (Copilot R1 #3 regression guard).
 // HTMLCollection-only methods (`namedItem`) must reject NodeList

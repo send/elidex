@@ -537,8 +537,16 @@ fn collection_item_impl(
     interface: &'static str,
 ) -> Result<JsValue, VmError> {
     let (id, _) = require_collection_receiver(ctx, this, "item", interface)?;
-    let index = match args.first() {
-        Some(JsValue::Number(n)) if n.is_finite() => {
+    // WebIDL `getter Element?/Node? item(unsigned long index)` declares a
+    // REQUIRED argument — a zero-arg call throws `TypeError`, it does not
+    // return null (matches the VM-wide canonical arity message).
+    let Some(&raw) = args.first() else {
+        return Err(VmError::type_error(format!(
+            "Failed to execute 'item' on '{interface}': 1 argument required, but only 0 present."
+        )));
+    };
+    let index = match raw {
+        JsValue::Number(n) if n.is_finite() => {
             let trunc = n.trunc();
             if trunc < 0.0 {
                 return Ok(JsValue::Null);
@@ -547,10 +555,10 @@ fn collection_item_impl(
             let idx = trunc as usize;
             idx
         }
-        Some(v) => {
+        v => {
             // WebIDL `unsigned long` — coerce; negatives / NaN map
             // to out-of-range (null).
-            let n = super::super::coerce::to_int32(ctx.vm, *v)?;
+            let n = super::super::coerce::to_int32(ctx.vm, v)?;
             if n < 0 {
                 return Ok(JsValue::Null);
             }
@@ -558,7 +566,6 @@ fn collection_item_impl(
             let idx = n as usize;
             idx
         }
-        None => return Ok(JsValue::Null),
     };
     // Direct `LiveCollection::item` call avoids the per-access Vec
     // clone; the entity is copied out before `create_element_wrapper`
@@ -581,8 +588,12 @@ fn native_collection_named_item(
     // rejects non-HTMLCollection kinds.
     let (id, _is_html_collection) =
         require_collection_receiver(ctx, this, "namedItem", "HTMLCollection")?;
+    // WebIDL `HTMLCollection namedItem(DOMString name)` — REQUIRED argument;
+    // a zero-arg call throws `TypeError` (it does not return null).
     let Some(arg) = args.first().copied() else {
-        return Ok(JsValue::Null);
+        return Err(VmError::type_error(
+            "Failed to execute 'namedItem' on 'HTMLCollection': 1 argument required, but only 0 present.",
+        ));
     };
     let key_sid = super::super::coerce::to_string(ctx.vm, arg)?;
     let key = ctx.vm.strings.get_utf8(key_sid);
