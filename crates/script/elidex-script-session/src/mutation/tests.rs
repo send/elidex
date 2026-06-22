@@ -1,13 +1,13 @@
 use super::*;
 use elidex_ecs::Attributes;
 
-fn elem(dom: &mut EcsDom, tag: &str) -> Entity {
+pub(super) fn elem(dom: &mut EcsDom, tag: &str) -> Entity {
     dom.create_element(tag, Attributes::default())
 }
 
 /// Assert a mutation produced exactly one record and return it (the common
 /// single-record case; a childList move yields two — see the move tests).
-fn expect_one(records: Vec<MutationRecord>) -> MutationRecord {
+pub(super) fn expect_one(records: Vec<MutationRecord>) -> MutationRecord {
     assert_eq!(records.len(), 1, "expected exactly one record");
     records.into_iter().next().unwrap()
 }
@@ -523,7 +523,7 @@ fn apply_style_attribute_invalidates_inline_style_cache() {
 // ---------------------------------------------------------------------------
 
 /// Build a detached `DocumentFragment` holding `children` (in order).
-fn fragment_of(dom: &mut EcsDom, children: &[Entity]) -> Entity {
+pub(super) fn fragment_of(dom: &mut EcsDom, children: &[Entity]) -> Entity {
     let frag = dom.create_document_fragment();
     for &c in children {
         dom.append_child(frag, c);

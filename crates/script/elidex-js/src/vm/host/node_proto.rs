@@ -247,7 +247,7 @@ fn extract_node_entity(ctx: &mut NativeContext<'_>, value: JsValue) -> Result<En
     }
     // Use the inferred kind so legacy DOM entities (payload present
     // but no explicit `NodeKind` component) are accepted as Nodes —
-    // matches `normalize_single_arg`, `nodes_equal`, and
+    // matches `normalize_mixin_arg`, `nodes_equal`, and
     // `HostData::prototype_kind_for`.  `Window` and `Worker` are
     // `EventTarget`s but not Nodes, so they're rejected via
     // `NodeKind::is_node()`.  Destroyed entities return `None` here

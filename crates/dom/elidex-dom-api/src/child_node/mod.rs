@@ -17,7 +17,9 @@ pub use selectors::{Closest, Matches};
 
 use elidex_ecs::{EcsDom, Entity, NodeKind, TagType, TextContent};
 use elidex_plugin::JsValue;
-use elidex_script_session::{DomApiError, DomApiErrorKind, JsObjectRef, SessionCore};
+use elidex_script_session::{
+    convert_arg_source_records, DomApiError, DomApiErrorKind, JsObjectRef, SessionCore,
+};
 
 use crate::util::not_found_error;
 
@@ -291,6 +293,19 @@ pub(crate) fn collect_nodes(
                     .identity_map()
                     .get(JsObjectRef::from_raw(*id))
                     .ok_or_else(|| not_found_error("node not found in identity map"))?;
+                // A ShadowRoot is bound to its host by the immovable host edge (§4.8)
+                // and is not a movable node. Reject it HERE — before `convert_nodes_into_node`
+                // wraps the variadic args via the raw, non-expanding `EcsDom::append_child`,
+                // which would reparent the shadow root into the temporary fragment and on
+                // into the destination (the `apply_*` ShadowRoot guard only sees the temp
+                // fragment, not its shadow-root child). `collect_nodes` is the shared
+                // engine-independent resolution point for every ChildNode/ParentNode mixin
+                // arg (VM + boa + wasm), so the rejection covers all runtimes. (Codex PR393 R6.)
+                if dom.is_shadow_root(entity) {
+                    return Err(hierarchy_error(
+                        "a ShadowRoot cannot be inserted into the light DOM",
+                    ));
+                }
                 entities.push(entity);
             }
             JsValue::Null | JsValue::Undefined => {}
@@ -314,76 +329,47 @@ pub(crate) fn collect_nodes(
 ///
 /// Returns `(entity, is_temp)` where `is_temp` is true if a temporary
 /// `DocumentFragment` was created.
-pub(crate) fn convert_nodes_into_node(nodes: Vec<Entity>, dom: &mut EcsDom) -> (Entity, bool) {
+///
+/// For the multi-node (wrapper) case, each arg is appended to the temp fragment per
+/// WHATWG DOM §4.2.6 step 4 ("append node to fragment" = the DOM mutation "append" =
+/// a §4.2.3 insert into the wrapper). The wrapper is transient/unobserved so its
+/// destination records are irrelevant, BUT the spec also queues unsuppressed **source**
+/// records the observer DOES see — an already-parented arg's §4.5 adopt source-parent
+/// removal, and a `DocumentFragment` arg's §4.2.3 step-4.2 fragment record — so those
+/// are pushed to `session` here ([`convert_arg_source_records`], captured pre-move).
+/// (The single-node case returns the arg directly and lets `apply_*` produce its
+/// records, so no source push is needed there.)
+pub(crate) fn convert_nodes_into_node(
+    nodes: Vec<Entity>,
+    session: &mut SessionCore,
+    dom: &mut EcsDom,
+) -> (Entity, bool) {
     if nodes.len() == 1 {
         return (nodes[0], false);
     }
     let fragment = dom.create_document_fragment();
     for node in nodes {
-        let ok = dom.append_child(fragment, node);
-        debug_assert!(ok, "append_child to fresh fragment should not fail");
+        // Queue the unsuppressed source records (adopt removal / fragment record)
+        // BEFORE the raw move detaches the arg (which would destroy the pre-move
+        // sibling/child state the records capture).
+        for record in convert_arg_source_records(dom, node) {
+            session.push_notify_record(record);
+        }
+        // A `DocumentFragment` arg is expanded one level by hand (the raw
+        // `EcsDom::append_child` does not expand) so the wrapper stays flat — a
+        // fragment's children are never fragments (B1.2-fragment "never nests"); without
+        // this `append(frag1, frag2)` would nest fragments under the wrapper.
+        if dom.is_document_fragment(node) {
+            for child in dom.child_list_uncapped(node) {
+                let ok = dom.append_child(fragment, child);
+                debug_assert!(ok, "append_child to fresh fragment should not fail");
+            }
+        } else {
+            let ok = dom.append_child(fragment, node);
+            debug_assert!(ok, "append_child to fresh fragment should not fail");
+        }
     }
     (fragment, true)
-}
-
-/// Insert a node before `ref_child` under `parent`, expanding `DocumentFragment`
-/// contents.
-///
-/// If `node` is a `DocumentFragment`, its children are moved one-by-one into
-/// `parent` before `ref_child`. Otherwise `node` itself is inserted/appended.
-pub(crate) fn insert_node_expanding_fragment(
-    parent: Entity,
-    node: Entity,
-    ref_child: Option<Entity>,
-    dom: &mut EcsDom,
-) -> Result<(), DomApiError> {
-    let is_fragment = matches!(dom.node_kind(node), Some(NodeKind::DocumentFragment));
-
-    if is_fragment {
-        // Collect fragment children first to avoid iterator invalidation.
-        let children = dom.children(node);
-        for child in children {
-            match ref_child {
-                Some(ref_entity) => {
-                    if !dom.insert_before(parent, child, ref_entity) {
-                        return Err(DomApiError {
-                            kind: DomApiErrorKind::HierarchyRequestError,
-                            message: "failed to insert fragment child".into(),
-                        });
-                    }
-                }
-                None => {
-                    if !dom.append_child(parent, child) {
-                        return Err(DomApiError {
-                            kind: DomApiErrorKind::HierarchyRequestError,
-                            message: "failed to append fragment child".into(),
-                        });
-                    }
-                }
-            }
-        }
-    } else {
-        match ref_child {
-            Some(ref_entity) => {
-                if !dom.insert_before(parent, node, ref_entity) {
-                    return Err(DomApiError {
-                        kind: DomApiErrorKind::HierarchyRequestError,
-                        message: "failed to insert node".into(),
-                    });
-                }
-            }
-            None => {
-                if !dom.append_child(parent, node) {
-                    return Err(DomApiError {
-                        kind: DomApiErrorKind::HierarchyRequestError,
-                        message: "failed to append node".into(),
-                    });
-                }
-            }
-        }
-    }
-
-    Ok(())
 }
 
 /// Walk next siblings of `entity`, skipping any in `exclude`. Returns the first
@@ -393,29 +379,34 @@ pub(crate) fn viable_next_sibling(
     exclude: &[Entity],
     dom: &EcsDom,
 ) -> Option<Entity> {
-    let mut current = dom.get_next_sibling(entity);
+    // Walk the **exposed** sibling chain (`next_exposed_sibling` skips internal
+    // `ShadowRoot` entities, §4.8) so a shadow host's shadow root can never become a
+    // reference child — otherwise it would leak into `MutationRecord.nextSibling`,
+    // which the Node accessors hide from `firstChild`/`nextSibling`. (Codex PR393 R2.)
+    let mut current = dom.next_exposed_sibling(entity);
     while let Some(sibling) = current {
         if !exclude.contains(&sibling) {
             return Some(sibling);
         }
-        current = dom.get_next_sibling(sibling);
+        current = dom.next_exposed_sibling(sibling);
     }
     None
 }
 
-/// Walk previous siblings of `entity`, skipping any in `exclude`. Returns the
-/// first sibling not in the exclude list, or `None`.
+/// Walk previous siblings of `entity`, skipping any in `exclude` (and internal
+/// `ShadowRoot` entities — see [`viable_next_sibling`]). Returns the first viable
+/// exposed sibling, or `None`.
 pub(crate) fn viable_prev_sibling(
     entity: Entity,
     exclude: &[Entity],
     dom: &EcsDom,
 ) -> Option<Entity> {
-    let mut current = dom.get_prev_sibling(entity);
+    let mut current = dom.prev_exposed_sibling(entity);
     while let Some(sibling) = current {
         if !exclude.contains(&sibling) {
             return Some(sibling);
         }
-        current = dom.get_prev_sibling(sibling);
+        current = dom.prev_exposed_sibling(sibling);
     }
     None
 }

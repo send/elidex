@@ -465,3 +465,154 @@ fn viable_prev_basic() {
     // Previous of div -> None (first child).
     assert_eq!(viable_prev_sibling(div, &[], &dom), None);
 }
+
+// ---- transient wrapper cleanup (no entity leak) ----
+
+/// Count live `DocumentFragment` entities in the world.
+fn count_document_fragments(dom: &EcsDom) -> usize {
+    dom.world()
+        .iter()
+        .filter(|e| dom.is_document_fragment(e.entity()))
+        .count()
+}
+
+#[test]
+fn append_multiple_frees_transient_wrapper_fragment() {
+    let (mut dom, _body, _div, span, _p, mut session) = setup();
+    let a = dom.create_element("a", Attributes::default());
+    let a_ref = session
+        .get_or_create_wrapper(a, ComponentKind::Element)
+        .to_raw();
+    let b = dom.create_element("b", Attributes::default());
+    let b_ref = session
+        .get_or_create_wrapper(b, ComponentKind::Element)
+        .to_raw();
+
+    let frags_before = count_document_fragments(&dom);
+    Append
+        .invoke(
+            span,
+            &[JsValue::ObjectRef(a_ref), JsValue::ObjectRef(b_ref)],
+            &mut session,
+            &mut dom,
+        )
+        .unwrap();
+
+    // a, b are appended to span; the transient multi-arg wrapper DocumentFragment
+    // that `convert_nodes_into_node` built must be destroyed once `apply_*` expanded
+    // it (regression guard: the VM's `finalize_pair` cleanup was dropped in the
+    // B1.2b convergence, so without `destroy_temp_fragment` every multi-arg call
+    // would orphan a fragment entity).
+    assert_eq!(dom.children(span), vec![a, b]);
+    assert_eq!(
+        count_document_fragments(&dom),
+        frags_before,
+        "transient wrapper DocumentFragment must be freed (no entity leak)"
+    );
+}
+
+#[test]
+fn replace_children_multiple_frees_transient_wrapper_fragment() {
+    let (mut dom, _body, _div, span, _p, mut session) = setup();
+    let a = dom.create_element("a", Attributes::default());
+    let a_ref = session
+        .get_or_create_wrapper(a, ComponentKind::Element)
+        .to_raw();
+    let b = dom.create_element("b", Attributes::default());
+    let b_ref = session
+        .get_or_create_wrapper(b, ComponentKind::Element)
+        .to_raw();
+
+    let frags_before = count_document_fragments(&dom);
+    ReplaceChildren
+        .invoke(
+            span,
+            &[JsValue::ObjectRef(a_ref), JsValue::ObjectRef(b_ref)],
+            &mut session,
+            &mut dom,
+        )
+        .unwrap();
+
+    assert_eq!(dom.children(span), vec![a, b]);
+    assert_eq!(
+        count_document_fragments(&dom),
+        frags_before,
+        "replaceChildren transient wrapper DocumentFragment must be freed"
+    );
+}
+
+// ---- shadow-root reference-child exposure ----
+
+#[test]
+fn prepend_on_shadow_host_does_not_leak_shadow_root_as_reference() {
+    use elidex_ecs::ShadowRootMode;
+    let (mut dom, _body, _div, _span, _p, mut session) = setup();
+    // A shadow host with a shadow root but NO light children: `get_first_child`
+    // returns the internal ShadowRoot, but `prepend` must use the first EXPOSED child
+    // (none → append) so the ShadowRoot never becomes the reference child / leaks into
+    // the record's `nextSibling`. (Codex PR393 R2.)
+    let host = dom.create_element("div", Attributes::default());
+    let _sr = dom
+        .attach_shadow(host, ShadowRootMode::Open)
+        .expect("attach_shadow");
+    let x = dom.create_element("x", Attributes::default());
+    let x_ref = session
+        .get_or_create_wrapper(x, ComponentKind::Element)
+        .to_raw();
+
+    Prepend
+        .invoke(host, &[JsValue::ObjectRef(x_ref)], &mut session, &mut dom)
+        .unwrap();
+
+    let records = session.take_notify_records();
+    assert_eq!(records.len(), 1);
+    assert_eq!(records[0].added_nodes, vec![x]);
+    assert_eq!(
+        records[0].next_sibling, None,
+        "shadow root must not leak as the record's nextSibling"
+    );
+    assert_eq!(
+        dom.children(host),
+        vec![x],
+        "x is the only (first) light child"
+    );
+}
+
+#[test]
+fn append_multiarg_rejects_shadow_root_arg_without_corruption() {
+    use elidex_ecs::ShadowRootMode;
+    let (mut dom, _body, _div, _span, _p, mut session) = setup();
+    let host = dom.create_element("div", Attributes::default());
+    let sr = dom
+        .attach_shadow(host, ShadowRootMode::Open)
+        .expect("attach_shadow");
+    let target = dom.create_element("div", Attributes::default());
+    let x = dom.create_element("x", Attributes::default());
+    let x_ref = session
+        .get_or_create_wrapper(x, ComponentKind::Element)
+        .to_raw();
+    let sr_ref = session
+        .get_or_create_wrapper(sr, ComponentKind::DocumentFragment)
+        .to_raw();
+
+    // `target.append(x, host.shadowRoot)` — a multi-arg list with a ShadowRoot. The
+    // shadow-root arg is rejected at `collect_nodes`, BEFORE `convert_nodes_into_node`
+    // wraps the variadic args via the raw `EcsDom::append_child` that would reparent it
+    // (the apply_* guard only sees the temp fragment, not its shadow-root child). So the
+    // op fails atomically — no reparenting, no partial mutation. (Codex PR393 R6.)
+    let result = Append.invoke(
+        target,
+        &[JsValue::ObjectRef(x_ref), JsValue::ObjectRef(sr_ref)],
+        &mut session,
+        &mut dom,
+    );
+    assert!(
+        result.is_err(),
+        "multi-arg append with a ShadowRoot must fail"
+    );
+    assert!(dom.is_shadow_root(sr), "shadow root still a shadow root");
+    assert!(
+        dom.children(target).is_empty(),
+        "atomic: neither the shadow root nor x was inserted"
+    );
+}
