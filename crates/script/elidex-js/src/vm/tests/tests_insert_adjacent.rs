@@ -166,6 +166,27 @@ fn insert_adjacent_element_rejects_non_element_arg() {
 }
 
 #[test]
+fn insert_adjacent_element_rejects_shadow_root_arg() {
+    // A `ShadowRoot` is not an Element — `insertAdjacentElement` must reject it
+    // (TypeError), never relink it out of its host. The VM brand-checks the arg
+    // (`require_element_arg`); the canonical handler also guards it
+    // (`tests_tree::insert_adjacent_element_rejects_non_element_arg_at_canonical_layer`),
+    // closing the boa-reachable shadow gap on the engine-independent path too.
+    let out = run(
+        "var t = document.getElementById('t');\
+         var host = document.createElement('div');\
+         var sr = host.attachShadow({mode:'open'});\
+         try { t.insertAdjacentElement('beforeend', sr); 'no-throw'; } \
+         catch (e) { \
+           var ok = (e && e.name === 'TypeError'); \
+           var unchanged = t.childNodes.length === 0; \
+           ok + ':' + unchanged; }",
+        build_pair_in_parent,
+    );
+    assert_eq!(out, "true:true");
+}
+
+#[test]
 fn insert_adjacent_element_cycle_throws_hierarchy_request_error() {
     // Inserting an ancestor into its descendant is a cycle.  The
     // EcsDom `append_child` rejects it, and the throw path maps to

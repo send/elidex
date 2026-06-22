@@ -45,4 +45,7 @@ pub use tree::{
 mod tests_attrs;
 #[cfg(test)]
 #[allow(unused_must_use)]
+mod tests_insert_adjacent;
+#[cfg(test)]
+#[allow(unused_must_use)]
 mod tests_tree;
