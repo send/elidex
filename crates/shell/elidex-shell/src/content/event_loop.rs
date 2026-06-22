@@ -20,14 +20,6 @@ pub(super) fn run_event_loop(state: &mut ContentState) {
     let mut last_frame = Instant::now();
 
     loop {
-        // A `Shutdown` replayed after a blocking load (initial URL spawn /
-        // navigation rebuild) dispatched unload + set this flag instead of
-        // breaking the loop directly; honor it here so the thread exits and
-        // `Tab::shutdown`'s `join()` returns.
-        if state.pending_shutdown {
-            break;
-        }
-
         let animations_running = state.pipeline.animation_engine.has_running();
 
         let now_for_timeout = Instant::now();
@@ -48,14 +40,10 @@ pub(super) fn run_event_loop(state: &mut ContentState) {
 
         match state.channel.recv_timeout(timeout) {
             Ok(msg) => {
-                // Break here — before this iteration's frame tick — on either a
-                // direct `Shutdown` (`handle_message` → `false`) or a `Shutdown`
-                // *replayed* inside a navigation rebuild's queued-message drain
-                // (which sets `pending_shutdown` and returns up through the
-                // `Navigate` arm as `true`). Both must stop the loop at the same
-                // point so no script/render work (animations, due timers,
-                // postMessage drains, rendering) runs after unload.
-                if !handle_message(msg, state) || state.pending_shutdown {
+                // `handle_message` returns `false` on `Shutdown` (after dispatching
+                // unload) — stop the loop before this iteration's frame tick so no
+                // script/render work runs after unload.
+                if !handle_message(msg, state) {
                     break;
                 }
                 if state.pipeline.animation_engine.has_active() {

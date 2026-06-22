@@ -129,15 +129,10 @@ pub(super) fn handle_navigate(
             // Rebuild at the tab's CURRENT viewport (not `DEFAULT`) so the new
             // document's initial scripts + layout see the real `innerWidth`/`@media`
             // (C1; the new runtime's JS bridge is seeded from this viewport inside
-            // the builder). A window resize delivered *while `load_document` was
-            // blocking* sits queued as a `SetViewport`, so the old pipeline's last
-            // processed size can be stale — drain the channel and fold the latest
-            // queued viewport in. Non-viewport messages are buffered and replayed
-            // onto the new document after commit (below), exactly where the normal
-            // event loop would have delivered them, so this corrects only the build
-            // size and preserves message ordering (e.g. a queued `Navigate`).
-            let (viewport, queued_during_load) =
-                drain_viewport_queued_during_load(&state.channel, state.pipeline.viewport);
+            // the builder). Capture the size off the *old* pipeline before it is
+            // replaced — it holds the last `SetViewport` size, i.e. the tab's real
+            // content area.
+            let viewport = state.pipeline.viewport;
             let new_pipeline = crate::build_pipeline_from_loaded(
                 loaded,
                 network_handle,
@@ -163,19 +158,6 @@ pub(super) fn handle_navigate(
                 .runtime
                 .set_history_length(state.nav_controller.len());
             state.notify_navigation(url);
-            // Replay every message that arrived during the blocking load onto the
-            // now-committed new document, in arrival order — the same destination
-            // and order the normal event loop would have processed them on. The
-            // `SetViewport`s replay too (the final one a no-op since the document
-            // is born at that size) so a queued input still hit-tests against the
-            // intermediate layout it was mapped for. A queued `Shutdown` flags the
-            // exit for `run_event_loop` (its unload already ran inside the replay).
-            for msg in queued_during_load {
-                if !super::event_loop::handle_message_public(msg, state) {
-                    state.pending_shutdown = true;
-                    break;
-                }
-            }
         }
         Err(e) => {
             eprintln!("Content thread navigation error: {e}");
@@ -185,42 +167,6 @@ pub(super) fn handle_navigate(
             });
         }
     }
-}
-
-/// Drain messages that queued while a blocking `load_document` ran, returning
-/// (a) the latest valid `SetViewport` size folded onto `current` — for *building*
-/// the replacement document at the real, possibly-just-resized viewport (C1 "real
-/// viewport before scripts") — and (b) the **full** message buffer in arrival
-/// order, for the caller to replay onto the committed document.
-///
-/// The buffer keeps **every** message, `SetViewport` included: the drain only
-/// *peeks* the latest viewport for the build; message processing must otherwise
-/// stay identical to the normal event loop. Replaying the `SetViewport`s in order
-/// is what keeps a queued input event hit-testing against the layout it was
-/// mapped for — a `[resize→A, click, resize→B]` sequence must apply `A`, process
-/// the click against `A`, then apply `B`, not collapse to `B` (the click was
-/// mapped by the browser using placement `A`). The final `SetViewport` replays as
-/// an idempotent no-op since the document is already born at that size (CSSOM
-/// View §13.1), and a degenerate one is rejected by the consumer.
-///
-/// Shared by the two top-level content-thread paths that block on
-/// `load_document` then build at a captured viewport: the navigation rebuild
-/// (here) and the initial URL-backed spawn (`content_thread_main_url`).
-pub(super) fn drain_viewport_queued_during_load(
-    channel: &crate::ipc::LocalChannel<ContentToBrowser, crate::ipc::BrowserToContent>,
-    current: elidex_plugin::Size,
-) -> (elidex_plugin::Size, Vec<crate::ipc::BrowserToContent>) {
-    let mut viewport = current;
-    let mut buffered = Vec::new();
-    while let Ok(msg) = channel.try_recv() {
-        if let crate::ipc::BrowserToContent::SetViewport { width, height } = &msg {
-            if *width > 0.0 && width.is_finite() && *height > 0.0 && height.is_finite() {
-                viewport = elidex_plugin::Size::new(*width, *height);
-            }
-        }
-        buffered.push(msg);
-    }
-    (viewport, buffered)
 }
 
 /// Process any pending JS navigation or history action after event dispatch.
@@ -355,100 +301,5 @@ fn apply_push_replace_state(state: &mut ContentState, url_str: Option<&str>, rep
             .runtime
             .set_history_length(state.nav_controller.len());
         state.send_navigation_state();
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::drain_viewport_queued_during_load;
-    use crate::ipc::{channel_pair, BrowserToContent, ContentToBrowser};
-    use elidex_plugin::Size;
-
-    /// F5/F10: a resize that lands while `load_document` blocks (queued as a
-    /// `SetViewport`) is folded into the build viewport — the latest wins — while
-    /// the **full** sequence is buffered in arrival order (SetViewports included)
-    /// so a replayed input still hit-tests against its intermediate layout.
-    #[test]
-    fn drain_folds_latest_viewport_and_buffers_everything_in_order() {
-        let (browser, content) = channel_pair::<BrowserToContent, ContentToBrowser>();
-        // Interleave two resizes (640 is latest) with two non-viewport messages.
-        browser
-            .send(BrowserToContent::SetViewport {
-                width: 800.0,
-                height: 600.0,
-            })
-            .unwrap();
-        browser
-            .send(BrowserToContent::MouseRelease { button: 0 })
-            .unwrap();
-        browser
-            .send(BrowserToContent::SetViewport {
-                width: 640.0,
-                height: 480.0,
-            })
-            .unwrap();
-        browser.send(BrowserToContent::CursorLeft).unwrap();
-
-        let (viewport, buffered) =
-            drain_viewport_queued_during_load(&content, Size::new(1024.0, 768.0));
-
-        assert_eq!(
-            viewport,
-            Size::new(640.0, 480.0),
-            "the latest queued SetViewport must win the build viewport"
-        );
-        assert_eq!(
-            buffered.len(),
-            4,
-            "every message is buffered in arrival order (SetViewports included)"
-        );
-        assert!(matches!(buffered[0], BrowserToContent::SetViewport { .. }));
-        assert!(matches!(buffered[1], BrowserToContent::MouseRelease { .. }));
-        assert!(matches!(buffered[2], BrowserToContent::SetViewport { .. }));
-        assert!(matches!(buffered[3], BrowserToContent::CursorLeft));
-    }
-
-    /// No queued messages → the current (pre-navigation) viewport is kept and
-    /// nothing is buffered (the common no-resize-during-load case).
-    #[test]
-    fn drain_empty_queue_keeps_current_viewport() {
-        let (_browser, content) = channel_pair::<BrowserToContent, ContentToBrowser>();
-        let (viewport, buffered) =
-            drain_viewport_queued_during_load(&content, Size::new(1024.0, 768.0));
-        assert_eq!(viewport, Size::new(1024.0, 768.0));
-        assert!(buffered.is_empty());
-    }
-
-    /// A degenerate (zero / non-finite) `SetViewport` does not change the build
-    /// viewport, but is still buffered for replay (the consumer rejects it on
-    /// replay) so ordering with any interleaved input stays faithful.
-    #[test]
-    fn drain_ignores_degenerate_setviewport_for_build_but_buffers_it() {
-        let (browser, content) = channel_pair::<BrowserToContent, ContentToBrowser>();
-        browser
-            .send(BrowserToContent::SetViewport {
-                width: 0.0,
-                height: 600.0,
-            })
-            .unwrap();
-        browser
-            .send(BrowserToContent::SetViewport {
-                width: f32::NAN,
-                height: 600.0,
-            })
-            .unwrap();
-
-        let (viewport, buffered) =
-            drain_viewport_queued_during_load(&content, Size::new(1024.0, 768.0));
-        assert_eq!(
-            viewport,
-            Size::new(1024.0, 768.0),
-            "degenerate SetViewport must not change the build viewport"
-        );
-        assert_eq!(
-            buffered.len(),
-            2,
-            "degenerate SetViewport is still buffered (rejected by the consumer on replay)"
-        );
     }
 }

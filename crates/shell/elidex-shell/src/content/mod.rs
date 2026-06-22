@@ -69,14 +69,6 @@ struct ContentState {
     /// (`crate::WakeHandle = Box<dyn Fn() + Send>`) so the content thread stays
     /// winit-free.
     wake: crate::WakeHandle,
-    /// Set when a `Shutdown` is encountered while **replaying** messages that
-    /// queued during a blocking `load_document` (initial URL spawn / navigation
-    /// rebuild). `handle_message` already dispatched unload + returned `false`,
-    /// but that signal is consumed inside the replay loop, so this flag carries it
-    /// to [`event_loop::run_event_loop`], which breaks at the top of its loop —
-    /// otherwise `Tab::shutdown`'s `join()` would block forever (the sender is held
-    /// across the join, so there is no disconnect to fall back on).
-    pending_shutdown: bool,
 }
 
 impl ContentState {
@@ -167,7 +159,6 @@ impl ContentState {
             iframes: iframe::IframeRegistry::new(),
             focused_iframe: None,
             wake,
-            pending_shutdown: false,
         }
     }
 
@@ -505,16 +496,6 @@ fn content_thread_main_url(
     // Extract manifest URL before pipeline builder consumes LoadedDocument.
     let manifest_url = loaded.manifest_url.clone();
     let font_db = std::sync::Arc::new(elidex_text::FontDatabase::new());
-    // A window resize delivered while `load_document` was blocking sits queued on
-    // the channel as a `SetViewport`; fold the latest into the build viewport so
-    // the initial scripts + first-pass media queries see the real size (C1 "real
-    // viewport before scripts"), not the spawn-time size. Non-viewport messages
-    // are buffered and replayed once `ContentState` exists (below), the same place
-    // the event loop would have processed them. (Mirrors the navigation rebuild;
-    // these are the only two top-level paths that block on `load_document` then
-    // build at a captured viewport.)
-    let (viewport, queued_during_load) =
-        navigation::drain_viewport_queued_during_load(&channel, viewport);
     let pipeline =
         crate::build_pipeline_from_loaded(loaded, nh, font_db, Some(cookie_jar), viewport);
 
@@ -535,19 +516,6 @@ fn content_thread_main_url(
     iframe::scan_initial_iframes(&mut state);
     state.re_render();
     state.notify_navigation(url);
-    // Replay every message that queued during the blocking load onto the now-live
-    // document, in arrival order, before entering the event loop. The `SetViewport`s
-    // replay too (the final one a no-op since the document is born at that size) so
-    // a queued input still hit-tests against the intermediate layout it was mapped
-    // for. A queued `Shutdown` flags the exit (its unload already ran here), which
-    // `run_event_loop` honors at its loop top — so it returns immediately instead
-    // of blocking on `recv`.
-    for msg in queued_during_load {
-        if !event_loop::handle_message_public(msg, &mut state) {
-            state.pending_shutdown = true;
-            break;
-        }
-    }
     event_loop::run_event_loop(&mut state);
 }
 
