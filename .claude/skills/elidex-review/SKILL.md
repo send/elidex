@@ -20,8 +20,19 @@ user-invocable: true
 
 ## Skip OK
 
-- doc-only PR (no src changes) → 各 agent が trivially 0 finding、明示 skip 可
-- diff < 30 LoC かつ既存 pattern minor extension のみ → judgment skip 可、landing memo に理由明示
+**Default = run the full review** (5-agent cost ~5 min + audit trail). Skipping (this pre-push pass OR the `/external-converge` TERMINAL fix-delta pass) is justified **only when you can honestly fill a per-axis expected-yield=0 table** (`feedback_terminal-elidex-review-skip-justification.md`, #231) — state, per axis, why this change cannot plausibly trip it. **When in doubt, run it.**
+
+The decision is a **per-PR judgment per axis ("could this change plausibly trip this axis?"), NOT a pre-baked lookup of skippable shapes**. The triggers below are framed **fail-safe — "the axis FIRES (→ run, don't skip) when…"**, deliberately non-exhaustive: an incomplete trigger list only makes you over-run (safe), never wrongly-skip. **An axis is yield-0 only when none of its triggers fire AND you cannot otherwise see this PR tripping it. When in doubt, run it.**
+
+| Axis | Fires (→ run, not skip) when… (non-exhaustive) |
+|---|---|
+| 1 Layering | a `vm/host/` change, OR a core-vs-compat VM change (`crates/script/elidex-js/src/vm/` outside `host/` — e.g. a sloppy-mode / Annex-B slot in core VM) |
+| 2 ECS-native | any ECS component / code-logic change |
+| 3 Pragmatic | a stub / scope-cut / edge-dense bundling |
+| 4 Spec citation | a spec citation added / renumbered / edited, OR a **new citation-required surface** (native / DomApiHandler / engine-indep algorithm that should carry a spec citation, even if one wasn't added) — and an external silent-zero round does NOT prove webref §/AO lookups ran |
+| 5 Project-context | a defer-ledger / slot / roadmap change, or a past-lesson re-introduction |
+
+**The one non-obvious case**: an edit that changes *review/enforcement behavior itself* — a detect entry, workflow step, gate, skip rule, axis definition, or the gate tooling (`.claude/skills/**`, `.claude/tools/**` e.g. `webref`, `.claude/hooks/**`) — **cannot honestly show yield 0** (it alters how the gates behave despite touching no Rust), so it is never skippable — run the **full** pre-push gate (`/code-review` + `/simplify` + `/review` + `/elidex-review`), not a per-stage subset. This matters most for executable gate code (`.py` / `.sh` / `webref`): `mise run ci` is cargo-only, so the correctness/quality stages are its only coverage. Genuinely skippable = pure inert doc/comment text (typo / wording / formatting) tripping none of the rows above.
 
 ## Workflow
 

@@ -45,6 +45,7 @@ Mechanical (no agent), before dispatching Step 2. For each renamed/reframed toke
 1. Grep the **old** form across the **whole repo** (not just changed files) — every surviving hit is a candidate un-propagated site.
 2. Grep around the **new** form's neighbours (sibling files, same-cluster docs) for the stale variant.
 3. Separate *historical* uses that must stay (incident descriptors, changelogs, "PR #X had N R-loop rounds") from *present-tense* claims that must propagate — only the latter are findings.
+4. **Prose-substantive entries (not token swaps) → surface, never auto-apply.** If a swept site needs *prose rewriting* — an AO was removed/renamed, or the claim is no longer spec-accurate — rather than a mechanical §-number / token swap, flag it `prose-substantive`, surface the OLD + proposed NEW prose for review, and do NOT apply it inline (especially when the sweep is delegated to a sub-agent). Layered technical claims get the layering wrong while sounding authoritative — and a confident one-line rewrite of a subtly-layered spec docstring (TypedArray-vs-DataView endianness is one genuinely treacherous example: the repeated back-and-forth over this guardrail's *own* wording for it — across several review rounds — is itself the evidence that such claims must not be auto-applied) is exactly the prose to surface for human review (`feedback_r0-subagent-prose-claim-error-mode.md`, PR #231 R6).
 
 Surviving present-tense stale sites → feed into Step 3 as `consistency`-category findings. (Plan-review's analogue is `grep_pass.py` — this step is the diff-review counterpart; both enforce the same sibling-scan mandate.)
 
@@ -127,6 +128,7 @@ For each fix-tier finding, produce a user-visible decision record using these pr
 2. **Symptom vs root?** — Symptom: rename / const / doc / accept-as-is / debug_assert.  Root: drop dead code / replace with existing abstraction / use ECS-native pattern / restructure caller / **carve out prerequisite PR**.  Default root unless concrete cost overrides.
 3. **Subsumption check?** — Can one structural fix close multiple findings?  Look for cross-finding root cause before fixing each in isolation.
 4. **Polish-domination smell?** — If your fix-option list is mostly polish with no structural option, **suspect the framing**.  Re-read through ECS-native + ideal-over-pragmatic lens.
+5. **Fix-scope sibling sweep (when the fix adds a gate/invariant)?** — If the chosen fix introduces a *new gate / invariant / predicate*, `grep` for sibling **sites** expressing the same semantic class (esp. the adjacent fns you just read while making the fix) and **scope the `Proposed fix` / `Concrete action` to cover ALL of them**, so that when the fix is applied — *after Step 4 acceptance; **Auto-fix NG** still holds, no edits during Step 3.5* — it closes the whole class in one commit.  Distinct from the subsumption check (point 3 closes multiple *findings*): here you proactively fold in sibling *sites the reviewer hasn't flagged yet*, so it can't surface them one-per-round (`feedback_gate-fix-sweep-sibling-sites-one-pass.md`, #339 — a namespace gate added at one site over 3 rounds when one sweep would have closed it).  The fix-scope/code-level analogue of Step 1.6's citation sibling-scan.
 
 Emit one block per fix-tier finding:
 
@@ -138,8 +140,9 @@ Emit one block per fix-tier finding:
 - **Root-level alternative**: <structural fix OR "separate prerequisite PR" OR "none — agent suggestion already structural">
 - **Subsumption check**: <other F<M> this fix resolves, OR "none">
 - **Polish-domination smell**: <triggered? — if yes the alternative is the proposed fix>
+- **Sibling-site sweep** (point 5): <if the fix adds a new gate/invariant/predicate: the sibling sites grepped + folded into Concrete action; ELSE "n/a — no new gate/invariant">
 - **Proposed fix**: <chosen, one sentence>
-- **Concrete action**: <skill-specific — code-edit OR plan-memo edit OR prerequisite PR carve-out>
+- **Concrete action**: <skill-specific — code-edit OR plan-memo edit OR prerequisite PR carve-out; includes the swept sibling sites>
 ```
 
 The aggregate of these blocks IS the philosophy-aligned fix proposal.  Step 4 references these IDs.

@@ -10,7 +10,7 @@ The elidex pre-push gate is six stages run in a fixed order. The trap is reachin
 
 ## Hard rules
 
-- **No skipping.** Every stage must be invoked. The only exception is the whole-skill Skip-OK clause below (pure-doc PR → don't invoke Stages 3–6). Sub-skills have their own internal skip clauses that may fire *during* invocation (e.g. `/elidex-review`'s doc-only / <30 LoC) — that's the sub-skill's concern, not a reason to skip invoking it from pre-push. Do not invent new per-stage skip conditions here. Record any skip in the landing memo.
+- **No skipping.** Every stage must be invoked. The only exception is the whole-skill Skip-OK clause below (pure **inert** doc PR → don't invoke Stages 3–6; a **review/enforcement-tooling edit is NOT inert** and runs the whole gate — see Skip-OK). Sub-skills have their own internal skip clauses that may fire *during* invocation (e.g. `/elidex-review`'s inert-doc skip, which itself excludes enforcement-tooling edits) — that's the sub-skill's concern, not a reason to skip invoking it from pre-push. Do not invent new per-stage skip conditions here. Record any skip in the landing memo.
 - **No substitution.** `/elidex-review` does NOT replace `/code-review` + `/simplify` + `/review`. Run all four.
 - **Fix → re-verify.** If *any* stage produces code edits (a `/code-review` fix, a `/simplify` rewrite, an accepted review finding, etc.) → re-run Stage 2 before continuing. Later stages and the eventual push must see green, formatted code. (This covers Stages 3/4/5/6 — no per-stage repeat below.)
 - This skill stops **before** `git push` / `gh pr create`. Pushing is a separate authorized action — confirm per the usual remote/shared-state rules.
@@ -60,7 +60,8 @@ Then surface the push / PR proposal to the user (do not push autonomously unless
 
 ## Skip-OK (whole skill)
 
-- Pure doc / non-code PR with no `**/*.rs` changes (Rust sources live under `crates/**/src/**`; no top-level `src/`) → skip Stages 3–6; note the skip in the landing memo. Stages 1–2 still run.
+- Pure inert doc / non-code PR — no `**/*.rs` change **and** no change to review/enforcement behavior — → skip Stages 3–6; note the skip in the landing memo. Stages 1–2 still run.
+  - **EXCEPT a review/enforcement-tooling edit**, which is NOT inert → it runs the **whole gate (Stages 3–6)**, not this skip (no per-stage carve — that would violate the "No skipping" hard rule above). For *what counts* as such an edit (which paths, executable-vs-inert, why) → **`/elidex-review` "Skip OK" is the single source**; not restated here.
 - Otherwise: run the whole gate.
 
-(This isn't a *new* skip — `/code-review`, `/simplify`, `/review`, and `/elidex-review` each independently treat doc-only as skip-OK and would return 0 findings. This clause hoists it to the top level to avoid four no-op invocations.)
+(This isn't a *new* skip — `/code-review`, `/simplify`, `/review`, and `/elidex-review` each independently treat *inert* doc-only as skip-OK and would return 0 findings. This clause hoists it to avoid four no-op invocations. The carve-out — review/enforcement-tooling edits aren't inert — lives in `/elidex-review`'s "Skip OK"; this references it, doesn't restate it.)
