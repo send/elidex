@@ -4,7 +4,7 @@ use elidex_ecs::{EcsDom, Entity, TextContent};
 use elidex_plugin::JsValue;
 use elidex_script_session::{
     apply_append_child, apply_insert_before, apply_remove_child, apply_replace_child, DomApiError,
-    DomApiErrorKind, DomApiHandler, JsObjectRef, Mutation, SessionCore,
+    DomApiErrorKind, DomApiHandler, JsObjectRef, Mutation, MutationRecord, SessionCore,
 };
 
 use crate::util::{not_found_error, require_object_ref_arg, require_string_arg};
@@ -307,11 +307,29 @@ fn collect_text_recursive(entity: Entity, dom: &EcsDom, result: &mut String) {
 }
 
 // ---------------------------------------------------------------------------
-// insertAdjacentElement (§7e)
+// insertAdjacentElement / insertAdjacentText (WHATWG DOM §4.9 + §4.2.3)
 // ---------------------------------------------------------------------------
+//
+// # Convergence (B1.2b-2)
+//
+// These handlers are the single algorithm home for ALL runtimes (boa/wasm and,
+// post-S5, the VM): they compute the WHATWG "insert adjacent" site
+// (`#insert-adjacent`) read-only, then mutate through the record-producing
+// `apply_insert_before` / `apply_append_child` primitives so a move yields the
+// §4.5-adopt source-removal record alongside the destination record
+// (MutationObserver parity with `appendChild`/`insertBefore`). The VM is now a
+// thin dispatcher (`vm/host/element_insert_adjacent.rs`) that brand-checks the
+// receiver + the `Element` arg (engine-bound marshalling — it distinguishes a
+// detached wrapper from a wrong-type one) and routes here; the prior VM
+// re-implementation of the position+insert algorithm is gone (One-issue-one-way).
+// The Element-kind guard in `InsertAdjacentElement::invoke` is the sole
+// protection on the boa/wasm path (where a non-Element arg resolved through the
+// identity map would otherwise be relinked) and defense-in-depth on the VM path.
 
 /// `element.insertAdjacentElement(position, element)` — inserts an element
-/// at the specified position relative to `this`.
+/// at the specified position relative to `this` (WHATWG DOM §4.9
+/// `#dom-element-insertadjacentelement`). Returns the inserted element, or null
+/// on the parent-null `beforebegin`/`afterend` no-op.
 pub struct InsertAdjacentElement;
 
 impl DomApiHandler for InsertAdjacentElement {
@@ -333,17 +351,41 @@ impl DomApiHandler for InsertAdjacentElement {
             .get(JsObjectRef::from_raw(elem_ref))
             .ok_or_else(|| not_found_error("element not found"))?;
 
-        insert_adjacent(this, &position, elem_entity, dom)?;
-        Ok(JsValue::ObjectRef(elem_ref))
+        // WebIDL `Element element`: a non-Element arg (Text / Comment /
+        // ShadowRoot / DocumentFragment) must be rejected, not inserted. This
+        // engine-independent guard closes the boa-reachable gap where such a
+        // node, resolved through the identity map, would otherwise be relinked
+        // by the insert below. (The VM additionally brand-checks this arg as
+        // marshalling, distinguishing detached wrappers — defense-in-depth.)
+        if !dom.is_element(elem_entity) {
+            return Err(DomApiError {
+                kind: DomApiErrorKind::TypeError,
+                message: "Failed to execute 'insertAdjacentElement' on 'Element': \
+                          parameter 2 is not of type 'Element'."
+                    .into(),
+            });
+        }
+
+        match resolve_adjacent_site(this, &position, dom)? {
+            // "If element's parent is null, return null" — a silent no-op.
+            AdjacentSite::NoOp => Ok(JsValue::Null),
+            AdjacentSite::Into { parent, before } => {
+                let records = apply_adjacent_insert(parent, before, elem_entity, dom);
+                if records.is_empty() {
+                    return Err(hierarchy_error("insertAdjacentElement"));
+                }
+                for record in records {
+                    session.push_notify_record(record);
+                }
+                Ok(JsValue::ObjectRef(elem_ref))
+            }
+        }
     }
 }
 
-// ---------------------------------------------------------------------------
-// insertAdjacentText (§7e)
-// ---------------------------------------------------------------------------
-
-/// `element.insertAdjacentText(position, text)` — creates a text node and
-/// inserts it at the specified position relative to `this`.
+/// `element.insertAdjacentText(position, data)` — creates a text node and
+/// inserts it at the specified position relative to `this` (WHATWG DOM §4.9
+/// `#dom-element-insertadjacenttext`). Returns undefined (void).
 pub struct InsertAdjacentText;
 
 impl DomApiHandler for InsertAdjacentText {
@@ -355,98 +397,137 @@ impl DomApiHandler for InsertAdjacentText {
         &self,
         this: Entity,
         args: &[JsValue],
-        _session: &mut SessionCore,
+        session: &mut SessionCore,
         dom: &mut EcsDom,
     ) -> Result<JsValue, DomApiError> {
         let position = require_string_arg(args, 0)?;
-        let text = require_string_arg(args, 1)?;
-        let text_node = dom.create_text(text);
+        let data = require_string_arg(args, 1)?;
 
-        insert_adjacent(this, &position, text_node, dom)?;
-        Ok(JsValue::Undefined)
+        // Resolve the insertion site BEFORE allocating the Text node: a bad
+        // position (SyntaxError) or the parent-null `beforebegin`/`afterend`
+        // no-op returns without ever creating a Text, so no unreferenced Text
+        // entity leaks into the ECS (no JS handle is ever returned to anchor it
+        // for GC). WHATWG §4.9 step 2: the Text's node document is this's.
+        match resolve_adjacent_site(this, &position, dom)? {
+            AdjacentSite::NoOp => Ok(JsValue::Undefined),
+            AdjacentSite::Into { parent, before } => {
+                let owner = dom.owner_document(this);
+                let text_node = dom.create_text_with_owner(data, owner);
+                let records = apply_adjacent_insert(parent, before, text_node, dom);
+                if records.is_empty() {
+                    // Insertion failed (a fresh Text cannot cycle, but defend
+                    // anyway) — destroy the unreferenced Text so the error path
+                    // leaks nothing.
+                    let _ = dom.destroy_entity(text_node);
+                    return Err(hierarchy_error("insertAdjacentText"));
+                }
+                for record in records {
+                    session.push_notify_record(record);
+                }
+                Ok(JsValue::Undefined)
+            }
+        }
     }
 }
 
-/// Shared implementation for `insertAdjacentElement` / `insertAdjacentText`.
-fn insert_adjacent(
+/// The resolved insertion site for the WHATWG DOM "insert adjacent" algorithm
+/// (`#insert-adjacent`), computed read-only (no tree mutation).
+enum AdjacentSite {
+    /// `beforebegin`/`afterend` on a parent-less element: the spec returns null
+    /// (a silent no-op), NOT an error.
+    NoOp,
+    /// Insert the node into `parent`, before `before` (`None` = append at end).
+    Into {
+        parent: Entity,
+        before: Option<Entity>,
+    },
+}
+
+/// Resolve `position` against `this` into an [`AdjacentSite`] per the four
+/// WHATWG "insert adjacent" cases (`#insert-adjacent`), read-only and
+/// ASCII-case-insensitive. The "Otherwise" branch is a SyntaxError. `this` must
+/// be an Element (an InvalidStateError otherwise — the VM/boa receiver
+/// brand-checks uphold this; the guard is defense-in-depth).
+fn resolve_adjacent_site(
     this: Entity,
     position: &str,
-    node: Entity,
-    dom: &mut EcsDom,
-) -> Result<(), DomApiError> {
+    dom: &EcsDom,
+) -> Result<AdjacentSite, DomApiError> {
     if !dom.is_element(this) {
         return Err(DomApiError {
             kind: DomApiErrorKind::InvalidStateError,
             message: "insertAdjacent: context node must be an Element".into(),
         });
     }
-    match position.to_ascii_lowercase().as_str() {
-        "beforebegin" => {
-            let parent = dom.get_parent(this).ok_or_else(|| DomApiError {
-                kind: DomApiErrorKind::HierarchyRequestError,
-                message: "insertAdjacent: element has no parent for beforebegin".into(),
-            })?;
-            if !dom.insert_before(parent, node, this) {
-                return Err(DomApiError {
-                    kind: DomApiErrorKind::HierarchyRequestError,
-                    message: "insertAdjacent: insert_before failed".into(),
-                });
-            }
-        }
-        "afterbegin" => {
-            let first_child = dom.get_first_child(this);
-            if let Some(ref_child) = first_child {
-                if !dom.insert_before(this, node, ref_child) {
-                    return Err(DomApiError {
-                        kind: DomApiErrorKind::HierarchyRequestError,
-                        message: "insertAdjacent: insert_before failed".into(),
-                    });
-                }
-            } else if !dom.append_child(this, node) {
-                return Err(DomApiError {
-                    kind: DomApiErrorKind::HierarchyRequestError,
-                    message: "insertAdjacent: append_child failed".into(),
-                });
-            }
-        }
-        "beforeend" => {
-            if !dom.append_child(this, node) {
-                return Err(DomApiError {
-                    kind: DomApiErrorKind::HierarchyRequestError,
-                    message: "insertAdjacent: append_child failed".into(),
-                });
-            }
-        }
-        "afterend" => {
-            let parent = dom.get_parent(this).ok_or_else(|| DomApiError {
-                kind: DomApiErrorKind::HierarchyRequestError,
-                message: "insertAdjacent: element has no parent for afterend".into(),
-            })?;
-            let next = dom.get_next_sibling(this);
-            if let Some(ref_child) = next {
-                if !dom.insert_before(parent, node, ref_child) {
-                    return Err(DomApiError {
-                        kind: DomApiErrorKind::HierarchyRequestError,
-                        message: "insertAdjacent: insert_before failed".into(),
-                    });
-                }
-            } else if !dom.append_child(parent, node) {
-                return Err(DomApiError {
-                    kind: DomApiErrorKind::HierarchyRequestError,
-                    message: "insertAdjacent: append_child failed".into(),
-                });
-            }
-        }
+    // `afterbegin`/`afterend` resolve their reference child against the **exposed**
+    // (light-tree) chain — `children_iter().next()` / `next_exposed_sibling` skip an
+    // internal `ShadowRoot` (DOM §4.8: a shadow root is not a light-tree child of its
+    // host, so it is never the "first child" insertion reference). Raw
+    // `get_first_child`/`get_next_sibling` would point at the ShadowRoot for a host
+    // whose shadow root was attached before any light children, inserting the node
+    // before it and leaking the encapsulated entity into the childList record's
+    // `nextSibling`. (The deleted VM `perform_adjacent_insert` used the shadow-skipping
+    // walk; the prior dom-api helper used the raw accessors — this converges both onto
+    // the correct exposed reference.)
+    Ok(match position.to_ascii_lowercase().as_str() {
+        "beforebegin" => match dom.get_parent(this) {
+            Some(parent) => AdjacentSite::Into {
+                parent,
+                before: Some(this),
+            },
+            None => AdjacentSite::NoOp,
+        },
+        "afterbegin" => AdjacentSite::Into {
+            parent: this,
+            before: dom.children_iter(this).next(),
+        },
+        "beforeend" => AdjacentSite::Into {
+            parent: this,
+            before: None,
+        },
+        "afterend" => match dom.get_parent(this) {
+            Some(parent) => AdjacentSite::Into {
+                parent,
+                before: dom.next_exposed_sibling(this),
+            },
+            None => AdjacentSite::NoOp,
+        },
         _ => {
             return Err(DomApiError {
                 kind: DomApiErrorKind::SyntaxError,
                 message: format!(
-                    "insertAdjacent: invalid position '{position}' (expected beforebegin, afterbegin, beforeend, afterend)"
+                    "insertAdjacent: invalid position '{position}' (expected beforebegin, \
+                     afterbegin, beforeend, afterend)"
                 ),
             });
         }
+    })
+}
+
+/// Apply a non-no-op [`AdjacentSite`] through the record-producing `apply_*`
+/// primitives. A fresh node yields one childList record; an already-parented
+/// node (a move) yields two (§4.5-adopt source-removal + destination, NOT
+/// suppressed). An empty list is a genuine failure (cycle / shadow-root reject /
+/// invalid reference child) the caller maps to HierarchyRequestError.
+fn apply_adjacent_insert(
+    parent: Entity,
+    before: Option<Entity>,
+    node: Entity,
+    dom: &mut EcsDom,
+) -> Vec<MutationRecord> {
+    match before {
+        Some(ref_child) => apply_insert_before(dom, parent, node, ref_child),
+        None => apply_append_child(dom, parent, node),
     }
-    Ok(())
+}
+
+/// `HierarchyRequestError` for a failed insert-adjacent (cycle / invalid
+/// insertion point).
+fn hierarchy_error(method: &str) -> DomApiError {
+    DomApiError {
+        kind: DomApiErrorKind::HierarchyRequestError,
+        message: format!("{method}: hierarchy request error (cycle or invalid insertion point)"),
+    }
 }
 
 // ---------------------------------------------------------------------------

@@ -38,25 +38,6 @@ use super::super::{NativeFn, VmInner};
 // Shared DOMException factories for DOM-method call sites
 // ---------------------------------------------------------------------------
 
-/// `DOMException("HierarchyRequestError")` factory.  `name_sid` is
-/// pre-captured by the caller (see module-level contract — callers
-/// holding a `ctx.host().dom()` mutable borrow can't reach
-/// `ctx.vm.well_known` directly).  `interface` is the WebIDL
-/// interface name that owns the method (`ChildNode` / `ParentNode`
-/// / `Element` / ...); `method` is the member name;
-/// `detail` is the spec-quoted failure message.
-pub(super) fn hierarchy_request_error(
-    name_sid: StringId,
-    interface: &str,
-    method: &str,
-    detail: &str,
-) -> VmError {
-    VmError::dom_exception(
-        name_sid,
-        format!("Failed to execute '{method}' on '{interface}': {detail}"),
-    )
-}
-
 /// `DOMException("InvalidStateError")` factory.  Used by the WHATWG
 /// DOM §2.9 step 3 re-dispatch throw in `EventTarget.dispatchEvent`
 /// (event whose dispatch flag is already set); future callers may
