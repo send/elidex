@@ -117,20 +117,15 @@ impl DomApiHandler for SetTextContentNodeKind {
                     Some(dom.create_text_with_owner(text, owner))
                 };
                 for record in apply_replace_all(dom, this, node) {
-                    // Prune the engine-internal CSSOM cache for any removed
-                    // `<style>`/`<link>` child whose `sheet` was accessed — the
-                    // cache half of the old `session.release` (the identity-map
-                    // clear half is intentionally NOT done: removed nodes must stay
-                    // valid JS objects for MutationObserver / SameObject). This
-                    // preserves the prior textContent behavior (its `release` was the
-                    // sole production pruner of `cssom_sheets`, a GC mark-roots input
-                    // via `active_cssom_rule_ids`). The *uniform* prune across ALL
-                    // removal paths (removeChild/replaceChildren never pruned it
-                    // either) belongs at the GC-owned removal chokepoint —
-                    // slot `#11-cssom-sheets-prune-at-removal-chokepoint`.
-                    for removed in &record.removed_nodes {
-                        session.cssom_sheets.remove(removed);
-                    }
+                    // No per-caller CSSOM-cache prune for removed `<style>`/`<link>`
+                    // children: per CLAUDE.md's side-store rule an entity-keyed cache
+                    // (`SessionCore::cssom_sheets`, a GC mark-roots input via
+                    // `active_cssom_rule_ids`) must be pruned at the GC/despawn
+                    // chokepoint, NOT per mutation-caller. removeChild /
+                    // replaceChildren never pruned it either; reverting the R5
+                    // per-caller `cssom_sheets.remove` here keeps every removal path
+                    // uniform. The GC-owned prune is tracked by defer slot
+                    // `#11-cssom-sheets-prune-at-removal-chokepoint`.
                     session.push_notify_record(record);
                 }
                 Ok(JsValue::Undefined)
