@@ -47,11 +47,13 @@ fn content_thread_setviewport_flips_width_media_query() {
         "default 1024px viewport must NOT match @media (max-width: 900px)"
     );
 
-    // Resize to 800px wide → @media (max-width: 900px) now matches → red.
+    // Resize to 800px wide → @media (max-width: 900px) now matches → red. `seq: 1`
+    // clears the build's high-water mark (0).
     browser
         .send(BrowserToContent::SetViewport {
             width: 800.0,
             height: 600.0,
+            seq: 1,
         })
         .unwrap();
     let ContentToBrowser::DisplayListReady(resized) =
@@ -87,7 +89,7 @@ fn content_thread_first_frame_at_spawn_viewport() {
         "div { display: block; width: 100px; height: 100px; background-color: blue; }\
          @media (max-width: 900px) { div { background-color: red; } }"
             .to_string(),
-        elidex_plugin::Size::new(640.0, 480.0),
+        crate::ipc::ViewportCell::new(elidex_plugin::Size::new(640.0, 480.0)),
         Box::new(|| {}),
     );
 
@@ -185,10 +187,12 @@ fn content_thread_resize_listener_sees_fresh_matchmedia() {
 
     // Grow to 1000 px (crosses min-width: 900): during the resize listener
     // `mql.matches` must already be true (cache refreshed before dispatch) → red.
+    // `seq: 1` clears the build's high-water mark (0).
     browser
         .send(BrowserToContent::SetViewport {
             width: 1000.0,
             height: 600.0,
+            seq: 1,
         })
         .unwrap();
     let ContentToBrowser::DisplayListReady(resized) =
@@ -261,15 +265,17 @@ fn content_thread_same_size_setviewport_is_idempotent() {
         "box must start blue (listener not yet run)"
     );
 
-    // Same-size `SetViewport` must NOT fire `resize` (§13.1). The following
-    // `VisibilityChanged` is a fence that always produces a frame; processed in
-    // order, it follows the no-op SetViewport, so the first frame received is
-    // still blue. Had the same-size delivery fired `resize`, its (red) frame would
-    // be received first instead.
+    // Same-size `SetViewport` must NOT fire `resize` (§13.1) — a fresh `seq: 1`
+    // (> the build's mark 0) clears the *staleness* guard, so it is the *value*
+    // guard under test that drops it. The following `VisibilityChanged` is a fence
+    // that always produces a frame; processed in order, it follows the no-op
+    // SetViewport, so the first frame received is still blue. Had the same-size
+    // delivery fired `resize`, its (red) frame would be received first instead.
     browser
         .send(BrowserToContent::SetViewport {
             width: 800.0,
             height: 600.0,
+            seq: 1,
         })
         .unwrap();
     browser
@@ -285,11 +291,13 @@ fn content_thread_same_size_setviewport_is_idempotent() {
         "same-size SetViewport fired a spurious resize (box went red before any size change)"
     );
 
-    // A genuine size change still fires `resize` → box red.
+    // A genuine size change still fires `resize` → box red. `seq: 2` (> the prior
+    // delivery's 1) clears the staleness guard so the changed size applies.
     browser
         .send(BrowserToContent::SetViewport {
             width: 1000.0,
             height: 600.0,
+            seq: 2,
         })
         .unwrap();
     let ContentToBrowser::DisplayListReady(resized) =
@@ -300,6 +308,157 @@ fn content_thread_same_size_setviewport_is_idempotent() {
     assert!(
         has_color(&resized, red),
         "changed-size SetViewport must fire resize (box stayed blue — resize not dispatched)"
+    );
+
+    browser.send(BrowserToContent::Shutdown).unwrap();
+    handle.join().unwrap();
+}
+
+/// The build reads the **latest published** cell value, not the seed (the
+/// pull-source invariant, plan-memo §2.1). Construct a cell seeded at 1024 px
+/// (`@media (max-width: 900px)` does *not* match → blue), then `publish` 640 px
+/// (matches → red) **before** spawning. The first frame is red ⇒ the build read the
+/// published 640 px from the cell; a stale-snapshot build at the 1024 px seed would
+/// be blue. This is the deterministic stand-in for "a resize landed during the
+/// blocking load" — the publish-before-read ordering is forced on the test thread.
+#[test]
+fn content_thread_builds_at_latest_published_cell_size() {
+    let (browser, content) = ipc::channel_pair::<BrowserToContent, ContentToBrowser>();
+    let (nh, jar, _np) = test_network();
+
+    // Seed at 1024 px (no @media match), then publish 640 px (matches) before spawn.
+    let cell = crate::ipc::ViewportCell::new(elidex_plugin::Size::new(1024.0, 768.0));
+    cell.publish(elidex_plugin::Size::new(640.0, 480.0));
+
+    let handle = crate::content::spawn_content_thread(
+        content,
+        nh,
+        jar,
+        "<div id=\"box\">Box</div>".to_string(),
+        "div { display: block; width: 100px; height: 100px; background-color: blue; }\
+         @media (max-width: 900px) { div { background-color: red; } }"
+            .to_string(),
+        cell,
+        Box::new(|| {}),
+    );
+
+    let has_red = |dl: &elidex_render::DisplayList| {
+        dl.iter().any(|item| {
+            matches!(
+                item,
+                elidex_render::DisplayItem::SolidRect { color, .. }
+                    if *color == elidex_plugin::CssColor::rgb(255, 0, 0)
+            )
+        })
+    };
+
+    let ContentToBrowser::DisplayListReady(initial) =
+        browser.recv_timeout(Duration::from_secs(5)).unwrap()
+    else {
+        panic!("expected initial DisplayListReady");
+    };
+    assert!(
+        has_red(&initial),
+        "build must read the LATEST published cell size (640px → red), not the 1024px seed (blue)"
+    );
+
+    browser.send(BrowserToContent::Shutdown).unwrap();
+    handle.join().unwrap();
+}
+
+/// A `SetViewport` whose `seq` is `≤` the seq the document **built** at is dropped
+/// as stale — the cell-read build already absorbed that resize, so re-applying it
+/// would flash the document backward (plan-memo §2.3 staleness guard). Publish once
+/// (cell seq 1) before spawning, so the build's high-water mark is 1. A
+/// `SetViewport(changed size, seq: 1)` — the canonical resume-time re-delivery of
+/// the seq the build consumed — must NOT fire `resize`, even though the *size*
+/// differs. A `VisibilityChanged` fence (always a frame) then proves the dropped
+/// delivery left the box blue; a later `seq: 2` proves genuine newer resizes apply.
+#[test]
+fn content_thread_drops_stale_seq_viewport() {
+    let (browser, content) = ipc::channel_pair::<BrowserToContent, ContentToBrowser>();
+    let (nh, jar, _np) = test_network();
+
+    // Publish once → cell (800px, seq 1); the build reads seq 1 as its mark.
+    let cell = crate::ipc::ViewportCell::new(elidex_plugin::Size::new(800.0, 600.0));
+    cell.publish(elidex_plugin::Size::new(800.0, 600.0));
+
+    let handle = crate::content::spawn_content_thread(
+        content,
+        nh,
+        jar,
+        "<div id=\"box\">Box</div>\
+         <script>\
+           window.addEventListener('resize', function() {\
+             document.getElementById('box').style.setProperty('background-color', 'red');\
+           });\
+         </script>"
+            .to_string(),
+        "div { display: block; width: 100px; height: 100px; background-color: blue; }".to_string(),
+        cell,
+        Box::new(|| {}),
+    );
+
+    let has_red = |dl: &elidex_render::DisplayList| {
+        dl.iter().any(|item| {
+            matches!(
+                item,
+                elidex_render::DisplayItem::SolidRect { color, .. }
+                    if *color == elidex_plugin::CssColor::rgb(255, 0, 0)
+            )
+        })
+    };
+
+    // Initial frame: listener not yet run → blue.
+    let ContentToBrowser::DisplayListReady(initial) =
+        browser.recv_timeout(Duration::from_secs(5)).unwrap()
+    else {
+        panic!("expected initial DisplayListReady");
+    };
+    assert!(
+        !has_red(&initial),
+        "box must start blue (listener not yet run)"
+    );
+
+    // Stale `seq: 1` (== the build mark) with a CHANGED size must be dropped — no
+    // resize. The `VisibilityChanged` fence follows in FIFO order and always frames;
+    // a blue fenced frame ⇒ the stale delivery fired no `resize`.
+    browser
+        .send(BrowserToContent::SetViewport {
+            width: 1200.0,
+            height: 600.0,
+            seq: 1,
+        })
+        .unwrap();
+    browser
+        .send(BrowserToContent::VisibilityChanged { visible: true })
+        .unwrap();
+    let ContentToBrowser::DisplayListReady(fenced) =
+        browser.recv_timeout(Duration::from_secs(5)).unwrap()
+    else {
+        panic!("expected fenced DisplayListReady");
+    };
+    assert!(
+        !has_red(&fenced),
+        "stale-seq SetViewport (seq ≤ build mark) fired a spurious resize / backward flash"
+    );
+
+    // A genuinely newer `seq: 2` applies → red, proving the thread still resizes.
+    browser
+        .send(BrowserToContent::SetViewport {
+            width: 1200.0,
+            height: 600.0,
+            seq: 2,
+        })
+        .unwrap();
+    let ContentToBrowser::DisplayListReady(resized) =
+        browser.recv_timeout(Duration::from_secs(5)).unwrap()
+    else {
+        panic!("expected post-resize DisplayListReady");
+    };
+    assert!(
+        has_red(&resized),
+        "fresh seq (> build mark) must apply the resize (box stayed blue)"
     );
 
     browser.send(BrowserToContent::Shutdown).unwrap();

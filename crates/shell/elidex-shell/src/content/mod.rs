@@ -60,6 +60,18 @@ struct ContentState {
     /// Which iframe currently has focus (`None` = parent document has focus).
     /// Set by `try_route_click_to_iframe`, checked by `try_route_key_to_iframe`.
     focused_iframe: Option<Entity>,
+    /// Latest browser-published content-area viewport (a *pull* source) — read at
+    /// every build site, including the navigation rebuild in `handle_navigate`, so a
+    /// resize landing during a blocking `load_document` is observed by construction
+    /// rather than reconciled after the fact. Shared `Arc` (one per window; all tabs
+    /// share the content area). See [`crate::ipc::ViewportCell`].
+    viewport_cell: std::sync::Arc<crate::ipc::ViewportCell>,
+    /// High-water mark of the [`crate::ipc::ViewportCell`] `seq` this thread has
+    /// consumed — set to the seq the current document **built** at, then advanced by
+    /// each applied `SetViewport`. A delivery with `seq ≤` this is dropped as stale
+    /// (already consumed by the build or a prior apply), which is what prevents the
+    /// cell-read build from flashing backward to a queued intermediate resize.
+    applied_viewport_seq: u64,
     /// Wake the browser event loop to schedule a repaint after a
     /// display/chrome-affecting send. Under `ControlFlow::Wait` a content-initiated
     /// frame (timer / rAF / animation / async DOM / `SetViewport` round-trip)
@@ -140,11 +152,19 @@ impl ContentState {
     }
 
     /// Create a new `ContentState` from an initialized pipeline and channel.
+    ///
+    /// `applied_viewport_seq` must be the [`crate::ipc::ViewportCell`] seq the
+    /// `pipeline` **built** at (the seq returned by the build site's `cell.read()`) —
+    /// never a `0` default, or a queued `SetViewport` with `seq <` the real build seq
+    /// would satisfy the staleness guard and apply a pre-build intermediate (the
+    /// backward flash the seq exists to prevent).
     fn new(
         channel: LocalChannel<ContentToBrowser, BrowserToContent>,
         nav_controller: NavigationController,
         pipeline: PipelineResult,
         wake: crate::WakeHandle,
+        viewport_cell: std::sync::Arc<crate::ipc::ViewportCell>,
+        applied_viewport_seq: u64,
     ) -> Self {
         Self {
             channel,
@@ -159,6 +179,8 @@ impl ContentState {
             iframes: iframe::IframeRegistry::new(),
             focused_iframe: None,
             wake,
+            viewport_cell,
+            applied_viewport_seq,
         }
     }
 
@@ -383,7 +405,7 @@ pub(crate) fn spawn_content_thread(
     cookie_jar: std::sync::Arc<elidex_net::CookieJar>,
     html: String,
     css: String,
-    viewport: elidex_plugin::Size,
+    viewport_cell: std::sync::Arc<crate::ipc::ViewportCell>,
     wake: crate::WakeHandle,
 ) -> JoinHandle<()> {
     std::thread::spawn(move || {
@@ -393,7 +415,7 @@ pub(crate) fn spawn_content_thread(
             cookie_jar,
             &html,
             &css,
-            viewport,
+            viewport_cell,
             wake,
         );
     })
@@ -407,11 +429,18 @@ pub(crate) fn spawn_content_thread_url(
     network_handle: elidex_net::broker::NetworkHandle,
     cookie_jar: std::sync::Arc<elidex_net::CookieJar>,
     url: url::Url,
-    viewport: elidex_plugin::Size,
+    viewport_cell: std::sync::Arc<crate::ipc::ViewportCell>,
     wake: crate::WakeHandle,
 ) -> JoinHandle<()> {
     std::thread::spawn(move || {
-        content_thread_main_url(channel, network_handle, cookie_jar, &url, viewport, wake);
+        content_thread_main_url(
+            channel,
+            network_handle,
+            cookie_jar,
+            &url,
+            viewport_cell,
+            wake,
+        );
     })
 }
 
@@ -422,7 +451,7 @@ pub(crate) fn spawn_content_thread_blank(
     channel: LocalChannel<ContentToBrowser, BrowserToContent>,
     network_handle: elidex_net::broker::NetworkHandle,
     cookie_jar: std::sync::Arc<elidex_net::CookieJar>,
-    viewport: elidex_plugin::Size,
+    viewport_cell: std::sync::Arc<crate::ipc::ViewportCell>,
     wake: crate::WakeHandle,
 ) -> JoinHandle<()> {
     std::thread::spawn(move || {
@@ -432,7 +461,7 @@ pub(crate) fn spawn_content_thread_blank(
             cookie_jar,
             crate::BLANK_TAB_HTML,
             crate::BLANK_TAB_CSS,
-            viewport,
+            viewport_cell,
             wake,
         );
     })
@@ -444,7 +473,7 @@ fn content_thread_main(
     cookie_jar: std::sync::Arc<elidex_net::CookieJar>,
     html: &str,
     css: &str,
-    viewport: elidex_plugin::Size,
+    viewport_cell: std::sync::Arc<crate::ipc::ViewportCell>,
     wake: crate::WakeHandle,
 ) {
     if let Err(e) = elidex_sandbox::apply_sandbox(&elidex_plugin::PlatformSandbox::Unsandboxed) {
@@ -452,10 +481,22 @@ fn content_thread_main(
         return;
     }
 
+    // Read the latest published viewport by construction (no `load_document` blocks
+    // this HTML path, so the read is immediate). `build_seq` becomes the document's
+    // high-water mark so the resume-time `broadcast_viewport(seq)` re-delivery — and
+    // any queued resize at `seq ≤ build_seq` — is dropped instead of double-painting.
+    let (viewport, build_seq) = viewport_cell.read();
     let nh = std::rc::Rc::new(network_handle);
     let pipeline =
         crate::build_pipeline_interactive_with_network(html, css, nh, cookie_jar, viewport);
-    let mut state = ContentState::new(channel, NavigationController::new(), pipeline, wake);
+    let mut state = ContentState::new(
+        channel,
+        NavigationController::new(),
+        pipeline,
+        wake,
+        viewport_cell,
+        build_seq,
+    );
     scroll::update_viewport_scroll_dimensions(&mut state);
     // Scan for <iframe> elements present in the initial parsed DOM.
     // Mutation-based detection only catches dynamically added iframes;
@@ -473,7 +514,7 @@ fn content_thread_main_url(
     network_handle: elidex_net::broker::NetworkHandle,
     cookie_jar: std::sync::Arc<elidex_net::CookieJar>,
     url: &url::Url,
-    viewport: elidex_plugin::Size,
+    viewport_cell: std::sync::Arc<crate::ipc::ViewportCell>,
     wake: crate::WakeHandle,
 ) {
     if let Err(e) = elidex_sandbox::apply_sandbox(&elidex_plugin::PlatformSandbox::Unsandboxed) {
@@ -493,6 +534,12 @@ fn content_thread_main_url(
             return;
         }
     };
+    // Read the cell **after** the blocking load returns, so a resize that landed
+    // during the load is observed by construction (the build's `innerWidth`/`@media`
+    // see the real size, never the spawn-time snapshot). `build_seq` is the document's
+    // high-water mark: queued `SetViewport`s at `seq ≤ build_seq` (the resizes already
+    // folded into this read) are dropped instead of flashing the document backward.
+    let (viewport, build_seq) = viewport_cell.read();
     // Extract manifest URL before pipeline builder consumes LoadedDocument.
     let manifest_url = loaded.manifest_url.clone();
     let font_db = std::sync::Arc::new(elidex_text::FontDatabase::new());
@@ -502,7 +549,14 @@ fn content_thread_main_url(
     let mut nav_controller = NavigationController::new();
     nav_controller.push(url.clone());
 
-    let mut state = ContentState::new(channel, nav_controller, pipeline, wake);
+    let mut state = ContentState::new(
+        channel,
+        nav_controller,
+        pipeline,
+        wake,
+        viewport_cell,
+        build_seq,
+    );
     scroll::update_viewport_scroll_dimensions(&mut state);
 
     // Notify browser thread of manifest discovery.

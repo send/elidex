@@ -55,7 +55,11 @@ pub(super) fn spawn_test_content_sized(
     css: String,
     viewport: elidex_plugin::Size,
 ) -> std::thread::JoinHandle<()> {
-    spawn_content_thread(content, nh, jar, html, css, viewport, Box::new(|| {}))
+    // The content thread reads its build size from the cell (seq 0), so a test that
+    // later sends a real `SetViewport` must tag it `seq ≥ 1` to clear the build's
+    // high-water mark. See [`crate::ipc::ViewportCell`].
+    let viewport_cell = crate::ipc::ViewportCell::new(viewport);
+    spawn_content_thread(content, nh, jar, html, css, viewport_cell, Box::new(|| {}))
 }
 
 /// Build a `ContentState` directly (over a disconnected network handle) for tests
@@ -75,21 +79,21 @@ pub(super) fn build_test_content_state(
     let (browser, content) = crate::ipc::channel_pair::<BrowserToContent, ContentToBrowser>();
     let nh = std::rc::Rc::new(elidex_net::broker::NetworkHandle::disconnected());
     let jar = std::sync::Arc::new(elidex_net::CookieJar::new());
-    let pipeline = crate::build_pipeline_interactive_with_network(
-        html,
-        css,
-        nh,
-        jar,
-        elidex_plugin::Size::new(
-            crate::DEFAULT_VIEWPORT_WIDTH,
-            crate::DEFAULT_VIEWPORT_HEIGHT,
-        ),
+    let viewport = elidex_plugin::Size::new(
+        crate::DEFAULT_VIEWPORT_WIDTH,
+        crate::DEFAULT_VIEWPORT_HEIGHT,
     );
+    let pipeline = crate::build_pipeline_interactive_with_network(html, css, nh, jar, viewport);
+    // Build at the cell's seed (DEFAULT, seq 0) → high-water mark 0, matching the
+    // `build_pipeline_*` size above; a test `SetViewport` then applies with `seq ≥ 1`.
+    let viewport_cell = crate::ipc::ViewportCell::new(viewport);
     let mut state = ContentState::new(
         content,
         elidex_navigation::NavigationController::new(),
         pipeline,
         Box::new(|| {}),
+        viewport_cell,
+        0,
     );
     super::scroll::update_viewport_scroll_dimensions(&mut state);
     super::iframe::scan_initial_iframes(&mut state);

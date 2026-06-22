@@ -585,24 +585,17 @@ impl App {
         // Mint via the disjoint `wake_proxy` field (an associated fn, not `&self`)
         // so it coexists with the active `&mut mgr` borrow.
         let wake = Self::wake_or_noop(self.wake_proxy.as_ref());
-        // Born at the real viewport (C1) — post-`resumed`, `placement` is `Some`;
-        // `DEFAULT` only as a defensive fallback (disjoint `self.placement` read).
-        // `placement` is keyed to the *active* tab's chrome; this is exact while
-        // every tab uses the default (`Top`) tab-bar position — the only position
-        // ever assigned (`chrome::ChromeState::new`). A future per-tab non-`Top`
-        // position would make the active tab's content size differ from this new
-        // (default-chrome) tab's → slot #11-window-level-tab-bar-position.
-        let viewport = self.placement.map_or_else(
-            || {
-                elidex_plugin::Size::new(
-                    crate::DEFAULT_VIEWPORT_WIDTH,
-                    crate::DEFAULT_VIEWPORT_HEIGHT,
-                )
-            },
-            |p| p.size_logical,
-        );
+        // Born at the real viewport (C1): the new content thread reads the shared
+        // `viewport_cell` (this `Arc`-clone — a disjoint `self.viewport_cell` read
+        // that coexists with `&mut mgr`) at build time. Post-`resumed` the cell holds
+        // the window's published size. It is keyed to the *active* tab's chrome; exact
+        // while every tab uses the default (`Top`) tab-bar position — the only
+        // position ever assigned (`chrome::ChromeState::new`). A future per-tab
+        // non-`Top` position would make the active tab's content size differ from this
+        // new (default-chrome) tab's → slot #11-window-level-tab-bar-position.
+        let viewport_cell = std::sync::Arc::clone(&self.viewport_cell);
         let thread =
-            crate::content::spawn_content_thread_blank(content_ch, nh, jar, viewport, wake);
+            crate::content::spawn_content_thread_blank(content_ch, nh, jar, viewport_cell, wake);
         mgr.create_tab(
             browser_ch,
             thread,

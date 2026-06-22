@@ -26,10 +26,10 @@ fn content_thread_wake_fires_on_display_list() {
         jar,
         "<div>Hi</div>".to_string(),
         "div { display: block; }".to_string(),
-        elidex_plugin::Size::new(
+        crate::ipc::ViewportCell::new(elidex_plugin::Size::new(
             crate::DEFAULT_VIEWPORT_WIDTH,
             crate::DEFAULT_VIEWPORT_HEIGHT,
-        ),
+        )),
         wake,
     );
 
@@ -451,10 +451,12 @@ fn content_thread_viewport_resize_updates_scroll() {
     let _ = browser.recv_timeout(Duration::from_secs(5)).unwrap();
 
     // Resize viewport — triggers re_render which calls update_viewport_scroll_dimensions.
+    // `seq: 1` clears the build's high-water mark (0) so the changed size applies.
     browser
         .send(BrowserToContent::SetViewport {
             width: 800.0,
             height: 600.0,
+            seq: 1,
         })
         .unwrap();
 

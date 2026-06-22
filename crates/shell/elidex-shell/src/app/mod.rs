@@ -261,6 +261,15 @@ pub struct App {
     /// born at the real viewport (C1). `Some` between `new_threaded*` and the
     /// first `resumed`; `None` afterwards (inline mode is always `None`).
     pending_initial_spawn: Option<PendingSpawn>,
+    /// Browser-published latest content-area viewport + monotonic seq — the **pull**
+    /// source every content thread reads at build time (so a build is at the latest
+    /// size by construction, never a stale spawn-time snapshot). Single writer (this
+    /// thread, via [`crate::ipc::ViewportCell::publish`] on `resumed`/`Resized`);
+    /// `Arc`-shared into every spawned content thread. Seeded with `DEFAULT` before
+    /// the window exists; the first `resumed` publish bumps it to the real size at
+    /// seq 1. One per window — all tabs share the content area. See
+    /// [`crate::ipc::ViewportCell`].
+    viewport_cell: Arc<crate::ipc::ViewportCell>,
 }
 
 impl App {
@@ -310,6 +319,13 @@ impl App {
             wake_proxy: Some(wake_proxy),
             placement: None,
             pending_initial_spawn: None,
+            // Seed with `DEFAULT` until `resumed` publishes the window's real size;
+            // the deferred initial tab (and any `window.open`/new tab) reads this
+            // cell at build time. One per window, `Arc`-cloned into each tab.
+            viewport_cell: crate::ipc::ViewportCell::new(Size::new(
+                crate::DEFAULT_VIEWPORT_WIDTH,
+                crate::DEFAULT_VIEWPORT_HEIGHT,
+            )),
         };
         app.init_browser_db();
         app
@@ -436,6 +452,12 @@ impl App {
             wake_proxy: None, // Inline mode is synchronous — nothing to wake.
             placement: None,
             pending_initial_spawn: None, // Inline mode spawns no content thread.
+            // Inline mode spawns no content thread — the cell is never read; seed
+            // `DEFAULT` to satisfy the field.
+            viewport_cell: crate::ipc::ViewportCell::new(Size::new(
+                crate::DEFAULT_VIEWPORT_WIDTH,
+                crate::DEFAULT_VIEWPORT_HEIGHT,
+            )),
         }
     }
 
@@ -471,6 +493,12 @@ impl App {
             wake_proxy: None, // Inline mode is synchronous — nothing to wake.
             placement: None,
             pending_initial_spawn: None, // Inline mode spawns no content thread.
+            // Inline mode spawns no content thread — the cell is never read; seed
+            // `DEFAULT` to satisfy the field.
+            viewport_cell: crate::ipc::ViewportCell::new(Size::new(
+                crate::DEFAULT_VIEWPORT_WIDTH,
+                crate::DEFAULT_VIEWPORT_HEIGHT,
+            )),
         }
     }
 
@@ -767,21 +795,13 @@ impl App {
             }
         }
 
-        // Open new tabs requested by window.open(). Post-`resumed`, so `placement`
-        // is `Some` — born at the real viewport (C1); `DEFAULT` only as a defensive
-        // fallback (disjoint `self.placement` read coexists with `&mut mgr`).
-        // `placement` is keyed to the active tab's chrome; exact while every tab is
-        // the default (`Top`) tab-bar position (cf. `open_new_tab`) →
-        // slot #11-window-level-tab-bar-position.
-        let viewport = self.placement.map_or_else(
-            || {
-                Size::new(
-                    crate::DEFAULT_VIEWPORT_WIDTH,
-                    crate::DEFAULT_VIEWPORT_HEIGHT,
-                )
-            },
-            |p| p.size_logical,
-        );
+        // Open new tabs requested by window.open(). Born at the real viewport (C1):
+        // the new content thread reads the shared `viewport_cell` (the `Arc`-clone
+        // below) at build time — post-`resumed` the cell holds the window's published
+        // size, and a clone is a disjoint `self.viewport_cell` read that coexists with
+        // the active `&mut mgr` borrow. The cell is keyed to the active tab's chrome;
+        // exact while every tab uses the default (`Top`) tab-bar position
+        // (cf. `open_new_tab`) → slot #11-window-level-tab-bar-position.
         for url in new_tab_urls {
             let (browser_chan, content_chan) = crate::ipc::channel_pair();
             let title = format!("elidex \u{2014} {url}");
@@ -797,7 +817,7 @@ impl App {
                     nh,
                     jar,
                     url,
-                    viewport,
+                    Arc::clone(&self.viewport_cell),
                     wake,
                 );
                 mgr.create_tab(browser_chan, thread, chrome, title);
@@ -897,14 +917,16 @@ impl ApplicationHandler<crate::WakeEvent> for App {
         // identical to the initial tab's default chrome, so the size is correct.
         let placement = self.content_area_placement(&state.window);
         self.placement = Some(placement);
+        // Publish the real size to the viewport cell (seq 0 → 1) **before** spawning,
+        // so the deferred initial tab's build reads it by construction. The cell is
+        // the pull source the spawn reads — not a snapshot threaded as an argument.
+        self.viewport_cell.publish(placement.size_logical);
         self.render_state = Some(state);
 
-        // Spawn the deferred initial content thread (C1) at the real viewport —
-        // it is born resolving styles, running initial scripts, and laying out at
-        // `placement.size_logical`, never a guessed `DEFAULT_VIEWPORT`. This
-        // replaces the old initial `send_viewport()`: the size is a spawn
-        // argument, not a value raced-in after the first layout.
-        self.spawn_pending_initial_tab(placement.size_logical);
+        // Spawn the deferred initial content thread (C1) at the real viewport — it is
+        // born resolving styles, running initial scripts, and laying out at the size
+        // it reads from the just-published cell, never a guessed `DEFAULT_VIEWPORT`.
+        self.spawn_pending_initial_tab();
 
         // Re-resume after `suspended` (plan-memo Q3): content threads persist
         // across a suspend but `placement` was dropped, so the content area may
@@ -965,10 +987,14 @@ impl ApplicationHandler<crate::WakeEvent> for App {
                 if new_size.width > 0 && new_size.height > 0 {
                     window.request_redraw();
                 }
-                // Recompute the placement SoT (the window size changed) and
-                // fan the new viewport out to **every** tab — all share the
-                // window content area, so background tabs must re-lay-out too (C1).
-                self.placement = Some(self.content_area_placement(&window));
+                // Recompute the placement SoT (the window size changed), publish it to
+                // the viewport cell (bumping seq) so a content thread rebuilding mid
+                // `load_document` reads the new size, then fan the seq-tagged viewport
+                // out to **every** tab — all share the window content area, so
+                // background tabs must re-lay-out too (C1).
+                let placement = self.content_area_placement(&window);
+                self.placement = Some(placement);
+                self.viewport_cell.publish(placement.size_logical);
                 self.broadcast_viewport();
                 // The content rect may have shrunk/moved out from under a
                 // stationary cursor — clear stuck `:hover` if it left content.

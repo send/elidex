@@ -265,7 +265,24 @@ fn handle_message(msg: BrowserToContent, state: &mut ContentState) -> bool {
             event_handlers::handle_key(state, "keyup", key, code, repeat, mods);
         }
 
-        BrowserToContent::SetViewport { width, height } => {
+        BrowserToContent::SetViewport { width, height, seq } => {
+            // Two independent guards reconcile this FIFO delivery with the build's
+            // cell-read (the `ViewportCell` high-water mark), then with CSSOM View.
+            //
+            // (i) Staleness: drop any delivery whose `seq` is `≤` the seq the current
+            // document built at (or last applied). Such a delivery is an intermediate
+            // resize already folded into the size the build read from the cell —
+            // re-applying it would flash the document backward to that intermediate.
+            if seq <= state.applied_viewport_seq {
+                return true;
+            }
+            // (ii) Advance the high-water mark on a *fresh* seq **unconditionally** —
+            // even when the size is unchanged below — so a later equal-seq delivery is
+            // correctly judged stale. Seq bookkeeping (this) and resize-event firing
+            // (the value guard below, CSSOM View §13.1) are orthogonal; collapsing
+            // them would leave the mark behind on a seq-newer/value-same delivery.
+            state.applied_viewport_seq = seq;
+
             // Per CSSOM View §13.1 "run the resize steps"
             // (#document-run-the-resize-steps) step 1, a `resize` event fires only
             // when the viewport's width or height has changed **since the last time
