@@ -2,6 +2,7 @@ mod clone;
 mod contains_compare;
 mod equality_owner;
 mod normalize_text;
+mod text_content;
 
 use super::*;
 use elidex_ecs::{

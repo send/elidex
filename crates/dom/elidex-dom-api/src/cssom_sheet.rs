@@ -28,9 +28,11 @@
 //! `insertRule` / `deleteRule` mutate the cache, then re-serialise the
 //! `Stylesheet` via [`elidex_css::serialize_stylesheet`] and write the
 //! result back to the owner's source through `flush_sheet_mutation`:
-//! for `<style>` to `.textContent` via the canonical `SetTextContentNodeKind`
-//! path (so the cascade picks up the change and `EcsDom::rev_version` fires
-//! for `LiveCollection` / `MutationObserver` invalidation); for `<link>`
+//! for `<style>` the text is replaced via the `apply_replace_all` primitive
+//! with its `MutationRecord`s **discarded** (so the cascade picks up the change
+//! and `EcsDom::rev_version` fires for `LiveCollection` invalidation, but a
+//! `MutationObserver` does NOT observe the engine-internal serialization as a
+//! childList mutation — CSSOM edits are invisible to `MutationObserver`); for `<link>`
 //! into the `LinkStylesheet` component (the void element has no text node).
 //!
 //! ## CSSMediaRule deferral
@@ -52,11 +54,10 @@ use elidex_css::{parse_single_rule, parse_stylesheet, serialize_stylesheet, Orig
 use elidex_ecs::{EcsDom, Entity, LinkStylesheet};
 use elidex_plugin::JsValue;
 use elidex_script_session::{
-    CssomSheetState, DomApiError, DomApiErrorKind, DomApiHandler, SessionCore,
+    apply_replace_all, CssomSheetState, DomApiError, DomApiErrorKind, DomApiHandler, SessionCore,
 };
 
 use crate::element::collect_text_content;
-use crate::node_methods::SetTextContentNodeKind;
 use crate::util::require_string_arg;
 
 // ---------------------------------------------------------------------------
@@ -118,17 +119,20 @@ fn sync_and_get_state<'a>(
 /// owner's source, then synchronise [`CssomSheetState::snapshot_version`]
 /// so the next `sync_and_get_state` skips a redundant re-parse.
 ///
-/// - `<style>`: the write goes through the canonical
-///   `SetTextContentNodeKind` handler so `EcsDom::rev_version` fires for
-///   cascade / `LiveCollection` / `MutationObserver` invalidation.
+/// - `<style>`: the serialised CSS replaces the element's text via
+///   `apply_replace_all` (the §4.2.3 replace-all primitive), bumping
+///   `EcsDom::rev_version` for cascade / `LiveCollection` invalidation — but its
+///   returned `MutationRecord`s are **discarded**, NOT pushed to the session.
+///   This re-serialization is engine-internal CSSOM↔source sync, not a
+///   script-observable DOM mutation: a `MutationObserver` on the `<style>`'s
+///   children must NOT see a childList record for an `insertRule`/`deleteRule`
+///   (CSSOM edits are invisible to `MutationObserver`). This is the deliberate
+///   counterpart to the public `Node.textContent` setter, which routes through the
+///   same primitive but *delivers* the records.
 /// - `<link rel="stylesheet">`: the void element has no text node, so the
 ///   serialised CSS is written into the `LinkStylesheet` component and its
 ///   monotonic `version` is bumped (CSSOM §6.4 / §6.5 round-trip).
-fn flush_sheet_mutation(
-    sheet_entity: Entity,
-    session: &mut SessionCore,
-    dom: &mut EcsDom,
-) -> Result<(), DomApiError> {
+fn flush_sheet_mutation(sheet_entity: Entity, session: &mut SessionCore, dom: &mut EcsDom) {
     let serialized = {
         let state = session
             .cssom_sheets
@@ -137,7 +141,7 @@ fn flush_sheet_mutation(
         serialize_stylesheet(&state.parsed)
     };
     // Probe link-ness immutably first: the `<style>` arm re-borrows `dom`
-    // mutably through `SetTextContentNodeKind`, so an `if let Ok(mut link)`
+    // mutably through `apply_replace_all`, so an `if let Ok(mut link)`
     // scrutinee borrow would extend into the else arm and conflict.
     let is_link = dom.world().get::<&LinkStylesheet>(sheet_entity).is_ok();
     if is_link {
@@ -154,17 +158,24 @@ fn flush_sheet_mutation(
             state.snapshot_version = new_version;
         }
     } else {
-        SetTextContentNodeKind.invoke(
-            sheet_entity,
-            &[JsValue::String(serialized)],
-            session,
-            dom,
-        )?;
+        // Engine-internal CSSOM↔source sync: replace the <style>'s text (bumping
+        // rev_version for cascade / LiveCollection) but DISCARD the records so a
+        // MutationObserver on the <style>'s children does not observe an
+        // insertRule/deleteRule as a childList mutation (CSSOM edits are invisible
+        // to MutationObserver). `apply_replace_all` returns the records; not
+        // pushing them is the record-free path (the public textContent setter
+        // pushes the same records — that is the only difference).
+        let node = if serialized.is_empty() {
+            None
+        } else {
+            let owner = dom.owner_document(sheet_entity);
+            Some(dom.create_text_with_owner(serialized, owner))
+        };
+        let _ = apply_replace_all(dom, sheet_entity, node);
         if let Some(state) = session.cssom_sheets.get_mut(&sheet_entity) {
             state.snapshot_version = dom.inclusive_descendants_version(sheet_entity);
         }
     }
-    Ok(())
 }
 
 /// Run `project` against the rule with `rule_id` (extracted from
@@ -370,7 +381,7 @@ impl DomApiHandler for InsertRule {
         // so the next `sync_and_get_state` re-parses and assigns fresh
         // sequential `source_order` values from scratch.  Any in-memory
         // mutation here would be overwritten on the next walk.
-        flush_sheet_mutation(this, session, dom)?;
+        flush_sheet_mutation(this, session, dom);
         #[allow(clippy::cast_precision_loss)]
         Ok(JsValue::Number(index_f))
     }
@@ -418,7 +429,7 @@ impl DomApiHandler for DeleteRule {
         // No `source_order` renumbering here — the next `sync_and_get_state`
         // re-parses from the post-flush source and assigns fresh sequential
         // values (mirrors `InsertRule` above).
-        flush_sheet_mutation(this, session, dom)?;
+        flush_sheet_mutation(this, session, dom);
         Ok(JsValue::Undefined)
     }
 }

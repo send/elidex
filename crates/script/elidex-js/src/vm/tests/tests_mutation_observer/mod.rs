@@ -22,6 +22,7 @@ mod integration;
 mod lifecycle;
 mod select_options;
 mod setup;
+mod text_content;
 
 use elidex_ecs::EcsDom;
 use elidex_script_session::SessionCore;
