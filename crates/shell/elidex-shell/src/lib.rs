@@ -38,7 +38,7 @@ use elidex_ecs::Entity;
 use elidex_html_parser::parse_progressive_str;
 use elidex_js_boa::{extract_scripts, JsRuntime};
 use elidex_layout::layout_tree;
-use elidex_plugin::{Size, Vector, ViewportOverflow};
+use elidex_plugin::{EngineMode, Size, Vector, ViewportOverflow};
 use elidex_render::{build_display_list, build_display_list_with_scroll, DisplayList};
 use elidex_script_session::{ScriptContext, SessionCore};
 use elidex_style::resolve_styles_with_compat;
@@ -327,27 +327,60 @@ const BLANK_TAB_HTML: &str = "<html><body><h1>New Tab</h1></body></html>";
 /// CSS for the blank new-tab page.
 const BLANK_TAB_CSS: &str = "body { background-color: #ffffff; color: #333333; font-family: sans-serif; } h1 { text-align: center; margin-top: 200px; }";
 
-/// Resolve styles with the compat layer (legacy UA + presentational hints).
+/// Resolve styles under the engine-wide [`EngineMode`]'s style-compat policy.
 ///
-/// Passes the CSS property registry to enable handler-based dispatch for
-/// `is_inherited()`, `initial_value()`, and `get_computed()` queries.
-fn resolve_with_compat(
+/// `BrowserCompat` applies the compat cascade — the legacy UA stylesheet + HTML
+/// presentational hints (WHATWG HTML §15.2) + the CSS property registry for
+/// handler-based `is_inherited()` / `initial_value()` / `get_computed()`
+/// dispatch. `BrowserCore` / `App` resolve against the modern UA baseline only
+/// (no legacy UA sheet, no presentational hints).
+///
+/// The style-compat policy is derived **in parallel** to the Web-API
+/// `SpecLevelPolicy` from the same one [`EngineMode`], so the CSS pipeline carries
+/// no dependency on a Web-API classification enum (web-api-compat-split design
+/// §5 / R3-6). `medium` reaches both arms so no `@media` is dropped in either mode.
+fn resolve_with_mode(
     dom: &mut EcsDom,
     author_stylesheets: &[&Stylesheet],
     registry: &elidex_plugin::CssPropertyRegistry,
     viewport: Size,
     medium: elidex_css::media::Medium,
+    engine_mode: EngineMode,
 ) -> ViewportOverflow {
-    let legacy_ua = legacy_ua_stylesheet();
-    resolve_styles_with_compat(
-        dom,
-        author_stylesheets,
-        &[legacy_ua],
-        &get_presentational_hints,
-        viewport,
-        medium,
-        Some(registry),
-    )
+    if engine_mode.style_compat_policy().presentational_compat() {
+        let legacy_ua = legacy_ua_stylesheet();
+        resolve_styles_with_compat(
+            dom,
+            author_stylesheets,
+            &[legacy_ua],
+            &get_presentational_hints,
+            viewport,
+            medium,
+            Some(registry),
+        )
+    } else {
+        // Core (BrowserCore/App): modern UA baseline only — no legacy UA sheet,
+        // no presentational hints. This is the `elidex_style::resolve_styles`
+        // surface, threaded with the call site's `medium` so paged/print output
+        // keeps `@media print` even in core mode.
+        resolve_styles_with_compat(
+            dom,
+            author_stylesheets,
+            &[],
+            &no_hints,
+            viewport,
+            medium,
+            None,
+        )
+    }
+}
+
+/// No-op presentational-hint generator for the core (non-compat) cascade.
+///
+/// The compat arm uses [`get_presentational_hints`]; `BrowserCore`/`App` supply
+/// no hints (modern UA baseline). Mirrors `elidex_style`'s private `no_hints`.
+fn no_hints(_entity: Entity, _dom: &EcsDom) -> Vec<elidex_css::Declaration> {
+    Vec::new()
 }
 
 /// Run the full browser pipeline and display the result in a window.
@@ -424,6 +457,17 @@ pub struct PipelineResult {
     pub viewport_overflow: ViewportOverflow,
     /// Viewport scroll offset synced from content thread before re-render.
     pub scroll_offset: Vector,
+    /// Engine-wide operating mode — the embedder's single mode authority.
+    ///
+    /// The shell is a browser embedder, so a production session is
+    /// [`EngineMode::BrowserCompat`] (the byte-identical full compat surface).
+    /// Read by `re_render` and the pipeline builders to derive the style-compat
+    /// policy ([`EngineMode::style_compat_policy`]); the *same* field will feed VM
+    /// construction at the boa→elidex-js-VM cutover, so there is one mode authority,
+    /// not a style-only one. `BrowserCore`/`App` await the async-core storage
+    /// precondition (`#11-async-core-storage-cookiestore`) before a real session
+    /// selects them — until then they are exercised by tests only.
+    pub engine_mode: EngineMode,
 }
 
 impl PipelineResult {
@@ -497,6 +541,7 @@ pub fn build_pipeline_interactive(html: &str, css: &str) -> PipelineResult {
         // Standalone/test build: no window, so the default viewport is the
         // explicit choice (D6 — not a silent in-pipeline guess).
         Size::new(DEFAULT_VIEWPORT_WIDTH, DEFAULT_VIEWPORT_HEIGHT),
+        EngineMode::BrowserCompat,
     );
 
     let display_list = build_display_list(&dom, &font_db);
@@ -521,6 +566,7 @@ pub fn build_pipeline_interactive(html: &str, css: &str) -> PipelineResult {
         viewport_overflow,
         scroll_offset: Vector::<f32>::ZERO,
         broker_keepalive: None,
+        engine_mode: EngineMode::BrowserCompat,
     };
 
     // Start CSS animations declared in initial styles.
@@ -570,6 +616,7 @@ pub(crate) fn build_pipeline_interactive_with_network(
         None,
         &registry,
         viewport,
+        EngineMode::BrowserCompat,
     );
 
     let display_list = build_display_list(&dom, &font_db);
@@ -593,6 +640,7 @@ pub(crate) fn build_pipeline_interactive_with_network(
         viewport_overflow,
         scroll_offset: Vector::<f32>::ZERO,
         broker_keepalive: None,
+        engine_mode: EngineMode::BrowserCompat,
     };
 
     sync_css_animations(&mut result, &[]);
@@ -643,6 +691,7 @@ pub(crate) fn build_pipeline_interactive_shared(
         url.as_ref(),
         &registry,
         viewport,
+        EngineMode::BrowserCompat,
     );
 
     let display_list = build_display_list(&dom, &font_db);
@@ -666,6 +715,7 @@ pub(crate) fn build_pipeline_interactive_shared(
         viewport_overflow,
         scroll_offset: Vector::<f32>::ZERO,
         broker_keepalive: None,
+        engine_mode: EngineMode::BrowserCompat,
     };
 
     sync_css_animations(&mut result, &[]);
@@ -775,12 +825,13 @@ pub(crate) fn re_render(result: &mut PipelineResult) -> Vec<elidex_script_sessio
 
     // Phase 2: Re-resolve styles.
     let stylesheet_refs: Vec<&Stylesheet> = result.stylesheets.iter().collect();
-    result.viewport_overflow = resolve_with_compat(
+    result.viewport_overflow = resolve_with_mode(
         &mut result.dom,
         &stylesheet_refs,
         &result.registry,
         result.viewport,
         elidex_css::media::Medium::Screen,
+        result.engine_mode,
     );
 
     // Phase 3: Detect transitions by comparing old vs new computed values.
@@ -845,6 +896,7 @@ pub fn build_pipeline_from_loaded(
         Some(&url),
         &registry,
         viewport,
+        EngineMode::BrowserCompat,
     );
 
     let display_list = build_display_list(&dom, &font_db);
@@ -869,6 +921,7 @@ pub fn build_pipeline_from_loaded(
         viewport_overflow,
         scroll_offset: Vector::<f32>::ZERO,
         broker_keepalive: None,
+        engine_mode: EngineMode::BrowserCompat,
     };
 
     // Start CSS animations declared in initial styles.

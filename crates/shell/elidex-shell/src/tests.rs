@@ -876,3 +876,65 @@ fn boa_insert_rule_skips_media_conditioned_rule() {
         "a plain qualified rule still inserts"
     );
 }
+
+// --- E0 (F6): engine-mode-gated style compat ---
+
+/// An entity's resolved `color` as a stable string, for cross-mode comparison.
+fn computed_color(result: &PipelineResult, entity: Entity) -> String {
+    let r = result
+        .dom
+        .world()
+        .get::<&elidex_plugin::ComputedStyle>(entity)
+        .expect("ComputedStyle not found");
+    format!("{:?}", r.color)
+}
+
+#[test]
+fn engine_mode_gates_presentational_hints() {
+    // `<font color="red">` is colored ONLY by the presentational-hint compat
+    // layer (WHATWG HTML §15.2). BrowserCompat (the production default) applies
+    // it; BrowserCore resolves against the modern UA baseline and must drop it —
+    // exercising the `resolve_with_mode` core arm through the real `re_render`
+    // path (which reads `result.engine_mode`).
+    let mut result = build_pipeline_interactive("<font id=\"f\" color=\"red\">x</font>", "");
+    let font = find_by_id(&result, "font", "f").expect("font element");
+
+    re_render(&mut result); // default engine_mode = BrowserCompat
+    let compat_color = computed_color(&result, font);
+
+    result.engine_mode = elidex_plugin::EngineMode::BrowserCore;
+    re_render(&mut result);
+    let core_color = computed_color(&result, font);
+
+    assert_ne!(
+        compat_color, core_color,
+        "BrowserCore must drop the <font color> presentational hint \
+         (compat={compat_color}, core={core_color})"
+    );
+}
+
+#[test]
+fn engine_mode_core_keeps_modern_baseline_for_plain_content() {
+    // A plain <div> styled by an author rule (no legacy tag, no presentational
+    // attribute) resolves identically in both modes — the gate touches only the
+    // compat surface, never the modern UA baseline + author cascade.
+    let html = "<div id=\"d\">x</div>";
+    let css = "div { color: green; }";
+
+    let mut compat = build_pipeline_interactive(html, css);
+    re_render(&mut compat);
+    let d_compat = find_by_id(&compat, "div", "d").expect("div");
+    let compat_color = computed_color(&compat, d_compat);
+
+    let mut core = build_pipeline_interactive(html, css);
+    core.engine_mode = elidex_plugin::EngineMode::BrowserCore;
+    re_render(&mut core);
+    let d_core = find_by_id(&core, "div", "d").expect("div");
+    let core_color = computed_color(&core, d_core);
+
+    assert_eq!(
+        compat_color, core_color,
+        "modern baseline + author cascade must be mode-invariant \
+         (compat={compat_color}, core={core_color})"
+    );
+}

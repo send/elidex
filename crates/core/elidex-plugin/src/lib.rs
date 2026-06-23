@@ -64,7 +64,7 @@ pub use registry::PluginRegistry;
 pub use sandbox::{PlatformSandbox, SandboxError, SandboxPolicy};
 pub use spec_level::{
     CssSpecLevel, DomSpecLevel, EngineMode, EsSpecLevel, HtmlSpecLevel, SpecLevelPolicy,
-    WebApiSpecLevel,
+    StyleCompatPolicy, WebApiSpecLevel,
 };
 pub use traits::{
     AccessibilityRole, Attributes, Constraints, CssPropertyHandler, CssPropertyRegistry, CssRule,
