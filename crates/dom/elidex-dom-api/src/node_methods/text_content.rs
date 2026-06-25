@@ -2,7 +2,7 @@
 
 use elidex_ecs::{CommentData, EcsDom, Entity, NodeKind, TextContent};
 use elidex_plugin::JsValue;
-use elidex_script_session::{DomApiError, DomApiHandler, SessionCore};
+use elidex_script_session::{apply_replace_all, DomApiError, DomApiHandler, SessionCore};
 
 // ---------------------------------------------------------------------------
 // Helper
@@ -103,14 +103,30 @@ impl DomApiHandler for SetTextContentNodeKind {
                 Ok(JsValue::Undefined)
             }
             _ => {
-                let children = dom.children(this);
-                for child in children {
-                    session.release(child);
-                    let _ = dom.remove_child(this, child);
-                }
-                if !text.is_empty() {
-                    let text_node = dom.create_text(text);
-                    let _ = dom.append_child(this, text_node);
+                // WHATWG DOM §4.4 `Node.textContent` setter, Element/DocumentFragment
+                // (`#dom-node-textcontent`): node = null, or a new Text (data = value,
+                // node document = this's) when value is non-empty; then "string replace
+                // all with node within this" = the canonical record-producing
+                // `apply_replace_all` (§4.2.3 `#concept-node-replace-all`) → ONE coalesced
+                // ChildList record (removed = prior children, added = [text] | «», queued
+                // iff non-empty).
+                let node = if text.is_empty() {
+                    None
+                } else {
+                    let owner = dom.owner_document(this);
+                    Some(dom.create_text_with_owner(text, owner))
+                };
+                for record in apply_replace_all(dom, this, node) {
+                    // No per-caller CSSOM-cache prune for removed `<style>`/`<link>`
+                    // children: per CLAUDE.md's side-store rule an entity-keyed cache
+                    // (`SessionCore::cssom_sheets`, a GC mark-roots input via
+                    // `active_cssom_rule_ids`) must be pruned at the GC/despawn
+                    // chokepoint, NOT per mutation-caller. removeChild /
+                    // replaceChildren never pruned it either; reverting the R5
+                    // per-caller `cssom_sheets.remove` here keeps every removal path
+                    // uniform. The GC-owned prune is tracked by defer slot
+                    // `#11-cssom-sheets-prune-at-removal-chokepoint`.
+                    session.push_notify_record(record);
                 }
                 Ok(JsValue::Undefined)
             }

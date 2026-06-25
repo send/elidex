@@ -437,6 +437,45 @@ fn insert_rule_round_trips_through_text_content() {
 }
 
 #[test]
+fn insert_rule_does_not_deliver_childlist_mutation_record() {
+    // B1.2c Codex R2 regression: the engine-internal CSSOM→source re-serialization
+    // (flush_sheet_mutation re-writing the <style>'s text after insertRule) must NOT
+    // be observed by a MutationObserver on the <style>'s children. CSSOM rule edits
+    // are invisible to MutationObserver; only a real Node.textContent / child-tree
+    // edit delivers a childList record. `apply_replace_all`'s records are discarded
+    // on the cssom path (vs delivered on the public textContent setter).
+    //
+    // The assertion reads `records` in a SEPARATE eval (Codex R4): the MO microtask
+    // drains at the eval tail AFTER the script result is produced, so a same-eval
+    // read would always see `null` (a tautology that passes even for a broken impl).
+    // Reading in the second eval observes the post-microtask state, so a regression
+    // that queued + delivered a childList record fails this test.
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = build_doc_with_style(&mut dom, "div {}");
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    vm.eval(
+        "var s = document.getElementsByTagName('style')[0]; \
+         globalThis.records = null; \
+         var mo = new MutationObserver(function(r){ globalThis.records = r; }); \
+         mo.observe(s, {childList:true}); \
+         s.sheet.insertRule('p { color: green; }', 1);",
+    )
+    .unwrap();
+    // Post-microtask-checkpoint read: no childList record was delivered.
+    let records = vm.eval("String(globalThis.records)").unwrap();
+    let JsValue::String(sid) = records else {
+        panic!("expected string, got {records:?}");
+    };
+    assert_eq!(vm.inner.strings.get_utf8(sid), "null");
+    vm.unbind();
+}
+
+#[test]
 fn insert_rule_coerces_string_index() {
     // R1 IMP regression: WebIDL `unsigned long` ToUint32 coercion must
     // run on `index`, so `insertRule(rule, '1')` lands at index 1
