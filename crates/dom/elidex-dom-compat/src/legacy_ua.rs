@@ -1,7 +1,10 @@
 //! Compat-only UA stylesheet for **obsolete / non-conforming** HTML elements.
 //!
 //! Holds default rendering only for the elements HTML §16.2 marks
-//! non-conforming (`<tt>`, `<strike>`, `<big>`, `<center>`). Standard conforming-element
+//! non-conforming (`<strike>`, `<big>`, `<center>`). (`<tt>` is §16.2-obsolete too
+//! but stays in the *core* UA sheet so its monospace reaches shadow trees — the
+//! compat sheet is not applied inside shadow roots; see `elidex-style` `ua.rs`.)
+//! Standard conforming-element
 //! rendering — `<b>`/`<strong>`/`<em>`/`<mark>`/form controls/etc. (HTML §15.3) —
 //! is part of the modern UA baseline and lives in the core UA stylesheet
 //! (`elidex-style` `ua_stylesheet`), applied in **every** engine mode. Only this
@@ -15,15 +18,14 @@ use elidex_css::{parse_stylesheet, Origin, Stylesheet};
 /// features).
 ///
 /// Only the non-conforming elements live here:
-/// - `<tt>` — monospace; obsolete (use `<code>`/`<kbd>`/`<samp>` or CSS). Shares
-///   the conforming monospace elements' rendering but is itself §16.2-obsolete,
-///   so it is compat-gated rather than in the core `pre, code, kbd, samp` rule.
 /// - `<strike>` (use `<s>`/`<del>`) — `<s>`/`<del>` are conforming and render in
 ///   the core UA sheet; only the obsolete `strike` alias is compat-gated.
 /// - `<big>` — `larger` (relative) per the §15.3.4 sizing convention.
 /// - `<center>` — block + centered text.
+///
+/// (`<tt>` is also §16.2-obsolete but is intentionally kept in the core sheet —
+/// see the module doc — so it is NOT listed here.)
 const LEGACY_UA_CSS: &str = r"
-tt { font-family: monospace; }
 strike { text-decoration-line: line-through; }
 big { font-size: larger; }
 center { display: block; text-align: center; }

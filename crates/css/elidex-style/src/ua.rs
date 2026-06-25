@@ -65,7 +65,12 @@ dd { margin-left: 40px; }
 
 pre { white-space: pre; }
 
-pre, code, kbd, samp { font-family: monospace; }
+/* <tt> is HTML §16.2-obsolete but stays in the CORE sheet (not the compat legacy
+   sheet): its monospace rendering is harmless, shared with the conforming
+   code/kbd/samp, and must reach shadow trees — where the compat legacy sheet is
+   NOT applied (walk.rs builds the shadow list as [ua, shadow_sheet]). Moving it to
+   the compat sheet regressed compat shadow <tt> rendering (Codex #408). */
+pre, code, kbd, samp, tt { font-family: monospace; }
 
 blockquote {
     margin-top: 1em;
@@ -296,6 +301,13 @@ mod tests {
     fn code_has_font_family_monospace() {
         assert_ua_rule(
             "code",
+            "font-family",
+            &CssValue::List(vec![CssValue::Keyword("monospace".to_string())]),
+        );
+        // <tt> (HTML §16.2-obsolete) is kept in the CORE sheet, not the compat
+        // legacy sheet, so its monospace reaches shadow trees (Codex #408).
+        assert_ua_rule(
+            "tt",
             "font-family",
             &CssValue::List(vec![CssValue::Keyword("monospace".to_string())]),
         );

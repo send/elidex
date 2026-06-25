@@ -70,12 +70,19 @@ fn legacy_ua_obsolete_only() {
     // stylesheet (elidex-style `ua_stylesheet`), applied in every engine mode.
     let ss = legacy_ua_stylesheet();
     // Obsolete elements present here (compat-gated).
-    for tag in ["tt", "strike", "big", "center"] {
+    for tag in ["strike", "big", "center"] {
         assert!(
             find_rule_for_tag(ss, tag),
             "obsolete rule for {tag} not found"
         );
     }
+    // <tt> is §16.2-obsolete too but stays in the CORE UA sheet (its monospace must
+    // reach shadow trees, where this compat sheet is not applied) — so it must NOT
+    // be here (Codex #408).
+    assert!(
+        !find_rule_for_tag(ss, "tt"),
+        "tt must stay in the core UA sheet (shadow reachability), not the compat legacy sheet"
+    );
     // Conforming elements must NOT be here — they belong to the core UA sheet so
     // they render in BrowserCore/App too (Codex #406 P2: dropping the whole sheet
     // in core mode previously stripped standard rendering).
