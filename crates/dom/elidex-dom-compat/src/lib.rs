@@ -7,8 +7,12 @@
 //!
 //! # Components
 //!
-//! - **Legacy UA stylesheet** ([`legacy_ua_stylesheet`]): rules for legacy tags
-//!   like `<b>`, `<i>`, `<center>`, `<mark>`, form controls.
+//! - **Obsolete-element UA stylesheet** ([`legacy_ua_stylesheet`]): compat-gated
+//!   default rendering for the HTML §16.2 non-conforming elements (`<strike>`,
+//!   `<big>`, `<center>`; `<tt>` is also obsolete but stays in the core sheet for
+//!   shadow-tree reachability). Standard conforming-element rendering
+//!   (`<b>`/`<strong>`/`<mark>`/form controls/…, HTML §15.3) lives in the core UA
+//!   stylesheet (`elidex-style`) and applies in every engine mode.
 //! - **Presentational hints** ([`get_presentational_hints`]): converts HTML
 //!   attributes (`bgcolor`, `width`, `border`, `color`, etc.) into CSS
 //!   declarations that participate in the cascade.
