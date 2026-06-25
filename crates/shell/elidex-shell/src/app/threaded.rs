@@ -50,7 +50,7 @@ impl App {
         // placement SoT — no second `chrome_content_offset` call (the builder
         // `content_area_placement` is its single caller). `None` before the
         // window exists; the input arms below skip mapping in that case.
-        let placement = self.placement;
+        let placement = self.viewport.placement;
 
         // Most event arms need a redraw; track exceptions explicitly.
         let mut needs_redraw = true;
@@ -136,13 +136,16 @@ impl App {
             .as_ref()
             .map(|s| std::sync::Arc::clone(&s.window))
         {
-            self.placement = Some(self.content_area_placement(&window));
+            self.viewport.placement = Some(self.content_area_placement(&window));
         }
-        let content = self.placement.map(|p| elidex_render::ContentPlacement {
-            offset: p.origin_phys(),
-            size: p.size_phys(),
-            scale: p.scale_factor,
-        });
+        let content = self
+            .viewport
+            .placement
+            .map(|p| elidex_render::ContentPlacement {
+                offset: p.origin_phys(),
+                size: p.size_phys(),
+                scale: p.scale_factor,
+            });
 
         // Apply pending window.focus() request.
         if self.pending_focus {
@@ -592,14 +595,14 @@ impl App {
         // so it coexists with the active `&mut mgr` borrow.
         let wake = Self::wake_or_noop(self.wake_proxy.as_ref());
         // Born at the real viewport (C1): the new content thread reads the shared
-        // `viewport_cell` (this `Arc`-clone — a disjoint `self.viewport_cell` read
-        // that coexists with `&mut mgr`) at build time. Post-`resumed` the cell holds
-        // the window's published size. It is keyed to the *active* tab's chrome; exact
-        // while every tab uses the default (`Top`) tab-bar position — the only
+        // `viewport_cell` (this `Arc`-clone — a disjoint `self.viewport.viewport_cell`
+        // read that coexists with `&mut mgr`) at build time. Post-`resumed` the cell
+        // holds the window's published size. It is keyed to the *active* tab's chrome;
+        // exact while every tab uses the default (`Top`) tab-bar position — the only
         // position ever assigned (`chrome::ChromeState::new`). A future per-tab
         // non-`Top` position would make the active tab's content size differ from this
         // new (default-chrome) tab's → slot #11-window-level-tab-bar-position.
-        let viewport_cell = std::sync::Arc::clone(&self.viewport_cell);
+        let viewport_cell = std::sync::Arc::clone(&self.viewport.viewport_cell);
         let thread =
             crate::content::spawn_content_thread_blank(content_ch, nh, jar, viewport_cell, wake);
         mgr.create_tab(

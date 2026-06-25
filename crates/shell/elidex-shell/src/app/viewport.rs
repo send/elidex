@@ -3,12 +3,13 @@
 //! Extracted from `app/mod.rs` to keep that lifecycle module under the project's
 //! 1000-line guideline (Axis 5): this is the cohesive cluster that builds the
 //! [`ContentAreaPlacement`] SoT, fans the viewport out to content threads, and
-//! performs the window-deferred initial-tab spawn. The placement type, the
-//! `PendingSpawn` intent, and the `App` struct itself stay in `app/mod.rs`;
-//! these are the methods that *act* on them.
+//! performs the window-deferred initial-tab spawn. [`ViewportProducer`] groups
+//! the three state fields; the placement type, `PendingSpawn` intent, and `App`
+//! struct itself stay in `app/mod.rs`.
 
 use std::sync::Arc;
 
+use elidex_plugin::Size;
 use winit::window::Window;
 
 use crate::chrome;
@@ -16,6 +17,42 @@ use crate::ipc::{BrowserToContent, ContentToBrowser};
 
 use super::tab::Tab;
 use super::{App, ContentAreaPlacement, PendingSpawn};
+
+/// Viewport-producer state: the three fields that the viewport mechanism methods
+/// act on, sub-structured from [`super::App`] to keep `app/mod.rs` under the
+/// project's 1000-line guideline.
+pub(super) struct ViewportProducer {
+    /// Cached content-area placement SoT (size↔origin↔scale), the single
+    /// descriptor the producer/compositor/input mapper all read.
+    ///
+    /// `Some` once the window exists — seeded in `resumed` together with
+    /// `render_state` and recomputed at redraw top + on `Resized`. `None`
+    /// before the first `resumed` / after `suspended`.
+    pub(super) placement: Option<ContentAreaPlacement>,
+    /// The initial tab's content-thread spawn, deferred until `resumed` (C1).
+    /// `Some` between `new_threaded*` and the first `resumed`; `None` after
+    /// (inline mode is always `None`).
+    pub(super) pending_initial_spawn: Option<PendingSpawn>,
+    /// Browser-published latest content-area viewport + monotonic seq — the
+    /// **pull** source every content thread reads at build time. Single writer
+    /// (browser thread, via [`crate::ipc::ViewportCell::publish`]); `Arc`-shared
+    /// into every spawned content thread. Seeded with `DEFAULT` before the
+    /// window exists; the first `resumed` publish bumps it to the real size at
+    /// seq 1. One per window — all tabs share the content area.
+    pub(super) viewport_cell: Arc<crate::ipc::ViewportCell>,
+}
+
+impl ViewportProducer {
+    /// Construct, seeding the viewport cell with the given default size until
+    /// `resumed` publishes the window's real size.
+    pub(super) fn new(default_w: f32, default_h: f32) -> Self {
+        Self {
+            placement: None,
+            pending_initial_spawn: None,
+            viewport_cell: crate::ipc::ViewportCell::new(Size::new(default_w, default_h)),
+        }
+    }
+}
 
 impl App {
     /// Build the content-area placement SoT from the current window + active-tab
@@ -80,24 +117,24 @@ impl App {
             // The seq the producer just published (resumed/Resized publish precedes
             // this call). Size still comes from `placement` (the geometry SoT); the
             // publish set the cell to exactly that size, so the pair is consistent.
-            let (_, seq) = self.viewport_cell.read();
+            let (_, seq) = self.viewport.viewport_cell.read();
             for tab in mgr.tabs() {
-                Self::seed_tab_viewport(self.placement, seq, tab);
+                Self::seed_tab_viewport(self.viewport.placement, seq, tab);
             }
         }
     }
 
     /// The current [`crate::ipc::ViewportCell`] placement-seq — the seq that a
     /// coordinate-bearing input event's coordinates are mapped against when sent
-    /// **now**. It corresponds to `self.placement` by construction: a resize
+    /// **now**. It corresponds to `self.viewport.placement` by construction: a resize
     /// republishes the cell (bumping the seq) right after caching the new placement
     /// (`resumed`/`Resized`), and the browser thread is the single writer, so no
-    /// resize can interleave between an input handler's `self.placement` read and this
+    /// resize can interleave between an input handler's placement read and this
     /// cell read. Stamped onto `MouseClick`/`MouseMove`/`MouseWheel` so the content
     /// thread can drop input mapped against a placement its build/runtime has since
     /// superseded (`content/event_loop.rs`, plan-memo §10).
     pub(super) fn current_placement_seq(&self) -> u64 {
-        self.viewport_cell.read().1
+        self.viewport.viewport_cell.read().1
     }
 
     /// Spawn the deferred initial content thread (C1), now that the window exists. The
@@ -108,7 +145,7 @@ impl App {
     /// from the disjoint `wake_proxy` field (mirrors the `window.open` /
     /// `open_new_tab` spawn sites).
     pub(super) fn spawn_pending_initial_tab(&mut self) {
-        let Some(pending) = self.pending_initial_spawn.take() else {
+        let Some(pending) = self.viewport.pending_initial_spawn.take() else {
             return;
         };
         // `pending` is `Some` only in threaded mode (set by `new_threaded*`), and
@@ -125,7 +162,7 @@ impl App {
         let wake = Self::wake_or_noop(self.wake_proxy.as_ref());
         let (browser_ch, content_ch) =
             crate::ipc::channel_pair::<BrowserToContent, ContentToBrowser>();
-        let viewport_cell = Arc::clone(&self.viewport_cell);
+        let viewport_cell = Arc::clone(&self.viewport.viewport_cell);
         let (thread, chrome, title) = match pending {
             PendingSpawn::Html { html, css } => (
                 crate::content::spawn_content_thread(

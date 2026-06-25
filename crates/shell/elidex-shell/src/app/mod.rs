@@ -248,28 +248,9 @@ pub struct App {
     /// a clone of this proxy at each spawn (`new_threaded*` initial tab,
     /// `window.open`, `open_new_tab`).
     wake_proxy: Option<winit::event_loop::EventLoopProxy<crate::WakeEvent>>,
-    /// Cached content-area placement SoT (size↔origin↔scale), the single
-    /// descriptor the producer/compositor/input mapper all read.
-    ///
-    /// `Some` once the window exists — **seeded in `resumed` together with
-    /// `render_state`** and recomputed at redraw top + on `Resized`, so any
-    /// input event that passes the `render_state.is_some()` gate sees a built
-    /// placement by construction. `None` before the first `resumed` / after
-    /// `suspended`.
-    placement: Option<ContentAreaPlacement>,
-    /// The initial tab's content-thread spawn, deferred until `resumed` so it is
-    /// born at the real viewport (C1). `Some` between `new_threaded*` and the
-    /// first `resumed`; `None` afterwards (inline mode is always `None`).
-    pending_initial_spawn: Option<PendingSpawn>,
-    /// Browser-published latest content-area viewport + monotonic seq — the **pull**
-    /// source every content thread reads at build time (so a build is at the latest
-    /// size by construction, never a stale spawn-time snapshot). Single writer (this
-    /// thread, via [`crate::ipc::ViewportCell::publish`] on `resumed`/`Resized`);
-    /// `Arc`-shared into every spawned content thread. Seeded with `DEFAULT` before
-    /// the window exists; the first `resumed` publish bumps it to the real size at
-    /// seq 1. One per window — all tabs share the content area. See
-    /// [`crate::ipc::ViewportCell`].
-    viewport_cell: Arc<crate::ipc::ViewportCell>,
+    /// Viewport-producer state: placement SoT, pending initial spawn, and
+    /// shared viewport cell (see [`viewport::ViewportProducer`]).
+    viewport: viewport::ViewportProducer,
 }
 
 impl App {
@@ -317,15 +298,10 @@ impl App {
             browser_db: None,
             cookie_gen: 0,
             wake_proxy: Some(wake_proxy),
-            placement: None,
-            pending_initial_spawn: None,
-            // Seed with `DEFAULT` until `resumed` publishes the window's real size;
-            // the deferred initial tab (and any `window.open`/new tab) reads this
-            // cell at build time. One per window, `Arc`-cloned into each tab.
-            viewport_cell: crate::ipc::ViewportCell::new(Size::new(
+            viewport: viewport::ViewportProducer::new(
                 crate::DEFAULT_VIEWPORT_WIDTH,
                 crate::DEFAULT_VIEWPORT_HEIGHT,
-            )),
+            ),
         };
         app.init_browser_db();
         app
@@ -407,7 +383,7 @@ impl App {
     ) -> Self {
         let np = Self::create_network_process();
         let mut app = Self::from_tab_manager(TabManager::new(), np, wake_proxy);
-        app.pending_initial_spawn = Some(PendingSpawn::Html { html, css });
+        app.viewport.pending_initial_spawn = Some(PendingSpawn::Html { html, css });
         app
     }
 
@@ -421,7 +397,7 @@ impl App {
     ) -> Self {
         let np = Self::create_network_process();
         let mut app = Self::from_tab_manager(TabManager::new(), np, wake_proxy);
-        app.pending_initial_spawn = Some(PendingSpawn::Url(url));
+        app.viewport.pending_initial_spawn = Some(PendingSpawn::Url(url));
         app
     }
 
@@ -450,14 +426,10 @@ impl App {
             browser_db: None,
             cookie_gen: 0,
             wake_proxy: None, // Inline mode is synchronous — nothing to wake.
-            placement: None,
-            pending_initial_spawn: None, // Inline mode spawns no content thread.
-            // Inline mode spawns no content thread — the cell is never read; seed
-            // `DEFAULT` to satisfy the field.
-            viewport_cell: crate::ipc::ViewportCell::new(Size::new(
+            viewport: viewport::ViewportProducer::new(
                 crate::DEFAULT_VIEWPORT_WIDTH,
                 crate::DEFAULT_VIEWPORT_HEIGHT,
-            )),
+            ),
         }
     }
 
@@ -491,14 +463,10 @@ impl App {
             browser_db: None,
             cookie_gen: 0,
             wake_proxy: None, // Inline mode is synchronous — nothing to wake.
-            placement: None,
-            pending_initial_spawn: None, // Inline mode spawns no content thread.
-            // Inline mode spawns no content thread — the cell is never read; seed
-            // `DEFAULT` to satisfy the field.
-            viewport_cell: crate::ipc::ViewportCell::new(Size::new(
+            viewport: viewport::ViewportProducer::new(
                 crate::DEFAULT_VIEWPORT_WIDTH,
                 crate::DEFAULT_VIEWPORT_HEIGHT,
-            )),
+            ),
         }
     }
 
@@ -817,7 +785,7 @@ impl App {
                     nh,
                     jar,
                     url,
-                    Arc::clone(&self.viewport_cell),
+                    Arc::clone(&self.viewport.viewport_cell),
                     wake,
                 );
                 mgr.create_tab(browser_chan, thread, chrome, title);
@@ -916,11 +884,11 @@ impl ApplicationHandler<crate::WakeEvent> for App {
         // spawned, so `tab_bar_position` falls back to its default (`Top`) —
         // identical to the initial tab's default chrome, so the size is correct.
         let placement = self.content_area_placement(&state.window);
-        self.placement = Some(placement);
+        self.viewport.placement = Some(placement);
         // Publish the real size to the viewport cell (seq 0 → 1) **before** spawning,
         // so the deferred initial tab's build reads it by construction. The cell is
         // the pull source the spawn reads — not a snapshot threaded as an argument.
-        self.viewport_cell.publish(placement.size_logical);
+        self.viewport.viewport_cell.publish(placement.size_logical);
         self.render_state = Some(state);
 
         // Spawn the deferred initial content thread (C1) at the real viewport — it is
@@ -952,7 +920,7 @@ impl ApplicationHandler<crate::WakeEvent> for App {
 
     fn suspended(&mut self, _event_loop: &ActiveEventLoop) {
         self.render_state = None;
-        self.placement = None;
+        self.viewport.placement = None;
     }
 
     fn window_event(
@@ -993,12 +961,12 @@ impl ApplicationHandler<crate::WakeEvent> for App {
                 // out to **every** tab — all share the window content area, so
                 // background tabs must re-lay-out too (C1).
                 let placement = self.content_area_placement(&window);
-                self.placement = Some(placement);
-                self.viewport_cell.publish(placement.size_logical);
+                self.viewport.placement = Some(placement);
+                self.viewport.viewport_cell.publish(placement.size_logical);
                 self.broadcast_viewport();
                 // The content rect may have shrunk/moved out from under a
                 // stationary cursor — clear stuck `:hover` if it left content.
-                if let Some(placement) = self.placement {
+                if let Some(placement) = self.viewport.placement {
                     self.reclip_cursor_after_placement_change(placement);
                 }
                 return;
