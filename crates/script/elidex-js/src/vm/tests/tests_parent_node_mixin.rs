@@ -417,9 +417,11 @@ fn document_replace_children_with_element_child_throws_hierarchy_error() {
     unsafe {
         bind_vm(&mut vm, &mut session, &mut dom, doc);
     }
-    // Seed the document with one element child. (`document.appendChild` does not
-    // yet enforce the Document element-child constraint — that fold is B1.2b-3 —
-    // so this seed currently succeeds.)
+    // Seed the document with its single element child. This first
+    // `document.appendChild` is the documentElement — valid even under the
+    // B1.2b-3 pre-insertion-validity fold (§4.2.3 step 6 allows ONE element child);
+    // a *second* element via `document.appendChild` would now throw
+    // HierarchyRequestError too, exactly like the `replaceChildren` below.
     vm.eval("document.appendChild(document.createElement('a'));")
         .unwrap();
     // `replaceChildren` runs "ensure pre-insertion validity" (WHATWG DOM §4.2.3
@@ -442,6 +444,39 @@ fn document_replace_children_with_element_child_throws_hierarchy_error() {
     // Validity throws before "replace all" mutates, so the document is unchanged.
     assert_eq!(eval_num(&mut vm, "document.childNodes.length;"), 1.0);
     assert_eq!(eval_str(&mut vm, "document.childNodes[0].tagName;"), "A");
+    vm.unbind();
+}
+
+#[test]
+fn document_append_child_second_element_throws_hierarchy_error() {
+    // B1.2b-3 (the headline JS-observable fix): `document.appendChild` now runs
+    // §4.2.3 ensure-pre-insertion-validity (step 6, Element branch: a Document may
+    // have at most one element child), so a SECOND element throws
+    // HierarchyRequestError. Before the validity fold the lax empty-record-list
+    // path on the core Node method silently appended it (the mixins already threw).
+    let (mut vm, mut session, mut dom, doc) = setup();
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    // First element = the documentElement → valid.
+    vm.eval("document.appendChild(document.createElement('html'));")
+        .unwrap();
+    let threw = eval_num(
+        &mut vm,
+        "var err = null;\n\
+         try { document.appendChild(document.createElement('body')); }\n\
+         catch (e) { err = e; }\n\
+         (err !== null && err.name === 'HierarchyRequestError' \
+          && err instanceof DOMException) ? 1 : 0;",
+    );
+    assert_eq!(
+        threw, 1.0,
+        "a second document.appendChild element must throw HierarchyRequestError"
+    );
+    // The throw precedes any mutation — the document keeps its single element child.
+    assert_eq!(eval_num(&mut vm, "document.childNodes.length;"), 1.0);
+    assert_eq!(eval_str(&mut vm, "document.childNodes[0].tagName;"), "HTML");
     vm.unbind();
 }
 

@@ -285,3 +285,35 @@ fn insert_adjacent_text_no_parent_noop_does_not_allocate_text() {
         "parent-null insertAdjacentText leaked a Text node"
     );
 }
+
+#[test]
+fn insert_adjacent_text_into_document_throws_and_leaks_no_orphan() {
+    // B1.2b-3 F2: insertAdjacentText('beforebegin', ..) on the documentElement
+    // resolves parent = Document, so the §4.2.3 pre-insertion validator throws
+    // step-5 (Text under Document) HierarchyRequestError — and the freshly-created
+    // Text is destroyed on the error path (no orphan, per the create-validate-
+    // destroy directive).
+    use elidex_ecs::TextContent;
+    let (mut dom, _div, _span, mut session) = setup();
+    let doc = dom.create_document_node();
+    let root = dom.create_element("html", Attributes::default());
+    dom.append_child(doc, root);
+    let before = dom.world().query::<&TextContent>().iter().count();
+    let err = InsertAdjacentText
+        .invoke(
+            root,
+            &[
+                JsValue::String("beforebegin".into()),
+                JsValue::String("x".into()),
+            ],
+            &mut session,
+            &mut dom,
+        )
+        .unwrap_err();
+    assert_eq!(err.kind, DomApiErrorKind::HierarchyRequestError);
+    let after = dom.world().query::<&TextContent>().iter().count();
+    assert_eq!(
+        before, after,
+        "rejected insertAdjacentText leaked an orphan Text node"
+    );
+}

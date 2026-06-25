@@ -5,7 +5,7 @@
 //! - `ChildNode` mixin (before, after, remove, replaceWith)
 //! - `ParentNode` mixin (prepend, append, replaceChildren)
 //! - Element selector methods (matches, closest)
-//! - Pre-insertion validation (WHATWG DOM 4.2.4)
+//! - Pre-insertion validation (WHATWG DOM §4.2.3 Mutation algorithms)
 
 mod mutations;
 mod selectors;
@@ -24,7 +24,7 @@ use elidex_script_session::{
 use crate::util::not_found_error;
 
 // ---------------------------------------------------------------------------
-// Pre-insertion validation (WHATWG DOM 4.2.4)
+// Pre-insertion validation (WHATWG DOM §4.2.3 Mutation algorithms)
 // ---------------------------------------------------------------------------
 
 /// Hierarchy request error helper.
@@ -131,7 +131,7 @@ fn has_element_preceding(parent: Entity, child: Option<Entity>, dom: &EcsDom) ->
     false
 }
 
-/// Enforce Document parent child constraints (step 6 of WHATWG DOM §4.2.4).
+/// Enforce Document parent child constraints (step 6 of WHATWG DOM §4.2.3).
 ///
 /// `child` is the reference child (for pre-insert) or the child being replaced.
 /// `exclude` is an additional entity to skip when counting existing children
@@ -233,7 +233,7 @@ fn validate_document_element_constraint(
     Ok(())
 }
 
-/// Validate that a pre-insertion operation is permitted per WHATWG DOM 4.2.4.
+/// Validate that a pre-insertion operation is permitted per WHATWG DOM §4.2.3.
 pub(crate) fn ensure_pre_insertion_validity(
     parent: Entity,
     node: Entity,
@@ -411,7 +411,7 @@ pub(crate) fn viable_prev_sibling(
     None
 }
 
-/// Validate that a replace operation is permitted per WHATWG DOM 4.2.4.
+/// Validate that a replace operation is permitted per WHATWG DOM §4.2.3.
 pub(crate) fn ensure_replace_validity(
     parent: Entity,
     node: Entity,
