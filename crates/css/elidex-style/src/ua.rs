@@ -118,7 +118,8 @@ sub { font-size: smaller; vertical-align: sub; }
 sup { font-size: smaller; vertical-align: super; }
 mark { background-color: yellow; color: black; }
 
-/* Form-control default rendering (WHATWG HTML §15.3.10). */
+/* Form-control default rendering (WHATWG HTML §15.3.10; the fieldset/legend
+   rules below are §15.3.12). */
 input, textarea, select, button { display: inline-block; }
 input:not([type=checkbox]):not([type=radio]), textarea {
     border-top-width: 1px; border-right-width: 1px;

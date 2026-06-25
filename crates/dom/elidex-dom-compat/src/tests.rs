@@ -188,7 +188,7 @@ fn presentational_table_border() {
     let hints = get_presentational_hints(el, &dom);
     let val = find_decl(&hints, "border-top-width");
     assert_eq!(val, Some(&CssValue::Length(1.0, LengthUnit::Px)));
-    // WHATWG §15.3.10: table border-style is outset (not solid).
+    // WHATWG §15.3.8: table border-style is outset (not solid).
     let style_val = find_decl(&hints, "border-top-style");
     assert_eq!(style_val, Some(&CssValue::Keyword("outset".to_string())));
 }
