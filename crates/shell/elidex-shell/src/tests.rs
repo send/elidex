@@ -938,3 +938,45 @@ fn engine_mode_core_keeps_modern_baseline_for_plain_content() {
          (compat={compat_color}, core={core_color})"
     );
 }
+
+/// An entity's resolved `font-weight`.
+fn font_weight(result: &PipelineResult, entity: Entity) -> u16 {
+    result
+        .dom
+        .world()
+        .get::<&elidex_plugin::ComputedStyle>(entity)
+        .expect("ComputedStyle not found")
+        .font_weight
+}
+
+#[test]
+fn engine_mode_core_keeps_standard_ua_rendering() {
+    // Root-cause regression lock (Codex #406 P2-1): standard §15.3 phrasing
+    // rendering (e.g. `<strong>` font-weight: bolder → 700) lives in the CORE UA
+    // sheet (after the #408 reclassification), so BrowserCore keeps it even though
+    // the core arm drops the compat legacy sheet + presentational hints. `<strong>`
+    // is UA-standard (not author/hint), so it must be bold in BOTH modes — dropping
+    // the compat sheet must NOT strip standard rendering.
+    let html = "<strong id=\"s\">x</strong>";
+
+    let mut compat = build_pipeline_interactive(html, "");
+    re_render(&mut compat);
+    let s_compat = find_by_id(&compat, "strong", "s").expect("strong");
+
+    let mut core = build_pipeline_interactive(html, "");
+    core.engine_mode = elidex_plugin::EngineMode::BrowserCore;
+    re_render(&mut core);
+    let s_core = find_by_id(&core, "strong", "s").expect("strong");
+
+    assert_eq!(
+        font_weight(&compat, s_compat),
+        700,
+        "<strong> must be bold (700) in BrowserCompat"
+    );
+    assert_eq!(
+        font_weight(&core, s_core),
+        700,
+        "BrowserCore must keep standard <strong> UA rendering — dropping the compat \
+         legacy sheet must not strip §15.3 rendering (Codex #406 P2-1)"
+    );
+}

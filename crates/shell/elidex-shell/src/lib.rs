@@ -362,7 +362,11 @@ fn resolve_with_mode(
         // Core (BrowserCore/App): modern UA baseline only — no legacy UA sheet,
         // no presentational hints. This is the `elidex_style::resolve_styles`
         // surface, threaded with the call site's `medium` so paged/print output
-        // keeps `@media print` even in core mode.
+        // keeps `@media print` even in core mode. The modern baseline (core
+        // `ua_stylesheet`) carries the standard §15.3 conforming rendering since
+        // the UA-sheet reclassification (#408), so dropping the legacy sheet drops
+        // only obsolete-element rendering (strike/big/center) + presentational
+        // hints — standard rendering (e.g. `<strong>` bold) survives in core.
         resolve_styles_with_compat(
             dom,
             author_stylesheets,
