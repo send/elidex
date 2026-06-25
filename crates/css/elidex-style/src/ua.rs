@@ -65,7 +65,7 @@ dd { margin-left: 40px; }
 
 pre { white-space: pre; }
 
-pre, code, kbd, samp, tt { font-family: monospace; }
+pre, code, kbd, samp { font-family: monospace; }
 
 blockquote {
     margin-top: 1em;
@@ -102,6 +102,88 @@ bdo[dir='ltr'] { direction: ltr; }
 bdo[dir='rtl'] { direction: rtl; }
 
 slot { display: contents; }
+
+/* Phrasing-content rendering (WHATWG HTML §15.3.4) — standard, conforming
+   elements, part of the modern UA baseline (applied in every engine mode).
+   Only obsolete-element rendering (<strike>/<big>/<center>, HTML §16.2) is
+   gated to compat mode and lives in elidex-dom-compat's legacy_ua_stylesheet.
+   Per §15.3.4: b/strong use `bolder` (relative, not absolute 700); small/sub/sup
+   use `smaller` (relative); s/del are conforming (only `strike` is obsolete). */
+b, strong { font-weight: bolder; }
+i, em, cite, var, dfn, address { font-style: italic; }
+u, ins { text-decoration-line: underline; }
+s, del { text-decoration-line: line-through; }
+small { font-size: smaller; }
+sub { font-size: smaller; vertical-align: sub; }
+sup { font-size: smaller; vertical-align: super; }
+mark { background-color: yellow; color: black; }
+
+/* Form-control default rendering (WHATWG HTML §15.3.10). */
+input, textarea, select, button { display: inline-block; }
+input:not([type=checkbox]):not([type=radio]), textarea {
+    border-top-width: 1px; border-right-width: 1px;
+    border-bottom-width: 1px; border-left-width: 1px;
+    border-top-style: solid; border-right-style: solid;
+    border-bottom-style: solid; border-left-style: solid;
+    border-top-color: #767676; border-right-color: #767676;
+    border-bottom-color: #767676; border-left-color: #767676;
+    padding-top: 1px; padding-right: 2px;
+    padding-bottom: 1px; padding-left: 2px;
+    font-size: 13px;
+    background-color: #ffffff;
+}
+button, input[type=submit], input[type=button], input[type=reset] {
+    border-top-width: 1px; border-right-width: 1px;
+    border-bottom-width: 1px; border-left-width: 1px;
+    border-top-style: solid; border-right-style: solid;
+    border-bottom-style: solid; border-left-style: solid;
+    border-top-color: #767676; border-right-color: #767676;
+    border-bottom-color: #767676; border-left-color: #767676;
+    padding-top: 1px; padding-right: 6px;
+    padding-bottom: 1px; padding-left: 6px;
+    font-size: 13px;
+    background-color: #efefef;
+    text-align: center;
+}
+input:disabled, textarea:disabled, button:disabled, select:disabled {
+    opacity: 0.5;
+}
+input[type=checkbox], input[type=radio] {
+    border-top-width: 1px; border-right-width: 1px;
+    border-bottom-width: 1px; border-left-width: 1px;
+    border-top-style: solid; border-right-style: solid;
+    border-bottom-style: solid; border-left-style: solid;
+    border-top-color: #767676; border-right-color: #767676;
+    border-bottom-color: #767676; border-left-color: #767676;
+}
+select {
+    border-top-width: 1px; border-right-width: 1px;
+    border-bottom-width: 1px; border-left-width: 1px;
+    border-top-style: solid; border-right-style: solid;
+    border-bottom-style: solid; border-left-style: solid;
+    border-top-color: #767676; border-right-color: #767676;
+    border-bottom-color: #767676; border-left-color: #767676;
+    padding-top: 1px; padding-right: 2px;
+    padding-bottom: 1px; padding-left: 2px;
+    font-size: 13px;
+    background-color: #ffffff;
+}
+fieldset {
+    display: block;
+    border-top-width: 2px; border-right-width: 2px;
+    border-bottom-width: 2px; border-left-width: 2px;
+    border-top-style: solid; border-right-style: solid;
+    border-bottom-style: solid; border-left-style: solid;
+    border-top-color: #c0c0c0; border-right-color: #c0c0c0;
+    border-bottom-color: #c0c0c0; border-left-color: #c0c0c0;
+    padding-top: 6px; padding-right: 10px;
+    padding-bottom: 6px; padding-left: 10px;
+}
+legend {
+    display: block;
+    padding-top: 0; padding-right: 2px;
+    padding-bottom: 0; padding-left: 2px;
+}
 ";
 
 /// Returns the parsed UA stylesheet (lazily initialized, cached).
@@ -151,6 +233,31 @@ mod tests {
         let ss = ua_stylesheet();
         assert!(!ss.rules.is_empty());
         assert_eq!(ss.origin, Origin::UserAgent);
+    }
+
+    #[test]
+    fn conforming_phrasing_and_form_rendering_in_core() {
+        // §15.3.4 phrasing-content + §15.3.10 form-control rendering live in the core
+        // UA sheet (moved out of elidex-dom-compat's compat-gated legacy sheet) so
+        // BrowserCore/App render standard elements too (Codex #406 P2). bolder /
+        // smaller are relative per §15.3.4; only obsolete <strike>/<big>/<center>
+        // (§16.2) stay compat-gated.
+        assert_ua_keyword("b", "font-weight", "bolder");
+        assert_ua_keyword("strong", "font-weight", "bolder");
+        assert_ua_keyword("em", "font-style", "italic");
+        assert_ua_keyword("i", "font-style", "italic");
+        assert_ua_keyword("u", "text-decoration-line", "underline");
+        assert_ua_keyword("s", "text-decoration-line", "line-through");
+        assert_ua_keyword("small", "font-size", "smaller");
+        assert_ua_keyword("sub", "vertical-align", "sub");
+        assert_ua_keyword("input", "display", "inline-block");
+        assert_ua_rule(
+            "mark",
+            "background-color",
+            &CssValue::Color(CssColor::new(255, 255, 0, 255)),
+        );
+        assert_ua_rule("mark", "color", &CssValue::Color(CssColor::BLACK));
+        assert_ua_keyword("address", "font-style", "italic");
     }
 
     #[test]

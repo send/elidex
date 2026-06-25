@@ -17,7 +17,7 @@ use elidex_plugin::{CssColor, CssValue, LengthUnit};
 /// CSS box sides, used for border and padding property generation.
 const SIDES: [&str; 4] = ["top", "right", "bottom", "left"];
 
-/// CSS absolute-size keywords for `<font size="N">` (WHATWG §15.3.1).
+/// CSS absolute-size keywords for `<font size="N">` (WHATWG §15.3.4).
 ///
 /// HTML-specific mapping (1–7 only); CSS absolute sizes are in `elidex-css`.
 const FONT_SIZE_KEYWORDS: [&str; 7] = [
@@ -105,7 +105,7 @@ pub fn get_presentational_hints(entity: Entity, dom: &EcsDom) -> Vec<Declaration
             push_nonzero_dimension_attr(&attrs, "height", "height", &mut decls);
         }
         "hr" => {
-            // WHATWG §15.3.11: only width is a presentational hint for <hr>.
+            // WHATWG §15.3.41: only width is a presentational hint for <hr>.
             push_dimension_attr(&attrs, "width", "width", &mut decls);
         }
         "img" | "canvas" | "video" | "embed" | "object" | "iframe" => {
@@ -121,7 +121,7 @@ pub fn get_presentational_hints(entity: Entity, dom: &EcsDom) -> Vec<Declaration
         "table" | "thead" | "tbody" | "tfoot" | "tr" | "td" | "th" | "body"
     ) {
         push_color_attr(&attrs, "bgcolor", "background-color", &mut decls);
-        // background attribute → background-image: url(...) (WHATWG §15.3.10)
+        // background attribute → background-image: url(...) (WHATWG §15.3.40)
         if let Some(url) = attrs.get("background") {
             let trimmed = url.trim();
             if !trimmed.is_empty() {
@@ -155,12 +155,12 @@ pub fn get_presentational_hints(entity: Entity, dom: &EcsDom) -> Vec<Declaration
         push_align_attr(&attrs, &mut decls);
     }
 
-    // table[align] → float/margin centering (WHATWG §15.3.10, not text-align)
+    // table[align] → float/margin centering (WHATWG §15.3.40, not text-align)
     if tag == "table" {
         push_table_align_attr(&attrs, &mut decls);
     }
 
-    // border on table → border-*-width + border-*-style (WHATWG §15.3.10)
+    // border on table → border-*-width + border-*-style (WHATWG §15.3.40)
     if tag == "table" {
         push_table_border_attr(&attrs, &mut decls);
     }
@@ -179,7 +179,7 @@ pub fn get_presentational_hints(entity: Entity, dom: &EcsDom) -> Vec<Declaration
         push_font_attrs(&attrs, &mut decls);
     }
 
-    // valign on table cells → vertical-align (WHATWG §15.3.10)
+    // valign on table cells → vertical-align (WHATWG §15.3.40)
     if matches!(tag, "td" | "th" | "thead" | "tbody" | "tfoot" | "tr") {
         push_valign_attr(&attrs, &mut decls);
     }
@@ -496,7 +496,7 @@ fn push_align_attr(attrs: &Attributes, decls: &mut Vec<Declaration>) {
     }
 }
 
-/// Push valign attribute → vertical-align CSS declaration (WHATWG §15.3.10).
+/// Push valign attribute → vertical-align CSS declaration (WHATWG §15.3.40).
 ///
 /// Maps `top`/`middle`/`bottom`/`baseline` to the corresponding `vertical-align` keyword.
 fn push_valign_attr(attrs: &Attributes, decls: &mut Vec<Declaration>) {
@@ -515,7 +515,7 @@ fn push_valign_attr(attrs: &Attributes, decls: &mut Vec<Declaration>) {
     }
 }
 
-/// Push table align attribute → float or margin auto centering (WHATWG §15.3.10).
+/// Push table align attribute → float or margin auto centering (WHATWG §15.3.40).
 ///
 /// Unlike block elements where align → text-align, on `<table>` the spec maps:
 /// - `align="left"` → `float: left`
@@ -560,7 +560,7 @@ fn parse_attr_f32(value: &str, fallback: f32) -> f32 {
 
 /// Push table border attribute → border-*-width + border-*-style.
 ///
-/// Per WHATWG §15.3.10:
+/// Per WHATWG §15.3.40:
 /// - Parse failure (empty string, non-numeric) → default 1px outset
 /// - `border="0"` → border-*-width: 0 + border-*-style: none
 /// - `border="N"` (N > 0) → border-*-width: Npx + border-*-style: outset
@@ -572,7 +572,7 @@ fn push_table_border_attr(attrs: &Attributes, decls: &mut Vec<Declaration>) {
         } else {
             parse_attr_f32(trimmed, 1.0)
         };
-        // WHATWG §15.3.10: table border-style is outset (not solid).
+        // WHATWG §15.3.40: table border-style is outset (not solid).
         let style = if width > 0.0 { "outset" } else { "none" };
         for side in &SIDES {
             decls.push(Declaration::new(
@@ -647,7 +647,7 @@ fn push_font_attrs(attrs: &Attributes, decls: &mut Vec<Declaration>) {
     }
 
     // size → font-size keyword (absolute or relative +N/-N)
-    // WHATWG §15.3.1: absolute sizes are [1,7], relative sizes adjust from base 3.
+    // WHATWG §15.3.4: absolute sizes are [1,7], relative sizes adjust from base 3.
     if let Some(size_str) = attrs.get("size") {
         let trimmed = size_str.trim();
         let size_val = if trimmed.starts_with('+') || trimmed.starts_with('-') {

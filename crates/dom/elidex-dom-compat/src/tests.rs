@@ -64,20 +64,27 @@ fn find_decl_in_rules(ss: &Stylesheet, tag: &str, prop: &str) -> Option<CssValue
 // === Legacy UA stylesheet tests ===
 
 #[test]
-fn legacy_ua_single_declarations() {
+fn legacy_ua_obsolete_only() {
+    // The compat legacy sheet now holds ONLY obsolete (HTML §16.2 non-conforming)
+    // elements; standard conforming-element rendering moved to the core UA
+    // stylesheet (elidex-style `ua_stylesheet`), applied in every engine mode.
     let ss = legacy_ua_stylesheet();
-    for (tag, prop, expected_kw) in [
-        ("b", "font-weight", "bolder"),
-        ("i", "font-style", "italic"),
-        ("u", "text-decoration-line", "underline"),
-        ("input", "display", "inline-block"),
-        ("address", "font-style", "italic"),
+    // Obsolete elements present here (compat-gated).
+    for tag in ["tt", "strike", "big", "center"] {
+        assert!(
+            find_rule_for_tag(ss, tag),
+            "obsolete rule for {tag} not found"
+        );
+    }
+    // Conforming elements must NOT be here — they belong to the core UA sheet so
+    // they render in BrowserCore/App too (Codex #406 P2: dropping the whole sheet
+    // in core mode previously stripped standard rendering).
+    for tag in [
+        "b", "strong", "i", "em", "mark", "small", "sub", "sup", "u", "s", "input", "select",
     ] {
-        let val = find_decl_in_rules(ss, tag, prop);
-        assert_eq!(
-            val,
-            Some(CssValue::Keyword(expected_kw.to_string())),
-            "{tag} should have {prop}: {expected_kw}"
+        assert!(
+            !find_rule_for_tag(ss, tag),
+            "{tag} is conforming and must live in the core UA stylesheet, not the compat legacy sheet"
         );
     }
 }
@@ -92,27 +99,10 @@ fn legacy_ua_center_block_center() {
 }
 
 #[test]
-fn legacy_ua_mark_yellow() {
-    let ss = legacy_ua_stylesheet();
-    let bg = find_decl_in_rules(ss, "mark", "background-color");
-    assert_eq!(bg, Some(CssValue::Color(CssColor::new(255, 255, 0, 255))));
-    let color = find_decl_in_rules(ss, "mark", "color");
-    assert_eq!(color, Some(CssValue::Color(CssColor::BLACK)));
-}
-
-#[test]
 fn legacy_ua_parses_without_error() {
     let ss = legacy_ua_stylesheet();
     assert!(!ss.rules.is_empty());
     assert_eq!(ss.origin, Origin::UserAgent);
-}
-
-#[test]
-fn legacy_ua_tag_rules_exist() {
-    let ss = legacy_ua_stylesheet();
-    for tag in ["strong", "em"] {
-        assert!(find_rule_for_tag(ss, tag), "rule for {tag} not found");
-    }
 }
 
 // === Presentational hints tests ===
