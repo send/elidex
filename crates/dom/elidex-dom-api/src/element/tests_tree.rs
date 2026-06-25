@@ -437,6 +437,31 @@ fn insert_before_undefined_ref_appends() {
 }
 
 #[test]
+fn insert_before_ref_not_a_child_is_not_found_error() {
+    // §4.2.3 ensure-pre-insertion-validity step 3: a non-null reference child that
+    // is not a child of `this` → NotFoundError. The B1.2b-3 fold routes insertBefore
+    // through the validator; before the fold the lax empty-`apply_*`-list path mapped
+    // this to HierarchyRequestError (spec-wrong kind). Locks the spec-correct kind.
+    let (mut dom, parent, child, mut session) = setup();
+    let orphan = dom.create_element("aside", Attributes::default());
+    let new_ref = session
+        .get_or_create_wrapper(child, ComponentKind::Element)
+        .to_raw();
+    let orphan_ref = session
+        .get_or_create_wrapper(orphan, ComponentKind::Element)
+        .to_raw();
+    let err = InsertBefore
+        .invoke(
+            parent,
+            &[JsValue::ObjectRef(new_ref), JsValue::ObjectRef(orphan_ref)],
+            &mut session,
+            &mut dom,
+        )
+        .unwrap_err();
+    assert_eq!(err.kind, DomApiErrorKind::NotFoundError);
+}
+
+#[test]
 fn get_attribute_case_insensitive() {
     let (mut dom, parent, _, mut session) = setup();
     let set_handler = SetAttribute;
