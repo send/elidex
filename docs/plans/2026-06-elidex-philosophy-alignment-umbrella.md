@@ -33,7 +33,7 @@ Remediation of the six philosophy-drift findings from the audit:
 | F3 | DOM write paths vs the `ScriptSession` mutation boundary | IMP | **IMP, reframed** — see §2.3 |
 | F4 | iframe `contentDocument`/`contentWindow` parity null stubs | IMP | IMP (confirmed; **no defer slot**) |
 | F5 | HTML tag→prototype routing hard-coded in the VM | MIN | MIN (confirmed) |
-| F6 | Shell pipeline defaults to compat style resolution | MIN | MIN, **partly moot** — see §2.6 |
+| F6 | Shell pipeline defaults to compat style resolution | MIN | **✅ LANDED** — E0 #406 + prereq #408 (§2.6) |
 
 The program also covers the *infrastructure that does not yet exist* but is a
 precondition for F1/F2: there is currently **no** `WebApiSpecLevel`/`DomSpecLevel`
@@ -229,7 +229,7 @@ original framing).
   *plugin-first shape* concern (CLAUDE.md "Plugin-first extensibility") is not.
   MIN, investigate-only for now.
 
-### 2.6 F6 — shell defaults to compat resolution — **CONFIRMED but partly moot (MIN)**
+### 2.6 F6 — shell defaults to compat resolution — **✅ LANDED (E0 #406 + prereq #408)**
 
 - `pipeline.rs:64`/`:96`/`:121` call `resolve_with_compat`; `lib.rs:261`
   defines it (legacy UA sheet + presentational hints). Confirmed.
@@ -239,8 +239,23 @@ original framing).
 - **Key re-check delta:** there is **no `elidex-app`/`elidex-browser` crate, no
   `Mode` enum, and no compat-mode flag anywhere** (repo-wide grep negative). So
   the audit's "app/core paths may observe compat" premise has no mechanism to
-  attach to today. F6 is therefore **investigate-only / defer** until a mode
+  attach to today. F6 was therefore **investigate-only / defer** until a mode
   mechanism is introduced (which is the same precondition as F1/F2; §2.7).
+- **✅ Resolved 2026-06-26 (E0 #406 + prereq #408).** A1 introduced the engine-wide
+  `EngineMode`; E0 wires the shell resolution to a `StyleCompatPolicy` **derived in
+  parallel from it** (R3-6 — the CSS pipeline carries no Web-API enum dependency),
+  replacing the hard-wired `resolve_with_compat` default with a `resolve_with_mode`
+  dispatcher at every resolve seam (`re_render` / `run_scripts_and_finalize` /
+  `build_paged_pipeline`). The prerequisite #408 reclassified the UA stylesheets by
+  spec status (§15.3 conforming → core `ua_stylesheet`, §16.2 obsolete → compat
+  `legacy_ua`) — root-cause for Codex's "core mode loses standard rendering" finding,
+  since `legacy_ua` had been the only source of standard `<strong>`/`<em>`/form-control
+  rendering. **Production stays `BrowserCompat` (byte-identical) until the async-core
+  storage precondition `#11-async-core-storage-cookiestore` makes a core session
+  selectable; `BrowserCore`/`App` are test-only.** Deferred follow-ups:
+  `#11-enginemode-full-session-threading` (iframe / navigation / CSS-parse mode
+  threading) + `#11-form-control-ua-rendering-fidelity` (pre-existing form-control
+  rendering bugs surfaced when the rules moved into the core sheet).
 - Minor adjacent observation (report-only, not a finding): the underlying
   `resolve_styles_with_compat` takes `_registry: Option<&…>` (unused) while the
   shell-side docstring claims it enables handler dispatch. Note for the F6
@@ -302,8 +317,9 @@ and *which design lens dominates*.
 - **F5** — already slot-tracked; the open question (plugin-metadata-driven
   dispatch vs VM-local table) is investigated and folded into §H-7's framing, not
   implemented.
-- **F6** — moot until a mode mechanism exists; record the foundational gap, do not
-  add a speculative policy parameter to a single-caller pipeline.
+- **F6** — *(was: moot until a mode mechanism exists; do not add a speculative
+  policy parameter to a single-caller pipeline.)* **✅ Landed** once A1's `EngineMode`
+  provided the mechanism — E0 #406 + prereq #408; see §2.6 / Program E.
 - **F1/F2 deep migration** — *investigate/design first* (PR0), implement only
   after the compat mechanism is designed and reviewed.
 
@@ -361,11 +377,11 @@ natural shape of the fix rather than a separable step.
 |---|---|---|---|
 | **D0** | Investigation note: can tag→prototype routing derive from plugin/registry metadata while keeping hot built-ins static? Fold conclusion into §H-7's framing (plugin-first, not just O(1)). No code. | no | A short finding appended to the roadmap/this plan: plugin-metadata feasibility + recommended shape; no implementation |
 
-### Program E — shell style-compat mode policy (F6) — investigate-only
+### Program E — shell style-compat mode policy (F6) — **✅ LANDED**
 
 | PR | Purpose | Plan-review | AC |
 |---|---|---|---|
-| **E0** | Investigation note: enumerate every caller of the shell resolution pipeline; record that no app/browser mode mechanism exists (§2.7) and that compat is the sole production path; recommend deferring a policy parameter until a mode mechanism lands (shared with Program A's A0/A1). No code. | no | A short finding: caller list + the "defer until mode exists" recommendation; cross-reference to A0/A1 |
+| **E0** | ✅ **LANDED** (#406 + prereq #408). Shell resolution selects compat-vs-core from the engine-wide `EngineMode`-derived `StyleCompatPolicy` (parallel to the Web-API `SpecLevelPolicy`, R3-6); hard-wired `resolve_with_compat` default replaced by a `resolve_with_mode` dispatcher; prereq #408 reclassified the UA sheets by spec status so the core path keeps §15.3 standard rendering. *(Originally scoped investigate-only — A1's `EngineMode` made implementation actionable; see §2.6.)* | yes (plan-reviewed) | shell compat-vs-core from `EngineMode`; BrowserCompat byte-identical; real-session BrowserCompat until async-core (`#11-async-core-storage-cookiestore`); deferred `#11-enginemode-full-session-threading` + `#11-form-control-ua-rendering-fidelity` |
 
 ### 4.1 Dependency graph (high level)
 
@@ -375,7 +391,7 @@ A0 (PR0) ──► A1 ──► A2  (window.rs; after JS-side Slice 2b)
 B0 ──► B1 ──► B2
 C0  (independent; cheap)
 D0  (independent; investigate)
-E0  (depends conceptually on A0/A1's mode decision; investigate)
+E0  (✅ landed — #406 + prereq #408; built on A1's EngineMode)
 F2 clerical comment fix  (independent micro-PR — grep-defined sweep spanning
      storage + cookie files; comment-only so collision-free; NOT folded into A3,
      per A0 §1.5)
