@@ -28,16 +28,14 @@
 //!   instead of the `long` variant so `"100px"` round-trips faithfully.
 //! - **Boolean reflect** (WHATWG "boolean reflect" — attribute
 //!   presence ↔ IDL boolean): `allowFullscreen`.
-//! - **Parity null stubs** — `contentDocument`, `contentWindow`.
-//!   The legacy boa binding returns `null` here too because each
-//!   iframe runs in its own `JsRuntime` and objects do not cross
-//!   `Context` boundaries (`elidex-js-boa/src/globals/iframe.rs`).
-//!   Real cross-context Document / Window proxies require multi-
-//!   document support inside one VM (a separate sub-frame
-//!   browsing-context entity model) and are tracked in the M4-12
-//!   cutover residual roadmap, not this PR.  The `null` return
-//!   here keeps the JS surface stable across the boa removal in
-//!   PR7.
+//! - **Deferred stubs** — `contentDocument`, `contentWindow`
+//!   (`#11-windowproxy-browsing-context`).  Both return `null`.
+//!   Why: sub-frame browsing-context entity model and cross-VM
+//!   Document/Window proxy identity are not yet implemented; `null`
+//!   is spec-correct for cross-origin frames but observably wrong
+//!   for same-origin.  Trigger: `world_id` / cross-DOM program +
+//!   S5/boa removal.  Revisit date: when the `world_id` / S5
+//!   program begins.
 
 #![cfg(feature = "engine")]
 
@@ -296,13 +294,10 @@ fn native_iframe_set_allow_fullscreen(
     Ok(JsValue::Undefined)
 }
 
-/// `contentDocument` — parity stub matching the legacy boa binding.
-/// A real cross-context Document proxy needs the VM to host the
-/// child frame's document in its own browsing context (see the
-/// module docstring); until that lands the getter returns `null`,
-/// which is also what the spec requires for cross-origin frames so
-/// feature-detection code (`if (iframe.contentDocument)`) keeps
-/// working.
+/// `contentDocument` — deferred stub (`#11-windowproxy-browsing-context`).
+/// Returns `null`.  Spec-correct for cross-origin frames; same-origin
+/// requires a real cross-VM Document proxy (see module docstring for
+/// why/trigger/date).
 fn native_iframe_get_content_document(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -312,8 +307,8 @@ fn native_iframe_get_content_document(
     Ok(JsValue::Null)
 }
 
-/// `contentWindow` — parity stub matching the legacy boa binding.
-/// See `native_iframe_get_content_document`.
+/// `contentWindow` — deferred stub (`#11-windowproxy-browsing-context`).
+/// Returns `null`. See `native_iframe_get_content_document`.
 fn native_iframe_get_content_window(
     ctx: &mut NativeContext<'_>,
     this: JsValue,

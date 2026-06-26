@@ -31,7 +31,7 @@ Remediation of the six philosophy-drift findings from the audit:
 | F1 | Sync `localStorage`/`sessionStorage` on the core VM surface | IMP | IMP (confirmed) |
 | F2 | `document.cookie` on the core Document binding (+ stale "stub" doc) | IMP | IMP (confirmed) + clerical sub-fix |
 | F3 | DOM write paths vs the `ScriptSession` mutation boundary | IMP | **IMP, reframed** — see §2.3 |
-| F4 | iframe `contentDocument`/`contentWindow` parity null stubs | IMP | IMP (confirmed; **no defer slot**) |
+| F4 | iframe `contentDocument`/`contentWindow` parity null stubs | IMP | **✅ C0 LANDED** — `#11-windowproxy-browsing-context` slot registered; impl plan written (§2.4) |
 | F5 | HTML tag→prototype routing hard-coded in the VM | MIN | MIN (confirmed) |
 | F6 | Shell pipeline defaults to compat style resolution | MIN | **✅ LANDED** — E0 #406 + prereq #408 (§2.6) |
 
@@ -207,16 +207,18 @@ the strongest argument for an audit-first, plan-review-gated approach: the
 mechanism must be confirmed before any fix (this re-check already overturned the
 original framing).
 
-### 2.4 F4 — iframe parity stubs — **CONFIRMED; no defer slot**
+### 2.4 F4 — iframe parity stubs — **✅ C0 LANDED**
 
-- `html_iframe_proto.rs:31-40` — module doc calls `contentDocument`/
+- `html_iframe_proto.rs:31-40` — module doc called `contentDocument`/
   `contentWindow` "**Parity null stubs**"; `:115` installs them (getter-only);
   `:312` and `:323` return `Ok(JsValue::Null)`.
-- **No `#11-*` defer slot, no TODO/FIXME.** The only tracking is a narrative
-  "tracked in the M4-12 cutover residual roadmap" (`:37`). This fails CLAUDE.md's
-  requirement that a phase-constraint stub carry a *defer slot with why /
-  trigger / date*. So F4 has a concrete, cheap first action: **decide
-  remove-vs-formal-slot**, and if retained, register the slot.
+- **✅ Resolved 2026-06-26 (C0).** Both stub families (`contentDocument`/
+  `contentWindow` in `html_iframe_proto.rs` and `self`/`parent`/`top`/`frames`/
+  `frameElement`/`opener`/`length`/`closed` in `window.rs`) now cite the formal
+  defer slot `#11-windowproxy-browsing-context` with why/trigger/date in-code.
+  Narrative "M4-12 cutover residual roadmap" and "future PR" comments replaced.
+  Implementation plan written: `docs/plans/2026-06-iframe-browsing-context-plan.md`.
+  Stub return values unchanged (null/globalThis).
 
 ### 2.5 F5 — hard-coded tag→prototype routing — **CONFIRMED (MIN)**
 
@@ -364,11 +366,11 @@ B1 before B2: get correctness (records) right, then collapse the decision
 surface. B2 may be merged into B1 if plan-review finds the unification is the
 natural shape of the fix rather than a separable step.
 
-### Program C — iframe browsing-context (F4)
+### Program C — iframe browsing-context (F4) — **✅ C0 LANDED**
 
 | PR | Purpose | Main files / crates | Do-not-touch | Depends on | Plan-review | AC |
 |---|---|---|---|---|---|---|
-| **C0** | **Decide remove-vs-formal-slot** for **both** the iframe `contentDocument`/`contentWindow` stubs **and** the Window browsing-context accessors `self`/`parent`/`top`/`frames`/`frameElement`/`opener`/`length`/`closed` (A0 §5/§1.1 — same narrative-stub anti-pattern); if retained, register defer slot(s) (why/trigger/date) and replace the narrative comments with slot ids; write the eventual same-origin/cross-origin implementation plan | `vm/host/html_iframe_proto.rs`, `window.rs` (comment/slot only, or removal); `docs/plans/` | proxy implementation | — | not required (slot decision); **PR-R** for the eventual impl | **Both** stub families either removed or carry a `#11-*` slot with all three elements cited in-code; implementation plan written; no behavior change beyond possible removal |
+| **C0** | ✅ **LANDED** (2026-06-26). Both stub families (`contentDocument`/`contentWindow` in `html_iframe_proto.rs` + `self`/`parent`/`top`/`frames`/`frameElement`/`opener`/`length`/`closed` in `window.rs`) now cite `#11-windowproxy-browsing-context` with why/trigger/date in-code; narrative comments replaced. Implementation plan written: `docs/plans/2026-06-iframe-browsing-context-plan.md` (missing model, trigger, targeted tests). Stub return values unchanged. | `vm/host/html_iframe_proto.rs`, `window.rs` (comment-only); `docs/plans/2026-06-iframe-browsing-context-plan.md` | proxy implementation | — | not required (slot decision) | Both stub families carry `#11-windowproxy-browsing-context` in-code (why/trigger/date); plan written; behavior unchanged |
 | C1+ | (Deferred — out of scope) same-origin/cross-origin proxy implementation | — | — | C0 + `world_id` program + S5/boa removal | **PR-R** | (future) |
 
 ### Program D — plugin-first tag dispatch (F5) — investigate-only
@@ -389,7 +391,7 @@ natural shape of the fix rather than a separable step.
 A0 (PR0) ──► A1 ──► A2  (window.rs; after JS-side Slice 2b)
               └───► A3  (document.cookie; cookie-file clerical only)
 B0 ──► B1 ──► B2
-C0  (independent; cheap)
+C0  (✅ landed — slot `#11-windowproxy-browsing-context` + plan doc)
 D0  (independent; investigate)
 E0  (✅ landed — #406 + prereq #408; built on A1's EngineMode)
 F2 clerical comment fix  (independent micro-PR — grep-defined sweep spanning

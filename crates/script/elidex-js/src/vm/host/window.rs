@@ -305,26 +305,25 @@ pub(super) fn native_window_get_device_pixel_ratio(
 
 // ---------------------------------------------------------------------------
 // Iframe-related WindowProxy getters (WHATWG HTML §7.3)
+// `#11-windowproxy-browsing-context`
 // ---------------------------------------------------------------------------
 //
-// `parent`, `top`, `frames`, and `self` all return WindowProxy values
-// per spec.  The VM currently models a single top-level browsing
-// context, so the only WindowProxy we have is `globalThis` itself —
-// every getter resolves to it.  This matches the legacy boa
-// registration (`elidex-js-boa/src/globals/window/mod.rs`
-// `register_iframe_window_props`) so the JS surface does not regress
-// when boa is removed in PR7.
+// Deferred stubs for `self`/`parent`/`top`/`frames`/`frameElement`/
+// `opener`/`length`/`closed`.
 //
-// `frameElement` and `opener` return `null`: there is no parent
-// browsing context to point at, and no `window.open(...)` opener
-// chain — both await sub-frame wiring (PR6 / Phase 3) before they
-// can become non-null.  `length` is `0` because the VM tracks zero
-// child frames.  `closed` is `false` for the same single-context
-// reason.
+// Why: sub-frame browsing-context entity model and cross-VM
+// Document/Window proxy identity are not yet implemented.  The VM
+// currently models a single top-level browsing context — `self`,
+// `parent`, `top`, and `frames` resolve to `globalThis`; `frameElement`
+// and `opener` return `null`; `length` returns `0`; `closed` returns
+// `false`.  `null` is spec-correct for cross-origin contexts but
+// observably wrong for same-origin sub-frames.
 //
-// All getters use the `_this` argument because they read VM-wide
-// state that is independent of the receiver — `Window.prototype.parent`
-// invoked with any receiver still resolves to the unique globalThis.
+// Trigger: `world_id` / cross-DOM program + S5/boa removal.
+// Revisit date: when the `world_id` / S5 program begins.
+//
+// All getters ignore `_this` because they read VM-wide state that is
+// independent of the receiver.
 
 pub(super) fn native_window_get_self(
     ctx: &mut NativeContext<'_>,
@@ -532,10 +531,9 @@ const WINDOW_METHODS: &[(&str, super::super::NativeFn)] = &[
 //
 // The iframe WindowProxy accessors (`self` / `parent` / `top` /
 // `frames` / `frameElement` / `opener` / `length` / `closed`) live on
-// `Window.prototype` per WHATWG HTML §7.3.  All return single-context
-// stubs today (see the comment block on `native_window_get_self`); a
-// future PR can replace the bodies with real cross-frame lookups
-// without disturbing the install order.
+// `Window.prototype` per WHATWG HTML §7.3.  All are deferred stubs
+// (`#11-windowproxy-browsing-context`; see comment block above
+// `native_window_get_self` for why/trigger/date).
 const WINDOW_RO_ACCESSORS: &[(&str, super::super::NativeFn)] = &[
     ("innerWidth", native_window_get_inner_width),
     ("innerHeight", native_window_get_inner_height),
