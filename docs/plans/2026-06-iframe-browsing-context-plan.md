@@ -40,9 +40,16 @@ values for same-origin frames.
 Each `<iframe>` must correspond to a browsing-context entity (or ECS
 component on the iframe element entity) that carries:
 
-- the nested `EcsDom` / document entity,
-- the `EngineMode` / origin pair inherited from the parent,
-- the sandboxing flags derived from the `sandbox` attribute.
+- the nested `EcsDom` / document entity (the *active document*),
+- the `EngineMode` and sandboxing flags derived from the `sandbox` attribute.
+
+The iframe's **effective origin is NOT a static stored field**: the
+`contentDocument` access check (§7.3.1.3 step 3) compares
+`document's origin` against `container's node document's origin`, where
+`document` is the active document at check time.  A navigation to another
+origin changes the active document's origin and must be reflected
+immediately in subsequent `contentDocument` checks — there is no cached
+"inherited origin" that stays valid across navigations.
 
 Without this, `contentDocument` has no document to return and
 `length` / `frames` cannot enumerate child frames.
@@ -63,15 +70,21 @@ forwards most operations to the current `Window` of the browsing context
 This depends on the `world_id` discriminator described in CLAUDE.md
 `#11-wrapper-cache-cross-dom-discriminator`.
 
-### 2.3 Same-origin access checks
+### 2.3 Same-origin access checks (contentDocument only)
 
 `contentDocument` must return `null` for cross-origin frames (spec-correct
 today) and the actual `Document` object for same-origin frames (currently
-wrong).  The check is: compare the `origin` of the iframe's browsing context
-against the `origin` of the caller's browsing context; if not same-origin,
-return `null`.
+wrong).  Per §7.3.1.3 step 3: compare the **active document's** origin
+against the caller document's origin; if not same-origin-domain, return
+`null`.
 
-This requires (2.1) to know the iframe's origin.
+`contentWindow` is **NOT origin-gated**: §7.3.1.3 `content window` steps
+return the active `WindowProxy` directly (step 2), with no origin check.
+Cross-origin callers receive a WindowProxy whose proxy traps enforce the
+cross-origin access restrictions (§7.2.3 / WHATWG HTML WindowProxy exotic
+object); they do NOT receive `null`.
+
+This requires (2.1)'s active-document reference to be current (post-navigation).
 
 ### 2.4 Cross-VM proxy semantics
 
@@ -101,11 +114,11 @@ When C1+ begins, the test plan must distinguish the following cases:
 
 | Case | Expected `contentDocument` | Expected `contentWindow` |
 |---|---|---|
-| Same-origin iframe (same effective script origin) | `Document` object (non-null) | `WindowProxy` (non-null) |
-| Cross-origin iframe | `null` | `null` |
-| Sandboxed iframe without `allow-same-origin` | `null` | `null` |
-| Sandboxed iframe with `allow-same-origin` | `Document` if origins match | `WindowProxy` if origins match |
-| Detached iframe (removed from DOM) | `null` | `null` |
+| Same-origin iframe (same effective script origin) | `Document` object (non-null) | `WindowProxy` (non-null, same-origin) |
+| Cross-origin iframe | `null` (origin-gated per §7.3.1.3 step 3) | `WindowProxy` (non-null, cross-origin restricted via proxy traps §7.2.3) |
+| Sandboxed iframe without `allow-same-origin` | `null` | `WindowProxy` (non-null, sandboxed — proxy traps deny most access) |
+| Sandboxed iframe with `allow-same-origin` | `Document` if origins match | `WindowProxy` (non-null) |
+| Detached iframe (removed from DOM, no content navigable) | `null` (§7.3.1.3 step 1) | `null` (§7.3.1.3 content-window step 1) |
 
 Analogous cases for `parent` / `top` / `frameElement`:
 
@@ -114,6 +127,17 @@ Analogous cases for `parent` / `top` / `frameElement`:
 | Top-level window | `globalThis` (`WindowProxy` of self) | `globalThis` | `null` |
 | Same-origin child frame | `WindowProxy` of parent | `WindowProxy` of top | iframe element |
 | Cross-origin child frame | opaque `WindowProxy` (limited access) | opaque `WindowProxy` | `null` (cross-origin) |
+
+Cases for `frames` / `length` / `opener` / `closed` (also in `#11-windowproxy-browsing-context` scope):
+
+| Case | Expected `frames` | Expected `length` | Expected `opener` | Expected `closed` |
+|---|---|---|---|---|
+| Top-level window with no child frames | `globalThis` | `0` | `null` | `false` |
+| Top-level window with N child frames | `globalThis` (still — `frames` is an alias; `frames[i]` is the WindowProxy of child i) | `N` | `null` | `false` |
+| Window opened via `window.open()` | — | — | opener `WindowProxy` (or `null` if cross-origin + no-opener) | `false` |
+| Closed window | — | — | — | `true` |
+
+`opener` requires `window.open()` support (separate slot).  `frames[i]` indexed access is a §7.2.2 exotic operation on the WindowProxy and depends on the sub-frame entity model.
 
 ---
 

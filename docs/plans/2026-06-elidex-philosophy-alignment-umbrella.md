@@ -438,7 +438,7 @@ PR0 scope (no `.rs` changes):
 - **F2 stale-comment correction** (`document.rs:1098`, `navigator.rs:72`) — a
   clerical doc fix that removes active reviewer-misleading misinformation; no
   plan-review; land when `document.rs` is not mid-edit by JS-side.
-- **F4 C0 defer-slot decision** — cheap, doc/comment-only, owner-agnostic.
+- **F4 C0 defer-slot decision** — ✅ **LANDED** (slot `#11-windowproxy-browsing-context`, impl plan written).
 
 > Considered alternatives for "first PR" and why PR0 wins: starting with B0
 > (F3 audit) is equally safe but does not unblock the two confirmed-IMP storage
@@ -533,8 +533,9 @@ assumed:
 - **`window.rs` (HIGH): F1/A2 vs JS-side media Slice 2b.** Both edit
   `crates/script/elidex-js/src/vm/host/window.rs` (Slice 2b adds `matchMedia`; A2
   moves `localStorage`/`sessionStorage`). **Do not open A2 while Slice 2b is
-  open.** Sequence: let Slice 2b land → rebase → then A2. PR0/B0/C0/D0/E0 and the
+  open.** Sequence: let Slice 2b land → rebase → then A2. PR0/B0/D0/E0 and the
   F2 clerical fix do **not** touch `window.rs` and are unaffected.
+  (C0 already touched `window.rs` comment-only and is **✅ landed**.)
 - **`vm/host/` attribute files (MED): F3/B1-B2 vs JS-side.** B1/B2 touch
   `element_attrs.rs` and the reflected-IDL setter macros. The JS-side Slice 2b is
   on `window.rs`/`MediaQueryList`, not the attribute setters — low overlap today,
@@ -542,10 +543,10 @@ assumed:
   (`git branch -r`, Axis 5).
 - **`document.rs` (LOW): F2 clerical + A3 vs JS-side.** `document.rs` is not on the
   Slice 2b path; still confirm at open-time.
-- **iframe (LOW): F4/C0 vs HTML-side.** The current HTML-side task
-  (`#11-dialog-form-method`) and the queued focus A2b touch dialog/form and
-  iframe *focus* cutover, not `contentDocument`/`contentWindow` accessors. C0 is
-  comment/slot only. Confirm no overlap when A2b's scope is known.
+- **iframe: F4/C0 ✅ LANDED.** C0 touched `window.rs` and `html_iframe_proto.rs`
+  (comment/slot only) — no semantic overlap with A2b (dialog/form focus cutover).
+  Future C1+ (same-origin proxy implementation) must re-check active branches
+  at open-time per §7.3 guardrails.
 - **Worktree isolation:** every code-touching PR in this program must be built in
   a dedicated worktree off `origin/main` (`git worktree add -b <branch> <dir>
   origin/main`), never in the shared main tree, per CLAUDE.md parallel-session
@@ -555,8 +556,7 @@ assumed:
 
 1. **PR0 (A0)** — umbrella design doc; run through `/elidex-plan-review`. Land
    first; it gates everything in Program A and informs E0.
-2. **F2 clerical fix** and **C0 (F4 slot decision)** — independent, cheap; land
-   any time (clerical fix prefers a window where `document.rs` is quiet).
+2. **F2 clerical fix** — independent, cheap; land any time (prefers a window where `document.rs` is quiet). **C0 ✅ already landed.**
 3. **B0** — F3 audit doc; can be authored in parallel with PR0, land second.
 4. **A1** → then **A2** (after Slice 2b) and **A3** in parallel.
 5. **B1** → **B2**.
@@ -582,7 +582,7 @@ plan-memo:
   on the target files (Axis 5), especially `window.rs` / `vm/host/`.
 - **Re-verify slot state:** `#11-storage-opaque-origin-securityerror` (F1) and the
   F5 tag slots / §H-7 must still be open and named as cited before referencing
-  them; F4 currently has **no** slot (creating one is part of C0).
+  them; F4 slot `#11-windowproxy-browsing-context` is **registered** (C0 ✅ landed).
 - **Watch for the precondition shifting:** if a mode/`SpecLevel` mechanism lands
   via some other program before A1, A1's scope collapses — re-baseline rather
   than re-implement.
