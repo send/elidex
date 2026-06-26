@@ -582,7 +582,10 @@ plan-memo:
   on the target files (Axis 5), especially `window.rs` / `vm/host/`.
 - **Re-verify slot state:** `#11-storage-opaque-origin-securityerror` (F1) and the
   F5 tag slots / §H-7 must still be open and named as cited before referencing
-  them; F4 slot `#11-windowproxy-browsing-context` is **registered** (C0 ✅ landed).
+  them; F4 slot `#11-windowproxy-browsing-context` is **recorded in-code** (C0
+  ✅ landed; ledger entry in `memory/project_open-defer-slots.md` is a pending
+  Opus follow-up — verify the slot appears there before relying on it as a
+  formal slot reference).
 - **Watch for the precondition shifting:** if a mode/`SpecLevel` mechanism lands
   via some other program before A1, A1's scope collapses — re-baseline rather
   than re-implement.

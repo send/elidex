@@ -31,11 +31,13 @@
 //! - **Deferred stubs** — `contentDocument`, `contentWindow`
 //!   (`#11-windowproxy-browsing-context`).  Both return `null`.
 //!   Why: sub-frame browsing-context entity model and cross-VM
-//!   Document/Window proxy identity are not yet implemented; `null`
-//!   is spec-correct for cross-origin frames but observably wrong
-//!   for same-origin.  Trigger: `world_id` / cross-DOM program +
-//!   S5/boa removal.  Revisit date: when the `world_id` / S5
-//!   program begins.
+//!   Document/Window proxy identity are not yet implemented.
+//!   `null` is spec-correct for `contentDocument` on cross-origin
+//!   frames (§7.3.1.3 step 3), but `contentWindow` must return a
+//!   `WindowProxy` even for cross-origin frames — `null` there is
+//!   observably wrong in all frames (same-origin and cross-origin
+//!   alike).  Trigger: `world_id` / cross-DOM program + S5/boa
+//!   removal.  Revisit date: when the `world_id` / S5 program begins.
 
 #![cfg(feature = "engine")]
 
@@ -308,7 +310,13 @@ fn native_iframe_get_content_document(
 }
 
 /// `contentWindow` — deferred stub (`#11-windowproxy-browsing-context`).
-/// Returns `null`. See `native_iframe_get_content_document`.
+/// Returns `null`.  **Note**: `null` is NOT spec-correct here — even
+/// cross-origin frames must receive a restricted `WindowProxy`, not
+/// `null` (§7.3.1.3 content-window steps have no origin gate; the
+/// cross-origin restriction is enforced by WindowProxy proxy traps
+/// per §7.2.3, not by returning null).  Both same-origin and
+/// cross-origin frames return wrong values today.  See module
+/// docstring for why/trigger/date.
 fn native_iframe_get_content_window(
     ctx: &mut NativeContext<'_>,
     this: JsValue,

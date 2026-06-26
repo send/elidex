@@ -101,10 +101,11 @@ entity identity is solved (S5 scope).
 |---|---|
 | `world_id` discriminator (`#11-wrapper-cache-cross-dom-discriminator`) | deferred (着手 = S5 後) |
 | S5 / boa removal (D-26 PR7) | deferred |
-| Sub-frame browsing-context entity model | not started |
 
-C1+ (same-origin/cross-origin proxy implementation) must not begin until all
-three are resolved.
+C1+ (same-origin/cross-origin proxy implementation) must not begin until both
+are resolved.  The sub-frame browsing-context entity model (§2.1) is NOT a
+precondition — it is C1+'s **first internal task**: C1 slice 1 implements the
+entity model itself, then uses it to implement the accessor behavior.
 
 ---
 
