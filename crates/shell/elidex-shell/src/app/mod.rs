@@ -886,11 +886,9 @@ impl ApplicationHandler<crate::WakeEvent> for App {
         let placement = self.content_area_placement(&state.window);
         self.viewport.placement = Some(placement);
         // Publish the real size to the viewport cell **before** spawning, so the
-        // deferred initial tab's build reads it by construction. The cell is the pull
-        // source the spawn reads — not a snapshot threaded as an argument. This bumps
-        // seq 0 → 1 on the usual `DEFAULT → real` establishment; it is a no-op only if
-        // the real size happens to equal `DEFAULT` (then the spawn correctly builds at
-        // the seed). `viewport_changed` gates the re-resume fan-out below.
+        // deferred initial tab's build reads it by construction (the cell is the pull
+        // source the spawn reads, not a snapshot). Normally bumps seq 0 → 1
+        // (DEFAULT → real); `viewport_changed` gates the re-resume fan-out below.
         let viewport_changed = self
             .viewport
             .viewport_cell
@@ -902,14 +900,11 @@ impl ApplicationHandler<crate::WakeEvent> for App {
         // it reads from the just-published cell, never a guessed `DEFAULT_VIEWPORT`.
         self.spawn_pending_initial_tab();
 
-        // Re-resume after `suspended` (plan-memo Q3): content threads persist
-        // across a suspend but `placement` was dropped, so the content area may
-        // have changed size while the window was gone. Fan the freshly-rebuilt
-        // viewport to every persisted tab — but only when the publish above actually
-        // changed the size (`viewport_changed`): an unchanged size needs no delivery
-        // (persisted tabs are already at it; the just-spawned initial tab was born at
-        // exactly this size from the cell). This also avoids advancing every tab's
-        // `applied_viewport_seq` on a no-op resume.
+        // Re-resume after `suspended` (plan-memo Q3): content threads persist across a
+        // suspend but `placement` was dropped, so the content area may have changed
+        // size while the window was gone. Fan the rebuilt viewport to every persisted
+        // tab only when the publish above changed the size (`viewport_changed`) — an
+        // unchanged size needs no delivery and must not bump `applied_viewport_seq`.
         if viewport_changed {
             self.broadcast_viewport();
         }
@@ -964,22 +959,15 @@ impl ApplicationHandler<crate::WakeEvent> for App {
                 if new_size.width > 0 && new_size.height > 0 {
                     window.request_redraw();
                 }
-                // Recompute the placement SoT (this also refreshes `scale_factor` —
-                // a DPI change reaches us as a `Resized` after winit's
-                // `ScaleFactorChanged`, so this single arm handles both). Publish to
-                // the viewport cell **iff** `size_logical` actually changed (bumping
-                // seq), so a content thread rebuilding mid `load_document` reads the new
-                // size; then fan the seq-tagged viewport out to **every** tab (all share
-                // the window content area, so background tabs must re-lay-out too — C1).
-                // A pure scale change keeps `size_logical` (CSS px is scale-invariant),
-                // so it normally publishes nothing — the new scale still reaches the
-                // compositor / input mapper via the cached `placement` + the requested
-                // redraw, and *not* bumping seq is what keeps queued input from being
-                // dropped against an unchanged layout (the seq identifies size
-                // generations). (Should the recomputed `size_logical` differ — e.g. a
-                // sub-pixel f32 delta from the phys↔logical round-trip, or a combined
-                // resize+DPI change — `publish_if_changed` correctly bumps: the layout
-                // size genuinely changed.)
+                // Recompute the placement SoT — this also refreshes `scale_factor`,
+                // since a DPI change reaches us as a `Resized` *after* winit's
+                // `ScaleFactorChanged` (plan-memo §1), so this one arm handles both.
+                // Publish to the cell **iff** `size_logical` changed (bumping seq) and
+                // fan out to every tab only then. A pure scale change keeps `size_logical`
+                // (CSS px is scale-invariant) → no publish/seq bump; the new scale still
+                // reaches the compositor / input mapper via the cached `placement` +
+                // redraw, and not advancing seq keeps queued input from being dropped
+                // against an unchanged layout (seq = size generation — plan-memo §2).
                 let placement = self.content_area_placement(&window);
                 self.viewport.placement = Some(placement);
                 if self
