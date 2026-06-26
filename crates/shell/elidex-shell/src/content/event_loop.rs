@@ -311,11 +311,13 @@ fn handle_message(msg: BrowserToContent, state: &mut ContentState) -> bool {
             // (#document-run-the-resize-steps) step 1, a `resize` event fires only
             // when the viewport's width or height has changed **since the last time
             // these steps were run**. Drop an unchanged-size delivery here — no
-            // `resize`, no MQL re-evaluation, no repaint. This also makes viewport
-            // delivery idempotent so C1's resume-time `broadcast_viewport` can fan
-            // the cached size to *every* tab unconditionally without firing a
-            // spurious `resize` / double-painting a tab already at that size (the
-            // just-spawned initial tab is born at exactly the broadcast size).
+            // `resize`, no MQL re-evaluation, no repaint. The producer now gates its
+            // `broadcast_viewport` on an actual size change (`ViewportCell::publish_if_changed`,
+            // C2), so a same-size `SetViewport` is no longer *emitted* on a resize — but
+            // this guard remains load-bearing for the build-vs-broadcast staleness race:
+            // a just-spawned tab born at exactly the broadcast size (its build read the
+            // same cell value) still receives the fan-out and must not fire a spurious
+            // `resize` / double-paint.
             let unchanged =
                 width == state.pipeline.viewport.width && height == state.pipeline.viewport.height;
             if width > 0.0 && width.is_finite() && height > 0.0 && height.is_finite() && !unchanged

@@ -31,7 +31,7 @@ pub use elidex_plugin::{channel_pair, LocalChannel};
 /// intermediate. Any genuinely newer resize carries `seq >` the mark and applies — no
 /// lost update.
 ///
-/// **Single writer** (the browser main thread, via [`Self::publish`]); **many readers**
+/// **Single writer** (the browser main thread, via [`Self::publish_if_changed`]); **many readers**
 /// (each content thread, via [`Self::read`]). One per window — all tabs share the
 /// window content area, so they share one `Arc<ViewportCell>`.
 #[derive(Debug)]
@@ -47,9 +47,10 @@ struct ViewportCellValue {
 
 impl ViewportCell {
     /// Construct a cell seeded with `size` at **seq 0** — the pre-publish baseline.
-    /// The first [`publish`](Self::publish) bumps to seq 1, so a content thread that
-    /// reads the cell before any real publish sees seq 0 (and any later real
-    /// `SetViewport` carries `seq ≥ 1 >` 0, hence applies).
+    /// The first [`publish_if_changed`](Self::publish_if_changed) of a *different* size
+    /// bumps to seq 1, so a content thread that reads the cell before any size-changing
+    /// publish sees seq 0 (and any later real `SetViewport` carries `seq ≥ 1 >` 0, hence
+    /// applies).
     #[must_use]
     pub fn new(size: Size) -> Arc<Self> {
         Arc::new(Self {
@@ -57,15 +58,31 @@ impl ViewportCell {
         })
     }
 
-    /// Browser writer: store a new content-area `size` and bump the monotonic seq.
+    /// Browser writer: store a new content-area `size` and bump the monotonic seq
+    /// **iff** `size` differs from the current value; returns whether it changed (and
+    /// thus published a new seq).
+    ///
+    /// `seq` identifies `size_logical` *generations* — the unit `placement_seq` /
+    /// `applied_viewport_seq` reconcile against ([`MouseClickEvent::placement_seq`],
+    /// `content/event_loop.rs` `input_placement_stale`). Bumping the seq on an
+    /// **unchanged** size would manufacture a phantom generation that spuriously
+    /// supersedes legitimately-queued input mapped against the still-current layout —
+    /// a pure DPI/scale `Resized` carries the same `size_logical` (CSS px is
+    /// scale-invariant), so a same-size publish is a no-op. The caller gates its
+    /// `broadcast_viewport` on the return so an unchanged size emits no `SetViewport`.
     ///
     /// Poison-recovers (`into_inner`): the guarded value is two plain fields written
     /// as one assignment, so a reader panicking mid-critical-section leaves no broken
     /// invariant and the browser must not panic in turn.
-    pub fn publish(&self, size: Size) {
+    #[must_use = "the caller must gate broadcast_viewport on whether the size changed"]
+    pub fn publish_if_changed(&self, size: Size) -> bool {
         let mut guard = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
+        if guard.size == size {
+            return false;
+        }
         guard.size = size;
         guard.seq += 1;
+        true
     }
 
     /// Content reader: the latest `(size, seq)` pair atomically (a lock-copy-release;

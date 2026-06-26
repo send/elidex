@@ -35,7 +35,7 @@ pub(super) struct ViewportProducer {
     pub(super) pending_initial_spawn: Option<PendingSpawn>,
     /// Browser-published latest content-area viewport + monotonic seq — the
     /// **pull** source every content thread reads at build time. Single writer
-    /// (browser thread, via [`crate::ipc::ViewportCell::publish`]); `Arc`-shared
+    /// (browser thread, via [`crate::ipc::ViewportCell::publish_if_changed`]); `Arc`-shared
     /// into every spawned content thread. Seeded with `DEFAULT` before the
     /// window exists; the first `resumed` publish bumps it to the real size at
     /// seq 1. One per window — all tabs share the content area.
@@ -104,10 +104,13 @@ impl App {
 
     /// Fan the cached viewport out to **every** tab — all share the window's
     /// content area, so a resize must reach background tabs too (their
-    /// `innerWidth`/`matchMedia` stay spec-correct). Called on `Resized` (and C2's
-    /// `ScaleFactorChanged`) and on re-`resumed` (plan-memo Q3), each **after** the
-    /// matching `viewport_cell.publish`, so the cell's current seq tags the
-    /// delivery. Initial/`window.open`/new tabs are instead born at the real size via
+    /// `innerWidth`/`matchMedia` stay spec-correct). Called on `Resized` and on
+    /// re-`resumed` (plan-memo Q3), but **only when** the matching
+    /// `viewport_cell.publish_if_changed` reported a real size change — the caller gates
+    /// this on that return (C2), so the cell's current seq tags the delivery and an
+    /// unchanged size fans out nothing. (A pure DPI/scale `Resized` keeps `size_logical`,
+    /// so it publishes nothing and skips this — see `App::window_event`.)
+    /// Initial/`window.open`/new tabs are instead born at the real size via
     /// the construction-input spawn (C1, the cell read), so they need no seed message.
     /// The cached `placement` is keyed to the active tab's chrome; one size fits every
     /// tab while all use the default (`Top`) tab-bar position → slot
