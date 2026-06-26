@@ -31,7 +31,7 @@ Remediation of the six philosophy-drift findings from the audit:
 | F1 | Sync `localStorage`/`sessionStorage` on the core VM surface | IMP | IMP (confirmed) |
 | F2 | `document.cookie` on the core Document binding (+ stale "stub" doc) | IMP | IMP (confirmed) + clerical sub-fix |
 | F3 | DOM write paths vs the `ScriptSession` mutation boundary | IMP | **IMP, reframed** — see §2.3 |
-| F4 | iframe `contentDocument`/`contentWindow` parity null stubs | IMP | **✅ C0 LANDED** — `#11-windowproxy-browsing-context` slot registered; impl plan written (§2.4) |
+| F4 | iframe `contentDocument`/`contentWindow` parity null stubs | IMP | **✅ C0 LANDED** — `#11-windowproxy-browsing-context` slot recorded in-code (ledger: Opus follow-up); impl plan written (§2.4) |
 | F5 | HTML tag→prototype routing hard-coded in the VM | MIN | MIN (confirmed) |
 | F6 | Shell pipeline defaults to compat style resolution | MIN | **✅ LANDED** — E0 #406 + prereq #408 (§2.6) |
 
@@ -582,10 +582,13 @@ plan-memo:
   on the target files (Axis 5), especially `window.rs` / `vm/host/`.
 - **Re-verify slot state:** `#11-storage-opaque-origin-securityerror` (F1) and the
   F5 tag slots / §H-7 must still be open and named as cited before referencing
-  them; F4 slot `#11-windowproxy-browsing-context` is **recorded in-code** (C0
-  ✅ landed; ledger entry in `memory/project_open-defer-slots.md` is a pending
-  Opus follow-up — verify the slot appears there before relying on it as a
-  formal slot reference).
+  them; F4 slot `#11-windowproxy-browsing-context` — C0 **in-code** scope is
+  ✅ landed (slot citation in comments/plan doc), but this slot is **not yet in
+  the formal ledger** (`memory/project_open-defer-slots.md` is git-untracked;
+  ledger registration was carved as a separate Opus task outside C0 scope).
+  Until the ledger entry exists, treat citations of this slot in code/docs as
+  in-code-only tracking; the slot is functional but not Axis-5-verifiable via
+  the ledger.
 - **Watch for the precondition shifting:** if a mode/`SpecLevel` mechanism lands
   via some other program before A1, A1's scope collapses — re-baseline rather
   than re-implement.

@@ -316,8 +316,18 @@ pub(super) fn native_window_get_device_pixel_ratio(
 // currently models a single top-level browsing context — `self`,
 // `parent`, `top`, and `frames` resolve to `globalThis`; `frameElement`
 // and `opener` return `null`; `length` returns `0`; `closed` returns
-// `false`.  `null` is spec-correct for cross-origin contexts but
-// observably wrong for same-origin sub-frames.
+// `false`.
+//
+// These stubs are correct only for a genuine top-level window with no
+// opener.  For sub-frame or opened windows:
+//   • `parent` / `top` / `frames`: sub-frames must receive a real or
+//     restricted WindowProxy (§7.2.2.4), NOT null — even cross-origin.
+//   • `frameElement`: `null` is spec-correct for cross-origin callers
+//     (§7.2.2.4), but same-origin sub-frames must receive the element.
+//   • `opener`: a window opened via `window.open()` must expose the
+//     opener WindowProxy (possibly restricted cross-origin), NOT null.
+//   • `length` / `closed`: reflect actual child-frame count / window
+//     state, not 0 / false.
 //
 // Trigger: `world_id` / cross-DOM program + S5/boa removal.
 // Revisit date: when the `world_id` / S5 program begins.

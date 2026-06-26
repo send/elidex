@@ -75,8 +75,10 @@ This depends on the `world_id` discriminator described in CLAUDE.md
 `contentDocument` must return `null` for cross-origin frames (spec-correct
 today) and the actual `Document` object for same-origin frames (currently
 wrong).  Per §7.3.1.3 step 3: compare the **active document's** origin
-against the caller document's origin; if not same-origin-domain, return
-`null`.
+against the **container's node document's** origin (= the `<iframe>`
+element's `ownerDocument`; NOT the caller document's origin — the
+comparison is container-stable, not caller-relative); if not
+same-origin-domain, return `null`.
 
 `contentWindow` is **NOT origin-gated**: §7.3.1.3 `content window` steps
 return the active `WindowProxy` directly (step 2), with no origin check.
@@ -92,6 +94,20 @@ When the child frame runs in a separate `VmInner`, `contentWindow` must
 return a `WindowProxy` exotic object that forwards `[[Get]]` / `[[Set]]` to
 the child VM's global.  The mechanics depend on how `world_id` / cross-DOM
 entity identity is solved (S5 scope).
+
+### 2.5 Coupled-invariant matrix
+
+These four sub-models interact; C1+ design must hold all invariants simultaneously:
+
+| Event / scenario | §2.1 entity state | §2.2 WindowProxy identity | §2.3 origin check | §2.4 cross-VM |
+|---|---|---|---|---|
+| Child navigation (same slot, new document) | active document pointer updates | `ObjectId` stays stable (WindowProxy persists across navigation, §7.2.3) | origin re-derived from new active document at next access | forwarding target updates to new VM/global if VM changes |
+| iframe removed from DOM (detach) | entity enters detached state; content navigable = null | `ObjectId` keeps existing wrapper alive until GC | contentDocument → null (step 1); contentWindow → null (step 1) | forwarding terminates; proxy becomes inert |
+| sandbox `allow-same-origin` toggle | sandbox flags re-read from attribute each time | unchanged | effective origin may shift from opaque → real depending on flags | unchanged |
+| Script holds `WindowProxy` reference across navigation | no entity change | same `ObjectId`; `[[Get]]` forwards to new active Window | not applicable (no origin gate on contentWindow) | forwarding target must update atomically with navigation |
+| Cross-origin access to `frameElement` | unchanged | not applicable | `frameElement` getter uses caller ↔ container doc origin check (§7.2.2.4), not active-document check | not applicable |
+
+C1+ plan-review must verify these interactions before implementation begins.
 
 ---
 
@@ -138,7 +154,15 @@ Cases for `frames` / `length` / `opener` / `closed` (also in `#11-windowproxy-br
 | Window opened via `window.open()` | — | — | opener `WindowProxy` (or `null` if cross-origin + no-opener) | `false` |
 | Closed window | — | — | — | `true` |
 
-`opener` requires `window.open()` support (separate slot).  `frames[i]` indexed access is a §7.2.2 exotic operation on the WindowProxy and depends on the sub-frame entity model.
+`opener` is included in the **current-window accessor** group but its real
+implementation depends on `window.open()` support, which is out of this
+slot's scope.  For tracking purposes, `opener` correctness is owned by a
+separate auxiliary-browsing-context slot (`#11-auxiliary-browsing-context-opener`
+— to be carved when `window.open()` is tackled); C1+ may implement the
+sub-frame accessors (`parent`/`top`/`frameElement`/`frames`/`length`) while
+leaving `opener` as a null stub with ownership explicitly transferred.
+
+`frames[i]` indexed access is a §7.2.2 exotic operation on the WindowProxy and depends on the sub-frame entity model.
 
 ---
 
@@ -152,7 +176,7 @@ This section maps the OO concepts from §2 to ECS primitives for C1+.
 | `WindowProxy` exotic object identity | `ObjectId` component (post-`world_id`; see CLAUDE.md Side-store→component 判定ルール — (a) per-VM identity handle exception applies until `world_id` lands) |
 | SameObject guarantee for `.contentWindow` | component get: same entity → same `ObjectId` |
 | Cross-VM proxy forwarding | marker component + system query that dispatches to child VM; not a direct VM call |
-| cross-origin null fast-path | check origin component on iframe entity vs caller entity before any proxy creation |
+| `contentDocument` origin check | compare active document's origin vs **container's node document's origin** (§7.3.1.3 step 3; `contentWindow` has no origin gate — never skip proxy creation for `contentWindow`) |
 
 No new per-entity side-store (`HashMap<entity, _>`) should be introduced for
 browsing-context state; the sub-frame entity itself is the handle.
