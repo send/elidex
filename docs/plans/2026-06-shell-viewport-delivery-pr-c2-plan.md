@@ -325,6 +325,11 @@ longer advance seq).
   **wrong** — it broadcasts a bogus `old_phys / new_scale` intermediate on the common Resized-follows path.
   Supersedes the speculative `#11-winit-scale-contract-regression-guard` (the contract gap is now *actual*,
   not hypothetical, so the eligibility-audit that rejected the guard now passes for this slot).
+  **Why deferred**: edge-dense (no canonical algorithm) + reverses plan-reviewed D1 → `/elidex-plan-review`
+  required, not improvised in the converge loop (the naive route-through-chokepoint is wrong, above).
+  **Re-evaluation trigger**: a DPI / X11-coverage pass, OR the umbrella's next PR-C axis-3 slice, OR a
+  WPT/site exercising a Linux tiling-WM scale change, OR S5 / world_id viewport work touching the publish
+  path. **Re-evaluation date**: 2026-08-26.
 - Untouched siblings: `#11-iframe-build-viewport` (per-child viewport), `#11-hidpi-render-fidelity`
   (sub-pixel/fractional re-bake), `#11-content-message-coordination-wake` — all out of C2 scope.
 - **Parallel-branch collision clearance (parent §8 per-sub-slice mandate).** C2's edit sites — `ipc.rs`

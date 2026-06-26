@@ -960,14 +960,14 @@ impl ApplicationHandler<crate::WakeEvent> for App {
                     window.request_redraw();
                 }
                 // Recompute the placement SoT — this also refreshes `scale_factor`,
-                // since a DPI change reaches us as a `Resized` *after* winit's
-                // `ScaleFactorChanged` (plan-memo §1), so this one arm handles both.
-                // Publish to the cell **iff** `size_logical` changed (bumping seq) and
-                // fan out to every tab only then. A pure scale change keeps `size_logical`
-                // (CSS px is scale-invariant) → no publish/seq bump; the new scale still
-                // reaches the compositor / input mapper via the cached `placement` +
-                // redraw, and not advancing seq keeps queued input from being dropped
-                // against an unchanged layout (seq = size generation — plan-memo §2).
+                // since on the **common** path a DPI change reaches us as a `Resized`
+                // *after* winit's `ScaleFactorChanged`, so this one arm handles both. (The
+                // X11 `ScaleFactorChanged`-only corner with no following `Resized` is the
+                // carved `#11-shell-viewport-scalefactorchanged-x11-coverage` gap, §1/§8.)
+                // Publish to the cell **iff** `size_logical` changed (bumping seq) and fan
+                // out only then: a pure scale change keeps `size_logical` → no seq bump, so
+                // queued input is not dropped against an unchanged layout; the new scale
+                // still reaches the compositor / input mapper via `placement` + redraw (§2).
                 let placement = self.content_area_placement(&window);
                 self.viewport.placement = Some(placement);
                 if self

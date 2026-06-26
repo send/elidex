@@ -38,7 +38,9 @@ pub(super) struct ViewportProducer {
     /// (browser thread, via [`crate::ipc::ViewportCell::publish_if_changed`]); `Arc`-shared
     /// into every spawned content thread. Seeded with `DEFAULT` before the
     /// window exists; the first `resumed` publish bumps it to the real size at
-    /// seq 1. One per window — all tabs share the content area.
+    /// seq 1 — *unless* the real size equals `DEFAULT`, which leaves the cell at
+    /// seq 0 and skips the broadcast (`publish_if_changed`, plan-memo E1). One per
+    /// window — all tabs share the content area.
     pub(super) viewport_cell: Arc<crate::ipc::ViewportCell>,
 }
 
