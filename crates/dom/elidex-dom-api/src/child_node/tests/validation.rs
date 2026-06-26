@@ -184,6 +184,44 @@ fn ensure_validity_document_fragment_rejects_text_child() {
     );
 }
 
+// ---- §4.2.3 step 6: NO self-exclusion in the pre-insert algorithm (Codex R1) ----
+// Pre-insert counts ALL element/doctype children INCLUDING the node being inserted
+// (validity runs before the pre-insert self-reference adjustment), so re-appending an
+// existing Document child throws. Only the *replace* algorithm excludes `child`.
+
+#[test]
+fn ensure_validity_document_rejects_existing_element_reappend() {
+    // `document.appendChild(document.documentElement)`: the documentElement is still an
+    // element child of the document when validity runs → step 6 Element "parent has an
+    // element child" → HierarchyRequestError (no self-exclusion).
+    let mut dom = EcsDom::new();
+    let doc = dom.create_document_root();
+    let html = dom.create_element("html", Attributes::default());
+    dom.append_child(doc, html);
+    let result = ensure_pre_insertion_validity(doc, html, None, &dom);
+    assert!(result.is_err());
+    assert_eq!(
+        result.unwrap_err().kind,
+        DomApiErrorKind::HierarchyRequestError
+    );
+}
+
+#[test]
+fn ensure_validity_document_rejects_existing_doctype_reappend() {
+    // Doctype sibling of the above: re-appending the document's existing doctype throws
+    // step 6 DocumentType "parent has a doctype child" (no self-exclusion).
+    let mut dom = EcsDom::new();
+    let doc = dom.create_document_root();
+    let doctype = dom.create_document_type("html", "", "");
+    dom.append_child(doc, doctype);
+    let result = ensure_pre_insertion_validity(doc, doctype, None, &dom);
+    assert!(result.is_err());
+    assert_eq!(
+        result.unwrap_err().kind,
+        DomApiErrorKind::HierarchyRequestError
+    );
+}
+
 // ---- ensure_replace_validity ----
 
 #[test]
@@ -221,4 +259,21 @@ fn replace_validity_child_not_found() {
     let result = ensure_replace_validity(parent, node, unrelated, &dom);
     assert!(result.is_err());
     assert_eq!(result.unwrap_err().kind, DomApiErrorKind::NotFoundError);
+}
+
+#[test]
+fn replace_validity_document_element_swap_ok() {
+    // `document.replaceChild(newHtml, documentElement)`: step 6 Element counts element
+    // children "that is not child" (the `exclude` slice carries the replaced
+    // documentElement), so swapping the single element child for a new element is
+    // VALID. This is the replace-vs-pre-insert asymmetry — the same Document that
+    // rejects `appendChild(documentElement)` (no self-exclusion) accepts the replace
+    // (child-exclusion). Guards against the `c != node` removal regressing replace.
+    let mut dom = EcsDom::new();
+    let doc = dom.create_document_root();
+    let old_html = dom.create_element("html", Attributes::default());
+    dom.append_child(doc, old_html);
+    let new_html = dom.create_element("html", Attributes::default());
+    let result = ensure_replace_validity(doc, new_html, old_html, &dom);
+    assert!(result.is_ok());
 }

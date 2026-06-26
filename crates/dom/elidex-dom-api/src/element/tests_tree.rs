@@ -437,6 +437,31 @@ fn insert_before_undefined_ref_appends() {
 }
 
 #[test]
+fn insert_before_ref_not_a_child_is_not_found_error() {
+    // §4.2.3 ensure-pre-insertion-validity step 3: a non-null reference child that
+    // is not a child of `this` → NotFoundError. The B1.2b-3 fold routes insertBefore
+    // through the validator; before the fold the lax empty-`apply_*`-list path mapped
+    // this to HierarchyRequestError (spec-wrong kind). Locks the spec-correct kind.
+    let (mut dom, parent, child, mut session) = setup();
+    let orphan = dom.create_element("aside", Attributes::default());
+    let new_ref = session
+        .get_or_create_wrapper(child, ComponentKind::Element)
+        .to_raw();
+    let orphan_ref = session
+        .get_or_create_wrapper(orphan, ComponentKind::Element)
+        .to_raw();
+    let err = InsertBefore
+        .invoke(
+            parent,
+            &[JsValue::ObjectRef(new_ref), JsValue::ObjectRef(orphan_ref)],
+            &mut session,
+            &mut dom,
+        )
+        .unwrap_err();
+    assert_eq!(err.kind, DomApiErrorKind::NotFoundError);
+}
+
+#[test]
 fn get_attribute_case_insensitive() {
     let (mut dom, parent, _, mut session) = setup();
     let set_handler = SetAttribute;
@@ -735,4 +760,139 @@ fn serialize_emits_is_equal_to_local_name() {
         .unwrap();
     let html = serialize_outer_html(el, &dom);
     assert_eq!(html, r#"<button is="button"></button>"#);
+}
+
+// ---------------------------------------------------------------------------
+// B1.2b-3 — pre-insertion-validity fold. The core Node insert methods now run
+// the canonical WHATWG DOM §4.2.3 ensure-pre-insertion-validity (steps 1/4/5/6)
+// that the empty-`apply_*`-list signal did NOT encode (silently accepted before).
+// ---------------------------------------------------------------------------
+
+#[test]
+fn append_child_into_text_parent_throws_hierarchy() {
+    // §4.2.3 step 1: parent must be Document / DocumentFragment / Element.
+    let (mut dom, _div, _span, mut session) = setup();
+    let text_parent = dom.create_text("data");
+    let el = dom.create_element("b", Attributes::default());
+    let el_ref = session
+        .get_or_create_wrapper(el, ComponentKind::Element)
+        .to_raw();
+    let err = AppendChild
+        .invoke(
+            text_parent,
+            &[JsValue::ObjectRef(el_ref)],
+            &mut session,
+            &mut dom,
+        )
+        .unwrap_err();
+    assert_eq!(err.kind, DomApiErrorKind::HierarchyRequestError);
+}
+
+#[test]
+fn append_child_document_node_throws_hierarchy() {
+    // §4.2.3 step 4: a Document node is not an allowed insertion node type.
+    let (mut dom, parent, _span, mut session) = setup();
+    let doc = dom.create_document_node();
+    let doc_ref = session
+        .get_or_create_wrapper(doc, ComponentKind::Document)
+        .to_raw();
+    let err = AppendChild
+        .invoke(
+            parent,
+            &[JsValue::ObjectRef(doc_ref)],
+            &mut session,
+            &mut dom,
+        )
+        .unwrap_err();
+    assert_eq!(err.kind, DomApiErrorKind::HierarchyRequestError);
+}
+
+#[test]
+fn append_child_text_into_document_throws_hierarchy() {
+    // §4.2.3 step 5: a Text node may not be inserted under a Document.
+    let (mut dom, _div, _span, mut session) = setup();
+    let doc = dom.create_document_node();
+    let text = dom.create_text("x");
+    let text_ref = session
+        .get_or_create_wrapper(text, ComponentKind::TextNode)
+        .to_raw();
+    let err = AppendChild
+        .invoke(doc, &[JsValue::ObjectRef(text_ref)], &mut session, &mut dom)
+        .unwrap_err();
+    assert_eq!(err.kind, DomApiErrorKind::HierarchyRequestError);
+}
+
+#[test]
+fn append_child_second_element_into_document_throws_hierarchy() {
+    // §4.2.3 step 6 (Element branch): a Document may have at most one element child.
+    let (mut dom, _div, _span, mut session) = setup();
+    let doc = dom.create_document_node();
+    let root = dom.create_element("html", Attributes::default());
+    dom.append_child(doc, root); // the documentElement
+    let second = dom.create_element("html", Attributes::default());
+    let second_ref = session
+        .get_or_create_wrapper(second, ComponentKind::Element)
+        .to_raw();
+    let err = AppendChild
+        .invoke(
+            doc,
+            &[JsValue::ObjectRef(second_ref)],
+            &mut session,
+            &mut dom,
+        )
+        .unwrap_err();
+    assert_eq!(err.kind, DomApiErrorKind::HierarchyRequestError);
+}
+
+#[test]
+fn append_child_existing_document_element_throws_hierarchy() {
+    // §4.2.3 pre-insert step 6 (Element branch) has NO self-exclusion: it tests
+    // "parent has an element child" counting ALL element children INCLUDING the node
+    // being inserted, and runs BEFORE the pre-insert self-reference adjustment
+    // (pre-insert step 3). So `document.appendChild(document.documentElement)` throws
+    // HierarchyRequestError — the existing documentElement is still an element child
+    // of the document when validity runs. (Only the *replace* algorithm excludes
+    // `child`: "an element child that is not child"; pre-insert does not — the spec
+    // states the replace statements "differ from the pre-insert algorithm".) Codex
+    // B1.2b-3 R1 caught the plan's wrong "step-6 self-exclusion" framing.
+    let (mut dom, _div, _span, mut session) = setup();
+    let doc = dom.create_document_node();
+    let root = dom.create_element("html", Attributes::default());
+    dom.append_child(doc, root);
+    let root_ref = session
+        .get_or_create_wrapper(root, ComponentKind::Element)
+        .to_raw();
+    let err = AppendChild
+        .invoke(doc, &[JsValue::ObjectRef(root_ref)], &mut session, &mut dom)
+        .unwrap_err();
+    assert_eq!(err.kind, DomApiErrorKind::HierarchyRequestError);
+    // The throw precedes any mutation — the document keeps its single element child.
+    assert_eq!(dom.children(doc), vec![root]);
+}
+
+#[test]
+fn replace_child_self_replace_orphan_throws_not_found() {
+    // B1.2b-3 F1: the validator runs BEFORE the `new == old` self-replace
+    // short-circuit, so replacing an orphan with itself throws §4.2.3 replace
+    // step-3 NotFoundError (orphan is not a child of `this`), not a silent no-op.
+    let (mut dom, parent, _span, mut session) = setup();
+    let orphan = dom.create_element("i", Attributes::default());
+    let orphan_ref = session
+        .get_or_create_wrapper(orphan, ComponentKind::Element)
+        .to_raw();
+    let err = ReplaceChild
+        .invoke(
+            parent,
+            &[
+                JsValue::ObjectRef(orphan_ref),
+                JsValue::ObjectRef(orphan_ref),
+            ],
+            &mut session,
+            &mut dom,
+        )
+        .unwrap_err();
+    assert_eq!(err.kind, DomApiErrorKind::NotFoundError);
+    // (the valid self-replace `replaceChild(child, child)` no-op is covered by
+    // `replace_child_self_replace_is_noop` above — it still passes after the
+    // validator is re-ordered before the short-circuit = the F1 regression proof.)
 }

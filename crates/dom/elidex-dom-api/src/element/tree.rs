@@ -7,6 +7,7 @@ use elidex_script_session::{
     DomApiErrorKind, DomApiHandler, JsObjectRef, Mutation, MutationRecord, SessionCore,
 };
 
+use crate::child_node::{ensure_pre_insertion_validity, ensure_replace_validity};
 use crate::util::{not_found_error, require_object_ref_arg, require_string_arg};
 
 // The `apply_*` childList builders expand a `DocumentFragment` into its children
@@ -55,6 +56,12 @@ impl DomApiHandler for AppendChild {
             .identity_map()
             .get(JsObjectRef::from_raw(child_ref))
             .ok_or_else(|| not_found_error("child not found"))?;
+        // §4.2.3 "pre-insert" step 1: ensure pre-insertion validity of child into
+        // this before null (append). Runs the canonical §4.2.3 ensure-pre-insertion-
+        // validity steps 1/4/5/6 (parent-kind / node-type / Text-doctype / Document
+        // element-child constraints) that the `apply_*` empty-list signal does not
+        // encode — the same validator the ChildNode/ParentNode mixins call.
+        ensure_pre_insertion_validity(this, child_entity, None, dom)?;
         // Apply through the EcsDom chokepoint AND build the §4.3.2 childList record
         // list in one step. A move yields two records (source-parent removal +
         // destination); a DocumentFragment yields two (the §4.2.3 step-4.2 fragment
@@ -110,6 +117,8 @@ impl DomApiHandler for InsertBefore {
             matches!(args.get(1), None | Some(JsValue::Null | JsValue::Undefined));
         if ref_child_is_null {
             // null reference child = append (WHATWG DOM §4.2.3 pre-insert).
+            // §4.2.3 ensure-pre-insertion-validity (child = null).
+            ensure_pre_insertion_validity(this, new_entity, None, dom)?;
             let records = apply_append_child(dom, this, new_entity);
             if records.is_empty() {
                 // Empty = failure EXCEPT a valid empty DocumentFragment no-op
@@ -134,6 +143,10 @@ impl DomApiHandler for InsertBefore {
             .identity_map()
             .get(JsObjectRef::from_raw(ref_ref))
             .ok_or_else(|| not_found_error("refChild not found"))?;
+        // §4.2.3 ensure-pre-insertion-validity (child = refChild). Step 3 throws
+        // NotFoundError when refChild is not a child of this (distinct from the
+        // identity-map "refChild not found" above = arg is not a live wrapper).
+        ensure_pre_insertion_validity(this, new_entity, Some(ref_entity), dom)?;
         let records = apply_insert_before(dom, this, new_entity, ref_entity);
         if records.is_empty() {
             // Empty = failure (invalid reference child or cycle) EXCEPT a valid
@@ -239,23 +252,22 @@ impl DomApiHandler for ReplaceChild {
             .get(JsObjectRef::from_raw(old_ref))
             .ok_or_else(|| not_found_error("oldChild not found"))?;
 
-        // §4.2.3 "replace" step 3: if oldChild's parent is not parent, NotFoundError.
-        // EcsDom::replace_child collapses every failure to a single bool;
-        // splitting the parent check out lets us distinguish NotFoundError
-        // from HierarchyRequestError without re-implementing the rest of
-        // the algorithm at the API layer.
-        if dom.get_parent(old_entity) != Some(this) {
-            return Err(not_found_error(
-                "the node to be replaced is not a child of this node",
-            ));
-        }
+        // §4.2.3 "replace" validity (steps 1-6, `#concept-node-replace`): parent-kind,
+        // host-including-inclusive-ancestor cycle, oldChild-is-child (NotFoundError,
+        // step 3), node-type, Text/doctype placement, and the Document element-child
+        // constraints (step 6 counts EXCLUDING the replaced oldChild — these "differ
+        // from the pre-insert algorithm"). The canonical validator the ChildNode/
+        // ParentNode mixins use; runs BEFORE the self-replace short-circuit so
+        // `replaceChild(orphan, orphan)` throws step-3 NotFoundError (the spec runs
+        // validity steps 1-6 before the step-7..11 self-replace collapse), while a
+        // valid self-replace (x already a child) passes the validator then no-ops.
+        ensure_replace_validity(this, new_entity, old_entity, dom)?;
 
-        // Self-replace (`parent.replaceChild(x, x)`) is a no-op per
-        // browser parity (Chrome / Firefox / WebKit) — the spec
-        // §4.2.3 "replace" step 8 reference-child adjustment makes the
-        // insert+remove sequence collapse to nothing.  EcsDom::replace_child rejects
-        // `new == old` early (would surface as HierarchyRequestError),
-        // so handle it here before dispatching.
+        // Self-replace (`parent.replaceChild(x, x)` for a child x) is a no-op per
+        // browser parity (Chrome / Firefox / WebKit) — the §4.2.3 step-8
+        // reference-child adjustment makes the insert+remove sequence collapse to
+        // nothing. EcsDom::replace_child rejects `new == old` early (would surface as
+        // HierarchyRequestError), so short-circuit here AFTER the validator.
         if new_entity == old_entity {
             return Ok(JsValue::ObjectRef(old_ref));
         }
@@ -370,6 +382,10 @@ impl DomApiHandler for InsertAdjacentElement {
             // "If element's parent is null, return null" — a silent no-op.
             AdjacentSite::NoOp => Ok(JsValue::Null),
             AdjacentSite::Into { parent, before } => {
+                // §4.2.3 ensure-pre-insertion-validity on the RESOLVED site (parent,
+                // node, before) — the "insert adjacent" algorithm pre-inserts into
+                // the resolved parent before the resolved reference child.
+                ensure_pre_insertion_validity(parent, elem_entity, before, dom)?;
                 let records = apply_adjacent_insert(parent, before, elem_entity, dom);
                 if records.is_empty() {
                     return Err(hierarchy_error("insertAdjacentElement"));
@@ -413,6 +429,16 @@ impl DomApiHandler for InsertAdjacentText {
             AdjacentSite::Into { parent, before } => {
                 let owner = dom.owner_document(this);
                 let text_node = dom.create_text_with_owner(data, owner);
+                // §4.2.3 ensure-pre-insertion-validity on the resolved site. The Text
+                // is already allocated (it is the validator's `node`), so on a
+                // validity failure (the live case: step 5 — a Text adjacent to a
+                // document-child at beforebegin/afterend resolves parent = Document)
+                // destroy the unreferenced Text before propagating, so the error path
+                // leaks no orphan (mirrors the empty-list cleanup below + #399).
+                if let Err(e) = ensure_pre_insertion_validity(parent, text_node, before, dom) {
+                    let _ = dom.destroy_entity(text_node);
+                    return Err(e);
+                }
                 let records = apply_adjacent_insert(parent, before, text_node, dom);
                 if records.is_empty() {
                     // Insertion failed (a fresh Text cannot cycle, but defend
