@@ -114,6 +114,23 @@ impl EngineMode {
             exclude_legacy: !matches!(self, EngineMode::BrowserCompat),
         }
     }
+
+    /// Derive the **style-layer** compat policy for this mode.
+    ///
+    /// Derived **in parallel** to [`spec_level_policy`](EngineMode::spec_level_policy)
+    /// from the same one mode — *not* routed through the Web-API
+    /// [`SpecLevelPolicy`], so the CSS pipeline carries no dependency on a Web-API
+    /// classification enum (whole-engine consistency: every layer derives its own
+    /// policy from the single [`EngineMode`] authority).
+    ///
+    /// `BrowserCompat` applies the legacy presentational surface; `BrowserCore` /
+    /// `App` resolve against the modern UA baseline only.
+    #[must_use]
+    pub fn style_compat_policy(self) -> StyleCompatPolicy {
+        StyleCompatPolicy {
+            exclude_presentational_compat: !matches!(self, EngineMode::BrowserCompat),
+        }
+    }
 }
 
 /// The install policy a layer consults at every registration seam.
@@ -172,6 +189,44 @@ impl SpecLevelPolicy {
         Self {
             exclude_legacy: true,
         }
+    }
+}
+
+/// The **style-layer** compat policy a CSS pipeline embedder consults when
+/// assembling the cascade.
+///
+/// Derived from the engine-wide [`EngineMode`]
+/// ([`EngineMode::style_compat_policy`]) **in parallel to** the Web-API
+/// [`SpecLevelPolicy`] — never *via* it: the style layer must not depend on a
+/// Web-API classification enum (whole-engine core/compat consistency — every
+/// layer takes the same one mode and derives its own policy). The embedder (the
+/// shell) reads this to choose between the compat cascade (legacy UA stylesheet +
+/// HTML presentational hints — WHATWG HTML §15.2) and the modern UA baseline.
+///
+/// The two presentational-compat features (legacy UA sheet + presentational
+/// hints) toggle together for every current [`EngineMode`], so one field carries
+/// both; the struct can grow if a future mode must split them (mirrors the
+/// [`SpecLevelPolicy`] extensibility note).
+///
+/// Like [`SpecLevelPolicy`], the field is phrased as an *exclusion* so the derived
+/// [`Default`] (all-false = nothing excluded) equals `EngineMode::default()` =
+/// [`BrowserCompat`](EngineMode::BrowserCompat) — the zero-behavior-change
+/// baseline. An embedder that resolves styles without an explicit mode therefore
+/// gets the full compat cascade, never an accidental core-mode prune.
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
+pub struct StyleCompatPolicy {
+    /// When `true`, the legacy UA stylesheet and HTML presentational-hint
+    /// declarations are withheld (modern UA baseline only).
+    exclude_presentational_compat: bool,
+}
+
+impl StyleCompatPolicy {
+    /// Whether the legacy presentational surface (legacy UA stylesheet + HTML
+    /// presentational-hint declarations, WHATWG HTML §15.2) participates in the
+    /// cascade. `BrowserCompat` → `true`; `BrowserCore` / `App` → `false`.
+    #[must_use]
+    pub fn presentational_compat(&self) -> bool {
+        !self.exclude_presentational_compat
     }
 }
 
@@ -250,5 +305,37 @@ mod tests {
         assert!(ceiled.installs_dom(DomSpecLevel::Living));
         assert!(!ceiled.installs(WebApiSpecLevel::Legacy));
         assert!(!ceiled.installs_dom(DomSpecLevel::Legacy));
+    }
+
+    #[test]
+    fn style_compat_policy_default_is_browser_compat() {
+        // The style policy is derived in parallel to the Web-API policy from the
+        // same default mode; its `Default` must also be the full compat cascade
+        // (zero-behavior-change baseline) so a styler without an explicit mode
+        // applies legacy UA sheet + presentational hints.
+        assert_eq!(
+            StyleCompatPolicy::default(),
+            EngineMode::BrowserCompat.style_compat_policy()
+        );
+        assert!(StyleCompatPolicy::default().presentational_compat());
+    }
+
+    #[test]
+    fn browser_compat_applies_presentational_compat() {
+        assert!(EngineMode::BrowserCompat
+            .style_compat_policy()
+            .presentational_compat());
+    }
+
+    #[test]
+    fn browser_core_and_app_disable_presentational_compat() {
+        // BrowserCore / App resolve against the modern UA baseline only — no
+        // legacy UA stylesheet, no HTML presentational hints.
+        for mode in [EngineMode::BrowserCore, EngineMode::App] {
+            assert!(
+                !mode.style_compat_policy().presentational_compat(),
+                "{mode:?} must disable presentational compat"
+            );
+        }
     }
 }

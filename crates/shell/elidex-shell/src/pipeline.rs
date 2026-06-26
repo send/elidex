@@ -13,9 +13,9 @@ use elidex_script_session::{DispatchEvent, ScriptContext, SessionCore};
 
 use elidex_plugin::ViewportOverflow;
 
-use elidex_plugin::Size;
+use elidex_plugin::{EngineMode, Size};
 
-use crate::resolve_with_compat;
+use crate::resolve_with_mode;
 
 /// Flush pending DOM mutations and drain custom element reactions.
 ///
@@ -58,12 +58,20 @@ pub(super) fn run_scripts_and_finalize(
     current_url: Option<&url::Url>,
     registry: &elidex_plugin::CssPropertyRegistry,
     viewport: Size,
+    engine_mode: EngineMode,
 ) -> (SessionCore, JsRuntime, ViewportOverflow) {
     let stylesheet_refs: Vec<&Stylesheet> = stylesheets.iter().collect();
 
     // Initial style resolution (with compat layer) at the real content-area
     // viewport — so `@media (width)` evaluates correctly at the first cascade.
-    resolve_with_compat(dom, &stylesheet_refs, registry, viewport, Medium::Screen);
+    resolve_with_mode(
+        dom,
+        &stylesheet_refs,
+        registry,
+        viewport,
+        Medium::Screen,
+        engine_mode,
+    );
 
     // Script execution phase.
     let mut session = SessionCore::new();
@@ -104,8 +112,14 @@ pub(super) fn run_scripts_and_finalize(
     flush_with_ce_reactions(&mut runtime, &mut session, dom, document);
 
     // Re-resolve styles after DOM mutations from scripts (with compat layer).
-    let viewport_overflow =
-        resolve_with_compat(dom, &stylesheet_refs, registry, viewport, Medium::Screen);
+    let viewport_overflow = resolve_with_mode(
+        dom,
+        &stylesheet_refs,
+        registry,
+        viewport,
+        Medium::Screen,
+        engine_mode,
+    );
 
     layout_tree(dom, viewport, font_db);
 
@@ -127,12 +141,20 @@ pub(super) fn build_paged_pipeline(
     font_db: &elidex_text::FontDatabase,
     page_ctx: &elidex_plugin::PagedMediaContext,
     registry: &elidex_plugin::CssPropertyRegistry,
+    engine_mode: EngineMode,
 ) -> elidex_render::PagedDisplayList {
     let stylesheet_refs: Vec<&Stylesheet> = stylesheets.iter().collect();
     let viewport = Size::new(page_ctx.page_width, page_ctx.page_height);
     // Paged/print output → `Medium::Print` so `@media print` rules apply and
     // `@media screen` rules do not (mediaqueries-5 §2.3 / CSS Conditional §2).
-    resolve_with_compat(dom, &stylesheet_refs, registry, viewport, Medium::Print);
+    resolve_with_mode(
+        dom,
+        &stylesheet_refs,
+        registry,
+        viewport,
+        Medium::Print,
+        engine_mode,
+    );
 
     elidex_render::build_paged_display_lists_interleaved(dom, font_db, page_ctx)
 }
