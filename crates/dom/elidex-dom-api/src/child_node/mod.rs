@@ -146,10 +146,19 @@ fn validate_document_element_constraint(
 ) -> Result<(), DomApiError> {
     match node_kind {
         Some(NodeKind::Element) => {
-            // Document already has an element child (other than child being replaced)?
+            // §4.2.3 step 6 Element: "parent has an element child" (pre-insert,
+            // `exclude` = «») / "...that is not child" (replace, `exclude` = «child»).
+            // The node being inserted is NOT self-excluded — re-appending the existing
+            // documentElement (`document.appendChild(document.documentElement)`)
+            // therefore throws, because pre-insertion validity runs BEFORE the
+            // pre-insert self-reference adjustment (pre-insert step 3) and the
+            // documentElement is still an element child of the document when validity
+            // runs. Only `exclude` (the replaced child) is skipped, never `node`
+            // ("the above statements differ from the pre-insert algorithm"). [Codex
+            // B1.2b-3 R1 caught the prior `c != node` self-exclusion as spec-wrong.]
             let has_element = dom
                 .children_iter(parent)
-                .any(|c| c != node && dom.is_element(c) && !exclude.contains(&c));
+                .any(|c| dom.is_element(c) && !exclude.contains(&c));
             if has_element {
                 return Err(hierarchy_error("Document already has an element child"));
             }
@@ -189,9 +198,13 @@ fn validate_document_element_constraint(
                 ));
             }
             if elem_count == 1 {
+                // Same "parent has an element child (that is not `child`)" test as the
+                // Element branch — `exclude` carries the replaced child; the inserted
+                // node is never self-excluded (a fragment is not itself a child of
+                // `parent`, so this only differs for the Element branch in practice).
                 let has_element = dom
                     .children_iter(parent)
-                    .any(|c| c != node && dom.is_element(c) && !exclude.contains(&c));
+                    .any(|c| dom.is_element(c) && !exclude.contains(&c));
                 if has_element {
                     return Err(hierarchy_error("Document already has an element child"));
                 }
@@ -212,11 +225,12 @@ fn validate_document_element_constraint(
             }
         }
         Some(NodeKind::DocumentType) => {
-            // Document already has a doctype child (other than the one being replaced)?
+            // §4.2.3 step 6 DocumentType: "parent has a doctype child" (pre-insert) /
+            // "...that is not child" (replace, via `exclude`). No self-exclusion of the
+            // inserted node (mirrors the Element branch) — re-appending an existing
+            // doctype throws, same as the documentElement case above.
             let has_doctype = dom.children_iter(parent).any(|c| {
-                !exclude.contains(&c)
-                    && c != node
-                    && matches!(dom.node_kind(c), Some(NodeKind::DocumentType))
+                !exclude.contains(&c) && matches!(dom.node_kind(c), Some(NodeKind::DocumentType))
             });
             if has_doctype {
                 return Err(hierarchy_error("Document already has a DocumentType child"));

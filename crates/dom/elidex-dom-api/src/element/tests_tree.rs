@@ -845,9 +845,16 @@ fn append_child_second_element_into_document_throws_hierarchy() {
 }
 
 #[test]
-fn append_child_move_document_element_is_ok() {
-    // §4.2.3 step 6 self-exclusion: re-appending the existing documentElement (a
-    // move within the same Document) is NOT a *new* element child → must succeed.
+fn append_child_existing_document_element_throws_hierarchy() {
+    // §4.2.3 pre-insert step 6 (Element branch) has NO self-exclusion: it tests
+    // "parent has an element child" counting ALL element children INCLUDING the node
+    // being inserted, and runs BEFORE the pre-insert self-reference adjustment
+    // (pre-insert step 3). So `document.appendChild(document.documentElement)` throws
+    // HierarchyRequestError — the existing documentElement is still an element child
+    // of the document when validity runs. (Only the *replace* algorithm excludes
+    // `child`: "an element child that is not child"; pre-insert does not — the spec
+    // states the replace statements "differ from the pre-insert algorithm".) Codex
+    // B1.2b-3 R1 caught the plan's wrong "step-6 self-exclusion" framing.
     let (mut dom, _div, _span, mut session) = setup();
     let doc = dom.create_document_node();
     let root = dom.create_element("html", Attributes::default());
@@ -855,10 +862,11 @@ fn append_child_move_document_element_is_ok() {
     let root_ref = session
         .get_or_create_wrapper(root, ComponentKind::Element)
         .to_raw();
-    let result = AppendChild
+    let err = AppendChild
         .invoke(doc, &[JsValue::ObjectRef(root_ref)], &mut session, &mut dom)
-        .unwrap();
-    assert_eq!(result, JsValue::ObjectRef(root_ref));
+        .unwrap_err();
+    assert_eq!(err.kind, DomApiErrorKind::HierarchyRequestError);
+    // The throw precedes any mutation — the document keeps its single element child.
     assert_eq!(dom.children(doc), vec![root]);
 }
 
