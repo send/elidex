@@ -1,15 +1,14 @@
 //! PR5d: Window.prototype iframe-related accessor tests
 //! (`self` / `parent` / `top` / `frames` / `frameElement` / `opener` /
-//! `length` / `closed` / `name`, WHATWG HTML §7.3).
+//! `length` / `closed` / `name`, WHATWG HTML §7.2.2 / §7.2.2.4).
 //!
-//! All values are single-context stubs today (the VM models one
-//! browsing context); these tests pin the surface so that
-//! installing `Window.prototype` always resolves these reads
-//! deterministically and the same way the legacy boa registration
-//! did.  When sub-frame wiring lands (PR6 / Phase 3), the bodies of
-//! the accessors will change but the test contract `parent === window`
-//! / `frameElement === null` / etc. should still hold for the
-//! top-level window.
+//! All accessors are deferred stubs (`#11-windowproxy-browsing-context`;
+//! trigger: `world_id` / cross-DOM program + S5/boa removal).  These
+//! tests pin the top-level-window surface so that installing
+//! `Window.prototype` resolves these reads deterministically.  The
+//! test contract `parent === window` / `frameElement === null` / etc.
+//! should still hold for the top-level window when the real
+//! implementation lands (same-origin child frames will diverge).
 
 #![cfg(feature = "engine")]
 

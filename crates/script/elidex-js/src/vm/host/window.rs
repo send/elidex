@@ -304,7 +304,7 @@ pub(super) fn native_window_get_device_pixel_ratio(
 }
 
 // ---------------------------------------------------------------------------
-// Iframe-related WindowProxy getters (WHATWG HTML §7.3)
+// Iframe-related WindowProxy getters (WHATWG HTML §7.2.2.4 / §7.2.3)
 // `#11-windowproxy-browsing-context`
 // ---------------------------------------------------------------------------
 //
@@ -531,7 +531,7 @@ const WINDOW_METHODS: &[(&str, super::super::NativeFn)] = &[
 //
 // The iframe WindowProxy accessors (`self` / `parent` / `top` /
 // `frames` / `frameElement` / `opener` / `length` / `closed`) live on
-// `Window.prototype` per WHATWG HTML §7.3.  All are deferred stubs
+// `Window.prototype` per WHATWG HTML §7.2.2.  All are deferred stubs
 // (`#11-windowproxy-browsing-context`; see comment block above
 // `native_window_get_self` for why/trigger/date).
 const WINDOW_RO_ACCESSORS: &[(&str, super::super::NativeFn)] = &[

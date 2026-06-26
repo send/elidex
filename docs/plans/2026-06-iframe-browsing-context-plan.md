@@ -2,6 +2,7 @@
 
 Slot: `#11-windowproxy-browsing-context`
 Status: deferred stub — see C0 / F4 in the philosophy-alignment umbrella
+Why deferred: sub-frame browsing-context entity model and cross-VM Document/Window proxy identity are not yet implemented (see §2)
 Trigger: `world_id` / cross-DOM program + S5/boa removal
 Revisit: when the `world_id` / S5 program begins
 
@@ -50,7 +51,7 @@ Without this, `contentDocument` has no document to return and
 
 The WHATWG HTML spec defines `WindowProxy` as an exotic object that
 forwards most operations to the current `Window` of the browsing context
-(HTML §7.3.2).  In an ECS + VM architecture this requires:
+(HTML §7.2.3).  In an ECS + VM architecture this requires:
 
 - a stable JS object id (`ObjectId`) per browsing-context entity that
   survives document navigation,
@@ -85,7 +86,7 @@ entity identity is solved (S5 scope).
 
 | Precondition | Status |
 |---|---|
-| `world_id` discriminator (`#11-wrapper-cache-cross-dom-discriminator`) | deferred (착手 = S5 後) |
+| `world_id` discriminator (`#11-wrapper-cache-cross-dom-discriminator`) | deferred (着手 = S5 後) |
 | S5 / boa removal (D-26 PR7) | deferred |
 | Sub-frame browsing-context entity model | not started |
 
@@ -116,10 +117,43 @@ Analogous cases for `parent` / `top` / `frameElement`:
 
 ---
 
-## 5. References
+## 5. ECS-native design notes
 
-- WHATWG HTML §7.3 — The `Window` object (browsing-context accessors)
-- WHATWG HTML §7.3.2 — `WindowProxy` exotic object
+This section maps the OO concepts from §2 to ECS primitives for C1+.
+
+| OO concept | ECS-native form |
+|---|---|
+| BrowsingContext object (owns a Document) | component on the iframe element entity |
+| `WindowProxy` exotic object identity | `ObjectId` component (post-`world_id`; see CLAUDE.md Side-store→component 判定ルール — (a) per-VM identity handle exception applies until `world_id` lands) |
+| SameObject guarantee for `.contentWindow` | component get: same entity → same `ObjectId` |
+| Cross-VM proxy forwarding | marker component + system query that dispatches to child VM; not a direct VM call |
+| cross-origin null fast-path | check origin component on iframe entity vs caller entity before any proxy creation |
+
+No new per-entity side-store (`HashMap<entity, _>`) should be introduced for
+browsing-context state; the sub-frame entity itself is the handle.
+
+---
+
+## 6. Layering check
+
+No existing `elidex-dom-api` / `elidex-script-session` API implements
+sub-frame browsing-context entity management or cross-VM `WindowProxy`
+forwarding today.  C1+ must introduce new engine-independent helpers in one of:
+
+- `elidex-dom-api` — same-origin access check (origin comparison logic)
+- `elidex-script-session` — `WindowProxy` identity map (extends the existing
+  Identity Map for cross-frame proxy registration)
+
+Prototype installation and `ObjectId` allocation remain in `vm/host/` per the
+Layering mandate.  Cross-VM forwarding dispatch must route through an
+engine-independent trait, not a direct `VmInner` call.
+
+---
+
+## 7. References
+
+- WHATWG HTML §7.2.2 — The `Window` object; §7.2.2.4 — Accessing related windows (browsing-context accessors)
+- WHATWG HTML §7.2.3 — The `WindowProxy` exotic object
 - WHATWG HTML §4.8.5 — `HTMLIFrameElement` (`contentDocument`, `contentWindow`)
 - CLAUDE.md `#11-wrapper-cache-cross-dom-discriminator` (world_id gate)
 - `docs/plans/2026-06-elidex-philosophy-alignment-umbrella.md` — Program C
