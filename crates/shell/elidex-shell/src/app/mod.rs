@@ -885,10 +885,14 @@ impl ApplicationHandler<crate::WakeEvent> for App {
         // identical to the initial tab's default chrome, so the size is correct.
         let placement = self.content_area_placement(&state.window);
         self.viewport.placement = Some(placement);
-        // Publish the real size to the viewport cell (seq 0 → 1) **before** spawning,
-        // so the deferred initial tab's build reads it by construction. The cell is
-        // the pull source the spawn reads — not a snapshot threaded as an argument.
-        self.viewport.viewport_cell.publish(placement.size_logical);
+        // Publish the real size to the viewport cell **before** spawning, so the
+        // deferred initial tab's build reads it by construction (the cell is the pull
+        // source the spawn reads, not a snapshot). Normally bumps seq 0 → 1
+        // (DEFAULT → real); `viewport_changed` gates the re-resume fan-out below.
+        let viewport_changed = self
+            .viewport
+            .viewport_cell
+            .publish_if_changed(placement.size_logical);
         self.render_state = Some(state);
 
         // Spawn the deferred initial content thread (C1) at the real viewport — it is
@@ -896,14 +900,14 @@ impl ApplicationHandler<crate::WakeEvent> for App {
         // it reads from the just-published cell, never a guessed `DEFAULT_VIEWPORT`.
         self.spawn_pending_initial_tab();
 
-        // Re-resume after `suspended` (plan-memo Q3): content threads persist
-        // across a suspend but `placement` was dropped, so the content area may
-        // have changed size while the window was gone. Fan the freshly-rebuilt
-        // viewport to every persisted tab. On the *first* resume this is an
-        // idempotent no-op — the just-spawned initial tab was born at exactly
-        // this size and the `SetViewport` consumer drops an unchanged-size
-        // delivery (CSSOM View §13.1) without a spurious `resize`/repaint.
-        self.broadcast_viewport();
+        // Re-resume after `suspended` (plan-memo Q3): content threads persist across a
+        // suspend but `placement` was dropped, so the content area may have changed
+        // size while the window was gone. Fan the rebuilt viewport to every persisted
+        // tab only when the publish above changed the size (`viewport_changed`) — an
+        // unchanged size needs no delivery and must not bump `applied_viewport_seq`.
+        if viewport_changed {
+            self.broadcast_viewport();
+        }
 
         // Set the initial window title from the now-present active tab.
         if let Some(state) = &self.render_state {
@@ -955,15 +959,24 @@ impl ApplicationHandler<crate::WakeEvent> for App {
                 if new_size.width > 0 && new_size.height > 0 {
                     window.request_redraw();
                 }
-                // Recompute the placement SoT (the window size changed), publish it to
-                // the viewport cell (bumping seq) so a content thread rebuilding mid
-                // `load_document` reads the new size, then fan the seq-tagged viewport
-                // out to **every** tab — all share the window content area, so
-                // background tabs must re-lay-out too (C1).
+                // Recompute the placement SoT — this also refreshes `scale_factor`,
+                // since on the **common** path a DPI change reaches us as a `Resized`
+                // *after* winit's `ScaleFactorChanged`, so this one arm handles both. (The
+                // X11 `ScaleFactorChanged`-only corner with no following `Resized` is the
+                // carved `#11-shell-viewport-scalefactorchanged-x11-coverage` gap, §1/§8.)
+                // Publish to the cell **iff** `size_logical` changed (bumping seq) and fan
+                // out only then: a pure scale change keeps `size_logical` → no seq bump, so
+                // queued input is not dropped against an unchanged layout; the new scale
+                // still reaches the compositor / input mapper via `placement` + redraw (§2).
                 let placement = self.content_area_placement(&window);
                 self.viewport.placement = Some(placement);
-                self.viewport.viewport_cell.publish(placement.size_logical);
-                self.broadcast_viewport();
+                if self
+                    .viewport
+                    .viewport_cell
+                    .publish_if_changed(placement.size_logical)
+                {
+                    self.broadcast_viewport();
+                }
                 // The content rect may have shrunk/moved out from under a
                 // stationary cursor — clear stuck `:hover` if it left content.
                 if let Some(placement) = self.viewport.placement {

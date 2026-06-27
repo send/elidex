@@ -35,10 +35,12 @@ pub(super) struct ViewportProducer {
     pub(super) pending_initial_spawn: Option<PendingSpawn>,
     /// Browser-published latest content-area viewport + monotonic seq — the
     /// **pull** source every content thread reads at build time. Single writer
-    /// (browser thread, via [`crate::ipc::ViewportCell::publish`]); `Arc`-shared
+    /// (browser thread, via [`crate::ipc::ViewportCell::publish_if_changed`]); `Arc`-shared
     /// into every spawned content thread. Seeded with `DEFAULT` before the
     /// window exists; the first `resumed` publish bumps it to the real size at
-    /// seq 1. One per window — all tabs share the content area.
+    /// seq 1 — *unless* the real size equals `DEFAULT`, which leaves the cell at
+    /// seq 0 and skips the broadcast (`publish_if_changed`, plan-memo E1). One per
+    /// window — all tabs share the content area.
     pub(super) viewport_cell: Arc<crate::ipc::ViewportCell>,
 }
 
@@ -54,6 +56,22 @@ impl ViewportProducer {
     }
 }
 
+/// Convert a physical-pixel extent to CSS logical px, dividing in `f64` before the
+/// single narrowing to the `f32` layout space.
+///
+/// Dividing in `f32` (the scale cast to `f32` first) makes a pure-scale resize that
+/// mathematically *preserves* the logical size round to a **different** `f32` — e.g.
+/// `960px ÷ 1.2 = 799.99994` instead of `800.0` — which [`Size`]'s exact equality would
+/// treat as a new viewport generation, bumping `seq` and dropping queued input (the
+/// phantom generation C2's [`ViewportCell::publish_if_changed`](crate::ipc::ViewportCell::publish_if_changed)
+/// exists to prevent, reintroduced by the `f32` round-trip). `f64` division recovers
+/// integer / simple-fraction logical sizes exactly, so a logical-preserving physical size
+/// narrows back to the same `f32`.
+#[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
+fn logical_px(physical: u32, scale_factor: f64) -> f32 {
+    (f64::from(physical) / scale_factor) as f32
+}
+
 impl App {
     /// Build the content-area placement SoT from the current window + active-tab
     /// chrome position.
@@ -67,15 +85,19 @@ impl App {
     // precision narrowing to the `f32` the layout/CSS coordinate space uses.
     #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
     pub(super) fn content_area_placement(&self, window: &Window) -> ContentAreaPlacement {
-        let scale_factor = window.scale_factor() as f32;
+        let scale_factor = window.scale_factor();
         let phys = window.inner_size();
-        let win_logical_w = phys.width as f32 / scale_factor;
-        let win_logical_h = phys.height as f32 / scale_factor;
+        // Divide in f64 so a logical-preserving DPI change recovers the same logical
+        // size (an f32 division round-trips e.g. 960px@1.2 to 799.99994 ≠ 800.0, a
+        // phantom seq generation — see `logical_px`). Scale itself stays f32 in the
+        // placement (compositor transform / input ÷scale tolerate the narrowing).
+        let win_logical_w = logical_px(phys.width, scale_factor);
+        let win_logical_h = logical_px(phys.height, scale_factor);
         let position = self.tab_bar_position();
         ContentAreaPlacement {
             origin_logical: chrome::chrome_content_offset(position),
             size_logical: chrome::content_size(win_logical_w, win_logical_h, position),
-            scale_factor,
+            scale_factor: scale_factor as f32,
         }
     }
 
@@ -104,10 +126,13 @@ impl App {
 
     /// Fan the cached viewport out to **every** tab — all share the window's
     /// content area, so a resize must reach background tabs too (their
-    /// `innerWidth`/`matchMedia` stay spec-correct). Called on `Resized` (and C2's
-    /// `ScaleFactorChanged`) and on re-`resumed` (plan-memo Q3), each **after** the
-    /// matching `viewport_cell.publish`, so the cell's current seq tags the
-    /// delivery. Initial/`window.open`/new tabs are instead born at the real size via
+    /// `innerWidth`/`matchMedia` stay spec-correct). Called on `Resized` and on
+    /// re-`resumed` (plan-memo Q3), but **only when** the matching
+    /// `viewport_cell.publish_if_changed` reported a real size change — the caller gates
+    /// this on that return (C2), so the cell's current seq tags the delivery and an
+    /// unchanged size fans out nothing. (A pure DPI/scale `Resized` keeps `size_logical`,
+    /// so it publishes nothing and skips this — see `App::window_event`.)
+    /// Initial/`window.open`/new tabs are instead born at the real size via
     /// the construction-input spawn (C1, the cell read), so they need no seed message.
     /// The cached `placement` is keyed to the active tab's chrome; one size fits every
     /// tab while all use the default (`Top`) tab-bar position → slot
@@ -195,5 +220,42 @@ impl App {
             .as_mut()
             .expect("threaded mode requires a tab manager")
             .create_tab(browser_ch, thread, chrome, title);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::logical_px;
+
+    #[test]
+    fn logical_px_recovers_pure_scale_size_without_phantom_generation() {
+        // Codex #411 R3 (P2): 960 physical px at 1.2× DPI is exactly 800.0 CSS px, but an
+        // f32 division yields 799.99994 — which `Size`'s exact-eq `seq` guard would treat
+        // as a new generation, bumping seq + dropping queued input on a fractional-DPI
+        // move. f64 division narrows back to 800.0.
+        assert_eq!(logical_px(960, 1.2), 800.0);
+
+        // Round-trip property: the logical-preserving physical size the OS picks on a pure
+        // DPI change recovers its logical extent bit-exactly across common scales, so the
+        // exact-eq guard reports "unchanged" and never manufactures a generation. (Each
+        // `logical × scale` here is an exact integer — a genuine sub-pixel quantization
+        // shift, by contrast, *is* a real size change and correctly bumps.)
+        for &(logical, scale) in &[
+            (800.0_f32, 1.0_f64),
+            (800.0, 1.25),
+            (800.0, 1.5),
+            (800.0, 1.75),
+            (800.0, 2.0),
+            (1280.0, 1.25),
+            (1280.0, 1.5),
+        ] {
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+            let phys = (f64::from(logical) * scale) as u32;
+            assert_eq!(
+                logical_px(phys, scale),
+                logical,
+                "logical {logical} @ {scale}×"
+            );
+        }
     }
 }

@@ -316,7 +316,7 @@ fn content_thread_same_size_setviewport_is_idempotent() {
 
 /// The build reads the **latest published** cell value, not the seed (the
 /// pull-source invariant, plan-memo §2.1). Construct a cell seeded at 1024 px
-/// (`@media (max-width: 900px)` does *not* match → blue), then `publish` 640 px
+/// (`@media (max-width: 900px)` does *not* match → blue), then `publish_if_changed` 640 px
 /// (matches → red) **before** spawning. The first frame is red ⇒ the build read the
 /// published 640 px from the cell; a stale-snapshot build at the 1024 px seed would
 /// be blue. This is the deterministic stand-in for "a resize landed during the
@@ -327,8 +327,9 @@ fn content_thread_builds_at_latest_published_cell_size() {
     let (nh, jar, _np) = test_network();
 
     // Seed at 1024 px (no @media match), then publish 640 px (matches) before spawn.
+    // 640 ≠ 1024 → `publish_if_changed` bumps to seq 1.
     let cell = crate::ipc::ViewportCell::new(elidex_plugin::Size::new(1024.0, 768.0));
-    cell.publish(elidex_plugin::Size::new(640.0, 480.0));
+    assert!(cell.publish_if_changed(elidex_plugin::Size::new(640.0, 480.0)));
 
     let handle = crate::content::spawn_content_thread(
         content,
@@ -379,9 +380,12 @@ fn content_thread_drops_stale_seq_viewport() {
     let (browser, content) = ipc::channel_pair::<BrowserToContent, ContentToBrowser>();
     let (nh, jar, _np) = test_network();
 
-    // Publish once → cell (800px, seq 1); the build reads seq 1 as its mark.
-    let cell = crate::ipc::ViewportCell::new(elidex_plugin::Size::new(800.0, 600.0));
-    cell.publish(elidex_plugin::Size::new(800.0, 600.0));
+    // Reach cell (800px, seq 1) via a *real* size change: seed at 640px, then
+    // `publish_if_changed(800px)`. A same-size publish no longer bumps seq (C2), so the
+    // pre-C2 seed-then-republish-same-size trick would leave seq 0; the build must read
+    // 800px at seq 1 for the stale-seq drop asserted below.
+    let cell = crate::ipc::ViewportCell::new(elidex_plugin::Size::new(640.0, 480.0));
+    assert!(cell.publish_if_changed(elidex_plugin::Size::new(800.0, 600.0)));
 
     let handle = crate::content::spawn_content_thread(
         content,
@@ -629,5 +633,49 @@ fn placement_builder_is_sole_caller_of_geometry_primitives() {
         2,
         "window.scale_factor() must have exactly two production callers (the \
          placement builder + the egui render-init exception); found: {scale:#?}"
+    );
+}
+
+/// `ViewportCell::publish_if_changed` bumps the seq **iff** the size differs (C2): the
+/// seq identifies `size_logical` generations, so a same-size publish — which a pure
+/// DPI/scale `Resized` produces (CSS px is scale-invariant) — must not advance it. This
+/// pins the **producer-side** invariant whose violation was the §2 bug: a phantom seq
+/// generation that lets `input_placement_stale` drop queued input mapped against the
+/// still-current layout (the downstream input-survival is covered by
+/// `content_thread_drops_stale_seq_viewport`). The returned `bool` is the gate the
+/// producer uses to skip `broadcast_viewport`, so a no-op publish emits no `SetViewport`.
+/// Pure cell-level guard — no window needed.
+#[test]
+fn publish_if_changed_bumps_seq_only_on_size_change() {
+    let cell = ipc::ViewportCell::new(elidex_plugin::Size::new(800.0, 600.0));
+    assert_eq!(cell.read(), (elidex_plugin::Size::new(800.0, 600.0), 0));
+
+    // Same size as the seed → no change, no bump; gate returns false (broadcast skipped).
+    assert!(!cell.publish_if_changed(elidex_plugin::Size::new(800.0, 600.0)));
+    assert_eq!(cell.read().1, 0, "same-size publish must not advance seq");
+
+    // A real size change → bump to seq 1; gate returns true (broadcast fires).
+    assert!(cell.publish_if_changed(elidex_plugin::Size::new(1024.0, 768.0)));
+    assert_eq!(cell.read(), (elidex_plugin::Size::new(1024.0, 768.0), 1));
+
+    // Republishing the now-current size is again a no-op — seq stays 1 (idempotent).
+    assert!(!cell.publish_if_changed(elidex_plugin::Size::new(1024.0, 768.0)));
+    assert!(!cell.publish_if_changed(elidex_plugin::Size::new(1024.0, 768.0)));
+    assert_eq!(
+        cell.read().1,
+        1,
+        "repeated same-size publishes must not advance seq"
+    );
+
+    // Alternating sizes bump on each genuine change — assert relative to the current
+    // seq so the claim ("these 2 changes advance by exactly 2") stays local and survives
+    // edits to the publishes above.
+    let before = cell.read().1;
+    assert!(cell.publish_if_changed(elidex_plugin::Size::new(640.0, 480.0)));
+    assert!(cell.publish_if_changed(elidex_plugin::Size::new(1024.0, 768.0)));
+    assert_eq!(
+        cell.read().1,
+        before + 2,
+        "each genuine size change advances seq by exactly one"
     );
 }
