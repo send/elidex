@@ -604,4 +604,7 @@ pub fn clear_all_transient_observers(dom: &mut EcsDom) {
 }
 
 #[cfg(test)]
-mod tests;
+mod tests_core;
+
+#[cfg(test)]
+mod tests_transient;
