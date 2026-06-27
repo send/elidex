@@ -23,6 +23,7 @@ mod lifecycle;
 mod select_options;
 mod setup;
 mod text_content;
+mod transient;
 
 use elidex_ecs::EcsDom;
 use elidex_script_session::SessionCore;
