@@ -1,6 +1,8 @@
 //! B1.2d-ii — end-to-end `MutationObserver` integration for the **Range
 //! tree-mutation methods** (`insertNode` / `deleteContents` /
-//! `extractContents`).
+//! `extractContents`) plus the **`Selection.deleteFromDocument`** caller that
+//! delegates to `Range::delete_contents` (it routes the same childList records
+//! through the shared `commit_range_mutation_records` chokepoint).
 //!
 //! These methods were MO-silent before B1.2d-ii: the VM natives called the
 //! engine-independent `Range::*` impl, which in turn called `EcsDom`
@@ -142,6 +144,53 @@ fn delete_contents_delivers_removal_record_per_child() {
     assert_eq!(
         vm.eval(
             "records[1].target === root && records[1].removedNodes.length === 1 \
+             && records[1].removedNodes[0] === c2"
+        )
+        .unwrap(),
+        JsValue::Boolean(true)
+    );
+    assert_eq!(
+        vm.eval("root.childNodes.length").unwrap(),
+        JsValue::Number(0.0)
+    );
+    vm.unbind();
+}
+
+/// Scenario 2b — `Selection.deleteFromDocument()` routes the underlying
+/// `Range::delete_contents` childList records through the SAME
+/// `commit_range_mutation_records` chokepoint as the Range natives, so the
+/// Selection caller is MO-observable too (One-issue-one-way: a
+/// record-producing primitive's records are never silently dropped).  This
+/// locks the convergence that wired the previously-MO-silent Selection path.
+#[test]
+fn selection_delete_from_document_delivers_removal_records() {
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let (_doc, _root) = setup_with_root(&mut vm, &mut session, &mut dom);
+
+    vm.eval(
+        "globalThis.records = []; \
+         globalThis.c1 = document.createElement('c1'); root.appendChild(c1); \
+         globalThis.c2 = document.createElement('c2'); root.appendChild(c2); \
+         var mo = new MutationObserver(function(r){ \
+             for (var i=0;i<r.length;i++) globalThis.records.push(r[i]); }); \
+         mo.observe(root, {childList:true}); \
+         var sel = window.getSelection(); \
+         sel.setBaseAndExtent(root, 0, root, 2); \
+         sel.deleteFromDocument();",
+    )
+    .unwrap();
+
+    // Same childList removal records as the Range native path (§5.5
+    // deleteContents step 10) — one per top-level removed child, targeting
+    // root, in tree order.
+    assert_eq!(vm.eval("records.length").unwrap(), JsValue::Number(2.0));
+    assert_eq!(
+        vm.eval(
+            "records[0].target === root && records[0].removedNodes.length === 1 \
+             && records[0].removedNodes[0] === c1 \
+             && records[1].target === root && records[1].removedNodes.length === 1 \
              && records[1].removedNodes[0] === c2"
         )
         .unwrap(),

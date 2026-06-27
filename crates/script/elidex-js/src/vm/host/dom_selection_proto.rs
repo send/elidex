@@ -451,9 +451,16 @@ fn delete_selection_contents(
     if host.selection_state.is_none() {
         host.selection_state = Some(SelectionState::new());
     }
-    let (dom_mut, registry, sel_slot) = host.split_dom_mut_live_ranges_and_selection();
-    let state = sel_slot.as_mut().expect("just initialised");
-    state.delete_from_document(registry, dom_mut);
+    let records = {
+        let (dom_mut, registry, sel_slot) = host.split_dom_mut_live_ranges_and_selection();
+        let state = sel_slot.as_mut().expect("just initialised");
+        state.delete_from_document(registry, dom_mut)
+    };
+    // Single delivery mechanism: route the childList records the engine-indep
+    // `delete_from_document` produced through the same chokepoint as the Range
+    // natives (the `host`/split borrow above has ended). One-issue-one-way —
+    // a record-producing primitive's records are never silently dropped.
+    ctx.vm.commit_range_mutation_records(records);
     ctx.host().selectionchange_pending = true;
     Ok(())
 }

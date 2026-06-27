@@ -289,10 +289,10 @@ impl Range {
         (frag, records)
     }
 
-    /// WHATWG DOM §4.4 `Range.insertNode` core (steps 2-12).
+    /// WHATWG DOM §5.5 `Range.insertNode` core (steps 2-12).
     ///
     /// On success returns `Some((parent, new_offset))` matching
-    /// WHATWG §4.4 step 10-11 (referenceNode's index after step 12's
+    /// WHATWG §5.5 step 10-11 (referenceNode's index after step 12's
     /// pre-insert, or parent's length when referenceNode is null) so
     /// the caller can apply step 13 to the registered live range
     /// when it was collapsed pre-call.  On rejection (cycle, orphan
@@ -331,7 +331,7 @@ impl Range {
             (r, start_container)
         };
 
-        // Copilot R14: WHATWG §4.4 step 11 — "node's length" for a
+        // Copilot R14: WHATWG §5.5 step 11 — "node's length" for a
         // DocumentFragment is its child count; for any other node it
         // is 1.  WHATWG §4.2.3 `insert` fans the fragment's children
         // out into `parent` and empties the fragment, so materialise
@@ -451,7 +451,7 @@ impl Range {
     /// Surround the range contents with a new parent node.
     ///
     /// Currently a stub returning `None` so VM-side bindings can throw
-    /// `InvalidStateError` per WHATWG DOM §4.4 — same defer slot as
+    /// `InvalidStateError` per WHATWG DOM §5.5 — same defer slot as
     /// [`Self::clone_contents`].
     pub fn surround_contents(&mut self, _dom: &mut EcsDom, _new_parent: Entity) -> Option<()> {
         None
