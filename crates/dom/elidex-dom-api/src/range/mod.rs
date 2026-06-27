@@ -1,4 +1,4 @@
-//! `Range` implementation (WHATWG DOM §6).
+//! `Range` implementation (WHATWG DOM §5.5).
 //!
 //! Represents a contiguous portion of the DOM tree. Provides methods for
 //! manipulating the range boundaries and extracting/deleting content.
