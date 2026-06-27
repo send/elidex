@@ -235,3 +235,31 @@ engine-independent trait, not a direct `VmInner` call.
 - `docs/plans/2026-06-elidex-philosophy-alignment-umbrella.md` — Program C
 - `docs/plans/2026-06-web-api-compat-split-design.md` §1.1 / §5 (C0 scope)
 - `memory/project_world-id-cross-dom-migration.md` (world_id program)
+
+---
+
+## 8. Open design questions for C1+ plan-review
+
+The following are intentionally left as **open design questions** in this C0 plan document.
+They fall within the C1+ implementation scope and must be resolved during the mandatory
+`/elidex-plan-review` pass that gates C1+ before implementation begins:
+
+- Exact cross-origin `WindowProxy` proxy trap semantics: safelisted operations
+  (`closed`, `parent`, `top`, `postMessage`, etc.), `SecurityError` throw conditions,
+  `postMessage` routing across VMs, and §7.2.3 exotic trap implementation details.
+- sandbox flag two-state implementation: precise algorithm for when the pending
+  sandboxing flag set (iframe element attribute) is read to produce the navigable's
+  applied flag snapshot (§4.8.5), and edge cases for rapid attribute-mutation +
+  navigation sequences.
+- Coupled-invariant matrix completeness: additional edge cases beyond those in §2.5
+  (e.g. cross-origin attribute mutation, `about:blank` initial document, sandboxed
+  opaque-origin frames, gate ordering for cross-VM forwarding).
+- Full test matrix coverage for all Window browsing-context accessors
+  (`parent`/`top`/`frameElement`/`frames`/`length`/`closed`) across all
+  same-origin/cross-origin/sandboxed/detached/reattached scenarios.
+- `world_id` integration details (§2.2 `ObjectId` per navigable generation,
+  cross-VM identity discriminator, GC coordination).
+
+This C0 PR scope is limited to: (a) formal slot citation in-code with why/trigger/date,
+(b) this plan document as a C1+ implementation guide, and (c) stub return values
+unchanged.  C1+ plan-review owns the resolution of the above.
