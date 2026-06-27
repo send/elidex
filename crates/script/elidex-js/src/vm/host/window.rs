@@ -308,14 +308,25 @@ pub(super) fn native_window_get_device_pixel_ratio(
 // `#11-windowproxy-browsing-context`
 // ---------------------------------------------------------------------------
 //
-// Deferred stubs for `self`/`parent`/`top`/`frames`/`frameElement`/
-// `length`/`closed` — all under `#11-windowproxy-browsing-context`.
+// Deferred stubs for `parent`/`top`/`frameElement`/`length`/`closed`
+// — all under `#11-windowproxy-browsing-context`.
 //
-// `opener` is included in this group **mechanically** (same stub) but
+// `self` and `frames` getter bodies are already spec-correct
+// (§7.2.2 defines them as returning the Window's own global object /
+// WindowProxy — i.e. `this` itself); C1+ need not change those getter
+// bodies.  What C1+ must add is `frames[i]` indexed access, which is an
+// exotic property operation on the WindowProxy (§7.2.2 / §7.2.3), not
+// a change to the `frames` attribute getter.
+//
+// `opener` is included in this group **mechanically** (same null stub) but
 // its correctness is tracked under a separate slot:
-//   `#11-auxiliary-browsing-context-opener` (window.open() scope).
-// C1+ may close `#11-windowproxy-browsing-context` (implement sub-frame
-// accessors) while leaving `opener` as a null stub under its own slot.
+//   `#11-auxiliary-browsing-context-opener`
+//   Why: `window.open()` auxiliary browsing-context creation is not yet
+//     implemented; the opener WindowProxy depends on that mechanism.
+//   Trigger: window.open() / auxiliary browsing-context program (post-S5).
+//   Revisit: when window.open() is tackled.
+// C1+ may close `#11-windowproxy-browsing-context` (sub-frame accessors)
+// while leaving `opener` as a null stub under its own slot.
 //
 // Why: sub-frame browsing-context entity model and cross-VM
 // Document/Window proxy identity are not yet implemented.  The VM
@@ -326,8 +337,8 @@ pub(super) fn native_window_get_device_pixel_ratio(
 //
 // These stubs are correct only for a genuine top-level window with no
 // opener.  For sub-frame or opened windows:
-//   • `parent` / `top` / `frames`: sub-frames must receive a real or
-//     restricted WindowProxy (§7.2.2.4), NOT null — even cross-origin.
+//   • `parent` / `top`: sub-frames must receive an ancestor WindowProxy
+//     (§7.2.2.4), not globalThis — even cross-origin (restricted proxy).
 //   • `frameElement`: `null` is spec-correct for cross-origin callers
 //     (§7.2.2.4), but same-origin sub-frames must receive the element.
 //   • `opener`: a window opened via `window.open()` must expose the
@@ -338,8 +349,17 @@ pub(super) fn native_window_get_device_pixel_ratio(
 // Trigger: `world_id` / cross-DOM program + S5/boa removal.
 // Revisit date: when the `world_id` / S5 program begins.
 //
-// All getters ignore `_this` because they read VM-wide state that is
-// independent of the receiver.
+// Stubs currently ignore `_this`: single-VM, so there is no other
+// browsing context to route to.  C1+ receiver requirements differ:
+//   • `self` / `frames` / `length` / `closed`: return state intrinsic
+//     to `this`'s own context — receiver-independence remains valid
+//     in multi-VM (each VM runs the getter inside its own context).
+//   • `parent` / `top` / `frameElement` / `opener`: return ancestor /
+//     container / opener state from a *different* browsing context.
+//     C1+ MUST make these receiver-relative (routing via the navigable
+//     tree, not VM-wide state); keeping VM-wide state in the real
+//     implementation would cause `childWindow.parent` to resolve
+//     relative to the wrong window.
 
 pub(super) fn native_window_get_self(
     ctx: &mut NativeContext<'_>,
