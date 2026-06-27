@@ -2267,6 +2267,7 @@ dependencies = [
  "elidex-api-workers",
  "elidex-api-ws",
  "elidex-cache-api",
+ "elidex-css",
  "elidex-custom-elements",
  "elidex-dom-api",
  "elidex-ecs",

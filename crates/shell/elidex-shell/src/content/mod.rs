@@ -481,14 +481,24 @@ fn content_thread_main(
         return;
     }
 
-    // Read the latest published viewport by construction (no `load_document` blocks
-    // this HTML path, so the read is immediate). `build_seq` becomes the document's
-    // high-water mark so the resume-time `broadcast_viewport(seq)` re-delivery — and
-    // any queued resize at `seq ≤ build_seq` — is dropped instead of double-painting.
-    let (viewport, build_seq) = viewport_cell.read();
+    // Read the latest published viewport + device facts by construction (no
+    // `load_document` blocks this HTML path, so the read is immediate). `build_seq`
+    // becomes the document's high-water mark so the resume-time
+    // `broadcast_viewport(seq)` re-delivery — and any queued resize at
+    // `seq ≤ build_seq` — is dropped instead of double-painting. The device facts
+    // (dppx / color-scheme) seed the bridge before initial scripts (C3), so a tab on
+    // a HiDPI / dark display is born with the right `devicePixelRatio` / `matchMedia`.
+    let snapshot = viewport_cell.read();
+    let (viewport, build_seq) = (snapshot.size, snapshot.seq);
     let nh = std::rc::Rc::new(network_handle);
-    let pipeline =
-        crate::build_pipeline_interactive_with_network(html, css, nh, cookie_jar, viewport);
+    let pipeline = crate::build_pipeline_interactive_with_network(
+        html,
+        css,
+        nh,
+        cookie_jar,
+        viewport,
+        snapshot.facts,
+    );
     let mut state = ContentState::new(
         channel,
         NavigationController::new(),
@@ -539,12 +549,20 @@ fn content_thread_main_url(
     // see the real size, never the spawn-time snapshot). `build_seq` is the document's
     // high-water mark: queued `SetViewport`s at `seq ≤ build_seq` (the resizes already
     // folded into this read) are dropped instead of flashing the document backward.
-    let (viewport, build_seq) = viewport_cell.read();
+    // Device facts (dppx / color-scheme) ride the same construction read (C3).
+    let snapshot = viewport_cell.read();
+    let (viewport, build_seq) = (snapshot.size, snapshot.seq);
     // Extract manifest URL before pipeline builder consumes LoadedDocument.
     let manifest_url = loaded.manifest_url.clone();
     let font_db = std::sync::Arc::new(elidex_text::FontDatabase::new());
-    let pipeline =
-        crate::build_pipeline_from_loaded(loaded, nh, font_db, Some(cookie_jar), viewport);
+    let pipeline = crate::build_pipeline_from_loaded(
+        loaded,
+        nh,
+        font_db,
+        Some(cookie_jar),
+        viewport,
+        snapshot.facts,
+    );
 
     let mut nav_controller = NavigationController::new();
     nav_controller.push(url.clone());

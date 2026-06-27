@@ -545,6 +545,8 @@ pub fn build_pipeline_interactive(html: &str, css: &str) -> PipelineResult {
         // Standalone/test build: no window, so the default viewport is the
         // explicit choice (D6 — not a silent in-pipeline guess).
         Size::new(DEFAULT_VIEWPORT_WIDTH, DEFAULT_VIEWPORT_HEIGHT),
+        // No window → default device facts (1× / Light); C3 facts are a window thing.
+        crate::ipc::DeviceFacts::default(),
         EngineMode::BrowserCompat,
     );
 
@@ -589,6 +591,7 @@ pub(crate) fn build_pipeline_interactive_with_network(
     network_handle: Rc<elidex_net::broker::NetworkHandle>,
     cookie_jar: Arc<elidex_net::CookieJar>,
     viewport: Size,
+    device_facts: crate::ipc::DeviceFacts,
 ) -> PipelineResult {
     let parse_result = parse_progressive_str(html);
     for err in &parse_result.errors {
@@ -620,6 +623,7 @@ pub(crate) fn build_pipeline_interactive_with_network(
         None,
         &registry,
         viewport,
+        device_facts,
         EngineMode::BrowserCompat,
     );
 
@@ -657,6 +661,10 @@ pub(crate) fn build_pipeline_interactive_with_network(
 ///
 /// Like [`build_pipeline_interactive`], but uses the provided `font_db`,
 /// `network_handle`, and `registry` instead of creating fresh instances.
+// Mirrors `run_scripts_and_finalize`: the construction inputs (resources + viewport +
+// device facts) are each distinct values fed straight through to the builder; bundling
+// them into a struct would only move the argument list, not reduce it.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn build_pipeline_interactive_shared(
     html: &str,
     url: Option<url::Url>,
@@ -665,6 +673,7 @@ pub(crate) fn build_pipeline_interactive_shared(
     registry: Arc<elidex_plugin::CssPropertyRegistry>,
     cookie_jar: Option<Arc<elidex_net::CookieJar>>,
     viewport: Size,
+    device_facts: crate::ipc::DeviceFacts,
 ) -> PipelineResult {
     let parse_result = parse_progressive_str(html);
     for err in &parse_result.errors {
@@ -695,6 +704,7 @@ pub(crate) fn build_pipeline_interactive_shared(
         url.as_ref(),
         &registry,
         viewport,
+        device_facts,
         EngineMode::BrowserCompat,
     );
 
@@ -872,6 +882,7 @@ pub fn build_pipeline_from_loaded(
     font_db: Arc<FontDatabase>,
     cookie_jar: Option<Arc<elidex_net::CookieJar>>,
     viewport: Size,
+    device_facts: crate::ipc::DeviceFacts,
 ) -> PipelineResult {
     let elidex_navigation::LoadedDocument {
         mut dom,
@@ -900,6 +911,7 @@ pub fn build_pipeline_from_loaded(
         Some(&url),
         &registry,
         viewport,
+        device_facts,
         EngineMode::BrowserCompat,
     );
 
@@ -954,8 +966,15 @@ pub fn build_pipeline_from_url(
     let loaded = elidex_navigation::load_document(url, &network_handle, None)?;
     let font_db = Arc::new(FontDatabase::new());
     let cookie_jar = Arc::clone(np.cookie_jar());
-    let mut result =
-        build_pipeline_from_loaded(loaded, network_handle, font_db, Some(cookie_jar), viewport);
+    let mut result = build_pipeline_from_loaded(
+        loaded,
+        network_handle,
+        font_db,
+        Some(cookie_jar),
+        viewport,
+        // Standalone (no window) → default device facts (1× / Light).
+        crate::ipc::DeviceFacts::default(),
+    );
     result.broker_keepalive = Some(np); // Keep broker alive for pipeline lifetime.
     Ok(result)
 }

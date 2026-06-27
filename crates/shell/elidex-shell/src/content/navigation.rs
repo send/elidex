@@ -126,21 +126,25 @@ pub(super) fn handle_navigate(
             state.pipeline.runtime.bridge().shutdown_all_realtime();
             // Preserve cookie jar across navigations.
             let cookie_jar = state.pipeline.runtime.bridge().cookie_jar_clone();
-            // Rebuild at the tab's CURRENT viewport (not `DEFAULT`) so the new
-            // document's initial scripts + layout see the real `innerWidth`/`@media`
-            // (C1; the new runtime's JS bridge is seeded from this viewport inside
-            // the builder). Read the **latest browser-published** size from the
-            // viewport cell *after* the blocking `load_document` above returns: a
-            // resize that landed during the load is observed by construction, where
-            // the old `state.pipeline.viewport` snapshot would be stale. `seq` re-bases
-            // this document's high-water mark below.
-            let (viewport, seq) = state.viewport_cell.read();
+            // Rebuild at the tab's CURRENT viewport + device facts (not `DEFAULT`) so
+            // the new document's initial scripts + layout see the real
+            // `innerWidth`/`@media`/`devicePixelRatio` (C1/C3; the new runtime's JS
+            // bridge is seeded from this snapshot inside the builder — the fresh
+            // document's bridge would otherwise default to 1×/Light). Read the
+            // **latest browser-published** snapshot from the viewport cell *after* the
+            // blocking `load_document` above returns: a resize/scale change that landed
+            // during the load is observed by construction, where the old
+            // `state.pipeline.viewport` snapshot would be stale. `seq` re-bases this
+            // document's high-water mark below.
+            let snapshot = state.viewport_cell.read();
+            let (viewport, seq) = (snapshot.size, snapshot.seq);
             let new_pipeline = crate::build_pipeline_from_loaded(
                 loaded,
                 network_handle,
                 font_db,
                 cookie_jar,
                 viewport,
+                snapshot.facts,
             );
             state.pipeline = new_pipeline;
             // Focus lives in the new pipeline's `EcsDom` (empty by construction

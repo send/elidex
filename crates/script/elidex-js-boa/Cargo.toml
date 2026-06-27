@@ -13,6 +13,11 @@ categories = ["web-programming"]
 [dependencies]
 elidex-plugin.workspace = true
 elidex-ecs.workspace = true
+# Canonical media-query evaluator (`elidex_css::media::evaluate`) — already a
+# transitive dep (via elidex-dom-api / elidex-script-session); promoted to direct
+# so `evaluate_media_query_raw` routes `@media` through the one evaluator both
+# engines share (C3 D4), instead of the boa-local hand-rolled feature table.
+elidex-css.workspace = true
 elidex-script-session.workspace = true
 elidex-dom-api.workspace = true
 elidex-net.workspace = true

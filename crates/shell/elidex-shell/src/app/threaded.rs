@@ -127,16 +127,46 @@ impl App {
         self.drain_content_messages();
         self.sync_cookies_if_dirty();
 
-        // Recompute the placement SoT for this frame from the current window —
-        // the authoritative per-frame snapshot (§2.3 / F8 coherence with the
-        // `surface_config` written on `Resized`). Then derive the compositor's
-        // physical-px content placement (offset/size/scale) for this frame.
+        // Recompute the placement SoT + device facts for this frame from the settled
+        // window state, then **publish + fan out atomically here** — the single
+        // steady-state device-state chokepoint (C3 D2). `placement` and the cell `seq`
+        // update together, so input stamped in the separate `CursorMoved`/`MouseInput`
+        // arms between an event and this redraw reads a coherent `(placement, seq)`
+        // pair (the F1 atomicity the `Resized`/`ScaleFactorChanged` arms preserve by
+        // touching neither). The publish is idempotent: a frame with no real change
+        // (animations) bumps no seq and broadcasts nothing.
         if let Some(window) = self
             .render_state
             .as_ref()
             .map(|s| std::sync::Arc::clone(&s.window))
         {
-            self.viewport.placement = Some(self.content_area_placement(&window));
+            let prev = self.viewport.placement;
+            let placement = self.content_area_placement(&window);
+            self.viewport.placement = Some(placement);
+            let facts = Self::device_facts(placement, &window);
+            let delta = self
+                .viewport
+                .viewport_cell
+                .publish_device_state(placement.size_logical, facts);
+            // Size → `SetViewport` (+seq bump, the C2 input-drop discipline); device
+            // facts → `SetDeviceFacts` (no seq — D3). Each gated on its own change so a
+            // pure-scale change the OS absorbs ships facts without manufacturing a
+            // phantom input-drop generation.
+            if delta.size_changed {
+                self.broadcast_viewport();
+            }
+            if delta.facts_changed {
+                self.broadcast_device_facts();
+            }
+            // Reclip the cursor on ANY real placement change — a shrunk/moved content
+            // rect may have slid out from under a stationary cursor, leaving stuck
+            // `:hover`. Gated on the **full** `placement != prev` comparison (origin +
+            // scale + size), NOT the size-only `DeviceDelta`, so the origin axis a
+            // future tab-bar-position change (#11-window-level-tab-bar-position) makes
+            // live is covered by construction (C3 F1 re-check / E11).
+            if prev != Some(placement) {
+                self.reclip_cursor_after_placement_change(placement);
+            }
         }
         let content = self
             .viewport

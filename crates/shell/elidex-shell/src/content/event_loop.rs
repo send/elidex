@@ -312,7 +312,7 @@ fn handle_message(msg: BrowserToContent, state: &mut ContentState) -> bool {
             // when the viewport's width or height has changed **since the last time
             // these steps were run**. Drop an unchanged-size delivery here — no
             // `resize`, no MQL re-evaluation, no repaint. The producer now gates its
-            // `broadcast_viewport` on an actual size change (`ViewportCell::publish_if_changed`,
+            // `broadcast_viewport` on an actual size change (`ViewportCell::publish_device_state`,
             // C2), so a same-size `SetViewport` is no longer *emitted* on a resize — but
             // this guard remains load-bearing for the build-vs-broadcast staleness race:
             // a just-spawned tab born at exactly the broadcast size (its build read the
@@ -354,6 +354,43 @@ fn handle_message(msg: BrowserToContent, state: &mut ContentState) -> bool {
                     dispatch_media_query_changes(&changed, state);
                 }
 
+                state.re_render();
+                state.send_display_list();
+            }
+        }
+
+        BrowserToContent::SetDeviceFacts { color_scheme, dppx } => {
+            // Per-window device facts (C3): activates `window.devicePixelRatio` (the
+            // dead `set_device_pixel_ratio` setter, never called pre-C3, which is why
+            // the getter was stuck at 1.0) + `prefers-color-scheme`, and re-evaluates
+            // `@media (resolution | prefers-color-scheme)` against the new facts.
+            //
+            // Value-guard (E1 / Q4): suppress all re-eval + repaint when neither fact
+            // actually differs from the bridge's cache — a construction-seeded initial
+            // tab receives a redundant resume-time fan-out (it was already born with
+            // these facts via the cell read), and a re-resume can repeat an unchanged
+            // fact. When *either* differs, one re-eval suffices: the canonical evaluator
+            // reads BOTH facts from the bridge cache (D4), so a single
+            // `re_evaluate_media_queries` reflects the change with no per-fact redundancy.
+            let bridge = state.pipeline.runtime.bridge().clone();
+            let changed =
+                dppx != bridge.device_pixel_ratio() || color_scheme != bridge.color_scheme();
+            if changed {
+                bridge.set_device_pixel_ratio(dppx);
+                bridge.set_color_scheme(color_scheme);
+                // Refresh each `MediaQueryList`'s cached `matches` to the new facts
+                // BEFORE firing any event (CSSOM View §4.2 — the `matches` getter must
+                // read the post-change value in a `change` listener), collecting the
+                // flipped set; the viewport is unchanged, so pass the current cached
+                // size. Then fire the MQL `change` events and repaint (the same
+                // re-eval → dispatch → re-render shape `SetViewport` uses).
+                let changed_mqls = bridge.re_evaluate_media_queries(
+                    state.pipeline.viewport.width,
+                    state.pipeline.viewport.height,
+                );
+                if !changed_mqls.is_empty() {
+                    dispatch_media_query_changes(&changed_mqls, state);
+                }
                 state.re_render();
                 state.send_display_list();
             }

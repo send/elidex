@@ -83,7 +83,14 @@ pub(super) fn build_test_content_state(
         crate::DEFAULT_VIEWPORT_WIDTH,
         crate::DEFAULT_VIEWPORT_HEIGHT,
     );
-    let pipeline = crate::build_pipeline_interactive_with_network(html, css, nh, jar, viewport);
+    let pipeline = crate::build_pipeline_interactive_with_network(
+        html,
+        css,
+        nh,
+        jar,
+        viewport,
+        crate::ipc::DeviceFacts::default(),
+    );
     // Build at the cell's seed (DEFAULT, seq 0) → high-water mark 0, matching the
     // `build_pipeline_*` size above; a test `SetViewport` then applies with `seq ≥ 1`.
     let viewport_cell = crate::ipc::ViewportCell::new(viewport);
@@ -99,4 +106,24 @@ pub(super) fn build_test_content_state(
     super::iframe::scan_initial_iframes(&mut state);
     state.re_render();
     (state, browser)
+}
+
+/// Read the value of an attribute on the `<div>` with the given `id` — the shared
+/// DOM probe both content-thread test modules use to assert a script-driven
+/// attribute mutation landed (after a `re_render` flush).
+pub(super) fn probe_attr(pipeline: &crate::PipelineResult, id: &str, attr: &str) -> Option<String> {
+    let entity = pipeline.dom.query_by_tag("div").into_iter().find(|&e| {
+        pipeline
+            .dom
+            .world()
+            .get::<&elidex_ecs::Attributes>(e)
+            .ok()
+            .is_some_and(|a| a.get("id") == Some(id))
+    })?;
+    pipeline
+        .dom
+        .world()
+        .get::<&elidex_ecs::Attributes>(entity)
+        .ok()
+        .and_then(|a| a.get(attr).map(str::to_owned))
 }

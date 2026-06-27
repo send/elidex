@@ -1,10 +1,14 @@
 //! Viewport / content-area placement coverage for the content thread — the
-//! producer→consumer `SetViewport` path (`@media` flip, `resize`-listener MQL
-//! freshness) and the single-builder geometry invariant. Split out of
-//! `content_tests` (the catch-all content module) to keep each test file focused
-//! and under the project's 1000-line guideline (axes.md Axis 5).
+//! producer→consumer `SetViewport` **and** `SetDeviceFacts` paths (`@media` flip,
+//! `resize`-listener MQL freshness, device-fact delivery) and the single-builder
+//! geometry invariant. Split out of `content_tests` (the catch-all content module)
+//! to keep each test file focused and under the project's 1000-line guideline
+//! (axes.md Axis 5).
 
-use super::test_support::{spawn_test_content, spawn_test_content_sized, test_network};
+use super::test_support::{
+    build_test_content_state, probe_attr, spawn_test_content, spawn_test_content_sized,
+    test_network,
+};
 use crate::ipc::{self, BrowserToContent, ContentToBrowser};
 use std::time::Duration;
 
@@ -316,7 +320,7 @@ fn content_thread_same_size_setviewport_is_idempotent() {
 
 /// The build reads the **latest published** cell value, not the seed (the
 /// pull-source invariant, plan-memo §2.1). Construct a cell seeded at 1024 px
-/// (`@media (max-width: 900px)` does *not* match → blue), then `publish_if_changed` 640 px
+/// (`@media (max-width: 900px)` does *not* match → blue), then `publish_device_state` 640 px
 /// (matches → red) **before** spawning. The first frame is red ⇒ the build read the
 /// published 640 px from the cell; a stale-snapshot build at the 1024 px seed would
 /// be blue. This is the deterministic stand-in for "a resize landed during the
@@ -327,9 +331,15 @@ fn content_thread_builds_at_latest_published_cell_size() {
     let (nh, jar, _np) = test_network();
 
     // Seed at 1024 px (no @media match), then publish 640 px (matches) before spawn.
-    // 640 ≠ 1024 → `publish_if_changed` bumps to seq 1.
+    // 640 ≠ 1024 → `publish_device_state` bumps to seq 1.
     let cell = crate::ipc::ViewportCell::new(elidex_plugin::Size::new(1024.0, 768.0));
-    assert!(cell.publish_if_changed(elidex_plugin::Size::new(640.0, 480.0)));
+    assert!(
+        cell.publish_device_state(
+            elidex_plugin::Size::new(640.0, 480.0),
+            crate::ipc::DeviceFacts::default(),
+        )
+        .size_changed
+    );
 
     let handle = crate::content::spawn_content_thread(
         content,
@@ -381,11 +391,17 @@ fn content_thread_drops_stale_seq_viewport() {
     let (nh, jar, _np) = test_network();
 
     // Reach cell (800px, seq 1) via a *real* size change: seed at 640px, then
-    // `publish_if_changed(800px)`. A same-size publish no longer bumps seq (C2), so the
-    // pre-C2 seed-then-republish-same-size trick would leave seq 0; the build must read
-    // 800px at seq 1 for the stale-seq drop asserted below.
+    // `publish_device_state(800px)`. A same-size publish no longer bumps seq (C2), so
+    // the pre-C2 seed-then-republish-same-size trick would leave seq 0; the build must
+    // read 800px at seq 1 for the stale-seq drop asserted below.
     let cell = crate::ipc::ViewportCell::new(elidex_plugin::Size::new(640.0, 480.0));
-    assert!(cell.publish_if_changed(elidex_plugin::Size::new(800.0, 600.0)));
+    assert!(
+        cell.publish_device_state(
+            elidex_plugin::Size::new(800.0, 600.0),
+            crate::ipc::DeviceFacts::default(),
+        )
+        .size_changed
+    );
 
     let handle = crate::content::spawn_content_thread(
         content,
@@ -636,33 +652,53 @@ fn placement_builder_is_sole_caller_of_geometry_primitives() {
     );
 }
 
-/// `ViewportCell::publish_if_changed` bumps the seq **iff** the size differs (C2): the
-/// seq identifies `size_logical` generations, so a same-size publish — which a pure
+/// `ViewportCell::publish_device_state` bumps the seq **iff** the size differs (C2):
+/// the seq identifies `size_logical` generations, so a same-size publish — which a pure
 /// DPI/scale `Resized` produces (CSS px is scale-invariant) — must not advance it. This
 /// pins the **producer-side** invariant whose violation was the §2 bug: a phantom seq
 /// generation that lets `input_placement_stale` drop queued input mapped against the
 /// still-current layout (the downstream input-survival is covered by
-/// `content_thread_drops_stale_seq_viewport`). The returned `bool` is the gate the
-/// producer uses to skip `broadcast_viewport`, so a no-op publish emits no `SetViewport`.
-/// Pure cell-level guard — no window needed.
+/// `content_thread_drops_stale_seq_viewport`). The returned `DeviceDelta.size_changed`
+/// is the gate the producer uses to skip `broadcast_viewport`, so a no-op publish emits
+/// no `SetViewport`. Pure cell-level guard — no window needed.
 #[test]
-fn publish_if_changed_bumps_seq_only_on_size_change() {
+fn publish_device_state_bumps_seq_only_on_size_change() {
+    let facts = crate::ipc::DeviceFacts::default();
     let cell = ipc::ViewportCell::new(elidex_plugin::Size::new(800.0, 600.0));
-    assert_eq!(cell.read(), (elidex_plugin::Size::new(800.0, 600.0), 0));
+    let snap = cell.read();
+    assert_eq!(snap.size, elidex_plugin::Size::new(800.0, 600.0));
+    assert_eq!(snap.seq, 0);
 
-    // Same size as the seed → no change, no bump; gate returns false (broadcast skipped).
-    assert!(!cell.publish_if_changed(elidex_plugin::Size::new(800.0, 600.0)));
-    assert_eq!(cell.read().1, 0, "same-size publish must not advance seq");
+    // Same size as the seed → no change, no bump; gate is false (broadcast skipped).
+    assert!(
+        !cell
+            .publish_device_state(elidex_plugin::Size::new(800.0, 600.0), facts)
+            .size_changed
+    );
+    assert_eq!(cell.read().seq, 0, "same-size publish must not advance seq");
 
-    // A real size change → bump to seq 1; gate returns true (broadcast fires).
-    assert!(cell.publish_if_changed(elidex_plugin::Size::new(1024.0, 768.0)));
-    assert_eq!(cell.read(), (elidex_plugin::Size::new(1024.0, 768.0), 1));
+    // A real size change → bump to seq 1; gate is true (broadcast fires).
+    assert!(
+        cell.publish_device_state(elidex_plugin::Size::new(1024.0, 768.0), facts)
+            .size_changed
+    );
+    let snap = cell.read();
+    assert_eq!(snap.size, elidex_plugin::Size::new(1024.0, 768.0));
+    assert_eq!(snap.seq, 1);
 
     // Republishing the now-current size is again a no-op — seq stays 1 (idempotent).
-    assert!(!cell.publish_if_changed(elidex_plugin::Size::new(1024.0, 768.0)));
-    assert!(!cell.publish_if_changed(elidex_plugin::Size::new(1024.0, 768.0)));
+    assert!(
+        !cell
+            .publish_device_state(elidex_plugin::Size::new(1024.0, 768.0), facts)
+            .size_changed
+    );
+    assert!(
+        !cell
+            .publish_device_state(elidex_plugin::Size::new(1024.0, 768.0), facts)
+            .size_changed
+    );
     assert_eq!(
-        cell.read().1,
+        cell.read().seq,
         1,
         "repeated same-size publishes must not advance seq"
     );
@@ -670,12 +706,171 @@ fn publish_if_changed_bumps_seq_only_on_size_change() {
     // Alternating sizes bump on each genuine change — assert relative to the current
     // seq so the claim ("these 2 changes advance by exactly 2") stays local and survives
     // edits to the publishes above.
-    let before = cell.read().1;
-    assert!(cell.publish_if_changed(elidex_plugin::Size::new(640.0, 480.0)));
-    assert!(cell.publish_if_changed(elidex_plugin::Size::new(1024.0, 768.0)));
+    let before = cell.read().seq;
+    assert!(
+        cell.publish_device_state(elidex_plugin::Size::new(640.0, 480.0), facts)
+            .size_changed
+    );
+    assert!(
+        cell.publish_device_state(elidex_plugin::Size::new(1024.0, 768.0), facts)
+            .size_changed
+    );
     assert_eq!(
-        cell.read().1,
+        cell.read().seq,
         before + 2,
         "each genuine size change advances seq by exactly one"
+    );
+}
+
+/// C3 D3: device facts (dppx / color-scheme) are **orthogonal to the `seq`**. A
+/// pure-scale change the OS absorbs (physical size changes, CSS-logical size preserved)
+/// must ship `SetDeviceFacts` via `facts_changed` **without** bumping `seq` — bumping
+/// would manufacture the phantom input-drop generation C2 exists to prevent. Conversely
+/// a size change with unchanged facts reports `size_changed` only. Pins the per-fact
+/// change-detection the redraw-top chokepoint gates its two broadcasts on.
+#[test]
+fn publish_device_state_facts_are_seq_orthogonal() {
+    use elidex_css::media::ColorScheme;
+    let size = elidex_plugin::Size::new(800.0, 600.0);
+    let cell = ipc::ViewportCell::new(size);
+    assert_eq!(cell.read().seq, 0);
+
+    // dppx changes, size preserved (an OS-absorbed pure-scale change) → facts only.
+    let delta = cell.publish_device_state(
+        size,
+        crate::ipc::DeviceFacts {
+            dppx: 2.0,
+            color_scheme: ColorScheme::Light,
+        },
+    );
+    assert!(!delta.size_changed, "preserved size must not bump seq");
+    assert!(delta.facts_changed, "dppx change must report facts_changed");
+    assert_eq!(
+        cell.read().seq,
+        0,
+        "a facts-only change must not advance seq"
+    );
+    assert_eq!(cell.read().facts.dppx, 2.0);
+
+    // color-scheme changes, size + dppx preserved → facts only, still no seq bump.
+    let delta = cell.publish_device_state(
+        size,
+        crate::ipc::DeviceFacts {
+            dppx: 2.0,
+            color_scheme: ColorScheme::Dark,
+        },
+    );
+    assert!(!delta.size_changed);
+    assert!(delta.facts_changed);
+    assert_eq!(cell.read().seq, 0);
+    assert_eq!(cell.read().facts.color_scheme, ColorScheme::Dark);
+
+    // Re-publishing identical state → neither changed (idempotent; no broadcast).
+    let delta = cell.publish_device_state(
+        size,
+        crate::ipc::DeviceFacts {
+            dppx: 2.0,
+            color_scheme: ColorScheme::Dark,
+        },
+    );
+    assert!(!delta.size_changed);
+    assert!(!delta.facts_changed);
+
+    // A size change with unchanged facts → size only.
+    let delta = cell.publish_device_state(
+        elidex_plugin::Size::new(1024.0, 768.0),
+        crate::ipc::DeviceFacts {
+            dppx: 2.0,
+            color_scheme: ColorScheme::Dark,
+        },
+    );
+    assert!(delta.size_changed);
+    assert!(!delta.facts_changed);
+    assert_eq!(cell.read().seq, 1);
+}
+
+/// C3: the `SetDeviceFacts` content arm activates `window.devicePixelRatio` — the
+/// previously-dead `set_device_pixel_ratio` setter (never called pre-C3, which is why
+/// the getter was stuck at 1.0) — and `prefers-color-scheme`. Drives the arm
+/// synchronously and asserts the bridge SoT the `screen.rs` getter + canonical
+/// evaluator read.
+#[test]
+fn set_device_facts_activates_device_pixel_ratio_and_color_scheme() {
+    use elidex_css::media::ColorScheme;
+    let (mut state, _browser) = build_test_content_state("<body></body>", "");
+
+    // Construction defaults (the bridge's `device_pixel_ratio: 1.0` / `Light`).
+    assert_eq!(state.pipeline.runtime.bridge().device_pixel_ratio(), 1.0);
+    assert_eq!(
+        state.pipeline.runtime.bridge().color_scheme(),
+        ColorScheme::Light
+    );
+
+    super::event_loop::handle_message_public(
+        BrowserToContent::SetDeviceFacts {
+            color_scheme: ColorScheme::Dark,
+            dppx: 2.0,
+        },
+        &mut state,
+    );
+
+    assert_eq!(
+        state.pipeline.runtime.bridge().device_pixel_ratio(),
+        2.0,
+        "SetDeviceFacts must activate window.devicePixelRatio (was stuck at 1.0)"
+    );
+    assert_eq!(
+        state.pipeline.runtime.bridge().color_scheme(),
+        ColorScheme::Dark
+    );
+}
+
+/// C3: a `SetDeviceFacts` delivery flips a live `MediaQueryList` and fires its
+/// `change` event (CSSOM View §4.2) — the matchMedia/MQL surface, reading the new fact
+/// through the canonical evaluator (D4). The change listener records `event.matches`
+/// into a DOM attribute that `re_render` flushes, so the post-delivery DOM proves both
+/// the flip and the event firing. (Value-guard corollary: a redundant same-facts
+/// delivery fires nothing — covered by the bridge value-guard in the arm.)
+#[test]
+fn set_device_facts_flips_matchmedia_and_fires_change() {
+    use elidex_css::media::ColorScheme;
+    let (mut state, _browser) = build_test_content_state(
+        "<div id='probe'></div>\
+         <script>\
+           var mql = matchMedia('(prefers-color-scheme: dark)');\
+           var probe = document.getElementById('probe');\
+           probe.setAttribute('data-initial', String(mql.matches));\
+           mql.addEventListener('change', function(e) {\
+             probe.setAttribute('data-changed', String(e.matches));\
+           });\
+         </script>",
+        "",
+    );
+
+    // Initial: Light → the prefers-color-scheme:dark MQL does not match.
+    assert_eq!(
+        probe_attr(&state.pipeline, "probe", "data-initial").as_deref(),
+        Some("false"),
+        "default (Light) must not match prefers-color-scheme:dark"
+    );
+    assert!(
+        probe_attr(&state.pipeline, "probe", "data-changed").is_none(),
+        "no change should have fired before any delivery"
+    );
+
+    super::event_loop::handle_message_public(
+        BrowserToContent::SetDeviceFacts {
+            color_scheme: ColorScheme::Dark,
+            dppx: 1.0,
+        },
+        &mut state,
+    );
+
+    // The MQL flipped to matches=true and its `change` listener fired with that value
+    // (canonical evaluator read the Dark fact; re_render flushed the listener's mutation).
+    assert_eq!(
+        probe_attr(&state.pipeline, "probe", "data-changed").as_deref(),
+        Some("true"),
+        "SetDeviceFacts(Dark) must flip the MQL and fire `change` with matches=true"
     );
 }

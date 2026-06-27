@@ -1,4 +1,4 @@
-use super::test_support::{build_test_content_state, spawn_test_content, test_network};
+use super::test_support::{build_test_content_state, probe_attr, spawn_test_content, test_network};
 use super::*;
 use crate::ipc::{self, BrowserToContent, ContentToBrowser, ModifierState};
 use elidex_plugin::Point;
@@ -867,24 +867,6 @@ fn connected_iframe_append_loads() {
     assert!(state.iframes.get(f).is_some());
 }
 
-/// Read the value of an attribute on the `<div>` with the given `id`.
-fn probe_attr(pipeline: &crate::PipelineResult, id: &str, attr: &str) -> Option<String> {
-    let entity = pipeline.dom.query_by_tag("div").into_iter().find(|&e| {
-        pipeline
-            .dom
-            .world()
-            .get::<&elidex_ecs::Attributes>(e)
-            .ok()
-            .is_some_and(|a| a.get("id") == Some(id))
-    })?;
-    pipeline
-        .dom
-        .world()
-        .get::<&elidex_ecs::Attributes>(entity)
-        .ok()
-        .and_then(|a| a.get(attr).map(str::to_owned))
-}
-
 /// C1 (F1): a pipeline built at a non-default viewport must seed BOTH the CSS
 /// cascade AND the JS bridge **before** initial scripts run, so an inline script
 /// reading `window.innerWidth`/`innerHeight` at load observes the real size —
@@ -905,6 +887,7 @@ fn initial_scripts_observe_real_viewport() {
         nh,
         jar,
         elidex_plugin::Size::new(640.0, 480.0),
+        crate::ipc::DeviceFacts::default(),
     );
 
     // Construction input reached the cascade/layout SoT.
@@ -941,6 +924,7 @@ fn default_viewport_unifies_bridge_and_cascade() {
             crate::DEFAULT_VIEWPORT_WIDTH,
             crate::DEFAULT_VIEWPORT_HEIGHT,
         ),
+        crate::ipc::DeviceFacts::default(),
     );
     assert_eq!(
         pipeline.runtime.bridge().viewport_width(),

@@ -28,19 +28,19 @@ pub(super) fn register_media_query(ctx: &mut Context, bridge: &HostBridge) {
         .expect("failed to register matchMedia");
 }
 
-/// Evaluate a basic media query string against the current viewport.
+/// Evaluate a media query string against the current viewport + device facts
+/// through the canonical `elidex_css::media` evaluator (C3 D4).
 ///
-/// Supports:
-/// - `(max-width: Npx)` / `(min-width: Npx)`
-/// - `(max-height: Npx)` / `(min-height: Npx)`
-/// - `(prefers-color-scheme: dark|light)` → false (no theme support yet)
-/// - Other queries → false
+/// Builds the [`MediaEnvironment`](elidex_css::media::MediaEnvironment) from the
+/// bridge's cached viewport + device facts via the single
+/// [`HostBridge::media_environment`](crate::bridge::HostBridge::media_environment)
+/// builder (the report-changes re-eval uses the same), so `matchMedia` supports the
+/// full grammar the cascade does — `min/max-width|height`, `resolution`,
+/// `prefers-color-scheme` — reading the live facts instead of the old
+/// `prefers-color-scheme => false` stub.
 fn evaluate_media_query(query: &str, bridge: &HostBridge) -> bool {
-    crate::bridge::evaluate_media_query_raw(
-        query,
-        bridge.viewport_width(),
-        bridge.viewport_height(),
-    )
+    let env = bridge.media_environment(bridge.viewport_width(), bridge.viewport_height());
+    crate::bridge::evaluate_media_query_raw(query, &env)
 }
 
 /// Hidden property key for the media query list ID.

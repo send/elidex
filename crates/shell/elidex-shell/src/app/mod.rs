@@ -563,28 +563,37 @@ impl ApplicationHandler<crate::WakeEvent> for App {
         // identical to the initial tab's default chrome, so the size is correct.
         let placement = self.content_area_placement(&state.window);
         self.viewport.placement = Some(placement);
-        // Publish the real size to the viewport cell **before** spawning, so the
-        // deferred initial tab's build reads it by construction (the cell is the pull
-        // source the spawn reads, not a snapshot). Normally bumps seq 0 → 1
-        // (DEFAULT → real); `viewport_changed` gates the re-resume fan-out below.
-        let viewport_changed = self
+        let facts = Self::device_facts(placement, &state.window);
+        // Publish the real size + device facts to the viewport cell **before**
+        // spawning, so the deferred initial tab's build reads them by construction
+        // (the cell is the pull source the spawn reads, not a snapshot): size →
+        // cascade/layout + bridge `innerWidth`; dppx/color-scheme → bridge
+        // `devicePixelRatio`/`matchMedia` before initial scripts (C3). Normally bumps
+        // seq 0 → 1 (DEFAULT → real) and flips facts off the 1×/Light baseline; the
+        // returned `DeviceDelta` gates the re-resume fan-out below.
+        let delta = self
             .viewport
             .viewport_cell
-            .publish_if_changed(placement.size_logical);
+            .publish_device_state(placement.size_logical, facts);
         self.render_state = Some(state);
 
-        // Spawn the deferred initial content thread (C1) at the real viewport — it is
-        // born resolving styles, running initial scripts, and laying out at the size
-        // it reads from the just-published cell, never a guessed `DEFAULT_VIEWPORT`.
+        // Spawn the deferred initial content thread (C1) at the real viewport + device
+        // facts — it is born resolving styles, running initial scripts, and laying out
+        // at the state it reads from the just-published cell, never a guessed default.
         self.spawn_pending_initial_tab();
 
         // Re-resume after `suspended` (plan-memo Q3): content threads persist across a
-        // suspend but `placement` was dropped, so the content area may have changed
-        // size while the window was gone. Fan the rebuilt viewport to every persisted
-        // tab only when the publish above changed the size (`viewport_changed`) — an
-        // unchanged size needs no delivery and must not bump `applied_viewport_seq`.
-        if viewport_changed {
+        // suspend but `placement` was dropped, so the content area / device facts may
+        // have changed while the window was gone. Fan the rebuilt state to every
+        // persisted tab only for what actually changed — an unchanged size must not
+        // bump `applied_viewport_seq`; unchanged facts emit no re-eval. The
+        // just-spawned initial tab was already born with both via the cell read, so
+        // its deliveries here are guarded no-ops on the content side.
+        if delta.size_changed {
             self.broadcast_viewport();
+        }
+        if delta.facts_changed {
+            self.broadcast_device_facts();
         }
 
         // Set the initial window title from the now-present active tab.
@@ -633,32 +642,49 @@ impl ApplicationHandler<crate::WakeEvent> for App {
                 state
                     .gpu
                     .resize(&state.surface, new_size.width, new_size.height);
-                let window = Arc::clone(&state.window);
                 if new_size.width > 0 && new_size.height > 0 {
-                    window.request_redraw();
+                    state.window.request_redraw();
                 }
-                // Recompute the placement SoT — this also refreshes `scale_factor`,
-                // since on the **common** path a DPI change reaches us as a `Resized`
-                // *after* winit's `ScaleFactorChanged`, so this one arm handles both. (The
-                // X11 `ScaleFactorChanged`-only corner with no following `Resized` is the
-                // carved `#11-shell-viewport-scalefactorchanged-x11-coverage` gap, §1/§8.)
-                // Publish to the cell **iff** `size_logical` changed (bumping seq) and fan
-                // out only then: a pure scale change keeps `size_logical` → no seq bump, so
-                // queued input is not dropped against an unchanged layout; the new scale
-                // still reaches the compositor / input mapper via `placement` + redraw (§2).
-                let placement = self.content_area_placement(&window);
-                self.viewport.placement = Some(placement);
-                if self
-                    .viewport
-                    .viewport_cell
-                    .publish_if_changed(placement.size_logical)
-                {
-                    self.broadcast_viewport();
+                // Placement recompute + publish (size + device facts) + reclip all move
+                // to the redraw-top chokepoint (`handle_redraw_threaded`), so `placement`
+                // and `seq` update **atomically** there (C3 D2/F1): this arm touches
+                // neither, so across the event→redraw gap both stay old (coherent), and
+                // gap-input maps old-placement/old-seq and is superseded together. The
+                // arm only syncs the GPU surface to the new physical size and requests
+                // the redraw whose settled-state recompute does the rest.
+                return;
+            }
+            WindowEvent::ScaleFactorChanged { .. } => {
+                // A DPI change. On the **common** path a `Resized` follows (winit forces
+                // it when the DPI-adjusted physical size differs) and does the
+                // `gpu.resize`; on the X11 / constrained-WM corner where physical size is
+                // held constant, **no** `Resized` follows (winit 0.30 x11), so this is the
+                // *only* event for that DPI change. Either way it must drive the redraw
+                // whose settled-state recompute ships the new `size_logical` + dppx —
+                // closing the former carved `#11-shell-viewport-scalefactorchanged-x11-
+                // coverage` gap (C3 D1/F3). Sync the surface to the current physical size
+                // (a no-op when physical is unchanged) and request the redraw; the arm
+                // neither recomputes `placement` nor publishes (D2 atomicity) — redraw-top
+                // reads the settled `(inner_size, scale_factor)`, so the bogus
+                // `old_phys/new_scale` intermediate never materializes.
+                let Some(state) = self.render_state.as_mut() else {
+                    return;
+                };
+                let phys = state.window.inner_size();
+                state.gpu.resize(&state.surface, phys.width, phys.height);
+                if phys.width > 0 && phys.height > 0 {
+                    state.window.request_redraw();
                 }
-                // The content rect may have shrunk/moved out from under a
-                // stationary cursor — clear stuck `:hover` if it left content.
-                if let Some(placement) = self.viewport.placement {
-                    self.reclip_cursor_after_placement_change(placement);
+                return;
+            }
+            WindowEvent::ThemeChanged(_) => {
+                // The OS color scheme changed (macOS / Windows; winit emits no theme
+                // event on X11 / Wayland, where `prefers-color-scheme` stays `Light`).
+                // Drive a redraw; redraw-top re-reads `window.theme()` (as it re-reads
+                // `scale_factor`) and publishes the new `prefers-color-scheme` fact — no
+                // recompute/publish in the arm (D2).
+                if let Some(state) = &self.render_state {
+                    state.window.request_redraw();
                 }
                 return;
             }

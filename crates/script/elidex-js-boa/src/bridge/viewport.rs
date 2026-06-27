@@ -62,6 +62,18 @@ impl HostBridge {
         self.inner.borrow_mut().device_pixel_ratio = dpr;
     }
 
+    /// Get the `prefers-color-scheme` preference (Media Queries L5 §12.5).
+    pub fn color_scheme(&self) -> elidex_css::media::ColorScheme {
+        self.inner.borrow().color_scheme
+    }
+
+    /// Set the `prefers-color-scheme` preference (Media Queries L5 §12.5; called by
+    /// content thread from the window theme on `SetDeviceFacts`, C3). Mirrors
+    /// [`Self::set_device_pixel_ratio`].
+    pub fn set_color_scheme(&self, scheme: elidex_css::media::ColorScheme) {
+        self.inner.borrow_mut().color_scheme = scheme;
+    }
+
     /// Get window screen position X.
     pub fn screen_x(&self) -> i32 {
         self.inner.borrow().screen_x

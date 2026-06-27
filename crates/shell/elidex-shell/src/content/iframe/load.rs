@@ -175,6 +175,13 @@ fn load_iframe_from_url(
                     crate::DEFAULT_VIEWPORT_WIDTH,
                     crate::DEFAULT_VIEWPORT_HEIGHT,
                 ),
+                // Placeholder device facts (1×/Light), as the viewport above is — the
+                // sub-browsing-context box is not yet known and `IframeLoadContext`
+                // carries no parent device facts. Iframe device-fact propagation rides
+                // the same deferred real-box wiring (#11-iframe-build-viewport); this
+                // is the pre-C3 status quo (the fresh iframe bridge defaulted anyway),
+                // not a regression.
+                crate::ipc::DeviceFacts::default(),
             );
             // Keep credentialless broker alive for the iframe pipeline's lifetime.
             if let Some(cb) = credentialless_broker {
@@ -271,6 +278,8 @@ fn make_out_of_process_entry(
                 crate::DEFAULT_VIEWPORT_WIDTH,
                 crate::DEFAULT_VIEWPORT_HEIGHT,
             ),
+            // Placeholder device facts pending the real box (#11-iframe-build-viewport).
+            crate::ipc::DeviceFacts::default(),
         );
 
         oop_pipeline
@@ -345,6 +354,8 @@ fn build_iframe_pipeline(
             crate::DEFAULT_VIEWPORT_WIDTH,
             crate::DEFAULT_VIEWPORT_HEIGHT,
         ),
+        // Placeholder device facts pending the real box (#11-iframe-build-viewport).
+        crate::ipc::DeviceFacts::default(),
     )
 }
 
