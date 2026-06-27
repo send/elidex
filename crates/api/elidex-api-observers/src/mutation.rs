@@ -316,6 +316,11 @@ impl MutationObserverRegistry {
         // observers whose source is it (keyed on that registration's `reg_id`),
         // tree-wide. (A matched permanent's reg_id sources the transients spawned
         // from it; a matched transient's reg_id sources any chained transients.)
+        // The tree-wide sweep is equivalent to the spec's "for each node of this's
+        // node list" scope by construction: any node carrying a transient with
+        // `source == reg_id` necessarily carries a registration for this observer,
+        // so it is in the (query-derived) node list — the spec's notify step 6.3
+        // is node-list-scoped for the same reason.
         for reg_id in &matched_reg_ids {
             clear_transient_observers_by_source(dom, *reg_id);
         }
