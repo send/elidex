@@ -107,6 +107,53 @@ fn move_adopt_creates_transient_on_moved_node() {
 }
 
 #[test]
+fn take_records_before_microtask_still_clears_transient() {
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let (_doc, _root) = setup_with_root(&mut vm, &mut session, &mut dom);
+    expose_detached(&mut vm, &mut dom, "div", "mid");
+    expose_detached(&mut vm, &mut dom, "span", "child");
+    expose_detached(&mut vm, &mut dom, "span", "child2");
+
+    // Within one microtask window: remove `mid` (transient created), mutate the
+    // detached subtree (one record for the observer via the transient), then call
+    // `mo.takeRecords()` — which drains the record queue but must NOT drop the
+    // observer from the pending notifySet, so the microtask still clears the
+    // transient (step 6.3).
+    vm.eval(
+        "globalThis.midHits = 0; \
+         var mo = new MutationObserver(function(r){ \
+           for (var i = 0; i < r.length; i++) { if (r[i].target === mid) globalThis.midHits++; } \
+         }); \
+         mo.observe(root, {childList:true, subtree:true}); \
+         root.appendChild(mid); \
+         root.removeChild(mid); \
+         mid.appendChild(child); \
+         var taken = mo.takeRecords(); \
+         globalThis.takenMid = 0; \
+         for (var i = 0; i < taken.length; i++) { if (taken[i].target === mid) globalThis.takenMid++; }",
+    )
+    .unwrap();
+
+    assert_eq!(
+        vm.eval("takenMid").unwrap(),
+        JsValue::Number(1.0),
+        "the detached-subtree mutation was observed via the transient and taken synchronously"
+    );
+
+    // Next microtask window: the transient must have been cleared despite the
+    // takeRecords() drain, so a further detached-subtree mutation reaches nothing.
+    vm.eval("mid.appendChild(child2);").unwrap();
+    assert_eq!(
+        vm.eval("midHits").unwrap(),
+        JsValue::Number(0.0),
+        "transient cleared at the microtask even though takeRecords() drained the queue"
+    );
+    vm.unbind();
+}
+
+#[test]
 fn reobserve_clears_outstanding_transient() {
     let mut vm = Vm::new();
     let mut session = SessionCore::new();

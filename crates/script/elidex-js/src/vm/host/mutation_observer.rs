@@ -475,16 +475,20 @@ impl VmInner {
         {
             return;
         }
-        // Collect observer IDs up front so re-entrant
-        // `mo.observe` / `mo.disconnect` calls from callbacks see the
-        // post-callback registry state rather than a mid-loop snapshot.
+        // Take the pending mutation observers as the §4.3 notifySet (step 2 clone
+        // + step 3 empty). Draining up front means re-entrant `mo.observe` /
+        // `mo.disconnect` / queued records from callbacks land in the next
+        // microtask's set, not this one. Keyed on the pending set (not record-queue
+        // non-emptiness) so an observer the page drained via `takeRecords()` before
+        // this microtask is still cleared of transients in step 6.3 below.
         let host = self
             .host_data
             .as_deref_mut()
             .expect("deliver_pending_mutation_records: HostData required when bound");
         let observer_ids: Vec<u64> = host
             .mutation_observers
-            .observers_with_records()
+            .take_pending_observers()
+            .into_iter()
             .map(elidex_api_observers::mutation::MutationObserverId::raw)
             .collect();
 

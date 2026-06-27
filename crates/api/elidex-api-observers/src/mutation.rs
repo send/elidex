@@ -99,8 +99,9 @@ struct MutationObservedBy(Vec<MutationObservation>);
 
 /// Registry of active mutation observers.
 ///
-/// Holds only the observer-owned pending-record queues; the observation
-/// relationship lives on target entities as `MutationObservedBy` components.
+/// Holds the observer-owned pending-record queues and the agent's "pending
+/// mutation observers" set; the observation relationship lives on target
+/// entities as `MutationObservedBy` components.
 #[derive(Debug, Default)]
 pub struct MutationObserverRegistry {
     next_id: u64,
@@ -108,6 +109,14 @@ pub struct MutationObserverRegistry {
     /// observer id keeps iteration in registration order, so callback delivery
     /// is deterministic by construction (no explicit re-sort at enumeration).
     records: std::collections::BTreeMap<MutationObserverId, Vec<MutationRecord>>,
+    /// The agent's **pending mutation observers** (WHATWG DOM §4.3.2 "queue a
+    /// mutation record" step 4.3 appends here; §4.3 "notify mutation observers"
+    /// step 2 clones it as `notifySet`, step 3 empties it). This is **distinct
+    /// from `records`**: `takeRecords()` empties an observer's record queue but
+    /// does **not** remove it from this set, so a microtask still runs step 6.3
+    /// (transient-observer clearing) for it — keeping it keyed here, not derived
+    /// from `records` non-emptiness, is what makes that hold.
+    pending: std::collections::BTreeSet<MutationObserverId>,
 }
 
 impl MutationObserverRegistry {
@@ -144,34 +153,42 @@ impl MutationObserverRegistry {
             return;
         }
         // §4.3.1 `observe()` step 7.1 (re-observe): when `target` already carries
-        // a registration for this observer, remove all transient registered
-        // observers whose source is it. The spec keys step 7.1 on the *source*
-        // registration; elidex stores no `source` (collapsed to the observer id),
-        // so this clears ALL of the observer's transients across the tree. This
-        // slightly over-clears in one corner: if the same observer is registered
-        // on two inclusive ancestors of a removed node, that node holds two
-        // transients (one per ancestor source) and re-observing one ancestor
-        // clears both, whereas the spec would keep the other-sourced one. The
-        // collapse is the sanctioned design (no per-registration identity), this
-        // re-observe-while-transients-pending corner is contrived, and the
-        // notify-side clear (step 6.3) is observer-keyed in the spec too, so it
-        // is faithful; the residual is tracked as `#11-mutation-transient-source-fidelity`.
-        // Gated on the step-7 precondition (an existing registration on `target`)
-        // so a fresh observe (step 8) skips the whole-tree scan.
+        // a **permanent** registration for this observer, remove all transient
+        // registered observers whose source is it. The spec keys step 7.1 on the
+        // *source* registration; elidex stores no `source` (collapsed to the
+        // observer id), so this clears ALL of the observer's transients across the
+        // tree. Crucially the precondition is gated on `!transient`: a *transient*
+        // entry on `target` is NOT a step-7.1 source under the collapse (only a
+        // permanent registration can be the one being updated), so observing a
+        // node that merely carries a pending transient for this observer (e.g.
+        // two children removed from an observed root, then `observe(firstRemoved)`
+        // before the microtask) must NOT wipe the *other* removed subtree's
+        // transients. This still slightly over-clears in one residual corner: if
+        // the same observer holds a *permanent* registration on two inclusive
+        // ancestors of a removed node, that node has two transients and
+        // re-observing one ancestor clears both, whereas the spec keeps the
+        // other-sourced one. The collapse is the sanctioned design (no
+        // per-registration identity); the notify-side clear (step 6.3) is
+        // observer-keyed in the spec too, so it is faithful; the residual is
+        // tracked as `#11-mutation-transient-source-fidelity`. Gating on the
+        // permanent-registration precondition also lets a fresh observe (step 8)
+        // skip the whole-tree scan.
         let target_already_registered = dom
             .world()
             .get::<&MutationObservedBy>(target)
-            .is_ok_and(|c| c.0.iter().any(|o| o.observer == id));
+            .is_ok_and(|c| c.0.iter().any(|o| o.observer == id && !o.transient));
         if target_already_registered {
             clear_transient_observers(dom, id);
         }
         // step 7.2 / step 8: ensure `target` holds exactly one permanent
-        // registration with `init`. After the transient clear above, only a
-        // permanent entry for `id` can remain.
+        // registration with `init`. Match only a **permanent** entry (a transient
+        // for the same observer may coexist — e.g. observing a transient-only
+        // removed node — and must not be promoted to permanent; it is cleared on
+        // the next microtask. `notify`'s §4.3.2 interestedObservers collapse folds
+        // any resulting permanent+transient pair into one record).
         if let Ok(mut comp) = dom.world_mut().get::<&mut MutationObservedBy>(target) {
-            if let Some(existing) = comp.0.iter_mut().find(|o| o.observer == id) {
+            if let Some(existing) = comp.0.iter_mut().find(|o| o.observer == id && !o.transient) {
                 existing.init = init;
-                existing.transient = false;
             } else {
                 comp.0.push(MutationObservation {
                     observer: id,
@@ -213,6 +230,7 @@ impl MutationObserverRegistry {
     pub fn unregister(&mut self, dom: &mut EcsDom, id: MutationObserverId) {
         self.disconnect(dom, id);
         self.records.remove(&id);
+        self.pending.remove(&id);
     }
 
     /// Drain every observer's pending records without dropping observer ids.
@@ -228,6 +246,9 @@ impl MutationObserverRegistry {
         for queue in self.records.values_mut() {
             queue.clear();
         }
+        // Drop the pending-mutation-observers set too: its ids reference the
+        // outgoing world's delivery cycle and must not survive a rebind.
+        self.pending.clear();
     }
 
     /// Queue matching records from a session-level `MutationRecord` to all
@@ -347,7 +368,8 @@ impl MutationObserverRegistry {
             // kinds above (`CssRule` never sets `kind_matches`).
             _ => return false,
         };
-        // step 4: enqueue one record per interested observer.
+        // step 4: enqueue one record per interested observer, and append it to
+        // the agent's pending mutation observers (step 4.3).
         let mut enqueued = false;
         for (observer, old_value) in interested {
             if let Some(queue) = self.records.get_mut(&observer) {
@@ -361,6 +383,7 @@ impl MutationObserverRegistry {
                     attribute_name: record.attribute_name.clone(),
                     old_value,
                 });
+                self.pending.insert(observer);
                 enqueued = true;
             }
         }
@@ -373,14 +396,18 @@ impl MutationObserverRegistry {
         self.records.values().any(|queue| !queue.is_empty())
     }
 
-    /// Returns observer IDs that have pending records, in id order (monotonic =
-    /// registration order). `records` is a `BTreeMap`, so its iteration is
-    /// already key-ordered — deterministic delivery is structural, no sort.
-    pub fn observers_with_records(&self) -> impl Iterator<Item = MutationObserverId> + '_ {
-        self.records
-            .iter()
-            .filter(|(_, queue)| !queue.is_empty())
-            .map(|(id, _)| *id)
+    /// Take the agent's **pending mutation observers** as `notifySet` (WHATWG DOM
+    /// §4.3 "notify mutation observers" step 2 clone + step 3 empty), in id order
+    /// (the `BTreeSet` is key-ordered, so delivery stays registration-ordered by
+    /// construction — no sort).
+    ///
+    /// This is the delivery-cycle's observer set, **not** derived from record-queue
+    /// non-emptiness: an observer whose queue the page drained via `takeRecords()`
+    /// is still returned here, so the microtask runs step 6.3 (transient clearing)
+    /// for it. Draining the set models steps 2–3 (clone then empty); records
+    /// queued during a callback re-populate it for the next microtask.
+    pub fn take_pending_observers(&mut self) -> Vec<MutationObserverId> {
+        std::mem::take(&mut self.pending).into_iter().collect()
     }
 }
 
@@ -759,7 +786,7 @@ mod tests {
     }
 
     #[test]
-    fn observers_with_records_is_id_sorted() {
+    fn take_pending_observers_is_id_sorted() {
         let mut dom = EcsDom::new();
         let el = elem(&mut dom, "div");
 
@@ -786,13 +813,103 @@ mod tests {
         reg.notify(&dom, &record);
 
         let got: Vec<u64> = reg
-            .observers_with_records()
+            .take_pending_observers()
+            .into_iter()
             .map(MutationObserverId::raw)
             .collect();
         let mut sorted = got.clone();
         sorted.sort_unstable();
         assert_eq!(got.len(), 4);
-        assert_eq!(got, sorted, "observers_with_records must be id-sorted");
+        assert_eq!(got, sorted, "take_pending_observers must be id-sorted");
+        // Draining the notifySet leaves it empty (step 3 "empty pending").
+        assert!(reg.take_pending_observers().is_empty());
+    }
+
+    /// Codex R1 (P2): the §4.3 notifySet is the pending-mutation-observers set,
+    /// NOT derived from record-queue contents — so `takeRecords()` draining an
+    /// observer's queue before the microtask must NOT drop it from `notifySet`
+    /// (else its step-6.3 transient clear is skipped and the transient leaks).
+    #[test]
+    fn pending_observer_survives_take_records() {
+        let mut dom = EcsDom::new();
+        let el = elem(&mut dom, "div");
+        let mut reg = MutationObserverRegistry::new();
+        let id = reg.register();
+        reg.observe(
+            &mut dom,
+            id,
+            el,
+            MutationObserverInit {
+                child_list: true,
+                ..Default::default()
+            },
+        );
+
+        let child = elem(&mut dom, "span");
+        let record = child_list_added(el, vec![child]);
+        reg.notify(&dom, &record);
+
+        // The page calls takeRecords() before the microtask — empties the queue
+        // but must not remove the observer from the pending notifySet.
+        assert_eq!(reg.take_records(id).len(), 1);
+        assert!(!reg.has_pending_records(), "record queue drained");
+        assert_eq!(
+            reg.take_pending_observers(),
+            vec![id],
+            "observer is still in the notifySet after takeRecords()"
+        );
+    }
+
+    /// Codex R1 (P2): observing a node that holds ONLY a transient registration
+    /// for the observer must not be treated as a step-7.1 re-observe source — so
+    /// it must NOT clear an unrelated removed subtree's transients.
+    #[test]
+    fn observe_on_transient_only_node_keeps_other_transients() {
+        let mut dom = EcsDom::new();
+        let root = elem(&mut dom, "div");
+        let a = elem(&mut dom, "div");
+        let b = elem(&mut dom, "div");
+        let _ = dom.append_child(root, a);
+        let _ = dom.append_child(root, b);
+
+        let mut reg = MutationObserverRegistry::new();
+        let id = reg.register();
+        reg.observe(
+            &mut dom,
+            id,
+            root,
+            MutationObserverInit {
+                child_list: true,
+                subtree: true,
+                ..Default::default()
+            },
+        );
+
+        // Remove both children (coalesced removal) → each gets a transient for id.
+        assert!(dom.remove_child(root, a));
+        assert!(dom.remove_child(root, b));
+        add_transient_observers(&mut dom, root, &[a, b]);
+        assert_eq!(count_entries(&dom, a, id, true), 1);
+        assert_eq!(count_entries(&dom, b, id, true), 1);
+
+        // Observe `a` (which has ONLY a transient for id) before the microtask.
+        reg.observe(
+            &mut dom,
+            id,
+            a,
+            MutationObserverInit {
+                child_list: true,
+                ..Default::default()
+            },
+        );
+        // `a` gains a permanent registration; its transient is untouched and — the
+        // key assertion — `b`'s unrelated transient is NOT cleared.
+        assert_eq!(count_entries(&dom, a, id, false), 1, "a now permanent");
+        assert_eq!(
+            count_entries(&dom, b, id, true),
+            1,
+            "b's transient survives"
+        );
     }
 
     // ---- Transient registered observers (DOM §4.3 / §4.2.3 step 15) ----
