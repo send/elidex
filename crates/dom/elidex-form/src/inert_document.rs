@@ -33,8 +33,8 @@ use crate::create_form_control_state;
 /// Document entity.
 ///
 /// `caller_base_url` is the calling document's URL (HTML §8.5.1 step 2:
-/// "the new Document's URL is the URL of the active document of the relevant
-/// global object's browsing context"), used as the base-URL fallback when
+/// "Let document be a new Document … whose … URL is this's relevant global
+/// object's associated Document's URL"), used as the base-URL fallback when
 /// the parsed markup has no `<base href>`: a `<base>`-less DOMParser document
 /// then resolves relative URLs against the CALLER's page, not `about:blank`.
 ///
@@ -173,6 +173,21 @@ pub fn parse_into_inert_document(dom: &mut EcsDom, markup: &str, caller_base_url
     // `<base href>` at all — so a `<base>`-less parsed document resolves relative
     // URLs against the CALLER's page, not `about:blank`. Like FCS this is a PURE
     // component attach (NO script reactions), safe inside the suppressed window.
+    //
+    // BOUNDARY (`#11-document-url-real-navigation`): `caller_base_url` is a
+    // one-shot SEED for `DocumentBaseUrl` only — it is NOT stored as this
+    // document's URL fact. The OTHER base-URL consumers that fall back to a
+    // document URL therefore still see `about:blank` for this throwaway
+    // document: the `<base>.href` IDL getter (`href_accessor::effective_base_url`)
+    // and any POST-return `<base>` insert/remove/attribute reconcile (the live
+    // `BaseUrlMaintainer` arms all fall back to `about_blank_url()`). So
+    // §8.5.1 step 2 ("the new Document's URL is the caller's") is applied to
+    // `baseURI` but only PARTIALLY to those derived paths. The full fix is the
+    // engine-wide document-URL-as-stored-fact graduation — shared with the page
+    // document (which carries the same `about:blank` stub) and owned by that
+    // slot, NOT this DOMParser slice (a DOMParser-only `DocumentUrl` component
+    // would be a strangler half-migration). VM ≥ boa is preserved (boa never
+    // stored a document URL either). Codex R4-F1.
     elidex_dom_api::initialize_base_url_for_document(dom, doc, caller_base_url);
 
     if let Some(dispatcher) = saved_dispatcher {

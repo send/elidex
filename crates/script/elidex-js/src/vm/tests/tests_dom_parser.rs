@@ -708,3 +708,50 @@ fn xml_serializer_real_node_still_serializes_after_window_gate() {
     );
     vm.unbind();
 }
+
+#[test]
+fn dom_parser_xml_serializer_not_exposed_in_worker_scope() {
+    // Codex R4: DOMParser + XMLSerializer are `[Exposed=Window]`
+    // (HTML §8.5.1 / §8.5.8, webref-verified) — a worker realm has no
+    // document surface, so it must NOT get either constructor (otherwise
+    // worker code could build DOM `Document` wrappers in a realm that has
+    // no document at all). Mirrors `media_query_list_not_exposed_in_worker_scope`.
+    let mut vm = Vm::new_worker(
+        "w".to_string(),
+        url::Url::parse("https://example.com/w.js").unwrap(),
+        true,
+        elidex_net::CredentialsMode::SameOrigin,
+        elidex_plugin::EngineMode::BrowserCompat,
+    );
+    vm.install_host_data(super::super::host_data::HostData::new());
+    assert_true(
+        &mut vm,
+        "typeof DOMParser === 'undefined' && typeof XMLSerializer === 'undefined';",
+    );
+}
+
+#[test]
+fn dom_parser_and_serializer_no_op_after_unbind_without_throwing() {
+    // Codex R4: a DOMParser / XMLSerializer wrapper retained across
+    // `Vm::unbind()` must follow the silent-detached policy the rest of the
+    // DOM-touching native family uses (`class_list` / `css_style_declaration`):
+    // the binding check runs BEFORE argument coercion / validation, so a
+    // detached call no-op's instead of throwing.
+    //   - `parseFromString` returns null without ToString-coercing the args
+    //     (a `Symbol` arg would otherwise throw) or validating the MIME (an
+    //     unsupported type would otherwise throw).
+    //   - `serializeToString` returns "" without running the Node-arg gate
+    //     (a non-Node arg would otherwise throw a TypeError).
+    let (mut vm, _s, _d) = bound_vm();
+    vm.eval("globalThis.p = new DOMParser(); globalThis.s = new XMLSerializer();")
+        .unwrap();
+    vm.unbind();
+    assert_true(
+        &mut vm,
+        r"
+        globalThis.p.parseFromString(Symbol('x'), 'text/html') === null
+        && globalThis.p.parseFromString('<p>x</p>', 'application/json') === null
+        && globalThis.s.serializeToString(42) === '';
+    ",
+    );
+}

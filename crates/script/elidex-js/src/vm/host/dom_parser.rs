@@ -228,6 +228,18 @@ fn native_dom_parser_parse_from_string(
 ) -> Result<JsValue, VmError> {
     require_dom_parser_this(ctx, this, "parseFromString")?;
 
+    // Unbound VM (wrapper retained across `Vm::unbind()`): there is no DOM
+    // to parse into. Follow the silent-detached policy the DOM-touching
+    // native family uses (`class_list` / `css_style_declaration` check
+    // `host_if_bound()` first), returning the no-op value BEFORE coercing
+    // the args or validating the MIME — otherwise a retained
+    // `parser.parseFromString(Symbol(), 'text/html')` (ToString-throws) or
+    // an unsupported MIME type would still throw a TypeError after unbind
+    // instead of no-op'ing like the rest of the family (Codex R4).
+    if ctx.host_if_bound().is_none() {
+        return Ok(JsValue::Null);
+    }
+
     let markup_arg = args.first().copied().unwrap_or(JsValue::Undefined);
     let type_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
     let markup_sid = super::super::coerce::to_string(ctx.vm, markup_arg)?;
@@ -269,16 +281,15 @@ fn native_dom_parser_parse_from_string(
     // in `elidex_form`, not `vm/host/`). The native is marshalling-only:
     // it just hands the resolved markup + caller URL to the primitive and
     // wraps the returned entity.
-    let Some(doc_entity) = ctx.host_if_bound().map(|host| {
-        host.with_session_and_dom(|_session, dom| {
+    // Boundness was checked at entry (the unbound no-op returns null above)
+    // and a synchronous native cannot be re-entered to unbind mid-call, so
+    // the host is present by construction here.
+    let doc_entity = ctx
+        .host_if_bound()
+        .expect("DOMParser bound: host_if_bound() checked at native entry")
+        .with_session_and_dom(|_session, dom| {
             elidex_form::parse_into_inert_document(dom, &markup, &caller_url)
-        })
-    }) else {
-        // Unbound VM (wrapper retained across `unbind()`) — no DOM to
-        // parse into. Return null (silent no-op policy for unbound
-        // DOM-touching natives).
-        return Ok(JsValue::Null);
-    };
+        });
 
     // Wrap the Document entity + install the per-entity Document method
     // suite (idempotent, entity-keyed) so the returned object exposes
@@ -324,6 +335,17 @@ fn native_xml_serializer_serialize_to_string(
 ) -> Result<JsValue, VmError> {
     require_xml_serializer_this(ctx, this, "serializeToString")?;
 
+    // Unbound VM (wrapper retained across `Vm::unbind()`): no DOM to read.
+    // Return the no-op empty string BEFORE the Node-arg validation below,
+    // so a retained `serializer.serializeToString(<non-Node>)` no-op's like
+    // the rest of the DOM-touching native family instead of throwing a
+    // TypeError from the arg gate after unbind (Codex R4, sibling of the
+    // DOMParser `parseFromString` fix above).
+    if ctx.host_if_bound().is_none() {
+        let empty = ctx.vm.strings.intern("");
+        return Ok(JsValue::String(empty));
+    }
+
     // WebIDL `serializeToString(Node root)` — the argument is required.
     // boa threw a TypeError when the arg was absent / not a node; match
     // that by requiring a HostObject node wrapper.
@@ -342,12 +364,10 @@ fn native_xml_serializer_serialize_to_string(
         ));
     };
 
-    let Some((dom, strings)) = ctx.dom_and_strings_if_bound() else {
-        // Unbound — no DOM to read. Return empty string (silent no-op
-        // policy for unbound DOM-touching natives).
-        let empty = ctx.vm.strings.intern("");
-        return Ok(JsValue::String(empty));
-    };
+    // Bound (checked at entry): borrow the DOM + string pool for the read.
+    let (dom, strings) = ctx
+        .dom_and_strings_if_bound()
+        .expect("XMLSerializer bound: host_if_bound() checked at native entry");
     // WebIDL `serializeToString(Node root)`: the HostObject extraction above
     // accepts ANY entity-backed host object, but `globalThis` / `window` is a
     // HostObject over `NodeKind::Window` (an EventTarget, NOT a Node). Reject

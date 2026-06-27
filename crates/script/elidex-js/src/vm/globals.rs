@@ -843,14 +843,20 @@ impl VmInner {
             self.register_text_encoder_global();
             self.register_text_decoder_global();
             // `DOMParser` (HTML §8.5.1) + `XMLSerializer` (HTML §8.5.8).
-            // Core modern Web APIs (installed
-            // unconditionally, like Blob — no SpecLevel gate).  Both
+            // Both are `[Exposed=Window]` (webref-verified) — Window realm
+            // ONLY. A worker realm has no document surface, so installing
+            // them there would hand worker code DOM `Document` wrappers
+            // (`DOMParser.parseFromString` returns a `Document`) despite the
+            // realm having no document at all (Codex R4). Gated like
+            // `MediaQueryList` / the `customElements` registry above. Both
             // prototypes chain only on `Object.prototype`; the
             // `DOMParser.parseFromString` Document wrapper needs
-            // `node_prototype` (already installed by
-            // `register_prototypes` before this block).  S5-1.
-            self.register_dom_parser_global();
-            self.register_xml_serializer_global();
+            // `node_prototype` (already installed by `register_prototypes`
+            // before this block). S5-1.
+            if matches!(self.global_scope_kind, GlobalScopeKind::Window) {
+                self.register_dom_parser_global();
+                self.register_xml_serializer_global();
+            }
             let request_proto = self
                 .request_prototype
                 .expect("request_prototype populated by register_request_global");
