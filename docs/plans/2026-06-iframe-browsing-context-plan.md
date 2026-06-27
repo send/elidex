@@ -24,9 +24,19 @@ Two stub families share the same underlying deferral:
    `frameElement`/`opener` return `null`; `length` returns `0`;
    `closed` returns `false`.
 
-Both families are spec-correct for top-level / cross-origin contexts but
-observably wrong for same-origin sub-frames.  They are one browsing-context
-family: the real implementation requires the same underlying model.
+These stubs return correct values **only for a genuine top-level window with
+no parent, no opener, and no child frames**.  For any other context:
+
+- `contentDocument` returning `null` is spec-correct for **cross-origin** frames
+  but wrong for same-origin frames (§7.3.1.3 step 3).
+- `contentWindow` returning `null` is **wrong for all frames** — even cross-origin
+  frames must receive a restricted `WindowProxy` (§7.3.1.3 content-window steps
+  have no origin gate; cross-origin restriction comes from proxy traps §7.2.3).
+- `parent` / `top` / `frames` / `frameElement` / `opener` are wrong for any
+  sub-frame or opened window context.
+
+They share the same underlying deferral: the real implementation requires the same
+underlying sub-frame browsing-context entity model.
 
 ---
 
@@ -103,7 +113,7 @@ These four sub-models interact; C1+ design must hold all invariants simultaneous
 |---|---|---|---|---|
 | Child navigation (same slot, new document) | active document pointer updates | `ObjectId` stays stable (WindowProxy persists across navigation, §7.2.3) | origin re-derived from new active document at next access | forwarding target updates to new VM/global if VM changes |
 | iframe removed from DOM (detach) | entity enters detached state; content navigable = null | `ObjectId` keeps existing wrapper alive until GC | contentDocument → null (step 1); contentWindow → null (step 1) | forwarding terminates; proxy becomes inert |
-| sandbox `allow-same-origin` toggle | sandbox flags re-read from attribute each time | unchanged | effective origin may shift from opaque → real depending on flags | unchanged |
+| sandbox `allow-same-origin` toggle (attribute mutation post-load) | **attribute mutation does NOT take effect immediately** — applied sandbox flags are snapshotted at navigation time and stored with the content navigable; C1+ must snapshot at navigation, not re-read from the attribute on every access | unchanged | origin / opaque-origin determination uses the **snapshotted** sandbox flags from navigation, not the current attribute value; re-reading the attribute would allow scripts to flip `contentDocument` access without a reload | unchanged |
 | Script holds `WindowProxy` reference across navigation | no entity change | same `ObjectId`; `[[Get]]` forwards to new active Window | not applicable (no origin gate on contentWindow) | forwarding target must update atomically with navigation |
 | Cross-origin access to `frameElement` | unchanged | not applicable | `frameElement` getter uses caller ↔ container doc origin check (§7.2.2.4), not active-document check | not applicable |
 

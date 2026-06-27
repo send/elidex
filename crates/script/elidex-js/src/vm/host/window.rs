@@ -309,7 +309,13 @@ pub(super) fn native_window_get_device_pixel_ratio(
 // ---------------------------------------------------------------------------
 //
 // Deferred stubs for `self`/`parent`/`top`/`frames`/`frameElement`/
-// `opener`/`length`/`closed`.
+// `length`/`closed` — all under `#11-windowproxy-browsing-context`.
+//
+// `opener` is included in this group **mechanically** (same stub) but
+// its correctness is tracked under a separate slot:
+//   `#11-auxiliary-browsing-context-opener` (window.open() scope).
+// C1+ may close `#11-windowproxy-browsing-context` (implement sub-frame
+// accessors) while leaving `opener` as a null stub under its own slot.
 //
 // Why: sub-frame browsing-context entity model and cross-VM
 // Document/Window proxy identity are not yet implemented.  The VM
