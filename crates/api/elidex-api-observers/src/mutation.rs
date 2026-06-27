@@ -85,12 +85,12 @@ pub struct MutationRecord {
 /// `source: Some(src_reg_id)` — the `reg_id` of the ancestor registration that
 /// spawned it (`None` for a permanent registration). The two clearings key
 /// differently, matching the spec: notify step 6.3 removes transients **by
-/// observer** ("observer is mo"), while observe() step 7.1 removes only those
-/// **by source** ("source is registered" = the *specific registration* being
-/// re-observed). Keying `source` on the registration `reg_id` (not the ancestor
-/// entity) correctly distinguishes multiple registrations of the same observer
-/// on one node (a permanent + a chained transient), so re-observe clears only the
-/// transients sourced from the re-observed registration.
+/// observer** ("observer is mo"), while observe() step 7.1 removes them **by
+/// source** ("source is registered") — once per registration of this observer on
+/// the re-observed node (§4.3.1 step 7 matches every registration for `this`,
+/// transient or permanent). Keying `source` on the registration `reg_id` (not the
+/// ancestor entity) correctly distinguishes multiple registrations of the same
+/// observer on one node (a permanent + a chained transient).
 #[derive(Debug, Clone)]
 struct MutationObservation {
     observer: MutationObserverId,
@@ -267,64 +267,65 @@ impl MutationObserverRegistry {
         if !self.records.contains_key(&id) {
             return;
         }
-        // §4.3.1 `observe()` step 7.1 (re-observe): when `target` already carries
-        // a **permanent** registration for this observer, remove the transient
-        // registered observers whose **source is that registration** — keyed on
-        // that registration's `reg_id`. This clears only transients spawned from
-        // the registration being re-observed; transients sourced from a *different*
-        // registration of the same observer (another ancestor, or a chained
-        // transient on this entity) survive (DOM §4.3.1 step 7.1 is source-keyed,
-        // not observer-keyed). The precondition is gated on `!transient`: a
-        // *transient* entry on `target` is not a step-7.1 source (only a permanent
-        // registration is the one being updated), so observing a node that merely
-        // carries a pending transient for this observer does not fire the clear.
-        // A fresh observe (step 8, no existing permanent) skips the scan.
-        let existing_reg_id = dom
+        // §4.3.1 `observe()` step 7: "for each registered of target's registered
+        // observer list, if registered's observer is this" — a **transient**
+        // registered observer is a registered observer, so step 7 matches it too
+        // (not just a permanent one). Collect every matching registration's
+        // `reg_id` on `target` (immutable read first). Step 8 ("Otherwise") adds a
+        // new permanent registration **only if NONE matched** — so observing a node
+        // that already carries a (transient or permanent) registration for this
+        // observer updates that registration in place and does NOT add a spurious
+        // permanent (which would otherwise outlive the next microtask's step-6.3
+        // clear of the transient).
+        let matched_reg_ids: Vec<u64> = dom
             .world()
             .get::<&MutationObservedBy>(target)
-            .ok()
-            .and_then(|c| {
+            .map(|c| {
                 c.0.iter()
-                    .find(|o| o.observer == id && !o.transient)
+                    .filter(|o| o.observer == id)
                     .map(|o| o.reg_id)
-            });
-        if let Some(reg_id) = existing_reg_id {
-            clear_transient_observers_by_source(dom, reg_id);
-        }
-        // step 7.2 / step 8: ensure `target` holds exactly one permanent
-        // registration with `init`. Match only a **permanent** entry (a transient
-        // for the same observer may coexist — e.g. observing a transient-only
-        // removed node — and must not be promoted to permanent; it is cleared on
-        // the next microtask. `notify`'s §4.3.2 interestedObservers collapse folds
-        // any resulting permanent+transient pair into one record). A step-7.2
-        // update keeps the existing `reg_id` (same registration); a step-8 insert
-        // allocates a fresh one.
-        if let Ok(mut comp) = dom.world_mut().get::<&mut MutationObservedBy>(target) {
-            if let Some(existing) = comp.0.iter_mut().find(|o| o.observer == id && !o.transient) {
-                existing.init = init;
-            } else {
-                let reg_id = self.alloc_reg_id();
-                comp.0.push(MutationObservation {
-                    observer: id,
-                    init,
-                    transient: false,
-                    source: None,
-                    reg_id,
-                });
-            }
-            return;
-        }
-        let reg_id = self.alloc_reg_id();
-        let _ = dom.world_mut().insert_one(
-            target,
-            MutationObservedBy(vec![MutationObservation {
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        if matched_reg_ids.is_empty() {
+            // step 8: add a new permanent registration. Split the existence check
+            // from the mutation so the `Ok`-arm borrow does not extend into the
+            // insert arm (NLL temporary lifetime).
+            let reg_id = self.alloc_reg_id();
+            let entry = MutationObservation {
                 observer: id,
                 init,
                 transient: false,
                 source: None,
                 reg_id,
-            }]),
-        );
+            };
+            let has_comp = dom.world().get::<&MutationObservedBy>(target).is_ok();
+            if has_comp {
+                if let Ok(mut comp) = dom.world_mut().get::<&mut MutationObservedBy>(target) {
+                    comp.0.push(entry);
+                }
+            } else {
+                let _ = dom
+                    .world_mut()
+                    .insert_one(target, MutationObservedBy(vec![entry]));
+            }
+            return;
+        }
+        // step 7.1: for each matched registration, remove the transient registered
+        // observers whose source is it (keyed on that registration's `reg_id`),
+        // tree-wide. (A matched permanent's reg_id sources the transients spawned
+        // from it; a matched transient's reg_id sources any chained transients.)
+        for reg_id in &matched_reg_ids {
+            clear_transient_observers_by_source(dom, *reg_id);
+        }
+        // step 7.2: set each surviving matched registration's options to `init`
+        // (the matched registration keeps its `transient`-ness and `reg_id`).
+        if let Ok(mut comp) = dom.world_mut().get::<&mut MutationObservedBy>(target) {
+            for o in comp.0.iter_mut().filter(|o| o.observer == id) {
+                o.init = init.clone();
+            }
+        }
     }
 
     /// Stop observing all targets for this observer.
@@ -940,9 +941,11 @@ mod tests {
         );
     }
 
-    /// Codex R1 (P2): observing a node that holds ONLY a transient registration
-    /// for the observer must not be treated as a step-7.1 re-observe source — so
-    /// it must NOT clear an unrelated removed subtree's transients.
+    /// Codex R1 (P2) + R8-L1: observing a node that holds ONLY a transient
+    /// registration matches it in §4.3.1 step 7 (a transient IS a registered
+    /// observer), so step 8 does NOT add a spurious permanent — the transient is
+    /// updated in place and lapses on the next microtask. The step-7.1 clear is
+    /// source-keyed, so an unrelated removed subtree's transient is NOT cleared.
     #[test]
     fn observe_on_transient_only_node_keeps_other_transients() {
         let mut dom = EcsDom::new();
@@ -982,9 +985,19 @@ mod tests {
                 ..Default::default()
             },
         );
-        // `a` gains a permanent registration; its transient is untouched and — the
-        // key assertion — `b`'s unrelated transient is NOT cleared.
-        assert_eq!(count_entries(&dom, a, id, false), 1, "a now permanent");
+        // §4.3.1 step 7 matches `a`'s transient → step 8 does NOT add a permanent;
+        // `a` stays transient (and lapses next microtask). `b`'s unrelated transient
+        // (different source) is NOT cleared.
+        assert_eq!(
+            count_entries(&dom, a, id, false),
+            0,
+            "no spurious permanent added (step 7 matched the transient)"
+        );
+        assert_eq!(
+            count_entries(&dom, a, id, true),
+            1,
+            "a's transient updated in place"
+        );
         assert_eq!(
             count_entries(&dom, b, id, true),
             1,
@@ -1514,15 +1527,16 @@ mod tests {
         );
     }
 
-    /// Codex R4 (P2, H1): when one observer holds TWO registrations on a single
+    /// Codex R4-H1 + R8-L1: when one observer holds TWO registrations on a single
     /// node (a permanent + a chained transient, both subtree), the transients they
     /// spawn on a removed descendant carry distinct `source` reg-ids. Re-observing
-    /// that node clears only the transient sourced from its permanent registration,
-    /// preserving the chained (e.g. grandparent-derived) one. The ancestor-entity
-    /// source key could not distinguish these (both `source == mid`); the reg-id
-    /// key can.
+    /// that node matches BOTH registrations (§4.3.1 step 7 — a transient is a
+    /// registered observer), so step 7.1 clears the transients sourced from each →
+    /// both chained child transients are cleared. (The reg-id source key is what
+    /// makes per-registration step-7.1 possible at all; the ancestor-entity key
+    /// could not distinguish the two child transients, both `source == mid`.)
     #[test]
-    fn reobserve_distinguishes_chained_transient_sources_on_one_node() {
+    fn reobserve_matching_both_registrations_clears_both_chained_sources() {
         let mut dom = EcsDom::new();
         let grandparent = elem(&mut dom, "div");
         let parent = elem(&mut dom, "div");
@@ -1553,8 +1567,9 @@ mod tests {
         reg.add_transient_observers(&mut dom, mid, &[child]);
         assert_eq!(count_entries(&dom, child, id, true), 2);
 
-        // Re-observe mid → clears only the transient sourced from mid's permanent
-        // registration; the grandparent-chained one survives.
+        // Re-observe mid → step 7 matches BOTH mid's permanent and mid's transient
+        // (both have observer == id); step 7.1 clears the child transients sourced
+        // from each → both cleared.
         reg.observe(
             &mut dom,
             id,
@@ -1567,13 +1582,12 @@ mod tests {
         );
         assert_eq!(
             count_entries(&dom, child, id, true),
-            1,
-            "only mid's own-source transient cleared; the chained one survives"
+            0,
+            "both child transients (sourced from mid's permanent + transient) cleared"
         );
-        // A mutation in the doubly-detached child still reaches the observer.
+        // The doubly-detached child no longer reaches the observer.
         let x = elem(&mut dom, "span");
-        assert!(reg.notify(&dom, &child_list_added(child, vec![x])));
-        assert_eq!(reg.take_records(id).len(), 1);
+        assert!(!reg.notify(&dom, &child_list_added(child, vec![x])));
     }
 
     /// Codex R4 (P2, H2): the pending mutation observers set delivers in spec
