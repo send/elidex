@@ -337,6 +337,38 @@ fn native_dom_parser_parse_from_string(
                     ..SetInnerHtmlOptions::default()
                 },
             );
+            // === Inert-document STRUCTURAL-FACT finalization ===
+            //
+            // The dispatcher suppression above silences ALL seven mutation
+            // consumers (`vm/consumer_dispatcher.rs`) for the inert build. Those
+            // consumers split into two classes, and only one class must be
+            // re-run document-scoped here:
+            //
+            //   * STRUCTURAL-FACT reconcilers — DOM facts a real parse would set
+            //     that are INDEPENDENT of scripting (`.value`, `baseURI`). These
+            //     MUST run even for an inert §13.4 document. The dispatcher drives
+            //     exactly two: `FormControlReconciler` (#4, FCS attach) and
+            //     `BaseUrlMaintainer` (#3, `<base href>` → `DocumentBaseUrl`).
+            //     Both are re-run document-scoped below.
+            //   * SCRIPT-ACTIVATION reconcilers — these run scripts / compile
+            //     handlers and MUST STAY suppressed for an inert document (no
+            //     browsing context, scripting disabled): `CustomElementReaction
+            //     Consumer` (#7, constructor + connectedCallback upgrade) and
+            //     `EventHandlerAttributeConsumer` (#5, `on*` content-attr handler
+            //     processing — HTML §8.1.3.4 does NOT process event-handler attrs
+            //     when scripting is disabled, which a DOMParser document is; the
+            //     dedicated scripting-disabled-event-handler slice is future S5-4).
+            //     Leaving both off is the CORRECT inert behavior, not a gap.
+            //
+            // The remaining three consumers need NO init here: `LiveRangeBridge`
+            // (#1) / `NodeIteratorAdjuster` (#2) track JS-allocated handles that
+            // can only exist post-bind (nothing to seed for a fresh document),
+            // and `CanvasReconciler` (#6) is AttributeChange-only with initial
+            // canvas state seeded at element creation. So {FCS, base-url} is the
+            // COMPLETE structural-fact set for the inert throwaway document —
+            // this CLOSES the reconciler class (no per-round reconciler gap left).
+            //
+            // --- #4 FormControlReconciler (FCS) ---
             // Attach `FormControlState` to the parsed form controls,
             // SUBTREE-SCOPED to ONLY the throwaway document's descendants (NOT
             // whole-dom `init_form_controls`, which would clobber the shared
@@ -351,15 +383,10 @@ fn native_dom_parser_parse_from_string(
             // the single-entity primitive, which already does the per-control
             // fieldset-disabled check (no whole-dom `propagate_fieldset_disabled`
             // needed) and no-ops on non-control entities (Document / <html>).
-            //
-            // The dispatcher suppression above takes out
-            // `FormControlReconciler`, which would otherwise attach FCS on the
-            // live-page Insert path; that path is intentionally off for the
-            // inert build, so FCS is attached here instead. Done INSIDE the
-            // suppressed window so the §13.4 inert guarantee holds —
             // `create_form_control_state` is a PURE component attach (NO
-            // custom-element upgrade / NO script reactions). Without this,
-            // `input.value` on a DOMParser'd control reads "" because no
+            // custom-element upgrade / NO script reactions), so doing it inside
+            // the suppressed window preserves the §13.4 inert guarantee. Without
+            // this, `input.value` on a DOMParser'd control reads "" because no
             // `FormControlState` was ever attached.
             //
             // Two-phase (collect-then-mutate): the walker borrows `&self` but
@@ -370,6 +397,18 @@ fn native_dom_parser_parse_from_string(
             for entity in subtree {
                 let _ = elidex_form::create_form_control_state(dom, entity);
             }
+            // --- #3 BaseUrlMaintainer (base URL) ---
+            // Derive the throwaway document's `DocumentBaseUrl` from any parsed
+            // `<base href>` (HTML §2.4.3) so `doc.baseURI` / relative-URL
+            // resolution reflect it — the same DOM fact the live-page
+            // `BaseUrlMaintainer` Insert path would set, also off under the
+            // suppressed dispatcher. Document-scoped to `doc` (NOT the page
+            // root) via the engine-indep base-url primitive shared with the
+            // bind path (`BaseUrlMaintainer::initialize_from_tree` delegates to
+            // the same finalizer — one-issue-one-way). Like FCS, this is a PURE
+            // component attach (NO script reactions), safe inside the suppressed
+            // window.
+            elidex_dom_api::initialize_base_url_for_document(dom, doc);
             if let Some(dispatcher) = saved_dispatcher {
                 dom.set_mutation_dispatcher(dispatcher);
             }

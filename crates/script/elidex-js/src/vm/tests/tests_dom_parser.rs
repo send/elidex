@@ -432,6 +432,56 @@ fn dom_parser_does_not_clobber_page_form_control_state() {
 }
 
 #[test]
+fn dom_parser_base_href_sets_document_base_url() {
+    let (mut vm, _s, _d) = bound_vm();
+    // Codex R2-F2 regression: a parsed `<base href>` must set the throwaway
+    // document's base URL, exactly as a live parse would. The throwaway build
+    // suppresses the WHOLE mutation dispatcher (the §13.4 inert guarantee),
+    // which also takes out `BaseUrlMaintainer` (#3 in `consumer_dispatcher.rs`)
+    // — the live-page Insert path that derives `DocumentBaseUrl` from the first
+    // `<base href>` (HTML §2.4.3). `BaseUrlMaintainer` is a STRUCTURAL-FACT
+    // reconciler (`baseURI` is a DOM fact independent of scripting), so it is
+    // re-run document-scoped inside the suppressed window via
+    // `elidex_dom_api::initialize_base_url_for_document(dom, doc)`. WITHOUT that
+    // call the base URL stays the `about:blank` fallback and this assertion
+    // fails (`doc.baseURI === 'about:blank'`); WITH it the parsed `<base>` is
+    // honored.
+    assert_true(
+        &mut vm,
+        r#"
+        var parser = new DOMParser();
+        var doc = parser.parseFromString(
+            '<head><base href="https://example.com/dir/"></head><body></body>',
+            'text/html');
+        doc.baseURI === 'https://example.com/dir/';
+    "#,
+    );
+    vm.unbind();
+}
+
+#[test]
+fn dom_parser_relative_href_resolves_against_parsed_base() {
+    let (mut vm, _s, _d) = bound_vm();
+    // Codex R2-F2 companion: the downstream effect of the parsed `<base href>`
+    // — a relative `<a href>` in the same document resolves against the
+    // document base URL (HTML §2.4.3 + the `<a>.href` URL-reflection getter),
+    // not the `about:blank` fallback. Pins the user-observable consequence of
+    // the base-url structural-fact finalization, not just the `baseURI` read.
+    assert_true(
+        &mut vm,
+        r#"
+        var parser = new DOMParser();
+        var doc = parser.parseFromString(
+            '<head><base href="https://example.com/dir/"></head>' +
+            '<body><a id=a href="page.html">x</a></body>',
+            'text/html');
+        doc.querySelector('#a').href === 'https://example.com/dir/page.html';
+    "#,
+    );
+    vm.unbind();
+}
+
+#[test]
 fn dom_parser_noscript_parsed_as_elements_scripting_disabled() {
     let (mut vm, _s, _d) = bound_vm();
     // Codex F3 regression: a DOMParser document is inert (HTML §8.5.1 — no

@@ -73,7 +73,9 @@ pub use dialog::close_the_dialog;
 pub use document::{
     query_selector_all, CreateElement, CreateTextNode, GetElementById, QuerySelector,
 };
-pub use element::document_base::{compute_frozen_url, BaseUrlMaintainer};
+pub use element::document_base::{
+    compute_frozen_url, initialize_base_url_for_document, BaseUrlMaintainer,
+};
 pub use element::href_accessor::{
     HyperlinkHashGet, HyperlinkHashSet, HyperlinkHostGet, HyperlinkHostSet, HyperlinkHostnameGet,
     HyperlinkHostnameSet, HyperlinkHrefGet, HyperlinkHrefSet, HyperlinkOriginGet,

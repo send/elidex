@@ -928,9 +928,10 @@ fn serialize_node(
         html.push_str("-->");
         return;
     }
-    // HTML §13.3 DocumentType: `<!DOCTYPE ` + name + `>` (the simplified
-    // serialization — public/system identifiers are not emitted, matching the
-    // spec's fragment-serialization output for the common `<!DOCTYPE html>`).
+    // HTML §13.3 DocumentType: `<!DOCTYPE ` + name + `>`. This is the COMPLETE
+    // §13.3 output — the HTML fragment-serialization algorithm emits ONLY the
+    // name (public/system identifiers are never serialized by §13.3; emitting
+    // them is XML serialization, deferred to `#11-domparser-xml-real-parsing`).
     if let Ok(doctype) = dom.world().get::<&elidex_ecs::DocTypeData>(entity) {
         html.push_str("<!DOCTYPE ");
         html.push_str(&doctype.name);

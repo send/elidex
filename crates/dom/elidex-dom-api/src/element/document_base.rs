@@ -152,6 +152,30 @@ fn owner_doc(dom: &EcsDom, node: Entity) -> Option<Entity> {
     dom.owner_document(node).or_else(|| dom.document_root())
 }
 
+/// Initialize the 2-layer base URL state for an ARBITRARY document
+/// entity `doc` from its current subtree — the document-scoped
+/// primitive shared by the bind path ([`BaseUrlMaintainer::
+/// initialize_from_tree`], which calls this with `dom.document_root()`)
+/// and any out-of-band tree population that bypasses the live
+/// [`MutationEvent`] dispatcher (e.g. an inert `DOMParser` document
+/// built with the dispatcher suppressed — HTML §13.4).
+///
+/// Attaches [`BaseFrozenUrl`] to every `<base href>` reachable from
+/// `doc` and derives `doc`'s [`DocumentBaseUrl`] from the first such
+/// element in tree order (HTML §2.4.3). Uses the same
+/// [`about_blank_url`] fallback the dispatcher's per-event arms use, so
+/// the eager-init path and the live-mutation path agree on the base URL
+/// (one-issue-one-way: a single base-url finalizer, not a per-call-site
+/// reimplementation). Idempotent — re-running on an already-initialized
+/// subtree is a no-op (each `<base href>` already carries
+/// [`BaseFrozenUrl`]; `recompute_document_base`'s `unchanged`
+/// short-circuit absorbs the [`DocumentBaseUrl`] re-write).
+pub fn initialize_base_url_for_document(dom: &mut EcsDom, doc: Entity) {
+    let fallback = about_blank_url();
+    let _ = attach_frozen_urls_in_subtree(dom, doc, &fallback);
+    recompute_document_base(dom, doc);
+}
+
 /// Returns `true` iff `entity`'s tree root is the EcsDom's
 /// `document_root` — i.e. `entity` lives in the main light tree, not
 /// inside a shadow tree.  Used by the [`BaseUrlMaintainer`] arms to
@@ -204,9 +228,10 @@ impl BaseUrlMaintainer {
         let Some(root) = dom.document_root() else {
             return;
         };
-        let fallback = about_blank_url();
-        let _ = attach_frozen_urls_in_subtree(dom, root, &fallback);
-        recompute_document_base(dom, root);
+        // Delegate to the document-scoped primitive so the bind path and
+        // the out-of-band population path (inert `DOMParser` document)
+        // share ONE base-url finalizer (one-issue-one-way).
+        initialize_base_url_for_document(dom, root);
     }
 
     /// Single-method dispatch entry invoked by
