@@ -65,6 +65,42 @@ impl Range {
         result
     }
 
+    /// Collect the **top-level** nodes fully contained between this range's
+    /// start and end containers, in tree order, omitting any node whose
+    /// ancestor is also contained (WHATWG DOM §5.5 — "all the nodes
+    /// contained ... omitting any node whose parent is also contained").
+    /// Shared by [`Self::delete_contents`] and [`Self::extract_contents`] so
+    /// the two cannot diverge on the omit-nested rule (Codex PR418 R1:
+    /// `delete_contents` had dropped the filter, so a cross-container range
+    /// spanning a nested subtree emitted a spurious childList removal record
+    /// for each descendant — and, after the top-level parent was detached,
+    /// targeted at that now-detached parent — instead of one record per
+    /// top-level contained node).
+    fn contained_top_level_nodes(&self, dom: &EcsDom) -> Vec<Entity> {
+        let mut collected = Vec::new();
+        let mut current = self.start_container;
+        while let Some(next) = next_in_preorder_global(current, dom) {
+            if next == self.end_container {
+                break;
+            }
+            collected.push(next);
+            current = next;
+        }
+        // Omit any node dominated by an already-collected node (DOM §5.5
+        // omit-nested) — preorder guarantees an ancestor is collected before
+        // its descendants, so a single forward dominance scan suffices.
+        let mut top_level: Vec<Entity> = Vec::new();
+        for &node in &collected {
+            if !top_level
+                .iter()
+                .any(|&tl| dom.is_ancestor_or_self(tl, node))
+            {
+                top_level.push(node);
+            }
+        }
+        top_level
+    }
+
     /// Delete the contents of this range.
     ///
     /// Simplified implementation: removes fully-contained nodes, splits
@@ -135,17 +171,10 @@ impl Range {
 
         // 3. Remove fully-contained nodes between start and end via the
         //    record-producing `apply_remove_child` (§5.5 deleteContents
-        //    step 10) — one childList removal record per top-level node.
-        let mut to_remove = Vec::new();
-        let mut current = self.start_container;
-        while let Some(next) = next_in_preorder_global(current, dom) {
-            if next == self.end_container {
-                break;
-            }
-            to_remove.push(next);
-            current = next;
-        }
-        for node in to_remove {
+        //    step 10) — one childList removal record per top-level node
+        //    (`contained_top_level_nodes` applies the §5.5 omit-nested rule
+        //    so a nested descendant does not emit its own record).
+        for node in self.contained_top_level_nodes(dom) {
             if let Some(parent) = dom.get_parent(node) {
                 records.extend(apply_remove_child(dom, parent, node));
             }
@@ -236,27 +265,10 @@ impl Range {
             }
         }
 
-        // 2b. Collect and detach fully-contained nodes between start and end.
-        let mut to_move = Vec::new();
-        let mut current = self.start_container;
-        while let Some(next) = next_in_preorder_global(current, dom) {
-            if next == self.end_container {
-                break;
-            }
-            to_move.push(next);
-            current = next;
-        }
-        // Filter to top-level nodes only (skip descendants of already-collected nodes).
-        let mut top_level = Vec::new();
-        for &node in &to_move {
-            let dominated = top_level
-                .iter()
-                .any(|&tl| dom.is_ancestor_or_self(tl, node));
-            if !dominated {
-                top_level.push(node);
-            }
-        }
-        for node in top_level {
+        // 2b. Move fully-contained top-level nodes into the fragment
+        //     (`contained_top_level_nodes` applies the §5.5 omit-nested rule,
+        //     shared with `delete_contents`).
+        for node in self.contained_top_level_nodes(dom) {
             // §5.5 extractContents step 19 — MOVE the contained child to the
             // fragment via a single `apply_append_child` (F2: NOT a
             // remove_child + append_child pair, so the move source is read
@@ -360,6 +372,17 @@ impl Range {
             if dom.is_ancestor_or_self(n, parent) {
                 return None;
             }
+        }
+        // A `ShadowRoot` is not an insertable node (DOM §4.8 shadow
+        // encapsulation): `apply_insert_before` / `apply_append_child` reject
+        // it (`rejects_shadow_root_insertion`). Mirror that rejection HERE,
+        // before step 7's split — otherwise `Range.insertNode(shadowRoot)` at
+        // a Text boundary splits the text node, *then* gets rejected by the
+        // `apply_*` layer, leaving the DOM mutated while the native reports
+        // `HierarchyRequestError` (violates the rejection guarantee above).
+        // Codex PR418 R1.
+        if dom.is_shadow_root(node) {
+            return None;
         }
 
         // Spec step 7: split if start is Text.  Safe to mutate DOM now —

@@ -4,7 +4,7 @@
 #![allow(unused_must_use)]
 
 use super::*;
-use elidex_ecs::{Attributes, EcsDom, TextContent};
+use elidex_ecs::{Attributes, EcsDom, ShadowRootMode, TextContent};
 
 fn build_range_tree() -> (EcsDom, Entity, Entity, Entity, Entity) {
     let mut dom = EcsDom::new();
@@ -144,6 +144,77 @@ fn range_extract_contents() {
     // Original text should be "Ho".
     let tc = dom.world().get::<&TextContent>(t1).unwrap();
     assert_eq!(tc.0, "Ho");
+}
+
+/// Codex PR418 R1 — `deleteContents` over a cross-container range spanning a
+/// nested subtree must emit **one** childList removal record per top-level
+/// contained node (DOM §5.5 omit-nested), NOT an extra record per descendant.
+/// Before the `contained_top_level_nodes` fix, `<wrap><inner/></wrap>` produced
+/// a spurious second removal record targeting the already-detached `wrap`.
+#[test]
+fn range_delete_contents_omits_nested_removal_records() {
+    let mut dom = EcsDom::new();
+    let root = dom.create_element("div", Attributes::default());
+    let t1 = dom.create_text("a");
+    let wrap = dom.create_element("wrap", Attributes::default());
+    let inner = dom.create_element("inner", Attributes::default());
+    let t2 = dom.create_text("b");
+    dom.append_child(root, t1);
+    dom.append_child(root, wrap);
+    dom.append_child(wrap, inner);
+    dom.append_child(root, t2);
+
+    // Cross-container range: start in t1, end in t2 → spans `wrap` (and its
+    // descendant `inner`) fully.
+    let mut range = Range::new(root);
+    range.set_start(t1, 1);
+    range.set_end(t2, 0);
+    let records = range.delete_contents(&mut dom);
+
+    // Exactly one record: the top-level `wrap` removal targeting `root`.
+    // `inner` is omitted (its parent `wrap` is also contained).
+    assert_eq!(
+        records.len(),
+        1,
+        "a nested descendant must not emit its own removal record"
+    );
+    assert_eq!(records[0].target, root);
+    assert_eq!(records[0].removed_nodes, vec![wrap]);
+    // `wrap` (and its subtree) is gone from `root`.
+    let kids: Vec<_> = dom.children_iter(root).collect();
+    assert_eq!(kids, vec![t1, t2]);
+}
+
+/// Codex PR418 R1 — `Range.insertNode(shadowRoot)` at a Text boundary must be
+/// rejected (returns `None`) **before** the step-7 text split, leaving the DOM
+/// unmutated. A `ShadowRoot` is not an insertable node (DOM §4.8); the
+/// rejection previously happened in the `apply_*` layer AFTER the split, so the
+/// text node was split while the native reported `HierarchyRequestError`.
+#[test]
+fn range_insert_node_rejects_shadow_root_before_split() {
+    let mut dom = EcsDom::new();
+    let root = dom.create_element("div", Attributes::default());
+    let t = dom.create_text("hello");
+    dom.append_child(root, t);
+    let host = dom.create_element("div", Attributes::default());
+    dom.append_child(root, host);
+    let shadow = dom.attach_shadow(host, ShadowRootMode::Open).unwrap();
+
+    let mut range = Range::new(t);
+    range.set_start(t, 2);
+    range.set_end(t, 2);
+    let outcome = range.insert_node(&mut dom, shadow);
+
+    assert!(
+        outcome.is_none(),
+        "inserting a ShadowRoot must be rejected, not inserted"
+    );
+    // The text node must NOT have been split — still the original single node.
+    let tc = dom.world().get::<&TextContent>(t).unwrap();
+    assert_eq!(tc.0, "hello");
+    // `t` is still root's first child with no spurious split-tail sibling.
+    let kids: Vec<_> = dom.children_iter(root).collect();
+    assert_eq!(kids, vec![t, host]);
 }
 
 #[test]
