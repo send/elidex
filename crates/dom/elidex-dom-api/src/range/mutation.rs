@@ -5,7 +5,9 @@ use elidex_script_session::{
     apply_append_child, apply_insert_before, apply_remove_child, MutationRecord,
 };
 
-use super::{next_in_preorder_global, utf16_offset_to_byte_clamped, Range};
+use super::{
+    compare_points, next_in_preorder_global, node_length, utf16_offset_to_byte_clamped, Range,
+};
 use crate::element::collect_text_content;
 
 impl Range {
@@ -65,17 +67,25 @@ impl Range {
         result
     }
 
-    /// Collect the **top-level** nodes fully contained between this range's
-    /// start and end containers, in tree order, omitting any node whose
-    /// ancestor is also contained (WHATWG DOM §5.5 — "all the nodes
-    /// contained ... omitting any node whose parent is also contained").
-    /// Shared by [`Self::delete_contents`] and [`Self::extract_contents`] so
-    /// the two cannot diverge on the omit-nested rule (Codex PR418 R1:
-    /// `delete_contents` had dropped the filter, so a cross-container range
-    /// spanning a nested subtree emitted a spurious childList removal record
-    /// for each descendant — and, after the top-level parent was detached,
-    /// targeted at that now-detached parent — instead of one record per
-    /// top-level contained node).
+    /// Collect the **top-level** nodes contained in this range, in tree
+    /// order, omitting any node whose parent is also contained — i.e. WHATWG
+    /// DOM §5.5 `deleteContents`/`extractContents` `nodesToRemove` = "all the
+    /// nodes contained in this, in tree order, omitting any node whose parent
+    /// is also contained". Shared by [`Self::delete_contents`] and
+    /// [`Self::extract_contents`] so the two cannot diverge.
+    ///
+    /// A node is **contained** (DOM §5.5 [`#contained`]) iff `(node, 0)` is
+    /// after the range start AND `(node, node's length)` is before the range
+    /// end. The preorder candidate walk is only an over-approximation — it
+    /// includes nodes *outside* the range (e.g. children before an element
+    /// `start_offset`, Codex PR418 R2) and merely-partially-contained nodes —
+    /// so each candidate is filtered through the canonical `compare_points`
+    /// containment test before the omit-nested dominance scan. (Codex PR418
+    /// R1: the dominance scan alone let a nested descendant emit a spurious
+    /// record; R2: the missing containment test let a pre-start sibling do
+    /// the same.)
+    ///
+    /// [`#contained`]: https://dom.spec.whatwg.org/#contained
     fn contained_top_level_nodes(&self, dom: &EcsDom) -> Vec<Entity> {
         let mut collected = Vec::new();
         let mut current = self.start_container;
@@ -86,17 +96,35 @@ impl Range {
             collected.push(next);
             current = next;
         }
-        // Omit any node dominated by an already-collected node (DOM §5.5
-        // omit-nested) — preorder guarantees an ancestor is collected before
-        // its descendants, so a single forward dominance scan suffices.
         let mut top_level: Vec<Entity> = Vec::new();
         for &node in &collected {
-            if !top_level
+            // DOM §5.5 "contained": (node, 0) strictly after range start and
+            // (node, length) strictly before range end. Drops the preorder
+            // walk's over-collection (pre-start siblings, partial overlaps).
+            let contained = compare_points(self.start_container, self.start_offset, node, 0, dom)
+                < 0
+                && compare_points(
+                    node,
+                    node_length(node, dom),
+                    self.end_container,
+                    self.end_offset,
+                    dom,
+                ) < 0;
+            if !contained {
+                continue;
+            }
+            // §5.5 omit-nested: skip any node dominated by an already-kept
+            // node. Preorder guarantees an ancestor is kept before its
+            // descendants, so a single forward dominance scan suffices (the
+            // spec's "parent is also contained" holds transitively — a kept
+            // ancestor is itself contained).
+            if top_level
                 .iter()
                 .any(|&tl| dom.is_ancestor_or_self(tl, node))
             {
-                top_level.push(node);
+                continue;
             }
+            top_level.push(node);
         }
         top_level
     }
@@ -349,9 +377,17 @@ impl Range {
         // out into `parent` and empties the fragment, so materialise
         // the children list up front and treat it as the canonical
         // pre-insert node list for steps 6, 10-11, and 12.
+        //
+        // `child_list_uncapped` (NOT `children_iter`, which truncates at
+        // `MAX_ANCESTOR_DEPTH`): `apply_*` expands the fragment via the
+        // uncapped fragment machinery, so the cycle check + length here MUST
+        // see the same full child set — otherwise a fragment wider than the
+        // cap moves all children but the bookkeeping (and the new_offset
+        // below) under-counts, placing the range end short of the tail
+        // (Codex PR418 R2).
         let is_fragment = dom.node_kind(node) == Some(NodeKind::DocumentFragment);
         let nodes: Vec<Entity> = if is_fragment {
-            dom.children_iter(node).collect()
+            dom.child_list_uncapped(node)
         } else {
             vec![node]
         };
@@ -447,9 +483,15 @@ impl Range {
         // unambiguous regardless of same-parent moves: it equals
         // ref_idx_pre_step_9 + nodes.len() - (same-parent-move
         // count), which matches spec's step-10/11 numbering.
+        // `child_list_uncapped` (NOT `children_iter`): after expanding a
+        // fragment wider than `MAX_ANCESTOR_DEPTH`, `parent` has more children
+        // than the cap, so a capped `position`/`count` would under-count and
+        // step 13 would set the range end short of the inserted tail (Codex
+        // PR418 R2). Match the uncapped `apply_*` expansion.
+        let parent_children = dom.child_list_uncapped(parent);
         let new_offset = match reference_node {
-            Some(rn) => dom.children_iter(parent).position(|c| c == rn).unwrap_or(0),
-            None => dom.children_iter(parent).count(),
+            Some(rn) => parent_children.iter().position(|&c| c == rn).unwrap_or(0),
+            None => parent_children.len(),
         };
 
         Some((parent, new_offset, records))
