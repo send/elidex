@@ -1119,6 +1119,67 @@ mod tests {
         );
     }
 
+    /// §4.3.2 step 3.2.3 old-value union under collapse: when one observer
+    /// matches via a registration that requests the old value AND one that does
+    /// not, the collapsed record carries the old value regardless of walk order
+    /// (a non-requesting match never resets a value a requesting match set).
+    #[test]
+    fn notify_collapse_old_value_union_is_order_independent() {
+        let mut dom = EcsDom::new();
+        let grandparent = elem(&mut dom, "div");
+        let parent = elem(&mut dom, "div");
+        let child = elem(&mut dom, "div");
+        let _ = dom.append_child(grandparent, parent);
+        let _ = dom.append_child(parent, child);
+
+        let mut reg = MutationObserverRegistry::new();
+        let id = reg.register();
+        // Walk order is child→parent→grandparent. The requesting registration is
+        // on `parent` (processed FIRST), the non-requesting on `grandparent`
+        // (processed SECOND) — so this exercises "later non-requesting match must
+        // not reset the already-set old value".
+        reg.observe(
+            &mut dom,
+            id,
+            parent,
+            MutationObserverInit {
+                attributes: true,
+                attribute_old_value: true,
+                subtree: true,
+                ..Default::default()
+            },
+        );
+        reg.observe(
+            &mut dom,
+            id,
+            grandparent,
+            MutationObserverInit {
+                attributes: true,
+                subtree: true,
+                ..Default::default()
+            },
+        );
+
+        let record = SessionRecord {
+            kind: MutationKind::Attribute,
+            target: child,
+            added_nodes: vec![],
+            removed_nodes: vec![],
+            previous_sibling: None,
+            next_sibling: None,
+            attribute_name: Some("class".to_string()),
+            old_value: Some("old".to_string()),
+        };
+        assert!(reg.notify(&dom, &record));
+        let records = reg.take_records(id);
+        assert_eq!(records.len(), 1, "collapsed to one record");
+        assert_eq!(
+            records[0].old_value,
+            Some("old".to_string()),
+            "the requesting registration's old value survives the non-requesting match"
+        );
+    }
+
     /// §4.3.2 step 1 collapse (pre-existing dup fix): one observer registered on
     /// two inclusive ancestors of the target yields ONE record per mutation.
     #[test]
