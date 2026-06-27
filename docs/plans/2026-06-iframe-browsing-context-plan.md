@@ -110,10 +110,17 @@ This requires (2.1)'s active-document reference to be current (post-navigation).
 
 ### 2.4 Cross-VM proxy semantics
 
-When the child frame runs in a separate `VmInner`, `contentWindow` must
-return a `WindowProxy` exotic object that forwards `[[Get]]` / `[[Set]]` to
-the child VM's global.  The mechanics depend on how `world_id` / cross-DOM
-entity identity is solved (S5 scope).
+When the child frame runs in a separate `VmInner`, `contentWindow` returns
+a `WindowProxy` exotic object.  For **same-origin** frames the proxy forwards
+`[[Get]]` / `[[Set]]` to the child VM's global.  For **cross-origin** frames
+the proxy still targets the child browsing context, but its traps enforce the
+cross-origin access restrictions from §7.2.3 — safelisted operations
+(`closed`, `parent`, `top`, `postMessage`, etc.) must still reach the child
+context; all non-safelisted accesses throw `SecurityError`.  Both cases
+require a cross-VM forwarding channel; the difference is that same-origin
+allows transparent property access while cross-origin limits to the safelist.
+The mechanics of both cases depend on how `world_id` / cross-DOM entity
+identity is solved (S5 scope).
 
 ### 2.5 Coupled-invariant matrix
 
@@ -122,8 +129,8 @@ These four sub-models interact; C1+ design must hold all invariants simultaneous
 | Event / scenario | §2.1 entity state | §2.2 WindowProxy identity | §2.3 origin check | §2.4 cross-VM |
 |---|---|---|---|---|
 | Child navigation (same slot, new document) | active document pointer updates | `ObjectId` stays stable (WindowProxy persists across navigation, §7.2.3) | origin re-derived from new active document at next access | forwarding target updates to new VM/global if VM changes |
-| iframe removed from DOM (detach) | entity enters detached state; content navigable = null | `ObjectId` keeps existing wrapper alive until GC; **prior `contentWindow` reference becomes a detached `WindowProxy`** (browsing context = null) → `w.closed === true` (§7.2.2.1), `w.contentDocument === null` | contentDocument → null (step 1); contentWindow on fresh access → null (step 1); prior-held `WindowProxy` stays alive but its Window's browsing context = null | forwarding terminates; proxy becomes inert |
-| sandbox `allow-same-origin` toggle (attribute mutation post-load) | **attribute mutation does NOT take effect immediately** — applied sandbox flags are snapshotted at navigation time and stored with the content navigable; C1+ must snapshot at navigation, not re-read from the attribute on every access | unchanged | origin / opaque-origin determination uses the **snapshotted** sandbox flags from navigation, not the current attribute value; re-reading the attribute would allow scripts to flip `contentDocument` access without a reload | unchanged |
+| iframe removed from DOM (detach) | entity enters detached state; content navigable = null | `ObjectId` keeps existing wrapper alive until GC; **prior `contentWindow` reference becomes a detached `WindowProxy`** (browsing context = null) → `w.closed === true` (§7.2.2.1); **do not check `w.contentDocument`** — `contentDocument` is an `HTMLIFrameElement` attribute, not a `Window`/`WindowProxy` member; instead check `iframe.contentDocument` (§7.3.1.3 step 1 → null) or `w.closed` | contentDocument → null (step 1); contentWindow on fresh access → null (step 1); prior-held `WindowProxy` stays alive but its Window's browsing context = null | forwarding terminates; proxy becomes inert |
+| sandbox `allow-same-origin` toggle (attribute mutation post-load) | **attribute mutation does NOT affect the active navigable's flags** — applied sandbox flags are snapshotted at navigation time and stored with the content navigable; C1+ must snapshot at navigation, not re-read from the attribute on every access.  C1+ therefore tracks two states: **(1) the iframe element's pending sandboxing flag set** (derived from the current `sandbox` attribute value, updated immediately on attribute mutation) and **(2) the active navigable's applied flag snapshot** (frozen at navigation time; not changed by attribute mutations).  The next navigation reads (1) to compute a new (2).  `iframe.sandbox = "allow-scripts"; iframe.src = newUrl` navigates with the updated flags because the navigation reads (1) at its start. | unchanged | origin / opaque-origin determination uses the **snapshotted** flags in (2), not the live attribute (1); re-reading the attribute would allow scripts to flip `contentDocument` access without a reload | unchanged |
 | Script holds `WindowProxy` reference across navigation | no entity change | same `ObjectId`; `[[Get]]` forwards to new active Window | not applicable (no origin gate on contentWindow) | forwarding target must update atomically with navigation |
 | Cross-origin access to `frameElement` | unchanged | not applicable | `frameElement` getter uses caller ↔ container doc origin check (§7.2.2.4), not active-document check | not applicable |
 
@@ -165,7 +172,7 @@ Analogous cases for `parent` / `top` / `frameElement`:
 | Same-origin child frame | `WindowProxy` of parent | `WindowProxy` of top | iframe element |
 | Cross-origin child frame | opaque `WindowProxy` (limited access) | opaque `WindowProxy` | `null` (cross-origin) |
 
-Cases for `frames` / `length` / `opener` / `closed` (also in `#11-windowproxy-browsing-context` scope):
+Cases for `frames` / `length` / `closed` (`#11-windowproxy-browsing-context` scope), plus `opener` (`#11-auxiliary-browsing-context-opener` scope — included for completeness):
 
 | Case | Expected `frames` | Expected `length` | Expected `opener` | Expected `closed` |
 |---|---|---|---|---|
@@ -182,7 +189,7 @@ separate auxiliary-browsing-context slot (`#11-auxiliary-browsing-context-opener
 sub-frame accessors (`parent`/`top`/`frameElement`/`frames`/`length`) while
 leaving `opener` as a null stub with ownership explicitly transferred.
 
-`frames[i]` indexed access is a §7.2.2 exotic operation on the WindowProxy and depends on the sub-frame entity model.
+`frames[i]` indexed access is a §7.2.3 exotic operation on the WindowProxy and depends on the sub-frame entity model.
 
 ---
 
@@ -194,7 +201,7 @@ This section maps the OO concepts from §2 to ECS primitives for C1+.
 |---|---|
 | BrowsingContext object (owns a Document) | component on the iframe element entity |
 | `WindowProxy` exotic object identity | `ObjectId` component (post-`world_id`; see CLAUDE.md Side-store→component 判定ルール — (a) per-VM identity handle exception applies until `world_id` lands) |
-| SameObject guarantee for `.contentWindow` | component get: same entity → same `ObjectId` |
+| SameObject guarantee for `.contentWindow` | component get: same entity and same content navigable generation → same `ObjectId`; after detach/reattach the old content navigable is destroyed and a new one created (§4.8.5), so C1+ must NOT reuse the old `ObjectId` for the new navigable — invalidate and re-allocate on each new content navigable (see §2.2 reattachment exception) |
 | Cross-VM proxy forwarding | marker component + system query that dispatches to child VM; not a direct VM call |
 | `contentDocument` origin check | compare active document's origin vs **container's node document's origin** (§7.3.1.3 step 3; `contentWindow` has no origin gate — never skip proxy creation for `contentWindow`) |
 
