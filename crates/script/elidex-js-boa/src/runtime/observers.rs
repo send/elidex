@@ -33,9 +33,12 @@ impl JsRuntime {
                 .with_mutation_observers(|reg| reg.notify(dom, record));
         }
 
-        // Collect observer IDs with pending records.
+        // Take the pending mutation observers as the §4.3 notifySet (step 2 clone
+        // + step 3 empty). Draining here keeps the shared registry's pending set
+        // from accumulating across deliveries (the VM path drains it likewise).
         let observer_ids: Vec<u64> = self.bridge.with_mutation_observers(|reg| {
-            reg.observers_with_records()
+            reg.take_pending_observers()
+                .into_iter()
                 .map(elidex_api_observers::mutation::MutationObserverId::raw)
                 .collect()
         });

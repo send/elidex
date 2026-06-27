@@ -475,16 +475,20 @@ impl VmInner {
         {
             return;
         }
-        // Collect observer IDs up front so re-entrant
-        // `mo.observe` / `mo.disconnect` calls from callbacks see the
-        // post-callback registry state rather than a mid-loop snapshot.
+        // Take the pending mutation observers as the §4.3 notifySet (step 2 clone
+        // + step 3 empty). Draining up front means re-entrant `mo.observe` /
+        // `mo.disconnect` / queued records from callbacks land in the next
+        // microtask's set, not this one. Keyed on the pending set (not record-queue
+        // non-emptiness) so an observer the page drained via `takeRecords()` before
+        // this microtask is still cleared of transients in step 6.3 below.
         let host = self
             .host_data
             .as_deref_mut()
             .expect("deliver_pending_mutation_records: HostData required when bound");
         let observer_ids: Vec<u64> = host
             .mutation_observers
-            .observers_with_records()
+            .take_pending_observers()
+            .into_iter()
             .map(elidex_api_observers::mutation::MutationObserverId::raw)
             .collect();
 
@@ -499,6 +503,17 @@ impl VmInner {
                     .as_deref_mut()
                     .expect("deliver_pending_mutation_records: HostData required when bound");
                 let records = host.mutation_observers.take_records(mo_id);
+                // §4.3 "notify mutation observers" step 6.3: remove this
+                // observer's transient registered observers. Spec runs 6.3
+                // *interleaved* — per mo, after emptying its record queue (6.2)
+                // and before invoking its callback (6.4) — so a transient created
+                // by an earlier observer's callback for a later observer still in
+                // `notifySet` is cleared at that later observer's turn. Doing it
+                // here (per mo, before the `records.is_empty()` short-circuit)
+                // rather than as one upfront set pass preserves that ordering and
+                // lets a transient created by *this* observer's own callback
+                // survive to the next microtask.
+                elidex_api_observers::mutation::clear_transient_observers(host.dom(), mo_id);
                 if records.is_empty() {
                     return None;
                 }
@@ -518,11 +533,32 @@ impl VmInner {
     /// shared `&EcsDom` lets the registry perform the ancestor walk via
     /// `EcsDom::get_parent` directly. Returns whether any observer was
     /// interested (so the caller can decide to schedule the microtask).
+    ///
+    /// This is the single eager per-record notify chokepoint — both the
+    /// embedder `deliver_mutation_records` batch loop and the internal
+    /// `queue_mutation_record` route through it. It runs synchronously at the
+    /// mutation (in JS-execution order), so the WHATWG DOM §4.2.3 "remove"
+    /// step-15 transient-observer creation hooked here happens "during remove",
+    /// before the removed subtree can be re-mutated — correct by construction.
     fn notify_one(&mut self, record: &elidex_script_session::MutationRecord) -> bool {
+        use elidex_script_session::MutationKind;
+
         let host = self
             .host_data
             .as_deref_mut()
             .expect("notify_one: HostData required when bound");
+        // §4.2.3 "remove" step 15: append transient registered observers to the
+        // removed nodes (so an ancestor's `subtree:true` observer keeps seeing
+        // mutations in the now-detached subtree until the next microtask). Keyed
+        // on the removal record — `record.target` is the parent the nodes left
+        // (for a move-adopt, the source-removal record's target is the *old*
+        // parent, §4.5), `record.removed_nodes` the detached set (covers
+        // coalesced replace / replace-all removals too). Not gated by
+        // `suppressObservers` (step 15 ≠ step 16).
+        if record.kind == MutationKind::ChildList && !record.removed_nodes.is_empty() {
+            let (dom, observers) = host.split_dom_mut_and_observers();
+            observers.add_transient_observers(dom, record.target, &record.removed_nodes);
+        }
         let (dom, observers) = host.split_dom_and_observers();
         observers.notify(dom, record)
     }

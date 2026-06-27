@@ -475,6 +475,17 @@ impl Vm {
                 // (currently `()`); we don't read the result — Drop
                 // on the boxed bridge handles cleanup.
                 hd.dom().clear_mutation_dispatcher();
+                // Scrub transient MutationObserver registrations (DOM §4.2.3
+                // step-15 entries) from the still-bound world. They are
+                // delivery-cycle-ephemeral (the notify microtask, §4.3 step 6.3,
+                // normally clears them), so dropping the cycle at unbind must
+                // clear them too — otherwise a same-DOM rebind could deliver a
+                // future detached-subtree mutation through a stale transient. The
+                // `dom_ptr` is zeroed by `hd.unbind()` below, so this must run
+                // here while bound. Permanent registrations are left as-is (they
+                // despawn with the outgoing world, or persist for a same-DOM
+                // rebind). (Codex PR413 R3.)
+                elidex_api_observers::mutation::clear_all_transient_observers(hd.dom());
                 hd.live_range_registry.clear();
                 hd.node_iterator_states_shared
                     .lock()
