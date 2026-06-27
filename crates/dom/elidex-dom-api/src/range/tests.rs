@@ -4,7 +4,7 @@
 #![allow(unused_must_use)]
 
 use super::*;
-use elidex_ecs::{Attributes, EcsDom, TextContent};
+use elidex_ecs::{Attributes, EcsDom, ShadowRootMode, TextContent};
 
 fn build_range_tree() -> (EcsDom, Entity, Entity, Entity, Entity) {
     let mut dom = EcsDom::new();
@@ -133,7 +133,7 @@ fn range_extract_contents() {
     let mut range = Range::new(t1);
     range.set_start(t1, 1);
     range.set_end(t1, 4);
-    let frag = range.extract_contents(&mut dom);
+    let (frag, _records) = range.extract_contents(&mut dom);
 
     // Fragment should contain "ell".
     let children: Vec<_> = dom.children_iter(frag).collect();
@@ -144,6 +144,118 @@ fn range_extract_contents() {
     // Original text should be "Ho".
     let tc = dom.world().get::<&TextContent>(t1).unwrap();
     assert_eq!(tc.0, "Ho");
+}
+
+/// Codex PR418 R1 — `deleteContents` over a cross-container range spanning a
+/// nested subtree must emit **one** childList removal record per top-level
+/// contained node (DOM §5.5 omit-nested), NOT an extra record per descendant.
+/// Before the `contained_top_level_nodes` fix, `<wrap><inner/></wrap>` produced
+/// a spurious second removal record targeting the already-detached `wrap`.
+#[test]
+fn range_delete_contents_omits_nested_removal_records() {
+    let mut dom = EcsDom::new();
+    let root = dom.create_element("div", Attributes::default());
+    let t1 = dom.create_text("a");
+    let wrap = dom.create_element("wrap", Attributes::default());
+    let inner = dom.create_element("inner", Attributes::default());
+    let t2 = dom.create_text("b");
+    dom.append_child(root, t1);
+    dom.append_child(root, wrap);
+    dom.append_child(wrap, inner);
+    dom.append_child(root, t2);
+
+    // Cross-container range: start in t1, end in t2 → spans `wrap` (and its
+    // descendant `inner`) fully.
+    let mut range = Range::new(root);
+    range.set_start(t1, 1);
+    range.set_end(t2, 0);
+    let records = range.delete_contents(&mut dom);
+
+    // Exactly one record: the top-level `wrap` removal targeting `root`.
+    // `inner` is omitted (its parent `wrap` is also contained).
+    assert_eq!(
+        records.len(),
+        1,
+        "a nested descendant must not emit its own removal record"
+    );
+    assert_eq!(records[0].target, root);
+    assert_eq!(records[0].removed_nodes, vec![wrap]);
+    // `wrap` (and its subtree) is gone from `root`.
+    let kids: Vec<_> = dom.children_iter(root).collect();
+    assert_eq!(kids, vec![t1, t2]);
+}
+
+/// Codex PR418 R2 — a cross-container range that starts on an **element** with
+/// `start_offset > 0` must not remove (or emit records for) the siblings before
+/// that offset. The preorder candidate walk starts at the container's first
+/// child, so without the DOM §5.5 containment filter `c0` (index 0) would be
+/// wrongly removed when the range starts at `root[1]`.
+#[test]
+fn range_delete_contents_excludes_nodes_before_element_start_offset() {
+    let mut dom = EcsDom::new();
+    let root = dom.create_element("div", Attributes::default());
+    let c0 = dom.create_element("a", Attributes::default());
+    let c1 = dom.create_element("b", Attributes::default());
+    let c2 = dom.create_element("c", Attributes::default());
+    let tail = dom.create_text("z");
+    dom.append_child(root, c0);
+    dom.append_child(root, c1);
+    dom.append_child(root, c2);
+    dom.append_child(root, tail);
+
+    // Range [root:1 .. tail:0] → cross-container (root != tail); contains c1, c2
+    // (indices 1,2) but NOT c0 (index 0, before the start offset).
+    let mut range = Range::new(root);
+    range.set_start(root, 1);
+    range.set_end(tail, 0);
+    let records = range.delete_contents(&mut dom);
+
+    assert_eq!(records.len(), 2, "only c1 and c2 are contained");
+    assert_eq!(records[0].removed_nodes, vec![c1]);
+    assert_eq!(records[1].removed_nodes, vec![c2]);
+    // c0 (before the start offset) and tail (end container) survive.
+    let kids: Vec<_> = dom.children_iter(root).collect();
+    assert_eq!(kids, vec![c0, tail]);
+}
+
+// Codex PR418 R2 (fragment wider than MAX_ANCESTOR_DEPTH → uncapped new_offset)
+// is fixed by-construction: `insert_node` now reads `nodes` / `new_offset`
+// through `child_list_uncapped`, the SAME uncapped accessor `apply_*` uses to
+// expand the fragment, so the move count and the offset count cannot diverge.
+// No dedicated test — exercising it needs >10,000 appended children, an O(n²)
+// sibling-walk that costs ~24s and only re-asserts the cap constant, which the
+// supported-surface testing policy does not warrant for a by-construction fix.
+
+/// Codex PR418 R1 — `Range.insertNode(shadowRoot)` at a Text boundary must be
+/// rejected (returns `None`) **before** the step-7 text split, leaving the DOM
+/// unmutated. A `ShadowRoot` is not an insertable node (DOM §4.8); the
+/// rejection previously happened in the `apply_*` layer AFTER the split, so the
+/// text node was split while the native reported `HierarchyRequestError`.
+#[test]
+fn range_insert_node_rejects_shadow_root_before_split() {
+    let mut dom = EcsDom::new();
+    let root = dom.create_element("div", Attributes::default());
+    let t = dom.create_text("hello");
+    dom.append_child(root, t);
+    let host = dom.create_element("div", Attributes::default());
+    dom.append_child(root, host);
+    let shadow = dom.attach_shadow(host, ShadowRootMode::Open).unwrap();
+
+    let mut range = Range::new(t);
+    range.set_start(t, 2);
+    range.set_end(t, 2);
+    let outcome = range.insert_node(&mut dom, shadow);
+
+    assert!(
+        outcome.is_none(),
+        "inserting a ShadowRoot must be rejected, not inserted"
+    );
+    // The text node must NOT have been split — still the original single node.
+    let tc = dom.world().get::<&TextContent>(t).unwrap();
+    assert_eq!(tc.0, "hello");
+    // `t` is still root's first child with no spurious split-tail sibling.
+    let kids: Vec<_> = dom.children_iter(root).collect();
+    assert_eq!(kids, vec![t, host]);
 }
 
 #[test]
@@ -560,7 +672,8 @@ fn range_insert_node() {
 
     let new_elem = dom.create_element("b", Attributes::default());
     let outcome = range.insert_node(&mut dom, new_elem);
-    let (parent, new_offset) = outcome.expect("insert_node into attached text node must succeed");
+    let (parent, new_offset, _records) =
+        outcome.expect("insert_node into attached text node must succeed");
     assert_eq!(parent, root);
     // root pre-call: [t1].  After split: [head, tail].  After insert
     // before tail: [head, new_elem, tail].  Spec step 10-11 newOffset
@@ -591,7 +704,7 @@ fn range_extract_contents_element_children() {
     let mut range = Range::new(div);
     range.set_start(div, 1);
     range.set_end(div, 2);
-    let frag = range.extract_contents(&mut dom);
+    let (frag, _records) = range.extract_contents(&mut dom);
 
     // Fragment should contain <b>.
     let frag_children: Vec<_> = dom.children_iter(frag).collect();
@@ -614,7 +727,7 @@ fn range_extract_contents_cross_container() {
     let mut range = Range::new(t1);
     range.set_start(t1, 3); // "Hel|lo" -> extract "lo"
     range.set_end(t2, 3); // " Wo|rld" -> extract " Wo"
-    let frag = range.extract_contents(&mut dom);
+    let (frag, _records) = range.extract_contents(&mut dom);
 
     // t1 should be "Hel".
     let tc1 = dom.world().get::<&TextContent>(t1).unwrap();

@@ -14,8 +14,55 @@ use super::event_target::entity_from_this;
 
 use elidex_ecs::{EcsDom, Entity, NodeKind};
 use elidex_script_session::{
-    ComponentKind, DomApiError, DomApiErrorKind, JsObjectRef, SessionCore,
+    ComponentKind, DomApiError, DomApiErrorKind, JsObjectRef, MutationRecord, SessionCore,
 };
+
+impl VmInner {
+    /// Drain the session's synchronous-op `MutationRecord` scratch and queue
+    /// each record for §4.3 microtask delivery.
+    ///
+    /// This is the **single delivery mechanism** shared by the
+    /// `invoke_dom_api` bridge (Phase 2.5) and the Range natives
+    /// (`range_proto_mutation.rs`). The take is performed via the bound
+    /// `HostData` session; that borrow ends (the records are owned) before
+    /// `queue_mutation_record` re-borrows `self` — mirroring the original
+    /// inline Phase-2.5 borrow discipline (`host_data` borrow must end before
+    /// the `vm` re-borrow). No-op when unbound (`session()` requires bound
+    /// `HostData`; the records scratch is empty pre-bind).
+    pub(super) fn drain_notify_records(&mut self) {
+        let Some(host_data) = self.host_data.as_deref_mut() else {
+            return;
+        };
+        let notify_records = host_data.session().take_notify_records();
+        for record in &notify_records {
+            self.queue_mutation_record(record);
+        }
+    }
+
+    /// Push `records` into the session's `notify_records` scratch and
+    /// immediately drain them through [`Self::drain_notify_records`] as **one
+    /// indivisible step**.
+    ///
+    /// The push-then-drain binding is by-construction (plan §4 F1): an
+    /// un-drained scratch is silently cleared by the per-turn leak-guard at
+    /// `SessionCore::flush`, so a missed drain would be a *silent loss* of the
+    /// callback + transient-observer creation, not a deferred delivery.
+    /// Range natives funnel the `Vec<MutationRecord>` returned by their
+    /// engine-independent methods through here so they cannot push without
+    /// draining. No-op (records dropped) when unbound.
+    pub(super) fn commit_range_mutation_records(&mut self, records: Vec<MutationRecord>) {
+        if records.is_empty() {
+            return;
+        }
+        if let Some(host_data) = self.host_data.as_deref_mut() {
+            let session = host_data.session();
+            for record in records {
+                session.push_notify_record(record);
+            }
+        }
+        self.drain_notify_records();
+    }
+}
 
 /// Return `Option<Entity>` as a JS wrapper or `null` — no intermediate
 /// `ObjectId`, so callers can chain it straight into a `Result::Ok`.
@@ -456,12 +503,11 @@ pub(super) fn invoke_dom_api(
 
     // Phase 2.5: Drain the MutationObserver records the handler produced for
     // its (already-applied) synchronous mutation, and queue each for §4.3
-    // microtask delivery. Taken while `host_data` is still borrowed, then the
-    // borrow ends so `queue_mutation_record` can re-acquire `host_data`.
-    let notify_records = host_data.session().take_notify_records();
-    for record in &notify_records {
-        ctx.vm.queue_mutation_record(record);
-    }
+    // microtask delivery. Single delivery mechanism shared with the Range
+    // natives (`drain_notify_records` — see `commit_range_mutation_records`).
+    // The `host_data` borrow above (`with_session_and_dom`) has ended, so the
+    // drain can re-acquire `host_data` then re-borrow `vm`.
+    ctx.vm.drain_notify_records();
 
     // Phase 3: Error map + final wrapper allocation
     match result {

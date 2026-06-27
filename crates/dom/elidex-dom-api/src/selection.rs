@@ -41,6 +41,7 @@
 //! `RangeId` is the source of truth.
 
 use elidex_ecs::{DocTypeData, EcsDom, Entity, NodeKind};
+use elidex_script_session::MutationRecord;
 
 use crate::range::{
     live::{LiveRangeRegistry, RangeId},
@@ -500,9 +501,21 @@ impl SelectionState {
     /// `Range::delete_contents`, which collapses the range to the
     /// deletion start (Selection state is consistent because we hold a
     /// `RangeId` reference, not a snapshot).
-    pub fn delete_from_document(&mut self, registry: &mut LiveRangeRegistry, dom: &mut EcsDom) {
+    ///
+    /// Returns the childList `MutationRecord`s produced by the underlying
+    /// `Range::delete_contents` so the VM-side caller routes them through
+    /// the same `commit_range_mutation_records` chokepoint as the Range
+    /// natives (One-issue-one-way: a record-producing primitive's records
+    /// are never silently dropped). `characterData` text-splice removals
+    /// inside a single Text node still produce no record this slice
+    /// (deferred to B1.3, identical to the Range path).
+    pub fn delete_from_document(
+        &mut self,
+        registry: &mut LiveRangeRegistry,
+        dom: &mut EcsDom,
+    ) -> Vec<MutationRecord> {
         let Some(id) = self.active_range_id else {
-            return;
+            return Vec::new();
         };
         // `with_range_mut` would need `&mut EcsDom` to call
         // `delete_contents` from inside the closure, but `with_range_mut`'s
@@ -514,8 +527,9 @@ impl SelectionState {
         // nothing — confusing because it read as if some mutation
         // happened there).
         let snapshot = registry.with_range(id, dom, |range, _| range.clone());
+        let mut records = Vec::new();
         if let Some(mut range) = snapshot {
-            range.delete_contents(dom);
+            records = range.delete_contents(dom);
             // Live-range mutation hooks have already updated registered
             // boundaries for any text-splice / removal; the deletion
             // collapses our range to its start, so write that back.
@@ -527,6 +541,7 @@ impl SelectionState {
             });
         }
         self.direction = SelectionDirection::Directionless;
+        records
     }
 
     /// `Selection.containsNode(node, allowPartialContainment)` per spec
