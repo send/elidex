@@ -32,8 +32,11 @@ no parent, no opener, and no child frames**.  For any other context:
 - `contentWindow` returning `null` is **wrong for all frames** — even cross-origin
   frames must receive a restricted `WindowProxy` (§7.3.1.3 content-window steps
   have no origin gate; cross-origin restriction comes from proxy traps §7.2.3).
-- `parent` / `top` / `frames` / `frameElement` / `opener` are wrong for any
+- `parent` / `top` / `frameElement` / `opener` are wrong for any
   sub-frame or opened window context.
+- `frames` attribute getter is already spec-correct (§7.2.2 returns `this`'s
+  own global object); only `frames[i]` indexed access (an exotic WindowProxy
+  operation, §7.2.3) is missing and is deferred under the same slot.
 
 They share the same underlying deferral: the real implementation requires the same
 underlying sub-frame browsing-context entity model.
@@ -75,7 +78,14 @@ forwards most operations to the current `Window` of the browsing context
 - a cross-VM forwarding mechanism when same-origin access is allowed and the
   child frame runs in a separate `VmInner`,
 - `SameObject` identity: repeated reads of `.contentWindow` on the same
-  iframe element must return the same `ObjectId`.
+  iframe element **while it retains the same content navigable** must return
+  the same `ObjectId`.  **Exception — reattachment**: HTML §4.8.5 destroying
+  steps destroy the old child navigable when the iframe is removed from the
+  DOM; the post-connection steps create a new child navigable when the iframe
+  is reinserted.  A reinserted `<iframe>` gets a new browsing context, so
+  `contentWindow` MUST return a new (different) `ObjectId` after reattachment.
+  C1+ must NOT attach the `ObjectId` to the iframe element entity across
+  detach/reattach cycles; it must invalidate and re-allocate after reattachment.
 
 This depends on the `world_id` discriminator described in CLAUDE.md
 `#11-wrapper-cache-cross-dom-discriminator`.
@@ -112,7 +122,7 @@ These four sub-models interact; C1+ design must hold all invariants simultaneous
 | Event / scenario | §2.1 entity state | §2.2 WindowProxy identity | §2.3 origin check | §2.4 cross-VM |
 |---|---|---|---|---|
 | Child navigation (same slot, new document) | active document pointer updates | `ObjectId` stays stable (WindowProxy persists across navigation, §7.2.3) | origin re-derived from new active document at next access | forwarding target updates to new VM/global if VM changes |
-| iframe removed from DOM (detach) | entity enters detached state; content navigable = null | `ObjectId` keeps existing wrapper alive until GC | contentDocument → null (step 1); contentWindow → null (step 1) | forwarding terminates; proxy becomes inert |
+| iframe removed from DOM (detach) | entity enters detached state; content navigable = null | `ObjectId` keeps existing wrapper alive until GC; **prior `contentWindow` reference becomes a detached `WindowProxy`** (browsing context = null) → `w.closed === true` (§7.2.2.1), `w.contentDocument === null` | contentDocument → null (step 1); contentWindow on fresh access → null (step 1); prior-held `WindowProxy` stays alive but its Window's browsing context = null | forwarding terminates; proxy becomes inert |
 | sandbox `allow-same-origin` toggle (attribute mutation post-load) | **attribute mutation does NOT take effect immediately** — applied sandbox flags are snapshotted at navigation time and stored with the content navigable; C1+ must snapshot at navigation, not re-read from the attribute on every access | unchanged | origin / opaque-origin determination uses the **snapshotted** sandbox flags from navigation, not the current attribute value; re-reading the attribute would allow scripts to flip `contentDocument` access without a reload | unchanged |
 | Script holds `WindowProxy` reference across navigation | no entity change | same `ObjectId`; `[[Get]]` forwards to new active Window | not applicable (no origin gate on contentWindow) | forwarding target must update atomically with navigation |
 | Cross-origin access to `frameElement` | unchanged | not applicable | `frameElement` getter uses caller ↔ container doc origin check (§7.2.2.4), not active-document check | not applicable |

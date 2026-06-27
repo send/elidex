@@ -351,9 +351,16 @@ pub(super) fn native_window_get_device_pixel_ratio(
 //
 // Stubs currently ignore `_this`: single-VM, so there is no other
 // browsing context to route to.  C1+ receiver requirements differ:
-//   • `self` / `frames` / `length` / `closed`: return state intrinsic
-//     to `this`'s own context — receiver-independence remains valid
-//     in multi-VM (each VM runs the getter inside its own context).
+//   • `self` / `frames`: return `this` (the Window's own global object
+//     per §7.2.2); trivially receiver-correct because the getter always
+//     returns the executing VM's `global_object`, which IS the receiver.
+//   • `length` / `closed`: return state intrinsic to `this`'s own
+//     context (child-frame count / browsing-context-null check per
+//     §7.2.2.2 / §7.2.2.1).  These are NOT truly receiver-independent
+//     in multi-VM — `childWindowProxy.length` must return the child's
+//     frame count, not the parent's.  C1+ must dispatch to the receiver's
+//     VM before reading these values (same dispatch mechanism as
+//     `self`/`frames`, but the returned state is not trivially `this`).
 //   • `parent` / `top` / `frameElement` / `opener`: return ancestor /
 //     container / opener state from a *different* browsing context.
 //     C1+ MUST make these receiver-relative (routing via the navigable
