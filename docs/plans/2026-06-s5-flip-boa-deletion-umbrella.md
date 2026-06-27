@@ -80,7 +80,7 @@ enforcement-edge cohort**.
   `drain_timers` are **implemented, not stubs** (`elidex-js/src/engine.rs:243/261`).
 - **S2-focus convergence — DONE.** Focus is the canonical `ElementState::FOCUS` ECS component read via
   `elidex_dom_api::focus::current_focus` (with connectedness filter); VM `focused_entity` side-store **gone**
-  (grep = 0 in `host_data.rs`); `activeElement`/`hasFocus` read the component (`host/document.rs:775/815`);
+  (grep = 0 in `host_data.rs`); `activeElement`/`hasFocus` read the component (`host/document.rs:792/844`);
   `tab_index_default_for`/focusable-area moved to engine-indep `elidex-dom-api/src/focus/`; shell `focus.rs`
   routes through the reconciler reading the canonical bit. (The parent §2.3 "≥5 stores to converge" work is
   complete.)
@@ -119,7 +119,7 @@ spec surface (✓) or a boa-parity-bounded / subset-first slice (✗, the tail g
 | WHATWG HTML §13.3 Serializing HTML fragments | `XMLSerializer.serializeToString` (§8.5.8 The XMLSerializer interface) | element / text node | **S5-1** — reuse `elidex-dom-api::serialize_{outer,inner}_html` | ✓ | yes (DOM tree) |
 | CSSOM-View §12.1 The VisualViewport Interface | `Window.visualViewport` / `VisualViewport` | offsetLeft/Top, width/height, scale, `resize`/`scroll` | **S5-2** — VM host/ additive surface | ✗ (presence-first; judge real UA impact at review) | no (shell-driven) |
 | CSSOM-View §4.3 The Screen Interface | `Window.screen` / `Screen` completion | width / height / colorDepth / pixelDepth | **S5-2** — VM host/ additive surface | ✗ (presence-first) | no (shell-driven) |
-| Cookie Store API §2 The CookieStore interface | `cookieStore` (separate spec — not webref-cached here, label unmapped → preflight soft-warns + skips verify) | get / set / delete / `change` event | **S5-2** — VM host/ additive surface (cookie-jar-backed) | ✗ (presence-first; Cookie Store API subset) | yes (cookie name/value) |
+| Cookie Store API §3 The CookieStore interface | `cookieStore` (webref shortname `cookiestore`; §2 = Concepts, §3 = The CookieStore interface — verified 2026-06-27) | get / set / delete / `change` event | **S5-2** — VM host/ additive surface (cookie-jar-backed) | ✗ (presence-first; Cookie Store API subset) | yes (cookie name/value) |
 | CSSOM-View §4 Extensions to the Window Interface | `matchMedia(query)` (§4.2 The MediaQueryList Interface) | returns MediaQueryList + `change` event | **S5-3** — host/ marshal → canonical `elidex-css::media::evaluate`; keepalive-rooting the MQL EventTarget | ✗ (change-delivery edge; grammar = next row) | yes (query string) |
 | Media Queries 5 §2 Media Queries | evaluate `<media-query-list>` | width/height/orientation/resolution/prefers-color-scheme/-reduced-motion | **S5-3** — canonical engine-indep `elidex-css::media` (already wired into cascade) | ✗ (subset-first; grammar grows) | yes (query string + `@media`) |
 | WHATWG HTML §7.1.5 Sandboxing | sandboxing flag set (scripts/forms/popups/modals + `sandboxed origin browsing context flag` opaque-origin) | flag-gated method calls + sandboxed-fetch opaque origin | **S5-4** — sandbox-method gates + origin isolation at the live-engine seam | ✗ (the cluster's gated subset) | yes (sandboxed page script) |
@@ -188,9 +188,21 @@ trait methods **assume bound**. S1a already exposed the VM-side primitive — `E
 bracket** around `run_scripts_and_finalize`, each UA event dispatch path, and each content-thread frame drain.
 This is the load-bearing edge of the flip — the bound window must stay valid + unaliased for the **whole**
 batch (bind is non-re-entrant), and the post-script microtask checkpoint is WHATWG HTML §8.1.4.4
-`#clean-up-after-running-script` (verified via webref), self-contained in `VmInner::eval`. Coupled invariants:
-batch bind-lifetime safety × the trait's assume-bound contract × sandbox `scripts_allowed` gate (§7.1.5
-`#sandboxed-scripts-browsing-context-flag`, verified). This corner is why the **FLIP PR (S5-6) is
+`#clean-up-after-running-script` (verified via webref), self-contained in `VmInner::eval`.
+
+**Coupled invariants** — each pair's intersection named (`feedback_coupled-invariant-design-corner`):
+- **bind-lifetime × assume-bound contract**: the trait methods (`eval`/`call_listener`/`drain_*`) read host
+  pointers *without* re-binding, so those pointers must stay unaliased for the **whole** outer batch — a method
+  that self-bound mid-batch (boa's model) would tear down cross-`<script>` wrapper/JS-state identity through
+  the heavy `unbind`.
+- **assume-bound × sandbox `scripts_allowed`**: the sandbox short-circuit (§7.1.5
+  `#sandboxed-scripts-browsing-context-flag`, verified) reads per-VM sandbox flags off **bound** HostData, so
+  it must run *inside* the bound window, not before bracketing (gating pre-bind would read absent/stale flags).
+- **bind-lifetime × `scripts_allowed`**: a *disallowed* script must not leave a half-opened bracket — the batch
+  bracket opens and closes regardless of whether any script ran, so the `scripts_allowed = false` path still
+  pairs its `bind` with an `unbind` (the non-re-entrant `bind` must always see a clean prior close).
+
+This corner is why the **FLIP PR (S5-6) is
 plan-reviewed**, and why `#11-bound-safe-dispatch-dom-aliasing` (the "drive event dispatch under a bound
 window" slot, `engine.rs:303`) is bundled into it.
 
@@ -208,17 +220,20 @@ FLIP follow-up (post-flip fidelity, independently shippable). Plus the two remai
 | **S5-1 DOMParser+XMLSerializer** | VM DOMParser/XMLSerializer (last HIGH/MED capability gap). Marshal to existing `innerHTML` fragment seam (parse) + reuse `elidex-dom-api::serialize_{outer,inner}_html` (serialize). boa parity exactly (all MIME→HTML-parsed; real XML = future feat, no regression). | — | — (pure additive surface) | **no** (narrow additive, boa-parity-bounded; base case) | — (boa live) |
 | **S5-2 minor window parity** | VisualViewport + cookieStore + Screen completion. Judge each on real UA impact at review (not auto-defer). | — | — | **no** (narrow additive; base case) | — (boa live) |
 | **S5-3 EventTarget listener-keepalive rooting** | `#11-eventtarget-listener-keepalive-rooting` — a VM `EventTarget` alive ONLY by a listener (`matchMedia(q).addEventListener`) is GC-collected → §4.2 change delivery lost. **S5-flip-precondition** (inert while VM media path dormant, breaks the headline `deliver_media_query_changes` once the VM drives the shell). Ideal = GENERIC "EventTarget alive while listenered" unifying AbortSignal/observers/MQL. | `#11-eventtarget-listener-keepalive-rooting` | GC-rooting × listener lifecycle × MQL/observer/AbortSignal unification | **yes** (edge-dense: ≥3 unification axes) | — (VM-internal; boa live) |
-| **S5-4 sandbox/security enforcement edge** | The sandbox-method gates + origin-isolation edges that only bite once the VM is the live engine: alert/confirm/prompt + window.open gating, sandboxed-fetch opaque-origin, iframe-origin-before-initial-scripts, scripting-disabled event-handler attr processing. | `#11-vm-sandbox-method-gates-and-modals`, `#11-sandbox-fetch-opaque-origin-isolation`, `#11-iframe-origin-before-initial-scripts`, `#11-scripting-disabled-eventhandler-processing-step1`, `#11-worker-port-message-no-origin` | sandbox flags × origin × scripting-disabled × fetch isolation | **yes** (edge-dense security cluster: ≥3 invariant axes; sandbox bypass = security-by-structure) | S1b substrate (landed) |
+| **S5-4 sandbox/security enforcement edge** | The sandbox-method gates + origin-isolation edges that only bite once the VM is the live engine: alert/confirm/prompt + window.open gating, sandboxed-fetch opaque-origin, iframe-origin-before-initial-scripts, scripting-disabled event-handler attr processing. **Layering**: the sandbox / scripting-disabled gate *predicate* (HTML §7.1.5 / §8.1.3.4) lands engine-indep — read the already-engine-side sandbox flags; precise crate (`elidex-dom-api` / `elidex-script-session`) decided at S5-4's own plan-review, **not** a fresh `host/` body. | `#11-vm-sandbox-method-gates-and-modals`, `#11-sandbox-fetch-opaque-origin-isolation`, `#11-iframe-origin-before-initial-scripts`, `#11-scripting-disabled-eventhandler-processing-step1`, `#11-worker-port-message-no-origin` | sandbox flags × origin × scripting-disabled × fetch isolation | **yes** (edge-dense security cluster: ≥3 invariant axes; sandbox bypass = security-by-structure) | S1b substrate (landed) |
 | **S5-5 navigation/history enforcement edge** | The navigation-origin + history-traversal edges the live shell drives: nav-origin-resync, drain-history-before-navigation, synchronous fragment navigation, popstate/traversal fidelity. | `#11-vm-navigation-origin-resync`, `#11-s5-shell-drain-history-before-navigation`, `#11-synchronous-fragment-navigation`, `#11-history-state-traversal-popstate-fidelity` | origin × navigation × history-traversal × focus-reset | **yes** (edge-dense: nav × history × origin) | S1c back-channel (landed) |
 | **S5-6 THE FLIP + boa deletion** | shell deps `elidex-js features=["engine"]`, drop `elidex-js-boa` dep; `PipelineResult.runtime: JsRuntime` → `ElidexJsEngine`; wire the **batch-bind brackets** (§4) around the eval loop / event dispatch / frame drains; delete the CSSOM shadow-sync (`stylesheets_to_cssom`/`sync_stylesheets_to_bridge`/`CssomMutation` — VM reads CSSOM live from EcsDom); **delete the `elidex-js-boa` crate**. Bundles the bound-window-dispatch slot + the storage-event VM emit-site. | `#11-bound-safe-dispatch-dom-aliasing`, `#11-storage-event-broker` (VM emit-site), `#11-vm-host-synthetic-dom-event-dispatch` (focus A2c synthetic blur/focus/change at the host seam, now driven live) | batch-bind safety × CSSOM-truth swap × storage-event emit × synthetic-event dispatch × focus A2c × the whole shell test oracle | **yes** (the highest-blast PR; the batch-bind corner + wholesale deletion) | **S5-1..S5-5 + C3** (§9) |
 | **S5-7 element.animate (Web Animations)** | `#11-web-animations-element-animate` — `Element.animate()`/WAAPI. Post-flip fidelity surface; independently shippable once the VM is live. | `#11-web-animations-element-animate` | animation timeline × WAAPI (largely self-contained) | **judge at scope** (own plan-review if it touches the animation/timeline cross-cut) | S5-6 (flip done) |
 | **S5-8 window.open / postMessage browsing-context model** | `#11-browsing-context-model-window-open-postmessage` — the broader auxiliary-browsing-context / cross-window postMessage model. **Strongly couples world_id / multi-doc** (cross-VM Window proxy identity) → likely lands WITH the world_id program, not pure S5. Registered here for cohort completeness; disposition = §10 Q4. | `#11-browsing-context-model-window-open-postmessage` (+ related off-cap `#11-windowproxy-browsing-context`/`#11-auxiliary-browsing-context-opener` from #412 C0, which are world_id-bound) | browsing-context entity × WindowProxy identity × cross-VM postMessage × opener | **yes** (edge-dense + world_id boundary) | **world_id program** (post-S5) — see §10 Q4 |
 
-**Slot-to-PR coverage check** (all 14 cohort slots accounted): S5-3 {keepalive}; S5-4 {sandbox-method-gates,
-sandbox-fetch-opaque, iframe-origin-before-scripts, scripting-disabled-eventhandler, worker-port-no-origin};
-S5-5 {nav-origin-resync, drain-history-before-nav, synchronous-fragment-nav, history-traversal-popstate};
-S5-6 {bound-safe-dispatch, storage-event-broker, vm-host-synthetic-dom-event-dispatch}; S5-7 {web-animations};
-S5-8 {browsing-context-window-open-postmessage}. = 14. ✓
+**Slot-to-PR coverage check.** The 14-slot **boa-deletion cohort** (`project_open-defer-slots.md`
+"S5-boa-deletion cohort") maps as: S5-4 {sandbox-method-gates, sandbox-fetch-opaque, iframe-origin-before-scripts,
+scripting-disabled-eventhandler, worker-port-no-origin} (5); S5-5 {nav-origin-resync, drain-history-before-nav,
+synchronous-fragment-nav, history-traversal-popstate} (4); S5-6 {bound-safe-dispatch, storage-event-broker,
+vm-host-synthetic-dom-event-dispatch} (3); S5-7 {web-animations} (1); S5-8 {browsing-context-window-open-postmessage}
+(1) = **14 cohort slots ✓**. **S5-3 {keepalive} is +1 cross-listed S5-*prerequisite***
+(`#11-eventtarget-listener-keepalive-rooting` lives in the observer KEEP-section tagged "S5-prerequisite" —
+**NOT** a boa-deletion-cohort member). **Total PR-folded = 15** (14 cohort + 1 prerequisite).
 
 ---
 
