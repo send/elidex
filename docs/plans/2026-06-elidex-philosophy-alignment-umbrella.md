@@ -214,8 +214,11 @@ original framing).
   `:312` and `:323` return `Ok(JsValue::Null)`.
 - **✅ Resolved 2026-06-26 (C0).** Both stub families (`contentDocument`/
   `contentWindow` in `html_iframe_proto.rs` and `self`/`parent`/`top`/`frames`/
-  `frameElement`/`opener`/`length`/`closed` in `window.rs`) now cite the formal
-  defer slot `#11-windowproxy-browsing-context` with why/trigger/date in-code.
+  `frameElement`/`length`/`closed` in `window.rs`) now cite the formal defer
+  slot `#11-windowproxy-browsing-context` with why/trigger/date in-code.
+  `opener` is mechanically in the same file (null stub) but tracked separately
+  under `#11-auxiliary-browsing-context-opener` (window.open() / auxiliary
+  browsing-context scope — see in-code comment + plan §4).
   Narrative "M4-12 cutover residual roadmap" and "future PR" comments replaced.
   Implementation plan written: `docs/plans/2026-06-iframe-browsing-context-plan.md`.
   Stub return values unchanged (null/globalThis).
@@ -370,7 +373,7 @@ natural shape of the fix rather than a separable step.
 
 | PR | Purpose | Main files / crates | Do-not-touch | Depends on | Plan-review | AC |
 |---|---|---|---|---|---|---|
-| **C0** | ✅ **LANDED** (2026-06-26). Both stub families (`contentDocument`/`contentWindow` in `html_iframe_proto.rs` + `self`/`parent`/`top`/`frames`/`frameElement`/`opener`/`length`/`closed` in `window.rs`) now cite `#11-windowproxy-browsing-context` with why/trigger/date in-code; narrative comments replaced. Implementation plan written: `docs/plans/2026-06-iframe-browsing-context-plan.md` (missing model, trigger, targeted tests). Stub return values unchanged. | `vm/host/html_iframe_proto.rs`, `window.rs` (comment-only); `docs/plans/2026-06-iframe-browsing-context-plan.md` | proxy implementation | — | not required (slot decision) | Both stub families carry `#11-windowproxy-browsing-context` in-code (why/trigger/date); plan written; behavior unchanged |
+| **C0** | ✅ **LANDED** (2026-06-26). Both stub families (`contentDocument`/`contentWindow` in `html_iframe_proto.rs` + `self`/`parent`/`top`/`frames`/`frameElement`/`length`/`closed` in `window.rs`) now cite `#11-windowproxy-browsing-context` with why/trigger/date in-code; `opener` (same file) cites separate `#11-auxiliary-browsing-context-opener` (window.open() scope — see in-code comment + plan §4); narrative comments replaced. Implementation plan written: `docs/plans/2026-06-iframe-browsing-context-plan.md`. Stub return values unchanged. | `vm/host/html_iframe_proto.rs`, `window.rs` (comment-only); `docs/plans/2026-06-iframe-browsing-context-plan.md` | proxy implementation | — | not required (slot decision) | Sub-frame stubs cite `#11-windowproxy-browsing-context`; `opener` cites `#11-auxiliary-browsing-context-opener`; plan written; behavior unchanged |
 | C1+ | (Deferred — out of scope) same-origin/cross-origin proxy implementation | — | — | C0 + `world_id` program + S5/boa removal | **PR-R** | (future) |
 
 ### Program D — plugin-first tag dispatch (F5) — investigate-only

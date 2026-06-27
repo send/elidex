@@ -22,7 +22,7 @@
 //! (`innerWidth` / `scrollX` / `devicePixelRatio` / …), the scroll
 //! methods (`scrollTo` / `scrollBy`), the WindowProxy iframe
 //! accessors (`self` / `parent` / `top` / `frames` / `frameElement` /
-//! `opener` / `length` / `closed`, WHATWG HTML §7.3), and the
+//! `opener` / `length` / `closed`, WHATWG HTML §7.2.2), and the
 //! writable `name` accessor pair so every `globalThis` reads them
 //! from the shared prototype rather than each wrapper holding its
 //! own copy.  Global singletons that are values rather than
@@ -311,12 +311,14 @@ pub(super) fn native_window_get_device_pixel_ratio(
 // Deferred stubs for `parent`/`top`/`frameElement`/`length`/`closed`
 // — all under `#11-windowproxy-browsing-context`.
 //
-// `self` and `frames` getter bodies are already spec-correct
-// (§7.2.2 defines them as returning the Window's own global object /
-// WindowProxy — i.e. `this` itself); C1+ need not change those getter
-// bodies.  What C1+ must add is `frames[i]` indexed access, which is an
-// exotic property operation on the WindowProxy (§7.2.2 / §7.2.3), not
-// a change to the `frames` attribute getter.
+// `self` and `frames` getter bodies return `ctx.vm.global_object` and are
+// spec-correct (§7.2.2: return `this`'s own global object), but only when
+// C1+'s WindowProxy [[Get]] forwarding executes them inside the receiver's
+// VM.  C1+ need not change the getter bodies, but MUST implement the
+// forwarding mechanism; see receiver requirements below.  What C1+ must
+// add separately is `frames[i]` indexed access — an exotic property
+// operation on the WindowProxy (§7.2.3), not a change to the `frames`
+// attribute getter itself.
 //
 // `opener` is included in this group **mechanically** (same null stub) but
 // its correctness is tracked under a separate slot:
@@ -351,9 +353,14 @@ pub(super) fn native_window_get_device_pixel_ratio(
 //
 // Stubs currently ignore `_this`: single-VM, so there is no other
 // browsing context to route to.  C1+ receiver requirements differ:
-//   • `self` / `frames`: return `this` (the Window's own global object
-//     per §7.2.2); trivially receiver-correct because the getter always
-//     returns the executing VM's `global_object`, which IS the receiver.
+//   • `self` / `frames`: return `this`'s own global object (§7.2.2).
+//     The getter body ignores `_this` and returns `ctx.vm.global_object`.
+//     This is only spec-correct when C1+'s WindowProxy [[Get]] forwarding
+//     executes the body inside the receiver's VM — making the executing
+//     VM's global equal to the receiver's global.  C1+ must NOT leave
+//     `_this` ignored without that forwarding; without it,
+//     `childWindowProxy.self` returns the calling VM's global, not the
+//     child's.
 //   • `length` / `closed`: return state intrinsic to `this`'s own
 //     context (child-frame count / browsing-context-null check per
 //     §7.2.2.2 / §7.2.2.1).  These are NOT truly receiver-independent
