@@ -47,8 +47,8 @@ values for same-origin frames.
 
 ### 2.1 Sub-frame browsing-context entity
 
-Each `<iframe>` must correspond to a browsing-context entity (or ECS
-component on the iframe element entity) that carries:
+Each `<iframe>` element entity must carry an ECS component (the
+"content navigable" component) that holds:
 
 - the nested `EcsDom` / document entity (the *active document*),
 - the `EngineMode` and sandboxing flags derived from the `sandbox` attribute.

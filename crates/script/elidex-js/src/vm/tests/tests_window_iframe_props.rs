@@ -80,7 +80,7 @@ fn closed_is_false() {
 fn iframe_accessors_live_on_window_prototype() {
     // The accessors must live on `Window.prototype`, not as own
     // properties of `globalThis`, so the chain matches WHATWG HTML
-    // §7.3.  Verify by reading from `Object.getPrototypeOf(window)`.
+    // §7.2.2.  Verify by reading from `Object.getPrototypeOf(window)`.
     assert!(eval_bool(
         "var p = Object.getPrototypeOf(window);
          var d = Object.getOwnPropertyDescriptor(p, 'parent');

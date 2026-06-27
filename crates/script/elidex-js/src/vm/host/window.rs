@@ -565,11 +565,15 @@ const WINDOW_METHODS: &[(&str, super::super::NativeFn)] = &[
 // `pageXOffset` / `pageYOffset` are spec aliases for `scrollX` /
 // `scrollY`; they share the same underlying native fn.
 //
-// The iframe WindowProxy accessors (`self` / `parent` / `top` /
-// `frames` / `frameElement` / `opener` / `length` / `closed`) live on
-// `Window.prototype` per WHATWG HTML §7.2.2.  All are deferred stubs
-// (`#11-windowproxy-browsing-context`; see comment block above
-// `native_window_get_self` for why/trigger/date).
+// The iframe WindowProxy accessors live on `Window.prototype` per
+// WHATWG HTML §7.2.2.  Slot ownership per getter:
+//   `parent`/`top`/`frameElement`/`length`/`closed` — deferred stubs,
+//     `#11-windowproxy-browsing-context` (see comment block above
+//     `native_window_get_self` for why/trigger/date).
+//   `self`/`frames` — getter bodies already spec-correct (return `this`);
+//     only `frames[i]` exotic indexed access is deferred under the same slot.
+//   `opener` — deferred stub, `#11-auxiliary-browsing-context-opener`
+//     (window.open() scope; see comment block above for why/trigger/date).
 const WINDOW_RO_ACCESSORS: &[(&str, super::super::NativeFn)] = &[
     ("innerWidth", native_window_get_inner_width),
     ("innerHeight", native_window_get_inner_height),
