@@ -131,8 +131,11 @@ impl Range {
 
     /// Delete the contents of this range.
     ///
-    /// Simplified implementation: removes fully-contained nodes, splits
-    /// text nodes at boundaries.  Copilot R8: text-node truncations
+    /// Simplified implementation: removes fully-contained top-level nodes
+    /// (`contained_top_level_nodes`) and splits boundary text nodes. The same
+    /// simplified-cross-container scope as [`Self::extract_contents`] applies
+    /// (partial boundary text → `characterData` record deferred to B1.3; see
+    /// the B1.2d-ii plan §11 carve ledger).  Copilot R8: text-node truncations
     /// route through [`EcsDom::replace_text_data`] (which fires
     /// `after_replace_data` for live-range adjust) rather than
     /// `set_text_data` (which only fires the truncate-clamp hook).
@@ -215,11 +218,21 @@ impl Range {
 
     /// Extract contents into a document fragment.
     ///
-    /// Handles element and text nodes:
+    /// **Simplified cross-container implementation** (mirrors
+    /// [`Self::delete_contents`]):
     /// - Same container text node: splits and extracts the middle portion.
     /// - Same container element: detaches children in `[start_offset..end_offset]`.
-    /// - Different containers: splits boundary text nodes, detaches fully-contained
-    ///   nodes, and clones partially-contained element ancestors.
+    /// - Different containers: splits boundary text nodes and **moves
+    ///   fully-contained top-level nodes** (`contained_top_level_nodes`) into
+    ///   the fragment.
+    ///
+    /// NOT yet implemented (the cross-container algorithm is simplified): the
+    /// DOM §5.5 extract steps 7-15 **deep-clone of a *partially*-contained
+    /// element ancestor** into the fragment — the boundary element instead
+    /// stays in the live tree and only its contained descendants are removed
+    /// (steps 18/21, observed `apply_remove_child` records). The partial
+    /// boundary **text** splice is applied but its `characterData` record is
+    /// deferred to B1.3. Both gaps are tracked in the B1.2d-ii plan §11.
     #[allow(clippy::too_many_lines)]
     pub fn extract_contents(&mut self, dom: &mut EcsDom) -> (Entity, Vec<MutationRecord>) {
         let frag = dom.create_document_fragment();
