@@ -168,24 +168,39 @@ pub(super) struct ContentAreaPlacement {
     pub(super) origin_logical: Point,
     /// Content-area size in CSS logical px (window-logical minus chrome).
     pub(super) size_logical: Size,
-    /// Device pixel ratio (`window.scale_factor()`); CSS-px → device-px scale.
-    pub(super) scale_factor: f32,
+    /// Device pixel ratio (`window.scale_factor()`); CSS-px → device-px scale. Held as
+    /// **`f64`** (the lossless winit value) because it is also the dppx *content fact*
+    /// (`window.devicePixelRatio` / `@media (resolution)`): an `f32` rounds a fractional
+    /// scale like 1.2 to `1.2000000476837158`, which the exact (`RangeValue::Dppx`)
+    /// media evaluator rejects for `(resolution: 1.2dppx)` and which JS observes as a
+    /// wrong DPR (Codex R3). The compositor transform / input ÷scale tolerate `f32`, so
+    /// `origin_phys`/`size_phys` narrow it there.
+    pub(super) scale_factor: f64,
 }
 
 impl ContentAreaPlacement {
+    /// The scale narrowed to `f32` for the **compositor transform / input ÷scale**, which
+    /// tolerate it — the single deliberate-narrowing site (the `f64` `scale_factor` is
+    /// lossless only for the dppx *content fact*: `devicePixelRatio` / `@media (resolution)`,
+    /// C3 R3). Centralized so the narrowing intent + lint exemption live in one place.
+    #[allow(clippy::cast_possible_truncation)]
+    pub(super) fn scale_f32(&self) -> f32 {
+        self.scale_factor as f32
+    }
+
     /// Content-area top-left in physical surface px (`origin_logical × scale`).
     pub(super) fn origin_phys(&self) -> Point {
         Point::new(
-            self.origin_logical.x * self.scale_factor,
-            self.origin_logical.y * self.scale_factor,
+            self.origin_logical.x * self.scale_f32(),
+            self.origin_logical.y * self.scale_f32(),
         )
     }
 
     /// Content-area size in physical surface px (`size_logical × scale`).
     pub(super) fn size_phys(&self) -> Size {
         Size::new(
-            self.size_logical.width * self.scale_factor,
-            self.size_logical.height * self.scale_factor,
+            self.size_logical.width * self.scale_f32(),
+            self.size_logical.height * self.scale_f32(),
         )
     }
 }

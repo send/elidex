@@ -228,7 +228,7 @@ fn input_placement_stale(placement_seq: u64, state: &ContentState) -> bool {
 fn apply_device_facts(
     state: &mut ContentState,
     color_scheme: elidex_css::media::ColorScheme,
-    dppx: f32,
+    dppx: f64,
     facts_seq: u64,
 ) -> bool {
     if facts_seq <= state.applied_facts_seq {

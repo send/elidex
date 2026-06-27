@@ -101,15 +101,17 @@ impl App {
         let phys = window.inner_size();
         // Divide in f64 so a logical-preserving DPI change recovers the same logical
         // size (an f32 division round-trips e.g. 960px@1.2 to 799.99994 ≠ 800.0, a
-        // phantom seq generation — see `logical_px`). Scale itself stays f32 in the
-        // placement (compositor transform / input ÷scale tolerate the narrowing).
+        // phantom seq generation — see `logical_px`). The scale is **kept as f64** in the
+        // placement (the lossless dppx content fact — `devicePixelRatio` / `@media
+        // (resolution)`, Codex R3); `origin_phys`/`size_phys` narrow it to f32 for the
+        // compositor transform / input ÷scale, which tolerate the narrowing.
         let win_logical_w = logical_px(phys.width, scale_factor);
         let win_logical_h = logical_px(phys.height, scale_factor);
         let position = self.tab_bar_position();
         ContentAreaPlacement {
             origin_logical: chrome::chrome_content_offset(position),
             size_logical: chrome::content_size(win_logical_w, win_logical_h, position),
-            scale_factor: scale_factor as f32,
+            scale_factor,
         }
     }
 

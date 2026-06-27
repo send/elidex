@@ -23,7 +23,10 @@ pub use elidex_plugin::{channel_pair, LocalChannel};
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct DeviceFacts {
     /// Device pixel ratio (`window.scale_factor()`), the `@media (resolution)` dppx.
-    pub dppx: f32,
+    /// **`f64`** (lossless): an `f32` rounds a fractional scale like 1.2 to
+    /// `1.2000000476837158`, which the exact media evaluator rejects for
+    /// `(resolution: 1.2dppx)` and JS observes as a wrong `devicePixelRatio` (Codex R3).
+    pub dppx: f64,
     /// `prefers-color-scheme` preference (from the window theme; `Light` on the
     /// platforms winit reports no theme — X11/Wayland).
     pub color_scheme: ColorScheme,
@@ -317,8 +320,9 @@ pub enum BrowserToContent {
         /// The settled `prefers-color-scheme` carried alongside the size (the cell's
         /// atomic snapshot), applied via the same `facts_seq` guard as [`Self::SetDeviceFacts`].
         color_scheme: ColorScheme,
-        /// The settled device-pixel ratio (dppx) carried alongside the size.
-        dppx: f32,
+        /// The settled device-pixel ratio (dppx) carried alongside the size. `f64`
+        /// (lossless — see [`DeviceFacts::dppx`]).
+        dppx: f64,
         /// The device-facts generation for the carried facts (independent of `seq`,
         /// D3); dropped by the content when `≤` its facts high-water mark.
         facts_seq: u64,
@@ -340,8 +344,8 @@ pub enum BrowserToContent {
     SetDeviceFacts {
         /// `prefers-color-scheme` preference.
         color_scheme: ColorScheme,
-        /// Device pixel ratio (dppx).
-        dppx: f32,
+        /// Device pixel ratio (dppx). `f64` (lossless — see [`DeviceFacts::dppx`]).
+        dppx: f64,
         /// Monotonic device-facts generation (independent of the size `seq`) this
         /// delivery corresponds to. Dropped when `≤` the content thread's build-time
         /// facts high-water mark.

@@ -1079,3 +1079,63 @@ fn atomic_size_and_facts_delivery_fires_no_intermediate_mql_change() {
         "query is true at 1400px + Light"
     );
 }
+
+/// C3 (Codex R3): a fractional device scale (1.2×) reaches `window.devicePixelRatio` and
+/// the canonical `@media (resolution)` evaluator with full **f64** precision. An `f32`
+/// dppx rounds 1.2 to `1.2000000476837158`, which the exact (`RangeValue::Dppx`)
+/// evaluator rejects for `(resolution: 1.2dppx)` and which JS observes as a wrong DPR —
+/// so carrying dppx as `f64` end-to-end (placement → `DeviceFacts` → IPC → bridge →
+/// `devicePixelRatio`/`MediaEnvironment`) is load-bearing, not cosmetic.
+#[test]
+fn fractional_dppx_is_lossless_to_devicepixelratio_and_media() {
+    use elidex_css::media::ColorScheme;
+    let (mut state, _browser) = build_test_content_state(
+        "<div id='probe'></div>\
+         <script>\
+           var probe = document.getElementById('probe');\
+           var mql = matchMedia('(resolution: 1.2dppx)');\
+           probe.setAttribute('data-res-init', String(mql.matches));\
+           mql.addEventListener('change', function(e) {\
+             probe.setAttribute('data-res', String(e.matches));\
+             probe.setAttribute('data-dpr', String(window.devicePixelRatio));\
+           });\
+         </script>",
+        "",
+    );
+    assert_eq!(
+        probe_attr(&state.pipeline, "probe", "data-res-init").as_deref(),
+        Some("false"),
+        "(resolution: 1.2dppx) is false at the default 1x"
+    );
+
+    // A real 1.2× display delivers dppx = 1.2 (the lossless f64 winit scale).
+    super::event_loop::handle_message_public(
+        BrowserToContent::SetDeviceFacts {
+            color_scheme: ColorScheme::Light,
+            dppx: 1.2,
+            facts_seq: 1,
+        },
+        &mut state,
+    );
+
+    // The bridge holds the exact f64 1.2 (an f32 field would hold 1.2000000476837158).
+    assert_eq!(
+        state.pipeline.runtime.bridge().device_pixel_ratio(),
+        1.2,
+        "dppx must reach the bridge as exact f64 1.2, not f32-rounded"
+    );
+    // `(resolution: 1.2dppx)` flipped to true — the exact evaluator matched 1.2 (an f32
+    // device dppx of 1.2000000476837158 would not equal the query's 1.2 → stays false,
+    // no change fires, this attribute stays absent → the assert fails, catching the regression).
+    assert_eq!(
+        probe_attr(&state.pipeline, "probe", "data-res").as_deref(),
+        Some("true"),
+        "@media (resolution: 1.2dppx) must match a real 1.2x display (f64-lossless)"
+    );
+    // JS observes the exact 1.2, not the f32-rounded 1.2000000476837158.
+    assert_eq!(
+        probe_attr(&state.pipeline, "probe", "data-dpr").as_deref(),
+        Some("1.2"),
+        "window.devicePixelRatio must be exactly 1.2, not 1.2000000476837158"
+    );
+}

@@ -113,8 +113,10 @@ pub(crate) struct HostBridgeInner {
     /// Cached viewport dimensions (set by content thread on `SetViewport`).
     viewport_width: f32,
     viewport_height: f32,
-    /// Device pixel ratio (set by content thread from winit `scale_factor`).
-    device_pixel_ratio: f32,
+    /// Device pixel ratio (set by content thread from winit `scale_factor`). `f64`
+    /// (lossless — an `f32` rounds a fractional scale like 1.2, which JS observes as a
+    /// wrong `devicePixelRatio` and the exact `@media (resolution)` evaluator rejects; C3 R3).
+    device_pixel_ratio: f64,
     /// `prefers-color-scheme` user/OS preference (set by content thread from the
     /// window theme, C3). Feeds the [`MediaEnvironment`] the canonical evaluator
     /// reads for `@media (prefers-color-scheme)`; defaults `Light`.
