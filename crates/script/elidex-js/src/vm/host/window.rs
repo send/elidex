@@ -22,7 +22,7 @@
 //! (`innerWidth` / `scrollX` / `devicePixelRatio` / …), the scroll
 //! methods (`scrollTo` / `scrollBy`), the WindowProxy iframe
 //! accessors (`self` / `parent` / `top` / `frames` / `frameElement` /
-//! `opener` / `length` / `closed`, WHATWG HTML §7.3), and the
+//! `opener` / `length` / `closed`, WHATWG HTML §7.2.2), and the
 //! writable `name` accessor pair so every `globalThis` reads them
 //! from the shared prototype rather than each wrapper holding its
 //! own copy.  Global singletons that are values rather than
@@ -304,27 +304,76 @@ pub(super) fn native_window_get_device_pixel_ratio(
 }
 
 // ---------------------------------------------------------------------------
-// Iframe-related WindowProxy getters (WHATWG HTML §7.3)
+// Iframe-related WindowProxy getters (WHATWG HTML §7.2.2.4 / §7.2.3)
+// `#11-windowproxy-browsing-context`
 // ---------------------------------------------------------------------------
 //
-// `parent`, `top`, `frames`, and `self` all return WindowProxy values
-// per spec.  The VM currently models a single top-level browsing
-// context, so the only WindowProxy we have is `globalThis` itself —
-// every getter resolves to it.  This matches the legacy boa
-// registration (`elidex-js-boa/src/globals/window/mod.rs`
-// `register_iframe_window_props`) so the JS surface does not regress
-// when boa is removed in PR7.
+// Deferred stubs for `parent`/`top`/`frameElement`/`length`/`closed`
+// — all under `#11-windowproxy-browsing-context`.
 //
-// `frameElement` and `opener` return `null`: there is no parent
-// browsing context to point at, and no `window.open(...)` opener
-// chain — both await sub-frame wiring (PR6 / Phase 3) before they
-// can become non-null.  `length` is `0` because the VM tracks zero
-// child frames.  `closed` is `false` for the same single-context
-// reason.
+// `self` and `frames` getter bodies return `ctx.vm.global_object` and are
+// spec-correct (§7.2.2: return `this`'s own global object), but only when
+// C1+'s WindowProxy [[Get]] forwarding executes them inside the receiver's
+// VM.  C1+ need not change the getter bodies, but MUST implement the
+// forwarding mechanism; see receiver requirements below.  What C1+ must
+// add separately is `frames[i]` indexed access — an exotic property
+// operation on the WindowProxy (§7.2.3), not a change to the `frames`
+// attribute getter itself.
 //
-// All getters use the `_this` argument because they read VM-wide
-// state that is independent of the receiver — `Window.prototype.parent`
-// invoked with any receiver still resolves to the unique globalThis.
+// `opener` is included in this group **mechanically** (same null stub) but
+// its correctness is tracked under a separate slot:
+//   `#11-auxiliary-browsing-context-opener`
+//   Why: `window.open()` auxiliary browsing-context creation is not yet
+//     implemented; the opener WindowProxy depends on that mechanism.
+//   Trigger: window.open() / auxiliary browsing-context program (post-S5).
+//   Revisit: when window.open() is tackled.
+// C1+ may close `#11-windowproxy-browsing-context` (sub-frame accessors)
+// while leaving `opener` as a null stub under its own slot.
+//
+// Why: sub-frame browsing-context entity model and cross-VM
+// Document/Window proxy identity are not yet implemented.  The VM
+// currently models a single top-level browsing context — `self`,
+// `parent`, `top`, and `frames` resolve to `globalThis`; `frameElement`
+// and `opener` return `null`; `length` returns `0`; `closed` returns
+// `false`.
+//
+// These stubs are correct only for a genuine top-level window with no
+// opener.  For sub-frame or opened windows:
+//   • `parent` / `top`: sub-frames must receive an ancestor WindowProxy
+//     (§7.2.2.4), not globalThis — even cross-origin (restricted proxy).
+//   • `frameElement`: `null` is spec-correct for cross-origin callers
+//     (§7.2.2.4), but same-origin sub-frames must receive the element.
+//   • `opener`: a window opened via `window.open()` must expose the
+//     opener WindowProxy (possibly restricted cross-origin), NOT null.
+//   • `length` / `closed`: reflect actual child-frame count / window
+//     state, not 0 / false.
+//
+// Trigger: `world_id` / cross-DOM program + S5/boa removal.
+// Revisit date: when the `world_id` / S5 program begins.
+//
+// Stubs currently ignore `_this`: single-VM, so there is no other
+// browsing context to route to.  C1+ receiver requirements differ:
+//   • `self` / `frames`: return `this`'s own global object (§7.2.2).
+//     The getter body ignores `_this` and returns `ctx.vm.global_object`.
+//     This is only spec-correct when C1+'s WindowProxy [[Get]] forwarding
+//     executes the body inside the receiver's VM — making the executing
+//     VM's global equal to the receiver's global.  C1+ must NOT leave
+//     `_this` ignored without that forwarding; without it,
+//     `childWindowProxy.self` returns the calling VM's global, not the
+//     child's.
+//   • `length` / `closed`: return state intrinsic to `this`'s own
+//     context (child-frame count / browsing-context-null check per
+//     §7.2.2.2 / §7.2.2.1).  These are NOT truly receiver-independent
+//     in multi-VM — `childWindowProxy.length` must return the child's
+//     frame count, not the parent's.  C1+ must dispatch to the receiver's
+//     VM before reading these values (same dispatch mechanism as
+//     `self`/`frames`, but the returned state is not trivially `this`).
+//   • `parent` / `top` / `frameElement` / `opener`: return ancestor /
+//     container / opener state from a *different* browsing context.
+//     C1+ MUST make these receiver-relative (routing via the navigable
+//     tree, not VM-wide state); keeping VM-wide state in the real
+//     implementation would cause `childWindow.parent` to resolve
+//     relative to the wrong window.
 
 pub(super) fn native_window_get_self(
     ctx: &mut NativeContext<'_>,
@@ -530,12 +579,15 @@ const WINDOW_METHODS: &[(&str, super::super::NativeFn)] = &[
 // `pageXOffset` / `pageYOffset` are spec aliases for `scrollX` /
 // `scrollY`; they share the same underlying native fn.
 //
-// The iframe WindowProxy accessors (`self` / `parent` / `top` /
-// `frames` / `frameElement` / `opener` / `length` / `closed`) live on
-// `Window.prototype` per WHATWG HTML §7.3.  All return single-context
-// stubs today (see the comment block on `native_window_get_self`); a
-// future PR can replace the bodies with real cross-frame lookups
-// without disturbing the install order.
+// The iframe WindowProxy accessors live on `Window.prototype` per
+// WHATWG HTML §7.2.2.  Slot ownership per getter:
+//   `parent`/`top`/`frameElement`/`length`/`closed` — deferred stubs,
+//     `#11-windowproxy-browsing-context` (see comment block above
+//     `native_window_get_self` for why/trigger/date).
+//   `self`/`frames` — getter bodies already spec-correct (return `this`);
+//     only `frames[i]` exotic indexed access is deferred under the same slot.
+//   `opener` — deferred stub, `#11-auxiliary-browsing-context-opener`
+//     (window.open() scope; see comment block above for why/trigger/date).
 const WINDOW_RO_ACCESSORS: &[(&str, super::super::NativeFn)] = &[
     ("innerWidth", native_window_get_inner_width),
     ("innerHeight", native_window_get_inner_height),

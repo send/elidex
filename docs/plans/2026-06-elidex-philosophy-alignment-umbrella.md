@@ -31,7 +31,7 @@ Remediation of the six philosophy-drift findings from the audit:
 | F1 | Sync `localStorage`/`sessionStorage` on the core VM surface | IMP | IMP (confirmed) |
 | F2 | `document.cookie` on the core Document binding (+ stale "stub" doc) | IMP | IMP (confirmed) + clerical sub-fix |
 | F3 | DOM write paths vs the `ScriptSession` mutation boundary | IMP | **IMP, reframed** — see §2.3 |
-| F4 | iframe `contentDocument`/`contentWindow` parity null stubs | IMP | IMP (confirmed; **no defer slot**) |
+| F4 | iframe `contentDocument`/`contentWindow` parity null stubs | IMP | **✅ C0 LANDED** — `#11-windowproxy-browsing-context` slot recorded in-code (ledger: Opus follow-up); impl plan written (§2.4) |
 | F5 | HTML tag→prototype routing hard-coded in the VM | MIN | MIN (confirmed) |
 | F6 | Shell pipeline defaults to compat style resolution | MIN | **✅ LANDED** — E0 #406 + prereq #408 (§2.6) |
 
@@ -207,16 +207,21 @@ the strongest argument for an audit-first, plan-review-gated approach: the
 mechanism must be confirmed before any fix (this re-check already overturned the
 original framing).
 
-### 2.4 F4 — iframe parity stubs — **CONFIRMED; no defer slot**
+### 2.4 F4 — iframe parity stubs — **✅ C0 LANDED**
 
-- `html_iframe_proto.rs:31-40` — module doc calls `contentDocument`/
+- `html_iframe_proto.rs:31-40` — module doc called `contentDocument`/
   `contentWindow` "**Parity null stubs**"; `:115` installs them (getter-only);
   `:312` and `:323` return `Ok(JsValue::Null)`.
-- **No `#11-*` defer slot, no TODO/FIXME.** The only tracking is a narrative
-  "tracked in the M4-12 cutover residual roadmap" (`:37`). This fails CLAUDE.md's
-  requirement that a phase-constraint stub carry a *defer slot with why /
-  trigger / date*. So F4 has a concrete, cheap first action: **decide
-  remove-vs-formal-slot**, and if retained, register the slot.
+- **✅ Resolved 2026-06-26 (C0).** Both stub families (`contentDocument`/
+  `contentWindow` in `html_iframe_proto.rs` and `self`/`parent`/`top`/`frames`/
+  `frameElement`/`length`/`closed` in `window.rs`) now cite the formal defer
+  slot `#11-windowproxy-browsing-context` with why/trigger/date in-code.
+  `opener` is mechanically in the same file (null stub) but tracked separately
+  under `#11-auxiliary-browsing-context-opener` (window.open() / auxiliary
+  browsing-context scope — see in-code comment + plan §4).
+  Narrative "M4-12 cutover residual roadmap" and "future PR" comments replaced.
+  Implementation plan written: `docs/plans/2026-06-iframe-browsing-context-plan.md`.
+  Stub return values unchanged (null/globalThis).
 
 ### 2.5 F5 — hard-coded tag→prototype routing — **CONFIRMED (MIN)**
 
@@ -364,11 +369,11 @@ B1 before B2: get correctness (records) right, then collapse the decision
 surface. B2 may be merged into B1 if plan-review finds the unification is the
 natural shape of the fix rather than a separable step.
 
-### Program C — iframe browsing-context (F4)
+### Program C — iframe browsing-context (F4) — **✅ C0 LANDED**
 
 | PR | Purpose | Main files / crates | Do-not-touch | Depends on | Plan-review | AC |
 |---|---|---|---|---|---|---|
-| **C0** | **Decide remove-vs-formal-slot** for **both** the iframe `contentDocument`/`contentWindow` stubs **and** the Window browsing-context accessors `self`/`parent`/`top`/`frames`/`frameElement`/`opener`/`length`/`closed` (A0 §5/§1.1 — same narrative-stub anti-pattern); if retained, register defer slot(s) (why/trigger/date) and replace the narrative comments with slot ids; write the eventual same-origin/cross-origin implementation plan | `vm/host/html_iframe_proto.rs`, `window.rs` (comment/slot only, or removal); `docs/plans/` | proxy implementation | — | not required (slot decision); **PR-R** for the eventual impl | **Both** stub families either removed or carry a `#11-*` slot with all three elements cited in-code; implementation plan written; no behavior change beyond possible removal |
+| **C0** | ✅ **LANDED** (2026-06-26). Both stub families (`contentDocument`/`contentWindow` in `html_iframe_proto.rs` + `self`/`parent`/`top`/`frames`/`frameElement`/`length`/`closed` in `window.rs`) now cite `#11-windowproxy-browsing-context` with why/trigger/date in-code; `opener` (same file) cites separate `#11-auxiliary-browsing-context-opener` (window.open() scope — see in-code comment + plan §4); narrative comments replaced. Implementation plan written: `docs/plans/2026-06-iframe-browsing-context-plan.md`. Stub return values unchanged. | `vm/host/html_iframe_proto.rs`, `window.rs` (comment-only); `docs/plans/2026-06-iframe-browsing-context-plan.md` | proxy implementation | — | not required (slot decision) | Sub-frame stubs cite `#11-windowproxy-browsing-context`; `opener` cites `#11-auxiliary-browsing-context-opener`; plan written; behavior unchanged |
 | C1+ | (Deferred — out of scope) same-origin/cross-origin proxy implementation | — | — | C0 + `world_id` program + S5/boa removal | **PR-R** | (future) |
 
 ### Program D — plugin-first tag dispatch (F5) — investigate-only
@@ -389,7 +394,7 @@ natural shape of the fix rather than a separable step.
 A0 (PR0) ──► A1 ──► A2  (window.rs; after JS-side Slice 2b)
               └───► A3  (document.cookie; cookie-file clerical only)
 B0 ──► B1 ──► B2
-C0  (independent; cheap)
+C0  (✅ landed — slot `#11-windowproxy-browsing-context` + plan doc)
 D0  (independent; investigate)
 E0  (✅ landed — #406 + prereq #408; built on A1's EngineMode)
 F2 clerical comment fix  (independent micro-PR — grep-defined sweep spanning
@@ -436,7 +441,7 @@ PR0 scope (no `.rs` changes):
 - **F2 stale-comment correction** (`document.rs:1098`, `navigator.rs:72`) — a
   clerical doc fix that removes active reviewer-misleading misinformation; no
   plan-review; land when `document.rs` is not mid-edit by JS-side.
-- **F4 C0 defer-slot decision** — cheap, doc/comment-only, owner-agnostic.
+- **F4 C0 defer-slot decision** — ✅ **LANDED** (slot `#11-windowproxy-browsing-context`, impl plan written).
 
 > Considered alternatives for "first PR" and why PR0 wins: starting with B0
 > (F3 audit) is equally safe but does not unblock the two confirmed-IMP storage
@@ -531,8 +536,9 @@ assumed:
 - **`window.rs` (HIGH): F1/A2 vs JS-side media Slice 2b.** Both edit
   `crates/script/elidex-js/src/vm/host/window.rs` (Slice 2b adds `matchMedia`; A2
   moves `localStorage`/`sessionStorage`). **Do not open A2 while Slice 2b is
-  open.** Sequence: let Slice 2b land → rebase → then A2. PR0/B0/C0/D0/E0 and the
+  open.** Sequence: let Slice 2b land → rebase → then A2. PR0/B0/D0/E0 and the
   F2 clerical fix do **not** touch `window.rs` and are unaffected.
+  (C0 already touched `window.rs` comment-only and is **✅ landed**.)
 - **`vm/host/` attribute files (MED): F3/B1-B2 vs JS-side.** B1/B2 touch
   `element_attrs.rs` and the reflected-IDL setter macros. The JS-side Slice 2b is
   on `window.rs`/`MediaQueryList`, not the attribute setters — low overlap today,
@@ -540,10 +546,10 @@ assumed:
   (`git branch -r`, Axis 5).
 - **`document.rs` (LOW): F2 clerical + A3 vs JS-side.** `document.rs` is not on the
   Slice 2b path; still confirm at open-time.
-- **iframe (LOW): F4/C0 vs HTML-side.** The current HTML-side task
-  (`#11-dialog-form-method`) and the queued focus A2b touch dialog/form and
-  iframe *focus* cutover, not `contentDocument`/`contentWindow` accessors. C0 is
-  comment/slot only. Confirm no overlap when A2b's scope is known.
+- **iframe: F4/C0 ✅ LANDED.** C0 touched `window.rs` and `html_iframe_proto.rs`
+  (comment/slot only) — no semantic overlap with A2b (dialog/form focus cutover).
+  Future C1+ (same-origin proxy implementation) must re-check active branches
+  at open-time per §7.3 guardrails.
 - **Worktree isolation:** every code-touching PR in this program must be built in
   a dedicated worktree off `origin/main` (`git worktree add -b <branch> <dir>
   origin/main`), never in the shared main tree, per CLAUDE.md parallel-session
@@ -553,8 +559,7 @@ assumed:
 
 1. **PR0 (A0)** — umbrella design doc; run through `/elidex-plan-review`. Land
    first; it gates everything in Program A and informs E0.
-2. **F2 clerical fix** and **C0 (F4 slot decision)** — independent, cheap; land
-   any time (clerical fix prefers a window where `document.rs` is quiet).
+2. **F2 clerical fix** — independent, cheap; land any time (prefers a window where `document.rs` is quiet). **C0 ✅ already landed.**
 3. **B0** — F3 audit doc; can be authored in parallel with PR0, land second.
 4. **A1** → then **A2** (after Slice 2b) and **A3** in parallel.
 5. **B1** → **B2**.
@@ -580,7 +585,13 @@ plan-memo:
   on the target files (Axis 5), especially `window.rs` / `vm/host/`.
 - **Re-verify slot state:** `#11-storage-opaque-origin-securityerror` (F1) and the
   F5 tag slots / §H-7 must still be open and named as cited before referencing
-  them; F4 currently has **no** slot (creating one is part of C0).
+  them; F4 slot `#11-windowproxy-browsing-context` — C0 **in-code** scope is
+  ✅ landed (slot citation in comments/plan doc), but this slot is **not yet in
+  the formal ledger** (`memory/project_open-defer-slots.md` is git-untracked;
+  ledger registration was carved as a separate Opus task outside C0 scope).
+  Until the ledger entry exists, treat citations of this slot in code/docs as
+  in-code-only tracking; the slot is functional but not Axis-5-verifiable via
+  the ledger.
 - **Watch for the precondition shifting:** if a mode/`SpecLevel` mechanism lands
   via some other program before A1, A1's scope collapses — re-baseline rather
   than re-implement.

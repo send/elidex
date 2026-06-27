@@ -1,15 +1,14 @@
 //! PR5d: Window.prototype iframe-related accessor tests
 //! (`self` / `parent` / `top` / `frames` / `frameElement` / `opener` /
-//! `length` / `closed` / `name`, WHATWG HTML §7.3).
+//! `length` / `closed` / `name`, WHATWG HTML §7.2.2 / §7.2.2.4).
 //!
-//! All values are single-context stubs today (the VM models one
-//! browsing context); these tests pin the surface so that
-//! installing `Window.prototype` always resolves these reads
-//! deterministically and the same way the legacy boa registration
-//! did.  When sub-frame wiring lands (PR6 / Phase 3), the bodies of
-//! the accessors will change but the test contract `parent === window`
-//! / `frameElement === null` / etc. should still hold for the
-//! top-level window.
+//! All accessors are deferred stubs (`#11-windowproxy-browsing-context`;
+//! trigger: `world_id` / cross-DOM program + S5/boa removal).  These
+//! tests pin the top-level-window surface so that installing
+//! `Window.prototype` resolves these reads deterministically.  The
+//! test contract `parent === window` / `frameElement === null` / etc.
+//! should still hold for the top-level window when the real
+//! implementation lands (same-origin child frames will diverge).
 
 #![cfg(feature = "engine")]
 
@@ -81,7 +80,7 @@ fn closed_is_false() {
 fn iframe_accessors_live_on_window_prototype() {
     // The accessors must live on `Window.prototype`, not as own
     // properties of `globalThis`, so the chain matches WHATWG HTML
-    // §7.3.  Verify by reading from `Object.getPrototypeOf(window)`.
+    // §7.2.2.  Verify by reading from `Object.getPrototypeOf(window)`.
     assert!(eval_bool(
         "var p = Object.getPrototypeOf(window);
          var d = Object.getOwnPropertyDescriptor(p, 'parent');
