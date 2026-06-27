@@ -810,6 +810,8 @@ fn set_device_facts_activates_device_pixel_ratio_and_color_scheme() {
         BrowserToContent::SetDeviceFacts {
             color_scheme: ColorScheme::Dark,
             dppx: 2.0,
+            // First real-facts generation after the seed (build high-water mark = 0).
+            facts_seq: 1,
         },
         &mut state,
     );
@@ -862,6 +864,8 @@ fn set_device_facts_flips_matchmedia_and_fires_change() {
         BrowserToContent::SetDeviceFacts {
             color_scheme: ColorScheme::Dark,
             dppx: 1.0,
+            // First real-facts generation after the seed (build high-water mark = 0).
+            facts_seq: 1,
         },
         &mut state,
     );
@@ -872,5 +876,75 @@ fn set_device_facts_flips_matchmedia_and_fires_change() {
         probe_attr(&state.pipeline, "probe", "data-changed").as_deref(),
         Some("true"),
         "SetDeviceFacts(Dark) must flip the MQL and fire `change` with matches=true"
+    );
+}
+
+/// C3 (Codex R1): a `SetDeviceFacts` whose `facts_seq` is `≤` the build/last-applied
+/// high-water mark is dropped as stale — the facts analog of the `SetViewport` seq
+/// guard. A navigation racing rapid DPI/theme changes seeds the build from the cell's
+/// **latest** facts; an *older* `SetDeviceFacts` still queued behind it would otherwise
+/// replay backward (and fire a spurious MQL `change`) before a later delivery restores
+/// the latest. The value-guard alone cannot catch this — the stale facts *differ* from
+/// the freshly-seeded bridge, so only the `facts_seq` staleness guard drops them.
+#[test]
+fn stale_device_facts_delivery_is_dropped() {
+    use elidex_css::media::ColorScheme;
+    let (mut state, _browser) = build_test_content_state("<body></body>", "");
+
+    // The current document built at the cell's latest facts: dppx 2.0 / Dark at
+    // generation 2 (the build high-water mark this delivery establishes).
+    super::event_loop::handle_message_public(
+        BrowserToContent::SetDeviceFacts {
+            color_scheme: ColorScheme::Dark,
+            dppx: 2.0,
+            facts_seq: 2,
+        },
+        &mut state,
+    );
+    assert_eq!(state.pipeline.runtime.bridge().device_pixel_ratio(), 2.0);
+    assert_eq!(
+        state.pipeline.runtime.bridge().color_scheme(),
+        ColorScheme::Dark
+    );
+
+    // A STALE delivery (older generation 1) with *different* facts (1×/Light) arrives
+    // behind the build — it must be dropped (1 ≤ 2), NOT flash the bridge backward.
+    super::event_loop::handle_message_public(
+        BrowserToContent::SetDeviceFacts {
+            color_scheme: ColorScheme::Light,
+            dppx: 1.0,
+            facts_seq: 1,
+        },
+        &mut state,
+    );
+    assert_eq!(
+        state.pipeline.runtime.bridge().device_pixel_ratio(),
+        2.0,
+        "a stale (older facts_seq) delivery must not replay the bridge backward to 1.0"
+    );
+    assert_eq!(
+        state.pipeline.runtime.bridge().color_scheme(),
+        ColorScheme::Dark,
+        "a stale (older facts_seq) delivery must not replay the color scheme backward"
+    );
+
+    // A genuinely newer delivery (generation 3) still applies — the guard drops only
+    // stale generations, not the live stream.
+    super::event_loop::handle_message_public(
+        BrowserToContent::SetDeviceFacts {
+            color_scheme: ColorScheme::Light,
+            dppx: 1.0,
+            facts_seq: 3,
+        },
+        &mut state,
+    );
+    assert_eq!(
+        state.pipeline.runtime.bridge().device_pixel_ratio(),
+        1.0,
+        "a fresh (newer facts_seq) delivery must apply"
+    );
+    assert_eq!(
+        state.pipeline.runtime.bridge().color_scheme(),
+        ColorScheme::Light
     );
 }

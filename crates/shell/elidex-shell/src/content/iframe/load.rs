@@ -134,7 +134,7 @@ fn load_iframe_from_url(
             );
 
             if ctx.parent_origin != &origin {
-                return make_out_of_process_entry(loaded, sandbox_flags);
+                return make_out_of_process_entry(loaded, sandbox_flags, ctx.device_facts);
             }
 
             // Use credentialless handle if applicable, otherwise parent's.
@@ -158,14 +158,14 @@ fn load_iframe_from_url(
             };
             // iframe initial build: the sub-browsing-context box is not yet known
             // (the parent lays out the <iframe> element + delivers it via
-            // SetViewport later), so build at DEFAULT. NOTE C1's
+            // SetViewport later), so build at DEFAULT *size*. NOTE C1's
             // `run_scripts_and_finalize` now also seeds the JS bridge from this
             // viewport before initial scripts run (the same cascade/bridge
             // unification F1 applies to top-level), so iframe initial-script
-            // `innerWidth`/`matchMedia` observe DEFAULT — where pre-C1 the bridge
-            // stayed at its 800x600 default while the cascade used DEFAULT. Both
-            // are placeholders for the real iframe box; the correct box-at-build is
-            // deferred → slot #11-iframe-build-viewport.
+            // `innerWidth` observes DEFAULT — where pre-C1 the bridge
+            // stayed at its 800x600 default while the cascade used DEFAULT. The
+            // size is a placeholder for the real iframe box; the correct box-at-build
+            // is deferred → slot #11-iframe-build-viewport.
             let mut pipeline = crate::build_pipeline_from_loaded(
                 loaded,
                 pipeline_handle,
@@ -175,13 +175,12 @@ fn load_iframe_from_url(
                     crate::DEFAULT_VIEWPORT_WIDTH,
                     crate::DEFAULT_VIEWPORT_HEIGHT,
                 ),
-                // Placeholder device facts (1×/Light), as the viewport above is — the
-                // sub-browsing-context box is not yet known and `IframeLoadContext`
-                // carries no parent device facts. Iframe device-fact propagation rides
-                // the same deferred real-box wiring (#11-iframe-build-viewport); this
-                // is the pre-C3 status quo (the fresh iframe bridge defaulted anyway),
-                // not a regression.
-                crate::ipc::DeviceFacts::default(),
+                // Device facts, unlike the size, ARE known at build: dppx/color-scheme
+                // are window/display facts the sub-frame shares with its parent (C3), so
+                // seed the parent's real facts (`IframeLoadContext::device_facts`) — the
+                // iframe's `devicePixelRatio`/`matchMedia` are correct from birth instead
+                // of stuck at 1×/Light on a HiDPI/dark display.
+                ctx.device_facts,
             );
             // Keep credentialless broker alive for the iframe pipeline's lifetime.
             if let Some(cb) = credentialless_broker {
@@ -255,6 +254,7 @@ pub(super) fn make_in_process_entry(
 fn make_out_of_process_entry(
     loaded: elidex_navigation::LoadedDocument,
     sandbox_flags: Option<IframeSandboxFlags>,
+    device_facts: crate::ipc::DeviceFacts,
 ) -> IframeEntry {
     let (parent_chan, iframe_chan) = crate::ipc::channel_pair::<BrowserToIframe, IframeToBrowser>();
 
@@ -265,10 +265,10 @@ fn make_out_of_process_entry(
         // Use the already-fetched LoadedDocument — no redundant HTTP request.
         let network_handle = std::rc::Rc::new(elidex_net::broker::NetworkHandle::disconnected());
         let font_db = std::sync::Arc::new(elidex_text::FontDatabase::new());
-        // OOP iframe initial build at DEFAULT — box delivered later via SetViewport
-        // (slot #11-iframe-build-viewport, same as the in-process path). As there,
-        // C1 now seeds the bridge from this DEFAULT before initial scripts (was the
-        // boa 800x600 bridge default pre-C1); a placeholder pending the real box.
+        // OOP iframe initial build at DEFAULT *size* — box delivered later via
+        // SetViewport (slot #11-iframe-build-viewport, same as the in-process path). As
+        // there, C1 now seeds the bridge from this DEFAULT size before initial scripts
+        // (was the boa 800x600 bridge default pre-C1); a placeholder pending the real box.
         let oop_pipeline = crate::build_pipeline_from_loaded(
             loaded,
             network_handle,
@@ -278,8 +278,11 @@ fn make_out_of_process_entry(
                 crate::DEFAULT_VIEWPORT_WIDTH,
                 crate::DEFAULT_VIEWPORT_HEIGHT,
             ),
-            // Placeholder device facts pending the real box (#11-iframe-build-viewport).
-            crate::ipc::DeviceFacts::default(),
+            // Device facts inherited from the parent (C3) — `DeviceFacts` is `Copy + Send`,
+            // captured into this thread. dppx/color-scheme are window/display facts shared
+            // across origins on the same display, so a cross-origin OOP frame inherits them
+            // too (they carry no origin-private information — already exposed via matchMedia).
+            device_facts,
         );
 
         oop_pipeline
@@ -349,13 +352,14 @@ fn build_iframe_pipeline(
         ctx.network_handle.clone(),
         ctx.registry.clone(),
         ctx.cookie_jar.clone(),
-        // iframe build at DEFAULT — box not yet known (slot #11-iframe-build-viewport).
+        // iframe build at DEFAULT *size* — box not yet known (slot #11-iframe-build-viewport).
         elidex_plugin::Size::new(
             crate::DEFAULT_VIEWPORT_WIDTH,
             crate::DEFAULT_VIEWPORT_HEIGHT,
         ),
-        // Placeholder device facts pending the real box (#11-iframe-build-viewport).
-        crate::ipc::DeviceFacts::default(),
+        // Device facts ARE known: window/display facts inherited from the parent (C3),
+        // not box facts — so seed the real dppx/color-scheme, not a 1×/Light placeholder.
+        ctx.device_facts,
     )
 }
 

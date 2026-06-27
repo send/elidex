@@ -359,19 +359,42 @@ fn handle_message(msg: BrowserToContent, state: &mut ContentState) -> bool {
             }
         }
 
-        BrowserToContent::SetDeviceFacts { color_scheme, dppx } => {
+        BrowserToContent::SetDeviceFacts {
+            color_scheme,
+            dppx,
+            facts_seq,
+        } => {
             // Per-window device facts (C3): activates `window.devicePixelRatio` (the
             // dead `set_device_pixel_ratio` setter, never called pre-C3, which is why
             // the getter was stuck at 1.0) + `prefers-color-scheme`, and re-evaluates
             // `@media (resolution | prefers-color-scheme)` against the new facts.
             //
-            // Value-guard (E1 / Q4): suppress all re-eval + repaint when neither fact
-            // actually differs from the bridge's cache — a construction-seeded initial
-            // tab receives a redundant resume-time fan-out (it was already born with
-            // these facts via the cell read), and a re-resume can repeat an unchanged
-            // fact. When *either* differs, one re-eval suffices: the canonical evaluator
-            // reads BOTH facts from the bridge cache (D4), so a single
-            // `re_evaluate_media_queries` reflects the change with no per-fact redundancy.
+            // Two guards reconcile this FIFO delivery, mirroring `SetViewport`'s seq
+            // pair (the facts analog, on the orthogonal `facts_seq` generation):
+            //
+            // (i) Staleness: drop any delivery whose `facts_seq` is `≤` the generation
+            // the current document built at (or last applied). Such a delivery is an
+            // older DPI/theme change already folded into the facts the build read from
+            // the cell — re-applying it would flash the document backward (and fire a
+            // spurious MQL `change`) before a later queued fact restores the latest. The
+            // value-guard below cannot catch this: an older fact that *differs* from the
+            // freshly-seeded bridge passes it.
+            if facts_seq <= state.applied_facts_seq {
+                return true;
+            }
+            // (ii) Advance the high-water mark on a *fresh* `facts_seq` **unconditionally**
+            // — even when the value is unchanged below — so a later equal-`facts_seq`
+            // delivery is correctly judged stale (the `SetViewport` discipline, :303).
+            state.applied_facts_seq = facts_seq;
+
+            // (iii) Value-guard (E1 / Q4): suppress all re-eval + repaint when neither
+            // fact actually differs from the bridge's cache — a construction-seeded
+            // initial tab receives a redundant resume-time fan-out (it was already born
+            // with these facts via the cell read; that delivery is also caught by (i)),
+            // and a re-resume can repeat an unchanged fact. When *either* differs, one
+            // re-eval suffices: the canonical evaluator reads BOTH facts from the bridge
+            // cache (D4), so a single `re_evaluate_media_queries` reflects the change
+            // with no per-fact redundancy.
             let bridge = state.pipeline.runtime.bridge().clone();
             let changed =
                 dppx != bridge.device_pixel_ratio() || color_scheme != bridge.color_scheme();

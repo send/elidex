@@ -316,6 +316,16 @@ canonical).
   variant, cell facts, shell producer — are engine-agnostic and survive).
 - **No new MQL/`change` machinery** — reuses the inherited path.
 - **No Linux theme** beyond the Light default (winit limitation, §5 E7).
+- **No CSS-cascade `<style> @media` device-fact rendering.** §3's "observable via D4 routing" is the
+  **JS-observable** surface only — `matchMedia` / `MediaQueryList` (boa's `evaluate_media_query_raw`, now
+  canonical) + the `devicePixelRatio` getter. The *cascade* resolution path (`re_render` →
+  `resolve_with_mode` → `elidex_css`'s `resolve_styles_with_compat`) builds its **own** `MediaEnvironment`
+  with the non-viewport device facts at `MediaEnvironment::default()` (`elidex-style/lib.rs:196-198`), so a
+  `<style>@media (prefers-color-scheme: dark)` / `(min-resolution: 2dppx)` cascade rule does **not** yet
+  apply the live facts. Threading the facts into the cascade is a cross-cutting `resolve_styles_with_compat`
+  signature change across every caller (shell + bench + tests) in the **engine-independent** `elidex-style`
+  layer — a separate concern from C3's shell→content delivery + JS surface — carved to
+  `#11-media-css-values-fidelity` / `#11-media-prefers-features`.
 
 ---
 

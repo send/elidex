@@ -867,6 +867,61 @@ fn connected_iframe_append_loads() {
     assert!(state.iframes.get(f).is_some());
 }
 
+/// C3: an in-process iframe inherits the **parent's** device facts (dppx /
+/// color-scheme) at build, not a 1×/Light default. Device facts are window/display
+/// facts — the same for every browsing context on the output device — so a sub-frame
+/// on a HiDPI/dark display must report the parent's `devicePixelRatio`/`matchMedia`,
+/// unlike its viewport *size* (genuinely unknown until the parent lays out the box,
+/// `#11-iframe-build-viewport`). Regression for the Codex C3 R1 finding: the iframe
+/// build defaulted `DeviceFacts::default()` even when the parent bridge held the real
+/// facts.
+#[test]
+fn iframe_inherits_parent_device_facts_at_build() {
+    use elidex_css::media::ColorScheme;
+    let (mut state, _browser) = build_test_content_state("<body></body>", "");
+
+    // The parent acquires non-default device facts (e.g. a HiDPI dark display) — the
+    // shell `SetDeviceFacts` arm writes them into the parent bridge before the iframe
+    // is created.
+    super::event_loop::handle_message_public(
+        crate::ipc::BrowserToContent::SetDeviceFacts {
+            color_scheme: ColorScheme::Dark,
+            dppx: 2.0,
+            facts_seq: 1,
+        },
+        &mut state,
+    );
+    assert_eq!(state.pipeline.runtime.bridge().device_pixel_ratio(), 2.0);
+
+    // Create + append an iframe, then load it (same path as `connected_iframe_append_loads`).
+    let r = state.pipeline.eval_script(
+        "globalThis.f = document.createElement('iframe');\
+         f.srcdoc = '<p>child</p>';\
+         document.body.appendChild(f);",
+    );
+    assert!(r.success, "setup JS failed: {:?}", r.error);
+    let f = iframe_entity(&state);
+    let changed = iframe::detect_iframe_mutations(&[child_added_record(&state, f)], &mut state);
+    assert!(changed, "the iframe must load on insertion");
+
+    // The loaded in-process iframe's bridge reports the parent's facts, not 1×/Light.
+    let entry = state.iframes.get(f).expect("iframe must be loaded");
+    let iframe::IframeHandle::InProcess(ip) = &entry.handle else {
+        panic!("a same-origin srcdoc iframe loads in-process");
+    };
+    let iframe_bridge = ip.pipeline.runtime.bridge();
+    assert_eq!(
+        iframe_bridge.device_pixel_ratio(),
+        2.0,
+        "iframe must inherit the parent's dppx (was stuck at 1.0 — Codex C3 R1)"
+    );
+    assert_eq!(
+        iframe_bridge.color_scheme(),
+        ColorScheme::Dark,
+        "iframe must inherit the parent's prefers-color-scheme"
+    );
+}
+
 /// C1 (F1): a pipeline built at a non-default viewport must seed BOTH the CSS
 /// cascade AND the JS bridge **before** initial scripts run, so an inline script
 /// reading `window.innerWidth`/`innerHeight` at load observes the real size —

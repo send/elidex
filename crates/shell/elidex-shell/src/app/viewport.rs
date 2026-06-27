@@ -168,19 +168,25 @@ impl App {
     /// stay live). The C3 sibling of [`Self::broadcast_viewport`]: called from the
     /// redraw-top chokepoint **only when** [`crate::ipc::ViewportCell::publish_device_state`]
     /// reported `facts_changed` (the caller gates on that), so an unchanged-facts frame
-    /// fans out nothing. **No seq** — facts are orthogonal to the `size_logical`
+    /// fans out nothing. **No size `seq`** — facts are orthogonal to the `size_logical`
     /// generation (D3), so a pure-scale change the OS absorbs delivers facts without
-    /// dropping queued input. Initial/`window.open`/new tabs are instead born with the
-    /// facts via the construction-input spawn (the cell read seeds the bridge before
-    /// scripts), so they need no seed message. `BrowserToContent` is not `Clone`, so
-    /// each recipient gets a freshly-constructed message.
+    /// dropping queued input. The delivery still carries the cell's **`facts_seq`** (the
+    /// device-facts generation the publish just bumped) so a content thread can drop a
+    /// fact already folded into its build's cell-read — the build-vs-broadcast staleness
+    /// race `SetViewport`'s `seq` handles, here for facts. Initial/`window.open`/new tabs
+    /// are instead born with the facts via the construction-input spawn (the cell read
+    /// seeds the bridge before scripts), so this fan-out is a guarded no-op for them.
+    /// `BrowserToContent` is not `Clone`, so each recipient gets a freshly-constructed
+    /// message.
     pub(super) fn broadcast_device_facts(&self) {
         if let Some(mgr) = &self.tab_manager {
-            let facts = self.viewport.viewport_cell.read().facts;
+            let snapshot = self.viewport.viewport_cell.read();
+            let (facts, facts_seq) = (snapshot.facts, snapshot.facts_seq);
             for tab in mgr.tabs() {
                 if let Err(e) = tab.channel.send(BrowserToContent::SetDeviceFacts {
                     color_scheme: facts.color_scheme,
                     dppx: facts.dppx,
+                    facts_seq,
                 }) {
                     eprintln!("Failed to send device facts to content thread (disconnected): {e}");
                 }

@@ -148,4 +148,12 @@ pub struct IframeLoadContext<'a> {
     pub depth: usize,
     /// Shared CSS property registry.
     pub registry: &'a std::sync::Arc<elidex_plugin::CssPropertyRegistry>,
+    /// The parent's current device facts (dppx / color-scheme). These are **window /
+    /// display** facts (the same for every browsing context sharing the output device),
+    /// not iframe-box facts, so a sub-frame inherits the parent's — unlike the iframe's
+    /// *viewport size*, which genuinely is unknown until the parent lays out the
+    /// `<iframe>` box (deferred to `#11-iframe-build-viewport`). Seeded into the iframe
+    /// bridge before its initial scripts so `devicePixelRatio` / `matchMedia` are correct
+    /// from birth (C3), instead of defaulting to 1×/Light on a HiDPI/dark display.
+    pub device_facts: crate::ipc::DeviceFacts,
 }

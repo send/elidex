@@ -492,6 +492,27 @@ impl App {
         }
     }
 
+    /// Forward a window event to egui's `State` for its own bookkeeping.
+    ///
+    /// The `Resized` / `ScaleFactorChanged` / `ThemeChanged` arms in `window_event`
+    /// handle-and-`return` before the per-mode dispatch (`handle_window_event_threaded`
+    /// / `_inline`) where egui normally sees events, so egui-winit's cached
+    /// `native_pixels_per_point` (`ScaleFactorChanged`) and `system_theme`
+    /// (`ThemeChanged`) would otherwise stay stale after a monitor/theme change — the
+    /// browser chrome would keep rendering at the old DPI scale / color theme while the
+    /// content device facts update. These are non-input events (no `consumed` routing to
+    /// preserve), so this forwards on `render_state` alone (egui exists whenever it
+    /// does) — narrower than the per-mode input gating and sufficient for the cached
+    /// window state. Honors egui's `repaint` request like the per-mode handlers do.
+    fn forward_to_egui(&mut self, event: &WindowEvent) {
+        if let Some(state) = self.render_state.as_mut() {
+            let response = state.egui_state.on_window_event(&state.window, event);
+            if response.repaint {
+                state.window.request_redraw();
+            }
+        }
+    }
+
     /// Get the tab bar position from the active tab's chrome state.
     fn tab_bar_position(&self) -> chrome::TabBarPosition {
         self.tab_manager
@@ -636,6 +657,9 @@ impl ApplicationHandler<crate::WakeEvent> for App {
                 return;
             }
             WindowEvent::Resized(new_size) => {
+                // egui first (its cached window size), then sync the GPU surface — this
+                // arm returns before the per-mode dispatch where egui normally runs.
+                self.forward_to_egui(&event);
                 let Some(state) = self.render_state.as_mut() else {
                     return;
                 };
@@ -667,6 +691,12 @@ impl ApplicationHandler<crate::WakeEvent> for App {
                 // neither recomputes `placement` nor publishes (D2 atomicity) — redraw-top
                 // reads the settled `(inner_size, scale_factor)`, so the bogus
                 // `old_phys/new_scale` intermediate never materializes.
+                //
+                // Forward to egui first so egui-winit updates its cached
+                // `native_pixels_per_point` — otherwise the chrome keeps rendering at the
+                // old DPI scale while the content device facts update (this arm returns
+                // before the per-mode dispatch where egui normally sees the event).
+                self.forward_to_egui(&event);
                 let Some(state) = self.render_state.as_mut() else {
                     return;
                 };
@@ -680,9 +710,13 @@ impl ApplicationHandler<crate::WakeEvent> for App {
             WindowEvent::ThemeChanged(_) => {
                 // The OS color scheme changed (macOS / Windows; winit emits no theme
                 // event on X11 / Wayland, where `prefers-color-scheme` stays `Light`).
-                // Drive a redraw; redraw-top re-reads `window.theme()` (as it re-reads
-                // `scale_factor`) and publishes the new `prefers-color-scheme` fact — no
-                // recompute/publish in the arm (D2).
+                // Forward to egui first so egui-winit updates its cached `system_theme`
+                // — otherwise the chrome keeps the old theme while the content
+                // `prefers-color-scheme` fact updates (this arm returns before the
+                // per-mode dispatch). Then drive a redraw; redraw-top re-reads
+                // `window.theme()` (as it re-reads `scale_factor`) and publishes the new
+                // `prefers-color-scheme` fact — no recompute/publish in the arm (D2).
+                self.forward_to_egui(&event);
                 if let Some(state) = &self.render_state {
                     state.window.request_redraw();
                 }

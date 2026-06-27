@@ -66,6 +66,13 @@ pub struct ViewportSnapshot {
     pub seq: u64,
     /// Latest device facts (dppx / color-scheme).
     pub facts: DeviceFacts,
+    /// Monotonic **device-facts** generation, independent of `seq` (a pure-scale
+    /// change bumps `facts_seq` but not `seq`, D3). It is the high-water mark a
+    /// content build records so a queued *older* `SetDeviceFacts` — already folded
+    /// into the `facts` this build read from the cell — is dropped instead of
+    /// replaying a stale color-scheme/dppx backward (the facts analog of the `seq`
+    /// staleness guard `SetViewport` carries).
+    pub facts_seq: u64,
 }
 
 /// Browser-published latest content-area viewport (CSS logical px) that content
@@ -101,6 +108,7 @@ struct ViewportCellValue {
     size: Size,
     seq: u64,
     facts: DeviceFacts,
+    facts_seq: u64,
 }
 
 impl ViewportCell {
@@ -110,7 +118,9 @@ impl ViewportCell {
     /// bumps to seq 1, so a content thread that reads the cell before any
     /// size-changing publish sees seq 0 (and any later real `SetViewport` carries
     /// `seq ≥ 1 >` 0, hence applies). Device facts seed at the bridge's own defaults
-    /// (`DeviceFacts::default`) so the seed → real-facts publish is one clean delta.
+    /// (`DeviceFacts::default`) at `facts_seq 0` so the seed → real-facts publish is
+    /// one clean delta on its own generation (the first real-facts publish bumps
+    /// `facts_seq` 0 → 1, exactly as the size publish bumps `seq`).
     #[must_use]
     pub fn new(size: Size) -> Arc<Self> {
         Arc::new(Self {
@@ -118,6 +128,7 @@ impl ViewportCell {
                 size,
                 seq: 0,
                 facts: DeviceFacts::default(),
+                facts_seq: 0,
             }),
         })
     }
@@ -135,7 +146,11 @@ impl ViewportCell {
     /// the same `size_logical` (CSS px is scale-invariant). **Device facts** are
     /// seq-**orthogonal**: a pure-scale change the OS absorbs shifts `dppx` while
     /// `size_logical` is preserved, so it must ship `SetDeviceFacts` **without**
-    /// bumping `seq` (else the phantom input-drop returns). The caller gates
+    /// bumping `seq` (else the phantom input-drop returns). Instead facts carry their
+    /// **own** monotonic `facts_seq`, bumped here iff they differ — the high-water mark
+    /// a content build records (`ViewportSnapshot::facts_seq`) so a queued *older*
+    /// `SetDeviceFacts` already folded into the build's cell-read is dropped, the facts
+    /// analog of the `seq` staleness guard (`content/event_loop.rs`). The caller gates
     /// `broadcast_viewport` on `size_changed` and `broadcast_device_facts` on
     /// `facts_changed`, so an idempotent per-frame republish (redraw cadence) emits
     /// nothing.
@@ -154,6 +169,7 @@ impl ViewportCell {
         let facts_changed = guard.facts != facts;
         if facts_changed {
             guard.facts = facts;
+            guard.facts_seq += 1;
         }
         DeviceDelta {
             size_changed,
@@ -171,6 +187,7 @@ impl ViewportCell {
             size: guard.size,
             seq: guard.seq,
             facts: guard.facts,
+            facts_seq: guard.facts_seq,
         }
     }
 }
@@ -292,18 +309,27 @@ pub enum BrowserToContent {
     },
     /// Per-window device facts changed (C3): the device-pixel ratio
     /// (`window.devicePixelRatio` / `@media (resolution)`) and/or the
-    /// `prefers-color-scheme` preference. **No `seq`** — these are orthogonal to the
-    /// `size_logical` generation ([`ViewportCell::publish_device_state`], D3), so a
+    /// `prefers-color-scheme` preference. **No size `seq`** — these are orthogonal to
+    /// the `size_logical` generation ([`ViewportCell::publish_device_state`], D3), so a
     /// pure-scale change the OS absorbs delivers facts without dropping queued input.
-    /// One unified variant (not one per fact, D5): a single content re-eval + repaint
-    /// when a `ScaleFactorChanged` co-occurs with a theme toggle. A future
-    /// `prefers-reduced-motion` producer extends this variant rather than adding a new
-    /// one.
+    /// Carries its **own** `facts_seq` (the device-facts generation, independent of the
+    /// size `seq`): the content thread drops a delivery whose `facts_seq` is `≤` its
+    /// build-time facts high-water mark — a queued older fact already folded into the
+    /// facts the build read from the cell — so a navigation racing rapid DPI/theme
+    /// changes does not replay an obsolete color-scheme/dppx backward (the facts analog
+    /// of `SetViewport`'s `seq`). One unified variant (not one per fact, D5): a single
+    /// content re-eval + repaint when a `ScaleFactorChanged` co-occurs with a theme
+    /// toggle. A future `prefers-reduced-motion` producer extends this variant rather
+    /// than adding a new one.
     SetDeviceFacts {
         /// `prefers-color-scheme` preference.
         color_scheme: ColorScheme,
         /// Device pixel ratio (dppx).
         dppx: f32,
+        /// Monotonic device-facts generation (independent of the size `seq`) this
+        /// delivery corresponds to. Dropped when `≤` the content thread's build-time
+        /// facts high-water mark.
+        facts_seq: u64,
     },
     /// Navigate back in history.
     GoBack,

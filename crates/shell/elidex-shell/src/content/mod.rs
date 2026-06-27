@@ -72,6 +72,15 @@ struct ContentState {
     /// (already consumed by the build or a prior apply), which is what prevents the
     /// cell-read build from flashing backward to a queued intermediate resize.
     applied_viewport_seq: u64,
+    /// High-water mark of the [`crate::ipc::ViewportCell`] `facts_seq` this thread has
+    /// consumed — the device-facts analog of `applied_viewport_seq`, tracked
+    /// separately because facts are orthogonal to the size `seq` (D3). Set to the
+    /// `facts_seq` the current document **built** at, then advanced by each applied
+    /// `SetDeviceFacts`. A delivery with `facts_seq ≤` this is dropped as stale (a
+    /// dppx/color-scheme already folded into the facts the build read from the cell),
+    /// so a navigation racing rapid DPI/theme changes does not replay an obsolete
+    /// color-scheme/dppx backward.
+    applied_facts_seq: u64,
     /// Wake the browser event loop to schedule a repaint after a
     /// display/chrome-affecting send. Under `ControlFlow::Wait` a content-initiated
     /// frame (timer / rAF / animation / async DOM / `SetViewport` round-trip)
@@ -157,7 +166,8 @@ impl ContentState {
     /// `pipeline` **built** at (the seq returned by the build site's `cell.read()`) —
     /// never a `0` default, or a queued `SetViewport` with `seq <` the real build seq
     /// would satisfy the staleness guard and apply a pre-build intermediate (the
-    /// backward flash the seq exists to prevent).
+    /// backward flash the seq exists to prevent). `applied_facts_seq` is the same
+    /// contract for the device-facts generation (`ViewportSnapshot::facts_seq`).
     fn new(
         channel: LocalChannel<ContentToBrowser, BrowserToContent>,
         nav_controller: NavigationController,
@@ -165,6 +175,7 @@ impl ContentState {
         wake: crate::WakeHandle,
         viewport_cell: std::sync::Arc<crate::ipc::ViewportCell>,
         applied_viewport_seq: u64,
+        applied_facts_seq: u64,
     ) -> Self {
         Self {
             channel,
@@ -181,6 +192,7 @@ impl ContentState {
             wake,
             viewport_cell,
             applied_viewport_seq,
+            applied_facts_seq,
         }
     }
 
@@ -489,7 +501,7 @@ fn content_thread_main(
     // (dppx / color-scheme) seed the bridge before initial scripts (C3), so a tab on
     // a HiDPI / dark display is born with the right `devicePixelRatio` / `matchMedia`.
     let snapshot = viewport_cell.read();
-    let (viewport, build_seq) = (snapshot.size, snapshot.seq);
+    let (viewport, build_seq, build_facts_seq) = (snapshot.size, snapshot.seq, snapshot.facts_seq);
     let nh = std::rc::Rc::new(network_handle);
     let pipeline = crate::build_pipeline_interactive_with_network(
         html,
@@ -506,6 +518,7 @@ fn content_thread_main(
         wake,
         viewport_cell,
         build_seq,
+        build_facts_seq,
     );
     scroll::update_viewport_scroll_dimensions(&mut state);
     // Scan for <iframe> elements present in the initial parsed DOM.
@@ -551,7 +564,7 @@ fn content_thread_main_url(
     // folded into this read) are dropped instead of flashing the document backward.
     // Device facts (dppx / color-scheme) ride the same construction read (C3).
     let snapshot = viewport_cell.read();
-    let (viewport, build_seq) = (snapshot.size, snapshot.seq);
+    let (viewport, build_seq, build_facts_seq) = (snapshot.size, snapshot.seq, snapshot.facts_seq);
     // Extract manifest URL before pipeline builder consumes LoadedDocument.
     let manifest_url = loaded.manifest_url.clone();
     let font_db = std::sync::Arc::new(elidex_text::FontDatabase::new());
@@ -574,6 +587,7 @@ fn content_thread_main_url(
         wake,
         viewport_cell,
         build_seq,
+        build_facts_seq,
     );
     scroll::update_viewport_scroll_dimensions(&mut state);
 

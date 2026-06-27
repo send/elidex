@@ -148,8 +148,9 @@ impl App {
                 .viewport
                 .viewport_cell
                 .publish_device_state(placement.size_logical, facts);
-            // Size → `SetViewport` (+seq bump, the C2 input-drop discipline); device
-            // facts → `SetDeviceFacts` (no seq — D3). Each gated on its own change so a
+            // Size → `SetViewport` (+`seq` bump, the C2 input-drop discipline); device
+            // facts → `SetDeviceFacts` (no *size* `seq` — D3 — but its own `facts_seq`
+            // generation for delivery-staleness). Each gated on its own change so a
             // pure-scale change the OS absorbs ships facts without manufacturing a
             // phantom input-drop generation.
             if delta.size_changed {

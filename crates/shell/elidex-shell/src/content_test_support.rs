@@ -91,8 +91,9 @@ pub(super) fn build_test_content_state(
         viewport,
         crate::ipc::DeviceFacts::default(),
     );
-    // Build at the cell's seed (DEFAULT, seq 0) → high-water mark 0, matching the
-    // `build_pipeline_*` size above; a test `SetViewport` then applies with `seq ≥ 1`.
+    // Build at the cell's seed (DEFAULT, seq 0 / facts_seq 0) → high-water marks 0,
+    // matching the `build_pipeline_*` size above; a test `SetViewport` then applies with
+    // `seq ≥ 1`, a `SetDeviceFacts` with `facts_seq ≥ 1`.
     let viewport_cell = crate::ipc::ViewportCell::new(viewport);
     let mut state = ContentState::new(
         content,
@@ -100,6 +101,7 @@ pub(super) fn build_test_content_state(
         pipeline,
         Box::new(|| {}),
         viewport_cell,
+        0,
         0,
     );
     super::scroll::update_viewport_scroll_dimensions(&mut state);

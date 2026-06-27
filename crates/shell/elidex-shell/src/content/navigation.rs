@@ -137,7 +137,7 @@ pub(super) fn handle_navigate(
             // `state.pipeline.viewport` snapshot would be stale. `seq` re-bases this
             // document's high-water mark below.
             let snapshot = state.viewport_cell.read();
-            let (viewport, seq) = (snapshot.size, snapshot.seq);
+            let (viewport, seq, facts_seq) = (snapshot.size, snapshot.seq, snapshot.facts_seq);
             let new_pipeline = crate::build_pipeline_from_loaded(
                 loaded,
                 network_handle,
@@ -153,13 +153,14 @@ pub(super) fn handle_navigate(
             state.active_chain.clear();
             state.focusable_cache = None;
             state.viewport_scroll = elidex_ecs::ScrollState::default();
-            // Re-base the viewport high-water mark to the rebuild's cell-read seq, in
-            // the per-pipeline reset cluster: every rebuild re-anchors it so a queued
-            // `SetViewport` is judged against THIS document's build, not the prior
-            // document's (else a post-nav resize is mis-dropped as stale, or a stale
-            // pre-nav delivery mis-applies). Unconditional — the new document consumed
-            // exactly `seq`.
+            // Re-base the viewport + facts high-water marks to the rebuild's cell-read
+            // generations, in the per-pipeline reset cluster: every rebuild re-anchors
+            // them so a queued `SetViewport` / `SetDeviceFacts` is judged against THIS
+            // document's build, not the prior document's (else a post-nav resize / DPI
+            // change is mis-dropped as stale, or a stale pre-nav delivery mis-applies).
+            // Unconditional — the new document consumed exactly `seq` / `facts_seq`.
             state.applied_viewport_seq = seq;
+            state.applied_facts_seq = facts_seq;
             super::scroll::update_viewport_scroll_dimensions(state);
 
             if !is_history_nav {
