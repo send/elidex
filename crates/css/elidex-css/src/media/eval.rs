@@ -152,7 +152,18 @@ fn range_feature_value(name: RangeFeature, env: &MediaEnvironment) -> f64 {
         // §4.3: width / height. A degenerate zero height yields ±inf or NaN
         // (f64 division), which `compare` handles correctly — not a collapse to 0.
         RangeFeature::AspectRatio => env.viewport_width / env.viewport_height,
-        RangeFeature::Resolution => env.resolution_dppx,
+        // Narrow the device resolution to the query's precision before comparison. A
+        // queried `<resolution>` is tokenized by cssparser as `f32` (`parse.rs` →
+        // `Dppx(f64::from(f32))`) and an exact `RangeValue::Dppx` compares without
+        // tolerance, so a device dppx carried at full `f64` (e.g. a real 1.2× display =
+        // 1.199…956) would never equal the f32-sourced query 1.2 (1.200…0476) —
+        // `(resolution: 1.2dppx)` would spuriously fail. The comparison precision floor
+        // is cssparser's `f32`, so align the device to it. Engine-independent (every
+        // `MediaEnvironment` producer — boa bridge, VM host — feeds the lossless `f64`;
+        // the evaluator owns this alignment, not each producer). `Converted` (dpi/dpcm)
+        // already compares with `VALUE_REL_EPS`, which absorbs the ≤6e-8 f32 narrowing.
+        #[allow(clippy::cast_possible_truncation)]
+        RangeFeature::Resolution => f64::from(env.resolution_dppx as f32),
         RangeFeature::Color => f64::from(env.color_bits),
     }
 }

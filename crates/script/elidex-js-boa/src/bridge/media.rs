@@ -56,15 +56,11 @@ impl HostBridge {
         elidex_css::media::MediaEnvironment {
             viewport_width: f64::from(width),
             viewport_height: f64::from(height),
-            // The bridge stores the lossless `f64` dppx (so `window.devicePixelRatio`
-            // reports e.g. exactly 1.2). For the *media* comparison, narrow to the query's
-            // precision: cssparser tokenizes a `<dimension>` value as `f32` (`parse.rs`
-            // → `Dppx(f64::from(f32))`), and `RangeValue::Dppx` compares **exactly** (not
-            // tolerant). So an `f64` device 1.2 (1.199…956) would never equal the f32-sourced
-            // query 1.2 (1.200…0476) — `(resolution: 1.2dppx)` would spuriously fail on a real
-            // 1.2× display. Round the device dppx through `f32` here so both sides share the
-            // cssparser precision (C3 R3; Codex's "normalize before feeding MediaEnvironment").
-            resolution_dppx: f64::from(self.device_pixel_ratio() as f32),
+            // Feed the lossless `f64` dppx (the bridge stores the full winit scale, C3 R3).
+            // The query/device precision alignment for the exact `<resolution>` comparison
+            // lives in the engine-independent evaluator (`elidex_css::media::eval`
+            // `range_feature_value`), shared by every producer — not duplicated here.
+            resolution_dppx: self.device_pixel_ratio(),
             color_scheme: self.color_scheme(),
             ..elidex_css::media::MediaEnvironment::default()
         }
