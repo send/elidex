@@ -15,7 +15,7 @@ user-invocable: true
 
 ## When to invoke
 
-- **Pre-push 必須段 (順序固定)**: `cargo fmt` → `mise run ci` → `/code-review` → `/simplify` → `/review` → **本 skill (`/elidex-review`)** で全 PR 実施推奨。本 skill は 6 段目 = 最終 design gate
+- **Pre-push 必須段 (順序固定)**: `cargo fmt` → `mise run ci` → `/simplify` → `/code-review` → `/review` → **本 skill (`/elidex-review`)** で全 PR 実施推奨。本 skill は 6 段目 = 最終 design gate
 - generic `/review` だけでは elidex-specific design 原則違反は漏れる (Layering mandate / ideal-over-pragmatic 等)
 
 ## Skip OK

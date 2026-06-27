@@ -1,6 +1,6 @@
 ---
 name: pre-push
-description: Run the full elidex pre-push gate in one shot — cargo fmt → mise run ci → /code-review → /simplify → /review → /elidex-review — so no stage gets skipped on a busy PR. Invoke BEFORE `git push` / `gh pr create`. Collapses the 6-stage gate into one decision so the heavy stages (/simplify, /review) aren't forgotten.
+description: Run the full elidex pre-push gate in one shot — cargo fmt → mise run ci → /simplify → /code-review → /review → /elidex-review — so no stage gets skipped on a busy PR. Invoke BEFORE `git push` / `gh pr create`. Collapses the 6-stage gate into one decision so the heavy stages (/simplify, /review) aren't forgotten.
 user-invocable: true
 ---
 
@@ -12,7 +12,7 @@ The elidex pre-push gate is six stages run in a fixed order. The trap is reachin
 
 - **No skipping.** Every stage must be invoked. The only exception is the whole-skill Skip-OK clause below (pure **inert** doc PR → don't invoke Stages 3–6; a **review/enforcement-tooling edit is NOT inert** and runs the whole gate — see Skip-OK). Sub-skills have their own internal skip clauses that may fire *during* invocation (e.g. `/elidex-review`'s inert-doc skip, which itself excludes enforcement-tooling edits) — that's the sub-skill's concern, not a reason to skip invoking it from pre-push. Do not invent new per-stage skip conditions here. Record any skip in the landing memo.
 - **No substitution.** `/elidex-review` does NOT replace `/code-review` + `/simplify` + `/review`. Run all four.
-- **Fix → re-verify.** If *any* stage produces code edits (a `/code-review` fix, a `/simplify` rewrite, an accepted review finding, etc.) → re-run Stage 2 before continuing. Later stages and the eventual push must see green, formatted code. (This covers Stages 3/4/5/6 — no per-stage repeat below.)
+- **Fix → re-verify.** If *any* stage produces code edits (a `/simplify` rewrite, a `/code-review` fix, an accepted review finding, etc.) → re-run Stage 1 (fmt) then Stage 2 (ci) before continuing. Stage 1 is needed because Stage 3 (`/simplify`) is the pipeline's only auto-apply stage and its output may not be formatted; `cargo fmt --check` in Stage 2 ci will reject it otherwise. Later stages and the eventual push must see green, formatted code. (This covers Stages 3/4/5/6 — no per-stage repeat below.)
 - This skill stops **before** `git push` / `gh pr create`. Pushing is a separate authorized action — confirm per the usual remote/shared-state rules.
 
 ## Stages (fixed order)
@@ -33,16 +33,16 @@ Fallback: if `mise run ci` reports a spurious `target/`-missing failure (the `ci
 mise run check && mise run lint && mise run test-all && mise run doc && mise run deny
 ```
 
-### Stage 3 — `/code-review`
+### Stage 3 — `/simplify`
+Invoke the `simplify` skill. Quality-only pass — reuse / simplification / efficiency / altitude cleanups, applied to the working tree. It does not hunt bugs (that's Stage 4); the two are complementary, not redundant. `/simplify` is the pipeline's only auto-apply stage (it mutates the working tree directly), so placing it here ensures both the ci re-verify (Stage 2 re-run) and the bug net (Stage 4) validate its output.
+
+### Stage 4 — `/code-review`
 Invoke the `code-review` skill, **effort scaled to blast radius**. This is now the primary correctness net: the post-push non-Claude pass **defaults to single-shot** (`/external-review`, currently Codex) — a multi-round loop (`/external-converge`) is **opt-in for high-stakes PRs, not an implicit safety net** — so the depth for routine PRs must come from here.
 
 - **Routine PR** → `/code-review high`. Broad coverage is the floor now — `low`/`medium` were calibrated for when a looping post-push reviewer was the routine backstop, which it no longer is (the post-push default is single-shot; `/external-converge` is opt-in, not automatic).
 - **High blast-radius PR** (layout / inline / whitespace / parser / edge-matrix-dense subsystems, large diff, or touching a `vm/host/` layering path) → `/code-review ultra`. The deep multi-agent cloud pass is the functional successor to the old multi-round post-push review loop — run it once here rather than relying on post-push looping. (Billed under Claude usage; reserve `ultra` for genuinely high-risk PRs so it stays one pass per PR.)
 
 Apply the fixes worth taking.
-
-### Stage 4 — `/simplify`
-Invoke the `simplify` skill. Quality-only pass — reuse / simplification / efficiency / altitude cleanups, applied to the working tree. It does not hunt bugs (that's Stage 3); the two are complementary, not redundant.
 
 ### Stage 5 — `/review`
 Invoke the `review` skill. General PR-level review.
