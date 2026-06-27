@@ -362,6 +362,199 @@ fn dom_parser_returned_document_is_live_after_build() {
 }
 
 #[test]
+fn dom_parser_form_control_has_value() {
+    let (mut vm, _s, _d) = bound_vm();
+    // Codex F1 regression: a DOMParser'd `<input value=x>` must expose
+    // `.value === 'x'`. The throwaway-build dispatcher suppression (the §13.4
+    // inert guarantee) also takes out `FormControlReconciler`, the live-page
+    // path that attaches `FormControlState`. Without the engine-indep
+    // `elidex_form::init_form_controls(dom)` bulk hook running inside the
+    // suppressed window, the control has no FCS and `.value` reads "".
+    assert_true(
+        &mut vm,
+        r"
+        var parser = new DOMParser();
+        var doc = parser.parseFromString('<input value=x>', 'text/html');
+        doc.querySelector('input').value === 'x';
+    ",
+    );
+    vm.unbind();
+}
+
+#[test]
+fn dom_parser_does_not_clobber_page_form_control_state() {
+    let (mut vm, _s, _d) = bound_vm();
+    // SEVERE-regression guard: the throwaway DOMParser document shares the
+    // bound PAGE document's `EcsDom`, so attaching `FormControlState` to the
+    // parsed controls must be SUBTREE-SCOPED to the throwaway document — NOT a
+    // whole-dom `init_form_controls(dom)`, which queries the ENTIRE world and
+    // rebuilds FCS from attributes for every form control, INCLUDING the live
+    // page's controls. That would reset every page `<input>`/`<select>`/
+    // `<textarea>` to its attribute-derived state, destroying the dirty-value
+    // flag / user-typed `.value`. I.e. `new DOMParser().parseFromString(
+    // '<input>', 'text/html')` would wipe all user input on the page.
+    //
+    // ROOTING: `bound_vm()`'s page document is a bare `Document` node (no
+    // `<body>`), so the live page control is rooted by appending a `<div>`
+    // container under `document` and the `<input>` under it — a genuine
+    // CONNECTED page control whose FCS the whole-dom query would reach. The
+    // control gets FCS at `document.createElement('input')` time (the live
+    // createElement post-hook), and `pageInput.value = …` sets its dirty value
+    // flag + user-typed value.
+    //
+    // This test FAILS with the buggy whole-dom `init_form_controls(dom)` (the
+    // page input's `.value` resets to "" / the parser attribute) and PASSES
+    // with the subtree-scoped `create_form_control_state` attach.
+    assert_true(
+        &mut vm,
+        r"
+        // Live page form control with a dirty, user-typed value.
+        var container = document.createElement('div');
+        document.appendChild(container);
+        var pageInput = document.createElement('input');
+        container.appendChild(pageInput);
+        pageInput.value = 'typed-by-user';
+
+        // Parse a document containing a form control — its FCS attach must NOT
+        // clobber the shared page document's controls.
+        var parser = new DOMParser();
+        var doc = parser.parseFromString('<input value=fromparser>', 'text/html');
+
+        // (1) The PAGE input is UNCLOBBERED (still the user-typed value).
+        var pagePreserved = pageInput.value === 'typed-by-user';
+        // (2) The PARSED document's own input still works (F1 still fixed).
+        var parsedWorks = doc.querySelector('input').value === 'fromparser';
+
+        pagePreserved && parsedWorks;
+    ",
+    );
+    vm.unbind();
+}
+
+#[test]
+fn dom_parser_noscript_parsed_as_elements_scripting_disabled() {
+    let (mut vm, _s, _d) = bound_vm();
+    // Codex F3 regression: a DOMParser document is inert (HTML §8.5.1 — no
+    // browsing context, §13.2.4.5 scripting flag DISABLED), so `<noscript>`
+    // content is parsed as ordinary ELEMENTS, not raw text. With scripting
+    // enabled (the live-element `innerHTML` default), `<noscript><p id=x></p>`
+    // is RAWTEXT and the `<p>` does not exist — DOMParser must create it.
+    // The `<noscript>` is placed inside an explicit `<body>` so the "in body"
+    // noscript arm (`modes/in_body.rs`) routes it to "any other start tag"
+    // when scripting is disabled, parsing `<p>` as its real child. (A BARE
+    // leading `<noscript>` routes via the implied `<head>` into "in head
+    // noscript", where the `<p>` is a strict parse error AND html5ever's
+    // fragment fallback ignores the scripting flag for noscript — so the bare
+    // case stays rawtext today: documented at
+    // `dom_parser_bare_noscript_stays_rawtext_fragment_mode_boundary` and the
+    // parse site, slot `#11-domparser-full-document-parse-fidelity`.)
+    assert_true(
+        &mut vm,
+        r"
+        var parser = new DOMParser();
+        var doc = parser.parseFromString(
+            '<body><noscript><p id=x></p></noscript></body>', 'text/html');
+        var p = doc.querySelector('#x');
+        p !== null && p.parentNode.tagName === 'NOSCRIPT';
+    ",
+    );
+    vm.unbind();
+}
+
+#[test]
+fn dom_parser_bare_noscript_stays_rawtext_fragment_mode_boundary() {
+    let (mut vm, _s, _d) = bound_vm();
+    // Codex F3 EXACT repro — PINS THE CURRENT (documented) BEHAVIOR at a
+    // genuine fragment-mode boundary, NOT the ideal. A BARE leading
+    // `<noscript>` (no explicit `<body>`/`<head>` wrapper) does NOT yet parse
+    // its content as elements: `querySelector('#x')` is `null` because the
+    // `<p>` survives as RAW TEXT inside `<noscript>`. The ideal DOMParser
+    // (inert, scripting disabled) would create the `<p>` — that requires a true
+    // full-document parse and is deferred to
+    // `#11-domparser-full-document-parse-fidelity`.
+    //
+    // Why the scripting-flag forwarding does NOT fix this case (empirically
+    // verified, both backends, in the parser crate):
+    //   * DOMParser fragment-parses in `<html>` context. §13.2.4.1 reset →
+    //     "before head"; `<noscript>` → "anything else" → implied `<head>`,
+    //     reprocess in "in head"; scripting disabled → insert `<noscript>` and
+    //     switch to "in head noscript", where the `<p>` start tag is a strict
+    //     parse error — strict deliberately omits the spec's "pop noscript and
+    //     reprocess" recovery (`modes/in_head_noscript.rs`). Strict therefore
+    //     Errs → §11.3 tolerant html5ever fallback.
+    //   * html5ever's `parse_fragment` IGNORES its `scripting_enabled` argument
+    //     for `<noscript>`: with scripting=false it STILL emits
+    //     `<noscript>#text "<p id=x></p>"` — byte-identical to scripting=true.
+    //     (html5ever honors the flag only in `parse_document`, where the bare
+    //     case correctly hoists the `<p>` into `<body>`. The fix is a true
+    //     document parse, not the fragment parse this PR uses.)
+    // So the bare case stays rawtext. The earlier edge-note claiming "tolerant
+    // does not honor the scripting flag" is CORRECT for fragment mode; the
+    // claim that html5ever "SHOULD honor it" holds only for document mode.
+    //
+    // The WRAPPED forms DO work today and are covered by
+    // `dom_parser_noscript_parsed_as_elements_scripting_disabled` (`<body>`
+    // context → strict "in body" noscript→any-other-start-tag) and
+    // `dom_parser_head_noscript_parsed_as_elements_scripting_disabled`
+    // (`<head>` context → strict "in head noscript"). It is only the BARE
+    // implied-head routing that hits the boundary.
+    assert_true(
+        &mut vm,
+        r"
+        var parser = new DOMParser();
+        var doc = parser.parseFromString('<noscript><p id=x></p></noscript>', 'text/html');
+        // Current behavior: <p> is raw text, so #x does not exist as an element.
+        doc.querySelector('#x') === null;
+    ",
+    );
+    vm.unbind();
+}
+
+#[test]
+fn dom_parser_head_noscript_parsed_as_elements_scripting_disabled() {
+    let (mut vm, _s, _d) = bound_vm();
+    // Codex F3 (head context): a `<noscript>` directly inside `<head>` with
+    // scripting disabled exercises the strict "in head noscript" insertion
+    // mode (`modes/in_head_noscript.rs`, previously unreachable). Its
+    // `<link>`/`<meta>`/`<style>` children are head-content elements; the
+    // `<noscript>` element itself must exist in the parsed head as a real
+    // element (not raw text), so a `<link>` inside it is reachable via the
+    // document.
+    assert_true(
+        &mut vm,
+        r#"
+        var parser = new DOMParser();
+        var doc = parser.parseFromString(
+            '<head><noscript><link id=l rel="stylesheet" href="a.css"></noscript></head>',
+            'text/html'
+        );
+        var noscript = doc.querySelector('noscript');
+        var link = doc.querySelector('#l');
+        noscript !== null && link !== null && link.parentNode.tagName === 'NOSCRIPT';
+    "#,
+    );
+    vm.unbind();
+}
+
+#[test]
+fn dom_parser_live_element_noscript_still_rawtext() {
+    let (mut vm, _s, _d) = bound_vm();
+    // Codex F3 default-preservation: `scripting_disabled` defaults to false, so
+    // setting `innerHTML` on a NORMAL (live) element keeps scripting ENABLED —
+    // `<noscript>` content stays raw text and `#x` is NOT found. Confirms the
+    // new option does not regress the live `innerHTML` path.
+    assert_true(
+        &mut vm,
+        r"
+        var host = document.createElement('div');
+        host.innerHTML = '<noscript><p id=x></p></noscript>';
+        host.querySelector('#x') === null;
+    ",
+    );
+    vm.unbind();
+}
+
+#[test]
 fn xml_serializer_brand_check_throws_on_alien_receiver() {
     let (mut vm, _s, _d) = bound_vm();
     assert_true(
@@ -390,6 +583,44 @@ fn xml_serializer_missing_node_arg_throws_type_error() {
         try { s.serializeToString({}); }
         catch (e) { threw = e instanceof TypeError; }
         threw;
+    ",
+    );
+    vm.unbind();
+}
+
+#[test]
+fn xml_serializer_window_throws_type_error() {
+    let (mut vm, _s, _d) = bound_vm();
+    // Codex F4 regression: `globalThis` / `window` is a HostObject over
+    // `NodeKind::Window` — an EventTarget but NOT a Node (`nodeType == 0`).
+    // The entity-bits extraction resolves it to a Window entity, so the
+    // serializer must additionally gate on `NodeKind::is_node()` and throw a
+    // TypeError rather than serializing "".
+    assert_true(
+        &mut vm,
+        r"
+        var s = new XMLSerializer();
+        var threw = false;
+        try { s.serializeToString(globalThis); }
+        catch (e) { threw = e instanceof TypeError; }
+        threw;
+    ",
+    );
+    vm.unbind();
+}
+
+#[test]
+fn xml_serializer_real_node_still_serializes_after_window_gate() {
+    let (mut vm, _s, _d) = bound_vm();
+    // Codex F4 companion: the Node-vs-Window gate must NOT reject a real
+    // element/document. A plain `<div>` still serializes to its outer markup.
+    assert_true(
+        &mut vm,
+        r"
+        var s = new XMLSerializer();
+        var div = document.createElement('div');
+        var out = s.serializeToString(div);
+        out.indexOf('<div') === 0;
     ",
     );
     vm.unbind();

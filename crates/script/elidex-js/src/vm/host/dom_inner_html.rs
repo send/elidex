@@ -418,6 +418,7 @@ pub(super) fn native_element_set_html_unsafe(
         "setHTMLUnsafe",
         SetInnerHtmlOptions {
             allow_declarative_shadow: true,
+            scripting_disabled: false,
         },
         brand_element,
     )
@@ -472,6 +473,7 @@ pub(super) fn native_shadow_root_set_html_unsafe(
         "setHTMLUnsafe",
         SetInnerHtmlOptions {
             allow_declarative_shadow: true,
+            scripting_disabled: false,
         },
         brand_shadow_root,
     )

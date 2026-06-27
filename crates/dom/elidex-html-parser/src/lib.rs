@@ -110,7 +110,10 @@ pub fn parse_html_fragment(
         ParseOpts::default(),
         context_name,
         Vec::new(),
-        true, // scripting enabled (scriptingMode ≠ Disabled)
+        // §13.2.4.5 scripting flag: enabled by default (scriptingMode ≠
+        // Disabled), DISABLED for an inert parse (`DOMParser`) so `<noscript>`
+        // content parses as ordinary elements.
+        !opts.scripting_disabled,
     )
     .one(html);
 
@@ -583,6 +586,7 @@ mod tests {
             &mut dom,
             ParseFragmentOptions {
                 allow_declarative_shadow: true,
+                scripting_disabled: false,
             },
         );
         assert!(
@@ -618,6 +622,7 @@ mod tests {
             &mut dom,
             ParseFragmentOptions {
                 allow_declarative_shadow: true,
+                scripting_disabled: false,
             },
         );
         let outer_div = *added
@@ -651,6 +656,7 @@ mod tests {
             &mut dom,
             ParseFragmentOptions {
                 allow_declarative_shadow: false,
+                scripting_disabled: false,
             },
         );
         // p ("A"), whitespace text ("\n  "), p ("B").
@@ -836,6 +842,7 @@ mod tests {
             &mut dom,
             ParseFragmentOptions {
                 allow_declarative_shadow: true,
+                scripting_disabled: false,
             },
         );
         let outer_div = *added

@@ -177,6 +177,13 @@ impl TreeBuilder {
         // partial-subtree despawn), then the dispatcher is restored.
         let (document, root, saved_dispatcher) = dom.begin_detached_fragment();
         let mut state = ParseState::new();
+        // §13.2.4.5 scripting flag: `ParseState::new()` defaults it enabled
+        // (the strict baseline models a scripting-enabled document). An inert
+        // parse (`DOMParser`, HTML §8.5.1) disables it so `<noscript>` content
+        // is parsed as ordinary elements — making the "in head noscript" mode
+        // (`modes/in_head_noscript.rs`) reachable and routing the "in body"
+        // noscript arm to "any other start tag".
+        state.scripting = !opts.scripting_disabled;
         state.open_elements.push(root);
         // §13.4 step 16 substitution source (consumed by
         // `reset_insertion_mode_appropriately`).

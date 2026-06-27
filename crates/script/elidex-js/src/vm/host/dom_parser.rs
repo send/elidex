@@ -56,7 +56,7 @@
 
 #![cfg(feature = "engine")]
 
-use elidex_ecs::Attributes;
+use elidex_ecs::{Attributes, Entity};
 use elidex_script_session::{apply_set_inner_html, SetInnerHtmlOptions};
 
 use super::super::shape::{self, PropertyAttrs};
@@ -302,10 +302,74 @@ fn native_dom_parser_parse_from_string(
             let html_el = dom.create_element_with_owner("html", Attributes::default(), Some(doc));
             let _ = dom.append_child(doc, html_el);
             // Replaces <html>'s (empty) children with the parsed
-            // fragment. The returned MutationRecord is intentionally
-            // dropped: this is a throwaway document with no registered
-            // MutationObserver, so no §4.3 record delivery applies.
-            let _ = apply_set_inner_html(dom, html_el, &markup, SetInnerHtmlOptions::default());
+            // fragment. `scripting_disabled: true` parses the inert
+            // (§13.4 no-browsing-context, scripting-disabled) document so
+            // `<noscript>` content becomes real elements (not raw text) —
+            // matching a real DOMParser parse. The returned MutationRecord
+            // is intentionally dropped: this is a throwaway document with no
+            // registered MutationObserver, so no §4.3 record delivery
+            // applies.
+            //
+            // BOUNDARY (slot `#11-domparser-full-document-parse-fidelity`):
+            // `scripting_disabled` only takes effect where the FRAGMENT parse
+            // routes `<noscript>` to a real-element arm — explicit `<body>`
+            // ("in body" → any-other-start-tag) or explicit `<head>` ("in head
+            // noscript"). A BARE leading `<noscript>` (no wrapper) routes via
+            // the implied `<head>` into "in head noscript", where the first
+            // flow content (e.g. `<p>`) is a strict parse error (strict omits
+            // the spec's "pop noscript and reprocess" recovery,
+            // `modes/in_head_noscript.rs`) → §11.3 tolerant html5ever fallback.
+            // html5ever's `parse_fragment` IGNORES `scripting_enabled` for
+            // `<noscript>` (verified: scripting=false still yields
+            // `<noscript>#text "<p..>"`, byte-identical to scripting=true — the
+            // flag is honored only by `parse_document`). So a bare `<noscript>`
+            // stays RAWTEXT: `parseFromString('<noscript><p id=x></p>...')`
+            // .querySelector('#x') is null. The fix is a true §13.2 full-
+            // document parse (this PR's fragment-in-<html> approximation is
+            // boa-parity-bounded), deferred to that slot. Pinned by
+            // `dom_parser_bare_noscript_stays_rawtext_fragment_mode_boundary`.
+            let _ = apply_set_inner_html(
+                dom,
+                html_el,
+                &markup,
+                SetInnerHtmlOptions {
+                    scripting_disabled: true,
+                    ..SetInnerHtmlOptions::default()
+                },
+            );
+            // Attach `FormControlState` to the parsed form controls,
+            // SUBTREE-SCOPED to ONLY the throwaway document's descendants (NOT
+            // whole-dom `init_form_controls`, which would clobber the shared
+            // page document's form-control state). The throwaway document
+            // shares the bound PAGE document's `EcsDom`, so a whole-dom walk
+            // would rebuild `FormControlState` from attributes for every LIVE
+            // page `<input>`/`<select>`/`<textarea>` too — destroying their
+            // dirty-value flag / user-typed `.value` / checkedness /
+            // selectedness (`new DOMParser().parseFromString('<input>', …)`
+            // would wipe all user input on the page). Instead, collect the
+            // throwaway document's descendants and attach FCS per entity via
+            // the single-entity primitive, which already does the per-control
+            // fieldset-disabled check (no whole-dom `propagate_fieldset_disabled`
+            // needed) and no-ops on non-control entities (Document / <html>).
+            //
+            // The dispatcher suppression above takes out
+            // `FormControlReconciler`, which would otherwise attach FCS on the
+            // live-page Insert path; that path is intentionally off for the
+            // inert build, so FCS is attached here instead. Done INSIDE the
+            // suppressed window so the §13.4 inert guarantee holds —
+            // `create_form_control_state` is a PURE component attach (NO
+            // custom-element upgrade / NO script reactions). Without this,
+            // `input.value` on a DOMParser'd control reads "" because no
+            // `FormControlState` was ever attached.
+            //
+            // Two-phase (collect-then-mutate): the walker borrows `&self` but
+            // `create_form_control_state` needs `&mut dom`, so the entity ids
+            // are buffered into a Vec first to avoid the borrow conflict.
+            let mut subtree: Vec<Entity> = Vec::new();
+            dom.for_each_shadow_inclusive_descendant(doc, &mut |e| subtree.push(e));
+            for entity in subtree {
+                let _ = elidex_form::create_form_control_state(dom, entity);
+            }
             if let Some(dispatcher) = saved_dispatcher {
                 dom.set_mutation_dispatcher(dispatcher);
             }
@@ -386,6 +450,19 @@ fn native_xml_serializer_serialize_to_string(
         let empty = ctx.vm.strings.intern("");
         return Ok(JsValue::String(empty));
     };
+    // WebIDL `serializeToString(Node root)`: the HostObject extraction above
+    // accepts ANY entity-backed host object, but `globalThis` / `window` is a
+    // HostObject over `NodeKind::Window` (an EventTarget, NOT a Node). Reject
+    // non-Node kinds so `serializeToString(window)` throws a TypeError rather
+    // than serializing "". `NodeKind::is_node()` is false for Window / Worker /
+    // OffscreenCanvas — mirrors `node_proto::require_node_arg` /
+    // `dom_bridge.rs` Node-argument coercion.
+    if !matches!(dom.node_kind_inferred(entity), Some(k) if k.is_node()) {
+        return Err(VmError::type_error(
+            "Failed to execute 'serializeToString' on 'XMLSerializer': \
+             parameter 1 is not of type 'Node'.",
+        ));
+    }
     // HTML fragment serialization of an ARBITRARY node, dispatched by
     // NodeKind in the engine-indep serializer (layering mandate — no tag /
     // comment / doctype strings hand-built in vm/host/): an Element
