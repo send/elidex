@@ -556,11 +556,8 @@ impl VmInner {
         // coalesced replace / replace-all removals too). Not gated by
         // `suppressObservers` (step 15 ≠ step 16).
         if record.kind == MutationKind::ChildList && !record.removed_nodes.is_empty() {
-            elidex_api_observers::mutation::add_transient_observers(
-                host.dom(),
-                record.target,
-                &record.removed_nodes,
-            );
+            let (dom, observers) = host.split_dom_mut_and_observers();
+            observers.add_transient_observers(dom, record.target, &record.removed_nodes);
         }
         let (dom, observers) = host.split_dom_and_observers();
         observers.notify(dom, record)
