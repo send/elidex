@@ -134,8 +134,9 @@ pub(super) fn register_screen_and_window_props(ctx: &mut Context, bridge: &HostB
     let b = bridge.clone();
     let dpr_getter = NativeFunction::from_copy_closure_with_captures(
         |_this, _args, bridge, _ctx| {
-            #[allow(clippy::cast_precision_loss)]
-            Ok(JsValue::from(f64::from(bridge.device_pixel_ratio())))
+            // `device_pixel_ratio()` is `f64` (the lossless winit scale, C3 R3) — a
+            // fractional DPR like 1.2 reaches JS exact, not `f32`-rounded.
+            Ok(JsValue::from(bridge.device_pixel_ratio()))
         },
         b,
     );

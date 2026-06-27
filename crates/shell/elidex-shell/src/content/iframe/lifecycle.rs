@@ -346,15 +346,23 @@ fn build_load_context<'a>(
     _entity: Entity,
     parent_origin: &'a elidex_plugin::SecurityOrigin,
 ) -> IframeLoadContext<'a> {
-    let parent_depth = state.pipeline.runtime.bridge().iframe_depth();
+    let bridge = state.pipeline.runtime.bridge();
+    let parent_depth = bridge.iframe_depth();
     IframeLoadContext {
         parent_origin,
         parent_url: state.pipeline.url.as_ref(),
         font_db: &state.pipeline.font_db,
         network_handle: &state.pipeline.network_handle,
-        cookie_jar: state.pipeline.runtime.bridge().cookie_jar_clone(),
+        cookie_jar: bridge.cookie_jar_clone(),
         depth: parent_depth + 1,
         registry: &state.pipeline.registry,
+        // Inherit the parent's live device facts — window/display facts the sub-frame
+        // shares (C3). The parent bridge holds the dppx/color-scheme delivered by the
+        // shell `SetDeviceFacts` arm, so this is available by construction at build time.
+        device_facts: crate::ipc::DeviceFacts {
+            dppx: bridge.device_pixel_ratio(),
+            color_scheme: bridge.color_scheme(),
+        },
     }
 }
 

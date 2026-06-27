@@ -10,7 +10,7 @@
 use std::sync::Arc;
 
 use elidex_plugin::Size;
-use winit::window::Window;
+use winit::window::{Theme, Window};
 
 use crate::chrome;
 use crate::ipc::{BrowserToContent, ContentToBrowser};
@@ -35,11 +35,11 @@ pub(super) struct ViewportProducer {
     pub(super) pending_initial_spawn: Option<PendingSpawn>,
     /// Browser-published latest content-area viewport + monotonic seq — the
     /// **pull** source every content thread reads at build time. Single writer
-    /// (browser thread, via [`crate::ipc::ViewportCell::publish_if_changed`]); `Arc`-shared
+    /// (browser thread, via [`crate::ipc::ViewportCell::publish_device_state`]); `Arc`-shared
     /// into every spawned content thread. Seeded with `DEFAULT` before the
     /// window exists; the first `resumed` publish bumps it to the real size at
     /// seq 1 — *unless* the real size equals `DEFAULT`, which leaves the cell at
-    /// seq 0 and skips the broadcast (`publish_if_changed`, plan-memo E1). One per
+    /// seq 0 and skips the broadcast (`publish_device_state`, plan-memo E1). One per
     /// window — all tabs share the content area.
     pub(super) viewport_cell: Arc<crate::ipc::ViewportCell>,
 }
@@ -63,13 +63,25 @@ impl ViewportProducer {
 /// mathematically *preserves* the logical size round to a **different** `f32` — e.g.
 /// `960px ÷ 1.2 = 799.99994` instead of `800.0` — which [`Size`]'s exact equality would
 /// treat as a new viewport generation, bumping `seq` and dropping queued input (the
-/// phantom generation C2's [`ViewportCell::publish_if_changed`](crate::ipc::ViewportCell::publish_if_changed)
+/// phantom generation C2's [`ViewportCell::publish_device_state`](crate::ipc::ViewportCell::publish_device_state)
 /// exists to prevent, reintroduced by the `f32` round-trip). `f64` division recovers
 /// integer / simple-fraction logical sizes exactly, so a logical-preserving physical size
 /// narrows back to the same `f32`.
 #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
 fn logical_px(physical: u32, scale_factor: f64) -> f32 {
     (f64::from(physical) / scale_factor) as f32
+}
+
+/// Map the winit window theme to the engine-independent
+/// [`ColorScheme`](elidex_css::media::ColorScheme) the `@media (prefers-color-scheme)`
+/// evaluator reads (C3). winit reports `None` on the platforms with no theme event
+/// (X11 / Wayland), where `prefers-color-scheme` falls back to the `Light` UA default
+/// (Media Queries L5 §12.5 — no separate "no-preference" state).
+fn theme_color_scheme(window: &Window) -> elidex_css::media::ColorScheme {
+    match window.theme() {
+        Some(Theme::Dark) => elidex_css::media::ColorScheme::Dark,
+        _ => elidex_css::media::ColorScheme::Light,
+    }
 }
 
 impl App {
@@ -89,15 +101,17 @@ impl App {
         let phys = window.inner_size();
         // Divide in f64 so a logical-preserving DPI change recovers the same logical
         // size (an f32 division round-trips e.g. 960px@1.2 to 799.99994 ≠ 800.0, a
-        // phantom seq generation — see `logical_px`). Scale itself stays f32 in the
-        // placement (compositor transform / input ÷scale tolerate the narrowing).
+        // phantom seq generation — see `logical_px`). The scale is **kept as f64** in the
+        // placement (the lossless dppx content fact — `devicePixelRatio` / `@media
+        // (resolution)`, Codex R3); `origin_phys`/`size_phys` narrow it to f32 for the
+        // compositor transform / input ÷scale, which tolerate the narrowing.
         let win_logical_w = logical_px(phys.width, scale_factor);
         let win_logical_h = logical_px(phys.height, scale_factor);
         let position = self.tab_bar_position();
         ContentAreaPlacement {
             origin_logical: chrome::chrome_content_offset(position),
             size_logical: chrome::content_size(win_logical_w, win_logical_h, position),
-            scale_factor: scale_factor as f32,
+            scale_factor,
         }
     }
 
@@ -112,12 +126,23 @@ impl App {
     /// `&mut self.tab_manager` borrow (mirrors [`Self::wake_or_noop`]). No-op until
     /// `placement` is seeded. `BrowserToContent` is not `Clone`, so each recipient
     /// gets a freshly-constructed message.
-    pub(super) fn seed_tab_viewport(placement: Option<ContentAreaPlacement>, seq: u64, tab: &Tab) {
+    pub(super) fn seed_tab_viewport(
+        placement: Option<ContentAreaPlacement>,
+        seq: u64,
+        facts: crate::ipc::DeviceFacts,
+        facts_seq: u64,
+        tab: &Tab,
+    ) {
         if let Some(placement) = placement {
             if let Err(e) = tab.channel.send(BrowserToContent::SetViewport {
                 width: placement.size_logical.width,
                 height: placement.size_logical.height,
                 seq,
+                // The settled facts ride the size delivery so a frame changing both is
+                // applied atomically by the content (one re-eval, no intermediate — C3 R2).
+                color_scheme: facts.color_scheme,
+                dppx: facts.dppx,
+                facts_seq,
             }) {
                 eprintln!("Failed to send viewport to content thread (disconnected): {e}");
             }
@@ -128,7 +153,7 @@ impl App {
     /// content area, so a resize must reach background tabs too (their
     /// `innerWidth`/`matchMedia` stay spec-correct). Called on `Resized` and on
     /// re-`resumed` (plan-memo Q3), but **only when** the matching
-    /// `viewport_cell.publish_if_changed` reported a real size change — the caller gates
+    /// `viewport_cell.publish_device_state` reported a real size change — the caller gates
     /// this on that return (C2), so the cell's current seq tags the delivery and an
     /// unchanged size fans out nothing. (A pure DPI/scale `Resized` keeps `size_logical`,
     /// so it publishes nothing and skips this — see `App::window_event`.)
@@ -139,13 +164,65 @@ impl App {
     /// #11-window-level-tab-bar-position.
     pub(super) fn broadcast_viewport(&self) {
         if let Some(mgr) = &self.tab_manager {
-            // The seq the producer just published (resumed/Resized publish precedes
-            // this call). Size still comes from `placement` (the geometry SoT); the
-            // publish set the cell to exactly that size, so the pair is consistent.
-            let (_, seq) = self.viewport.viewport_cell.read();
+            // The seq + settled facts the producer just published (resumed / redraw-top
+            // publish precedes this call). Size still comes from `placement` (the geometry
+            // SoT); the publish set the cell to exactly that size, so the pair is
+            // consistent. The facts ride this delivery so a frame changing both size and
+            // facts is applied atomically by the content (one re-eval — C3 R2); the
+            // producer gates this on `size_changed` and uses `broadcast_device_facts`
+            // **only** when facts change without a size change, so facts never double-send.
+            let snapshot = self.viewport.viewport_cell.read();
+            let (seq, facts, facts_seq) = (snapshot.seq, snapshot.facts, snapshot.facts_seq);
             for tab in mgr.tabs() {
-                Self::seed_tab_viewport(self.viewport.placement, seq, tab);
+                Self::seed_tab_viewport(self.viewport.placement, seq, facts, facts_seq, tab);
             }
+        }
+    }
+
+    /// Fan the latest device facts (dppx / color-scheme) out to **every** tab — all
+    /// share the window's display, so a DPI/theme change must reach background tabs
+    /// too (their `devicePixelRatio` / `@media (resolution | prefers-color-scheme)`
+    /// stay live). The C3 sibling of [`Self::broadcast_viewport`]: called from the
+    /// redraw-top chokepoint **only when** [`crate::ipc::ViewportCell::publish_device_state`]
+    /// reported `facts_changed` (the caller gates on that), so an unchanged-facts frame
+    /// fans out nothing. **No size `seq`** — facts are orthogonal to the `size_logical`
+    /// generation (D3), so a pure-scale change the OS absorbs delivers facts without
+    /// dropping queued input. The delivery still carries the cell's **`facts_seq`** (the
+    /// device-facts generation the publish just bumped) so a content thread can drop a
+    /// fact already folded into its build's cell-read — the build-vs-broadcast staleness
+    /// race `SetViewport`'s `seq` handles, here for facts. Initial/`window.open`/new tabs
+    /// are instead born with the facts via the construction-input spawn (the cell read
+    /// seeds the bridge before scripts), so this fan-out is a guarded no-op for them.
+    /// `BrowserToContent` is not `Clone`, so each recipient gets a freshly-constructed
+    /// message.
+    pub(super) fn broadcast_device_facts(&self) {
+        if let Some(mgr) = &self.tab_manager {
+            let snapshot = self.viewport.viewport_cell.read();
+            let (facts, facts_seq) = (snapshot.facts, snapshot.facts_seq);
+            for tab in mgr.tabs() {
+                if let Err(e) = tab.channel.send(BrowserToContent::SetDeviceFacts {
+                    color_scheme: facts.color_scheme,
+                    dppx: facts.dppx,
+                    facts_seq,
+                }) {
+                    eprintln!("Failed to send device facts to content thread (disconnected): {e}");
+                }
+            }
+        }
+    }
+
+    /// The window's current device facts (C3): `dppx` from the already-snapshotted
+    /// `placement.scale_factor` (no second `scale_factor` read — the placement builder
+    /// is its sole reader) + `color_scheme` from the window theme. Fed to
+    /// [`crate::ipc::ViewportCell::publish_device_state`] at the redraw-top chokepoint
+    /// and the `resumed` seed.
+    pub(super) fn device_facts(
+        placement: ContentAreaPlacement,
+        window: &Window,
+    ) -> crate::ipc::DeviceFacts {
+        crate::ipc::DeviceFacts {
+            dppx: placement.scale_factor,
+            color_scheme: theme_color_scheme(window),
         }
     }
 
@@ -159,7 +236,7 @@ impl App {
     /// thread can drop input mapped against a placement its build/runtime has since
     /// superseded (`content/event_loop.rs`, plan-memo §10).
     pub(super) fn current_placement_seq(&self) -> u64 {
-        self.viewport.viewport_cell.read().1
+        self.viewport.viewport_cell.read().seq
     }
 
     /// Spawn the deferred initial content thread (C1), now that the window exists. The

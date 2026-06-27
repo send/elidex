@@ -6,10 +6,77 @@
 
 use std::sync::{Arc, Mutex, PoisonError};
 
+use elidex_css::media::ColorScheme;
 use elidex_plugin::{Point, Size, Vector};
 use elidex_render::DisplayList;
 
 pub use elidex_plugin::{channel_pair, LocalChannel};
+
+/// Browser-published per-window **device facts**: the device-pixel ratio
+/// (`window.devicePixelRatio` — CSSOM View §4 — / `@media (resolution)` — Media
+/// Queries L5 §5.1) and the `prefers-color-scheme` preference (Media Queries L5
+/// §12.5). Orthogonal to the viewport *size* — a
+/// pure-scale change the OS absorbs (physical size changes, CSS-logical size
+/// preserved) shifts `dppx` without a `size_logical` generation — so they ride the
+/// [`ViewportCell`] beside `{ size, seq }` but are change-detected independently of
+/// `seq` (C3 D3). Content-agnostic CSS px / preference values, never winit types.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct DeviceFacts {
+    /// Device pixel ratio (`window.scale_factor()`), the `@media (resolution)` dppx.
+    /// **`f64`** (lossless): an `f32` rounds a fractional scale like 1.2 to
+    /// `1.2000000476837158`, which the exact media evaluator rejects for
+    /// `(resolution: 1.2dppx)` and JS observes as a wrong `devicePixelRatio` (Codex R3).
+    pub dppx: f64,
+    /// `prefers-color-scheme` preference (from the window theme; `Light` on the
+    /// platforms winit reports no theme — X11/Wayland).
+    pub color_scheme: ColorScheme,
+}
+
+impl Default for DeviceFacts {
+    /// The pre-publish baseline: 1× scale, `Light` — matching the boa bridge's
+    /// construction defaults (`device_pixel_ratio: 1.0`, `ColorScheme::Light`), so a
+    /// tab born before the first real publish reads the same facts the bridge already
+    /// holds (publishing the real facts is then a single change-detected delta).
+    fn default() -> Self {
+        Self {
+            dppx: 1.0,
+            color_scheme: ColorScheme::Light,
+        }
+    }
+}
+
+/// What [`ViewportCell::publish_device_state`] changed this publish, so the caller
+/// can fan out exactly the affected IPC + repaint work: `size` → `SetViewport`
+/// (+seq bump, the C2 input-drop discipline); device facts → `SetDeviceFacts`
+/// (no seq — facts are seq-orthogonal, C3 D3).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct DeviceDelta {
+    /// `size_logical` changed → a new viewport generation (seq bumped).
+    pub size_changed: bool,
+    /// `dppx` and/or `color_scheme` changed → device facts to re-broadcast.
+    pub facts_changed: bool,
+}
+
+/// The atomic `(size, seq, facts)` triple a content thread reads from the
+/// [`ViewportCell`] at build time (one lock-copy-release). Replaces the former
+/// `(Size, u64)` tuple so a spawned tab is born with the device facts too (C3
+/// construction-input), not only the size.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ViewportSnapshot {
+    /// Content-area size in CSS logical px.
+    pub size: Size,
+    /// Monotonic `size_logical`-generation seq (see [`ViewportCell`]).
+    pub seq: u64,
+    /// Latest device facts (dppx / color-scheme).
+    pub facts: DeviceFacts,
+    /// Monotonic **device-facts** generation, independent of `seq` (a pure-scale
+    /// change bumps `facts_seq` but not `seq`, D3). It is the high-water mark a
+    /// content build records so a queued *older* `SetDeviceFacts` — already folded
+    /// into the `facts` this build read from the cell — is dropped instead of
+    /// replaying a stale color-scheme/dppx backward (the facts analog of the `seq`
+    /// staleness guard `SetViewport` carries).
+    pub facts_seq: u64,
+}
 
 /// Browser-published latest content-area viewport (CSS logical px) that content
 /// threads read as a **pull source** at build time, plus a monotonic `seq`
@@ -31,7 +98,7 @@ pub use elidex_plugin::{channel_pair, LocalChannel};
 /// intermediate. Any genuinely newer resize carries `seq >` the mark and applies — no
 /// lost update.
 ///
-/// **Single writer** (the browser main thread, via [`Self::publish_if_changed`]); **many readers**
+/// **Single writer** (the browser main thread, via [`Self::publish_device_state`]); **many readers**
 /// (each content thread, via [`Self::read`]). One per window — all tabs share the
 /// window content area, so they share one `Arc<ViewportCell>`.
 #[derive(Debug)]
@@ -43,54 +110,88 @@ pub struct ViewportCell {
 struct ViewportCellValue {
     size: Size,
     seq: u64,
+    facts: DeviceFacts,
+    facts_seq: u64,
 }
 
 impl ViewportCell {
-    /// Construct a cell seeded with `size` at **seq 0** — the pre-publish baseline.
-    /// The first [`publish_if_changed`](Self::publish_if_changed) of a *different* size
-    /// bumps to seq 1, so a content thread that reads the cell before any size-changing
-    /// publish sees seq 0 (and any later real `SetViewport` carries `seq ≥ 1 >` 0, hence
-    /// applies).
+    /// Construct a cell seeded with `size` at **seq 0** and default
+    /// [`DeviceFacts`] — the pre-publish baseline. The first
+    /// [`publish_device_state`](Self::publish_device_state) of a *different* size
+    /// bumps to seq 1, so a content thread that reads the cell before any
+    /// size-changing publish sees seq 0 (and any later real `SetViewport` carries
+    /// `seq ≥ 1 >` 0, hence applies). Device facts seed at the bridge's own defaults
+    /// (`DeviceFacts::default`) at `facts_seq 0` so the seed → real-facts publish is
+    /// one clean delta on its own generation (the first real-facts publish bumps
+    /// `facts_seq` 0 → 1, exactly as the size publish bumps `seq`).
     #[must_use]
     pub fn new(size: Size) -> Arc<Self> {
         Arc::new(Self {
-            inner: Mutex::new(ViewportCellValue { size, seq: 0 }),
+            inner: Mutex::new(ViewportCellValue {
+                size,
+                seq: 0,
+                facts: DeviceFacts::default(),
+                facts_seq: 0,
+            }),
         })
     }
 
-    /// Browser writer: store a new content-area `size` and bump the monotonic seq
-    /// **iff** `size` differs from the current value; returns whether it changed (and
-    /// thus published a new seq).
+    /// Browser writer: store the latest content-area `size` + device `facts`,
+    /// reporting which changed via [`DeviceDelta`] (C3 D3).
     ///
-    /// `seq` identifies `size_logical` *generations* — the unit `placement_seq` /
-    /// `applied_viewport_seq` reconcile against ([`MouseClickEvent::placement_seq`],
-    /// `content/event_loop.rs` `input_placement_stale`). Bumping the seq on an
-    /// **unchanged** size would manufacture a phantom generation that spuriously
-    /// supersedes legitimately-queued input mapped against the still-current layout —
-    /// a pure DPI/scale `Resized` carries the same `size_logical` (CSS px is
-    /// scale-invariant), so a same-size publish is a no-op. The caller gates its
-    /// `broadcast_viewport` on the return so an unchanged size emits no `SetViewport`.
+    /// **Size** bumps the monotonic seq **iff** it differs (the C2 discipline,
+    /// verbatim): `seq` identifies `size_logical` *generations* — the unit
+    /// `placement_seq` / `applied_viewport_seq` reconcile against
+    /// ([`MouseClickEvent::placement_seq`], `content/event_loop.rs`
+    /// `input_placement_stale`). Bumping it on an **unchanged** size would manufacture
+    /// a phantom generation that spuriously supersedes legitimately-queued input
+    /// mapped against the still-current layout — a pure DPI/scale `Resized` carries
+    /// the same `size_logical` (CSS px is scale-invariant). **Device facts** are
+    /// seq-**orthogonal**: a pure-scale change the OS absorbs shifts `dppx` while
+    /// `size_logical` is preserved, so it must ship `SetDeviceFacts` **without**
+    /// bumping `seq` (else the phantom input-drop returns). Instead facts carry their
+    /// **own** monotonic `facts_seq`, bumped here iff they differ — the high-water mark
+    /// a content build records (`ViewportSnapshot::facts_seq`) so a queued *older*
+    /// `SetDeviceFacts` already folded into the build's cell-read is dropped, the facts
+    /// analog of the `seq` staleness guard (`content/event_loop.rs`). The caller gates
+    /// `broadcast_viewport` on `size_changed` and `broadcast_device_facts` on
+    /// `facts_changed`, so an idempotent per-frame republish (redraw cadence) emits
+    /// nothing.
     ///
-    /// Poison-recovers (`into_inner`): the guarded value is two plain fields written
+    /// Poison-recovers (`into_inner`): the guarded value is three plain fields written
     /// as one assignment, so a reader panicking mid-critical-section leaves no broken
     /// invariant and the browser must not panic in turn.
-    #[must_use = "the caller must gate broadcast_viewport on whether the size changed"]
-    pub fn publish_if_changed(&self, size: Size) -> bool {
+    #[must_use = "the caller must gate its broadcasts on which facts changed"]
+    pub fn publish_device_state(&self, size: Size, facts: DeviceFacts) -> DeviceDelta {
         let mut guard = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
-        if guard.size == size {
-            return false;
+        let size_changed = guard.size != size;
+        if size_changed {
+            guard.size = size;
+            guard.seq += 1;
         }
-        guard.size = size;
-        guard.seq += 1;
-        true
+        let facts_changed = guard.facts != facts;
+        if facts_changed {
+            guard.facts = facts;
+            guard.facts_seq += 1;
+        }
+        DeviceDelta {
+            size_changed,
+            facts_changed,
+        }
     }
 
-    /// Content reader: the latest `(size, seq)` pair atomically (a lock-copy-release;
-    /// no lock is held across the caller's subsequent build / `load_document`).
+    /// Content reader: the latest [`ViewportSnapshot`] atomically (a
+    /// lock-copy-release; no lock is held across the caller's subsequent build /
+    /// `load_document`).
     #[must_use]
-    pub fn read(&self) -> (Size, u64) {
+    pub fn read(&self) -> ViewportSnapshot {
         let guard = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
-        (guard.size, guard.seq)
+        ViewportSnapshot {
+            size: guard.size,
+            seq: guard.seq,
+            facts: guard.facts,
+            facts_seq: guard.facts_seq,
+        }
     }
 }
 
@@ -196,7 +297,15 @@ pub enum BrowserToContent {
         /// Modifier keys.
         mods: ModifierState,
     },
-    /// Viewport size changed.
+    /// Viewport size changed — and carries the settled device facts too, so a frame
+    /// that changes **both** size and facts (a DPI move where the logical size also
+    /// changes) delivers them in **one** message → one content re-eval reflecting both,
+    /// never an inconsistent new-size + old-facts intermediate that would fire a spurious
+    /// `change` for a query like `(min-width: 800px) and (prefers-color-scheme: dark)`
+    /// (Codex R2). When only facts change (size unchanged) the producer sends
+    /// [`Self::SetDeviceFacts`] instead; the two are mutually exclusive per frame, so the
+    /// facts never travel both. The content applies size (the `seq` guard) and facts (the
+    /// `facts_seq` guard) independently from this one message.
     SetViewport {
         /// New width in logical pixels.
         width: f32,
@@ -208,6 +317,39 @@ pub enum BrowserToContent {
         /// resize that landed during a blocking load — already reflected in the
         /// cell the build read — does not re-fire as a backward flash.
         seq: u64,
+        /// The settled `prefers-color-scheme` carried alongside the size (the cell's
+        /// atomic snapshot), applied via the same `facts_seq` guard as [`Self::SetDeviceFacts`].
+        color_scheme: ColorScheme,
+        /// The settled device-pixel ratio (dppx) carried alongside the size. `f64`
+        /// (lossless — see [`DeviceFacts::dppx`]).
+        dppx: f64,
+        /// The device-facts generation for the carried facts (independent of `seq`,
+        /// D3); dropped by the content when `≤` its facts high-water mark.
+        facts_seq: u64,
+    },
+    /// Per-window device facts changed (C3): the device-pixel ratio
+    /// (`window.devicePixelRatio` / `@media (resolution)`) and/or the
+    /// `prefers-color-scheme` preference. **No size `seq`** — these are orthogonal to
+    /// the `size_logical` generation ([`ViewportCell::publish_device_state`], D3), so a
+    /// pure-scale change the OS absorbs delivers facts without dropping queued input.
+    /// Carries its **own** `facts_seq` (the device-facts generation, independent of the
+    /// size `seq`): the content thread drops a delivery whose `facts_seq` is `≤` its
+    /// build-time facts high-water mark — a queued older fact already folded into the
+    /// facts the build read from the cell — so a navigation racing rapid DPI/theme
+    /// changes does not replay an obsolete color-scheme/dppx backward (the facts analog
+    /// of `SetViewport`'s `seq`). One unified variant (not one per fact, D5): a single
+    /// content re-eval + repaint when a `ScaleFactorChanged` co-occurs with a theme
+    /// toggle. A future `prefers-reduced-motion` producer extends this variant rather
+    /// than adding a new one.
+    SetDeviceFacts {
+        /// `prefers-color-scheme` preference.
+        color_scheme: ColorScheme,
+        /// Device pixel ratio (dppx). `f64` (lossless — see [`DeviceFacts::dppx`]).
+        dppx: f64,
+        /// Monotonic device-facts generation (independent of the size `seq`) this
+        /// delivery corresponds to. Dropped when `≤` the content thread's build-time
+        /// facts high-water mark.
+        facts_seq: u64,
     },
     /// Navigate back in history.
     GoBack,

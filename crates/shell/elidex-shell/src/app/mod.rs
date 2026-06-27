@@ -168,24 +168,39 @@ pub(super) struct ContentAreaPlacement {
     pub(super) origin_logical: Point,
     /// Content-area size in CSS logical px (window-logical minus chrome).
     pub(super) size_logical: Size,
-    /// Device pixel ratio (`window.scale_factor()`); CSS-px → device-px scale.
-    pub(super) scale_factor: f32,
+    /// Device pixel ratio (`window.scale_factor()`); CSS-px → device-px scale. Held as
+    /// **`f64`** (the lossless winit value) because it is also the dppx *content fact*
+    /// (`window.devicePixelRatio` / `@media (resolution)`): an `f32` rounds a fractional
+    /// scale like 1.2 to `1.2000000476837158`, which the exact (`RangeValue::Dppx`)
+    /// media evaluator rejects for `(resolution: 1.2dppx)` and which JS observes as a
+    /// wrong DPR (Codex R3). The compositor transform / input ÷scale tolerate `f32`, so
+    /// `origin_phys`/`size_phys` narrow it there.
+    pub(super) scale_factor: f64,
 }
 
 impl ContentAreaPlacement {
+    /// The scale narrowed to `f32` for the **compositor transform / input ÷scale**, which
+    /// tolerate it — the single deliberate-narrowing site (the `f64` `scale_factor` is
+    /// lossless only for the dppx *content fact*: `devicePixelRatio` / `@media (resolution)`,
+    /// C3 R3). Centralized so the narrowing intent + lint exemption live in one place.
+    #[allow(clippy::cast_possible_truncation)]
+    pub(super) fn scale_f32(&self) -> f32 {
+        self.scale_factor as f32
+    }
+
     /// Content-area top-left in physical surface px (`origin_logical × scale`).
     pub(super) fn origin_phys(&self) -> Point {
         Point::new(
-            self.origin_logical.x * self.scale_factor,
-            self.origin_logical.y * self.scale_factor,
+            self.origin_logical.x * self.scale_f32(),
+            self.origin_logical.y * self.scale_f32(),
         )
     }
 
     /// Content-area size in physical surface px (`size_logical × scale`).
     pub(super) fn size_phys(&self) -> Size {
         Size::new(
-            self.size_logical.width * self.scale_factor,
-            self.size_logical.height * self.scale_factor,
+            self.size_logical.width * self.scale_f32(),
+            self.size_logical.height * self.scale_f32(),
         )
     }
 }
@@ -492,6 +507,27 @@ impl App {
         }
     }
 
+    /// Forward a window event to egui's `State` for its own bookkeeping.
+    ///
+    /// The `Resized` / `ScaleFactorChanged` / `ThemeChanged` arms in `window_event`
+    /// handle-and-`return` before the per-mode dispatch (`handle_window_event_threaded`
+    /// / `_inline`) where egui normally sees events, so egui-winit's cached
+    /// `native_pixels_per_point` (`ScaleFactorChanged`) and `system_theme`
+    /// (`ThemeChanged`) would otherwise stay stale after a monitor/theme change — the
+    /// browser chrome would keep rendering at the old DPI scale / color theme while the
+    /// content device facts update. These are non-input events (no `consumed` routing to
+    /// preserve), so this forwards on `render_state` alone (egui exists whenever it
+    /// does) — narrower than the per-mode input gating and sufficient for the cached
+    /// window state. Honors egui's `repaint` request like the per-mode handlers do.
+    fn forward_to_egui(&mut self, event: &WindowEvent) {
+        if let Some(state) = self.render_state.as_mut() {
+            let response = state.egui_state.on_window_event(&state.window, event);
+            if response.repaint {
+                state.window.request_redraw();
+            }
+        }
+    }
+
     /// Get the tab bar position from the active tab's chrome state.
     fn tab_bar_position(&self) -> chrome::TabBarPosition {
         self.tab_manager
@@ -563,28 +599,39 @@ impl ApplicationHandler<crate::WakeEvent> for App {
         // identical to the initial tab's default chrome, so the size is correct.
         let placement = self.content_area_placement(&state.window);
         self.viewport.placement = Some(placement);
-        // Publish the real size to the viewport cell **before** spawning, so the
-        // deferred initial tab's build reads it by construction (the cell is the pull
-        // source the spawn reads, not a snapshot). Normally bumps seq 0 → 1
-        // (DEFAULT → real); `viewport_changed` gates the re-resume fan-out below.
-        let viewport_changed = self
+        let facts = Self::device_facts(placement, &state.window);
+        // Publish the real size + device facts to the viewport cell **before**
+        // spawning, so the deferred initial tab's build reads them by construction
+        // (the cell is the pull source the spawn reads, not a snapshot): size →
+        // cascade/layout + bridge `innerWidth`; dppx/color-scheme → bridge
+        // `devicePixelRatio`/`matchMedia` before initial scripts (C3). Normally bumps
+        // seq 0 → 1 (DEFAULT → real) and flips facts off the 1×/Light baseline; the
+        // returned `DeviceDelta` gates the re-resume fan-out below.
+        let delta = self
             .viewport
             .viewport_cell
-            .publish_if_changed(placement.size_logical);
+            .publish_device_state(placement.size_logical, facts);
         self.render_state = Some(state);
 
-        // Spawn the deferred initial content thread (C1) at the real viewport — it is
-        // born resolving styles, running initial scripts, and laying out at the size
-        // it reads from the just-published cell, never a guessed `DEFAULT_VIEWPORT`.
+        // Spawn the deferred initial content thread (C1) at the real viewport + device
+        // facts — it is born resolving styles, running initial scripts, and laying out
+        // at the state it reads from the just-published cell, never a guessed default.
         self.spawn_pending_initial_tab();
 
         // Re-resume after `suspended` (plan-memo Q3): content threads persist across a
-        // suspend but `placement` was dropped, so the content area may have changed
-        // size while the window was gone. Fan the rebuilt viewport to every persisted
-        // tab only when the publish above changed the size (`viewport_changed`) — an
-        // unchanged size needs no delivery and must not bump `applied_viewport_seq`.
-        if viewport_changed {
+        // suspend but `placement` was dropped, so the content area / device facts may
+        // have changed while the window was gone. Fan the rebuilt state to every
+        // persisted tab only for what actually changed — an unchanged size must not
+        // bump `applied_viewport_seq`; unchanged facts emit no re-eval. The
+        // just-spawned initial tab was already born with both via the cell read, so
+        // its deliveries here are guarded no-ops on the content side. Atomic delivery
+        // (C3 R2): when the size changed, `broadcast_viewport` carries the settled facts
+        // too; `broadcast_device_facts` is for a facts-only change — mutually exclusive,
+        // so facts never double-send.
+        if delta.size_changed {
             self.broadcast_viewport();
+        } else if delta.facts_changed {
+            self.broadcast_device_facts();
         }
 
         // Set the initial window title from the now-present active tab.
@@ -627,38 +674,70 @@ impl ApplicationHandler<crate::WakeEvent> for App {
                 return;
             }
             WindowEvent::Resized(new_size) => {
+                // egui first (its cached window size), then sync the GPU surface — this
+                // arm returns before the per-mode dispatch where egui normally runs.
+                self.forward_to_egui(&event);
                 let Some(state) = self.render_state.as_mut() else {
                     return;
                 };
                 state
                     .gpu
                     .resize(&state.surface, new_size.width, new_size.height);
-                let window = Arc::clone(&state.window);
                 if new_size.width > 0 && new_size.height > 0 {
-                    window.request_redraw();
+                    state.window.request_redraw();
                 }
-                // Recompute the placement SoT — this also refreshes `scale_factor`,
-                // since on the **common** path a DPI change reaches us as a `Resized`
-                // *after* winit's `ScaleFactorChanged`, so this one arm handles both. (The
-                // X11 `ScaleFactorChanged`-only corner with no following `Resized` is the
-                // carved `#11-shell-viewport-scalefactorchanged-x11-coverage` gap, §1/§8.)
-                // Publish to the cell **iff** `size_logical` changed (bumping seq) and fan
-                // out only then: a pure scale change keeps `size_logical` → no seq bump, so
-                // queued input is not dropped against an unchanged layout; the new scale
-                // still reaches the compositor / input mapper via `placement` + redraw (§2).
-                let placement = self.content_area_placement(&window);
-                self.viewport.placement = Some(placement);
-                if self
-                    .viewport
-                    .viewport_cell
-                    .publish_if_changed(placement.size_logical)
-                {
-                    self.broadcast_viewport();
+                // Placement recompute + publish (size + device facts) + reclip all move
+                // to the redraw-top chokepoint (`handle_redraw_threaded`), so `placement`
+                // and `seq` update **atomically** there (C3 D2/F1): this arm touches
+                // neither, so across the event→redraw gap both stay old (coherent), and
+                // gap-input maps old-placement/old-seq and is **applied** against the
+                // still-old layout (`placement_seq == applied_viewport_seq`, not dropped/
+                // superseded — Codex R2 correction; plan-memo D2 (1)). The arm only syncs
+                // the GPU surface to the new physical size and requests the redraw whose
+                // settled-state recompute does the rest.
+                return;
+            }
+            WindowEvent::ScaleFactorChanged { .. } => {
+                // A DPI change. On the **common** path a `Resized` follows (winit forces
+                // it when the DPI-adjusted physical size differs) and does the
+                // `gpu.resize`; on the X11 / constrained-WM corner where physical size is
+                // held constant, **no** `Resized` follows (winit 0.30 x11), so this is the
+                // *only* event for that DPI change. Either way it must drive the redraw
+                // whose settled-state recompute ships the new `size_logical` + dppx —
+                // closing the former carved `#11-shell-viewport-scalefactorchanged-x11-
+                // coverage` gap (C3 D1/F3). Sync the surface to the current physical size
+                // (a no-op when physical is unchanged) and request the redraw; the arm
+                // neither recomputes `placement` nor publishes (D2 atomicity) — redraw-top
+                // reads the settled `(inner_size, scale_factor)`, so the bogus
+                // `old_phys/new_scale` intermediate never materializes.
+                //
+                // Forward to egui first so egui-winit updates its cached
+                // `native_pixels_per_point` — otherwise the chrome keeps rendering at the
+                // old DPI scale while the content device facts update (this arm returns
+                // before the per-mode dispatch where egui normally sees the event).
+                self.forward_to_egui(&event);
+                let Some(state) = self.render_state.as_mut() else {
+                    return;
+                };
+                let phys = state.window.inner_size();
+                state.gpu.resize(&state.surface, phys.width, phys.height);
+                if phys.width > 0 && phys.height > 0 {
+                    state.window.request_redraw();
                 }
-                // The content rect may have shrunk/moved out from under a
-                // stationary cursor — clear stuck `:hover` if it left content.
-                if let Some(placement) = self.viewport.placement {
-                    self.reclip_cursor_after_placement_change(placement);
+                return;
+            }
+            WindowEvent::ThemeChanged(_) => {
+                // The OS color scheme changed (macOS / Windows; winit emits no theme
+                // event on X11 / Wayland, where `prefers-color-scheme` stays `Light`).
+                // Forward to egui first so egui-winit updates its cached `system_theme`
+                // — otherwise the chrome keeps the old theme while the content
+                // `prefers-color-scheme` fact updates (this arm returns before the
+                // per-mode dispatch). Then drive a redraw; redraw-top re-reads
+                // `window.theme()` (as it re-reads `scale_factor`) and publishes the new
+                // `prefers-color-scheme` fact — no recompute/publish in the arm (D2).
+                self.forward_to_egui(&event);
+                if let Some(state) = &self.render_state {
+                    state.window.request_redraw();
                 }
                 return;
             }

@@ -113,8 +113,14 @@ pub(crate) struct HostBridgeInner {
     /// Cached viewport dimensions (set by content thread on `SetViewport`).
     viewport_width: f32,
     viewport_height: f32,
-    /// Device pixel ratio (set by content thread from winit `scale_factor`).
-    device_pixel_ratio: f32,
+    /// Device pixel ratio (set by content thread from winit `scale_factor`). `f64`
+    /// (lossless — an `f32` rounds a fractional scale like 1.2, which JS observes as a
+    /// wrong `devicePixelRatio` and the exact `@media (resolution)` evaluator rejects; C3 R3).
+    device_pixel_ratio: f64,
+    /// `prefers-color-scheme` user/OS preference (set by content thread from the
+    /// window theme, C3). Feeds the [`MediaEnvironment`] the canonical evaluator
+    /// reads for `@media (prefers-color-scheme)`; defaults `Light`.
+    color_scheme: elidex_css::media::ColorScheme,
     /// Window screen position X (set by content thread from winit).
     screen_x: i32,
     /// Window screen position Y (set by content thread from winit).
@@ -416,6 +422,7 @@ impl HostBridge {
                 viewport_width: 800.0,
                 viewport_height: 600.0,
                 device_pixel_ratio: 1.0,
+                color_scheme: elidex_css::media::ColorScheme::Light,
                 screen_x: 0,
                 screen_y: 0,
                 monitor_width: 800.0,
@@ -767,37 +774,23 @@ impl Default for HostBridge {
     }
 }
 
-/// Evaluate a media query against explicit viewport dimensions (no bridge needed).
+/// Evaluate a media query against a [`MediaEnvironment`] through the **canonical**
+/// `elidex_css::media` evaluator — the one both engines share (C3 D4).
 ///
-/// This is the shared implementation used by both `evaluate_media_query` in
-/// `window.rs` (via bridge accessor) and `re_evaluate_media_queries`.
-pub(crate) fn evaluate_media_query_raw(query: &str, width: f32, height: f32) -> bool {
-    let q = query.trim().to_ascii_lowercase();
-    let inner = q
-        .strip_prefix('(')
-        .and_then(|s| s.strip_suffix(')'))
-        .unwrap_or(&q);
-
-    if let Some((feature, value)) = inner.split_once(':') {
-        let feature = feature.trim();
-        let value = value.trim();
-        let px_value = value
-            .strip_suffix("px")
-            .unwrap_or(value)
-            .trim()
-            .parse::<f32>()
-            .ok();
-
-        match feature {
-            "max-width" => return px_value.is_some_and(|v| width <= v),
-            "min-width" => return px_value.is_some_and(|v| width >= v),
-            "max-height" => return px_value.is_some_and(|v| height <= v),
-            "min-height" => return px_value.is_some_and(|v| height >= v),
-            "prefers-color-scheme" => return false,
-            _ => {}
-        }
-    }
-    false
+/// Replaces the former boa-local hand-rolled feature table (which handled only
+/// `min/max-width|height` and stubbed `prefers-color-scheme => false`, with no
+/// `resolution` branch) with the same parse+evaluate the VM (`vm/host/media_query`)
+/// and the CSS cascade use. The env is built by [`HostBridge::media_environment`]:
+/// viewport from the caller, device facts (dppx / color-scheme) from the bridge's
+/// cached fields. The `JsValue`/`MediaQueryList` concerns stay caller-side
+/// (`globals/window/media_query`), so this is a pure `&str × env → bool` seam —
+/// the One-issue-one-way analog of `globals/window`'s canonical
+/// `elidex_css::parse_inline_style` routing.
+pub(crate) fn evaluate_media_query_raw(
+    query: &str,
+    env: &elidex_css::media::MediaEnvironment,
+) -> bool {
+    elidex_css::media::evaluate(&elidex_css::media::parse_media_query_list(query), env)
 }
 
 // Implement Trace/Finalize for boa_gc compatibility (used in from_copy_closure_with_captures).

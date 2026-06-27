@@ -52,14 +52,28 @@ impl HostBridge {
 
     // --- Device/screen properties (Gaps 10-12) ---
 
-    /// Get device pixel ratio.
-    pub fn device_pixel_ratio(&self) -> f32 {
+    /// Get device pixel ratio (`f64` — lossless, see the field doc).
+    pub fn device_pixel_ratio(&self) -> f64 {
         self.inner.borrow().device_pixel_ratio
     }
 
-    /// Set device pixel ratio (called by content thread from winit `scale_factor`).
-    pub fn set_device_pixel_ratio(&self, dpr: f32) {
+    /// Set device pixel ratio (called by content thread from winit `scale_factor`). `f64`
+    /// so a fractional scale (1.2×) reaches `devicePixelRatio` / `@media (resolution)`
+    /// without `f32` rounding (C3 R3).
+    pub fn set_device_pixel_ratio(&self, dpr: f64) {
         self.inner.borrow_mut().device_pixel_ratio = dpr;
+    }
+
+    /// Get the `prefers-color-scheme` preference (Media Queries L5 §12.5).
+    pub fn color_scheme(&self) -> elidex_css::media::ColorScheme {
+        self.inner.borrow().color_scheme
+    }
+
+    /// Set the `prefers-color-scheme` preference (Media Queries L5 §12.5; called by
+    /// content thread from the window theme on `SetDeviceFacts`, C3). Mirrors
+    /// [`Self::set_device_pixel_ratio`].
+    pub fn set_color_scheme(&self, scheme: elidex_css::media::ColorScheme) {
+        self.inner.borrow_mut().color_scheme = scheme;
     }
 
     /// Get window screen position X.

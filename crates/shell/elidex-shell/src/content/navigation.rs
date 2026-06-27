@@ -126,21 +126,25 @@ pub(super) fn handle_navigate(
             state.pipeline.runtime.bridge().shutdown_all_realtime();
             // Preserve cookie jar across navigations.
             let cookie_jar = state.pipeline.runtime.bridge().cookie_jar_clone();
-            // Rebuild at the tab's CURRENT viewport (not `DEFAULT`) so the new
-            // document's initial scripts + layout see the real `innerWidth`/`@media`
-            // (C1; the new runtime's JS bridge is seeded from this viewport inside
-            // the builder). Read the **latest browser-published** size from the
-            // viewport cell *after* the blocking `load_document` above returns: a
-            // resize that landed during the load is observed by construction, where
-            // the old `state.pipeline.viewport` snapshot would be stale. `seq` re-bases
-            // this document's high-water mark below.
-            let (viewport, seq) = state.viewport_cell.read();
+            // Rebuild at the tab's CURRENT viewport + device facts (not `DEFAULT`) so
+            // the new document's initial scripts + layout see the real
+            // `innerWidth`/`@media`/`devicePixelRatio` (C1/C3; the new runtime's JS
+            // bridge is seeded from this snapshot inside the builder — the fresh
+            // document's bridge would otherwise default to 1×/Light). Read the
+            // **latest browser-published** snapshot from the viewport cell *after* the
+            // blocking `load_document` above returns: a resize/scale change that landed
+            // during the load is observed by construction, where the old
+            // `state.pipeline.viewport` snapshot would be stale. `seq` re-bases this
+            // document's high-water mark below.
+            let snapshot = state.viewport_cell.read();
+            let (viewport, seq, facts_seq) = (snapshot.size, snapshot.seq, snapshot.facts_seq);
             let new_pipeline = crate::build_pipeline_from_loaded(
                 loaded,
                 network_handle,
                 font_db,
                 cookie_jar,
                 viewport,
+                snapshot.facts,
             );
             state.pipeline = new_pipeline;
             // Focus lives in the new pipeline's `EcsDom` (empty by construction
@@ -149,13 +153,14 @@ pub(super) fn handle_navigate(
             state.active_chain.clear();
             state.focusable_cache = None;
             state.viewport_scroll = elidex_ecs::ScrollState::default();
-            // Re-base the viewport high-water mark to the rebuild's cell-read seq, in
-            // the per-pipeline reset cluster: every rebuild re-anchors it so a queued
-            // `SetViewport` is judged against THIS document's build, not the prior
-            // document's (else a post-nav resize is mis-dropped as stale, or a stale
-            // pre-nav delivery mis-applies). Unconditional — the new document consumed
-            // exactly `seq`.
+            // Re-base the viewport + facts high-water marks to the rebuild's cell-read
+            // generations, in the per-pipeline reset cluster: every rebuild re-anchors
+            // them so a queued `SetViewport` / `SetDeviceFacts` is judged against THIS
+            // document's build, not the prior document's (else a post-nav resize / DPI
+            // change is mis-dropped as stale, or a stale pre-nav delivery mis-applies).
+            // Unconditional — the new document consumed exactly `seq` / `facts_seq`.
             state.applied_viewport_seq = seq;
+            state.applied_facts_seq = facts_seq;
             super::scroll::update_viewport_scroll_dimensions(state);
 
             if !is_history_nav {

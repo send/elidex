@@ -124,27 +124,30 @@ impl App {
     ///
     /// Returns `true` if a redraw is needed (due to chrome actions).
     fn handle_redraw_threaded(&mut self, event_loop: &ActiveEventLoop) -> bool {
+        // Refresh the viewport cell to this frame's settled state **before** draining
+        // content messages (Codex R2): `drain_content_messages` processes `window.open()`
+        // spawns that clone `viewport_cell` as their construction-input pull source, so the
+        // cell must already hold the settled state when the drain runs (if the publish ran
+        // *after* the drain, as originally, a spawn in a frame following a resize/DPI change
+        // would be born at the stale pre-resize `innerWidth`/`devicePixelRatio`).
+        self.refresh_viewport_cell();
+
+        // Drain content→browser messages (incl. `window.open()` spawns, which read the
+        // cell just refreshed above as their construction input) and sync cookies — after
+        // the settled-state publish, before the render below consumes the drained display
+        // lists.
         self.drain_content_messages();
         self.sync_cookies_if_dirty();
 
-        // Recompute the placement SoT for this frame from the current window —
-        // the authoritative per-frame snapshot (§2.3 / F8 coherence with the
-        // `surface_config` written on `Resized`). Then derive the compositor's
-        // physical-px content placement (offset/size/scale) for this frame.
-        if let Some(window) = self
-            .render_state
-            .as_ref()
-            .map(|s| std::sync::Arc::clone(&s.window))
-        {
-            self.viewport.placement = Some(self.content_area_placement(&window));
-        }
         let content = self
             .viewport
             .placement
             .map(|p| elidex_render::ContentPlacement {
                 offset: p.origin_phys(),
                 size: p.size_phys(),
-                scale: p.scale_factor,
+                // Compositor transform tolerates f32 (centralized narrowing — see
+                // `ContentAreaPlacement::scale_f32`).
+                scale: p.scale_f32(),
             });
 
         // Apply pending window.focus() request.
@@ -237,7 +240,9 @@ impl App {
         cursor: elidex_plugin::Point<f64>,
         placement: ContentAreaPlacement,
     ) -> elidex_plugin::Point<f64> {
-        let scale = f64::from(placement.scale_factor);
+        // `scale_factor` is f64 (the lossless dppx source) — the input mapper divides by
+        // it directly, so a fractional scale inverts without the prior f32 round-trip.
+        let scale = placement.scale_factor;
         elidex_plugin::Point::new(
             cursor.x / scale - f64::from(placement.origin_logical.x),
             cursor.y / scale - f64::from(placement.origin_logical.y),
@@ -379,7 +384,8 @@ impl App {
         delta: MouseScrollDelta,
         placement: ContentAreaPlacement,
     ) {
-        let scroll_delta = Self::scroll_delta_to_css(delta, placement.scale_factor);
+        // Input ÷scale tolerates f32 (centralized narrowing — see `scale_f32`).
+        let scroll_delta = Self::scroll_delta_to_css(delta, placement.scale_f32());
         if let Some(point) = Self::wheel_target_point(self.cursor_pos, placement) {
             let placement_seq = self.current_placement_seq();
             self.send_to_content(BrowserToContent::MouseWheel {
@@ -580,7 +586,66 @@ impl App {
     }
 
     /// Open a new blank tab.
+    /// Recompute the placement SoT + device facts from the **settled** window state and
+    /// publish them to `viewport_cell` (the single steady-state device-state chokepoint,
+    /// C3 D2) — `placement` and the cell `seq` update **atomically** here, so input
+    /// stamped in the separate `CursorMoved`/`MouseInput` arms between an event and this
+    /// refresh reads a coherent `(placement, seq)` pair (the F1 atomicity the
+    /// `Resized`/`ScaleFactorChanged` arms preserve by touching neither). Idempotent: a
+    /// call with no real change bumps no seq and broadcasts nothing.
+    ///
+    /// Called at **two** chokepoints, both of which must see the settled state in the
+    /// `ViewportCell` (the construction-input pull source spawns clone):
+    /// 1. **redraw-top** (`handle_redraw_threaded`) — before `drain_content_messages`, so a
+    ///    `window.open()` spawn drained there reads the fresh cell.
+    /// 2. **`open_new_tab`** — before cloning the cell for the new content thread. This
+    ///    runs in the event→redraw **gap** (Ctrl+T via the keyboard handler, `:453`), where
+    ///    the resize/DPI arm deferred the publish to redraw; without this refresh the new
+    ///    tab would read the stale pre-resize cell and be born at the wrong
+    ///    `innerWidth`/`devicePixelRatio` (Codex R3). The redraw-top entry covers the
+    ///    `window.open()`-via-drain path (R2); this entry covers the browser-command spawn.
+    ///
+    /// **Atomic delivery** (C3 R2): when the size changes, `broadcast_viewport`'s
+    /// `SetViewport` carries the settled facts too, so a frame changing **both** delivers
+    /// in one message → one content re-eval, no intermediate. `broadcast_device_facts` is
+    /// sent **only** for a facts-only change (mutually exclusive). Size bumps `seq` (the C2
+    /// input-drop discipline); facts ride their own `facts_seq` (orthogonal, D3).
+    fn refresh_viewport_cell(&mut self) {
+        if let Some(window) = self
+            .render_state
+            .as_ref()
+            .map(|s| std::sync::Arc::clone(&s.window))
+        {
+            let prev = self.viewport.placement;
+            let placement = self.content_area_placement(&window);
+            self.viewport.placement = Some(placement);
+            let facts = Self::device_facts(placement, &window);
+            let delta = self
+                .viewport
+                .viewport_cell
+                .publish_device_state(placement.size_logical, facts);
+            if delta.size_changed {
+                self.broadcast_viewport();
+            } else if delta.facts_changed {
+                self.broadcast_device_facts();
+            }
+            // Reclip the cursor on ANY real placement change — a shrunk/moved content rect
+            // may have slid out from under a stationary cursor, leaving stuck `:hover`.
+            // Gated on the **full** `placement != prev` comparison (origin + scale + size),
+            // NOT the size-only `DeviceDelta`, so the origin axis a future tab-bar-position
+            // change (#11-window-level-tab-bar-position) makes live is covered by
+            // construction (C3 F1 re-check / E11).
+            if prev != Some(placement) {
+                self.reclip_cursor_after_placement_change(placement);
+            }
+        }
+    }
+
     fn open_new_tab(&mut self) {
+        // Ensure the cell holds the settled window state before the spawned content thread
+        // reads it as construction-input — `open_new_tab` runs in the event→redraw gap
+        // (Ctrl+T), where the resize/DPI arm deferred the publish to redraw (Codex R3).
+        self.refresh_viewport_cell();
         let Some(mgr) = &mut self.tab_manager else {
             return;
         };
@@ -619,7 +684,7 @@ mod placement_input_tests {
     use super::{App, ContentAreaPlacement};
     use elidex_plugin::{Point, Size};
 
-    fn placement(origin: Point, scale: f32) -> ContentAreaPlacement {
+    fn placement(origin: Point, scale: f64) -> ContentAreaPlacement {
         ContentAreaPlacement {
             origin_logical: origin,
             size_logical: Size::new(800.0, 600.0),
@@ -659,7 +724,9 @@ mod placement_input_tests {
             Point::new(799.0, 599.0),
         ];
         for (origin, scale) in cases {
-            let pl = placement(origin, scale);
+            // `scale` stays f32 for the compositor math below (× f32 `Point` coords);
+            // the placement holds it as the lossless f64 dppx source.
+            let pl = placement(origin, f64::from(scale));
             for c in content_points {
                 // Compositor: a content CSS point `c` is painted at physical
                 // `(c + origin_logical) × scale`.

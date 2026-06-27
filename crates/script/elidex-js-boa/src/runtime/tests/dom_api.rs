@@ -337,6 +337,60 @@ fn window_match_media() {
     );
 }
 
+/// C3 D4: `matchMedia` routes `prefers-color-scheme` / `resolution` through the
+/// canonical `elidex_css::media` evaluator, reading the bridge's device facts — not
+/// the retired boa-local table that stubbed `prefers-color-scheme => false` and had no
+/// `resolution` branch. The facts are set via the same setters the `SetDeviceFacts`
+/// content arm uses, so this pins the consumer end of the device-fact path.
+#[test]
+fn match_media_reads_device_facts_via_canonical_evaluator() {
+    let (mut runtime, mut session, mut dom, doc) = setup();
+
+    // Default facts (Light, 1dppx) → neither feature matches.
+    runtime.eval(
+        "console.log('d0=' + matchMedia('(prefers-color-scheme: dark)').matches);\
+         console.log('r0=' + matchMedia('(min-resolution: 2dppx)').matches);",
+        &mut session,
+        &mut dom,
+        doc,
+    );
+
+    // Flip the facts via the bridge setters the SetDeviceFacts arm drives.
+    runtime
+        .bridge()
+        .set_color_scheme(elidex_css::media::ColorScheme::Dark);
+    runtime.bridge().set_device_pixel_ratio(2.0);
+
+    runtime.eval(
+        "console.log('d1=' + matchMedia('(prefers-color-scheme: dark)').matches);\
+         console.log('r1=' + matchMedia('(min-resolution: 2dppx)').matches);",
+        &mut session,
+        &mut dom,
+        doc,
+    );
+
+    let out = runtime.console_output().messages();
+    let has = |s: &str| out.iter().any(|m| m.1.contains(s));
+    assert!(
+        has("d0=false"),
+        "default prefers-color-scheme:dark must be false (Light), got: {out:?}"
+    );
+    assert!(
+        has("r0=false"),
+        "default min-resolution:2dppx must be false (1dppx), got: {out:?}"
+    );
+    assert!(
+        has("d1=true"),
+        "after set_color_scheme(Dark), prefers-color-scheme:dark must be true \
+         (canonical D4 routing, was the retired `=> false` stub), got: {out:?}"
+    );
+    assert!(
+        has("r1=true"),
+        "after set_device_pixel_ratio(2.0), min-resolution:2dppx must be true \
+         (canonical resolution branch, absent from the retired table), got: {out:?}"
+    );
+}
+
 #[test]
 fn window_scroll_x_y_initial() {
     let (mut runtime, mut session, mut dom, doc) = setup();

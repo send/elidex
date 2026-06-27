@@ -58,6 +58,7 @@ pub(super) fn run_scripts_and_finalize(
     current_url: Option<&url::Url>,
     registry: &elidex_plugin::CssPropertyRegistry,
     viewport: Size,
+    device_facts: crate::ipc::DeviceFacts,
     engine_mode: EngineMode,
 ) -> (SessionCore, JsRuntime, ViewportOverflow) {
     let stylesheet_refs: Vec<&Stylesheet> = stylesheets.iter().collect();
@@ -88,14 +89,20 @@ pub(super) fn run_scripts_and_finalize(
             .set_origin(elidex_plugin::SecurityOrigin::from_url(url));
     }
 
-    // Seed the JS bridge viewport BEFORE running scripts so initial scripts read
-    // the real `window.innerWidth`/`matchMedia` (the bridge defaults to 800×600
-    // otherwise). This is the bridge half of the single construction-input
-    // injection (`run_scripts_and_finalize` feeds cascade + bridge + layout from
-    // one `viewport`); it mirrors the per-message resize path (`event_loop.rs`).
+    // Seed the JS bridge viewport + device facts BEFORE running scripts so initial
+    // scripts read the real `window.innerWidth`/`matchMedia`/`devicePixelRatio` (the
+    // bridge defaults to 800×600 / 1× / Light otherwise). This is the bridge half of
+    // the single construction-input injection (`run_scripts_and_finalize` feeds
+    // cascade + bridge + layout from one `viewport`+`device_facts`); it mirrors the
+    // per-message resize / `SetDeviceFacts` paths (`event_loop.rs`). Device facts ride
+    // the same construction seam as the size (C3) so a tab on a HiDPI / dark display
+    // is born with the right `devicePixelRatio` + `prefers-color-scheme`, not 1×/Light
+    // raced-in after the first script.
     runtime
         .bridge()
         .set_viewport(viewport.width, viewport.height);
+    runtime.bridge().set_device_pixel_ratio(device_facts.dppx);
+    runtime.bridge().set_color_scheme(device_facts.color_scheme);
 
     for source in script_sources {
         let mut ctx = ScriptContext::new(&mut session, dom, document);
