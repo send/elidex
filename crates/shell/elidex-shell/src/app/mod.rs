@@ -675,9 +675,11 @@ impl ApplicationHandler<crate::WakeEvent> for App {
                 // to the redraw-top chokepoint (`handle_redraw_threaded`), so `placement`
                 // and `seq` update **atomically** there (C3 D2/F1): this arm touches
                 // neither, so across the event→redraw gap both stay old (coherent), and
-                // gap-input maps old-placement/old-seq and is superseded together. The
-                // arm only syncs the GPU surface to the new physical size and requests
-                // the redraw whose settled-state recompute does the rest.
+                // gap-input maps old-placement/old-seq and is **applied** against the
+                // still-old layout (`placement_seq == applied_viewport_seq`, not dropped/
+                // superseded — Codex R2 correction; plan-memo D2 (1)). The arm only syncs
+                // the GPU surface to the new physical size and requests the redraw whose
+                // settled-state recompute does the rest.
                 return;
             }
             WindowEvent::ScaleFactorChanged { .. } => {

@@ -2,8 +2,18 @@
 //! producer→consumer `SetViewport` **and** `SetDeviceFacts` paths (`@media` flip,
 //! `resize`-listener MQL freshness, device-fact delivery) and the single-builder
 //! geometry invariant. Split out of `content_tests` (the catch-all content module)
-//! to keep each test file focused and under the project's 1000-line guideline
-//! (axes.md Axis 5).
+//! to keep each test file focused (axes.md Axis 5).
+//!
+//! **>1000-line note** (C3 device-fact tests pushed this past 1000): kept as one
+//! file — a **cohesive unit** (CLAUDE.md "1000-line debt = touch-time split":
+//! 一枚岩の cohesive unit は対象外). Every test here exercises the single `ViewportCell`
+//! → content delivery mechanism; the size-path and device-fact tests share infra and
+//! the atomic-delivery test (`atomic_size_and_facts_delivery_*`) deliberately **spans
+//! both** (size + facts in one `SetViewport`), so a size-vs-facts split would cut a
+//! test in half — no clean scenario seam. If a future slice grows it materially, the
+//! seam to revisit is size-delivery vs device-fact-delivery (with the atomic test on
+//! the device-fact side); a split would then be a standalone prereq commit, not
+//! bundled into a feature PR.
 
 use super::test_support::{
     build_test_content_state, probe_attr, spawn_test_content, spawn_test_content_sized,
@@ -859,7 +869,7 @@ fn set_device_facts_activates_device_pixel_ratio_and_color_scheme() {
 }
 
 /// C3: a `SetDeviceFacts` delivery flips a live `MediaQueryList` and fires its
-/// `change` event (CSSOM View §4.2) — the matchMedia/MQL surface, reading the new fact
+/// `change` event (CSSOM View §4.2.1) — the matchMedia/MQL surface, reading the new fact
 /// through the canonical evaluator (D4). The change listener records `event.matches`
 /// into a DOM attribute that `re_render` flushes, so the post-delivery DOM proves both
 /// the flip and the event firing. (Value-guard corollary: a redundant same-facts
