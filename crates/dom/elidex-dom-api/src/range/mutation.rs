@@ -1,6 +1,9 @@
-//! Range content manipulation methods (WHATWG DOM §6).
+//! Range content manipulation methods (WHATWG DOM §5.5 "Interface Range").
 
 use elidex_ecs::{EcsDom, Entity, NodeKind, TextContent};
+use elidex_script_session::{
+    apply_append_child, apply_insert_before, apply_remove_child, MutationRecord,
+};
 
 use super::{next_in_preorder_global, utf16_offset_to_byte_clamped, Range};
 use crate::element::collect_text_content;
@@ -73,13 +76,15 @@ impl Range {
     /// anchored in the same text node collapse their boundaries to
     /// the deletion start per WHATWG §5.5 replaceData rule, not
     /// merely clamp to the new length.
-    pub fn delete_contents(&mut self, dom: &mut EcsDom) {
+    pub fn delete_contents(&mut self, dom: &mut EcsDom) -> Vec<MutationRecord> {
+        let mut records = Vec::new();
         if self.collapsed() {
-            return;
+            return records;
         }
 
         // Same container, text node: splice [start_offset..end_offset]
         // → empty via replace_text_data (fires after_replace_data).
+        // characterData facet — produces no MutationRecord (deferred B1.3).
         if self.start_container == self.end_container {
             let is_text = dom
                 .world()
@@ -89,16 +94,18 @@ impl Range {
                 let count = self.end_offset.saturating_sub(self.start_offset);
                 let _ = dom.replace_text_data(self.start_container, self.start_offset, count, "");
                 self.end_offset = self.start_offset;
-                return;
+                return records;
             }
-            // Non-text container: remove children in range.
+            // Non-text container: remove children in range via the
+            // record-producing `apply_remove_child` — one childList removal
+            // record per child (§5.5 deleteContents step 10).
             let children: Vec<_> = dom.children_iter(self.start_container).collect();
             let end = self.end_offset.min(children.len());
             for &child in &children[self.start_offset..end] {
-                let _ = dom.remove_child(self.start_container, child);
+                records.extend(apply_remove_child(dom, self.start_container, child));
             }
             self.end_offset = self.start_offset;
-            return;
+            return records;
         }
 
         // Different containers: simplified approach.
@@ -126,7 +133,9 @@ impl Range {
             let _ = dom.replace_text_data(self.end_container, 0, end_off, "");
         }
 
-        // 3. Remove fully-contained nodes between start and end.
+        // 3. Remove fully-contained nodes between start and end via the
+        //    record-producing `apply_remove_child` (§5.5 deleteContents
+        //    step 10) — one childList removal record per top-level node.
         let mut to_remove = Vec::new();
         let mut current = self.start_container;
         while let Some(next) = next_in_preorder_global(current, dom) {
@@ -138,12 +147,13 @@ impl Range {
         }
         for node in to_remove {
             if let Some(parent) = dom.get_parent(node) {
-                let _ = dom.remove_child(parent, node);
+                records.extend(apply_remove_child(dom, parent, node));
             }
         }
 
         self.end_container = self.start_container;
         self.end_offset = self.start_offset;
+        records
     }
 
     /// Extract contents into a document fragment.
@@ -154,11 +164,12 @@ impl Range {
     /// - Different containers: splits boundary text nodes, detaches fully-contained
     ///   nodes, and clones partially-contained element ancestors.
     #[allow(clippy::too_many_lines)]
-    pub fn extract_contents(&mut self, dom: &mut EcsDom) -> Entity {
+    pub fn extract_contents(&mut self, dom: &mut EcsDom) -> (Entity, Vec<MutationRecord>) {
         let frag = dom.create_document_fragment();
+        let mut records = Vec::new();
 
         if self.collapsed() {
-            return frag;
+            return (frag, records);
         }
 
         // Case 1: Same container.
@@ -179,22 +190,29 @@ impl Range {
                 let _ = dom.replace_text_data(self.start_container, self.start_offset, count, "");
                 if !extracted.is_empty() {
                     let text_node = dom.create_text(&extracted);
+                    // Fresh clone appended to the (unobserved) fragment —
+                    // childList on the fragment, no observed record.
                     let _ = dom.append_child(frag, text_node);
                 }
                 self.end_offset = self.start_offset;
-                return frag;
+                return (frag, records);
             }
 
-            // Non-text container: detach children in range.
+            // Non-text container: MOVE children in range into the fragment via
+            // a single `apply_append_child` per child (§5.5 extractContents
+            // step 19 "append contained child to fragment" = a move). This
+            // emits the B1.2a 2-record move: an OBSERVED source-removal (target
+            // = original parent) + an UNOBSERVED fragment-insertion. F2: replace
+            // the remove+append pair with ONE apply_append_child so
+            // `capture_move_source` reads the old parent pre-move.
             let children: Vec<_> = dom.children_iter(self.start_container).collect();
             let end = self.end_offset.min(children.len());
             let to_move: Vec<_> = children[self.start_offset..end].to_vec();
             for child in to_move {
-                let _ = dom.remove_child(self.start_container, child);
-                let _ = dom.append_child(frag, child);
+                records.extend(apply_append_child(dom, frag, child));
             }
             self.end_offset = self.start_offset;
-            return frag;
+            return (frag, records);
         }
 
         // Case 2: Different containers.
@@ -239,10 +257,12 @@ impl Range {
             }
         }
         for node in top_level {
-            if let Some(parent) = dom.get_parent(node) {
-                let _ = dom.remove_child(parent, node);
-            }
-            let _ = dom.append_child(frag, node);
+            // §5.5 extractContents step 19 — MOVE the contained child to the
+            // fragment via a single `apply_append_child` (F2: NOT a
+            // remove_child + append_child pair, so the move source is read
+            // pre-move). Emits the observed source-removal + unobserved
+            // fragment-insertion.
+            records.extend(apply_append_child(dom, frag, node));
         }
 
         // 2c. Split end text node: extract head portion via
@@ -258,6 +278,7 @@ impl Range {
             let _ = dom.replace_text_data(self.end_container, 0, self.end_offset, "");
             if !head.is_empty() {
                 let text_node = dom.create_text(&head);
+                // Fresh clone appended to the (unobserved) fragment.
                 let _ = dom.append_child(frag, text_node);
             }
         }
@@ -265,7 +286,7 @@ impl Range {
         // Collapse range to start.
         self.end_container = self.start_container;
         self.end_offset = self.start_offset;
-        frag
+        (frag, records)
     }
 
     /// WHATWG DOM §4.4 `Range.insertNode` core (steps 2-12).
@@ -291,7 +312,11 @@ impl Range {
     /// **registered** range (not a clone) when the pre-call range
     /// was collapsed; start and end migrations are handled by the
     /// engine's `after_split_text` / `after_insert` mutation hooks.
-    pub fn insert_node(&self, dom: &mut EcsDom, node: Entity) -> Option<(Entity, usize)> {
+    pub fn insert_node(
+        &self,
+        dom: &mut EcsDom,
+        node: Entity,
+    ) -> Option<(Entity, usize, Vec<MutationRecord>)> {
         let start_container = self.start_container;
         let start_offset = self.start_offset;
         let is_text = dom.node_kind(start_container) == Some(NodeKind::Text);
@@ -361,22 +386,29 @@ impl Range {
             reference_node = dom.get_next_sibling(node);
         }
 
-        // Spec step 12: pre-insert each member in tree order before
-        // `reference_node` (or append when null).  Inserting in
-        // order before the same referenceNode preserves fragment
-        // order: ref shifts +1 per insert so each successive sibling
-        // lands directly before it.  Pre-insertion validity above
-        // covers the common rejection paths; if a member still fails
-        // mid-loop the DOM ends up partially mutated — accepted
-        // failure mode under WHATWG §4.2.3.
-        for &n in &nodes {
-            let ok = match reference_node {
-                Some(rn) => dom.insert_before(parent, n, rn),
-                None => dom.append_child(parent, n),
-            };
-            if !ok {
-                return None;
-            }
+        // Spec step 12: pre-insert `node` into `parent` before
+        // `reference_node` (or append when null) through the
+        // record-producing `apply_*` primitive — passing the ORIGINAL
+        // `node` (fragment or single) so `apply_*`'s own §4.2.3
+        // fragment-expand record shape is reused (the §4.2.3 step-4.2
+        // fragment record + the destination record), rather than
+        // re-fanning the children here and emitting one move-record per
+        // child.  The step-6 cycle pre-check above already excluded the
+        // cycle-reject `apply_*` performs internally
+        // (`mutation/mod.rs:418`/`:506`), so this does not double-reject;
+        // an empty fragment is a legitimate §4.2.3 step-3 no-op, NOT a
+        // failure (distinguished below via `is_empty_fragment`).
+        let is_empty_fragment = is_fragment && nodes.is_empty();
+        let records = match reference_node {
+            Some(rn) => apply_insert_before(dom, parent, node, rn),
+            None => apply_append_child(dom, parent, node),
+        };
+        // Genuine insertion failure (orphan parent / invalid reference
+        // child) yields an empty record list for a non-empty input — the
+        // DOM was NOT mutated; surface as rejection.  An empty fragment
+        // also yields an empty list but is a successful no-op.
+        if records.is_empty() && !is_empty_fragment {
+            return None;
         }
 
         // Spec step 10-11: newOffset = referenceNode's pre-step-12
@@ -397,7 +429,7 @@ impl Range {
             None => dom.children_iter(parent).count(),
         };
 
-        Some((parent, new_offset))
+        Some((parent, new_offset, records))
     }
 
     /// Clone the contents of this range into a document fragment.

@@ -133,7 +133,7 @@ fn range_extract_contents() {
     let mut range = Range::new(t1);
     range.set_start(t1, 1);
     range.set_end(t1, 4);
-    let frag = range.extract_contents(&mut dom);
+    let (frag, _records) = range.extract_contents(&mut dom);
 
     // Fragment should contain "ell".
     let children: Vec<_> = dom.children_iter(frag).collect();
@@ -560,7 +560,8 @@ fn range_insert_node() {
 
     let new_elem = dom.create_element("b", Attributes::default());
     let outcome = range.insert_node(&mut dom, new_elem);
-    let (parent, new_offset) = outcome.expect("insert_node into attached text node must succeed");
+    let (parent, new_offset, _records) =
+        outcome.expect("insert_node into attached text node must succeed");
     assert_eq!(parent, root);
     // root pre-call: [t1].  After split: [head, tail].  After insert
     // before tail: [head, new_elem, tail].  Spec step 10-11 newOffset
@@ -591,7 +592,7 @@ fn range_extract_contents_element_children() {
     let mut range = Range::new(div);
     range.set_start(div, 1);
     range.set_end(div, 2);
-    let frag = range.extract_contents(&mut dom);
+    let (frag, _records) = range.extract_contents(&mut dom);
 
     // Fragment should contain <b>.
     let frag_children: Vec<_> = dom.children_iter(frag).collect();
@@ -614,7 +615,7 @@ fn range_extract_contents_cross_container() {
     let mut range = Range::new(t1);
     range.set_start(t1, 3); // "Hel|lo" -> extract "lo"
     range.set_end(t2, 3); // " Wo|rld" -> extract " Wo"
-    let frag = range.extract_contents(&mut dom);
+    let (frag, _records) = range.extract_contents(&mut dom);
 
     // t1 should be "Hel".
     let tc1 = dom.world().get::<&TextContent>(t1).unwrap();

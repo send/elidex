@@ -20,6 +20,7 @@ mod delivery;
 mod direct_tree_ops;
 mod integration;
 mod lifecycle;
+mod range_ops;
 mod select_options;
 mod setup;
 mod text_content;
