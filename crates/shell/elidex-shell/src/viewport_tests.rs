@@ -58,6 +58,11 @@ fn content_thread_setviewport_flips_width_media_query() {
             width: 800.0,
             height: 600.0,
             seq: 1,
+            // Neutral facts (match the bridge default) at facts_seq 0 — a no-op for these
+            // size-focused tests (the facts_seq guard drops 0 ≤ build mark 0).
+            color_scheme: elidex_css::media::ColorScheme::Light,
+            dppx: 1.0,
+            facts_seq: 0,
         })
         .unwrap();
     let ContentToBrowser::DisplayListReady(resized) =
@@ -197,6 +202,11 @@ fn content_thread_resize_listener_sees_fresh_matchmedia() {
             width: 1000.0,
             height: 600.0,
             seq: 1,
+            // Neutral facts (match the bridge default) at facts_seq 0 — a no-op for these
+            // size-focused tests (the facts_seq guard drops 0 ≤ build mark 0).
+            color_scheme: elidex_css::media::ColorScheme::Light,
+            dppx: 1.0,
+            facts_seq: 0,
         })
         .unwrap();
     let ContentToBrowser::DisplayListReady(resized) =
@@ -280,6 +290,11 @@ fn content_thread_same_size_setviewport_is_idempotent() {
             width: 800.0,
             height: 600.0,
             seq: 1,
+            // Neutral facts (match the bridge default) at facts_seq 0 — a no-op for these
+            // size-focused tests (the facts_seq guard drops 0 ≤ build mark 0).
+            color_scheme: elidex_css::media::ColorScheme::Light,
+            dppx: 1.0,
+            facts_seq: 0,
         })
         .unwrap();
     browser
@@ -302,6 +317,9 @@ fn content_thread_same_size_setviewport_is_idempotent() {
             width: 1000.0,
             height: 600.0,
             seq: 2,
+            color_scheme: elidex_css::media::ColorScheme::Light,
+            dppx: 1.0,
+            facts_seq: 0,
         })
         .unwrap();
     let ContentToBrowser::DisplayListReady(resized) =
@@ -448,6 +466,11 @@ fn content_thread_drops_stale_seq_viewport() {
             width: 1200.0,
             height: 600.0,
             seq: 1,
+            // Neutral facts (match the bridge default) at facts_seq 0 — a no-op for these
+            // size-focused tests (the facts_seq guard drops 0 ≤ build mark 0).
+            color_scheme: elidex_css::media::ColorScheme::Light,
+            dppx: 1.0,
+            facts_seq: 0,
         })
         .unwrap();
     browser
@@ -469,6 +492,9 @@ fn content_thread_drops_stale_seq_viewport() {
             width: 1200.0,
             height: 600.0,
             seq: 2,
+            color_scheme: elidex_css::media::ColorScheme::Light,
+            dppx: 1.0,
+            facts_seq: 0,
         })
         .unwrap();
     let ContentToBrowser::DisplayListReady(resized) =
@@ -543,6 +569,11 @@ fn content_thread_drops_input_mapped_against_stale_placement() {
             width: 1000.0,
             height: 600.0,
             seq: 1,
+            // Neutral facts (match the bridge default) at facts_seq 0 — a no-op for these
+            // size-focused tests (the facts_seq guard drops 0 ≤ build mark 0).
+            color_scheme: elidex_css::media::ColorScheme::Light,
+            dppx: 1.0,
+            facts_seq: 0,
         })
         .unwrap();
     let _resize_frame = browser.recv_timeout(Duration::from_secs(5)).unwrap();
@@ -946,5 +977,95 @@ fn stale_device_facts_delivery_is_dropped() {
     assert_eq!(
         state.pipeline.runtime.bridge().color_scheme(),
         ColorScheme::Light
+    );
+}
+
+/// C3 (Codex R2): when one redraw changes BOTH the logical size and the device facts,
+/// the producer delivers them in a SINGLE `SetViewport` (carrying the facts), so the
+/// content runs ONE media re-eval reflecting both — never an inconsistent new-size +
+/// old-facts intermediate that fires a spurious MQL `change`. A query depending on both
+/// inputs whose final match equals its initial match must fire ZERO `change` events
+/// across the combined delivery (the buggy two-message path would re-eval the
+/// intermediate and fire, then fire again). Phase 2 (a facts-only delivery back to Light)
+/// confirms the query is live — so phase-1's zero-fire is genuine atomicity, not a dead
+/// query.
+#[test]
+fn atomic_size_and_facts_delivery_fires_no_intermediate_mql_change() {
+    use elidex_css::media::ColorScheme;
+    // Build at DEFAULT 1024×768 / Light. `(min-width: 1200px) and (prefers-color-scheme:
+    // light)` is FALSE here (1024 < 1200, though light matches).
+    let (mut state, _browser) = build_test_content_state(
+        "<div id='probe'></div>\
+         <script>\
+           var mql = matchMedia('(min-width: 1200px) and (prefers-color-scheme: light)');\
+           var probe = document.getElementById('probe');\
+           probe.setAttribute('data-init', String(mql.matches));\
+           probe.setAttribute('data-fires', '0');\
+           mql.addEventListener('change', function(e) {\
+             var n = Number(probe.getAttribute('data-fires')) + 1;\
+             probe.setAttribute('data-fires', String(n));\
+             probe.setAttribute('data-last', String(e.matches));\
+           });\
+         </script>",
+        "",
+    );
+    assert_eq!(
+        probe_attr(&state.pipeline, "probe", "data-init").as_deref(),
+        Some("false"),
+        "query is false at build (1024 < 1200)"
+    );
+
+    // ONE delivery changing BOTH: width 1024→1400 (crosses min-width:1200) AND Light→Dark.
+    // Atomic final: 1400 ≥ 1200 (true) AND Dark (light = false) = FALSE — same as init, so
+    // the query does NOT transition. The buggy two-message path re-evaluates the
+    // intermediate (1400 + Light) = true AND true = TRUE first, firing a spurious change.
+    super::event_loop::handle_message_public(
+        BrowserToContent::SetViewport {
+            width: 1400.0,
+            height: 768.0,
+            seq: 1,
+            color_scheme: ColorScheme::Dark,
+            dppx: 2.0,
+            facts_seq: 1,
+        },
+        &mut state,
+    );
+    // Both inputs WERE applied atomically (facts: dppx/scheme; size: relayout) ...
+    assert_eq!(
+        state.pipeline.runtime.bridge().device_pixel_ratio(),
+        2.0,
+        "the facts carried by SetViewport must be applied (proves atomic co-delivery)"
+    );
+    assert_eq!(
+        state.pipeline.runtime.bridge().color_scheme(),
+        ColorScheme::Dark
+    );
+    // ... yet the combined query fired ZERO `change` events (no spurious intermediate).
+    assert_eq!(
+        probe_attr(&state.pipeline, "probe", "data-fires").as_deref(),
+        Some("0"),
+        "size+facts applied atomically → no intermediate new-size+old-facts MQL fire (Codex R2)"
+    );
+
+    // Phase 2 — a facts-only delivery back to Light at the now-1400 width: the query
+    // becomes 1400 ≥ 1200 (true) AND Light (true) = TRUE, so it DOES transition and fires
+    // once. Proves the query parses + is responsive (phase-1's zero-fire was real).
+    super::event_loop::handle_message_public(
+        BrowserToContent::SetDeviceFacts {
+            color_scheme: ColorScheme::Light,
+            dppx: 2.0,
+            facts_seq: 2,
+        },
+        &mut state,
+    );
+    assert_eq!(
+        probe_attr(&state.pipeline, "probe", "data-fires").as_deref(),
+        Some("1"),
+        "facts-only delivery flips the live query exactly once"
+    );
+    assert_eq!(
+        probe_attr(&state.pipeline, "probe", "data-last").as_deref(),
+        Some("true"),
+        "query is true at 1400px + Light"
     );
 }

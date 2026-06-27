@@ -609,11 +609,13 @@ impl ApplicationHandler<crate::WakeEvent> for App {
         // persisted tab only for what actually changed — an unchanged size must not
         // bump `applied_viewport_seq`; unchanged facts emit no re-eval. The
         // just-spawned initial tab was already born with both via the cell read, so
-        // its deliveries here are guarded no-ops on the content side.
+        // its deliveries here are guarded no-ops on the content side. Atomic delivery
+        // (C3 R2): when the size changed, `broadcast_viewport` carries the settled facts
+        // too; `broadcast_device_facts` is for a facts-only change — mutually exclusive,
+        // so facts never double-send.
         if delta.size_changed {
             self.broadcast_viewport();
-        }
-        if delta.facts_changed {
+        } else if delta.facts_changed {
             self.broadcast_device_facts();
         }
 

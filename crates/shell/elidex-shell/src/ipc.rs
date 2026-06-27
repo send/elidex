@@ -294,7 +294,15 @@ pub enum BrowserToContent {
         /// Modifier keys.
         mods: ModifierState,
     },
-    /// Viewport size changed.
+    /// Viewport size changed — and carries the settled device facts too, so a frame
+    /// that changes **both** size and facts (a DPI move where the logical size also
+    /// changes) delivers them in **one** message → one content re-eval reflecting both,
+    /// never an inconsistent new-size + old-facts intermediate that would fire a spurious
+    /// `change` for a query like `(min-width: 800px) and (prefers-color-scheme: dark)`
+    /// (Codex R2). When only facts change (size unchanged) the producer sends
+    /// [`Self::SetDeviceFacts`] instead; the two are mutually exclusive per frame, so the
+    /// facts never travel both. The content applies size (the `seq` guard) and facts (the
+    /// `facts_seq` guard) independently from this one message.
     SetViewport {
         /// New width in logical pixels.
         width: f32,
@@ -306,6 +314,14 @@ pub enum BrowserToContent {
         /// resize that landed during a blocking load — already reflected in the
         /// cell the build read — does not re-fire as a backward flash.
         seq: u64,
+        /// The settled `prefers-color-scheme` carried alongside the size (the cell's
+        /// atomic snapshot), applied via the same `facts_seq` guard as [`Self::SetDeviceFacts`].
+        color_scheme: ColorScheme,
+        /// The settled device-pixel ratio (dppx) carried alongside the size.
+        dppx: f32,
+        /// The device-facts generation for the carried facts (independent of `seq`,
+        /// D3); dropped by the content when `≤` its facts high-water mark.
+        facts_seq: u64,
     },
     /// Per-window device facts changed (C3): the device-pixel ratio
     /// (`window.devicePixelRatio` / `@media (resolution)`) and/or the

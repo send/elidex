@@ -51,10 +51,19 @@ OS/display state. C1 made the *size* fact correct; C3 makes the *device* facts c
   a third. The `resumed` establish-recompute-publish-before-spawn (C1 construction-input) **stays** synchronous
   (the spawn reads the cell) — the seed phase; redraw-top's first post-resume pass is an idempotent no-op.
   **Two behavior deltas vs C2 (deliberate, plan-review-accepted; both from the focused F1 re-check):**
-  (1) *Gap-input* — input in the ≤1-frame event→redraw gap now maps old placement (it *is* old until the
-  redraw) and is dropped if the viewport changed — vs C2 applying it against the synchronously-recomputed new
-  placement. Geometrically the gap-input maps the pre-resize rect, so superseding it is defensible; ≤1 frame
-  of an active resize. (2) *Zero-size (minimize)* — C2's `Resized` arm recomputed/published/reclipped
+  (1) *Gap-input* — input in the ≤1-frame event→redraw gap now maps the **old** placement (it *is* old until
+  the redraw recomputes) — vs C2 applying it against the synchronously-recomputed new placement. **Precise
+  behavior (Codex R2 correction): the gap-input is *applied*, not dropped/superseded.** It is stamped with the
+  *current* (un-bumped) cell `seq` during the gap, so on the content side `placement_seq == applied_viewport_seq`
+  (not `<`) — the staleness guard does **not** drop it, and being ahead of the new `SetViewport` in the FIFO it
+  is processed *before* the new generation arrives. This is **internally consistent**: the content has not yet
+  relaid-out (no new `SetViewport` applied), so hit-testing the old-placement-mapped coordinates against the
+  still-old layout targets the correct element *for that layout*. The ≤1-frame artifact is purely that the OS
+  has already physically resized the window while the content layout lags by one frame, so a click landing in
+  that window can map the pre-resize content rect. Bounded to ≤1 frame of an active resize; accepted rather
+  than reverting to C2's synchronous recompute (which would reintroduce the F1 placement↔seq partial-move
+  hazard D2 exists to remove). The earlier "dropped if the viewport changed / superseded together" phrasing
+  was inaccurate — corrected here. (2) *Zero-size (minimize)* — C2's `Resized` arm recomputed/published/reclipped
   **unconditionally** (only `request_redraw` was `>0`-gated, `mod.rs:959-961`). Routing all three through
   redraw-top makes them redraw-driven, and the size-tied redraw is `>0`-gated, so a `0×0` minimize now
   recomputes/publishes **nothing** until the next redraw / restore-`Resized` — benign-or-better, dropping
@@ -171,7 +180,7 @@ enumeration, F2):
 | invariant pair | intersection (the one mechanism that holds both) |
 |---|---|
 | size-`seq`-iff-changed (C2) × redraw-cadence publish (D2) | `publish_device_state`'s `size_changed` arm bumps `seq` only on a real `size_logical` change, evaluated at redraw-top against the *settled* state — idempotent per frame, so cadence-driven publish never spuriously bumps |
-| placement-recompute-site × input-stamp-site × `seq` (the F1 corner) | both `placement` and `seq` update **only** at redraw-top, atomically; input stamped in the `CursorMoved`/`MouseInput` arms (`current_placement_seq`) between an event and the redraw reads old-placement **and** old-seq (coherent), and is superseded together |
+| placement-recompute-site × input-stamp-site × `seq` (the F1 corner) | both `placement` and `seq` update **only** at redraw-top, atomically; input stamped in the `CursorMoved`/`MouseInput` arms (`current_placement_seq`) between an event and the redraw reads old-placement **and** old-seq (coherent), and is **applied** against the still-old layout (`placement_seq == applied_viewport_seq`, not dropped — see D2 (1)) |
 | device-fact-delta (dppx/scheme) × `seq`-suppression | facts travel the `facts_changed` arm with **no** seq bump (D3), so a pure-scale change the OS absorbs ships `SetDeviceFacts` without manufacturing a phantom input-drop generation |
 | dppx producer × F3 X11-only coverage | the dppx fact's value *is* `scale_factor`, so "detect every DPI change and propagate" (F3) and "deliver dppx" are the same redraw-top recompute (D1) |
 | `reclip` (stuck-`:hover` clear) × placement-geometry × redraw-cadence | `reclip` reads `origin_logical` + `scale_factor` + `size_logical` (`cursor_to_content`/`point_in_content`), so it is gated on a **full `placement != cached_placement`** comparison at redraw-top — NOT the size-only `DeviceDelta` (which omits `origin_logical`); it fires once per real placement change, all three axes covered (F1 re-check) |
@@ -274,7 +283,7 @@ canonical).
 | **E2 — X11 `ScaleFactorChanged`-only** (phys constrained, no `Resized`) | size **and** dppx changed, only event is `ScaleFactorChanged` | D2: arm requests redraw; redraw-top ships both. **Closes F3.** |
 | **E3 — common-path `ScaleFactorChanged`+`Resized`** | event-arm publish would see stale `inner_size` → bogus `old_phys/new_scale` | D2: no event-arm publish; redraw-top sees settled state. No bogus intermediate. |
 | **E4 — redraw-top publishes every frame** (animations) | publish spam | `publish_device_state` idempotent (no-op when nothing changed); no broadcast |
-| **E5 — placement↔seq coherence across the event→redraw gap** (the F3 slot's caveat; plan-review F1) | input stamping happens in the *separate* `CursorMoved`/`MouseInput` arms (`current_placement_seq` = `cell.read().1`, `threaded.rs:317/339/384`), NOT in the redraw handler — so "publish is the first redraw block" does NOT order publish before stamping (different winit events). The real hazard: a *partial* move (recompute in `Resized`, seq bump at redraw-top) makes gap-input read **new** placement + **old** seq → dropped-as-stale = the phantom drop C2 prevents. | D2: move **both** `placement` recompute and `seq` bump to redraw-top (atomic). The `Resized`/`ScaleFactorChanged` arms touch neither, so across the event→redraw gap `placement` and `seq` are **both old** (coherent): gap-input maps old-placement, stamps old-seq, and is superseded together when the new viewport publishes. The deliberate delta (gap-input now dropped vs C2-applied) is in D2; geometrically it maps the pre-resize rect, so superseding is correct. |
+| **E5 — placement↔seq coherence across the event→redraw gap** (the F3 slot's caveat; plan-review F1) | input stamping happens in the *separate* `CursorMoved`/`MouseInput` arms (`current_placement_seq` = `cell.read().1`, `threaded.rs:317/339/384`), NOT in the redraw handler — so "publish is the first redraw block" does NOT order publish before stamping (different winit events). The real hazard: a *partial* move (recompute in `Resized`, seq bump at redraw-top) makes gap-input read **new** placement + **old** seq → dropped-as-stale = the phantom drop C2 prevents. | D2: move **both** `placement` recompute and `seq` bump to redraw-top (atomic). The `Resized`/`ScaleFactorChanged` arms touch neither, so across the event→redraw gap `placement` and `seq` are **both old** (coherent): gap-input maps old-placement, stamps the current (un-bumped) seq, so `placement_seq == applied_viewport_seq` and it is **applied** against the still-old layout (Codex R2 correction — *not* dropped/superseded; the FIFO orders it before the new generation, and the content has not yet relaid-out, so the old-placement mapping is consistent with the old layout). Geometrically it maps the pre-resize rect; the ≤1-frame artifact is the physical window resize outpacing the content relayout. Accepted rather than reverting to C2's synchronous recompute (which reintroduces the F1 partial-move hazard). |
 | **E6 — `resumed` establish vs redraw-top steady-state** (two size-publish sites) | strangler / double-publish | distinct phases: resumed seeds before spawn (construction-input, synchronous); redraw-top's first post-resume publish is an idempotent no-op |
 | **E7 — color-scheme producer on Linux** (winit: no `ThemeChanged`, `theme()→None` on X11/Wayland) | no live theme | default Light; `ThemeChanged` arm serves macOS (dev/test) + Windows. Documented platform limit, not a gap |
 | **E8 — boa MQL `change` for the new facts** | does a fact change actually fire the MQL `change`? | D4 routing makes the canonical evaluator read the facts, so `re_evaluate_media_queries` flips them → existing dispatch fires `change` |
@@ -348,6 +357,24 @@ canonical).
   IPC + cell store and defers the consumer to S5, AND `#11-media-prefers-features` defers *with* it.)*
 - **`#11-shell-viewport-delivery` axis-3 — fully DISCHARGED** (C2 geometric + C3 device-fact); PR-C's three
   sub-slices (C1/C2/C3) complete the slot's producer-delivery breadth.
+- **`#11-media-css-values-fidelity` — CSS-cascade `<style>@media` device-fact rendering deferred** (re-confirmed
+  by Codex R2; the §7 carve). C3 wires the JS-observable surface; the cascade path (`resolve_styles_with_compat`)
+  builds its own `MediaEnvironment` with the non-viewport facts at `::default()` (`elidex-style/lib.rs:196-198`).
+  **Why deferred**: threading them is a cross-cutting signature change across ~9 `resolve_with_mode`/
+  `resolve_styles_with_compat` callers in the **engine-independent** `elidex-style` crate — a separate layer, not
+  C3's shell→content delivery. **Re-evaluation trigger**: a media-environment-fidelity slice threading device
+  facts (or a caller-provided `MediaEnvironment`) through `resolve_styles_with_compat`. **Date**: 2026-09-27.
+- **`#11-iframe-device-fact-live-propagation` — NEW, carved by Codex R2.** C3's build-time seed (R1) gives a
+  *newly-loaded* iframe the parent's device facts by construction. **Live** propagation to *already-loaded*
+  iframes on a subsequent OS DPI/theme change is **not** done: the top-level `SetViewport`/`SetDeviceFacts`
+  content arm updates only the top-level bridge; in-process iframe pipelines aren't iterated, and
+  `BrowserToIframe` has no device-fact variant (OOP iframes have no transport for it). **Why deferred**:
+  edge-dense new IPC mechanism (`BrowserToIframe::SetDeviceFacts` + OOP thread handler + in-process iframe
+  iteration + the iframe analog of the R2 atomic re-eval) = ≥3 intersecting axes with no existing canonical
+  algorithm → the CLAUDE.md edge-dense discipline mandates a plan-reviewed slice, not reactive patching in a
+  convergence loop. **Distinct from `#11-iframe-build-viewport`** (box geometry): device facts are window/display
+  facts, not box facts (the very distinction Codex R1 drew). **Re-evaluation trigger**: the iframe device-fact
+  propagation slice (plan-review required) OR OOP iframe productionization (M4-13). **Date**: 2026-09-27.
 
 ---
 

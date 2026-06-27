@@ -466,6 +466,10 @@ fn content_thread_viewport_resize_updates_scroll() {
             width: 800.0,
             height: 600.0,
             seq: 1,
+            // Neutral facts (bridge default) at facts_seq 0 — no-op for this size test.
+            color_scheme: elidex_css::media::ColorScheme::Light,
+            dppx: 1.0,
+            facts_seq: 0,
         })
         .unwrap();
 

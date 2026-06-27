@@ -124,9 +124,14 @@ impl App {
     ///
     /// Returns `true` if a redraw is needed (due to chrome actions).
     fn handle_redraw_threaded(&mut self, event_loop: &ActiveEventLoop) -> bool {
-        self.drain_content_messages();
-        self.sync_cookies_if_dirty();
-
+        // Publish the settled placement + device facts **before** draining content
+        // messages (Codex R2): `drain_content_messages` processes pending `window.open()`
+        // spawns, and a spawned tab clones `viewport_cell` as its construction-input pull
+        // source. If the publish ran *after* the drain (as it did originally), a spawn in
+        // a frame following a resize/DPI change would read the stale pre-resize cell and
+        // be born at the wrong `innerWidth`/`devicePixelRatio`. Publishing first makes the
+        // cell hold this frame's settled state by the time the drain runs.
+        //
         // Recompute the placement SoT + device facts for this frame from the settled
         // window state, then **publish + fan out atomically here** — the single
         // steady-state device-state chokepoint (C3 D2). `placement` and the cell `seq`
@@ -148,15 +153,18 @@ impl App {
                 .viewport
                 .viewport_cell
                 .publish_device_state(placement.size_logical, facts);
-            // Size → `SetViewport` (+`seq` bump, the C2 input-drop discipline); device
-            // facts → `SetDeviceFacts` (no *size* `seq` — D3 — but its own `facts_seq`
-            // generation for delivery-staleness). Each gated on its own change so a
-            // pure-scale change the OS absorbs ships facts without manufacturing a
-            // phantom input-drop generation.
+            // Atomic delivery (C3 R2): when the size changes, `SetViewport` carries the
+            // settled facts too, so a frame changing **both** (a DPI move altering the
+            // logical size) delivers them in one message → one content re-eval, never an
+            // inconsistent new-size + old-facts intermediate. `SetDeviceFacts` is sent
+            // **only** for a facts-only frame (size unchanged) — the two are mutually
+            // exclusive, so facts never double-send. Size still bumps `seq` (the C2
+            // input-drop discipline); facts ride their own `facts_seq` (orthogonal, D3),
+            // so a pure-scale change the OS absorbs ships facts without a phantom
+            // input-drop generation.
             if delta.size_changed {
                 self.broadcast_viewport();
-            }
-            if delta.facts_changed {
+            } else if delta.facts_changed {
                 self.broadcast_device_facts();
             }
             // Reclip the cursor on ANY real placement change — a shrunk/moved content
@@ -169,6 +177,14 @@ impl App {
                 self.reclip_cursor_after_placement_change(placement);
             }
         }
+
+        // Drain content→browser messages (incl. `window.open()` spawns, which read the
+        // cell just published above as their construction input) and sync cookies — after
+        // the settled-state publish, before the render below consumes the drained display
+        // lists.
+        self.drain_content_messages();
+        self.sync_cookies_if_dirty();
+
         let content = self
             .viewport
             .placement

@@ -124,12 +124,23 @@ impl App {
     /// `&mut self.tab_manager` borrow (mirrors [`Self::wake_or_noop`]). No-op until
     /// `placement` is seeded. `BrowserToContent` is not `Clone`, so each recipient
     /// gets a freshly-constructed message.
-    pub(super) fn seed_tab_viewport(placement: Option<ContentAreaPlacement>, seq: u64, tab: &Tab) {
+    pub(super) fn seed_tab_viewport(
+        placement: Option<ContentAreaPlacement>,
+        seq: u64,
+        facts: crate::ipc::DeviceFacts,
+        facts_seq: u64,
+        tab: &Tab,
+    ) {
         if let Some(placement) = placement {
             if let Err(e) = tab.channel.send(BrowserToContent::SetViewport {
                 width: placement.size_logical.width,
                 height: placement.size_logical.height,
                 seq,
+                // The settled facts ride the size delivery so a frame changing both is
+                // applied atomically by the content (one re-eval, no intermediate — C3 R2).
+                color_scheme: facts.color_scheme,
+                dppx: facts.dppx,
+                facts_seq,
             }) {
                 eprintln!("Failed to send viewport to content thread (disconnected): {e}");
             }
@@ -151,13 +162,17 @@ impl App {
     /// #11-window-level-tab-bar-position.
     pub(super) fn broadcast_viewport(&self) {
         if let Some(mgr) = &self.tab_manager {
-            // The seq the producer just published (resumed / redraw-top publish
-            // precedes this call). Size still comes from `placement` (the geometry
+            // The seq + settled facts the producer just published (resumed / redraw-top
+            // publish precedes this call). Size still comes from `placement` (the geometry
             // SoT); the publish set the cell to exactly that size, so the pair is
-            // consistent.
-            let seq = self.viewport.viewport_cell.read().seq;
+            // consistent. The facts ride this delivery so a frame changing both size and
+            // facts is applied atomically by the content (one re-eval — C3 R2); the
+            // producer gates this on `size_changed` and uses `broadcast_device_facts`
+            // **only** when facts change without a size change, so facts never double-send.
+            let snapshot = self.viewport.viewport_cell.read();
+            let (seq, facts, facts_seq) = (snapshot.seq, snapshot.facts, snapshot.facts_seq);
             for tab in mgr.tabs() {
-                Self::seed_tab_viewport(self.viewport.placement, seq, tab);
+                Self::seed_tab_viewport(self.viewport.placement, seq, facts, facts_seq, tab);
             }
         }
     }
