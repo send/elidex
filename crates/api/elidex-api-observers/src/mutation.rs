@@ -864,7 +864,7 @@ mod tests {
     }
 
     #[test]
-    fn take_pending_observers_is_id_sorted() {
+    fn take_pending_observers_drains_in_append_order() {
         let mut dom = EcsDom::new();
         let el = elem(&mut dom, "div");
 
@@ -873,9 +873,11 @@ mod tests {
             child_list: true,
             ..Default::default()
         };
+        let mut ids = Vec::new();
         for _ in 0..4 {
             let id = reg.register();
             reg.observe(&mut dom, id, el, init.clone());
+            ids.push(id.raw());
         }
 
         let record = SessionRecord {
@@ -890,15 +892,15 @@ mod tests {
         };
         reg.notify(&dom, &record);
 
+        // One record on one target enqueues all four in registered-observer-list
+        // (= walk = registration) order; here that is also `ids`. The id-vs-append
+        // *divergence* is covered by `pending_observers_preserve_append_order_not_id_order`.
         let got: Vec<u64> = reg
             .take_pending_observers()
             .into_iter()
             .map(MutationObserverId::raw)
             .collect();
-        let mut sorted = got.clone();
-        sorted.sort_unstable();
-        assert_eq!(got.len(), 4);
-        assert_eq!(got, sorted, "take_pending_observers must be id-sorted");
+        assert_eq!(got, ids, "delivery follows append (registration) order");
         // Draining the notifySet leaves it empty (step 3 "empty pending").
         assert!(reg.take_pending_observers().is_empty());
     }
