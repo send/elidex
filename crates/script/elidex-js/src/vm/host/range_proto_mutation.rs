@@ -16,7 +16,7 @@
 //! mutating impl, then commit the post-op boundary state back via
 //! [`commit_range_after_mutation`] — mutation hooks alone cannot
 //! restore the spec-required collapse on `deleteContents` (§5.5 step
-//! 3).  The 3 stubs (`cloneContents` / `surroundContents` /
+//! 8).  The 3 stubs (`cloneContents` / `surroundContents` /
 //! `createContextualFragment`) all brand-check `this` then throw
 //! `NotSupportedError` pending the `#11-range-full-impl` slot.
 
@@ -31,8 +31,8 @@ use super::range_proto::{arg_node, detached_range_error, require_range_receiver}
 /// Snapshot the registered Range, then commit `mutated` back over it.
 /// Copilot R1: `deleteContents` / `extractContents` / `insertNode`
 /// engine-indep impls perform boundary updates (notably the
-/// post-delete collapse to the start point per WHATWG §5.5
-/// `deleteContents` step 3) that are NOT recoverable from the
+/// post-delete collapse to (newNode, newOffset) per WHATWG §5.5
+/// `deleteContents` step 8) that are NOT recoverable from the
 /// mutation hooks alone — `set_text_data` hooks only clamp offsets to
 /// the new length, missing the spec-required collapse.  Persist the
 /// post-op boundary state explicitly.
