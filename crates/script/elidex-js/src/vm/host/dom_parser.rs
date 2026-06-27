@@ -17,19 +17,18 @@
 //!
 //! Unlike the boa engine — which returned a fake closure-backed
 //! plain-object stub from `parseFromString` — the VM returns a **real**
-//! [`elidex_ecs::NodeKind::Document`] entity:
+//! [`elidex_ecs::NodeKind::Document`] entity. The whole inert-document
+//! BUILD algorithm lives engine-indep in
+//! [`elidex_form::parse_into_inert_document`] (CLAUDE.md Layering mandate
+//! — `vm/host/` is marshalling-only; the build + the decision of which
+//! structural-fact reconcilers to re-run are DOM semantics, not VM
+//! marshalling). The native here only:
 //!
-//! 1. [`EcsDom::create_document_node`] spawns a throwaway `Document`
-//!    entity in the bound `EcsDom` **without** clobbering the page's
-//!    `document_root`.
-//! 2. A synthesized `<html>` element becomes its `documentElement`
-//!    child, and the markup is fragment-parsed into that element via the
-//!    engine-indep [`elidex_script_session::apply_set_inner_html`] seam
-//!    (the same §11.3 strict-first fragment parse `innerHTML` uses — the
-//!    layering mandate keeps the `elidex_html_parser` call out of
-//!    `vm/host/`). Parsing in `<html>` context lets html5ever synthesize
-//!    `<head>` / `<body>` so `doc.body` / `doc.head` work on real markup.
-//! 3. The Document entity is wrapped with `create_element_wrapper` +
+//! 1. brand-checks the receiver + ToString-coerces / MIME-validates the args,
+//! 2. resolves the caller document's URL (HTML §8.5.1 step 2 base fallback),
+//! 3. calls [`elidex_form::parse_into_inert_document`] inside
+//!    `with_session_and_dom` to get the throwaway Document entity, and
+//! 4. wraps it with `create_element_wrapper` +
 //!    `install_document_methods_for_entity`, so the returned object gets
 //!    `querySelector` / `querySelectorAll` / `getElementById` / `body` /
 //!    `head` / `documentElement` for free (the per-entity Document
@@ -44,20 +43,18 @@
 //!
 //! ## Deferred
 //!
-//! - Full §13.4 document parse (doctype + exact html/head/body
-//!   construction from arbitrary markup) — slot
+//! - True §13.2 full-document parse — `parseFromString(text/html)` routes
+//!   via HTML §8.5.1 through the DOCUMENT parser in §13.2 (doctype + exact
+//!   html/head/body construction from arbitrary markup) — slot
 //!   `#11-domparser-full-document-parse-fidelity`. The fragment-parse
-//!   approach here is boa-parity-bounded; cross-`EcsDom` adoption of a
-//!   true `parse_html` document tree is out of scope for this narrow-
-//!   additive PR.
+//!   approach in [`elidex_form::parse_into_inert_document`] is
+//!   boa-parity-bounded; cross-`EcsDom` adoption of a true `parse_html`
+//!   document tree is out of scope for this narrow-additive PR.
 //! - Real XML parsing + XML serialization (self-closing void elements,
 //!   namespace prefixes) — slot `#11-domparser-xml-real-parsing`. All
 //!   accepted MIME types are HTML-parsed (boa parity).
 
 #![cfg(feature = "engine")]
-
-use elidex_ecs::{Attributes, Entity};
-use elidex_script_session::{apply_set_inner_html, SetInnerHtmlOptions};
 
 use super::super::shape::{self, PropertyAttrs};
 use super::super::value::{
@@ -260,159 +257,21 @@ fn native_dom_parser_parse_from_string(
     // borrow conflicts with the `&mut EcsDom` borrow held inside
     // `with_session_and_dom`.
     let markup = ctx.vm.strings.get_utf8(markup_sid);
+    // HTML §8.5.1 step 2: the new Document's URL is the URL of the CALLER
+    // document, used as the base-URL fallback when the markup has no
+    // `<base href>`. Read the bound document's current URL from the VM
+    // navigation state (the same accessor `document.URL` / fetch Referer
+    // resolution use). Cloned out before the `&mut EcsDom` borrow below.
+    let caller_url = ctx.vm.navigation.current_url.clone();
 
-    // Build the throwaway Document + its <html> documentElement, then
-    // fragment-parse the markup INTO the <html> element in-place via the
-    // engine-indep `apply_set_inner_html` seam (the same §11.3
-    // strict-first fragment-parse `innerHTML` uses — CLAUDE.md layering
-    // mandate: no `elidex_html_parser` call from `vm/host/`). No
-    // cross-EcsDom adoption. Parsing in <html> context lets html5ever
-    // synthesize <head>/<body> so `doc.body`/`doc.head` work on real
-    // markup.
-    // Deferred → slot `#11-domparser-full-document-parse-fidelity`: a
-    // true §13.4 full-document parse (doctype + exact html/head/body
-    // construction) is deferred; the fragment-parse here is
-    // boa-parity-bounded.
+    // Engine-indep inert-document BUILD (CLAUDE.md Layering mandate — the
+    // build algorithm + the structural-fact reconciler-set decision live
+    // in `elidex_form`, not `vm/host/`). The native is marshalling-only:
+    // it just hands the resolved markup + caller URL to the primitive and
+    // wraps the returned entity.
     let Some(doc_entity) = ctx.host_if_bound().map(|host| {
         host.with_session_and_dom(|_session, dom| {
-            // §13.4 inert-document discipline: a DOMParser document has no
-            // browsing context and scripting is disabled, so its construction
-            // must fire NO mutation reactions. `apply_set_inner_html`'s final
-            // append/remove run against a target rooted at a `NodeKind::Document`
-            // (so `is_connected` is true) and would otherwise drive the live
-            // page dispatcher that `Vm::bind` installs — firing Insert events,
-            // custom-element reactions, and Range side effects for an inert
-            // document. This is JS-OBSERVABLE: a custom element in the parsed
-            // markup whose name matches a registered definition would be
-            // `try-to-upgrade`'d on the connected Insert (constructor runs →
-            // `finalize_success` enqueues Connected → `connectedCallback`
-            // fires) — exactly the inert-document violation §13.4 forbids
-            // (verified by `dom_parser_inert_document_no_custom_element_upgrade`:
-            // with this suppression removed, the parsed `<x-test>`'s constructor
-            // + connectedCallback fire; with it in place, neither does). Take the
-            // dispatcher out for the build (mirroring
-            // `EcsDom::begin_detached_fragment`, `crates/core/elidex-ecs/src/dom/
-            // tree/teardown.rs:325`) and restore it afterwards so the RETURNED
-            // document is live (observers/mutations JS adds after
-            // `parseFromString` still fire).
-            let saved_dispatcher = dom.take_mutation_dispatcher();
-            // Throwaway Document — does NOT clobber the page's cached
-            // `document_root` (see `EcsDom::create_document_node`).
-            let doc = dom.create_document_node();
-            let html_el = dom.create_element_with_owner("html", Attributes::default(), Some(doc));
-            let _ = dom.append_child(doc, html_el);
-            // Replaces <html>'s (empty) children with the parsed
-            // fragment. `scripting_disabled: true` parses the inert
-            // (§13.4 no-browsing-context, scripting-disabled) document so
-            // `<noscript>` content becomes real elements (not raw text) —
-            // matching a real DOMParser parse. The returned MutationRecord
-            // is intentionally dropped: this is a throwaway document with no
-            // registered MutationObserver, so no §4.3 record delivery
-            // applies.
-            //
-            // BOUNDARY (slot `#11-domparser-full-document-parse-fidelity`):
-            // `scripting_disabled` only takes effect where the FRAGMENT parse
-            // routes `<noscript>` to a real-element arm — explicit `<body>`
-            // ("in body" → any-other-start-tag) or explicit `<head>` ("in head
-            // noscript"). A BARE leading `<noscript>` (no wrapper) routes via
-            // the implied `<head>` into "in head noscript", where the first
-            // flow content (e.g. `<p>`) is a strict parse error (strict omits
-            // the spec's "pop noscript and reprocess" recovery,
-            // `modes/in_head_noscript.rs`) → §11.3 tolerant html5ever fallback.
-            // html5ever's `parse_fragment` IGNORES `scripting_enabled` for
-            // `<noscript>` (verified: scripting=false still yields
-            // `<noscript>#text "<p..>"`, byte-identical to scripting=true — the
-            // flag is honored only by `parse_document`). So a bare `<noscript>`
-            // stays RAWTEXT: `parseFromString('<noscript><p id=x></p>...')`
-            // .querySelector('#x') is null. The fix is a true §13.2 full-
-            // document parse (this PR's fragment-in-<html> approximation is
-            // boa-parity-bounded), deferred to that slot. Pinned by
-            // `dom_parser_bare_noscript_stays_rawtext_fragment_mode_boundary`.
-            let _ = apply_set_inner_html(
-                dom,
-                html_el,
-                &markup,
-                SetInnerHtmlOptions {
-                    scripting_disabled: true,
-                    ..SetInnerHtmlOptions::default()
-                },
-            );
-            // === Inert-document STRUCTURAL-FACT finalization ===
-            //
-            // The dispatcher suppression above silences ALL seven mutation
-            // consumers (`vm/consumer_dispatcher.rs`) for the inert build. Those
-            // consumers split into two classes, and only one class must be
-            // re-run document-scoped here:
-            //
-            //   * STRUCTURAL-FACT reconcilers — DOM facts a real parse would set
-            //     that are INDEPENDENT of scripting (`.value`, `baseURI`). These
-            //     MUST run even for an inert §13.4 document. The dispatcher drives
-            //     exactly two: `FormControlReconciler` (#4, FCS attach) and
-            //     `BaseUrlMaintainer` (#3, `<base href>` → `DocumentBaseUrl`).
-            //     Both are re-run document-scoped below.
-            //   * SCRIPT-ACTIVATION reconcilers — these run scripts / compile
-            //     handlers and MUST STAY suppressed for an inert document (no
-            //     browsing context, scripting disabled): `CustomElementReaction
-            //     Consumer` (#7, constructor + connectedCallback upgrade) and
-            //     `EventHandlerAttributeConsumer` (#5, `on*` content-attr handler
-            //     processing — HTML §8.1.3.4 does NOT process event-handler attrs
-            //     when scripting is disabled, which a DOMParser document is; the
-            //     dedicated scripting-disabled-event-handler slice is future S5-4).
-            //     Leaving both off is the CORRECT inert behavior, not a gap.
-            //
-            // The remaining three consumers need NO init here: `LiveRangeBridge`
-            // (#1) / `NodeIteratorAdjuster` (#2) track JS-allocated handles that
-            // can only exist post-bind (nothing to seed for a fresh document),
-            // and `CanvasReconciler` (#6) is AttributeChange-only with initial
-            // canvas state seeded at element creation. So {FCS, base-url} is the
-            // COMPLETE structural-fact set for the inert throwaway document —
-            // this CLOSES the reconciler class (no per-round reconciler gap left).
-            //
-            // --- #4 FormControlReconciler (FCS) ---
-            // Attach `FormControlState` to the parsed form controls,
-            // SUBTREE-SCOPED to ONLY the throwaway document's descendants (NOT
-            // whole-dom `init_form_controls`, which would clobber the shared
-            // page document's form-control state). The throwaway document
-            // shares the bound PAGE document's `EcsDom`, so a whole-dom walk
-            // would rebuild `FormControlState` from attributes for every LIVE
-            // page `<input>`/`<select>`/`<textarea>` too — destroying their
-            // dirty-value flag / user-typed `.value` / checkedness /
-            // selectedness (`new DOMParser().parseFromString('<input>', …)`
-            // would wipe all user input on the page). Instead, collect the
-            // throwaway document's descendants and attach FCS per entity via
-            // the single-entity primitive, which already does the per-control
-            // fieldset-disabled check (no whole-dom `propagate_fieldset_disabled`
-            // needed) and no-ops on non-control entities (Document / <html>).
-            // `create_form_control_state` is a PURE component attach (NO
-            // custom-element upgrade / NO script reactions), so doing it inside
-            // the suppressed window preserves the §13.4 inert guarantee. Without
-            // this, `input.value` on a DOMParser'd control reads "" because no
-            // `FormControlState` was ever attached.
-            //
-            // Two-phase (collect-then-mutate): the walker borrows `&self` but
-            // `create_form_control_state` needs `&mut dom`, so the entity ids
-            // are buffered into a Vec first to avoid the borrow conflict.
-            let mut subtree: Vec<Entity> = Vec::new();
-            dom.for_each_shadow_inclusive_descendant(doc, &mut |e| subtree.push(e));
-            for entity in subtree {
-                let _ = elidex_form::create_form_control_state(dom, entity);
-            }
-            // --- #3 BaseUrlMaintainer (base URL) ---
-            // Derive the throwaway document's `DocumentBaseUrl` from any parsed
-            // `<base href>` (HTML §2.4.3) so `doc.baseURI` / relative-URL
-            // resolution reflect it — the same DOM fact the live-page
-            // `BaseUrlMaintainer` Insert path would set, also off under the
-            // suppressed dispatcher. Document-scoped to `doc` (NOT the page
-            // root) via the engine-indep base-url primitive shared with the
-            // bind path (`BaseUrlMaintainer::initialize_from_tree` delegates to
-            // the same finalizer — one-issue-one-way). Like FCS, this is a PURE
-            // component attach (NO script reactions), safe inside the suppressed
-            // window.
-            elidex_dom_api::initialize_base_url_for_document(dom, doc);
-            if let Some(dispatcher) = saved_dispatcher {
-                dom.set_mutation_dispatcher(dispatcher);
-            }
-            doc
+            elidex_form::parse_into_inert_document(dom, &markup, &caller_url)
         })
     }) else {
         // Unbound VM (wrapper retained across `unbind()`) — no DOM to

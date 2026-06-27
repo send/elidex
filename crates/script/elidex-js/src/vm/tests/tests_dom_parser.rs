@@ -291,11 +291,11 @@ fn xml_serializer_document_fragment_serializes_children_markup() {
 fn dom_parser_inert_document_no_custom_element_upgrade() {
     let (mut vm, _s, _d) = bound_vm();
     // BUG B regression (the LOAD-BEARING test for the dispatcher
-    // suppression in `dom_parser.rs`): building the throwaway document must
-    // NOT fire the live page mutation dispatcher. A DOMParser document is
-    // inert per HTML §13.4 (no browsing context, scripting disabled), so a
-    // custom element in the parsed markup must NOT be upgraded and must NOT
-    // fire `connectedCallback`.
+    // suppression in `elidex_form::parse_into_inert_document`): building the
+    // throwaway document must NOT fire the live page mutation dispatcher. A
+    // DOMParser document is inert per HTML §8.5.1 (no browsing context,
+    // §13.2.4.5 scripting flag disabled), so a custom element in the parsed
+    // markup must NOT be upgraded and must NOT fire `connectedCallback`.
     //
     // Mechanism the suppression defeats: `apply_set_inner_html` appends the
     // parsed `<x-test>` under an `<html>` rooted at a `NodeKind::Document`,
@@ -330,7 +330,7 @@ fn dom_parser_inert_document_no_custom_element_upgrade() {
     );
     assert_eq!(
         out, "0:0",
-        "DOMParser document is inert (§13.4): a custom element in the parsed \
+        "DOMParser document is inert (§8.5.1): a custom element in the parsed \
          markup must NOT be upgraded (constructor) or connected \
          (connectedCallback). got ctor:connected = {out}"
     );
@@ -365,11 +365,13 @@ fn dom_parser_returned_document_is_live_after_build() {
 fn dom_parser_form_control_has_value() {
     let (mut vm, _s, _d) = bound_vm();
     // Codex F1 regression: a DOMParser'd `<input value=x>` must expose
-    // `.value === 'x'`. The throwaway-build dispatcher suppression (the §13.4
+    // `.value === 'x'`. The throwaway-build dispatcher suppression (the §8.5.1
     // inert guarantee) also takes out `FormControlReconciler`, the live-page
-    // path that attaches `FormControlState`. Without the engine-indep
-    // `elidex_form::init_form_controls(dom)` bulk hook running inside the
-    // suppressed window, the control has no FCS and `.value` reads "".
+    // path that attaches `FormControlState`. The engine-indep
+    // `elidex_form::parse_into_inert_document` primitive re-runs the FCS attach
+    // SUBTREE-SCOPED (`create_form_control_state` per parsed descendant) inside
+    // the suppressed window; without it the control has no FCS and `.value`
+    // reads "".
     assert_true(
         &mut vm,
         r"
@@ -436,16 +438,17 @@ fn dom_parser_base_href_sets_document_base_url() {
     let (mut vm, _s, _d) = bound_vm();
     // Codex R2-F2 regression: a parsed `<base href>` must set the throwaway
     // document's base URL, exactly as a live parse would. The throwaway build
-    // suppresses the WHOLE mutation dispatcher (the §13.4 inert guarantee),
+    // suppresses the WHOLE mutation dispatcher (the §8.5.1 inert guarantee),
     // which also takes out `BaseUrlMaintainer` (#3 in `consumer_dispatcher.rs`)
     // — the live-page Insert path that derives `DocumentBaseUrl` from the first
     // `<base href>` (HTML §2.4.3). `BaseUrlMaintainer` is a STRUCTURAL-FACT
     // reconciler (`baseURI` is a DOM fact independent of scripting), so it is
-    // re-run document-scoped inside the suppressed window via
-    // `elidex_dom_api::initialize_base_url_for_document(dom, doc)`. WITHOUT that
-    // call the base URL stays the `about:blank` fallback and this assertion
-    // fails (`doc.baseURI === 'about:blank'`); WITH it the parsed `<base>` is
-    // honored.
+    // re-run document-scoped inside the suppressed window by the engine-indep
+    // `elidex_form::parse_into_inert_document` primitive (via
+    // `initialize_base_url_for_document(dom, doc, caller_url)`). WITHOUT that
+    // call the base URL stays the caller-URL fallback (here `about:blank`, the
+    // bound test page's default) and this assertion fails; WITH it the parsed
+    // `<base>` is honored.
     assert_true(
         &mut vm,
         r#"
@@ -476,6 +479,36 @@ fn dom_parser_relative_href_resolves_against_parsed_base() {
             '<body><a id=a href="page.html">x</a></body>',
             'text/html');
         doc.querySelector('#a').href === 'https://example.com/dir/page.html';
+    "#,
+    );
+    vm.unbind();
+}
+
+#[test]
+fn dom_parser_no_base_href_falls_back_to_caller_document_url() {
+    // R3-F1 regression: per HTML §8.5.1 step 2 the new Document's URL is the
+    // CALLER document's URL, so a parsed document with NO `<base href>` must
+    // resolve relative URLs against the calling page — NOT `about:blank`. This
+    // pins the caller-URL base fallback threaded through
+    // `elidex_form::parse_into_inert_document` →
+    // `initialize_base_url_for_document(.., caller_url)`.
+    //
+    // Empirically: WITHOUT the caller-URL fallback (the pre-fix `about:blank`
+    // hardcode), `.href` resolves to `about:blank` + the relative path (a
+    // failed/`about:`-rooted URL), so the assertion below fails — confirming the
+    // test actually exercises the fix.
+    let (mut vm, _s, _d) = bound_vm();
+    // Bind path leaves `current_url` at its `about:blank` default; set the page
+    // URL the way `vm_with_url_and_mock` does (document.URL / fetch Referer read
+    // the same `navigation.current_url`).
+    vm.inner.navigation.current_url =
+        url::Url::parse("https://example.com/dir/page.html").expect("valid page URL");
+    assert_true(
+        &mut vm,
+        r#"
+        var parser = new DOMParser();
+        var doc = parser.parseFromString('<a href="p.html"></a>', 'text/html');
+        doc.querySelector('a').href === 'https://example.com/dir/p.html';
     "#,
     );
     vm.unbind();
