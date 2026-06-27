@@ -31,9 +31,9 @@ pub use props::{GetAttribute, RemoveAttribute, SetAttribute};
 pub use select::{OptionsAdd, OptionsRemove, OptionsSetLength};
 pub use tree::{
     collect_text_content, serialize_inner_html, serialize_inner_html_with_options,
-    serialize_outer_html, validate_attribute_name, AppendChild, GetInnerHtml,
-    InsertAdjacentElement, InsertAdjacentHtml, InsertAdjacentText, InsertBefore, RemoveChild,
-    ReplaceChild, SerializeOptions, SetInnerHtml,
+    serialize_node_to_string, serialize_outer_html, validate_attribute_name, AppendChild,
+    GetInnerHtml, InsertAdjacentElement, InsertAdjacentHtml, InsertAdjacentText, InsertBefore,
+    RemoveChild, ReplaceChild, SerializeOptions, SetInnerHtml,
 };
 
 // Tests are split by category to keep each file under the 1000-line

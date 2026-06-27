@@ -96,8 +96,17 @@ fn attach_frozen_urls_in_subtree(dom: &mut EcsDom, root: Entity, fallback: &Url)
 /// tree state rooted at `doc` itself — locates the first `<base href>`
 /// in tree order (WHATWG HTML §2.4.3 step 1 — "the first base element
 /// ... that has an href attribute, in tree order") and adopts its
-/// frozen URL, or falls back to [`about_blank_url`].  Idempotent no-op
+/// frozen URL, or falls back to `fallback`.  Idempotent no-op
 /// when the resolved URL is unchanged.
+///
+/// `fallback` is the document's URL used when no `<base href>` is
+/// present (HTML §2.4.3: "otherwise, the document base URL is the
+/// document's URL"). The live-page [`BaseUrlMaintainer`] arms pass
+/// [`about_blank_url`] (the page document's URL is tracked elsewhere);
+/// the inert-`DOMParser` path passes the CALLER document's URL (HTML
+/// §8.5.1 step 2 — the new Document's URL is the caller's), so a
+/// `<base>`-less parsed document resolves relative URLs against the
+/// calling page, not `about:blank`.
 ///
 /// Walks the subtree rooted at `doc` (not the EcsDom's cached document
 /// root), keeping the function self-consistent: callers pick the
@@ -112,8 +121,7 @@ fn attach_frozen_urls_in_subtree(dom: &mut EcsDom, root: Entity, fallback: &Url)
 /// `<template>` element children are skipped per HTML §2.4.3 —
 /// template contents form a separate document and a `<base>` inside
 /// must not be selected as the host document's first base.
-fn recompute_document_base(dom: &mut EcsDom, doc: Entity) {
-    let fallback = about_blank_url();
+fn recompute_document_base(dom: &mut EcsDom, doc: Entity, fallback: &Url) {
     let new_first = walk_inclusive_filtered_until(
         dom,
         doc,
@@ -132,7 +140,7 @@ fn recompute_document_base(dom: &mut EcsDom, doc: Entity) {
             .get::<&BaseFrozenUrl>(base)
             .ok()
             .map_or_else(|| fallback.clone(), |c| c.0.clone()),
-        None => fallback,
+        None => fallback.clone(),
     };
     let unchanged = dom
         .world()
@@ -150,6 +158,33 @@ fn recompute_document_base(dom: &mut EcsDom, doc: Entity) {
 /// (e.g. a detached element).
 fn owner_doc(dom: &EcsDom, node: Entity) -> Option<Entity> {
     dom.owner_document(node).or_else(|| dom.document_root())
+}
+
+/// Initialize the 2-layer base URL state for an ARBITRARY document
+/// entity `doc` from its current subtree — the document-scoped
+/// primitive shared by the bind path ([`BaseUrlMaintainer::
+/// initialize_from_tree`], which calls this with `dom.document_root()`)
+/// and any out-of-band tree population that bypasses the live
+/// [`MutationEvent`] dispatcher (e.g. an inert `DOMParser` document
+/// built with the dispatcher suppressed — HTML §8.5.1).
+///
+/// Attaches [`BaseFrozenUrl`] to every `<base href>` reachable from
+/// `doc` (resolving each relative `href` against `fallback`) and derives
+/// `doc`'s [`DocumentBaseUrl`] from the first such element in tree order
+/// (HTML §2.4.3), or from `fallback` itself when the document has no
+/// `<base href>`. `fallback` is the document's own URL: the bind path
+/// passes [`about_blank_url`]; the inert-`DOMParser` path passes the
+/// CALLER document's URL (HTML §8.5.1 step 2 — the new Document's URL is
+/// the caller's). Sharing one finalizer keeps the eager-init path and
+/// the live-mutation path in agreement (one-issue-one-way: a single
+/// base-url finalizer, not a per-call-site reimplementation).
+/// Idempotent — re-running on an already-initialized subtree is a no-op
+/// (each `<base href>` already carries [`BaseFrozenUrl`];
+/// `recompute_document_base`'s `unchanged` short-circuit absorbs the
+/// [`DocumentBaseUrl`] re-write).
+pub fn initialize_base_url_for_document(dom: &mut EcsDom, doc: Entity, fallback: &Url) {
+    let _ = attach_frozen_urls_in_subtree(dom, doc, fallback);
+    recompute_document_base(dom, doc, fallback);
 }
 
 /// Returns `true` iff `entity`'s tree root is the EcsDom's
@@ -204,9 +239,12 @@ impl BaseUrlMaintainer {
         let Some(root) = dom.document_root() else {
             return;
         };
-        let fallback = about_blank_url();
-        let _ = attach_frozen_urls_in_subtree(dom, root, &fallback);
-        recompute_document_base(dom, root);
+        // Delegate to the document-scoped primitive so the bind path and
+        // the out-of-band population path (inert `DOMParser` document)
+        // share ONE base-url finalizer (one-issue-one-way). The bind path's
+        // fallback stays `about_blank_url()` — unchanged from before the
+        // fallback parameter was threaded for the §8.5.1 DOMParser path.
+        initialize_base_url_for_document(dom, root, &about_blank_url());
     }
 
     /// Single-method dispatch entry invoked by
@@ -235,7 +273,7 @@ impl BaseUrlMaintainer {
                     return;
                 }
                 if let Some(doc) = owner_doc(dom, node) {
-                    recompute_document_base(dom, doc);
+                    recompute_document_base(dom, doc, &fallback);
                 }
             }
             MutationEvent::Remove {
@@ -287,7 +325,7 @@ impl BaseUrlMaintainer {
                 // support lands and `in_main_light_tree` / root
                 // selection semantics shift.
                 if let Some(doc) = owner_doc(dom, parent) {
-                    recompute_document_base(dom, doc);
+                    recompute_document_base(dom, doc, &about_blank_url());
                 }
             }
             MutationEvent::AttributeChange { node, .. } => {
@@ -317,7 +355,7 @@ impl BaseUrlMaintainer {
                     }
                 }
                 if let Some(doc) = owner_doc(dom, node) {
-                    recompute_document_base(dom, doc);
+                    recompute_document_base(dom, doc, &fallback);
                 }
             }
             _ => {}
@@ -383,7 +421,7 @@ mod tests {
         let alt_doc = dom.create_element("html", Attributes::default());
 
         // Walk must originate at `alt_doc` — empty subtree → fallback.
-        recompute_document_base(&mut dom, alt_doc);
+        recompute_document_base(&mut dom, alt_doc, &about_blank_url());
         let recorded = dom
             .world()
             .get::<&DocumentBaseUrl>(alt_doc)
@@ -400,7 +438,7 @@ mod tests {
 
         // Sanity: recomputing for `doc_root` (which IS the cached root)
         // still picks up `<base href>` correctly.
-        recompute_document_base(&mut dom, doc_root);
+        recompute_document_base(&mut dom, doc_root, &about_blank_url());
         let doc_root_url = dom
             .world()
             .get::<&DocumentBaseUrl>(doc_root)

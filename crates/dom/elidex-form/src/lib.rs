@@ -9,6 +9,7 @@ mod clipboard;
 mod datetime;
 mod fieldset;
 pub mod focus_snapshot;
+mod inert_document;
 mod init;
 mod input;
 mod label;
@@ -31,6 +32,7 @@ pub use fieldset::{
 pub use focus_snapshot::{
     clear_focus_snapshot, record_focus_snapshot, take_focus_snapshot, FocusValueSnapshot,
 };
+pub use inert_document::parse_into_inert_document;
 pub use init::{create_form_control_state, find_autofocus_target, init_form_controls};
 pub use input::{
     apply_step, form_control_key_input, form_control_key_input_action, resolve_input_list,

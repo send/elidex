@@ -289,6 +289,7 @@ fn declarative_shadow_opt_on_attaches_shadow_root() {
     let ctx = dom.create_element("div", Attributes::default());
     let opts = ParseFragmentOptions {
         allow_declarative_shadow: true,
+        scripting_disabled: false,
     };
     let roots = parse_fragment_strict(
         "<section><template shadowrootmode=\"open\"><p>s</p></template></section>",
@@ -455,6 +456,7 @@ fn rollback_despawns_shadow_root_with_no_leak() {
     let ctx = dom.create_element("div", Attributes::default());
     let opts = ParseFragmentOptions {
         allow_declarative_shadow: true,
+        scripting_disabled: false,
     };
     let live_before = dom.world().len();
 
@@ -607,6 +609,7 @@ fn top_level_declarative_shadow_on_context_is_rejected() {
     let ctx = dom.create_element("div", Attributes::default());
     let opts = ParseFragmentOptions {
         allow_declarative_shadow: true,
+        scripting_disabled: false,
     };
     let live_before = dom.world().len();
 
