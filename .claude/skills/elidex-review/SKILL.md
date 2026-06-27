@@ -6,7 +6,7 @@ user-invocable: true
 
 # elidex-review — pre-push diff review
 
-`/code-review` (correctness bugs) と `/review` (一般 PR review) **の上に重ねる** elidex 専門 design review。Pre-push 6 段 gate の最終段 (`/pre-push` Stage 6) = design 最終 gate。post-push の 非-Claude reviewer は single-shot second opinion (`/external-review`、現 Codex/Plus) になったので、この gate と Stage 3 の blast-radius effort が design review の主担。「後続 loop が残りを拾う」前提で圧縮するのでなく、ここで取り切る。
+`/code-review` (correctness bugs) と `/review` (一般 PR review) **の上に重ねる** elidex 専門 design review。Pre-push 6 段 gate の最終段 (`/pre-push` Stage 6) = design 最終 gate。post-push の 非-Claude reviewer は single-shot second opinion (`/external-review`、現 Codex/Plus) になったので、この gate と Stage 4 の blast-radius effort が design review の主担。「後続 loop が残りを拾う」前提で圧縮するのでなく、ここで取り切る。
 
 - **Axis SSoT**: `./axes.md` (5 axis 定義、`elidex-plan-review` と共有)
 - **Workflow SSoT**: `./workflow.md` (Step 1.5 / 1.6 rename-propagation sweep / 2 agent prompt template / 3 / 3.5 / 4 / 4.5 + anti-patterns)
@@ -15,7 +15,7 @@ user-invocable: true
 
 ## When to invoke
 
-- **Pre-push 必須段 (順序固定)**: `cargo fmt` → `mise run ci` → `/code-review` → `/simplify` → `/review` → **本 skill (`/elidex-review`)** で全 PR 実施推奨。本 skill は 6 段目 = 最終 design gate
+- **Pre-push 必須段 (順序固定)**: `cargo fmt` → `mise run ci` → `/simplify` → `/code-review` → `/review` → **本 skill (`/elidex-review`)** で全 PR 実施推奨。本 skill は 6 段目 = 最終 design gate
 - generic `/review` だけでは elidex-specific design 原則違反は漏れる (Layering mandate / ideal-over-pragmatic 等)
 
 ## Skip OK
@@ -32,7 +32,7 @@ The decision is a **per-PR judgment per axis ("could this change plausibly trip 
 | 4 Spec citation | a spec citation added / renumbered / edited, OR a **new citation-required surface** (native / DomApiHandler / engine-indep algorithm that should carry a spec citation, even if one wasn't added) — and an external silent-zero round does NOT prove webref §/AO lookups ran |
 | 5 Project-context | a defer-ledger / slot / roadmap change, or a past-lesson re-introduction |
 
-**The one non-obvious case**: an edit that changes *review/enforcement behavior itself* — a detect entry, workflow step, gate, skip rule, axis definition, or the gate tooling (`.claude/skills/**`, `.claude/tools/**` e.g. `webref`, `.claude/hooks/**`) — **cannot honestly show yield 0** (it alters how the gates behave despite touching no Rust), so it is never skippable — run the **full** pre-push gate (`/code-review` + `/simplify` + `/review` + `/elidex-review`), not a per-stage subset. This matters most for executable gate code (`.py` / `.sh` / `webref`): `mise run ci` is cargo-only, so the correctness/quality stages are its only coverage. Genuinely skippable = pure inert doc/comment text (typo / wording / formatting) tripping none of the rows above.
+**The one non-obvious case**: an edit that changes *review/enforcement behavior itself* — a detect entry, workflow step, gate, skip rule, axis definition, or the gate tooling (`.claude/skills/**`, `.claude/tools/**` e.g. `webref`, `.claude/hooks/**`) — **cannot honestly show yield 0** (it alters how the gates behave despite touching no Rust), so it is never skippable — run the **full** pre-push gate (`/simplify` + `/code-review` + `/review` + `/elidex-review`), not a per-stage subset. This matters most for executable gate code (`.py` / `.sh` / `webref`): `mise run ci` is cargo-only, so the correctness/quality stages are its only coverage. Genuinely skippable = pure inert doc/comment text (typo / wording / formatting) tripping none of the rows above.
 
 ## Workflow
 
