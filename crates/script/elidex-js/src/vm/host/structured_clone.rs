@@ -306,6 +306,11 @@ fn classify(kind: &ObjectKind) -> CloneKind {
         ObjectKind::Response => CloneKind::Unclonable("Response"),
         ObjectKind::TextEncoder => CloneKind::Unclonable("TextEncoder"),
         ObjectKind::TextDecoder => CloneKind::Unclonable("TextDecoder"),
+        // HTML §8.5.1 / §8.5.8 — `DOMParser` / `XMLSerializer` are not
+        // [Serializable] (no IDL extended
+        // attribute); both throw DataCloneError in Chrome / Firefox.
+        ObjectKind::DomParser => CloneKind::Unclonable("DOMParser"),
+        ObjectKind::XmlSerializer => CloneKind::Unclonable("XMLSerializer"),
         ObjectKind::HtmlCollection => CloneKind::Unclonable("HTMLCollection"),
         ObjectKind::NodeList => CloneKind::Unclonable("NodeList"),
         ObjectKind::NamedNodeMap => CloneKind::Unclonable("NamedNodeMap"),

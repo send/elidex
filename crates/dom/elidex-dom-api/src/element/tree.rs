@@ -709,6 +709,35 @@ pub fn serialize_outer_html(entity: Entity, dom: &EcsDom) -> String {
     html
 }
 
+/// Serialize an **arbitrary** node to its HTML-fragment markup, dispatching by
+/// [`NodeKind`](elidex_ecs::NodeKind) — the engine-indep home for
+/// `XMLSerializer.serializeToString(node)` (HTML §8.5.8, HTML-serialization /
+/// boa parity) and any caller that must serialize a node of unknown kind:
+///
+/// - **`Document` / `DocumentFragment`** → the markup of its CHILDREN
+///   ([`serialize_inner_html`]). These kinds have no tag of their own, so the
+///   "outer" serialization is exactly their children's markup — this is what
+///   makes the canonical `serializeToString(parseFromString(...))` round-trip
+///   return real document markup rather than its concatenated text.
+/// - **`Element`** → [`serialize_outer_html`] (the element + its subtree).
+/// - **Text / `CDATASection` / Comment / `DocumentType`** → routed through
+///   [`serialize_outer_html`] (whose internal node-kind dispatch emits escaped
+///   text for character data, `<!--data-->` for a comment, and `<!DOCTYPE name>`
+///   for a doctype). A bare entity with no DOM payload serializes to the empty
+///   string.
+#[must_use]
+pub fn serialize_node_to_string(entity: Entity, dom: &EcsDom) -> String {
+    use elidex_ecs::NodeKind;
+    match dom.node_kind_inferred(entity) {
+        // No tag of their own → serialize the markup of their children.
+        Some(NodeKind::Document | NodeKind::DocumentFragment) => serialize_inner_html(entity, dom),
+        // Element, character data, comment, doctype, or a payload-less entity:
+        // `serialize_node` (reached via `serialize_outer_html`) handles each
+        // kind by component dispatch.
+        _ => serialize_outer_html(entity, dom),
+    }
+}
+
 /// Options controlling shadow root visibility for [`serialize_inner_html_with_options`].
 ///
 /// Per HTML §4.4.6 `Element.getHTML(options)` / `ShadowRoot.getHTML(options)`:
@@ -886,6 +915,26 @@ fn serialize_node(
         } else {
             html.push_str(&escape_html(&tc.0));
         }
+        return;
+    }
+    // HTML §13.3: a Comment node serializes as `<!--` + data + `-->`
+    // (the data is emitted verbatim — the algorithm does no escaping).
+    // Without this branch a comment (which carries `CommentData`, not
+    // `TextContent`/`TagType`) would fall through to the child loop and
+    // vanish from inner/outer serialization.
+    if let Ok(comment) = dom.world().get::<&elidex_ecs::CommentData>(entity) {
+        html.push_str("<!--");
+        html.push_str(&comment.0);
+        html.push_str("-->");
+        return;
+    }
+    // HTML §13.3 DocumentType: `<!DOCTYPE ` + name + `>` (the simplified
+    // serialization — public/system identifiers are not emitted, matching the
+    // spec's fragment-serialization output for the common `<!DOCTYPE html>`).
+    if let Ok(doctype) = dom.world().get::<&elidex_ecs::DocTypeData>(entity) {
+        html.push_str("<!DOCTYPE ");
+        html.push_str(&doctype.name);
+        html.push('>');
         return;
     }
     if let Ok(tag) = dom.world().get::<&TagType>(entity) {
