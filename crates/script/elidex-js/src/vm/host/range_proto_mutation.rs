@@ -3,7 +3,7 @@
 // `m4-12-platform-gap-roadmap.md` §E-2 Round 20 PR7.  See
 // `memory/project_boa_runtime_deletion.md`.
 
-//! Range mutating methods + Phase-A stubs (WHATWG DOM §4.4 §6).
+//! Range mutating methods + Phase-A stubs (WHATWG DOM §5.5 "Interface Range").
 //!
 //! Split from sibling [`super::range_proto`] (Copilot R3 MIN — 1000-line
 //! convention) to keep that module focused on the constructor /
@@ -15,7 +15,7 @@
 //! `insertNode`) snapshot the registered Range, run the engine-indep
 //! mutating impl, then commit the post-op boundary state back via
 //! [`commit_range_after_mutation`] — mutation hooks alone cannot
-//! restore the spec-required collapse on `deleteContents` (§4.4 step
+//! restore the spec-required collapse on `deleteContents` (§5.5 step
 //! 3).  The 3 stubs (`cloneContents` / `surroundContents` /
 //! `createContextualFragment`) all brand-check `this` then throw
 //! `NotSupportedError` pending the `#11-range-full-impl` slot.
@@ -31,7 +31,7 @@ use super::range_proto::{arg_node, detached_range_error, require_range_receiver}
 /// Snapshot the registered Range, then commit `mutated` back over it.
 /// Copilot R1: `deleteContents` / `extractContents` / `insertNode`
 /// engine-indep impls perform boundary updates (notably the
-/// post-delete collapse to the start point per WHATWG §4.4
+/// post-delete collapse to the start point per WHATWG §5.5
 /// `deleteContents` step 3) that are NOT recoverable from the
 /// mutation hooks alone — `set_text_data` hooks only clamp offsets to
 /// the new length, missing the spec-required collapse.  Persist the
@@ -170,7 +170,7 @@ pub(super) fn native_range_insert_node(
 
     match outcome {
         None => {
-            // WHATWG §4.4 step 6 (pre-insertion validity) failed
+            // WHATWG §5.5 step 6 (pre-insertion validity) failed
             // (cycle / orphan parent) — surface as
             // `HierarchyRequestError`.  No DOM mutation happened
             // (Copilot R13 #1: validity check runs before split).
@@ -186,7 +186,7 @@ pub(super) fn native_range_insert_node(
             // record(s) before the step-13 boundary commit. The drain is
             // bound to the push (plan §4 F1).
             ctx.vm.commit_range_mutation_records(records);
-            // WHATWG §4.4 step 13: when the range was collapsed,
+            // WHATWG §5.5 step 13: when the range was collapsed,
             // set the end to (parent, newOffset).  Apply directly
             // to the registered range so the §5.10/§4.2.3 hook
             // adjustments to start remain intact.  Non-collapsed
@@ -213,7 +213,7 @@ pub(super) fn native_range_insert_node(
 // ---------------------------------------------------------------------------
 
 /// elidex-specific `NotSupportedError` placeholder pending deep-clone
-/// infrastructure; spec returns a `DocumentFragment` per WHATWG §4.4.
+/// infrastructure; spec returns a `DocumentFragment` per WHATWG §5.5.
 /// Full impl tracked at `#11-range-full-impl`.
 pub(super) fn native_range_clone_contents(
     ctx: &mut NativeContext<'_>,
@@ -229,7 +229,7 @@ pub(super) fn native_range_clone_contents(
 }
 
 /// elidex-specific `NotSupportedError` placeholder pending deep-clone
-/// infrastructure; spec wraps the contents in `newParent` per WHATWG §4.4.
+/// infrastructure; spec wraps the contents in `newParent` per WHATWG §5.5.
 /// Full impl tracked at `#11-range-full-impl`.
 pub(super) fn native_range_surround_contents(
     ctx: &mut NativeContext<'_>,
