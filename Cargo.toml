@@ -92,8 +92,8 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 syn = { version = "2", features = ["full"] }
 quote = "1"
 proc-macro2 = "1"
-phf = "0.13"
-phf_codegen = "0.13"
+phf = "0.14"
+phf_codegen = "0.14"
 fontdb = "0.23"
 futures-util = { version = "0.3", default-features = false, features = ["sink"] }
 rustybuzz = "0.20"
@@ -128,7 +128,7 @@ getrandom = "0.4"
 # `sign_prehash` / `verify_prehash` so our `sha2 0.11` digest stays decoupled
 # from ecdsa's digest generation.  `pkcs8` enables both PKCS#8 (private) and
 # SPKI (public) DER; `arithmetic` is required for ECDH scalar multiplication.
-elliptic-curve = { version = "0.13", features = ["arithmetic", "sec1", "ecdh", "pkcs8"] }
+elliptic-curve = { version = "0.14", features = ["arithmetic", "sec1", "ecdh", "pkcs8"] }
 ecdsa = "0.16"
 p256 = { version = "0.13", features = ["ecdsa", "ecdh", "pkcs8", "arithmetic"] }
 p384 = { version = "0.13", features = ["ecdsa", "ecdh", "pkcs8", "arithmetic"] }
@@ -150,7 +150,7 @@ sha2-oid = { package = "sha2", version = "0.10", features = ["oid"] }
 # rand_core 0.6 (the EC 0.13 / rsa 0.9 generation) — direct dep for the shared
 # `ClosureRng` entropy-seam adapter feeding both EC `SecretKey::random` and RSA
 # `RsaPrivateKey::new_with_exp` from the VM's single `fill_random` closure.
-rand_core = "0.6"
+rand_core = "0.10"
 # aws-lc-rs (AWS-LC, a BoringSSL fork) — the workspace's **single crypto C library**, shared by
 # the rustls TLS stack (the `CryptoProvider` for elidex-net + reqwest + tungstenite; replaces the
 # former `ring` provider) AND WebCrypto §22 RSA-OAEP encrypt / decrypt / wrapKey / unwrapKey (PR-5b).
@@ -215,7 +215,7 @@ rusqlite = { version = "0.40", features = ["bundled"] }
 boa_engine = { version = "0.21", features = ["annex-b"] }
 boa_gc = "0.21"
 egui = "0.34"
-egui-wgpu = "0.34"
+egui-wgpu = "0.35"
 egui-winit = "0.34"
 vello = "0.9"
 wgpu = "29"
@@ -224,7 +224,7 @@ pollster = "0.4"
 tiny-skia = "0.12"
 accesskit = "0.24"
 accesskit_winit = "0.33"
-wasmtime = "45"
+wasmtime = "46"
 wat = "1"
 static_assertions = "1"
 rayon = "1"
