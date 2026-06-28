@@ -873,11 +873,11 @@ fn apply_set_text(dom: &mut EcsDom, entity: Entity, text: &str) -> Option<Mutati
 /// `apply_set_attribute`, so a non-CharacterData entity produces NO record
 /// rather than a spurious one — wired callers brand-check, but the `Option`
 /// makes the no-op structurally non-notifying). Text / CDATASection route
-/// through `EcsDom::replace_text_data` (fires `MutationEvent::ReplaceData`
-/// for live-range fixup); Comment routes through
-/// `EcsDom::replace_comment_data` (no live-range event — §4.10 boundary
-/// steps 8-11 apply to all CharacterData, but elidex's range-fixup hook is
-/// Text/CDATASection-only by construction).
+/// through `EcsDom::replace_text_data`; Comment routes through
+/// `EcsDom::replace_comment_data`. Both fire `MutationEvent::ReplaceData`, so
+/// the §4.10 boundary steps 8-11 live-range fixup applies uniformly to all
+/// CharacterData incl. Comment (Codex PR426 R1 — the Comment event was added
+/// once the F5-broadened `deleteContents` made the Comment splice reachable).
 pub fn apply_replace_data(
     dom: &mut EcsDom,
     entity: Entity,

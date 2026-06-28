@@ -518,8 +518,15 @@ impl Range {
         // be a child of `parent` (would already be a cycle, rejected
         // above), so the comparison is only meaningful for the
         // single-node case.
+        // Use the EXPOSED next sibling (not raw `get_next_sibling`): if `node`
+        // is the last exposed child of a shadow host, its raw next sibling can
+        // be the host's internal `ShadowRoot`, which would leak into the
+        // `apply_insert_before` record's `nextSibling`. Per §4.8 the ShadowRoot
+        // is not a tree sibling, so the exposed accessor is also spec-correct
+        // for step 8's "node's next sibling" (Codex PR426 R1, same class as the
+        // splitText fix).
         if !is_fragment && reference_node == Some(node) {
-            reference_node = dom.get_next_sibling(node);
+            reference_node = dom.next_exposed_sibling(node);
         }
 
         // Spec step 12: pre-insert `node` into `parent` before

@@ -165,7 +165,19 @@ pub fn split_text_at_offset(
     // `InsertFailed` path: rollback + destroy).
     let mut records: Vec<MutationRecord> = Vec::new();
     if let Some(parent) = parent_opt {
-        let insert_records = if let Some(next) = dom.get_next_sibling(entity) {
+        // Resolve the insert reference via the EXPOSED next sibling, NOT the
+        // raw `get_next_sibling`: `attach_shadow` links the host's `ShadowRoot`
+        // into the raw child chain (§4.8 encapsulation), so when `entity` is
+        // the last *exposed* light child the raw next sibling can be that
+        // internal `ShadowRoot`. Passing it as the `apply_insert_before`
+        // reference would put `nextSibling = shadowRoot` into the observed
+        // `childList` record (an internal node leaking to a `host` observer
+        // that should see `null`). The exposed sibling = `None` here routes to
+        // `apply_append_child` (record `nextSibling = null`); `index_in_parent`
+        // skips the `ShadowRoot` too, so the `MutationEvent::Insert` live-range
+        // index is identical either way (Codex PR426 R1). Mirrors the B1.2b
+        // exposed-accessor convention.
+        let insert_records = if let Some(next) = dom.next_exposed_sibling(entity) {
             apply_insert_before(dom, parent, new_node, next)
         } else {
             apply_append_child(dom, parent, new_node)
@@ -396,5 +408,40 @@ mod tests {
             assert_eq!(range.end_offset, 4);
         })
         .expect("range present");
+    }
+
+    /// Codex PR426 R1 — splitting the last EXPOSED light child of a shadow host
+    /// must NOT put the host's internal `ShadowRoot` into the childList record's
+    /// `nextSibling`. `attach_shadow` appends the `ShadowRoot` as the host's
+    /// last raw child, so the raw next sibling of `t` is the ShadowRoot while
+    /// the exposed next sibling is `None`; the insert reference resolves via the
+    /// exposed accessor → append → record `nextSibling = null`.
+    #[test]
+    fn split_last_exposed_child_of_shadow_host_excludes_shadow_root_from_record() {
+        use elidex_ecs::ShadowRootMode;
+        let mut dom = EcsDom::new();
+        let host = dom.create_element("div", Attributes::default());
+        let t = dom.create_text("hello world");
+        let _ = dom.append_child(host, t);
+        dom.attach_shadow(host, ShadowRootMode::Open)
+            .expect("div is a valid shadow host");
+        // Bug trigger: raw next sibling is the internal ShadowRoot, exposed is None.
+        assert!(
+            dom.next_exposed_sibling(t).is_none(),
+            "t is the last exposed light child"
+        );
+
+        let (new_node, records) = split_text_at_offset(t, 5, &mut dom).expect("split ok");
+
+        let childlist = records
+            .iter()
+            .find(|r| r.kind == MutationKind::ChildList)
+            .expect("a childList insert record");
+        assert_eq!(childlist.added_nodes, vec![new_node]);
+        assert_eq!(childlist.previous_sibling, Some(t));
+        assert_eq!(
+            childlist.next_sibling, None,
+            "record carries the exposed nextSibling (null), not the internal ShadowRoot"
+        );
     }
 }

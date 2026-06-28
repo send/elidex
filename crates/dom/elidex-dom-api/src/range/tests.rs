@@ -759,3 +759,48 @@ fn range_extract_contents_cross_container() {
     let frag_children: Vec<_> = dom.children_iter(frag).collect();
     assert!(frag_children.len() >= 2);
 }
+
+/// Codex PR426 R1 — a Comment-container `deleteContents` (F5-broadened to all
+/// CharacterData) must adjust OTHER live ranges anchored in the same Comment.
+/// `EcsDom::replace_comment_data` now fires `MutationEvent::ReplaceData` (the
+/// container-agnostic live-range fixup `LiveRangeBridge::after_replace_data`),
+/// so a sibling range past the deleted span shifts left by the deleted count
+/// per WHATWG DOM §4.10 "replace data" steps 8-11 — previously it was left at a
+/// stale offset because the Comment splice fired no event.
+#[test]
+fn comment_delete_contents_adjusts_other_live_ranges() {
+    let mut dom = EcsDom::new();
+    let parent = dom.create_element("div", Attributes::default());
+    let comment = dom.create_comment("hello world");
+    let _ = dom.append_child(parent, comment);
+    let (mut reg, bridge) = LiveRangeRegistry::new_pair();
+    dom.set_mutation_dispatcher(make_range_only_test_dispatcher(bridge));
+
+    // Observer range at (comment, 5) — past the [1,4] deletion span.
+    let mut observer = Range::new(comment);
+    observer.set_start(comment, 5);
+    observer.set_end(comment, 5);
+    let id = reg.register(observer);
+
+    // A separate range deletes [1,4] ("ell") → "ho world".
+    let mut deleter = Range::new(comment);
+    deleter.set_start(comment, 1);
+    deleter.set_end(comment, 4);
+    deleter.delete_contents(&mut dom);
+
+    let cd = dom
+        .world()
+        .get::<&elidex_ecs::CommentData>(comment)
+        .expect("comment data");
+    assert_eq!(cd.0, "ho world");
+
+    reg.with_range(id, &dom, |range, _| {
+        assert_eq!(range.start_container, comment);
+        assert_eq!(
+            range.start_offset, 2,
+            "offset 5 past the 3-unit deletion shifts to 2 (not left stale at 5)"
+        );
+        assert_eq!(range.end_offset, 2);
+    })
+    .expect("observer range present");
+}
