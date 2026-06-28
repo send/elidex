@@ -64,6 +64,8 @@ mod temp_root;
 pub mod value;
 mod vm_api;
 #[cfg(feature = "engine")]
+mod vm_api_viewport;
+#[cfg(feature = "engine")]
 pub(crate) mod wasm_payload;
 pub(crate) mod webidl_sequence;
 mod well_known;
