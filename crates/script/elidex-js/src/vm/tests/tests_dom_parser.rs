@@ -755,3 +755,71 @@ fn dom_parser_and_serializer_no_op_after_unbind_without_throwing() {
     ",
     );
 }
+
+#[test]
+fn dom_parser_attaches_form_control_state_inside_template_content() {
+    let (mut vm, _s, _d) = bound_vm();
+    // Codex R5: a control inside `<template>` content (a detached
+    // `DocumentFragment`, HTML §4.12.3) must still receive `FormControlState`
+    // during the inert build, so its `.value` reflects the parsed `value`
+    // attribute. `for_each_shadow_inclusive_descendant` does not reach template
+    // contents, so the FCS walk adds a template-content frontier; without it
+    // `template.content.querySelector('input').value` falls back to `''`.
+    assert_true(
+        &mut vm,
+        r#"
+        var parser = new DOMParser();
+        var doc = parser.parseFromString(
+            '<body><template><input value="x"></template></body>', 'text/html');
+        doc.querySelector('template').content.querySelector('input').value === 'x';
+    "#,
+    );
+    vm.unbind();
+}
+
+#[test]
+fn dom_parser_base_maintenance_active_for_parsed_document() {
+    let (mut vm, _s, _d) = bound_vm();
+    // Codex R5: a DOMParser document is a SECOND live `Document` (not the page
+    // `document_root`), so its `<base>` mutations must still drive
+    // `BaseUrlMaintainer`. The `in_document_light_tree` guard now keys on "tree
+    // root is a `Document`" rather than "tree root is THE page root", so
+    // mutating the parsed `<base>`'s href post-parse updates `doc.baseURI`
+    // (exercises the AttributeChange arm; the shared predicate covers
+    // Insert/Remove identically). Absolute hrefs keep this independent of the
+    // deferred caller-URL fallback (`#11-document-url-real-navigation`).
+    assert_true(
+        &mut vm,
+        r#"
+        var parser = new DOMParser();
+        var doc = parser.parseFromString(
+            '<head><base id=b href="https://a.example/x/"></head><body></body>',
+            'text/html');
+        var before = doc.baseURI;
+        doc.querySelector('#b').setAttribute('href', 'https://b.example/y/');
+        before === 'https://a.example/x/' && doc.baseURI === 'https://b.example/y/';
+    "#,
+    );
+    vm.unbind();
+}
+
+#[test]
+fn xml_serializer_rejects_canvas_2d_context_as_non_node() {
+    let (mut vm, _s, _d) = bound_vm();
+    // Codex R5: a `CanvasRenderingContext2D` wrapper deliberately shares its
+    // `<canvas>` entity (which IS a Node), so `serializeToString` must reject it
+    // via the reverse canvas-context brand check rather than serializing the
+    // backing `<canvas>`. Mirrors `node_proto::require_node_arg`.
+    assert_true(
+        &mut vm,
+        r"
+        var canvas = document.createElement('canvas');
+        var ctx = canvas.getContext('2d');
+        var threw = false;
+        try { new XMLSerializer().serializeToString(ctx); }
+        catch (e) { threw = e instanceof TypeError; }
+        threw;
+    ",
+    );
+    vm.unbind();
+}

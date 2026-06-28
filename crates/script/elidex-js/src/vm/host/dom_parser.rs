@@ -351,10 +351,21 @@ fn native_xml_serializer_serialize_to_string(
     // that by requiring a HostObject node wrapper.
     let node_arg = args.first().copied().unwrap_or(JsValue::Undefined);
     let entity = match node_arg {
-        JsValue::Object(id) => match ctx.vm.get_object(id).kind {
-            ObjectKind::HostObject { entity_bits } => elidex_ecs::Entity::from_bits(entity_bits),
-            _ => None,
-        },
+        JsValue::Object(id) => {
+            let host_entity = match ctx.vm.get_object(id).kind {
+                ObjectKind::HostObject { entity_bits } => {
+                    elidex_ecs::Entity::from_bits(entity_bits)
+                }
+                _ => None,
+            };
+            // Reverse half of the canvas-2D-context bidirectional brand: a
+            // `CanvasRenderingContext2D` wrapper deliberately shares its
+            // `<canvas>` entity (which IS a Node), so the `is_node()` check
+            // below would wrongly accept it and serialize the backing
+            // `<canvas>` instead of throwing. Reject it as a non-Node here,
+            // mirroring `node_proto::require_node_arg` (Codex R5).
+            host_entity.filter(|&e| !super::canvas::is_canvas_2d_context_wrapper(ctx.vm, id, e))
+        }
         _ => None,
     };
     let Some(entity) = entity else {

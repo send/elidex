@@ -158,8 +158,29 @@ pub fn parse_into_inert_document(dom: &mut EcsDom, markup: &str, caller_base_url
     // preserves the inert guarantee. Two-phase (collect-then-mutate): the walker
     // borrows `&self` but `create_form_control_state` needs `&mut dom`, so the
     // entity ids are buffered first to avoid the borrow conflict.
+    // Frontier = the document's shadow-inclusive descendants PLUS the
+    // shadow-inclusive descendants of every `<template>`'s content fragment.
+    // A `<template>`'s contents are a DETACHED `DocumentFragment` (HTML §4.12.3
+    // "template contents") that `for_each_shadow_inclusive_descendant` does NOT
+    // reach, so a control inside `<template>` (e.g. `<template><input value=x>`)
+    // would never receive `FormControlState` and
+    // `template.content.querySelector('input').value` would fall back to `''`.
+    // The page parse path reaches these via a whole-world `init_form_controls`
+    // query; this subtree-scoped walk (subtree-scoped to avoid clobbering the
+    // page document) must add the template-content frontier itself (Codex R5).
+    // Templates nest, so walk the content fragments to a fixpoint.
     let mut subtree: Vec<Entity> = Vec::new();
-    dom.for_each_shadow_inclusive_descendant(doc, &mut |e| subtree.push(e));
+    let mut roots = vec![doc];
+    while let Some(root) = roots.pop() {
+        let mut found: Vec<Entity> = Vec::new();
+        dom.for_each_shadow_inclusive_descendant(root, &mut |e| found.push(e));
+        for &e in &found {
+            if let Some(fragment) = dom.template_contents_fragment(e) {
+                roots.push(fragment);
+            }
+        }
+        subtree.extend(found);
+    }
     for entity in subtree {
         let _ = create_form_control_state(dom, entity);
     }

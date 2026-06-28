@@ -555,8 +555,8 @@ fn base_inside_shadow_tree_does_not_affect_document_base_uri() {
     // filter only suppresses events where the node OR parent IS a
     // ShadowRoot; deeper shadow-tree mutations (`<base>` nested 1+
     // levels into shadow) reach BaseUrlMaintainer.  The
-    // `in_main_light_tree` early-return in each arm enforces the
-    // carve-out.
+    // `in_document_light_tree` early-return in each arm enforces the
+    // carve-out (the tree root is a `ShadowRoot`, not a `Document`).
     let mut vm = Vm::new();
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
