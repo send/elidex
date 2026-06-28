@@ -7,7 +7,9 @@ use elidex_script_session::{
 };
 
 use super::tree::validate_attribute_name;
-use crate::util::{require_attrs, require_live_element, require_string_arg};
+use crate::util::{
+    lowercase_attr_name_if_html, require_attrs, require_live_element, require_string_arg,
+};
 
 // ---------------------------------------------------------------------------
 // getAttribute
@@ -102,11 +104,15 @@ impl DomApiHandler for RemoveAttribute {
         // qualified name (unlike `setAttribute` / `toggleAttribute`, whose
         // step 1 throws `InvalidCharacterError` for an invalid local name). An
         // invalid or absent name is a no-op here, never a throw. The name is
-        // ASCII-lowercased (the removal's "get an attribute by name" lookup
-        // lowercases for the HTML-namespace + HTML-document case). B2-Slice-1
+        // ASCII-lowercased ONLY for an HTML-namespace element (§4.9's "get an
+        // attribute by name" lowercases solely for the HTML-namespace +
+        // HTML-document case) — SVG / MathML attributes are stored case-
+        // preserved by the parser, so `svg.removeAttribute('viewBox')` must key
+        // on `viewBox`, not `viewbox`, else it silently misses the stored
+        // attribute (Codex R3). B2-Slice-1
         // converged the VM `removeAttribute` native onto this handler, which
         // surfaced + fixed the prior spec-wrong validate-on-remove.
-        let name = require_string_arg(args, 0)?.to_ascii_lowercase();
+        let name = lowercase_attr_name_if_html(dom, this, require_string_arg(args, 0)?);
         // Uniform with the rest of the Element attribute surface
         // (setAttribute / toggleAttribute / *AttributeNode): a stale /
         // non-Element receiver errors rather than silently no-op'ing —

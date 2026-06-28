@@ -8,7 +8,9 @@ use elidex_script_session::{
 };
 
 use super::tree::validate_attribute_name;
-use crate::util::{require_attrs, require_live_element, require_string_arg};
+use crate::util::{
+    lowercase_attr_name_if_html, require_attrs, require_live_element, require_string_arg,
+};
 
 // hasAttribute (§7i)
 // ---------------------------------------------------------------------------
@@ -54,8 +56,13 @@ impl DomApiHandler for ToggleAttribute {
         dom: &mut EcsDom,
     ) -> Result<JsValue, DomApiError> {
         let raw_name = require_string_arg(args, 0)?;
+        // §4.9 step 1 validates the qualified name (unlike removeAttribute);
+        // keep that. The lowercasing in the later "set/remove an attribute by
+        // name" steps applies ONLY to HTML-namespace elements — SVG / MathML
+        // attributes are stored case-preserved, so `svg.toggleAttribute('viewBox')`
+        // must operate on `viewBox`, not `viewbox` (Codex R3).
         validate_attribute_name(&raw_name)?;
-        let name = raw_name.to_ascii_lowercase();
+        let name = lowercase_attr_name_if_html(dom, this, raw_name);
 
         let force = match args.get(1) {
             Some(JsValue::Bool(b)) => Some(*b),

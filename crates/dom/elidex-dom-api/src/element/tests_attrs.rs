@@ -564,6 +564,92 @@ fn toggle_attribute_style_off_invalidates_inline_style_cache() {
 // saw className/id/dataset writes.
 // -----------------------------------------------------------------------
 
+// -----------------------------------------------------------------------
+// Foreign-namespace (SVG / MathML) attribute case preservation (Codex R3)
+//
+// WHATWG DOM §4.9 lowercases an attribute's qualified name ONLY for an
+// HTML-namespace element in an HTML document; the parser stores SVG / MathML
+// attributes case-preserved (`viewBox`). The B2 convergence routed
+// removeAttribute / toggleAttribute through these handlers, which previously
+// lowercased UNCONDITIONALLY — so `svg.removeAttribute('viewBox')` looked up
+// `viewbox`, missed the stored attribute, and emitted no record. The handlers
+// now gate the lowercasing on `EcsDom::is_html_namespace`.
+// -----------------------------------------------------------------------
+
+/// Build an SVG-namespace element carrying a case-preserved `viewBox`
+/// attribute (mirroring the parser's foreign-content path) plus a session
+/// wrapper so the handler can be dispatched.
+fn setup_svg_with_view_box() -> (EcsDom, Entity, SessionCore) {
+    let mut dom = EcsDom::new();
+    let svg = dom.create_element_ns(
+        "svg",
+        elidex_ecs::Namespace::Svg,
+        Attributes::default(),
+        None,
+    );
+    {
+        let mut attrs = dom.world_mut().get::<&mut Attributes>(svg).unwrap();
+        attrs.set("viewBox", "0 0 10 10");
+    }
+    let mut session = SessionCore::new();
+    session.get_or_create_wrapper(svg, ComponentKind::Element);
+    (dom, svg, session)
+}
+
+#[test]
+fn remove_attribute_svg_preserves_case_and_records() {
+    let (mut dom, svg, mut session) = setup_svg_with_view_box();
+    assert!(!dom.is_html_namespace(svg), "precondition: SVG element");
+
+    RemoveAttribute
+        .invoke(
+            svg,
+            &[JsValue::String("viewBox".into())],
+            &mut session,
+            &mut dom,
+        )
+        .unwrap();
+
+    // The case-preserved attribute was actually removed (not missed via a
+    // wrongly-lowercased `viewbox` lookup).
+    let attrs = dom.world().get::<&Attributes>(svg).unwrap();
+    assert!(
+        !attrs.contains("viewBox"),
+        "svg.removeAttribute('viewBox') must remove the stored case-preserved attribute"
+    );
+    // And a §4.9 "attributes" MutationObserver record was produced.
+    assert!(
+        !session.take_notify_records().is_empty(),
+        "a removed foreign-namespace attribute must still produce a record"
+    );
+}
+
+#[test]
+fn toggle_attribute_off_svg_preserves_case_and_records() {
+    let (mut dom, svg, mut session) = setup_svg_with_view_box();
+    assert!(!dom.is_html_namespace(svg), "precondition: SVG element");
+
+    let result = ToggleAttribute
+        .invoke(
+            svg,
+            &[JsValue::String("viewBox".into()), JsValue::Bool(false)],
+            &mut session,
+            &mut dom,
+        )
+        .unwrap();
+    assert_eq!(result, JsValue::Bool(false));
+
+    let attrs = dom.world().get::<&Attributes>(svg).unwrap();
+    assert!(
+        !attrs.contains("viewBox"),
+        "svg.toggleAttribute('viewBox', false) must remove the stored case-preserved attribute"
+    );
+    assert!(
+        !session.take_notify_records().is_empty(),
+        "a removed foreign-namespace attribute must still produce a record"
+    );
+}
+
 #[test]
 fn classname_id_dataset_setters_dispatch_mutation_event() {
     use crate::test_util::AttrChangeCounter;
