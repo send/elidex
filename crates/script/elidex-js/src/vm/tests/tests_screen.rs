@@ -162,6 +162,23 @@ fn screen_brand_check_on_alien_receiver() {
 }
 
 #[test]
+fn pixel_depth_brand_check_names_pixel_depth() {
+    // Codex R5: `pixelDepth` and `colorDepth` share one native body, but the
+    // illegal-invocation TypeError must name the ACTUAL getter — `pixelDepth`,
+    // not `colorDepth`.
+    let mut vm = Vm::new();
+    let msg = eval_string(
+        &mut vm,
+        "var d = Object.getOwnPropertyDescriptor(Screen.prototype, 'pixelDepth'); \
+         var m = ''; try { d.get.call({}); } catch (e) { m = e.message; } m",
+    );
+    assert!(
+        msg.contains("pixelDepth") && !msg.contains("colorDepth"),
+        "pixelDepth getter TypeError must name pixelDepth, got: {msg}"
+    );
+}
+
+#[test]
 fn structured_clone_screen_throws_data_clone_error() {
     // T4: `Screen` is not [Serializable] — `structuredClone(screen)` throws
     // DataCloneError (it does NOT silently clone the accessor-only object to {}).

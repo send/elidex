@@ -446,9 +446,13 @@ impl VmInner {
                 // through `globals` because (unlike the prior writable-global
                 // install) `window.screen` / `window.visualViewport` are now
                 // no-setter RO accessors returning the cached singleton — so the
-                // instances are NOT `globals` values and need an explicit root;
-                // both are cleared on `Vm::unbind` (the `localStorage` /
-                // crypto-instance precedent).
+                // instances are NOT `globals` values and need an explicit root.
+                // Both SURVIVE `Vm::unbind` (the BATCH-BIND model — `unbind`
+                // closes every batch, not only a navigation — so clearing would
+                // break `[SameObject]` + drop VisualViewport listeners across
+                // batches, Codex R4-B); this explicit root keeps them alive while
+                // cached. Cross-DOM identity reset on a real navigation is
+                // world-id's job (`#11-wrapper-cache-cross-dom-discriminator`).
                 #[cfg(feature = "engine")]
                 self.screen_prototype,
                 #[cfg(not(feature = "engine"))]

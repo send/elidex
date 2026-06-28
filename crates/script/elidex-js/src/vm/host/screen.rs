@@ -148,7 +148,7 @@ const SCREEN_RO_ACCESSORS: &[(&str, NativeFn)] = &[
     ("availWidth", native_screen_get_avail_width),
     ("availHeight", native_screen_get_avail_height),
     ("colorDepth", native_screen_get_color_depth),
-    ("pixelDepth", native_screen_get_color_depth),
+    ("pixelDepth", native_screen_get_pixel_depth),
 ];
 
 /// WebIDL branded-receiver gate for `Screen.prototype.*` attribute getters.
@@ -212,15 +212,36 @@ fn native_screen_get_avail_height(
     Ok(JsValue::Number(ctx.vm.viewport.avail_height.trunc()))
 }
 
-/// `screen.colorDepth` / `screen.pixelDepth` (CSSOM-View §4.3) — the universal
-/// `24` (8 bits per RGB channel) every browser returns. The exact value, not a
-/// placeholder (a deeper-color device-fact transport is not a thing the engine
-/// needs to represent).
+/// `screen.colorDepth` (CSSOM-View §4.3) — the universal `24` (8 bits per RGB
+/// channel) every browser returns. The exact value, not a placeholder (a
+/// deeper-color device-fact transport is not a thing the engine needs to
+/// represent).
 fn native_screen_get_color_depth(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    require_screen_this(ctx, this, "colorDepth")?;
+    screen_color_depth(ctx, this, "colorDepth")
+}
+
+/// `screen.pixelDepth` (CSSOM-View §4.3) — the same `24` as `colorDepth`
+/// ("the same value … for compatibility reasons"), but with its OWN attribute
+/// name so an illegal-invocation TypeError reports `pixelDepth`, not `colorDepth`.
+fn native_screen_get_pixel_depth(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    screen_color_depth(ctx, this, "pixelDepth")
+}
+
+/// Shared body for `colorDepth` / `pixelDepth`: the branded-receiver gate (naming
+/// `attr` in its TypeError) then the constant `24`.
+fn screen_color_depth(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    attr: &str,
+) -> Result<JsValue, VmError> {
+    require_screen_this(ctx, this, attr)?;
     Ok(JsValue::Number(24.0))
 }

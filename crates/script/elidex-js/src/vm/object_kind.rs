@@ -730,8 +730,10 @@ pub enum ObjectKind {
     /// `structuredClone(screen)` throws `DataCloneError` (not `[Serializable]`)
     /// rather than silently cloning the accessor-only object to `{}`. Per-window
     /// singleton cached in `VmInner::screen_instance` (rooted + SameObject),
-    /// cleared on `Vm::unbind` (the `localStorage` cross-DOM precedent). Sibling
-    /// of [`Self::VisualViewport`] minus the EventTarget surface. S5-2.
+    /// SURVIVING `Vm::unbind` (the BATCH-BIND model — `unbind` closes every
+    /// batch, not only a navigation; payload-free device-fact reader with no
+    /// per-origin state to scrub). Sibling of [`Self::VisualViewport`] minus the
+    /// EventTarget surface. S5-2.
     ///
     /// GC contract: payload-free — nothing to trace or prune (the `DOMParser` /
     /// `TextEncoder` precedent).
@@ -745,8 +747,9 @@ pub enum ObjectKind {
     /// `is_non_node_event_target` → `DispatchTarget::VmObject`)
     /// and the WebIDL attribute-getter brand check.  Per-window
     /// singleton cached in `VmInner::visual_viewport_instance` (rooted via
-    /// the GC proto-roots + SameObject), cleared on `Vm::unbind` (the
-    /// `localStorage` cross-DOM precedent), so it is never
+    /// the GC proto-roots + SameObject), SURVIVING `Vm::unbind` (the
+    /// BATCH-BIND model — clearing would break `[SameObject]` and drop a
+    /// `resize` listener across batch rebinds, Codex R4-B), so it is never
     /// listener-only-rooted (S5-2).  The `window.visualViewport` accessor is
     /// a no-setter RO accessor returning this cached singleton — not a
     /// writable `globals` entry.
