@@ -378,6 +378,41 @@ pub trait HostDriver {
     /// [`deliver_resize_observations`](Self::deliver_resize_observations)).
     fn deliver_media_query_changes(&mut self);
 
+    // ── monitor-dimensions transport (per-window; S5-2 window parity) ───────
+    //
+    // `screen.width` / `.height` / `.availWidth` / `.availHeight` (CSSOM-View
+    // §4.3) report the MONITOR (display) CSS-px size — a device fact DISTINCT
+    // from the layout viewport (`innerWidth`). Unlike `set_media_environment`,
+    // monitor dims are NOT a media-query input and have NO `change` event, so
+    // this is a pure state push with NO paired delivery turn (the shell observes
+    // `current_monitor()` and pushes; the producer wiring rides the boa→VM
+    // cutover, S5-6; the VM path is exercised by VM tests).
+
+    /// Push the monitor (display) dimensions in CSS px (CSSOM-View §4.3) so
+    /// `screen.width` / `.height` / `.availWidth` / `.availHeight` read the new
+    /// values. A pure state push — there is no `change` event for `screen` and
+    /// monitor dims are not a media input, so (unlike
+    /// [`set_media_environment`](Self::set_media_environment)) there is no paired
+    /// delivery method. `avail_*` is the OS-chrome-excluded available area (the
+    /// full monitor dims until a work-area source lands).
+    fn set_screen_dimensions(
+        &mut self,
+        width: f64,
+        height: f64,
+        avail_width: f64,
+        avail_height: f64,
+    );
+
+    /// Run the CSSOM-View §12.1 `VisualViewport` report-changes pass: diff the
+    /// current viewport geometry against the producer's stored prior and fire
+    /// `resize` (size change) / `scroll`+`scrollend` (scroll-offset change) at
+    /// the `visualViewport` singleton. Per-axis (a resize-only deliver fires no
+    /// `scroll`/`scrollend`); the first deliver after a bind fires nothing. The
+    /// shell calls this from its update-the-rendering step after a resize /
+    /// scroll-echo (the `VisualViewport` sibling of
+    /// [`deliver_media_query_changes`](Self::deliver_media_query_changes)).
+    fn deliver_visual_viewport_events(&mut self);
+
     // ── host-resource install (construction-adjacent) ──────────────────────
 
     /// Install the `NetworkHandle` the `fetch()` host global uses. Without one,

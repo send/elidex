@@ -11,7 +11,7 @@
 //!       → Object.prototype
 //! ```
 //!
-//! ## S5-2 design — real EventTarget, not a stub
+//! ## Real EventTarget + live event producer (S5-2)
 //!
 //! boa exposed `visualViewport` as a plain object with **stub** (no-op)
 //! `addEventListener` / `removeEventListener`. The VM makes it a genuine
@@ -21,51 +21,49 @@
 //! [`DispatchTarget::VmObject`](super::dispatch_target::DispatchTarget), gated by
 //! [`ObjectKind::is_non_node_event_target`](super::super::value::ObjectKind::is_non_node_event_target)),
 //! and `onresize` / `onscroll` / `onscrollend` are event-handler IDL attributes.
-//! This is the spec-faithful shape (CSSOM-View §12.1 `: EventTarget`) and
-//! strictly exceeds boa (real listener storage vs. silently-dropped stubs).
 //!
-//! ## Singleton + GC
+//! The `resize` / `scroll` / `scrollend` events fire through a **real VM
+//! producer** ([`VmInner::deliver_visual_viewport_events`], modeled on
+//! [`VmInner::deliver_media_query_changes`]): it diffs the current
+//! `ViewportState` geometry against the stored
+//! [`visual_viewport_delivered`](super::super::VmInner::visual_viewport_delivered)
+//! prior and fires each changed event at the singleton (per-axis: `resize` on a
+//! size change, `scroll` on a scroll-offset change, `scrollend` only when
+//! `scroll` fired). The live shell call-site rides the S5-6 flip; until then the
+//! producer is exercised by VM tests.
 //!
-//! `window.visualViewport` is a `[SameObject]` per-window singleton, created
-//! once at registration and held as a fixed `globals` entry (the `navigator` /
-//! `screen` precedent): every read resolves the same `ObjectId` (SameObject for
-//! free) and the `globals` map roots it (a GC root). It is therefore **never**
-//! kept alive only by a listener, so the listener-keepalive-rooting hazard the
-//! generic mechanism `#11-eventtarget-listener-keepalive-rooting` (S5-3) covers
-//! does **not** apply here (it is a permanently-rooted singleton, like `window`
-//! itself). The brand is payload-free; GC has nothing to trace or prune (the
-//! `TextEncoder` / `MediaQueryList`-prototype precedent).
+//! ## Singleton + identity + GC
 //!
-//! ## Geometry source + deferred fidelity (presence-first)
-//!
-//! The seven `readonly attribute double`s are value-derived getters reading the
-//! single transported device-facts SoT
-//! [`ViewportState`](super::window::ViewportState):
-//!
-//! - `width` / `height` → the visual viewport size = `inner_width` /
-//!   `inner_height` (equal to the layout viewport when `scale == 1`).
-//! - `pageLeft` / `pageTop` → the page-relative offset = `scroll_x` / `scroll_y`
-//!   (layout-viewport scroll + the visual `offsetLeft`/`offsetTop`, which are 0).
-//! - `offsetLeft` / `offsetTop` → `0` and `scale` → `1` — the **exact** values
-//!   for a UA with no pinch-zoom (which the engine does not model), not
-//!   placeholders.
-//!
-//! The `resize` / `scroll` / `scrollend` events have no shell producer yet, so
-//! they never fire (listeners are stored, just not invoked — the same pre-producer
-//! state `MediaQueryList` was in before `deliver_media_query_changes`). A
-//! pinch-zoom + visual-viewport-event producer (live `scale` / `offset` + event
-//! delivery) is deferred to slot `#11-s5-2-window-parity-live-producers`.
+//! `window.visualViewport` is a `[SameObject, Replaceable]` readonly attribute
+//! of type `VisualViewport?` (CSSOM-View §4 — nullable). It is installed as a
+//! **no-setter RO accessor on `Window.prototype`** whose getter returns the
+//! cached singleton `ObjectId` (the `localStorage` / `[SameObject]` form),
+//! normalizing it onto the same treatment its sibling `[Replaceable]` Window
+//! attrs (`innerWidth` / `scrollX` / `devicePixelRatio`) already use — replacing
+//! the anomalous writable `globals.insert`. (Proper `[Replaceable]`
+//! value-shadowing is implemented for NONE of the family → deferred engine-wide,
+//! `#11-window-platform-object-rigor-engine-wide`.) The singleton is cached in
+//! `VmInner::visual_viewport_instance` (rooted via the GC proto-roots, SameObject
+//! for free) and **cleared on `Vm::unbind`** alongside the `vv_delivered` prior
+//! (the `localStorage` cross-DOM precedent) so the producer never fires at a
+//! stale `ObjectId` from a prior `EcsDom`. The brand is payload-free; GC has
+//! nothing to trace or prune.
 
 #![cfg(feature = "engine")]
 
 use super::super::shape::PropertyAttrs;
-use super::super::value::{JsValue, NativeContext, Object, ObjectKind, PropertyStorage, VmError};
+use super::super::value::{
+    JsValue, NativeContext, Object, ObjectId, ObjectKind, PropertyStorage, PropertyValue, VmError,
+};
 use super::super::{NativeFn, VmInner};
+use super::event_target_dispatch_vm::fire_vm_event;
+use super::events::EventInit;
 
 impl VmInner {
-    /// Allocate `VisualViewport.prototype`, the illegal-constructor interface
-    /// object, and the per-window singleton instance, exposing
-    /// `window.visualViewport` + the `VisualViewport` global.
+    /// Allocate `VisualViewport.prototype` + the illegal-constructor interface
+    /// object, exposing the `VisualViewport` global. The per-window singleton
+    /// instance is allocated lazily by the `window.visualViewport` RO-accessor
+    /// getter ([`Self::alloc_or_cached_visual_viewport`]).
     ///
     /// Called from `register_globals()` **after**
     /// [`Self::register_event_target_prototype`] (the prototype chains to
@@ -109,6 +107,7 @@ impl VmInner {
                 PropertyAttrs::WEBIDL_RO_ACCESSOR,
             );
         }
+        self.visual_viewport_prototype = Some(proto_id);
 
         // ---- VisualViewport interface object ----
         // WebIDL: `VisualViewport` declares NO constructor — `new
@@ -123,20 +122,166 @@ impl VmInner {
         self.wire_interface_ctor_prototype(ctor, proto_id);
         let ctor_name = self.strings.intern("VisualViewport");
         self.globals.insert(ctor_name, JsValue::Object(ctor));
+    }
 
-        // ---- the per-window singleton instance ----
-        // Created once, held as a fixed `globals` entry: SameObject for free
-        // (every `window.visualViewport` read resolves the same id) + rooted by
-        // the `globals` GC root, so it is never listener-only-rooted (§module
-        // docs: the S5-3 keepalive hazard does not apply).
-        let instance = self.alloc_object(Object {
+    /// Return the cached `VisualViewport` singleton, allocating it on the first
+    /// `window.visualViewport` read. `[SameObject]`: the same `ObjectId` across
+    /// reads for one bind cycle (cleared on `Vm::unbind`).
+    ///
+    /// **Seeds [`Self::visual_viewport_delivered`]** (the producer's diff prior)
+    /// to the current `ViewportState` geometry **at allocation** — the exact
+    /// [`Self::create_media_query_list`] `last_matches` seed parallel. Because
+    /// the producer resolves the singleton through THIS same getter, the seed
+    /// happens-before the producer's first diff-read by construction, so the
+    /// first `deliver_visual_viewport_events` after creation (or after an unbind
+    /// that reset the prior to `None`) fires NOTHING spuriously.
+    pub(in crate::vm) fn alloc_or_cached_visual_viewport(&mut self) -> ObjectId {
+        if let Some(id) = self.visual_viewport_instance {
+            return id;
+        }
+        let proto = self
+            .visual_viewport_prototype
+            .expect("alloc_or_cached_visual_viewport before register_visual_viewport_global");
+        let id = self.alloc_object(Object {
             kind: ObjectKind::VisualViewport,
             storage: PropertyStorage::shaped(super::super::shape::ROOT_SHAPE),
-            prototype: Some(proto_id),
+            prototype: Some(proto),
             extensible: true,
         });
-        let attr_name = self.strings.intern("visualViewport");
-        self.globals.insert(attr_name, JsValue::Object(instance));
+        self.visual_viewport_instance = Some(id);
+        // Seed the diff prior at construction (the `last_matches` parallel) so
+        // the first deliver diffs against the real starting geometry.
+        if self.visual_viewport_delivered.is_none() {
+            self.visual_viewport_delivered = Some(current_vv_geometry(self));
+        }
+        id
+    }
+
+    /// CSSOM-View §12.1 producer — the per-turn report-changes pass for
+    /// `VisualViewport`. Diffs the current `ViewportState` geometry against the
+    /// [`Self::visual_viewport_delivered`] prior and fires, **per axis**, a
+    /// trusted plain `Event` at the singleton:
+    ///
+    /// - `resize` ⇐ the `(width, height)` pair changed vs the prior;
+    /// - `scroll` ⇐ the `(scroll_x, scroll_y)` pair changed vs the prior;
+    /// - `scrollend` ⇐ **only when `scroll` fired** (a resize-only deliver must
+    ///   NOT fire `scroll`/`scrollend`; the shell echoes discrete settled
+    ///   offsets, so each settled scroll fires `scroll`+`scrollend` — momentum /
+    ///   gesture-end debounce timing is `#11-screen-available-area-workarea-source`'s
+    ///   shell-input-fidelity tail).
+    ///
+    /// Mirrors [`Self::deliver_media_query_changes`]: a no-op while unbound (no
+    /// JS context to fire into), resolves the singleton through
+    /// [`Self::alloc_or_cached_visual_viewport`] (which seeds the prior on first
+    /// alloc, so a first deliver fires nothing), advances the prior after each
+    /// deliver, and ends on a microtask checkpoint. The shell drives this from
+    /// its update-the-rendering step after a resize / scroll-echo (the call-site
+    /// rides the S5-6 flip); VM tests drive it directly.
+    pub(in crate::vm) fn deliver_visual_viewport_events(&mut self) {
+        if !self
+            .host_data
+            .as_deref()
+            .is_some_and(super::super::host_data::HostData::is_bound)
+        {
+            return;
+        }
+
+        // Resolve (and lazily seed) the singleton through the shared getter — the
+        // same resolution path the RO accessor uses, so the diff prior is the one
+        // seeded at allocation. After this call `visual_viewport_delivered` is
+        // `Some` (seeded by the getter on first alloc, else carried forward).
+        let target = self.alloc_or_cached_visual_viewport();
+        let (now_width, now_height, now_scroll_x, now_scroll_y) = current_vv_geometry(self);
+        let (prev_width, prev_height, prev_scroll_x, prev_scroll_y) = self
+            .visual_viewport_delivered
+            .expect("alloc_or_cached_visual_viewport seeds visual_viewport_delivered");
+
+        let resized = now_width != prev_width || now_height != prev_height;
+        let scrolled = now_scroll_x != prev_scroll_x || now_scroll_y != prev_scroll_y;
+
+        // Advance the prior BEFORE firing (the `last_matches` discipline) so a
+        // listener that re-reads geometry or triggers a re-entrant deliver sees
+        // the settled state and the re-entrant deliver is a no-op for this axis.
+        self.visual_viewport_delivered = Some((now_width, now_height, now_scroll_x, now_scroll_y));
+
+        if resized || scrolled {
+            let shape = self
+                .precomputed_event_shapes
+                .as_ref()
+                .expect("precomputed_event_shapes built during VM init")
+                .core;
+            // Plain (non-bubbling, non-cancelable) `Event`s — VisualViewport's
+            // resize/scroll/scrollend carry no extra IDL attributes.
+            let init = EventInit {
+                bubbles: false,
+                cancelable: false,
+                composed: false,
+            };
+            // Root the singleton across the fires (the MQL `push_temp_root`
+            // discipline): `fire_vm_event` allocates the event object and may
+            // trigger a GC before dispatch. The singleton is already a permanent
+            // GC root (`visual_viewport_instance`), so this is belt-and-suspenders
+            // symmetry with the MQL producer.
+            let mut guard = self.push_temp_root(JsValue::Object(target));
+            let mut ctx = NativeContext::new_call(&mut guard);
+            // `resize` first, then `scroll`, then `scrollend` — the natural
+            // observation order (a settled scroll-with-resize sees the new size
+            // before the new offset). `scrollend` fires only when `scroll` did.
+            if resized {
+                fire_vv_event(&mut ctx, target, "resize", init, shape);
+            }
+            if scrolled {
+                fire_vv_event(&mut ctx, target, "scroll", init, shape);
+                fire_vv_event(&mut ctx, target, "scrollend", init, shape);
+            }
+        }
+
+        // Each pass is its own microtask checkpoint (the `deliver_*` parity),
+        // even when nothing changed.
+        self.drain_microtasks();
+    }
+}
+
+/// Read the current `VisualViewport` geometry tuple `(width, height, scroll_x,
+/// scroll_y)` from the VM-global `ViewportState`. The producer's diff axes:
+/// `width`/`height` back `resize`, `scroll_x`/`scroll_y` back `scroll`.
+fn current_vv_geometry(vm: &VmInner) -> (f64, f64, f64, f64) {
+    (
+        vm.viewport.inner_width,
+        vm.viewport.inner_height,
+        vm.viewport.scroll_x,
+        vm.viewport.scroll_y,
+    )
+}
+
+/// Fire one trusted plain `Event` (`resize`/`scroll`/`scrollend`) at the
+/// `VisualViewport` singleton through the unified EventTarget dispatch core.
+/// `fire_vm_event` gates on a listener internally, so an unobserved event
+/// allocates nothing.
+fn fire_vv_event(
+    ctx: &mut NativeContext<'_>,
+    target: ObjectId,
+    event_type: &str,
+    init: EventInit,
+    shape: super::super::shape::ShapeId,
+) {
+    let type_sid = ctx.vm.strings.intern(event_type);
+    let payload: Vec<PropertyValue> = Vec::new();
+    let _ = fire_vm_event(ctx, target, type_sid, init, shape, None, payload);
+}
+
+impl VmInner {
+    /// Clear the per-VM window-parity singleton caches (`screen` /
+    /// `visualViewport`) and reset the `VisualViewport` event producer's diff
+    /// prior. Called from `Vm::unbind`: the singletons are treated as **per-bind**
+    /// cached singletons (the `localStorage` precedent), not realm-structural
+    /// survivors, so a rebind cannot fire `fire_vm_event` at a stale `ObjectId`
+    /// from a prior `EcsDom` and re-seeds the prior against the new document's
+    /// starting geometry.
+    pub(in crate::vm) fn clear_window_parity_instance_cache(&mut self) {
+        self.screen_instance = None;
+        self.visual_viewport_instance = None;
+        self.visual_viewport_delivered = None;
     }
 }
 
@@ -172,15 +317,36 @@ fn require_visual_viewport_this(
     )))
 }
 
+/// CSSOM-View §12.1 each geometry getter step 1: "If [the associated document]
+/// is not fully active, return 0." In elidex's single-document VM the bound
+/// document is unconditionally fully active (the
+/// `html_dialog_proto.rs` precedent — `not fully active` is folded into
+/// `#11-browsing-context-state-ecs-components`), so this predicate is always
+/// `true` today; the branch is implemented (not asserted-away) so a future
+/// multi-document model wires a genuine check here rather than re-deriving the
+/// spec step. Returns `false` would make every geometry getter return 0.
+fn vv_associated_document_fully_active(_ctx: &NativeContext<'_>) -> bool {
+    // Single-document model: the window's associated document is always fully
+    // active. (The geometry reads VM-global `ViewportState`, which exists from
+    // VM construction and is intentionally readable across an unbind boundary —
+    // see the `Vm::unbind` viewport comment — so there is no reachable
+    // not-fully-active state to gate on yet.)
+    true
+}
+
 /// `visualViewport.offsetLeft` / `.offsetTop` (CSSOM-View §12.1) — the offset of
 /// the visual viewport from the layout viewport: `0` with no pinch-zoom (the
-/// engine models none), the exact value rather than a placeholder.
+/// engine models none), the exact value rather than a placeholder. §12.1 step 1:
+/// not fully active → 0 (unconditionally fully active here).
 fn native_vv_get_offset_left(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     require_visual_viewport_this(ctx, this, "offsetLeft")?;
+    if !vv_associated_document_fully_active(ctx) {
+        return Ok(JsValue::Number(0.0));
+    }
     Ok(JsValue::Number(0.0))
 }
 
@@ -190,18 +356,24 @@ fn native_vv_get_offset_top(
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     require_visual_viewport_this(ctx, this, "offsetTop")?;
+    if !vv_associated_document_fully_active(ctx) {
+        return Ok(JsValue::Number(0.0));
+    }
     Ok(JsValue::Number(0.0))
 }
 
 /// `visualViewport.pageLeft` / `.pageTop` (CSSOM-View §12.1) — the page-relative
 /// offset = layout-viewport scroll (`scroll_x`/`scroll_y`) + the visual
-/// `offsetLeft`/`offsetTop` (which are 0).
+/// `offsetLeft`/`offsetTop` (which are 0). §12.1 step 1: not fully active → 0.
 fn native_vv_get_page_left(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     require_visual_viewport_this(ctx, this, "pageLeft")?;
+    if !vv_associated_document_fully_active(ctx) {
+        return Ok(JsValue::Number(0.0));
+    }
     Ok(JsValue::Number(ctx.vm.viewport.scroll_x))
 }
 
@@ -211,18 +383,24 @@ fn native_vv_get_page_top(
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     require_visual_viewport_this(ctx, this, "pageTop")?;
+    if !vv_associated_document_fully_active(ctx) {
+        return Ok(JsValue::Number(0.0));
+    }
     Ok(JsValue::Number(ctx.vm.viewport.scroll_y))
 }
 
 /// `visualViewport.width` / `.height` (CSSOM-View §12.1) — the visual viewport
 /// size, equal to the layout viewport (`inner_width`/`inner_height`) when
-/// `scale == 1`.
+/// `scale == 1`. §12.1 step 1: not fully active → 0.
 fn native_vv_get_width(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     require_visual_viewport_this(ctx, this, "width")?;
+    if !vv_associated_document_fully_active(ctx) {
+        return Ok(JsValue::Number(0.0));
+    }
     Ok(JsValue::Number(ctx.vm.viewport.inner_width))
 }
 
@@ -232,16 +410,25 @@ fn native_vv_get_height(
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     require_visual_viewport_this(ctx, this, "height")?;
+    if !vv_associated_document_fully_active(ctx) {
+        return Ok(JsValue::Number(0.0));
+    }
     Ok(JsValue::Number(ctx.vm.viewport.inner_height))
 }
 
-/// `visualViewport.scale` (CSSOM-View §12.1) — the pinch-zoom scale factor: `1`
-/// with no pinch-zoom (exact, not a placeholder).
+/// `visualViewport.scale` (CSSOM-View §12.1) — the pinch-zoom scale factor. The
+/// getter has three steps: (1) not fully active → 0; (2) no output device → 1;
+/// (3) otherwise → the visual viewport's scale factor. elidex models no
+/// pinch-zoom on a UA with an output device, so steps 2+3 collapse to the
+/// constant `1`.
 fn native_vv_get_scale(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     require_visual_viewport_this(ctx, this, "scale")?;
+    if !vv_associated_document_fully_active(ctx) {
+        return Ok(JsValue::Number(0.0));
+    }
     Ok(JsValue::Number(1.0))
 }

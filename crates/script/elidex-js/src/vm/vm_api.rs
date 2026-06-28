@@ -778,6 +778,16 @@ impl Vm {
             // measure — drops the GC roots so the wrappers can be
             // collected and re-allocated lazily after the next bind.
             self.inner.clear_crypto_instance_cache();
+            // Cached `screen` / `visualViewport` singletons + the
+            // VisualViewport event-producer diff prior (S5-2).  Treated as
+            // per-bind singletons (the `localStorage` precedent): the wrappers
+            // derive entirely from the VM-global `ViewportState` (no per-origin
+            // payload), but clearing on unbind avoids the producer firing
+            // `fire_vm_event` at a stale `ObjectId` from a prior `EcsDom` after a
+            // rebind (two `EcsDom` worlds share the entity/ObjectId space), and
+            // re-seeds the diff prior against the next document's starting
+            // geometry on the next lazy alloc.
+            self.inner.clear_window_parity_instance_cache();
             // D-17 `#11-custom-elements-vm` — drop the cached
             // `customElements` singleton wrapper so it can be re-
             // allocated lazily on the next bind. The registry state
@@ -1116,6 +1126,46 @@ impl Vm {
     #[cfg(feature = "engine")]
     pub fn deliver_media_query_changes(&mut self) {
         self.inner.deliver_media_query_changes();
+    }
+
+    /// Push the **monitor** (display) dimensions in CSS px into the single
+    /// `ViewportState` device-facts SoT, so `screen.width` / `.height` /
+    /// `.availWidth` / `.availHeight` (CSSOM-View §4.3) read the new values. A
+    /// **pure state push, no delivery turn** — monitor dims are NOT a
+    /// `MediaEnvironment` input (no media feature reads them) and there is no
+    /// `change` event for `screen`, so this does NOT route through
+    /// `set_media_environment` / `deliver_media_query_changes`. The sibling of
+    /// [`Self::set_media_environment`] for a different device-fact axis. Backs
+    /// [`HostDriver::set_screen_dimensions`](elidex_script_session::HostDriver::set_screen_dimensions);
+    /// VM tests call it directly. The CSS-px conversion from physical
+    /// `current_monitor().size()` happens at the shell producer (which rides the
+    /// S5-6 flip), keeping this a pure transport.
+    #[cfg(feature = "engine")]
+    pub fn set_screen_dimensions(
+        &mut self,
+        width: f64,
+        height: f64,
+        avail_width: f64,
+        avail_height: f64,
+    ) {
+        let vp = &mut self.inner.viewport;
+        vp.screen_width = width;
+        vp.screen_height = height;
+        vp.avail_width = avail_width;
+        vp.avail_height = avail_height;
+    }
+
+    /// Run the CSSOM-View §12.1 `VisualViewport` report-changes pass — diff the
+    /// current viewport geometry against the producer's stored prior and fire
+    /// `resize` (size change) / `scroll`+`scrollend` (scroll-offset change) at
+    /// the `visualViewport` singleton. Per-axis: a resize-only deliver fires no
+    /// `scroll`/`scrollend`. The first deliver after a bind fires nothing (the
+    /// prior is seeded at singleton allocation). Backs
+    /// [`HostDriver::deliver_visual_viewport_events`](elidex_script_session::HostDriver::deliver_visual_viewport_events);
+    /// VM tests call it directly after a geometry change.
+    #[cfg(feature = "engine")]
+    pub fn deliver_visual_viewport_events(&mut self) {
+        self.inner.deliver_visual_viewport_events();
     }
 
     /// Install the per-origin IndexedDB backend (slot `#11-indexed-db-vm`).

@@ -650,6 +650,48 @@ pub(crate) struct VmInner {
     /// lifetime of one bind cycle).  Eager-initialised at
     /// `register_crypto_global()` since `window.crypto` is always
     /// reachable from `globalThis`.  Cleared on `Vm::unbind`.
+    /// `Screen.prototype` (CSSOM-View §4.3). Chains to `Object.prototype`
+    /// (Screen is NOT an EventTarget). Carries the `width` / `height` /
+    /// `availWidth` / `availHeight` / `colorDepth` / `pixelDepth` RO accessors.
+    /// `None` until `register_screen_global()` runs. S5-2.
+    #[cfg(feature = "engine")]
+    pub(crate) screen_prototype: Option<ObjectId>,
+    /// Cached `Screen` singleton wrapper for `window.screen` (`[SameObject]`
+    /// per CSSOM-View §4 — same `ObjectId` across reads for one bind cycle).
+    /// Allocated lazily by the `window.screen` RO-accessor getter
+    /// (`alloc_or_cached_screen`) and cleared on `Vm::unbind` so a retained
+    /// reference cannot alias a prior `EcsDom`'s `ObjectId` space after a
+    /// rebind (the `localStorage` precedent). S5-2.
+    #[cfg(feature = "engine")]
+    pub(crate) screen_instance: Option<ObjectId>,
+    /// `VisualViewport.prototype` (CSSOM-View §12.1). Chains to
+    /// `EventTarget.prototype`. `None` until `register_visual_viewport_global()`
+    /// runs. S5-2.
+    #[cfg(feature = "engine")]
+    pub(crate) visual_viewport_prototype: Option<ObjectId>,
+    /// Cached `VisualViewport` singleton wrapper for `window.visualViewport`
+    /// (`[SameObject]` per CSSOM-View §4). Allocated lazily by the
+    /// `window.visualViewport` RO-accessor getter
+    /// (`alloc_or_cached_visual_viewport`), which ALSO seeds
+    /// [`Self::visual_viewport_delivered`] at allocation so the producer's
+    /// first diff fires nothing spuriously. Cleared on `Vm::unbind` (the
+    /// `localStorage` cross-DOM precedent) — treated as a per-bind singleton,
+    /// not a realm-structural survivor, so the producer never fires at a stale
+    /// `ObjectId`. S5-2.
+    #[cfg(feature = "engine")]
+    pub(crate) visual_viewport_instance: Option<ObjectId>,
+    /// The geometry prior the `VisualViewport` event producer
+    /// (`deliver_visual_viewport_events`) diffs against to fire
+    /// `resize`/`scroll`/`scrollend` only on a per-axis change (the
+    /// `MediaQueryEntry::last_matches` flip-prior parallel). Holds `(width,
+    /// height, scroll_x, scroll_y)`. Seeded to the current `ViewportState`
+    /// geometry INSIDE `alloc_or_cached_visual_viewport` (the
+    /// `create_media_query_list` seed parallel) so the seed-write happens-before
+    /// the first diff-read by construction. Reset to `None` on `Vm::unbind`
+    /// alongside the singleton cache so a rebind re-seeds against the new
+    /// document's starting geometry. S5-2.
+    #[cfg(feature = "engine")]
+    pub(crate) visual_viewport_delivered: Option<(f64, f64, f64, f64)>,
     #[cfg(feature = "engine")]
     pub(crate) crypto_instance: Option<ObjectId>,
     /// Cached `SubtleCrypto` wrapper for `crypto.subtle`

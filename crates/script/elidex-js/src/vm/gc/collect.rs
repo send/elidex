@@ -437,7 +437,35 @@ impl VmInner {
                 self.subtle_crypto_instance,
                 #[cfg(not(feature = "engine"))]
                 None,
-                // 72 + 2 = 74 (D-17 `#11-custom-elements-vm`):
+                // 72 + 4 = 76 (S5-2 window-parity): `Screen.prototype` +
+                // `VisualViewport.prototype` follow the same `delete
+                // globalThis.<X>` invariant as every intrinsic prototype above
+                // (the constructor-prototype linkage must not let the prototype
+                // collect behind a severed `Screen` / `VisualViewport` global).
+                // The two cached singleton instances are rooted here rather than
+                // through `globals` because (unlike the prior writable-global
+                // install) `window.screen` / `window.visualViewport` are now
+                // no-setter RO accessors returning the cached singleton — so the
+                // instances are NOT `globals` values and need an explicit root;
+                // both are cleared on `Vm::unbind` (the `localStorage` /
+                // crypto-instance precedent).
+                #[cfg(feature = "engine")]
+                self.screen_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.screen_instance,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.visual_viewport_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.visual_viewport_instance,
+                #[cfg(not(feature = "engine"))]
+                None,
+                // 76 + 2 = 78 (D-17 `#11-custom-elements-vm`):
                 // `customElements` singleton prototype + instance. Same
                 // rationale as the crypto pair above: retained because
                 // `delete globalThis.customElements` must not collect

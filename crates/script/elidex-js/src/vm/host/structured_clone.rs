@@ -311,6 +311,11 @@ fn classify(kind: &ObjectKind) -> CloneKind {
         // attribute); both throw DataCloneError in Chrome / Firefox.
         ObjectKind::DomParser => CloneKind::Unclonable("DOMParser"),
         ObjectKind::XmlSerializer => CloneKind::Unclonable("XMLSerializer"),
+        // CSSOM-View §4.3 — `Screen` is a live per-window singleton, not
+        // [Serializable]; throws DataCloneError in Chrome / Firefox. Without
+        // this arm the accessor-only Ordinary object would clone to `{}`
+        // (DataCloneError-missing regression, T4). S5-2.
+        ObjectKind::Screen => CloneKind::Unclonable("Screen"),
         // CSSOM-View §12.1 — `VisualViewport` is a live per-window
         // `EventTarget` singleton, not [Serializable]; throws DataCloneError in
         // Chrome / Firefox. S5-2.
