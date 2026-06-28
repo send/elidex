@@ -328,9 +328,12 @@ impl EcsDom {
     /// updates do not re-allocate.
     ///
     /// **NOT for Comment nodes** — Comment uses a separate `CommentData`
-    /// component which is NOT covered by Range live-tracking spec (§5.5
-    /// covers Text only, not Comment). Comment data writes go through
-    /// [`Self::replace_comment_data`].
+    /// component. Comment data writes go through
+    /// [`Self::replace_comment_data`], which fires no live-range event:
+    /// per the spec (§4.10 "replace data" steps 8-11) range fixup applies
+    /// to ALL CharacterData, but elidex's range-fixup hook is wired for
+    /// Text / CDATASection only (an implementation limitation, not a
+    /// spec restriction).
     pub fn set_text_data(&mut self, entity: Entity, text: &str) -> Option<usize> {
         let new_utf16_len = {
             let mut tc = self.world.get::<&mut TextContent>(entity).ok()?;
@@ -429,10 +432,13 @@ impl EcsDom {
     /// Primitive UTF-16 splice on a Comment entity's `CommentData`
     /// (WHATWG DOM §4.10 "replace data"). The Comment sibling of
     /// [`Self::replace_text_data`]: splices the data in place and bumps
-    /// [`Self::rev_version`], but fires **no** `MutationEvent` — Comment
-    /// nodes are not covered by Range live-tracking (§5.5 covers Text /
-    /// CDATASection only) and do not participate in style / a11y /
-    /// layout, so no consumer needs a Comment data-change event.
+    /// [`Self::rev_version`], but fires **no** `MutationEvent`. Per the
+    /// spec the §4.10 "replace data" live-range steps (8-11) apply to all
+    /// CharacterData incl. Comment, but elidex's range-fixup hook is wired
+    /// for Text / CDATASection only (implementation limitation — a live
+    /// range anchored in a Comment is not adjusted on data change); Comment
+    /// nodes also do not participate in style / a11y / layout, so no other
+    /// consumer needs the event.
     ///
     /// Returns the new UTF-16 length on success, or `None` if the entity
     /// has no `CommentData` component (the `Option` doubles as the
