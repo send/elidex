@@ -286,9 +286,14 @@ fn size_change_fires_resize_only() {
 }
 
 #[test]
-fn scroll_change_fires_scroll_and_scrollend() {
-    // M2: a scroll-offset change fires `scroll` + `scrollend` (a settled
-    // discrete echo), and NOT `resize` (size unchanged).
+fn layout_scroll_fires_no_visual_viewport_scroll() {
+    // CSSOM-View §13.2: an ordinary layout-viewport scroll is a *document*
+    // scroll (delivered as `window`/document `scroll`), NOT a *visual-viewport*
+    // scroll — the latter fires only on an `offsetLeft`/`offsetTop` (pinch-zoom)
+    // change, which elidex does not model. So a `set_scroll_offset` echo fires
+    // NEITHER `scroll`/`scrollend` NOR `resize`; it only updates
+    // `pageLeft`/`pageTop` silently. (WPT `viewport-scroll-event-manual.html`:
+    // `assert_equals(didGetScrollEvent, scrollChangedOffset)`.)
     with_bound_vm(|vm| {
         vm.eval(
             "globalThis.resizes = 0; globalThis.scrolls = 0; globalThis.scrollends = 0; \
@@ -300,9 +305,17 @@ fn scroll_change_fires_scroll_and_scrollend() {
         vm.deliver_visual_viewport_events();
         vm.set_scroll_offset(40.0, 90.0);
         vm.deliver_visual_viewport_events();
+        // No visual-viewport event fired for a pure layout scroll …
         assert!(eval_bool(
             vm,
-            "scrolls === 1 && scrollends === 1 && resizes === 0"
+            "scrolls === 0 && scrollends === 0 && resizes === 0"
+        ));
+        // … but the page-relative geometry tracked the scroll silently, and the
+        // visual-viewport offset stayed pinned at 0 (no pinch-zoom pan).
+        assert!(eval_bool(
+            vm,
+            "visualViewport.pageLeft === 40 && visualViewport.pageTop === 90 \
+             && visualViewport.offsetLeft === 0 && visualViewport.offsetTop === 0"
         ));
     });
 }
@@ -356,8 +369,10 @@ fn stable_redeliver_does_not_refire() {
 }
 
 #[test]
-fn combined_size_and_scroll_change_fires_all_three() {
-    // A deliver where both axes moved fires resize + scroll + scrollend.
+fn size_change_fires_resize_even_with_concurrent_layout_scroll() {
+    // A deliver where the size changed AND the layout viewport scrolled fires
+    // ONLY `resize`: the concurrent layout scroll is not a visual-viewport
+    // scroll (offset stays 0), so it adds no `scroll`/`scrollend`.
     with_bound_vm(|vm| {
         vm.eval(
             "globalThis.log = []; \
@@ -376,8 +391,8 @@ fn combined_size_and_scroll_change_fires_all_three() {
         );
         vm.set_scroll_offset(10.0, 20.0);
         vm.deliver_visual_viewport_events();
-        // resize before scroll before scrollend.
-        assert!(eval_bool(vm, "log.join('') === 'rse'"));
+        // resize only — the layout scroll fires no visual-viewport scroll.
+        assert!(eval_bool(vm, "log.join('') === 'r'"));
     });
 }
 

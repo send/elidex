@@ -688,18 +688,21 @@ pub(crate) struct VmInner {
     /// `ObjectId`. S5-2.
     #[cfg(feature = "engine")]
     pub(crate) visual_viewport_instance: Option<ObjectId>,
-    /// The geometry prior the `VisualViewport` event producer
-    /// (`deliver_visual_viewport_events`) diffs against to fire
-    /// `resize`/`scroll`/`scrollend` only on a per-axis change (the
-    /// `MediaQueryEntry::last_matches` flip-prior parallel). Holds `(width,
-    /// height, scroll_x, scroll_y)`. Seeded to the current `ViewportState`
-    /// geometry INSIDE `alloc_or_cached_visual_viewport` (the
+    /// The size prior the `VisualViewport` event producer
+    /// (`deliver_visual_viewport_events`) diffs against to fire `resize` on a
+    /// change (the `MediaQueryEntry::last_matches` flip-prior parallel). Holds
+    /// `(width, height)` only: CSSOM-View §13.2 fires the VisualViewport
+    /// `scroll`/`scrollend` events solely on a *visual-viewport offset* change
+    /// (pinch-zoom pan — `offsetLeft`/`offsetTop`), which elidex does not model
+    /// (offset is constant `0`), so the producer has no scroll axis to diff
+    /// (`#11-visual-viewport-pinch-zoom-offset`). Seeded to the current
+    /// `ViewportState` size INSIDE `alloc_or_cached_visual_viewport` (the
     /// `create_media_query_list` seed parallel) so the seed-write happens-before
     /// the first diff-read by construction. Reset to `None` on `Vm::unbind`
     /// alongside the singleton cache so a rebind re-seeds against the new
-    /// document's starting geometry. S5-2.
+    /// document's starting size. S5-2.
     #[cfg(feature = "engine")]
-    pub(crate) visual_viewport_delivered: Option<(f64, f64, f64, f64)>,
+    pub(crate) visual_viewport_delivered: Option<(f64, f64)>,
     /// `CustomElementRegistry.prototype` (HTML §4.13.4). Chains to
     /// `Object.prototype`. `None` until
     /// `register_custom_element_registry_global()` runs during

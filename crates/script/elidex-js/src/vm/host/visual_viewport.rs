@@ -22,15 +22,36 @@
 //! [`ObjectKind::is_non_node_event_target`](super::super::value::ObjectKind::is_non_node_event_target)),
 //! and `onresize` / `onscroll` / `onscrollend` are event-handler IDL attributes.
 //!
-//! The `resize` / `scroll` / `scrollend` events fire through a **real VM
-//! producer** ([`VmInner::deliver_visual_viewport_events`], modeled on
+//! The `resize` event fires through a **real VM producer**
+//! ([`VmInner::deliver_visual_viewport_events`], modeled on
 //! [`VmInner::deliver_media_query_changes`]): it diffs the current
-//! `ViewportState` geometry against the stored
+//! `ViewportState` size against the stored
 //! [`visual_viewport_delivered`](super::super::VmInner::visual_viewport_delivered)
-//! prior and fires each changed event at the singleton (per-axis: `resize` on a
-//! size change, `scroll` on a scroll-offset change, `scrollend` only when
-//! `scroll` fired). The live shell call-site rides the S5-6 flip; until then the
-//! producer is exercised by VM tests.
+//! prior and fires `resize` at the singleton when `(width, height)` changed. The
+//! live shell call-site rides the S5-6 flip; until then the producer is
+//! exercised by VM tests.
+//!
+//! ## Why the producer fires `resize` but never `scroll`/`scrollend`
+//!
+//! CSSOM-View §13.2 distinguishes a **viewport (document) scroll** (fires
+//! `scroll` at the *Document*, which elidex delivers as `window`/document
+//! `scroll`) from a **visual-viewport scroll** (fires `scroll` at the
+//! *VisualViewport*). The latter fires **only when the visual viewport's offset
+//! relative to the layout viewport (`offsetLeft`/`offsetTop`) changes** — i.e.
+//! pinch-zoom pan — NOT on an ordinary layout-viewport/document scroll. This is
+//! the interoperable browser behavior the WPT
+//! `visual-viewport/viewport-scroll-event-manual.html` encodes:
+//! `assert_equals(didGetScrollEvent, scrollChangedOffset)` (the WICG explainer:
+//! "fire a `scroll` event … whenever the `offsetLeft` or `offsetTop` attributes
+//! change"). elidex models no pinch-zoom (`offsetLeft`/`offsetTop` are constant
+//! `0`, `scale` is constant `1`), so the visual viewport never scrolls relative
+//! to the layout viewport and the producer has **no scroll axis to fire**. A
+//! plain `set_scroll_offset` echo updates `pageLeft`/`pageTop` *silently* (no
+//! event), matching the spec. The `onscroll`/`onscrollend` IDL attributes and
+//! the `scroll`/`scrollend` EventTarget surface still exist (a page may register
+//! them); they simply never fire until a pinch-zoom offset model lands
+//! (`#11-visual-viewport-pinch-zoom-offset`), at which point the producer gains
+//! a scroll axis diffing `offsetLeft`/`offsetTop`.
 //!
 //! ## Singleton + identity + GC
 //!
@@ -46,8 +67,14 @@
 //! `VmInner::visual_viewport_instance` (rooted via the GC proto-roots, SameObject
 //! for free) and **cleared on `Vm::unbind`** alongside the `vv_delivered` prior
 //! (the `localStorage` cross-DOM precedent) so the producer never fires at a
-//! stale `ObjectId` from a prior `EcsDom`. The brand is payload-free; GC has
-//! nothing to trace or prune.
+//! stale `ObjectId` from a prior `EcsDom` and a fresh read after a rebind gets a
+//! NEW singleton. A script-retained reference to the old object still reads the
+//! current `ViewportState` (it does not become the §12.1 not-fully-active `0`
+//! object for its old associated document) — the engine-wide cross-DOM
+//! wrapper-aliasing gap shared by every payload-free cached singleton, resolved
+//! by world-id (`#11-wrapper-cache-cross-dom-discriminator`), not a
+//! VisualViewport-only patch. The brand is payload-free; GC has nothing to trace
+//! or prune.
 
 #![cfg(feature = "engine")]
 
@@ -150,33 +177,32 @@ impl VmInner {
         });
         self.visual_viewport_instance = Some(id);
         // Seed the diff prior at construction (the `last_matches` parallel) so
-        // the first deliver diffs against the real starting geometry.
+        // the first deliver diffs against the real starting size.
         if self.visual_viewport_delivered.is_none() {
-            self.visual_viewport_delivered = Some(current_vv_geometry(self));
+            self.visual_viewport_delivered = Some(current_vv_size(self));
         }
         id
     }
 
-    /// CSSOM-View §12.1 producer — the per-turn report-changes pass for
-    /// `VisualViewport`. Diffs the current `ViewportState` geometry against the
-    /// [`Self::visual_viewport_delivered`] prior and fires, **per axis**, a
-    /// trusted plain `Event` at the singleton:
+    /// CSSOM-View §13.1 producer — the per-turn report-changes pass for
+    /// `VisualViewport`. Diffs the current `ViewportState` size against the
+    /// [`Self::visual_viewport_delivered`] prior and fires a trusted plain
+    /// `resize` `Event` at the singleton when `(width, height)` changed.
     ///
-    /// - `resize` ⇐ the `(width, height)` pair changed vs the prior;
-    /// - `scroll` ⇐ the `(scroll_x, scroll_y)` pair changed vs the prior;
-    /// - `scrollend` ⇐ **only when `scroll` fired** (a resize-only deliver must
-    ///   NOT fire `scroll`/`scrollend`; the shell echoes discrete settled
-    ///   offsets, so each settled scroll fires `scroll`+`scrollend` — momentum /
-    ///   gesture-end debounce timing is `#11-screen-available-area-workarea-source`'s
-    ///   shell-input-fidelity tail).
+    /// It does **not** fire `scroll`/`scrollend`: per CSSOM-View §13.2 those
+    /// fire only on a *visual-viewport offset* change (`offsetLeft`/`offsetTop` —
+    /// pinch-zoom pan), which elidex does not model (offset is constant `0`), so
+    /// an ordinary layout-viewport scroll updates `pageLeft`/`pageTop` silently
+    /// (the WPT `viewport-scroll-event-manual.html` invariant). See the module
+    /// docs; the scroll axis lands with `#11-visual-viewport-pinch-zoom-offset`.
     ///
     /// Mirrors [`Self::deliver_media_query_changes`]: a no-op while unbound (no
     /// JS context to fire into), resolves the singleton through
     /// [`Self::alloc_or_cached_visual_viewport`] (which seeds the prior on first
     /// alloc, so a first deliver fires nothing), advances the prior after each
     /// deliver, and ends on a microtask checkpoint. The shell drives this from
-    /// its update-the-rendering step after a resize / scroll-echo (the call-site
-    /// rides the S5-6 flip); VM tests drive it directly.
+    /// its update-the-rendering step after a resize (the call-site rides the
+    /// S5-6 flip); VM tests drive it directly.
     pub(in crate::vm) fn deliver_visual_viewport_events(&mut self) {
         if !self
             .host_data
@@ -191,49 +217,39 @@ impl VmInner {
         // seeded at allocation. After this call `visual_viewport_delivered` is
         // `Some` (seeded by the getter on first alloc, else carried forward).
         let target = self.alloc_or_cached_visual_viewport();
-        let (now_width, now_height, now_scroll_x, now_scroll_y) = current_vv_geometry(self);
-        let (prev_width, prev_height, prev_scroll_x, prev_scroll_y) = self
+        let (now_width, now_height) = current_vv_size(self);
+        let (prev_width, prev_height) = self
             .visual_viewport_delivered
             .expect("alloc_or_cached_visual_viewport seeds visual_viewport_delivered");
 
         let resized = now_width != prev_width || now_height != prev_height;
-        let scrolled = now_scroll_x != prev_scroll_x || now_scroll_y != prev_scroll_y;
 
         // Advance the prior BEFORE firing (the `last_matches` discipline) so a
         // listener that re-reads geometry or triggers a re-entrant deliver sees
-        // the settled state and the re-entrant deliver is a no-op for this axis.
-        self.visual_viewport_delivered = Some((now_width, now_height, now_scroll_x, now_scroll_y));
+        // the settled state and the re-entrant deliver is a no-op.
+        self.visual_viewport_delivered = Some((now_width, now_height));
 
-        if resized || scrolled {
+        if resized {
             let shape = self
                 .precomputed_event_shapes
                 .as_ref()
                 .expect("precomputed_event_shapes built during VM init")
                 .core;
-            // Plain (non-bubbling, non-cancelable) `Event`s — VisualViewport's
-            // resize/scroll/scrollend carry no extra IDL attributes.
+            // Plain (non-bubbling, non-cancelable) `Event` — VisualViewport's
+            // resize carries no extra IDL attributes.
             let init = EventInit {
                 bubbles: false,
                 cancelable: false,
                 composed: false,
             };
-            // Root the singleton across the fires (the MQL `push_temp_root`
+            // Root the singleton across the fire (the MQL `push_temp_root`
             // discipline): `fire_vm_event` allocates the event object and may
             // trigger a GC before dispatch. The singleton is already a permanent
             // GC root (`visual_viewport_instance`), so this is belt-and-suspenders
             // symmetry with the MQL producer.
             let mut guard = self.push_temp_root(JsValue::Object(target));
             let mut ctx = NativeContext::new_call(&mut guard);
-            // `resize` first, then `scroll`, then `scrollend` — the natural
-            // observation order (a settled scroll-with-resize sees the new size
-            // before the new offset). `scrollend` fires only when `scroll` did.
-            if resized {
-                fire_vv_event(&mut ctx, target, "resize", init, shape);
-            }
-            if scrolled {
-                fire_vv_event(&mut ctx, target, "scroll", init, shape);
-                fire_vv_event(&mut ctx, target, "scrollend", init, shape);
-            }
+            fire_vv_event(&mut ctx, target, "resize", init, shape);
         }
 
         // Each pass is its own microtask checkpoint (the `deliver_*` parity),
@@ -242,16 +258,14 @@ impl VmInner {
     }
 }
 
-/// Read the current `VisualViewport` geometry tuple `(width, height, scroll_x,
-/// scroll_y)` from the VM-global `ViewportState`. The producer's diff axes:
-/// `width`/`height` back `resize`, `scroll_x`/`scroll_y` back `scroll`.
-fn current_vv_geometry(vm: &VmInner) -> (f64, f64, f64, f64) {
-    (
-        vm.viewport.inner_width,
-        vm.viewport.inner_height,
-        vm.viewport.scroll_x,
-        vm.viewport.scroll_y,
-    )
+/// Read the current `VisualViewport` size tuple `(width, height)` from the
+/// VM-global `ViewportState` — the producer's only diff axis (it backs the
+/// `resize` event). The `scroll`/`scrollend` axis would diff the visual-viewport
+/// offset (`offsetLeft`/`offsetTop`), which elidex sources as a constant `0`
+/// (no pinch-zoom), so there is no offset to track until
+/// `#11-visual-viewport-pinch-zoom-offset`.
+fn current_vv_size(vm: &VmInner) -> (f64, f64) {
+    (vm.viewport.inner_width, vm.viewport.inner_height)
 }
 
 /// Fire one trusted plain `Event` (`resize`/`scroll`/`scrollend`) at the

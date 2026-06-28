@@ -1155,12 +1155,14 @@ impl Vm {
         vp.avail_height = avail_height;
     }
 
-    /// Run the CSSOM-View §12.1 `VisualViewport` report-changes pass — diff the
-    /// current viewport geometry against the producer's stored prior and fire
-    /// `resize` (size change) / `scroll`+`scrollend` (scroll-offset change) at
-    /// the `visualViewport` singleton. Per-axis: a resize-only deliver fires no
-    /// `scroll`/`scrollend`. The first deliver after a bind fires nothing (the
-    /// prior is seeded at singleton allocation). Backs
+    /// Run the CSSOM-View §13.1 `VisualViewport` report-changes pass — diff the
+    /// current viewport size against the producer's stored prior and fire
+    /// `resize` (a `(width, height)` change) at the `visualViewport` singleton.
+    /// It does NOT fire `scroll`/`scrollend`: §13.2 fires those only on a
+    /// visual-viewport *offset* change (pinch-zoom), which elidex does not model,
+    /// so an ordinary layout scroll is a document scroll, not a visual-viewport
+    /// scroll. The first deliver after a bind fires nothing (the prior is seeded
+    /// at singleton allocation). Backs
     /// [`HostDriver::deliver_visual_viewport_events`](elidex_script_session::HostDriver::deliver_visual_viewport_events);
     /// VM tests call it directly after a geometry change.
     #[cfg(feature = "engine")]

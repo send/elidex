@@ -48,8 +48,17 @@
 //! NONE of the family → deferred engine-wide, `#11-window-platform-object-rigor-engine-wide`.)
 //! The singleton is cached in `VmInner::screen_instance` (rooted via the GC
 //! proto-roots, SameObject for free) and **cleared on `Vm::unbind`** (the
-//! `localStorage` cross-DOM precedent) so a retained reference cannot alias a
-//! prior `EcsDom`'s `ObjectId` space after a rebind.
+//! `localStorage` cross-DOM precedent) so a *fresh* `window.screen` read after a
+//! rebind allocates a NEW singleton rather than handing back a stale `ObjectId`
+//! from the prior `EcsDom`. A script that *retained* the old `screen` across the
+//! rebind, however, still reads the current `ViewportState` through the shared
+//! getter — it does NOT become the §4.3 not-fully-active object for its old
+//! associated document. That residual cross-DOM wrapper-aliasing is the
+//! engine-wide gap shared by every cached singleton (`localStorage` /
+//! `subtleCrypto` / `visualViewport`), whose payload-free brands carry no
+//! per-document identity; it is resolved uniformly by the world-id discriminator
+//! program (`#11-wrapper-cache-cross-dom-discriminator`), not by a Screen-only
+//! patch (One-issue-one-way).
 
 #![cfg(feature = "engine")]
 

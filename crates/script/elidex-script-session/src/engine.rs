@@ -403,13 +403,16 @@ pub trait HostDriver {
         avail_height: f64,
     );
 
-    /// Run the CSSOM-View §12.1 `VisualViewport` report-changes pass: diff the
-    /// current viewport geometry against the producer's stored prior and fire
-    /// `resize` (size change) / `scroll`+`scrollend` (scroll-offset change) at
-    /// the `visualViewport` singleton. Per-axis (a resize-only deliver fires no
-    /// `scroll`/`scrollend`); the first deliver after a bind fires nothing. The
-    /// shell calls this from its update-the-rendering step after a resize /
-    /// scroll-echo (the `VisualViewport` sibling of
+    /// Run the CSSOM-View §13.1 `VisualViewport` report-changes pass: diff the
+    /// current viewport size against the producer's stored prior and fire
+    /// `resize` (a `(width, height)` change) at the `visualViewport` singleton.
+    /// It does NOT fire `scroll`/`scrollend`: per §13.2 those fire only on a
+    /// visual-viewport *offset* change (pinch-zoom pan), which elidex does not
+    /// model, so an ordinary layout-viewport scroll is a document scroll
+    /// (delivered as `window`/document `scroll`), not a visual-viewport scroll.
+    /// The first deliver after a bind fires nothing (the prior is seeded at
+    /// singleton allocation). The shell calls this from its update-the-rendering
+    /// step after a resize (the `VisualViewport` sibling of
     /// [`deliver_media_query_changes`](Self::deliver_media_query_changes)).
     fn deliver_visual_viewport_events(&mut self);
 
