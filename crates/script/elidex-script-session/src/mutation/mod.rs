@@ -215,9 +215,25 @@ pub fn apply_mutation(mutation: &Mutation, dom: &mut EcsDom) -> Vec<MutationReco
     }
 }
 
-// `pub(super)` for now (in-crate use by `apply_*` + tests + `html_fragment`).
-// B1.3-ii promotes this to `pub` + crate re-export when the `elidex-dom-api`
-// Range / splitText sites need to construct records cross-crate.
+/// The single canonical `characterData` record-shape builder (One-issue-one-way).
+///
+/// Every site that produces a DOM §4.10 "replace data"–shaped record — the
+/// `apply_replace_data` primitive (mutate-and-record) and `Text.splitText`'s
+/// record-only head-truncate hand-assembly (`split_text_at_offset`, where the
+/// truncate is `set_text_data`-last and MUST NOT be re-mutated) — routes through
+/// this builder so the `kind == CharacterData` / `old_value = Some(..)` coupling
+/// is never hand-rolled. `old_value` MUST be the node's FULL data captured BEFORE
+/// the splice (§4.10 step 4 queues the record with the pre-mutation data).
+pub fn character_data_record(target: Entity, old_value: String) -> MutationRecord {
+    MutationRecord {
+        old_value: Some(old_value),
+        ..empty_record(MutationKind::CharacterData, target)
+    }
+}
+
+// `pub(super)`: the cross-crate need is served by `character_data_record`
+// (which couples kind + old_value), so `empty_record` stays in-crate
+// (in-crate use by `apply_*` + tests + `html_fragment`).
 pub(super) fn empty_record(kind: MutationKind, target: Entity) -> MutationRecord {
     MutationRecord {
         kind,
@@ -830,12 +846,14 @@ fn apply_set_text(dom: &mut EcsDom, entity: Entity, text: &str) -> Option<Mutati
         .ok()
         .map(|tc| tc.0.clone());
     // `set_text_data` bumps `rev_version(entity)` internally, so we
-    // do not call it here.
+    // do not call it here. It returns `None` (→ early return) for a
+    // non-Text entity, so reaching the record below guarantees the
+    // entity carried `TextContent` both before and after — i.e.
+    // `old_value` is `Some`. Route through the canonical
+    // `character_data_record` builder (One-issue-one-way; same shape as
+    // `apply_replace_data`).
     dom.set_text_data(entity, text)?;
-    Some(MutationRecord {
-        old_value,
-        ..empty_record(MutationKind::CharacterData, entity)
-    })
+    old_value.map(|ov| character_data_record(entity, ov))
 }
 
 /// DOM §4.10 "replace data" — record-producing primitive.
@@ -855,11 +873,11 @@ fn apply_set_text(dom: &mut EcsDom, entity: Entity, text: &str) -> Option<Mutati
 /// `apply_set_attribute`, so a non-CharacterData entity produces NO record
 /// rather than a spurious one — wired callers brand-check, but the `Option`
 /// makes the no-op structurally non-notifying). Text / CDATASection route
-/// through `EcsDom::replace_text_data` (fires `MutationEvent::ReplaceData`
-/// for live-range fixup); Comment routes through
-/// `EcsDom::replace_comment_data` (no live-range event — §4.10 boundary
-/// steps 8-11 apply to all CharacterData, but elidex's range-fixup hook is
-/// Text/CDATASection-only by construction).
+/// through `EcsDom::replace_text_data`; Comment routes through
+/// `EcsDom::replace_comment_data`. Both fire `MutationEvent::ReplaceData`, so
+/// the §4.10 boundary steps 8-11 live-range fixup applies uniformly to all
+/// CharacterData incl. Comment (Codex PR426 R1 — the Comment event was added
+/// once the F5-broadened `deleteContents` made the Comment splice reachable).
 pub fn apply_replace_data(
     dom: &mut EcsDom,
     entity: Entity,
@@ -877,10 +895,7 @@ pub fn apply_replace_data(
         || dom
             .replace_comment_data(entity, offset, count, replacement)
             .is_some();
-    applied.then(|| MutationRecord {
-        old_value: Some(old_value),
-        ..empty_record(MutationKind::CharacterData, entity)
-    })
+    applied.then(|| character_data_record(entity, old_value))
 }
 
 #[cfg(test)]

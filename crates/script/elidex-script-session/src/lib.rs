@@ -45,8 +45,8 @@ pub use identity_map::IdentityMap;
 pub use mutation::{
     apply_append_child, apply_insert_before, apply_mutation, apply_remove_child, apply_replace_all,
     apply_replace_child, apply_replace_data, apply_set_inner_html, apply_set_outer_html,
-    convert_arg_source_records, Mutation, MutationKind, MutationRecord, OuterHtmlError,
-    SetInnerHtmlOptions,
+    character_data_record, convert_arg_source_records, Mutation, MutationKind, MutationRecord,
+    OuterHtmlError, SetInnerHtmlOptions,
 };
 pub use navigation::{HistoryAction, NavigationRequest};
 pub use session::{CssomSheetState, SessionCore};

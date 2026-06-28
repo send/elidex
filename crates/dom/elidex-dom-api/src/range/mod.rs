@@ -34,7 +34,7 @@ pub(crate) fn make_range_only_test_dispatcher(
     Box::new(RangeOnlyDispatcher(bridge))
 }
 
-use elidex_ecs::{EcsDom, Entity, TextContent};
+use elidex_ecs::{CommentData, EcsDom, Entity, TextContent};
 
 use crate::char_data::{utf16_len, utf16_to_byte_offset};
 
@@ -484,12 +484,21 @@ fn child_index(parent: Entity, child: Entity, dom: &EcsDom) -> usize {
         .unwrap_or(0)
 }
 
-/// Get the "length" of a node (UTF-16 code unit count for text, child count otherwise).
+/// Get the "length" of a node (WHATWG DOM §4.2 Node tree, "length of a
+/// node", `#concept-node-length`).
 ///
-/// Per WHATWG DOM §5, text node lengths are measured in UTF-16 code units.
+/// For a CharacterData node (Text / CDATASection / Comment) the length is its
+/// data measured in UTF-16 code units; for any other node it is its child
+/// count. Comment is included so a Range boundary can validly land inside a
+/// Comment (Comment IS CharacterData) — without it `Range.setStart`/`setEnd`
+/// would reject any non-zero offset into a Comment (the node would report a
+/// child count of 0).
 pub fn node_length(node: Entity, dom: &EcsDom) -> usize {
     if let Ok(tc) = dom.world().get::<&TextContent>(node) {
         return utf16_len(&tc.0);
+    }
+    if let Ok(cd) = dom.world().get::<&CommentData>(node) {
+        return utf16_len(&cd.0);
     }
     dom.children_iter(node).count()
 }

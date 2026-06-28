@@ -344,7 +344,7 @@ impl DomApiHandler for SplitText {
         drop(nk);
 
         let offset = require_usize_arg(args, 0)?;
-        let new_node = split_text_at_offset(this, offset, dom).map_err(|e| match e {
+        let (new_node, records) = split_text_at_offset(this, offset, dom).map_err(|e| match e {
             SplitTextError::NotTextNode => DomApiError {
                 kind: DomApiErrorKind::InvalidStateError,
                 message: "splitText: not a Text node".into(),
@@ -361,6 +361,12 @@ impl DomApiHandler for SplitText {
                 message: "splitText: internal invariant violation".into(),
             },
         })?;
+        // §4.11 split-a-Text-node records ([childList insert?,
+        // characterData truncate]) → push through the session, drained at
+        // the `invoke_dom_api` boundary like the 5 CharacterData methods.
+        for record in records {
+            session.push_notify_record(record);
+        }
         let obj_ref = session.get_or_create_wrapper(new_node, ComponentKind::TextNode);
         Ok(JsValue::ObjectRef(obj_ref.to_raw()))
     }

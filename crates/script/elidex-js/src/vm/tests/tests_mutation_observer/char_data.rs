@@ -9,6 +9,11 @@
 //! a single `MutationKind::CharacterData` record per call. `oldValue` is
 //! gated by `characterDataOldValue:true`; the records themselves by
 //! `characterData:true` (DOM §4.10 / §4.3.2).
+//!
+//! B1.3-ii adds `Text.splitText` coverage here: the §4.11 "split a Text
+//! node" AO queues a childList insert (step 7, parented only) + a
+//! characterData head-truncate (step 8 via the §4.10 replace-data AO),
+//! both delivered through the shared chokepoint.
 
 use elidex_ecs::EcsDom;
 use elidex_script_session::SessionCore;
@@ -308,5 +313,131 @@ fn comment_node_text_content_set_fires_characterdata_record() {
         JsValue::Boolean(true)
     );
     assert_eq!(vm.eval("c.data === 'x'").unwrap(), JsValue::Boolean(true));
+    vm.unbind();
+}
+
+/// B1.3-ii — `Text.splitText` on a **parented** node fires TWO records in spec
+/// order: the §4.11 step-7 childList insert (new tail node on the parent) THEN
+/// the step-8 characterData head-truncate (on the original node). `oldValue` =
+/// the full pre-split data.
+#[test]
+fn split_text_parented_fires_childlist_then_characterdata() {
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let (_doc, _root) = setup_with_root(&mut vm, &mut session, &mut dom);
+
+    vm.eval(
+        "globalThis.records = null; \
+         globalThis.t = document.createTextNode('hello world'); root.appendChild(t); \
+         var mo = new MutationObserver(function(r){ globalThis.records = r; }); \
+         mo.observe(root, {childList:true, characterData:true, \
+                           characterDataOldValue:true, subtree:true}); \
+         globalThis.tail = t.splitText(5);",
+    )
+    .unwrap();
+
+    assert_eq!(vm.eval("records.length").unwrap(), JsValue::Number(2.0));
+    // Record 0: childList insert of the new tail node on root.
+    assert_eq!(
+        vm.eval("records[0].type === 'childList' && records[0].target === root")
+            .unwrap(),
+        JsValue::Boolean(true)
+    );
+    assert_eq!(
+        vm.eval("records[0].addedNodes.length === 1 && records[0].addedNodes[0] === tail")
+            .unwrap(),
+        JsValue::Boolean(true)
+    );
+    // Record 1: characterData head-truncate on the original node.
+    assert_eq!(
+        vm.eval("records[1].type === 'characterData' && records[1].target === t")
+            .unwrap(),
+        JsValue::Boolean(true)
+    );
+    assert_eq!(
+        vm.eval("records[1].oldValue === 'hello world'").unwrap(),
+        JsValue::Boolean(true)
+    );
+    assert_eq!(
+        vm.eval("t.data === 'hello'").unwrap(),
+        JsValue::Boolean(true)
+    );
+    assert_eq!(
+        vm.eval("tail.data === ' world'").unwrap(),
+        JsValue::Boolean(true)
+    );
+    vm.unbind();
+}
+
+/// B1.3-ii — `Text.splitText` on an **orphan** node (no parent) fires only the
+/// §4.11 step-8 characterData record; step 7 (insert) is skipped, so there is no
+/// childList record.
+#[test]
+fn split_text_orphan_fires_only_characterdata() {
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let (_doc, _root) = setup_with_root(&mut vm, &mut session, &mut dom);
+
+    // `t` is created but NOT appended — it is an orphan. Observe `t` itself
+    // (no parent to observe via subtree).
+    vm.eval(
+        "globalThis.records = null; \
+         globalThis.t = document.createTextNode('hello world'); \
+         var mo = new MutationObserver(function(r){ globalThis.records = r; }); \
+         mo.observe(t, {characterData:true, characterDataOldValue:true}); \
+         globalThis.tail = t.splitText(5);",
+    )
+    .unwrap();
+
+    assert_eq!(vm.eval("records.length").unwrap(), JsValue::Number(1.0));
+    assert_eq!(
+        vm.eval("records[0].type === 'characterData' && records[0].target === t")
+            .unwrap(),
+        JsValue::Boolean(true)
+    );
+    assert_eq!(
+        vm.eval("records[0].oldValue === 'hello world'").unwrap(),
+        JsValue::Boolean(true)
+    );
+    assert_eq!(
+        vm.eval("t.data === 'hello'").unwrap(),
+        JsValue::Boolean(true)
+    );
+    vm.unbind();
+}
+
+/// B1.3-ii — `characterDataOldValue` gate: a characterData record produced by
+/// `splitText` exposes `oldValue` ONLY to a registration with
+/// `characterDataOldValue:true`; with `false` (the default) it is `null`
+/// (DOM §4.3.2 delivery filter, reused from #424).
+#[test]
+fn split_text_oldvalue_gated_by_character_data_old_value() {
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let (_doc, _root) = setup_with_root(&mut vm, &mut session, &mut dom);
+
+    // characterDataOldValue NOT set (defaults false) → oldValue is null.
+    vm.eval(
+        "globalThis.records = null; \
+         globalThis.t = document.createTextNode('hello world'); root.appendChild(t); \
+         var mo = new MutationObserver(function(r){ globalThis.records = r; }); \
+         mo.observe(t, {characterData:true}); \
+         t.splitText(5);",
+    )
+    .unwrap();
+
+    assert_eq!(vm.eval("records.length").unwrap(), JsValue::Number(1.0));
+    assert_eq!(
+        vm.eval("records[0].type === 'characterData'").unwrap(),
+        JsValue::Boolean(true)
+    );
+    assert_eq!(
+        vm.eval("records[0].oldValue === null").unwrap(),
+        JsValue::Boolean(true),
+        "characterDataOldValue:false (default) → oldValue null"
+    );
     vm.unbind();
 }
