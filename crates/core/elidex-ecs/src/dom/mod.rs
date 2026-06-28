@@ -20,10 +20,12 @@ mod attribute_reconcile;
 pub(crate) mod equality;
 mod mutation_event;
 pub mod shadow;
+mod text_util;
 mod tree;
 mod tree_clone;
 
 pub use mutation_event::{MutationDispatcher, MutationEvent};
+pub(crate) use text_util::splice_utf16;
 
 use crate::components::{
     AssociatedDocument, AttrData, Attributes, CommentData, DocTypeData, DocumentBaseUrl, Namespace,
@@ -327,8 +329,8 @@ impl EcsDom {
     ///
     /// **NOT for Comment nodes** — Comment uses a separate `CommentData`
     /// component which is NOT covered by Range live-tracking spec (§5.5
-    /// covers Text only, not Comment). Comment writes continue to use the
-    /// existing `set_char_data` Comment branch unchanged.
+    /// covers Text only, not Comment). Comment data writes go through
+    /// [`Self::replace_comment_data`].
     pub fn set_text_data(&mut self, entity: Entity, text: &str) -> Option<usize> {
         let new_utf16_len = {
             let mut tc = self.world.get::<&mut TextContent>(entity).ok()?;
@@ -356,8 +358,9 @@ impl EcsDom {
     /// in `elidex-dom-api` (`appendData` / `insertData` / `deleteData`
     /// / `replaceData`) route through after raising `IndexSizeError`
     /// for `offset > utf16_len`. `count` IS clamped to `len - offset`
-    /// here to match the spec's silent clamp ("if offset+count is
-    /// greater than length, end at length", §11.2 step 6).
+    /// here to match the spec's silent clamp (§4.10 "replace data"
+    /// step 3: "if offset + count is greater than length, set count to
+    /// length − offset").
     ///
     /// Splitting through a surrogate pair (offset / end mid-pair) is
     /// **spec-valid** — UTF-16 offsets ignore character boundaries —
@@ -365,8 +368,8 @@ impl EcsDom {
     /// Rust's `String` storage cannot represent lone surrogates, so the
     /// result is rendered through `from_utf16_lossy` which substitutes
     /// `U+FFFD` for each unpaired half. This matches the lossy-not-panic
-    /// contract pinned by `tests_character_data::*surrogate_pair*` and
-    /// mirrors `elidex-dom-api::char_data::splice_utf16`.
+    /// contract pinned by `tests_character_data::*surrogate_pair*`. The
+    /// splice itself delegates to the canonical `splice_utf16` helper.
     ///
     /// On success:
     /// - splices the UTF-16 view of `TextContent` in place,
@@ -383,31 +386,31 @@ impl EcsDom {
         count_utf16: usize,
         replacement: &str,
     ) -> Option<usize> {
-        let replacement_units: Vec<u16> = replacement.encode_utf16().collect();
-        let replacement_len = replacement_units.len();
+        let replacement_len = replacement.encode_utf16().count();
         let (new_utf16_len, clamped_count) = {
             let mut tc = self.world.get::<&mut TextContent>(entity).ok()?;
-            let units: Vec<u16> = tc.0.encode_utf16().collect();
-            let len = units.len();
+            let len = tc.0.encode_utf16().count();
             debug_assert!(
                 offset_utf16 <= len,
                 "replace_text_data: offset {offset_utf16} exceeds UTF-16 length {len}; \
                  caller must validate via `offset > utf16_len(&data)` before invocation"
             );
-            let end = offset_utf16.saturating_add(count_utf16).min(len);
-            let clamped_count = end - offset_utf16;
-            let mut out: Vec<u16> = Vec::with_capacity(len - clamped_count + replacement_len);
-            out.extend_from_slice(&units[..offset_utf16]);
-            out.extend_from_slice(&replacement_units);
-            out.extend_from_slice(&units[end..]);
-            let new_len = out.len();
-            let spliced = String::from_utf16_lossy(&out);
+            // Span actually spliced (clamped per §4.10 step 3) — still needed
+            // below for the `MutationEvent::ReplaceData` live-range payload.
+            let clamped_count = offset_utf16.saturating_add(count_utf16).min(len) - offset_utf16;
+            // Delegate the UTF-16 splice itself to the single canonical helper.
+            let spliced = splice_utf16(&tc.0, offset_utf16, count_utf16, Some(replacement));
+            // New UTF-16 length is derivable arithmetically (`len - removed +
+            // inserted`); avoid a third full encode_utf16 pass over `spliced`.
+            // No underflow: `clamped_count <= len - offset <= len`.
+            let new_len = len - clamped_count + replacement_len;
             spliced.clone_into(&mut tc.0);
             (new_len, clamped_count)
         };
         self.rev_version(entity);
-        // WHATWG DOM §4.10 step 6 clamps the live-range adjustment to
-        // the actual spliced span (`end - offset`), not the caller's
+        // WHATWG DOM §4.10 "replace data" clamps `count` to `length −
+        // offset` (step 3); the live-range adjustment steps (8-11) then
+        // operate on that clamped span (`end - offset`), not the caller's
         // possibly-overflowing `count_utf16`. Passing the unclamped
         // value would make `adjust_ranges_for_replace_data` treat
         // boundaries near the OLD end as inside the splice region
@@ -420,6 +423,38 @@ impl EcsDom {
             new_data_len_utf16: replacement_len,
         };
         self.dispatch_event(&event);
+        Some(new_utf16_len)
+    }
+
+    /// Primitive UTF-16 splice on a Comment entity's `CommentData`
+    /// (WHATWG DOM §4.10 "replace data"). The Comment sibling of
+    /// [`Self::replace_text_data`]: splices the data in place and bumps
+    /// [`Self::rev_version`], but fires **no** `MutationEvent` — Comment
+    /// nodes are not covered by Range live-tracking (§5.5 covers Text /
+    /// CDATASection only) and do not participate in style / a11y /
+    /// layout, so no consumer needs a Comment data-change event.
+    ///
+    /// Returns the new UTF-16 length on success, or `None` if the entity
+    /// has no `CommentData` component (the `Option` doubles as the
+    /// Text-vs-Comment discriminator for callers that try
+    /// `replace_text_data` first). Bounds validation is the caller's
+    /// responsibility, as for [`Self::replace_text_data`]; `count` is
+    /// clamped to `len - offset` inside `splice_utf16`.
+    pub fn replace_comment_data(
+        &mut self,
+        entity: Entity,
+        offset_utf16: usize,
+        count_utf16: usize,
+        replacement: &str,
+    ) -> Option<usize> {
+        let new_utf16_len = {
+            let mut cd = self.world.get::<&mut CommentData>(entity).ok()?;
+            let spliced = splice_utf16(&cd.0, offset_utf16, count_utf16, Some(replacement));
+            let new_len = spliced.encode_utf16().count();
+            spliced.clone_into(&mut cd.0);
+            new_len
+        };
+        self.rev_version(entity);
         Some(new_utf16_len)
     }
 

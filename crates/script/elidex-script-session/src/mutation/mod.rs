@@ -215,6 +215,9 @@ pub fn apply_mutation(mutation: &Mutation, dom: &mut EcsDom) -> Vec<MutationReco
     }
 }
 
+// `pub(super)` for now (in-crate use by `apply_*` + tests + `html_fragment`).
+// B1.3-ii promotes this to `pub` + crate re-export when the `elidex-dom-api`
+// Range / splitText sites need to construct records cross-crate.
 pub(super) fn empty_record(kind: MutationKind, target: Entity) -> MutationRecord {
     MutationRecord {
         kind,
@@ -831,6 +834,51 @@ fn apply_set_text(dom: &mut EcsDom, entity: Entity, text: &str) -> Option<Mutati
     dom.set_text_data(entity, text)?;
     Some(MutationRecord {
         old_value,
+        ..empty_record(MutationKind::CharacterData, entity)
+    })
+}
+
+/// DOM §4.10 "replace data" — record-producing primitive.
+///
+/// `old_value` MUST be the entity's FULL data string captured by the caller
+/// BEFORE this call. DOM §4.10 "replace data" step 4 queues the characterData
+/// mutation record passing node's data as the oldValue argument BEFORE steps 5-7
+/// mutate the data; "queue a mutation record" (§4.3.2 step 3.3) then exposes that
+/// oldValue only to observers with characterDataOldValue:true.
+///
+/// Precondition: `offset <= utf16_len(entity's data)` (caller validates and raises
+/// IndexSizeError; this fn `debug_assert!`s via `replace_text_data` / the splice).
+///
+/// Returns `Some(CharacterData record)` on success, or `None` if `entity`
+/// is neither a Text/CDATASection nor a Comment node (mirrors the
+/// `Option`-returning convention of the sibling `apply_set_text` /
+/// `apply_set_attribute`, so a non-CharacterData entity produces NO record
+/// rather than a spurious one — wired callers brand-check, but the `Option`
+/// makes the no-op structurally non-notifying). Text / CDATASection route
+/// through `EcsDom::replace_text_data` (fires `MutationEvent::ReplaceData`
+/// for live-range fixup); Comment routes through
+/// `EcsDom::replace_comment_data` (no live-range event — §4.10 boundary
+/// steps 8-11 apply to all CharacterData, but elidex's range-fixup hook is
+/// Text/CDATASection-only by construction).
+pub fn apply_replace_data(
+    dom: &mut EcsDom,
+    entity: Entity,
+    offset: usize,
+    count: usize,
+    replacement: &str,
+    old_value: String,
+) -> Option<MutationRecord> {
+    // Both EcsDom chokepoints return Some(new_len) iff the entity carries the
+    // matching component, doubling as the Text-vs-Comment discriminator. Try
+    // Text first, then Comment; `None` from both = not CharacterData = no record.
+    let applied = dom
+        .replace_text_data(entity, offset, count, replacement)
+        .is_some()
+        || dom
+            .replace_comment_data(entity, offset, count, replacement)
+            .is_some();
+    applied.then(|| MutationRecord {
+        old_value: Some(old_value),
         ..empty_record(MutationKind::CharacterData, entity)
     })
 }

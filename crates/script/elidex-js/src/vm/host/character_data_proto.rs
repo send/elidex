@@ -29,8 +29,9 @@
 //! dispatches through [`super::dom_bridge::invoke_dom_api`] to the
 //! engine-independent handler in `elidex-dom-api`. The UTF-16 splice
 //! algorithm (and its surrogate-pair lossy decode contract — see
-//! `splice_utf16` in `crates/dom/elidex-dom-api/src/char_data/`) lives
-//! exclusively on the handler side per the CLAUDE.md Layering mandate.
+//! `splice_utf16` in `crates/core/elidex-ecs/src/dom/text_util.rs`,
+//! reached via `EcsDom::replace_text_data` / `replace_comment_data`)
+//! lives below the handler per the CLAUDE.md Layering mandate.
 
 #![cfg(feature = "engine")]
 
