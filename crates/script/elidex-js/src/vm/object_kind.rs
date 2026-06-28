@@ -721,6 +721,33 @@ pub enum ObjectKind {
     /// GC contract: payload-free — nothing to trace or prune.
     #[cfg(feature = "engine")]
     XmlSerializer,
+    /// `VisualViewport` singleton (CSSOM-View §12.1) — a non-Node
+    /// `EventTarget` (chains `VisualViewport.prototype →
+    /// EventTarget.prototype`).  Payload-free: the geometry attributes
+    /// derive from the VM-global `ViewportState`, and the brand exists
+    /// both for `addEventListener` dispatch routing (member of
+    /// `is_non_node_event_target` → `DispatchTarget::VmObject`)
+    /// and the WebIDL attribute-getter brand check.  Per-window
+    /// singleton held in `globals` (rooted + SameObject), so never
+    /// listener-only-rooted (S5-2).
+    ///
+    /// GC contract: payload-free — nothing to trace or prune (the
+    /// `MediaQueryList`-prototype / `TextEncoder` precedent; per-MQL
+    /// state, by contrast, lives in a side table — `VisualViewport` has
+    /// none).
+    #[cfg(feature = "engine")]
+    VisualViewport,
+    /// `CookieStore` singleton (Cookie Store API §3) — a non-Node
+    /// `EventTarget` (chains `CookieStore.prototype →
+    /// EventTarget.prototype`).  Payload-free: cookie state lives in the
+    /// shared shell-owned `CookieJar` (the `document.cookie` jar), not
+    /// per-instance.  Brand routes `addEventListener` dispatch + gates
+    /// the method brand checks.  Per-window singleton held in `globals`
+    /// (rooted + SameObject), so never listener-only-rooted (S5-2).
+    ///
+    /// GC contract: payload-free — nothing to trace or prune.
+    #[cfg(feature = "engine")]
+    CookieStore,
     /// `TextDecoder` instance (WHATWG Encoding §8.1).  Payload-free;
     /// the encoder handle + `fatal` / `ignoreBOM` flags live in
     /// `VmInner::text_decoder_states`.  Same model as `Headers` /
@@ -1590,6 +1617,8 @@ impl ObjectKind {
                 | Self::ServiceWorker
                 | Self::ServiceWorkerRegistration
                 | Self::MediaQueryList
+                | Self::VisualViewport
+                | Self::CookieStore
         )
     }
 }

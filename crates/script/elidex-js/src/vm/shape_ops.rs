@@ -325,6 +325,38 @@ impl VmInner {
         self.create_native_function_impl(name_id, func, super::value::CallShape::IllegalConstructor)
     }
 
+    /// Wire the standard WebIDL interface-object ↔ prototype back-reference
+    /// pair: `ctor.prototype = proto` (`{¬W, ¬E, ¬C}` BUILTIN) and
+    /// `proto.constructor = ctor` (`{W, ¬E, C}` METHOD).  The canonical helper
+    /// for this pair, for interface objects created via
+    /// [`Self::create_illegal_constructor_function`] /
+    /// [`Self::create_constructor_only_function`] that need it set without the
+    /// full ES class-ctor wiring.  Current callers: `MediaQueryList` / `DOMParser`
+    /// / `XMLSerializer` / `VisualViewport` / `CookieStore` (S5-2 converged these
+    /// off their prior inline / private copies).  **Many other `host/` interface
+    /// objects still open-code the identical pair** — the broader sweep onto this
+    /// helper is tracked by slot `#11-interface-ctor-prototype-wiring-convergence`
+    /// (deferred: a ~30-site mechanical sweep does not belong bundled into a
+    /// narrow feature PR — `feedback_review-cost-tracks-blast-radius`).  Engine-
+    /// gated (every caller is an engine-only Web-API interface).
+    #[cfg(feature = "engine")]
+    pub(crate) fn wire_interface_ctor_prototype(&mut self, ctor: ObjectId, proto_id: ObjectId) {
+        let proto_key = value::PropertyKey::String(self.well_known.prototype);
+        self.define_shaped_property(
+            ctor,
+            proto_key,
+            value::PropertyValue::Data(JsValue::Object(proto_id)),
+            shape::PropertyAttrs::BUILTIN,
+        );
+        let ctor_key = value::PropertyKey::String(self.well_known.constructor);
+        self.define_shaped_property(
+            proto_id,
+            ctor_key,
+            value::PropertyValue::Data(JsValue::Object(ctor)),
+            shape::PropertyAttrs::METHOD,
+        );
+    }
+
     /// Helper: create a native function whose `name` is already interned
     /// (typically a [`super::well_known::WellKnownStrings`] field).  Saves
     /// the per-call `strings.intern(...)` round-trip plus the

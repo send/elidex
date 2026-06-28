@@ -786,6 +786,15 @@ pub(super) fn trace_work_list(
             // fan out, same as `TextEncoder`.
             #[cfg(feature = "engine")]
             ObjectKind::DomParser | ObjectKind::XmlSerializer => {}
+            // `VisualViewport` / `CookieStore` are payload-free singletons:
+            // VisualViewport geometry derives from the VM-global
+            // `ViewportState`, CookieStore state lives in the shared
+            // `CookieJar` — neither holds a per-instance side table, so the
+            // trace step has nothing to fan out (the `DOMParser` precedent;
+            // their `change`/`resize`/`scroll` listeners live in
+            // `vm_event_listeners`, traced via that map's own root). S5-2.
+            #[cfg(feature = "engine")]
+            ObjectKind::VisualViewport | ObjectKind::CookieStore => {}
             // `URLSearchParams`'s entry list lives in
             // `url_search_params_states` and carries only interned
             // `StringId`s (pool-permanent).  The wrapper does have

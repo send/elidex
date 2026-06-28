@@ -60,8 +60,7 @@ use elidex_ecs::Entity;
 
 use super::super::shape::{self, PropertyAttrs};
 use super::super::value::{
-    JsValue, NativeContext, Object, ObjectId, ObjectKind, PropertyKey, PropertyStorage,
-    PropertyValue, VmError,
+    JsValue, NativeContext, Object, ObjectId, ObjectKind, PropertyStorage, PropertyValue, VmError,
 };
 use super::super::{NativeFn, VmInner};
 use super::event_target_dispatch_vm::{fire_vm_event, vm_path_has_listener};
@@ -185,20 +184,7 @@ impl VmInner {
             "MediaQueryList",
             super::super::value::native_illegal_constructor_unreachable,
         );
-        let proto_key = PropertyKey::String(self.well_known.prototype);
-        self.define_shaped_property(
-            ctor,
-            proto_key,
-            PropertyValue::Data(JsValue::Object(proto_id)),
-            PropertyAttrs::BUILTIN,
-        );
-        let ctor_key = PropertyKey::String(self.well_known.constructor);
-        self.define_shaped_property(
-            proto_id,
-            ctor_key,
-            PropertyValue::Data(JsValue::Object(ctor)),
-            PropertyAttrs::METHOD,
-        );
+        self.wire_interface_ctor_prototype(ctor, proto_id);
         let name = self.strings.intern("MediaQueryList");
         self.globals.insert(name, JsValue::Object(ctor));
 

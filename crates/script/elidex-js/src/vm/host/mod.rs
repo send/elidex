@@ -89,6 +89,8 @@ pub(super) mod childnode;
 #[cfg(feature = "engine")]
 pub(super) mod class_list;
 #[cfg(feature = "engine")]
+pub(super) mod cookie_store;
+#[cfg(feature = "engine")]
 pub(crate) mod cors;
 #[cfg(feature = "engine")]
 pub(super) mod crypto;
@@ -310,6 +312,8 @@ pub(crate) mod request_response;
 #[cfg(feature = "engine")]
 pub(super) mod resize_observer;
 #[cfg(feature = "engine")]
+pub(super) mod screen;
+#[cfg(feature = "engine")]
 pub(super) mod selection_api;
 #[cfg(feature = "engine")]
 pub(crate) mod service_worker;
@@ -350,6 +354,8 @@ pub(crate) mod url;
 pub(crate) mod url_search_params;
 #[cfg(feature = "engine")]
 pub(super) mod validity_state;
+#[cfg(feature = "engine")]
+pub(super) mod visual_viewport;
 #[cfg(feature = "engine")]
 pub(in crate::vm) mod wasm;
 #[cfg(feature = "engine")]
