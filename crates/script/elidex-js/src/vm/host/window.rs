@@ -672,10 +672,12 @@ const WINDOW_PARITY_ACCESSORS: &[(&str, super::super::NativeFn)] = &[
 
 /// `window.screen` getter (CSSOM-View §4) — `[SameObject]`: returns the same
 /// `Screen` singleton across reads, allocated lazily on the first access via
-/// [`crate::vm::VmInner::alloc_or_cached_screen`]. The cache is cleared on
-/// `Vm::unbind` (cross-DOM hygiene), so a retained reference cannot alias a
-/// prior `EcsDom`'s `ObjectId` space. `Screen` is non-nullable (no §4 null
-/// branch — unlike `visualViewport`).
+/// [`crate::vm::VmInner::alloc_or_cached_screen`]. The cache **survives
+/// `Vm::unbind`** (the BATCH-BIND model — `unbind` closes every batch, not only a
+/// navigation), so `screen === screen` holds across batches; resetting wrapper
+/// identity on an actual cross-DOM navigation is the world-id discriminator's job
+/// (`#11-wrapper-cache-cross-dom-discriminator`). `Screen` is non-nullable (no §4
+/// null branch — unlike `visualViewport`).
 fn native_window_get_screen(
     ctx: &mut NativeContext<'_>,
     _this: JsValue,
