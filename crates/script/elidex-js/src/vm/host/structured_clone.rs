@@ -311,11 +311,10 @@ fn classify(kind: &ObjectKind) -> CloneKind {
         // attribute); both throw DataCloneError in Chrome / Firefox.
         ObjectKind::DomParser => CloneKind::Unclonable("DOMParser"),
         ObjectKind::XmlSerializer => CloneKind::Unclonable("XMLSerializer"),
-        // CSSOM-View §12.1 / Cookie Store §3 — `VisualViewport` /
-        // `CookieStore` are live per-window `EventTarget` singletons, not
-        // [Serializable]; both throw DataCloneError in Chrome / Firefox. S5-2.
+        // CSSOM-View §12.1 — `VisualViewport` is a live per-window
+        // `EventTarget` singleton, not [Serializable]; throws DataCloneError in
+        // Chrome / Firefox. S5-2.
         ObjectKind::VisualViewport => CloneKind::Unclonable("VisualViewport"),
-        ObjectKind::CookieStore => CloneKind::Unclonable("CookieStore"),
         ObjectKind::HtmlCollection => CloneKind::Unclonable("HTMLCollection"),
         ObjectKind::NodeList => CloneKind::Unclonable("NodeList"),
         ObjectKind::NamedNodeMap => CloneKind::Unclonable("NamedNodeMap"),

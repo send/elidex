@@ -32,7 +32,6 @@ mod tests_clone_node;
 mod tests_coerce;
 mod tests_console;
 mod tests_cookie_referrer;
-mod tests_cookie_store;
 mod tests_core_eval;
 mod tests_create_element_iframe;
 mod tests_create_element_options;

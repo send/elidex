@@ -89,8 +89,6 @@ pub(super) mod childnode;
 #[cfg(feature = "engine")]
 pub(super) mod class_list;
 #[cfg(feature = "engine")]
-pub(super) mod cookie_store;
-#[cfg(feature = "engine")]
 pub(crate) mod cors;
 #[cfg(feature = "engine")]
 pub(super) mod crypto;

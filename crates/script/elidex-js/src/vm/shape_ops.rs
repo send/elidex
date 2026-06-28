@@ -332,8 +332,8 @@ impl VmInner {
     /// [`Self::create_illegal_constructor_function`] /
     /// [`Self::create_constructor_only_function`] that need it set without the
     /// full ES class-ctor wiring.  Current callers: `MediaQueryList` / `DOMParser`
-    /// / `XMLSerializer` / `VisualViewport` / `CookieStore` (S5-2 converged these
-    /// off their prior inline / private copies).  **Many other `host/` interface
+    /// / `XMLSerializer` / `VisualViewport` (S5-2 converged these off their prior
+    /// inline / private copies).  **Many other `host/` interface
     /// objects still open-code the identical pair** — the broader sweep onto this
     /// helper is tracked by slot `#11-interface-ctor-prototype-wiring-convergence`
     /// (deferred: a ~30-site mechanical sweep does not belong bundled into a

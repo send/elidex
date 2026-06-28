@@ -772,20 +772,18 @@ impl VmInner {
             self.register_media_query_list_global();
         }
 
-        // S5-2 minor-window-parity — `screen` (CSSOM-View §4.3),
-        // `visualViewport` + `VisualViewport` (CSSOM-View §12.1), `cookieStore`
-        // + `CookieStore` (Cookie Store API §6.1). All `[Exposed=Window]`
-        // (cookieStore is also `[Exposed=ServiceWorker]` §6.2 — that scope is a
-        // deferred slot, `#11-cookiestore-serviceworker-scope`). The two
-        // EventTarget singletons (VisualViewport / CookieStore) chain to
-        // `EventTarget.prototype`, so this must run after
+        // S5-2 minor-window-parity — `screen` (CSSOM-View §4.3) +
+        // `visualViewport` / `VisualViewport` (CSSOM-View §12.1). Both
+        // `[Exposed=Window]`. The `VisualViewport` EventTarget singleton chains
+        // to `EventTarget.prototype`, so this must run after
         // `register_event_target_prototype`; `screen` chains to
-        // `Object.prototype` (post-`register_prototypes`).
+        // `Object.prototype` (post-`register_prototypes`). (`cookieStore` is
+        // carved to its own structured / spec-faithful slice — slot
+        // `#11-cookiestore-structured-spec-faithful`.)
         #[cfg(feature = "engine")]
         if matches!(self.global_scope_kind, GlobalScopeKind::Window) {
             self.register_screen_global();
             self.register_visual_viewport_global();
-            self.register_cookie_store_global();
         }
 
         // IndexedDB: the `indexedDB` global + `IDBKeyRange` + every IDB
