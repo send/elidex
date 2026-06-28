@@ -405,6 +405,73 @@ fn attr_held_across_remove_only_reads_snapshot_value() {
 }
 
 #[test]
+fn attr_held_across_mixed_case_remove_reads_snapshot_value() {
+    // Codex R1 regression: an uppercase `removeAttribute('DATA-X')` lowercases to
+    // `data-x` in the handler and removes it; the VM-local Attr-wrapper snapshot
+    // must use the SAME canonical name, else the cached lowercase
+    // `getAttributeNode('data-x')` wrapper is never frozen and `a.value` wrongly
+    // tracks a later same-name write instead of staying frozen at removal time.
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let (doc, _body, _p, _div, _span, _raw, _com) = build_element_fixture(&mut dom);
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+
+    let out = vm
+        .eval(
+            "var el = document.getElementById('root'); \
+             el.setAttribute('data-x', 'v1'); \
+             var a = el.getAttributeNode('data-x'); \
+             el.removeAttribute('DATA-X'); \
+             el.setAttribute('data-x', 'v2'); \
+             (a.value === 'v1' && a.ownerElement === null \
+              && el.getAttribute('data-x') === 'v2') ? 'ok' : 'fail';",
+        )
+        .unwrap();
+    let JsValue::String(sid) = out else { panic!() };
+    assert_eq!(vm.get_string(sid), "ok");
+
+    vm.unbind();
+}
+
+#[test]
+fn attr_held_across_mixed_case_toggle_off_reads_snapshot_value() {
+    // Codex R1 regression (toggle facet): `toggleAttribute('DATA-Y')` lowercases
+    // to `data-y` and removes it; the VM detach precheck/snapshot must key on the
+    // canonical name so the held `getAttributeNode('data-y')` wrapper freezes
+    // (else it stays live and reattaches to a later same-name write).
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let (doc, _body, _p, _div, _span, _raw, _com) = build_element_fixture(&mut dom);
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+
+    let out = vm
+        .eval(
+            "var el = document.getElementById('root'); \
+             el.setAttribute('data-y', 'keep'); \
+             var b = el.getAttributeNode('data-y'); \
+             var removed = el.toggleAttribute('DATA-Y') === false; \
+             el.setAttribute('data-y', 'new'); \
+             (removed && b.value === 'keep' && b.ownerElement === null \
+              && el.getAttribute('data-y') === 'new') ? 'ok' : 'fail';",
+        )
+        .unwrap();
+    let JsValue::String(sid) = out else { panic!() };
+    assert_eq!(vm.get_string(sid), "ok");
+
+    vm.unbind();
+}
+
+#[test]
 fn attr_identity_distinct_after_remove_set_cycle() {
     // Identity regression lock — pre-PR behaviour already passed
     // (`invalidate_attr_cache_entry` drops the entry); this test

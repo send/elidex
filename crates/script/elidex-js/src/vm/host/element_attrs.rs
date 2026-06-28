@@ -247,7 +247,13 @@ pub(super) fn native_element_remove_attribute(
     let Some(entity) = entity_from_this(ctx, this) else {
         return Ok(JsValue::Undefined);
     };
-    let name = coerce_first_arg_to_string(ctx, args)?;
+    // Canonicalize to the SAME name the handler removes: `removeAttribute`
+    // lowercases the qualified name for the HTML-namespace + HTML-document case
+    // ("get an attribute by name"). The VM-local Attr-wrapper snapshot /
+    // invalidation below must key on that canonical name — else
+    // `removeAttribute('ID')` removes `id` via the handler but the raw-keyed
+    // snapshot misses a cached `id` wrapper, leaving it un-frozen (Codex R1).
+    let name = coerce_first_arg_to_string(ctx, args)?.to_ascii_lowercase();
     // B2-Slice-1 / F2: route the removal through the record-producing
     // `removeAttribute` handler (chokepoint remove + §4.9 "attributes" record
     // + `AttrEntityCache` evict + record drain) instead of the bare
@@ -583,7 +589,12 @@ pub(super) fn native_element_toggle_attribute(
     let Some(entity) = entity_from_this(ctx, this) else {
         return Ok(JsValue::Boolean(false));
     };
-    let name = coerce_first_arg_to_string(ctx, args)?;
+    // Canonicalize to the SAME name the handler operates on (lowercased for the
+    // HTML-namespace + HTML-document case): the `currently_present` probe + the
+    // Attr-wrapper detach snapshot below must key on the canonical name, else
+    // `toggleAttribute('ID')` removes `id` via the handler but the raw-keyed
+    // precheck/snapshot misses a cached `id` wrapper (Codex R1).
+    let name = coerce_first_arg_to_string(ctx, args)?.to_ascii_lowercase();
 
     // `force` (second arg): undefined = toggle, true = ensure present,
     // false = ensure absent.  WHATWG §4.9.2 toggleAttribute.
