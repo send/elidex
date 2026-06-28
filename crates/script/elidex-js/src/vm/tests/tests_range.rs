@@ -139,7 +139,16 @@ fn clone_range_independent_copy() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn range_boundary_clamps_on_text_truncate() {
+fn range_boundary_collapses_on_full_data_replace() {
+    // `t.data = 'hey'` is `setData`, which DOM §4.10 defines as
+    // "replace data with node, offset 0, count node's length, data new
+    // value". The "replace data" live-range steps 8-9 then collapse any
+    // boundary inside the replaced span `[0, length]` to the offset (0):
+    // a range at (2, 5) over "hello" → (0, 0). (Before B1.3-i, `setData`
+    // routed through `set_text_data`/`TextChange`, which merely *clamped*
+    // boundaries to the new length [→ (2, 3)] — not spec-faithful. B1.3-i
+    // routes `setData` through `apply_replace_data`/`ReplaceData`, fixing
+    // the live-range semantics to match the spec collapse.)
     let (mut vm, mut session, mut dom, doc) = setup();
     unsafe { bind(&mut vm, &mut session, &mut dom, doc) };
     vm.eval(&format!(
@@ -148,8 +157,8 @@ fn range_boundary_clamps_on_text_truncate() {
     ))
     .unwrap();
     vm.eval("t.data = 'hey';").unwrap();
-    assert_eq!(eval_num(&mut vm, "r.startOffset"), 2.0);
-    assert_eq!(eval_num(&mut vm, "r.endOffset"), 3.0);
+    assert_eq!(eval_num(&mut vm, "r.startOffset"), 0.0);
+    assert_eq!(eval_num(&mut vm, "r.endOffset"), 0.0);
     vm.unbind();
 }
 

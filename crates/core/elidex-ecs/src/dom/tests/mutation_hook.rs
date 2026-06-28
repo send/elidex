@@ -812,10 +812,11 @@ fn replace_text_data_fires_after_replace_data_with_offset_count_replacement_len(
 
 #[test]
 fn replace_text_data_clamps_count_silently() {
-    // WHATWG §11.2 step 6: "if offset + count is greater than length,
-    // end at length". `replace_text_data` is the engine primitive, so
-    // it applies the clamp internally; bounds-validation (IndexSizeError
-    // for offset > len) is the caller's responsibility.
+    // WHATWG DOM §4.10 "replace data" step 3: "if offset + count is
+    // greater than length, set count to length − offset".
+    // `replace_text_data` is the engine primitive, so it applies the
+    // clamp internally; bounds-validation (IndexSizeError for
+    // offset > len) is the caller's responsibility.
     let mut dom = EcsDom::new();
     let parent = elem(&mut dom, "p");
     let text = dom.create_text("abcde");
@@ -824,7 +825,7 @@ fn replace_text_data_clamps_count_silently() {
     let events = install_mock(&mut dom);
     // count=99 past end → clamped to 4 ("bcde"). "abcde" with
     // offset=1 + delete "bcde" + insert "Z" → "aZ" (length 2). Hook
-    // reports the CLAMPED count (4), per WHATWG §11.2 step 6 — Range
+    // reports the CLAMPED count (4), per WHATWG DOM §4.10 step 3 — Range
     // live-tracking math depends on the actual spliced span, not the
     // caller's possibly-overflowing argument (PR186 R3 #1).
     assert_eq!(dom.replace_text_data(text, 1, 99, "Z"), Some(2));

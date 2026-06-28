@@ -1,5 +1,5 @@
 use super::*;
-use elidex_ecs::Attributes;
+use elidex_ecs::{Attributes, CommentData};
 
 pub(super) fn elem(dom: &mut EcsDom, tag: &str) -> Entity {
     dom.create_element(tag, Attributes::default())
@@ -800,4 +800,64 @@ fn replace_child_fragment_old_not_child_is_failure() {
     let records = super::apply_replace_child(&mut dom, parent, frag, stray);
     assert!(records.is_empty());
     assert_eq!(dom.children(frag), vec![a], "fragment untouched on failure");
+}
+
+// ===========================================================================
+// B1.3-i — apply_replace_data primitive (§6.1)
+// ===========================================================================
+
+#[test]
+fn apply_replace_data_text_records_old_value() {
+    let mut dom = EcsDom::new();
+    let text = dom.create_text("hello");
+    let record = super::apply_replace_data(&mut dom, text, 0, 5, "X", "hello".to_string())
+        .expect("Text node yields a record");
+    assert_eq!(record.kind, MutationKind::CharacterData);
+    assert_eq!(record.target, text);
+    assert_eq!(record.old_value, Some("hello".to_string()));
+    assert_eq!(dom.world().get::<&TextContent>(text).unwrap().0, "X");
+}
+
+#[test]
+fn apply_replace_data_comment_records_old_value() {
+    let mut dom = EcsDom::new();
+    let comment = dom.create_comment("hello");
+    let record = super::apply_replace_data(&mut dom, comment, 0, 5, "X", "hello".to_string())
+        .expect("Comment node yields a record");
+    assert_eq!(record.kind, MutationKind::CharacterData);
+    assert_eq!(record.target, comment);
+    assert_eq!(record.old_value, Some("hello".to_string()));
+    assert_eq!(dom.world().get::<&CommentData>(comment).unwrap().0, "X");
+}
+
+#[test]
+fn apply_replace_data_mid_splice() {
+    let mut dom = EcsDom::new();
+    let text = dom.create_text("hello");
+    let record = super::apply_replace_data(&mut dom, text, 1, 3, "XY", "hello".to_string())
+        .expect("Text node yields a record");
+    assert_eq!(record.old_value, Some("hello".to_string()));
+    assert_eq!(dom.world().get::<&TextContent>(text).unwrap().0, "hXYo");
+}
+
+#[test]
+fn apply_replace_data_append_shape() {
+    let mut dom = EcsDom::new();
+    let text = dom.create_text("hello");
+    // appendData shape: (len, 0, "!").
+    let record = super::apply_replace_data(&mut dom, text, 5, 0, "!", "hello".to_string())
+        .expect("Text node yields a record");
+    assert_eq!(record.old_value, Some("hello".to_string()));
+    assert_eq!(dom.world().get::<&TextContent>(text).unwrap().0, "hello!");
+}
+
+#[test]
+fn apply_replace_data_non_character_data_returns_none() {
+    // A non-CharacterData entity (Element) has neither TextContent nor
+    // CommentData, so apply_replace_data is a structural no-op returning
+    // None — no spurious CharacterData record (mirrors apply_set_text).
+    let mut dom = EcsDom::new();
+    let el = elem(&mut dom, "div");
+    let record = super::apply_replace_data(&mut dom, el, 0, 0, "X", String::new());
+    assert!(record.is_none());
 }

@@ -20,10 +20,13 @@ mod attribute_reconcile;
 pub(crate) mod equality;
 mod mutation_event;
 pub mod shadow;
+mod text_data;
+mod text_util;
 mod tree;
 mod tree_clone;
 
 pub use mutation_event::{MutationDispatcher, MutationEvent};
+pub(crate) use text_util::splice_utf16;
 
 use crate::components::{
     AssociatedDocument, AttrData, Attributes, CommentData, DocTypeData, DocumentBaseUrl, Namespace,
@@ -305,122 +308,6 @@ impl EcsDom {
             merged_child_index,
         };
         self.dispatch_event(&event);
-    }
-
-    /// Replace the `TextContent` of an entity. Returns the new UTF-16 length
-    /// on success, or `None` if the entity has no `TextContent` component.
-    ///
-    /// On success, bumps [`Self::rev_version`] for `entity` (the canonical
-    /// cache-invalidation step per the version-tracking docs above) and
-    /// fires `after_text_change` on the mutation hook (if installed). This
-    /// makes `set_text_data` self-contained: callers do not need to
-    /// `rev_version` themselves after.
-    ///
-    /// This is the canonical write path for **Text / CData** mutations.
-    /// `CharacterData` handlers in `elidex-dom-api` route `TextContent`
-    /// updates through this method to ensure Range live-tracking hook fire
-    /// consistency.
-    ///
-    /// Takes `&str` and uses [`str::clone_into`] so the existing
-    /// `TextContent` buffer's capacity is reused — frequent CharacterData
-    /// updates do not re-allocate.
-    ///
-    /// **NOT for Comment nodes** — Comment uses a separate `CommentData`
-    /// component which is NOT covered by Range live-tracking spec (§5.5
-    /// covers Text only, not Comment). Comment writes continue to use the
-    /// existing `set_char_data` Comment branch unchanged.
-    pub fn set_text_data(&mut self, entity: Entity, text: &str) -> Option<usize> {
-        let new_utf16_len = {
-            let mut tc = self.world.get::<&mut TextContent>(entity).ok()?;
-            let len = text.encode_utf16().count();
-            text.clone_into(&mut tc.0);
-            len
-        };
-        self.rev_version(entity);
-        let event = MutationEvent::TextChange {
-            node: entity,
-            new_utf16_len,
-        };
-        self.dispatch_event(&event);
-        Some(new_utf16_len)
-    }
-
-    /// Primitive UTF-16 splice on a Text / CData entity's `TextContent`
-    /// (WHATWG DOM §4.10 "replace data" steps 1-7 storage mutation,
-    /// step 8-11 boundary adjustment is the hook consumer's
-    /// responsibility). Returns the new UTF-16 length on success, or
-    /// `None` if the entity has no `TextContent` component.
-    ///
-    /// **Bounds validation is the CALLER's responsibility** — this is
-    /// the engine-level splice primitive that `CharacterData` handlers
-    /// in `elidex-dom-api` (`appendData` / `insertData` / `deleteData`
-    /// / `replaceData`) route through after raising `IndexSizeError`
-    /// for `offset > utf16_len`. `count` IS clamped to `len - offset`
-    /// here to match the spec's silent clamp ("if offset+count is
-    /// greater than length, end at length", §11.2 step 6).
-    ///
-    /// Splitting through a surrogate pair (offset / end mid-pair) is
-    /// **spec-valid** — UTF-16 offsets ignore character boundaries —
-    /// and produces lone surrogates in the intermediate `Vec<u16>`.
-    /// Rust's `String` storage cannot represent lone surrogates, so the
-    /// result is rendered through `from_utf16_lossy` which substitutes
-    /// `U+FFFD` for each unpaired half. This matches the lossy-not-panic
-    /// contract pinned by `tests_character_data::*surrogate_pair*` and
-    /// mirrors `elidex-dom-api::char_data::splice_utf16`.
-    ///
-    /// On success:
-    /// - splices the UTF-16 view of `TextContent` in place,
-    /// - bumps [`Self::rev_version`] (cache invalidation),
-    /// - fires [`MutationEvent::ReplaceData`] with
-    ///   `(entity, offset, count, replacement_utf16_len)`.
-    ///
-    /// **NOT for Comment nodes** (Comment uses `CommentData`, not
-    /// covered by WHATWG §5.5 Range live-tracking).
-    pub fn replace_text_data(
-        &mut self,
-        entity: Entity,
-        offset_utf16: usize,
-        count_utf16: usize,
-        replacement: &str,
-    ) -> Option<usize> {
-        let replacement_units: Vec<u16> = replacement.encode_utf16().collect();
-        let replacement_len = replacement_units.len();
-        let (new_utf16_len, clamped_count) = {
-            let mut tc = self.world.get::<&mut TextContent>(entity).ok()?;
-            let units: Vec<u16> = tc.0.encode_utf16().collect();
-            let len = units.len();
-            debug_assert!(
-                offset_utf16 <= len,
-                "replace_text_data: offset {offset_utf16} exceeds UTF-16 length {len}; \
-                 caller must validate via `offset > utf16_len(&data)` before invocation"
-            );
-            let end = offset_utf16.saturating_add(count_utf16).min(len);
-            let clamped_count = end - offset_utf16;
-            let mut out: Vec<u16> = Vec::with_capacity(len - clamped_count + replacement_len);
-            out.extend_from_slice(&units[..offset_utf16]);
-            out.extend_from_slice(&replacement_units);
-            out.extend_from_slice(&units[end..]);
-            let new_len = out.len();
-            let spliced = String::from_utf16_lossy(&out);
-            spliced.clone_into(&mut tc.0);
-            (new_len, clamped_count)
-        };
-        self.rev_version(entity);
-        // WHATWG DOM §4.10 step 6 clamps the live-range adjustment to
-        // the actual spliced span (`end - offset`), not the caller's
-        // possibly-overflowing `count_utf16`. Passing the unclamped
-        // value would make `adjust_ranges_for_replace_data` treat
-        // boundaries near the OLD end as inside the splice region
-        // and collapse them to `offset` instead of shifting by
-        // `new_data_len - clamped_count` — PR186 R3 #1 fix.
-        let event = MutationEvent::ReplaceData {
-            node: entity,
-            offset_utf16,
-            count_utf16: clamped_count,
-            new_data_len_utf16: replacement_len,
-        };
-        self.dispatch_event(&event);
-        Some(new_utf16_len)
     }
 
     /// Provides read-only access to the underlying `hecs::World`.
