@@ -75,10 +75,10 @@ fn ecs_dom_set_get_attribute_roundtrip() {
     let mut dom = EcsDom::new();
     let el = elem(&mut dom, "div");
     assert_eq!(dom.get_attribute(el, "id"), None);
-    assert!(dom.set_attribute(el, "id", "main"));
+    assert!(dom.set_attribute(el, "id", "main").did_set);
     assert_eq!(dom.get_attribute(el, "id"), Some("main".to_owned()));
     // Second set overwrites in place.
-    assert!(dom.set_attribute(el, "id", "hero"));
+    assert!(dom.set_attribute(el, "id", "hero").did_set);
     assert_eq!(dom.get_attribute(el, "id"), Some("hero".to_owned()));
 }
 
@@ -86,7 +86,7 @@ fn ecs_dom_set_get_attribute_roundtrip() {
 fn ecs_dom_remove_attribute() {
     let mut dom = EcsDom::new();
     let el = elem(&mut dom, "div");
-    assert!(dom.set_attribute(el, "class", "big"));
+    assert!(dom.set_attribute(el, "class", "big").did_set);
     dom.remove_attribute(el, "class");
     assert_eq!(dom.get_attribute(el, "class"), None);
     // Removing a missing attribute is a silent no-op.
@@ -99,7 +99,7 @@ fn ecs_dom_set_attribute_on_destroyed_entity_returns_false() {
     let mut dom = EcsDom::new();
     let el = elem(&mut dom, "div");
     dom.destroy_entity(el);
-    assert!(!dom.set_attribute(el, "id", "lost"));
+    assert!(!dom.set_attribute(el, "id", "lost").did_set);
 }
 
 #[test]
@@ -110,7 +110,7 @@ fn ecs_dom_with_attribute_present_missing_and_no_component() {
     // Element with no attributes yet → None for any key.
     assert_eq!(dom.with_attribute(el, "id", |v| v.map(str::to_owned)), None);
     // After set, with_attribute borrows the same value get_attribute clones.
-    assert!(dom.set_attribute(el, "id", "main"));
+    assert!(dom.set_attribute(el, "id", "main").did_set);
     let viewed = dom.with_attribute(el, "id", |v| v.map(str::to_owned));
     assert_eq!(viewed.as_deref(), Some("main"));
     assert_eq!(viewed, dom.get_attribute(el, "id"));
@@ -133,7 +133,7 @@ fn ecs_dom_has_attribute_matches_get_attribute_is_some() {
     let text = dom.create_text("hi");
     assert!(!dom.has_attribute(el, "id"));
     assert!(!dom.has_attribute(text, "id"));
-    assert!(dom.set_attribute(el, "id", "main"));
+    assert!(dom.set_attribute(el, "id", "main").did_set);
     assert!(dom.has_attribute(el, "id"));
     assert_eq!(
         dom.has_attribute(el, "id"),

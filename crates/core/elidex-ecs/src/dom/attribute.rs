@@ -19,6 +19,25 @@ use hecs::Entity;
 use super::{EcsDom, MutationEvent};
 use crate::components::{AttrData, AttrEntityCache, Attributes, NodeKind};
 
+/// Outcome of an [`EcsDom::set_attribute`] chokepoint write, surfacing the
+/// data the MutationObserver "attributes" record needs — WHATWG DOM §4.9
+/// "handle attribute changes" step 1 (queue an "attributes" mutation record
+/// carrying the pre-write `oldValue`). The write itself + the derived-state
+/// fan-out (steps 2–3) still happen inside `set_attribute`; this return value
+/// only lets the record-producing `ScriptSession` seam build the record from
+/// the `oldValue` the chokepoint already captured, without re-reading the
+/// `Attributes` component or re-forking the chokepoint.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct AttributeWrite {
+    /// `true` when the attribute was written (entity live + Element);
+    /// `false` for a destroyed or non-Element receiver, where no mutation
+    /// occurred and therefore no record must be produced.
+    pub did_set: bool,
+    /// The attribute's value immediately BEFORE this write, or `None` when
+    /// the attribute was newly added (the record's `oldValue` is then null).
+    pub old_value: Option<String>,
+}
+
 impl EcsDom {
     // ---- Attribute accessors ----
 
@@ -97,11 +116,16 @@ impl EcsDom {
     /// next read pays one walk and re-caches.  See the SP2 entity-
     /// list cache in `elidex-js::vm::host::dom_collection`.
     ///
-    /// Returns `false` if the entity has been destroyed.
-    pub fn set_attribute(&mut self, entity: Entity, name: &str, value: &str) -> bool {
+    /// Returns an [`AttributeWrite`]: `did_set == false` (with `old_value ==
+    /// None`) when the entity has been destroyed or is not an Element, else
+    /// `did_set == true` with `old_value` = the pre-write value (`None` for a
+    /// newly-added attribute). The `old_value` lets the record-producing
+    /// `ScriptSession` seam build the §4.9 "attributes" record without
+    /// re-reading the `Attributes` component.
+    pub fn set_attribute(&mut self, entity: Entity, name: &str, value: &str) -> AttributeWrite {
         let (did_set, old_value) = self.write_attribute_no_dispatch(entity, name, value);
         if !did_set {
-            return false;
+            return AttributeWrite::default();
         }
         // Fire `MutationEvent::AttributeChange` per DOM §4.3.2 +
         // §4.3.3; same-value writes still fire because spec
@@ -116,7 +140,10 @@ impl EcsDom {
             new_value: Some(value),
         };
         self.dispatch_event(&event);
-        true
+        AttributeWrite {
+            did_set: true,
+            old_value,
+        }
     }
 
     /// Like [`set_attribute`](Self::set_attribute) but WITHOUT firing the
@@ -255,16 +282,23 @@ impl EcsDom {
     /// entity-list cache in `elidex-js::vm::host::dom_collection`;
     /// the `set_attribute` rationale on over-invalidation applies
     /// here too.
-    pub fn remove_attribute(&mut self, entity: Entity, name: &str) {
+    ///
+    /// Returns the removed value (`Some` only when an attribute was actually
+    /// present and removed), or `None` for a destroyed / non-Element receiver
+    /// OR an absent attribute. The record-producing `ScriptSession` seam uses
+    /// this `Some`/`None` to gate the §4.9 "attributes" record: `None` ⇒ no
+    /// record (`removeAttribute("missing")` queues nothing), `Some(old)` ⇒
+    /// record with `oldValue = old`.
+    pub fn remove_attribute(&mut self, entity: Entity, name: &str) -> Option<String> {
         if !self.contains(entity) {
-            return;
+            return None;
         }
         // Symmetric to `set_attribute`'s Element-only guard
         // (line ~939): non-Element entities never own `Attributes`,
         // so a remove on them is meaningless and must not cascade
         // version bumps / mutation events.
         if !matches!(self.node_kind(entity), Some(NodeKind::Element)) {
-            return;
+            return None;
         }
         let old_value = self
             .world
@@ -293,5 +327,6 @@ impl EcsDom {
             };
             self.dispatch_event(&event);
         }
+        old_value
     }
 }

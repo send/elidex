@@ -223,7 +223,7 @@ fn version_bumped_by_set_attribute() {
 
     // First set on a fresh entity (no `Attributes` component yet) —
     // exercises the `insert_one(Attributes)` branch.
-    assert!(dom.set_attribute(div, "class", "foo"));
+    assert!(dom.set_attribute(div, "class", "foo").did_set);
     assert!(dom.inclusive_descendants_version(div) > v_div);
     assert!(dom.inclusive_descendants_version(body) > v_body);
     assert!(dom.inclusive_descendants_version(doc) > v_doc);
@@ -232,7 +232,7 @@ fn version_bumped_by_set_attribute() {
     // branch.  Must bump again so that downstream caches keyed against
     // an attribute-mutation-sensitive root never wedge to a stale value.
     let v_div2 = dom.inclusive_descendants_version(div);
-    assert!(dom.set_attribute(div, "class", "bar"));
+    assert!(dom.set_attribute(div, "class", "bar").did_set);
     assert!(dom.inclusive_descendants_version(div) > v_div2);
 }
 
@@ -254,7 +254,7 @@ fn set_attribute_destroyed_entity_no_version_bump() {
 
     // remove_child during destroy_entity bumps doc; capture the
     // post-destroy baseline.
-    assert!(!dom.set_attribute(e, "id", "x"));
+    assert!(!dom.set_attribute(e, "id", "x").did_set);
     assert_eq!(
         dom.inclusive_descendants_version(doc),
         v_doc_after_destroy,
@@ -296,7 +296,7 @@ fn set_attribute_non_element_no_version_bump_or_event() {
     let doc = dom.create_document_root();
     let v_doc = dom.inclusive_descendants_version(doc);
 
-    assert!(!dom.set_attribute(doc, "id", "x"));
+    assert!(!dom.set_attribute(doc, "id", "x").did_set);
     assert_eq!(
         dom.inclusive_descendants_version(doc),
         v_doc,
@@ -308,7 +308,7 @@ fn set_attribute_non_element_no_version_bump_or_event() {
     let v_text = dom.inclusive_descendants_version(text);
     let v_doc_after_append = dom.inclusive_descendants_version(doc);
 
-    assert!(!dom.set_attribute(text, "name", "y"));
+    assert!(!dom.set_attribute(text, "name", "y").did_set);
     assert_eq!(
         dom.inclusive_descendants_version(text),
         v_text,
@@ -379,7 +379,7 @@ fn version_bumped_by_remove_attribute_even_when_absent() {
 
     // After a real attribute is set + removed, version must bump on
     // the remove leg too.
-    assert!(dom.set_attribute(body, "id", "x"));
+    assert!(dom.set_attribute(body, "id", "x").did_set);
     let v_body2 = dom.inclusive_descendants_version(body);
     dom.remove_attribute(body, "id");
     assert!(dom.inclusive_descendants_version(body) > v_body2);

@@ -15,7 +15,7 @@
 
 #![cfg(feature = "engine")]
 
-use super::super::value::{JsValue, NativeContext, ObjectKind, VmError};
+use super::super::value::{JsValue, NativeContext, ObjectId, ObjectKind, StringId, VmError};
 use super::super::wrapper_intern::{WrapperKey, WrapperKind};
 use super::dom_bridge::{
     coerce_first_arg_to_string, coerce_first_arg_to_string_id, invoke_dom_api,
@@ -109,83 +109,99 @@ pub(super) fn attr_set(
     name: &str,
     value: &str,
 ) -> bool {
-    ctx.host().dom().set_attribute(entity, name, value)
+    // B2-Slice-1: `set_attribute` now surfaces the captured `oldValue` (so the
+    // record-producing seam can build the §4.9 record); this reflected-setter
+    // shim only needs the success bit. Emitting records for reflected IDL
+    // setters that route through `attr_set` is B2-Slice-2.
+    ctx.host().dom().set_attribute(entity, name, value).did_set
 }
 
-/// Remove attribute `name` from `entity`, snapshot the removal-time
-/// value onto any JS-held `Attr` wrapper cached for `(entity,
-/// intern(name))`, then invalidate the wrapper cache.
-///
-/// The snapshot step matches WHATWG DOM §4.9.2 + Chrome / Firefox
-/// observable behaviour for the
-/// `removeAttribute(name)` → optional same-name `setAttribute` cycle
-/// on a previously-cached Attr: `attr.value` continues to report the
-/// value the attribute held at the moment it was removed.  Without
-/// the snapshot the JS-held Attr would read live DOM state and
-/// appear to re-attach to a subsequent same-name write.  Mirrors the
-/// `removeAttributeNode` path further down this file — `attr_remove`
-/// is the helper every other wrapper-aware removal site routes
-/// through (`removeAttribute`, `toggleAttribute(off)`, reflected
-/// boolean detach branches).
-///
-/// `attr_set` deliberately does NOT invalidate or snapshot:
-/// repeated `setAttribute("X", v)` followed by
-/// `getAttributeNode("X")` returns the same wrapper (identity
-/// preservation), which JS authors rely on and which the spec
-/// permits because the Attr's identity persists across same-name
-/// value mutations on the same owner.  Removal is the only
-/// observable detach point.
-///
-/// Borrow ordering (per [`super::super::NativeContext`] discipline):
-/// intern the qualified name first; snapshot the prior value via
-/// the bound-DOM split borrow so the intern lands on the borrowed
-/// `&str` (no `String::from` clone); copy the cached Attr id out of
-/// the wrapper-cache lookup BEFORE the `attr_states.get_mut` (the
-/// HashMap probe returns a `&ObjectId` that aliases the cache map);
-/// apply the removal through `host_if_bound` (post-unbind callers
-/// no-op, matching the snapshot path's `None` fall-through); only
-/// then update the Attr's `detached_value` and invalidate the
-/// cache entry.
-///
-/// `name` is the UTF-8 form passed to the DOM; the cache is
-/// keyed by `intern(utf8)` across every hit site (`getAttributeNode`,
-/// `nnm.{item, getNamedItem, [Symbol.iterator]}`, `nnm[k]`),
-/// so this re-intern lands on the same `StringId` they cached
-/// under and the invalidation is correctly observed.
-pub(super) fn attr_remove(ctx: &mut NativeContext<'_>, entity: Entity, name: &str) {
-    let qname_sid = ctx.vm.strings.intern(name);
+/// VM-local `Attr`-wrapper bookkeeping captured BEFORE a wrapper-aware
+/// attribute removal, applied by [`freeze_detached_attr_wrapper`] AFTER the
+/// removal lands. This is the *marshalling* half of an attribute removal that
+/// the engine-independent `removeAttribute` / `toggleAttribute` handler cannot
+/// do — it has no access to the per-VM JS wrapper cache / `attr_states`.
+struct AttrWrapperSnapshot {
+    /// `intern(name)` — the wrapper-cache key (`getAttributeNode`,
+    /// `nnm.{item,getNamedItem,…}` all cache under `intern(utf8)`, so this
+    /// re-intern lands on the same `StringId` and the invalidation is observed).
+    qname_sid: StringId,
+    /// The JS-held `Attr` wrapper for `(entity, qname_sid)`, if any.
+    cached_attr_id: Option<ObjectId>,
+    /// The attribute's interned value at snapshot time (`None` = unbound OR the
+    /// attribute was already absent — both skip the freeze).
+    prev_sid: Option<StringId>,
+}
+
+/// Capture the [`AttrWrapperSnapshot`] for a pending removal of `name` on
+/// `entity` (`qname_sid == intern(name)`, passed in so the caller can reuse it
+/// for the handler dispatch). Snapshots the prior value via the disjoint
+/// DOM/strings split borrow (intern lands on the borrowed `&str`, no
+/// `String::from` clone) and probes the wrapper cache — `.copied()` drops the
+/// `&ObjectId` so a later `attr_states.get_mut` is conflict-free.
+fn snapshot_attr_wrapper(
+    ctx: &mut NativeContext<'_>,
+    entity: Entity,
+    name: &str,
+    qname_sid: StringId,
+) -> AttrWrapperSnapshot {
     let empty = ctx.vm.well_known.empty;
-    // Snapshot the prior value through the disjoint DOM/strings
-    // projection so we can intern on the borrowed `&str` in a single
-    // closure.  `None` collapses both the unbound case and the
-    // already-absent attribute case — both correctly skip the
-    // wrapper-state update below.
     let prev_sid = ctx.dom_and_strings_if_bound().and_then(|(dom, strings)| {
         dom.with_attribute(entity, name, |v| {
             v.map(|s| strings.intern_or_alias(empty, s))
         })
     });
-    // Probe the wrapper cache before any subsequent `attr_states`
-    // borrow — `.copied()` drops the `&ObjectId` borrow into the
-    // map so the later `attr_states.get_mut` is conflict-free.
     let cached_attr_id = ctx.vm.get_wrapper(WrapperKey::entity_named(
         entity,
         WrapperKind::Attr,
         qname_sid,
     ));
-    if let Some(host) = ctx.host_if_bound() {
-        host.dom().remove_attribute(entity, name);
+    AttrWrapperSnapshot {
+        qname_sid,
+        cached_attr_id,
+        prev_sid,
     }
-    // Freeze any JS-held wrapper at its removal-time value.  Without
-    // this, a subsequent `el.setAttribute(name, v2)` would make the
-    // previously-held Attr_A appear to track `v2` — Chrome / Firefox
-    // both return the snapshot.
-    if let (Some(attr_id), Some(prev_sid)) = (cached_attr_id, prev_sid) {
+}
+
+/// Freeze any JS-held `Attr` wrapper at its removal-time value + invalidate the
+/// wrapper cache, AFTER the removal has landed. Matches WHATWG DOM §4.9.2 +
+/// Chrome / Firefox: through a `removeAttribute(name)` → optional same-name
+/// `setAttribute` cycle, a previously-cached `Attr`'s `.value` keeps reporting
+/// the value the attribute held when it was removed (without the snapshot the
+/// JS-held Attr would read live DOM state and appear to re-attach to the new
+/// write). `attr_set` deliberately does NOT snapshot — same-name value writes
+/// preserve Attr identity, so removal is the only observable detach point.
+fn freeze_detached_attr_wrapper(
+    ctx: &mut NativeContext<'_>,
+    entity: Entity,
+    snap: AttrWrapperSnapshot,
+) {
+    if let (Some(attr_id), Some(prev_sid)) = (snap.cached_attr_id, snap.prev_sid) {
         if let Some(state_mut) = ctx.vm.attr_states.get_mut(&attr_id) {
             state_mut.detached_value = Some(prev_sid);
         }
     }
-    ctx.vm.invalidate_attr_cache_entry(entity, qname_sid);
+    ctx.vm.invalidate_attr_cache_entry(entity, snap.qname_sid);
+}
+
+/// Remove attribute `name` from `entity` through the `EcsDom` chokepoint while
+/// keeping any JS-held `Attr` wrapper in sync (snapshot → remove → freeze).
+///
+/// This is the wrapper-aware removal helper the **reflected boolean-attribute
+/// detach** sites (`el.hidden = false`, `<input>.checked = false`, …) route
+/// through; it does NOT yet emit a MutationObserver record — that convergence
+/// is B2-Slice-2 (reflected IDL setters). The generic `removeAttribute` /
+/// `toggleAttribute(off)` natives have been migrated off this helper onto the
+/// record-producing `invoke_dom_api` path (B2-Slice-1, F2), reusing the same
+/// [`snapshot_attr_wrapper`] / [`freeze_detached_attr_wrapper`] marshalling.
+pub(super) fn attr_remove(ctx: &mut NativeContext<'_>, entity: Entity, name: &str) {
+    let qname_sid = ctx.vm.strings.intern(name);
+    let snap = snapshot_attr_wrapper(ctx, entity, name, qname_sid);
+    // Post-unbind callers no-op (matching the snapshot's `None` fall-through).
+    if let Some(host) = ctx.host_if_bound() {
+        host.dom().remove_attribute(entity, name);
+    }
+    freeze_detached_attr_wrapper(ctx, entity, snap);
 }
 
 pub(super) fn native_element_get_attribute(
@@ -232,7 +248,22 @@ pub(super) fn native_element_remove_attribute(
         return Ok(JsValue::Undefined);
     };
     let name = coerce_first_arg_to_string(ctx, args)?;
-    attr_remove(ctx, entity, &name);
+    // B2-Slice-1 / F2: route the removal through the record-producing
+    // `removeAttribute` handler (chokepoint remove + §4.9 "attributes" record
+    // + `AttrEntityCache` evict + record drain) instead of the bare
+    // `attr_remove` chokepoint shim. The VM-local Attr-wrapper snapshot stays
+    // here — the engine-independent handler cannot touch the per-VM
+    // `attr_states` / wrapper cache (#399: identity bookkeeping is VM-side
+    // marshalling): snapshot before, freeze after.
+    let qname_sid = ctx.vm.strings.intern(&name);
+    let snap = snapshot_attr_wrapper(ctx, entity, &name, qname_sid);
+    invoke_dom_api(
+        ctx,
+        "removeAttribute",
+        entity,
+        &[JsValue::String(qname_sid)],
+    )?;
+    freeze_detached_attr_wrapper(ctx, entity, snap);
     Ok(JsValue::Undefined)
 }
 
@@ -569,32 +600,33 @@ pub(super) fn native_element_toggle_attribute(
             .is_some_and(|attrs| attrs.contains(&name))
     };
 
-    let final_present = match force {
-        Some(true) => {
-            if !currently_present {
-                // WHATWG §4.9.2: when force=true and absent, set value to
-                // empty string.
-                attr_set(ctx, entity, &name, "");
-            }
-            true
+    let qname_sid = ctx.vm.strings.intern(&name);
+    // If this toggle may REMOVE the attribute (present + not a force-add),
+    // snapshot the JS-held Attr wrapper BEFORE the handler removes it — the
+    // VM-local marshalling the engine-independent handler cannot do (mirrors
+    // `attr_remove` / `native_element_remove_attribute`).
+    let detach_snapshot = (currently_present && force != Some(true))
+        .then(|| snapshot_attr_wrapper(ctx, entity, &name, qname_sid));
+
+    // F2 (B2-Slice-1): converge onto the engine-independent `toggleAttribute`
+    // handler — the §4.9 toggle algorithm + the "attributes" MutationObserver
+    // record + record drain — instead of re-implementing the force /
+    // present-check / set-remove dance here via the record-less `attr_set` /
+    // `attr_remove` shims. The handler returns the final presence (Boolean).
+    let mut handler_args = vec![JsValue::String(qname_sid)];
+    if let Some(force) = force {
+        handler_args.push(JsValue::Boolean(force));
+    }
+    let result = invoke_dom_api(ctx, "toggleAttribute", entity, &handler_args)?;
+
+    // If the toggle actually removed the attribute (was present, now absent),
+    // freeze the snapshotted Attr wrapper at its removal-time value.
+    if let Some(snap) = detach_snapshot {
+        if matches!(result, JsValue::Boolean(false)) {
+            freeze_detached_attr_wrapper(ctx, entity, snap);
         }
-        Some(false) => {
-            if currently_present {
-                attr_remove(ctx, entity, &name);
-            }
-            false
-        }
-        None => {
-            if currently_present {
-                attr_remove(ctx, entity, &name);
-                false
-            } else {
-                attr_set(ctx, entity, &name, "");
-                true
-            }
-        }
-    };
-    Ok(JsValue::Boolean(final_present))
+    }
+    Ok(result)
 }
 
 // ---------------------------------------------------------------------------

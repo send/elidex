@@ -417,7 +417,7 @@ mod tests {
             let mut state = dom.world_mut().get::<&mut FormControlState>(e).unwrap();
             state.set_value("abc".to_string()); // dirty live value, no `value` attr
         }
-        assert!(dom.set_attribute(e, "type", "hidden")); // → default mode
+        assert!(dom.set_attribute(e, "type", "hidden").did_set); // → default mode
         assert_eq!(
             dom.with_attribute(e, "value", |v| v.map(str::to_owned)),
             Some("abc".to_string())
@@ -434,7 +434,7 @@ mod tests {
     #[test]
     fn tc1_value_to_default_empty_value_is_noop() {
         let (mut dom, e) = setup(&[]); // text, empty value
-        assert!(dom.set_attribute(e, "type", "hidden"));
+        assert!(dom.set_attribute(e, "type", "hidden").did_set);
         assert_eq!(
             dom.with_attribute(e, "value", |v| v.map(str::to_owned)),
             None
@@ -450,7 +450,7 @@ mod tests {
             assert_eq!(s.kind, FormControlKind::Hidden);
             assert_eq!(s.default_value, "x");
         });
-        assert!(dom.set_attribute(e, "type", "text")); // → value mode
+        assert!(dom.set_attribute(e, "type", "text").did_set); // → value mode
         with_fcs(&dom, e, |s| {
             assert_eq!(s.kind, FormControlKind::TextInput);
             assert_eq!(s.value, "x");
@@ -467,7 +467,7 @@ mod tests {
             assert_eq!(s.kind, FormControlKind::File);
             assert_eq!(s.default_value, "x");
         });
-        assert!(dom.set_attribute(e, "type", "text")); // filename → value mode
+        assert!(dom.set_attribute(e, "type", "text").did_set); // filename → value mode
         with_fcs(&dom, e, |s| {
             assert_eq!(s.kind, FormControlKind::TextInput);
             assert_eq!(s.value, "x");
@@ -493,7 +493,7 @@ mod tests {
             let mut state = dom.world_mut().get::<&mut FormControlState>(e).unwrap();
             state.default_value = "stale".to_string();
         }
-        assert!(dom.set_attribute(e, "type", "text")); // → value mode
+        assert!(dom.set_attribute(e, "type", "text").did_set); // → value mode
         with_fcs(&dom, e, |s| {
             assert_eq!(
                 s.value, "real",
@@ -529,7 +529,7 @@ mod tests {
             let mut state = dom.world_mut().get::<&mut FormControlState>(e).unwrap();
             state.set_value("abc".to_string());
         }
-        assert!(dom.set_attribute(e, "type", "file")); // → filename mode
+        assert!(dom.set_attribute(e, "type", "file").did_set); // → filename mode
         with_fcs(&dom, e, |s| {
             assert_eq!(s.kind, FormControlKind::File);
             assert_eq!(
@@ -548,7 +548,7 @@ mod tests {
             let mut state = dom.world_mut().get::<&mut FormControlState>(e).unwrap();
             state.set_value("hello".to_string());
         }
-        assert!(dom.set_attribute(e, "type", "search")); // value → value
+        assert!(dom.set_attribute(e, "type", "search").did_set); // value → value
         with_fcs(&dom, e, |s| {
             assert_eq!(s.kind, FormControlKind::Search);
             assert_eq!(s.value, "hello");
@@ -568,7 +568,7 @@ mod tests {
             let mut state = dom.world_mut().get::<&mut FormControlState>(e).unwrap();
             state.set_value("keep".to_string()); // dirty live value
         }
-        assert!(dom.set_attribute(e, "type", "submit")); // default → default
+        assert!(dom.set_attribute(e, "type", "submit").did_set); // default → default
         with_fcs(&dom, e, |s| {
             assert_eq!(s.kind, FormControlKind::SubmitButton);
             assert_eq!(s.value, "keep", "same-mode transition runs no migration");
