@@ -3,27 +3,27 @@
 // `m4-12-platform-gap-roadmap.md` §E-2 Round 20 PR7.  See
 // `memory/project_boa_runtime_deletion.md`.
 
-//! `StaticRange` interface (WHATWG DOM §4.5) — eager / immutable
+//! `StaticRange` interface (WHATWG DOM §5.4) — eager / immutable
 //! AbstractRange holder.
 //!
 //! ## Layering
 //!
 //! `StaticRange` is **not** registered in
-//! [`elidex_dom_api::LiveRangeRegistry`] (spec §4.5 deliberately
+//! [`elidex_dom_api::LiveRangeRegistry`] (spec §5.4 deliberately
 //! omits live-range tracking).  The four boundary fields are stored
 //! inline in [`super::super::value::ObjectKind::StaticRange`] as
 //! [`Entity`] bits + offsets; the wrapper has no other state.
 //!
 //! ## Constructor — eager validation
 //!
-//! `new StaticRange(init)` (spec §4.5 step 1) eagerly throws
+//! `new StaticRange(init)` (spec §5.4 step 1) eagerly throws
 //! `InvalidNodeTypeError` if either container is a `DocumentType` or
 //! `Attr`.  Offsets are coerced via WebIDL `unsigned long`
 //! (`coerce::to_uint32`) per the AbstractRange dictionary.
 //!
 //! ## `isValid()` — lazy validation
 //!
-//! `staticRange.isValid()` (spec §4.5 step 2) returns true only if
+//! `staticRange.isValid()` (spec §5.4 *is valid* criteria) returns true only if
 //! all of:
 //! - both containers share a root,
 //! - `startOffset ≤ length(startContainer)`,
@@ -87,7 +87,7 @@ impl VmInner {
             self.install_accessor_pair(proto_id, name_sid, getter, None, attrs);
         }
 
-        // `isValid()` — spec §4.5 step 2.  Method (data property)
+        // `isValid()` — spec §5.4 *is valid* criteria.  Method (data property)
         // rather than accessor per WebIDL signature.  No SID dedicated
         // — intern at install time.
         let is_valid_sid = self.strings.intern("isValid");
@@ -179,7 +179,7 @@ fn require_static_range_receiver(
 // Constructor — eager validation
 // ---------------------------------------------------------------------------
 
-/// `new StaticRange(init)` (WHATWG DOM §4.5).
+/// `new StaticRange(init)` (WHATWG DOM §5.4).
 ///
 /// Eager step 1: throw `InvalidNodeTypeError` if `init.startContainer`
 /// or `init.endContainer` is a `DocumentType` or `Attr`.  Spec
@@ -267,7 +267,7 @@ fn require_dict_member(
     }
 }
 
-/// Spec §4.5 step 1 — reject `DocumentType` / `Attr` container.
+/// Spec §5.4 step 1 — reject `DocumentType` / `Attr` container.
 fn reject_invalid_container(ctx: &mut NativeContext<'_>, container: Entity) -> Result<(), VmError> {
     let dom = ctx.host().dom();
     let is_doctype = matches!(
@@ -282,7 +282,7 @@ fn reject_invalid_container(ctx: &mut NativeContext<'_>, container: Entity) -> R
     // Therefore the Attr branch is a forward-stub: no Entity in
     // current elidex storage can fail this check, but the doc-comment
     // documents the spec intent so a future Attr-entity migration
-    // does not regress §4.5 step 1.
+    // does not regress §5.4 step 1.
     let _ = Attributes::default;
     if is_doctype {
         return Err(VmError::dom_exception(
