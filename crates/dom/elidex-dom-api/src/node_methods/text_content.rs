@@ -2,7 +2,11 @@
 
 use elidex_ecs::{CommentData, EcsDom, Entity, NodeKind, TextContent};
 use elidex_plugin::JsValue;
-use elidex_script_session::{apply_replace_all, DomApiError, DomApiHandler, SessionCore};
+use elidex_script_session::{
+    apply_replace_all, apply_replace_data, DomApiError, DomApiHandler, SessionCore,
+};
+
+use crate::char_data::{get_char_data, utf16_len};
 
 // ---------------------------------------------------------------------------
 // Helper
@@ -81,25 +85,24 @@ impl DomApiHandler for SetTextContentNodeKind {
 
         match dom.node_kind(this) {
             Some(NodeKind::Document | NodeKind::DocumentType) => Ok(JsValue::Undefined),
-            Some(NodeKind::Text | NodeKind::CdataSection) => {
-                // `set_text_data` bumps `rev_version(this)` internally
-                // and returns `None` only when the entity lacks a
-                // `TextContent` component — a malformed `NodeKind::Text`
-                // entity (e.g. legacy world.spawn paths). WHATWG §3.6
-                // does not mandate an error for that case; we follow
-                // major browsers in silently no-op'ing so misuse stays
-                // visible-on-debug (via the absent text update) without
-                // tearing down the JS frame.
-                if dom.set_text_data(this, &text).is_none() {
-                    // No-op: malformed entity, see comment above.
+            Some(NodeKind::Text | NodeKind::CdataSection | NodeKind::Comment) => {
+                // WHATWG DOM §4.4 `Node.textContent` setter, CharacterData case
+                // (`#dom-node-textcontent`): "Replace data with node, offset 0,
+                // count node's length, and the given value" — identical to
+                // `setData`. Route through the record-producing `apply_replace_data`
+                // (fires the §4.10 characterData MutationRecord + ReplaceData
+                // live-range event for Text/CDATASection) so `text.textContent = …`
+                // / `comment.textContent = …` are observable, matching the
+                // CharacterData methods. `apply_replace_data` returns `None` for a
+                // malformed entity lacking both `TextContent` and `CommentData`
+                // (legacy world.spawn paths) — a silent no-op, no record, matching
+                // the prior browser-aligned behaviour.
+                let old_data = get_char_data(this, dom).unwrap_or_default();
+                if let Some(record) =
+                    apply_replace_data(dom, this, 0, utf16_len(&old_data), &text, old_data)
+                {
+                    session.push_notify_record(record);
                 }
-                Ok(JsValue::Undefined)
-            }
-            Some(NodeKind::Comment) => {
-                if let Ok(mut cd) = dom.world_mut().get::<&mut CommentData>(this) {
-                    text.clone_into(&mut cd.0);
-                }
-                dom.rev_version(this);
                 Ok(JsValue::Undefined)
             }
             _ => {
@@ -150,24 +153,26 @@ impl DomApiHandler for SetNodeValue {
         &self,
         this: Entity,
         args: &[JsValue],
-        _session: &mut SessionCore,
+        session: &mut SessionCore,
         dom: &mut EcsDom,
     ) -> Result<JsValue, DomApiError> {
         let value = crate::util::require_string_arg(args, 0)?;
 
-        match dom.node_kind(this) {
-            Some(NodeKind::Text | NodeKind::CdataSection) => {
-                // `set_text_data` bumps `rev_version(this)` internally.
-                let _ = dom.set_text_data(this, &value);
-            }
-            Some(NodeKind::Comment) => {
-                if let Ok(mut cd) = dom.world_mut().get::<&mut CommentData>(this) {
-                    value.clone_into(&mut cd.0);
-                }
-                dom.rev_version(this);
-            }
-            _ => {
-                // Element, Document, DocumentType, DocumentFragment — no-op.
+        // WHATWG DOM §4.4 `Node.nodeValue` setter, CharacterData case:
+        // "Replace data with node, offset 0, count node's length, and the given
+        // value" — identical to `setData` / the textContent setter. Route through
+        // `apply_replace_data` so `text.nodeValue = …` / `comment.nodeValue = …`
+        // produce characterData MutationRecords. Element / Document / DocumentType /
+        // DocumentFragment = no-op (§4.4 nodeValue setter null branch).
+        if matches!(
+            dom.node_kind(this),
+            Some(NodeKind::Text | NodeKind::CdataSection | NodeKind::Comment)
+        ) {
+            let old_data = get_char_data(this, dom).unwrap_or_default();
+            if let Some(record) =
+                apply_replace_data(dom, this, 0, utf16_len(&old_data), &value, old_data)
+            {
+                session.push_notify_record(record);
             }
         }
 

@@ -219,3 +219,94 @@ fn characterdata_record_not_fired_without_characterdata_option() {
     assert_eq!(vm.eval("t.data === 'new'").unwrap(), JsValue::Boolean(true));
     vm.unbind();
 }
+
+// ---------------------------------------------------------------------------
+// R1 (Codex P2) — textContent / nodeValue setters on a CharacterData node are
+// also characterData data-mutations (DOM §4.4 = `replace data(0, length, value)`)
+// and must produce characterData records, matching the data-mutation methods.
+// ---------------------------------------------------------------------------
+
+/// `text.textContent = "new"` fires a characterData record with oldValue.
+#[test]
+fn text_node_text_content_set_fires_characterdata_record() {
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let (_doc, _root) = setup_with_root(&mut vm, &mut session, &mut dom);
+
+    vm.eval(
+        "globalThis.records = null; \
+         globalThis.t = document.createTextNode('old'); root.appendChild(t); \
+         var mo = new MutationObserver(function(r){ globalThis.records = r; }); \
+         mo.observe(t, {characterData:true, characterDataOldValue:true}); \
+         t.textContent = 'new';",
+    )
+    .unwrap();
+
+    assert_eq!(vm.eval("records.length").unwrap(), JsValue::Number(1.0));
+    assert_eq!(
+        vm.eval("records[0].type === 'characterData' && records[0].target === t")
+            .unwrap(),
+        JsValue::Boolean(true)
+    );
+    assert_eq!(
+        vm.eval("records[0].oldValue === 'old'").unwrap(),
+        JsValue::Boolean(true)
+    );
+    assert_eq!(vm.eval("t.data === 'new'").unwrap(), JsValue::Boolean(true));
+    vm.unbind();
+}
+
+/// `text.nodeValue = "new"` fires a characterData record.
+#[test]
+fn text_node_node_value_set_fires_characterdata_record() {
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let (_doc, _root) = setup_with_root(&mut vm, &mut session, &mut dom);
+
+    vm.eval(
+        "globalThis.records = null; \
+         globalThis.t = document.createTextNode('old'); root.appendChild(t); \
+         var mo = new MutationObserver(function(r){ globalThis.records = r; }); \
+         mo.observe(t, {characterData:true}); \
+         t.nodeValue = 'new';",
+    )
+    .unwrap();
+
+    assert_eq!(vm.eval("records.length").unwrap(), JsValue::Number(1.0));
+    assert_eq!(
+        vm.eval("records[0].type === 'characterData'").unwrap(),
+        JsValue::Boolean(true)
+    );
+    assert_eq!(vm.eval("t.data === 'new'").unwrap(), JsValue::Boolean(true));
+    vm.unbind();
+}
+
+/// `comment.textContent = "x"` (Comment node) fires a characterData record —
+/// the Comment branch routes through `EcsDom::replace_comment_data`.
+#[test]
+fn comment_node_text_content_set_fires_characterdata_record() {
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let (_doc, _root) = setup_with_root(&mut vm, &mut session, &mut dom);
+
+    vm.eval(
+        "globalThis.records = null; \
+         globalThis.c = document.createComment('old'); root.appendChild(c); \
+         var mo = new MutationObserver(function(r){ globalThis.records = r; }); \
+         mo.observe(root, {characterData:true, subtree:true}); \
+         c.textContent = 'x';",
+    )
+    .unwrap();
+
+    assert_eq!(vm.eval("records.length").unwrap(), JsValue::Number(1.0));
+    assert_eq!(
+        vm.eval("records[0].type === 'characterData' && records[0].target === c")
+            .unwrap(),
+        JsValue::Boolean(true)
+    );
+    assert_eq!(vm.eval("c.data === 'x'").unwrap(), JsValue::Boolean(true));
+    vm.unbind();
+}
