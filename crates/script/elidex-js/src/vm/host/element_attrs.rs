@@ -247,22 +247,15 @@ pub(super) fn native_element_remove_attribute(
     let Some(entity) = entity_from_this(ctx, this) else {
         return Ok(JsValue::Undefined);
     };
-    // Canonicalize to the SAME name the handler removes: `removeAttribute`
-    // lowercases the qualified name ONLY for an HTML-namespace element ("get an
-    // attribute by name" lowercases solely for the HTML-namespace +
-    // HTML-document case) — SVG / MathML attributes stay case-preserved, so
-    // `svg.removeAttribute('viewBox')` keys on `viewBox` (Codex R3). The
-    // VM-local Attr-wrapper snapshot / invalidation below must key on that same
-    // canonical name — else `removeAttribute('ID')` removes `id` via the
-    // handler but the raw-keyed snapshot misses a cached `id` wrapper, leaving
-    // it un-frozen (Codex R1). `is_html_namespace` returns a `bool`, so the
-    // borrow ends before `name` is built.
-    let raw = coerce_first_arg_to_string(ctx, args)?;
-    let name = if ctx.host().dom().is_html_namespace(entity) {
-        raw.to_ascii_lowercase()
-    } else {
-        raw
-    };
+    // Lowercase the name so the VM-local Attr-wrapper snapshot/invalidation below
+    // keys on the SAME name the `removeAttribute` handler removes — else
+    // `removeAttribute('ID')` removes `id` via the handler but a raw-keyed snapshot
+    // misses a cached `getAttributeNode('id')` wrapper (Codex R1). The handler
+    // currently lowercases UNCONDITIONALLY (all elements); HTML-namespace-gating
+    // the lowercase consistently across the whole attribute IDL surface (so SVG/
+    // MathML case-preserved names survive) is deferred WHOLE to slot
+    // `#11-attribute-name-html-namespace-casing` (plan §9).
+    let name = coerce_first_arg_to_string(ctx, args)?.to_ascii_lowercase();
     // B2-Slice-1 / F2: route the removal through the record-producing
     // `removeAttribute` handler (chokepoint remove + §4.9 "attributes" record
     // + `AttrEntityCache` evict + record drain) instead of the bare
@@ -598,20 +591,15 @@ pub(super) fn native_element_toggle_attribute(
     let Some(entity) = entity_from_this(ctx, this) else {
         return Ok(JsValue::Boolean(false));
     };
-    // Canonicalize to the SAME name the handler operates on (lowercased ONLY for
-    // an HTML-namespace element — §4.9's "set/remove an attribute by name"
-    // lowercases solely for the HTML-namespace + HTML-document case; SVG /
-    // MathML attributes stay case-preserved, so `svg.toggleAttribute('viewBox')`
-    // keys on `viewBox`, Codex R3): the `currently_present` probe + the
-    // Attr-wrapper detach snapshot below must key on the canonical name, else
-    // `toggleAttribute('ID')` removes `id` via the handler but the raw-keyed
-    // precheck/snapshot misses a cached `id` wrapper (Codex R1).
-    let raw = coerce_first_arg_to_string(ctx, args)?;
-    let name = if ctx.host().dom().is_html_namespace(entity) {
-        raw.to_ascii_lowercase()
-    } else {
-        raw
-    };
+    // Lowercase the name so the `currently_present` probe + the Attr-wrapper
+    // detach snapshot below key on the SAME name the `toggleAttribute` handler
+    // operates on — else `toggleAttribute('ID')` removes `id` via the handler but
+    // a raw-keyed precheck/snapshot misses a cached `getAttributeNode('id')`
+    // wrapper (Codex R1). The handler currently lowercases UNCONDITIONALLY (all
+    // elements); HTML-namespace-gating the lowercase consistently across the whole
+    // attribute IDL surface (so SVG/MathML case-preserved names survive) is
+    // deferred WHOLE to slot `#11-attribute-name-html-namespace-casing` (plan §9).
+    let name = coerce_first_arg_to_string(ctx, args)?.to_ascii_lowercase();
 
     // `force` (second arg): undefined = toggle, true = ensure present,
     // false = ensure absent.  WHATWG §4.9.2 toggleAttribute.

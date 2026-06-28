@@ -132,27 +132,6 @@ pub(crate) fn require_live_element(dom: &EcsDom, entity: Entity) -> Result<(), D
     }
 }
 
-/// ASCII-lowercase an attribute's qualified name, but only for an element in
-/// the HTML namespace.
-///
-/// WHATWG DOM §4.9 "set/remove/toggle an attribute given qualifiedName" lower-
-/// cases the qualified name **only** when the element is in the HTML namespace
-/// and its node document is an HTML document. SVG / MathML attributes are stored
-/// case-preserved by the parser (`elidex-html-parser-strict` foreign-content
-/// path keeps `attr.name.local` verbatim, e.g. `viewBox`), so lowercasing
-/// unconditionally would make `svg.removeAttribute('viewBox')` look up the
-/// non-existent `viewbox` and silently miss the stored attribute (Codex R3).
-/// `is_html_namespace` already folds the "is an element" check, returning the
-/// raw name for non-Element / foreign receivers.
-#[must_use]
-pub(crate) fn lowercase_attr_name_if_html(dom: &EcsDom, entity: Entity, raw: String) -> String {
-    if dom.is_html_namespace(entity) {
-        raw.to_ascii_lowercase()
-    } else {
-        raw
-    }
-}
-
 /// Create a `NotFoundError` with the given message.
 pub(crate) fn not_found_error(message: &str) -> DomApiError {
     DomApiError {
