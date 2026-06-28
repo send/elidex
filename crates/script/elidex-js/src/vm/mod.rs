@@ -650,6 +650,14 @@ pub(crate) struct VmInner {
     /// lifetime of one bind cycle).  Eager-initialised at
     /// `register_crypto_global()` since `window.crypto` is always
     /// reachable from `globalThis`.  Cleared on `Vm::unbind`.
+    #[cfg(feature = "engine")]
+    pub(crate) crypto_instance: Option<ObjectId>,
+    /// Cached `SubtleCrypto` wrapper for `crypto.subtle`
+    /// (`[SameObject]` per WebIDL).  Lazily allocated on the first
+    /// `Crypto.prototype.subtle` accessor read via
+    /// `alloc_or_cached_subtle_crypto`.  Cleared on `Vm::unbind`.
+    #[cfg(feature = "engine")]
+    pub(crate) subtle_crypto_instance: Option<ObjectId>,
     /// `Screen.prototype` (CSSOM-View §4.3). Chains to `Object.prototype`
     /// (Screen is NOT an EventTarget). Carries the `width` / `height` /
     /// `availWidth` / `availHeight` / `colorDepth` / `pixelDepth` RO accessors.
@@ -692,14 +700,6 @@ pub(crate) struct VmInner {
     /// document's starting geometry. S5-2.
     #[cfg(feature = "engine")]
     pub(crate) visual_viewport_delivered: Option<(f64, f64, f64, f64)>,
-    #[cfg(feature = "engine")]
-    pub(crate) crypto_instance: Option<ObjectId>,
-    /// Cached `SubtleCrypto` wrapper for `crypto.subtle`
-    /// (`[SameObject]` per WebIDL).  Lazily allocated on the first
-    /// `Crypto.prototype.subtle` accessor read via
-    /// `alloc_or_cached_subtle_crypto`.  Cleared on `Vm::unbind`.
-    #[cfg(feature = "engine")]
-    pub(crate) subtle_crypto_instance: Option<ObjectId>,
     /// `CustomElementRegistry.prototype` (HTML §4.13.4). Chains to
     /// `Object.prototype`. `None` until
     /// `register_custom_element_registry_global()` runs during
