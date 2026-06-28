@@ -710,12 +710,15 @@ fn native_window_get_visual_viewport(
 }
 
 /// Whether the window's associated document is fully active (CSSOM-View §4 /
-/// WHATWG HTML "fully active"). In elidex's single-document model this is
+/// WHATWG HTML "fully active"). The **single** fully-active predicate, shared by
+/// the §4 `window.visualViewport → null` branch (above) and the §12.1
+/// VisualViewport geometry getters' "not fully active → 0" branch (consumed by
+/// `visual_viewport::vv_geometry_read`). In elidex's single-document model this is
 /// unconditionally `true` (the `html_dialog_proto.rs` precedent — folded into
-/// `#11-browsing-context-state-ecs-components`); the predicate exists so the §4
-/// `window.visualViewport → null` branch is real code a future multi-document
-/// model can wire, not a removed step.
-fn window_has_fully_active_document(_ctx: &mut NativeContext<'_>) -> bool {
+/// `#11-browsing-context-state-ecs-components`); the predicate exists so both
+/// branches are real code a future multi-document model wires at one site, not
+/// removed steps.
+pub(super) fn window_has_fully_active_document(_ctx: &NativeContext<'_>) -> bool {
     true
 }
 

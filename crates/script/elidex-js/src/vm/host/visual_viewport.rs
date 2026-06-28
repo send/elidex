@@ -317,37 +317,36 @@ fn require_visual_viewport_this(
     )))
 }
 
-/// CSSOM-View §12.1 each geometry getter step 1: "If [the associated document]
-/// is not fully active, return 0." In elidex's single-document VM the bound
-/// document is unconditionally fully active (the
-/// `html_dialog_proto.rs` precedent — `not fully active` is folded into
-/// `#11-browsing-context-state-ecs-components`), so this predicate is always
-/// `true` today; the branch is implemented (not asserted-away) so a future
-/// multi-document model wires a genuine check here rather than re-deriving the
-/// spec step. Returns `false` would make every geometry getter return 0.
-fn vv_associated_document_fully_active(_ctx: &NativeContext<'_>) -> bool {
-    // Single-document model: the window's associated document is always fully
-    // active. (The geometry reads VM-global `ViewportState`, which exists from
-    // VM construction and is intentionally readable across an unbind boundary —
-    // see the `Vm::unbind` viewport comment — so there is no reachable
-    // not-fully-active state to gate on yet.)
-    true
+/// Shared read path for the 7 VisualViewport geometry getters (CSSOM-View §12.1).
+/// Brand-checks `this`, then applies the §12.1 step-1 "not fully active → 0" guard
+/// **once** before returning `read(viewport)` for the fully-active value. The
+/// not-fully-active branch is the single seam a future multi-document model wires:
+/// [`window_has_fully_active_document`](super::window::window_has_fully_active_document)
+/// is unconditionally `true` today (the `html_dialog_proto.rs` precedent, folded
+/// into `#11-browsing-context-state-ecs-components`), so folding the guard here
+/// keeps the spec step in one place instead of inlining it in all 7 getters.
+fn vv_geometry_read(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    attr: &str,
+    read: impl FnOnce(&super::window::ViewportState) -> f64,
+) -> Result<JsValue, VmError> {
+    require_visual_viewport_this(ctx, this, attr)?;
+    if !super::window::window_has_fully_active_document(ctx) {
+        return Ok(JsValue::Number(0.0));
+    }
+    Ok(JsValue::Number(read(&ctx.vm.viewport)))
 }
 
 /// `visualViewport.offsetLeft` / `.offsetTop` (CSSOM-View §12.1) — the offset of
 /// the visual viewport from the layout viewport: `0` with no pinch-zoom (the
-/// engine models none), the exact value rather than a placeholder. §12.1 step 1:
-/// not fully active → 0 (unconditionally fully active here).
+/// engine models none), the exact value rather than a placeholder.
 fn native_vv_get_offset_left(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    require_visual_viewport_this(ctx, this, "offsetLeft")?;
-    if !vv_associated_document_fully_active(ctx) {
-        return Ok(JsValue::Number(0.0));
-    }
-    Ok(JsValue::Number(0.0))
+    vv_geometry_read(ctx, this, "offsetLeft", |_vp| 0.0)
 }
 
 fn native_vv_get_offset_top(
@@ -355,26 +354,18 @@ fn native_vv_get_offset_top(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    require_visual_viewport_this(ctx, this, "offsetTop")?;
-    if !vv_associated_document_fully_active(ctx) {
-        return Ok(JsValue::Number(0.0));
-    }
-    Ok(JsValue::Number(0.0))
+    vv_geometry_read(ctx, this, "offsetTop", |_vp| 0.0)
 }
 
 /// `visualViewport.pageLeft` / `.pageTop` (CSSOM-View §12.1) — the page-relative
 /// offset = layout-viewport scroll (`scroll_x`/`scroll_y`) + the visual
-/// `offsetLeft`/`offsetTop` (which are 0). §12.1 step 1: not fully active → 0.
+/// `offsetLeft`/`offsetTop` (which are 0).
 fn native_vv_get_page_left(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    require_visual_viewport_this(ctx, this, "pageLeft")?;
-    if !vv_associated_document_fully_active(ctx) {
-        return Ok(JsValue::Number(0.0));
-    }
-    Ok(JsValue::Number(ctx.vm.viewport.scroll_x))
+    vv_geometry_read(ctx, this, "pageLeft", |vp| vp.scroll_x)
 }
 
 fn native_vv_get_page_top(
@@ -382,26 +373,18 @@ fn native_vv_get_page_top(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    require_visual_viewport_this(ctx, this, "pageTop")?;
-    if !vv_associated_document_fully_active(ctx) {
-        return Ok(JsValue::Number(0.0));
-    }
-    Ok(JsValue::Number(ctx.vm.viewport.scroll_y))
+    vv_geometry_read(ctx, this, "pageTop", |vp| vp.scroll_y)
 }
 
 /// `visualViewport.width` / `.height` (CSSOM-View §12.1) — the visual viewport
 /// size, equal to the layout viewport (`inner_width`/`inner_height`) when
-/// `scale == 1`. §12.1 step 1: not fully active → 0.
+/// `scale == 1`.
 fn native_vv_get_width(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    require_visual_viewport_this(ctx, this, "width")?;
-    if !vv_associated_document_fully_active(ctx) {
-        return Ok(JsValue::Number(0.0));
-    }
-    Ok(JsValue::Number(ctx.vm.viewport.inner_width))
+    vv_geometry_read(ctx, this, "width", |vp| vp.inner_width)
 }
 
 fn native_vv_get_height(
@@ -409,26 +392,17 @@ fn native_vv_get_height(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    require_visual_viewport_this(ctx, this, "height")?;
-    if !vv_associated_document_fully_active(ctx) {
-        return Ok(JsValue::Number(0.0));
-    }
-    Ok(JsValue::Number(ctx.vm.viewport.inner_height))
+    vv_geometry_read(ctx, this, "height", |vp| vp.inner_height)
 }
 
-/// `visualViewport.scale` (CSSOM-View §12.1) — the pinch-zoom scale factor. The
-/// getter has three steps: (1) not fully active → 0; (2) no output device → 1;
-/// (3) otherwise → the visual viewport's scale factor. elidex models no
-/// pinch-zoom on a UA with an output device, so steps 2+3 collapse to the
-/// constant `1`.
+/// `visualViewport.scale` (CSSOM-View §12.1) — the pinch-zoom scale factor. Three
+/// spec steps: (1) not fully active → 0 (the shared guard); (2) no output device →
+/// 1; (3) otherwise → the scale factor. elidex models no pinch-zoom on a UA with an
+/// output device, so steps 2+3 collapse to the constant `1`.
 fn native_vv_get_scale(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    require_visual_viewport_this(ctx, this, "scale")?;
-    if !vv_associated_document_fully_active(ctx) {
-        return Ok(JsValue::Number(0.0));
-    }
-    Ok(JsValue::Number(1.0))
+    vv_geometry_read(ctx, this, "scale", |_vp| 1.0)
 }
