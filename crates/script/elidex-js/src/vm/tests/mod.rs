@@ -134,6 +134,7 @@ mod tests_remove_event_listener;
 mod tests_request_response;
 mod tests_resize_observer;
 mod tests_rest_param;
+mod tests_screen;
 mod tests_selection;
 #[cfg(feature = "engine")]
 mod tests_service_worker;
@@ -161,6 +162,7 @@ mod tests_url;
 mod tests_url_search_params;
 mod tests_validity_state;
 mod tests_value_types;
+mod tests_visual_viewport;
 mod tests_wasm;
 mod tests_websocket;
 mod tests_window_global;

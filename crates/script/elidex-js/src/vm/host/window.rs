@@ -46,9 +46,12 @@ use super::super::VmInner;
 
 /// The single transported device-facts SoT for this window, backing the
 /// `innerWidth` / `innerHeight` / `scrollX` / `scrollY` / `devicePixelRatio`
-/// window getters AND the media-query evaluator. It holds viewport geometry
-/// (`inner_width` / `inner_height` / `device_pixel_ratio`), live scroll, and
-/// the user-preference media facts (`color_scheme` / `reduced_motion`).
+/// window getters, the `screen.*` monitor-dims getters, the `visualViewport`
+/// geometry getters, AND the media-query evaluator. It holds viewport geometry
+/// (`inner_width` / `inner_height` / `device_pixel_ratio`), live scroll, the
+/// monitor dims (`screen_width` / `screen_height` / `avail_width` /
+/// `avail_height`), and the user-preference media facts (`color_scheme` /
+/// `reduced_motion`).
 ///
 /// It is the **one** struct the shell drives device state through (mirroring
 /// the engine-independent [`elidex_css::media::MediaEnvironment`]'s own
@@ -56,12 +59,15 @@ use super::super::VmInner;
 /// [`VmInner::media_environment`](crate::vm::VmInner::media_environment) derives
 /// the evaluator environment from here rather than from a second prefs struct
 /// (one-issue-one-way). The name reads "viewport" for history; it is a
-/// **superset** of geometry — the prefs fields are device facts too, pushed by
-/// the same `set_media_environment` transport.
+/// **superset** of geometry — the prefs + monitor-dims fields are device facts
+/// too. The viewport/prefs fields are pushed by `set_media_environment`; the
+/// monitor dims by the dedicated `set_screen_dimensions` endpoint (NOT a media
+/// input — no `change` event, no media re-eval turn).
 ///
-/// Defaults are 1024×768 CSS px, 1.0 dppx, `Light` / `NoPreference` until the
-/// shell pushes real values via `set_media_environment` (`scroll_x` / `scroll_y`
-/// are driven by `scrollTo` / `scrollBy`).
+/// Defaults: 1024×768 CSS px viewport, 1.0 dppx, `Light` / `NoPreference`, and a
+/// 1920×1080 monitor (DISTINCT from the viewport default so `screen.width !==
+/// innerWidth` out of the box), until the shell pushes real values (`scroll_x` /
+/// `scroll_y` are driven by `scrollTo` / `scrollBy`).
 #[derive(Debug)]
 pub(crate) struct ViewportState {
     pub(crate) inner_width: f64,
@@ -69,6 +75,26 @@ pub(crate) struct ViewportState {
     pub(crate) scroll_x: f64,
     pub(crate) scroll_y: f64,
     pub(crate) device_pixel_ratio: f64,
+    /// The **monitor** (display) CSS-px width (CSSOM-View §4.3 `Screen.width`).
+    /// A device fact DISTINCT from `inner_width` (the layout viewport): a
+    /// non-maximized window has `inner_width < screen_width`. Pushed by the
+    /// shell's `set_screen_dimensions` transport (the producer rides the S5-6
+    /// flip); a realistic 1920×1080 desktop default until then. Read only by
+    /// the `screen.*` getters — NOT a `MediaEnvironment` input (no media
+    /// feature reads it, no `change` event for `screen`).
+    pub(crate) screen_width: f64,
+    /// The monitor CSS-px height (CSSOM-View §4.3 `Screen.height`). Sibling of
+    /// [`Self::screen_width`].
+    pub(crate) screen_height: f64,
+    /// The **available** monitor CSS-px width (CSSOM-View §4.3
+    /// `Screen.availWidth`) — the OS-chrome-excluded screen area. winit exposes
+    /// no cross-platform work-area API, so the shell pushes the full monitor
+    /// dims here (boa parity, common UA fallback; the real work-area source is
+    /// `#11-screen-available-area-workarea-source`).
+    pub(crate) avail_width: f64,
+    /// The available monitor CSS-px height (CSSOM-View §4.3 `Screen.availHeight`).
+    /// Sibling of [`Self::avail_width`].
+    pub(crate) avail_height: f64,
     /// `prefers-color-scheme` user preference (MQ5 §12.5). Defaults to
     /// `Light` (UA convention, no active preference); the shell's
     /// theme-change producer (carved `#11-media-prefers-features`) will drive
@@ -94,6 +120,15 @@ impl ViewportState {
             scroll_x: 0.0,
             scroll_y: 0.0,
             device_pixel_ratio: 1.0,
+            // Realistic desktop monitor default (1920×1080), DISTINCT from the
+            // 1024×768 viewport default so a test/page can observe `screen.width
+            // !== innerWidth` out of the box; overridden by the
+            // `set_screen_dimensions` producer at the flip. `avail_* = full`
+            // until a work-area source lands (§9).
+            screen_width: 1920.0,
+            screen_height: 1080.0,
+            avail_width: 1920.0,
+            avail_height: 1080.0,
             // #360 `MediaEnvironment::default` prefs (MQ5 §12.5 / §12.1) until
             // the shell producer wiring lands (`#11-media-prefers-features`).
             color_scheme: ColorScheme::Light,
@@ -498,6 +533,16 @@ impl VmInner {
         // `scrollX` / `scrollY`; the native bodies all read the shared
         // `ViewportState` so any pair points at the same slot.
         self.install_ro_accessors(proto_id, WINDOW_RO_ACCESSORS);
+        // `window.screen` / `window.visualViewport` (CSSOM-View §4
+        // Extensions to the Window Interface) — `[SameObject, Replaceable]`
+        // readonly attributes installed as no-setter RO accessors returning the
+        // cached singleton (the `localStorage` / `[SameObject]` form), NOT a
+        // writable `globals.insert`. This normalizes them onto the same
+        // treatment their sibling `[Replaceable]` Window attrs above
+        // (`innerWidth` / `scrollX` / `devicePixelRatio`) already use; assigning
+        // `screen = …` hits the inherited-no-setter branch (a silent no-op in
+        // sloppy mode / throws in strict). S5-2.
+        self.install_ro_accessors(proto_id, WINDOW_PARITY_ACCESSORS);
         // `name` is the only writable Window attribute the VM exposes;
         // its backing field (`VmInner::window_name`) is initialised to
         // an empty string and updated by the setter.
@@ -614,6 +659,70 @@ const WINDOW_STORAGE_ACCESSORS: &[(&str, super::super::NativeFn)] = &[
     ("localStorage", native_window_get_local_storage),
     ("sessionStorage", native_window_get_session_storage),
 ];
+
+// `window.screen` / `window.visualViewport` (CSSOM-View §4) — no-setter RO
+// accessors returning the cached singleton (`[SameObject]`); the
+// `localStorage`/`sessionStorage` install form, normalizing the previously
+// anomalous writable-global install onto the sibling `[Replaceable]`
+// no-setter-RO-accessor family. S5-2.
+const WINDOW_PARITY_ACCESSORS: &[(&str, super::super::NativeFn)] = &[
+    ("screen", native_window_get_screen),
+    ("visualViewport", native_window_get_visual_viewport),
+];
+
+/// `window.screen` getter (CSSOM-View §4) — `[SameObject]`: returns the same
+/// `Screen` singleton across reads, allocated lazily on the first access via
+/// [`crate::vm::VmInner::alloc_or_cached_screen`]. The cache **survives
+/// `Vm::unbind`** (the BATCH-BIND model — `unbind` closes every batch, not only a
+/// navigation), so `screen === screen` holds across batches; resetting wrapper
+/// identity on an actual cross-DOM navigation is the world-id discriminator's job
+/// (`#11-wrapper-cache-cross-dom-discriminator`). `Screen` is non-nullable (no §4
+/// null branch — unlike `visualViewport`).
+fn native_window_get_screen(
+    ctx: &mut NativeContext<'_>,
+    _this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let id = ctx.vm.alloc_or_cached_screen();
+    Ok(JsValue::Object(id))
+}
+
+/// `window.visualViewport` getter (CSSOM-View §4) — type `VisualViewport?`
+/// (nullable). §4: "If the associated document is fully active, … return the
+/// VisualViewport object …; **Otherwise, it must return null**." In elidex's
+/// single-document VM the window's associated document is unconditionally fully
+/// active (the geometry reads VM-global `ViewportState`, present from VM
+/// construction), so the null branch is currently unreachable; it is implemented
+/// (not asserted-away) for spec-faithfulness so a future multi-document model
+/// wires a genuine check here. `[SameObject]`: returns the cached singleton via
+/// [`crate::vm::VmInner::alloc_or_cached_visual_viewport`]. The event-producer
+/// diff prior is seeded separately at `Vm::bind` (the load-time baseline).
+fn native_window_get_visual_viewport(
+    ctx: &mut NativeContext<'_>,
+    _this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    if !window_has_fully_active_document(ctx) {
+        // §4 attribute-level null branch (distinct from the §12.1 geometry
+        // getter → 0 branch). Unreachable in the single-document model today.
+        return Ok(JsValue::Null);
+    }
+    let id = ctx.vm.alloc_or_cached_visual_viewport();
+    Ok(JsValue::Object(id))
+}
+
+/// Whether the window's associated document is fully active (CSSOM-View §4 /
+/// WHATWG HTML "fully active"). The **single** fully-active predicate, shared by
+/// the §4 `window.visualViewport → null` branch (above) and the §12.1
+/// VisualViewport geometry getters' "not fully active → 0" branch (consumed by
+/// `visual_viewport::vv_geometry_read`). In elidex's single-document model this is
+/// unconditionally `true` (the `html_dialog_proto.rs` precedent — folded into
+/// `#11-browsing-context-state-ecs-components`); the predicate exists so both
+/// branches are real code a future multi-document model wires at one site, not
+/// removed steps.
+pub(super) fn window_has_fully_active_document(_ctx: &NativeContext<'_>) -> bool {
+    true
+}
 
 /// `window.localStorage` getter (WHATWG HTML §11.2).  `[SameObject]`:
 /// returns the same `Storage` wrapper across reads, allocated lazily

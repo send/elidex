@@ -1,0 +1,539 @@
+//! `window.visualViewport` / `VisualViewport` interface tests (CSSOM-View
+//! §12.1) — S5-2 minor-window-parity.
+
+#![cfg(feature = "engine")]
+
+use elidex_css::media::{ColorScheme, ReducedMotion};
+use elidex_ecs::EcsDom;
+use elidex_script_session::SessionCore;
+
+use super::super::host_data::HostData;
+use super::super::value::JsValue;
+use super::super::Vm;
+
+/// A `Vm` with an (unbound) `HostData` installed so the inherited
+/// `EventTarget.prototype.addEventListener` has a `listener_store` to write
+/// into (the `MediaQueryList` test precedent).
+fn new_vm_with_host() -> Vm {
+    let mut v = Vm::new();
+    v.install_host_data(super::super::host_data::HostData::new());
+    v
+}
+
+/// `deliver_visual_viewport_events` no-ops while unbound (its `is_bound` guard,
+/// the `deliver_media_query_changes` precedent), so the producer tests need a
+/// real binding. `session` / `dom` live on this frame for the whole `body`,
+/// keeping the bound raw pointers valid.
+fn with_bound_vm(body: impl FnOnce(&mut Vm)) {
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = dom.create_document_root();
+    vm.install_host_data(HostData::new());
+    #[allow(unsafe_code)]
+    unsafe {
+        vm.bind(&raw mut session, &raw mut dom, doc);
+    }
+    body(&mut vm);
+    vm.unbind();
+}
+
+fn eval_number(vm: &mut Vm, source: &str) -> f64 {
+    match vm.eval(source).unwrap() {
+        JsValue::Number(n) => n,
+        other => panic!("expected number, got {other:?}"),
+    }
+}
+
+fn eval_bool(vm: &mut Vm, source: &str) -> bool {
+    match vm.eval(source).unwrap() {
+        JsValue::Boolean(b) => b,
+        other => panic!("expected bool, got {other:?}"),
+    }
+}
+
+// --- presence + identity ---------------------------------------------------
+
+#[test]
+fn visual_viewport_is_an_object() {
+    let mut vm = Vm::new();
+    assert!(eval_bool(
+        &mut vm,
+        "typeof visualViewport === 'object' && visualViewport !== null"
+    ));
+}
+
+#[test]
+fn visual_viewport_is_same_object() {
+    let mut vm = Vm::new();
+    assert!(eval_bool(
+        &mut vm,
+        "window.visualViewport === window.visualViewport"
+    ));
+    assert!(eval_bool(
+        &mut vm,
+        "visualViewport === window.visualViewport"
+    ));
+}
+
+#[test]
+fn visual_viewport_is_visual_viewport_instance() {
+    let mut vm = Vm::new();
+    assert!(eval_bool(
+        &mut vm,
+        "visualViewport instanceof VisualViewport"
+    ));
+    // The EventTarget surface is inherited (the VM exposes no `EventTarget`
+    // global constructor, so test the inherited method rather than `instanceof
+    // EventTarget`): `addEventListener` resolves up the prototype chain.
+    assert!(eval_bool(
+        &mut vm,
+        "typeof Object.getPrototypeOf(VisualViewport.prototype).addEventListener === 'function'"
+    ));
+}
+
+#[test]
+fn visual_viewport_constructor_is_illegal() {
+    // WebIDL: no constructor → `new VisualViewport()` / `VisualViewport()` throw.
+    super::assert_illegal_constructor("VisualViewport");
+}
+
+// --- geometry --------------------------------------------------------------
+
+#[test]
+fn geometry_defaults() {
+    let mut vm = Vm::new();
+    assert!((eval_number(&mut vm, "visualViewport.width") - 1024.0).abs() < f64::EPSILON);
+    assert!((eval_number(&mut vm, "visualViewport.height") - 768.0).abs() < f64::EPSILON);
+    assert!((eval_number(&mut vm, "visualViewport.offsetLeft")).abs() < f64::EPSILON);
+    assert!((eval_number(&mut vm, "visualViewport.offsetTop")).abs() < f64::EPSILON);
+    assert!((eval_number(&mut vm, "visualViewport.scale") - 1.0).abs() < f64::EPSILON);
+    assert!((eval_number(&mut vm, "visualViewport.pageLeft")).abs() < f64::EPSILON);
+    assert!((eval_number(&mut vm, "visualViewport.pageTop")).abs() < f64::EPSILON);
+}
+
+#[test]
+fn width_height_track_transported_viewport() {
+    let mut vm = Vm::new();
+    vm.set_media_environment(
+        1280.0,
+        720.0,
+        1.0,
+        ColorScheme::Light,
+        ReducedMotion::NoPreference,
+    );
+    assert!((eval_number(&mut vm, "visualViewport.width") - 1280.0).abs() < f64::EPSILON);
+    assert!((eval_number(&mut vm, "visualViewport.height") - 720.0).abs() < f64::EPSILON);
+}
+
+#[test]
+fn page_offset_tracks_scroll() {
+    // `pageLeft`/`pageTop` = layout-viewport scroll + visual offset(0).
+    let mut vm = Vm::new();
+    vm.set_scroll_offset(40.0, 90.0);
+    assert!((eval_number(&mut vm, "visualViewport.pageLeft") - 40.0).abs() < f64::EPSILON);
+    assert!((eval_number(&mut vm, "visualViewport.pageTop") - 90.0).abs() < f64::EPSILON);
+}
+
+#[test]
+fn attribute_getter_brand_checks_receiver() {
+    // WebIDL attribute getter on an alien receiver → TypeError.
+    let mut vm = Vm::new();
+    assert!(eval_bool(
+        &mut vm,
+        "var d = Object.getOwnPropertyDescriptor(VisualViewport.prototype, 'width'); \
+         var threw = false; try { d.get.call({}); } catch (e) { threw = e instanceof TypeError; } \
+         threw"
+    ));
+}
+
+// --- EventTarget surface ---------------------------------------------------
+
+#[test]
+fn event_handler_attributes_present() {
+    let mut vm = Vm::new();
+    // `onresize` / `onscroll` / `onscrollend` are accessor IDL attributes,
+    // default `null` (no handler set).
+    assert!(eval_bool(&mut vm, "visualViewport.onresize === null"));
+    assert!(eval_bool(&mut vm, "visualViewport.onscroll === null"));
+    assert!(eval_bool(&mut vm, "visualViewport.onscrollend === null"));
+}
+
+#[test]
+fn add_event_listener_is_real_not_stub() {
+    // boa exposed a no-op stub; the VM inherits the real EventTarget method.
+    let mut vm = new_vm_with_host();
+    assert!(eval_bool(
+        &mut vm,
+        "typeof visualViewport.addEventListener === 'function' \
+         && typeof visualViewport.removeEventListener === 'function'"
+    ));
+    // Registering / removing a listener must not throw.
+    assert!(eval_bool(
+        &mut vm,
+        "var cb = function () {}; visualViewport.addEventListener('resize', cb); \
+         visualViewport.removeEventListener('resize', cb); true"
+    ));
+}
+
+#[test]
+fn onresize_handler_roundtrips() {
+    let mut vm = new_vm_with_host();
+    assert!(eval_bool(
+        &mut vm,
+        "var f = function () {}; visualViewport.onresize = f; visualViewport.onresize === f"
+    ));
+}
+
+// --- platform-object rigor (T3 / T4) ---------------------------------------
+
+#[test]
+fn visual_viewport_assignment_leaves_singleton_intact() {
+    // T3: `window.visualViewport` is a no-setter RO accessor (not a writable
+    // global). elidex-js core is strict-mode-only, so assigning `visualViewport
+    // = null` throws a TypeError (inherited-no-setter branch) and must NOT
+    // replace the cached singleton.
+    let mut vm = Vm::new();
+    assert!(eval_bool(
+        &mut vm,
+        "var before = window.visualViewport; var threw = false; \
+         try { visualViewport = null; } catch (e) { threw = e instanceof TypeError; } \
+         threw && window.visualViewport === before \
+         && (window.visualViewport instanceof VisualViewport)"
+    ));
+}
+
+#[test]
+fn structured_clone_visual_viewport_throws_data_clone_error() {
+    // T4: `VisualViewport` is not [Serializable] — `structuredClone` throws.
+    let mut vm = Vm::new();
+    let src = "var caught = null; \
+               try { structuredClone(visualViewport); } catch (e) { caught = e.name; } caught;";
+    match vm.eval(src).unwrap() {
+        JsValue::String(id) => assert_eq!(vm.get_string(id), "DataCloneError"),
+        other => panic!("expected DataCloneError, got {other:?}"),
+    }
+}
+
+// --- event producer (T2 / M2) ----------------------------------------------
+
+#[test]
+fn deliver_no_ops_while_unbound() {
+    // The producer's `is_bound` guard: an unbound deliver must not panic / fire.
+    let mut vm = new_vm_with_host();
+    vm.eval(
+        "globalThis.fired = 0; \
+         visualViewport.addEventListener('resize', function () { fired++; });",
+    )
+    .unwrap();
+    vm.set_media_environment(
+        1280.0,
+        720.0,
+        1.0,
+        ColorScheme::Light,
+        ReducedMotion::NoPreference,
+    );
+    vm.deliver_visual_viewport_events(); // unbound → no-op
+    assert!(eval_bool(&mut vm, "fired === 0"));
+}
+
+#[test]
+fn first_deliver_after_seed_fires_nothing() {
+    // F3: the diff prior is seeded at `Vm::bind` (the load-time baseline), so the
+    // FIRST deliver (with no intervening geometry change) fires nothing
+    // spuriously — even though the resize/scroll listeners are registered before
+    // any change.
+    with_bound_vm(|vm| {
+        vm.eval(
+            "globalThis.resizes = 0; globalThis.scrolls = 0; \
+             visualViewport.addEventListener('resize', function () { resizes++; }); \
+             visualViewport.addEventListener('scroll', function () { scrolls++; });",
+        )
+        .unwrap();
+        vm.deliver_visual_viewport_events();
+        assert!(eval_bool(vm, "resizes === 0 && scrolls === 0"));
+    });
+}
+
+#[test]
+fn pending_resize_before_first_visual_viewport_read_still_fires() {
+    // Codex R6-D: the diff prior is anchored at the load-time viewport (seeded at
+    // `Vm::bind`), NOT at lazy wrapper allocation. So when a `window.resize`
+    // already pushed the new size and the FIRST `visualViewport` read (which
+    // lazily allocates the singleton) happens only afterwards — the `window.resize`
+    // handler that registers `visualViewport.onresize` — the upcoming deliver
+    // still diffs the load size against the new size and fires `resize`. Seeding
+    // at allocation would have captured the post-resize size and self-cancelled.
+    with_bound_vm(|vm| {
+        // Viewport resized BEFORE any `visualViewport` access (no prior deliver,
+        // no prior singleton allocation).
+        vm.set_media_environment(
+            1280.0,
+            720.0,
+            1.0,
+            ColorScheme::Light,
+            ReducedMotion::NoPreference,
+        );
+        // First-ever `visualViewport` touch: allocates the singleton AFTER the
+        // resize and registers a resize listener (the `window.resize`-handler path).
+        vm.eval(
+            "globalThis.resizes = 0; \
+             visualViewport.addEventListener('resize', function () { resizes++; });",
+        )
+        .unwrap();
+        vm.deliver_visual_viewport_events();
+        assert!(eval_bool(vm, "resizes === 1"));
+    });
+}
+
+#[test]
+fn size_change_fires_resize_only() {
+    // M2: a viewport size change fires `resize` (and only `resize` — not
+    // `scroll`/`scrollend`, since the offset is unchanged).
+    with_bound_vm(|vm| {
+        vm.eval(
+            "globalThis.resizes = 0; globalThis.scrolls = 0; globalThis.scrollends = 0; \
+             globalThis.okTarget = false; \
+             visualViewport.addEventListener('resize', function (e) { \
+                 resizes++; okTarget = (e.target === visualViewport); }); \
+             visualViewport.addEventListener('scroll', function () { scrolls++; }); \
+             visualViewport.addEventListener('scrollend', function () { scrollends++; });",
+        )
+        .unwrap();
+        // Seed the prior, then change only the size.
+        vm.deliver_visual_viewport_events();
+        vm.set_media_environment(
+            1280.0,
+            720.0,
+            1.0,
+            ColorScheme::Light,
+            ReducedMotion::NoPreference,
+        );
+        vm.deliver_visual_viewport_events();
+        assert!(eval_bool(
+            vm,
+            "resizes === 1 && okTarget && scrolls === 0 && scrollends === 0"
+        ));
+    });
+}
+
+#[test]
+fn layout_scroll_fires_no_visual_viewport_scroll() {
+    // CSSOM-View §13.2: an ordinary layout-viewport scroll is a *document*
+    // scroll (delivered as `window`/document `scroll`), NOT a *visual-viewport*
+    // scroll — the latter fires only on an `offsetLeft`/`offsetTop` (pinch-zoom)
+    // change, which elidex does not model. So a `set_scroll_offset` echo fires
+    // NEITHER `scroll`/`scrollend` NOR `resize`; it only updates
+    // `pageLeft`/`pageTop` silently. (WPT `viewport-scroll-event-manual.html`:
+    // `assert_equals(didGetScrollEvent, scrollChangedOffset)`.)
+    with_bound_vm(|vm| {
+        vm.eval(
+            "globalThis.resizes = 0; globalThis.scrolls = 0; globalThis.scrollends = 0; \
+             visualViewport.addEventListener('resize', function () { resizes++; }); \
+             visualViewport.addEventListener('scroll', function () { scrolls++; }); \
+             visualViewport.addEventListener('scrollend', function () { scrollends++; });",
+        )
+        .unwrap();
+        vm.deliver_visual_viewport_events();
+        vm.set_scroll_offset(40.0, 90.0);
+        vm.deliver_visual_viewport_events();
+        // No visual-viewport event fired for a pure layout scroll …
+        assert!(eval_bool(
+            vm,
+            "scrolls === 0 && scrollends === 0 && resizes === 0"
+        ));
+        // … but the page-relative geometry tracked the scroll silently, and the
+        // visual-viewport offset stayed pinned at 0 (no pinch-zoom pan).
+        assert!(eval_bool(
+            vm,
+            "visualViewport.pageLeft === 40 && visualViewport.pageTop === 90 \
+             && visualViewport.offsetLeft === 0 && visualViewport.offsetTop === 0"
+        ));
+    });
+}
+
+#[test]
+fn resize_only_deliver_does_not_fire_scroll() {
+    // The load-bearing per-axis distinction: a resize-only deliver must NOT fire
+    // scroll/scrollend (the §2-T2 / §4-M2 invariant stated explicitly).
+    with_bound_vm(|vm| {
+        vm.eval(
+            "globalThis.scrolls = 0; globalThis.scrollends = 0; \
+             visualViewport.addEventListener('scroll', function () { scrolls++; }); \
+             visualViewport.addEventListener('scrollend', function () { scrollends++; });",
+        )
+        .unwrap();
+        vm.deliver_visual_viewport_events();
+        vm.set_media_environment(
+            1600.0,
+            900.0,
+            1.0,
+            ColorScheme::Light,
+            ReducedMotion::NoPreference,
+        );
+        vm.deliver_visual_viewport_events();
+        assert!(eval_bool(vm, "scrolls === 0 && scrollends === 0"));
+    });
+}
+
+#[test]
+fn stable_redeliver_does_not_refire() {
+    // After a change is delivered, a redeliver with no further change fires
+    // nothing (the prior advanced past the change).
+    with_bound_vm(|vm| {
+        vm.eval(
+            "globalThis.resizes = 0; \
+             visualViewport.addEventListener('resize', function () { resizes++; });",
+        )
+        .unwrap();
+        vm.deliver_visual_viewport_events();
+        vm.set_media_environment(
+            1280.0,
+            720.0,
+            1.0,
+            ColorScheme::Light,
+            ReducedMotion::NoPreference,
+        );
+        vm.deliver_visual_viewport_events();
+        vm.deliver_visual_viewport_events(); // unchanged → no second fire
+        assert!(eval_bool(vm, "resizes === 1"));
+    });
+}
+
+#[test]
+fn size_change_fires_resize_even_with_concurrent_layout_scroll() {
+    // A deliver where the size changed AND the layout viewport scrolled fires
+    // ONLY `resize`: the concurrent layout scroll is not a visual-viewport
+    // scroll (offset stays 0), so it adds no `scroll`/`scrollend`.
+    with_bound_vm(|vm| {
+        vm.eval(
+            "globalThis.log = []; \
+             visualViewport.addEventListener('resize', function () { log.push('r'); }); \
+             visualViewport.addEventListener('scroll', function () { log.push('s'); }); \
+             visualViewport.addEventListener('scrollend', function () { log.push('e'); });",
+        )
+        .unwrap();
+        vm.deliver_visual_viewport_events();
+        vm.set_media_environment(
+            1280.0,
+            720.0,
+            1.0,
+            ColorScheme::Light,
+            ReducedMotion::NoPreference,
+        );
+        vm.set_scroll_offset(10.0, 20.0);
+        vm.deliver_visual_viewport_events();
+        // resize only — the layout scroll fires no visual-viewport scroll.
+        assert!(eval_bool(vm, "log.join('') === 'r'"));
+    });
+}
+
+#[test]
+fn same_object_identity_stable_across_reads() {
+    // `[SameObject]`: the singleton id is stable across reads within a bind.
+    with_bound_vm(|vm| {
+        assert!(eval_bool(
+            vm,
+            "window.visualViewport === window.visualViewport \
+             && visualViewport === window.visualViewport"
+        ));
+    });
+}
+
+#[test]
+fn singletons_survive_batch_rebind() {
+    // BATCH-BIND model (`HostDriver` doc): `unbind` closes every batch (a
+    // script-exec loop / a UA-event dispatch / a frame drain), NOT only a
+    // navigation. So the `[SameObject]` screen / VisualViewport singletons + the
+    // VV producer's diff prior must SURVIVE an unbind/rebind to the SAME
+    // document — else `s === screen` breaks across batches and a `visualViewport`
+    // resize listener registered in one batch is silently dropped: the next
+    // frame-drain producer would fire at a freshly-allocated, listener-less
+    // singleton (Codex R4-B). (Cross-DOM identity reset on a real navigation is
+    // world-id's job — `#11-wrapper-cache-cross-dom-discriminator`.)
+    let mut vm = Vm::new();
+    vm.install_host_data(HostData::new());
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let root = dom.create_document_root();
+
+    // --- batch 1: capture the singletons + register a VV resize listener,
+    // seed the producer prior at 1024×768. ---
+    #[allow(unsafe_code)]
+    unsafe {
+        vm.bind(&raw mut session, &raw mut dom, root);
+    }
+    vm.set_media_environment(
+        1024.0,
+        768.0,
+        1.0,
+        ColorScheme::Light,
+        ReducedMotion::NoPreference,
+    );
+    vm.eval(
+        "globalThis.s = screen; globalThis.vv = visualViewport; globalThis.resizes = 0; \
+         visualViewport.addEventListener('resize', function () { resizes++; });",
+    )
+    .unwrap();
+    vm.deliver_visual_viewport_events(); // seeds the prior at 1024×768; fires nothing
+    vm.unbind();
+
+    // --- batch 2: SAME document (same EcsDom/session/root). ---
+    #[allow(unsafe_code)]
+    unsafe {
+        vm.bind(&raw mut session, &raw mut dom, root);
+    }
+    // `[SameObject]` identity is preserved across the batch boundary (the
+    // singletons were NOT cleared by the unbind).
+    assert!(eval_bool(&mut vm, "s === screen && vv === visualViewport"));
+    // The resize listener registered in batch 1 still fires when this batch's
+    // producer reports a size change — the prior (1024×768) survived too, so the
+    // 1600×900 change is a real diff, and the listener was not dropped.
+    vm.set_media_environment(
+        1600.0,
+        900.0,
+        1.0,
+        ColorScheme::Light,
+        ReducedMotion::NoPreference,
+    );
+    vm.deliver_visual_viewport_events();
+    assert!(eval_bool(&mut vm, "resizes === 1"));
+    vm.unbind();
+}
+
+#[test]
+fn unobserved_deliver_advances_prior_without_allocating_singleton() {
+    // Codex R10: once the S5-6 shell drives the producer after every viewport
+    // change, a page that never reads `window.visualViewport` (so no listener can
+    // exist) must NOT have a `VisualViewport` singleton allocated + GC-rooted by
+    // the producer. The producer advances the diff prior every turn but only
+    // materializes/fires at the singleton when `visualViewport` was already read.
+    with_bound_vm(|vm| {
+        // No `visualViewport` access at all — the singleton is unallocated.
+        vm.set_media_environment(
+            1280.0,
+            720.0,
+            1.0,
+            ColorScheme::Light,
+            ReducedMotion::NoPreference,
+        );
+        vm.deliver_visual_viewport_events();
+        // Direct assertion (reachable): the unobserved deliver did NOT allocate
+        // the singleton — chosen over the behavioral form because
+        // `visual_viewport_instance` is `pub(crate)` and the test holds the `Vm`.
+        assert!(
+            vm.inner.visual_viewport_instance.is_none(),
+            "unobserved deliver must not materialize the VisualViewport singleton"
+        );
+        // It still advanced the prior to the post-resize size: a listener added
+        // now, then delivered with no further change, fires 0 times (the earlier
+        // resize is NOT retroactively delivered).
+        vm.eval(
+            "globalThis.resizes = 0; \
+             visualViewport.addEventListener('resize', function () { resizes++; });",
+        )
+        .unwrap();
+        vm.deliver_visual_viewport_events();
+        assert!(eval_bool(vm, "resizes === 0"));
+    });
+}

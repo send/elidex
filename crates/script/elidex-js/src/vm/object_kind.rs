@@ -721,6 +721,45 @@ pub enum ObjectKind {
     /// GC contract: payload-free — nothing to trace or prune.
     #[cfg(feature = "engine")]
     XmlSerializer,
+    /// `Screen` singleton (CSSOM-View §4.3) — a plain interface object that is
+    /// NOT an `EventTarget` and NOT a `Node` (`Screen.prototype →
+    /// Object.prototype`). Payload-free: the `width` / `height` / `availWidth` /
+    /// `availHeight` attributes derive from the VM-global `ViewportState`
+    /// monitor-dims fields and `colorDepth` / `pixelDepth` are constant 24. The
+    /// dedicated brand exists for the WebIDL attribute-getter brand check AND so
+    /// `structuredClone(screen)` throws `DataCloneError` (not `[Serializable]`)
+    /// rather than silently cloning the accessor-only object to `{}`. Per-window
+    /// singleton cached in `VmInner::screen_instance` (rooted + SameObject),
+    /// SURVIVING `Vm::unbind` (the BATCH-BIND model — `unbind` closes every
+    /// batch, not only a navigation; payload-free device-fact reader with no
+    /// per-origin state to scrub). Sibling of [`Self::VisualViewport`] minus the
+    /// EventTarget surface. S5-2.
+    ///
+    /// GC contract: payload-free — nothing to trace or prune (the `DOMParser` /
+    /// `TextEncoder` precedent).
+    #[cfg(feature = "engine")]
+    Screen,
+    /// `VisualViewport` singleton (CSSOM-View §12.1) — a non-Node
+    /// `EventTarget` (chains `VisualViewport.prototype →
+    /// EventTarget.prototype`).  Payload-free: the geometry attributes
+    /// derive from the VM-global `ViewportState`, and the brand exists
+    /// both for `addEventListener` dispatch routing (member of
+    /// `is_non_node_event_target` → `DispatchTarget::VmObject`)
+    /// and the WebIDL attribute-getter brand check.  Per-window
+    /// singleton cached in `VmInner::visual_viewport_instance` (rooted via
+    /// the GC proto-roots + SameObject), SURVIVING `Vm::unbind` (the
+    /// BATCH-BIND model — clearing would break `[SameObject]` and drop a
+    /// `resize` listener across batch rebinds, Codex R4-B), so it is never
+    /// listener-only-rooted (S5-2).  The `window.visualViewport` accessor is
+    /// a no-setter RO accessor returning this cached singleton — not a
+    /// writable `globals` entry.
+    ///
+    /// GC contract: payload-free — nothing to trace or prune (the
+    /// `MediaQueryList`-prototype / `TextEncoder` precedent; per-MQL
+    /// state, by contrast, lives in a side table — `VisualViewport` has
+    /// none).
+    #[cfg(feature = "engine")]
+    VisualViewport,
     /// `TextDecoder` instance (WHATWG Encoding §8.1).  Payload-free;
     /// the encoder handle + `fatal` / `ignoreBOM` flags live in
     /// `VmInner::text_decoder_states`.  Same model as `Headers` /
@@ -1590,6 +1629,7 @@ impl ObjectKind {
                 | Self::ServiceWorker
                 | Self::ServiceWorkerRegistration
                 | Self::MediaQueryList
+                | Self::VisualViewport
         )
     }
 }

@@ -64,6 +64,8 @@ mod temp_root;
 pub mod value;
 mod vm_api;
 #[cfg(feature = "engine")]
+mod vm_api_viewport;
+#[cfg(feature = "engine")]
 pub(crate) mod wasm_payload;
 pub(crate) mod webidl_sequence;
 mod well_known;
@@ -658,6 +660,62 @@ pub(crate) struct VmInner {
     /// `alloc_or_cached_subtle_crypto`.  Cleared on `Vm::unbind`.
     #[cfg(feature = "engine")]
     pub(crate) subtle_crypto_instance: Option<ObjectId>,
+    /// `Screen.prototype` (CSSOM-View §4.3). Chains to `Object.prototype`
+    /// (Screen is NOT an EventTarget). Carries the `width` / `height` /
+    /// `availWidth` / `availHeight` / `colorDepth` / `pixelDepth` RO accessors.
+    /// `None` until `register_screen_global()` runs. S5-2.
+    #[cfg(feature = "engine")]
+    pub(crate) screen_prototype: Option<ObjectId>,
+    /// Cached `Screen` singleton wrapper for `window.screen` (`[SameObject]`
+    /// per CSSOM-View §4 — same `ObjectId` across reads). Allocated lazily by the
+    /// `window.screen` RO-accessor getter (`alloc_or_cached_screen`) and
+    /// **survives `Vm::unbind`**: `unbind` closes every batch (BATCH-BIND model),
+    /// not only a navigation, so clearing here would break `screen === screen`
+    /// across batches; `Screen` is a payload-free device-fact reader with no
+    /// per-origin / per-document state to scrub. Cross-DOM identity reset on a
+    /// navigation is the world-id discriminator's job
+    /// (`#11-wrapper-cache-cross-dom-discriminator`). S5-2.
+    #[cfg(feature = "engine")]
+    pub(crate) screen_instance: Option<ObjectId>,
+    /// `VisualViewport.prototype` (CSSOM-View §12.1). Chains to
+    /// `EventTarget.prototype`. `None` until `register_visual_viewport_global()`
+    /// runs. S5-2.
+    #[cfg(feature = "engine")]
+    pub(crate) visual_viewport_prototype: Option<ObjectId>,
+    /// Cached `VisualViewport` singleton wrapper for `window.visualViewport`
+    /// (`[SameObject]` per CSSOM-View §4). Allocated lazily by the
+    /// `window.visualViewport` RO-accessor getter
+    /// (`alloc_or_cached_visual_viewport`). The producer's diff prior
+    /// [`Self::visual_viewport_delivered`] is seeded at `Vm::bind` (the
+    /// load-time baseline), not here, so the first diff fires nothing
+    /// spuriously. **Survives `Vm::unbind`**: `unbind`
+    /// closes every batch (BATCH-BIND model), not only a navigation, so clearing
+    /// here would break `visualViewport === visualViewport` across batches AND
+    /// drop a `resize` listener registered in an earlier batch (the next
+    /// frame-drain producer would fire at a fresh, listener-less singleton — Codex
+    /// R4-B). Payload-free device-fact reader, no per-origin / per-document state;
+    /// cross-DOM reset on a navigation is world-id's job
+    /// (`#11-wrapper-cache-cross-dom-discriminator`). S5-2.
+    #[cfg(feature = "engine")]
+    pub(crate) visual_viewport_instance: Option<ObjectId>,
+    /// The size prior the `VisualViewport` event producer
+    /// (`deliver_visual_viewport_events`) diffs against to fire `resize` on a
+    /// change (the `MediaQueryEntry::last_matches` flip-prior parallel). Holds
+    /// `(width, height)` only: CSSOM-View §13.2 fires the VisualViewport
+    /// `scroll`/`scrollend` events solely on a *visual-viewport offset* change
+    /// (pinch-zoom pan — `offsetLeft`/`offsetTop`), which elidex does not model
+    /// (offset is constant `0`), so the producer has no scroll axis to diff
+    /// (`#11-visual-viewport-pinch-zoom-offset`). Seeded to the current
+    /// `ViewportState` size at `Vm::bind` (via
+    /// `seed_visual_viewport_baseline_if_unseeded`) — the LOAD-time baseline,
+    /// anchored before the first resize turn so a singleton first read
+    /// mid-resize does not self-cancel the producer diff (R6-D). **Survives
+    /// `Vm::unbind`** alongside
+    /// the singleton (BATCH-BIND model — see [`Self::visual_viewport_instance`]):
+    /// the prior tracks the continuous `ViewportState` across batches, so a resize
+    /// that straddles a batch boundary is still reported on the next deliver. S5-2.
+    #[cfg(feature = "engine")]
+    pub(crate) visual_viewport_delivered: Option<(f64, f64)>,
     /// `CustomElementRegistry.prototype` (HTML §4.13.4). Chains to
     /// `Object.prototype`. `None` until
     /// `register_custom_element_registry_global()` runs during

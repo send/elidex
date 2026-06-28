@@ -314,6 +314,16 @@ impl Vm {
         // `HostData::wrapper_cache` — repeated binds with the
         // same document entity return the same ObjectId.
         self.install_document_global();
+
+        // S5-2 (Codex R6-D): seed the VisualViewport producer's diff prior to the
+        // load-time viewport on the FIRST bind — BEFORE any resize turn mutates
+        // `ViewportState`. Anchoring the baseline at lazy wrapper allocation
+        // instead would let a `window.resize` handler that defers the first
+        // `visualViewport` read until after the new size is pushed capture the
+        // post-resize size and self-cancel the producer diff. Seeded once (the
+        // prior survives unbind, the BATCH-BIND model); the per-turn producer
+        // advances it thereafter.
+        self.inner.seed_visual_viewport_baseline_if_unseeded();
     }
 
     /// Bind a dedicated-worker VM against its (empty) `EcsDom` + worker-scope
@@ -778,6 +788,44 @@ impl Vm {
             // measure — drops the GC roots so the wrappers can be
             // collected and re-allocated lazily after the next bind.
             self.inner.clear_crypto_instance_cache();
+            // `screen` / `visualViewport` singletons + the VisualViewport
+            // event-producer diff prior (S5-2) are deliberately NOT cleared here.
+            // `unbind` closes every BATCH (script-exec / UA-event / frame-drain),
+            // not only a navigation (the BATCH-BIND model, `HostDriver` doc), so
+            // clearing them would break their `[SameObject]` identity across
+            // batches AND drop a `visualViewport` resize listener registered in an
+            // earlier batch — the next frame-drain producer would fire at a
+            // freshly-allocated, listener-less singleton (Codex R4-B). Unlike
+            // `localStorage` (cleared above for cross-ORIGIN data-leak safety),
+            // these wrappers carry no per-origin / per-document payload in their
+            // internal brand slots (script-attached expandos are the exception —
+            // see Codex R11-2 below), so there is no internal state to scrub. The
+            // cross-DOM identity reset on an actual navigation is the world-id
+            // discriminator's job (`#11-wrapper-cache-cross-dom-discriminator`),
+            // not a per-batch cache clear.
+            // Codex R6-A: a script-registered `visualViewport` resize listener
+            // therefore also survives unbind — but this is the SAME engine-wide
+            // property `window.addEventListener('resize', …)` already has: the
+            // Window global's `ObjectId` is the realm global (stable across the
+            // `unbind doc1 → bind doc2` navigation rebind, `HostData::window_entity`),
+            // and `vm_event_listeners` / `listener_store` are never cleared on
+            // unbind (GC-pruned only). So a navigation-time listener scrub for
+            // stable-identity globals (window + the payload-free singletons) is
+            // the SAME navigation-vs-batch discriminator the world-id slot owns
+            // (`#11-wrapper-cache-cross-dom-discriminator`) — NOT a VisualViewport-
+            // only unbind clear, which would re-drop the cross-batch listener
+            // (R4-B) and be a lone-outlier. S5-6 (the flip that first drives the
+            // VM producer in production) is the hard gate for landing that
+            // engine-wide scrub before the producer goes live.
+            // Codex R11-2: these singletons are `extensible` (spec-correct —
+            // `screen` / `visualViewport` accept expandos), so a script-attached
+            // own property (`screen.token = …`) ALSO survives unbind. That is
+            // per-document JS state, not a payload-free read — but it is again the
+            // SAME engine-wide leak `window.foo = …` has (the realm global
+            // survives the rebind), so it folds into the SAME world-id
+            // navigation-scrub (reset identity → drop expandos + listeners on a
+            // real navigation), not a screen/VV-only clear that would wipe the
+            // page's own state every batch.
             // D-17 `#11-custom-elements-vm` — drop the cached
             // `customElements` singleton wrapper so it can be re-
             // allocated lazily on the next bind. The registry state
@@ -1062,60 +1110,6 @@ impl Vm {
         self.inner
             .reject_pending_fetches_with_error("NetworkHandle replaced while request in flight");
         self.inner.network_handle = Some(handle);
-    }
-
-    /// Drain the pending script-requested scroll offset (CSSOM View §4),
-    /// set by `window.scrollTo` / `scrollBy`, for the shell to apply to the
-    /// real viewport. `None` when no script scroll is pending. Backs
-    /// [`HostDriver::take_pending_scroll`](elidex_script_session::HostDriver::take_pending_scroll).
-    #[cfg(feature = "engine")]
-    pub fn take_pending_scroll(&mut self) -> Option<(f64, f64)> {
-        self.inner.viewport.pending_scroll.take()
-    }
-
-    /// Push the viewport's current scroll offset into the engine (CSSOM View
-    /// §4) so `window.scrollX` / `scrollY` read the live value after a user
-    /// (wheel/keyboard) scroll the shell applied. Backs
-    /// [`HostDriver::set_scroll_offset`](elidex_script_session::HostDriver::set_scroll_offset).
-    #[cfg(feature = "engine")]
-    pub fn set_scroll_offset(&mut self, x: f64, y: f64) {
-        self.inner.viewport.scroll_x = x;
-        self.inner.viewport.scroll_y = y;
-    }
-
-    /// Push the window's media-query device facts (CSSOM-View §4.2) into the
-    /// single `ViewportState` device-facts SoT, so `innerWidth` / `innerHeight`
-    /// / `devicePixelRatio` and every live `MediaQueryList.matches` read the
-    /// new values. A **pure state push** (no JS, no `change`) — the sibling of
-    /// [`Self::set_scroll_offset`]; the shell runs
-    /// [`Self::deliver_media_query_changes`] to report flips. Backs
-    /// [`HostDriver::set_media_environment`](elidex_script_session::HostDriver::set_media_environment).
-    #[cfg(feature = "engine")]
-    pub fn set_media_environment(
-        &mut self,
-        viewport_width: f64,
-        viewport_height: f64,
-        device_pixel_ratio: f64,
-        color_scheme: elidex_css::media::ColorScheme,
-        reduced_motion: elidex_css::media::ReducedMotion,
-    ) {
-        let vp = &mut self.inner.viewport;
-        vp.inner_width = viewport_width;
-        vp.inner_height = viewport_height;
-        vp.device_pixel_ratio = device_pixel_ratio;
-        vp.color_scheme = color_scheme;
-        vp.reduced_motion = reduced_motion;
-    }
-
-    /// Run the CSSOM-View §4.2 "evaluate media queries and report changes"
-    /// pass — re-evaluate every live `MediaQueryList` against the current
-    /// environment and fire `change` at each whose result flipped since the
-    /// last delivery. Backs
-    /// [`HostDriver::deliver_media_query_changes`](elidex_script_session::HostDriver::deliver_media_query_changes);
-    /// VM tests call it directly after [`Self::set_media_environment`].
-    #[cfg(feature = "engine")]
-    pub fn deliver_media_query_changes(&mut self) {
-        self.inner.deliver_media_query_changes();
     }
 
     /// Install the per-origin IndexedDB backend (slot `#11-indexed-db-vm`).

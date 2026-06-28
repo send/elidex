@@ -346,6 +346,16 @@ impl Vm {
                 #[cfg(feature = "engine")]
                 event_source_prototype: None,
                 #[cfg(feature = "engine")]
+                screen_prototype: None,
+                #[cfg(feature = "engine")]
+                screen_instance: None,
+                #[cfg(feature = "engine")]
+                visual_viewport_prototype: None,
+                #[cfg(feature = "engine")]
+                visual_viewport_instance: None,
+                #[cfg(feature = "engine")]
+                visual_viewport_delivered: None,
+                #[cfg(feature = "engine")]
                 crypto_instance: None,
                 #[cfg(feature = "engine")]
                 subtle_crypto_instance: None,

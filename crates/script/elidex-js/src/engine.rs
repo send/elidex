@@ -541,6 +541,21 @@ impl HostDriver for ElidexJsEngine {
         self.vm.deliver_media_query_changes();
     }
 
+    fn set_screen_dimensions(
+        &mut self,
+        width: f64,
+        height: f64,
+        avail_width: f64,
+        avail_height: f64,
+    ) {
+        self.vm
+            .set_screen_dimensions(width, height, avail_width, avail_height);
+    }
+
+    fn deliver_visual_viewport_events(&mut self) {
+        self.vm.deliver_visual_viewport_events();
+    }
+
     // ── host-resource install (construction-adjacent) ─────────────────────
 
     fn install_network_handle(&mut self, handle: std::rc::Rc<elidex_net::broker::NetworkHandle>) {

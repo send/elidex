@@ -437,7 +437,39 @@ impl VmInner {
                 self.subtle_crypto_instance,
                 #[cfg(not(feature = "engine"))]
                 None,
-                // 72 + 2 = 74 (D-17 `#11-custom-elements-vm`):
+                // 72 + 4 = 76 (S5-2 window-parity): `Screen.prototype` +
+                // `VisualViewport.prototype` follow the same `delete
+                // globalThis.<X>` invariant as every intrinsic prototype above
+                // (the constructor-prototype linkage must not let the prototype
+                // collect behind a severed `Screen` / `VisualViewport` global).
+                // The two cached singleton instances are rooted here rather than
+                // through `globals` because (unlike the prior writable-global
+                // install) `window.screen` / `window.visualViewport` are now
+                // no-setter RO accessors returning the cached singleton — so the
+                // instances are NOT `globals` values and need an explicit root.
+                // Both SURVIVE `Vm::unbind` (the BATCH-BIND model — `unbind`
+                // closes every batch, not only a navigation — so clearing would
+                // break `[SameObject]` + drop VisualViewport listeners across
+                // batches, Codex R4-B); this explicit root keeps them alive while
+                // cached. Cross-DOM identity reset on a real navigation is
+                // world-id's job (`#11-wrapper-cache-cross-dom-discriminator`).
+                #[cfg(feature = "engine")]
+                self.screen_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.screen_instance,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.visual_viewport_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.visual_viewport_instance,
+                #[cfg(not(feature = "engine"))]
+                None,
+                // 76 + 2 = 78 (D-17 `#11-custom-elements-vm`):
                 // `customElements` singleton prototype + instance. Same
                 // rationale as the crypto pair above: retained because
                 // `delete globalThis.customElements` must not collect
@@ -451,7 +483,7 @@ impl VmInner {
                 self.custom_element_registry_instance,
                 #[cfg(not(feature = "engine"))]
                 None,
-                // 74 + 13 = 87 — slot `#11-tags-T1-v2` HTML form-control
+                // 78 + 13 = 91 — slot `#11-tags-T1-v2` HTML form-control
                 // prototypes (HTML §4.10).  10 per-tag prototypes + 2
                 // live-collection prototypes (HTMLFormControlsCollection
                 // / HTMLOptionsCollection) + ValidityState.prototype.
@@ -513,7 +545,7 @@ impl VmInner {
                 self.validity_state_prototype,
                 #[cfg(not(feature = "engine"))]
                 None,
-                // 87 + 1 = 88 (M4-12 slot #11-style-declaration:
+                // 91 + 1 = 92 (M4-12 slot #11-style-declaration:
                 // CSSStyleDeclaration.prototype, CSSOM §6.6).  Chains
                 // to `Object.prototype`.  Same `delete globalThis.<X>`
                 // invariant as every other intrinsic prototype above
@@ -526,7 +558,7 @@ impl VmInner {
                 self.css_style_declaration_prototype,
                 #[cfg(not(feature = "engine"))]
                 None,
-                // 88 + 4 = 92 (M4-12 slot #11-style-declaration PR-B:
+                // 92 + 4 = 96 (M4-12 slot #11-style-declaration PR-B:
                 // CSSStyleSheet / CSSRuleList / CSSStyleRule /
                 // StyleSheetList prototypes).  Each chains to
                 // `Object.prototype`.  Without these entries the
@@ -551,7 +583,7 @@ impl VmInner {
                 self.style_sheet_list_prototype,
                 #[cfg(not(feature = "engine"))]
                 None,
-                // 92 + 5 = 97 (M4-12 slot #11-tags-T2a-url-bearing:
+                // 96 + 5 = 101 (M4-12 slot #11-tags-T2a-url-bearing:
                 // HTMLAnchorElement / HTMLAreaElement /
                 // HTMLImageElement / HTMLScriptElement /
                 // HTMLLinkElement prototypes).  Each chains to
@@ -607,7 +639,7 @@ impl VmInner {
                 self.offscreen_canvas_rendering_context_2d_prototype,
                 #[cfg(not(feature = "engine"))]
                 None,
-                // 97 + 24 = 121 (M4-12 slot #11-tags-T2b-passive:
+                // 101 + 24 = 125 (M4-12 slot #11-tags-T2b-passive:
                 // 7 head + 17 grouping prototypes — h1-h6 share one
                 // HTMLHeadingElement prototype and blockquote+q
                 // share one HTMLQuoteElement prototype, so the field
@@ -709,7 +741,7 @@ impl VmInner {
                 self.html_time_prototype,
                 #[cfg(not(feature = "engine"))]
                 None,
-                // 121 + 6 = 127 (M4-12 slot #11-tags-T2c-table:
+                // 125 + 6 = 131 (M4-12 slot #11-tags-T2c-table:
                 // HTMLTableElement / HTMLTableSectionElement (shared
                 // thead/tbody/tfoot) / HTMLTableRowElement /
                 // HTMLTableCellElement (shared td/th) /
@@ -740,11 +772,11 @@ impl VmInner {
                 self.html_table_col_prototype,
                 #[cfg(not(feature = "engine"))]
                 None,
-                // 127 + 7 = 134 (slot `#11-tags-T2d-interactive`:
+                // 131 + 7 = 138 (slot `#11-tags-T2d-interactive`:
                 // HTMLDialogElement / HTMLDetailsElement /
                 // HTMLTemplateElement / HTMLDataListElement /
                 // HTMLOutputElement / HTMLProgressElement /
-                // HTMLMeterElement) = 128.  Each chains to
+                // HTMLMeterElement) = 138.  Each chains to
                 // `HTMLElement.prototype`.
                 #[cfg(feature = "engine")]
                 self.html_dialog_prototype,
@@ -774,7 +806,7 @@ impl VmInner {
                 self.html_meter_prototype,
                 #[cfg(not(feature = "engine"))]
                 None,
-                // 134 + 10 = 144 (M4-12 slot `#11-events-misc`:
+                // 138 + 10 = 148 (M4-12 slot `#11-events-misc`:
                 // SubmitEvent / FormDataEvent / ToggleEvent /
                 // CompositionEvent / ClipboardEvent / ProgressEvent /
                 // BeforeUnloadEvent / MessageEvent / WheelEvent /
@@ -824,7 +856,7 @@ impl VmInner {
                 #[cfg(not(feature = "engine"))]
                 None,
                 // D-9 events-modern-input (slot
-                // `#11-events-modern-input`).  144 + 8 = 152.  Eight
+                // `#11-events-modern-input`).  148 + 8 = 156.  Eight
                 // new prototypes — PointerEvent / DragEvent / Touch /
                 // TouchList / TouchEvent / DataTransfer /
                 // DataTransferItem / DataTransferItemList.  Without
@@ -890,8 +922,8 @@ impl VmInner {
                 self.node_iterator_prototype,
                 #[cfg(not(feature = "engine"))]
                 None,
-                // 156 + 1 (D-8 PR-B `#11-traversal-and-range-pr-b-selection`:
-                // `Selection.prototype`) = 157.  Per-document singleton
+                // 160 + 1 (D-8 PR-B `#11-traversal-and-range-pr-b-selection`:
+                // `Selection.prototype`) = 161.  Per-document singleton
                 // Selection is reached through this prototype slot;
                 // the wrapper itself is held in
                 // `HostData::selection_instance` and traced via
@@ -902,7 +934,7 @@ impl VmInner {
                 self.selection_prototype,
                 #[cfg(not(feature = "engine"))]
                 None,
-                // 157 + 2 = 159 (slot `#11-net-ws-sse`:
+                // 161 + 2 = 163 (slot `#11-net-ws-sse`:
                 // `WebSocket.prototype` + `EventSource.prototype`).
                 // Each chains to `EventTarget.prototype` (since
                 // `#11-realtime-event-listeners`, so `addEventListener`

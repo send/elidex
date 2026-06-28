@@ -786,6 +786,20 @@ pub(super) fn trace_work_list(
             // fan out, same as `TextEncoder`.
             #[cfg(feature = "engine")]
             ObjectKind::DomParser | ObjectKind::XmlSerializer => {}
+            // `Screen` is a payload-free singleton: its dimensions derive from
+            // the VM-global `ViewportState` monitor-dims fields (no inline
+            // `ObjectId`, no side table), so the trace step has nothing to fan
+            // out (the `DOMParser` precedent). The cached singleton is rooted
+            // via `VmInner::screen_instance` (mark-roots step). S5-2.
+            #[cfg(feature = "engine")]
+            ObjectKind::Screen => {}
+            // `VisualViewport` is a payload-free singleton: its geometry
+            // derives from the VM-global `ViewportState`, so the trace step has
+            // nothing to fan out (the `DOMParser` precedent; its
+            // `resize`/`scroll` listeners live in `vm_event_listeners`, traced
+            // via that map's own root). S5-2.
+            #[cfg(feature = "engine")]
+            ObjectKind::VisualViewport => {}
             // `URLSearchParams`'s entry list lives in
             // `url_search_params_states` and carries only interned
             // `StringId`s (pool-permanent).  The wrapper does have

@@ -58,8 +58,8 @@
 
 use super::super::shape::{self, PropertyAttrs};
 use super::super::value::{
-    JsValue, NativeContext, Object, ObjectId, ObjectKind, PropertyKey, PropertyStorage,
-    PropertyValue, VmError,
+    JsValue, NativeContext, Object, ObjectKind, PropertyKey, PropertyStorage, PropertyValue,
+    VmError,
 };
 use super::super::VmInner;
 
@@ -99,7 +99,20 @@ impl VmInner {
 
         let ctor =
             self.create_constructor_only_function("DOMParser", native_dom_parser_constructor);
-        self.wire_ctor_prototype(ctor, proto_id);
+        let proto_key = PropertyKey::String(self.well_known.prototype);
+        self.define_shaped_property(
+            ctor,
+            proto_key,
+            PropertyValue::Data(JsValue::Object(proto_id)),
+            PropertyAttrs::BUILTIN,
+        );
+        let ctor_key = PropertyKey::String(self.well_known.constructor);
+        self.define_shaped_property(
+            proto_id,
+            ctor_key,
+            PropertyValue::Data(JsValue::Object(ctor)),
+            PropertyAttrs::METHOD,
+        );
         let name_sid = self.strings.intern("DOMParser");
         self.globals.insert(name_sid, JsValue::Object(ctor));
     }
@@ -131,16 +144,6 @@ impl VmInner {
 
         let ctor = self
             .create_constructor_only_function("XMLSerializer", native_xml_serializer_constructor);
-        self.wire_ctor_prototype(ctor, proto_id);
-        let name_sid = self.strings.intern("XMLSerializer");
-        self.globals.insert(name_sid, JsValue::Object(ctor));
-    }
-
-    /// Wire `ctor.prototype = proto` (BUILTIN, non-enumerable) and
-    /// `proto.constructor = ctor` (METHOD) — the standard WebIDL
-    /// interface-object ↔ prototype back-reference pair (mirrors the
-    /// Blob / TextEncoder install).
-    fn wire_ctor_prototype(&mut self, ctor: ObjectId, proto_id: ObjectId) {
         let proto_key = PropertyKey::String(self.well_known.prototype);
         self.define_shaped_property(
             ctor,
@@ -155,6 +158,8 @@ impl VmInner {
             PropertyValue::Data(JsValue::Object(ctor)),
             PropertyAttrs::METHOD,
         );
+        let name_sid = self.strings.intern("XMLSerializer");
+        self.globals.insert(name_sid, JsValue::Object(ctor));
     }
 }
 
