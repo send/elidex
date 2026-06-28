@@ -2174,6 +2174,7 @@ dependencies = [
  "elidex-dom-api",
  "elidex-ecs",
  "elidex-plugin",
+ "elidex-script-session",
  "regex",
  "tracing",
  "url",

@@ -14,7 +14,9 @@
 
 use std::ops::ControlFlow;
 
-use elidex_ecs::{about_blank_url, BaseFrozenUrl, DocumentBaseUrl, EcsDom, Entity, MutationEvent};
+use elidex_ecs::{
+    about_blank_url, BaseFrozenUrl, DocumentBaseUrl, EcsDom, Entity, MutationEvent, NodeKind,
+};
 use url::Url;
 
 use crate::subtree_walk::walk_inclusive_filtered_until;
@@ -96,8 +98,17 @@ fn attach_frozen_urls_in_subtree(dom: &mut EcsDom, root: Entity, fallback: &Url)
 /// tree state rooted at `doc` itself — locates the first `<base href>`
 /// in tree order (WHATWG HTML §2.4.3 step 1 — "the first base element
 /// ... that has an href attribute, in tree order") and adopts its
-/// frozen URL, or falls back to [`about_blank_url`].  Idempotent no-op
+/// frozen URL, or falls back to `fallback`.  Idempotent no-op
 /// when the resolved URL is unchanged.
+///
+/// `fallback` is the document's URL used when no `<base href>` is
+/// present (HTML §2.4.3: "otherwise, the document base URL is the
+/// document's URL"). The live-page [`BaseUrlMaintainer`] arms pass
+/// [`about_blank_url`] (the page document's URL is tracked elsewhere);
+/// the inert-`DOMParser` path passes the CALLER document's URL (HTML
+/// §8.5.1 step 2 — the new Document's URL is the caller's), so a
+/// `<base>`-less parsed document resolves relative URLs against the
+/// calling page, not `about:blank`.
 ///
 /// Walks the subtree rooted at `doc` (not the EcsDom's cached document
 /// root), keeping the function self-consistent: callers pick the
@@ -112,8 +123,7 @@ fn attach_frozen_urls_in_subtree(dom: &mut EcsDom, root: Entity, fallback: &Url)
 /// `<template>` element children are skipped per HTML §2.4.3 —
 /// template contents form a separate document and a `<base>` inside
 /// must not be selected as the host document's first base.
-fn recompute_document_base(dom: &mut EcsDom, doc: Entity) {
-    let fallback = about_blank_url();
+fn recompute_document_base(dom: &mut EcsDom, doc: Entity, fallback: &Url) {
     let new_first = walk_inclusive_filtered_until(
         dom,
         doc,
@@ -132,7 +142,7 @@ fn recompute_document_base(dom: &mut EcsDom, doc: Entity) {
             .get::<&BaseFrozenUrl>(base)
             .ok()
             .map_or_else(|| fallback.clone(), |c| c.0.clone()),
-        None => fallback,
+        None => fallback.clone(),
     };
     let unchanged = dom
         .world()
@@ -145,19 +155,79 @@ fn recompute_document_base(dom: &mut EcsDom, doc: Entity) {
     let _ = dom.world_mut().insert_one(doc, DocumentBaseUrl(new_url));
 }
 
-/// Owner document for `node`, or fall back to the EcsDom's
-/// `document_root` when `node` is not attached to any document
-/// (e.g. a detached element).
+/// The document `node` belongs to, for routing a base-URL recompute.
+///
+/// Returns `node` itself when it IS a `Document` — the Remove arm
+/// anchors on `parent`, which can be the `DOMParser` document when its
+/// `documentElement`-level subtree is removed, and
+/// [`EcsDom::owner_document`] returns `None` for a `Document` receiver.
+/// Otherwise its `owner_document` (which, for a node connected to a
+/// document's light tree, resolves to that document — the page OR a
+/// `DOMParser` document).
+///
+/// Returns `None` for a node attached to no document, and the caller
+/// then skips maintenance: a `document_root()` fallback here would
+/// mis-route a detached / second-document mutation onto the PAGE
+/// document and clobber its base URL (Codex R5). In practice the
+/// [`in_document_light_tree`] guard already filters detached / shadow
+/// anchors before this is reached, so a `None` is defensive.
 fn owner_doc(dom: &EcsDom, node: Entity) -> Option<Entity> {
-    dom.owner_document(node).or_else(|| dom.document_root())
+    if matches!(dom.node_kind_inferred(node), Some(NodeKind::Document)) {
+        return Some(node);
+    }
+    dom.owner_document(node)
 }
 
-/// Returns `true` iff `entity`'s tree root is the EcsDom's
-/// `document_root` — i.e. `entity` lives in the main light tree, not
-/// inside a shadow tree.  Used by the [`BaseUrlMaintainer`] arms to
-/// short-circuit shadow-tree-internal mutations: per WHATWG HTML
-/// §2.4.3, shadow trees form separate documents and any `<base>`
-/// inside them must not affect the host document's base URL.
+/// Initialize the 2-layer base URL state for an ARBITRARY document
+/// entity `doc` from its current subtree — the document-scoped
+/// primitive shared by the bind path ([`BaseUrlMaintainer::
+/// initialize_from_tree`], which calls this with `dom.document_root()`)
+/// and any out-of-band tree population that bypasses the live
+/// [`MutationEvent`] dispatcher (e.g. an inert `DOMParser` document
+/// built with the dispatcher suppressed — HTML §8.5.1).
+///
+/// Attaches [`BaseFrozenUrl`] to every `<base href>` reachable from
+/// `doc` (resolving each relative `href` against `fallback`) and derives
+/// `doc`'s [`DocumentBaseUrl`] from the first such element in tree order
+/// (HTML §2.4.3), or from `fallback` itself when the document has no
+/// `<base href>`. `fallback` is the document's own URL: the bind path
+/// passes [`about_blank_url`]; the inert-`DOMParser` path passes the
+/// CALLER document's URL (HTML §8.5.1 step 2 — the new Document's URL is
+/// the caller's). Sharing one finalizer keeps the eager-init path and
+/// the live-mutation path in agreement (one-issue-one-way: a single
+/// base-url finalizer, not a per-call-site reimplementation).
+/// Idempotent — re-running on an already-initialized subtree is a no-op
+/// (each `<base href>` already carries [`BaseFrozenUrl`];
+/// `recompute_document_base`'s `unchanged` short-circuit absorbs the
+/// [`DocumentBaseUrl`] re-write).
+pub fn initialize_base_url_for_document(dom: &mut EcsDom, doc: Entity, fallback: &Url) {
+    let _ = attach_frozen_urls_in_subtree(dom, doc, fallback);
+    recompute_document_base(dom, doc, fallback);
+}
+
+/// Returns `true` iff `entity`'s tree root is a **`Document`** — i.e.
+/// `entity` lives in some document's light tree (the bound page
+/// document OR a `DOMParser`-created document), not inside a shadow
+/// tree and not in a detached fragment.  Used by the
+/// [`BaseUrlMaintainer`] arms to short-circuit mutations that cannot
+/// legitimately change any document's base URL:
+///
+///   * **shadow-tree-internal** mutations — per WHATWG HTML §2.4.3 a
+///     `<base>` inside a shadow tree must not affect the host
+///     document's base URL; `find_tree_root` (non-composed) returns the
+///     `ShadowRoot`, not a `Document`, so this filters them out.
+///   * **detached-fragment** mutations (a `<base>` inside a
+///     `createDocumentFragment()` / `<template>` content / unattached
+///     subtree) — there is no document whose base URL to maintain, and
+///     letting them through would route via `owner_doc`'s
+///     `document_root()` fallback and wrongly clobber the PAGE base.
+///
+/// Keyed on "is the tree root a `Document`" rather than "is the tree
+/// root THE page `document_root`" so a `DOMParser` document — a second
+/// live light-tree `Document` in the same `EcsDom` — keeps its OWN base
+/// URL maintained as `<base>` elements are inserted / mutated / removed
+/// after `parseFromString`; the arms then route by the mutation's
+/// `owner_doc`, so each document maintains its own base (Codex R5).
 ///
 /// `EcsDom`'s fire-site filter only suppresses events where the
 /// `node` or `parent` IS a `ShadowRoot`; deeper shadow-tree
@@ -168,9 +238,12 @@ fn owner_doc(dom: &EcsDom, node: Entity) -> Option<Entity> {
 /// silently leak resolved URLs through `<base>.href` getter for
 /// those receivers), and (c) burn cycles in a `recompute` that
 /// `children_iter` would harmlessly skip — all wasted work for a
-/// codepath that cannot legitimately change the document base URL.
-fn in_main_light_tree(dom: &EcsDom, entity: Entity) -> bool {
-    dom.document_root() == Some(dom.find_tree_root(entity))
+/// codepath that cannot legitimately change a document base URL.
+fn in_document_light_tree(dom: &EcsDom, entity: Entity) -> bool {
+    matches!(
+        dom.node_kind_inferred(dom.find_tree_root(entity)),
+        Some(NodeKind::Document)
+    )
 }
 
 /// [`MutationEvent`] consumer maintaining the 2-layer base URL state.
@@ -204,9 +277,12 @@ impl BaseUrlMaintainer {
         let Some(root) = dom.document_root() else {
             return;
         };
-        let fallback = about_blank_url();
-        let _ = attach_frozen_urls_in_subtree(dom, root, &fallback);
-        recompute_document_base(dom, root);
+        // Delegate to the document-scoped primitive so the bind path and
+        // the out-of-band population path (inert `DOMParser` document)
+        // share ONE base-url finalizer (one-issue-one-way). The bind path's
+        // fallback stays `about_blank_url()` — unchanged from before the
+        // fallback parameter was threaded for the §8.5.1 DOMParser path.
+        initialize_base_url_for_document(dom, root, &about_blank_url());
     }
 
     /// Single-method dispatch entry invoked by
@@ -216,8 +292,8 @@ impl BaseUrlMaintainer {
         match *event {
             MutationEvent::Insert { node, .. } => {
                 // Shadow-tree carve-out: skip work for mutations
-                // landing inside a shadow tree — see [`in_main_light_tree`].
-                if !in_main_light_tree(dom, node) {
+                // landing inside a shadow tree — see [`in_document_light_tree`].
+                if !in_document_light_tree(dom, node) {
                     return;
                 }
                 let fallback = about_blank_url();
@@ -235,7 +311,7 @@ impl BaseUrlMaintainer {
                     return;
                 }
                 if let Some(doc) = owner_doc(dom, node) {
-                    recompute_document_base(dom, doc);
+                    recompute_document_base(dom, doc, &fallback);
                 }
             }
             MutationEvent::Remove {
@@ -247,8 +323,8 @@ impl BaseUrlMaintainer {
                 // happened inside a shadow tree.  `parent` is the
                 // former parent (still alive); its tree root tells
                 // us where the mutation was.  See
-                // [`in_main_light_tree`].
-                if !in_main_light_tree(dom, parent) {
+                // [`in_document_light_tree`].
+                if !in_document_light_tree(dom, parent) {
                     return;
                 }
                 // ECS hygiene + precise recompute trigger: track
@@ -284,18 +360,18 @@ impl BaseUrlMaintainer {
                 // return the same value (single-`document_root`
                 // per-EcsDom), but keeping the helper consistent
                 // avoids forward-compat drift if multi-document
-                // support lands and `in_main_light_tree` / root
+                // support lands and `in_document_light_tree` / root
                 // selection semantics shift.
                 if let Some(doc) = owner_doc(dom, parent) {
-                    recompute_document_base(dom, doc);
+                    recompute_document_base(dom, doc, &about_blank_url());
                 }
             }
             MutationEvent::AttributeChange { node, .. } => {
                 // Shadow-tree carve-out FIRST (cheapest check, and
                 // applies regardless of element kind): a `<base>`
                 // inside a shadow tree must not affect the document
-                // base URL.  See [`in_main_light_tree`].
-                if !in_main_light_tree(dom, node) {
+                // base URL.  See [`in_document_light_tree`].
+                if !in_document_light_tree(dom, node) {
                     return;
                 }
                 // ECS-state-driven filter: any attribute change on a
@@ -317,7 +393,7 @@ impl BaseUrlMaintainer {
                     }
                 }
                 if let Some(doc) = owner_doc(dom, node) {
-                    recompute_document_base(dom, doc);
+                    recompute_document_base(dom, doc, &fallback);
                 }
             }
             _ => {}
@@ -383,7 +459,7 @@ mod tests {
         let alt_doc = dom.create_element("html", Attributes::default());
 
         // Walk must originate at `alt_doc` — empty subtree → fallback.
-        recompute_document_base(&mut dom, alt_doc);
+        recompute_document_base(&mut dom, alt_doc, &about_blank_url());
         let recorded = dom
             .world()
             .get::<&DocumentBaseUrl>(alt_doc)
@@ -400,7 +476,7 @@ mod tests {
 
         // Sanity: recomputing for `doc_root` (which IS the cached root)
         // still picks up `<base href>` correctly.
-        recompute_document_base(&mut dom, doc_root);
+        recompute_document_base(&mut dom, doc_root, &about_blank_url());
         let doc_root_url = dom
             .world()
             .get::<&DocumentBaseUrl>(doc_root)
@@ -408,5 +484,66 @@ mod tests {
             .0
             .clone();
         assert_eq!(doc_root_url, outer);
+    }
+
+    #[test]
+    fn remove_arm_routes_to_owning_document_not_page_root() {
+        // Codex R5 follow-on (adversarial completeness check): the Remove arm
+        // anchors on `parent`, which IS a `Document` when a second live
+        // document's (e.g. a `DOMParser` document) `documentElement`-level
+        // subtree is removed. `EcsDom::owner_document` returns `None` for a
+        // `Document` receiver, so the old `owner_doc` `.or_else(document_root)`
+        // fallback mis-routed the recompute to the PAGE root — leaving the
+        // second document's `DocumentBaseUrl` stale. `owner_doc` now resolves a
+        // `Document` anchor to itself, so the recompute lands on the right
+        // document and the page base is untouched.
+        use elidex_ecs::{Attributes, EcsDom};
+        let mut dom = EcsDom::new();
+        let page = dom.create_document_root();
+
+        // A second live Document with a `<base href>` (mirrors a DOMParser doc).
+        let doc = dom.create_document_node();
+        let html = dom.create_element("html", Attributes::default());
+        assert!(dom.append_child(doc, html));
+        let base = dom.create_element("base", Attributes::default());
+        assert!(dom.set_attribute(base, "href", "https://throwaway.example/x/"));
+        assert!(dom.append_child(html, base));
+        initialize_base_url_for_document(&mut dom, doc, &about_blank_url());
+        initialize_base_url_for_document(&mut dom, page, &about_blank_url());
+        let page_base_before = document_base_url(&dom, page);
+        assert_eq!(
+            document_base_url(&dom, doc).as_str(),
+            "https://throwaway.example/x/"
+        );
+
+        // Remove the `documentElement` subtree: the former `parent` is `doc`
+        // itself (a `Document`). Detach first (fire-before-despawn), then fire.
+        let descendants = [html, base];
+        assert!(dom.remove_child(doc, html));
+        BaseUrlMaintainer.handle(
+            &MutationEvent::Remove {
+                node: html,
+                parent: doc,
+                removed_index: 0,
+                descendants: &descendants,
+                was_connected: true,
+            },
+            &mut dom,
+        );
+
+        // `doc` recomputed to the fallback (its only `<base>` is gone) — i.e.
+        // the recompute routed to `doc`, NOT to the page root (which would
+        // strand `doc` at the stale throwaway URL).
+        assert_eq!(
+            document_base_url(&dom, doc),
+            about_blank_url(),
+            "Remove arm must route the recompute to the owning Document, not document_root",
+        );
+        // The page base must be untouched by a second document's removal.
+        assert_eq!(
+            document_base_url(&dom, page),
+            page_base_before,
+            "removing a second document's subtree must not clobber the page base",
+        );
     }
 }

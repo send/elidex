@@ -781,6 +781,11 @@ pub(super) fn trace_work_list(
             // `ObjectId` was collected.
             #[cfg(feature = "engine")]
             ObjectKind::TextEncoder | ObjectKind::TextDecoder => {}
+            // `DOMParser` / `XMLSerializer` are stateless payload-free
+            // brands (no side table) — the trace step has nothing to
+            // fan out, same as `TextEncoder`.
+            #[cfg(feature = "engine")]
+            ObjectKind::DomParser | ObjectKind::XmlSerializer => {}
             // `URLSearchParams`'s entry list lives in
             // `url_search_params_states` and carries only interned
             // `StringId`s (pool-permanent).  The wrapper does have

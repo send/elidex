@@ -51,6 +51,7 @@ mod tests_document_type;
 mod tests_dom_collection;
 mod tests_dom_exception;
 mod tests_dom_handler_dispatch;
+mod tests_dom_parser;
 mod tests_dom_rect;
 mod tests_element_attributes;
 mod tests_element_methods;

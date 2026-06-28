@@ -702,6 +702,25 @@ pub enum ObjectKind {
     /// GC contract: payload-free — nothing to trace or prune.
     #[cfg(feature = "engine")]
     TextEncoder,
+    /// `DOMParser` instance (HTML §8.5.1 The DOMParser interface).
+    /// Stateless, payload-free — brand check is the sole reason a
+    /// dedicated variant exists rather than reusing `Ordinary`.  Lets
+    /// `parseFromString` reject `{parseFromString:
+    /// DOMParser.prototype.parseFromString}.parseFromString(...)` with a
+    /// TypeError ("illegal invocation") instead of running on a
+    /// non-branded receiver.  Same shape as [`Self::TextEncoder`].
+    ///
+    /// GC contract: payload-free — nothing to trace or prune.
+    #[cfg(feature = "engine")]
+    DomParser,
+    /// `XMLSerializer` instance (HTML §8.5.8 The XMLSerializer interface).
+    /// Stateless, payload-free — sibling of [`Self::DomParser`]; the
+    /// brand check lets `serializeToString` reject a non-branded
+    /// receiver with a TypeError.
+    ///
+    /// GC contract: payload-free — nothing to trace or prune.
+    #[cfg(feature = "engine")]
+    XmlSerializer,
     /// `TextDecoder` instance (WHATWG Encoding §8.1).  Payload-free;
     /// the encoder handle + `fatal` / `ignoreBOM` flags live in
     /// `VmInner::text_decoder_states`.  Same model as `Headers` /

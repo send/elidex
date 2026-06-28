@@ -112,6 +112,12 @@ pub struct ParseFragmentOptions {
     /// not allowed, or the host already has a shadow root) silently
     /// leaves the `<template>` as an ordinary element.
     pub allow_declarative_shadow: bool,
+    /// When true, parse with the §13.2.4.5 scripting flag DISABLED — so
+    /// `<noscript>` content is parsed as ordinary elements (the strict "in
+    /// head noscript" mode becomes reachable) rather than as raw text. The
+    /// default (`false`) models a scripting-enabled document, matching live
+    /// `innerHTML`. Set for an inert parse (`DOMParser`, HTML §8.5.1).
+    pub scripting_disabled: bool,
 }
 
 #[cfg(test)]
@@ -128,6 +134,7 @@ mod tests {
     fn parse_fragment_options_copy() {
         let opts = ParseFragmentOptions {
             allow_declarative_shadow: true,
+            scripting_disabled: false,
         };
         // `Copy` makes this implicit; reading `opts` after the binding
         // confirms it was not moved. (`Clone` is delegated to `Copy`,

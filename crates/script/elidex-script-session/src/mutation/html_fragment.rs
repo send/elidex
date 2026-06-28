@@ -30,6 +30,13 @@ pub struct SetInnerHtmlOptions {
     /// matching plain `innerHTML` semantics), the templates are left
     /// as ordinary `<template>` elements.
     pub allow_declarative_shadow: bool,
+    /// When true, parse with the §13.2.4.5 scripting flag DISABLED, so
+    /// `<noscript>` content is parsed as ordinary elements rather than raw
+    /// text. The default (`false`, matching `innerHTML` / `outerHTML` /
+    /// `insertAdjacentHTML` on a live element) parses with scripting enabled.
+    /// Only an inert parse — `DOMParser.parseFromString` (HTML §8.5.1, no
+    /// browsing context, scripting disabled) — opts in.
+    pub scripting_disabled: bool,
 }
 
 /// Apply the `innerHTML` / `setHTMLUnsafe` setter algorithm (§8.5.4): parse
@@ -75,6 +82,7 @@ pub fn apply_set_inner_html(
     // children), then replace all of the target's children with the result.
     let parse_opts = elidex_html_parser::ParseFragmentOptions {
         allow_declarative_shadow: opts.allow_declarative_shadow,
+        scripting_disabled: opts.scripting_disabled,
     };
     let added = elidex_html_parser::parse_fragment_progressive(html, context, dom, parse_opts);
 
@@ -340,6 +348,7 @@ mod tests {
             r#"<template shadowrootmode="open"><p>x</p></template>"#,
             SetInnerHtmlOptions {
                 allow_declarative_shadow: true,
+                scripting_disabled: false,
             },
         )
         .expect("record");
@@ -387,6 +396,7 @@ mod tests {
             r#"<template shadowrootmode="open"><p>shadow content</p></template>"#,
             SetInnerHtmlOptions {
                 allow_declarative_shadow: true,
+                scripting_disabled: false,
             },
         );
         let sr = dom
@@ -425,6 +435,7 @@ mod tests {
             r#"<template shadowrootmode="closed"></template>"#,
             SetInnerHtmlOptions {
                 allow_declarative_shadow: true,
+                scripting_disabled: false,
             },
         );
         let sr = dom
@@ -446,6 +457,7 @@ mod tests {
             r#"<template shadowrootmode="weird"></template>"#,
             SetInnerHtmlOptions {
                 allow_declarative_shadow: true,
+                scripting_disabled: false,
             },
         );
         // Invalid mode → silently no shadow + template remains.
@@ -472,6 +484,7 @@ mod tests {
             r#"<template shadowrootmode="open"><p>x</p></template>"#,
             SetInnerHtmlOptions {
                 allow_declarative_shadow: true,
+                scripting_disabled: false,
             },
         );
         // The existing shadow root is unchanged; the template becomes a
@@ -497,6 +510,7 @@ mod tests {
             r#"<template shadowrootmode="OPEN"></template>"#,
             SetInnerHtmlOptions {
                 allow_declarative_shadow: true,
+                scripting_disabled: false,
             },
         );
         let sr = dom
