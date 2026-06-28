@@ -797,8 +797,9 @@ impl Vm {
             // earlier batch — the next frame-drain producer would fire at a
             // freshly-allocated, listener-less singleton (Codex R4-B). Unlike
             // `localStorage` (cleared above for cross-ORIGIN data-leak safety),
-            // these wrappers are payload-free device-fact readers with no
-            // per-origin / per-document state, so there is nothing to scrub. The
+            // these wrappers carry no per-origin / per-document payload in their
+            // internal brand slots (script-attached expandos are the exception —
+            // see Codex R11-2 below), so there is no internal state to scrub. The
             // cross-DOM identity reset on an actual navigation is the world-id
             // discriminator's job (`#11-wrapper-cache-cross-dom-discriminator`),
             // not a per-batch cache clear.
@@ -816,6 +817,15 @@ impl Vm {
             // (R4-B) and be a lone-outlier. S5-6 (the flip that first drives the
             // VM producer in production) is the hard gate for landing that
             // engine-wide scrub before the producer goes live.
+            // Codex R11-2: these singletons are `extensible` (spec-correct —
+            // `screen` / `visualViewport` accept expandos), so a script-attached
+            // own property (`screen.token = …`) ALSO survives unbind. That is
+            // per-document JS state, not a payload-free read — but it is again the
+            // SAME engine-wide leak `window.foo = …` has (the realm global
+            // survives the rebind), so it folds into the SAME world-id
+            // navigation-scrub (reset identity → drop expandos + listeners on a
+            // real navigation), not a screen/VV-only clear that would wipe the
+            // page's own state every batch.
             // D-17 `#11-custom-elements-vm` — drop the cached
             // `customElements` singleton wrapper so it can be re-
             // allocated lazily on the next bind. The registry state
