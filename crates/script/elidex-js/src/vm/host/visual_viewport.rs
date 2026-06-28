@@ -80,7 +80,8 @@
 
 use super::super::shape::PropertyAttrs;
 use super::super::value::{
-    JsValue, NativeContext, Object, ObjectId, ObjectKind, PropertyStorage, PropertyValue, VmError,
+    JsValue, NativeContext, Object, ObjectId, ObjectKind, PropertyKey, PropertyStorage,
+    PropertyValue, VmError,
 };
 use super::super::{NativeFn, VmInner};
 use super::event_target_dispatch_vm::fire_vm_event;
@@ -146,7 +147,20 @@ impl VmInner {
             "VisualViewport",
             super::super::value::native_illegal_constructor_unreachable,
         );
-        self.wire_interface_ctor_prototype(ctor, proto_id);
+        let proto_key = PropertyKey::String(self.well_known.prototype);
+        self.define_shaped_property(
+            ctor,
+            proto_key,
+            PropertyValue::Data(JsValue::Object(proto_id)),
+            PropertyAttrs::BUILTIN,
+        );
+        let ctor_key = PropertyKey::String(self.well_known.constructor);
+        self.define_shaped_property(
+            proto_id,
+            ctor_key,
+            PropertyValue::Data(JsValue::Object(ctor)),
+            PropertyAttrs::METHOD,
+        );
         let ctor_name = self.strings.intern("VisualViewport");
         self.globals.insert(ctor_name, JsValue::Object(ctor));
     }
