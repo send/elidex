@@ -2,7 +2,7 @@
 
 use elidex_ecs::{EcsDom, Entity, NodeKind, TextContent};
 use elidex_script_session::{
-    apply_append_child, apply_insert_before, apply_remove_child, MutationRecord,
+    apply_append_child, apply_insert_before, apply_remove_child, apply_replace_data, MutationRecord,
 };
 
 use super::{
@@ -131,35 +131,45 @@ impl Range {
 
     /// Delete the contents of this range.
     ///
-    /// Simplified implementation: removes fully-contained top-level nodes
-    /// (`contained_top_level_nodes`) and splits boundary text nodes. The same
-    /// simplified-cross-container scope as [`Self::extract_contents`] applies
-    /// (partial boundary text → `characterData` record deferred to B1.3; see
-    /// the B1.2d-ii plan §11 carve ledger).  Copilot R8: text-node truncations
-    /// route through [`EcsDom::replace_text_data`] (which fires
-    /// `after_replace_data` for live-range adjust) rather than
-    /// `set_text_data` (which only fires the truncate-clamp hook).
-    /// The replace-data hook is required so OTHER live ranges
-    /// anchored in the same text node collapse their boundaries to
-    /// the deletion start per WHATWG §5.5 replaceData rule, not
-    /// merely clamp to the new length.
+    /// Removes fully-contained top-level nodes (`contained_top_level_nodes`)
+    /// and splices boundary CharacterData nodes. Boundary text splices emit
+    /// their `characterData` record (B1.3-ii) via [`apply_replace_data`], which
+    /// routes Text/CDATASection through [`EcsDom::replace_text_data`] (firing
+    /// `after_replace_data` so OTHER live ranges anchored in the same node
+    /// collapse their boundaries to the deletion start per WHATWG §5.5, not
+    /// merely clamp) and Comment through [`EcsDom::replace_comment_data`]. F5:
+    /// the splice guards accept all CharacterData (Text|CDATASection|Comment),
+    /// not just Text. The cross-container path follows the §5.5 step order
+    /// 9 (start-trunc) → 10 (removals) → 11 (end-trunc) so the emitted records
+    /// are spec-ordered. The cross-container partial-element-ancestor deep-clone
+    /// (extract-only) remains the B1.2d-ii plan §11 carve — it does not affect
+    /// `deleteContents`, which clones nothing.
     pub fn delete_contents(&mut self, dom: &mut EcsDom) -> Vec<MutationRecord> {
         let mut records = Vec::new();
         if self.collapsed() {
             return records;
         }
 
-        // Same container, text node: splice [start_offset..end_offset]
-        // → empty via replace_text_data (fires after_replace_data).
-        // characterData facet — produces no MutationRecord (deferred B1.3).
+        // Same container, CharacterData node (Text | CDATASection |
+        // Comment): splice [start_offset..end_offset] → empty via
+        // `apply_replace_data` (§5.5 deleteContents step 3 = "CharacterData
+        // node"; routes Text→replace_text_data for live-range fixup /
+        // Comment→replace_comment_data). Queues the §4.10 characterData
+        // record with the pre-splice full data as oldValue. F5: the guard
+        // is broadened from `TextContent` to `get_char_data` (=CharacterData)
+        // so a Range wholly inside a Comment splices + records instead of
+        // falling to the vacuous children-removal branch (latent no-op).
         if self.start_container == self.end_container {
-            let is_text = dom
-                .world()
-                .get::<&TextContent>(self.start_container)
-                .is_ok();
-            if is_text {
+            if let Ok(old_full) = crate::char_data::get_char_data(self.start_container, dom) {
                 let count = self.end_offset.saturating_sub(self.start_offset);
-                let _ = dom.replace_text_data(self.start_container, self.start_offset, count, "");
+                records.extend(apply_replace_data(
+                    dom,
+                    self.start_container,
+                    self.start_offset,
+                    count,
+                    "",
+                    old_full,
+                ));
                 self.end_offset = self.start_offset;
                 return records;
             }
@@ -175,40 +185,51 @@ impl Range {
             return records;
         }
 
-        // Different containers: simplified approach.
-        // 1. Truncate start text node — splice [start_offset..] → empty
-        //    via replace_text_data so live ranges in start_container
-        //    get the right adjustment.
-        let start_len = dom
-            .world()
-            .get::<&TextContent>(self.start_container)
-            .ok()
-            .map(|tc| crate::char_data::utf16_len(&tc.0));
-        if let Some(len) = start_len {
+        // Different containers: §5.5 deleteContents step order is
+        // 9 start-trunc → 10 removals → 11 end-trunc. The records are now
+        // observable, so this MUST follow spec order (the pre-B1.3-ii impl
+        // did start → end → removals, harmless only while truncs were
+        // record-silent). F5: the start/end CharacterData guards are
+        // broadened from `TextContent` to `get_char_data` (=CharacterData).
+
+        // Step 9. Truncate start CharacterData node — splice
+        // [start_offset..] → empty via `apply_replace_data` (Text→
+        // replace_text_data live-range fixup / Comment→replace_comment_data).
+        if let Ok(old_full) = crate::char_data::get_char_data(self.start_container, dom) {
+            let len = crate::char_data::utf16_len(&old_full);
             let count = len.saturating_sub(self.start_offset);
-            let _ = dom.replace_text_data(self.start_container, self.start_offset, count, "");
+            records.extend(apply_replace_data(
+                dom,
+                self.start_container,
+                self.start_offset,
+                count,
+                "",
+                old_full,
+            ));
         }
 
-        // 2. Truncate end text node — splice [..end_offset] → empty
-        //    via replace_text_data.
-        let end_len = dom
-            .world()
-            .get::<&TextContent>(self.end_container)
-            .ok()
-            .map(|_| self.end_offset);
-        if let Some(end_off) = end_len {
-            let _ = dom.replace_text_data(self.end_container, 0, end_off, "");
-        }
-
-        // 3. Remove fully-contained nodes between start and end via the
-        //    record-producing `apply_remove_child` (§5.5 deleteContents
-        //    step 10) — one childList removal record per top-level node
-        //    (`contained_top_level_nodes` applies the §5.5 omit-nested rule
-        //    so a nested descendant does not emit its own record).
+        // Step 10. Remove fully-contained nodes between start and end via
+        // the record-producing `apply_remove_child` — one childList removal
+        // record per top-level node (`contained_top_level_nodes` applies the
+        // §5.5 omit-nested rule so a nested descendant does not emit its own
+        // record).
         for node in self.contained_top_level_nodes(dom) {
             if let Some(parent) = dom.get_parent(node) {
                 records.extend(apply_remove_child(dom, parent, node));
             }
+        }
+
+        // Step 11. Truncate end CharacterData node — splice [..end_offset]
+        // → empty via `apply_replace_data`.
+        if let Ok(old_full) = crate::char_data::get_char_data(self.end_container, dom) {
+            records.extend(apply_replace_data(
+                dom,
+                self.end_container,
+                0,
+                self.end_offset,
+                "",
+                old_full,
+            ));
         }
 
         self.end_container = self.start_container;
@@ -226,13 +247,20 @@ impl Range {
     ///   fully-contained top-level nodes** (`contained_top_level_nodes`) into
     ///   the fragment.
     ///
-    /// NOT yet implemented (the cross-container algorithm is simplified): the
-    /// DOM §5.5 extract steps 7-15 **deep-clone of a *partially*-contained
-    /// element ancestor** into the fragment — the boundary element instead
-    /// stays in the live tree and only its contained descendants are removed
-    /// (steps 18/21, observed `apply_remove_child` records). The partial
-    /// boundary **text** splice is applied but its `characterData` record is
-    /// deferred to B1.3. Both gaps are tracked in the B1.2d-ii plan §11.
+    /// The boundary **Text** splice now emits its `characterData` record
+    /// (B1.3-ii, via `apply_replace_data`). Two gaps remain deferred:
+    /// - DOM §5.5 extract steps 18/21 **deep-clone of a *partially*-contained
+    ///   element ancestor** into the fragment — the boundary element instead
+    ///   stays in the live tree and only its contained descendants are removed
+    ///   (observed `apply_remove_child` records). Tracked in B1.2d-ii plan §11.
+    /// - **Comment / CDATASection** boundary containers: unlike `delete_contents`
+    ///   (broadened to all CharacterData in B1.3-ii F5), extract keeps the
+    ///   `NodeKind::Text` guards below because the spec clones the boundary node
+    ///   into the fragment (steps 4.1/17.1/20.1) and the clone here uses
+    ///   `create_text` — a Comment needs a `create_comment` clone (non-trivial).
+    ///   Deferred to `#11-range-comment-extract-clone` (B1.3-ii plan §8); a
+    ///   same-container Comment `extractContents` is a no-op this slice
+    ///   (`deleteContents` on the same range DOES splice + record).
     #[allow(clippy::too_many_lines)]
     pub fn extract_contents(&mut self, dom: &mut EcsDom) -> (Entity, Vec<MutationRecord>) {
         let frag = dom.create_document_fragment();
@@ -244,6 +272,9 @@ impl Range {
 
         // Case 1: Same container.
         if self.start_container == self.end_container {
+            // `NodeKind::Text`-only (NOT broadened to CharacterData like
+            // delete_contents F5) — Comment extract-clone deferred, see the
+            // method docstring / `#11-range-comment-extract-clone`.
             if dom.node_kind(self.start_container) == Some(NodeKind::Text) {
                 // Text node: extract substring + splice via
                 // replace_text_data so live ranges in this node
@@ -257,7 +288,17 @@ impl Range {
                 let end_byte = utf16_offset_to_byte_clamped(&text, self.end_offset);
                 let extracted = text[start_byte..end_byte].to_string();
                 let count = self.end_offset.saturating_sub(self.start_offset);
-                let _ = dom.replace_text_data(self.start_container, self.start_offset, count, "");
+                // §5.5 extractContents step 4.4 = replace data on the
+                // original (oldValue = pre-splice full data) → characterData
+                // record via `apply_replace_data`.
+                records.extend(apply_replace_data(
+                    dom,
+                    self.start_container,
+                    self.start_offset,
+                    count,
+                    "",
+                    text,
+                ));
                 if !extracted.is_empty() {
                     let text_node = dom.create_text(&extracted);
                     // Fresh clone appended to the (unobserved) fragment —
@@ -299,7 +340,16 @@ impl Range {
             let tail = text[start_byte..].to_string();
             let total = crate::char_data::utf16_len(&text);
             let count = total.saturating_sub(self.start_offset);
-            let _ = dom.replace_text_data(self.start_container, self.start_offset, count, "");
+            // §5.5 extractContents step 17.4 = replace data on the start
+            // node → characterData record (oldValue = pre-splice full data).
+            records.extend(apply_replace_data(
+                dom,
+                self.start_container,
+                self.start_offset,
+                count,
+                "",
+                text,
+            ));
             if !tail.is_empty() {
                 let text_node = dom.create_text(&tail);
                 let _ = dom.append_child(frag, text_node);
@@ -328,7 +378,16 @@ impl Range {
                 .unwrap_or_default();
             let end_byte = utf16_offset_to_byte_clamped(&text, self.end_offset);
             let head = text[..end_byte].to_string();
-            let _ = dom.replace_text_data(self.end_container, 0, self.end_offset, "");
+            // §5.5 extractContents step 20.4 = replace data on the end
+            // node → characterData record (oldValue = pre-splice full data).
+            records.extend(apply_replace_data(
+                dom,
+                self.end_container,
+                0,
+                self.end_offset,
+                "",
+                text,
+            ));
             if !head.is_empty() {
                 let text_node = dom.create_text(&head);
                 // Fresh clone appended to the (unobserved) fragment.
@@ -438,13 +497,18 @@ impl Range {
         // all rejection paths above have returned.  If split fails
         // (orphan / missing TextContent), keep reference_node at
         // start_container so the insert lands at the original slot.
+        // The split's records (childList new-tail + characterData head-trunc)
+        // are queued in spec order BEFORE the step-12 insert records (spec
+        // step 7 < step 12), so they are collected here and prepended below.
+        let mut split_records: Vec<MutationRecord> = Vec::new();
         if is_text {
-            if let Ok(tail) = crate::char_data::split_text::split_text_at_offset(
+            if let Ok((tail, recs)) = crate::char_data::split_text::split_text_at_offset(
                 start_container,
                 start_offset,
                 dom,
             ) {
                 reference_node = Some(tail);
+                split_records = recs;
             }
         }
 
@@ -471,7 +535,7 @@ impl Range {
         // an empty fragment is a legitimate §4.2.3 step-3 no-op, NOT a
         // failure (distinguished below via `is_empty_fragment`).
         let is_empty_fragment = is_fragment && nodes.is_empty();
-        let records = match reference_node {
+        let insert_records = match reference_node {
             Some(rn) => apply_insert_before(dom, parent, node, rn),
             None => apply_append_child(dom, parent, node),
         };
@@ -479,9 +543,14 @@ impl Range {
         // child) yields an empty record list for a non-empty input — the
         // DOM was NOT mutated; surface as rejection.  An empty fragment
         // also yields an empty list but is a successful no-op.
-        if records.is_empty() && !is_empty_fragment {
+        if insert_records.is_empty() && !is_empty_fragment {
             return None;
         }
+
+        // Final record order: split records (step 7) precede the step-12
+        // insert records.
+        let mut records = split_records;
+        records.extend(insert_records);
 
         // Spec step 10-11: newOffset = referenceNode's pre-step-12
         // index + nodes.len() (= spec's pre-bump value + step-11

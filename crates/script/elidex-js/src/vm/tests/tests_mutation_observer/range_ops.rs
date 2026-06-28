@@ -12,10 +12,11 @@
 //! `notify` → §4.3 microtask → callback, mirroring the direct-tree-op coverage
 //! in [`super::direct_tree_ops`].
 //!
-//! The **characterData** facet (boundary text `replaceData`, `splitText`) is
-//! deferred to B1.3 (no record producer exists yet); a Range wholly inside a
-//! single Text node therefore delivers ZERO records here — locked by
-//! [`intra_single_text_delete_contents_delivers_no_record`].
+//! The **characterData** facet (boundary text `replaceData`, `splitText`) now
+//! routes through `apply_replace_data` / the `character_data_record` builder
+//! (B1.3-ii): a Range wholly inside a single Text node delivers ONE
+//! characterData record — locked by
+//! [`intra_single_text_delete_contents_delivers_one_character_data_record`].
 
 use elidex_ecs::EcsDom;
 use elidex_script_session::SessionCore;
@@ -317,39 +318,269 @@ fn extract_creates_transient_observer_on_detached_subtree() {
     vm.unbind();
 }
 
-/// Scenario 5 — a Range wholly inside a single Text node delivers ZERO records
-/// (its only mutation is characterData `replaceData`, deferred to B1.3).
-///
-/// **Lock this**: the zero is intentional, not a missing-record bug. A future
-/// B1.3 author who adds characterData records should expect this assertion to
-/// change to one record, and should read this test before doing so.
+/// Scenario 5 — a Range wholly inside a single Text node delivers exactly ONE
+/// `characterData` record (§5.5 deleteContents step 3.1 = "replace data" on the
+/// start CharacterData node). B1.3-ii flipped this from the pre-slice ZERO:
+/// the intra-Text splice now routes through `apply_replace_data` and queues a
+/// characterData record on the Text node. `characterDataOldValue:true` exposes
+/// the pre-splice full data as `oldValue`.
 #[test]
-fn intra_single_text_delete_contents_delivers_no_record() {
+fn intra_single_text_delete_contents_delivers_one_character_data_record() {
     let mut vm = Vm::new();
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
     let (_doc, _root) = setup_with_root(&mut vm, &mut session, &mut dom);
 
     // root -> text("hello"). Range [1..4] is wholly inside the Text node →
-    // deleteContents splices the text (characterData), no childList op.
+    // deleteContents splices the text (characterData) via apply_replace_data.
     vm.eval(
         "globalThis.records = null; \
          globalThis.t = document.createTextNode('hello'); root.appendChild(t); \
          var mo = new MutationObserver(function(r){ globalThis.records = r; }); \
-         mo.observe(root, {childList:true, characterData:true, subtree:true}); \
+         mo.observe(root, {childList:true, characterData:true, \
+                           characterDataOldValue:true, subtree:true}); \
          var rg = document.createRange(); rg.setStart(t, 1); rg.setEnd(t, 4); \
          rg.deleteContents();",
     )
     .unwrap();
 
-    // characterData record production does not exist yet (B1.3); the only
-    // mutation is a text splice, so the observer fires no records.
+    assert_eq!(vm.eval("records.length").unwrap(), JsValue::Number(1.0));
     assert_eq!(
-        vm.eval("records === null").unwrap(),
-        JsValue::Boolean(true),
-        "intra-Text deleteContents is characterData-only — ZERO records until B1.3"
+        vm.eval("records[0].type === 'characterData'").unwrap(),
+        JsValue::Boolean(true)
+    );
+    assert_eq!(
+        vm.eval("records[0].target === t").unwrap(),
+        JsValue::Boolean(true)
+    );
+    assert_eq!(
+        vm.eval("records[0].oldValue === 'hello'").unwrap(),
+        JsValue::Boolean(true)
     );
     // The deletion still happened (live-range / text splice via EcsDom hook).
     assert_eq!(vm.eval("t.data === 'ho'").unwrap(), JsValue::Boolean(true),);
+    vm.unbind();
+}
+
+/// Scenario 6 (B1.3-ii) — `deleteContents` over a single **Comment** container
+/// (F5): a Range wholly inside a Comment now splices the comment data AND
+/// delivers one characterData record. Pre-slice this was a silent no-op (the
+/// same-container guard was `TextContent`-only, so a Comment fell to the
+/// vacuous children-removal branch). Locks the broadened CharacterData guard +
+/// the latent-no-op fix.
+#[test]
+fn intra_single_comment_delete_contents_delivers_one_character_data_record() {
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let (_doc, _root) = setup_with_root(&mut vm, &mut session, &mut dom);
+
+    vm.eval(
+        "globalThis.records = null; \
+         globalThis.c = document.createComment('hello'); root.appendChild(c); \
+         var mo = new MutationObserver(function(r){ globalThis.records = r; }); \
+         mo.observe(root, {characterData:true, characterDataOldValue:true, subtree:true}); \
+         var rg = document.createRange(); rg.setStart(c, 1); rg.setEnd(c, 4); \
+         rg.deleteContents();",
+    )
+    .unwrap();
+
+    assert_eq!(vm.eval("records.length").unwrap(), JsValue::Number(1.0));
+    assert_eq!(
+        vm.eval("records[0].type === 'characterData' && records[0].target === c")
+            .unwrap(),
+        JsValue::Boolean(true)
+    );
+    assert_eq!(
+        vm.eval("records[0].oldValue === 'hello'").unwrap(),
+        JsValue::Boolean(true)
+    );
+    // The splice actually happened (was a no-op pre-slice).
+    assert_eq!(vm.eval("c.data === 'ho'").unwrap(), JsValue::Boolean(true));
+    vm.unbind();
+}
+
+/// Scenario 7 (B1.3-ii) — `deleteContents` cross-container delivers records in
+/// §5.5 order: step 9 start-trunc (characterData) → step 10 removal(s)
+/// (childList) → step 11 end-trunc (characterData). Locks the reorder (the
+/// pre-slice impl did start → end → removals, harmless only while truncs were
+/// record-silent).
+#[test]
+fn cross_container_delete_contents_records_in_spec_order() {
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let (_doc, _root) = setup_with_root(&mut vm, &mut session, &mut dom);
+
+    // root -> [ t1("hello"), mid(<m/>), t2("world") ]. Range [t1:1 .. t2:4]
+    // → start-trunc t1, remove mid, end-trunc t2.
+    vm.eval(
+        "globalThis.records = []; \
+         globalThis.t1 = document.createTextNode('hello'); root.appendChild(t1); \
+         globalThis.mid = document.createElement('m'); root.appendChild(mid); \
+         globalThis.t2 = document.createTextNode('world'); root.appendChild(t2); \
+         var mo = new MutationObserver(function(r){ \
+             for (var i=0;i<r.length;i++) globalThis.records.push(r[i]); }); \
+         mo.observe(root, {childList:true, characterData:true, \
+                           characterDataOldValue:true, subtree:true}); \
+         var rg = document.createRange(); rg.setStart(t1, 1); rg.setEnd(t2, 4); \
+         rg.deleteContents();",
+    )
+    .unwrap();
+
+    assert_eq!(vm.eval("records.length").unwrap(), JsValue::Number(3.0));
+    // Step 9: characterData start-trunc on t1.
+    assert_eq!(
+        vm.eval(
+            "records[0].type === 'characterData' && records[0].target === t1 \
+                 && records[0].oldValue === 'hello'"
+        )
+        .unwrap(),
+        JsValue::Boolean(true)
+    );
+    // Step 10: childList removal of `mid` on root.
+    assert_eq!(
+        vm.eval(
+            "records[1].type === 'childList' && records[1].target === root \
+                 && records[1].removedNodes[0] === mid"
+        )
+        .unwrap(),
+        JsValue::Boolean(true)
+    );
+    // Step 11: characterData end-trunc on t2.
+    assert_eq!(
+        vm.eval(
+            "records[2].type === 'characterData' && records[2].target === t2 \
+                 && records[2].oldValue === 'world'"
+        )
+        .unwrap(),
+        JsValue::Boolean(true)
+    );
+    assert_eq!(vm.eval("t1.data === 'h'").unwrap(), JsValue::Boolean(true));
+    assert_eq!(vm.eval("t2.data === 'd'").unwrap(), JsValue::Boolean(true));
+    vm.unbind();
+}
+
+/// Scenario 8 (B1.3-ii) — `extractContents` same-container Text delivers one
+/// characterData splice record (§5.5 extract step 4.4) on the original node.
+#[test]
+fn intra_text_extract_contents_delivers_one_character_data_record() {
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let (_doc, _root) = setup_with_root(&mut vm, &mut session, &mut dom);
+
+    vm.eval(
+        "globalThis.records = null; \
+         globalThis.t = document.createTextNode('hello'); root.appendChild(t); \
+         var mo = new MutationObserver(function(r){ globalThis.records = r; }); \
+         mo.observe(root, {characterData:true, characterDataOldValue:true, subtree:true}); \
+         var rg = document.createRange(); rg.setStart(t, 1); rg.setEnd(t, 4); \
+         globalThis.frag = rg.extractContents();",
+    )
+    .unwrap();
+
+    assert_eq!(vm.eval("records.length").unwrap(), JsValue::Number(1.0));
+    assert_eq!(
+        vm.eval(
+            "records[0].type === 'characterData' && records[0].target === t \
+                 && records[0].oldValue === 'hello'"
+        )
+        .unwrap(),
+        JsValue::Boolean(true)
+    );
+    assert_eq!(vm.eval("t.data === 'ho'").unwrap(), JsValue::Boolean(true));
+    vm.unbind();
+}
+
+/// Scenario 9 (B1.3-ii) — `Range.insertNode` at a **Text boundary** splits the
+/// text node (§5.5 step 7) BEFORE the step-12 insert, so the split's two
+/// records (childList new-tail + characterData head-trunc) precede the insert
+/// record(s).
+#[test]
+fn insert_node_at_text_boundary_split_records_precede_insert() {
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let (_doc, _root) = setup_with_root(&mut vm, &mut session, &mut dom);
+
+    // root -> t("hello"). insertNode(<x/>) at t:2 → split t into "he" + "llo",
+    // then insert x between them.
+    vm.eval(
+        "globalThis.records = []; \
+         globalThis.t = document.createTextNode('hello'); root.appendChild(t); \
+         globalThis.x = document.createElement('x'); \
+         var mo = new MutationObserver(function(r){ \
+             for (var i=0;i<r.length;i++) globalThis.records.push(r[i]); }); \
+         mo.observe(root, {childList:true, characterData:true, \
+                           characterDataOldValue:true, subtree:true}); \
+         var rg = document.createRange(); rg.setStart(t, 2); rg.setEnd(t, 2); \
+         rg.insertNode(x);",
+    )
+    .unwrap();
+
+    assert_eq!(vm.eval("records.length").unwrap(), JsValue::Number(3.0));
+    // Record 0: step-7 split childList insert (new tail node) on root.
+    assert_eq!(
+        vm.eval(
+            "records[0].type === 'childList' && records[0].target === root \
+                 && records[0].addedNodes.length === 1"
+        )
+        .unwrap(),
+        JsValue::Boolean(true)
+    );
+    // Record 1: step-7/8 split characterData head-trunc on t.
+    assert_eq!(
+        vm.eval(
+            "records[1].type === 'characterData' && records[1].target === t \
+                 && records[1].oldValue === 'hello'"
+        )
+        .unwrap(),
+        JsValue::Boolean(true)
+    );
+    // Record 2: step-12 childList insert of x on root.
+    assert_eq!(
+        vm.eval(
+            "records[2].type === 'childList' && records[2].target === root \
+                 && records[2].addedNodes[0] === x"
+        )
+        .unwrap(),
+        JsValue::Boolean(true)
+    );
+    assert_eq!(vm.eval("t.data === 'he'").unwrap(), JsValue::Boolean(true));
+    vm.unbind();
+}
+
+/// Scenario 10 (B1.3-ii) — `Selection.deleteFromDocument()` over an intra-Text
+/// range delivers one characterData record (parity with the Range path), since
+/// it routes through the same `delete_contents` returned vec.
+#[test]
+fn selection_delete_from_document_intra_text_delivers_character_data_record() {
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let (_doc, _root) = setup_with_root(&mut vm, &mut session, &mut dom);
+
+    vm.eval(
+        "globalThis.records = null; \
+         globalThis.t = document.createTextNode('hello'); root.appendChild(t); \
+         var mo = new MutationObserver(function(r){ globalThis.records = r; }); \
+         mo.observe(root, {characterData:true, characterDataOldValue:true, subtree:true}); \
+         var sel = window.getSelection(); \
+         sel.setBaseAndExtent(t, 1, t, 4); \
+         sel.deleteFromDocument();",
+    )
+    .unwrap();
+
+    assert_eq!(vm.eval("records.length").unwrap(), JsValue::Number(1.0));
+    assert_eq!(
+        vm.eval(
+            "records[0].type === 'characterData' && records[0].target === t \
+                 && records[0].oldValue === 'hello'"
+        )
+        .unwrap(),
+        JsValue::Boolean(true)
+    );
+    assert_eq!(vm.eval("t.data === 'ho'").unwrap(), JsValue::Boolean(true));
     vm.unbind();
 }

@@ -5,6 +5,7 @@
 
 use super::*;
 use elidex_ecs::{Attributes, EcsDom, ShadowRootMode, TextContent};
+use elidex_script_session::MutationKind;
 
 fn build_range_tree() -> (EcsDom, Entity, Entity, Entity, Entity) {
     let mut dom = EcsDom::new();
@@ -171,15 +172,23 @@ fn range_delete_contents_omits_nested_removal_records() {
     range.set_end(t2, 0);
     let records = range.delete_contents(&mut dom);
 
-    // Exactly one record: the top-level `wrap` removal targeting `root`.
-    // `inner` is omitted (its parent `wrap` is also contained).
-    assert_eq!(
-        records.len(),
-        1,
-        "a nested descendant must not emit its own removal record"
-    );
-    assert_eq!(records[0].target, root);
-    assert_eq!(records[0].removed_nodes, vec![wrap]);
+    // §5.5 deleteContents cross-container order = step 9 start-trunc →
+    // step 10 removals → step 11 end-trunc. Both boundary nodes are
+    // CharacterData, so steps 9/11 each queue a characterData record
+    // (B1.3-ii) — unconditionally per the spec, even though the splice
+    // counts here are zero-width. `wrap` is the only top-level removal
+    // (`inner` is omitted: its parent `wrap` is also contained).
+    assert_eq!(records.len(), 3, "start-trunc + wrap removal + end-trunc");
+    // Step 9: start-trunc on t1 (characterData).
+    assert_eq!(records[0].kind, MutationKind::CharacterData);
+    assert_eq!(records[0].target, t1);
+    // Step 10: childList removal of the top-level `wrap`.
+    assert_eq!(records[1].kind, MutationKind::ChildList);
+    assert_eq!(records[1].target, root);
+    assert_eq!(records[1].removed_nodes, vec![wrap]);
+    // Step 11: end-trunc on t2 (characterData).
+    assert_eq!(records[2].kind, MutationKind::CharacterData);
+    assert_eq!(records[2].target, t2);
     // `wrap` (and its subtree) is gone from `root`.
     let kids: Vec<_> = dom.children_iter(root).collect();
     assert_eq!(kids, vec![t1, t2]);
@@ -210,9 +219,18 @@ fn range_delete_contents_excludes_nodes_before_element_start_offset() {
     range.set_end(tail, 0);
     let records = range.delete_contents(&mut dom);
 
-    assert_eq!(records.len(), 2, "only c1 and c2 are contained");
+    // Start container `root` is an Element (not CharacterData) → no step-9
+    // record; c1, c2 are the contained top-level removals (step 10); the
+    // end container `tail` is a Text (CharacterData) → one step-11
+    // end-trunc characterData record (B1.3-ii), zero-width but
+    // unconditional per §5.5 step 11.
+    assert_eq!(records.len(), 3, "c1 + c2 removals + tail end-trunc");
+    assert_eq!(records[0].kind, MutationKind::ChildList);
     assert_eq!(records[0].removed_nodes, vec![c1]);
+    assert_eq!(records[1].kind, MutationKind::ChildList);
     assert_eq!(records[1].removed_nodes, vec![c2]);
+    assert_eq!(records[2].kind, MutationKind::CharacterData);
+    assert_eq!(records[2].target, tail);
     // c0 (before the start offset) and tail (end container) survive.
     let kids: Vec<_> = dom.children_iter(root).collect();
     assert_eq!(kids, vec![c0, tail]);

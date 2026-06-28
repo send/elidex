@@ -502,13 +502,14 @@ impl SelectionState {
     /// deletion start (Selection state is consistent because we hold a
     /// `RangeId` reference, not a snapshot).
     ///
-    /// Returns the childList `MutationRecord`s produced by the underlying
-    /// `Range::delete_contents` so the VM-side caller routes them through
+    /// Returns the `MutationRecord`s produced by the underlying
+    /// `Range::delete_contents` (childList removals + characterData
+    /// text-splice records) so the VM-side caller routes them through
     /// the same `commit_range_mutation_records` chokepoint as the Range
     /// natives (One-issue-one-way: a record-producing primitive's records
-    /// are never silently dropped). `characterData` text-splice removals
-    /// inside a single Text node still produce no record this slice
-    /// (deferred to B1.3, identical to the Range path).
+    /// are never silently dropped). The `characterData` text-splice
+    /// records flow with zero change here — `delete_contents` produces
+    /// them (B1.3-ii) and this path inherits them for free.
     pub fn delete_from_document(
         &mut self,
         registry: &mut LiveRangeRegistry,

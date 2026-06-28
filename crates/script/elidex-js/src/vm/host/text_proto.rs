@@ -115,7 +115,7 @@ fn native_text_split_text(
     let offset_arg = args.first().copied().unwrap_or(JsValue::Undefined);
     let offset = super::super::coerce::to_uint32(ctx.vm, offset_arg)? as usize;
 
-    let new_entity =
+    let (new_entity, records) =
         split_text_at_offset(entity, offset, ctx.host().dom()).map_err(|e| match e {
             SplitTextError::NotTextNode => VmError::type_error(
                 "Failed to execute 'splitText' on 'Text': this is not a Text node.",
@@ -137,5 +137,10 @@ fn native_text_split_text(
                  internal invariant violation (TextContent disappeared mid-operation).",
             ),
         })?;
+    // §4.11 split-a-Text-node records ([childList insert?, characterData
+    // truncate]). The `host().dom()` borrow above is released (the Result
+    // is owned), so deliver them through the same chokepoint as the Range
+    // natives.
+    ctx.vm.commit_range_mutation_records(records);
     Ok(JsValue::Object(ctx.vm.create_element_wrapper(new_entity)))
 }

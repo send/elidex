@@ -387,11 +387,14 @@ fn native_static_range_is_valid(
     if dom.find_tree_root(f.start_container) != dom.find_tree_root(f.end_container) {
         return Ok(JsValue::Boolean(false));
     }
-    // Clause (b) + (c): offsets in bounds.
-    if (f.start_offset as usize) > node_length_utf16(dom, f.start_container) {
+    // Clause (b) + (c): offsets in bounds. Use the canonical engine-indep
+    // `node_length` (WHATWG DOM §4.2 "length of a node") so StaticRange
+    // bounds-checking agrees with the live Range path — incl. the
+    // CharacterData (Text / CDATASection / Comment) data-length cases.
+    if (f.start_offset as usize) > elidex_dom_api::range::node_length(f.start_container, dom) {
         return Ok(JsValue::Boolean(false));
     }
-    if (f.end_offset as usize) > node_length_utf16(dom, f.end_container) {
+    if (f.end_offset as usize) > elidex_dom_api::range::node_length(f.end_container, dom) {
         return Ok(JsValue::Boolean(false));
     }
     // Clause (d): start ≤ end via boundary compare.  Use a transient
@@ -420,16 +423,4 @@ fn build_static_range(f: &StaticRangeFields) -> Range {
     r.end_container = f.end_container;
     r.end_offset = f.end_offset as usize;
     r
-}
-
-/// Approximate `node_length` (utf-16 code units for text, child count
-/// otherwise) without invoking the engine-indep `node_length` helper
-/// (which is module-private).  Kept thin per CLAUDE.md layering —
-/// the actual decision logic lives behind `EcsDom` accessors.
-fn node_length_utf16(dom: &elidex_ecs::EcsDom, node: Entity) -> usize {
-    use elidex_ecs::TextContent;
-    if let Ok(tc) = dom.world().get::<&TextContent>(node) {
-        return elidex_dom_api::char_data::utf16_len(&tc.0);
-    }
-    dom.children_iter(node).count()
 }

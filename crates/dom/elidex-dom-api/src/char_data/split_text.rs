@@ -38,6 +38,9 @@
 //! the gap matters for their use case.
 
 use elidex_ecs::{EcsDom, Entity, NodeKind};
+use elidex_script_session::{
+    apply_append_child, apply_insert_before, character_data_record, MutationRecord,
+};
 
 /// Error variants returned by [`split_text_at_offset`].
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -71,7 +74,10 @@ pub enum SplitTextError {
 /// Splits `entity`'s `TextContent` at the UTF-16 `offset_utf16`:
 /// `entity` retains the head `[..offset]`; a new Text node carrying
 /// the tail `[offset..]` is created and inserted as `entity`'s next
-/// sibling. Returns the new node entity on success.
+/// sibling. Returns `(new_node, records)` on success, where `records`
+/// are the §4.11 split-a-Text-node MutationRecords in spec-queue order:
+/// `[childList insert (if parented), characterData head-truncate]`
+/// (the orphan path omits the childList record).
 ///
 /// Steps (with dispatch ordering):
 /// 1. Brand-check `entity` is Text / CDATASection.
@@ -100,7 +106,7 @@ pub fn split_text_at_offset(
     entity: Entity,
     offset_utf16: usize,
     dom: &mut EcsDom,
-) -> Result<Entity, SplitTextError> {
+) -> Result<(Entity, Vec<MutationRecord>), SplitTextError> {
     // Step 1: brand check (`node_kind_inferred` accepts legacy entities
     // tagged Text via TextContent without a NodeKind component —
     // matches the routing in HostData::prototype_kind_for).
@@ -150,16 +156,25 @@ pub fn split_text_at_offset(
     // entity is orphan — parent-side adjustment is vacuous in that case.
     let parent_opt = dom.get_parent(entity);
     let node_index = parent_opt.and_then(|_| dom.index_in_parent(entity));
+    // §4.11 step 7.1 = insert new_node (queues a `childList` record on
+    // parent). Route through the record-producing `apply_*` primitives
+    // (same `EcsDom::insert_before` mutation underneath, so the
+    // `MutationEvent::Insert` live-range adjust is unchanged). new_node
+    // is a fresh orphan ⇒ exactly one fresh `childList` record. An empty
+    // returned vec = the primitive rejected the insert (= the old
+    // `InsertFailed` path: rollback + destroy).
+    let mut records: Vec<MutationRecord> = Vec::new();
     if let Some(parent) = parent_opt {
-        let inserted = if let Some(next) = dom.get_next_sibling(entity) {
-            dom.insert_before(parent, new_node, next)
+        let insert_records = if let Some(next) = dom.get_next_sibling(entity) {
+            apply_insert_before(dom, parent, new_node, next)
         } else {
-            dom.append_child(parent, new_node)
+            apply_append_child(dom, parent, new_node)
         };
-        if !inserted {
+        if insert_records.is_empty() {
             let _ = dom.destroy_entity(new_node);
             return Err(SplitTextError::InsertFailed);
         }
+        records = insert_records;
     }
 
     // Step 6: fire after_split_text BEFORE truncate. Boundaries on
@@ -184,7 +199,19 @@ pub fn split_text_at_offset(
         return Err(SplitTextError::InternalInvariant);
     }
 
-    Ok(new_node)
+    // §4.11 step 8 = "replace data with node original, offset offset,
+    // count (length − offset), data the empty string" — the §4.10
+    // "replace data" AO queues a `characterData` record with
+    // `oldValue` = the node's data captured BEFORE the truncate
+    // (= `original`, read at step 2). The truncate itself was already
+    // applied by the `set_text_data`-last dance above (load-bearing for
+    // live-range migration — we MUST NOT re-mutate via
+    // `apply_replace_data`), so the record is hand-assembled through the
+    // canonical builder. Pushed AFTER the childList insert record so the
+    // returned vec is `[childList insert?, characterData truncate]`.
+    records.push(character_data_record(entity, original));
+
+    Ok((new_node, records))
 }
 
 #[cfg(test)]
@@ -192,6 +219,7 @@ mod tests {
     use super::*;
     use crate::range::{LiveRangeRegistry, Range};
     use elidex_ecs::Attributes;
+    use elidex_script_session::MutationKind;
 
     fn build_tree() -> (EcsDom, Entity, Entity) {
         let mut dom = EcsDom::new();
@@ -204,7 +232,7 @@ mod tests {
     #[test]
     fn splits_text_in_half() {
         let (mut dom, parent, t) = build_tree();
-        let new_node = split_text_at_offset(t, 5, &mut dom).expect("split ok");
+        let (new_node, records) = split_text_at_offset(t, 5, &mut dom).expect("split ok");
 
         let tc_t = dom
             .world()
@@ -221,6 +249,16 @@ mod tests {
         // new_node is next sibling of entity.
         let children: Vec<_> = dom.children_iter(parent).collect();
         assert_eq!(children, vec![t, new_node]);
+
+        // §4.11 records (parented): [childList insert on parent,
+        // characterData truncate on entity, oldValue = original].
+        assert_eq!(records.len(), 2, "childList insert + characterData");
+        assert_eq!(records[0].kind, MutationKind::ChildList);
+        assert_eq!(records[0].target, parent);
+        assert_eq!(records[0].added_nodes, vec![new_node]);
+        assert_eq!(records[1].kind, MutationKind::CharacterData);
+        assert_eq!(records[1].target, t);
+        assert_eq!(records[1].old_value.as_deref(), Some("hello world"));
     }
 
     #[test]
@@ -251,7 +289,7 @@ mod tests {
     #[test]
     fn split_at_zero_keeps_original_empty() {
         let (mut dom, parent, t) = build_tree();
-        let new_node = split_text_at_offset(t, 0, &mut dom).expect("split ok");
+        let (new_node, _records) = split_text_at_offset(t, 0, &mut dom).expect("split ok");
 
         let tc_t = dom.world().get::<&elidex_ecs::TextContent>(t).unwrap();
         assert_eq!(tc_t.0, "");
@@ -268,7 +306,7 @@ mod tests {
     #[test]
     fn split_at_end_keeps_new_node_empty() {
         let (mut dom, parent, t) = build_tree();
-        let new_node = split_text_at_offset(t, 11, &mut dom).expect("split ok");
+        let (new_node, _records) = split_text_at_offset(t, 11, &mut dom).expect("split ok");
 
         let tc_t = dom.world().get::<&elidex_ecs::TextContent>(t).unwrap();
         assert_eq!(tc_t.0, "hello world");
@@ -286,7 +324,7 @@ mod tests {
     fn orphan_text_node_split_skips_insert_and_returns_new_node() {
         let mut dom = EcsDom::new();
         let t = dom.create_text("hello world");
-        let new_node = split_text_at_offset(t, 5, &mut dom).expect("split ok");
+        let (new_node, records) = split_text_at_offset(t, 5, &mut dom).expect("split ok");
 
         let tc_t = dom.world().get::<&elidex_ecs::TextContent>(t).unwrap();
         assert_eq!(tc_t.0, "hello");
@@ -298,6 +336,13 @@ mod tests {
 
         // new_node has no parent (orphan path).
         assert!(dom.get_parent(new_node).is_none());
+
+        // Orphan path: no childList insert record, only the §4.11 step-8
+        // characterData truncate record.
+        assert_eq!(records.len(), 1, "characterData only (no childList)");
+        assert_eq!(records[0].kind, MutationKind::CharacterData);
+        assert_eq!(records[0].target, t);
+        assert_eq!(records[0].old_value.as_deref(), Some("hello world"));
     }
 
     #[test]
@@ -316,7 +361,7 @@ mod tests {
         r.set_end(t, 8);
         let id = reg.register(r);
 
-        let new_node = split_text_at_offset(t, 5, &mut dom).expect("split ok");
+        let (new_node, _records) = split_text_at_offset(t, 5, &mut dom).expect("split ok");
 
         reg.with_range(id, &dom, |range, _| {
             assert_eq!(range.start_container, new_node, "migrated to new_node");
@@ -342,7 +387,7 @@ mod tests {
         r.set_end(t, 4);
         let id = reg.register(r);
 
-        let _new_node = split_text_at_offset(t, 5, &mut dom).expect("split ok");
+        let (_new_node, _records) = split_text_at_offset(t, 5, &mut dom).expect("split ok");
 
         reg.with_range(id, &dom, |range, _| {
             assert_eq!(range.start_container, t);
