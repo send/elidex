@@ -778,16 +778,20 @@ impl Vm {
             // measure — drops the GC roots so the wrappers can be
             // collected and re-allocated lazily after the next bind.
             self.inner.clear_crypto_instance_cache();
-            // Cached `screen` / `visualViewport` singletons + the
-            // VisualViewport event-producer diff prior (S5-2).  Treated as
-            // per-bind singletons (the `localStorage` precedent): the wrappers
-            // derive entirely from the VM-global `ViewportState` (no per-origin
-            // payload), but clearing on unbind avoids the producer firing
-            // `fire_vm_event` at a stale `ObjectId` from a prior `EcsDom` after a
-            // rebind (two `EcsDom` worlds share the entity/ObjectId space), and
-            // re-seeds the diff prior against the next document's starting
-            // geometry on the next lazy alloc.
-            self.inner.clear_window_parity_instance_cache();
+            // `screen` / `visualViewport` singletons + the VisualViewport
+            // event-producer diff prior (S5-2) are deliberately NOT cleared here.
+            // `unbind` closes every BATCH (script-exec / UA-event / frame-drain),
+            // not only a navigation (the BATCH-BIND model, `HostDriver` doc), so
+            // clearing them would break their `[SameObject]` identity across
+            // batches AND drop a `visualViewport` resize listener registered in an
+            // earlier batch — the next frame-drain producer would fire at a
+            // freshly-allocated, listener-less singleton (Codex R4-B). Unlike
+            // `localStorage` (cleared above for cross-ORIGIN data-leak safety),
+            // these wrappers are payload-free device-fact readers with no
+            // per-origin / per-document state, so there is nothing to scrub. The
+            // cross-DOM identity reset on an actual navigation is the world-id
+            // discriminator's job (`#11-wrapper-cache-cross-dom-discriminator`),
+            // not a per-batch cache clear.
             // D-17 `#11-custom-elements-vm` — drop the cached
             // `customElements` singleton wrapper so it can be re-
             // allocated lazily on the next bind. The registry state

@@ -409,27 +409,54 @@ fn same_object_identity_stable_across_reads() {
 }
 
 #[test]
-fn singleton_and_prior_reset_on_unbind() {
-    // F4 cross-DOM safety: the cached singleton + the producer's diff prior are
-    // cleared on `Vm::unbind` (the `localStorage` precedent), so a rebind gets a
-    // FRESH singleton (not a stale `ObjectId` from a prior `EcsDom`) and the
-    // first deliver after rebind re-seeds against the new starting geometry and
-    // fires nothing — even though geometry differs from the pre-unbind state.
+fn singletons_survive_batch_rebind() {
+    // BATCH-BIND model (`HostDriver` doc): `unbind` closes every batch (a
+    // script-exec loop / a UA-event dispatch / a frame drain), NOT only a
+    // navigation. So the `[SameObject]` screen / VisualViewport singletons + the
+    // VV producer's diff prior must SURVIVE an unbind/rebind to the SAME
+    // document — else `s === screen` breaks across batches and a `visualViewport`
+    // resize listener registered in one batch is silently dropped: the next
+    // frame-drain producer would fire at a freshly-allocated, listener-less
+    // singleton (Codex R4-B). (Cross-DOM identity reset on a real navigation is
+    // world-id's job — `#11-wrapper-cache-cross-dom-discriminator`.)
     let mut vm = Vm::new();
     vm.install_host_data(HostData::new());
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let root = dom.create_document_root();
 
-    // --- first bind cycle: allocate the singleton + seed at 1024×768. ---
-    let mut session1 = SessionCore::new();
-    let mut dom1 = EcsDom::new();
-    let root1 = dom1.create_document_root();
+    // --- batch 1: capture the singletons + register a VV resize listener,
+    // seed the producer prior at 1024×768. ---
     #[allow(unsafe_code)]
     unsafe {
-        vm.bind(&raw mut session1, &raw mut dom1, root1);
+        vm.bind(&raw mut session, &raw mut dom, root);
     }
-    vm.eval("globalThis.first = window.visualViewport;")
-        .unwrap();
-    vm.deliver_visual_viewport_events(); // seeds prior; fires nothing
-                                         // Change geometry while bound (so a leaked prior would mis-fire after rebind).
+    vm.set_media_environment(
+        1024.0,
+        768.0,
+        1.0,
+        ColorScheme::Light,
+        ReducedMotion::NoPreference,
+    );
+    vm.eval(
+        "globalThis.s = screen; globalThis.vv = visualViewport; globalThis.resizes = 0; \
+         visualViewport.addEventListener('resize', function () { resizes++; });",
+    )
+    .unwrap();
+    vm.deliver_visual_viewport_events(); // seeds the prior at 1024×768; fires nothing
+    vm.unbind();
+
+    // --- batch 2: SAME document (same EcsDom/session/root). ---
+    #[allow(unsafe_code)]
+    unsafe {
+        vm.bind(&raw mut session, &raw mut dom, root);
+    }
+    // `[SameObject]` identity is preserved across the batch boundary (the
+    // singletons were NOT cleared by the unbind).
+    assert!(eval_bool(&mut vm, "s === screen && vv === visualViewport"));
+    // The resize listener registered in batch 1 still fires when this batch's
+    // producer reports a size change — the prior (1024×768) survived too, so the
+    // 1600×900 change is a real diff, and the listener was not dropped.
     vm.set_media_environment(
         1600.0,
         900.0,
@@ -437,29 +464,7 @@ fn singleton_and_prior_reset_on_unbind() {
         ColorScheme::Light,
         ReducedMotion::NoPreference,
     );
-    vm.unbind();
-
-    // --- second bind cycle: a fresh singleton + a re-seeded prior. ---
-    let mut session2 = SessionCore::new();
-    let mut dom2 = EcsDom::new();
-    let root2 = dom2.create_document_root();
-    #[allow(unsafe_code)]
-    unsafe {
-        vm.bind(&raw mut session2, &raw mut dom2, root2);
-    }
-    vm.eval(
-        "globalThis.fired = 0; \
-         globalThis.second = window.visualViewport; \
-         second.addEventListener('resize', function () { fired++; }); \
-         second.addEventListener('scroll', function () { fired++; });",
-    )
-    .unwrap();
-    // The post-unbind singleton must NOT be the pre-unbind one (cache cleared).
-    assert!(eval_bool(&mut vm, "first !== second"));
-    // First deliver after rebind re-seeds (prior was reset to None) → no fire,
-    // despite the geometry being 1600×900 (different from the first cycle's
-    // pre-change 1024×768 seed).
     vm.deliver_visual_viewport_events();
-    assert!(eval_bool(&mut vm, "fired === 0"));
+    assert!(eval_bool(&mut vm, "resizes === 1"));
     vm.unbind();
 }

@@ -65,16 +65,21 @@
 //! value-shadowing is implemented for NONE of the family → deferred engine-wide,
 //! `#11-window-platform-object-rigor-engine-wide`.) The singleton is cached in
 //! `VmInner::visual_viewport_instance` (rooted via the GC proto-roots, SameObject
-//! for free) and **cleared on `Vm::unbind`** alongside the `vv_delivered` prior
-//! (the `localStorage` cross-DOM precedent) so the producer never fires at a
-//! stale `ObjectId` from a prior `EcsDom` and a fresh read after a rebind gets a
-//! NEW singleton. A script-retained reference to the old object still reads the
-//! current `ViewportState` (it does not become the §12.1 not-fully-active `0`
-//! object for its old associated document) — the engine-wide cross-DOM
-//! wrapper-aliasing gap shared by every payload-free cached singleton, resolved
-//! by world-id (`#11-wrapper-cache-cross-dom-discriminator`), not a
-//! VisualViewport-only patch. The brand is payload-free; GC has nothing to trace
-//! or prune.
+//! for free) and **survives `Vm::unbind`** alongside the `vv_delivered` producer
+//! prior. `unbind` closes every BATCH (script-exec / UA-event / frame-drain), not
+//! only a navigation (the BATCH-BIND model), so clearing the singleton there
+//! would (a) break `visualViewport === visualViewport` across batches and (b)
+//! **drop a `resize` listener registered in an earlier batch** — the next
+//! frame-drain producer would fire at a freshly-allocated, listener-less
+//! singleton (Codex R4-B). Unlike `localStorage` (cleared on unbind for
+//! cross-ORIGIN data-leak safety), this is a payload-free device-fact reader with
+//! no per-origin / per-document state to scrub. A script that retains the object
+//! across an actual navigation still reads the current `ViewportState` (it does
+//! not become the §12.1 not-fully-active `0` object for its old associated
+//! document) — resetting wrapper identity on a cross-DOM navigation is the
+//! world-id discriminator's job (`#11-wrapper-cache-cross-dom-discriminator`),
+//! shared by every payload-free cached singleton, not a VisualViewport-only
+//! patch. The brand is payload-free; GC has nothing to trace or prune.
 
 #![cfg(feature = "engine")]
 
@@ -167,15 +172,17 @@ impl VmInner {
 
     /// Return the cached `VisualViewport` singleton, allocating it on the first
     /// `window.visualViewport` read. `[SameObject]`: the same `ObjectId` across
-    /// reads for one bind cycle (cleared on `Vm::unbind`).
+    /// reads; the cache **survives `Vm::unbind`** (the BATCH-BIND model — see
+    /// [`Self::visual_viewport_instance`]), so identity + registered listeners
+    /// hold across batches.
     ///
     /// **Seeds [`Self::visual_viewport_delivered`]** (the producer's diff prior)
     /// to the current `ViewportState` geometry **at allocation** — the exact
     /// [`Self::create_media_query_list`] `last_matches` seed parallel. Because
     /// the producer resolves the singleton through THIS same getter, the seed
     /// happens-before the producer's first diff-read by construction, so the
-    /// first `deliver_visual_viewport_events` after creation (or after an unbind
-    /// that reset the prior to `None`) fires NOTHING spuriously.
+    /// first `deliver_visual_viewport_events` after creation fires NOTHING
+    /// spuriously.
     pub(in crate::vm) fn alloc_or_cached_visual_viewport(&mut self) -> ObjectId {
         if let Some(id) = self.visual_viewport_instance {
             return id;
@@ -296,21 +303,6 @@ fn fire_vv_event(
     let type_sid = ctx.vm.strings.intern(event_type);
     let payload: Vec<PropertyValue> = Vec::new();
     let _ = fire_vm_event(ctx, target, type_sid, init, shape, None, payload);
-}
-
-impl VmInner {
-    /// Clear the per-VM window-parity singleton caches (`screen` /
-    /// `visualViewport`) and reset the `VisualViewport` event producer's diff
-    /// prior. Called from `Vm::unbind`: the singletons are treated as **per-bind**
-    /// cached singletons (the `localStorage` precedent), not realm-structural
-    /// survivors, so a rebind cannot fire `fire_vm_event` at a stale `ObjectId`
-    /// from a prior `EcsDom` and re-seeds the prior against the new document's
-    /// starting geometry.
-    pub(in crate::vm) fn clear_window_parity_instance_cache(&mut self) {
-        self.screen_instance = None;
-        self.visual_viewport_instance = None;
-        self.visual_viewport_delivered = None;
-    }
 }
 
 /// `VisualViewport`'s value-derived RO accessors (CSSOM-View §12.1). Each reads

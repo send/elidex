@@ -667,11 +667,14 @@ pub(crate) struct VmInner {
     #[cfg(feature = "engine")]
     pub(crate) screen_prototype: Option<ObjectId>,
     /// Cached `Screen` singleton wrapper for `window.screen` (`[SameObject]`
-    /// per CSSOM-View §4 — same `ObjectId` across reads for one bind cycle).
-    /// Allocated lazily by the `window.screen` RO-accessor getter
-    /// (`alloc_or_cached_screen`) and cleared on `Vm::unbind` so a retained
-    /// reference cannot alias a prior `EcsDom`'s `ObjectId` space after a
-    /// rebind (the `localStorage` precedent). S5-2.
+    /// per CSSOM-View §4 — same `ObjectId` across reads). Allocated lazily by the
+    /// `window.screen` RO-accessor getter (`alloc_or_cached_screen`) and
+    /// **survives `Vm::unbind`**: `unbind` closes every batch (BATCH-BIND model),
+    /// not only a navigation, so clearing here would break `screen === screen`
+    /// across batches; `Screen` is a payload-free device-fact reader with no
+    /// per-origin / per-document state to scrub. Cross-DOM identity reset on a
+    /// navigation is the world-id discriminator's job
+    /// (`#11-wrapper-cache-cross-dom-discriminator`). S5-2.
     #[cfg(feature = "engine")]
     pub(crate) screen_instance: Option<ObjectId>,
     /// `VisualViewport.prototype` (CSSOM-View §12.1). Chains to
@@ -684,10 +687,14 @@ pub(crate) struct VmInner {
     /// `window.visualViewport` RO-accessor getter
     /// (`alloc_or_cached_visual_viewport`), which ALSO seeds
     /// [`Self::visual_viewport_delivered`] at allocation so the producer's
-    /// first diff fires nothing spuriously. Cleared on `Vm::unbind` (the
-    /// `localStorage` cross-DOM precedent) — treated as a per-bind singleton,
-    /// not a realm-structural survivor, so the producer never fires at a stale
-    /// `ObjectId`. S5-2.
+    /// first diff fires nothing spuriously. **Survives `Vm::unbind`**: `unbind`
+    /// closes every batch (BATCH-BIND model), not only a navigation, so clearing
+    /// here would break `visualViewport === visualViewport` across batches AND
+    /// drop a `resize` listener registered in an earlier batch (the next
+    /// frame-drain producer would fire at a fresh, listener-less singleton — Codex
+    /// R4-B). Payload-free device-fact reader, no per-origin / per-document state;
+    /// cross-DOM reset on a navigation is world-id's job
+    /// (`#11-wrapper-cache-cross-dom-discriminator`). S5-2.
     #[cfg(feature = "engine")]
     pub(crate) visual_viewport_instance: Option<ObjectId>,
     /// The size prior the `VisualViewport` event producer
@@ -700,9 +707,10 @@ pub(crate) struct VmInner {
     /// (`#11-visual-viewport-pinch-zoom-offset`). Seeded to the current
     /// `ViewportState` size INSIDE `alloc_or_cached_visual_viewport` (the
     /// `create_media_query_list` seed parallel) so the seed-write happens-before
-    /// the first diff-read by construction. Reset to `None` on `Vm::unbind`
-    /// alongside the singleton cache so a rebind re-seeds against the new
-    /// document's starting size. S5-2.
+    /// the first diff-read by construction. **Survives `Vm::unbind`** alongside
+    /// the singleton (BATCH-BIND model — see [`Self::visual_viewport_instance`]):
+    /// the prior tracks the continuous `ViewportState` across batches, so a resize
+    /// that straddles a batch boundary is still reported on the next deliver. S5-2.
     #[cfg(feature = "engine")]
     pub(crate) visual_viewport_delivered: Option<(f64, f64)>,
     /// `CustomElementRegistry.prototype` (HTML §4.13.4). Chains to

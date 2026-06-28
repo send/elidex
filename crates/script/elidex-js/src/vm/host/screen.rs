@@ -47,18 +47,19 @@
 //! `globals.insert`. (Proper `[Replaceable]` value-shadowing is implemented for
 //! NONE of the family → deferred engine-wide, `#11-window-platform-object-rigor-engine-wide`.)
 //! The singleton is cached in `VmInner::screen_instance` (rooted via the GC
-//! proto-roots, SameObject for free) and **cleared on `Vm::unbind`** (the
-//! `localStorage` cross-DOM precedent) so a *fresh* `window.screen` read after a
-//! rebind allocates a NEW singleton rather than handing back a stale `ObjectId`
-//! from the prior `EcsDom`. A script that *retained* the old `screen` across the
-//! rebind, however, still reads the current `ViewportState` through the shared
-//! getter — it does NOT become the §4.3 not-fully-active object for its old
-//! associated document. That residual cross-DOM wrapper-aliasing is the
-//! engine-wide gap shared by every cached singleton (`localStorage` /
-//! `subtleCrypto` / `visualViewport`), whose payload-free brands carry no
-//! per-document identity; it is resolved uniformly by the world-id discriminator
-//! program (`#11-wrapper-cache-cross-dom-discriminator`), not by a Screen-only
-//! patch (One-issue-one-way).
+//! proto-roots, SameObject for free) and **survives `Vm::unbind`**. `unbind`
+//! closes every BATCH (script-exec / UA-event / frame-drain), not only a
+//! navigation (the BATCH-BIND model), so clearing the singleton there would
+//! break `screen === screen` across batches for no benefit — `Screen` is a
+//! payload-free device-fact reader with no per-origin / per-document state to
+//! scrub (unlike `localStorage`, which clears on unbind for cross-ORIGIN
+//! data-leak safety). A script that retains `screen` across an actual navigation
+//! still reads the current `ViewportState` (it does NOT become the §4.3
+//! not-fully-active object for its old associated document); resetting wrapper
+//! identity on a cross-DOM navigation is the world-id discriminator's job
+//! (`#11-wrapper-cache-cross-dom-discriminator`), shared by every payload-free
+//! cached singleton (`localStorage` / `subtleCrypto` / `visualViewport`), not a
+//! Screen-only patch (One-issue-one-way).
 
 #![cfg(feature = "engine")]
 
@@ -117,8 +118,8 @@ impl VmInner {
 
     /// Return the cached `Screen` singleton, allocating it on the first
     /// `window.screen` read. `[SameObject]`: the same `ObjectId` is returned
-    /// across reads for the lifetime of one bind cycle (cleared on `Vm::unbind`
-    /// via [`Self::clear_window_parity_instance_cache`]). Mirrors
+    /// across reads; the cache **survives `Vm::unbind`** (the BATCH-BIND model —
+    /// see [`Self::screen_instance`]), so identity holds across batches. Mirrors
     /// [`Self::alloc_or_cached_subtle_crypto`].
     pub(in crate::vm) fn alloc_or_cached_screen(&mut self) -> ObjectId {
         if let Some(id) = self.screen_instance {
