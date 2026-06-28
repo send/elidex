@@ -134,6 +134,35 @@ fn element_remove_attribute_is_silent_when_missing() {
 }
 
 #[test]
+fn element_remove_attribute_invalid_name_does_not_throw() {
+    // WHATWG DOM §4.9 `removeAttribute` does NOT validate the qualified name
+    // (no InvalidCharacterError — unlike setAttribute/toggleAttribute). B2-Slice-1
+    // converged the VM `removeAttribute` native onto the record-producing
+    // handler; this locks that the convergence did not inherit a spec-wrong
+    // validate-on-remove throw (the prior `attr_remove` path never validated).
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let (doc, _body, _p, _div, _span, _raw, _com) = build_element_fixture(&mut dom);
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+
+    let v = vm
+        .eval(
+            "var el = document.getElementById('root'); \
+             el.removeAttribute('a b'); 'ok';",
+        )
+        .expect("removeAttribute('a b') must not throw on an invalid name");
+    let JsValue::String(sid) = v else { panic!() };
+    assert_eq!(vm.get_string(sid), "ok");
+
+    vm.unbind();
+}
+
+#[test]
 fn element_get_attribute_names_is_array_in_insertion_order() {
     let mut vm = Vm::new();
     let mut session = SessionCore::new();

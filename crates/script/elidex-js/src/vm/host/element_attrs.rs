@@ -174,7 +174,7 @@ fn snapshot_attr_wrapper(
 fn freeze_detached_attr_wrapper(
     ctx: &mut NativeContext<'_>,
     entity: Entity,
-    snap: AttrWrapperSnapshot,
+    snap: &AttrWrapperSnapshot,
 ) {
     if let (Some(attr_id), Some(prev_sid)) = (snap.cached_attr_id, snap.prev_sid) {
         if let Some(state_mut) = ctx.vm.attr_states.get_mut(&attr_id) {
@@ -201,7 +201,7 @@ pub(super) fn attr_remove(ctx: &mut NativeContext<'_>, entity: Entity, name: &st
     if let Some(host) = ctx.host_if_bound() {
         host.dom().remove_attribute(entity, name);
     }
-    freeze_detached_attr_wrapper(ctx, entity, snap);
+    freeze_detached_attr_wrapper(ctx, entity, &snap);
 }
 
 pub(super) fn native_element_get_attribute(
@@ -263,7 +263,7 @@ pub(super) fn native_element_remove_attribute(
         entity,
         &[JsValue::String(qname_sid)],
     )?;
-    freeze_detached_attr_wrapper(ctx, entity, snap);
+    freeze_detached_attr_wrapper(ctx, entity, &snap);
     Ok(JsValue::Undefined)
 }
 
@@ -623,7 +623,7 @@ pub(super) fn native_element_toggle_attribute(
     // freeze the snapshotted Attr wrapper at its removal-time value.
     if let Some(snap) = detach_snapshot {
         if matches!(result, JsValue::Boolean(false)) {
-            freeze_detached_attr_wrapper(ctx, entity, snap);
+            freeze_detached_attr_wrapper(ctx, entity, &snap);
         }
     }
     Ok(result)

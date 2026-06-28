@@ -97,9 +97,16 @@ impl DomApiHandler for RemoveAttribute {
         session: &mut SessionCore,
         dom: &mut EcsDom,
     ) -> Result<JsValue, DomApiError> {
-        let raw_name = require_string_arg(args, 0)?;
-        validate_attribute_name(&raw_name)?;
-        let name = raw_name.to_ascii_lowercase();
+        // WHATWG DOM §4.9 `removeAttribute(qualifiedName)` = "remove an
+        // attribute given qualifiedName and this" — it does NOT validate the
+        // qualified name (unlike `setAttribute` / `toggleAttribute`, whose
+        // step 1 throws `InvalidCharacterError` for an invalid local name). An
+        // invalid or absent name is a no-op here, never a throw. The name is
+        // ASCII-lowercased (the removal's "get an attribute by name" lookup
+        // lowercases for the HTML-namespace + HTML-document case). B2-Slice-1
+        // converged the VM `removeAttribute` native onto this handler, which
+        // surfaced + fixed the prior spec-wrong validate-on-remove.
+        let name = require_string_arg(args, 0)?.to_ascii_lowercase();
         // Uniform with the rest of the Element attribute surface
         // (setAttribute / toggleAttribute / *AttributeNode): a stale /
         // non-Element receiver errors rather than silently no-op'ing —
