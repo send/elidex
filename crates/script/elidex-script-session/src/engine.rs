@@ -411,8 +411,8 @@ pub trait HostDriver {
     /// model, so an ordinary layout-viewport scroll is a document scroll
     /// (delivered as `window`/document `scroll`), not a visual-viewport scroll.
     /// The first deliver after a bind fires nothing (the prior is seeded at
-    /// singleton allocation). The shell calls this from its update-the-rendering
-    /// step after a resize (the `VisualViewport` sibling of
+    /// `Vm::bind`, the load-time baseline). The shell calls this from its
+    /// update-the-rendering step after a resize (the `VisualViewport` sibling of
     /// [`deliver_media_query_changes`](Self::deliver_media_query_changes)).
     fn deliver_visual_viewport_events(&mut self);
 

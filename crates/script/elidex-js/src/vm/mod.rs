@@ -685,9 +685,10 @@ pub(crate) struct VmInner {
     /// Cached `VisualViewport` singleton wrapper for `window.visualViewport`
     /// (`[SameObject]` per CSSOM-View §4). Allocated lazily by the
     /// `window.visualViewport` RO-accessor getter
-    /// (`alloc_or_cached_visual_viewport`), which ALSO seeds
-    /// [`Self::visual_viewport_delivered`] at allocation so the producer's
-    /// first diff fires nothing spuriously. **Survives `Vm::unbind`**: `unbind`
+    /// (`alloc_or_cached_visual_viewport`). The producer's diff prior
+    /// [`Self::visual_viewport_delivered`] is seeded at `Vm::bind` (the
+    /// load-time baseline), not here, so the first diff fires nothing
+    /// spuriously. **Survives `Vm::unbind`**: `unbind`
     /// closes every batch (BATCH-BIND model), not only a navigation, so clearing
     /// here would break `visualViewport === visualViewport` across batches AND
     /// drop a `resize` listener registered in an earlier batch (the next

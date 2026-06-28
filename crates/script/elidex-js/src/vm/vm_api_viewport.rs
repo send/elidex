@@ -95,7 +95,7 @@ impl Vm {
     /// visual-viewport *offset* change (pinch-zoom), which elidex does not model,
     /// so an ordinary layout scroll is a document scroll, not a visual-viewport
     /// scroll. The first deliver after a bind fires nothing (the prior is seeded
-    /// at singleton allocation). Backs
+    /// at `Vm::bind`, the load-time baseline). Backs
     /// [`HostDriver::deliver_visual_viewport_events`](elidex_script_session::HostDriver::deliver_visual_viewport_events);
     /// VM tests call it directly after a geometry change.
     pub fn deliver_visual_viewport_events(&mut self) {

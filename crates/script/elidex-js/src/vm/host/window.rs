@@ -693,8 +693,8 @@ fn native_window_get_screen(
 /// construction), so the null branch is currently unreachable; it is implemented
 /// (not asserted-away) for spec-faithfulness so a future multi-document model
 /// wires a genuine check here. `[SameObject]`: returns the cached singleton via
-/// [`crate::vm::VmInner::alloc_or_cached_visual_viewport`] (which also seeds the
-/// event-producer diff prior at allocation).
+/// [`crate::vm::VmInner::alloc_or_cached_visual_viewport`]. The event-producer
+/// diff prior is seeded separately at `Vm::bind` (the load-time baseline).
 fn native_window_get_visual_viewport(
     ctx: &mut NativeContext<'_>,
     _this: JsValue,

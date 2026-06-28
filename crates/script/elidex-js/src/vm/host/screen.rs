@@ -54,8 +54,9 @@
 //! payload-free device-fact reader with no per-origin / per-document state to
 //! scrub (unlike `localStorage`, which clears on unbind for cross-ORIGIN
 //! data-leak safety). A script that retains `screen` across an actual navigation
-//! still reads the current `ViewportState` (it does NOT become the §4.3
-//! not-fully-active object for its old associated document); resetting wrapper
+//! still reads the current `ViewportState` (the `Screen` interface, CSSOM-View
+//! §4.3, defines no not-fully-active step — unlike `visualViewport` §12.1);
+//! resetting wrapper
 //! identity on a cross-DOM navigation is the world-id discriminator's job
 //! (`#11-wrapper-cache-cross-dom-discriminator`), shared by every payload-free
 //! cached singleton (`localStorage` / `subtleCrypto` / `visualViewport`), not a
