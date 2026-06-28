@@ -239,9 +239,10 @@ fn deliver_no_ops_while_unbound() {
 
 #[test]
 fn first_deliver_after_seed_fires_nothing() {
-    // F3: the diff prior is seeded at singleton allocation, so the FIRST deliver
-    // (with no intervening geometry change) fires nothing spuriously — even
-    // though the resize/scroll listeners are registered before any change.
+    // F3: the diff prior is seeded at `Vm::bind` (the load-time baseline), so the
+    // FIRST deliver (with no intervening geometry change) fires nothing
+    // spuriously — even though the resize/scroll listeners are registered before
+    // any change.
     with_bound_vm(|vm| {
         vm.eval(
             "globalThis.resizes = 0; globalThis.scrolls = 0; \
@@ -251,6 +252,37 @@ fn first_deliver_after_seed_fires_nothing() {
         .unwrap();
         vm.deliver_visual_viewport_events();
         assert!(eval_bool(vm, "resizes === 0 && scrolls === 0"));
+    });
+}
+
+#[test]
+fn pending_resize_before_first_visual_viewport_read_still_fires() {
+    // Codex R6-D: the diff prior is anchored at the load-time viewport (seeded at
+    // `Vm::bind`), NOT at lazy wrapper allocation. So when a `window.resize`
+    // already pushed the new size and the FIRST `visualViewport` read (which
+    // lazily allocates the singleton) happens only afterwards — the `window.resize`
+    // handler that registers `visualViewport.onresize` — the upcoming deliver
+    // still diffs the load size against the new size and fires `resize`. Seeding
+    // at allocation would have captured the post-resize size and self-cancelled.
+    with_bound_vm(|vm| {
+        // Viewport resized BEFORE any `visualViewport` access (no prior deliver,
+        // no prior singleton allocation).
+        vm.set_media_environment(
+            1280.0,
+            720.0,
+            1.0,
+            ColorScheme::Light,
+            ReducedMotion::NoPreference,
+        );
+        // First-ever `visualViewport` touch: allocates the singleton AFTER the
+        // resize and registers a resize listener (the `window.resize`-handler path).
+        vm.eval(
+            "globalThis.resizes = 0; \
+             visualViewport.addEventListener('resize', function () { resizes++; });",
+        )
+        .unwrap();
+        vm.deliver_visual_viewport_events();
+        assert!(eval_bool(vm, "resizes === 1"));
     });
 }
 

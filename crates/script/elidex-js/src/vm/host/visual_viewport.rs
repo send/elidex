@@ -79,7 +79,15 @@
 //! document) — resetting wrapper identity on a cross-DOM navigation is the
 //! world-id discriminator's job (`#11-wrapper-cache-cross-dom-discriminator`),
 //! shared by every payload-free cached singleton, not a VisualViewport-only
-//! patch. The brand is payload-free; GC has nothing to trace or prune.
+//! patch. That same deferral covers a script-registered `resize` listener
+//! surviving a navigation: this is the SAME engine-wide leak
+//! `window.addEventListener('resize', …)` already has — the Window global's
+//! `ObjectId` is realm-stable across the rebind and `vm_event_listeners` is
+//! GC-pruned-only, never cleared on unbind — so it is not a VisualViewport
+//! outlier, and the engine-wide navigation listener-scrub (gated on S5-6, the
+//! flip that first drives the producer in production) lands it for the whole
+//! stable-identity-global family at once (Codex R6-A). The brand is
+//! payload-free; GC has nothing to trace or prune.
 
 #![cfg(feature = "engine")]
 
@@ -176,13 +184,15 @@ impl VmInner {
     /// [`Self::visual_viewport_instance`]), so identity + registered listeners
     /// hold across batches.
     ///
-    /// **Seeds [`Self::visual_viewport_delivered`]** (the producer's diff prior)
-    /// to the current `ViewportState` geometry **at allocation** — the exact
-    /// [`Self::create_media_query_list`] `last_matches` seed parallel. Because
-    /// the producer resolves the singleton through THIS same getter, the seed
-    /// happens-before the producer's first diff-read by construction, so the
-    /// first `deliver_visual_viewport_events` after creation fires NOTHING
-    /// spuriously.
+    /// Does **not** seed the producer's diff prior
+    /// ([`Self::visual_viewport_delivered`]): that baseline is anchored at the
+    /// LOAD-time viewport in [`Vm::bind`](super::super::Vm::bind) (see
+    /// [`Self::seed_visual_viewport_baseline_if_unseeded`]), BEFORE the first
+    /// resize turn mutates `ViewportState`. Seeding here instead would let a
+    /// `window.resize` handler that defers its first `visualViewport` read until
+    /// after the shell pushed the new size capture the post-resize geometry and
+    /// self-cancel the producer diff (Codex R6-D). A singleton allocated
+    /// mid-resize-turn therefore does NOT re-baseline.
     pub(in crate::vm) fn alloc_or_cached_visual_viewport(&mut self) -> ObjectId {
         if let Some(id) = self.visual_viewport_instance {
             return id;
@@ -197,12 +207,24 @@ impl VmInner {
             extensible: true,
         });
         self.visual_viewport_instance = Some(id);
-        // Seed the diff prior at construction (the `last_matches` parallel) so
-        // the first deliver diffs against the real starting size.
+        id
+    }
+
+    /// Seed the producer's diff prior ([`Self::visual_viewport_delivered`]) to
+    /// the current `ViewportState` geometry the first time it is unset. Called
+    /// from [`Vm::bind`](super::super::Vm::bind) so the baseline is anchored at
+    /// the LOAD-time viewport — before the first resize turn mutates
+    /// `ViewportState` — rather than at lazy wrapper allocation, which a
+    /// `window.resize` handler can defer until AFTER the shell pushed the new
+    /// size, self-cancelling the producer diff (Codex R6-D). Seeded once: the
+    /// prior survives `unbind` (the BATCH-BIND model), so subsequent binds skip
+    /// it and only the per-turn producer advances it. A cross-navigation re-seed
+    /// is the deferred world-id discriminator's job
+    /// (`#11-wrapper-cache-cross-dom-discriminator`).
+    pub(in crate::vm) fn seed_visual_viewport_baseline_if_unseeded(&mut self) {
         if self.visual_viewport_delivered.is_none() {
             self.visual_viewport_delivered = Some(current_vv_size(self));
         }
-        id
     }
 
     /// CSSOM-View §13.1 producer — the per-turn report-changes pass for
@@ -219,11 +241,14 @@ impl VmInner {
     ///
     /// Mirrors [`Self::deliver_media_query_changes`]: a no-op while unbound (no
     /// JS context to fire into), resolves the singleton through
-    /// [`Self::alloc_or_cached_visual_viewport`] (which seeds the prior on first
-    /// alloc, so a first deliver fires nothing), advances the prior after each
-    /// deliver, and ends on a microtask checkpoint. The shell drives this from
-    /// its update-the-rendering step after a resize (the call-site rides the
-    /// S5-6 flip); VM tests drive it directly.
+    /// [`Self::alloc_or_cached_visual_viewport`], advances the prior after each
+    /// deliver, and ends on a microtask checkpoint. The diff prior is seeded at
+    /// [`Vm::bind`](super::super::Vm::bind) (the LOAD-time viewport baseline),
+    /// not at singleton allocation, so a first deliver with no intervening
+    /// resize fires nothing while a resize pushed before the first
+    /// `visualViewport` read still diffs against the load size (Codex R6-D). The
+    /// shell drives this from its update-the-rendering step after a resize (the
+    /// call-site rides the S5-6 flip); VM tests drive it directly.
     pub(in crate::vm) fn deliver_visual_viewport_events(&mut self) {
         if !self
             .host_data
@@ -233,15 +258,17 @@ impl VmInner {
             return;
         }
 
-        // Resolve (and lazily seed) the singleton through the shared getter — the
-        // same resolution path the RO accessor uses, so the diff prior is the one
-        // seeded at allocation. After this call `visual_viewport_delivered` is
-        // `Some` (seeded by the getter on first alloc, else carried forward).
+        // Resolve the singleton through the shared getter — the same resolution
+        // path the RO accessor uses. The diff prior was seeded at `Vm::bind`
+        // (the load-time baseline), not here: the producer early-returns while
+        // unbound and `Vm::bind` always seeds-if-none, so a bound deliver always
+        // finds `visual_viewport_delivered` `Some` (the load seed, else carried
+        // forward by an earlier deliver).
         let target = self.alloc_or_cached_visual_viewport();
         let (now_width, now_height) = current_vv_size(self);
         let (prev_width, prev_height) = self
             .visual_viewport_delivered
-            .expect("alloc_or_cached_visual_viewport seeds visual_viewport_delivered");
+            .expect("Vm::bind seeds visual_viewport_delivered before any bound deliver");
 
         let resized = now_width != prev_width || now_height != prev_height;
 

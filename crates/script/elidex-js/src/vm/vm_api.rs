@@ -314,6 +314,16 @@ impl Vm {
         // `HostData::wrapper_cache` — repeated binds with the
         // same document entity return the same ObjectId.
         self.install_document_global();
+
+        // S5-2 (Codex R6-D): seed the VisualViewport producer's diff prior to the
+        // load-time viewport on the FIRST bind — BEFORE any resize turn mutates
+        // `ViewportState`. Anchoring the baseline at lazy wrapper allocation
+        // instead would let a `window.resize` handler that defers the first
+        // `visualViewport` read until after the new size is pushed capture the
+        // post-resize size and self-cancel the producer diff. Seeded once (the
+        // prior survives unbind, the BATCH-BIND model); the per-turn producer
+        // advances it thereafter.
+        self.inner.seed_visual_viewport_baseline_if_unseeded();
     }
 
     /// Bind a dedicated-worker VM against its (empty) `EcsDom` + worker-scope
@@ -792,6 +802,20 @@ impl Vm {
             // cross-DOM identity reset on an actual navigation is the world-id
             // discriminator's job (`#11-wrapper-cache-cross-dom-discriminator`),
             // not a per-batch cache clear.
+            // Codex R6-A: a script-registered `visualViewport` resize listener
+            // therefore also survives unbind — but this is the SAME engine-wide
+            // property `window.addEventListener('resize', …)` already has: the
+            // Window global's `ObjectId` is the realm global (stable across the
+            // `unbind doc1 → bind doc2` navigation rebind, `HostData::window_entity`),
+            // and `vm_event_listeners` / `listener_store` are never cleared on
+            // unbind (GC-pruned only). So a navigation-time listener scrub for
+            // stable-identity globals (window + the payload-free singletons) is
+            // the SAME navigation-vs-batch discriminator the world-id slot owns
+            // (`#11-wrapper-cache-cross-dom-discriminator`) — NOT a VisualViewport-
+            // only unbind clear, which would re-drop the cross-batch listener
+            // (R4-B) and be a lone-outlier. S5-6 (the flip that first drives the
+            // VM producer in production) is the hard gate for landing that
+            // engine-wide scrub before the producer goes live.
             // D-17 `#11-custom-elements-vm` — drop the cached
             // `customElements` singleton wrapper so it can be re-
             // allocated lazily on the next bind. The registry state
