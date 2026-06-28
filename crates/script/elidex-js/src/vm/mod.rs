@@ -706,9 +706,11 @@ pub(crate) struct VmInner {
     /// (pinch-zoom pan — `offsetLeft`/`offsetTop`), which elidex does not model
     /// (offset is constant `0`), so the producer has no scroll axis to diff
     /// (`#11-visual-viewport-pinch-zoom-offset`). Seeded to the current
-    /// `ViewportState` size INSIDE `alloc_or_cached_visual_viewport` (the
-    /// `create_media_query_list` seed parallel) so the seed-write happens-before
-    /// the first diff-read by construction. **Survives `Vm::unbind`** alongside
+    /// `ViewportState` size at `Vm::bind` (via
+    /// `seed_visual_viewport_baseline_if_unseeded`) — the LOAD-time baseline,
+    /// anchored before the first resize turn so a singleton first read
+    /// mid-resize does not self-cancel the producer diff (R6-D). **Survives
+    /// `Vm::unbind`** alongside
     /// the singleton (BATCH-BIND model — see [`Self::visual_viewport_instance`]):
     /// the prior tracks the continuous `ViewportState` across batches, so a resize
     /// that straddles a batch boundary is still reported on the next deliver. S5-2.

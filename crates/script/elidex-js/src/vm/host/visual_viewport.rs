@@ -240,9 +240,15 @@ impl VmInner {
     /// docs; the scroll axis lands with `#11-visual-viewport-pinch-zoom-offset`.
     ///
     /// Mirrors [`Self::deliver_media_query_changes`]: a no-op while unbound (no
-    /// JS context to fire into), resolves the singleton through
-    /// [`Self::alloc_or_cached_visual_viewport`], advances the prior after each
-    /// deliver, and ends on a microtask checkpoint. The diff prior is seeded at
+    /// JS context to fire into), advances the prior every turn, and ends on a
+    /// microtask checkpoint. It does **not** call
+    /// [`Self::alloc_or_cached_visual_viewport`]: it advances the diff prior
+    /// unconditionally (so the LOAD-time baseline stays current and a listener
+    /// added later does NOT receive a retroactive resize), but only materializes
+    /// the singleton and fires when `window.visualViewport` was ALREADY read
+    /// (`visual_viewport_instance.is_some()`) — an unobserved page holds no
+    /// listener, so there is nothing to dispatch and no reason to allocate +
+    /// GC-root a `VisualViewport` object (Codex R10). The diff prior is seeded at
     /// [`Vm::bind`](super::super::Vm::bind) (the LOAD-time viewport baseline),
     /// not at singleton allocation, so a first deliver with no intervening
     /// resize fires nothing while a resize pushed before the first
@@ -258,13 +264,11 @@ impl VmInner {
             return;
         }
 
-        // Resolve the singleton through the shared getter — the same resolution
-        // path the RO accessor uses. The diff prior was seeded at `Vm::bind`
-        // (the load-time baseline), not here: the producer early-returns while
-        // unbound and `Vm::bind` always seeds-if-none, so a bound deliver always
-        // finds `visual_viewport_delivered` `Some` (the load seed, else carried
-        // forward by an earlier deliver).
-        let target = self.alloc_or_cached_visual_viewport();
+        // Diff the current geometry against the prior. The prior was seeded at
+        // `Vm::bind` (the load-time baseline), not here: the producer
+        // early-returns while unbound and `Vm::bind` always seeds-if-none, so a
+        // bound deliver always finds `visual_viewport_delivered` `Some` (the load
+        // seed, else carried forward by an earlier deliver).
         let (now_width, now_height) = current_vv_size(self);
         let (prev_width, prev_height) = self
             .visual_viewport_delivered
@@ -272,32 +276,43 @@ impl VmInner {
 
         let resized = now_width != prev_width || now_height != prev_height;
 
-        // Advance the prior BEFORE firing (the `last_matches` discipline) so a
-        // listener that re-reads geometry or triggers a re-entrant deliver sees
-        // the settled state and the re-entrant deliver is a no-op.
+        // Advance the prior UNCONDITIONALLY and BEFORE firing (the `last_matches`
+        // discipline). Advancing every turn — even when the singleton does not
+        // exist yet — keeps the load-time baseline current, so a listener added
+        // *after* an unobserved resize does NOT receive a retroactive event. It
+        // also lets a listener that re-reads geometry or triggers a re-entrant
+        // deliver see the settled state, making the re-entrant deliver a no-op.
         self.visual_viewport_delivered = Some((now_width, now_height));
 
+        // Fire only when the singleton ALREADY exists — i.e. `window.visualViewport`
+        // was read, so a `resize` listener could have been registered. An
+        // unobserved page (singleton never materialized) holds no listener: there
+        // is nothing to dispatch, and allocating + GC-rooting a `VisualViewport`
+        // here would needlessly root an object the page never asked for (Codex
+        // R10). `alloc_or_cached_visual_viewport` is therefore NOT called.
         if resized {
-            let shape = self
-                .precomputed_event_shapes
-                .as_ref()
-                .expect("precomputed_event_shapes built during VM init")
-                .core;
-            // Plain (non-bubbling, non-cancelable) `Event` — VisualViewport's
-            // resize carries no extra IDL attributes.
-            let init = EventInit {
-                bubbles: false,
-                cancelable: false,
-                composed: false,
-            };
-            // Root the singleton across the fire (the MQL `push_temp_root`
-            // discipline): `fire_vm_event` allocates the event object and may
-            // trigger a GC before dispatch. The singleton is already a permanent
-            // GC root (`visual_viewport_instance`), so this is belt-and-suspenders
-            // symmetry with the MQL producer.
-            let mut guard = self.push_temp_root(JsValue::Object(target));
-            let mut ctx = NativeContext::new_call(&mut guard);
-            fire_vv_event(&mut ctx, target, "resize", init, shape);
+            if let Some(target) = self.visual_viewport_instance {
+                let shape = self
+                    .precomputed_event_shapes
+                    .as_ref()
+                    .expect("precomputed_event_shapes built during VM init")
+                    .core;
+                // Plain (non-bubbling, non-cancelable) `Event` — VisualViewport's
+                // resize carries no extra IDL attributes.
+                let init = EventInit {
+                    bubbles: false,
+                    cancelable: false,
+                    composed: false,
+                };
+                // Root the singleton across the fire (the MQL `push_temp_root`
+                // discipline): `fire_vm_event` allocates the event object and may
+                // trigger a GC before dispatch. The singleton is already a
+                // permanent GC root (`visual_viewport_instance`), so this is
+                // belt-and-suspenders symmetry with the MQL producer.
+                let mut guard = self.push_temp_root(JsValue::Object(target));
+                let mut ctx = NativeContext::new_call(&mut guard);
+                fire_vv_event(&mut ctx, target, "resize", init, shape);
+            }
         }
 
         // Each pass is its own microtask checkpoint (the `deliver_*` parity),

@@ -500,3 +500,40 @@ fn singletons_survive_batch_rebind() {
     assert!(eval_bool(&mut vm, "resizes === 1"));
     vm.unbind();
 }
+
+#[test]
+fn unobserved_deliver_advances_prior_without_allocating_singleton() {
+    // Codex R10: once the S5-6 shell drives the producer after every viewport
+    // change, a page that never reads `window.visualViewport` (so no listener can
+    // exist) must NOT have a `VisualViewport` singleton allocated + GC-rooted by
+    // the producer. The producer advances the diff prior every turn but only
+    // materializes/fires at the singleton when `visualViewport` was already read.
+    with_bound_vm(|vm| {
+        // No `visualViewport` access at all — the singleton is unallocated.
+        vm.set_media_environment(
+            1280.0,
+            720.0,
+            1.0,
+            ColorScheme::Light,
+            ReducedMotion::NoPreference,
+        );
+        vm.deliver_visual_viewport_events();
+        // Direct assertion (reachable): the unobserved deliver did NOT allocate
+        // the singleton — chosen over the behavioral form because
+        // `visual_viewport_instance` is `pub(crate)` and the test holds the `Vm`.
+        assert!(
+            vm.inner.visual_viewport_instance.is_none(),
+            "unobserved deliver must not materialize the VisualViewport singleton"
+        );
+        // It still advanced the prior to the post-resize size: a listener added
+        // now, then delivered with no further change, fires 0 times (the earlier
+        // resize is NOT retroactively delivered).
+        vm.eval(
+            "globalThis.resizes = 0; \
+             visualViewport.addEventListener('resize', function () { resizes++; });",
+        )
+        .unwrap();
+        vm.deliver_visual_viewport_events();
+        assert!(eval_bool(vm, "resizes === 0"));
+    });
+}
