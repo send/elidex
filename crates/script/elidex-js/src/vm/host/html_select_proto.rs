@@ -253,7 +253,7 @@ macro_rules! sel_string_attr {
             let val = args.first().copied().unwrap_or(JsValue::Undefined);
             let sid = super::super::coerce::to_string(ctx.vm, val)?;
             let s = ctx.vm.strings.get_utf8(sid);
-            ctx.host().dom().set_attribute(entity, $attr, &s);
+            super::element_attrs::attr_set(ctx, entity, $attr, &s);
             Ok(JsValue::Undefined)
         }
     };
@@ -298,7 +298,7 @@ macro_rules! sel_bool_attr {
             let val = args.first().copied().unwrap_or(JsValue::Undefined);
             let flag = super::super::coerce::to_boolean(ctx.vm, val);
             if flag {
-                ctx.host().dom().set_attribute(entity, $attr, "");
+                super::element_attrs::attr_set(ctx, entity, $attr, "");
             } else {
                 super::element_attrs::attr_remove(ctx, entity, $attr);
             }
@@ -361,9 +361,7 @@ fn native_select_set_size(
     };
     let val = args.first().copied().unwrap_or(JsValue::Undefined);
     let n = super::super::coerce::to_int32(ctx.vm, val)?;
-    ctx.host()
-        .dom()
-        .set_attribute(entity, "size", &n.to_string());
+    super::element_attrs::attr_set(ctx, entity, "size", &n.to_string());
     Ok(JsValue::Undefined)
 }
 
