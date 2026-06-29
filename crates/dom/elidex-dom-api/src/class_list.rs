@@ -9,7 +9,9 @@
 
 use elidex_ecs::{Attributes, EcsDom, Entity};
 use elidex_plugin::JsValue;
-use elidex_script_session::{DomApiError, DomApiErrorKind, DomApiHandler, SessionCore};
+use elidex_script_session::{
+    apply_set_attribute, DomApiError, DomApiErrorKind, DomApiHandler, SessionCore,
+};
 
 use crate::util::{not_found_error, require_live_element, require_string_arg};
 
@@ -66,20 +68,29 @@ fn get_token_string(entity: Entity, dom: &EcsDom, attr_name: &str) -> Result<Str
 fn set_token_string(
     entity: Entity,
     dom: &mut EcsDom,
+    session: &mut SessionCore,
     attr_name: &str,
     value: &str,
 ) -> Result<(), DomApiError> {
-    // Route through the canonical `EcsDom::set_attribute` chokepoint (not a
-    // direct `Attributes` write) so a DOMTokenList write
-    // (`classList`/`relList`/`linkSizes` add/remove/toggle/replace/`value=`)
-    // bumps `rev_version` AND dispatches `MutationEvent::AttributeChange`
-    // (DOM §4.9 → §4.3.2) — the prior direct path skipped the mutation event.
-    // `require_live_element` preserves the "stale / non-Element receiver →
-    // NotFoundError" contract for the `value=` op, which (unlike
-    // add/remove/toggle/replace) does not pre-read via `get_token_string`.
-    // The chokepoint owns `rev_version`, so callers drop their manual bump.
+    // Route through the record-producing `apply_set_attribute` seam
+    // (B2-Slice-2) — the single write helper for the WHOLE DOMTokenList family
+    // (`classList`/`relList`/`linkSizes`/`outputHtmlFor`
+    // add/remove/toggle/replace/`value=`). It calls the canonical
+    // `EcsDom::set_attribute` chokepoint (bumps `rev_version` AND dispatches
+    // `MutationEvent::AttributeChange`, DOM §4.9 → §4.3.2) and builds the §4.9
+    // step-1 "attributes" MutationObserver record from the surfaced pre-write
+    // `oldValue`. A DOMTokenList mutator writes the serialized set ONCE per
+    // call (variadic `add`/`remove` coalesce — invariant I2), so exactly one
+    // record fires per call. `require_live_element` preserves the "stale /
+    // non-Element receiver → NotFoundError" contract for the `value=` op,
+    // which (unlike add/remove/toggle/replace) does not pre-read via
+    // `get_token_string`. The chokepoint owns `rev_version`, so callers drop
+    // their manual bump. Push only — the `invoke_dom_api` boundary drains
+    // (Phase 2.5).
     require_live_element(dom, entity)?;
-    dom.set_attribute(entity, attr_name, value);
+    if let Some(record) = apply_set_attribute(dom, entity, attr_name, value) {
+        session.push_notify_record(record);
+    }
     Ok(())
 }
 
@@ -107,13 +118,14 @@ fn attribute_present(entity: Entity, dom: &EcsDom, attr_name: &str) -> bool {
 fn run_update_steps(
     entity: Entity,
     dom: &mut EcsDom,
+    session: &mut SessionCore,
     attr_name: &str,
     serialized: &str,
 ) -> Result<(), DomApiError> {
     if serialized.is_empty() && !attribute_present(entity, dom, attr_name) {
         return Ok(());
     }
-    set_token_string(entity, dom, attr_name, serialized)
+    set_token_string(entity, dom, session, attr_name, serialized)
 }
 
 /// Collect every positional argument of a variadic DOMTokenList method
@@ -157,6 +169,7 @@ fn add_tokens(
     attr_name: &str,
     tokens: &[String],
     dom: &mut EcsDom,
+    session: &mut SessionCore,
 ) -> Result<(), DomApiError> {
     let mut set = token_set(entity, dom, attr_name)?;
     for token in tokens {
@@ -164,7 +177,7 @@ fn add_tokens(
             set.push(token.clone());
         }
     }
-    run_update_steps(entity, dom, attr_name, &serialize_token_set(&set))
+    run_update_steps(entity, dom, session, attr_name, &serialize_token_set(&set))
 }
 
 /// `remove(tokens…)` — drop every token in `tokens` from the ordered set, then
@@ -175,10 +188,11 @@ fn remove_tokens(
     attr_name: &str,
     tokens: &[String],
     dom: &mut EcsDom,
+    session: &mut SessionCore,
 ) -> Result<(), DomApiError> {
     let mut set = token_set(entity, dom, attr_name)?;
     set.retain(|t| !tokens.iter().any(|x| x == t));
-    run_update_steps(entity, dom, attr_name, &serialize_token_set(&set))
+    run_update_steps(entity, dom, session, attr_name, &serialize_token_set(&set))
 }
 
 // ===========================================================================
@@ -290,7 +304,7 @@ impl DomApiHandler for TokenListHandler {
         &self,
         this: Entity,
         args: &[JsValue],
-        _session: &mut SessionCore,
+        session: &mut SessionCore,
         dom: &mut EcsDom,
     ) -> Result<JsValue, DomApiError> {
         match self.op {
@@ -302,7 +316,7 @@ impl DomApiHandler for TokenListHandler {
                 for token in &tokens {
                     validate_token(token)?;
                 }
-                add_tokens(this, self.attr_name, &tokens, dom)?;
+                add_tokens(this, self.attr_name, &tokens, dom, session)?;
                 Ok(JsValue::Undefined)
             }
             TokenListOp::Remove => {
@@ -310,7 +324,7 @@ impl DomApiHandler for TokenListHandler {
                 for token in &tokens {
                     validate_token(token)?;
                 }
-                remove_tokens(this, self.attr_name, &tokens, dom)?;
+                remove_tokens(this, self.attr_name, &tokens, dom, session)?;
                 Ok(JsValue::Undefined)
             }
             TokenListOp::Toggle => {
@@ -328,22 +342,22 @@ impl DomApiHandler for TokenListHandler {
                 let result = match force {
                     Some(true) => {
                         if !has {
-                            add_tokens(this, self.attr_name, one, dom)?;
+                            add_tokens(this, self.attr_name, one, dom, session)?;
                         }
                         true
                     }
                     Some(false) => {
                         if has {
-                            remove_tokens(this, self.attr_name, one, dom)?;
+                            remove_tokens(this, self.attr_name, one, dom, session)?;
                         }
                         false
                     }
                     None => {
                         if has {
-                            remove_tokens(this, self.attr_name, one, dom)?;
+                            remove_tokens(this, self.attr_name, one, dom, session)?;
                             false
                         } else {
-                            add_tokens(this, self.attr_name, one, dom)?;
+                            add_tokens(this, self.attr_name, one, dom, session)?;
                             true
                         }
                     }
@@ -383,7 +397,13 @@ impl DomApiHandler for TokenListHandler {
                         result.push(t);
                     }
                 }
-                run_update_steps(this, dom, self.attr_name, &serialize_token_set(&result))?;
+                run_update_steps(
+                    this,
+                    dom,
+                    session,
+                    self.attr_name,
+                    &serialize_token_set(&result),
+                )?;
                 Ok(JsValue::Bool(true))
             }
             TokenListOp::ValueGet => {
@@ -392,7 +412,7 @@ impl DomApiHandler for TokenListHandler {
             }
             TokenListOp::ValueSet => {
                 let value = require_string_arg(args, 0)?;
-                set_token_string(this, dom, self.attr_name, &value)?;
+                set_token_string(this, dom, session, self.attr_name, &value)?;
                 Ok(JsValue::Undefined)
             }
             TokenListOp::Length => {

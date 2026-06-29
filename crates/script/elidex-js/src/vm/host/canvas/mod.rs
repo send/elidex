@@ -777,7 +777,7 @@ fn set_canvas_dim_attr(
     let entity = require_canvas_element(ctx, this, name)?;
     let v = args.first().copied().unwrap_or(JsValue::Undefined);
     let n = coerce::to_uint32(ctx.vm, v)?;
-    ctx.host().dom().set_attribute(entity, name, &n.to_string());
+    super::element_attrs::attr_set(ctx, entity, name, &n.to_string());
     Ok(JsValue::Undefined)
 }
 

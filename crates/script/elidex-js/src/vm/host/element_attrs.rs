@@ -23,6 +23,7 @@ use super::dom_bridge::{
 use super::event_target::entity_from_this;
 
 use elidex_ecs::Entity;
+use elidex_script_session::{apply_remove_attribute, apply_set_attribute};
 
 // ---------------------------------------------------------------------------
 // Natives: attribute manipulation + id / className / tagName
@@ -100,20 +101,37 @@ pub(super) fn enumerated_attr_reflect(
     ctx.vm.strings.intern(canonical)
 }
 
-/// Set attribute `name` = `value` on `entity`.  Shim around
-/// [`elidex_ecs::EcsDom::set_attribute`].  Returns `false` when the
-/// entity has been destroyed.
+/// Set attribute `name` = `value` on `entity`, emitting the WHATWG DOM
+/// §4.9 "attributes" MutationObserver record. The record-producing
+/// convergence point for **every** reflected IDL setter in `vm/host/`
+/// (B2-Slice-2): the write routes through the shared
+/// [`elidex_script_session::apply_set_attribute`] primitive, which calls the
+/// `EcsDom::set_attribute` chokepoint (full fan-out preserved) and builds the
+/// step-1 record from the surfaced pre-write `oldValue`. Returns `false` when
+/// the entity has been destroyed / the host is unbound (no write landed).
 pub(super) fn attr_set(
     ctx: &mut NativeContext<'_>,
     entity: Entity,
     name: &str,
     value: &str,
 ) -> bool {
-    // B2-Slice-1: `set_attribute` now surfaces the captured `oldValue` (so the
-    // record-producing seam can build the §4.9 record); this reflected-setter
-    // shim only needs the success bit. Emitting records for reflected IDL
-    // setters that route through `attr_set` is B2-Slice-2.
-    ctx.host().dom().set_attribute(entity, name, value).did_set
+    let Some(host) = ctx.host_if_bound() else {
+        return false;
+    };
+    // Push inside the host_data borrow (Phase-2 analogue), then drain after the
+    // borrow ends (Phase-2.5 analogue) — the reflected setters bypass
+    // `invoke_dom_api`, so the shim drains itself (plan §4.1 / I9).
+    let did_set = host.with_session_and_dom(|session, dom| {
+        match apply_set_attribute(dom, entity, name, value) {
+            Some(record) => {
+                session.push_notify_record(record);
+                true
+            }
+            None => false,
+        }
+    });
+    ctx.vm.drain_notify_records();
+    did_set
 }
 
 /// VM-local `Attr`-wrapper bookkeeping captured BEFORE a wrapper-aware
@@ -185,23 +203,32 @@ fn freeze_detached_attr_wrapper(
 }
 
 /// Remove attribute `name` from `entity` through the `EcsDom` chokepoint while
-/// keeping any JS-held `Attr` wrapper in sync (snapshot → remove → freeze).
+/// keeping any JS-held `Attr` wrapper in sync (snapshot → remove → freeze) and
+/// emitting the WHATWG DOM §4.9 "attributes" MutationObserver record.
 ///
 /// This is the wrapper-aware removal helper the **reflected boolean-attribute
 /// detach** sites (`el.hidden = false`, `<input>.checked = false`, …) route
-/// through; it does NOT yet emit a MutationObserver record — that convergence
-/// is B2-Slice-2 (reflected IDL setters). The generic `removeAttribute` /
-/// `toggleAttribute(off)` natives have been migrated off this helper onto the
-/// record-producing `invoke_dom_api` path (B2-Slice-1, F2), reusing the same
-/// [`snapshot_attr_wrapper`] / [`freeze_detached_attr_wrapper`] marshalling.
+/// through; B2-Slice-2 makes it record-producing by routing the chokepoint
+/// remove through [`elidex_script_session::apply_remove_attribute`] (records
+/// only when something was removed — remove-of-absent → `None` → no record,
+/// I11). The generic `removeAttribute` / `toggleAttribute(off)` natives use the
+/// record-producing `invoke_dom_api` path instead (B2-Slice-1, F2), reusing the
+/// same [`snapshot_attr_wrapper`] / [`freeze_detached_attr_wrapper`]
+/// marshalling. Freeze (VM wrapper state) and drain (microtask queue) are
+/// independent, so drain after freeze (plan §4.1 / I9).
 pub(super) fn attr_remove(ctx: &mut NativeContext<'_>, entity: Entity, name: &str) {
     let qname_sid = ctx.vm.strings.intern(name);
     let snap = snapshot_attr_wrapper(ctx, entity, name, qname_sid);
     // Post-unbind callers no-op (matching the snapshot's `None` fall-through).
     if let Some(host) = ctx.host_if_bound() {
-        host.dom().remove_attribute(entity, name);
+        host.with_session_and_dom(|session, dom| {
+            if let Some(record) = apply_remove_attribute(dom, entity, name) {
+                session.push_notify_record(record);
+            }
+        });
     }
     freeze_detached_attr_wrapper(ctx, entity, &snap);
+    ctx.vm.drain_notify_records();
 }
 
 pub(super) fn native_element_get_attribute(

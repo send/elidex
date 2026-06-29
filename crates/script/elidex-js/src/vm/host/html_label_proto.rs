@@ -140,7 +140,7 @@ fn native_label_set_html_for(
     let val = args.first().copied().unwrap_or(JsValue::Undefined);
     let sid = super::super::coerce::to_string(ctx.vm, val)?;
     let s = ctx.vm.strings.get_utf8(sid);
-    ctx.host().dom().set_attribute(entity, "for", &s);
+    super::element_attrs::attr_set(ctx, entity, "for", &s);
     Ok(JsValue::Undefined)
 }
 

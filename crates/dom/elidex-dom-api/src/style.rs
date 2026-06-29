@@ -17,7 +17,7 @@
 
 use elidex_ecs::{Attributes, EcsDom, Entity, InlineStyle};
 use elidex_plugin::JsValue;
-use elidex_script_session::{DomApiError, DomApiHandler, SessionCore};
+use elidex_script_session::{apply_set_attribute, DomApiError, DomApiHandler, SessionCore};
 
 use crate::util::{
     normalize_property_name, normalize_property_name_owned, not_found_error, require_string_arg,
@@ -106,23 +106,31 @@ fn remove_declarations(style: &mut InlineStyle, property: &str) -> bool {
 /// `attrs("style")` (not `InlineStyle`), so without this sync any mutation
 /// through `el.style.*` would be invisible to layout.
 ///
-/// Routes through [`EcsDom::set_attribute`] (rather than mutating the
-/// `Attributes` component directly) so the canonical
-/// [`EcsDom::rev_version`] bump fires alongside the write.  Without that
-/// version-bump path, LiveCollection / layout / mutation-observer caches
-/// keyed on `inclusive_descendants_version` would stay stale across
-/// `el.style.*` mutations even though the attribute string changed.
+/// Routes through the record-producing [`apply_set_attribute`] seam
+/// (B2-Slice-2) — the single write-back helper shared by every CSSOM
+/// mutator (`setProperty` / `removeProperty` / `cssText.set`, CSSOM
+/// §6.6.1). It calls the canonical [`EcsDom::set_attribute`] chokepoint
+/// (so the [`EcsDom::rev_version`] bump fires alongside the write — without
+/// it, LiveCollection / layout / mutation-observer caches keyed on
+/// `inclusive_descendants_version` would stay stale across `el.style.*`
+/// mutations even though the attribute string changed) and builds the §4.9
+/// step-1 "attributes" MutationObserver record (attributeName="style") from
+/// the surfaced pre-write `oldValue`. Push only — `invoke_dom_api` drains
+/// (Phase 2.5).
 ///
 /// Empty inline-style produces an empty attribute (preserves `style=""`
 /// rather than removing it) — matches Chrome's behaviour for an
 /// inline-style block emptied via `removeProperty`.
-fn sync_to_attribute(entity: Entity, dom: &mut EcsDom) {
-    // Clone the component before the write: `EcsDom::set_attribute("style",
-    // …)` drops the cached `InlineStyle` (it treats the component as a
-    // memoized parse of the attribute, invalidated when the attribute
-    // changes externally). Here the write is derived FROM the component,
-    // so the cache is already consistent — re-insert it afterward to keep
-    // the CSSOM mutation path warm (no re-parse on the next read).
+fn sync_to_attribute(entity: Entity, dom: &mut EcsDom, session: &mut SessionCore) {
+    // Clone the component before the write: `apply_set_attribute` calls
+    // `EcsDom::set_attribute("style", …)` internally, which drops the cached
+    // `InlineStyle` (it treats the component as a memoized parse of the
+    // attribute, invalidated when the attribute changes externally). Here the
+    // write is derived FROM the component, so the cache is already consistent —
+    // re-insert it afterward to keep the CSSOM mutation path warm (no re-parse
+    // on the next read). The re-insert is preserved verbatim from the
+    // pre-record path (invariant I10): routing through `apply_set_attribute`
+    // drops the component identically, so it is still needed.
     let style: InlineStyle = {
         match dom.world().get::<&InlineStyle>(entity) {
             Ok(s) => (*s).clone(),
@@ -130,7 +138,9 @@ fn sync_to_attribute(entity: Entity, dom: &mut EcsDom) {
         }
     };
     let css_text = style.css_text();
-    let _ = dom.set_attribute(entity, "style", &css_text);
+    if let Some(record) = apply_set_attribute(dom, entity, "style", &css_text) {
+        session.push_notify_record(record);
+    }
     let _ = dom.world_mut().insert_one(entity, style);
 }
 
@@ -153,7 +163,7 @@ impl DomApiHandler for StyleSetProperty {
         &self,
         this: Entity,
         args: &[JsValue],
-        _session: &mut SessionCore,
+        session: &mut SessionCore,
         dom: &mut EcsDom,
     ) -> Result<JsValue, DomApiError> {
         let property_raw = require_string_arg(args, 0)?;
@@ -180,7 +190,7 @@ impl DomApiHandler for StyleSetProperty {
             // only "if removed is true" — an unsupported or absent
             // property must not dirty `attrs("style")`.
             if removed {
-                sync_to_attribute(this, dom);
+                sync_to_attribute(this, dom, session);
             }
             return Ok(JsValue::Undefined);
         }
@@ -228,7 +238,7 @@ impl DomApiHandler for StyleSetProperty {
                 style.set_with_priority(decl.property, stored, important);
             }
         }
-        sync_to_attribute(this, dom);
+        sync_to_attribute(this, dom, session);
         Ok(JsValue::Undefined)
     }
 }
@@ -333,7 +343,7 @@ impl DomApiHandler for StyleRemoveProperty {
         &self,
         this: Entity,
         args: &[JsValue],
-        _session: &mut SessionCore,
+        session: &mut SessionCore,
         dom: &mut EcsDom,
     ) -> Result<JsValue, DomApiError> {
         let property_raw = require_string_arg(args, 0)?;
@@ -361,7 +371,7 @@ impl DomApiHandler for StyleRemoveProperty {
         // §6.6.1 removeProperty step 6: write back only "if removed is
         // true" — removing an absent property is observably a no-op.
         if removed {
-            sync_to_attribute(this, dom);
+            sync_to_attribute(this, dom, session);
         }
         Ok(JsValue::String(returned))
     }
@@ -498,7 +508,7 @@ impl DomApiHandler for StyleCssTextSet {
         &self,
         this: Entity,
         args: &[JsValue],
-        _session: &mut SessionCore,
+        session: &mut SessionCore,
         dom: &mut EcsDom,
     ) -> Result<JsValue, DomApiError> {
         let css = require_string_arg(args, 0)?;
@@ -519,7 +529,7 @@ impl DomApiHandler for StyleCssTextSet {
         dom.world_mut()
             .insert_one(this, new_style)
             .map_err(|_| not_found_error("element not found"))?;
-        sync_to_attribute(this, dom);
+        sync_to_attribute(this, dom, session);
         Ok(JsValue::Undefined)
     }
 }

@@ -24,7 +24,7 @@ use elidex_plugin::JsValue;
 use url::Url;
 
 use crate::util::{not_found_error, require_string_arg};
-use elidex_script_session::{DomApiError, DomApiHandler, SessionCore};
+use elidex_script_session::{apply_set_attribute, DomApiError, DomApiHandler, SessionCore};
 
 /// Resolve `entity`'s effective base URL for `href` resolution.
 ///
@@ -76,6 +76,7 @@ where
 pub fn href_url_set_component<F>(
     entity: Entity,
     dom: &mut EcsDom,
+    session: &mut SessionCore,
     mutate: F,
 ) -> Result<(), DomApiError>
 where
@@ -85,7 +86,7 @@ where
     let base = effective_base_url(dom, entity);
     if let Some(mut url) = parse_with_base(&href, &base) {
         mutate(&mut url);
-        write_href_attr(entity, dom, url.as_str())?;
+        write_href_attr(entity, dom, session, url.as_str())?;
     }
     Ok(())
 }
@@ -96,8 +97,13 @@ where
 /// no parse, no normalise.  Distinct from the `URL` interface's
 /// `href` setter (`vm/host/url/setters`) which throws on parse
 /// failure; HTMLAnchorElement / HTMLAreaElement do not.
-pub fn set_href(entity: Entity, dom: &mut EcsDom, value: &str) -> Result<(), DomApiError> {
-    write_href_attr(entity, dom, value)
+pub fn set_href(
+    entity: Entity,
+    dom: &mut EcsDom,
+    session: &mut SessionCore,
+    value: &str,
+) -> Result<(), DomApiError> {
+    write_href_attr(entity, dom, session, value)
 }
 
 /// Read the `href` content attribute and return either the URL
@@ -136,18 +142,30 @@ fn read_href_attr(entity: Entity, dom: &EcsDom) -> Result<String, DomApiError> {
     Ok(attrs.get("href").unwrap_or("").to_string())
 }
 
-fn write_href_attr(entity: Entity, dom: &mut EcsDom, value: &str) -> Result<(), DomApiError> {
+fn write_href_attr(
+    entity: Entity,
+    dom: &mut EcsDom,
+    session: &mut SessionCore,
+    value: &str,
+) -> Result<(), DomApiError> {
     // Lesson #181: `EcsDom::set_attribute` is the canonical write
     // path — it bumps `rev_version` so live-collection caches
     // (`document.links` / `document.images` / etc.) and
     // MutationObserver delivery invalidate.  Direct `attrs.set`
     // bypasses that and silently breaks observer plumbing.
-    // B2-Slice-1: this reflected `href` setter only consumes the success
-    // bit; routing it through the record-producing `apply_set_attribute`
-    // seam (so it emits an "attributes" record) is Slice-2 (reflected IDL
-    // setters), not this slice.
-    if !dom.set_attribute(entity, "href", value).did_set {
-        return Err(not_found_error("element not found"));
+    //
+    // B2-Slice-2: the SINGLE write site for the entire hyperlink mixin
+    // (`a.href=` via `set_href`, AND every URL-decomposition setter
+    // `a.protocol=`/`a.host=`/… via `href_url_set_component`, HTML §4.6.3).
+    // Routing through the record-producing `apply_set_attribute` seam emits one
+    // §4.9 "attributes" record (attributeName="href" for ALL of them,
+    // invariant I5) built from the surfaced pre-write `oldValue`. Push only —
+    // `invoke_dom_api` drains (Phase 2.5). `apply_set_attribute` returns `None`
+    // when the write does not land (destroyed / non-Element receiver) → keep
+    // the prior `not_found_error` contract.
+    match apply_set_attribute(dom, entity, "href", value) {
+        Some(record) => session.push_notify_record(record),
+        None => return Err(not_found_error("element not found")),
     }
     Ok(())
 }
@@ -375,11 +393,11 @@ impl DomApiHandler for HyperlinkHrefSet {
         &self,
         this: Entity,
         args: &[JsValue],
-        _session: &mut SessionCore,
+        session: &mut SessionCore,
         dom: &mut EcsDom,
     ) -> Result<JsValue, DomApiError> {
         let value = require_string_arg(args, 0)?;
-        set_href(this, dom, &value)?;
+        set_href(this, dom, session, &value)?;
         Ok(JsValue::Undefined)
     }
 }
@@ -395,11 +413,11 @@ macro_rules! setter_handler {
                 &self,
                 this: Entity,
                 args: &[JsValue],
-                _session: &mut SessionCore,
+                session: &mut SessionCore,
                 dom: &mut EcsDom,
             ) -> Result<JsValue, DomApiError> {
                 let $val = require_string_arg(args, 0)?;
-                href_url_set_component(this, dom, |$url| {
+                href_url_set_component(this, dom, session, |$url| {
                     $body;
                 })?;
                 Ok(JsValue::Undefined)
@@ -437,14 +455,14 @@ impl DomApiHandler for HyperlinkHostSet {
         &self,
         this: Entity,
         args: &[JsValue],
-        _session: &mut SessionCore,
+        session: &mut SessionCore,
         dom: &mut EcsDom,
     ) -> Result<JsValue, DomApiError> {
         let val = require_string_arg(args, 0)?;
         let Some((host_part, port_part)) = split_host_port(&val) else {
             return Ok(JsValue::Undefined);
         };
-        href_url_set_component(this, dom, |u| {
+        href_url_set_component(this, dom, session, |u| {
             if u.set_host(Some(&host_part)).is_ok() {
                 if let Some(p) = port_part {
                     if p.is_empty() {
