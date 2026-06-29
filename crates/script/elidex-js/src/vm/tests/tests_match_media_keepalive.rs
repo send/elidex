@@ -243,3 +243,26 @@ fn listener_only_mql_collected_on_unbound_gc() {
          deliver's document filter; no cross-EcsDom carry)",
     );
 }
+
+#[test]
+fn unbound_created_listener_only_mql_is_collected() {
+    // An MQL created through the UNBOUND path stores `document == None`. It can
+    // never be delivered (deliver no-ops while unbound, and once a real document
+    // binds `None != Some(doc)`), so the shared `deliverable_to` predicate roots
+    // nothing for it — a listener-only unbound-created MQL is collected, not
+    // leaked. Guards the `None == current_document(None)` case that a bare
+    // `entry.document == current_document` filter would wrongly root (Codex
+    // PR#430 R2 P2).
+    let mut vm = Vm::new();
+    vm.install_host_data(HostData::new()); // HostData installed but NOT bound
+    vm.eval("matchMedia('(min-width: 1500px)').addEventListener('change', function () {});")
+        .unwrap();
+    assert_eq!(vm.inner.media_query_list_registry.len(), 1);
+    vm.inner.collect_garbage();
+    assert_eq!(
+        vm.inner.media_query_list_registry.len(),
+        0,
+        "an unbound-created listener-only MQL (document=None) must be collected, \
+         not rooted by a None==None deliverability match",
+    );
+}

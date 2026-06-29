@@ -136,6 +136,26 @@ pub(crate) struct MediaQueryEntry {
     pub(crate) document: Option<Entity>,
 }
 
+impl MediaQueryEntry {
+    /// Whether a report-changes pass with `current_document` as the bound
+    /// document (`None` when unbound) would deliver to this MQL — the single
+    /// **deliverability** gate shared by [`VmInner::deliver_media_query_changes`]
+    /// (skip the non-deliverable) and the GC keepalive seam
+    /// ([`crate::vm::gc`]'s `keepalive_survivors`, which roots only the
+    /// deliverable), so the two can never drift apart (Codex PR#430 R1/R2 — the
+    /// keepalive must be neither more nor less permissive than delivery). An
+    /// unbound VM (`None`) delivers to nothing; an MQL created while unbound
+    /// (`document == None`) is never deliverable once a real document binds.
+    ///
+    /// Same-`EcsDom` `Entity` identity only — the cross-`EcsDom` raw-`Entity`
+    /// aliasing (`Vm::unbind`'s note; `MediaQueryEntry::document` doc) is the
+    /// deferred world_id concern (`#11-wrapper-cache-cross-dom-discriminator`,
+    /// a hard pre-flip gate for S5-6), shared by both call sites.
+    pub(crate) fn deliverable_to(&self, current_document: Option<Entity>) -> bool {
+        current_document.is_some() && self.document == current_document
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Registration (called from register_globals)
 // ---------------------------------------------------------------------------
@@ -384,7 +404,10 @@ impl VmInner {
         let env = self.media_environment();
         let mut flips: Vec<(ObjectId, u64, bool)> = Vec::new();
         for (&id, entry) in &self.media_query_list_registry {
-            if entry.document != current_document {
+            // Shared deliverability gate (also the GC keepalive root predicate
+            // — `MediaQueryEntry::deliverable_to`). `is_bound` passed above, so
+            // `current_document` is the bound document here.
+            if !entry.deliverable_to(current_document) {
                 continue;
             }
             let now = evaluate(&entry.parsed, &env);

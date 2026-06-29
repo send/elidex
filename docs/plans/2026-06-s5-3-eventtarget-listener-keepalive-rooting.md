@@ -334,7 +334,9 @@ The per-class keepalive logic **splits along the layering mandate** (CLAUDE.md "
 - **AbortController internal signal**: today the controller traces to its signal via the
   `ObjectKind::AbortController { signal_id }` arm (`object_kind.rs:311` field; `gc/trace.rs:391-392`
   `mark_object(*signal_id)`) — so the signal survives while the controller is referenced. **Correct
-  already**; route through the seam for uniformity (mechanism, not behavior).
+  already — and it STAYS a trace edge**, NOT a seam client: a keepalive root pass would over-root a
+  signal whose controller is already unreachable (the signal is reachable *from* the controller, not an
+  independent root). The seam deliberately does not take it (only `AbortSignal.timeout` membership moves).
 - **`AbortSignal.timeout`**: rooted via `pending_timeout_signals` (`roots.rs:483-492`). Correct; route
   through seam.
 - **`AbortSignal.any()` composite**: deliberately **NOT** marked today (`roots.rs:600-618`, label "(k)":
@@ -449,9 +451,12 @@ classic edge-dense bundle.
 
 **Recommendation (mark as plan-review decision)**: a **2–3 PR mini-program** under the umbrella:
 - **S5-3a** = the **seam + MQL predicate + MQL wiring** (the pure flip-precondition; touches no
-  behavior-bearing established code — MQL keepalive is net-new) + route the **already-correct** AbortSignal
-  roots (controller trace / timeout) through the seam as the seam's first non-MQL clients (mechanism
-  unification, **no behavior change**). This is the narrow base-case slice the flip actually needs.
+  behavior-bearing established code — MQL keepalive is net-new) + route the **already-correct**
+  `AbortSignal.timeout` *membership* root through the seam as the seam's first non-MQL client (mechanism
+  unification, **no behavior change**). The `AbortController`→signal **trace** edge (`gc/trace.rs`) is
+  NOT routed: a keepalive root pass would over-root a signal whose controller is already unreachable (the
+  signal is reachable *from* the controller, not an independent root), so it stays a trace. This is the
+  narrow base-case slice the flip actually needs.
 - **S5-3b** = **WS/ES**: replace the force-close-on-sweep with the state-tiered keepalive predicate (the
   behavior change "listener-held open connection must STAY ALIVE and keep delivering, not be closed"),
   keeping the genuine-orphan GC-close for the no-listener case (`collect.rs:1869-1896` becomes the *else*
@@ -579,8 +584,12 @@ ensures their targets survive to be delivered to.
   **predicate seam** (the only form consistent with §2.8 + every per-interface GC-note).
 - **Q2 (scope split)**: One PR, or the **S5-3a (seam+MQL+AbortSignal-mechanism) / S5-3b (WS/ES
   close-semantics) / S5-3c (observer over-root fix)** mini-program (§7)? Lean: **split**, with **only
-  S5-3a as the flip-precondition** (b/c fix pre-existing latent bugs, flip-order-independent). Confirm the
-  base-case exemption applies to each slice.
+  S5-3a as the flip-ORDER-critical precondition** (it must land first — the seam itself). S5-3b/c fix
+  pre-existing latent bugs and are flip-order-independent *relative to each other*, but they remain
+  **pre-flip-MANDATORY**: the `#11-eventtarget-keepalive-registrant-coverage` hard gate (§0.3 / §7 / §10)
+  forbids reaching S5-6 with any registrant still off the seam. "Only S5-3a is the precondition" is about
+  flip *ordering*, NOT a relaxation of that hard gate. Confirm the base-case exemption applies to each
+  slice.
 - **Q3 (observer α vs β)**: §5.2 — route observers through the active-observations predicate (α, fixes the
   over-root/leak, a behavior change) or keep construct/disconnect rooting and unify mechanism only (β)?
   Lean: **α** (ideal/spec-faithful; removes the immortal-disconnected-observer leak).

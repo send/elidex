@@ -122,9 +122,10 @@ impl KeepaliveClass {
 /// - **listener-predicate** registrants ([`KeepaliveClass`]) — survival is the
 ///   interface's own type-restricted rule.  `MediaQueryList` now; `WebSocket` /
 ///   `EventSource` / observers join before the flip (S5-3b/c).  Document-scoped
-///   with the *same* `entry.document == current_document` filter
-///   `deliver_media_query_changes` uses — the keepalive is never more permissive
-///   than delivery (the inline note covers the cross-`EcsDom` world_id deferral).
+///   through the *shared* `MediaQueryEntry::deliverable_to` predicate
+///   `deliver_media_query_changes` also gates on — the keepalive is neither more
+///   nor less permissive than delivery (the inline note covers the cross-`EcsDom`
+///   world_id deferral).
 /// - **membership** registrants — registration in an in-flight registry *is*
 ///   the anchor.  `AbortSignal.timeout` signals (timer-pending; the
 ///   `timeout()` step note, DOM §3.2 `#dom-abortsignal-timeout` — distinct from
@@ -138,29 +139,22 @@ pub(super) fn keepalive_survivors(vm: &VmInner) -> Vec<ObjectId> {
         .as_deref()
         .and_then(HostData::document_entity_opt);
 
-    // MediaQueryList — document-scoped + a live `change` listener.
-    //
-    // The gate is the SAME predicate `deliver_media_query_changes` applies
-    // (`entry.document == current_document`): an MQL is kept iff it would be
-    // deliverable to the currently-bound document. When **unbound**
-    // (`current_document == None`) NOTHING is kept — deliver itself no-ops while
-    // unbound (nothing is deliverable), and collecting a listener-only MQL on an
-    // unbound GC (rather than carrying it across the unbind) keeps the seam from
-    // *widening* the cross-`EcsDom` raw-`Entity` aliasing that `deliver` already
-    // carries: fresh `EcsDom::new()` worlds reuse `Entity` indices, so a
-    // world-1 `document` entity-bits can collide with a world-2 document and
-    // fire a prior-world MQL in the new document (`Vm::unbind`'s cross-DOM-alias
-    // note; `media_query.rs` `MediaQueryEntry::document`). Resolving that
-    // (and safely preserving a same-document MQL across an unbound inter-batch
-    // GC) needs the world/bind discriminator — `#11-wrapper-cache-cross-dom-
-    // discriminator`, a HARD pre-flip gate for S5-6 (so the residual is inert
-    // until the flip first drives `deliver`, and scrubbed before it goes live).
-    // Until then the keepalive stays exactly as permissive as `deliver`, never
-    // more (Codex R1 P1).
+    // MediaQueryList — the SAME deliverability gate `deliver_media_query_changes`
+    // applies (`MediaQueryEntry::deliverable_to`) AND a live `change` listener.
+    // Sharing the one predicate keeps the keepalive neither more nor less
+    // permissive than delivery (Codex R1/R2): an MQL is rooted iff a
+    // report-changes pass would deliver to it. When **unbound**
+    // (`current_document == None`) `deliverable_to` is `false` for every entry
+    // — deliver no-ops while unbound, so nothing is deliverable — which also
+    // keeps the seam from carrying a listener-only target across an unbind into
+    // a different `EcsDom` world (raw-`Entity`-index collision; the residual
+    // cross-`EcsDom` aliasing both sites share is the deferred world_id concern
+    // `#11-wrapper-cache-cross-dom-discriminator`, a hard pre-flip gate for
+    // S5-6, inert until the flip first drives `deliver`).
     let mut keep: Vec<ObjectId> = vm
         .media_query_list_registry
         .iter()
-        .filter(|(_, entry)| entry.document == current_document)
+        .filter(|(_, entry)| entry.deliverable_to(current_document))
         .map(|(&id, _)| id)
         .filter(|&id| KeepaliveClass::MediaQueryList.keepalive(vm, id))
         .collect();
