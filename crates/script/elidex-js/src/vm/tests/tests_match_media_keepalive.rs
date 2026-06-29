@@ -208,16 +208,17 @@ fn prior_document_listener_only_mql_collected_after_rebind() {
 
 #[test]
 fn listener_only_mql_collected_on_unbound_gc() {
-    // The keepalive uses the SAME `entry.document == current_document` filter as
-    // `deliver_media_query_changes`, so a GC fired while UNBOUND
-    // (`current_document == None`) keeps NO MQL — a listener-only MQL is
-    // collected, exactly as `deliver` no-ops while unbound. This keeps the seam
-    // from carrying a listener-only target across an unbind into a *different*
-    // `EcsDom` world, where an `Entity`-index collision could fire a prior-world
-    // MQL in the new document (Codex PR#430 R1 P1). Safely preserving a
-    // same-document MQL across an unbound inter-batch GC needs the world/bind
-    // discriminator (`#11-wrapper-cache-cross-dom-discriminator`, a hard
-    // pre-flip gate for S5-6; `deliver` is dormant until the flip).
+    // The keepalive shares `deliver_media_query_changes`'s `deliverable_to`
+    // gate, so a GC fired while UNBOUND (`current_document == None`) keeps NO
+    // MQL — a listener-only MQL is collected, exactly as `deliver` no-ops while
+    // unbound. This keeps the seam from carrying a listener-only target across
+    // an unbind into a *different* `EcsDom` world, where an `Entity`-index
+    // collision could fire a prior-world MQL in the new document (Codex PR#430
+    // R1 P1). Safely preserving a same-document MQL across an unbound inter-batch
+    // GC needs the world/bind discriminator — the deferred world_id concern
+    // (`#11-wrapper-cache-cross-dom-discriminator`, which lands strictly AFTER
+    // S5, NOT a pre-flip gate); `deliver` is dormant until the flip, and shares
+    // the same exposure.
     let mut vm = Vm::new();
     vm.install_host_data(HostData::new());
     let mut session = SessionCore::new();

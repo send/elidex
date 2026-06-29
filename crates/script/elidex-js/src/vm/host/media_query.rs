@@ -148,9 +148,11 @@ impl MediaQueryEntry {
     /// (`document == None`) is never deliverable once a real document binds.
     ///
     /// Same-`EcsDom` `Entity` identity only — the cross-`EcsDom` raw-`Entity`
-    /// aliasing (`Vm::unbind`'s note; `MediaQueryEntry::document` doc) is the
-    /// deferred world_id concern (`#11-wrapper-cache-cross-dom-discriminator`,
-    /// a hard pre-flip gate for S5-6), shared by both call sites.
+    /// aliasing (`Vm::unbind`'s note; `MediaQueryEntry::document` doc) is this
+    /// pass's OWN pre-existing exposure, now shared verbatim by the GC keepalive
+    /// (so the keepalive adds no aliasing surface). It is the deferred world_id
+    /// concern (`#11-wrapper-cache-cross-dom-discriminator`, which lands strictly
+    /// AFTER S5 — NOT a pre-flip gate).
     pub(crate) fn deliverable_to(&self, current_document: Option<Entity>) -> bool {
         current_document.is_some() && self.document == current_document
     }

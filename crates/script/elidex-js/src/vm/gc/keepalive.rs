@@ -147,10 +147,14 @@ pub(super) fn keepalive_survivors(vm: &VmInner) -> Vec<ObjectId> {
     // (`current_document == None`) `deliverable_to` is `false` for every entry
     // — deliver no-ops while unbound, so nothing is deliverable — which also
     // keeps the seam from carrying a listener-only target across an unbind into
-    // a different `EcsDom` world (raw-`Entity`-index collision; the residual
-    // cross-`EcsDom` aliasing both sites share is the deferred world_id concern
-    // `#11-wrapper-cache-cross-dom-discriminator`, a hard pre-flip gate for
-    // S5-6, inert until the flip first drives `deliver`).
+    // a different `EcsDom` world (raw-`Entity`-index collision). Any residual
+    // cross-`EcsDom` aliasing is `deliver`'s OWN pre-existing exposure (it
+    // already compares raw `Entity`s) — sharing `deliverable_to` means the
+    // keepalive adds no aliasing surface beyond delivery, never more. That
+    // exposure is the deferred world_id concern
+    // (`#11-wrapper-cache-cross-dom-discriminator`, which lands strictly AFTER
+    // S5, NOT a pre-flip gate); it is inert until the S5-6 flip first drives
+    // `deliver`.
     let mut keep: Vec<ObjectId> = vm
         .media_query_list_registry
         .iter()
