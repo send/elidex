@@ -370,7 +370,7 @@ mod tests {
     #[test]
     fn e1_set_name_attribute_reflects_to_fcs() {
         let (mut dom, e) = setup("input", &[]);
-        assert!(dom.set_attribute(e, "name", "q"));
+        assert!(dom.set_attribute(e, "name", "q").did_set);
         with_fcs(&dom, e, |s| assert_eq!(s.name, "q"));
     }
 
@@ -381,14 +381,14 @@ mod tests {
         with_fcs(&dom, e, |s| {
             assert_eq!(s.kind, FormControlKind::SubmitButton);
         });
-        assert!(dom.set_attribute(e, "type", "button"));
+        assert!(dom.set_attribute(e, "type", "button").did_set);
         with_fcs(&dom, e, |s| assert_eq!(s.kind, FormControlKind::Button));
     }
 
     #[test]
     fn e3_set_form_attribute_reflects_form_owner() {
         let (mut dom, e) = setup("input", &[]);
-        assert!(dom.set_attribute(e, "form", "login"));
+        assert!(dom.set_attribute(e, "form", "login").did_set);
         with_fcs(&dom, e, |s| {
             assert_eq!(s.form_owner.as_deref(), Some("login"));
         });
@@ -398,7 +398,7 @@ mod tests {
     fn e4_required_boolean_presence_and_removal() {
         let (mut dom, e) = setup("input", &[]);
         // Empty-string presence per HTML §2.5.2 boolean-attribute rule.
-        assert!(dom.set_attribute(e, "required", ""));
+        assert!(dom.set_attribute(e, "required", "").did_set);
         with_fcs(&dom, e, |s| assert!(s.required));
         // Removal resets to default (false).
         dom.remove_attribute(e, "required");
@@ -416,7 +416,7 @@ mod tests {
         }
         // Content-attribute write should NOT change FCS.value
         // (HTML §4.10.5.4 dirty value flag suppression).
-        assert!(dom.set_attribute(e, "value", "from-attr"));
+        assert!(dom.set_attribute(e, "value", "from-attr").did_set);
         with_fcs(&dom, e, |s| assert_eq!(s.value, "user-typed"));
     }
 
@@ -432,7 +432,7 @@ mod tests {
             state.set_value("user-typed".to_string());
             assert!(state.dirty_value);
         }
-        assert!(dom.set_attribute(e, "value", "from-attr"));
+        assert!(dom.set_attribute(e, "value", "from-attr").did_set);
         with_fcs(&dom, e, |s| {
             // IDL value suppressed (dirty), but defaultValue reflects.
             assert_eq!(s.value, "user-typed");
@@ -454,7 +454,7 @@ mod tests {
             s.set_value("typed".to_string());
             assert!(s.dirty_value);
         }
-        assert!(dom.set_attribute(e, "value", "x"));
+        assert!(dom.set_attribute(e, "value", "x").did_set);
         with_fcs(&dom, e, |s| {
             assert_eq!(s.value, "typed");
             assert_eq!(s.default_value, "orig");
@@ -504,7 +504,7 @@ mod tests {
             FormControlReconciler,
         )));
         // Must not panic, must not spuriously attach FCS.
-        assert!(dom.set_attribute(div, "data-foo", "bar"));
+        assert!(dom.set_attribute(div, "data-foo", "bar").did_set);
         assert!(dom.world().get::<&FormControlState>(div).is_err());
     }
 
@@ -521,7 +521,7 @@ mod tests {
             let mut state = dom.world_mut().get::<&mut FormControlState>(e).unwrap();
             state.checked = true;
         }
-        assert!(dom.set_attribute(e, "type", "text"));
+        assert!(dom.set_attribute(e, "type", "text").did_set);
         with_fcs(&dom, e, |s| {
             assert_eq!(s.kind, FormControlKind::TextInput);
             assert!(!s.checked, "sanitize_for_type_change must clear checked");
@@ -543,7 +543,7 @@ mod tests {
             state.set_value("typed".to_string());
         }
         record_focus_snapshot(&mut dom, e);
-        assert!(dom.set_attribute(e, "type", "checkbox"));
+        assert!(dom.set_attribute(e, "type", "checkbox").did_set);
         with_fcs(&dom, e, |s| assert_eq!(s.kind, FormControlKind::Checkbox));
         assert_eq!(
             take_focus_snapshot(&mut dom, e),
@@ -564,7 +564,7 @@ mod tests {
             state.set_value("typed".to_string());
         }
         record_focus_snapshot(&mut dom, e);
-        assert!(dom.set_attribute(e, "type", "search"));
+        assert!(dom.set_attribute(e, "type", "search").did_set);
         with_fcs(&dom, e, |s| assert_eq!(s.kind, FormControlKind::Search));
         assert_eq!(
             take_focus_snapshot(&mut dom, e),
@@ -589,7 +589,7 @@ mod tests {
                 "initial cursor at the beginning (§4.10.20)"
             );
         });
-        assert!(dom.set_attribute(e, "value", "short"));
+        assert!(dom.set_attribute(e, "value", "short").did_set);
         with_fcs(&dom, e, |s| {
             assert_eq!(s.value, "short");
             assert_eq!(s.default_value, "short");
@@ -617,7 +617,7 @@ mod tests {
             state.selection_direction = SelectionDirection::Forward;
         }
         // Non-dirty content-attribute write replaces the value.
-        assert!(dom.set_attribute(e, "value", "short"));
+        assert!(dom.set_attribute(e, "value", "short").did_set);
         with_fcs(&dom, e, |s| {
             assert_eq!(s.value, "short");
             // (10, 14) both clamp to the new length (5).
@@ -640,7 +640,7 @@ mod tests {
             assert_eq!(s.value, "Submit");
         });
         // Explicit empty re-write keeps the substitution.
-        assert!(dom.set_attribute(e, "value", ""));
+        assert!(dom.set_attribute(e, "value", "").did_set);
         with_fcs(&dom, e, |s| {
             assert_eq!(s.value, "Submit");
             assert_eq!(s.default_value, "");
@@ -814,7 +814,7 @@ mod tests {
         // A `value` content-attribute write on a non-dirty range control
         // runs §4.10.5.1.13 value sanitization (clamp to max).
         let (mut dom, e) = setup("input", &[("type", "range"), ("max", "100")]);
-        assert!(dom.set_attribute(e, "value", "150"));
+        assert!(dom.set_attribute(e, "value", "150").did_set);
         with_fcs(&dom, e, |s| assert_eq!(s.value, "100"));
     }
 
@@ -825,7 +825,7 @@ mod tests {
         let (mut dom, e) = setup("input", &[("type", "email"), ("value", " a@b , c@d ")]);
         // Parsed under single-mode (strip + trim ends).
         with_fcs(&dom, e, |s| assert_eq!(s.value, "a@b , c@d"));
-        assert!(dom.set_attribute(e, "multiple", ""));
+        assert!(dom.set_attribute(e, "multiple", "").did_set);
         with_fcs(&dom, e, |s| assert_eq!(s.value, "a@b,c@d"));
     }
 
@@ -842,7 +842,7 @@ mod tests {
             assert_eq!(state.value, "a , b");
             assert!(state.dirty_value);
         }
-        assert!(dom.set_attribute(e, "multiple", ""));
+        assert!(dom.set_attribute(e, "multiple", "").did_set);
         with_fcs(&dom, e, |s| {
             assert_eq!(
                 s.value, "a,b",
@@ -860,15 +860,15 @@ mod tests {
         // HTML §4.10.5.1.13: a Range control must continuously correct an
         // over/underflow / step mismatch as its constraints change.
         let (mut dom, e) = setup("input", &[("type", "range"), ("min", "0"), ("max", "100")]);
-        assert!(dom.set_attribute(e, "value", "80"));
+        assert!(dom.set_attribute(e, "value", "80").did_set);
         with_fcs(&dom, e, |s| assert_eq!(s.value, "80"));
         // `max` lowered below the value → overflow → clamp to new max.
-        assert!(dom.set_attribute(e, "max", "50"));
+        assert!(dom.set_attribute(e, "max", "50").did_set);
         with_fcs(&dom, e, |s| assert_eq!(s.value, "50"));
         // `step` change makes the value off-grid → snap to nearest in-range
         // step (grid 0,30 within [0,50]; 50 is 20 from 30, 30 from 60-oor →
         // nearest in-range is 30).
-        assert!(dom.set_attribute(e, "step", "30"));
+        assert!(dom.set_attribute(e, "step", "30").did_set);
         with_fcs(&dom, e, |s| assert_eq!(s.value, "30"));
     }
 
@@ -890,7 +890,7 @@ mod tests {
         }
         // `value` attr → new step base 50; live 60 is off the new grid
         // (50,70,…) → snap to nearest in-range (tie 50/70 → +∞ → 70).
-        assert!(dom.set_attribute(e, "value", "50"));
+        assert!(dom.set_attribute(e, "value", "50").did_set);
         with_fcs(&dom, e, |s| {
             assert_eq!(s.value, "70", "dirty range re-corrected to the new grid");
             assert!(s.dirty_value, "re-correction must keep the dirty flag");
@@ -905,7 +905,7 @@ mod tests {
         // only a "may").
         let (mut dom, e) = setup("input", &[("type", "number"), ("value", "80")]);
         with_fcs(&dom, e, |s| assert_eq!(s.value, "80"));
-        assert!(dom.set_attribute(e, "max", "50"));
+        assert!(dom.set_attribute(e, "max", "50").did_set);
         with_fcs(&dom, e, |s| {
             assert_eq!(s.value, "80", "number keeps out-of-range value");
         });
@@ -923,7 +923,7 @@ mod tests {
             let mut state = dom.world_mut().get::<&mut FormControlState>(e).unwrap();
             state.value = "a\nb".to_string(); // direct set bypasses sanitize
         }
-        assert!(dom.set_attribute(e, "multiple", ""));
+        assert!(dom.set_attribute(e, "multiple", "").did_set);
         with_fcs(&dom, e, |s| {
             assert_eq!(
                 s.value, "a\nb",

@@ -142,7 +142,11 @@ fn write_href_attr(entity: Entity, dom: &mut EcsDom, value: &str) -> Result<(), 
     // (`document.links` / `document.images` / etc.) and
     // MutationObserver delivery invalidate.  Direct `attrs.set`
     // bypasses that and silently breaks observer plumbing.
-    if !dom.set_attribute(entity, "href", value) {
+    // B2-Slice-1: this reflected `href` setter only consumes the success
+    // bit; routing it through the record-producing `apply_set_attribute`
+    // seam (so it emits an "attributes" record) is Slice-2 (reflected IDL
+    // setters), not this slice.
+    if !dom.set_attribute(entity, "href", value).did_set {
         return Err(not_found_error("element not found"));
     }
     Ok(())

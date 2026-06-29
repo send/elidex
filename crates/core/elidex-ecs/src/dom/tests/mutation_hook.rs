@@ -1122,7 +1122,7 @@ fn remove_absent_attribute_fires_no_mutation_record() {
     let mut dom = EcsDom::new();
     let el = dom.create_element("div", crate::Attributes::default());
     // Seed an attribute BEFORE installing the hook so the set isn't counted.
-    assert!(dom.set_attribute(el, "id", "x"));
+    assert!(dom.set_attribute(el, "id", "x").did_set);
 
     let hook = AttrChangeCountHook::default();
     let count = hook.count.clone();

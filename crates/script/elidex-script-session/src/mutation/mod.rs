@@ -5,7 +5,7 @@
 //! everything else (the [`Mutation`] queue + the generic `apply_*` node
 //! mutations) stays here.
 
-use elidex_ecs::{Attributes, EcsDom, Entity, TextContent};
+use elidex_ecs::{EcsDom, Entity, TextContent};
 
 mod html_fragment;
 use html_fragment::apply_insert_adjacent_html;
@@ -228,6 +228,26 @@ pub fn character_data_record(target: Entity, old_value: String) -> MutationRecor
     MutationRecord {
         old_value: Some(old_value),
         ..empty_record(MutationKind::CharacterData, target)
+    }
+}
+
+/// The single canonical `attributes` record-shape builder (One-issue-one-way).
+///
+/// Every site that produces a DOM §4.9 "attributes" record — the
+/// [`apply_set_attribute`] / [`apply_remove_attribute`] primitives, which
+/// mutate via the `EcsDom::set_attribute` / `remove_attribute` chokepoint and
+/// record from the surfaced `oldValue` — routes through this builder so the
+/// `kind == Attribute` / `attribute_name = Some(..)` / `old_value` coupling is
+/// never hand-rolled. `name` is the already-resolved local name; `old_value`
+/// is the value BEFORE the change (`None` for a newly-added attribute), which
+/// §4.3.2 exposes only to observers with `attributeOldValue:true`.
+/// `attributeNamespace` is parked (`#11-mutation-observer-extras`): this slice
+/// records the namespace-less shape.
+pub fn attribute_record(target: Entity, name: String, old_value: Option<String>) -> MutationRecord {
+    MutationRecord {
+        attribute_name: Some(name),
+        old_value,
+        ..empty_record(MutationKind::Attribute, target)
     }
 }
 
@@ -793,50 +813,50 @@ pub fn apply_replace_all(
     records
 }
 
-fn apply_set_attribute(
+/// DOM §4.9 "set an attribute value" — record-producing primitive.
+///
+/// Routes the write through the real [`EcsDom::set_attribute`] chokepoint —
+/// the FULL `MutationEvent::AttributeChange` → `ConsumerDispatcher` fan-out +
+/// derived-component reconcile + materialized-`Attr` sync + CE tap (§4.9 steps
+/// 2–3), all preserved — and builds the §4.9 step-1 "attributes" record from
+/// the `oldValue` the chokepoint surfaces. (This REPLACES the prior buffered
+/// bypass that mutated `Attributes` directly + hand-rolled a partial reconcile,
+/// silently DROPPING the fan-out.) `name` is the already-resolved local name
+/// (lowercased by the §4.9 `setAttribute()`-method layer where required); this
+/// primitive does NOT re-case it. Returns `None` only when the write did not
+/// land (destroyed / non-Element receiver); a successful write ALWAYS records,
+/// including a same-value write (§4.9 "change an attribute" queues a record
+/// unconditionally — invariant I4).
+pub fn apply_set_attribute(
     dom: &mut EcsDom,
     entity: Entity,
     name: &str,
     value: &str,
 ) -> Option<MutationRecord> {
-    let mut attrs = dom.world_mut().get::<&mut Attributes>(entity).ok()?;
-    let name = name.to_ascii_lowercase();
-    let old_value = attrs.get(&name).map(str::to_owned);
-    attrs.set(name.clone(), value.to_owned());
-    drop(attrs);
-    // This deferred-flush path mutates `Attributes` directly instead of
-    // entering `EcsDom::set_attribute`, so it must run that chokepoint's
-    // attribute-derived-component reconcile: drop a stale `InlineStyle` on a
-    // buffered `style` write (else a later CSSOM write could resurrect the old
-    // declarations — Codex #335 R10 F31) AND re-derive `IframeData` on a
-    // buffered iframe-attribute write (else a flushed `setAttribute("src", …)`
-    // would leave the component stale).
-    dom.reconcile_attribute_derived_components(entity, &name);
-    dom.rev_version(entity);
-    Some(MutationRecord {
-        attribute_name: Some(name),
-        old_value,
-        ..empty_record(MutationKind::Attribute, entity)
-    })
+    let write = dom.set_attribute(entity, name, value);
+    if !write.did_set {
+        return None;
+    }
+    Some(attribute_record(entity, name.to_owned(), write.old_value))
 }
 
-fn apply_remove_attribute(dom: &mut EcsDom, entity: Entity, name: &str) -> Option<MutationRecord> {
-    let mut attrs = dom.world_mut().get::<&mut Attributes>(entity).ok()?;
-    let name = name.to_ascii_lowercase();
-    let old_value = attrs.get(&name).map(str::to_owned);
-    attrs.remove(&name);
-    drop(attrs);
-    // Same attribute-derived-component reconcile as `apply_set_attribute`
-    // (Codex #335 R10 F31) — a buffered `removeAttribute("style")` drops the
-    // hydrated `InlineStyle`, and a buffered iframe-attribute removal re-derives
-    // `IframeData`.
-    dom.reconcile_attribute_derived_components(entity, &name);
-    dom.rev_version(entity);
-    Some(MutationRecord {
-        attribute_name: Some(name),
-        old_value,
-        ..empty_record(MutationKind::Attribute, entity)
-    })
+/// DOM §4.9 "remove an attribute by name" — record-producing primitive.
+///
+/// Routes through the real [`EcsDom::remove_attribute`] chokepoint (fan-out +
+/// reconcile + `Attr` sync preserved) and builds the §4.9 step-1 "attributes"
+/// record from the removed value the chokepoint surfaces. Returns `None` — and
+/// queues NO record — when nothing was removed: a destroyed / non-Element
+/// receiver OR an absent attribute (`removeAttribute("missing")` performs no
+/// mutation per §4.9 "remove an attribute by name", so observers see no
+/// phantom removal — invariant I4). `name` is the resolved local name (not
+/// re-cased here).
+pub fn apply_remove_attribute(
+    dom: &mut EcsDom,
+    entity: Entity,
+    name: &str,
+) -> Option<MutationRecord> {
+    dom.remove_attribute(entity, name)
+        .map(|old_value| attribute_record(entity, name.to_owned(), Some(old_value)))
 }
 
 fn apply_set_text(dom: &mut EcsDom, entity: Entity, text: &str) -> Option<MutationRecord> {

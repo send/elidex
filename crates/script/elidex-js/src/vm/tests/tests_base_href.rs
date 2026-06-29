@@ -516,7 +516,10 @@ fn pre_bind_base_element_is_picked_up_by_init_pass() {
     let head = dom.first_child_with_tag(doc, "html").unwrap();
     let head = dom.first_child_with_tag(head, "head").unwrap();
     let base = dom.create_element("base", Attributes::default());
-    assert!(dom.set_attribute(base, "href", "https://pre-bind.example/"));
+    assert!(
+        dom.set_attribute(base, "href", "https://pre-bind.example/")
+            .did_set
+    );
     assert!(dom.append_child(head, base));
 
     #[allow(unsafe_code)]

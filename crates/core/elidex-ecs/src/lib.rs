@@ -36,7 +36,7 @@ pub use dom::equality::{
     DOCUMENT_POSITION_PRECEDING,
 };
 pub use dom::shadow::{ShadowAttachError, ShadowInit, SlotAssignError};
-pub use dom::{EcsDom, MutationDispatcher, MutationEvent, MAX_ANCESTOR_DEPTH};
+pub use dom::{AttributeWrite, EcsDom, MutationDispatcher, MutationEvent, MAX_ANCESTOR_DEPTH};
 pub use fragment_tree::{BoxFragment, FragmentContent, FragmentId, FragmentNode, FragmentTree};
 
 // Re-export hecs Entity for downstream consumers.

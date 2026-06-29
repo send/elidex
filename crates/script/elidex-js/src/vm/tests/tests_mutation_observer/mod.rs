@@ -16,6 +16,7 @@
 
 #![cfg(feature = "engine")]
 
+mod attributes;
 mod char_data;
 mod delivery;
 mod direct_tree_ops;

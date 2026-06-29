@@ -473,10 +473,13 @@ fn apply_remove_child_does_not_leak_shadow_root_as_previous_sibling() {
     assert_eq!(record.previous_sibling, None);
 }
 
-/// Codex #335 R10 F31: a buffered `style` attribute mutation applied via
-/// the deferred flush (which bypasses `EcsDom::set_attribute`) must
-/// still invalidate a lazily-hydrated `InlineStyle` cache, else a later
-/// CSSOM read resurrects stale declarations.
+/// Codex #335 R10 F31: a buffered `style` attribute mutation applied via the
+/// deferred flush must invalidate a lazily-hydrated `InlineStyle` cache, else a
+/// later CSSOM read resurrects stale declarations. Since B2-Slice-1,
+/// `apply_set_attribute` / `apply_remove_attribute` route through the real
+/// `EcsDom::set_attribute` / `remove_attribute` chokepoint (no longer the
+/// direct-`Attributes` bypass), so the chokepoint's own
+/// attribute-derived-component reconcile is what drops the cache here.
 #[test]
 fn apply_style_attribute_invalidates_inline_style_cache() {
     let mut dom = EcsDom::new();

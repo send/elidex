@@ -25,6 +25,7 @@ mod text_util;
 mod tree;
 mod tree_clone;
 
+pub use attribute::AttributeWrite;
 pub use mutation_event::{MutationDispatcher, MutationEvent};
 pub(crate) use text_util::splice_utf16;
 

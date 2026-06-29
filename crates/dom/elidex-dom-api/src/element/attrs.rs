@@ -3,7 +3,9 @@
 
 use elidex_ecs::{Attributes, EcsDom, Entity};
 use elidex_plugin::JsValue;
-use elidex_script_session::{DomApiError, DomApiHandler, SessionCore};
+use elidex_script_session::{
+    apply_remove_attribute, apply_set_attribute, DomApiError, DomApiHandler, SessionCore,
+};
 
 use super::tree::validate_attribute_name;
 use crate::util::{require_attrs, require_live_element, require_string_arg};
@@ -48,10 +50,17 @@ impl DomApiHandler for ToggleAttribute {
         &self,
         this: Entity,
         args: &[JsValue],
-        _session: &mut SessionCore,
+        session: &mut SessionCore,
         dom: &mut EcsDom,
     ) -> Result<JsValue, DomApiError> {
         let raw_name = require_string_arg(args, 0)?;
+        // §4.9 step 1 validates the qualified name (unlike removeAttribute);
+        // keep that. The name is then lowercased UNCONDITIONALLY (uniform with
+        // the rest of the attribute IDL surface — getAttribute / hasAttribute /
+        // setAttribute / removeAttribute); HTML-namespace-gating the lowercase
+        // across the whole surface (so SVG / MathML case-preserved names survive)
+        // is deferred WHOLE to slot `#11-attribute-name-html-namespace-casing`
+        // (plan §9).
         validate_attribute_name(&raw_name)?;
         let name = raw_name.to_ascii_lowercase();
 
@@ -73,34 +82,43 @@ impl DomApiHandler for ToggleAttribute {
             .get::<&Attributes>(this)
             .is_ok_and(|a| a.contains(&name));
 
-        // Route the set/remove through the canonical `EcsDom` chokepoints
-        // (`set_attribute` / `remove_attribute`) rather than mutating
-        // `Attributes` directly — so `toggleAttribute('style')` invalidates
-        // the lazily-hydrated `InlineStyle` cache and every toggle bumps
-        // `rev_version` + dispatches `MutationEvent::AttributeChange` (the
-        // prior direct path skipped both). Boolean attributes are stored
-        // with an empty value per the HTML serialization of a present
-        // boolean attribute. The receiver is a confirmed live Element, so
-        // the chokepoint calls always act.
+        // Route the set/remove through the record-producing
+        // `apply_set_attribute` / `apply_remove_attribute` seams — the
+        // canonical `EcsDom` chokepoints (so `toggleAttribute('style')`
+        // invalidates the lazily-hydrated `InlineStyle` cache and every toggle
+        // bumps `rev_version` + dispatches `MutationEvent::AttributeChange`)
+        // PLUS the §4.9 "attributes" MutationObserver record (B2-Slice-1).
+        // Boolean attributes are stored with an empty value per the HTML
+        // serialization of a present boolean attribute. The receiver is a
+        // confirmed live Element and each arm only mutates when it flips
+        // presence, so each `apply_*` returns `Some` in the arm that runs.
         let result = match force {
             Some(true) => {
                 if !has {
-                    dom.set_attribute(this, &name, "");
+                    if let Some(record) = apply_set_attribute(dom, this, &name, "") {
+                        session.push_notify_record(record);
+                    }
                 }
                 true
             }
             Some(false) => {
                 if has {
-                    dom.remove_attribute(this, &name);
+                    if let Some(record) = apply_remove_attribute(dom, this, &name) {
+                        session.push_notify_record(record);
+                    }
                 }
                 false
             }
             None => {
                 if has {
-                    dom.remove_attribute(this, &name);
+                    if let Some(record) = apply_remove_attribute(dom, this, &name) {
+                        session.push_notify_record(record);
+                    }
                     false
                 } else {
-                    dom.set_attribute(this, &name, "");
+                    if let Some(record) = apply_set_attribute(dom, this, &name, "") {
+                        session.push_notify_record(record);
+                    }
                     true
                 }
             }

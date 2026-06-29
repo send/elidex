@@ -447,7 +447,10 @@ mod tests {
         // `BaseFrozenUrl` is hand-attached because no dispatcher is
         // installed in this raw-ECS test fixture.
         let base = dom.create_element("base", Attributes::default());
-        assert!(dom.set_attribute(base, "href", "https://outer.example/"));
+        assert!(
+            dom.set_attribute(base, "href", "https://outer.example/")
+                .did_set
+        );
         assert!(dom.append_child(body, base));
         let outer = Url::parse("https://outer.example/").unwrap();
         dom.world_mut()
@@ -506,7 +509,10 @@ mod tests {
         let html = dom.create_element("html", Attributes::default());
         assert!(dom.append_child(doc, html));
         let base = dom.create_element("base", Attributes::default());
-        assert!(dom.set_attribute(base, "href", "https://throwaway.example/x/"));
+        assert!(
+            dom.set_attribute(base, "href", "https://throwaway.example/x/")
+                .did_set
+        );
         assert!(dom.append_child(html, base));
         initialize_base_url_for_document(&mut dom, doc, &about_blank_url());
         initialize_base_url_for_document(&mut dom, page, &about_blank_url());

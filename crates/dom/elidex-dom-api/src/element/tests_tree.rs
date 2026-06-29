@@ -588,17 +588,23 @@ fn set_attribute_rejects_invalid_name() {
 }
 
 #[test]
-fn remove_attribute_rejects_invalid_name() {
+fn remove_attribute_invalid_name_is_noop() {
+    // WHATWG DOM §4.9 `removeAttribute(qualifiedName)` = "remove an attribute
+    // given qualifiedName and this" — NO valid-name validation (unlike
+    // setAttribute/toggleAttribute step 1). An invalid (or absent) name is a
+    // silent no-op returning undefined, NOT an InvalidCharacterError.
     let (mut dom, parent, _, mut session) = setup();
-    let err = RemoveAttribute
+    let out = RemoveAttribute
         .invoke(
             parent,
             &[JsValue::String("a b".into())],
             &mut session,
             &mut dom,
         )
-        .unwrap_err();
-    assert_eq!(err.kind, DomApiErrorKind::InvalidCharacterError);
+        .expect("removeAttribute must not throw on an invalid name");
+    assert!(matches!(out, JsValue::Undefined));
+    // Nothing matched "a b" → no attribute removed → no MutationObserver record.
+    assert!(session.take_notify_records().is_empty());
 }
 
 #[test]
