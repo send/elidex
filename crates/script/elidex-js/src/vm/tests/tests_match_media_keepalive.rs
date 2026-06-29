@@ -6,9 +6,10 @@
 //! (`gc::keepalive::keepalive_survivors`, run in `collect_garbage`) keeps it
 //! alive iff it has a LIVE `change` listener — the dispatch-time
 //! `vm_path_has_listener` predicate, so kept-alive ⇔ would-actually-fire —
-//! document-scoped with the *same* `entry.document == current_document` filter
-//! `deliver_media_query_changes` uses (the keepalive is never more permissive
-//! than delivery).
+//! AND `MediaQueryEntry::keepalive_worthy` holds (the GC-liveness gate:
+//! deliverable to the bound document, or — while unbound — a `document`-tagged
+//! MQL preserved for the next same-document rebind, since GC liveness ≠ dispatch
+//! deliverability; Codex PR#430 R5).
 //!
 //! Split out of [`super::tests_match_media`] (the matchMedia/MQL-interface
 //! suite) to keep that file under the 1000-line convention (CLAUDE.md
@@ -207,53 +208,73 @@ fn prior_document_listener_only_mql_collected_after_rebind() {
 }
 
 #[test]
-fn listener_only_mql_collected_on_unbound_gc() {
-    // The keepalive shares `deliver_media_query_changes`'s `deliverable_to`
-    // gate, so a GC fired while UNBOUND (`current_document == None`) keeps NO
-    // MQL — a listener-only MQL is collected, exactly as `deliver` no-ops while
-    // unbound. This keeps the seam from carrying a listener-only target across
-    // an unbind into a *different* `EcsDom` world, where an `Entity`-index
-    // collision could fire a prior-world MQL in the new document (Codex PR#430
-    // R1 P1). Safely preserving a same-document MQL across an unbound inter-batch
-    // GC needs the world/bind discriminator — the deferred world_id concern
-    // (`#11-wrapper-cache-cross-dom-discriminator`, which lands strictly AFTER
-    // S5, NOT a pre-flip gate); `deliver` is dormant until the flip, and shares
-    // the same exposure.
+fn same_document_listener_only_mql_survives_unbound_inter_batch_gc() {
+    // GC LIVENESS ≠ dispatch deliverability (Codex PR#430 R5): the BATCH-BIND
+    // model unbinds between batches, so a GC fired while UNBOUND
+    // (`current_document == None`) must NOT collect a `document`-tagged
+    // listener-only MQL — it has to survive so the NEXT same-document rebind's
+    // `deliver` can still fire it. Collecting it (the strict dispatch gate) would
+    // reintroduce the silent lost-`change` the seam exists to fix. The
+    // cross-`EcsDom`-rebind case keepalive_worthy cannot distinguish is the
+    // deferred world_id concern (`#11-wrapper-cache-cross-dom-discriminator`,
+    // strictly AFTER S5).
     let mut vm = Vm::new();
     vm.install_host_data(HostData::new());
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
 
+    // Batch 1: a listener-only MQL (no retained reference), then unbind.
     #[allow(unsafe_code)]
     unsafe {
         vm.bind(&raw mut session, &raw mut dom, doc);
     }
-    vm.eval("matchMedia('(min-width: 1500px)').addEventListener('change', function () {});")
-        .unwrap();
-    assert_eq!(vm.inner.media_query_list_registry.len(), 1);
+    vm.eval(
+        "globalThis.fired = 0; \
+         matchMedia('(min-width: 1500px)') \
+             .addEventListener('change', function () { globalThis.fired++; });",
+    )
+    .unwrap();
     vm.unbind();
 
-    // Unbound GC: `current_document == None` → the listener-only MQL is
-    // collected (not carried across the unbind).
+    // An inter-batch GC while unbound must KEEP the same-document MQL alive.
     vm.inner.collect_garbage();
     assert_eq!(
         vm.inner.media_query_list_registry.len(),
-        0,
-        "an unbound GC must collect a listener-only MQL (keepalive mirrors \
-         deliver's document filter; no cross-EcsDom carry)",
+        1,
+        "an unbound inter-batch GC must not collect a listener-only same-document MQL",
     );
+
+    // Batch 2: rebind the SAME document, flip, deliver → the listener fires.
+    #[allow(unsafe_code)]
+    unsafe {
+        vm.bind(&raw mut session, &raw mut dom, doc);
+    }
+    vm.set_media_environment(
+        1600.0,
+        900.0,
+        1.0,
+        ColorScheme::Light,
+        ReducedMotion::NoPreference,
+    );
+    vm.deliver_media_query_changes();
+    assert!(
+        eval_bool(&mut vm, "fired === 1;"),
+        "the MQL that survived the unbound GC must still deliver after rebind",
+    );
+    vm.unbind();
 }
 
 #[test]
 fn unbound_created_listener_only_mql_is_collected() {
     // An MQL created through the UNBOUND path stores `document == None`. It can
     // never be delivered (deliver no-ops while unbound, and once a real document
-    // binds `None != Some(doc)`), so the shared `deliverable_to` predicate roots
-    // nothing for it — a listener-only unbound-created MQL is collected, not
-    // leaked. Guards the `None == current_document(None)` case that a bare
-    // `entry.document == current_document` filter would wrongly root (Codex
-    // PR#430 R2 P2).
+    // binds `None != Some(doc)`), so `keepalive_worthy`'s `document.is_some()`
+    // guard collects it even though the GC runs unbound — a listener-only
+    // unbound-created MQL is NOT leaked (the `document`-tagged survival is
+    // same-document-rebind-pending; a document-less MQL has no rebind to pend).
+    // Guards the `None == None` case a bare `document == current_document` filter
+    // would wrongly root (Codex PR#430 R2 P2).
     let mut vm = Vm::new();
     vm.install_host_data(HostData::new()); // HostData installed but NOT bound
     vm.eval("matchMedia('(min-width: 1500px)').addEventListener('change', function () {});")

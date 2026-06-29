@@ -149,12 +149,39 @@ impl MediaQueryEntry {
     ///
     /// Same-`EcsDom` `Entity` identity only — the cross-`EcsDom` raw-`Entity`
     /// aliasing (`Vm::unbind`'s note; `MediaQueryEntry::document` doc) is this
-    /// pass's OWN pre-existing exposure, now shared verbatim by the GC keepalive
-    /// (so the keepalive adds no aliasing surface). It is the deferred world_id
-    /// concern (`#11-wrapper-cache-cross-dom-discriminator`, which lands strictly
-    /// AFTER S5 — NOT a pre-flip gate).
+    /// pass's pre-existing exposure, the deferred world_id concern
+    /// (`#11-wrapper-cache-cross-dom-discriminator`, which lands strictly AFTER
+    /// S5 — NOT a pre-flip gate).
     pub(crate) fn deliverable_to(&self, current_document: Option<Entity>) -> bool {
         current_document.is_some() && self.document == current_document
+    }
+
+    /// Whether the GC keepalive seam must keep this MQL alive for delivery to a
+    /// report-changes pass with `current_document` (the bound document, or
+    /// `None` when unbound).
+    ///
+    /// This is the **GC-liveness** gate, distinct from [`Self::deliverable_to`]
+    /// (the **dispatch** gate `deliver_media_query_changes` uses): GC liveness ≠
+    /// dispatch deliverability (Codex PR#430 R5). When **bound** the two agree —
+    /// this delegates to `deliverable_to`, so they cannot drift. When **unbound**
+    /// they intentionally diverge: `deliver` no-ops while unbound, but a
+    /// listener-only MQL must still SURVIVE an unbound inter-batch GC (the
+    /// BATCH-BIND model unbinds between batches) so the *next same-document
+    /// rebind*'s `deliver` can fire it — collecting it here would reintroduce the
+    /// very lost-`change` bug the seam exists to fix. So an unbound GC keeps
+    /// every `document`-tagged MQL (`document.is_some()`); an unbound-created MQL
+    /// (`document == None`) is never deliverable and is collected.
+    ///
+    /// The one case it CANNOT resolve: while unbound it cannot tell a
+    /// same-`EcsDom` rebind (keep — correct) from a cross-`EcsDom` rebind whose
+    /// `Entity` indices collide (should collect) — that needs world identity. So
+    /// a cross-`EcsDom` listener-only MQL kept here could, after such a rebind,
+    /// be fired by `deliver`'s OWN pre-existing raw-`Entity` aliasing — the
+    /// deferred world_id concern (`#11-wrapper-cache-cross-dom-discriminator`,
+    /// strictly AFTER S5), inert until the S5-6 flip first drives `deliver`.
+    pub(crate) fn keepalive_worthy(&self, current_document: Option<Entity>) -> bool {
+        self.document.is_some()
+            && (current_document.is_none() || self.deliverable_to(current_document))
     }
 }
 
