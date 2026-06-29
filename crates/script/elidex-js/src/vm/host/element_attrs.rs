@@ -115,22 +115,15 @@ pub(super) fn attr_set(
     name: &str,
     value: &str,
 ) -> bool {
-    let Some(host) = ctx.host_if_bound() else {
-        return false;
-    };
-    // Push inside the host_data borrow (Phase-2 analogue), then drain after the
-    // borrow ends (Phase-2.5 analogue) — the reflected setters bypass
-    // `invoke_dom_api`, so the shim drains itself (plan §4.1 / I9).
-    let did_set = host.with_session_and_dom(|session, dom| {
-        match apply_set_attribute(dom, entity, name, value) {
-            Some(record) => {
-                session.push_notify_record(record);
-                true
-            }
-            None => false,
-        }
-    });
-    ctx.vm.drain_notify_records();
+    let record = ctx
+        .host_if_bound()
+        .and_then(|host| apply_set_attribute(host.dom(), entity, name, value));
+    let did_set = record.is_some();
+    // Commit (push + drain as one indivisible step) — the reflected setters
+    // bypass `invoke_dom_api`, so they self-commit through the shared
+    // `commit_notify_records` chokepoint (which binds the push to the drain so a
+    // record can't be stranded for the flush leak-guard; plan §4.1 / I9).
+    ctx.vm.commit_notify_records(record.into_iter().collect());
     did_set
 }
 
@@ -219,16 +212,16 @@ fn freeze_detached_attr_wrapper(
 pub(super) fn attr_remove(ctx: &mut NativeContext<'_>, entity: Entity, name: &str) {
     let qname_sid = ctx.vm.strings.intern(name);
     let snap = snapshot_attr_wrapper(ctx, entity, name, qname_sid);
-    // Post-unbind callers no-op (matching the snapshot's `None` fall-through).
-    if let Some(host) = ctx.host_if_bound() {
-        host.with_session_and_dom(|session, dom| {
-            if let Some(record) = apply_remove_attribute(dom, entity, name) {
-                session.push_notify_record(record);
-            }
-        });
-    }
+    // snapshot → remove → freeze → commit. Post-unbind callers no-op (matching
+    // the snapshot's `None` fall-through). The record is committed AFTER the
+    // freeze: the freeze is VM wrapper state and the commit's drain is the
+    // microtask queue, so their order is independent, but the snapshot→remove→
+    // freeze sequence must be preserved (plan §4.1 / I9).
+    let record = ctx
+        .host_if_bound()
+        .and_then(|host| apply_remove_attribute(host.dom(), entity, name));
     freeze_detached_attr_wrapper(ctx, entity, &snap);
-    ctx.vm.drain_notify_records();
+    ctx.vm.commit_notify_records(record.into_iter().collect());
 }
 
 pub(super) fn native_element_get_attribute(

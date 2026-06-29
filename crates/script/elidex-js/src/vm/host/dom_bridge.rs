@@ -47,10 +47,14 @@ impl VmInner {
     /// un-drained scratch is silently cleared by the per-turn leak-guard at
     /// `SessionCore::flush`, so a missed drain would be a *silent loss* of the
     /// callback + transient-observer creation, not a deferred delivery.
-    /// Range natives funnel the `Vec<MutationRecord>` returned by their
-    /// engine-independent methods through here so they cannot push without
-    /// draining. No-op (records dropped) when unbound.
-    pub(super) fn commit_range_mutation_records(&mut self, records: Vec<MutationRecord>) {
+    /// The canonical commit path for every native that produces records but
+    /// **bypasses `invoke_dom_api`** (whose Phase-2.5 drains automatically):
+    /// Range / Selection / Text-splice natives funnel the `Vec<MutationRecord>`
+    /// returned by their engine-independent methods through here, as do the
+    /// reflected-IDL-setter host shims (`attr_set` / `attr_remove`) passing a
+    /// 0-or-1 record — so none can push without draining. No-op (records
+    /// dropped) when unbound.
+    pub(super) fn commit_notify_records(&mut self, records: Vec<MutationRecord>) {
         if records.is_empty() {
             return;
         }
@@ -504,7 +508,7 @@ pub(super) fn invoke_dom_api(
     // Phase 2.5: Drain the MutationObserver records the handler produced for
     // its (already-applied) synchronous mutation, and queue each for §4.3
     // microtask delivery. Single delivery mechanism shared with the Range
-    // natives (`drain_notify_records` — see `commit_range_mutation_records`).
+    // natives (`drain_notify_records` — see `commit_notify_records`).
     // The `host_data` borrow above (`with_session_and_dom`) has ended, so the
     // drain can re-acquire `host_data` then re-borrow `vm`.
     ctx.vm.drain_notify_records();

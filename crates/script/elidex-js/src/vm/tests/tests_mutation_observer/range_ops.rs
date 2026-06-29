@@ -2,7 +2,7 @@
 //! tree-mutation methods** (`insertNode` / `deleteContents` /
 //! `extractContents`) plus the **`Selection.deleteFromDocument`** caller that
 //! delegates to `Range::delete_contents` (it routes the same childList records
-//! through the shared `commit_range_mutation_records` chokepoint).
+//! through the shared `commit_notify_records` chokepoint).
 //!
 //! These methods were MO-silent before B1.2d-ii: the VM natives called the
 //! engine-independent `Range::*` impl, which in turn called `EcsDom`
@@ -159,7 +159,7 @@ fn delete_contents_delivers_removal_record_per_child() {
 
 /// Scenario 2b — `Selection.deleteFromDocument()` routes the underlying
 /// `Range::delete_contents` childList records through the SAME
-/// `commit_range_mutation_records` chokepoint as the Range natives, so the
+/// `commit_notify_records` chokepoint as the Range natives, so the
 /// Selection caller is MO-observable too (One-issue-one-way: a
 /// record-producing primitive's records are never silently dropped).  This
 /// locks the convergence that wired the previously-MO-silent Selection path.

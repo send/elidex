@@ -148,7 +148,7 @@ fn delete_selection_contents(
     // `delete_from_document` produced through the same chokepoint as the Range
     // natives (the `host`/split borrow above has ended). One-issue-one-way —
     // a record-producing primitive's records are never silently dropped.
-    ctx.vm.commit_range_mutation_records(records);
+    ctx.vm.commit_notify_records(records);
     ctx.host().selectionchange_pending = true;
     Ok(())
 }
