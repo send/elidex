@@ -23,7 +23,7 @@ The seam Slice-2 routes more writers through:
 
 ## §1 First-principles ideal (the convergence)
 
-DOM §4.9 "handle attribute changes" is the single algorithm EVERY attribute mutation funnels through; step 1 = queue the "attributes" MO record. Slice-1 made the generic methods emit step-1; the ideal end state is that **every** content-attribute write — reflected IDL setter, classList/dataset/style, hyperlink, dialog-close — converges on the one record-producing primitive, regardless of which IDL surface drove it. "One issue (the §4.9 step-1 record), one way (`apply_*`)."
+DOM §4.9 "handle attribute changes" is the single algorithm EVERY attribute mutation funnels through; step 1 = queue the "attributes" MO record. Slice-1 wired step-1 for generic `setAttribute`/`removeAttribute`/`toggleAttribute`; the ideal end state is that **every** content-attribute write — reflected IDL setter, classList/dataset/style, hyperlink, dialog-close — converges on the one record-producing primitive, regardless of which IDL surface drove it. "One issue (the §4.9 step-1 record), one way (`apply_*`)."
 
 Two **layer-appropriate wiring points** (NOT two mechanisms — both call the same `apply_*`):
 
@@ -59,20 +59,22 @@ This is **dead-code-free convergence**: `attr_set`/`attr_remove` ALREADY exist a
 
 ## §3 Spec coverage map
 
-Citations webref-verified (re-verify at impl per CLAUDE.md). §4.9 = handle attribute changes / change an attribute / set an attribute value / remove an attribute by name; §4.3.2 = queue a mutation record; §4.3.3 = MutationRecord. Reflected-attribute reflection = HTML §2.6.2 (reflecting content attributes in IDL).
+Citations webref-verified 2026-06-29 (`coverage-map`; re-verify at impl). DOM §4.9 = handle attribute changes / change / set / remove an attribute; §4.3.2 = queue a mutation record; §4.3.3 = MutationRecord; HTML §2.6.2 = reflect (IDL↔content attribute); §4.6.3 = hyperlink API; §3.2.6.6 = data-* attributes; §4.11.4 = the dialog element; CSSOM §6.6.1 = CSSStyleDeclaration. **Excluded (NOT-touched) surfaces** = §2 (I1 value-mode / I6 boa) + §9 — kept out of this touched-sections map. **`apply_*` = `apply_set_attribute`/`apply_remove_attribute` (Slice-1, `pub`).**
 
-| Surface | Spec | Branch | Wiring site | Record? |
-|---|---|---|---|---|
-| Reflected string/bool/long IDL setters (`id`, `className`, `hidden`, `disabled`, `type`, `value` default-mode, `defaultValue`, `name`, `tabIndex`, …) | HTML §2.6.2 reflect → DOM §4.9 set/remove an attribute | set / remove arms | host `attr_set`/`attr_remove` | ✓ |
-| classList / relList / htmlFor (DOMTokenList) | DOM §7.1 + §4.9 | add/remove/toggle/replace/value/`className` | dom-api `set_token_string` | ✓ |
-| dataset (DOMStringMap) | HTML §3.2.6.6 + DOM §4.9 | set / delete | dom-api `DatasetSet`/`DatasetDelete` | ✓ |
-| style (CSSStyleDeclaration) | CSSOM §6 + DOM §4.9 | setProperty/removeProperty/cssText/camel setter | dom-api `sync_to_attribute` | ✓ |
-| hyperlink (`a`/`area` URL members) | HTML §4.6.3 + URL §6 + DOM §4.9 | href + protocol/host/…/hash | dom-api `write_href_attr` | ✓ (attributeName="href") |
-| dialog close (`open` removal) | HTML §4.11.4 "close the dialog" step 5 → DOM §4.9 | remove `open` | dom-api `close_the_dialog` | ✓ (§9 scope) |
-| value-mode live-value / `_without_dispatch` | HTML §4.10.5.4 value IDL / type-change | live-value / reconcile | — (NOT a content-attr change) | **✗ by construction (I1)** |
-| `SetClassName`/`SetId` (boa) | — | className/id | boa-only | **✗ light-touch (I6)** |
+| Spec section | Step | Branch | Touch (dispatch site) | Full enum? | User-input flow |
+|---|---|---|---|---|---|
+| WHATWG DOM §4.9 handle attribute changes | step 1 | queue "attributes" record (localName, oldValue) | host `attr_set`/`attr_remove` + dom-api write helpers → `apply_*` | ✓ (namespace=null) | yes |
+| WHATWG DOM §4.9 handle attribute changes | steps 2–3 | CE reaction + attribute-change steps (fan-out) | `EcsDom::set_attribute` (UNCHANGED) | ✓ | yes |
+| WHATWG DOM §4.9 change/set/remove an attribute | set / remove | reflected setter → set arm (`attr_set`) or remove arm (`attr_remove`) | host shims + dom-api helpers | ✓ | yes |
+| WHATWG HTML §2.6.2 reflect | reflect set/remove | string/bool/long reflected IDL setters | host reflect macros → `attr_set`/`attr_remove` | ✓ | yes |
+| WHATWG HTML §4.6.3 API for hyperlink elements | href + URL-member set | a/area href + protocol/host/… reconstruct + write `href` | dom-api `write_href_attr` → `apply_set_attribute` | ✓ (attributeName="href") | yes |
+| WHATWG HTML §3.2.6.6 data-* attributes | set / delete | `dataset[name]=` / `delete dataset[name]` (camel→kebab) | dom-api `DatasetSet`/`DatasetDelete` → `apply_*` | ✓ (attributeName=`data-*`) | yes |
+| WHATWG HTML §4.11.4 the dialog element | close step 5 | "close the dialog" removes `open` | dom-api `close_the_dialog` → `apply_remove_attribute` | ✓ | yes (`close()`) |
+| CSSOM §6.6.1 CSSStyleDeclaration | setProperty/removeProperty/cssText | inline-style serialize → `style` attr | dom-api `sync_to_attribute` → `apply_set_attribute` | ✓ (attributeName="style") | yes |
+| WHATWG DOM §4.3.2 queue a mutation record | attributes branch | attributeName/attributeOldValue/attributeFilter/subtree gating | existing registry (UNFED→fed) | ✓ | n/a (delivery) |
+| WHATWG DOM §4.3.3 MutationRecord | — | attributeName / oldValue fields | session+registry record (namespace deferred §9) | ✓ name/oldValue | n/a |
 
-**Breadth**: K=4 spec families (DOM/HTML/CSSOM/URL), M≈8 surfaces — but a single mechanism (the Slice-1 `apply_*` primitive) drives all; this is a wide-but-shallow **data-flow** sweep, umbrella-decomposed, plan-reviewed. Justified as one PR per the umbrella's per-slice base-case rule.
+**Breadth**: K=3 specs (DOM, HTML, CSSOM), M=10 entries — a single mechanism (Slice-1 `apply_*`) drives every row; wide-but-shallow **data-flow** sweep. Single PR justified: B2's umbrella already decomposed by IDL-surface category (generic = Slice-1 / reflected = Slice-2 / Attr-NamedNodeMap = Slice-3); Slice-2 is the umbrella-approved per-PR base-case, and re-splitting it by spec family would fragment the one `apply_*` mechanism arbitrarily (infinite regress per the per-PR base-case rule).
 
 ### §3.1 User-input touch audit
 Every site takes user-controlled values (`el.id = userStr`, `el.style.cssText = userStr`, `el.dataset.x = userStr`, `a.href = userStr`). All route through the chokepoint's existing write (value stored verbatim; no new sanitization). The record's `oldValue` exposure is gated by `attributeOldValue:true` (existing registry, I7-delivery). No new trust boundary — Slice-2 adds record *observation* of writes that already occurred.
@@ -151,7 +153,7 @@ The ~50 direct set-sites + the **11 reflect macros** (`button_string_attr!`/`but
 
 ---
 
-## §7 Files + 1000-line
+## §7 Touched-file list + 1000-line check
 `vm/host/element_attrs.rs` (shims) + the ~14 `vm/host/*_proto.rs`/`html_input_value.rs`/`form_state_sync.rs`/`canvas/mod.rs` (macro/site migration) + `elidex-dom-api/{class_list,style,dialog}.rs` + `element/{attrs,href_accessor}.rs` (handler wiring) + MO tests. **Re-check LoC at impl** on each touched file (`element_attrs.rs`, `style.rs`, `class_list.rs`, `html_input_*` are the candidates); any real cohesion seam crossing 1000 → standalone prereq split (NOT bundled, CLAUDE.md).
 
 ## §8 Process
