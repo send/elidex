@@ -125,8 +125,10 @@ impl KeepaliveClass {
 ///   to the creating-document `Entity` so a retained *foreign*-document MQL is
 ///   not rooted across a rebind.
 /// - **membership** registrants — registration in an in-flight registry *is*
-///   the anchor.  `AbortSignal.timeout` signals (timer-pending; DOM §3.2.1 step
-///   note) — routed here from `mark_roots` pass (j) so non-Node EventTarget
+///   the anchor.  `AbortSignal.timeout` signals (timer-pending; the
+///   `timeout()` step note, DOM §3.2 `#dom-abortsignal-timeout` — distinct from
+///   §3.2.1 Garbage collection, the *dependent*-signal predicate) — routed here
+///   from `mark_roots` pass (j) so non-Node EventTarget
 ///   keepalive lives in one home (behavior-neutral: the same signal set is
 ///   marked).
 pub(super) fn keepalive_survivors(vm: &VmInner) -> Vec<ObjectId> {
