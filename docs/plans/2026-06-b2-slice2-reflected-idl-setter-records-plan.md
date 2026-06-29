@@ -1,7 +1,7 @@
 # B2-Slice-2 — reflected IDL setter attribute-write MutationRecords (plan-memo)
 
 **Status**: PRE-IMPLEMENTATION plan-memo → `/elidex-plan-review` (edge-dense per-slice rule). (2026-06-29)
-**Program**: B (F3 mutation-path). B2 is the **LAST record gap**; Slice-1 (#428 `d09829a5`) established the record-producing attribute seam for the generic `setAttribute`/`removeAttribute`/`toggleAttribute` DOM methods. Slice-2 routes the **reflected IDL setters** (and the handful of method-driven attribute writes) through that same seam so they emit DOM §4.9 "attributes" records. **Largest blast radius.** Slice-3 (Attr/NamedNodeMap) follows.
+**Program**: B (F3 mutation-path). B2 is the **LAST record gap**; Slice-1 (#428 `d09829a5`) established the record-producing attribute seam for the generic `setAttribute`/`removeAttribute`/`toggleAttribute` DOM methods. Slice-2 routes the **reflected IDL setters** (+ classList/dataset/style/hyperlink) through that same seam so they emit DOM §4.9 "attributes" records. **Largest blast radius.** Slice-3 (Attr/NamedNodeMap) follows. (dialog-close = method-driven, deferred to a new slot — §9 F1.)
 **Base**: `d09829a5` (post-#428). Worktree `elidex-b2-slice2`, branch `b2-slice2` (off `origin/main`).
 **Umbrella**: `docs/plans/2026-06-b2-attribute-records-umbrella-and-slice1.md` §0/§9 (Slice-2 carve).
 
@@ -23,7 +23,7 @@ The seam Slice-2 routes more writers through:
 
 ## §1 First-principles ideal (the convergence)
 
-DOM §4.9 "handle attribute changes" is the single algorithm EVERY attribute mutation funnels through; step 1 = queue the "attributes" MO record. Slice-1 wired step-1 for generic `setAttribute`/`removeAttribute`/`toggleAttribute`; the ideal end state is that **every** content-attribute write — reflected IDL setter, classList/dataset/style, hyperlink, dialog-close — converges on the one record-producing primitive, regardless of which IDL surface drove it. "One issue (the §4.9 step-1 record), one way (`apply_*`)."
+DOM §4.9 "handle attribute changes" is the single algorithm EVERY attribute mutation funnels through; step 1 = queue the "attributes" MO record. Slice-1 wired step-1 for generic `setAttribute`/`removeAttribute`/`toggleAttribute`; the ideal end state is that **every** content-attribute write — reflected IDL setter, classList/dataset/style, hyperlink — converges on the one record-producing primitive, regardless of which IDL surface drove it. "One issue (the §4.9 step-1 record), one way (`apply_*`)."
 
 Two **layer-appropriate wiring points** (NOT two mechanisms — both call the same `apply_*`):
 
@@ -33,7 +33,6 @@ Two **layer-appropriate wiring points** (NOT two mechanisms — both call the sa
    - dataset → `DatasetSet` (`element/attrs.rs:364`) + `DatasetDelete` (`element/attrs.rs:390`)
    - style → `sync_to_attribute` (`style.rs:133`)
    - hyperlink href (+ all URL-decomposition setters) → `write_href_attr` (`element/href_accessor.rs:~140`)
-   - dialog close → `close_the_dialog`'s `open` removal (`dialog.rs:80`) — §9 scope decision
 
 This is **dead-code-free convergence**: `attr_set`/`attr_remove` ALREADY exist as the host shims (`attr_remove` is already the convergence point for all 16 boolean-detach removals — One-issue-one-way is half-done); Slice-2 finishes it by making them record + migrating the direct-write stragglers onto them.
 
@@ -59,22 +58,21 @@ This is **dead-code-free convergence**: `attr_set`/`attr_remove` ALREADY exist a
 
 ## §3 Spec coverage map
 
-Citations webref-verified 2026-06-29 (`coverage-map`; re-verify at impl). DOM §4.9 = handle attribute changes / change / set / remove an attribute; §4.3.2 = queue a mutation record; §4.3.3 = MutationRecord; HTML §2.6.2 = reflect (IDL↔content attribute); §4.6.3 = hyperlink API; §3.2.6.6 = data-* attributes; §4.11.4 = the dialog element; CSSOM §6.6.1 = CSSStyleDeclaration. **Excluded (NOT-touched) surfaces** = §2 (I1 value-mode / I6 boa) + §9 — kept out of this touched-sections map. **`apply_*` = `apply_set_attribute`/`apply_remove_attribute` (Slice-1, `pub`).**
+Citations webref-verified 2026-06-29 (`coverage-map`; re-verify at impl). **DOM §4.9 title = "Interface Element"** — "handle attribute changes" / "change / set / remove an attribute" are algorithm **dfns within §4.9, NOT its section title** (the Step/Branch columns name the dfn). §4.3.2 = queue a mutation record; §4.3.3 = MutationRecord; HTML §2.6.2 = reflect (IDL↔content attribute, the `[Reflect]` extended attribute; reflect concept itself = §2.6.1); §4.6.3 = API for hyperlink elements; §3.2.6.6 = data-* attributes; CSSOM §6.6.1 = CSSStyleDeclaration. **Excluded (NOT-touched) surfaces** = §2 (I1 value-mode / I6 boa) + §9 (dialog method-path / Attr-NamedNodeMap) — kept out of this touched-sections map. **`apply_*` = `apply_set_attribute`/`apply_remove_attribute` (Slice-1, `pub`).**
 
 | Spec section | Step | Branch | Touch (dispatch site) | Full enum? | User-input flow |
 |---|---|---|---|---|---|
-| WHATWG DOM §4.9 handle attribute changes | step 1 | queue "attributes" record (localName, oldValue) | host `attr_set`/`attr_remove` + dom-api write helpers → `apply_*` | ✓ (namespace=null) | yes |
-| WHATWG DOM §4.9 handle attribute changes | steps 2–3 | CE reaction + attribute-change steps (fan-out) | `EcsDom::set_attribute` (UNCHANGED) | ✓ | yes |
-| WHATWG DOM §4.9 change/set/remove an attribute | set / remove | reflected setter → set arm (`attr_set`) or remove arm (`attr_remove`) | host shims + dom-api helpers | ✓ | yes |
-| WHATWG HTML §2.6.2 reflect | reflect set/remove | string/bool/long reflected IDL setters | host reflect macros → `attr_set`/`attr_remove` | ✓ | yes |
+| WHATWG DOM §4.9 Interface Element | handle-attribute-changes step 1 | queue "attributes" record (localName, oldValue) | host `attr_set`/`attr_remove` + dom-api write helpers → `apply_*` | ✓ (namespace=null) | yes |
+| WHATWG DOM §4.9 Interface Element | handle-attribute-changes steps 2–3 | CE reaction + attribute-change steps (fan-out) | `EcsDom::set_attribute` (UNCHANGED) | ✓ | yes |
+| WHATWG DOM §4.9 Interface Element | change / set / remove an attribute (dfns) | reflected setter → set arm (`attr_set`) or remove arm (`attr_remove`) | host shims + dom-api helpers | ✓ | yes |
+| WHATWG HTML §2.6.2 reflect (extended attribute) | reflect set/remove | string/bool/long reflected IDL setters | host reflect macros → `attr_set`/`attr_remove` | ✓ | yes |
 | WHATWG HTML §4.6.3 API for hyperlink elements | href + URL-member set | a/area href + protocol/host/… reconstruct + write `href` | dom-api `write_href_attr` → `apply_set_attribute` | ✓ (attributeName="href") | yes |
 | WHATWG HTML §3.2.6.6 data-* attributes | set / delete | `dataset[name]=` / `delete dataset[name]` (camel→kebab) | dom-api `DatasetSet`/`DatasetDelete` → `apply_*` | ✓ (attributeName=`data-*`) | yes |
-| WHATWG HTML §4.11.4 the dialog element | close step 5 | "close the dialog" removes `open` | dom-api `close_the_dialog` → `apply_remove_attribute` | ✓ | yes (`close()`) |
 | CSSOM §6.6.1 CSSStyleDeclaration | setProperty/removeProperty/cssText | inline-style serialize → `style` attr | dom-api `sync_to_attribute` → `apply_set_attribute` | ✓ (attributeName="style") | yes |
 | WHATWG DOM §4.3.2 queue a mutation record | attributes branch | attributeName/attributeOldValue/attributeFilter/subtree gating | existing registry (UNFED→fed) | ✓ | n/a (delivery) |
 | WHATWG DOM §4.3.3 MutationRecord | — | attributeName / oldValue fields | session+registry record (namespace deferred §9) | ✓ name/oldValue | n/a |
 
-**Breadth**: K=3 specs (DOM, HTML, CSSOM), M=10 entries — a single mechanism (Slice-1 `apply_*`) drives every row; wide-but-shallow **data-flow** sweep. Single PR justified: B2's umbrella already decomposed by IDL-surface category (generic = Slice-1 / reflected = Slice-2 / Attr-NamedNodeMap = Slice-3); Slice-2 is the umbrella-approved per-PR base-case, and re-splitting it by spec family would fragment the one `apply_*` mechanism arbitrarily (infinite regress per the per-PR base-case rule).
+**Breadth**: K=3 specs (DOM, HTML, CSSOM), M=9 entries — a single mechanism (Slice-1 `apply_*`) drives every row; wide-but-shallow **data-flow** sweep. Single PR justified: B2's umbrella already decomposed by IDL-surface category (generic = Slice-1 / reflected = Slice-2 / Attr-NamedNodeMap = Slice-3); Slice-2 is the umbrella-approved per-PR base-case, and re-splitting it by spec family would fragment the one `apply_*` mechanism arbitrarily (infinite regress per the per-PR base-case rule).
 
 ### §3.1 User-input touch audit
 Every site takes user-controlled values (`el.id = userStr`, `el.style.cssText = userStr`, `el.dataset.x = userStr`, `a.href = userStr`). All route through the chokepoint's existing write (value stored verbatim; no new sanitization). The record's `oldValue` exposure is gated by `attributeOldValue:true` (existing registry, I7-delivery). No new trust boundary — Slice-2 adds record *observation* of writes that already occurred.
@@ -109,7 +107,7 @@ if let Some(record) = apply_set_attribute(dom, entity, attr_name, value) {
     session.push_notify_record(record);
 }
 ```
-Thread `session` into the shared write helper where it is not already a parameter (`set_token_string`, `sync_to_attribute`, `write_href_attr` / `set_href` / `href_url_set_component`, `close_the_dialog`). The `invoke_dom_api` caller drains.
+Thread `session` into the shared write helper where it is not already a parameter (`set_token_string`, `sync_to_attribute`, `write_href_attr` / `set_href` / `href_url_set_component`). The `invoke_dom_api` caller drains. (All four helpers' callers are confirmed session-bearing `DomApiHandler::invoke` bodies — plan-review Agent 2 verified no dispatcher/parser caller; `close_the_dialog` was the lone exception with an off-`invoke_dom_api` shell caller → deferred §9 F1.)
 
 ### 4.3 Why NOT route host reflected setters through `invoke_dom_api` (F3)
 `invoke_dom_api("setAttribute")` re-runs the §4.9 setAttribute *method* layer (name validation, `is_html_namespace` lowercasing, brand re-check) — none of which apply to a reflected setter that already knows the exact lowercase attr name. Reflected setters are marshalling, not the DOM algorithm → host shim is the correct layer (F3). (Contrast: the generic `setAttribute` native DID converge onto `invoke_dom_api` in Slice-1 because it IS the §4.9 method.)
@@ -126,13 +124,13 @@ Thread `session` into the shared write helper where it is not already a paramete
 The ~50 direct set-sites + the **11 reflect macros** (`button_string_attr!`/`button_bool_attr!`/`form_string_attr!`/`iframe_string_attr!`/`input_string_attr!`/`input_bool_attr!`/`sel_string_attr!`/`sel_bool_attr!`/`ta_string_attr!`/`ta_bool_attr!` + the `long_set`/`set_canvas_dim_attr`/`string_reflect_set`/`bool_*_reflect`/`bool_reflect_set` shared helpers) swap their `ctx.host().dom().set_attribute(entity, $attr, &s)` body for `super::element_attrs::attr_set(ctx, entity, $attr, &s)`. (Editing each macro BODY covers all its instantiations.) Files: `html_{button,element,fieldset,form,iframe,input,label,optgroup,option,select,textarea,details}_proto.rs`, `html_input_value.rs`, `form_state_sync.rs`, `canvas/mod.rs`. The 16 `attr_remove` sites need NO edit (auto-covered by 5.1). **Borrow note**: a few sites hold a live `let dom = ctx.host().dom()` (e.g. `html_input_value.rs:108`); restructure to drop that borrow before `attr_set(ctx, …)`.
 - **value exclusion (I1)**: do NOT touch `state.set_value`/`set_value`/`clear_file_value`/`set_attribute_without_dispatch` sites; only the `ValueSetAction::SetContentAttr` arm + `defaultValue`/`defaultChecked` migrate.
 
-### 5.3 `elidex-dom-api` — wire the 5 handler write helpers
+### 5.3 `elidex-dom-api` — wire the 4 handler write helpers
 - `class_list.rs` `set_token_string` (`:66/82`): thread `session`, `apply_set_attribute` + push. Covers classList/relList/htmlFor (`TokenListHandler`).
 - `element/attrs.rs` `DatasetSet` (`:355/364`) + `DatasetDelete` (`:381/390`): un-underscore `session`, `apply_set_attribute`/`apply_remove_attribute` + push.
 - `style.rs` `sync_to_attribute` (`:119/133`): thread `session`, `apply_set_attribute` + push (preserve the post-write `InlineStyle` re-insert, I10).
 - `element/href_accessor.rs` `write_href_attr` (`:~140/149`): thread `session` through `set_href` + `href_url_set_component`, `apply_set_attribute` + push.
-- `dialog.rs` `close_the_dialog` (`:51/80`): thread `session`, `apply_remove_attribute` + push (§9 scope decision).
-- Imports: `class_list.rs`/`style.rs`/`dialog.rs`/`href_accessor.rs` add `apply_set_attribute`/`apply_remove_attribute` (already imported in `element/attrs.rs`).
+- Imports: `class_list.rs`/`style.rs`/`href_accessor.rs` add `apply_set_attribute`/`apply_remove_attribute` (already imported in `element/attrs.rs`).
+- **NOT touched (deferred §9 F1)**: `dialog.rs` `close_the_dialog` — its shell `method=dialog` caller is off the `invoke_dom_api` drain path → new slot `#11-method-driven-attribute-records`.
 - **NOT touched**: `SetClassName`/`SetId` (boa-only, I6); `char_data/attr.rs` (Attr/NamedNodeMap = Slice-3).
 
 ### 5.4 Delivery — already wired (zero change, §0/I7).
@@ -146,7 +144,6 @@ The ~50 direct set-sites + the **11 reflect macros** (`button_string_attr!`/`but
 - **dataset (I4)**: `el.dataset.fooBar="x"` → 1 record attributeName=**"data-foo-bar"**; `delete el.dataset.fooBar` → 1 record (remove).
 - **style (I3/I10)**: `el.style.color="red"` → 1 record attributeName="style", oldValue=prior serialization; `el.style.removeProperty("color")` → 1.
 - **hyperlink (I5)**: `a.href="http://x/"` → 1 record attributeName="href"; `a.protocol="https"` → 1 record attributeName=**"href"** (URL-decomposition writes href).
-- **dialog (§9)**: `dialog.close()` → 1 record attributeName="open" (remove).
 - **attributeFilter / subtree / attributeOldValue** gating on a reflected setter (one representative) — confirms delivery path unchanged.
 - **Fan-out-preserved regression (I-lock)**: a reflected `el.className=`/`a.href=` STILL drives its derived consumer (class-index / base-url) — the record wiring did not regress the chokepoint fan-out.
 - **boa unaffected** (I6): no new boa test; existing boa attribute tests stay green.
@@ -154,16 +151,16 @@ The ~50 direct set-sites + the **11 reflect macros** (`button_string_attr!`/`but
 ---
 
 ## §7 Touched-file list + 1000-line check
-`vm/host/element_attrs.rs` (shims) + the ~14 `vm/host/*_proto.rs`/`html_input_value.rs`/`form_state_sync.rs`/`canvas/mod.rs` (macro/site migration) + `elidex-dom-api/{class_list,style,dialog}.rs` + `element/{attrs,href_accessor}.rs` (handler wiring) + MO tests. **Re-check LoC at impl** on each touched file (`element_attrs.rs`, `style.rs`, `class_list.rs`, `html_input_*` are the candidates); any real cohesion seam crossing 1000 → standalone prereq split (NOT bundled, CLAUDE.md).
+`vm/host/element_attrs.rs` (shims) + the ~14 `vm/host/*_proto.rs`/`html_input_value.rs`/`form_state_sync.rs`/`canvas/mod.rs` (macro/site migration) + `elidex-dom-api/{class_list,style}.rs` + `element/{attrs,href_accessor}.rs` (handler wiring) + MO tests. **LoC (measured 2026-06-29, plan-review Agent 5)**: closest-to-1000 touched files = `html_input_proto.rs` 964, `html_element_proto.rs` 913, `vm/host/element_attrs.rs` 716, `class_list.rs` 566, `href_accessor.rs` 551, `html_input_value.rs` 537, `style.rs` 529; `mutation/mod.rs` 927 is reused **verbatim (NO Slice-2 edit)**. The dominant §5.2 edit is a macro-body swap (`dom().set_attribute(...)` → `attr_set(ctx, ...)`) = **net-neutral** (no >50-LoC add), so no touched file crosses 1000 → **no prereq split warranted**. Re-confirm at impl; any real cohesion seam crossing 1000 → standalone prereq split (NOT bundled, CLAUDE.md).
 
 ## §8 Process
 fmt → `mise run ci` → `/pre-push` (6-stage: simplify/code-review/review/elidex-review) → push + `gh pr create` → `/external-converge`. At merge: update `[[project_b1-mutationobserver-next-task]]` (Slice-2 done, NEXT Slice-3) + `[[m4-12-landings-ledger]]` + MEMORY.md + `[[reference_js-tree-mutations-not-recorded]]`. Mirror = #428 (the shim/handler pattern) + #393 (handler wiring).
 
 ## §9 Deferrals + scope decisions
 - **Slice-3 (Attr/NamedNodeMap)** — own plan-review. `Attr.value` setter + `setNamedItem`/`removeNamedItem` + `setAttributeNode`/`removeAttributeNode` (`vm/host/{named_node_map,attr_proto}.rs` + `element_attrs.rs:453/574` + dom-api `char_data/attr.rs:161/230/318`) + the VM-local Attr-wrapper detach asymmetry.
-- **SCOPE DECISION — dialog.close() included (not deferred)**: the dom-api census surfaced exactly one non-reflected-setter production direct-write — `close_the_dialog`'s `open` removal (`dialog.rs:80`, JS-reachable via `dialog.close()`/`requestClose()`/form `method=dialog`). It is NOT literally a "reflected IDL setter", but **leaving it record-less while every sibling attribute write records is a strangler** (B2 must be "the LAST record gap"), and the wiring is identical (one `apply_remove_attribute`). Decided per `[[feedback_decide-via-philosophy-before-asking]]` (One-issue-one-way + no-strangler lens converged). **Fallback** if session-threading through `close_the_dialog`'s callers proves edge-dense at impl: carve `#11-method-driven-attribute-records` and drop dialog from this slice (flag at plan-review).
+- **SCOPE DECISION — dialog.close() DEFERRED → NEW slot `#11-method-driven-attribute-records`** (plan-review F1, Agent 2+3; user-approved 2026-06-29): `close_the_dialog`'s `open` removal (`dialog.rs:80`) is the one non-reflected-setter production direct-write, but it is **NOT mechanism-compatible** with this slice. `close_the_dialog` is a `pub fn` (not a `DomApiHandler`) with two callers OFF the `invoke_dom_api` drain path: VM `dialog.close()` (`html_dialog_proto.rs:329`, has `ctx.vm` → could drain) AND **shell `method=dialog` form-submit (`form_input.rs:170`, has `PipelineResult.session`+`dom` but NO `ctx.vm`)**. The scratch→queue drain (`drain_notify_records`) is a VM-host-only method unreachable from the shell, so a record pushed on the form-submit path is **silently cleared** by the `SessionCore::flush` leak-guard → silent loss. Wiring only the JS `close()` path would itself be a strangler (same algorithm records inconsistently). The real missing piece = a **shell-reachable shell-driven-mutation→MO delivery path**, a distinct architectural concern (dialog is its first instance), broader than this `apply_*`-seam data-flow slice. **Why deferred**: needs shell→MO delivery infra, not the seam-wiring mechanism. **Re-eval trigger**: shell-driven-mutation MO delivery lands (S5 VM-drives-shell event-loop = natural home), OR a `method=dialog`/`dialog.close()` MutationObserver WPT/test. **Date**: 2026-08-29. **Registers in `project_open-defer-slots.md` at landing.** (NB: `dialog.open=true/false`, the reflected boolean setter (`html_dialog_proto.rs:139`), ALREADY records via the **Slice-1** `invoke_dom_api("setAttribute"/"removeAttribute")` path — independent of this slice; only the method-driven `close_the_dialog` path defers. So the reflected-setter scope stays clean+complete — a tracked cross-PR boundary like Slice-3, not a strangler.)
 - **details name-group exclusion — already covered**: `html_details_proto.rs` routes `open` set/remove via `invoke_dom_api("setAttribute"/"removeAttribute")` (Slice-1) — no Slice-2 work.
 - **anchor/area/img/link/meta/script non-href reflected attrs — already covered**: they use `reflect_setter!` → `invoke_dom_api("setAttribute")` (Slice-1). Only the URL-backed `href` family (hyperlink mixin) needs wiring.
-- **boa `SetClassName`/`SetId`** — boa-only, S5-6-deletion-bound, light-touch (I6); not wired, no slot (closes at boa removal).
+- **boa `SetClassName`/`SetId`** — the record-less exemption is scoped to **current VM-unreachability** (the VM `className`/`id` path uses host `reflected_string_set`→`attr_set`, I6), **NOT** the handlers' engine-indep file location (they sit in `element/attrs.rs` beside the wired `DatasetSet`/`DatasetDelete`, so two siblings diverge for boa's lifetime — sanctioned because no *live* surface reaches them). boa-only + S5-6-deletion-bound → light-touch, not wired, no slot (closes at boa removal). ⚠ a non-boa caller of `className.set`/`id.set` appearing before boa removal must wire them (exemption rests on reachability, not permanence).
 - **`attributeNamespace` record field** → rides `#11-mutation-observer-extras` (Slice-1 deferral; namespace-less shape unchanged).
 - **CE↔MO ordering** (`#11-ce-reaction-mutation-observer-ordering`) + **attribute-name casing** (`#11-attribute-name-html-namespace-casing`) — Slice-1 slots, inherited unchanged (I7/I8); Slice-2 does NOT touch either.
