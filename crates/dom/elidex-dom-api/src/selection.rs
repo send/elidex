@@ -505,7 +505,7 @@ impl SelectionState {
     /// Returns the `MutationRecord`s produced by the underlying
     /// `Range::delete_contents` (childList removals + characterData
     /// text-splice records) so the VM-side caller routes them through
-    /// the same `commit_range_mutation_records` chokepoint as the Range
+    /// the same `commit_notify_records` chokepoint as the Range
     /// natives (One-issue-one-way: a record-producing primitive's records
     /// are never silently dropped). The `characterData` text-splice
     /// records flow with zero change here — `delete_contents` produces

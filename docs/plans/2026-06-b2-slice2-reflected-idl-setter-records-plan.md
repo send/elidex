@@ -15,7 +15,7 @@ The seam Slice-2 routes more writers through:
 - **`apply_set_attribute(dom, entity, name, value) -> Option<MutationRecord>`** / **`apply_remove_attribute(dom, entity, name) -> Option<MutationRecord>`** (`crates/script/elidex-script-session/src/mutation/mod.rs:830/853`, both `pub`) — the record-producing primitives: call the real chokepoint (full fan-out preserved) + build the §4.9 step-1 record from the surfaced oldValue via `attribute_record(target, name, old_value)` (`mutation/mod.rs:246`). `apply_set_attribute` always records on a landed write (same-value fires, I4); `apply_remove_attribute` records only when something was removed (remove-missing = `None` = no record).
 - **Delivery (UNCHANGED, I7)**: `session.push_notify_record(record)` → drain → `queue_mutation_record` → §4.3 microtask → `MutationObserverRegistry::notify` (attributes branch: attributeFilter / attributeOldValue / subtree — already implemented). Two drain points exist:
   - `invoke_dom_api` Phase 2.5 (`dom_bridge.rs:510`) — auto-drains after every dom-api handler call.
-  - `commit_range_mutation_records` (`dom_bridge.rs:53`) — the push+drain-as-one-step helper for natives that bypass `invoke_dom_api` (Range natives today; the **host-shim reflected setters** join it, §4).
+  - `commit_notify_records` (`dom_bridge.rs:53`; renamed from `commit_range_mutation_records` as-built, /simplify Stage 3 — it now serves a 4th non-range user) — the push+drain-as-one-step helper for natives that bypass `invoke_dom_api` (Range/Selection/Text-splice natives + the **host-shim reflected setters** join it, §4).
 
 **The whole Slice-2 = wire more writers to `apply_set_attribute`/`apply_remove_attribute`.** That is data-flow wiring, not a mechanism or layering change (F3).
 
@@ -81,23 +81,20 @@ Every site takes user-controlled values (`el.id = userStr`, `el.style.cssText = 
 
 ## §4 The two wiring patterns (detail)
 
-### 4.1 Host shim (`attr_set`/`attr_remove`) — push **and** drain (bypasses `invoke_dom_api`)
-Reflected setters call the shims directly (not via `invoke_dom_api`), so the shim must drain itself (no Phase 2.5). Mirror `commit_range_mutation_records`:
+### 4.1 Host shim (`attr_set`/`attr_remove`) — self-commit (bypasses `invoke_dom_api`)
+Reflected setters call the shims directly (not via `invoke_dom_api`), so the shim must commit (push+drain) itself (no Phase 2.5). **As-built** (/simplify Stage 3 converged it onto the shared `commit_notify_records` so push+drain stay one indivisible step — no hand-split that a future edit could strand):
 
 ```rust
 pub(super) fn attr_set(ctx, entity, name, value) -> bool {
-    let Some(host) = ctx.host_if_bound() else { return false };
-    let did_set = host.with_session_and_dom(|session, dom| {
-        match apply_set_attribute(dom, entity, name, value) {
-            Some(record) => { session.push_notify_record(record); true }
-            None => false,
-        }
-    });
-    ctx.vm.drain_notify_records();   // host_data borrow ended above; re-borrow vm (Phase-2.5 ordering)
+    let record = ctx
+        .host_if_bound()
+        .and_then(|host| apply_set_attribute(host.dom(), entity, name, value));
+    let did_set = record.is_some();
+    ctx.vm.commit_notify_records(record.into_iter().collect()); // 0-or-1 record
     did_set
 }
 ```
-`attr_remove` keeps snapshot→remove→freeze; the record build goes inside the same `with_session_and_dom` after `apply_remove_attribute`, drain after freeze (I9).
+`attr_remove` keeps snapshot→remove→freeze, then commits the (0-or-1) record after the freeze (freeze = VM wrapper state, commit's drain = microtask queue — independent, I9).
 
 ### 4.2 dom-api handler write helpers — push only (Phase 2.5 drains)
 These handlers already receive `session: &mut SessionCore` (currently `_session`, unused). Un-underscore + build/push:
