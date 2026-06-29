@@ -4,8 +4,9 @@
 //!
 //! Members covered:
 //!
-//! - `value` / `defaultValue` accessor pair (HTML §4.10.5.1.6 dirty
-//!   tracking via `FormControlState.set_value` / `set_value_initial`).
+//! - `value` / `defaultValue` accessor pair (HTML §4.10.18.1 "A form
+//!   control's value" dirty-value-flag tracking via
+//!   `FormControlState.set_value` / `set_value_initial`).
 //! - `checked` / `defaultChecked` / `indeterminate` round-trip
 //!   accessors.
 //! - `valueAsNumber` / `valueAsDate` (Date support is the
@@ -198,8 +199,9 @@ pub(super) fn native_input_set_default_value(
     let sid = super::super::coerce::to_string(ctx.vm, val)?;
     let s = ctx.vm.strings.get_utf8(sid);
     super::element_attrs::attr_set(ctx, entity, "value", &s);
-    // Mirror into FormControlState.default_value if not dirty —
-    // matches HTML §4.10.5.1.7 step "default value mode".
+    // Mirror into FormControlState.default_value if not dirty — while
+    // the dirty value flag is false, value mirrors the default value
+    // (HTML §4.10.18.1 "A form control's value").
     let dom = ctx.host().dom();
     if let Ok(mut state) = dom.world_mut().get::<&mut FormControlState>(entity) {
         state.default_value.clone_from(&s);
