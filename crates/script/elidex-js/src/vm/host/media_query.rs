@@ -333,22 +333,24 @@ impl VmInner {
     /// and a slot recycled mid-dispatch is caught by the phase-B `seq`
     /// identity re-check.
     ///
-    /// **KNOWN GAP — listener-keepalive rooting (carved
-    /// `#11-eventtarget-listener-keepalive-rooting`, S5 prerequisite; Codex
-    /// R5)**: this pass only walks *surviving* `media_query_list_registry`
-    /// rows. An MQL kept alive ONLY by a `change` listener
-    /// (`matchMedia(q).addEventListener('change', cb)` with no retained JS
-    /// reference) is NOT rooted — `listener_store` roots the callback, not the
-    /// target — so a GC before the flip collects it and delivery is silently
-    /// lost. The spec-faithful fix is a **generic** "EventTarget kept alive
-    /// while it has listeners" mechanism shared by all VM `EventTarget`s
-    /// (unifying `AbortSignal`'s for-life root + the observers'
-    /// construct/disconnect rooting + this), which is edge-dense (GC ×
-    /// listener-lifecycle × unbind × per-kind) → its own PR + plan-review, NOT
-    /// an MQL-specific root that would add a 3rd divergent plumbing. Inert
-    /// while the VM media path is S5-dormant; the generic fix gates the S5
-    /// cutover so the feature is complete before it goes live. A retained-JS-
-    /// reference MQL (the other common pattern) delivers correctly today.
+    /// **Listener-keepalive (the keepalive-predicate seam,
+    /// `#11-eventtarget-listener-keepalive-rooting`; S5-3a)**: this pass only
+    /// walks *surviving* `media_query_list_registry` rows, and an MQL anchored
+    /// ONLY by a `change` listener (`matchMedia(q).addEventListener('change',
+    /// cb)` with no retained JS reference) has its callback rooted by
+    /// `listener_store` but NOT its own wrapper. The seam
+    /// ([`keepalive_survivors`](super::super::gc) in `collect_garbage`) closes
+    /// that gap: it keeps an MQL alive iff it has a live `change` listener
+    /// (the dispatch-time [`vm_path_has_listener`] predicate — so *kept-alive
+    /// ⇔ would-actually-fire*), document-scoped so a retained prior-document
+    /// MQL is not rooted across a rebind. This is a per-registrant
+    /// **spec-faithful predicate**, NOT an "any listener keeps the target
+    /// alive" root (DOM §2.8 forbids the latter; CSSOM-View §4.2 has no
+    /// GC-note, so the document-set membership is narrowed to the live
+    /// `change` listener). The other non-Node `EventTarget`s (`AbortSignal`'s
+    /// timeout root joins S5-3a; `WebSocket` / `EventSource` / the observers)
+    /// migrate their existing roots onto the SAME seam before the S5-6 flip
+    /// (the hard pre-flip gate `#11-eventtarget-keepalive-registrant-coverage`).
     pub(in crate::vm) fn deliver_media_query_changes(&mut self) {
         if !self
             .host_data

@@ -186,13 +186,6 @@ pub(super) struct GcRoots<'a> {
     #[cfg(feature = "engine")]
     pub(super) touch_list_states:
         &'a std::collections::HashMap<ObjectId, super::super::host::events_modern::TouchListState>,
-    /// Pending `AbortSignal.timeout(ms)` registrations — the
-    /// `ObjectId` values are signals that must survive until the
-    /// timer fires (see `VmInner::pending_timeout_signals` for the
-    /// full contract).  Keys are `u32` timer ids (not `ObjectId`s)
-    /// so they don't need tracing.
-    #[cfg(feature = "engine")]
-    pub(super) pending_timeout_signals: &'a HashMap<u32, ObjectId>,
     /// Queued same-window tasks (HTML §8.1.7.1).  Each task holds a
     /// `JsValue` payload plus target / source `ObjectId`s that the
     /// dispatch step will read — tracing them here keeps the payload
@@ -480,16 +473,12 @@ pub(super) fn mark_roots(
     #[cfg(feature = "engine")]
     mark_value(roots.navigation.current_state, obj_marks, work);
 
-    // (j) Pending AbortSignal.timeout registrations.  The signal
-    // ObjectId is only reachable via this map until the timer
-    // fires — without this root, a `let s = AbortSignal.timeout(100);`
-    // where `s` is not captured anywhere else would collect the
-    // signal and the subsequent internal-abort-on-fire would
-    // reference a dead slot.
-    #[cfg(feature = "engine")]
-    for &signal_id in roots.pending_timeout_signals.values() {
-        mark_object(signal_id, obj_marks, work);
-    }
+    // (j) AbortSignal.timeout registrations are rooted by the keepalive
+    // seam (`keepalive_survivors` in `super::keepalive`, run from
+    // `collect_garbage` between `mark_roots` and `trace_work_list`), not
+    // here: `VmInner::pending_timeout_signals` is read directly there, so
+    // the non-Node `EventTarget` keepalives share one home
+    // (`#11-eventtarget-listener-keepalive-rooting`).
 
     // (j.2) Queued same-window tasks — JsValue payload, target, and
     // source ObjectIds must survive between `postMessage` enqueue

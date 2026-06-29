@@ -76,7 +76,7 @@ fn vm_event_parent(vm: &VmInner, id: ObjectId) -> Option<ObjectId> {
 ///   retires the callable; that entry is planned by `build_vm_dispatch_plan`
 ///   yet skipped by `resolve_callable`, so counting it here would dispatch to
 ///   nobody and defeat the lazy-allocation fast-path.
-pub(super) fn vm_path_has_listener(
+pub(in crate::vm) fn vm_path_has_listener(
     vm: &VmInner,
     target_id: ObjectId,
     event_type: &str,
