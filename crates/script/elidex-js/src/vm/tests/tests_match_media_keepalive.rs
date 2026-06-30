@@ -215,9 +215,9 @@ fn same_document_listener_only_mql_survives_unbound_inter_batch_gc() {
     // listener-only MQL — it has to survive so the NEXT same-document rebind's
     // `deliver` can still fire it. Collecting it (the strict dispatch gate) would
     // reintroduce the silent lost-`change` the seam exists to fix. The
-    // cross-`EcsDom`-rebind case keepalive_worthy cannot distinguish is the
-    // deferred world_id concern (`#11-wrapper-cache-cross-dom-discriminator`,
-    // strictly AFTER S5).
+    // cross-`EcsDom`-rebind case keepalive_worthy cannot distinguish is dissolved
+    // by B1 (agent-scoped `EcsDom` World, PR #434; world_id SUPERSEDED) — a `Vm`
+    // never rebinds across worlds, so it is non-production until the S5-6 flip.
     let mut vm = Vm::new();
     vm.install_host_data(HostData::new());
     let mut session = SessionCore::new();

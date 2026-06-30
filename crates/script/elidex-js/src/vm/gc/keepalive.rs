@@ -29,7 +29,11 @@
 //! The rooted thing is a per-VM `ObjectId` (the side-store→component rule's
 //! per-VM-identity-handle exception (a) — `Vm::unbind`'s cross-DOM-aliasing
 //! note): component-on-entity is world_id-gated and deferred
-//! (`#11-eventtarget-keepalive-component-migration`).  A predicate whose rule
+//! (`#11-eventtarget-keepalive-component-migration`).  ⚠ SUPERSEDED 2026-06-30:
+//! world_id retracted → agent-scoped `EcsDom` World (PR #434,
+//! `docs/plans/2026-06-agent-scoped-ecsdom-world.md`); under B1 (1-agent=1-World)
+//! per-entity identity is stable, so that migration becomes safe without a
+//! discriminator.  A predicate whose rule
 //! is engine-independent stays so (the `MediaQueryList` arm reuses
 //! [`vm_path_has_listener`], itself composed from the engine-independent
 //! `EventListeners` API); a future `WebSocket` / `EventSource` arm marshals VM
@@ -126,7 +130,7 @@ impl KeepaliveClass {
 ///   delegates to `deliver`'s dispatch gate (`deliverable_to`) while bound but
 ///   keeps a `document`-tagged MQL alive across an unbound inter-batch GC so a
 ///   later same-document `deliver` can still fire it (liveness ≠ dispatch; the
-///   inline note covers the cross-`EcsDom` world_id deferral).
+///   inline note covers the cross-`EcsDom` deferral, dissolved by B1 — PR #434).
 /// - **membership** registrants — registration in an in-flight registry *is*
 ///   the anchor.  `AbortSignal.timeout` signals (timer-pending; the
 ///   `timeout()` step note, DOM §3.2 `#dom-abortsignal-timeout` — distinct from
@@ -149,11 +153,11 @@ pub(super) fn keepalive_survivors(vm: &VmInner) -> Vec<ObjectId> {
     // (collecting it would reintroduce the lost-`change` bug the seam fixes). An
     // unbound-created MQL (`document == None`) is never deliverable → collected.
     // The cross-`EcsDom` rebind-with-index-collision case keepalive_worthy
-    // cannot tell from a same-`EcsDom` rebind (needs world identity) is the
-    // deferred world_id concern (`#11-wrapper-cache-cross-dom-discriminator`,
-    // strictly AFTER S5) and `deliver`'s own pre-existing raw-`Entity` exposure
-    // — inert until the S5-6 flip first drives `deliver`. See
-    // `MediaQueryEntry::keepalive_worthy`.
+    // cannot tell from a same-`EcsDom` rebind is `deliver`'s own pre-existing
+    // raw-`Entity` exposure — inert until the S5-6 flip first drives `deliver`.
+    // ⚠ SUPERSEDED 2026-06-30: dissolved by B1 (agent-scoped `EcsDom` World, PR
+    // #434) not world_id — a `Vm` never rebinds across worlds, so the case does
+    // not arise in production. See `MediaQueryEntry::keepalive_worthy`.
     let mut keep: Vec<ObjectId> = vm
         .media_query_list_registry
         .iter()
