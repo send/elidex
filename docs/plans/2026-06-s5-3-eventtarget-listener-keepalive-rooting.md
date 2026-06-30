@@ -7,6 +7,17 @@ end-state**, not an incremental patch (`feedback_plan-memo-anchor-on-ideal-not-i
 unifying AbortSignal/observers/MQL") — that shorthand, taken literally, is **spec-WRONG (over-rooting)**;
 the spec-faithful mechanism is a **per-registrant keepalive predicate**, NOT an any-listener root (§2).
 
+> **⚠ DESIGN SUPERSEDED re the `world_id` migration target (2026-06-30):** every `world_id` /
+> `#11-wrapper-cache-cross-dom-discriminator` reference below (the §6 component-migration framing, the
+> §10 slot, the facet table) is **renamed, not canceled** → the **agent-scoped `EcsDom` World** program
+> (PR #434 `deb6eaf6`, `docs/plans/2026-06-agent-scoped-ecsdom-world.md`), which **SUPERSEDES** the
+> `world_id` discriminator. Under B1 (1 agent = 1 World = 1 `Vm`) per-entity identity is stable **without**
+> a discriminator, so the keepalive marker-component-on-entity migration
+> (`#11-eventtarget-keepalive-component-migration`) becomes **safe and is gated on the B1 impl, not on
+> `world_id`** (which will never land). The full per-row rewrite of §6's framing is deferred with the B1
+> implementation PR; read "world_id lands / world_id cohort / strictly after S5" throughout as "the B1
+> program (post-S5)".
+
 > **Gate**: `/elidex-plan-review` (5-agent design review) BEFORE impl, per CLAUDE.md
 > "Edge-dense work = multi-PR program + 実装前 plan-review 必須" — and per the umbrella's own
 > S5-3 row (`plan-review? = yes`, "edge-dense: ≥3 unification axes"). This memo's job is to map the
@@ -554,12 +565,14 @@ ensures their targets survive to be delivered to.
 - **`#11-eventtarget-keepalive-component-migration`** (NEW) —
   - **Why deferred**: the keepalive marker is a per-VM `ObjectId` (exception (a),
     `vm_api.rs:608-609`); the ideal ECS-native form (a keepalive marker-component on the watched entity,
-    the `#213` `*ObservedBy` precedent) requires the cross-DOM discriminator
-    (`#11-wrapper-cache-cross-dom-discriminator`), which lands **strictly after S5** (umbrella §0). S5-3
-    lands the per-VM HostData/registry form (the same per-VM-now / component-later pattern S5-2 used).
-  - **Re-evaluation trigger**: world_id `world_id` discriminator lands (the wrapper-identity-component
-    migration cohort).
-  - **Re-evaluation date**: demand-gated (post-S5, with the world_id program).
+    the `#213` `*ObservedBy` precedent) was world_id-gated, now **B1-gated** — under the agent-scoped
+    `EcsDom` World (PR #434; `world_id` SUPERSEDED) 1-agent=1-World makes per-entity identity stable, so
+    the marker-component is **safe without a discriminator**. S5-3 lands the per-VM HostData/registry form
+    (the same per-VM-now / component-later pattern S5-2 used).
+  - **Re-evaluation trigger**: the **B1 implementation** (agent-scoped `EcsDom` World) begins — post-S5;
+    `world_id` is superseded, **not** a precondition (the old "world_id discriminator lands" trigger would
+    never fire).
+  - **Re-evaluation date**: demand-gated (post-S5, with the B1 program).
 - **`#11-eventtarget-keepalive-registrant-coverage`** (NEW, *only if the §7 split lands as 2–3 PRs*) — a
   **HARD pre-flip gate** (not a soft "in-program continuation"):
   - **Why deferred**: if S5-3a ships seam + MQL + AbortSignal-mechanism only, the WS/ES close-semantics
