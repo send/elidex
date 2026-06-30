@@ -73,6 +73,8 @@ const SESSION_HISTORY_CAP: usize = 50;
 /// `pending_history` are transient drain-once intent buffers that are per-VM by
 /// nature (a VM↔shell message channel, not per-entity state — boa stores the
 /// same intents on its `HostBridge`).
+/// ⚠ SUPERSEDED 2026-06-30: this slot is FOLDED into the agent-scoped World
+/// decision (PR #434 §5 req 5 / §6.1).
 #[derive(Debug)]
 pub(crate) struct NavigationState {
     /// The current browsing-context URL.  Backs `location.*`, `document.URL`,

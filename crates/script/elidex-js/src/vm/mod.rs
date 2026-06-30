@@ -675,6 +675,9 @@ pub(crate) struct VmInner {
     /// per-origin / per-document state to scrub. Cross-DOM identity reset on a
     /// navigation is the world-id discriminator's job
     /// (`#11-wrapper-cache-cross-dom-discriminator`). S5-2.
+    /// ⚠ SUPERSEDED 2026-06-30: world_id retracted → agent-scoped EcsDom World
+    /// (PR #434 `docs/plans/2026-06-agent-scoped-ecsdom-world.md` §6); interim
+    /// form unchanged until B1.
     #[cfg(feature = "engine")]
     pub(crate) screen_instance: Option<ObjectId>,
     /// `VisualViewport.prototype` (CSSOM-View §12.1). Chains to
@@ -696,6 +699,9 @@ pub(crate) struct VmInner {
     /// R4-B). Payload-free device-fact reader, no per-origin / per-document state;
     /// cross-DOM reset on a navigation is world-id's job
     /// (`#11-wrapper-cache-cross-dom-discriminator`). S5-2.
+    /// ⚠ SUPERSEDED 2026-06-30: world_id retracted → agent-scoped EcsDom World
+    /// (PR #434 `docs/plans/2026-06-agent-scoped-ecsdom-world.md` §6); interim
+    /// form unchanged until B1.
     #[cfg(feature = "engine")]
     pub(crate) visual_viewport_instance: Option<ObjectId>,
     /// The size prior the `VisualViewport` event producer

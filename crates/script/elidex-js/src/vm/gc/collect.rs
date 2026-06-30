@@ -453,6 +453,10 @@ impl VmInner {
                 // batches, Codex R4-B); this explicit root keeps them alive while
                 // cached. Cross-DOM identity reset on a real navigation is
                 // world-id's job (`#11-wrapper-cache-cross-dom-discriminator`).
+                // ⚠ SUPERSEDED 2026-06-30: world_id retracted → agent-scoped
+                // EcsDom World (PR #434
+                // docs/plans/2026-06-agent-scoped-ecsdom-world.md §6); interim
+                // form unchanged until B1.
                 #[cfg(feature = "engine")]
                 self.screen_prototype,
                 #[cfg(not(feature = "engine"))]

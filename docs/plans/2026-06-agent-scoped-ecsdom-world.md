@@ -317,14 +317,19 @@ These pass a *live node from another document* — the surfaces that motivated `
 | `Origin-Agent-Cluster` | World **keying decision at document creation** via the agent-cluster keying rule (req 1) |
 | sandbox → opaque origin | the sandboxed doc gets its **own** World/agent (req 2) |
 
-**Structural absorption — one transition mechanism is open, not settled here.** Each row stays within
-**one agent**, so the §1 dichotomy holds (no cross-World reference is created). The genuinely *dynamic*
-case is the **popup-membership transition**: a popup created in/ joining the opener's World, or a COOP
-split spawning a *new* World mid-session, mutates a World's document-root membership **at runtime**. That
-membership mechanism — and what happens to a retained wrapper *across* such a transition — is the open
-design question **§7 Q2**. (`document.domain` is **not** in this set — it is an in-World origin-field
-relaxation, not a membership change.) The static "1 agent = 1 World" proof covers the steady state; the
-popup/COOP membership-transition invariant is the open part.
+**Structural absorption — the dichotomy holds whether a row stays or leaves.** The §1 dichotomy holds
+**either way**: a row whose content is *same-agent* (the `document.domain` flip, a same-group same-agent
+popup) stays in **one** World (no cross-World reference); a row whose content is *cross-agent* (a **COOP /
+`noopener` BCG-split popup**, a **sandbox→opaque** document) **deliberately goes to a separate World+`Vm`**
+— that is the cross-agent boundary across which **no entity crosses** (by-value/proxy), exactly the §1.4
+"cross-`Vm`" leg. So "absorbed" does **not** mean "kept in the opener's World"; for the cross-agent rows it
+means "correctly allocated a *new* World." The one genuinely *open* piece is the **dynamic
+membership-transition mechanism**: a same-agent popup *joining* the opener's World at runtime, or a COOP
+split *spawning* a new World mid-session, mutates a World's document-root membership — and what happens to
+a retained wrapper *across* that transition is open design question **§7 Q2**. (`document.domain` is **not**
+a membership transition — it is an in-World origin-field relaxation, the windows were already same-agent.)
+The static "1 agent = 1 World" proof covers the steady state; the membership-*transition* invariant is the
+open part.
 
 ### §4.4 WindowProxy / context indirection (structurally the same in B1 and B2)
 
@@ -551,24 +556,26 @@ world_id program" only as a *future-program label* in a deferral trigger, not as
 get the program-name update [world_id → agent-scoped World] at the B1-impl propagation, not a contradiction
 pointer now.)
 
-**On-`main` code comments — the two *load-bearing* sites are forward-pointed in this PR; the rest defer.**
-A repo grep finds the slot/`world_id` cited in **in-tree code comments** on `main`. Two of them are
-**active instructions a future wrapper/keepalive editor would follow** — `vm/host_data.rs:117-121` (the
-`world_id` slot doc) and `vm/wrapper_intern.rs:21-24` (the "NOT an ECS component … aliases across DOMs →
-migration gated on `world_id`" rationale) — so leaving them un-pointed recreates the very contradiction
-this section closes. **This PR adds a one-line `⚠ SUPERSEDED → agent-scoped World` forward-pointer to those
-two** (comment-only; it does make the PR touch `crates/`, accepted because the alternative ships live
-obsolete guidance). The remaining ~12 *incidental* mentions (`vm/vm_api.rs`, `vm/gc/collect.rs`,
-`vm/host/{screen,visual_viewport,media_query,window,html_iframe_proto}.rs`,
-`api/elidex-api-observers/src/intersection.rs`, tests) are not standalone "implement world_id"
-instructions; they **update naturally with the B1 implementation that removes `world_id`** (same
-cite-update as the S5-3a comments, §6.4). This corrects the earlier draft's implication that only the
-unmerged S5-3a branch carries such comments.
+**On-`main` code comments — the COMPLETE forward-pointer sweep is done in this PR.** A repo grep finds
+the `world_id` discriminator / `#11-wrapper-cache-cross-dom-discriminator` /
+`#11-browsing-context-state-ecs-components` / nav-scrub-`S5-6`-gate cited in **~24 in-tree code-comment
+blocks across 15 files** (`vm_api.rs`, `host_data.rs`, `wrapper_intern.rs`, `mod.rs`, `gc/collect.rs`,
+`host/{screen,visual_viewport,media_query,window,html_iframe_proto,html_dialog_proto,navigation}.rs`,
+`api/elidex-api-observers/src/intersection.rs`, and tests). The earlier draft tried to split these into
+"load-bearing (point now) vs incidental (defer)" — but that per-comment judgment proved **unreliable**
+(the Codex loop kept finding "incidental" ones that were in fact active instructions a future editor
+follows, e.g. the per-document-state cluster comment and the nav-scrub-`S5-6`-gate comments that directly
+contradict §6.2). Per One-issue-one-way / §6.5's "close atomically", **this PR adds a uniform terse
+`⚠ SUPERSEDED 2026-06-30 → agent-scoped World (§6)` forward-pointer to *every* such block** (comment-only,
+76 added lines; no code/logic touched — it does make the PR touch `crates/`, accepted because the
+alternative ships live obsolete guidance). The forward-POINTER (all sites) is in this PR; the full comment
+**REWRITE** (rephrasing the now-superseded rationale, removing `world_id`) still rides the B1 implementation
+that removes `world_id`.
 
 **Deferred (PM, trigger = the friendly-iframe / B1 implementation PR, post-S5):** the *full*
-rewrite — rewriting the umbrella §9 keystone row, inverting the iframe-plan §2 design prose, and the ~12
-remaining incidental code-comment cite-updates — is design-affecting (iframe-plan §2 is itself
-plan-review-grade) and lands with the implementation, not in this docs-only decision. The forward-pointers
+rewrite — rewriting the umbrella §9 keystone row, inverting the iframe-plan §2 design prose, and the
+code-comment full-rewrite (the pointers already land here) — is design-affecting (iframe-plan §2 is itself
+plan-review-grade) and lands with the implementation, not in this decision. The forward-pointers
 hold the invariant in the meantime; the rewrite is not silently abandoned (it has a named trigger).
 
 ---

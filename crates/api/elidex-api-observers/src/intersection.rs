@@ -220,6 +220,9 @@ impl IntersectionObserverRegistry {
     /// until then this scrub mirrors the per-site pattern used by
     /// `MutationObserverRegistry::clear_pending_records` and the
     /// listener-store retain in `HostData`.
+    /// ⚠ SUPERSEDED 2026-06-30: world_id retracted → agent-scoped EcsDom World
+    /// (PR #434 `docs/plans/2026-06-agent-scoped-ecsdom-world.md` §6); interim
+    /// form unchanged until B1.
     pub fn clear_root_entities(&mut self) {
         for reg in self.observers.values_mut() {
             reg.init.root = None;

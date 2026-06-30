@@ -840,6 +840,9 @@ fn retained_prior_document_mql_is_inert_in_a_different_document() {
     // Two distinct document entities in ONE `EcsDom`, so their `Entity`s are
     // provably different (no cross-`EcsDom`-world index aliasing — that edge is
     // the deferred world_id concern).
+    // ⚠ SUPERSEDED 2026-06-30: world_id retracted → agent-scoped EcsDom World
+    // (PR #434 docs/plans/2026-06-agent-scoped-ecsdom-world.md §6); interim form
+    // unchanged until B1.
     let mut vm = Vm::new();
     vm.install_host_data(HostData::new());
     let mut session = SessionCore::new();

@@ -20,6 +20,8 @@
 //!   insert the `IsModalDialog` ECS marker + add `open`.  Step 3 ("not
 //!   fully active") is unconditionally satisfied in the single-document
 //!   VM and is folded into `#11-browsing-context-state-ecs-components`.
+//!   ⚠ SUPERSEDED 2026-06-30: this slot is FOLDED into the agent-scoped
+//!   World decision (PR #434 §5 req 5 / §6.1).
 //! - **Deferred (`#11-dialog-top-layer`, depends on a reliable
 //!   `is modal` flag → the dialog *removing* steps that reset it on tree
 //!   removal):** the step-1 already-open **idempotent return** for both
@@ -279,6 +281,8 @@ fn dialog_show_modal(
     // Step 3 ("not fully active") is unconditionally satisfied in the
     // single-document VM (folded into
     // `#11-browsing-context-state-ecs-components`).
+    // ⚠ SUPERSEDED 2026-06-30: this slot is FOLDED into the agent-scoped
+    // World decision (PR #434 §5 req 5 / §6.1).
     // Step 4: not connected → throw.  Delegated to the engine-independent
     // `isConnected.get` DOM API (DOM §4.2.2 "connected").  This is the
     // core of slot `#11-dialog-tree-check`.

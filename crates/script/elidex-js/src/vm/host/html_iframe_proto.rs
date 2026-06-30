@@ -38,6 +38,9 @@
 //!   observably wrong in all frames (same-origin and cross-origin
 //!   alike).  Trigger: `world_id` / cross-DOM program + S5/boa
 //!   removal.  Revisit date: when the `world_id` / S5 program begins.
+//!   ⚠ SUPERSEDED 2026-06-30: world_id retracted → agent-scoped EcsDom
+//!   World (PR #434 `docs/plans/2026-06-agent-scoped-ecsdom-world.md` §6);
+//!   interim form unchanged until B1.
 
 #![cfg(feature = "engine")]
 

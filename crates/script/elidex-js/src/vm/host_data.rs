@@ -156,6 +156,9 @@ mod engine_feature {
         /// [`WrapperKey`].  GC mark/sweep dispatch via
         /// [`WrapperKind::mark_agent`] / [`WrapperKind::retain`].  Cleared on
         /// `unbind` (per-VM, world_id-independent — see module docs).
+        /// ⚠ SUPERSEDED 2026-06-30: world_id retracted → agent-scoped EcsDom
+        /// World (PR #434 `docs/plans/2026-06-agent-scoped-ecsdom-world.md` §6);
+        /// interim form unchanged until B1.
         pub(crate) wrapper_store: HashMap<WrapperKey, ObjectId>,
         /// Page-visibility state of this document's top-level browsing
         /// context (WHATWG HTML §6.2): `true` when the tab/window is
@@ -219,6 +222,8 @@ mod engine_feature {
         /// (NB `location.origin` does NOT read this — HTML §7.2.4 returns the
         /// *URL's* origin, which can differ from the document origin for a
         /// sandboxed doc.)
+        /// ⚠ SUPERSEDED 2026-06-30: this slot is FOLDED into the agent-scoped
+        /// World decision (PR #434 §5 req 5 / §6.1).
         document_origin_override: Option<elidex_plugin::SecurityOrigin>,
         /// Per-VM **stable** opaque origin returned by
         /// [`super::VmInner::document_origin`] when no override is installed and
