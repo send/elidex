@@ -288,7 +288,7 @@ entities, generation-checked — no new cross-World machinery). The exact per-AP
 
 | Surface | B1 category |
 |---|---|
-| `iframe.contentDocument.*` / `contentWindow.document` | within-World (another `AssociatedDocument` in the same World) |
+| `iframe.contentDocument.*` / `contentWindow.document` | within-World *entity-coexistence* (same `AssociatedDocument` in one World) — **but cross-origin access stays gated** (see constraint) |
 | `adoptNode` / `importNode` / `node.ownerDocument` (DOM §4.5) | within-World (re-home or clone — both stay inside one World) |
 | `getComputedStyle(childDoc node)` | within-World (multi-root style over the agent's docs) |
 | internal hit-test / event routing into iframes | within-World (the internal walk descends same-World subtrees) |
@@ -296,9 +296,12 @@ entities, generation-checked — no new cross-World machinery). The exact per-AP
 | focus chain + sequential nav across same-agent frames | within-World (`focus/sot.rs` per-doc membership, spanning the agent's docs) |
 
 > **Constraint for B1**: a shared World is an *entity-coexistence* property, **not** a license to flatten
-> per-document **DOM-API** boundaries — e.g. `Document.elementFromPoint` stays per-document (it does not
-> pierce a nested frame; CSSOM-View §5), while only the *internal* hit-test descends. The per-API boundary
-> specifics are the B1 plan-memo's.
+> per-document API **or cross-origin access** boundaries. (1) Per-document DOM-API boundaries stay
+> per-document — e.g. `Document.elementFromPoint` does not pierce a nested frame (CSSOM-View §5); only the
+> *internal* hit-test descends. (2) **same-agent ≠ same-origin** (§1.4): for a same-site *cross-origin*
+> frame, `contentDocument` is still origin-gated to `null` and `contentWindow.document` stays behind the
+> WindowProxy / in-World access check (§4.4, §5 req 4) — sharing a World does **not** make it a free
+> raw-node crossing. The per-API + access-gating specifics are the B1 plan-memo's.
 
 ### §4.2 Neutral — **no DOM entity crosses** (identical in B1 and B2)
 
@@ -396,6 +399,14 @@ meet. They are the deliverable — the contract is "build to these."
    World/`Vm` is allocated **only when the agent key changes** — same-agent navigation reuses the World;
    a navigated-away document is **cached-or-despawned**, not unconditionally torn down (BFCache keeps it
    non-fully-active for reactivation, §7.4.1.2; co-resident same-agent opener/sibling docs keep running).
+
+   **Ownership / event-loop owner** (CLAUDE.md *Concurrency by ownership*): the agent's World+`Vm` is
+   shared across its top-level contexts (opener + same-group same-agent popups) *and* its frames, so the
+   **agent — not the top-level browsing context — is the single owner/event-loop unit** driving all its
+   documents. Today the shell owns content per top-level context (a separate `ContentState` /
+   `PipelineResult { dom, runtime }` per content thread); B1 must make that **per-agent**, so a same-agent
+   popup joins the opener's owner rather than getting a second `Vm` (which would break the object identity
+   this decision rests on). The owner/event-loop restructuring mechanism → B1 plan-memo (§8).
 
 2. **Creation-parameters-first ordering (reverses today's).** Compute the document's creation parameters
    (the bundle HTML §7.5.1 "create and initialize a Document object" consumes — its *navigation params*,
@@ -593,6 +604,14 @@ obsolete guidance). The forward-POINTER (all sites) is in this PR; the full comm
 **REWRITE** (rephrasing the now-superseded rationale, removing `world_id`) still rides the B1 implementation
 that removes `world_id`.
 
+**Code-comment per-field grain claims = pre-B1 interim, governed by the §5 req 5 grain rule.** The in-tree
+comments' specific grain/ownership statements (a field documented as a permanent shared-cross-cutting `(b)`
+exception, "per-VM by nature", "per-Document", …) describe the **current single-document-per-`Vm` interim**;
+under B1 they are reclassified by the §5 req 5 grain rule and rewritten by the B1-impl. A reviewer flagging
+that such a comment's grain contradicts req 5 is correct *that it will be rewritten — at B1-impl*; this PR
+does **not** re-assert per-field grain in the comments (that re-creates the enumeration §5 req 5 deliberately
+collapses). The grain SSoT is the decision (§5 req 5).
+
 **Deferred (PM, trigger = the friendly-iframe / B1 implementation PR, post-S5):** the *full*
 rewrite — rewriting the umbrella §9 keystone row, inverting the iframe-plan §2 design prose, and the
 code-comment full-rewrite (the pointers already land here) — is design-affecting (iframe-plan §2 is itself
@@ -634,6 +653,9 @@ spec-coverage map + plan-review). Listed so nothing is silently lost.
 - **Dynamic World-membership mechanism (§4.3 / §5 req 1).** Which per-document-root component owns
   agent/BCG membership and how the set is queried. *Correctness (alias-safety) is already discharged by
   construction in §4.3* (created-in/never-moved) — only the mechanism is open.
+- **Agent ownership / event-loop restructuring (§5 req 1).** The per-top-level-context shell ownership
+  (`ContentState` / `PipelineResult` per content thread) → a per-agent owner/event-loop driving all the
+  agent's documents; a same-agent popup joins the opener's owner, not a new `Vm`.
 - **Creation-parameters-first rollout + producer wiring (§5 req 2).** The exact param set, the
   struct→World-assign→stamp-on-root ordering, and the **producer** for the new header-parse surface
   (`Origin-Agent-Cluster` / COOP / COEP — absent today, §3 trust-boundary): who parses them, when (before
