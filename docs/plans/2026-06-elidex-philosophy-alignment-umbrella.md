@@ -1,5 +1,13 @@
 # Elidex Philosophy-Alignment Umbrella Plan
 
+> **⚠ SUPERSEDED re world_id (2026-06-30):** this plan's references to the **`world_id` / cross-DOM
+> program** as a dependency/trigger (F4/C1+ "C0 + `world_id` program + S5/boa removal", and the deferral
+> triggers tied to "the `world_id` / cross-DOM program") are **superseded** by
+> `docs/plans/2026-06-agent-scoped-ecsdom-world.md` — there is no world_id program; the cross-DOM identity
+> resolution is the **agent-scoped `EcsDom` World** (B1), landing with the friendly-iframe layer (post-S5).
+> Read "the world_id program" here as "the agent-scoped World / B1 program". Full text update deferred to
+> the B1 implementation PR (named trigger). See that decision §6 for the reconciliation.
+
 Plan date: 2026-06-20 JST
 Status: **PLAN ONLY — no implementation, no code change beyond this doc.**
 Follows up: `docs/audits/2026-06-elidex-philosophy-implementation-audit.md` (F1–F6).
