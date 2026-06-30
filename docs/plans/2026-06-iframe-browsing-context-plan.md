@@ -10,11 +10,13 @@ Revisit: when the agent-scoped World / B1 implementation begins (post-S5; see SU
 > cross-VM forwarding" path is **inverted for same-agent frames** by
 > `docs/plans/2026-06-agent-scoped-ecsdom-world.md` (B1: agent-scoped `EcsDom` World). **The boundary is the
 > agent, not the origin** (that doc §1.4 / §5 req 4): **same-agent** frames — which include **same-site
-> cross-origin** frames in the same browsing-context group, *not only same-origin* — share **one World + one
-> `Vm`** (object identity cannot cross heaps — that doc §2.1) and use an **in-`Vm` restricted `WindowProxy`**,
-> **not** separate `Vm`s with cross-VM forwarding. So **§2.4's cross-VM forwarding is correct only for
-> *cross-agent* frames** (cross-site / different BCG / sandboxed-opaque), **not** for same-site cross-origin
-> same-BCG frames. And `world_id` is **superseded**, not a precondition (within one World, hecs `generation`
+> cross-origin** frames in the same browsing-context group **that the *obtain a similar-origin window agent*
+> algorithm site-keys** (HTML §8.1.2.2; *not only same-origin*) — share **one World + one `Vm`** (object
+> identity cannot cross heaps — that doc §2.1) and use an **in-`Vm` restricted `WindowProxy`**, **not**
+> separate `Vm`s with cross-VM forwarding. So **§2.4's cross-VM forwarding is correct for *cross-agent*
+> frames** — cross-site, different BCG, sandboxed-opaque, **and an *origin-keyed* same-site cross-origin
+> frame** (an honored `Origin-Agent-Cluster` or a non-`none` cross-origin-isolation mode → a **different**
+> agent, that doc §5 req 1) — but **not** for a *site-keyed* same-site cross-origin same-BCG frame. And `world_id` is **superseded**, not a precondition (within one World, hecs `generation`
 > handles staleness). **Read *every* `world_id` reference in this plan — incl. the §3 preconditions and the
 > §5 ECS-native table's `WindowProxy` `ObjectId` rule ("post-`world_id`" / "until `world_id` lands") — as the
 > agent-scoped World (B1) program: renamed, not canceled, so the gates/rules remain valid as B1** (the full
