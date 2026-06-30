@@ -671,7 +671,8 @@ F4 "untracked narrative" anti-pattern the umbrella criticizes):** register
   point sync storage is excluded and the async core becomes the *only* storage API,
   so it MUST exist. Whichever of `BrowserCore`/`App` is introduced first trips the
   trigger.
-- *Re-evaluation date:* revisit when the `world_id` / S5-boa-removal program opens
+- *Re-evaluation date:* revisit when the agent-scoped World / B1 (supersedes `world_id`,
+  see `docs/plans/2026-06-agent-scoped-ecsdom-world.md`) / S5-boa-removal program opens
   the dual-mode work (MEMORY.md Active state), or sooner if app-mode storage is
   scheduled.
 

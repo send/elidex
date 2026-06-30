@@ -451,6 +451,9 @@ fn singletons_survive_batch_rebind() {
     // frame-drain producer would fire at a freshly-allocated, listener-less
     // singleton (Codex R4-B). (Cross-DOM identity reset on a real navigation is
     // world-id's job — `#11-wrapper-cache-cross-dom-discriminator`.)
+    // ⚠ SUPERSEDED 2026-06-30: world_id retracted → agent-scoped EcsDom World
+    // (PR #434 docs/plans/2026-06-agent-scoped-ecsdom-world.md §6); interim form
+    // unchanged until B1.
     let mut vm = Vm::new();
     vm.install_host_data(HostData::new());
     let mut session = SessionCore::new();

@@ -66,13 +66,17 @@ const SESSION_HISTORY_CAP: usize = 50;
 /// session history (see the module docs). Not a session-history stack: the
 /// shell's `NavigationController` is the single source of truth.
 ///
-/// These fields are a per-VM browsing-context interim. `current_url` /
-/// `history_length` / `current_index` / `current_state` are per-Document facts
-/// whose ECS-native ideal home is a per-entity component on the document entity
-/// (deferred slice `#11-browsing-context-state-ecs-components`); `pending_navigation` /
-/// `pending_history` are transient drain-once intent buffers that are per-VM by
-/// nature (a VM↔shell message channel, not per-entity state — boa stores the
-/// same intents on its `HostBridge`).
+/// These fields are a per-VM browsing-context interim. Under B1 they migrate to ECS
+/// components at each field's spec-correct grain, per the decision's grain rule (PR
+/// #434 §5 req 5; the per-field classification is the B1 plan-memo's, not asserted
+/// here). `pending_navigation` / `pending_history` are transient drain-once intent
+/// buffers; under B1 — where one `Vm` hosts several same-agent navigables — a
+/// `location` / `history` action targets the *incumbent* navigable, so these are
+/// **per-navigable** intents (a single VM-global buffer would let one frame/popup
+/// drain a sibling's intent), and their exact keying is part of that same B1 grain
+/// classification, not asserted per-VM here.
+/// ⚠ SUPERSEDED 2026-06-30: this slot is FOLDED into the agent-scoped World
+/// decision (PR #434 §5 req 5 / §6.1).
 #[derive(Debug)]
 pub(crate) struct NavigationState {
     /// The current browsing-context URL.  Backs `location.*`, `document.URL`,

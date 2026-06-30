@@ -61,6 +61,9 @@
 //! (`#11-wrapper-cache-cross-dom-discriminator`), shared by every payload-free
 //! cached singleton (`localStorage` / `subtleCrypto` / `visualViewport`), not a
 //! Screen-only patch (One-issue-one-way).
+//! ⚠ SUPERSEDED 2026-06-30: world_id retracted → agent-scoped EcsDom World
+//! (PR #434 `docs/plans/2026-06-agent-scoped-ecsdom-world.md` §6); interim form
+//! unchanged until B1.
 
 #![cfg(feature = "engine")]
 

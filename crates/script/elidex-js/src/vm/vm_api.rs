@@ -710,6 +710,9 @@ impl Vm {
             // The world_id discriminator
             // (`#11-wrapper-cache-cross-dom-discriminator`) will
             // eventually subsume this.
+            // ⚠ SUPERSEDED 2026-06-30: world_id retracted → agent-scoped
+            // EcsDom World (PR #434 docs/plans/2026-06-agent-scoped-ecsdom-world.md
+            // §6); interim form unchanged until B1.
             if let Some(hd) = self.inner.host_data.as_deref_mut() {
                 hd.mutation_observers.clear_pending_records();
                 hd.intersection_observers.clear_root_entities();
@@ -729,6 +732,10 @@ impl Vm {
                 // Same cross-DOM-aliasing rationale as the wrapper-
                 // store retain above (`#11-wrapper-cache-cross-dom-
                 // discriminator` — world_id discriminator left-open).
+                // ⚠ SUPERSEDED 2026-06-30: world_id retracted →
+                // agent-scoped EcsDom World (PR #434
+                // docs/plans/2026-06-agent-scoped-ecsdom-world.md §6);
+                // interim form unchanged until B1.
                 hd.ce_registry
                     .lock()
                     .expect("CE registry mutex poisoned")
@@ -803,6 +810,9 @@ impl Vm {
             // cross-DOM identity reset on an actual navigation is the world-id
             // discriminator's job (`#11-wrapper-cache-cross-dom-discriminator`),
             // not a per-batch cache clear.
+            // ⚠ SUPERSEDED 2026-06-30: world_id retracted → agent-scoped EcsDom
+            // World (PR #434 docs/plans/2026-06-agent-scoped-ecsdom-world.md §6);
+            // interim form unchanged until B1.
             // Codex R6-A: a script-registered `visualViewport` resize listener
             // therefore also survives unbind — but this is the SAME engine-wide
             // property `window.addEventListener('resize', …)` already has: the
@@ -817,6 +827,9 @@ impl Vm {
             // (R4-B) and be a lone-outlier. S5-6 (the flip that first drives the
             // VM producer in production) is the hard gate for landing that
             // engine-wide scrub before the producer goes live.
+            // ⚠ SUPERSEDED 2026-06-30: nav-scrub-as-S5-6-hard-gate is RETRACTED
+            // (the flip is cross-DOM-neutral) — PR #434
+            // docs/plans/2026-06-agent-scoped-ecsdom-world.md §6.2.
             // Codex R11-2: these singletons are `extensible` (spec-correct —
             // `screen` / `visualViewport` accept expandos), so a script-attached
             // own property (`screen.token = …`) ALSO survives unbind. That is
@@ -826,6 +839,9 @@ impl Vm {
             // navigation-scrub (reset identity → drop expandos + listeners on a
             // real navigation), not a screen/VV-only clear that would wipe the
             // page's own state every batch.
+            // ⚠ SUPERSEDED 2026-06-30: nav-scrub-as-S5-6-hard-gate is RETRACTED
+            // (the flip is cross-DOM-neutral) — PR #434
+            // docs/plans/2026-06-agent-scoped-ecsdom-world.md §6.2.
             // D-17 `#11-custom-elements-vm` — drop the cached
             // `customElements` singleton wrapper so it can be re-
             // allocated lazily on the next bind. The registry state

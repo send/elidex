@@ -9,6 +9,10 @@
 //! test contract `parent === window` / `frameElement === null` / etc.
 //! should still hold for the top-level window when the real
 //! implementation lands (same-origin child frames will diverge).
+//!
+//! ⚠ SUPERSEDED 2026-06-30: world_id retracted → agent-scoped EcsDom World
+//! (PR #434 `docs/plans/2026-06-agent-scoped-ecsdom-world.md` §6); interim form
+//! unchanged until B1.
 
 #![cfg(feature = "engine")]
 

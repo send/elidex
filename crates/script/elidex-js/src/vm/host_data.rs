@@ -119,6 +119,13 @@ mod engine_feature {
         /// (no current milestone — opens when Web Workers VM port
         /// land OR an observable cross-DOM aliasing bug surfaces);
         /// until then the invariant is a caller contract.
+        /// **⚠ SUPERSEDED (2026-06-30, PR #434
+        /// `docs/plans/2026-06-agent-scoped-ecsdom-world.md`)**: the
+        /// `world_id` discriminator is retracted. The cross-DOM
+        /// resolution is the **agent-scoped `EcsDom` World** (1 agent =
+        /// 1 World = 1 Vm), under which this aliasing is unconstructable
+        /// by construction. The caller contract stays the interim
+        /// invariant; the full removal lands with the B1 implementation.
         window_entity: Option<Entity>,
         /// Document entities whose wrapper has already had the
         /// document-specific own-property suite (`getElementById` /
@@ -149,6 +156,9 @@ mod engine_feature {
         /// [`WrapperKey`].  GC mark/sweep dispatch via
         /// [`WrapperKind::mark_agent`] / [`WrapperKind::retain`].  Cleared on
         /// `unbind` (per-VM, world_id-independent — see module docs).
+        /// ⚠ SUPERSEDED 2026-06-30: world_id retracted → agent-scoped EcsDom
+        /// World (PR #434 `docs/plans/2026-06-agent-scoped-ecsdom-world.md` §6);
+        /// interim form unchanged until B1.
         pub(crate) wrapper_store: HashMap<WrapperKey, ObjectId>,
         /// Page-visibility state of this document's top-level browsing
         /// context (WHATWG HTML §6.2): `true` when the tab/window is
@@ -176,9 +186,11 @@ mod engine_feature {
         /// unsandboxed documents — the cutover's shell installs parsed
         /// `IframeSandboxFlags` (from the iframe `sandbox=""` attribute)
         /// via [`Self::set_sandbox_flags`] when a document loads inside a
-        /// sandboxed iframe.  A per-browsing-context security fact (not a
-        /// per-entity DOM fact) → the CLAUDE.md side-store rule (b)
-        /// shared-cross-cutting exception, like `cookie_jar` above.  Read
+        /// sandboxed iframe.  A member of the current-document-state cluster (cf. the
+        /// `document_origin_override` note below); under B1 it migrates to an ECS
+        /// component at its spec-correct grain per the decision's grain rule (PR #434
+        /// §5 req 5), *not* a permanent CLAUDE.md side-store (b) exception like
+        /// `cookie_jar`.  Read
         /// by [`Self::scripts_allowed`] (the eval gate; S1b adds the
         /// `forms`/`popups`/`modals` accessors + their consumer wiring).
         sandbox_flags: Option<elidex_plugin::IframeSandboxFlags>,
@@ -212,6 +224,8 @@ mod engine_feature {
         /// (NB `location.origin` does NOT read this — HTML §7.2.4 returns the
         /// *URL's* origin, which can differ from the document origin for a
         /// sandboxed doc.)
+        /// ⚠ SUPERSEDED 2026-06-30: this slot is FOLDED into the agent-scoped
+        /// World decision (PR #434 §5 req 5 / §6.1).
         document_origin_override: Option<elidex_plugin::SecurityOrigin>,
         /// Per-VM **stable** opaque origin returned by
         /// [`super::VmInner::document_origin`] when no override is installed and
@@ -229,7 +243,8 @@ mod engine_feature {
         /// The iframe nesting depth of this document's browsing context
         /// (`0` for top-level).  Installed by the shell's iframe load path
         /// ([`Self::set_iframe_depth`]); read to cap runaway `<iframe>`
-        /// nesting.  Per-browsing-context fact, (b) exception like above.
+        /// nesting.  Per-context interim; its B1 ECS grain follows the
+        /// decision's grain rule (PR #434 §5 req 5), not asserted here.
         iframe_depth: usize,
         /// `MutationObserver` registry (WHATWG DOM §4.3.1) — owns the
         /// per-observer pending-record queues. The observation targets +
