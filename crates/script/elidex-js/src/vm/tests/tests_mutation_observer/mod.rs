@@ -80,6 +80,24 @@ pub(super) fn run_throws(script: &str) -> String {
     format!("{err:?}")
 }
 
+/// Shared **pre-bind** prelude for [`setup_with_root`] /
+/// [`setup_with_root_and_svg`]: build the doc, resolve `<body>`, create the
+/// `<div>` root and append it, returning the still-unbound `(doc, body, root)`
+/// entities. The bind + global wiring (and the SVG variant's extra sibling) are
+/// the callers' job — the prelude can't bind because `setup_with_root_and_svg`
+/// needs to mutate `dom` further (append the SVG) before the bind borrows it.
+fn build_root_tree(
+    dom: &mut EcsDom,
+) -> (elidex_ecs::Entity, elidex_ecs::Entity, elidex_ecs::Entity) {
+    let doc = build_doc(dom);
+    let body = dom
+        .first_child_with_tag(dom.first_child_with_tag(doc, "html").unwrap(), "body")
+        .unwrap();
+    let root = dom.create_element("div", elidex_ecs::Attributes::default());
+    assert!(dom.append_child(body, root));
+    (doc, body, root)
+}
+
 /// Build a typical document tree with a `<div>` returned for
 /// targeted mutations, and bind the VM.  Exposes the root `<div>`
 /// element's JS wrapper as `globalThis.root` (the variable name
@@ -90,12 +108,7 @@ pub(super) fn setup_with_root(
     session: &mut SessionCore,
     dom: &mut EcsDom,
 ) -> (elidex_ecs::Entity, elidex_ecs::Entity) {
-    let doc = build_doc(dom);
-    let body = dom
-        .first_child_with_tag(dom.first_child_with_tag(doc, "html").unwrap(), "body")
-        .unwrap();
-    let root = dom.create_element("div", elidex_ecs::Attributes::default());
-    assert!(dom.append_child(body, root));
+    let (doc, _body, root) = build_root_tree(dom);
 
     #[allow(unsafe_code)]
     unsafe {
@@ -119,12 +132,7 @@ pub(super) fn setup_with_root_and_svg(
     session: &mut SessionCore,
     dom: &mut EcsDom,
 ) -> (elidex_ecs::Entity, elidex_ecs::Entity, elidex_ecs::Entity) {
-    let doc = build_doc(dom);
-    let body = dom
-        .first_child_with_tag(dom.first_child_with_tag(doc, "html").unwrap(), "body")
-        .unwrap();
-    let root = dom.create_element("div", elidex_ecs::Attributes::default());
-    assert!(dom.append_child(body, root));
+    let (doc, body, root) = build_root_tree(dom);
 
     let mut svg_attrs = elidex_ecs::Attributes::default();
     svg_attrs.set("viewBox", "0 0 10 10");

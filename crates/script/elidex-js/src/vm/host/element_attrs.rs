@@ -63,6 +63,31 @@ pub(super) fn attr_get(ctx: &mut NativeContext<'_>, entity: Entity, name: &str) 
     ctx.host().dom().get_attribute(entity, name)
 }
 
+/// Coerce arg 0 to a string and resolve it through the single canonical
+/// [`EcsDom::resolve_attribute_qname`](elidex_ecs::EcsDom::resolve_attribute_qname)
+/// (HTML-namespace-gated lowercase, SVG/MathML case-preserved) — the shared
+/// "coerce + resolve attribute name" idiom for the VM name-based attribute
+/// natives (`removeAttribute` / `getAttributeNode` / `toggleAttribute`).
+///
+/// §8 I-CACHE-KEY: callers thread the ONE resolved name through both the
+/// storage key (the handler's removal / lookup) and the wrapper-cache key
+/// (`intern(name)` for the `Attr` snapshot / invalidation) so a resolved-vs-raw
+/// key mismatch can't leak a stale cached `Attr` (e.g. `removeAttribute('ID')`
+/// resolving to `id` on an HTML element, while `viewBox` is case-preserved on an
+/// SVG element).
+fn coerce_resolved_attr_name(
+    ctx: &mut NativeContext<'_>,
+    entity: Entity,
+    args: &[JsValue],
+) -> Result<String, VmError> {
+    let raw = coerce_first_arg_to_string(ctx, args)?;
+    Ok(ctx
+        .host()
+        .dom()
+        .resolve_attribute_qname(entity, &raw)
+        .into_owned())
+}
+
 /// HTML enumerated-attribute reflection helper (WebIDL `attribute
 /// DOMString`, content-attribute is enumerated): read `attr` from
 /// `entity`, lowercase the raw value, and return the canonical
@@ -341,18 +366,9 @@ pub(super) fn native_element_remove_attribute(
     // Resolve the name through the single canonical
     // `EcsDom::resolve_attribute_qname` (B2-Slice-3 / §8 I-CACHE-KEY) so the
     // VM-local Attr-wrapper snapshot / invalidation below keys on the SAME
-    // resolved name the `removeAttribute` handler removes — else
-    // `removeAttribute('ID')` removes `id` via the handler but a raw-keyed
-    // snapshot misses a cached `getAttributeNode('id')` wrapper (HTML re-key
-    // regression), while an unconditional-lowercase would collapse an SVG
-    // `viewBox` snapshot key (SVG regression). The resolver lowercases iff the
-    // receiver is an HTML-namespace element (SVG / MathML case-preserved).
-    let raw = coerce_first_arg_to_string(ctx, args)?;
-    let name = ctx
-        .host()
-        .dom()
-        .resolve_attribute_qname(entity, &raw)
-        .into_owned();
+    // resolved name the `removeAttribute` handler removes (see
+    // `coerce_resolved_attr_name`).
+    let name = coerce_resolved_attr_name(ctx, entity, args)?;
     // B2-Slice-1 / F2: route the removal through the record-producing
     // `removeAttribute` handler (chokepoint remove + §4.9 "attributes" record
     // + `AttrEntityCache` evict + record drain) instead of the bare
@@ -468,18 +484,12 @@ pub(super) fn native_element_get_attribute_node(
     let Some(entity) = entity_from_this(ctx, this) else {
         return Ok(JsValue::Null);
     };
-    let raw = coerce_first_arg_to_string(ctx, args)?;
     // B2-Slice-3 / §4.2: resolve the lookup name through the single canonical
-    // `EcsDom::resolve_attribute_qname` (HTML-namespace-gated lowercase, SVG /
-    // MathML case-preserved) so `getAttributeNode('ID')` on an HTML element
-    // finds `id` (was a latent miss). The ONE resolved binding keys BOTH the
-    // `has_attribute` probe AND the wrapper cache (§8 I-CACHE-KEY: a resolved-
-    // vs-raw key mismatch leaks a stale cached Attr).
-    let name = ctx
-        .host()
-        .dom()
-        .resolve_attribute_qname(entity, &raw)
-        .into_owned();
+    // `EcsDom::resolve_attribute_qname` so `getAttributeNode('ID')` on an HTML
+    // element finds `id` (was a latent miss). The ONE resolved binding keys BOTH
+    // the `has_attribute` probe AND the wrapper cache (§8 I-CACHE-KEY — see
+    // `coerce_resolved_attr_name`).
+    let name = coerce_resolved_attr_name(ctx, entity, args)?;
     if !ctx.host().dom().has_attribute(entity, &name) {
         return Ok(JsValue::Null);
     }
@@ -734,18 +744,9 @@ pub(super) fn native_element_toggle_attribute(
     // Resolve the name through the single canonical
     // `EcsDom::resolve_attribute_qname` (B2-Slice-3 / §8 I-CACHE-KEY) so the
     // `currently_present` probe + the Attr-wrapper detach snapshot below key on
-    // the SAME resolved name the `toggleAttribute` handler operates on — else
-    // `toggleAttribute('ID')` removes `id` via the handler but a raw-keyed
-    // precheck / snapshot misses a cached `getAttributeNode('id')` wrapper (HTML
-    // re-key regression), while an unconditional-lowercase would collapse an SVG
-    // `viewBox` key (SVG regression). The resolver lowercases iff the receiver is
-    // an HTML-namespace element (SVG / MathML case-preserved).
-    let raw = coerce_first_arg_to_string(ctx, args)?;
-    let name = ctx
-        .host()
-        .dom()
-        .resolve_attribute_qname(entity, &raw)
-        .into_owned();
+    // the SAME resolved name the `toggleAttribute` handler operates on (see
+    // `coerce_resolved_attr_name`).
+    let name = coerce_resolved_attr_name(ctx, entity, args)?;
 
     // `force` (second arg): undefined = toggle, true = ensure present,
     // false = ensure absent.  WHATWG §4.9.2 toggleAttribute.

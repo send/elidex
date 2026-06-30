@@ -78,7 +78,6 @@
 #![cfg(feature = "engine")]
 
 use elidex_ecs::Entity;
-use elidex_script_session::apply_set_attribute;
 
 use super::super::shape;
 use super::super::value::{
@@ -413,20 +412,15 @@ fn native_attr_set_value(
     let attached = host.dom().has_attribute(owner, &name_str);
     if attached {
         let new_value = ctx.vm.strings.get_utf8(value_sid);
-        // B2-Slice-3: route the §4.9.2 step-5 "change an attribute"
-        // through the record-producing `apply_set_attribute` seam (the
-        // canonical `EcsDom::set_attribute` chokepoint + the §4.9
-        // "attributes" record), mirroring the `attr_set` reflected-setter
-        // shim — so an attached `attr.value = …` write surfaces one
-        // MutationObserver record (a same-value write still records, I4).
-        // The Attr's verbatim qualified name is used (NO resolver —
-        // node-identity op, §4.2). Re-borrow `host_if_bound` for the fresh
-        // `&mut` after the shared-read above; `commit_notify_records` binds
-        // the record's push to its drain as one indivisible step (I9).
-        let record = ctx
-            .host_if_bound()
-            .and_then(|host| apply_set_attribute(host.dom(), owner, &name_str, &new_value));
-        ctx.vm.commit_notify_records(record.into_iter().collect());
+        // One-issue-one-way (B2-Slice-3): the attached `attr.value = …` write is
+        // the SAME record-producing shim as the reflected IDL setters —
+        // `apply_set_attribute` (the `EcsDom::set_attribute` chokepoint + the
+        // §4.9 "attributes" record, a same-value write still records, I4) +
+        // `commit_notify_records` (push bound to drain, I9). Delegate to
+        // `attr_set` rather than re-inline it. The Attr's verbatim qualified name
+        // is the key (NO resolver — node-identity op, §4.2); `attr_set` returns a
+        // `bool` `did_set` this site ignores.
+        super::element_attrs::attr_set(ctx, owner, &name_str, &new_value);
     }
     Ok(JsValue::Undefined)
 }
