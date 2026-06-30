@@ -427,7 +427,7 @@ impl EcsDom {
     /// (most elements are HTML, so the component marks only the foreign
     /// exception).  For non-element entities the value is meaningless;
     /// callers gate on [`is_element`](Self::is_element) first, as
-    /// [`is_html_namespace`](Self::is_html_namespace) does.
+    /// [`Self::is_html_namespace`](Self::is_html_namespace) does.
     #[must_use]
     pub fn namespace_of(&self, entity: Entity) -> Namespace {
         self.world
@@ -824,7 +824,7 @@ impl EcsDom {
     /// ASCII-lowercase `qname` iff `entity` is an HTML-namespace element
     /// (returning an owned `Cow`); otherwise return the borrowed `qname`
     /// **case-preserved** — so SVG / MathML local names (`viewBox`,
-    /// `gradientUnits`, …) survive verbatim. [`is_html_namespace`] gates non-
+    /// `gradientUnits`, …) survive verbatim. [`Self::is_html_namespace`] gates non-
     /// elements (and foreign elements) to `false`, so they take the
     /// case-preserving `Cow::Borrowed` arm too.
     ///
@@ -838,7 +838,7 @@ impl EcsDom {
     /// its node document is an HTML document"*. elidex has **no** node-document-
     /// type predicate at the ECS layer and the [`Namespace`] enum is
     /// `{Html, Svg, MathMl}`, so "an HTML-namespace element inside an XML
-    /// document" is not a representable state — [`is_html_namespace`] is the
+    /// document" is not a representable state — [`Self::is_html_namespace`] is the
     /// **complete** available gate and resolves the only representable concern
     /// (SVG / MathML case-preservation). Folding a future `is_html_document`
     /// conjunct is a one-line localized change here (there is exactly ONE
