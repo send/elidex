@@ -3,8 +3,16 @@
 Slot: `#11-windowproxy-browsing-context`
 Status: deferred stub — see C0 / F4 in the philosophy-alignment umbrella
 Why deferred: sub-frame browsing-context entity model and cross-VM Document/Window proxy identity are not yet implemented (see §2)
-Trigger: `world_id` / cross-DOM program + S5/boa removal
-Revisit: when the `world_id` / S5 program begins
+Trigger: agent-scoped `EcsDom` World / cross-DOM program + S5/boa removal (was "`world_id`"; see SUPERSEDED note below)
+Revisit: when the agent-scoped World / B1 implementation begins (post-S5; see SUPERSEDED note below)
+
+> **⚠ DESIGN SUPERSEDED re same-origin frames (2026-06-30):** this plan's §2 "separate `VmInner` +
+> cross-VM forwarding for same-origin friendly access" is **inverted** by
+> `docs/plans/2026-06-agent-scoped-ecsdom-world.md` (B1: agent-scoped `EcsDom` World). Same-origin
+> friendly iframes share **one World + one `Vm`** (object identity cannot cross heaps — that doc §2.1),
+> not separate `Vm`s with cross-VM forwarding; and `world_id` is **superseded**, not a precondition
+> (within one World, hecs `generation` handles staleness). The §2 design-prose rewrite is the trigger for
+> this plan's revisit (the B1 implementation PR, post-S5). See that doc §4.1 (cross-frame sweep) + §6.3.
 
 ---
 

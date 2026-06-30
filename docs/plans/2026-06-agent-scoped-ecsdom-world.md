@@ -22,7 +22,7 @@ S5-3a's (PR #430) deferral comments are **retargeted to cite it** (a separate ci
 
 ## §0 Read first — the one-line decision
 
-`EcsDom` World = **one per similar-origin window agent** (HTML §8.1.2.1), site-keyed by default and
+`EcsDom` World = **one per similar-origin window agent** (the dfn in HTML §8.1.2.1), site-keyed by default and
 origin-keyed when an `Origin-Agent-Cluster` response header opts in (HTML §7.1.2). One World hosts the
 agent's **many same-agent document subtrees** (the embedder + its same-origin frames + same-origin
 popups). Cross-agent (cross-site / sandboxed-opaque) content lives in a **separate World + separate
@@ -39,7 +39,7 @@ Worlds, so the within-`Vm`-cross-World reference — the **exact** state `world_
 | World grain | one World **per document** | one World **per agent** (many docs) |
 | A `Vm` holds | entities from **N Worlds** | entities from **1 World** |
 | Cross-DOM aliasing | **occurs**, managed by a read-time `world_id`-mismatch → dangling check + a per-VM-side-store → per-entity-component migration the check unblocks | **cannot occur** — distinct entities within one World; hecs `generation` already handles staleness |
-| New machinery | `EcsDom::world_id: u64` counter + origin-world tag on every retained handle + a mismatch check threaded through ~46 resolve sites + a navigation-scrub | **none** — extends the *existing* within-World multi-document grain |
+| New machinery | `EcsDom::world_id: u64` counter + origin-world tag on every retained handle + a mismatch check threaded through **every** entity→wrapper resolve site (the world_id migration memo estimated dozens) + a navigation-scrub | **none** — extends the *existing* within-World multi-document grain |
 | First-in-codebase | introduces the **first** within-`Vm` cross-World references | introduces **none** (no cross-World refs anywhere — §1.3) |
 
 B1 is the ideal because it **removes a problem class** instead of **adding a mechanism to police it**
@@ -72,18 +72,35 @@ detects use-after-despawn.
 
 Verified against `hecs-0.11.0` this session:
 
-- **despawn bumps the generation.** `World::despawn` → `Entities::free` does
-  `meta.generation = meta.generation.wrapping_add(1)` (`entities.rs:384`) after asserting the handle's
-  generation matches (`entities.rs:380`).
+- **despawn bumps the generation.** `World::despawn` → `Entities::free` bumps `meta.generation`
+  (`entities.rs:384`: a `NonZeroU32::new(u32::from(meta.generation).wrapping_add(1))` cycling `1..=u32::MAX`,
+  skipping 0) after asserting the handle's generation matches (`entities.rs:380`).
 - **stale handles are rejected.** `contains` / `get` gate on `meta.generation == entity.generation`
   (`entities.rs:412`, `:439`) and reject a mismatch (`:464`).
 
 So in a single World, a parent-held wrapper to a **despawned** child-iframe-document node is correctly
 **dangling** — `dom.contains(entity)` returns false, the wrapper resolves to `None` — **without any
-`world_id`**. (hecs `Entity` = `NonZeroU64` packing `generation<<32 | id`, `entities.rs:19,44` — no spare
-bits to carry a `world_id` even if we wanted one, which independently rules out the "pack world_id into
-Entity" variant of B2.) Generation handles the *despawn* hazard; B1 ensures despawn is the *only*
+`world_id`**. (hecs `Entity::to_bits` packs `(generation as u64) << 32 | id` into a `NonZeroU64`
+(`entities.rs:~44`; `generation: NonZeroU32`, `entities.rs:~21`) — no spare bits to carry a `world_id` even
+if we wanted one, which independently rules out the "pack world_id into Entity" variant of B2.) Generation
+handles the *despawn* hazard; B1 ensures despawn is the *only*
 hazard by never admitting a second World's live-but-different bits.
+
+**The temporal dimension (rebind), not just the spatial (reference).** §1.3 establishes that no `Vm` holds
+two Worlds' entities *at once* (the spatial hazard). The staleness `bind_epoch` guards in-tree today
+(`static_range_proto.rs:371`, `vm_api.rs:574-585`) is the *temporal* sibling: a wrapper retained across a
+`Vm::unbind`→`bind` that re-binds a **different** `EcsDom` resolves stale bits generation cannot catch —
+the rebind is **not** a despawn (same index, same generation, a different world). **B1 eliminates this too,
+by construction**: a `Vm` binds exactly one World — its agent's — for its whole life; navigation creates a
+*fresh* engine + `EcsDom`, owned together and never rebound (`pipeline.rs` — a new `JsRuntime` today, the
+`Vm` post-flip; navigation = whole-pipeline replacement, not a re-bind to a different DOM), and a World's
+document-root membership may grow/shrink (docs created-in / despawned-from, §5 req 1) but the World is
+**never swapped** for a different one under a live `Vm`. So every `unbind`→`bind` re-binds the *same* World;
+there is no cross-World rebind, and `bind_epoch`'s cross-world detection role disappears (§5 req 6 / §7 Q7).
+The one residual within-World hazard B1 inherits from hecs is **ABA on 32-bit `generation` wraparound** (an
+index despawned/respawned 2³²−1 times — the full `NonZeroU32` cycle — recurs at the same bitpattern) —
+accepted as out of scope (a retained wrapper does not survive ~4 billion despawns of one index), and
+distinct from the cross-World hazard B1 removes.
 
 ### §1.3 The construction proof: no `Vm` ever holds two Worlds → no discriminator is needed
 
@@ -137,7 +154,8 @@ passes a *live* node, not a copy). Object identity **cannot cross heaps** — a 
 node's entity bits are only meaningful in the realm/World that owns them. Therefore **same-agent iframes
 must share one `Vm` and one heap**. This is not a B1 choice; it is what "friendly iframe" *means*. (It is
 also why #412 C0 had to **stub** same-origin friendly-iframe sync scripting — the current
-separate-`EcsDom`+separate-`Vm`-per-iframe model, `iframe/load.rs:44-46,238-244`, **cannot** express it.)
+separate-`EcsDom`+separate-`Vm`-per-iframe model, `crates/shell/elidex-shell/src/content/iframe/load.rs:44-46,238-244`
+(cited `iframe/load.rs` below), **cannot** express it.)
 
 Given that same-agent content shares one `Vm`, the only remaining question is the **World grain inside
 that shared `Vm`**:
@@ -159,7 +177,8 @@ built right now** (S5 / FLIP + `#11-windowproxy-browsing-context` /
 "extra work to avoid world_id" — it is **"build the iframe layer once, the right way."** Net:
 
 - **Avoids** the entire `world_id` apparatus: the `EcsDom::world_id` counter, the origin-world tag on
-  every retained handle, the mismatch check threaded through ~46 resolve sites, and the navigation-scrub.
+  every retained handle, the mismatch check threaded through every entity→wrapper resolve site, and the
+  navigation-scrub.
 - **Avoids** cross-`Vm` *synchronous* forwarding for same-origin frames (the iframe plan §2's "separate
   `VmInner` + cross-VM forwarding" path) — which could never carry object identity anyway.
 - **Inverts** the planned iframe direction (same-origin → *shared* World+`Vm`, not separate-`Vm`
@@ -185,7 +204,7 @@ decision fully specify that surface's ECS grain.
 
 | Spec section | Model element (what B1 places in the ECS) | Grain under B1 | Touch (current elidex site) | Reshaped? | User-input flow |
 |---|---|---|---|---|---|
-| WHATWG HTML §8.1.2 Agents and agent clusters (§8.1.2.1 similar-origin window agent, §8.1.2.2 agent cluster key) | the **agent** = the World identity | World = one per similar-origin window agent | **absent today** (no agent/site concept; origin/sandbox are per-VM `HostData`, `host_data.rs:184,215`) | ✓ | no (engine structure; values from origin/headers) |
+| WHATWG HTML §8.1.2 Agents and agent clusters (the *similar-origin window agent* dfn = §8.1.2.1; the *agent cluster key* dfn = §8.1.2.2) | the **agent** = the World identity | World = one per similar-origin window agent | **absent today** (no agent/site concept; origin/sandbox are per-VM `HostData`, `host_data.rs:184,215`) | ✓ | no (engine structure; values from origin/headers) |
 | WHATWG HTML §7.1.2 Origin-keyed agent clusters | `Origin-Agent-Cluster` header → origin-keyed vs site-keyed World | World keying chosen at document creation | absent today | ✓ | yes (response header) |
 | WHATWG HTML §7.3.2 Browsing contexts | browsing context ↔ document-root entity; WindowProxy indirection | per-document-root entity in the agent's World; WindowProxy = context indirection (not a raw entity) | iframe = separate `EcsDom`+`Vm` today (`iframe/load.rs:44-46`); WindowProxy null-stub (#412 C0) | ✓ | no (structure) |
 | WHATWG HTML §7.1.5 Sandboxing (incl. *determine the creation sandboxing flags*, *iframe sandboxing flag set*) | sandbox flags incl. embedder→embeddee union; sandbox→opaque-origin → **own** World | per-document-root component; opaque ⇒ separate World/agent | `apply_sandbox_origin` post-build (`iframe/load.rs:410-424`); embedder→embeddee **union absent** (pre-existing gap, §5 req 2) | ✓ | yes (`sandbox` attr) |
@@ -245,11 +264,19 @@ These pass a *live node from another document* — the surfaces that motivated `
 
 | Surface | How B1 absorbs it |
 |---|---|
-| `window.open` / `opener` (same-origin popup) | the popup **joins the opener's agent World** (dynamic membership) |
-| `document.domain` | an **in-World access-check flip** (no World merge) — and absent today anyway |
+| `window.open` / `opener` (same-origin popup) | the popup **joins the opener's agent World** (dynamic membership — *transition mechanism → §7 Q2*) |
+| `document.domain` | an **in-World access-check flip** (no World merge — *cluster-key reshape → §7 Q2*) — and absent today anyway |
 | BFCache | **freeze the agent's World + `Vm` as a unit**; restore keeps entities (no re-tagging, no world_id) |
 | `Origin-Agent-Cluster` | World **keying decision at document creation** (req 1) |
 | sandbox → opaque origin | the sandboxed doc gets its **own** World/agent (req 2) |
+
+**Structural absorption — transition mechanism is open, not settled here.** Each row stays within **one
+agent**, so the §1 dichotomy holds (no cross-World reference is created). But the same-origin-popup and
+`document.domain` rows are *dynamic membership transitions*: a popup joining the opener's World, or
+`document.domain` reshaping the agent-cluster key, mutates a World's document-root membership **at
+runtime**. That membership mechanism — and what happens to a retained wrapper *across* such a transition —
+is the open design question **§7 Q2**, not closed by this table. (The static "1 agent = 1 World" proof
+covers the steady state; the transition invariant is genuinely open.)
 
 ### §4.4 WindowProxy / context indirection (structurally the same in B1 and B2)
 
@@ -268,7 +295,7 @@ reference.** ∎
 These are the obligations the B1 implementation (post-S5, when the iframe layer is built for real) must
 meet. They are the deliverable — the contract is "build to these."
 
-1. **World = similar-origin window agent** (HTML §8.1.2.1). Site-keyed default; origin-keyed when
+1. **World = similar-origin window agent** (the dfn in HTML §8.1.2.1). Site-keyed default; origin-keyed when
    `Origin-Agent-Cluster` opts in (§7.1.2). **Dynamic membership**: a World spans top-level contexts
    (opener + same-origin popups) and **non-contiguous** same-origin frames; a tab may host several Worlds
    (one per agent present). Documents are **created-in / despawned-from** a World and **never moved
@@ -302,9 +329,15 @@ meet. They are the deliverable — the contract is "build to these."
 6. **`world_id` (`#11-wrapper-cache-cross-dom-discriminator`) is NOT built → supersede.** The
    wrapper-identity-component migration (`wrapper_store` → a per-entity `WrapperRefs` component) and the
    keepalive-component migration (`#11-eventtarget-keepalive-component-migration`) become **safe without
-   any discriminator** — one World ⇒ unique entities ⇒ hecs `generation` handles staleness (§1.2).
-   `bind_epoch` remains as `StaticRange`'s within-World freshness check (or folds into ordinary
-   generation/liveness checks); it is **not** generalized into a `world_id`-style cross-World discriminator.
+   any discriminator** — but *because B1 dissolves the precondition*, **not** by the generic "`Send+Sync`
+   per-entity ⇒ component" rule. `wrapper_store` holds per-VM JS-wrapper `ObjectId`s (`wrapper_intern.rs`:
+   "NOT an ECS component — aliases across DOMs if hosted on the entity") = CLAUDE.md **exception (a) per-VM
+   identity handle**; exception (a)'s hazard is **exactly** the cross-DOM aliasing B1 makes unconstructable
+   (§1.1–§1.3: no cross-World reference, and §1.2 no cross-World *rebind*). With the aliasing precondition
+   gone, the handle is a per-entity fact like any other → component-eligible, and within one World hecs
+   `generation` + liveness cover all staleness (§1.2). `bind_epoch` loses its cross-world role; it remains
+   only as `StaticRange`'s within-World freshness check, or folds into ordinary generation/liveness checks
+   (§7 Q7) — it is **not** generalized into a `world_id`-style cross-World discriminator.
 
 ---
 
@@ -320,6 +353,14 @@ meet. They are the deliverable — the contract is "build to these."
   §2 (same-origin: shared World+`Vm`, not separate-`Vm` cross-VM forwarding — §6.3).
 - **Makes safe-without-world_id** `#11-eventtarget-keepalive-component-migration` and the
   `wrapper_store`→component migration (req 6).
+
+**Slot-ledger disposition (record at landing).** This decision touches **5 slots** — supersede ×2
+(`#11-wrapper-cache-cross-dom-discriminator` + the world_id program memo), fold ×1
+(`#11-browsing-context-state-ecs-components`), reshape ×1 (`#11-windowproxy-browsing-context`), make-safe
+×2 (`#11-eventtarget-keepalive-component-migration` + `wrapper_store`→component). The landing-memo /
+defer-ledger pass (`project_open-defer-slots.md`) **must** record this disposition + the net cap delta
+(this removes/folds ≥2 open slots) — the disposition itself (supersede = keep as pointer for history, not
+delete; annotate the world_id program memo as superseded, not silently abandoned) is settled by §7 Q6.
 
 ### §6.2 The nav-scrub-as-pre-flip-gate is **RETRACTED**
 
@@ -353,8 +394,11 @@ S5-3a is code-converged (HEAD `4501b2b5`, Codex R1→R6; the **R6 thread `PRRT_k
 "prevent MQL keepalive across unknown rebinds" — is the deferred cross-world horn). Its deferral comments
 (`vm/host/media_query.rs` `keepalive_worthy`/`deliverable_to` docstrings, `vm/gc/keepalive.rs` inline,
 the `KeepaliveClass` doc, `tests/tests_match_media_keepalive.rs`, and the stale `host_data.rs` world_id
-slot doc) currently cite "`#11-wrapper-cache-cross-dom-discriminator`, strictly AFTER S5." After this
-decision lands, **retarget them to cite THIS doc**, with the corrected framing:
+slot doc) currently cite "`#11-wrapper-cache-cross-dom-discriminator`, strictly AFTER S5." **⚠ These
+symbol/file sites live on the *unmerged* `s5-3a-keepalive-seam` branch @ `4501b2b5`, not on this
+decision's tree** (verified absent from `main` @ `71ac54bb` — names may shift before S5-3a merges, so
+re-discover the live sites at cite-update time). After this decision lands, **retarget them to cite THIS
+doc**, with the corrected framing:
 
 - cross-DOM aliasing is **non-production near-term** (one-doc-one-World holds through S5; the flip is
   cross-DOM-neutral, §6.2);
@@ -365,15 +409,28 @@ decision lands, **retarget them to cite THIS doc**, with the corrected framing:
   rebind exercises it). **Resolve the R6 thread** citing this decision.
 - the earlier "nav-scrub = S5-6 hard gate" retarget is itself superseded by §6.2 (no such gate).
 
-### §6.5 Umbrella reconciliation (surface, do not auto-apply)
+### §6.5 Umbrella + iframe-plan reconciliation (forward-pointer folded in; full rewrite deferred with trigger)
 
-The S5 umbrella (`docs/plans/2026-06-s5-flip-boa-deletion-umbrella.md`) states "world_id strictly AFTER
-S5" (§0 line ~40, §9 keystone row ~327). Under this decision there **is no world_id program**; its slot
-becomes "agent-scoped World, lands with the friendly-iframe layer (post-S5)." **Proposed umbrella patch
-(for the PM to apply, not auto-edited here)**: replace the world_id keystone row with a pointer to this
-decision; drop the "world_id strictly after S5" line in favor of "agent-scoped `EcsDom` World supersedes
-world_id (this doc)." Likewise the iframe-plan §2 direction-inversion (§6.3) is a proposed patch, not
-applied here.
+Two planning SoT docs heavily encode the now-superseded slot, and **after this lands they would actively
+contradict it** — a strangler/decision-tax mid-state One-issue-one-way forbids (every future reader of
+those docs would still see "world_id strictly AFTER S5" / "separate-`Vm` cross-VM forwarding" as live):
+
+- **S5 umbrella** (`docs/plans/2026-06-s5-flip-boa-deletion-umbrella.md`) — states "world_id strictly
+  AFTER S5" in several places (§0, §9 keystone row, Q4); under this decision there **is no world_id
+  program** (the slot becomes "agent-scoped World, lands with the friendly-iframe layer, post-S5").
+- **iframe plan** (`docs/plans/2026-06-iframe-browsing-context-plan.md`) — its §2 routes same-origin
+  friendly access through "separate `VmInner` + cross-VM forwarding," which §2.1/§6.3 of this decision
+  **invert** (same-origin = shared World + `Vm`).
+
+**Resolution (this PR, minimal):** a **one-line forward-pointer** is folded into both docs at this
+decision's landing — "⚠ world_id-related framing here is SUPERSEDED by
+`docs/plans/2026-06-agent-scoped-ecsdom-world.md` (§6); same-origin = shared World+`Vm`, not world_id /
+cross-VM forwarding" — so the contradiction window is closed atomically (cross-doc consistency in one
+commit). **Deferred (PM, trigger = the friendly-iframe / B1 implementation PR, post-S5):** the *full*
+rewrite — rewriting the umbrella §9 keystone row and inverting the iframe-plan §2 design prose — is
+design-affecting (iframe-plan §2 is itself plan-review-grade) and lands with the implementation, not in
+this docs-only decision. The forward-pointer holds the invariant in the meantime; the rewrite is not
+silently abandoned (it has a named trigger).
 
 ---
 
@@ -384,10 +441,14 @@ applied here.
    spec default rather than always-origin-keyed (which would be simpler but would break `document.domain`
    and same-site-cross-origin friendly access). Recommend: spec default (site-keyed).
 
-2. **Dynamic World membership mechanism.** A World spans non-contiguous same-origin frames + same-origin
-   popups, joined/left dynamically (popup open, navigation). What owns membership — a `World`-level
-   registry of document-root entities, or a per-document-root "agent id" component queried into a set?
-   (Leans component-on-entity per ECS-native + req 5.)
+2. **Dynamic World membership mechanism** (the §4.3 transition invariant). A World spans non-contiguous
+   same-origin frames + same-origin popups, joined/left dynamically (popup open, navigation,
+   `document.domain` cluster-key reshape). What owns membership? **ECS-native idiom translation**: an OO
+   membership-*registry* → a per-document-root **`agent-id` component** queried into the membership set —
+   the same shape as focus-per-doc-membership (`focus/sot.rs:53-88`'s `is_in_document` ancestor-walk).
+   Lean: component-on-entity (per ECS-native + req 5). The **transition invariant** from §4.3 — a retained
+   wrapper's validity across a membership change (popup join / cluster-key reshape) — must be specified
+   *with* the chosen mechanism (this is the one §4 corner the static proof does not cover).
 
 3. **Policy-container-first ordering rollout (§5 req 2).** Reversing "World-first / policy-post" to
    "policy-first / build-into-the-right-World" is a load-order change touching `lib.rs` /

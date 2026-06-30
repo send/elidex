@@ -1,5 +1,13 @@
 # S5 — THE FLIP + boa deletion (multi-PR umbrella plan-memo)
 
+> **⚠ SUPERSEDED re world_id (2026-06-30):** this memo's "world_id strictly AFTER S5" framing (§0, §9
+> keystone row, Q4) is **superseded** by `docs/plans/2026-06-agent-scoped-ecsdom-world.md` — there is no
+> world_id program; `EcsDom` World = one per similar-origin window agent (B1), which lands with the
+> friendly-iframe layer (post-S5) and eliminates cross-DOM aliasing by construction. The
+> nav-scrub-as-S5-6-hard-gate broadening is **retracted** (the flip is cross-DOM-neutral; see that doc
+> §6.2). The full keystone-row rewrite is deferred to the B1 implementation PR (trigger). See that doc §6
+> for the reconciliation.
+
 Anchor = **the ideal end-state**, not an incremental patch (`feedback_plan-memo-anchor-on-ideal-not-incremental`).
 Parent program = `memory/boa-vm-cutover-plan.md` (S0→S5 umbrella). This memo **explodes the parent's
 §5 last bullet ("S5 — THE FLIP + boa deletion")** into a dedicated multi-PR program, per CLAUDE.md
