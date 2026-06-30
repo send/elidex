@@ -342,7 +342,7 @@ These pass a *live node from another document* — the surfaces that motivated `
 | Surface | How B1 absorbs it |
 |---|---|
 | `window.open` / `opener` (popup) | a popup joins the opener's World **only if it stays in the opener's browsing-context group AND same agent** — a **COOP / `noopener` BCG switch** (HTML §7.1.3.2) puts it in a **new** group → **separate** World+`Vm` (must not share heap across a COOP isolation boundary). Same-group same-agent popup = dynamic membership (*transition → §7 Q2*) |
-| `document.domain` | an **in-World origin-field relaxation** (HTML §7.1.1.2) — it changes the effective origin for the same-origin access check; it does **NOT** reshape the agent-cluster key or change World membership (the windows were **already** same-agent, §1.4). So it is **not** a membership transition (not a §7 Q2 concern) — just an origin/access-check field update. Absent today anyway |
+| `document.domain` | an **in-World access-check matter** (HTML §7.1.1.2), **not** a World/agent-key change: it does **NOT** reshape the agent-cluster key or change World membership (the windows were **already** same-agent, §1.4), so it is **not** a membership transition (not a §7 Q2 concern). Its access-check effect is **conditional**: for an **origin-keyed** agent cluster (honored OAC / cross-origin-isolated) the setter is a **no-op** (§7.1.1.2 returns when `is origin-keyed`), so B1 must **not** relax in-World access there — exact setter semantics → B1 plan-memo. Absent today anyway |
 | BFCache | **per-document(-navigable) lifecycle inside the World**, NOT a whole-agent-World freeze — the World can hold still-active opener/sibling/parent documents that must keep running; cache/restore the **bf-cached document subtree**, leaving co-resident active documents untouched (req 7 multi-realm makes per-Window suspension expressible) |
 | `Origin-Agent-Cluster` | World **keying decision at document creation** via the agent-cluster keying rule (req 1) |
 | sandbox → opaque origin | the sandboxed doc gets its **own** World/agent (req 2) |
@@ -458,15 +458,23 @@ meet. They are the deliverable — the contract is "build to these."
    current separate-`EcsDom`+separate-`Vm` (`iframe/load.rs`) into the **one shared World + one `Vm`** — the
    `Vm` hosting **multiple realms** (req 7), not a single global.
 
-5. **Per-document-state cluster → per-document-root components.** the **creation parameters** (req 2's full
-   §7.5.1 set — origin, sandboxing flags, policy container, permissions policy, URL, referrer, …) **and the
-   session-history / browsing-context state** the folded slot also owns (`NavigationState`:
-   `history_length` / `current_index` / `current_state`, `host/navigation.rs:69-72`) become **per-entity
-   components on each document-root entity**, replacing the interim per-VM `HostData` (`host_data.rs:184,215`,
-   whose own comments already name the per-entity-component target). **This subsumes
-   `#11-browsing-context-state-ecs-components` *in full*** — both the creation-parameter cluster *and* the
-   session-history fields migrate (the slot owns more than the policy cluster; the exact field set is the
-   B1 plan-memo's, but **none of it is left without an owner**).
+5. **Per-document-state cluster → per-entity components (off per-VM `HostData`), at the spec-correct grain.**
+   The folded slot's fields migrate from the interim per-VM `HostData` (`host_data.rs:184,215`,
+   `host/navigation.rs:69-72`, whose own comments already name the per-entity-component target) to ECS
+   components — but **on the entity whose fact they actually are** (per-field grain, not all on one entity):
+   - **creation parameters** (req 2's full §7.5.1 set — origin, sandboxing flags, policy container,
+     permissions policy, URL, referrer, …) are a **per-document fact ⇒ per-document-root components**.
+   - **session-history fields** (`NavigationState`: `history_length` / `current_index` / `current_state`)
+     are a **per-navigable fact, NOT per-document**: `history.length` / index are the *current traversable
+     navigable's* overall session-history entries (HTML §7.2.5), shared by every document in the navigable —
+     so they belong on the **browsing-context / navigable owner**, not a document-root (a cached document-root
+     copy would go stale when another active document in the same navigable pushes/traverses, then be reused
+     on BFCache reactivation). They migrate to ECS components too, just **on the navigable entity** (or require
+     explicit reactivation reconciliation).
+
+   **This subsumes `#11-browsing-context-state-ecs-components` *in full*** — every field migrates off the
+   per-VM store (**none left without an owner**); the slot simply spans **two grains** (document-root +
+   navigable). The exact field-to-entity layout is the B1 plan-memo's.
 
 6. **`world_id` (`#11-wrapper-cache-cross-dom-discriminator`) is NOT built → supersede.** The
    wrapper-identity-component migration (`wrapper_store` → a per-entity `WrapperRefs` component) and the
@@ -501,7 +509,10 @@ meet. They are the deliverable — the contract is "build to these."
    the B1 plan-memo's (per the altitude note). The current `Vm` (singleton `global_object` + singleton
    prototype slots) must generalize to **N realms** (one per Window, modulo reuse), with: per-realm
    globals/prototypes; per-`(entity, kind, subkey, realm)` wrapper identity (req 6's full key); `iframe.contentWindow` resolving to
-   the **child's** realm/global (not aliasing the parent); per-document/per-Window lifecycle (so BFCache
+   the **child browsing context's `WindowProxy`** (the §4.4 indirection — which *retargets* to the child's
+   current Window/realm across navigations, HTML §7.2.3; **not** the raw child global, which would lose proxy
+   identity/retargeting — the Window itself is reused only for the initial `about:blank` replacement, §7.5.1),
+   never aliasing the parent; per-document/per-Window lifecycle (so BFCache
    suspends one Window without freezing the agent, §4.3).
    This is the dual of the World boundary: **entities shared (one World), realms not (one per Window)** —
    B1 makes the *entity* boundary the agent and keeps the *realm* boundary per-Window. (This is the
