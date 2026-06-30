@@ -385,6 +385,8 @@ meet. They are the deliverable — the contract is "build to these."
    non-fully-active for reactivation, §7.4.1.2; co-resident same-agent opener/sibling docs keep running).
 
 2. **Creation-parameters-first ordering (reverses today's).** Compute the document's **creation parameters**
+   (this doc's umbrella term — HTML has no `creation parameters` dfn; the spec bundle is the *navigation
+   params* §7.4.2.1 the §7.5.1 algorithm consumes)
    — the full set HTML §7.5.1 "create and initialize a Document object" takes (the **policy container**
    §7.1.7, the **origin** incl. sandbox→opaque, the **sandboxing flag set** incl. the embedder→embeddee
    §7.1.5 union [**currently ABSENT** — a pre-existing gap to fix], the **permissions policy**, …; the
@@ -469,16 +471,17 @@ meet. They are the deliverable — the contract is "build to these."
 - **Folds** `#11-browsing-context-state-ecs-components` (req 5).
 - **Reshapes** `#11-windowproxy-browsing-context` / `docs/plans/2026-06-iframe-browsing-context-plan.md`
   §2 (same-origin: shared World+`Vm`, not separate-`Vm` cross-VM forwarding — §6.3).
-- **Makes safe-without-world_id** `#11-eventtarget-keepalive-component-migration` and the
-  `wrapper_store`→component migration (req 6).
+- **Makes safe-without-world_id** `#11-eventtarget-keepalive-component-migration` and
+  `#11-wrapper-identity-component-migration` (the `wrapper_store`→`WrapperRefs` component migration, req 6).
 
-**Slot-ledger disposition (record at landing).** This decision touches **5 slots** — supersede ×2
-(`#11-wrapper-cache-cross-dom-discriminator` + the world_id program memo), fold ×1
-(`#11-browsing-context-state-ecs-components`), reshape ×1 (`#11-windowproxy-browsing-context`), make-safe
-×2 (`#11-eventtarget-keepalive-component-migration` + `wrapper_store`→component). The landing-memo /
-defer-ledger pass (`project_open-defer-slots.md`) **must** record this disposition + the net cap delta
-(this removes/folds ≥2 open slots) — the disposition itself (supersede = keep as pointer for history, not
-delete; annotate the world_id program memo as superseded, not silently abandoned) is settled by §7 Q6.
+**Slot-ledger disposition (record at landing).** This decision touches **4 numbered `#11-` slots + 2
+non-numbered items** — supersede ×2 (`#11-wrapper-cache-cross-dom-discriminator` + the non-numbered
+world_id program memo), fold ×1 (`#11-browsing-context-state-ecs-components`), reshape ×1
+(`#11-windowproxy-browsing-context`), make-safe ×2 (`#11-eventtarget-keepalive-component-migration` +
+`#11-wrapper-identity-component-migration`). The landing-memo / defer-ledger pass
+(`project_open-defer-slots.md`) **must** record this disposition + the net cap delta (this removes/folds ≥2
+open slots) — the disposition itself (supersede = keep as pointer for history, not delete; annotate the
+world_id program memo as superseded, not silently abandoned) is settled by §7 Q6.
 
 ### §6.2 The nav-scrub-as-pre-flip-gate is **RETRACTED**
 
@@ -554,8 +557,9 @@ sweep, finally run **whole-repo** to be exhaustive):
 - **philosophy-alignment umbrella** (`docs/plans/2026-06-elidex-philosophy-alignment-umbrella.md`) — F4/C1+
   gated on "C0 + `world_id` program + S5/boa removal".
 
-**Resolution (this PR, minimal):** a **one-line forward-pointer** is folded into **all five SSoT surfaces
-(3 docs + `CLAUDE.md` + `axes.md`)** at this decision's landing — "⚠ world_id-related framing here is SUPERSEDED by
+**Resolution (this PR, minimal):** a short **`⚠ SUPERSEDED` forward-pointer** (one inline line on
+`CLAUDE.md`/`axes.md`, a short block-quote on the planning docs — wording tailored per surface) is folded
+into **all five SSoT surfaces (3 docs + `CLAUDE.md` + `axes.md`)** at this decision's landing — "⚠ world_id-related framing here is SUPERSEDED by
 `docs/plans/2026-06-agent-scoped-ecsdom-world.md` (§6)" — so the contradiction window is closed atomically
 (cross-doc consistency in one commit). (Four further docs — `web-api-compat-a2-storage-demotion`,
 `web-api-compat-split-design`, `shell-viewport-delivery-pr-c2`, `s5-2-window-parity` — mention "the
@@ -565,17 +569,19 @@ pointer now.)
 
 **On-`main` code comments — the COMPLETE forward-pointer sweep is done in this PR.** A repo grep finds
 the `world_id` discriminator / `#11-wrapper-cache-cross-dom-discriminator` /
-`#11-browsing-context-state-ecs-components` / nav-scrub-`S5-6`-gate cited in **~24 in-tree code-comment
-blocks across 15 files** (`vm_api.rs`, `host_data.rs`, `wrapper_intern.rs`, `mod.rs`, `gc/collect.rs`,
+`#11-browsing-context-state-ecs-components` / nav-scrub-`S5-6`-gate cited across **~26 in-tree code-comment
+blocks in 16 files (+91 comment-only lines, 0 deletions)** (`vm_api.rs`, `host_data.rs`, `wrapper_intern.rs`,
+`mod.rs`, `gc/collect.rs`,
 `host/{screen,visual_viewport,media_query,window,html_iframe_proto,html_dialog_proto,navigation}.rs`,
-`api/elidex-api-observers/src/intersection.rs`, and tests). The earlier draft tried to split these into
-"load-bearing (point now) vs incidental (defer)" — but that per-comment judgment proved **unreliable**
+`api/elidex-api-observers/src/intersection.rs`, and 3 test files). The earlier draft tried to split these
+into "load-bearing (point now) vs incidental (defer)" — but that per-comment judgment proved **unreliable**
 (the Codex loop kept finding "incidental" ones that were in fact active instructions a future editor
 follows, e.g. the per-document-state cluster comment and the nav-scrub-`S5-6`-gate comments that directly
-contradict §6.2). Per One-issue-one-way / §6.5's "close atomically", **this PR adds a uniform terse
-`⚠ SUPERSEDED 2026-06-30 → agent-scoped World (§6)` forward-pointer to *every* such block** (comment-only,
-76 added lines; no code/logic touched — it does make the PR touch `crates/`, accepted because the
-alternative ships live obsolete guidance). The forward-POINTER (all sites) is in this PR; the full comment
+contradict §6.2). Per One-issue-one-way / §6.5's "close atomically", **this PR adds a terse,
+per-disposition `⚠ SUPERSEDED 2026-06-30 → agent-scoped World (§6)` forward-pointer to *every* such block**
+(three wordings — world_id-retracted / slot-FOLDED / nav-scrub-RETRACTED; comment-only, +91 lines, no
+code/logic touched — it does make the PR touch `crates/`, accepted because the alternative ships live
+obsolete guidance). The forward-POINTER (all sites) is in this PR; the full comment
 **REWRITE** (rephrasing the now-superseded rationale, removing `world_id`) still rides the B1 implementation
 that removes `world_id`.
 
@@ -635,4 +641,10 @@ hold the invariant in the meantime; the rewrite is not silently abandoned (it ha
    refactor landing before the iframe collapse) or within the friendly-iframe PR? (Leans prereq split — it
    is a large cohesion seam, is needed by friendly iframes under B1 *or* B2, and gates req 3/4/6.) Confirm
    the realm discriminator is modeled as an **explicit first-class concept** (not packed into `Entity`,
-   which has no spare bits — §1.2) so it shares nothing with the superseded `world_id`.
+   which has no spare bits — §1.2) so it shares nothing with the superseded `world_id`. **2b write-path
+   obligation handed to the B1 plan-memo**: req 6's `WrapperRefs: entity → { realm → ObjectId }` adds a
+   *realm* axis on top of the entity axis, so the B1 plan owes the realm-slot **write/cleanup
+   reconciliation** — who populates a `(entity, realm)` slot (realm/Window creation) and who drops it
+   (realm despawn → drop that slot; entity despawn → whole-row drop via generation/liveness) — exactly as
+   §7 Q2 owes the membership-*transition* invariant. (Decision-level: the `(entity, realm)` shape is fixed
+   here; the producer/cleanup wiring is the plan-memo's.)
