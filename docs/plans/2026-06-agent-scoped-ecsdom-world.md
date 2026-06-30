@@ -534,14 +534,19 @@ After S5-3a merges, **retarget its symbols to cite THIS doc** with the corrected
 
 ### §6.5 Umbrella + iframe-plan reconciliation (forward-pointer folded in; full rewrite deferred with trigger)
 
-**Four** SoT docs + **`CLAUDE.md`** encode the now-superseded slot, and **after this lands they would
-actively contradict it** — a strangler/decision-tax mid-state One-issue-one-way forbids. Found by a
-repo-wide grep audit (Codex R2 surfaced the philosophy-umbrella + `CLAUDE.md` misses — the fix-scope
-sibling sweep):
+**Five SSoT surfaces** — **three planning docs** (S5 umbrella, iframe plan, philosophy umbrella) +
+**`CLAUDE.md`** + the **review-axis SSoT `.claude/skills/elidex-review/axes.md`** — encode the
+now-superseded slot, and **after this lands they would actively contradict it** — a strangler/decision-tax
+mid-state One-issue-one-way forbids. Found by a repo-wide grep audit (Codex R2
+surfaced the philosophy-umbrella + `CLAUDE.md`; R9 the `axes.md` review-SSoT — the fix-scope sibling
+sweep, finally run **whole-repo** to be exhaustive):
 
 - **`CLAUDE.md`** (the SSoT `AGENTS.md` points reviewers to) — the "Side-store→component 判定ルール"
   exception (a) names the **`world_id` discriminator as the unlock condition** for the wrapper-side-store →
   component migration. Left as-is, future reviews enforce the obsolete world_id path.
+- **`.claude/skills/elidex-review/axes.md:81`** (the review-axis SSoT `AGENTS.md` tells reviews to apply) —
+  same exception (a) text names `world_id` as the unlock; a future B1 / wrapper-component-migration review
+  would keep enforcing the superseded prerequisite.
 - **S5 umbrella** (`docs/plans/2026-06-s5-flip-boa-deletion-umbrella.md`) — "world_id strictly AFTER S5"
   (§0, §9 keystone row, Q4).
 - **iframe plan** (`docs/plans/2026-06-iframe-browsing-context-plan.md`) — §2 "separate `VmInner` + cross-VM
@@ -549,8 +554,8 @@ sibling sweep):
 - **philosophy-alignment umbrella** (`docs/plans/2026-06-elidex-philosophy-alignment-umbrella.md`) — F4/C1+
   gated on "C0 + `world_id` program + S5/boa removal".
 
-**Resolution (this PR, minimal):** a **one-line forward-pointer** is folded into **all four docs +
-`CLAUDE.md`** at this decision's landing — "⚠ world_id-related framing here is SUPERSEDED by
+**Resolution (this PR, minimal):** a **one-line forward-pointer** is folded into **all five SSoT surfaces
+(3 docs + `CLAUDE.md` + `axes.md`)** at this decision's landing — "⚠ world_id-related framing here is SUPERSEDED by
 `docs/plans/2026-06-agent-scoped-ecsdom-world.md` (§6)" — so the contradiction window is closed atomically
 (cross-doc consistency in one commit). (Four further docs — `web-api-compat-a2-storage-demotion`,
 `web-api-compat-split-design`, `shell-viewport-delivery-pr-c2`, `s5-2-window-parity` — mention "the
