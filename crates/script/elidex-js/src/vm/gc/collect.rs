@@ -1131,8 +1131,6 @@ impl VmInner {
             #[cfg(feature = "engine")]
             touch_list_states: &self.touch_list_states,
             #[cfg(feature = "engine")]
-            pending_timeout_signals: &self.pending_timeout_signals,
-            #[cfg(feature = "engine")]
             pending_tasks: &self.pending_tasks,
             #[cfg(feature = "engine")]
             active_cssom_rule_ids: &active_cssom_rule_ids,
@@ -1217,6 +1215,26 @@ impl VmInner {
                         }
                     }
                 }
+            }
+        }
+
+        // Keepalive seam (`#11-eventtarget-listener-keepalive-rooting`): mark
+        // every non-Node `EventTarget` whose spec keepalive rule holds (a
+        // `MediaQueryList` with a live `change` listener; the
+        // `AbortSignal.timeout` signals, routed here from the former
+        // `mark_roots` pass (j)).  `keepalive_survivors` reads `&self` and
+        // returns the owned survivor set (see it for the two-phase borrow split
+        // that lets this coexist with the live `roots` snapshot); the mark then
+        // runs under the disjoint `&mut` bit-vectors, like the SW-realm block
+        // above.  Before `trace_work_list` so a marked signal's
+        // `abort_signal_states` fan-out is traced.
+        #[cfg(feature = "engine")]
+        {
+            let keep = super::keepalive::keepalive_survivors(self);
+            let marks = &mut self.gc_object_marks;
+            let work = &mut self.gc_work_list;
+            for id in keep {
+                super::mark_object(id, marks, work);
             }
         }
 
@@ -1438,10 +1456,10 @@ impl VmInner {
             self.touch_list_states.retain(|id, _| bit_get(marks, id.0));
             // `pending_timeout_signals` — values are rooted during
             // mark so a collected signal is an invariant violation
-            // (the `mark_roots` pass kept them alive).  Defensively
-            // prune any entry whose signal *did* get collected
-            // (e.g. from a hypothetical non-strong-ref path a
-            // future PR introduces).
+            // (the keepalive seam, `keepalive_survivors`, kept them
+            // alive).  Defensively prune any entry whose signal *did*
+            // get collected (e.g. from a hypothetical non-strong-ref
+            // path a future PR introduces).
             self.pending_timeout_signals
                 .retain(|_, signal_id| bit_get(marks, signal_id.0));
             // `dispatched_events` — event ObjectIds whose dispatch is

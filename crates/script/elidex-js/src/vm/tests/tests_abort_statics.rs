@@ -393,3 +393,35 @@ fn any_composite_with_user_ref_survives_gc_and_propagates_abort() {
         .unwrap();
     assert!(matches!(result, JsValue::Boolean(true)));
 }
+
+#[test]
+fn timeout_signal_survives_gc_via_keepalive_seam() {
+    // S5-3a: the `AbortSignal.timeout` root moved from `mark_roots` pass (j)
+    // onto the keepalive seam (`gc::keepalive::keepalive_survivors`) —
+    // behavior-neutral. A pending-timeout signal whose only anchor is
+    // `pending_timeout_signals` (no retained JS reference) must still survive
+    // GC so the timer can fire it.
+    let mut vm = new_vm();
+    vm.eval("AbortSignal.timeout(100000);").unwrap(); // result not stored
+    assert_eq!(
+        vm.inner.pending_timeout_signals.len(),
+        1,
+        "the timeout registration must exist before GC",
+    );
+    let signal_id = *vm
+        .inner
+        .pending_timeout_signals
+        .values()
+        .next()
+        .expect("one pending timeout signal");
+    vm.inner.collect_garbage();
+    assert!(
+        vm.inner.objects[signal_id.0 as usize].is_some(),
+        "a pending-timeout signal with no JS reference must survive GC (keepalive seam)",
+    );
+    assert_eq!(
+        vm.inner.pending_timeout_signals.len(),
+        1,
+        "the surviving signal must keep its timeout registration",
+    );
+}

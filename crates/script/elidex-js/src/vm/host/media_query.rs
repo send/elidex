@@ -139,6 +139,61 @@ pub(crate) struct MediaQueryEntry {
     pub(crate) document: Option<Entity>,
 }
 
+impl MediaQueryEntry {
+    /// Whether a report-changes pass with `current_document` as the bound
+    /// document (`None` when unbound) would deliver to this MQL — the single
+    /// **deliverability** gate shared by [`VmInner::deliver_media_query_changes`]
+    /// (skip the non-deliverable) and the GC keepalive seam
+    /// ([`crate::vm::gc`]'s `keepalive_survivors`, which roots only the
+    /// deliverable), so the two can never drift apart (Codex PR#430 R1/R2 — the
+    /// keepalive must be neither more nor less permissive than delivery). An
+    /// unbound VM (`None`) delivers to nothing; an MQL created while unbound
+    /// (`document == None`) is never deliverable once a real document binds.
+    ///
+    /// Same-`EcsDom` `Entity` identity only — the cross-`EcsDom` raw-`Entity`
+    /// aliasing (`Vm::unbind`'s note; `MediaQueryEntry::document` doc) is this
+    /// pass's pre-existing exposure. ⚠ SUPERSEDED 2026-06-30: dissolved by B1
+    /// (agent-scoped `EcsDom` World, PR #434) not a world_id discriminator — a
+    /// `Vm` is bound to one world for life, so this compare never spans two
+    /// worlds. See `MediaQueryEntry::keepalive_worthy`.
+    pub(crate) fn deliverable_to(&self, current_document: Option<Entity>) -> bool {
+        current_document.is_some() && self.document == current_document
+    }
+
+    /// Whether the GC keepalive seam must keep this MQL alive for delivery to a
+    /// report-changes pass with `current_document` (the bound document, or
+    /// `None` when unbound).
+    ///
+    /// This is the **GC-liveness** gate, distinct from [`Self::deliverable_to`]
+    /// (the **dispatch** gate `deliver_media_query_changes` uses): GC liveness ≠
+    /// dispatch deliverability (Codex PR#430 R5). When **bound** the two agree —
+    /// this delegates to `deliverable_to`, so they cannot drift. When **unbound**
+    /// they intentionally diverge: `deliver` no-ops while unbound, but a
+    /// listener-only MQL must still SURVIVE an unbound inter-batch GC (the
+    /// BATCH-BIND model unbinds between batches) so the *next same-document
+    /// rebind*'s `deliver` can fire it — collecting it here would reintroduce the
+    /// very lost-`change` bug the seam exists to fix. So an unbound GC keeps
+    /// every `document`-tagged MQL (`document.is_some()`); an unbound-created MQL
+    /// (`document == None`) is never deliverable and is collected.
+    ///
+    /// The one case it CANNOT resolve while unbound: a same-`EcsDom` rebind
+    /// (keep — correct) vs a cross-`EcsDom` rebind whose `Entity` indices collide
+    /// (should collect). ⚠ SUPERSEDED 2026-06-30 (resolves Codex R6): dissolved
+    /// by B1 (agent-scoped `EcsDom` World, PR #434,
+    /// `docs/plans/2026-06-agent-scoped-ecsdom-world.md`), NOT world identity and
+    /// NOT a nav-scrub gate. Under B1 a `Vm` never rebinds across worlds —
+    /// navigation allocates a NEW `Vm` (not a cross-world rebind) and same-agent
+    /// frames share ONE World+`Vm` (1-agent=1-World), so the cross-`EcsDom`
+    /// rebind does not occur in production; within one world hecs `generation`
+    /// handles staleness. Reachable only via the unbound-rebind unit harness
+    /// today (non-production; `deliver` stays boa-driven until the S5-6 flip),
+    /// where it is inert.
+    pub(crate) fn keepalive_worthy(&self, current_document: Option<Entity>) -> bool {
+        self.document.is_some()
+            && (current_document.is_none() || self.deliverable_to(current_document))
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Registration (called from register_globals)
 // ---------------------------------------------------------------------------
@@ -336,22 +391,24 @@ impl VmInner {
     /// and a slot recycled mid-dispatch is caught by the phase-B `seq`
     /// identity re-check.
     ///
-    /// **KNOWN GAP — listener-keepalive rooting (carved
-    /// `#11-eventtarget-listener-keepalive-rooting`, S5 prerequisite; Codex
-    /// R5)**: this pass only walks *surviving* `media_query_list_registry`
-    /// rows. An MQL kept alive ONLY by a `change` listener
-    /// (`matchMedia(q).addEventListener('change', cb)` with no retained JS
-    /// reference) is NOT rooted — `listener_store` roots the callback, not the
-    /// target — so a GC before the flip collects it and delivery is silently
-    /// lost. The spec-faithful fix is a **generic** "EventTarget kept alive
-    /// while it has listeners" mechanism shared by all VM `EventTarget`s
-    /// (unifying `AbortSignal`'s for-life root + the observers'
-    /// construct/disconnect rooting + this), which is edge-dense (GC ×
-    /// listener-lifecycle × unbind × per-kind) → its own PR + plan-review, NOT
-    /// an MQL-specific root that would add a 3rd divergent plumbing. Inert
-    /// while the VM media path is S5-dormant; the generic fix gates the S5
-    /// cutover so the feature is complete before it goes live. A retained-JS-
-    /// reference MQL (the other common pattern) delivers correctly today.
+    /// **Listener-keepalive (the keepalive-predicate seam,
+    /// `#11-eventtarget-listener-keepalive-rooting`; S5-3a)**: this pass only
+    /// walks *surviving* `media_query_list_registry` rows, and an MQL anchored
+    /// ONLY by a `change` listener (`matchMedia(q).addEventListener('change',
+    /// cb)` with no retained JS reference) has its callback rooted by
+    /// `listener_store` but NOT its own wrapper. The seam
+    /// ([`keepalive_survivors`](super::super::gc) in `collect_garbage`) closes
+    /// that gap: it keeps an MQL alive iff it has a live `change` listener
+    /// (the dispatch-time [`vm_path_has_listener`] predicate — so *kept-alive
+    /// ⇔ would-actually-fire*), document-scoped so a retained prior-document
+    /// MQL is not rooted across a rebind. This is a per-registrant
+    /// **spec-faithful predicate**, NOT an "any listener keeps the target
+    /// alive" root (DOM §2.8 forbids the latter; CSSOM-View §4.2 has no
+    /// GC-note, so the document-set membership is narrowed to the live
+    /// `change` listener). The other non-Node `EventTarget`s (`AbortSignal`'s
+    /// timeout root joins S5-3a; `WebSocket` / `EventSource` / the observers)
+    /// migrate their existing roots onto the SAME seam before the S5-6 flip
+    /// (the hard pre-flip gate `#11-eventtarget-keepalive-registrant-coverage`).
     pub(in crate::vm) fn deliver_media_query_changes(&mut self) {
         if !self
             .host_data
@@ -385,7 +442,10 @@ impl VmInner {
         let env = self.media_environment();
         let mut flips: Vec<(ObjectId, u64, bool)> = Vec::new();
         for (&id, entry) in &self.media_query_list_registry {
-            if entry.document != current_document {
+            // Shared deliverability gate (also the GC keepalive root predicate
+            // — `MediaQueryEntry::deliverable_to`). `is_bound` passed above, so
+            // `current_document` is the bound document here.
+            if !entry.deliverable_to(current_document) {
                 continue;
             }
             let now = evaluate(&entry.parsed, &env);
