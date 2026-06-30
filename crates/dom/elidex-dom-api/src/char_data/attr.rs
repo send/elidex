@@ -156,6 +156,24 @@ impl DomApiHandler for SetAttributeNode {
         let value = ad.value.clone();
         drop(ad);
 
+        // WHATWG DOM §4.9 "set an attribute" step 4 (A1×A5 corner): if oldAttr
+        // IS attr, return attr WITHOUT any write — so NO chokepoint write and NO
+        // MutationObserver record. oldAttr = the element's current Attr node for
+        // this name = the `AttrEntityCache` entry; when it IS the passed
+        // `attr_entity` this is `el.setAttributeNode(el.getAttributeNode('x'))`,
+        // the entity-backed analogue of the VM native's ObjectId-identity
+        // short-circuit (`element_attrs.rs`). Must precede `apply_set_attribute`,
+        // which records every successful write (I4).
+        let old_attr_is_attr = dom
+            .world()
+            .get::<&AttrEntityCache>(this)
+            .ok()
+            .and_then(|c| c.entries.get(&name).copied())
+            == Some(attr_entity);
+        if old_attr_is_attr {
+            return Ok(JsValue::ObjectRef(attr_ref));
+        }
+
         // A stale / non-Element receiver must error rather than report a
         // phantom set + leave the Attr owned by a dead receiver (the prior
         // `require_attrs_mut` borrow surfaced this). Guard before mutating.

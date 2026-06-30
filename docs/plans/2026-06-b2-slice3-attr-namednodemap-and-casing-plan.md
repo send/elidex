@@ -213,12 +213,13 @@ mutation + record is engine-independent — goes through `apply_*`.
     The reroute connects them to the canonical `apply_*` seam for engine-independent consistency (any
     future boa/wasm reach is then record-producing by construction), NOT because they are live today.
     The casing fold likewise folds the dormant `char_data/attr.rs` `GetAttributeNode` (§4.2) so the
-    entity-backed get-by-name path is not left as a future strangler. **Not full spec-parity** (boa-only-
-    reachable, light-touch — `/code-review` surfaced, deferred to the dual-model unification): the dom-api
-    `SetAttributeNode` handler lacks the set-an-attribute step-4 oldAttr==attr short-circuit (would emit a
-    spurious same-value record on the boa path), and `RemoveAttributeNode` does not evict the
-    `AttrEntityCache` (pre-existing). The production VM natives have both; these gaps are unreachable on the
-    live path and resolve when the VM unifies onto the entity-backed handlers (or at boa deletion).
+    entity-backed get-by-name path is not left as a future strangler. The dom-api `SetAttributeNode` got
+    the set-an-attribute step-4 oldAttr==attr short-circuit (Codex R1 — via the `AttrEntityCache` identity
+    check, matching the VM native; the B2-Slice-3 reroute through the recording `apply_set_attribute` would
+    otherwise have emitted a spurious same-value record). **One remaining boa-only-reachable gap**
+    (pre-existing, NOT introduced here): `RemoveAttributeNode` does not evict the `AttrEntityCache` — the
+    production VM native does; resolves when the VM unifies onto the entity-backed handlers (or at boa
+    deletion).
 
 ### §4.2 Casing fold — ONE canonical resolver (closes `#11-attribute-name-html-namespace-casing`)
 
