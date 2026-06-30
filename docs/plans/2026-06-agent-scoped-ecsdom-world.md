@@ -417,10 +417,14 @@ meet. They are the deliverable — the contract is "build to these."
    `Vm` hosting **multiple realms** (req 7), not a single global.
 
 5. **Per-document-state cluster → per-document-root components.** the **creation parameters** (req 2's full
-   §7.5.1 set — origin, sandboxing flags, policy container, permissions policy, URL, referrer, …) become
-   **per-entity components on each document-root entity**, replacing the interim per-VM `HostData`
-   (`host_data.rs:184,215`, whose own comments already name the per-entity-component target). **This
-   subsumes `#11-browsing-context-state-ecs-components`.**
+   §7.5.1 set — origin, sandboxing flags, policy container, permissions policy, URL, referrer, …) **and the
+   session-history / browsing-context state** the folded slot also owns (`NavigationState`:
+   `history_length` / `current_index` / `current_state`, `host/navigation.rs:69-72`) become **per-entity
+   components on each document-root entity**, replacing the interim per-VM `HostData` (`host_data.rs:184,215`,
+   whose own comments already name the per-entity-component target). **This subsumes
+   `#11-browsing-context-state-ecs-components` *in full*** — both the creation-parameter cluster *and* the
+   session-history fields migrate (the slot owns more than the policy cluster; the exact field set is the
+   B1 plan-memo's, but **none of it is left without an owner**).
 
 6. **`world_id` (`#11-wrapper-cache-cross-dom-discriminator`) is NOT built → supersede.** The
    wrapper-identity-component migration (`wrapper_store` → a per-entity `WrapperRefs` component) and the
@@ -434,13 +438,16 @@ meet. They are the deliverable — the contract is "build to these."
    `generation` + liveness cover all staleness (§1.2). `bind_epoch` loses its cross-world role; it remains
    only as `StaticRange`'s within-World freshness check, or folds into ordinary generation/liveness checks
    (§7 Q7) — it is **not** generalized into a `world_id`-style cross-World discriminator.
-   **⚠ But the wrapper is per-*realm*, not per-entity (req 7).** With multiple realms in one `Vm`, one
-   entity can be exposed through several Windows, and Web IDL platform objects are **realm-associated**
-   (each realm has its own `Node.prototype` etc.) — so `WrapperRefs` must be keyed by **(entity, realm)**,
-   not a single unqualified `ObjectId` per entity, or cross-frame access returns a wrapper with the wrong
-   prototype/realm. The component is `entity → { realm → ObjectId }` (the *entity* is the shared-World fact
-   B1 unblocks; the *realm* discriminator is orthogonal to `world_id` — it is an explicit first-class
-   concept, not an implicit index-space collision, so it needs no cross-World machinery).
+   **⚠ But the component key must preserve every identity dimension `wrapper_store` already carries — plus
+   realm.** `wrapper_store` is keyed by `WrapperKey { owner, kind, subkey }` (`wrapper_intern.rs`), so one
+   entity legitimately has **distinct** wrappers for `Node` / `classList` / `dataset` / `style` /
+   `Attr(name)` / CSS-rule-id / … (each `[SameObject]`). And B1 adds a **realm** axis (multiple Windows in
+   one `Vm`; Web IDL platform objects are realm-associated, each realm has its own `Node.prototype`). So the
+   migrated component must key on **`(entity/owner, kind, subkey, realm)`** — collapsing it to `entity →
+   ObjectId` (or even `entity → { realm → ObjectId }`) would **collide** an element's multiple wrapper kinds
+   and break `[SameObject]`. The decision fixes *which dimensions survive* (the existing `WrapperKey` triple
+   **+ realm**); the exact component layout is the B1 plan-memo's. The realm axis is orthogonal to `world_id`
+   — an explicit first-class concept, not an index-space collision, so it needs no cross-World machinery.
 
 7. **The `Vm` is multi-realm — one heap, N Window globals/realms.** An agent is one heap hosting
    **multiple realms** that synchronously access each other (HTML §8.1.2.1); each same-agent document has
@@ -451,7 +458,7 @@ meet. They are the deliverable — the contract is "build to these."
    model is therefore "**realm ≈ per Window, with spec-defined Window-reuse**" — the exact reuse rules are
    the B1 plan-memo's (per the altitude note). The current `Vm` (singleton `global_object` + singleton
    prototype slots) must generalize to **N realms** (one per Window, modulo reuse), with: per-realm
-   globals/prototypes; per-`(entity, realm)` wrapper identity (req 6); `iframe.contentWindow` resolving to
+   globals/prototypes; per-`(entity, kind, subkey, realm)` wrapper identity (req 6's full key); `iframe.contentWindow` resolving to
    the **child's** realm/global (not aliasing the parent); per-document/per-Window lifecycle (so BFCache
    suspends one Window without freezing the agent, §4.3).
    This is the dual of the World boundary: **entities shared (one World), realms not (one per Window)** —
@@ -617,9 +624,12 @@ hold the invariant in the meantime; the rewrite is not silently abandoned (it ha
    touch-time-split / edge-dense) ahead of the iframe collapse, or within it? (Leans prereq split — it is
    a real cohesion seam and the embedder→embeddee sandbox-union gap fix rides it.)
 
-4. **Cross-origin `WindowProxy` forwarding (§5 req 4).** B1 keeps cross-`Vm` proxy forwarding for
-   cross-origin `window.parent`/`top`. Confirm this stays the restricted by-value/proxy surface (no entity
-   crossing) and that it composes with the iframe-plan §2 reshape rather than re-deriving it.
+4. **`WindowProxy` forwarding — by *agent* boundary, not *origin* (§5 req 4).** Per req 4's two-mode split,
+   only **cross-agent** `window.parent`/`top` uses cross-`Vm` forwarding; **same-agent cross-origin**
+   (same-site, same BCG) is an **in-`Vm`** restricted proxy (same heap, no entity crossing). Confirm the
+   forwarding is keyed on the *agent* boundary (not "cross-origin → cross-`Vm`", which would wrongly
+   reinstate the separate-VM path for same-agent cross-origin windows), and that it composes with the
+   iframe-plan §2 reshape rather than re-deriving it.
 
 5. **Sibling-family membership.** Confirm `#11-eventtarget-keepalive-component-migration` (carved by
    S5-3a) and `#11-browsing-context-state-ecs-components` are correctly **subsumed by / folded into** this
@@ -636,15 +646,16 @@ hold the invariant in the meantime; the rewrite is not silently abandoned (it ha
 
 8. **Multi-realm `Vm` rollout (§5 req 7) — the largest impl fork.** The `Vm` must go from a singleton
    `global_object` + singleton prototype slots to **N realms** (one per same-agent Window): per-realm
-   globals/prototypes, per-`(entity, realm)` wrapper identity (req 6), `contentWindow` → child realm,
+   globals/prototypes, per-`(entity, kind, subkey, realm)` wrapper identity (req 6's full key),
+   `contentWindow` → child realm,
    per-Window lifecycle (BFCache suspend-one). Is this built as a **prereq split** (a multi-realm `Vm`
    refactor landing before the iframe collapse) or within the friendly-iframe PR? (Leans prereq split — it
    is a large cohesion seam, is needed by friendly iframes under B1 *or* B2, and gates req 3/4/6.) Confirm
    the realm discriminator is modeled as an **explicit first-class concept** (not packed into `Entity`,
    which has no spare bits — §1.2) so it shares nothing with the superseded `world_id`. **2b write-path
-   obligation handed to the B1 plan-memo**: req 6's `WrapperRefs: entity → { realm → ObjectId }` adds a
-   *realm* axis on top of the entity axis, so the B1 plan owes the realm-slot **write/cleanup
-   reconciliation** — who populates a `(entity, realm)` slot (realm/Window creation) and who drops it
-   (realm despawn → drop that slot; entity despawn → whole-row drop via generation/liveness) — exactly as
-   §7 Q2 owes the membership-*transition* invariant. (Decision-level: the `(entity, realm)` shape is fixed
-   here; the producer/cleanup wiring is the plan-memo's.)
+   obligation handed to the B1 plan-memo**: req 6's component adds a *realm* axis on top of the existing
+   `WrapperKey { owner, kind, subkey }`, so the B1 plan owes the realm-slot **write/cleanup
+   reconciliation** — who populates a per-realm wrapper slot (realm/Window creation) and who drops it
+   (realm despawn → drop that realm's slots; entity despawn → whole-row drop via generation/liveness) —
+   exactly as §7 Q2 owes the membership-*transition* invariant. (Decision-level: the surviving key
+   dimensions are fixed here [req 6]; the producer/cleanup wiring is the plan-memo's.)

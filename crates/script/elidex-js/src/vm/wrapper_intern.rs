@@ -27,8 +27,10 @@
 //! `docs/plans/2026-06-agent-scoped-ecsdom-world.md`)**: the `world_id` gate is
 //! retracted. Under the **agent-scoped `EcsDom` World** (1 agent = 1 World = 1
 //! Vm) the cross-DOM aliasing above is unconstructable, so the migration is safe
-//! without `world_id` — but the component must be keyed by **`(entity, realm)`**
-//! (one Vm hosts multiple Window realms; see that decision §5 req 6/7). This
+//! without `world_id` — but the component must keep this store's full
+//! `WrapperKey { owner, kind, subkey }` **plus a realm axis** (one Vm hosts
+//! multiple Window realms; collapsing to `(entity, realm)` would collide an
+//! element's multiple wrapper kinds — see that decision §5 req 6/7). This
 //! per-VM `HostData` residence stays the sanctioned interim form until B1.
 
 use super::value::{ObjectId, StringId};
