@@ -186,9 +186,12 @@ mod engine_feature {
         /// unsandboxed documents — the cutover's shell installs parsed
         /// `IframeSandboxFlags` (from the iframe `sandbox=""` attribute)
         /// via [`Self::set_sandbox_flags`] when a document loads inside a
-        /// sandboxed iframe.  A per-browsing-context security fact (not a
-        /// per-entity DOM fact) → the CLAUDE.md side-store rule (b)
-        /// shared-cross-cutting exception, like `cookie_jar` above.  Read
+        /// sandboxed iframe.  A **per-document creation-parameter fact** (HTML §7.1.5,
+        /// a document's sandbox flags) → an ECS component on the **document-root**
+        /// entity (PR #434 §5 req 5), *not* the CLAUDE.md side-store rule (b)
+        /// shared-cross-cutting exception that `cookie_jar` is — it belongs to the
+        /// per-Document current-document-state cluster (cf. the
+        /// `document_origin_override` note below, which groups it likewise).  Read
         /// by [`Self::scripts_allowed`] (the eval gate; S1b adds the
         /// `forms`/`popups`/`modals` accessors + their consumer wiring).
         sandbox_flags: Option<elidex_plugin::IframeSandboxFlags>,

@@ -66,10 +66,15 @@ const SESSION_HISTORY_CAP: usize = 50;
 /// session history (see the module docs). Not a session-history stack: the
 /// shell's `NavigationController` is the single source of truth.
 ///
-/// These fields are a per-VM browsing-context interim. `current_url` /
-/// `history_length` / `current_index` / `current_state` are per-Document facts
-/// whose ECS-native ideal home is a per-entity component on the document entity
-/// (deferred slice `#11-browsing-context-state-ecs-components`); `pending_navigation` /
+/// These fields are a per-VM browsing-context interim with **two ECS grains** (PR #434
+/// §5 req 5): `current_url` is a per-Document fact → a per-document-root component;
+/// `history_length` / `current_index` / `current_state` are **per-navigable** facts
+/// (HTML §7.2.5: history `length`/`index` are the *current traversable navigable's*
+/// overall session-history entries, shared across that navigable's documents — a
+/// per-document copy would go stale when another active document in the navigable
+/// pushes/traverses, then be reused on BFCache reactivation) → a component on the
+/// **navigable** entity, not the document (folded slot
+/// `#11-browsing-context-state-ecs-components`); `pending_navigation` /
 /// `pending_history` are transient drain-once intent buffers that are per-VM by
 /// nature (a VM↔shell message channel, not per-entity state — boa stores the
 /// same intents on its `HostBridge`).

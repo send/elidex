@@ -621,11 +621,17 @@ sweep, finally run **whole-repo** to be exhaustive):
 `CLAUDE.md`/`axes.md`, a short block-quote on the planning docs — wording tailored per surface) is folded
 into **all five SSoT surfaces (3 docs + `CLAUDE.md` + `axes.md`)** at this decision's landing — "⚠ world_id-related framing here is SUPERSEDED by
 `docs/plans/2026-06-agent-scoped-ecsdom-world.md` (§6)" — so the contradiction window is closed atomically
-(cross-doc consistency in one commit). (Four further docs — `web-api-compat-a2-storage-demotion`,
-`web-api-compat-split-design`, `shell-viewport-delivery-pr-c2`, `s5-2-window-parity` — mention "the
-world_id program" only as a *future-program label* in a deferral trigger, not as a live current path; they
-get the program-name update [world_id → agent-scoped World] at the B1-impl propagation, not a contradiction
-pointer now.)
+(cross-doc consistency in one commit). **Live deferral-trigger tokens are retargeted now, not deferred** —
+three further docs name "the world_id program" in a **live re-evaluation trigger**:
+`web-api-compat-a2-storage-demotion` (re-eval date), `web-api-compat-split-design` (re-eval date),
+`shell-viewport-delivery-pr-c2` (re-eval trigger). Their gated work is **not** orphaned — each `world_id`
+reference is *paired* with a live non-`world_id` clause (an S5-boa-removal / functional / dated trigger that
+still fires) — but a trigger line naming a **cancelled** program is a strangler artifact, so this PR
+**retargets the token in place** (`world_id` → agent-scoped World / B1) on those three trigger lines.
+(`s5-2-window-parity` is a *merged* doc whose sole mention is a historical scoping note, not a trigger —
+left as history. The `s5-flip` §9-keystone / `philosophy` C1+ dependency cells are already covered by their
+top-of-doc `⚠ SUPERSEDED` block-quotes naming those sections; only their cosmetic prose rewrite rides the
+B1-impl propagation.)
 
 **On-`main` code comments — the COMPLETE forward-pointer sweep is done in this PR.** A repo grep finds
 the `world_id` discriminator / `#11-wrapper-cache-cross-dom-discriminator` /
