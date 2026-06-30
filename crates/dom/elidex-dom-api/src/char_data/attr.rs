@@ -3,8 +3,7 @@
 use elidex_ecs::{AttrData, AttrEntityCache, Attributes, EcsDom, Entity};
 use elidex_plugin::JsValue;
 use elidex_script_session::{
-    apply_remove_attribute, apply_set_attribute, ComponentKind, DomApiError, DomApiErrorKind,
-    DomApiHandler, JsObjectRef, SessionCore,
+    ComponentKind, DomApiError, DomApiErrorKind, DomApiHandler, JsObjectRef, SessionCore,
 };
 
 use crate::util::{
@@ -156,42 +155,21 @@ impl DomApiHandler for SetAttributeNode {
         let value = ad.value.clone();
         drop(ad);
 
-        // WHATWG DOM §4.9 "set an attribute" step 4 (A1×A5 corner): if oldAttr
-        // IS attr, return attr WITHOUT any write — so NO chokepoint write and NO
-        // MutationObserver record. oldAttr = the element's current Attr node for
-        // this name = the `AttrEntityCache` entry; when it IS the passed
-        // `attr_entity` this is `el.setAttributeNode(el.getAttributeNode('x'))`,
-        // the entity-backed analogue of the VM native's ObjectId-identity
-        // short-circuit (`element_attrs.rs`). Must precede `apply_set_attribute`,
-        // which records every successful write (I4).
-        let old_attr_is_attr = dom
-            .world()
-            .get::<&AttrEntityCache>(this)
-            .ok()
-            .and_then(|c| c.entries.get(&name).copied())
-            == Some(attr_entity);
-        if old_attr_is_attr {
-            return Ok(JsValue::ObjectRef(attr_ref));
-        }
-
         // A stale / non-Element receiver must error rather than report a
         // phantom set + leave the Attr owned by a dead receiver (the prior
         // `require_attrs_mut` borrow surfaced this). Guard before mutating.
         require_live_element(dom, this)?;
 
-        // Set the attribute on the element through the record-producing
-        // `apply_set_attribute` seam → the canonical `EcsDom::set_attribute`
-        // chokepoint (InlineStyle cache invalidation + `rev_version` +
-        // `MutationEvent::AttributeChange`) — attaching a `style` Attr node
-        // otherwise leaves a stale hydrated `InlineStyle` cache. B2-Slice-3
-        // routes the write through `apply_set_attribute` so the §4.9 "set an
-        // attribute" "attributes" MutationObserver record is surfaced (an
-        // existing same-named attr = step 6 "replace" → ONE change record). The
-        // receiver is a confirmed live Element; the Attr's verbatim `local_name`
-        // is used (NO resolver — node-identity op, §4.2).
-        if let Some(record) = apply_set_attribute(dom, this, &name, &value) {
-            session.push_notify_record(record);
-        }
+        // Set the attribute on the element via the canonical
+        // `EcsDom::set_attribute` chokepoint (InlineStyle cache
+        // invalidation + `rev_version` + `MutationEvent::AttributeChange`) —
+        // attaching a `style` Attr node otherwise leaves a stale hydrated
+        // `InlineStyle` cache. The receiver is a confirmed live Element.
+        // NOTE: no MutationObserver record — the entity-backed dom-api Attr-node
+        // path is dormant (VM uses inline natives; boa does not drain
+        // notify_records), so record production is deferred to
+        // `#11-dom-api-attr-entity-model-unification` (plan §4.1).
+        dom.set_attribute(this, &name, &value);
 
         // Update owner.
         {
@@ -255,18 +233,14 @@ impl DomApiHandler for RemoveAttributeNode {
             ad.owner_element = None;
         }
 
-        // Remove the attribute from the element through the record-producing
-        // `apply_remove_attribute` seam → the canonical
-        // `EcsDom::remove_attribute` chokepoint (InlineStyle cache invalidation
-        // + `rev_version` + `MutationEvent::AttributeChange`) — removing the
-        // `style` Attr node otherwise leaks a stale hydrated `InlineStyle`
-        // cache. B2-Slice-3 routes the write through `apply_remove_attribute` so
-        // the §4.9 "remove an attribute" "attributes" MutationObserver record is
-        // surfaced (records only when something was removed — I11). The Attr's
-        // verbatim `local_name` is used (NO resolver — node-identity op, §4.2).
-        if let Some(record) = apply_remove_attribute(dom, this, &name) {
-            session.push_notify_record(record);
-        }
+        // Remove the attribute from the element via the canonical
+        // `EcsDom::remove_attribute` chokepoint (InlineStyle cache
+        // invalidation + `rev_version` + `MutationEvent::AttributeChange`) —
+        // removing the `style` Attr node otherwise leaks a stale hydrated
+        // `InlineStyle` cache.
+        // NOTE: no MutationObserver record — dormant entity-backed Attr-node
+        // path; deferred to `#11-dom-api-attr-entity-model-unification` (§4.1).
+        dom.remove_attribute(this, &name);
         Ok(JsValue::ObjectRef(attr_ref))
     }
 }
@@ -329,7 +303,7 @@ impl DomApiHandler for SetAttrValue {
         &self,
         this: Entity,
         args: &[JsValue],
-        session: &mut SessionCore,
+        _session: &mut SessionCore,
         dom: &mut EcsDom,
     ) -> Result<JsValue, DomApiError> {
         let value = require_string_arg(args, 0)?;
@@ -343,25 +317,20 @@ impl DomApiHandler for SetAttrValue {
             ad.owner_element
         };
 
-        // Sync to the owner element's Attributes through the record-producing
-        // `apply_set_attribute` seam → the canonical `EcsDom::set_attribute`
-        // chokepoint (InlineStyle cache invalidation + `rev_version` +
-        // `MutationEvent::AttributeChange`) — writing through a `style` Attr
-        // node otherwise leaves a stale hydrated `InlineStyle` cache. B2-Slice-3
-        // routes the chokepoint write through `apply_set_attribute` so the
-        // §4.9.2 "set an existing attribute value" step-5 "attributes"
-        // MutationObserver record is surfaced (an Attr with no owner element —
-        // step 1 — performs no write here, so no record, matching I1). The
-        // verbatim `local_name` is used (NO resolver — node-identity op, §4.2).
+        // Sync to owner element's Attributes via the canonical
+        // `EcsDom::set_attribute` chokepoint (InlineStyle cache
+        // invalidation + `rev_version` + `MutationEvent::AttributeChange`) —
+        // writing through a `style` Attr node otherwise leaves a stale
+        // hydrated `InlineStyle` cache.
+        // NOTE: no MutationObserver record — dormant entity-backed Attr-node
+        // path; deferred to `#11-dom-api-attr-entity-model-unification` (§4.1).
         if let Some(owner) = owner {
             let name = dom
                 .world()
                 .get::<&AttrData>(this)
                 .map(|ad| ad.local_name.clone())
                 .unwrap_or_default();
-            if let Some(record) = apply_set_attribute(dom, owner, &name, &value) {
-                session.push_notify_record(record);
-            }
+            dom.set_attribute(owner, &name, &value);
         }
 
         Ok(JsValue::Undefined)

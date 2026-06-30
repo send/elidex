@@ -124,46 +124,6 @@ fn set_attribute_node() {
 }
 
 #[test]
-fn set_attribute_node_self_fires_no_record() {
-    // WHATWG DOM §4.9 "set an attribute" step 4: `el.setAttributeNode(
-    // el.getAttributeNode('x'))` returns the same Attr with NO write and NO
-    // MutationObserver record — the entity-backed dom-api path must short-circuit
-    // (oldAttr == attr via `AttrEntityCache`) before `apply_set_attribute`, which
-    // records every successful write. Mirrors the VM native's identity guard.
-    let mut dom = EcsDom::new();
-    let mut attrs = Attributes::default();
-    attrs.set("data-x", "42");
-    let div = dom.create_element("div", attrs);
-    let mut session = SessionCore::new();
-    // Materialize + cache the element's canonical Attr node for "data-x".
-    let attr_ref = GetAttributeNode
-        .invoke(
-            div,
-            &[JsValue::String("data-x".into())],
-            &mut session,
-            &mut dom,
-        )
-        .unwrap();
-    let JsValue::ObjectRef(want) = attr_ref else {
-        panic!("getAttributeNode should return an ObjectRef");
-    };
-    let _ = session.take_notify_records(); // isolate the setAttributeNode call
-
-    let result = SetAttributeNode
-        .invoke(div, &[JsValue::ObjectRef(want)], &mut session, &mut dom)
-        .unwrap();
-
-    // Step-4 return = the same Attr; no record; attribute unchanged.
-    assert!(matches!(result, JsValue::ObjectRef(r) if r == want));
-    assert!(
-        session.take_notify_records().is_empty(),
-        "self setAttributeNode (oldAttr==attr) must emit no MutationObserver record"
-    );
-    let attrs = dom.world().get::<&Attributes>(div).unwrap();
-    assert_eq!(attrs.get("data-x"), Some("42"));
-}
-
-#[test]
 fn set_attribute_node_in_use_error() {
     let mut dom = EcsDom::new();
     let div1 = dom.create_element("div", Attributes::default());

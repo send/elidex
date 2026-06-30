@@ -203,23 +203,31 @@ mutation + record is engine-independent — goes through `apply_*`.
     NotFoundError preserved (removeAttributeNode list-not-contains step 1 / removeNamedItem null step 2).
     The removed Attr frozen via the shared helper (§4.3).
 - **dom-api `char_data/attr.rs` handlers** (`SetAttrValue`/`SetAttributeNode`/`RemoveAttributeNode`):
-  rewrite the direct `dom.set_attribute`/`remove_attribute` (`:318`/`:161`/`:230`) → `apply_*` +
-  `session.push_notify_record` (the `invoke_dom_api` Phase-2.5 drains). One-issue-one-way: the VM shim
-  AND the dom-api handler both funnel into the single `apply_*` primitive.
-  - **Dual-model note (Axis 5 F4)**: these `char_data/attr.rs` handlers operate on a *distinct*
-    entity-backed Attr model (`AttrEntityCache` / `AttrData`), parallel to the VM's per-VM `AttrState`
-    wrapper model (§4.3). They are currently **VM-unreachable** (the VM uses the inline natives above,
-    not these handlers) and wasm exposes only get/setAttribute — so they are dormant for live traffic.
-    The reroute connects them to the canonical `apply_*` seam for engine-independent consistency (any
-    future boa/wasm reach is then record-producing by construction), NOT because they are live today.
-    The casing fold likewise folds the dormant `char_data/attr.rs` `GetAttributeNode` (§4.2) so the
-    entity-backed get-by-name path is not left as a future strangler. The dom-api `SetAttributeNode` got
-    the set-an-attribute step-4 oldAttr==attr short-circuit (Codex R1 — via the `AttrEntityCache` identity
-    check, matching the VM native; the B2-Slice-3 reroute through the recording `apply_set_attribute` would
-    otherwise have emitted a spurious same-value record). **One remaining boa-only-reachable gap**
-    (pre-existing, NOT introduced here): `RemoveAttributeNode` does not evict the `AttrEntityCache` — the
-    production VM native does; resolves when the VM unifies onto the entity-backed handlers (or at boa
-    deletion).
+  **NOT rerouted** (Codex R2 revert) — they keep their direct `dom.set_attribute`/`remove_attribute`
+  writes (`:318`/`:161`/`:230`); the §181 mutation chokepoint is preserved, **no** MutationObserver
+  record is produced on this path.
+  - **Dual-model note → deferred to `#11-dom-api-attr-entity-model-unification` (Codex R2 decision)**:
+    these `char_data/attr.rs` handlers operate on a *distinct* entity-backed Attr model (`AttrEntityCache`
+    / `AttrData`), parallel to the VM's per-VM `AttrState` wrapper model (§4.3). They are
+    **VM-unreachable** (the VM uses the inline natives above, not these handlers), wasm exposes only
+    get/setAttribute, AND boa — the only caller — does **not drain `notify_records`** (zero refs in
+    `elidex-js-boa`), so any record they push is silently cleared by the `SessionCore::flush` leak-guard =
+    **dead records**. B2-Slice-3 initially rerouted them through `apply_*` + `push_notify_record` (+ a
+    Codex-R1 `oldAttr==attr` short-circuit), but Codex R2 then surfaced the dual model's missing lifecycle
+    parity (F1 cache-not-synced-on-attach → short-circuit misses; F2 cache-not-evicted-on-remove →
+    short-circuit false-fires on a stale entry; F4 removed-Attr-not-detached → `attr.value=` on a removed
+    Attr re-adds+records). Per the design lens (One-issue-one-way / ScriptSession-sole-boundary /
+    dead-code-接続するか削除 / 場当たり禁止 / ideal-over-pragmatic) the reroute + short-circuit were
+    **REVERTED**: producing dead records on a doomed 2nd identity model deepens the strangler (same shape
+    as #428's revert-to-uniform). F1/F2/F4 become moot (no record path on these handlers). The unification
+    work — collapse `AttrEntityCache`/`AttrData` onto the ONE canonical Attr Identity Map so record
+    production + lifecycle (cache-sync-on-attach / evict-on-remove / Attr-node-detach) come for free — is
+    deferred to `#11-dom-api-attr-entity-model-unification` (Trigger: world_id + boa→VM cutover, OR the VM
+    Attr-node natives delegating to ONE canonical dom-api algorithm).
+  - **Casing fold is SEPARATE and KEPT**: the dom-api `char_data/attr.rs` `GetAttributeNode` still folds
+    onto the canonical resolver (§4.2) so the entity-backed get-by-name path is not left a future
+    strangler; the whole casing surface (all 12 name-based sites) still closes
+    `#11-attribute-name-html-namespace-casing`.
 
 ### §4.2 Casing fold — ONE canonical resolver (closes `#11-attribute-name-html-namespace-casing`)
 
@@ -302,6 +310,15 @@ site is excluded ONLY for a spec reason, recorded so the whole-surface claim is 
 `Attr.name`/`localName` accessors. All `*NS` variants stay raw (§6). `apply_*` stays **name-agnostic**
 (resolution is a property of the name-based entry point, not the primitive — node-identity ops must reach
 `apply_*` with a non-resolved name).
+- **As-built (Codex R2 F3 fix)**: the `getNamedItemNS`/`removeNamedItemNS` natives initially **delegated**
+  to the resolver-applying by-name natives (`native_nnm_get_named_item`/`_remove_named_item`), so they
+  wrongly HTML-lowercased the local name — violating this "`*NS` stay raw" rule (DOM §4.9.1
+  by-namespace+local-name matches the local name **verbatim**, no qualified-name lowercase). Fixed by
+  extracting `get_named_item_impl`/`remove_named_item_impl` parameterized by a `NameLookup::{Resolve,
+  Verbatim}` toggle (One-issue-one-way — ONE lookup body, the resolver toggled at its single site): the
+  by-name wrappers pass `Resolve`, the NS wrappers pass `Verbatim`. Regression tests:
+  `get_named_item_ns_matches_local_name_verbatim` (`getNamedItemNS(null,'ID')` misses the stored `id`
+  while `getNamedItem('ID')` hits) + `remove_named_item_ns_matches_local_name_verbatim`.
 
 ### §4.3 Detach-asymmetry resolution — converge onto the shared wrapper helpers (One-issue-one-way)
 
@@ -442,11 +459,19 @@ the MO attribute test module.
   (spec set-an-attribute step 2); needs the Phase-3 Attr-node-ownership model. Trigger = cross-element
   setAttributeNode WPT or the VM-Attr-as-entity unification. Date 2026-09-30. Net cap-neutral with the
   casing CLOSE above.
-- Attribute records **complete** after this slice → update [[reference_js-tree-mutations-not-recorded]]
-  (remaining = the 3 off-record-path deferred slots only).
+- **REGISTER** `#11-dom-api-attr-entity-model-unification` (Codex R2 revert, §4.1): the dom-api
+  `char_data/attr.rs` Attr-node handlers' record reroute was reverted (dead records — boa doesn't drain
+  `notify_records`, the VM uses its inline natives, wasm exposes get/set-only), deferring the
+  `AttrEntityCache`/`AttrData`-vs-`AttrState` dual-model unification. Trigger = world_id + boa→VM cutover
+  OR the VM Attr-node natives delegating to ONE canonical dom-api algorithm. Date 2026-10-31. cap +1.
+  **(Already registered in the SoT this session.)**
+- Attribute records **complete on the live (VM-native) delivered surface** after this slice → update
+  [[reference_js-tree-mutations-not-recorded]] (remaining = 4 off-record-path deferred slots; the dom-api
+  dormant Attr-node path is `#11-dom-api-attr-entity-model-unification`).
 - Keep deferred: `#11-ce-reaction-mutation-observer-ordering`, `#11-method-driven-attribute-records`,
-  `#11-mutation-observer-extras` (attributeNamespace), Deferred #21 (XML namespaces).
-- Program B record coverage = childList + characterData + attributes all complete.
+  `#11-dom-api-attr-entity-model-unification`, `#11-mutation-observer-extras` (attributeNamespace),
+  Deferred #21 (XML namespaces).
+- Program B record coverage = childList + characterData + attributes all complete on the delivered surface.
 
 ---
 
@@ -458,8 +483,15 @@ the MO attribute test module.
    name (§8 I-CACHE-KEY); fix `native_element_has_attribute` path-dependence; `CreateAttribute` +
    `try_indexed_get` stay NOT-applied per §4.2. + casing tests (incl. SVG case-preserve + `nnm["ID"]`
    case-sensitive).
-3. dom-api `char_data/attr.rs` handlers (`SetAttrValue`/`SetAttributeNode`/`RemoveAttributeNode`) → route
-   through `apply_*` + `push_notify_record`.
+3. dom-api `char_data/attr.rs` handlers (`SetAttrValue`/`SetAttributeNode`/`RemoveAttributeNode`): **NOT
+   rerouted** (Codex R2 revert, §4.1) — keep the direct `dom.set_attribute`/`remove_attribute` writes; the
+   record reroute + R1 `oldAttr==attr` short-circuit are deferred to
+   `#11-dom-api-attr-entity-model-unification` (dead records on a dormant dual-model path). The casing fold
+   for `GetAttributeNode` (step 2) is kept.
+3b. F3 (Codex R2): `getNamedItemNS`/`removeNamedItemNS` look up the local name **verbatim** (DOM §4.9.1 —
+   no resolver) via a `NameLookup::Verbatim` toggle on the shared `get_named_item_impl` /
+   `remove_named_item_impl`; the by-name `getNamedItem`/`removeNamedItem` keep `NameLookup::Resolve`. +
+   regression tests.
 4. VM shims: `native_attr_set_value` / `native_element_set_attribute_node` /
    `native_element_remove_attribute_node` / `native_nnm_set_named_item` / `native_nnm_remove_named_item`
    → `apply_*` + shared wrapper helpers + `commit_notify_records` (incl. the step-4 short-circuit). +
