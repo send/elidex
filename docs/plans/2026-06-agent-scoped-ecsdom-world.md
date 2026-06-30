@@ -582,9 +582,14 @@ reference is *paired* with a live non-`world_id` clause (an S5-boa-removal / fun
 still fires) — but a trigger line naming a **cancelled** program is a strangler artifact, so this PR
 **retargets the token in place** (`world_id` → agent-scoped World / B1) on those three trigger lines.
 (`s5-2-window-parity` is a *merged* doc whose sole mention is a historical scoping note, not a trigger —
-left as history. The `s5-flip` §9-keystone / `philosophy` C1+ dependency cells are already covered by their
-top-of-doc `⚠ SUPERSEDED` block-quotes naming those sections; only their cosmetic prose rewrite rides the
-B1-impl propagation.)
+left as history.) **Active world_id dependency gates are retargeted in place now** — the `iframe-plan` §3
+precondition + dependency statement, the `s5-flip` §9 keystone row gating S5-8, and the `philosophy` C1+
+dependency cell (`world_id` → agent-scoped World / B1) — because a reader following a gate row would
+otherwise block on a canceled-looking program. The **key framing is rename-not-cancel**: the world_id
+*program* is renamed to / folded into the B1 program (it does the same migration), so the gates **remain
+valid** as the B1 program — stated in each doc's top `⚠ SUPERSEDED` block-quote. The remaining *descriptive*
+world_id references in those docs (coverage-map rows, sequencing diagrams) are covered by those top
+block-quotes; their full prose rewrite still rides the B1-impl propagation.
 
 **On-`main` code comments — the COMPLETE forward-pointer sweep is done in this PR.** A repo grep finds
 the `world_id` discriminator / `#11-wrapper-cache-cross-dom-discriminator` /

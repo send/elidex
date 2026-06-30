@@ -99,8 +99,9 @@ forwards most operations to the current `Window` of the browsing context
   C1+ must NOT attach the `ObjectId` to the iframe element entity across
   detach/reattach cycles; it must invalidate and re-allocate after reattachment.
 
-This depends on the `world_id` discriminator described in CLAUDE.md
-`#11-wrapper-cache-cross-dom-discriminator`.
+This depends on the **agent-scoped World (B1) program**
+(`docs/plans/2026-06-agent-scoped-ecsdom-world.md`), which supersedes the former `world_id` discriminator
+(`#11-wrapper-cache-cross-dom-discriminator`) — see the SUPERSEDED note above.
 
 ### 2.3 Same-origin access checks (contentDocument only)
 
@@ -154,7 +155,7 @@ C1+ plan-review must verify these interactions before implementation begins.
 
 | Precondition | Status |
 |---|---|
-| `world_id` discriminator (`#11-wrapper-cache-cross-dom-discriminator`) | deferred (着手 = S5 後) |
+| agent-scoped World (B1) program (supersedes the `world_id` discriminator, `#11-wrapper-cache-cross-dom-discriminator`) | deferred (着手 = S5 後) |
 | S5 / boa removal (D-26 PR7) | deferred |
 
 C1+ (same-origin/cross-origin proxy implementation) must not begin until both
