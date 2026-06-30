@@ -133,10 +133,22 @@ mechanisms, given a wider span.
 
 Every cross-frame interaction is exactly one of:
 
-- **within-World** — same agent (embedder + same-origin frames/popups). Shared heap, distinct entities,
-  generation-checked. *Trivial in B1*; *needs `world_id` in B2*.
-- **cross-`Vm`** — different agent (cross-site, or sandboxed→opaque). Separate World + `Vm` (+ OOP).
-  By-value (`structured-clone`) or restricted proxy; **no entity bits cross**. *Identical in B1/B2*.
+- **within-World** — **same agent** (embedder + same-agent frames/popups in the same browsing-context
+  group). Shared heap, distinct entities, generation-checked. *Trivial in B1*; *needs `world_id` in B2*.
+- **cross-`Vm`** — **different agent** (cross-site, sandboxed→opaque, or a COOP/`noopener` browsing-context-
+  group split). Separate World + `Vm` (+ OOP). By-value (`structured-clone`) or restricted proxy; **no
+  entity bits cross**. *Identical in B1/B2*.
+
+> **Terminology — *same-agent* (the World boundary) ≠ *same-origin* (the access boundary).** The World is
+> the **similar-origin window agent** (HTML §8.1.2.1), **site-keyed by default** (HTML §8.1.2.2). So a
+> **same-site cross-origin** frame/popup is **same-agent** — it shares the World + heap (one agent = one
+> heap) — even though it is **not** same-origin. What "same-origin" gates is **synchronous DOM access**
+> ("friendly" scripting), enforced as an **in-World access check** (cross-origin access is restricted until
+> `document.domain` matches, §4.3), **not** a separate World. Conversely a **COOP/`noopener` browsing-
+> context-group switch** (HTML §7.1.3.2) puts an otherwise-same-origin window in a **different** agent →
+> different World. So World membership = "same agent in the same browsing-context group", which this doc
+> writes **same-agent**; reserve **same-origin** for the access check. (The prose below is corrected to
+> this; a few "same-origin" usages describing *friendly* access remain deliberate.)
 
 `world_id` is the discriminator for the **first** category's hazard — a hazard B1 makes
 **unconstructable** and B2 keeps and polices. §4 walks the full sweep to show no corner escapes this
@@ -156,6 +168,15 @@ must share one `Vm` and one heap**. This is not a B1 choice; it is what "friendl
 also why #412 C0 had to **stub** same-origin friendly-iframe sync scripting — the current
 separate-`EcsDom`+separate-`Vm`-per-iframe model, `crates/shell/elidex-shell/src/content/iframe/load.rs:44-46,238-244`
 (cited `iframe/load.rs` below), **cannot** express it.)
+
+**One heap, many realms — `Vm` must be multi-realm.** "Shared heap" is **not** "shared realm". An agent
+is one heap/event-loop hosting **multiple Window globals/realms** that synchronously access each other
+(HTML §8.1.2.1) — each same-agent document has its **own** Window, global scope, and per-realm prototype
+chain. So the shared `Vm` must host **N realms** (one per same-agent Window), not collapse them onto a
+singleton global. This is **design req 7** (the multi-realm requirement) — without it, folding frames into
+one `Vm` would alias `contentWindow` / globals / prototypes / `document` to the parent. It is the dual
+boundary to the World: **entities are shared (one World), realms are not (one per Window)**; B1 makes the
+*entity* boundary the agent and keeps the *realm* boundary per-Window.
 
 Given that same-agent content shares one `Vm`, the only remaining question is the **World grain inside
 that shared `Vm`**:
@@ -199,14 +220,17 @@ This is an **architecture decision**, not a web-spec algorithm implementation �
 step-by-step impl map but the **spec provenance of the document/agent model B1 reshapes**: every spec
 surface whose ECS placement this decision determines must appear here. Completeness check per
 `feedback_plan-scope-re-evaluation`. All §↔title pairs **webref-verified 2026-06-30** (`html`, `dom`,
-`CSP3`); "Touch" = the existing elidex site the decision moves or reshapes; "Reshaped?" = does this
-decision fully specify that surface's ECS grain.
+`CSP3`, `cssom-view-1`); "Touch" = the existing elidex site the decision moves or reshapes; "Reshaped?" =
+does this decision fully specify that surface's ECS grain.
 
 | Spec section | Model element (what B1 places in the ECS) | Grain under B1 | Touch (current elidex site) | Reshaped? | User-input flow |
 |---|---|---|---|---|---|
-| WHATWG HTML §8.1.2 Agents and agent clusters (the *similar-origin window agent* dfn = §8.1.2.1; the *agent cluster key* dfn = §8.1.2.2) | the **agent** = the World identity | World = one per similar-origin window agent | **absent today** (no agent/site concept; origin/sandbox are per-VM `HostData`, `host_data.rs:184,215`) | ✓ | no (engine structure; values from origin/headers) |
-| WHATWG HTML §7.1.2 Origin-keyed agent clusters | `Origin-Agent-Cluster` header → origin-keyed vs site-keyed World | World keying chosen at document creation | absent today | ✓ | yes (response header) |
+| WHATWG HTML §8.1.2 Agents and agent clusters (the *similar-origin window agent* dfn = §8.1.2.1; the *agent cluster key* dfn = §8.1.2.2) | the **agent** = the World identity; an agent = one heap hosting **multiple realms/globals** (§8.1.2.1) | World = one per similar-origin window agent; `Vm` = **multi-realm** (req 7) | **absent today** (no agent/site concept; origin/sandbox per-VM `HostData`, `host_data.rs:184,215`; `Vm` singleton `global_object`) | ✓ | no (engine structure; values from origin/headers) |
+| WHATWG HTML §7.1.2 Origin-keyed agent clusters | `Origin-Agent-Cluster` → origin-keyed vs site-keyed, resolved against the BCG *historical agent cluster key map* | World keying chosen at document creation (req 1) | absent today | ✓ | yes (response header) |
+| WHATWG HTML §7.3.2.3 Groupings of browsing contexts (browsing-context group + *historical agent cluster key map*) | BCG bounds agent membership; the key map keeps OAC keying consistent within a group | per-document-root entity tagged with its agent/BCG (req 1 / req 5) | absent today | ✓ | yes (headers) |
+| WHATWG HTML §7.1.3 Cross-origin opener policies (§7.1.3.2 BCG switch) | COOP / `noopener` → **new** BCG → **different** agent → **separate** World+`Vm` | popup/navigation isolation = World boundary (req 1, §4.3) | absent today (COOP unmodeled) | ✓ | yes (COOP header) |
 | WHATWG HTML §7.3.2 Browsing contexts | browsing context ↔ document-root entity; WindowProxy indirection | per-document-root entity in the agent's World; WindowProxy = context indirection (not a raw entity) | iframe = separate `EcsDom`+`Vm` today (`iframe/load.rs:44-46`); WindowProxy null-stub (#412 C0) | ✓ | no (structure) |
+| CSSOM-View §5 Extensions to the Document Interface (`elementFromPoint`) | per-document hit-test result stops at the container (does **not** pierce the frame) | DOM-API boundary preserved despite shared World (§4.1) | — (clarifies §5 req 3 scope) | ✓ | yes (coords) |
 | WHATWG HTML §7.1.5 Sandboxing (incl. *determine the creation sandboxing flags*, *iframe sandboxing flag set*) | sandbox flags incl. embedder→embeddee union; sandbox→opaque-origin → **own** World | per-document-root component; opaque ⇒ separate World/agent | `apply_sandbox_origin` post-build (`iframe/load.rs:410-424`); embedder→embeddee **union absent** (pre-existing gap, §5 req 2) | ✓ | yes (`sandbox` attr) |
 | WHATWG HTML §7.1.7 Policy containers | the policy container (origin, CSP, referrer, sandbox) computed **before** document creation | per-document-root components; computed pre-build (req 2) | **concept absent**; load order = World built first, policy stitched post (`lib.rs:879-916`, `iframe/load.rs:46-52`) | ✓ | yes (headers) |
 | WHATWG HTML §7.5.1 Shared document creation infrastructure | "create and initialize a Document object" **takes a policy container** | document-create assigns World by the resulting agent | World-first/policy-post today (must reverse, req 2) | ✓ | no (structure) |
@@ -215,9 +239,13 @@ decision fully specify that surface's ECS grain.
 | WHATWG DOM §4.5 Interface Document (`adopt`) | `adoptNode` / document adoption | within-World re-home (`adopt_subtree`); wired onto `adoptNode` (req 3) | `adopt_subtree` (`dom/tree/teardown.rs:285-291`) | ✓ | yes (`adoptNode`) |
 | CSP3 §6.4.2 `frame-ancestors` | ancestor-chain walk + origin **values** (browsing-context structure, not entity crossing) | neutral — context walk + values | partial today (`origin.rs:167-298` parse only) | ✓ | yes (CSP header) |
 
-**Breadth**: spec = 3 (HTML, DOM, CSP3), 10 model rows → `coverage-map` verdict "single PR scope." A
-decision doc is **one cohesive artifact by construction** (it exists to be the single citeable framing —
-splitting defeats the purpose). **No split owed.**
+**Breadth**: spec = 4 (HTML, DOM, CSP3, CSSOM-View), 13 model rows → at the `coverage-map` K≥4 / M<20
+soft "SPLIT-RECOMMENDED" line, but a decision doc is **one cohesive artifact by construction** (it exists
+to be the single citeable agent/World framing — splitting the agent model across PRs would defeat its
+purpose and re-introduce the per-PR re-derivation it exists to kill). The breadth grew because the
+spec-fidelity pass (Codex R1) pulled in the COOP / BCG / agent-cluster-keying / multi-realm / DOM-API-
+boundary facets the model genuinely spans — these are **one model**, not separable concerns. **No split
+owed** (positive appeal per `feedback_ideal-over-pragmatic`).
 
 **Trust boundary (user-input audit)**: this decision opens **no new trust boundary** and is **docs-only**
 — it changes no parse/eval/marshal path. The user-input flows above (sandbox attr, `Origin-Agent-Cluster`
@@ -245,9 +273,17 @@ These pass a *live node from another document* — the surfaces that motivated `
 | `iframe.contentDocument.*`, `contentWindow.document` | the embedded same-agent doc is **another `AssociatedDocument` in the same World** |
 | `adoptNode` / `importNode`, `node.ownerDocument` | `adopt_subtree` (within-World re-home) — already exists |
 | `getComputedStyle(childDoc node)` | multi-root style over the agent's document subtrees |
-| `elementFromPoint` / hit-test descending into iframes | hit-test walks into same-World iframe subtrees |
+| **internal** hit-test / event routing descending into iframes | the internal walk descends into same-World iframe subtrees |
 | Intersection / Resize / Mutation observers of cross-doc nodes | observer config holds same-World entities (generation-checked) |
 | focus chain + sequential nav across same-agent frames | `focus/sot.rs` per-doc membership, extended to span the agent's docs (req 3) |
+
+> **⚠ `Document.elementFromPoint` is NOT in this category — it stops at the container.** Per CSSOM-View §5,
+> `elementFromPoint(x,y)` hit-tests boxes in **that document's** viewport, so a point over a nested
+> browsing context resolves to the **iframe/container element in the parent document**, not an inner
+> child-document node (it does **not** pierce the frame boundary). The shared World must **not** make this
+> DOM API descend — only the **internal** hit-test (event routing, above) descends. Same-World sharing is
+> an *entity-coexistence* property, not a license to flatten per-document API boundaries (cf. §4.3 BFCache,
+> §5 req 3).
 
 ### §4.2 Neutral — **no DOM entity crosses** (identical in B1 and B2)
 
@@ -264,10 +300,10 @@ These pass a *live node from another document* — the surfaces that motivated `
 
 | Surface | How B1 absorbs it |
 |---|---|
-| `window.open` / `opener` (same-origin popup) | the popup **joins the opener's agent World** (dynamic membership — *transition mechanism → §7 Q2*) |
-| `document.domain` | an **in-World access-check flip** (no World merge — *cluster-key reshape → §7 Q2*) — and absent today anyway |
-| BFCache | **freeze the agent's World + `Vm` as a unit**; restore keeps entities (no re-tagging, no world_id) |
-| `Origin-Agent-Cluster` | World **keying decision at document creation** (req 1) |
+| `window.open` / `opener` (popup) | a popup joins the opener's World **only if it stays in the opener's browsing-context group AND same agent** — a **COOP / `noopener` BCG switch** (HTML §7.1.3.2) puts it in a **new** group → **separate** World+`Vm` (must not share heap across a COOP isolation boundary). Same-group same-agent popup = dynamic membership (*transition → §7 Q2*) |
+| `document.domain` | an **in-World access-check flip** (no World merge — the windows were already same-agent, §1.4 terminology; *→ §7 Q2*) — and absent today anyway |
+| BFCache | **per-document(-navigable) lifecycle inside the World**, NOT a whole-agent-World freeze — the World can hold still-active opener/sibling/parent documents that must keep running; cache/restore the **bf-cached document subtree**, leaving co-resident active documents untouched (req 7 multi-realm makes per-Window suspension expressible) |
+| `Origin-Agent-Cluster` | World **keying decision at document creation** via the agent-cluster keying rule (req 1) |
 | sandbox → opaque origin | the sandboxed doc gets its **own** World/agent (req 2) |
 
 **Structural absorption — transition mechanism is open, not settled here.** Each row stays within **one
@@ -295,12 +331,25 @@ reference.** ∎
 These are the obligations the B1 implementation (post-S5, when the iframe layer is built for real) must
 meet. They are the deliverable — the contract is "build to these."
 
-1. **World = similar-origin window agent** (the dfn in HTML §8.1.2.1). Site-keyed default; origin-keyed when
-   `Origin-Agent-Cluster` opts in (§7.1.2). **Dynamic membership**: a World spans top-level contexts
-   (opener + same-origin popups) and **non-contiguous** same-origin frames; a tab may host several Worlds
-   (one per agent present). Documents are **created-in / despawned-from** a World and **never moved
-   between Worlds** — cross-origin navigation = despawn the old doc + create the new doc in the
-   appropriate (possibly different) World (HTML §7.4.2.2).
+1. **World = similar-origin window agent** (the dfn in HTML §8.1.2.1), obtained via the **full
+   agent-cluster keying rule** (HTML §8.1.2.2 "obtain a similar-origin window agent" + §7.3.2.3
+   groupings), **not** a naive "site default + current OAC header" shortcut:
+   - **site-keyed by default**, origin-keyed when `Origin-Agent-Cluster` opts in (§7.1.2); but the key is
+     resolved against the **browsing-context group's *historical agent cluster key map*** (§7.3.2.3) — so
+     the OAC decision for an origin is **consistent within a BCG** (a later header cannot re-split an
+     origin already keyed in the group, nor merge one already origin-keyed);
+   - **cross-origin-isolated / opaque documents are auto-origin-keyed** (§8.1.3.2) regardless of header;
+   - membership is **browsing-context-group-scoped**: a **COOP / `noopener` BCG switch** (§7.1.3.2) moves a
+     window into a **new** group → a **different** agent → a **separate** World (do not share a heap across
+     a COOP isolation boundary — §4.3 popup row);
+   - **same-site cross-origin** windows in the same group are **same-agent** → **same World** (the §1.4
+     terminology), with cross-origin DOM access gated by the in-World access check until `document.domain`.
+
+   **Dynamic membership**: a World spans top-level contexts (opener + same-group same-agent popups) and
+   **non-contiguous** same-agent frames; a tab may host several Worlds (one per agent present). Documents
+   are **created-in / despawned-from** a World and **never moved between Worlds** — cross-origin (or
+   cross-BCG) navigation = despawn the old doc + create the new doc in the appropriate (possibly different)
+   World (HTML §7.4.2.2).
 
 2. **Policy-container-first ordering (reverses today's).** Compute the **policy container** — `{sandbox
    flags incl. the embedder→embeddee §7.1.5 union (currently ABSENT — a pre-existing gap to fix), origin
@@ -318,8 +367,9 @@ meet. They are the deliverable — the contract is "build to these."
 
 4. **Cross-agent = separate World + `Vm` (+ OOP); by-value / proxy.** postMessage stays by-value;
    cross-origin `WindowProxy` is a restricted cross-`Vm` forwarding proxy (no entity crossing).
-   **Same-origin friendly access REQUIRES the shared heap** (§2.1) → collapse same-agent iframes from the
-   current separate-`EcsDom`+separate-`Vm` (`iframe/load.rs`) into the **one shared World + one `Vm`**.
+   **Same-agent friendly access REQUIRES the shared heap** (§2.1) → collapse same-agent iframes from the
+   current separate-`EcsDom`+separate-`Vm` (`iframe/load.rs`) into the **one shared World + one `Vm`** — the
+   `Vm` hosting **multiple realms** (req 7), not a single global.
 
 5. **Per-document-state cluster → per-document-root components.** origin / sandbox flags / CSP / URL /
    referrer (= the policy container, req 2) become **per-entity components on each document-root entity**,
@@ -338,6 +388,25 @@ meet. They are the deliverable — the contract is "build to these."
    `generation` + liveness cover all staleness (§1.2). `bind_epoch` loses its cross-world role; it remains
    only as `StaticRange`'s within-World freshness check, or folds into ordinary generation/liveness checks
    (§7 Q7) — it is **not** generalized into a `world_id`-style cross-World discriminator.
+   **⚠ But the wrapper is per-*realm*, not per-entity (req 7).** With multiple realms in one `Vm`, one
+   entity can be exposed through several Windows, and Web IDL platform objects are **realm-associated**
+   (each realm has its own `Node.prototype` etc.) — so `WrapperRefs` must be keyed by **(entity, realm)**,
+   not a single unqualified `ObjectId` per entity, or cross-frame access returns a wrapper with the wrong
+   prototype/realm. The component is `entity → { realm → ObjectId }` (the *entity* is the shared-World fact
+   B1 unblocks; the *realm* discriminator is orthogonal to `world_id` — it is an explicit first-class
+   concept, not an implicit index-space collision, so it needs no cross-World machinery).
+
+7. **The `Vm` is multi-realm — one heap, N Window globals/realms.** An agent is one heap hosting
+   **multiple realms** that synchronously access each other (HTML §8.1.2.1); each same-agent document has
+   its **own** Window, global scope, and per-realm prototype chain. The current `Vm` (singleton
+   `global_object` + singleton prototype slots) must generalize to **N realms** (one per same-agent
+   Window), with: per-realm globals/prototypes; per-`(entity, realm)` wrapper identity (req 6);
+   `iframe.contentWindow` resolving to the **child's** realm/global (not aliasing the parent);
+   per-document/per-Window lifecycle (so BFCache suspends one Window without freezing the agent, §4.3).
+   This is the dual of the World boundary: **entities shared (one World), realms not (one per Window)** —
+   B1 makes the *entity* boundary the agent and keeps the *realm* boundary per-Window. (This is the
+   foundational requirement that makes "shared `Vm`" correct rather than parent-aliasing; it does **not**
+   reintroduce a `world_id`-class hazard — realms are explicit, not an index-space artifact.)
 
 ---
 
@@ -383,10 +452,14 @@ draft: the problem the nav-scrub was guarding does not manifest at the flip.)
   correctly. So B1 is not a separate "world_id program after S5"; it **is** the friendly-iframe / browsing-
   context buildout, done with the correct World grain. The iframe-plan §2 reshape (§6.1) is its umbrella.
 - **Honest deeper-change caveat**: B1 touches document-creation ordering (req 2, policy-container-first),
-  the iframe in-process model (req 4, collapse to shared `Vm`), and the per-document-state cluster (req 5).
-  These are real and larger than dropping a `world_id` counter in. But they are **the same work the
-  friendly-iframe layer requires anyway**, and B2 would need *all of req 2–5 too* **plus** the
-  discriminator. B1 is strictly less total machinery for a strictly cleaner invariant.
+  the iframe in-process model (req 4, collapse to shared `Vm`), the per-document-state cluster (req 5), and
+  — the largest single item — generalizing the **singleton-global `Vm` to multi-realm** (req 7), with the
+  full agent-cluster / BCG / COOP keying (req 1). These are real and larger than dropping a `world_id`
+  counter in. **But they are the same work the friendly-iframe layer requires anyway** — multi-realm in
+  particular is *unavoidable* for friendly iframes under **either** B1 or B2 (a shared `Vm` with one global
+  aliases all frames regardless of World grain), so it is **not** a B1 cost. And B2 would need *all of
+  req 1–5, 7 too* **plus** the `world_id` discriminator. B1 is strictly less total machinery for a strictly
+  cleaner invariant.
 
 ### §6.4 S5-3a (PR #430) cite-update (separate step, owed after this lands)
 
@@ -442,13 +515,23 @@ silently abandoned (it has a named trigger).
    and same-site-cross-origin friendly access). Recommend: spec default (site-keyed).
 
 2. **Dynamic World membership mechanism** (the §4.3 transition invariant). A World spans non-contiguous
-   same-origin frames + same-origin popups, joined/left dynamically (popup open, navigation,
-   `document.domain` cluster-key reshape). What owns membership? **ECS-native idiom translation**: an OO
-   membership-*registry* → a per-document-root **`agent-id` component** queried into the membership set —
-   the same shape as focus-per-doc-membership (`focus/sot.rs:53-88`'s `is_in_document` ancestor-walk).
-   Lean: component-on-entity (per ECS-native + req 5). The **transition invariant** from §4.3 — a retained
-   wrapper's validity across a membership change (popup join / cluster-key reshape) — must be specified
-   *with* the chosen mechanism (this is the one §4 corner the static proof does not cover).
+   same-agent frames + same-group same-agent popups, joined/left dynamically (popup open, navigation,
+   `document.domain` access-flip, **COOP/`noopener` BCG switch** — §5 req 1). What owns membership?
+   **ECS-native idiom translation**: an OO membership-*registry* → a per-document-root **`agent-id` /
+   `bcg-id` component** queried into the membership set — the same shape as focus-per-doc-membership
+   (`focus/sot.rs:53-88`'s `is_in_document` ancestor-walk). Lean: component-on-entity (per ECS-native +
+   req 5). The **transition invariant** from §4.3 — a retained wrapper's validity across a membership
+   change (popup join, a COOP split spawning a *new* World) — must be specified *with* the chosen mechanism
+   (this is the one §4 corner the static proof does not cover).
+
+8. **Multi-realm `Vm` rollout (§5 req 7) — the largest impl fork.** The `Vm` must go from a singleton
+   `global_object` + singleton prototype slots to **N realms** (one per same-agent Window): per-realm
+   globals/prototypes, per-`(entity, realm)` wrapper identity (req 6), `contentWindow` → child realm,
+   per-Window lifecycle (BFCache suspend-one). Is this built as a **prereq split** (a multi-realm `Vm`
+   refactor landing before the iframe collapse) or within the friendly-iframe PR? (Leans prereq split — it
+   is a large cohesion seam, is needed by friendly iframes under B1 *or* B2, and gates req 3/4/6.) Confirm
+   the realm discriminator is modeled as an **explicit first-class concept** (not packed into `Entity`,
+   which has no spare bits — §1.2) so it shares nothing with the superseded `world_id`.
 
 3. **Policy-container-first ordering rollout (§5 req 2).** Reversing "World-first / policy-post" to
    "policy-first / build-into-the-right-World" is a load-order change touching `lib.rs` /
