@@ -98,6 +98,52 @@ fn named_node_map_get_named_item_and_named_access() {
     assert_eq!(out, "ok");
 }
 
+// --- §4.9.1 NS-method local-name verbatim matching ---------------
+
+#[test]
+fn get_named_item_ns_matches_local_name_verbatim() {
+    // DOM §4.9.1 "get an attribute by namespace and local name": the NS method
+    // matches the local name VERBATIM — unlike the by-qualified-name
+    // `getNamedItem`, it does NOT perform HTML-namespace lowercasing. On an
+    // HTML element whose attribute is stored lowercase (`id`),
+    // `getNamedItemNS(null, 'ID')` MISSES while `getNamedItem('ID')` lowercases
+    // and HITS (Codex R2 F3 regression).
+    let out = run("var d = document.createElement('div'); \
+         d.setAttribute('id', 'x'); \
+         var a = d.attributes; \
+         var nsUpper = a.getNamedItemNS(null, 'ID'); \
+         var nsLower = a.getNamedItemNS(null, 'id'); \
+         var byName = a.getNamedItem('ID'); \
+         (nsUpper === null \
+            && nsLower !== null && nsLower.value === 'x' \
+            && byName !== null && byName.name === 'id' && byName.value === 'x') \
+           ? 'ok' \
+           : 'fail:' + nsUpper + '/' + (nsLower && nsLower.value) \
+               + '/' + (byName && byName.name);");
+    assert_eq!(out, "ok");
+}
+
+#[test]
+fn remove_named_item_ns_matches_local_name_verbatim() {
+    // §4.9.1 by-namespace+local-name removal matches the local name VERBATIM:
+    // on an HTML element with a stored lowercase `id`, `removeNamedItemNS(null,
+    // 'ID')` throws `NotFoundError` (leaving the attribute intact), while
+    // `removeNamedItem('ID')` lowercases and succeeds (Codex R2 F3 regression).
+    let out = run("var d = document.createElement('div'); \
+         d.setAttribute('id', 'x'); \
+         var a = d.attributes; \
+         var threw = false; \
+         try { a.removeNamedItemNS(null, 'ID'); } \
+         catch (e) { threw = (e.name === 'NotFoundError' && e instanceof DOMException); } \
+         var stillThere = d.getAttribute('id'); \
+         var removed = a.removeNamedItem('ID'); \
+         var gone = d.getAttribute('id'); \
+         (threw && stillThere === 'x' && removed !== null && gone === null) \
+           ? 'ok' \
+           : 'fail:' + threw + '/' + stillThere + '/' + removed + '/' + gone;");
+    assert_eq!(out, "ok");
+}
+
 // --- setNamedItem / removeNamedItem ------------------------------
 
 #[test]

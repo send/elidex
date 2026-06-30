@@ -75,6 +75,69 @@ fn namespace_uri_constants() {
     );
 }
 
+// --- resolve_attribute_qname (DOM §4.9 get/set/has/remove step 1) ----------
+
+#[test]
+fn resolve_attribute_qname_html_lowercases() {
+    // HTML-namespace element: a mixed-case name is ASCII-lowercased so the
+    // whole attribute IDL surface keys on the canonical form.
+    let mut dom = EcsDom::new();
+    let div = elem(&mut dom, "div");
+    assert_eq!(dom.resolve_attribute_qname(div, "ID"), "id");
+    assert_eq!(dom.resolve_attribute_qname(div, "DaTa-Foo"), "data-foo");
+    // An already-lowercase name resolves to itself.
+    assert_eq!(dom.resolve_attribute_qname(div, "class"), "class");
+}
+
+#[test]
+fn resolve_attribute_qname_html_returns_owned() {
+    // The HTML arm allocates an owned lowercase copy (it cannot borrow the
+    // argument because the casing differs).
+    let mut dom = EcsDom::new();
+    let div = elem(&mut dom, "div");
+    assert!(matches!(
+        dom.resolve_attribute_qname(div, "ViewBox"),
+        Cow::Owned(_)
+    ));
+}
+
+#[test]
+fn resolve_attribute_qname_svg_case_preserves() {
+    // SVG-namespace element: the local name is preserved verbatim (`viewBox`
+    // must NOT collapse to `viewbox`).
+    let mut dom = EcsDom::new();
+    let svg = dom.create_element_ns("svg", Namespace::Svg, Attributes::default(), None);
+    assert_eq!(dom.resolve_attribute_qname(svg, "viewBox"), "viewBox");
+    // Borrowed, not owned — case-preserving arm returns the argument as-is.
+    assert!(matches!(
+        dom.resolve_attribute_qname(svg, "viewBox"),
+        Cow::Borrowed(_)
+    ));
+}
+
+#[test]
+fn resolve_attribute_qname_mathml_case_preserves() {
+    let mut dom = EcsDom::new();
+    let math = dom.create_element_ns("math", Namespace::MathMl, Attributes::default(), None);
+    assert_eq!(
+        dom.resolve_attribute_qname(math, "definitionURL"),
+        "definitionURL"
+    );
+}
+
+#[test]
+fn resolve_attribute_qname_non_element_borrows() {
+    // `is_html_namespace` is false for non-elements, so the resolver takes the
+    // case-preserving (Borrowed) arm — defensive, never lowercases.
+    let mut dom = EcsDom::new();
+    let text = dom.create_text("hi");
+    assert_eq!(dom.resolve_attribute_qname(text, "FOO"), "FOO");
+    assert!(matches!(
+        dom.resolve_attribute_qname(text, "FOO"),
+        Cow::Borrowed(_)
+    ));
+}
+
 #[test]
 fn is_base_element_html_namespace_only() {
     // HTML `<base>` is the document base; a foreign-namespace `<base>`

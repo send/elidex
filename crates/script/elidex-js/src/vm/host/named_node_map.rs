@@ -38,6 +38,7 @@
 #![cfg(feature = "engine")]
 
 use elidex_ecs::{Attributes, EcsDom, Entity};
+use elidex_script_session::apply_set_attribute;
 
 use super::super::shape;
 use super::super::value::ARRAY_ITER_KIND_VALUES;
@@ -241,6 +242,18 @@ fn native_nnm_item(
 // getNamedItem / setNamedItem / removeNamedItem
 // -------------------------------------------------------------------------
 
+/// Selects how a `NamedNodeMap` lookup maps the passed name to the stored
+/// attribute key. The by-qualified-name methods (`getNamedItem` /
+/// `removeNamedItem`) `Resolve` through `EcsDom::resolve_attribute_qname`
+/// (HTML-namespace-gated lowercase, SVG / MathML case-preserved); the
+/// by-namespace+local-name methods (`getNamedItemNS` / `removeNamedItemNS`)
+/// match the local name `Verbatim` — DOM §4.9.1 NS methods do NOT lowercase.
+#[derive(Clone, Copy)]
+enum NameLookup {
+    Resolve,
+    Verbatim,
+}
+
 fn native_nnm_get_named_item(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -248,8 +261,32 @@ fn native_nnm_get_named_item(
 ) -> Result<JsValue, VmError> {
     let (_, owner) = require_named_node_map_receiver(ctx, this, "getNamedItem")?;
     let key_value = args.first().copied().unwrap_or(JsValue::Undefined);
+    get_named_item_impl(ctx, owner, key_value, NameLookup::Resolve)
+}
+
+/// Shared body for `getNamedItem` (by qualified name) and `getNamedItemNS`
+/// (by namespace + local name); `lookup` selects the name→key mapping (see
+/// [`NameLookup`]).
+fn get_named_item_impl(
+    ctx: &mut NativeContext<'_>,
+    owner: Entity,
+    key_value: JsValue,
+    lookup: NameLookup,
+) -> Result<JsValue, VmError> {
     let key_sid = super::super::coerce::to_string(ctx.vm, key_value)?;
-    let key = ctx.vm.strings.get_utf8(key_sid);
+    let raw = ctx.vm.strings.get_utf8(key_sid);
+    // `Resolve` keys BOTH the `has_attribute` probe AND the wrapper cache via
+    // the ONE resolved binding (§8 I-CACHE-KEY) — `getNamedItem('ID')` on an
+    // HTML element finds `id`. Post-unbind: case-preserve via the non-element
+    // arm (the resolver reads only the `Namespace` component, which survives
+    // unbind). `Verbatim` matches the local name as passed (§4.9.1 NS path).
+    let key = match lookup {
+        NameLookup::Resolve => ctx.host_if_bound().map_or_else(
+            || raw.clone(),
+            |host| host.dom().resolve_attribute_qname(owner, &raw).into_owned(),
+        ),
+        NameLookup::Verbatim => raw.clone(),
+    };
     // Post-unbind lookup returns null — no attribute visible.
     let exists = ctx
         .host_if_bound()
@@ -257,9 +294,10 @@ fn native_nnm_get_named_item(
     if !exists {
         return Ok(JsValue::Null);
     }
-    // Cache key matches `nnm.item` / `[Symbol.iterator]` — both
-    // derive `intern(utf8)` from the DOM snapshot, the only form
-    // shared by every hit/invalidation site.
+    // Cache key is `intern(resolved)` — the resolved form the storage lookup
+    // uses, matching `nnm.item` / `[Symbol.iterator]` (which derive it from
+    // the DOM-stored, already-resolved names) — the only form shared by every
+    // hit / invalidation site.
     let qname_sid = ctx.vm.strings.intern(&key);
     let attr_id = ctx.vm.cached_or_alloc_attr_live(owner, qname_sid);
     Ok(JsValue::Object(attr_id))
@@ -332,6 +370,23 @@ fn native_nnm_set_named_item(
     let Some((name_str, value, prev_sid)) = outcome else {
         return Ok(JsValue::Null);
     };
+    // WHATWG DOM §4.9 "set an attribute" step 4 (A1×A5 corner), reached via
+    // `setNamedItem` = set-an-attribute: if oldAttr IS attr, return attr with
+    // NO write → NO MutationObserver record. oldAttr is the attribute
+    // currently on `owner` for this qualified name = the canonical live
+    // wrapper cached under `(owner, qname)`; oldAttr == attr exactly when that
+    // cached wrapper IS the passed `attr_id` AND the attribute is present
+    // (`prev_sid`). IDENTITY (same ObjectId), not a value match. Must
+    // short-circuit BEFORE `apply_set_attribute` — else the unconditional
+    // write through the record seam would wrongly emit a same-value record.
+    let old_attr_is_attr = prev_sid.is_some()
+        && ctx
+            .vm
+            .get_wrapper(WrapperKey::entity_named(owner, WrapperKind::Attr, qname))
+            == Some(attr_id);
+    if old_attr_is_attr {
+        return Ok(JsValue::Object(attr_id));
+    }
     // Apply the write through `host_if_bound`.  Both this codebase
     // and the broader VM treat post-unbind access as a recoverable
     // state — match that contract here: if the host happens to be
@@ -342,7 +397,13 @@ fn native_nnm_set_named_item(
     let Some(host) = ctx.host_if_bound() else {
         return Ok(JsValue::Null);
     };
-    host.dom().set_attribute(owner, &name_str, &value);
+    // B2-Slice-3: route the §4.9 "set an attribute" step 6/7 write through
+    // the record-producing `apply_set_attribute` seam (replace = ONE change
+    // record / append = ONE record), mirroring `attr_set`. The Attr's
+    // verbatim qualified name is used (NO resolver — node-identity op, §4.2).
+    // `commit_notify_records` binds the push to its drain (I9).
+    let record = apply_set_attribute(host.dom(), owner, &name_str, &value);
+    ctx.vm.commit_notify_records(record.into_iter().collect());
     // Mirrors `Element.setAttributeNode`: same-element source
     // (whether live or detached via a prior
     // `removeAttribute` / `removeNamedItem`) inserts/refreshes the
@@ -385,8 +446,40 @@ fn native_nnm_remove_named_item(
 ) -> Result<JsValue, VmError> {
     let (_, owner) = require_named_node_map_receiver(ctx, this, "removeNamedItem")?;
     let key_value = args.first().copied().unwrap_or(JsValue::Undefined);
+    remove_named_item_impl(
+        ctx,
+        owner,
+        key_value,
+        "removeNamedItem",
+        NameLookup::Resolve,
+    )
+}
+
+/// Shared body for `removeNamedItem` (by qualified name) and
+/// `removeNamedItemNS` (by namespace + local name); `lookup` selects the
+/// name→key mapping (see [`NameLookup`]) and `method` names the operation for
+/// the `NotFoundError` messages.
+fn remove_named_item_impl(
+    ctx: &mut NativeContext<'_>,
+    owner: Entity,
+    key_value: JsValue,
+    method: &str,
+    lookup: NameLookup,
+) -> Result<JsValue, VmError> {
     let key_sid = super::super::coerce::to_string(ctx.vm, key_value)?;
-    let key = ctx.vm.strings.get_utf8(key_sid);
+    let raw = ctx.vm.strings.get_utf8(key_sid);
+    // §4.2 + §8 I-CACHE-KEY: the ONE resolved binding feeds the get-by-name
+    // match (`with_attribute`), the wrapper-snapshot key, AND the
+    // `apply_remove_attribute` removal key below. `Resolve` =
+    // HTML-namespace-gated lowercase (by-name path); `Verbatim` = local name
+    // as passed (§4.9.1 NS path — no lowercase).
+    let key = match lookup {
+        NameLookup::Resolve => ctx.host_if_bound().map_or_else(
+            || raw.clone(),
+            |host| host.dom().resolve_attribute_qname(owner, &raw).into_owned(),
+        ),
+        NameLookup::Verbatim => raw.clone(),
+    };
     let empty = ctx.vm.well_known.empty;
     // Post-unbind: the attribute is not visible → NotFoundError
     // (treat as absent per spec step 3 rather than panicking via
@@ -406,53 +499,44 @@ fn native_nnm_remove_named_item(
         let not_found = ctx.vm.well_known.dom_exc_not_found_error;
         return Err(VmError::dom_exception(
             not_found,
-            format!("Failed to execute 'removeNamedItem' on 'NamedNodeMap': '{key}' not found"),
+            format!("Failed to execute '{method}' on 'NamedNodeMap': '{key}' not found"),
         ));
     };
-    // Cache key uses `intern(utf8)`, matching every hit site
+    // Cache key uses `intern(resolved)`, matching every hit site
     // (`getNamedItem` / `getAttributeNode` / `nnm.item` /
-    // `[Symbol.iterator]` / `nnm[k]`).  The DOM stores attribute
-    // names in UTF-8, so `intern(&key)` is the only form every
-    // path can derive consistently — the original UCS-2 `key_sid`
-    // would diverge from snapshot-derived keys for lone-surrogate
-    // inputs and leak entries through the invalidation.
+    // `[Symbol.iterator]`).  The DOM stores attribute names in their
+    // resolved UTF-8 form, so `intern(&key)` is the only form every path can
+    // derive consistently — a raw UCS-2 `key_sid` would diverge from
+    // snapshot-derived keys for lone-surrogate inputs and leak entries through
+    // the invalidation.
     let qname_sid = ctx.vm.strings.intern(&key);
-    // Apply the removal through `host_if_bound`.  Treat post-snapshot
-    // unbind as the absent path (raise `NotFoundError`) rather than
-    // panicking — matches how the rest of this codepath surfaces
-    // post-unbind state.
-    let Some(host) = ctx.host_if_bound() else {
+    // Guard the unbound case BEFORE the shared detach — treat post-snapshot
+    // unbind as the absent path (raise `NotFoundError`) rather than panicking,
+    // matching how the rest of this codepath surfaces post-unbind state.
+    if ctx.host_if_bound().is_none() {
         let not_found = ctx.vm.well_known.dom_exc_not_found_error;
         return Err(VmError::dom_exception(
             not_found,
-            format!("Failed to execute 'removeNamedItem' on 'NamedNodeMap': '{key}' not found"),
+            format!("Failed to execute '{method}' on 'NamedNodeMap': '{key}' not found"),
         ));
-    };
-    host.dom().remove_attribute(owner, &key);
-    // Symmetric with `Element.removeAttribute` (see
-    // `super::element_attrs::attr_remove`): any JS-held wrapper
-    // cached for `(owner, qname_sid)` must be frozen at its
-    // removal-time value so a subsequent same-name `setAttribute`
-    // can't make `attr.value` appear to track the new write
-    // (Chrome / Firefox parity).  `.copied()` drops the cache-map
-    // borrow before the `attr_states.get_mut` below.
-    let cached_attr_id = ctx.vm.get_wrapper(WrapperKey::entity_named(
-        owner,
-        WrapperKind::Attr,
-        qname_sid,
-    ));
-    if let Some(attr_id) = cached_attr_id {
-        if let Some(state_mut) = ctx.vm.attr_states.get_mut(&attr_id) {
-            state_mut.detached_value = Some(prev_sid);
-        }
     }
-    ctx.vm.invalidate_attr_cache_entry(owner, qname_sid);
-    let returned = ctx.vm.alloc_attr(AttrState {
+    // B2-Slice-3 / §4.3: converge onto the SAME shared
+    // `snapshot → apply_remove_attribute (record) → freeze → commit` detach as
+    // `removeAttributeNode` (I-ONE-DETACH — cache invalidation is structural).
+    // `removeNamedItem` was passed a *name*, not a node, so it returns a FRESH
+    // detached `Attr` over the removed value (`DetachReturn::FreshNode`) — the
+    // ONE point it differs from `removeAttributeNode` (which returns the passed
+    // node). The shared helper freezes any cached wrapper at the removal-time
+    // value (Chrome / Firefox `attr.value` parity through a same-name re-add).
+    // `key` is the resolved removal key (the single binding from above, §4.2).
+    Ok(super::element_attrs::remove_attribute_via_node(
+        ctx,
         owner,
-        qualified_name: qname_sid,
-        detached_value: Some(prev_sid),
-    });
-    Ok(JsValue::Object(returned))
+        &key,
+        qname_sid,
+        prev_sid,
+        super::element_attrs::DetachReturn::FreshNode,
+    ))
 }
 
 // -------------------------------------------------------------------------
@@ -480,15 +564,17 @@ fn native_nnm_get_named_item_ns(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    require_named_node_map_receiver(ctx, this, "getNamedItemNS")?;
+    let (_, owner) = require_named_node_map_receiver(ctx, this, "getNamedItemNS")?;
     let ns = args.first().copied().unwrap_or(JsValue::Undefined);
     if !is_null_namespace(ctx, ns)? {
         return Ok(JsValue::Null);
     }
-    // Delegate to the non-namespace path — localName == qualified
-    // name in Phase 2.
+    // DOM §4.9.1 "get an attribute by namespace and local name": match the
+    // local name VERBATIM — the NS methods do NOT perform the by-name path's
+    // HTML-namespace qualified-name lowercasing, so on an HTML element
+    // `getNamedItemNS(null, 'ID')` misses the stored lowercase `id`.
     let local = args.get(1).copied().unwrap_or(JsValue::Undefined);
-    native_nnm_get_named_item(ctx, this, &[local])
+    get_named_item_impl(ctx, owner, local, NameLookup::Verbatim)
 }
 
 fn native_nnm_set_named_item_ns(
@@ -507,7 +593,7 @@ fn native_nnm_remove_named_item_ns(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    require_named_node_map_receiver(ctx, this, "removeNamedItemNS")?;
+    let (_, owner) = require_named_node_map_receiver(ctx, this, "removeNamedItemNS")?;
     let ns = args.first().copied().unwrap_or(JsValue::Undefined);
     if !is_null_namespace(ctx, ns)? {
         let not_found = ctx.vm.well_known.dom_exc_not_found_error;
@@ -517,8 +603,10 @@ fn native_nnm_remove_named_item_ns(
                 .to_string(),
         ));
     }
+    // DOM §4.9.1 by-namespace+local-name removal: match the local name
+    // VERBATIM (no HTML-namespace lowercase, unlike `removeNamedItem`).
     let local = args.get(1).copied().unwrap_or(JsValue::Undefined);
-    native_nnm_remove_named_item(ctx, this, &[local])
+    remove_named_item_impl(ctx, owner, local, "removeNamedItemNS", NameLookup::Verbatim)
 }
 
 // -------------------------------------------------------------------------
