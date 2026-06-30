@@ -93,12 +93,15 @@ two Worlds' entities *at once* (the spatial hazard). The staleness `bind_epoch` 
 (`static_range_proto.rs:371`, `vm_api.rs:574-585`) is the *temporal* sibling: a wrapper retained across a
 `Vm::unbind`→`bind` that re-binds a **different** `EcsDom` resolves stale bits generation cannot catch —
 the rebind is **not** a despawn (same index, same generation, a different world). **B1 eliminates this too,
-by construction**: a `Vm` binds exactly one World — its agent's — for its whole life; navigation creates a
-*fresh* engine + `EcsDom`, owned together and never rebound (`pipeline.rs` — a new `JsRuntime` today, the
-`Vm` post-flip; navigation = whole-pipeline replacement, not a re-bind to a different DOM), and a World's
-document-root membership may grow/shrink (docs created-in / despawned-from, §5 req 1) but the World is
-**never swapped** for a different one under a live `Vm`. So every `unbind`→`bind` re-binds the *same* World;
-there is no cross-World rebind, and `bind_epoch`'s cross-world detection role disappears (§5 req 6 / §7 Q7).
+by construction**: a `Vm` is bound to exactly one World — its agent's — for its whole life. In the
+**current through-S5 pipeline**, *every* navigation is a whole-pipeline replacement (a fresh engine +
+`EcsDom`, owned together and never rebound — `pipeline.rs`, a new `JsRuntime` today, the `Vm` post-flip);
+under **B1**, **same-agent** navigation *reuses* the agent's World/`Vm` (§5 req 1) and only a **cross-agent**
+navigation allocates a new pair — but **either way the live `Vm` never swaps its World for a different
+one** (same-agent nav keeps it; cross-agent nav is a *new* `Vm`). A World's document-root membership may
+grow/shrink (docs created-in / despawned-from, §5 req 1), but the World identity under a live `Vm` is
+stable. So every `unbind`→`bind` re-binds the *same* World; there is no cross-World rebind, and
+`bind_epoch`'s cross-world detection role disappears (§5 req 6 / §7 Q7).
 The one residual within-World hazard B1 inherits from hecs is **ABA on 32-bit `generation` wraparound** (an
 index despawned/respawned 2³²−1 times — the full `NonZeroU32` cycle — recurs at the same bitpattern) —
 accepted as out of scope (a retained wrapper does not survive ~4 billion despawns of one index), and
@@ -515,11 +518,10 @@ currently cite "`#11-wrapper-cache-cross-dom-discriminator`, strictly AFTER S5."
 **S5-3a-*new* symbols** — `keepalive_worthy` / `deliverable_to` docstrings, `vm/gc/keepalive.rs`, the
 `KeepaliveClass` doc, `tests/tests_match_media_keepalive.rs` — live on the *unmerged* `s5-3a-keepalive-seam`
 branch @ `4501b2b5` (absent from `main`; names may shift before S5-3a merges → re-discover at cite-update
-time). But the **general `world_id` slot cites already on `main`** — `vm/host_data.rs:117-121` (slot doc)
-and `vm/host/media_query.rs`'s document-gate comment — are the same on-`main` code comments §6.5 defers to
-the B1-impl cite-update (the two notes are consistent: §6.4 owns the S5-3a-new symbols, §6.5 owns the
-broader on-`main` set). After this decision lands, **retarget all of them to cite THIS doc**, with the
-corrected framing:
+time). The **general `world_id` slot cites already on `main`** (`vm/host_data.rs`, `vm/host/media_query.rs`,
+…) are the on-`main` code comments **§6.5 has already forward-pointed in this PR** (the complete sweep) —
+their full *rewrite* still rides B1; §6.4 owns the unmerged S5-3a-new symbols, §6.5 owns the on-`main` set.
+After S5-3a merges, **retarget its symbols to cite THIS doc** with the corrected framing:
 
 - cross-DOM aliasing is **non-production near-term** (one-doc-one-World holds through S5; the flip is
   cross-DOM-neutral, §6.2);
