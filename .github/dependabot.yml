@@ -10,6 +10,34 @@ updates:
       rust-dependencies:
         patterns:
           - "*"
+    # The RustCrypto stack is hand-pinned as ONE coordinated generation in
+    # Cargo.toml (elliptic-curve 0.13 / ecdsa 0.16 / p256·p384·p521 0.13 /
+    # rsa 0.9 / rand_core 0.6 / rand_chacha — the "digest 0.10 / rand_core 0.6"
+    # line; see the comments on those entries in Cargo.toml). These crates only
+    # move together, and only via a deliberate migration once compatible
+    # releases exist across the whole set. A partial bump splits the generation
+    # (two rand_core / two elliptic-curve in the tree) and breaks
+    # elidex-api-crypto — cf. PR #425, which bumped elliptic-curve 0.13→0.14 and
+    # rand_core 0.6→0.10 alone and failed with 45 compile errors. Hold these on
+    # their current 0.x line: patch updates still flow; a line move (major/minor
+    # for 0.x) is opt-in via this file, not a weekly Dependabot drive-by.
+    ignore:
+      - dependency-name: "elliptic-curve"
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
+      - dependency-name: "ecdsa"
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
+      - dependency-name: "p256"
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
+      - dependency-name: "p384"
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
+      - dependency-name: "p521"
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
+      - dependency-name: "rsa"
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
+      - dependency-name: "rand_core"
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
+      - dependency-name: "rand_chacha"
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
 
   - package-ecosystem: github-actions
     directory: "/"
