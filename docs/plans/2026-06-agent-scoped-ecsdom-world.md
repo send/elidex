@@ -149,9 +149,11 @@ Every cross-frame interaction is exactly one of:
 > **same-site cross-origin** frame/popup is **same-agent** — it shares the World + heap (one agent = one
 > heap) — even though it is **not** same-origin. What "same-origin" gates is **synchronous DOM access**
 > ("friendly" scripting), enforced as an **in-World access check** (cross-origin access is restricted until
-> `document.domain` matches, §4.3), **not** a separate World. Conversely a **COOP/`noopener` browsing-
-> context-group switch** (HTML §7.1.3.2) puts an otherwise-same-origin window in a **different** agent →
-> different World. So World membership = "same agent in the same browsing-context group", which this doc
+> `document.domain` matches, §4.3), **not** a separate World. Conversely a window lands in a **different**
+> agent → different World when the §8.1.2.2 algorithm **origin-keys** it (an honored `Origin-Agent-Cluster`
+> or a non-`none` cross-origin-isolation mode — splitting even *same-site cross-origin* frames; req 1) **or**
+> a **COOP/`noopener` browsing-context-group switch** (HTML §7.1.3.2) moves it to a **new** group (splitting
+> even *same-origin* windows). So World membership = "same agent in the same browsing-context group", which this doc
 > writes **same-agent**; reserve **same-origin** for the access check. (The prose below is corrected to
 > this; a few "same-origin" usages describing *friendly* access remain deliberate.)
 
@@ -389,9 +391,14 @@ meet. They are the deliverable — the contract is "build to these."
      window into a **new** group → a **different** agent → a **separate** World (do not share a heap across
      a COOP isolation boundary — §4.3 popup row).
    - **same-site cross-origin** windows in the same group are **same-agent** → **same World** (§1.4
-     terminology), with cross-origin DOM access gated by the **in-World access check**; `document.domain`
-     is an in-World *origin-field relaxation* (§7.1.1.2), **not** a World-membership change (the windows
-     were already same-agent — §4.3).
+     terminology) **only when *obtain a similar-origin window agent* (§8.1.2.2) returns the same
+     (site-keyed) agent** — i.e. when **neither** window is origin-keyed by bullet 1's triggers (a
+     non-`none` cross-origin-isolation mode, an honored `Origin-Agent-Cluster`, an opaque origin). An
+     **origin-keyed** same-site frame/popup is a **different** agent → a **separate** World/`Vm`,
+     preserving the COOP+COEP / OAC isolation boundary (§8.1.2.1: an origin-keyed cluster's windows are
+     same-origin only, and `document.domain` no-ops). For the **same-agent** case, cross-origin DOM access
+     is gated by the **in-World access check**; `document.domain` is an in-World *origin-field relaxation*
+     (§7.1.1.2), **not** a World-membership change (the windows were already same-agent — §4.3).
 
    **Dynamic membership**: a World spans top-level contexts (opener + same-group same-agent popups) and
    **non-contiguous** same-agent frames; a tab may host several Worlds (one per agent present). Documents
