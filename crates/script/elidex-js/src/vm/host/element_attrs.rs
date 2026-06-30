@@ -560,7 +560,7 @@ pub(super) fn native_element_set_attribute_node(
         }
         None => return Ok(JsValue::Null),
     };
-    // WHATWG DOM §4.9 "set an attribute" step 3 (A1×A5 corner): if
+    // WHATWG DOM §4.9 "set an attribute" step 4 (A1×A5 corner): if
     // oldAttr IS attr, return attr WITHOUT any write — so NO chokepoint
     // write and NO MutationObserver record. oldAttr is the attribute
     // currently on `entity` for this qualified name = the canonical live

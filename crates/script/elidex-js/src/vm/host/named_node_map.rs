@@ -346,7 +346,7 @@ fn native_nnm_set_named_item(
     let Some((name_str, value, prev_sid)) = outcome else {
         return Ok(JsValue::Null);
     };
-    // WHATWG DOM §4.9 "set an attribute" step 3 (A1×A5 corner), reached via
+    // WHATWG DOM §4.9 "set an attribute" step 4 (A1×A5 corner), reached via
     // `setNamedItem` = set-an-attribute: if oldAttr IS attr, return attr with
     // NO write → NO MutationObserver record. oldAttr is the attribute
     // currently on `owner` for this qualified name = the canonical live
