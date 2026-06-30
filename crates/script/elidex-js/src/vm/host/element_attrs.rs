@@ -224,6 +224,77 @@ pub(super) fn attr_remove(ctx: &mut NativeContext<'_>, entity: Entity, name: &st
     ctx.vm.commit_notify_records(record.into_iter().collect());
 }
 
+/// The detached `Attr` a node-identity removal (`removeAttributeNode` /
+/// `removeNamedItem`) hands back — the ONE point the two APIs differ (§4.3
+/// A2×A3). Both run the SAME `snapshot → apply_remove_attribute → freeze →
+/// commit` detach mechanism ([`remove_attribute_via_node`]); only *which
+/// ObjectId* is detached + returned varies, so it is a parameter, not a forked
+/// path.
+#[derive(Clone, Copy)]
+pub(super) enum DetachReturn {
+    /// `removeAttributeNode` — freeze the caller's passed-in `Attr` in place
+    /// (identity-preserving: the caller keeps the same object, now detached
+    /// with a snapshot of the removed value) and return it.
+    PassedNode(ObjectId),
+    /// `removeNamedItem` — the caller passed a *name*, so allocate a FRESH
+    /// detached `Attr` over the removed value and return that.
+    FreshNode,
+}
+
+/// Shared node-identity attribute-removal convergence (§4.3 / I-ONE-DETACH):
+/// `snapshot_attr_wrapper → apply_remove_attribute (record) →
+/// freeze_detached_attr_wrapper → commit_notify_records`, mirroring
+/// [`attr_remove`]. The caller has already validated its precondition
+/// (`removeAttributeNode` owner-check / both APIs' attribute-present check) and
+/// captured `prev_sid` for the returned Attr's snapshot; this runs the
+/// structural detach (so the CRITICAL "every removal path invalidates the
+/// cache" invariant lives in ONE place, not a per-site reminder) and builds the
+/// `ret`-shaped detached `Attr`. `name`/`qname_sid` are the resolved-or-verbatim
+/// removal key (the caller owns resolution — §4.2). `prev_sid` is the removed
+/// value snapshot the returned Attr reports through `.value`.
+pub(super) fn remove_attribute_via_node(
+    ctx: &mut NativeContext<'_>,
+    entity: Entity,
+    name: &str,
+    qname_sid: StringId,
+    prev_sid: StringId,
+    ret: DetachReturn,
+) -> JsValue {
+    let snap = snapshot_attr_wrapper(ctx, entity, name, qname_sid);
+    // snapshot → remove → freeze → commit (the `attr_remove` shape). The
+    // `apply_remove_attribute` record fires only when something was removed
+    // (I11); the caller's attribute-present precondition guarantees it here.
+    let record = ctx
+        .host_if_bound()
+        .and_then(|host| apply_remove_attribute(host.dom(), entity, name));
+    // Freeze the cached wrapper (covers `removeNamedItem`'s any-cached-handle +
+    // `removeAttributeNode` when the passed node IS the cached one) and
+    // structurally invalidate the cache entry.
+    freeze_detached_attr_wrapper(ctx, entity, &snap);
+    let returned = match ret {
+        DetachReturn::PassedNode(attr_id) => {
+            // Identity-preserving: detach the SAME object the caller passed in
+            // (it may be a JS-held handle distinct from the cache after a prior
+            // invalidation, so freeze it explicitly — `freeze_detached_attr_wrapper`
+            // only touched the cached wrapper).
+            if let Some(state_mut) = ctx.vm.attr_states.get_mut(&attr_id) {
+                state_mut.detached_value = Some(prev_sid);
+            }
+            JsValue::Object(attr_id)
+        }
+        DetachReturn::FreshNode => {
+            let fresh = ctx.vm.alloc_attr(super::attr_proto::AttrState {
+                owner: entity,
+                qualified_name: qname_sid,
+                detached_value: Some(prev_sid),
+            });
+            JsValue::Object(fresh)
+        }
+    };
+    ctx.vm.commit_notify_records(record.into_iter().collect());
+    returned
+}
+
 pub(super) fn native_element_get_attribute(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -267,15 +338,21 @@ pub(super) fn native_element_remove_attribute(
     let Some(entity) = entity_from_this(ctx, this) else {
         return Ok(JsValue::Undefined);
     };
-    // Lowercase the name so the VM-local Attr-wrapper snapshot/invalidation below
-    // keys on the SAME name the `removeAttribute` handler removes — else
-    // `removeAttribute('ID')` removes `id` via the handler but a raw-keyed snapshot
-    // misses a cached `getAttributeNode('id')` wrapper (Codex R1). The handler
-    // currently lowercases UNCONDITIONALLY (all elements); HTML-namespace-gating
-    // the lowercase consistently across the whole attribute IDL surface (so SVG/
-    // MathML case-preserved names survive) is deferred WHOLE to slot
-    // `#11-attribute-name-html-namespace-casing` (plan §9).
-    let name = coerce_first_arg_to_string(ctx, args)?.to_ascii_lowercase();
+    // Resolve the name through the single canonical
+    // `EcsDom::resolve_attribute_qname` (B2-Slice-3 / §8 I-CACHE-KEY) so the
+    // VM-local Attr-wrapper snapshot / invalidation below keys on the SAME
+    // resolved name the `removeAttribute` handler removes — else
+    // `removeAttribute('ID')` removes `id` via the handler but a raw-keyed
+    // snapshot misses a cached `getAttributeNode('id')` wrapper (HTML re-key
+    // regression), while an unconditional-lowercase would collapse an SVG
+    // `viewBox` snapshot key (SVG regression). The resolver lowercases iff the
+    // receiver is an HTML-namespace element (SVG / MathML case-preserved).
+    let raw = coerce_first_arg_to_string(ctx, args)?;
+    let name = ctx
+        .host()
+        .dom()
+        .resolve_attribute_qname(entity, &raw)
+        .into_owned();
     // B2-Slice-1 / F2: route the removal through the record-producing
     // `removeAttribute` handler (chokepoint remove + §4.9 "attributes" record
     // + `AttrEntityCache` evict + record drain) instead of the bare
@@ -303,15 +380,15 @@ pub(super) fn native_element_has_attribute(
     let Some(entity) = entity_from_this(ctx, this) else {
         return Ok(JsValue::Boolean(false));
     };
-    let name = coerce_first_arg_to_string(ctx, args)?;
-    let has = {
-        let dom = ctx.host().dom();
-        dom.world()
-            .get::<&elidex_ecs::Attributes>(entity)
-            .ok()
-            .is_some_and(|attrs| attrs.contains(&name))
-    };
-    Ok(JsValue::Boolean(has))
+    // B2-Slice-3 / §4.2: converge onto the engine-independent `hasAttribute`
+    // handler — it resolves the name through the single canonical
+    // `EcsDom::resolve_attribute_qname` (HTML-namespace-gated lowercase, SVG /
+    // MathML case-preserved). The prior raw `Attributes::contains` read here
+    // bypassed casing entirely, so `el.hasAttribute('ID')` (VM) diverged from
+    // the dom-api `HasAttribute` lowercase path; routing through the handler
+    // makes the two paths identical (no path-dependence).
+    let name_sid = coerce_first_arg_to_string_id(ctx, args)?;
+    invoke_dom_api(ctx, "hasAttribute", entity, &[JsValue::String(name_sid)])
 }
 
 pub(super) fn native_element_get_attribute_names(
@@ -391,15 +468,26 @@ pub(super) fn native_element_get_attribute_node(
     let Some(entity) = entity_from_this(ctx, this) else {
         return Ok(JsValue::Null);
     };
-    let name = coerce_first_arg_to_string(ctx, args)?;
+    let raw = coerce_first_arg_to_string(ctx, args)?;
+    // B2-Slice-3 / §4.2: resolve the lookup name through the single canonical
+    // `EcsDom::resolve_attribute_qname` (HTML-namespace-gated lowercase, SVG /
+    // MathML case-preserved) so `getAttributeNode('ID')` on an HTML element
+    // finds `id` (was a latent miss). The ONE resolved binding keys BOTH the
+    // `has_attribute` probe AND the wrapper cache (§8 I-CACHE-KEY: a resolved-
+    // vs-raw key mismatch leaks a stale cached Attr).
+    let name = ctx
+        .host()
+        .dom()
+        .resolve_attribute_qname(entity, &raw)
+        .into_owned();
     if !ctx.host().dom().has_attribute(entity, &name) {
         return Ok(JsValue::Null);
     }
-    // Cache key is `intern(utf8)` — the same form `nnm.item` /
-    // `[Symbol.iterator]` derive from DOM-stored attribute names —
-    // so identity holds across all paths even for lone-surrogate
-    // inputs (the DOM stores UTF-8 verbatim, so the original
-    // UCS-2 `StringId` would diverge from snapshot-derived keys).
+    // Cache key is `intern(resolved)` — the same resolved form the storage
+    // lookup uses, and what `nnm.item` / `[Symbol.iterator]` derive from the
+    // DOM-stored (already-resolved) attribute names — so identity holds across
+    // all paths even for lone-surrogate inputs (the DOM stores UTF-8 verbatim,
+    // so the original UCS-2 `StringId` would diverge from snapshot-derived keys).
     let qname_sid = ctx.vm.strings.intern(&name);
     let attr_id = ctx.vm.cached_or_alloc_attr_live(entity, qname_sid);
     Ok(JsValue::Object(attr_id))
@@ -462,6 +550,27 @@ pub(super) fn native_element_set_attribute_node(
         }
         None => return Ok(JsValue::Null),
     };
+    // WHATWG DOM §4.9 "set an attribute" step 3 (A1×A5 corner): if
+    // oldAttr IS attr, return attr WITHOUT any write — so NO chokepoint
+    // write and NO MutationObserver record. oldAttr is the attribute
+    // currently on `entity` for this qualified name = the canonical live
+    // wrapper cached under `(entity, qname_sid)`; oldAttr == attr exactly
+    // when that cached wrapper IS the passed `attr_id` AND the attribute is
+    // present (`prev_sid`). This is IDENTITY (same ObjectId), not a
+    // name/value match. Must short-circuit BEFORE `apply_set_attribute` —
+    // else routing the unconditional write through the record seam would
+    // wrongly emit a same-value record (today's pre-record impl re-wrote
+    // unconditionally, which was record-silently harmless; with records it
+    // is not).
+    let old_attr_is_attr = prev_sid.is_some()
+        && ctx.vm.get_wrapper(WrapperKey::entity_named(
+            entity,
+            WrapperKind::Attr,
+            qname_sid,
+        )) == Some(attr_id);
+    if old_attr_is_attr {
+        return Ok(JsValue::Object(attr_id));
+    }
     // Snapshot the prev value BEFORE overwriting so the returned
     // detached Attr observes the replaced value, not the just-written
     // one (WHATWG §4.9.2).  Surface a post-snapshot unbind as `Null`
@@ -470,7 +579,14 @@ pub(super) fn native_element_set_attribute_node(
     let Some(host) = ctx.host_if_bound() else {
         return Ok(JsValue::Null);
     };
-    host.dom().set_attribute(entity, &name_str, &new_value);
+    // B2-Slice-3: route the §4.9 "set an attribute" step 6/7 write through
+    // the record-producing `apply_set_attribute` seam (replace = ONE change
+    // record / append = ONE record with oldValue=null, A1×A2 corner),
+    // mirroring `attr_set`. The Attr's verbatim qualified name is used (NO
+    // resolver — node-identity op, §4.2). `commit_notify_records` binds the
+    // push to its drain (I9).
+    let record = apply_set_attribute(host.dom(), entity, &name_str, &new_value);
+    ctx.vm.commit_notify_records(record.into_iter().collect());
     // Sync the identity cache for `(entity, qname_sid)`:
     // - Same-element source (`source_owner == entity`), whether live
     //   or detached: insert/refresh so reattachment after a prior
@@ -577,30 +693,34 @@ pub(super) fn native_element_remove_attribute_node(
             format!("Failed to execute 'removeAttributeNode' on 'Element': '{name_str}' not found"),
         ));
     };
-    // Apply the removal through `host_if_bound` BEFORE mutating
-    // the Attr's `attr_states` snapshot — if the host happens to
-    // be unbound between the snapshot and the write, surface the
-    // recoverable `NotFoundError` without leaving the passed Attr
-    // observably detached.  The wrapper-detach step matches WHATWG
-    // §4.9.2 "remove an attribute"'s requirement that the removed
-    // Attr report its prior value through `attr.value` afterwards.
-    let Some(host) = ctx.host_if_bound() else {
+    // Guard the unbound case BEFORE the shared detach — if the host happens
+    // to be unbound between the snapshot and the write, surface the
+    // recoverable `NotFoundError` without leaving the passed Attr observably
+    // detached (the prior contract). `is_bound` here lets the shared helper's
+    // `apply_remove_attribute` land the chokepoint write + §4.9 record.
+    if ctx.host_if_bound().is_none() {
         let not_found = ctx.vm.well_known.dom_exc_not_found_error;
         return Err(VmError::dom_exception(
             not_found,
             format!("Failed to execute 'removeAttributeNode' on 'Element': '{name_str}' not found"),
         ));
-    };
-    host.dom().remove_attribute(entity, &name_str);
-    ctx.vm.invalidate_attr_cache_entry(entity, qname_sid);
-    if let Some(state_mut) = ctx.vm.attr_states.get_mut(&attr_id) {
-        state_mut.detached_value = Some(prev_sid);
     }
-    // Return the same Attr — now detached with a snapshot of the
-    // value at removal time.  Caller-side stashing for
-    // reinsertion continues to work because `attr.value` reads
-    // the snapshot.
-    Ok(JsValue::Object(attr_id))
+    // B2-Slice-3 / §4.3: converge onto the shared
+    // `snapshot → apply_remove_attribute (record) → freeze → commit` detach
+    // (I-ONE-DETACH — cache invalidation is structural, not a per-site
+    // reminder). `removeAttributeNode` freezes + returns the SAME passed-in
+    // Attr, identity-preserving (`DetachReturn::PassedNode`); its `.value`
+    // reports the removal-time snapshot so caller-side reinsertion still works.
+    // The verbatim `qname_sid` (the Attr's stored name) is the removal key (NO
+    // resolver — node-identity op, §4.2).
+    Ok(remove_attribute_via_node(
+        ctx,
+        entity,
+        &name_str,
+        qname_sid,
+        prev_sid,
+        DetachReturn::PassedNode(attr_id),
+    ))
 }
 
 pub(super) fn native_element_toggle_attribute(
@@ -611,15 +731,21 @@ pub(super) fn native_element_toggle_attribute(
     let Some(entity) = entity_from_this(ctx, this) else {
         return Ok(JsValue::Boolean(false));
     };
-    // Lowercase the name so the `currently_present` probe + the Attr-wrapper
-    // detach snapshot below key on the SAME name the `toggleAttribute` handler
-    // operates on — else `toggleAttribute('ID')` removes `id` via the handler but
-    // a raw-keyed precheck/snapshot misses a cached `getAttributeNode('id')`
-    // wrapper (Codex R1). The handler currently lowercases UNCONDITIONALLY (all
-    // elements); HTML-namespace-gating the lowercase consistently across the whole
-    // attribute IDL surface (so SVG/MathML case-preserved names survive) is
-    // deferred WHOLE to slot `#11-attribute-name-html-namespace-casing` (plan §9).
-    let name = coerce_first_arg_to_string(ctx, args)?.to_ascii_lowercase();
+    // Resolve the name through the single canonical
+    // `EcsDom::resolve_attribute_qname` (B2-Slice-3 / §8 I-CACHE-KEY) so the
+    // `currently_present` probe + the Attr-wrapper detach snapshot below key on
+    // the SAME resolved name the `toggleAttribute` handler operates on — else
+    // `toggleAttribute('ID')` removes `id` via the handler but a raw-keyed
+    // precheck / snapshot misses a cached `getAttributeNode('id')` wrapper (HTML
+    // re-key regression), while an unconditional-lowercase would collapse an SVG
+    // `viewBox` key (SVG regression). The resolver lowercases iff the receiver is
+    // an HTML-namespace element (SVG / MathML case-preserved).
+    let raw = coerce_first_arg_to_string(ctx, args)?;
+    let name = ctx
+        .host()
+        .dom()
+        .resolve_attribute_qname(entity, &raw)
+        .into_owned();
 
     // `force` (second arg): undefined = toggle, true = ensure present,
     // false = ensure absent.  WHATWG §4.9.2 toggleAttribute.

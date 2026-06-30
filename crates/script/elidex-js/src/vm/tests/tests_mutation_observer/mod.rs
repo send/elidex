@@ -16,6 +16,7 @@
 
 #![cfg(feature = "engine")]
 
+mod attr_node;
 mod attributes;
 mod char_data;
 mod delivery;
@@ -103,4 +104,40 @@ pub(super) fn setup_with_root(
     let wrapper = vm.inner.create_element_wrapper(root);
     vm.set_global("root", JsValue::Object(wrapper));
     (doc, root)
+}
+
+/// Like [`setup_with_root`], but ALSO appends an **SVG-namespaced** element
+/// (carrying a case-preserved `viewBox` attribute) and exposes it as
+/// `globalThis.svg`. SVG / MathML elements are normally parser-constructed
+/// (JS `createElementNS` is not VM-wired — plan §7); building it here via
+/// [`elidex_ecs::EcsDom::create_element_ns`] is the test-construction
+/// equivalent (the resolver reads the `Namespace` component regardless of
+/// whether the parser or `create_element_ns` attached it), so the
+/// HTML-namespace-gated attribute-name resolver case-preserves `viewBox` on it.
+pub(super) fn setup_with_root_and_svg(
+    vm: &mut Vm,
+    session: &mut SessionCore,
+    dom: &mut EcsDom,
+) -> (elidex_ecs::Entity, elidex_ecs::Entity, elidex_ecs::Entity) {
+    let doc = build_doc(dom);
+    let body = dom
+        .first_child_with_tag(dom.first_child_with_tag(doc, "html").unwrap(), "body")
+        .unwrap();
+    let root = dom.create_element("div", elidex_ecs::Attributes::default());
+    assert!(dom.append_child(body, root));
+
+    let mut svg_attrs = elidex_ecs::Attributes::default();
+    svg_attrs.set("viewBox", "0 0 10 10");
+    let svg = dom.create_element_ns("svg", elidex_ecs::Namespace::Svg, svg_attrs, None);
+    assert!(dom.append_child(body, svg));
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(vm, session, dom, doc);
+    }
+    let root_wrapper = vm.inner.create_element_wrapper(root);
+    vm.set_global("root", JsValue::Object(root_wrapper));
+    let svg_wrapper = vm.inner.create_element_wrapper(svg);
+    vm.set_global("svg", JsValue::Object(svg_wrapper));
+    (doc, root, svg)
 }

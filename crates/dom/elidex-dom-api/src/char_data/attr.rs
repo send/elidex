@@ -3,7 +3,8 @@
 use elidex_ecs::{AttrData, AttrEntityCache, Attributes, EcsDom, Entity};
 use elidex_plugin::JsValue;
 use elidex_script_session::{
-    ComponentKind, DomApiError, DomApiErrorKind, DomApiHandler, JsObjectRef, SessionCore,
+    apply_remove_attribute, apply_set_attribute, ComponentKind, DomApiError, DomApiErrorKind,
+    DomApiHandler, JsObjectRef, SessionCore,
 };
 
 use crate::util::{
@@ -53,7 +54,14 @@ impl DomApiHandler for GetAttributeNode {
         session: &mut SessionCore,
         dom: &mut EcsDom,
     ) -> Result<JsValue, DomApiError> {
-        let name = require_string_arg(args, 0)?.to_ascii_lowercase();
+        // DOM §4.9 getAttributeNode (get-an-attribute-by-name) step 1:
+        // HTML-namespace-gated lowercase via the single canonical resolver
+        // (B2-Slice-3 folds this dormant entity-backed get-by-name path so it
+        // is not left a future strangler — §4.1 dual-model note). The ONE
+        // resolved binding keys BOTH the `Attributes` lookup AND the
+        // `AttrEntityCache` get/insert (§8 I-CACHE-KEY).
+        let raw = require_string_arg(args, 0)?;
+        let name = dom.resolve_attribute_qname(this, &raw).into_owned();
         let attrs = dom
             .world()
             .get::<&Attributes>(this)
@@ -153,12 +161,19 @@ impl DomApiHandler for SetAttributeNode {
         // `require_attrs_mut` borrow surfaced this). Guard before mutating.
         require_live_element(dom, this)?;
 
-        // Set the attribute on the element via the canonical
-        // `EcsDom::set_attribute` chokepoint (InlineStyle cache
-        // invalidation + `rev_version` + `MutationEvent::AttributeChange`) —
-        // attaching a `style` Attr node otherwise leaves a stale hydrated
-        // `InlineStyle` cache. The receiver is a confirmed live Element.
-        dom.set_attribute(this, &name, &value);
+        // Set the attribute on the element through the record-producing
+        // `apply_set_attribute` seam → the canonical `EcsDom::set_attribute`
+        // chokepoint (InlineStyle cache invalidation + `rev_version` +
+        // `MutationEvent::AttributeChange`) — attaching a `style` Attr node
+        // otherwise leaves a stale hydrated `InlineStyle` cache. B2-Slice-3
+        // routes the write through `apply_set_attribute` so the §4.9 "set an
+        // attribute" "attributes" MutationObserver record is surfaced (an
+        // existing same-named attr = step 6 "replace" → ONE change record). The
+        // receiver is a confirmed live Element; the Attr's verbatim `local_name`
+        // is used (NO resolver — node-identity op, §4.2).
+        if let Some(record) = apply_set_attribute(dom, this, &name, &value) {
+            session.push_notify_record(record);
+        }
 
         // Update owner.
         {
@@ -222,12 +237,18 @@ impl DomApiHandler for RemoveAttributeNode {
             ad.owner_element = None;
         }
 
-        // Remove the attribute from the element via the canonical
-        // `EcsDom::remove_attribute` chokepoint (InlineStyle cache
-        // invalidation + `rev_version` + `MutationEvent::AttributeChange`) —
-        // removing the `style` Attr node otherwise leaks a stale hydrated
-        // `InlineStyle` cache.
-        dom.remove_attribute(this, &name);
+        // Remove the attribute from the element through the record-producing
+        // `apply_remove_attribute` seam → the canonical
+        // `EcsDom::remove_attribute` chokepoint (InlineStyle cache invalidation
+        // + `rev_version` + `MutationEvent::AttributeChange`) — removing the
+        // `style` Attr node otherwise leaks a stale hydrated `InlineStyle`
+        // cache. B2-Slice-3 routes the write through `apply_remove_attribute` so
+        // the §4.9 "remove an attribute" "attributes" MutationObserver record is
+        // surfaced (records only when something was removed — I11). The Attr's
+        // verbatim `local_name` is used (NO resolver — node-identity op, §4.2).
+        if let Some(record) = apply_remove_attribute(dom, this, &name) {
+            session.push_notify_record(record);
+        }
         Ok(JsValue::ObjectRef(attr_ref))
     }
 }
@@ -290,7 +311,7 @@ impl DomApiHandler for SetAttrValue {
         &self,
         this: Entity,
         args: &[JsValue],
-        _session: &mut SessionCore,
+        session: &mut SessionCore,
         dom: &mut EcsDom,
     ) -> Result<JsValue, DomApiError> {
         let value = require_string_arg(args, 0)?;
@@ -304,18 +325,25 @@ impl DomApiHandler for SetAttrValue {
             ad.owner_element
         };
 
-        // Sync to owner element's Attributes via the canonical
-        // `EcsDom::set_attribute` chokepoint (InlineStyle cache
-        // invalidation + `rev_version` + `MutationEvent::AttributeChange`) —
-        // writing through a `style` Attr node otherwise leaves a stale
-        // hydrated `InlineStyle` cache.
+        // Sync to the owner element's Attributes through the record-producing
+        // `apply_set_attribute` seam → the canonical `EcsDom::set_attribute`
+        // chokepoint (InlineStyle cache invalidation + `rev_version` +
+        // `MutationEvent::AttributeChange`) — writing through a `style` Attr
+        // node otherwise leaves a stale hydrated `InlineStyle` cache. B2-Slice-3
+        // routes the chokepoint write through `apply_set_attribute` so the
+        // §4.9.2 "set an existing attribute value" step-5 "attributes"
+        // MutationObserver record is surfaced (an Attr with no owner element —
+        // step 1 — performs no write here, so no record, matching I1). The
+        // verbatim `local_name` is used (NO resolver — node-identity op, §4.2).
         if let Some(owner) = owner {
             let name = dom
                 .world()
                 .get::<&AttrData>(this)
                 .map(|ad| ad.local_name.clone())
                 .unwrap_or_default();
-            dom.set_attribute(owner, &name, &value);
+            if let Some(record) = apply_set_attribute(dom, owner, &name, &value) {
+                session.push_notify_record(record);
+            }
         }
 
         Ok(JsValue::Undefined)

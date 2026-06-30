@@ -28,9 +28,12 @@ impl DomApiHandler for HasAttribute {
         _session: &mut SessionCore,
         dom: &mut EcsDom,
     ) -> Result<JsValue, DomApiError> {
-        let name = require_string_arg(args, 0)?.to_ascii_lowercase();
+        // DOM §4.9 has-an-attribute-by-name step 1: HTML-namespace-gated
+        // lowercase via the single canonical resolver (B2-Slice-3).
+        let raw = require_string_arg(args, 0)?;
+        let name = dom.resolve_attribute_qname(this, &raw);
         let attrs = require_attrs(this, dom)?;
-        Ok(JsValue::Bool(attrs.contains(&name)))
+        Ok(JsValue::Bool(attrs.contains(name.as_ref())))
     }
 }
 
@@ -55,14 +58,11 @@ impl DomApiHandler for ToggleAttribute {
     ) -> Result<JsValue, DomApiError> {
         let raw_name = require_string_arg(args, 0)?;
         // §4.9 step 1 validates the qualified name (unlike removeAttribute);
-        // keep that. The name is then lowercased UNCONDITIONALLY (uniform with
-        // the rest of the attribute IDL surface — getAttribute / hasAttribute /
-        // setAttribute / removeAttribute); HTML-namespace-gating the lowercase
-        // across the whole surface (so SVG / MathML case-preserved names survive)
-        // is deferred WHOLE to slot `#11-attribute-name-html-namespace-casing`
-        // (plan §9).
+        // keep that. The name is then resolved through the single canonical
+        // `EcsDom::resolve_attribute_qname` (HTML-namespace-gated lowercase,
+        // SVG / MathML case-preserved) — B2-Slice-3 folds the whole surface.
         validate_attribute_name(&raw_name)?;
-        let name = raw_name.to_ascii_lowercase();
+        let name = dom.resolve_attribute_qname(this, &raw_name).into_owned();
 
         let force = match args.get(1) {
             Some(JsValue::Bool(b)) => Some(*b),
