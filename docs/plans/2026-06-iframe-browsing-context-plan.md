@@ -6,13 +6,17 @@ Why deferred: sub-frame browsing-context entity model and cross-VM Document/Wind
 Trigger: agent-scoped `EcsDom` World / cross-DOM program + S5/boa removal (was "`world_id`"; see SUPERSEDED note below)
 Revisit: when the agent-scoped World / B1 implementation begins (post-S5; see SUPERSEDED note below)
 
-> **⚠ DESIGN SUPERSEDED re same-origin frames (2026-06-30):** this plan's §2 "separate `VmInner` +
-> cross-VM forwarding for same-origin friendly access" is **inverted** by
-> `docs/plans/2026-06-agent-scoped-ecsdom-world.md` (B1: agent-scoped `EcsDom` World). Same-origin
-> friendly iframes share **one World + one `Vm`** (object identity cannot cross heaps — that doc §2.1),
-> not separate `Vm`s with cross-VM forwarding; and `world_id` is **superseded**, not a precondition
-> (within one World, hecs `generation` handles staleness). The §2 design-prose rewrite is the trigger for
-> this plan's revisit (the B1 implementation PR, post-S5). See that doc §4.1 (cross-frame sweep) + §6.3.
+> **⚠ DESIGN SUPERSEDED re same-*agent* frames (2026-06-30):** this plan's §2 "separate `VmInner` +
+> cross-VM forwarding" path is **inverted for same-agent frames** by
+> `docs/plans/2026-06-agent-scoped-ecsdom-world.md` (B1: agent-scoped `EcsDom` World). **The boundary is the
+> agent, not the origin** (that doc §1.4 / §5 req 4): **same-agent** frames — which include **same-site
+> cross-origin** frames in the same browsing-context group, *not only same-origin* — share **one World + one
+> `Vm`** (object identity cannot cross heaps — that doc §2.1) and use an **in-`Vm` restricted `WindowProxy`**,
+> **not** separate `Vm`s with cross-VM forwarding. So **§2.4's cross-VM forwarding is correct only for
+> *cross-agent* frames** (cross-site / different BCG / sandboxed-opaque), **not** for same-site cross-origin
+> same-BCG frames. And `world_id` is **superseded**, not a precondition (within one World, hecs `generation`
+> handles staleness). The §2/§2.4 design-prose rewrite is the trigger for this plan's revisit (the B1
+> implementation PR, post-S5). See that doc §1.4 / §4.1 (cross-frame sweep) / §5 req 4 / §6.3.
 
 ---
 

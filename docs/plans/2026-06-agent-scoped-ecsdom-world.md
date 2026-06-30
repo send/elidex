@@ -307,12 +307,15 @@ agent-granularity + dynamic membership + policy-first ordering).
 ### §4.1 Category-3 — same-agent cross-document **raw-node** reference (B1-trivial / B2-needs-world_id)
 
 These pass a *live node from another document* — the surfaces that motivated `world_id`. In B1 they are
-**all** within one World, reusing existing mechanisms:
+**all** within one World, reusing existing mechanisms. **The "B1 mechanism" column names the within-World
+mechanism *class* B1 reuses (no new cross-World machinery); the exact per-API wiring — e.g. DOM §4.5's
+`adoptNode` (adopt/re-home, *mutating*) vs `importNode` (clone, *non-mutating*) distinction — is the B1
+plan-memo's (§5 altitude note). The decision-level claim is only that each surface is *within-World*.**
 
-| Surface | B1 mechanism |
+| Surface | B1 mechanism (within-World class) |
 |---|---|
 | `iframe.contentDocument.*`, `contentWindow.document` | the embedded same-agent doc is **another `AssociatedDocument` in the same World** |
-| `adoptNode` / `importNode`, `node.ownerDocument` | `adopt_subtree` (within-World re-home) — already exists |
+| `adoptNode` (adopt/re-home) / `importNode` (clone — non-mutating, *leaves* the source) / `node.ownerDocument`, DOM §4.5 | both stay **within one World** — `adoptNode` re-homes via `adopt_subtree` (exists), `importNode` clones into the same World; exact wiring → B1 plan-memo |
 | `getComputedStyle(childDoc node)` | multi-root style over the agent's document subtrees |
 | **internal** hit-test / event routing descending into iframes | the internal walk descends into same-World iframe subtrees |
 | Intersection / Resize / Mutation observers of cross-doc nodes | observer config holds same-World entities (generation-checked) |
@@ -458,23 +461,27 @@ meet. They are the deliverable — the contract is "build to these."
    current separate-`EcsDom`+separate-`Vm` (`iframe/load.rs`) into the **one shared World + one `Vm`** — the
    `Vm` hosting **multiple realms** (req 7), not a single global.
 
-5. **Per-document-state cluster → per-entity components (off per-VM `HostData`), at the spec-correct grain.**
-   The folded slot's fields migrate from the interim per-VM `HostData` (`host_data.rs:184,215`,
-   `host/navigation.rs:69-72`, whose own comments already name the per-entity-component target) to ECS
-   components — but **on the entity whose fact they actually are** (per-field grain, not all on one entity):
-   - **creation parameters** (req 2's full §7.5.1 set — origin, sandboxing flags, policy container,
-     permissions policy, URL, referrer, …) are a **per-document fact ⇒ per-document-root components**.
-   - **session-history fields** (`NavigationState`: `history_length` / `current_index` / `current_state`)
-     are a **per-navigable fact, NOT per-document**: `history.length` / index are the *current traversable
-     navigable's* overall session-history entries (HTML §7.2.5), shared by every document in the navigable —
-     so they belong on the **browsing-context / navigable owner**, not a document-root (a cached document-root
-     copy would go stale when another active document in the same navigable pushes/traverses, then be reused
-     on BFCache reactivation). They migrate to ECS components too, just **on the navigable entity** (or require
-     explicit reactivation reconciliation).
+5. **Per-context state cluster → per-entity components (off per-VM `HostData`), each at its spec-correct grain.**
+   **The grain rule** (this is the decision; the field list is the B1 plan-memo's, §5 altitude note): every
+   per-context field in the interim per-VM `HostData` (`host_data.rs:184,215`, `host/navigation.rs:69-72`)
+   migrates to an ECS component **on the entity whose fact it actually is** — because under B1 one `Vm` hosts
+   *multiple* same-agent documents (nested frames + same-agent popups), a single VM-global value would make a
+   child/popup observe whichever value was installed last. **The B1 plan-memo classifies every field by its
+   actual scope**; a single VM-global field is presumptively a bug under multi-document B1. Worked examples
+   spanning the grains:
+   - **per-document facts → document-root component**: the creation parameters (req 2's §7.5.1 set — origin,
+     sandboxing flags, policy container, permissions policy, URL, referrer, …).
+   - **per-navigable facts → navigable component**: the session-history fields (`NavigationState`:
+     `history_length` / `current_index` / `current_state`) — `history.length`/index are the *current
+     traversable navigable's* overall entries (HTML §7.2.5), shared across that navigable's documents (a
+     document-root copy would go stale on BFCache reactivation, or require explicit reactivation reconciliation).
+   - **other per-context fields classified by the same rule, not left VM-global**: e.g. visibility
+     (`tab_hidden` = `document.hidden`) and nesting depth (`iframe_depth`) → their actual document/navigable
+     scope.
 
    **This subsumes `#11-browsing-context-state-ecs-components` *in full*** — every field migrates off the
-   per-VM store (**none left without an owner**); the slot simply spans **two grains** (document-root +
-   navigable). The exact field-to-entity layout is the B1 plan-memo's.
+   per-VM store (**none left without an owner**), spanning whatever grains the field-by-field classification
+   requires; the complete classification is the B1 plan-memo's.
 
 6. **`world_id` (`#11-wrapper-cache-cross-dom-discriminator`) is NOT built → supersede.** The
    wrapper-identity-component migration (`wrapper_store` → a per-entity `WrapperRefs` component) and the
@@ -714,7 +721,8 @@ hold the invariant in the meantime; the rewrite is not silently abandoned (it ha
 8. **Multi-realm `Vm` rollout (§5 req 7) — the largest impl fork.** The `Vm` must go from a singleton
    `global_object` + singleton prototype slots to **N realms** (one per same-agent Window): per-realm
    globals/prototypes, per-`(entity, kind, subkey, realm)` wrapper identity (req 6's full key),
-   `contentWindow` → child realm,
+   `contentWindow` → the child's stable `WindowProxy` (per req 7 — retargets to the current Window, §7.2.3;
+   **not** the raw realm/global),
    per-Window lifecycle (BFCache suspend-one). Is this built as a **prereq split** (a multi-realm `Vm`
    refactor landing before the iframe collapse) or within the friendly-iframe PR? (Leans prereq split — it
    is a large cohesion seam, is needed by friendly iframes under B1 *or* B2, and gates req 3/4/6.) Confirm
