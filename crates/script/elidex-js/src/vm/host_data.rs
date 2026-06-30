@@ -119,6 +119,13 @@ mod engine_feature {
         /// (no current milestone — opens when Web Workers VM port
         /// land OR an observable cross-DOM aliasing bug surfaces);
         /// until then the invariant is a caller contract.
+        /// **⚠ SUPERSEDED (2026-06-30, PR #434
+        /// `docs/plans/2026-06-agent-scoped-ecsdom-world.md`)**: the
+        /// `world_id` discriminator is retracted. The cross-DOM
+        /// resolution is the **agent-scoped `EcsDom` World** (1 agent =
+        /// 1 World = 1 Vm), under which this aliasing is unconstructable
+        /// by construction. The caller contract stays the interim
+        /// invariant; the full removal lands with the B1 implementation.
         window_entity: Option<Entity>,
         /// Document entities whose wrapper has already had the
         /// document-specific own-property suite (`getElementById` /

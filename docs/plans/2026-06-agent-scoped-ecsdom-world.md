@@ -232,6 +232,7 @@ does this decision fully specify that surface's ECS grain.
 | WHATWG HTML §7.1.2 Origin-keyed agent clusters | `Origin-Agent-Cluster` → origin-keyed vs site-keyed, resolved against the BCG *historical agent cluster key map* | World keying chosen at document creation (req 1) | absent today | ✓ | yes (response header) |
 | WHATWG HTML §7.3.2.3 Groupings of browsing contexts (browsing-context group + *historical agent cluster key map*) | BCG bounds agent membership; the key map keeps OAC keying consistent within a group | per-document-root entity tagged with its agent/BCG (req 1 / req 5) | absent today | ✓ | yes (headers) |
 | WHATWG HTML §7.1.3 Cross-origin opener policies (§7.1.3.2 BCG switch) | COOP / `noopener` → **new** BCG → **different** agent → **separate** World+`Vm` | popup/navigation isolation = World boundary (req 1, §4.3) | absent today (COOP unmodeled) | ✓ | yes (COOP header) |
+| WHATWG HTML §7.1.4 Cross-origin embedder policies | COOP **+ COEP** set the BCG's cross-origin-isolation mode → §8.1.2.2 origin-keys when it is non-`none` | a cross-origin-isolated agent → origin-keyed World (req 1) | absent today (no COEP handling in `crates/`) | ✓ | yes (COEP header) |
 | WHATWG HTML §7.3.2 Browsing contexts | browsing context ↔ document-root entity; WindowProxy indirection | per-document-root entity in the agent's World; WindowProxy = context indirection (not a raw entity) | iframe = separate `EcsDom`+`Vm` today (`iframe/load.rs:44-46`); WindowProxy null-stub (#412 C0) | ✓ | no (structure) |
 | CSSOM-View §5 Extensions to the Document Interface (`elementFromPoint`) | per-document hit-test result stops at the container (does **not** pierce the frame) | DOM-API boundary preserved despite shared World (§4.1) | — (clarifies §5 req 3 scope) | ✓ | yes (coords) |
 | WHATWG HTML §7.1.5 Sandboxing (incl. *determine the creation sandboxing flags*, *iframe sandboxing flag set*) | sandbox flags incl. embedder→embeddee union; sandbox→opaque-origin → **own** World | per-document-root component; opaque ⇒ separate World/agent | `apply_sandbox_origin` post-build (`iframe/load.rs:410-424`); embedder→embeddee **union absent** (pre-existing gap, §5 req 2) | ✓ | yes (`sandbox` attr) |
@@ -550,24 +551,25 @@ world_id program" only as a *future-program label* in a deferral trigger, not as
 get the program-name update [world_id → agent-scoped World] at the B1-impl propagation, not a contradiction
 pointer now.)
 
-**On-`main` code comments (≈14 files) = deferred to the B1-impl cite-update, NOT this docs PR.** A repo
-grep finds the slot/`world_id` cited in **in-tree code comments** on `main` — the richest being
-`vm/host_data.rs:117-121` (the `world_id` slot doc) and `vm/wrapper_intern.rs:21-24` (the "NOT an ECS
-component … aliases across DOMs" rationale), plus `vm/vm_api.rs`, `vm/gc/collect.rs`,
+**On-`main` code comments — the two *load-bearing* sites are forward-pointed in this PR; the rest defer.**
+A repo grep finds the slot/`world_id` cited in **in-tree code comments** on `main`. Two of them are
+**active instructions a future wrapper/keepalive editor would follow** — `vm/host_data.rs:117-121` (the
+`world_id` slot doc) and `vm/wrapper_intern.rs:21-24` (the "NOT an ECS component … aliases across DOMs →
+migration gated on `world_id`" rationale) — so leaving them un-pointed recreates the very contradiction
+this section closes. **This PR adds a one-line `⚠ SUPERSEDED → agent-scoped World` forward-pointer to those
+two** (comment-only; it does make the PR touch `crates/`, accepted because the alternative ships live
+obsolete guidance). The remaining ~12 *incidental* mentions (`vm/vm_api.rs`, `vm/gc/collect.rs`,
 `vm/host/{screen,visual_viewport,media_query,window,html_iframe_proto}.rs`,
-`api/elidex-api-observers/src/intersection.rs`, and tests. These cite `world_id` as the live unlock too —
-but they are **code**, and they update **naturally with the B1 implementation that removes `world_id`**
-(the same cite-update as the S5-3a comments, §6.4). Editing 14 source files' comments in *this* docs-only
-decision PR would (a) make it touch `crates/` for no behavior reason and (b) duplicate the B1-impl
-cite-update. So they are **acknowledged here + deferred to the B1-impl cite-update** (the `CLAUDE.md` +
-docs forward-pointers above are the SSoT-adjacent surfaces that must not wait). This corrects the earlier
-draft's implication that only the unmerged S5-3a branch carries such comments.
+`api/elidex-api-observers/src/intersection.rs`, tests) are not standalone "implement world_id"
+instructions; they **update naturally with the B1 implementation that removes `world_id`** (same
+cite-update as the S5-3a comments, §6.4). This corrects the earlier draft's implication that only the
+unmerged S5-3a branch carries such comments.
 
 **Deferred (PM, trigger = the friendly-iframe / B1 implementation PR, post-S5):** the *full*
-rewrite — rewriting the umbrella §9 keystone row, inverting the iframe-plan §2 design prose, and the ≈14
-code-comment cite-updates — is design-affecting (iframe-plan §2 is itself plan-review-grade) and lands with
-the implementation, not in this docs-only decision. The forward-pointer holds the invariant in the meantime; the rewrite is not
-silently abandoned (it has a named trigger).
+rewrite — rewriting the umbrella §9 keystone row, inverting the iframe-plan §2 design prose, and the ~12
+remaining incidental code-comment cite-updates — is design-affecting (iframe-plan §2 is itself
+plan-review-grade) and lands with the implementation, not in this docs-only decision. The forward-pointers
+hold the invariant in the meantime; the rewrite is not silently abandoned (it has a named trigger).
 
 ---
 
@@ -588,15 +590,6 @@ silently abandoned (it has a named trigger).
    req 5). The **transition invariant** from §4.3 — a retained wrapper's validity across a membership
    change (popup join, a COOP split spawning a *new* World) — must be specified *with* the chosen mechanism
    (this is the one §4 corner the static proof does not cover).
-
-8. **Multi-realm `Vm` rollout (§5 req 7) — the largest impl fork.** The `Vm` must go from a singleton
-   `global_object` + singleton prototype slots to **N realms** (one per same-agent Window): per-realm
-   globals/prototypes, per-`(entity, realm)` wrapper identity (req 6), `contentWindow` → child realm,
-   per-Window lifecycle (BFCache suspend-one). Is this built as a **prereq split** (a multi-realm `Vm`
-   refactor landing before the iframe collapse) or within the friendly-iframe PR? (Leans prereq split — it
-   is a large cohesion seam, is needed by friendly iframes under B1 *or* B2, and gates req 3/4/6.) Confirm
-   the realm discriminator is modeled as an **explicit first-class concept** (not packed into `Entity`,
-   which has no spare bits — §1.2) so it shares nothing with the superseded `world_id`.
 
 3. **Policy-container-first ordering rollout (§5 req 2).** Reversing "World-first / policy-post" to
    "policy-first / build-into-the-right-World" is a load-order change touching `lib.rs` /
@@ -620,3 +613,12 @@ silently abandoned (it has a named trigger).
 7. **`bind_epoch` disposition (§5 req 6).** Keep `bind_epoch` as `StaticRange`'s within-World freshness
    check, or fold it into ordinary generation/liveness checks once the World grain guarantees uniqueness?
    (Either is sound under B1; this is a cleanup judgment, not a correctness fork.)
+
+8. **Multi-realm `Vm` rollout (§5 req 7) — the largest impl fork.** The `Vm` must go from a singleton
+   `global_object` + singleton prototype slots to **N realms** (one per same-agent Window): per-realm
+   globals/prototypes, per-`(entity, realm)` wrapper identity (req 6), `contentWindow` → child realm,
+   per-Window lifecycle (BFCache suspend-one). Is this built as a **prereq split** (a multi-realm `Vm`
+   refactor landing before the iframe collapse) or within the friendly-iframe PR? (Leans prereq split — it
+   is a large cohesion seam, is needed by friendly iframes under B1 *or* B2, and gates req 3/4/6.) Confirm
+   the realm discriminator is modeled as an **explicit first-class concept** (not packed into `Entity`,
+   which has no spare bits — §1.2) so it shares nothing with the superseded `world_id`.
