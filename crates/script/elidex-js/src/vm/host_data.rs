@@ -243,7 +243,8 @@ mod engine_feature {
         /// The iframe nesting depth of this document's browsing context
         /// (`0` for top-level).  Installed by the shell's iframe load path
         /// ([`Self::set_iframe_depth`]); read to cap runaway `<iframe>`
-        /// nesting.  Per-browsing-context fact, (b) exception like above.
+        /// nesting.  Per-context interim; its B1 ECS grain follows the
+        /// decision's grain rule (PR #434 §5 req 5), not asserted here.
         iframe_depth: usize,
         /// `MutationObserver` registry (WHATWG DOM §4.3.1) — owns the
         /// per-observer pending-record queues. The observation targets +

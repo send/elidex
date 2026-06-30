@@ -587,9 +587,11 @@ precondition + dependency statement, the `s5-flip` §9 keystone row gating S5-8,
 dependency cell (`world_id` → agent-scoped World / B1) — because a reader following a gate row would
 otherwise block on a canceled-looking program. The **key framing is rename-not-cancel**: the world_id
 *program* is renamed to / folded into the B1 program (it does the same migration), so the gates **remain
-valid** as the B1 program — stated in each doc's top `⚠ SUPERSEDED` block-quote. The remaining *descriptive*
-world_id references in those docs (coverage-map rows, sequencing diagrams) are covered by those top
-block-quotes; their full prose rewrite still rides the B1-impl propagation.
+valid** as the B1 program. To avoid a per-row whack-a-mole, this is stated **generally** in each
+deferred-rewrite doc's top `⚠ SUPERSEDED` block-quote — *every* `world_id` reference in that doc (gate,
+precondition, ECS-native rule, dependency, coverage-map row, sequencing) **reads as the B1 program**, so
+individual rows need no per-row retargeting beyond the most prominent gates. Their full per-row prose
+rewrite still rides the B1-impl propagation.
 
 **On-`main` code comments — the COMPLETE forward-pointer sweep is done in this PR.** A repo grep finds
 the `world_id` discriminator / `#11-wrapper-cache-cross-dom-discriminator` /
