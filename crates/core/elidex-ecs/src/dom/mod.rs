@@ -817,9 +817,11 @@ impl EcsDom {
         self.is_element(entity) && self.namespace_of(entity) == Namespace::Html
     }
 
-    /// WHATWG DOM §4.9 get/set/has/remove-an-attribute-by-name step 1 —
-    /// the single canonical attribute-name caser for **every** name-based
-    /// attribute lookup (One-issue-one-way).
+    /// WHATWG DOM §4.9 — the HTML-namespace-gated ASCII-lowercase applied by
+    /// get-an-attribute-by-name step 1 / setAttribute() step 2 / hasAttribute()
+    /// step 1 (and transitively remove-an-attribute-by-name) — the single
+    /// canonical attribute-name caser for **every** name-based lookup
+    /// (One-issue-one-way).
     ///
     /// ASCII-lowercase `qname` iff `entity` is an HTML-namespace element
     /// (returning an owned `Cow`); otherwise return the borrowed `qname`

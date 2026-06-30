@@ -28,8 +28,8 @@ impl DomApiHandler for HasAttribute {
         _session: &mut SessionCore,
         dom: &mut EcsDom,
     ) -> Result<JsValue, DomApiError> {
-        // DOM §4.9 has-an-attribute-by-name step 1: HTML-namespace-gated
-        // lowercase via the single canonical resolver (B2-Slice-3).
+        // DOM §4.9 hasAttribute() step 1: HTML-namespace-gated lowercase via
+        // the single canonical resolver (B2-Slice-3).
         let raw = require_string_arg(args, 0)?;
         let name = dom.resolve_attribute_qname(this, &raw);
         let attrs = require_attrs(this, dom)?;

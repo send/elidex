@@ -439,7 +439,8 @@ the MO attribute test module.
 - **REGISTER** `#11-set-attribute-node-cross-element-inuse` (as-built deviation, §6): VM
   setAttributeNode/setNamedItem value-copy a cross-element source instead of throwing InUseAttributeError
   (spec set-an-attribute step 2); needs the Phase-3 Attr-node-ownership model. Trigger = cross-element
-  setAttributeNode WPT or the VM-Attr-as-entity unification. Net cap-neutral with the casing CLOSE above.
+  setAttributeNode WPT or the VM-Attr-as-entity unification. Date 2026-09-30. Net cap-neutral with the
+  casing CLOSE above.
 - Attribute records **complete** after this slice → update [[reference_js-tree-mutations-not-recorded]]
   (remaining = the 3 off-record-path deferred slots only).
 - Keep deferred: `#11-ce-reaction-mutation-observer-ordering`, `#11-method-driven-attribute-records`,
