@@ -22,11 +22,13 @@ S5-3a's (PR #430) deferral comments are **retargeted to cite it** (a separate ci
 
 ## §0 Read first — the one-line decision
 
-`EcsDom` World = **one per similar-origin window agent** (the dfn in HTML §8.1.2.1), site-keyed by default and
-origin-keyed when an `Origin-Agent-Cluster` response header opts in (HTML §7.1.2). One World hosts the
-agent's **many same-agent document subtrees** (the embedder + its same-origin frames + same-origin
-popups). Cross-agent (cross-site / sandboxed-opaque) content lives in a **separate World + separate
-`Vm`** (+ OOP for cross-origin), reached only by value or by a restricted proxy.
+`EcsDom` World = **one per similar-origin window agent** (the dfn in HTML §8.1.2.1), **site-keyed by
+default** (so a *same-site cross-origin* frame/popup is **same-agent**, §1.4 terminology), origin-keyed
+when the §8.1.2.2 algorithm keys by origin (an honored `Origin-Agent-Cluster`, cross-origin isolation,
+opaque). One World hosts the agent's **many same-agent document subtrees** (the embedder + its same-agent
+frames + same-agent popups in the same browsing-context group). Cross-agent (cross-site / sandboxed-opaque
+/ a COOP-`noopener` BCG split) content lives in a **separate World + separate `Vm`** (+ OOP for
+cross-origin), reached only by value or by a restricted proxy.
 
 **The one line**: *one agent = one World = one `Vm`.* A `Vm` therefore never holds entities from two
 Worlds, so the within-`Vm`-cross-World reference — the **exact** state `world_id` exists to discriminate
@@ -200,9 +202,10 @@ built right now** (S5 / FLIP + `#11-windowproxy-browsing-context` /
 - **Avoids** the entire `world_id` apparatus: the `EcsDom::world_id` counter, the origin-world tag on
   every retained handle, the mismatch check threaded through every entity→wrapper resolve site, and the
   navigation-scrub.
-- **Avoids** cross-`Vm` *synchronous* forwarding for same-origin frames (the iframe plan §2's "separate
-  `VmInner` + cross-VM forwarding" path) — which could never carry object identity anyway.
-- **Inverts** the planned iframe direction (same-origin → *shared* World+`Vm`, not separate-`Vm`
+- **Avoids** cross-`Vm` *synchronous* forwarding for same-agent frames (the iframe plan §2's "separate
+  `VmInner` + cross-VM forwarding" path, which it applied to same-origin frames) — which could never carry
+  object identity anyway.
+- **Inverts** the planned iframe direction (same-agent → *shared* World+`Vm`, not separate-`Vm`
   forwarding). This is a genuine reshape of `#11-windowproxy-browsing-context` / the iframe plan §2, owned
   by this decision (§6.3).
 - **Folds** `#11-browsing-context-state-ecs-components` (the per-document policy/origin cluster becomes
@@ -232,8 +235,8 @@ does this decision fully specify that surface's ECS grain.
 | WHATWG HTML §7.3.2 Browsing contexts | browsing context ↔ document-root entity; WindowProxy indirection | per-document-root entity in the agent's World; WindowProxy = context indirection (not a raw entity) | iframe = separate `EcsDom`+`Vm` today (`iframe/load.rs:44-46`); WindowProxy null-stub (#412 C0) | ✓ | no (structure) |
 | CSSOM-View §5 Extensions to the Document Interface (`elementFromPoint`) | per-document hit-test result stops at the container (does **not** pierce the frame) | DOM-API boundary preserved despite shared World (§4.1) | — (clarifies §5 req 3 scope) | ✓ | yes (coords) |
 | WHATWG HTML §7.1.5 Sandboxing (incl. *determine the creation sandboxing flags*, *iframe sandboxing flag set*) | sandbox flags incl. embedder→embeddee union; sandbox→opaque-origin → **own** World | per-document-root component; opaque ⇒ separate World/agent | `apply_sandbox_origin` post-build (`iframe/load.rs:410-424`); embedder→embeddee **union absent** (pre-existing gap, §5 req 2) | ✓ | yes (`sandbox` attr) |
-| WHATWG HTML §7.1.7 Policy containers | the policy container = **CSP / embedder policy / referrer policy / integrity** (origin + sandbox flag set are **separate** creation fields, *not* in it); computed **before** document creation | per-document-root components; computed pre-build (req 2) | **concept absent**; load order = World built first, policy stitched post (`lib.rs:879-916`, `iframe/load.rs:46-52`) | ✓ | yes (headers) |
-| WHATWG HTML §7.5.1 Shared document creation infrastructure | "create and initialize a Document object" takes the **creation parameters** (policy container + origin + sandbox) | document-create assigns World by the resulting agent | World-first/policy-post today (must reverse, req 2) | ✓ | no (structure) |
+| WHATWG HTML §7.1.7 Policy containers | the policy container is its **own struct** (items per §7.1.7), **distinct** from the origin + sandbox flag set; computed **before** document creation | per-document-root components; computed pre-build (req 2) | **concept absent**; load order = World built first, policy stitched post (`lib.rs:879-916`, `iframe/load.rs:46-52`) | ✓ | yes (headers) |
+| WHATWG HTML §7.5.1 Shared document creation infrastructure | "create and initialize a Document object" takes the **creation parameters** (the full §7.5.1 set — policy container, origin, sandbox flags, permissions policy, …) | document-create assigns World by the resulting agent | World-first/policy-post today (must reverse, req 2) | ✓ | no (structure) |
 | WHATWG HTML §7.4.2.2 Beginning navigation + §7.4.1.2 Document state | navigation = **deactivate / cache-or-despawn** old doc + create new; a **new World/`Vm` only when the agent key changes** (same-agent nav reuses the World; BFCache keeps the old doc non-fully-active, §7.4.1.2) | docs created-in / deactivated / despawned, **never moved** between Worlds | one-`Vm`-per-navigation (`pipeline.rs`); the flip keeps this | ✓ | yes (URL/load) |
 | WHATWG HTML §6.6.2 Data model (focus) | focusable area / focused element scoped per document in one World | per-entity `ElementState::FOCUS` + per-doc membership filter (already B1) | `focus/sot.rs:53-88`, `components.rs:426` | ✓ | yes (Tab/click) |
 | WHATWG DOM §4.5 Interface Document (`adopt`) | `adoptNode` / document adoption | within-World re-home (`adopt_subtree`); wired onto `adoptNode` (req 3) | `adopt_subtree` (`dom/tree/teardown.rs:285-291`) | ✓ | yes (`adoptNode`) |
@@ -337,21 +340,24 @@ reference.** ∎
 These are the obligations the B1 implementation (post-S5, when the iframe layer is built for real) must
 meet. They are the deliverable — the contract is "build to these."
 
-> **Altitude note (req 1–2).** This is a **decision** doc: it fixes *which agent/document fact the World
-> keys on* and the *direction* of the document-creation order — **not** the step-by-step HTML algorithm.
-> The precise keying steps (the *obtain a similar-origin window agent* algorithm, the historical
-> agent-cluster-key map, `requestsOAC` secure-context gating, the exact policy-container field list and
-> clone/history rules, the document-state lifecycle) are the **B1 implementation plan-memo's** job (with
-> its own §3 spec-coverage-map + plan-review). Reqs 1–2 state requirements + cite the governing algorithm;
-> they deliberately do **not** reproduce it (per §3 "not a step-by-step impl map").
+> **Altitude note (req 1–2) — decision-level only, no spec enumeration.** This is a **decision** doc: it
+> fixes *which agent/document fact the World keys on* and the *direction* of the document-creation order,
+> and **cites the governing HTML algorithm** — but it deliberately does **NOT** enumerate the exact field
+> lists, parameter sets, or keying triggers (per §3 "not a step-by-step impl map"). The complete and
+> precise versions — the *obtain a similar-origin window agent* algorithm and all its origin-keying
+> triggers (§8.1.2.2), the full policy-container item list and clone/history rules (§7.1.7), the complete
+> set of document **creation parameters** (§7.5.1), the document-state lifecycle (§7.4.1.2) — are the **B1
+> implementation plan-memo's** job (with its own §3 spec-coverage-map + plan-review). Where this doc names
+> example items it is **illustrative, read the cited section for the authoritative set.** (This altitude
+> discipline is what keeps the decision from drifting into — and mis-reproducing — impl detail.)
 
 1. **World = similar-origin window agent** (HTML §8.1.2.1), assigned by **HTML's *obtain a similar-origin
    window agent* algorithm** (HTML §8.1.2.2) — **not** a naive "site default + current OAC header"
    shortcut. The decision-level requirements the impl must honor:
-   - **site-keyed by default**, origin-keyed only when an `Origin-Agent-Cluster` opt-in is honored (§7.1.2)
-     — and the impl must follow §8.1.2.2's keying (browsing-context-group consistency, cross-origin-
-     isolated / opaque forced origin-keying, secure-context gating of the opt-in), **not** a per-response
-     re-key. (Exact steps → B1 plan-memo.)
+   - **site-keyed by default**; the algorithm origin-keys for **several** reasons (an honored
+     `Origin-Agent-Cluster` opt-in §7.1.2, the browsing-context group's cross-origin-isolation mode, an
+     opaque origin, …) — the impl must take the **full trigger set + secure-context/BCG-consistency rules
+     from §8.1.2.2**, not treat OAC as the sole trigger or do a per-response re-key.
    - membership is **browsing-context-group-scoped**: a **COOP / `noopener` BCG switch** (§7.1.3.2) moves a
      window into a **new** group → a **different** agent → a **separate** World (do not share a heap across
      a COOP isolation boundary — §4.3 popup row).
@@ -367,17 +373,17 @@ meet. They are the deliverable — the contract is "build to these."
    a navigated-away document is **cached-or-despawned**, not unconditionally torn down (BFCache keeps it
    non-fully-active for reactivation, §7.4.1.2; co-resident same-agent opener/sibling docs keep running).
 
-2. **Creation-parameters-first ordering (reverses today's).** Compute the document's **creation
-   parameters** — the **policy container** (HTML §7.1.7 = CSP list, embedder policy, referrer policy,
-   integrity policy — origin and the active sandboxing flag set are **separate** navigation/Document
-   fields, *not* inside the policy container) **plus** the **origin** (incl. sandbox→opaque) and the
-   **sandboxing flag set** (incl. the embedder→embeddee §7.1.5 union — currently ABSENT, a pre-existing
-   gap to fix) — **before** creating the document (HTML §7.5.1 "create and initialize a Document object"
-   takes these), assign the World by the resulting agent, then build the document into it. Current order
-   (World built first, policy stitched post-build: `lib.rs:879-916`, `iframe/load.rs:46-52,410-424`) is
-   **backwards** for B1, because a sandboxed-opaque document belongs in a *different* World than its
-   embedder. B1 is the motivation to build the policy-container + creation-parameters abstraction elidex
-   lacks today. (Exact field semantics / clone-and-history rules → B1 plan-memo.)
+2. **Creation-parameters-first ordering (reverses today's).** Compute the document's **creation parameters**
+   — the full set HTML §7.5.1 "create and initialize a Document object" takes (the **policy container**
+   §7.1.7, the **origin** incl. sandbox→opaque, the **sandboxing flag set** incl. the embedder→embeddee
+   §7.1.5 union [**currently ABSENT** — a pre-existing gap to fix], the **permissions policy**, …; the
+   *authoritative list* is §7.5.1, and the **policy container is its own struct** [§7.1.7] distinct from the
+   origin and sandbox fields) — **before** creating the document, assign the World by the resulting agent,
+   then build the document into it. Current order (World built first, policy stitched post-build:
+   `lib.rs:879-916`, `iframe/load.rs:46-52,410-424`) is **backwards** for B1, because a sandboxed-opaque
+   document belongs in a *different* World than its embedder. B1 is the motivation to build the
+   creation-parameters abstraction elidex lacks today. (Exact field list + semantics + clone/history rules
+   → B1 plan-memo, per the altitude note.)
 
 3. **Extend the existing within-World mechanisms to span the agent's document subtrees**:
    `AssociatedDocument` multi-doc, focus-per-doc-membership (`focus/sot.rs`), `adopt_subtree`, multi-root
@@ -397,9 +403,9 @@ meet. They are the deliverable — the contract is "build to these."
    current separate-`EcsDom`+separate-`Vm` (`iframe/load.rs`) into the **one shared World + one `Vm`** — the
    `Vm` hosting **multiple realms** (req 7), not a single global.
 
-5. **Per-document-state cluster → per-document-root components.** the **creation parameters** (origin,
-   sandboxing flag set, policy container [CSP / embedder / referrer / integrity], URL, referrer — req 2)
-   become **per-entity components on each document-root entity**, replacing the interim per-VM `HostData`
+5. **Per-document-state cluster → per-document-root components.** the **creation parameters** (req 2's full
+   §7.5.1 set — origin, sandboxing flags, policy container, permissions policy, URL, referrer, …) become
+   **per-entity components on each document-root entity**, replacing the interim per-VM `HostData`
    (`host_data.rs:184,215`, whose own comments already name the per-entity-component target). **This
    subsumes `#11-browsing-context-state-ecs-components`.**
 
@@ -533,10 +539,25 @@ sibling sweep):
 `web-api-compat-split-design`, `shell-viewport-delivery-pr-c2`, `s5-2-window-parity` — mention "the
 world_id program" only as a *future-program label* in a deferral trigger, not as a live current path; they
 get the program-name update [world_id → agent-scoped World] at the B1-impl propagation, not a contradiction
-pointer now.) **Deferred (PM, trigger = the friendly-iframe / B1 implementation PR, post-S5):** the *full*
-rewrite — rewriting the umbrella §9 keystone row and inverting the iframe-plan §2 design prose — is
-design-affecting (iframe-plan §2 is itself plan-review-grade) and lands with the implementation, not in
-this docs-only decision. The forward-pointer holds the invariant in the meantime; the rewrite is not
+pointer now.)
+
+**On-`main` code comments (≈14 files) = deferred to the B1-impl cite-update, NOT this docs PR.** A repo
+grep finds the slot/`world_id` cited in **in-tree code comments** on `main` — the richest being
+`vm/host_data.rs:117-121` (the `world_id` slot doc) and `vm/wrapper_intern.rs:21-24` (the "NOT an ECS
+component … aliases across DOMs" rationale), plus `vm/vm_api.rs`, `vm/gc/collect.rs`,
+`vm/host/{screen,visual_viewport,media_query,window,html_iframe_proto}.rs`,
+`api/elidex-api-observers/src/intersection.rs`, and tests. These cite `world_id` as the live unlock too —
+but they are **code**, and they update **naturally with the B1 implementation that removes `world_id`**
+(the same cite-update as the S5-3a comments, §6.4). Editing 14 source files' comments in *this* docs-only
+decision PR would (a) make it touch `crates/` for no behavior reason and (b) duplicate the B1-impl
+cite-update. So they are **acknowledged here + deferred to the B1-impl cite-update** (the `CLAUDE.md` +
+docs forward-pointers above are the SSoT-adjacent surfaces that must not wait). This corrects the earlier
+draft's implication that only the unmerged S5-3a branch carries such comments.
+
+**Deferred (PM, trigger = the friendly-iframe / B1 implementation PR, post-S5):** the *full*
+rewrite — rewriting the umbrella §9 keystone row, inverting the iframe-plan §2 design prose, and the ≈14
+code-comment cite-updates — is design-affecting (iframe-plan §2 is itself plan-review-grade) and lands with
+the implementation, not in this docs-only decision. The forward-pointer holds the invariant in the meantime; the rewrite is not
 silently abandoned (it has a named trigger).
 
 ---
