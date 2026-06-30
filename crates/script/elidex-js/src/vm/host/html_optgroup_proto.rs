@@ -103,7 +103,7 @@ fn native_optgroup_set_disabled(
     let val = args.first().copied().unwrap_or(JsValue::Undefined);
     let flag = super::super::coerce::to_boolean(ctx.vm, val);
     if flag {
-        ctx.host().dom().set_attribute(entity, "disabled", "");
+        super::element_attrs::attr_set(ctx, entity, "disabled", "");
     } else {
         super::element_attrs::attr_remove(ctx, entity, "disabled");
     }
@@ -139,6 +139,6 @@ fn native_optgroup_set_label(
     let val = args.first().copied().unwrap_or(JsValue::Undefined);
     let sid = super::super::coerce::to_string(ctx.vm, val)?;
     let s = ctx.vm.strings.get_utf8(sid);
-    ctx.host().dom().set_attribute(entity, "label", &s);
+    super::element_attrs::attr_set(ctx, entity, "label", &s);
     Ok(JsValue::Undefined)
 }

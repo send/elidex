@@ -28,9 +28,12 @@ impl DomApiHandler for HasAttribute {
         _session: &mut SessionCore,
         dom: &mut EcsDom,
     ) -> Result<JsValue, DomApiError> {
-        let name = require_string_arg(args, 0)?.to_ascii_lowercase();
+        // DOM §4.9 hasAttribute() step 1: HTML-namespace-gated lowercase via
+        // the single canonical resolver (B2-Slice-3).
+        let raw = require_string_arg(args, 0)?;
+        let name = dom.resolve_attribute_qname(this, &raw);
         let attrs = require_attrs(this, dom)?;
-        Ok(JsValue::Bool(attrs.contains(&name)))
+        Ok(JsValue::Bool(attrs.contains(name.as_ref())))
     }
 }
 
@@ -55,14 +58,11 @@ impl DomApiHandler for ToggleAttribute {
     ) -> Result<JsValue, DomApiError> {
         let raw_name = require_string_arg(args, 0)?;
         // §4.9 step 1 validates the qualified name (unlike removeAttribute);
-        // keep that. The name is then lowercased UNCONDITIONALLY (uniform with
-        // the rest of the attribute IDL surface — getAttribute / hasAttribute /
-        // setAttribute / removeAttribute); HTML-namespace-gating the lowercase
-        // across the whole surface (so SVG / MathML case-preserved names survive)
-        // is deferred WHOLE to slot `#11-attribute-name-html-namespace-casing`
-        // (plan §9).
+        // keep that. The name is then resolved through the single canonical
+        // `EcsDom::resolve_attribute_qname` (HTML-namespace-gated lowercase,
+        // SVG / MathML case-preserved) — B2-Slice-3 folds the whole surface.
         validate_attribute_name(&raw_name)?;
-        let name = raw_name.to_ascii_lowercase();
+        let name = dom.resolve_attribute_qname(this, &raw_name).into_owned();
 
         let force = match args.get(1) {
             Some(JsValue::Bool(b)) => Some(*b),
@@ -352,16 +352,23 @@ impl DomApiHandler for DatasetSet {
         &self,
         this: Entity,
         args: &[JsValue],
-        _session: &mut SessionCore,
+        session: &mut SessionCore,
         dom: &mut EcsDom,
     ) -> Result<JsValue, DomApiError> {
         let key = require_string_arg(args, 0)?;
         let value = require_string_arg(args, 1)?;
         let attr_name = camel_to_data_attr(&key);
-        // Chokepoint-route (see `SetClassName`). `camel_to_data_attr` emits a
-        // lowercase `data-*` name, canonical for the case-preserving chokepoint.
+        // Record-producing chokepoint-route (B2-Slice-2, HTML §3.2.6.6
+        // data-* attributes). `camel_to_data_attr` emits the converted
+        // lowercase `data-*` local name, so the §4.9 "attributes" record's
+        // `attributeName` is the content-attr name (`data-foo-bar`), NOT the
+        // JS camelCase key (invariant I4). `apply_set_attribute` always
+        // records on a landed write; push only — `invoke_dom_api` drains
+        // (Phase 2.5).
         require_live_element(dom, this)?;
-        dom.set_attribute(this, &attr_name, &value);
+        if let Some(record) = apply_set_attribute(dom, this, &attr_name, &value) {
+            session.push_notify_record(record);
+        }
         Ok(JsValue::Undefined)
     }
 }
@@ -378,16 +385,23 @@ impl DomApiHandler for DatasetDelete {
         &self,
         this: Entity,
         args: &[JsValue],
-        _session: &mut SessionCore,
+        session: &mut SessionCore,
         dom: &mut EcsDom,
     ) -> Result<JsValue, DomApiError> {
         let key = require_string_arg(args, 0)?;
         let attr_name = camel_to_data_attr(&key);
-        // Chokepoint-route (see `SetClassName`): `remove_attribute` fires
-        // `MutationEvent` only when an attribute was actually present (DOM
-        // §4.9), bumps `rev_version`, and runs the reconcile seam.
+        // Record-producing chokepoint-route (B2-Slice-2, HTML §3.2.6.6
+        // data-* attributes): `apply_remove_attribute` routes through
+        // `EcsDom::remove_attribute` (fires `MutationEvent` only when the
+        // attribute was actually present per DOM §4.9, bumps `rev_version`,
+        // runs the reconcile seam) and builds the §4.9 step-1 record from the
+        // removed value — recording ONLY when something was removed
+        // (delete-of-absent → `None` → no record, invariant I11). Push only —
+        // `invoke_dom_api` drains (Phase 2.5).
         require_live_element(dom, this)?;
-        dom.remove_attribute(this, &attr_name);
+        if let Some(record) = apply_remove_attribute(dom, this, &attr_name) {
+            session.push_notify_record(record);
+        }
         Ok(JsValue::Undefined)
     }
 }

@@ -409,7 +409,7 @@ cooperating gates:
   point: shell broadcast filter vs. content-side `dispatch_storage_event`
   self-suppression via the session's `EngineMode`). *Trigger:* S5 boa removal OR
   `#11-async-core-storage-cookiestore` landing. *Re-evaluation date:* revisit with
-  the S5 / world_id dual-mode program (MEMORY.md Active state), or sooner if a
+  the S5 / agent-scoped World (B1, supersedes `world_id`) dual-mode program (MEMORY.md Active state), or sooner if a
   `BrowserCore`/`App` storage mode is scheduled. *(Q1 resolved = defer; slot
   registered in the ledger at landing.)*
 - Pre-existing slot **`#11-storage-opaque-origin-securityerror`** re-evaluated

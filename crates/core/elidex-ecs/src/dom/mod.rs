@@ -34,6 +34,7 @@ use crate::components::{
     NodeKind, ShadowRoot, TagType, TemplateContents, TextContent, TreeRelation,
 };
 use hecs::{Entity, World};
+use std::borrow::Cow;
 
 /// Maximum ancestor walk depth before assuming tree corruption.
 ///
@@ -426,7 +427,7 @@ impl EcsDom {
     /// (most elements are HTML, so the component marks only the foreign
     /// exception).  For non-element entities the value is meaningless;
     /// callers gate on [`is_element`](Self::is_element) first, as
-    /// [`is_html_namespace`](Self::is_html_namespace) does.
+    /// [`Self::is_html_namespace`](Self::is_html_namespace) does.
     #[must_use]
     pub fn namespace_of(&self, entity: Entity) -> Namespace {
         self.world
@@ -814,6 +815,43 @@ impl EcsDom {
     #[must_use]
     pub fn is_html_namespace(&self, entity: Entity) -> bool {
         self.is_element(entity) && self.namespace_of(entity) == Namespace::Html
+    }
+
+    /// WHATWG DOM §4.9 — the HTML-namespace-gated ASCII-lowercase applied by
+    /// get-an-attribute-by-name step 1 / setAttribute() step 2 / hasAttribute()
+    /// step 1 (and transitively remove-an-attribute-by-name) — the single
+    /// canonical attribute-name caser for **every** name-based lookup
+    /// (One-issue-one-way).
+    ///
+    /// ASCII-lowercase `qname` iff `entity` is an HTML-namespace element
+    /// (returning an owned `Cow`); otherwise return the borrowed `qname`
+    /// **case-preserved** — so SVG / MathML local names (`viewBox`,
+    /// `gradientUnits`, …) survive verbatim. [`Self::is_html_namespace`] gates non-
+    /// elements (and foreign elements) to `false`, so they take the
+    /// case-preserving `Cow::Borrowed` arm too.
+    ///
+    /// The `Cow` borrows the **argument** `qname`, never `&self`, so a caller
+    /// can hand the result straight to a later `&mut self` write
+    /// (`apply_set_attribute(dom, …, resolved, …)`) without a borrow conflict.
+    ///
+    /// ## Gate completeness (spec note)
+    ///
+    /// DOM gates the lowercase on *"the element is in the HTML namespace AND
+    /// its node document is an HTML document"*. elidex has **no** node-document-
+    /// type predicate at the ECS layer and the [`Namespace`] enum is
+    /// `{Html, Svg, MathMl}`, so "an HTML-namespace element inside an XML
+    /// document" is not a representable state — [`Self::is_html_namespace`] is the
+    /// **complete** available gate and resolves the only representable concern
+    /// (SVG / MathML case-preservation). Folding a future `is_html_document`
+    /// conjunct is a one-line localized change here (there is exactly ONE
+    /// resolver), so no re-sweep is owed.
+    #[must_use]
+    pub fn resolve_attribute_qname<'a>(&self, entity: Entity, qname: &'a str) -> Cow<'a, str> {
+        if self.is_html_namespace(entity) {
+            Cow::Owned(qname.to_ascii_lowercase())
+        } else {
+            Cow::Borrowed(qname)
+        }
     }
 
     /// Effective `NodeKind` — returns the explicit component when

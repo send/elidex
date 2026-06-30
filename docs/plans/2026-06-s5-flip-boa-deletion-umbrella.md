@@ -1,5 +1,15 @@
 # S5 — THE FLIP + boa deletion (multi-PR umbrella plan-memo)
 
+> **⚠ SUPERSEDED re world_id (2026-06-30):** this memo's "world_id strictly AFTER S5" framing (§0, §9
+> keystone row, Q4) is **superseded** by `docs/plans/2026-06-agent-scoped-ecsdom-world.md`: the world_id
+> *program* is **renamed to / folded into the agent-scoped World (B1) program** — renamed, **not canceled**
+> (B1 does the same per-VM-side-store→component migration), so every **gate/dependency on "world_id" in this
+> memo — incl. the §9 keystone row gating S5-8 — remains valid as the B1 program**, which lands with the
+> friendly-iframe layer (post-S5) and eliminates cross-DOM aliasing by construction. The
+> nav-scrub-as-S5-6-hard-gate broadening is **retracted** (the flip is cross-DOM-neutral; see that doc
+> §6.2). The full keystone-row rewrite is deferred to the B1 implementation PR (trigger). See that doc §6
+> for the reconciliation.
+
 Anchor = **the ideal end-state**, not an incremental patch (`feedback_plan-memo-anchor-on-ideal-not-incremental`).
 Parent program = `memory/boa-vm-cutover-plan.md` (S0→S5 umbrella). This memo **explodes the parent's
 §5 last bullet ("S5 — THE FLIP + boa deletion")** into a dedicated multi-PR program, per CLAUDE.md
@@ -324,10 +334,11 @@ origin × navigation × history × focus-reset; **S5-4** crosses sandbox × orig
 |---|---|---|---|
 | **C3 (shell-viewport device facts: dppx + prefers-color-scheme)** | **direct pre-flip gate** | plan-reviewed, **impl-pending** (worktree `elidex-pr-c3`, plan committed local, unpushed) | the FLIP (S5-6) — the VM matchMedia/`@media` device-facts path must have a real source before the VM is the live engine, else responsive sites regress at the flip |
 | **`#11-async-core-storage-cookiestore`** (the "2nd keystone" framing) | makes non-compat `EngineMode` modes production-selectable | open (no-cap structural precondition) | the §6 mode-plumbing cohort (NOT S5 itself; S5 ships compat-only) |
-| **world_id program** (`#11-wrapper-cache-cross-dom-discriminator` + family) | per-VM side-store → per-entity component migration | open, **strictly AFTER S5** (user-confirmed) | S5-8 (win.open/postMessage) + the `document_origin`/sandbox component migration that S5 deliberately does NOT do (§0) |
+| **agent-scoped World (B1) program** (supersedes `world_id`; `#11-wrapper-cache-cross-dom-discriminator` + family) | per-VM side-store → per-entity component migration | open, **post-S5** (lands with the friendly-iframe layer) | S5-8 (win.open/postMessage) + the `document_origin`/sandbox component migration that S5 deliberately does NOT do (§0) |
 
-**Precondition statement**: `C3 → S5-6 FLIP`. `async-core-storage ∥ S5` (co-gate §6). `world_id ⟶ strictly after
-S5` (and S5-8 rides it). The signatures are world_id-invariant, so S5 lands world_id-agnostic.
+**Precondition statement**: `C3 → S5-6 FLIP`. `async-core-storage ∥ S5` (co-gate §6). `agent-scoped World
+(B1) program ⟶ post-S5` (supersedes `world_id`; and S5-8 rides it). The signatures are agnostic to it, so S5
+lands without it.
 
 ---
 

@@ -53,7 +53,14 @@ impl DomApiHandler for GetAttributeNode {
         session: &mut SessionCore,
         dom: &mut EcsDom,
     ) -> Result<JsValue, DomApiError> {
-        let name = require_string_arg(args, 0)?.to_ascii_lowercase();
+        // DOM §4.9 getAttributeNode (get-an-attribute-by-name) step 1:
+        // HTML-namespace-gated lowercase via the single canonical resolver
+        // (B2-Slice-3 folds this dormant entity-backed get-by-name path so it
+        // is not left a future strangler — §4.1 dual-model note). The ONE
+        // resolved binding keys BOTH the `Attributes` lookup AND the
+        // `AttrEntityCache` get/insert (§8 I-CACHE-KEY).
+        let raw = require_string_arg(args, 0)?;
+        let name = dom.resolve_attribute_qname(this, &raw).into_owned();
         let attrs = dom
             .world()
             .get::<&Attributes>(this)
@@ -158,6 +165,10 @@ impl DomApiHandler for SetAttributeNode {
         // invalidation + `rev_version` + `MutationEvent::AttributeChange`) —
         // attaching a `style` Attr node otherwise leaves a stale hydrated
         // `InlineStyle` cache. The receiver is a confirmed live Element.
+        // NOTE: no MutationObserver record — the entity-backed dom-api Attr-node
+        // path is dormant (VM uses inline natives; boa does not drain
+        // notify_records), so record production is deferred to
+        // `#11-dom-api-attr-entity-model-unification` (plan §4.1).
         dom.set_attribute(this, &name, &value);
 
         // Update owner.
@@ -227,6 +238,8 @@ impl DomApiHandler for RemoveAttributeNode {
         // invalidation + `rev_version` + `MutationEvent::AttributeChange`) —
         // removing the `style` Attr node otherwise leaks a stale hydrated
         // `InlineStyle` cache.
+        // NOTE: no MutationObserver record — dormant entity-backed Attr-node
+        // path; deferred to `#11-dom-api-attr-entity-model-unification` (§4.1).
         dom.remove_attribute(this, &name);
         Ok(JsValue::ObjectRef(attr_ref))
     }
@@ -309,6 +322,8 @@ impl DomApiHandler for SetAttrValue {
         // invalidation + `rev_version` + `MutationEvent::AttributeChange`) —
         // writing through a `style` Attr node otherwise leaves a stale
         // hydrated `InlineStyle` cache.
+        // NOTE: no MutationObserver record — dormant entity-backed Attr-node
+        // path; deferred to `#11-dom-api-attr-entity-model-unification` (§4.1).
         if let Some(owner) = owner {
             let name = dom
                 .world()

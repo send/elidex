@@ -28,9 +28,13 @@ impl DomApiHandler for GetAttribute {
         _session: &mut SessionCore,
         dom: &mut EcsDom,
     ) -> Result<JsValue, DomApiError> {
-        let name = require_string_arg(args, 0)?.to_ascii_lowercase();
+        // DOM §4.9 get-an-attribute-by-name step 1: HTML-namespace-gated
+        // lowercase (SVG / MathML local names stay case-preserved). The single
+        // canonical `EcsDom::resolve_attribute_qname` resolver (B2-Slice-3).
+        let raw = require_string_arg(args, 0)?;
+        let name = dom.resolve_attribute_qname(this, &raw);
         let attrs = require_attrs(this, dom)?;
-        match attrs.get(&name) {
+        match attrs.get(name.as_ref()) {
             Some(val) => Ok(JsValue::String(val.to_string())),
             None => Ok(JsValue::Null),
         }
@@ -58,7 +62,9 @@ impl DomApiHandler for SetAttribute {
     ) -> Result<JsValue, DomApiError> {
         let raw_name = require_string_arg(args, 0)?;
         validate_attribute_name(&raw_name)?;
-        let name = raw_name.to_ascii_lowercase();
+        // DOM §4.9 setAttribute step 2: HTML-namespace-gated lowercase (the
+        // single canonical resolver — SVG / MathML names case-preserved).
+        let name = dom.resolve_attribute_qname(this, &raw_name);
         let value = require_string_arg(args, 1)?;
         // Lesson #181 / #341: the record-producing `apply_set_attribute` seam
         // routes through the canonical `EcsDom::set_attribute` chokepoint so
@@ -70,7 +76,7 @@ impl DomApiHandler for SetAttribute {
         // surfaces the §4.9 "attributes" MutationObserver record (B2-Slice-1).
         // `None` = the receiver was destroyed / not an Element (the chokepoint
         // short-circuits) → NotFoundError, mirroring the pre-record contract.
-        match apply_set_attribute(dom, this, &name, &value) {
+        match apply_set_attribute(dom, this, name.as_ref(), &value) {
             Some(record) => session.push_notify_record(record),
             None => return Err(crate::util::not_found_error("element not found")),
         }
@@ -104,12 +110,14 @@ impl DomApiHandler for RemoveAttribute {
         // invalid or absent name is a no-op here, never a throw. B2-Slice-1
         // converged the VM `removeAttribute` native onto this handler, which
         // surfaced + fixed the prior spec-wrong validate-on-remove. The name is
-        // lowercased UNCONDITIONALLY (uniform with the rest of the attribute IDL
-        // surface — getAttribute / hasAttribute / setAttribute); HTML-namespace-
-        // gating the lowercase across the whole surface (so SVG / MathML case-
-        // preserved names survive) is deferred WHOLE to slot
-        // `#11-attribute-name-html-namespace-casing` (plan §9).
-        let name = require_string_arg(args, 0)?.to_ascii_lowercase();
+        // resolved through the single canonical
+        // `EcsDom::resolve_attribute_qname` (HTML-namespace-gated lowercase,
+        // SVG / MathML case-preserved) — B2-Slice-3 folds the whole surface.
+        // The ONE resolved binding feeds BOTH the chokepoint remove key AND the
+        // `AttrEntityCache` evict key (§8 I-CACHE-KEY: resolved-vs-raw mismatch
+        // would leak a stale cached Attr).
+        let raw = require_string_arg(args, 0)?;
+        let name = dom.resolve_attribute_qname(this, &raw).into_owned();
         // Uniform with the rest of the Element attribute surface
         // (setAttribute / toggleAttribute / *AttributeNode): a stale /
         // non-Element receiver errors rather than silently no-op'ing —

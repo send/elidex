@@ -385,6 +385,9 @@ pub(super) fn native_window_get_device_pixel_ratio(
 //
 // Trigger: `world_id` / cross-DOM program + S5/boa removal.
 // Revisit date: when the `world_id` / S5 program begins.
+// ⚠ SUPERSEDED 2026-06-30: world_id retracted → agent-scoped EcsDom World
+// (PR #434 docs/plans/2026-06-agent-scoped-ecsdom-world.md §6); interim form
+// unchanged until B1.
 //
 // Stubs currently ignore `_this`: single-VM, so there is no other
 // browsing context to route to.  C1+ receiver requirements differ:
@@ -678,6 +681,9 @@ const WINDOW_PARITY_ACCESSORS: &[(&str, super::super::NativeFn)] = &[
 /// identity on an actual cross-DOM navigation is the world-id discriminator's job
 /// (`#11-wrapper-cache-cross-dom-discriminator`). `Screen` is non-nullable (no §4
 /// null branch — unlike `visualViewport`).
+/// ⚠ SUPERSEDED 2026-06-30: world_id retracted → agent-scoped EcsDom World
+/// (PR #434 `docs/plans/2026-06-agent-scoped-ecsdom-world.md` §6); interim form
+/// unchanged until B1.
 fn native_window_get_screen(
     ctx: &mut NativeContext<'_>,
     _this: JsValue,
@@ -720,6 +726,8 @@ fn native_window_get_visual_viewport(
 /// `#11-browsing-context-state-ecs-components`); the predicate exists so both
 /// branches are real code a future multi-document model wires at one site, not
 /// removed steps.
+/// ⚠ SUPERSEDED 2026-06-30: this slot is FOLDED into the agent-scoped World
+/// decision (PR #434 §5 req 5 / §6.1).
 pub(super) fn window_has_fully_active_document(_ctx: &NativeContext<'_>) -> bool {
     true
 }

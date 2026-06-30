@@ -79,7 +79,7 @@ pub(super) fn bool_attr_reflect(
     let val = args.first().copied().unwrap_or(JsValue::Undefined);
     let flag = super::super::coerce::to_boolean(ctx.vm, val);
     if flag {
-        ctx.host().dom().set_attribute(entity, attr, "");
+        super::element_attrs::attr_set(ctx, entity, attr, "");
     } else {
         super::element_attrs::attr_remove(ctx, entity, attr);
     }
@@ -108,7 +108,7 @@ pub(super) fn length_attr_reflect(
     if n < 0 {
         super::element_attrs::attr_remove(ctx, entity, attr);
     } else {
-        ctx.host().dom().set_attribute(entity, attr, &n.to_string());
+        super::element_attrs::attr_set(ctx, entity, attr, &n.to_string());
     }
     Ok(JsValue::Undefined)
 }

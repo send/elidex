@@ -38,6 +38,9 @@
 //!   observably wrong in all frames (same-origin and cross-origin
 //!   alike).  Trigger: `world_id` / cross-DOM program + S5/boa
 //!   removal.  Revisit date: when the `world_id` / S5 program begins.
+//!   ⚠ SUPERSEDED 2026-06-30: world_id retracted → agent-scoped EcsDom
+//!   World (PR #434 `docs/plans/2026-06-agent-scoped-ecsdom-world.md` §6);
+//!   interim form unchanged until B1.
 
 #![cfg(feature = "engine")]
 
@@ -238,7 +241,7 @@ macro_rules! iframe_string_attr {
             let val = args.first().copied().unwrap_or(JsValue::Undefined);
             let sid = super::super::coerce::to_string(ctx.vm, val)?;
             let s = ctx.vm.strings.get_utf8(sid);
-            ctx.host().dom().set_attribute(entity, $attr, &s);
+            super::element_attrs::attr_set(ctx, entity, $attr, &s);
             Ok(JsValue::Undefined)
         }
     };
@@ -287,9 +290,7 @@ fn native_iframe_set_allow_fullscreen(
     let val = args.first().copied().unwrap_or(JsValue::Undefined);
     let flag = super::super::coerce::to_boolean(ctx.vm, val);
     if flag {
-        ctx.host()
-            .dom()
-            .set_attribute(entity, "allowfullscreen", "");
+        super::element_attrs::attr_set(ctx, entity, "allowfullscreen", "");
     } else {
         super::element_attrs::attr_remove(ctx, entity, "allowfullscreen");
     }

@@ -3,8 +3,25 @@
 Slot: `#11-windowproxy-browsing-context`
 Status: deferred stub — see C0 / F4 in the philosophy-alignment umbrella
 Why deferred: sub-frame browsing-context entity model and cross-VM Document/Window proxy identity are not yet implemented (see §2)
-Trigger: `world_id` / cross-DOM program + S5/boa removal
-Revisit: when the `world_id` / S5 program begins
+Trigger: agent-scoped `EcsDom` World / cross-DOM program + S5/boa removal (was "`world_id`"; see SUPERSEDED note below)
+Revisit: when the agent-scoped World / B1 implementation begins (post-S5; see SUPERSEDED note below)
+
+> **⚠ DESIGN SUPERSEDED re same-*agent* frames (2026-06-30):** this plan's §2 "separate `VmInner` +
+> cross-VM forwarding" path is **inverted for same-agent frames** by
+> `docs/plans/2026-06-agent-scoped-ecsdom-world.md` (B1: agent-scoped `EcsDom` World). **The boundary is the
+> agent, not the origin** (that doc §1.4 / §5 req 4): **same-agent** frames — which include **same-site
+> cross-origin** frames in the same browsing-context group **that the *obtain a similar-origin window agent*
+> algorithm site-keys** (HTML §8.1.2.2; *not only same-origin*) — share **one World + one `Vm`** (object
+> identity cannot cross heaps — that doc §2.1) and use an **in-`Vm` restricted `WindowProxy`**, **not**
+> separate `Vm`s with cross-VM forwarding. So **§2.4's cross-VM forwarding is correct for *cross-agent*
+> frames** — cross-site, different BCG, sandboxed-opaque, **and an *origin-keyed* same-site cross-origin
+> frame** (an honored `Origin-Agent-Cluster` or a non-`none` cross-origin-isolation mode → a **different**
+> agent, that doc §5 req 1) — but **not** for a *site-keyed* same-site cross-origin same-BCG frame. And `world_id` is **superseded**, not a precondition (within one World, hecs `generation`
+> handles staleness). **Read *every* `world_id` reference in this plan — incl. the §3 preconditions and the
+> §5 ECS-native table's `WindowProxy` `ObjectId` rule ("post-`world_id`" / "until `world_id` lands") — as the
+> agent-scoped World (B1) program: renamed, not canceled, so the gates/rules remain valid as B1** (the full
+> per-row rewrite is deferred with this plan's revisit). The §2/§2.4 design-prose rewrite is the trigger for this plan's revisit (the B1
+> implementation PR, post-S5). See that doc §1.4 / §4.1 (cross-frame sweep) / §5 req 4 / §6.3.
 
 ---
 
@@ -87,8 +104,9 @@ forwards most operations to the current `Window` of the browsing context
   C1+ must NOT attach the `ObjectId` to the iframe element entity across
   detach/reattach cycles; it must invalidate and re-allocate after reattachment.
 
-This depends on the `world_id` discriminator described in CLAUDE.md
-`#11-wrapper-cache-cross-dom-discriminator`.
+This depends on the **agent-scoped World (B1) program**
+(`docs/plans/2026-06-agent-scoped-ecsdom-world.md`), which supersedes the former `world_id` discriminator
+(`#11-wrapper-cache-cross-dom-discriminator`) — see the SUPERSEDED note above.
 
 ### 2.3 Same-origin access checks (contentDocument only)
 
@@ -142,7 +160,7 @@ C1+ plan-review must verify these interactions before implementation begins.
 
 | Precondition | Status |
 |---|---|
-| `world_id` discriminator (`#11-wrapper-cache-cross-dom-discriminator`) | deferred (着手 = S5 後) |
+| agent-scoped World (B1) program (supersedes the `world_id` discriminator, `#11-wrapper-cache-cross-dom-discriminator`) | deferred (着手 = S5 後) |
 | S5 / boa removal (D-26 PR7) | deferred |
 
 C1+ (same-origin/cross-origin proxy implementation) must not begin until both

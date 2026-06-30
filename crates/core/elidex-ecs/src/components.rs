@@ -888,7 +888,8 @@ pub struct AttrData {
 /// same `Attr` entity on repeated calls (WHATWG DOM identity semantics).
 #[derive(Debug, Clone, Default)]
 pub struct AttrEntityCache {
-    /// Maps lowercase attribute name to the `Attr` entity.
+    /// Maps the resolved attribute name (HTML-namespace-gated lowercase;
+    /// SVG/MathML case-preserved — `EcsDom::resolve_attribute_qname`) to the `Attr` entity.
     pub entries: std::collections::HashMap<String, Entity>,
 }
 

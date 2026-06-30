@@ -133,6 +133,9 @@ pub(crate) struct MediaQueryEntry {
     /// which then matches no delivery document. The cross-`EcsDom`-world
     /// `Entity`-aliasing edge is the same deferred concern as the wrapper
     /// caches (`#11-wrapper-cache-cross-dom-discriminator` / world_id).
+    /// ⚠ SUPERSEDED 2026-06-30: world_id retracted → agent-scoped EcsDom World
+    /// (PR #434 `docs/plans/2026-06-agent-scoped-ecsdom-world.md` §6); interim
+    /// form unchanged until B1.
     pub(crate) document: Option<Entity>,
 }
 

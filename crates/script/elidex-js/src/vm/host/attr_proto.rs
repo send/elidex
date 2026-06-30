@@ -388,12 +388,14 @@ fn native_attr_set_value(
     let val = args.first().copied().unwrap_or(JsValue::Undefined);
     let value_sid = super::super::coerce::to_string(ctx.vm, val)?;
     // Detached wrappers update the snapshot in place (WHATWG §4.9.2
-    // "change an attribute" on a detached Attr mutates the Attr's
-    // value but does NOT reach the former owner).  Live wrappers
-    // with a still-attached backing attribute write through to the
-    // owner's `Attributes` component.  Live wrappers whose
-    // attribute was already removed are ignored — this avoids
-    // silently re-attaching a removed attr.
+    // "set an existing attribute value" step 1: element == null →
+    // mutate the Attr's value but DON'T reach a former owner). This is
+    // record-less by construction (no chokepoint write → no
+    // `apply_set_attribute` call → no record, invariant I1; A2×A2
+    // corner). Live wrappers with a still-attached backing attribute
+    // write through to the owner's `Attributes` component (step 5).
+    // Live wrappers whose attribute was already removed are ignored —
+    // this avoids silently re-attaching a removed attr.
     if is_detached {
         if let Some(state_mut) = ctx.vm.attr_states.get_mut(&attr_id) {
             state_mut.detached_value = Some(value_sid);
@@ -410,11 +412,15 @@ fn native_attr_set_value(
     let attached = host.dom().has_attribute(owner, &name_str);
     if attached {
         let new_value = ctx.vm.strings.get_utf8(value_sid);
-        // Re-borrow `ctx.host_if_bound()` since we need a fresh
-        // `&mut` after the shared-read above.
-        if let Some(host) = ctx.host_if_bound() {
-            host.dom().set_attribute(owner, &name_str, &new_value);
-        }
+        // One-issue-one-way (B2-Slice-3): the attached `attr.value = …` write is
+        // the SAME record-producing shim as the reflected IDL setters —
+        // `apply_set_attribute` (the `EcsDom::set_attribute` chokepoint + the
+        // §4.9 "attributes" record, a same-value write still records, I4) +
+        // `commit_notify_records` (push bound to drain, I9). Delegate to
+        // `attr_set` rather than re-inline it. The Attr's verbatim qualified name
+        // is the key (NO resolver — node-identity op, §4.2); `attr_set` returns a
+        // `bool` `did_set` this site ignores.
+        super::element_attrs::attr_set(ctx, owner, &name_str, &new_value);
     }
     Ok(JsValue::Undefined)
 }

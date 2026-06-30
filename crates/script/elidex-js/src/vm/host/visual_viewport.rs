@@ -88,6 +88,10 @@
 //! flip that first drives the producer in production) lands it for the whole
 //! stable-identity-global family at once (Codex R6-A). The brand is
 //! payload-free; GC has nothing to trace or prune.
+//! ⚠ SUPERSEDED 2026-06-30: world_id retracted → agent-scoped EcsDom World
+//! (PR #434 `docs/plans/2026-06-agent-scoped-ecsdom-world.md` §6); interim form
+//! unchanged until B1. (The S5-6-gated navigation listener-scrub framing above
+//! is RETRACTED too — the flip is cross-DOM-neutral, PR #434 §6.2.)
 
 #![cfg(feature = "engine")]
 
@@ -221,6 +225,9 @@ impl VmInner {
     /// it and only the per-turn producer advances it. A cross-navigation re-seed
     /// is the deferred world-id discriminator's job
     /// (`#11-wrapper-cache-cross-dom-discriminator`).
+    /// ⚠ SUPERSEDED 2026-06-30: world_id retracted → agent-scoped EcsDom World
+    /// (PR #434 `docs/plans/2026-06-agent-scoped-ecsdom-world.md` §6); interim
+    /// form unchanged until B1.
     pub(in crate::vm) fn seed_visual_viewport_baseline_if_unseeded(&mut self) {
         if self.visual_viewport_delivered.is_none() {
             self.visual_viewport_delivered = Some(current_vv_size(self));
@@ -387,6 +394,8 @@ fn require_visual_viewport_this(
 /// is unconditionally `true` today (the `html_dialog_proto.rs` precedent, folded
 /// into `#11-browsing-context-state-ecs-components`), so folding the guard here
 /// keeps the spec step in one place instead of inlining it in all 7 getters.
+/// ⚠ SUPERSEDED 2026-06-30: this slot is FOLDED into the agent-scoped World
+/// decision (PR #434 §5 req 5 / §6.1).
 fn vv_geometry_read(
     ctx: &mut NativeContext<'_>,
     this: JsValue,

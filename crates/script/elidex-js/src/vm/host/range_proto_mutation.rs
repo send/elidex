@@ -100,7 +100,7 @@ pub(super) fn native_range_delete_contents(
     // Single delivery mechanism: push the childList records into the session
     // and drain them through `queue_mutation_record` as one indivisible step
     // (plan §4 F1 — an un-drained scratch is silently cleared at flush).
-    ctx.vm.commit_range_mutation_records(records);
+    ctx.vm.commit_notify_records(records);
     commit_range_after_mutation(ctx, id, "deleteContents", &range)?;
     Ok(JsValue::Undefined)
 }
@@ -126,7 +126,7 @@ pub(super) fn native_range_extract_contents(
         let dom = host.dom();
         range.extract_contents(dom)
     };
-    ctx.vm.commit_range_mutation_records(records);
+    ctx.vm.commit_notify_records(records);
     commit_range_after_mutation(ctx, id, "extractContents", &range)?;
     Ok(JsValue::Object(ctx.vm.create_element_wrapper(fragment)))
 }
@@ -185,7 +185,7 @@ pub(super) fn native_range_insert_node(
             // Single delivery mechanism: deliver the childList insertion
             // record(s) before the step-13 boundary commit. The drain is
             // bound to the push (plan §4 F1).
-            ctx.vm.commit_range_mutation_records(records);
+            ctx.vm.commit_notify_records(records);
             // WHATWG §5.5 step 13: when the range was collapsed,
             // set the end to (parent, newOffset).  Apply directly
             // to the registered range so the §5.10/§4.2.3 hook

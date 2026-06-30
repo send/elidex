@@ -4,8 +4,9 @@
 //!
 //! Members covered:
 //!
-//! - `value` / `defaultValue` accessor pair (HTML §4.10.5.1.6 dirty
-//!   tracking via `FormControlState.set_value` / `set_value_initial`).
+//! - `value` / `defaultValue` accessor pair (HTML §4.10.18.1 "A form
+//!   control's value" dirty-value-flag tracking via
+//!   `FormControlState.set_value` / `set_value_initial`).
 //! - `checked` / `defaultChecked` / `indeterminate` round-trip
 //!   accessors.
 //! - `valueAsNumber` / `valueAsDate` (Date support is the
@@ -105,8 +106,15 @@ pub(super) fn native_input_set_value(
     // value mode.  `elidex-form` decides the action; the host executes the
     // marshalling (set live value / set content attribute / clear files /
     // raise InvalidStateError) per the Layering mandate.
-    let dom = ctx.host().dom();
-    let Some(mode) = dom
+    //
+    // The mode probe ends its `dom` borrow before the match so the
+    // `SetContentAttr` arm can route through the `attr_set` shim (record-
+    // producing, B2-Slice-2) — the shim takes `ctx`, not a live `dom` borrow.
+    // The other arms re-acquire `ctx.host().dom()` locally (their writes are
+    // FormControlState mutations, NOT content-attribute writes → no record, I1).
+    let Some(mode) = ctx
+        .host()
+        .dom()
         .world()
         .get::<&FormControlState>(entity)
         .ok()
@@ -118,22 +126,33 @@ pub(super) fn native_input_set_value(
         // value mode — §4.10.5.4 steps 1–5 (set live value + dirty flag +
         // sanitize + step-5 cursor).
         ValueSetAction::SetLiveValue => {
-            if let Ok(mut state) = dom.world_mut().get::<&mut FormControlState>(entity) {
+            if let Ok(mut state) = ctx
+                .host()
+                .dom()
+                .world_mut()
+                .get::<&mut FormControlState>(entity)
+            {
                 state.set_value(s);
             }
         }
         // default / default-on — set the `value` content attribute via the
-        // `set_attribute` chokepoint so the reconciler maintains the
-        // derived `default_value` (and, when not dirty, the live value).
+        // record-producing `attr_set` chokepoint so the reconciler maintains
+        // the derived `default_value` (and, when not dirty, the live value)
+        // and the §4.9 "attributes" MutationObserver record is emitted.
         ValueSetAction::SetContentAttr => {
-            dom.set_attribute(entity, "value", &s);
+            super::element_attrs::attr_set(ctx, entity, "value", &s);
         }
         // filename mode, empty value — empty the list of selected files.
         // The list is not modeled yet (`#11-input-file-shell-staging`), but a
         // file input can carry a stale live backing value; clear it so the
         // empty set is observable (and not left for form submission).
         ValueSetAction::ClearFiles => {
-            if let Ok(mut state) = dom.world_mut().get::<&mut FormControlState>(entity) {
+            if let Ok(mut state) = ctx
+                .host()
+                .dom()
+                .world_mut()
+                .get::<&mut FormControlState>(entity)
+            {
                 state.clear_file_value();
             }
         }
@@ -179,9 +198,10 @@ pub(super) fn native_input_set_default_value(
     let val = args.first().copied().unwrap_or(JsValue::Undefined);
     let sid = super::super::coerce::to_string(ctx.vm, val)?;
     let s = ctx.vm.strings.get_utf8(sid);
-    ctx.host().dom().set_attribute(entity, "value", &s);
-    // Mirror into FormControlState.default_value if not dirty —
-    // matches HTML §4.10.5.1.7 step "default value mode".
+    super::element_attrs::attr_set(ctx, entity, "value", &s);
+    // Mirror into FormControlState.default_value if not dirty — while
+    // the dirty value flag is false, value mirrors the default value
+    // (HTML §4.10.18.1 "A form control's value").
     let dom = ctx.host().dom();
     if let Ok(mut state) = dom.world_mut().get::<&mut FormControlState>(entity) {
         state.default_value.clone_from(&s);
@@ -250,7 +270,7 @@ pub(super) fn native_input_set_default_checked(
     let val = args.first().copied().unwrap_or(JsValue::Undefined);
     let flag = super::super::coerce::to_boolean(ctx.vm, val);
     if flag {
-        ctx.host().dom().set_attribute(entity, "checked", "");
+        super::element_attrs::attr_set(ctx, entity, "checked", "");
     } else {
         super::element_attrs::attr_remove(ctx, entity, "checked");
     }
@@ -498,7 +518,7 @@ pub(super) fn native_input_set_form_enctype(
     let val = args.first().copied().unwrap_or(JsValue::Undefined);
     let sid = super::super::coerce::to_string(ctx.vm, val)?;
     let s = ctx.vm.strings.get_utf8(sid);
-    ctx.host().dom().set_attribute(entity, "formenctype", &s);
+    super::element_attrs::attr_set(ctx, entity, "formenctype", &s);
     Ok(JsValue::Undefined)
 }
 
@@ -532,6 +552,6 @@ pub(super) fn native_input_set_form_method(
     let val = args.first().copied().unwrap_or(JsValue::Undefined);
     let sid = super::super::coerce::to_string(ctx.vm, val)?;
     let s = ctx.vm.strings.get_utf8(sid);
-    ctx.host().dom().set_attribute(entity, "formmethod", &s);
+    super::element_attrs::attr_set(ctx, entity, "formmethod", &s);
     Ok(JsValue::Undefined)
 }

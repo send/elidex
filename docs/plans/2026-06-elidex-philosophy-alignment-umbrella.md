@@ -1,5 +1,13 @@
 # Elidex Philosophy-Alignment Umbrella Plan
 
+> **⚠ SUPERSEDED re world_id (2026-06-30):** this plan's references to the **`world_id` / cross-DOM
+> program** as a dependency/trigger (F4/C1+ "C0 + `world_id` program + S5/boa removal", and the deferral
+> triggers tied to "the `world_id` / cross-DOM program") are **superseded** by
+> `docs/plans/2026-06-agent-scoped-ecsdom-world.md` — there is no world_id program; the cross-DOM identity
+> resolution is the **agent-scoped `EcsDom` World** (B1), landing with the friendly-iframe layer (post-S5).
+> Read "the world_id program" here as "the agent-scoped World / B1 program". Full text update deferred to
+> the B1 implementation PR (named trigger). See that decision §6 for the reconciliation.
+
 Plan date: 2026-06-20 JST
 Status: **PLAN ONLY — no implementation, no code change beyond this doc.**
 Follows up: `docs/audits/2026-06-elidex-philosophy-implementation-audit.md` (F1–F6).
@@ -374,7 +382,7 @@ natural shape of the fix rather than a separable step.
 | PR | Purpose | Main files / crates | Do-not-touch | Depends on | Plan-review | AC |
 |---|---|---|---|---|---|---|
 | **C0** | ✅ **LANDED** (2026-06-26). Both stub families (`contentDocument`/`contentWindow` in `html_iframe_proto.rs` + `self`/`parent`/`top`/`frames`/`frameElement`/`length`/`closed` in `window.rs`) now cite `#11-windowproxy-browsing-context` with why/trigger/date in-code; `opener` (same file) cites separate `#11-auxiliary-browsing-context-opener` (window.open() scope — see in-code comment + plan §4); narrative comments replaced. Implementation plan written: `docs/plans/2026-06-iframe-browsing-context-plan.md`. Stub return values unchanged. | `vm/host/html_iframe_proto.rs`, `window.rs` (comment-only); `docs/plans/2026-06-iframe-browsing-context-plan.md` | proxy implementation | — | not required (slot decision) | Sub-frame stubs cite `#11-windowproxy-browsing-context`; `opener` cites `#11-auxiliary-browsing-context-opener`; plan written; behavior unchanged |
-| C1+ | (Deferred — out of scope) same-origin/cross-origin proxy implementation | — | — | C0 + `world_id` program + S5/boa removal | **PR-R** | (future) |
+| C1+ | (Deferred — out of scope) same-origin/cross-origin proxy implementation | — | — | C0 + agent-scoped World (B1) program (was `world_id`) + S5/boa removal | **PR-R** | (future) |
 
 ### Program D — plugin-first tag dispatch (F5) — investigate-only
 

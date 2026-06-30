@@ -141,6 +141,6 @@ fn native_text_split_text(
     // truncate]). The `host().dom()` borrow above is released (the Result
     // is owned), so deliver them through the same chokepoint as the Range
     // natives.
-    ctx.vm.commit_range_mutation_records(records);
+    ctx.vm.commit_notify_records(records);
     Ok(JsValue::Object(ctx.vm.create_element_wrapper(new_entity)))
 }
