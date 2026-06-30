@@ -252,15 +252,17 @@ owed** (positive appeal per `feedback_ideal-over-pragmatic`).
 
 **Trust boundary (user-input audit)**: *this docs-only decision* changes no parse/eval/marshal path. But
 it does **flag a new trust boundary the B1 implementation must review**: B1's World assignment depends on
-parsing **`Origin-Agent-Cluster` and COOP response headers *before* document creation** — and both are
-**absent today** (the §3 rows mark them "absent / unmodeled"; no `Origin-Agent-Cluster` handling exists in
-`crates/`). So OAC + COOP are **new response-header inputs** (not pre-existing), and the B1 impl PR owes a
-**security / data-flow review** of that new header-parse surface (secure-context gating, BCG-key
-consistency, opaque/cross-origin-isolated forcing — §5 req 1). The `sandbox` attribute and CSP *are*
-already consumed (existing surface). The decision's own safety claim is *structural* (the cross-DOM
-aliasing class becomes unconstructable; cross-agent content is forced into a separate `Vm`/process),
-strengthening the boundary — but that does **not** excuse the new OAC/COOP parse surface from impl-time
-review.
+parsing **new response headers *before* document creation** — the headers that feed the agent-keying +
+cross-origin-isolation decision (`Origin-Agent-Cluster`, COOP, **COEP** — `crossOriginIsolated` needs both
+COOP *and* COEP — and whatever else §8.1.2.2 / §7.3.2.3 consult; the **authoritative input set is the
+spec's**, not this list). These are **absent today** (the §3 rows mark them "absent / unmodeled"; no
+`Origin-Agent-Cluster` / COEP handling exists in `crates/`), so they are **new header inputs** (not
+pre-existing), and the B1 impl PR owes a **security / data-flow review** of that whole new header-parse
+surface (secure-context gating, BCG-key consistency, opaque / cross-origin-isolated forcing — §5 req 1).
+The `sandbox` attribute and CSP *are* already consumed (existing surface). The decision's own safety claim
+is *structural* (the cross-DOM aliasing class becomes unconstructable; cross-agent content is forced into a
+separate `Vm`/process), strengthening the boundary — but that does **not** excuse the new header-parse
+surface from impl-time review.
 
 ---
 
@@ -431,11 +433,16 @@ meet. They are the deliverable — the contract is "build to these."
 
 7. **The `Vm` is multi-realm — one heap, N Window globals/realms.** An agent is one heap hosting
    **multiple realms** that synchronously access each other (HTML §8.1.2.1); each same-agent document has
-   its **own** Window, global scope, and per-realm prototype chain. The current `Vm` (singleton
-   `global_object` + singleton prototype slots) must generalize to **N realms** (one per same-agent
-   Window), with: per-realm globals/prototypes; per-`(entity, realm)` wrapper identity (req 6);
-   `iframe.contentWindow` resolving to the **child's** realm/global (not aliasing the parent);
-   per-document/per-Window lifecycle (so BFCache suspends one Window without freezing the agent, §4.3).
+   its **own** Window, global scope, and per-realm prototype chain — **except** for the spec's
+   **Window-reuse cases**, which keep the *same* Window/realm across a document swap: most importantly the
+   **initial `about:blank`** document and the first same-origin document that replaces it **share one
+   Window** (HTML §7.5.1), so `contentWindow` identity + expandos survive that initial navigation. The
+   model is therefore "**realm ≈ per Window, with spec-defined Window-reuse**" — the exact reuse rules are
+   the B1 plan-memo's (per the altitude note). The current `Vm` (singleton `global_object` + singleton
+   prototype slots) must generalize to **N realms** (one per Window, modulo reuse), with: per-realm
+   globals/prototypes; per-`(entity, realm)` wrapper identity (req 6); `iframe.contentWindow` resolving to
+   the **child's** realm/global (not aliasing the parent); per-document/per-Window lifecycle (so BFCache
+   suspends one Window without freezing the agent, §4.3).
    This is the dual of the World boundary: **entities shared (one World), realms not (one per Window)** —
    B1 makes the *entity* boundary the agent and keeps the *realm* boundary per-Window. (This is the
    foundational requirement that makes "shared `Vm`" correct rather than parent-aliasing; it does **not**
@@ -498,13 +505,15 @@ draft: the problem the nav-scrub was guarding does not manifest at the flip.)
 
 S5-3a is code-converged (HEAD `4501b2b5`, Codex R1→R6; the **R6 thread `PRRT_kwDORYj7cc6M7gpt`** —
 "prevent MQL keepalive across unknown rebinds" — is the deferred cross-world horn). Its deferral comments
-(`vm/host/media_query.rs` `keepalive_worthy`/`deliverable_to` docstrings, `vm/gc/keepalive.rs` inline,
-the `KeepaliveClass` doc, `tests/tests_match_media_keepalive.rs`, and the stale `host_data.rs` world_id
-slot doc) currently cite "`#11-wrapper-cache-cross-dom-discriminator`, strictly AFTER S5." **⚠ These
-symbol/file sites live on the *unmerged* `s5-3a-keepalive-seam` branch @ `4501b2b5`, not on this
-decision's tree** (verified absent from `main` @ `71ac54bb` — names may shift before S5-3a merges, so
-re-discover the live sites at cite-update time). After this decision lands, **retarget them to cite THIS
-doc**, with the corrected framing:
+currently cite "`#11-wrapper-cache-cross-dom-discriminator`, strictly AFTER S5." **⚠ Split by tree**: the
+**S5-3a-*new* symbols** — `keepalive_worthy` / `deliverable_to` docstrings, `vm/gc/keepalive.rs`, the
+`KeepaliveClass` doc, `tests/tests_match_media_keepalive.rs` — live on the *unmerged* `s5-3a-keepalive-seam`
+branch @ `4501b2b5` (absent from `main`; names may shift before S5-3a merges → re-discover at cite-update
+time). But the **general `world_id` slot cites already on `main`** — `vm/host_data.rs:117-121` (slot doc)
+and `vm/host/media_query.rs`'s document-gate comment — are the same on-`main` code comments §6.5 defers to
+the B1-impl cite-update (the two notes are consistent: §6.4 owns the S5-3a-new symbols, §6.5 owns the
+broader on-`main` set). After this decision lands, **retarget all of them to cite THIS doc**, with the
+corrected framing:
 
 - cross-DOM aliasing is **non-production near-term** (one-doc-one-World holds through S5; the flip is
   cross-DOM-neutral, §6.2);
