@@ -350,6 +350,16 @@ pub(super) fn keepalive_survivors(vm: &VmInner) -> Vec<ObjectId> {
                 // on non-empty `records` (not stale `pending` membership) so an
                 // observer the page already drained via `takeRecords()` is NOT
                 // over-kept (see `observers_with_pending_records`).
+                //
+                // Coverage boundary: this clause anchors the binding only up to
+                // the point `deliver_pending_mutation_records` drains the queue
+                // via `take_records` (records emptied ⇒ id ∉ `pending` on any
+                // subsequent GC). The INTRA-delivery window — after `take_records`
+                // has drained the queue but before/while the record-array is
+                // built and the callback runs — is covered NOT by this clause but
+                // by the temp-root the shared delivery helper pushes for the
+                // binding (`observer_common::deliver_to_observer_callbacks`, which
+                // roots `instance` + `callback` before the GC-capable build).
                 let pending = hd.mutation_observers.observers_with_pending_records();
                 for (oid, b) in &hd.mutation_observer_bindings {
                     if ids.contains(oid) || pending.contains(oid) {

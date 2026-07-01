@@ -497,18 +497,29 @@ impl VmInner {
         };
         let observer_ids: Vec<u64> = observations.keys().copied().collect();
 
-        deliver_to_observer_callbacks(self, &observer_ids, |vm, id| {
-            let entries = observations.get(&id)?;
-            let binding = vm
-                .host_data
-                .as_deref()?
-                .intersection_observer_bindings
-                .get(&id)
-                .copied()?;
-            let entries_arr =
-                build_marshalled_array(vm, entries, |vm, e| intersection_entry_to_js(vm, e, time));
-            Some((binding, entries_arr))
-        });
+        let mut observations = observations;
+        deliver_to_observer_callbacks(
+            self,
+            &observer_ids,
+            // `prepare`: registry work only, NO JS allocation. `remove`
+            // (each id is delivered exactly once) hands ownership of the
+            // entries to `build`, avoiding a borrow of the captured map
+            // across the GC-capable marshal.
+            |vm, id| {
+                let entries = observations.remove(&id)?;
+                let binding = vm
+                    .host_data
+                    .as_deref()?
+                    .intersection_observer_bindings
+                    .get(&id)
+                    .copied()?;
+                Some((binding, entries))
+            },
+            // `build`: GC-capable marshal, run with `binding` rooted.
+            |vm, entries| {
+                build_marshalled_array(vm, &entries, |vm, e| intersection_entry_to_js(vm, e, time))
+            },
+        );
     }
 }
 

@@ -514,17 +514,25 @@ impl VmInner {
                 // rather than as one upfront set pass preserves that ordering and
                 // lets a transient created by *this* observer's own callback
                 // survive to the next microtask.
+                //
+                // ORDER is spec- AND GC-load-bearing: take_records (6.2) →
+                // clear_transient (6.3) → is_empty short-circuit → binding
+                // copy. `take_records` drains the pending-record queue — the
+                // sole keepalive anchor once the target has despawned — so the
+                // binding is unanchored from here on. The shared helper roots it
+                // BEFORE the (GC-capable) record-array build (see
+                // `deliver_to_observer_callbacks`); `prepare` itself does NO JS
+                // allocation, so nothing can be collected in this window.
                 elidex_api_observers::mutation::clear_transient_observers(host.dom(), mo_id);
                 if records.is_empty() {
                     return None;
                 }
                 let binding = host.mutation_observer_bindings.get(&observer_id).copied()?;
-                // Build the array AFTER releasing the host borrow (via
-                // the function-scope drop here) — the shared helper
-                // re-acquires `vm` to allocate the JS Array.
-                let records_arr = build_mutation_records_array(vm, &records);
-                Some((binding, records_arr))
+                // Hand the owned records to the helper's `build` step, which
+                // allocates the JS Array with `binding` already rooted.
+                Some((binding, records))
             },
+            |vm, records| build_mutation_records_array(vm, &records),
         );
     }
 

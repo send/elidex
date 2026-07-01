@@ -282,6 +282,15 @@ mod engine_feature {
         /// The residual `#11-mutation-observer-extras` scope is the **non-
         /// keepalive** extras only (primitive→`ToObject` init parsing,
         /// `Symbol.iterator` filter handling, etc.), **not** the binding leak.
+        ///
+        /// **Caveat — only the HostData binding *row* is GC-reclaimed.** The
+        /// engine-independent *registry-side* residual is NOT pruned by GC and
+        /// persists until `Vm::unbind`: the `MutationObserverRegistry::records`
+        /// empty-`Vec` row for a collected observer, `IntersectionObserverRegistry`'s
+        /// per-observer config (`IntersectionObserverInit` / parsed rootMargin),
+        /// and the `ResizeObserverRegistry` id are all keyed by the VM-monotonic
+        /// `observer_id` and have no GC→registry hook. Pruning them needs such a
+        /// hook and is deferred under `#11-mutation-observer-extras`.
         pub(crate) mutation_observer_bindings: HashMap<u64, ObserverBinding>,
         /// `ResizeObserver` registry (W3C Resize Observer §3) — owns
         /// the monotonic observer ID counter; observation target lists

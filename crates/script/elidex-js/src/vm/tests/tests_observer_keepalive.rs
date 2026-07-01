@@ -536,6 +536,90 @@ fn pending_records_keep_mutation_observer_alive_across_despawn_and_still_deliver
 }
 
 #[test]
+fn mid_delivery_gc_keeps_mutation_observer_alive_and_still_delivers() {
+    // The intra-delivery use-after-collect regression (S5-3c helper temp-root
+    // fix). Same setup as the pending-records test, but the GC fires MID-DELIVERY
+    // instead of before it: `deliver_pending_mutation_records`'s `prepare` runs
+    // `take_records` (draining the observer's queue → the pending-records
+    // keepalive clause NO LONGER anchors it) and then the record-array is built
+    // via `build_mutation_records_array`. The `force_gc_before_next_alloc`
+    // one-shot lands a collection at that first array allocation, INSIDE the
+    // build. With no active observation (target despawned) and no JS ref, only
+    // the delivery helper's temp-root of `(instance, callback)` keeps the binding
+    // alive across the build. Without that root, GC sweep-prunes the binding row
+    // and frees its `ObjectId` slots → the copied `binding` dangles → stale
+    // callback on a stale instance (use-after-collect) + lost notification.
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = build_doc(&mut dom);
+    let body = body_of(&dom, doc);
+    let target = dom.create_element("div", elidex_ecs::Attributes::default());
+    assert!(dom.append_child(body, target));
+    let added = dom.create_element("span", elidex_ecs::Attributes::default());
+    assert!(dom.append_child(target, added));
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    let wrapper = vm.inner.create_element_wrapper(target);
+    vm.set_global("target", JsValue::Object(wrapper));
+
+    // Observe target; the callback writes to a global side channel; drop the only
+    // JS ref to the observer so it has no JS root of its own.
+    vm.eval(
+        "globalThis.calls = 0; globalThis.rec_count = -1; \
+         (function(){ \
+             var mo = new MutationObserver(function(records){ \
+                 calls++; rec_count = records.length; \
+             }); \
+             mo.observe(target, {childList:true}); \
+         })();",
+    )
+    .unwrap();
+
+    // Queue a record WITHOUT delivering (notify microtask not run).
+    vm.inner
+        .queue_mutation_record(&child_list_added(target, added));
+
+    // Despawn the sole observed entity → its `MutationObservedBy` vanishes
+    // (observation membership drops to zero). Now the ONLY anchor is the queued
+    // record — and that anchor is released the instant `take_records` drains it
+    // at the start of delivery.
+    {
+        let dom = vm.host_data().unwrap().dom();
+        assert!(dom.destroy_entity(target));
+    }
+    assert!(
+        elidex_api_observers::mutation::observing_observer_ids(&*vm.host_data().unwrap().dom())
+            .is_empty(),
+        "post-despawn there is NO active observation — only the queued record anchors the observer",
+    );
+
+    // Arm the one-shot GC: it fires at the NEXT `alloc_object`, which is the outer
+    // array allocation inside `build_mutation_records_array` — i.e. AFTER
+    // `take_records` drained the queue. So the binding is unanchored by both
+    // keepalive clauses at the moment of collection; only the helper temp-root
+    // saves it.
+    vm.inner.force_gc_before_next_alloc = true;
+
+    // Run the notify microtask. The callback MUST fire with the queued record —
+    // proving the binding survived the mid-build GC.
+    vm.inner.deliver_pending_mutation_records();
+    assert_eq!(
+        vm.eval("calls").unwrap(),
+        JsValue::Number(1.0),
+        "mid-delivery GC did NOT collect the observer — its callback still fires (no use-after-collect / lost notification)",
+    );
+    assert_eq!(
+        vm.eval("rec_count").unwrap(),
+        JsValue::Number(1.0),
+        "the callback receives the 1 queued MutationRecord after the mid-build GC",
+    );
+    vm.unbind();
+}
+
+#[test]
 fn drained_pending_observer_with_no_observation_is_collected() {
     // Companion negative control: an observer whose queue the page DRAINED via
     // takeRecords() (records emptied) with NO active observation and no JS ref is
