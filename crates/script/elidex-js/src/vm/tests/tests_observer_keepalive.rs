@@ -22,7 +22,6 @@ use elidex_ecs::{EcsDom, Entity};
 use elidex_plugin::Rect;
 use elidex_script_session::{MutationKind, MutationRecord as SessionRecord, SessionCore};
 
-use super::super::host_data::HostData;
 use super::super::test_helpers::{bind_vm, set_layout_box};
 use super::super::value::JsValue;
 use super::super::Vm;
