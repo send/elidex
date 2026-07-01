@@ -141,6 +141,26 @@ impl NetworkHandle {
         fetches
     }
 
+    /// Non-draining peek: is there an [`NetworkToRenderer::EventSourceEvent`]
+    /// buffered for `conn_id` awaiting a later [`Self::drain_events`]?
+    ///
+    /// The elidex-js VM's GC keepalive seam calls this to derive the HTML §9.2.9
+    /// "task queued on the remote event task source" clause: an inbound SSE event
+    /// buffers here **between** [`Self::drain_fetch_responses_only`] and
+    /// [`Self::drain_events`], and an allocation-triggered GC in that window must
+    /// keep the target `EventSource` wrapper alive so the buffered event can still
+    /// be routed (else it is silently dropped via a reverse-map miss). This is a
+    /// read-only scan — an immutable `borrow()` + `.iter().any(…)`, no drain, no
+    /// mutation — so it cannot disturb arrival order or conflict with the
+    /// single-threaded content-thread borrows.
+    #[must_use]
+    pub fn has_pending_event_for_conn(&self, conn_id: u64) -> bool {
+        self.buffered
+            .borrow()
+            .iter()
+            .any(|evt| matches!(evt, NetworkToRenderer::EventSourceEvent(id, _) if *id == conn_id))
+    }
+
     /// Push events back onto the internal buffer so the next
     /// [`Self::drain_events`] returns them.  Held over from the
     /// pre-[`Self::drain_fetch_responses_only`] partial-drain
@@ -336,6 +356,35 @@ mod tests {
         let ids: Vec<FetchId> = fetches.iter().map(|(id, _)| *id).collect();
         assert_eq!(ids, vec![buffered_id, arrival_id]);
         assert!(renderer.drain_events().is_empty());
+    }
+
+    #[test]
+    fn has_pending_event_for_conn_matches_only_buffered_sse_for_that_conn() {
+        let renderer = NetworkHandle::disconnected();
+        // No buffered events → no pending event for any conn.
+        assert!(!renderer.has_pending_event_for_conn(7));
+
+        renderer.rebuffer_events(vec![
+            NetworkToRenderer::WebSocketEvent(7, crate::ws::WsEvent::TextMessage("ws".into())),
+            NetworkToRenderer::EventSourceEvent(
+                7,
+                crate::sse::SseEvent::Event {
+                    event_type: "foo".into(),
+                    data: "hi".into(),
+                    last_event_id: String::new(),
+                },
+            ),
+        ]);
+        // Matches the SSE event for conn 7 (NOT the WS event, NOT another conn).
+        assert!(renderer.has_pending_event_for_conn(7));
+        assert!(!renderer.has_pending_event_for_conn(9));
+
+        // Non-draining: the peek leaves the buffer intact.
+        assert!(renderer.has_pending_event_for_conn(7));
+        let drained = renderer.drain_events();
+        assert_eq!(drained.len(), 2);
+        // Drained → no longer pending.
+        assert!(!renderer.has_pending_event_for_conn(7));
     }
 
     #[test]

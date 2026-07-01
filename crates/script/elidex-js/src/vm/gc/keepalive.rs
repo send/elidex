@@ -94,23 +94,31 @@ enum KeepaliveClass {
     /// from `listener_store`, so the registration metadata lingers but fires
     /// nobody).
     MediaQueryList,
-    /// `WebSocket` (WebSockets §7 Garbage collection).  State-tiered: kept while
-    /// readyState ∈ {CONNECTING, OPEN, CLOSING} with the per-state listener
-    /// subset, OR while an established connection (OPEN/CLOSING) still has data
-    /// queued to transmit (`buffered_amount > 0`) — the §7 no-listener clause.
-    /// The arm marshals `WebSocketState` (readyState + `buffered_amount` from
-    /// `HostData::websocket_states`) + a typed-listener closure over
-    /// [`vm_path_has_listener`], and delegates the tier rule to
-    /// [`elidex_api_ws::ws_keepalive`].  A genuine orphan (no listener, no queued
-    /// data) or a CLOSED wrapper is NOT kept → the `collect.rs` sweep prunes it
-    /// and force-closes the connection (the spec's GC-while-open close).
+    /// `WebSocket` (WebSockets §7 Garbage collection).  **Pure state-tiered
+    /// listener check**: kept while readyState ∈ {CONNECTING, OPEN, CLOSING} with
+    /// the per-state listener subset.  The §7 no-listener `data-queued` clause is
+    /// **OMITTED as vacuous** in elidex (F1): outbound bytes are broker-owned FIFO
+    /// once `send()` emits (they transmit ahead of any GC-emitted close whether the
+    /// wrapper survives or not), and `buffered_amount` is incremented
+    /// unconditionally (incl. never-transmitted CLOSING/CLOSED sends) so keying on
+    /// it would over-root a listener-less CLOSING socket into an indefinite leak.
+    /// The arm marshals **only** the readyState from `HostData::websocket_states` +
+    /// a typed-listener closure over [`vm_path_has_listener`], and delegates the
+    /// tier rule to [`elidex_api_ws::ws_keepalive`].  A genuine orphan (no
+    /// in-tier listener) or a CLOSED wrapper is NOT kept → the `collect.rs` sweep
+    /// prunes it and force-closes the connection (the spec's GC-while-open close).
     WebSocket,
-    /// `EventSource` (HTML §9.2.9 Garbage collection).  State-tiered: kept while
-    /// readyState ∈ {CONNECTING, OPEN} with the per-state listener subset.  No
-    /// in-flight axis — the spec's "task queued on the remote event task source"
-    /// no-listener clause is **vacuous** under elidex's inline broker-drain (no
-    /// queued-but-unrun task window spans a GC), so a no-listener OPEN source is
-    /// collectible.  Marshals `EventSourceState` readyState +
+    /// `EventSource` (HTML §9.2.9 Garbage collection).  **State-tiered OR
+    /// task-queued**: kept while readyState ∈ {CONNECTING, OPEN} with the per-state
+    /// listener subset, **OR** while an inbound SSE event is buffered for this
+    /// conn awaiting dispatch — the §9.2.9 no-listener "task queued on the remote
+    /// event task source" clause, **INCLUDED** because it is the GC root for the
+    /// inbound buffer window (F3): an event buffers between
+    /// `drain_fetch_responses_only` and `drain_events`, and a mid-turn GC that
+    /// collects a named-event-only wrapper in that window would silently drop the
+    /// event via a reverse-map miss.  The arm marshals `EventSourceState`
+    /// (readyState + `conn_id`) and derives `has_queued_task` by peeking the
+    /// `NetworkHandle` buffer (`has_pending_event_for_conn`) +
     /// [`vm_path_has_listener`], delegating to [`elidex_api_ws::es_keepalive`].
     EventSource,
 }
@@ -127,31 +135,45 @@ impl KeepaliveClass {
         match self {
             KeepaliveClass::MediaQueryList => vm_path_has_listener(vm, target, "change", false),
             KeepaliveClass::WebSocket => {
-                // Marshal readyState + data-queued from `WebSocketState`, then
-                // delegate the §7 tier rule. (Copy the two scalars out so the
+                // Marshal ONLY the readyState from `WebSocketState`, then delegate
+                // the §7 pure tier rule — no `buffered_amount` input (the §7
+                // data-queued clause is dropped as vacuous/F1; see
+                // `elidex_api_ws::ws_keepalive`). (Copy the scalar out so the
                 // `host_data` borrow is dropped before the listener closure.)
-                let Some((ready_state, has_queued_data)) = vm
-                    .host_data
-                    .as_deref()
-                    .and_then(|hd| hd.websocket_states.get(&target))
-                    .map(|s| (s.ready_state, s.buffered_amount > 0))
-                else {
-                    return false;
-                };
-                elidex_api_ws::ws_keepalive(ready_state, has_queued_data, |t| {
-                    vm_path_has_listener(vm, target, t, false)
-                })
-            }
-            KeepaliveClass::EventSource => {
                 let Some(ready_state) = vm
                     .host_data
                     .as_deref()
-                    .and_then(|hd| hd.event_source_states.get(&target))
+                    .and_then(|hd| hd.websocket_states.get(&target))
                     .map(|s| s.ready_state)
                 else {
                     return false;
                 };
-                elidex_api_ws::es_keepalive(ready_state, |t| {
+                elidex_api_ws::ws_keepalive(ready_state, |t| {
+                    vm_path_has_listener(vm, target, t, false)
+                })
+            }
+            KeepaliveClass::EventSource => {
+                // Marshal readyState + conn_id from `EventSourceState`, then derive
+                // `has_queued_task` from the NetworkHandle buffer peek (the §9.2.9
+                // task-queued clause, F3). (Copy the scalars out so the `host_data`
+                // borrow is dropped before the peek + the listener closure, which
+                // both re-borrow `&VmInner`.)
+                let Some((ready_state, conn_id)) = vm
+                    .host_data
+                    .as_deref()
+                    .and_then(|hd| hd.event_source_states.get(&target))
+                    .map(|s| (s.ready_state, s.conn_id))
+                else {
+                    return false;
+                };
+                // Is an inbound SSE event buffered for this conn awaiting drain?
+                // `network_handle` lives on `VmInner` (installed post-construction);
+                // absent in standalone/test-less mode → no queued task.
+                let has_queued_task = vm
+                    .network_handle
+                    .as_ref()
+                    .is_some_and(|h| h.has_pending_event_for_conn(conn_id));
+                elidex_api_ws::es_keepalive(ready_state, has_queued_task, |t| {
                     vm_path_has_listener(vm, target, t, false)
                 })
             }
@@ -229,15 +251,17 @@ pub(super) fn keepalive_survivors(vm: &VmInner) -> Vec<ObjectId> {
     keep.extend(vm.pending_timeout_signals.values().copied());
 
     // WebSocket / EventSource — state-tiered listener predicate (WebSockets §7 /
-    // HTML §9.2.9), delegated to `elidex-api-ws`. A listener-held (or, for WS,
-    // data-queued) non-CLOSED connection survives this GC and keeps delivering;
-    // a genuine orphan (no listener, no queued data) or a CLOSED wrapper is NOT
-    // marked here, so the `collect.rs` sweep tail prunes its state row AND
-    // emits the broker `WebSocketClose` / `EventSourceClose` (the spec's
-    // GC-while-open closing handshake / fetch-abort). That sweep keys purely on
-    // the mark bit, so it is already the predicate's `false` else-branch — no
-    // edit there. Keys collected first so the `host_data` borrow is dropped
-    // before the per-id `keepalive` calls (themselves `&VmInner`-borrowing).
+    // HTML §9.2.9), delegated to `elidex-api-ws`. A listener-held non-CLOSED WS
+    // (pure tier — the §7 data-queued clause is OMITTED as vacuous/F1), or a
+    // listener-held OR buffer-window (`has_queued_task`, §9.2.9/F3) non-CLOSED ES,
+    // survives this GC and keeps delivering; a genuine orphan (no in-tier
+    // listener, and for ES no queued task) or a CLOSED wrapper is NOT marked here,
+    // so the `collect.rs` sweep tail prunes its state row AND emits the broker
+    // `WebSocketClose` / `EventSourceClose` (the spec's GC-while-open closing
+    // handshake / fetch-abort). That sweep keys purely on the mark bit, so it is
+    // already the predicate's `false` else-branch — no edit there. Keys collected
+    // first so the `host_data` borrow is dropped before the per-id `keepalive`
+    // calls (themselves `&VmInner`-borrowing).
     let (ws_ids, es_ids): (Vec<ObjectId>, Vec<ObjectId>) = match vm.host_data.as_deref() {
         Some(hd) => (
             hd.websocket_states.keys().copied().collect(),

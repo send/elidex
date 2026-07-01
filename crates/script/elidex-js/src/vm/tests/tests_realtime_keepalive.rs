@@ -7,11 +7,12 @@
 //! (`collect.rs`) pruned its state row AND emitted a broker
 //! `WebSocketClose` / `EventSourceClose` — force-closing a connection a page
 //! was still listening on. The seam (`gc::keepalive::keepalive_survivors`)
-//! marks a listener-held (or, for WS, data-queued) non-CLOSED connection BEFORE
-//! the sweep, so it survives and keeps delivering; the genuine orphan / CLOSED
-//! wrapper is still swept + force-closed (the spec's GC-while-open close /
-//! abort-fetch — WebSockets §7 / HTML §9.2.9). The tier rule is the
-//! engine-independent `elidex_api_ws::{ws_keepalive, es_keepalive}`.
+//! marks a listener-held non-CLOSED WS (pure §7 tier), or a listener-held OR
+//! buffer-window (`has_queued_task`, §9.2.9) non-CLOSED ES, BEFORE the sweep, so
+//! it survives and keeps delivering; the genuine orphan / CLOSED wrapper is
+//! still swept + force-closed (the spec's GC-while-open close / abort-fetch —
+//! WebSockets §7 / HTML §9.2.9). The tier rule is the engine-independent
+//! `elidex_api_ws::{ws_keepalive, es_keepalive}`.
 //!
 //! Kept in a dedicated file (not `tests_websocket` / `tests_event_source`, both
 //! already over the 1000-line convention) — the S5-3a
@@ -78,6 +79,16 @@ fn inject_sse(vm: &mut Vm, conn_id: u64, ev: SseEvent) {
     let handle = vm.inner.network_handle.clone().expect("handle installed");
     handle.rebuffer_events(vec![NetworkToRenderer::EventSourceEvent(conn_id, ev)]);
     vm.tick_network();
+}
+
+/// Buffer an SSE event WITHOUT draining it — leaves it in the `NetworkHandle`
+/// buffer (as if it arrived between `drain_fetch_responses_only` and
+/// `drain_events`), so a subsequent `collect_garbage()` runs in the buffer
+/// window. Unlike [`inject_sse`], does NOT call `tick_network` (no drain /
+/// dispatch). Drives the §9.2.9 `has_queued_task` path for the F3 regression.
+fn buffer_sse_no_tick(vm: &Vm, conn_id: u64, ev: SseEvent) {
+    let handle = vm.inner.network_handle.clone().expect("handle installed");
+    handle.rebuffer_events(vec![NetworkToRenderer::EventSourceEvent(conn_id, ev)]);
 }
 
 fn ws_connected() -> WsEvent {
@@ -201,40 +212,35 @@ fn ws_open_with_only_open_listener_collected() {
 }
 
 #[test]
-fn ws_data_queued_no_listener_clause() {
-    // §7 no-listener clause: an established connection (OPEN) with data still
-    // queued to transmit (`buffered_amount > 0`) must survive GC even with zero
-    // listeners — then once the bytes flush (`BytesSent`), it is collectible.
+fn ws_closing_no_listener_collected_f1_regression() {
+    // F1 regression guard: a CLOSING WebSocket with NO listener and a bumped
+    // `buffered_amount` (from a post-close `send()` that never transmits and
+    // never clears) must be COLLECTED + force-closed — NOT rooted by the removed
+    // §7 data-queued clause. Keying keepalive on `buffered_amount` here would
+    // over-root the socket into an indefinite leak (Codex F1); `ws_keepalive` is
+    // now a pure tier check, so a listener-less CLOSING socket is collectible.
     with_realtime_vm(false, |vm, handle| {
         vm.eval("globalThis.s = new WebSocket('ws://example.com/socket');")
             .unwrap();
         inject_ws(vm, 0, ws_connected()); // → OPEN
-        vm.eval("s.send('payload-bytes'); globalThis.s = null;")
-            .unwrap(); // buffered_amount > 0, drop the reference
-        let _ = handle.drain_recorded_outgoing(); // clear ctor open + send command
+                                          // close() → CLOSING; then send() while CLOSING bumps `buffered_amount`
+                                          // but does NOT transmit (and never clears). Drop the reference.
+        vm.eval("s.close(); s.send('payload-bytes'); globalThis.s = null;")
+            .unwrap();
+        let _ = handle.drain_recorded_outgoing(); // clear ctor open + close/send commands
 
         vm.inner.collect_garbage();
         assert_eq!(
             ws_state_count(vm),
-            1,
-            "an OPEN WebSocket with queued data must survive GC (no-listener clause)",
+            0,
+            "a listener-less CLOSING WebSocket must be COLLECTED — the removed \
+             data-queued clause must not root it (F1)",
         );
         assert_eq!(
             outgoing_count(handle, "WebSocketClose("),
-            0,
-            "a data-queued connection must NOT be force-closed",
+            1,
+            "the collected CLOSING socket must be force-closed",
         );
-
-        // Bytes flushed → buffered_amount drops to 0 → now a genuine orphan.
-        inject_ws(vm, 0, WsEvent::BytesSent(64));
-        let _ = handle.drain_recorded_outgoing();
-        vm.inner.collect_garbage();
-        assert_eq!(
-            ws_state_count(vm),
-            0,
-            "once the queued data flushes, a listener-less WebSocket is collectible",
-        );
-        assert_eq!(outgoing_count(handle, "WebSocketClose("), 1);
     });
 }
 
@@ -333,10 +339,11 @@ fn es_listener_held_open_survives_gc_no_force_close_and_keeps_delivering() {
 
 #[test]
 fn es_orphan_open_collected_and_force_closed() {
-    // Negative control: an OPEN EventSource with no listener is collected AND
-    // force-closed (§9.2.9 GC-while-open ⇒ abort fetch). The spec's
-    // task-queued no-listener clause is vacuous under elidex's inline drain, so
-    // a no-listener OPEN source has no keepalive.
+    // Negative control: an OPEN EventSource with no listener AND no buffered
+    // inbound event is collected AND force-closed (§9.2.9 GC-while-open ⇒ abort
+    // fetch). With no queued task and no in-tier listener it is a genuine orphan.
+    // (The §9.2.9 task-queued clause only roots it while an event is buffered —
+    // see `es_named_event_buffer_window_survives_gc_and_delivers_f3_regression`.)
     with_realtime_vm(true, |vm, handle| {
         vm.eval("new EventSource('/events');").unwrap();
         inject_sse(vm, 0, sse_connected()); // → OPEN
@@ -352,6 +359,83 @@ fn es_orphan_open_collected_and_force_closed() {
             outgoing_count(handle, "EventSourceClose("),
             1,
             "a swept orphan must be force-closed (EventSourceClose emitted)",
+        );
+    });
+}
+
+#[test]
+fn es_named_event_buffer_window_survives_gc_and_delivers_f3_regression() {
+    // F3 regression (headline for ES): an OPEN EventSource whose ONLY listener is
+    // a NAMED event (`addEventListener('foo')` — NOT in the ES tier
+    // {message,error}) must survive a GC that fires WHILE an inbound 'foo' event
+    // sits buffered (the §9.2.9 task-queued clause), and the buffered event must
+    // then be DELIVERED, not silently dropped via a reverse-map miss.
+    with_realtime_vm(true, |vm, handle| {
+        vm.eval(
+            "globalThis.foos = 0; \
+             new EventSource('/events') \
+                 .addEventListener('foo', function () { globalThis.foos++; });",
+        )
+        .unwrap();
+        inject_sse(vm, 0, sse_connected()); // → OPEN
+        let _ = handle.drain_recorded_outgoing(); // clear ctor EventSourceOpen
+
+        // Buffer a 'foo' event WITHOUT draining it — the GC now runs in the
+        // buffer window (has_queued_task = true).
+        buffer_sse_no_tick(
+            vm,
+            0,
+            SseEvent::Event {
+                event_type: "foo".to_string(),
+                data: "hi".to_string(),
+                last_event_id: String::new(),
+            },
+        );
+
+        vm.inner.collect_garbage();
+        assert_eq!(
+            es_state_count(vm),
+            1,
+            "a named-event-only EventSource with a buffered event must SURVIVE GC \
+             (the §9.2.9 task-queued clause / F3)",
+        );
+        assert_eq!(
+            outgoing_count(handle, "EventSourceClose("),
+            0,
+            "the buffer-window EventSource must NOT be force-closed",
+        );
+
+        // Now drain: the buffered 'foo' event is delivered, not dropped.
+        vm.tick_network();
+        assert_eval_number(vm, "foos", 1.0);
+    });
+}
+
+#[test]
+fn es_named_event_no_buffered_event_collected_control() {
+    // Control for the F3 regression: the SAME named-event-only OPEN EventSource
+    // with NO buffered event (has_queued_task = false) is a genuine orphan — the
+    // 'foo' listener is out of the {message,error} tier and no task is queued —
+    // so it is collected + force-closed.
+    with_realtime_vm(true, |vm, handle| {
+        vm.eval(
+            "new EventSource('/events') \
+                 .addEventListener('foo', function () {});",
+        )
+        .unwrap();
+        inject_sse(vm, 0, sse_connected()); // → OPEN
+        let _ = handle.drain_recorded_outgoing();
+
+        vm.inner.collect_garbage();
+        assert_eq!(
+            es_state_count(vm),
+            0,
+            "a named-event-only EventSource with no queued task must be collected",
+        );
+        assert_eq!(
+            outgoing_count(handle, "EventSourceClose("),
+            1,
+            "the orphan EventSource must be force-closed",
         );
     });
 }
