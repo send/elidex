@@ -505,6 +505,48 @@ fn es_closed_never_kept() {
 }
 
 #[test]
+fn es_closed_buffered_event_not_delivered_and_collected_r2b() {
+    // Codex R2b: a CLOSED EventSource with a still-buffered inbound event must
+    // NOT dispatch that event (`dispatch_sse_event` guards CLOSED, R2b-B), and —
+    // because `es_keepalive` never roots a CLOSED source on `has_queued_task`
+    // (R2b-A) — the wrapper is collected even though a task is queued. The message
+    // handler must never run.
+    //
+    // A live JS reference (`globalThis.es`) keeps the state row present so the
+    // dispatch path is reachable; the point is that dispatch *guards* it, not that
+    // the row was swept before dispatch.
+    with_realtime_vm(true, |vm, handle| {
+        vm.eval(
+            "globalThis.n = 0; \
+             globalThis.es = new EventSource('/events'); \
+             globalThis.es.addEventListener('message', function () { globalThis.n++; });",
+        )
+        .unwrap();
+        inject_sse(vm, 0, sse_connected()); // → OPEN
+        vm.eval("globalThis.es.close();").unwrap(); // → CLOSED
+        let _ = handle.drain_recorded_outgoing(); // clear ctor open + EventSourceClose
+
+        // Buffer a message event WITHOUT draining, as if it arrived just before /
+        // during the close(); the GC keepalive peek sees has_queued_task=true but
+        // R2b-A rejects it because the source is CLOSED.
+        buffer_sse_no_tick(
+            vm,
+            0,
+            SseEvent::Event {
+                event_type: "message".to_string(),
+                data: "late".to_string(),
+                last_event_id: String::new(),
+            },
+        );
+
+        // Drain: the buffered message must be DROPPED by the CLOSED dispatch guard,
+        // not fired on the closed source.
+        vm.tick_network();
+        assert_eval_number(vm, "n", 0.0);
+    });
+}
+
+#[test]
 fn unbind_force_closes_even_listener_held_connection() {
     // Regression guard for the §8.4 distinction: the GC keepalive keeps a
     // listener-held connection, but `Vm::unbind` (the spec's "Document goes

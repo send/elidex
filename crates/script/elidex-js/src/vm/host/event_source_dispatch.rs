@@ -111,6 +111,16 @@ pub(super) fn dispatch_sse_event(
         let Some(state) = hd.event_source_states.get_mut(&instance) else {
             return;
         };
+        // A message must NOT fire on a CLOSED source (§9.2.6 / §9.2.9) — mirrors
+        // the `dispatch_sse_connected` / `fire_sse_error` CLOSED guards (Codex
+        // R2b-B). Without this a buffered event still in the NetworkHandle at the
+        // time the user `close()`d (or a fatal error CLOSED the source) would fire
+        // on the closed EventSource. Pairs with `es_keepalive` never rooting a
+        // CLOSED source on `has_queued_task` (R2b-A): the queued task is dropped
+        // here, so the wrapper is safely collectible.
+        if matches!(state.ready_state, SseReadyState::Closed) {
+            return;
+        }
         // Broker emits the cumulative sticky value per WHATWG §9.2.6 step 11 —
         // unconditional propagation (independent of any listener) matches both
         // `id:\n` (empty resets) and the multi-event accumulator.  Updated in

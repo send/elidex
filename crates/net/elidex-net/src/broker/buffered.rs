@@ -141,20 +141,48 @@ impl NetworkHandle {
         fetches
     }
 
-    /// Non-draining peek: is there an [`NetworkToRenderer::EventSourceEvent`]
-    /// buffered for `conn_id` awaiting a later [`Self::drain_events`]?
+    /// Peek: is there an [`NetworkToRenderer::EventSourceEvent`] pending for
+    /// `conn_id` anywhere in the inbound pipeline (channel + buffer), awaiting a
+    /// later [`Self::drain_events`]?
     ///
     /// The elidex-js VM's GC keepalive seam calls this to derive the HTML §9.2.9
     /// "task queued on the remote event task source" clause: an inbound SSE event
     /// buffers here **between** [`Self::drain_fetch_responses_only`] and
     /// [`Self::drain_events`], and an allocation-triggered GC in that window must
     /// keep the target `EventSource` wrapper alive so the buffered event can still
-    /// be routed (else it is silently dropped via a reverse-map miss). This is a
-    /// read-only scan — an immutable `borrow()` + `.iter().any(…)`, no drain, no
-    /// mutation — so it cannot disturb arrival order or conflict with the
-    /// single-threaded content-thread borrows.
+    /// be routed (else it is silently dropped via a reverse-map miss, Codex F3).
+    ///
+    /// This **settles the channel into the buffer** (same `process_response`
+    /// routing a drain uses) then scans `buffered` — it is NOT non-draining. An
+    /// inbound `EventSourceEvent` can still sit in `response_rx` (not yet moved to
+    /// `buffered`) at GC time — e.g. a GC firing between arrival and the very
+    /// first drain — so a scan of `buffered` alone would miss it and the peek
+    /// would report "no queued task" for a conn that in fact has one (Codex R2a,
+    /// F3 silent-drop one layer up). Draining the channel into `buffered` here is
+    /// safe for arrival order and fetch settlement because the drain methods
+    /// ([`Self::drain_events`] / [`Self::drain_fetch_responses_only`]) process the
+    /// buffer *before* the channel: moving channel-pending events to the buffer
+    /// early keeps them ahead of any later channel arrivals, exactly where an
+    /// unfiltered drain would have placed them. Markers / stragglers are handled
+    /// identically to a drain because the same `process_response` routing runs.
+    /// Single-threaded content-thread borrows only.
     #[must_use]
     pub fn has_pending_event_for_conn(&self, conn_id: u64) -> bool {
+        // Settle any channel-pending events into `buffered` (via `process_response`,
+        // identical to the drain methods' channel handling) so the scan sees the FULL
+        // inbound pipeline (channel + buffer), not just already-buffered events — else a
+        // GC between arrival and the first drain misses a channel-pending event (Codex
+        // R2a). A later `drain_events` / `drain_fetch_responses_only` processes `prior`
+        // (buffered) first, so this early move preserves arrival order and fetch settlement.
+        {
+            let mut newly: Vec<NetworkToRenderer> = Vec::new();
+            while let Ok(evt) = self.response_rx.try_recv() {
+                self.process_response(evt, &mut |e| newly.push(e));
+            }
+            if !newly.is_empty() {
+                self.buffered.borrow_mut().extend(newly);
+            }
+        }
         self.buffered
             .borrow()
             .iter()
@@ -379,12 +407,51 @@ mod tests {
         assert!(renderer.has_pending_event_for_conn(7));
         assert!(!renderer.has_pending_event_for_conn(9));
 
-        // Non-draining: the peek leaves the buffer intact.
+        // The peek settles the channel into the buffer but leaves the already-
+        // buffered events intact (no channel here → nothing moves), so a repeat
+        // peek still reports the same and the later drain still returns both.
         assert!(renderer.has_pending_event_for_conn(7));
         let drained = renderer.drain_events();
         assert_eq!(drained.len(), 2);
         // Drained → no longer pending.
         assert!(!renderer.has_pending_event_for_conn(7));
+    }
+
+    #[test]
+    fn has_pending_event_for_conn_sees_channel_pending_sse_before_first_drain() {
+        // Codex R2a: an inbound `EventSourceEvent` sitting in `response_rx` (not
+        // yet moved to `buffered`) — e.g. a GC firing between arrival and the very
+        // first drain — MUST be visible to the peek, else the §9.2.9 task-queued
+        // clause reports "no queued task" for a conn that has one → F3 silent
+        // drop. The peek settles the channel into the buffer (same
+        // `process_response` routing a drain uses), so it covers the full inbound
+        // pipeline (channel + buffer), not just already-buffered events.
+        let (renderer, response_tx) = handle_with_injectable_channel();
+        // Nothing buffered yet; the event lives only on the channel.
+        response_tx
+            .send(NetworkToRenderer::EventSourceEvent(
+                11,
+                crate::sse::SseEvent::Event {
+                    event_type: "foo".into(),
+                    data: "hi".into(),
+                    last_event_id: String::new(),
+                },
+            ))
+            .unwrap();
+        // A buffered-only scan would miss this; the peek settles the channel first.
+        assert!(
+            renderer.has_pending_event_for_conn(11),
+            "a channel-pending SSE event must be seen by the peek (R2a)",
+        );
+        // Wrong conn still doesn't match, and the settle didn't drop the event:
+        // a subsequent `drain_events` still delivers it.
+        assert!(!renderer.has_pending_event_for_conn(9));
+        let drained = renderer.drain_events();
+        assert_eq!(drained.len(), 1);
+        assert!(matches!(
+            drained[0],
+            NetworkToRenderer::EventSourceEvent(11, _)
+        ));
     }
 
     #[test]

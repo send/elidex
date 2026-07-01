@@ -250,8 +250,11 @@ mapping is driven by §2.0's delivery mechanics, not the spec prose in isolation
   gains a `has_queued_task: bool` parameter; if `true` it keeps the wrapper alive **regardless** of
   readyState-tier listeners. The seam marshals `has_queued_task` by querying the NetworkHandle buffer for
   a pending `EventSourceEvent(conn_id)` for this ES's `conn_id` — a **new engine-side peek method on
-  NetworkHandle**, e.g. `has_pending_event_for_conn(conn_id) -> bool`, that scans the `buffered` Vec
-  **without draining** (conn_id read from `event_source_states[target].conn_id`).
+  NetworkHandle**, e.g. `has_pending_event_for_conn(conn_id) -> bool`, that **settles the channel into
+  the buffer (same `process_response` routing as a drain) then scans** — covering the full inbound
+  pipeline (channel + buffer), not just already-buffered events, so a GC between arrival and the first
+  drain doesn't miss a channel-pending event (Codex R2a) (conn_id read from
+  `event_source_states[target].conn_id`).
 
 - **Why the asymmetry (the spec is DIRECTIONAL).** The specs' no-listener clauses point in **opposite
   directions**: §7's is **OUTBOUND** ("data queued to be transmitted to the network"), §9.2.9's is
@@ -401,7 +404,9 @@ fn keepalive(self, vm: &VmInner, target: ObjectId) -> bool {
 ```
 
 **`has_pending_event_for_conn(conn_id) -> bool` is a NEW `elidex-net` deliverable** (a NetworkHandle peek
-that scans the `buffered` Vec for a pending `EventSourceEvent(conn_id)` without draining it — `conn_id`
+that **settles the channel into the buffer — same routing as a drain — then scans** for a pending
+`EventSourceEvent(conn_id)`, covering the full inbound pipeline (channel + buffer) so a GC before the
+first drain doesn't miss a channel-pending event (Codex R2a) — `conn_id`
 read from `event_source_states[target].conn_id`). The buffer-peek is **engine-side marshalling** in the
 seam (it reads VM/net-handle state); the **tier rule** stays in `elidex-api-ws` (§4.4). This preserves
 the layering point: the seam decides *whether a task is queued for this conn* (a marshalled bool), the
@@ -553,8 +558,9 @@ force-close path) — which is why it gets this plan-review, **not** why it must
 split is owed: `keepalive.rs` (176 LoC), `elidex-api-ws/websocket.rs` (227), `event_source.rs` (tiny)
 are all well under the 1000-line touch-time threshold; `collect.rs` is large but **untouched** (§4.3).
 The Codex-R1 correction adds **one small `elidex-net` deliverable** — the NetworkHandle
-`has_pending_event_for_conn(conn_id) -> bool` buffer-peek (§4.2, non-draining scan of the `buffered`
-Vec) — a bounded additive method that does not change the single-PR base-case verdict (confirm the touch
+`has_pending_event_for_conn(conn_id) -> bool` buffer-peek (§4.2, settles the channel into the buffer —
+same routing as a drain — then scans, covering the full inbound pipeline (Codex R2a)) — a bounded
+additive method that does not change the single-PR base-case verdict (confirm the touch
 site is under the touch-time threshold at impl).
 
 ---
@@ -643,8 +649,10 @@ deliver messages.
   cases** — the parameter is removed (§2.3 F1); a listener-less CLOSING WS ⇒ `false` (collected), which
   is the F1 guard at the unit level.
 - `es_keepalive` every branch: each state × in/out-of-tier listener; CLOSED-never. **New `has_queued_task`
-  cases**: `has_queued_task=true` ⇒ `true` for **every** state incl. a no-tier-listener OPEN/CONNECTING
-  (the buffer-window short-circuit, §2.3 F3); `has_queued_task=false` ⇒ falls through to the tier check.
+  cases**: `has_queued_task=true` ⇒ `true` for a **non-CLOSED** state incl. a no-tier-listener
+  OPEN/CONNECTING (the buffer-window short-circuit, §2.3 F3), but **CLOSED is never kept even with a
+  queued task** (Codex R2b-A: a CLOSED source's buffered events are dropped by dispatch, so rooting it is
+  a pure leak); `has_queued_task=false` ⇒ falls through to the tier check.
 
 **VM tests (the decisive behavior):**
 - **WS keepalive (headline, positive):** `new WebSocket(u); ws.onmessage = cb;` drive to OPEN, **drop

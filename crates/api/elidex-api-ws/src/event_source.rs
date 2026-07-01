@@ -39,12 +39,17 @@ impl SseReadyState {
 ///   source** — the **no-listener** clause, keeping the wrapper alive regardless
 ///   of the readyState-tier listeners.
 ///
-/// (CLOSED is never kept **by the readyState tier** — a closed source can deliver
-/// nothing; GC-while-open ⇒ abort the fetch, which is the seam's force-close
-/// *else* branch. The task-queued clause above is **state-independent** per §9.2.9
-/// — it has no readyState restriction — so a source with a still-buffered event is
-/// kept regardless of state, including CLOSED, so that event can be dispatched; in
-/// practice a CLOSED source's fetch is aborted so this combination is rare.)
+/// **CLOSED is never kept** — neither the readyState tier nor the task-queued
+/// clause roots a closed source. A closed source can deliver nothing: its fetch is
+/// aborted (GC-while-open ⇒ abort, the seam's force-close *else* branch) and a
+/// CLOSED source's buffered events are dropped by dispatch (elidex-js
+/// `dispatch_sse_event` guards CLOSED, Codex R2b-B). (Elidex note: §9.2.9's
+/// task-queued clause is
+/// state-independent in the spec text — it has no readyState restriction — but is
+/// **vacuous for a CLOSED source in elidex's delivery model**: a task queued for a
+/// closed source would never fire, so rooting the wrapper for it is a pure leak.
+/// This mirrors the F1 vacuity reasoning for the WebSockets §7 outbound
+/// data-queued clause — see [`crate::ws_keepalive`].)
 ///
 /// The task-queued clause **IS meaningful in elidex** (unlike WebSockets §7's
 /// outbound `data-queued` clause, which is vacuous — see [`crate::ws_keepalive`]):
@@ -67,11 +72,19 @@ pub fn es_keepalive(
     has_queued_task: bool,
     has_listener: impl Fn(&str) -> bool,
 ) -> bool {
-    // §9.2.9 no-listener clause: a task queued on the remote event task source
-    // keeps the wrapper alive regardless of readyState-tier listeners — the
-    // buffer-window root (Codex F3). A queued task always needs a live wrapper to
-    // dispatch to, so this short-circuits ahead of the tier check (including for
-    // a CLOSED source: a queued task still needs dispatching).
+    // CLOSED is never kept — not by the tier, not by the task-queued clause
+    // (Codex R2b-A). A CLOSED source's buffered events are dropped by dispatch
+    // (`dispatch_sse_event` guards CLOSED, R2b-B), so a task queued for it would
+    // never fire — rooting the wrapper on `has_queued_task` would be a pure leak.
+    // Must run BEFORE the `has_queued_task` short-circuit below.
+    if matches!(state, SseReadyState::Closed) {
+        return false;
+    }
+    // §9.2.9 no-listener clause (non-CLOSED): a task queued on the remote event
+    // task source keeps the wrapper alive regardless of readyState-tier listeners
+    // — the buffer-window root (Codex F3). A queued task on a live source always
+    // needs a wrapper to dispatch to, so this short-circuits ahead of the tier
+    // check.
     if has_queued_task {
         return true;
     }
@@ -147,16 +160,12 @@ mod tests {
     #[test]
     fn es_keepalive_queued_task_no_listener_clause() {
         // §9.2.9 no-listener clause (Codex F3): a queued task on the remote event
-        // task source keeps the wrapper alive regardless of readyState-tier
-        // listeners — even with NO listener at all, and in any readyState.
-        for state in [
-            SseReadyState::Connecting,
-            SseReadyState::Open,
-            SseReadyState::Closed,
-        ] {
+        // task source keeps a NON-CLOSED wrapper alive regardless of readyState-
+        // tier listeners — even with NO listener at all.
+        for state in [SseReadyState::Connecting, SseReadyState::Open] {
             assert!(
                 es_keepalive(state, true, |_| false),
-                "a queued task must keep alive regardless of state / listeners",
+                "a queued task must keep a non-CLOSED source alive regardless of listeners",
             );
             // A named-event-only wrapper (out of the {message,error} tier) is the
             // F3 case: the tier would NOT keep it, but the queued task does.
@@ -165,5 +174,16 @@ mod tests {
                 "a queued task keeps a named-event-only wrapper alive",
             );
         }
+        // CLOSED + has_queued_task must NOT be kept (Codex R2b-A): a CLOSED
+        // source's buffered events are dropped by dispatch (`dispatch_sse_event`
+        // guards CLOSED, R2b-B), so rooting it on a queued task is a pure leak.
+        assert!(
+            !es_keepalive(SseReadyState::Closed, true, |_| false),
+            "a queued task must NOT keep a CLOSED source alive (R2b-A)",
+        );
+        assert!(
+            !es_keepalive(SseReadyState::Closed, true, |e| e == "foo"),
+            "a queued task must NOT keep a CLOSED named-event-only source alive (R2b-A)",
+        );
     }
 }
