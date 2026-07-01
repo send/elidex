@@ -315,30 +315,38 @@ pub(super) fn keepalive_survivors(vm: &VmInner) -> Vec<ObjectId> {
         if hd.is_bound() {
             // BOUND GC — evaluate the PRECISE membership predicate. The World is
             // readable via `dom_shared` (asserts `is_bound`), so derive the
-            // observing-id set ONCE per kind from the live per-entity
-            // `*ObservedBy` components (D2), then keep every binding whose id is
-            // a member. Despawn-safe by construction (a despawned entity's
-            // component is gone ⇒ its membership vanishes with no registry hook).
-            let dom = hd.dom_shared();
-            let mo_ids = elidex_api_observers::mutation::observing_observer_ids(dom);
-            let ro_ids = elidex_api_observers::resize::observing_observer_ids(dom);
-            let io_ids = elidex_api_observers::intersection::observing_observer_ids(dom);
-            for (oid, b) in &hd.mutation_observer_bindings {
-                if mo_ids.contains(oid) {
-                    keep.push(b.instance);
-                    keep.push(b.callback);
+            // observing-id set per kind from the live per-entity `*ObservedBy`
+            // components (D2), then keep every binding whose id is a member.
+            // Despawn-safe by construction (a despawned entity's component is
+            // gone ⇒ its membership vanishes with no registry hook). The World
+            // query is skipped when a kind's binding map is empty — the common
+            // no-observer page pays nothing here every GC.
+            if !hd.mutation_observer_bindings.is_empty() {
+                let ids = elidex_api_observers::mutation::observing_observer_ids(hd.dom_shared());
+                for (oid, b) in &hd.mutation_observer_bindings {
+                    if ids.contains(oid) {
+                        keep.push(b.instance);
+                        keep.push(b.callback);
+                    }
                 }
             }
-            for (oid, b) in &hd.resize_observer_bindings {
-                if ro_ids.contains(oid) {
-                    keep.push(b.instance);
-                    keep.push(b.callback);
+            if !hd.resize_observer_bindings.is_empty() {
+                let ids = elidex_api_observers::resize::observing_observer_ids(hd.dom_shared());
+                for (oid, b) in &hd.resize_observer_bindings {
+                    if ids.contains(oid) {
+                        keep.push(b.instance);
+                        keep.push(b.callback);
+                    }
                 }
             }
-            for (oid, b) in &hd.intersection_observer_bindings {
-                if io_ids.contains(oid) {
-                    keep.push(b.instance);
-                    keep.push(b.callback);
+            if !hd.intersection_observer_bindings.is_empty() {
+                let ids =
+                    elidex_api_observers::intersection::observing_observer_ids(hd.dom_shared());
+                for (oid, b) in &hd.intersection_observer_bindings {
+                    if ids.contains(oid) {
+                        keep.push(b.instance);
+                        keep.push(b.callback);
+                    }
                 }
             }
         } else {
