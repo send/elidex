@@ -522,9 +522,11 @@ fn intersection_observer_two_observers_on_same_target_both_fire() {
 
 #[test]
 fn intersection_observer_callback_survives_gc_via_root_chain() {
-    // No JS-stack ref to `io` — the callback retention path is the
-    // `gc_root_object_ids` chain via
-    // `HostData::intersection_observer_bindings`.
+    // No JS-stack ref to `io` — the observer is actively observing `target`, so
+    // the keepalive seam's active-observation predicate (S5-3c,
+    // `gc/keepalive.rs`) is the callback retention path (pre-S5-3c this was the
+    // construct-time `gc_root_object_ids` root; the leak-fix collects only IDLE
+    // observers).
     let mut vm = Vm::new();
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();

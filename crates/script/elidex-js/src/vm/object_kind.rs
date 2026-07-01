@@ -911,11 +911,17 @@ pub enum ObjectKind {
     /// variants.  See `host::observer_common::require_observer_receiver`
     /// for the generic brand-check helper.
     ///
-    /// GC contract: the variant has no inline `ObjectId`, so the
-    /// trace step has nothing to fan out.  The `ObjectId`s carried in
-    /// each `*_observer_bindings` entry are rooted via
-    /// [`super::host_data::HostData::gc_root_object_ids`] — they
-    /// stay alive as long as the observer is registered.  `Vm::unbind`
+    /// GC contract (S5-3c): the variant carries no inline `ObjectId`, but its
+    /// trace step is NOT a no-op — it looks up this observer's
+    /// `*_observer_bindings` entry by `observer_id` and marks `binding.callback`
+    /// (an ownership edge: the observer instance owns its callback), so a
+    /// JS-reachable-but-idle observer's callback survives.  The binding's
+    /// `(callback, instance)` `ObjectId`s are rooted by the keepalive seam's
+    /// active-observation predicate (`gc/keepalive.rs` `keepalive_survivors`) —
+    /// kept iff the observer has ≥1 active observation OR (MutationObserver only)
+    /// ≥1 pending undelivered record, NOT for-life; a never-observed /
+    /// disconnected unreferenced observer is collectible and its binding-map row
+    /// is sweep-pruned by the `instance` mark bit (`gc/collect.rs`).  `Vm::unbind`
     /// drains each registry's per-observer target lists (so a rebind
     /// to a different `EcsDom` cannot match a stale `Entity`) but
     /// intentionally retains the binding maps (keyed by per-registry

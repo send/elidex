@@ -106,10 +106,13 @@ pub(crate) fn require_observer_receiver(
 /// `ObserverKind` discriminator on the brand-checked variant
 /// disambiguates `(Mutation, 0)` from `(Resize, 0)` etc.
 ///
-/// Both `ObjectId`s are rooted via
-/// [`super::super::host_data::HostData::gc_root_object_ids`] so the
-/// JS callback + observer wrapper survive any GC cycle while the
-/// observer is registered.  Retained across `Vm::unbind` because the
+/// Both `ObjectId`s are rooted by the keepalive seam's active-observation
+/// predicate ([`super::super::gc::keepalive::keepalive_survivors`], S5-3c) — kept
+/// iff the observer has ≥1 active observation — so the JS callback + observer
+/// wrapper survive any GC cycle **while the observer observes**, and become
+/// collectible once its last observation ends (unless independently JS-rooted).
+/// The binding-map row is sweep-pruned by the `instance` mark bit
+/// (`gc/collect.rs`).  Retained across `Vm::unbind` because the
 /// `u64` key is per-registry monotonic (no `Entity` / recycled
 /// `ObjectId` aliasing risk) so a retained `mo` / `ro` / `io`
 /// reference can `observe()` again after a rebind and have its

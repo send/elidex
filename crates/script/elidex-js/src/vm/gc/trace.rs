@@ -200,6 +200,29 @@ pub(super) fn trace_work_list(
         ObjectId,
         super::super::host::crypto_key::CryptoKeyJsCache,
     >,
+    // S5-3c — observer `(callback, instance)` bindings, keyed by the
+    // per-registry monotonic `observer_id`.  The `ObjectKind::Observer` arm
+    // marks its `binding.callback` (an OWNERSHIP edge: the observer instance
+    // owns its callback) so the callback survives while the observer instance
+    // is reachable — including the JS-referenced-but-idle case, where the
+    // keepalive predicate does NOT push the pair (the observer observes
+    // nothing) yet the callback must survive so a later `observe()` still
+    // fires.  Mirrors the TreeWalker / NodeIterator filter fan-out (Copilot R8)
+    // and the Selection→Range cache mark: reachable-from-the-instance, not a
+    // keepalive root.  The `instance` field is not marked here (marking self is
+    // a no-op; the instance is the arm's own reachable object).
+    #[cfg(feature = "engine")] mutation_observer_bindings: &std::collections::HashMap<
+        u64,
+        super::super::host::observer_common::ObserverBinding,
+    >,
+    #[cfg(feature = "engine")] resize_observer_bindings: &std::collections::HashMap<
+        u64,
+        super::super::host::observer_common::ObserverBinding,
+    >,
+    #[cfg(feature = "engine")] intersection_observer_bindings: &std::collections::HashMap<
+        u64,
+        super::super::host::observer_common::ObserverBinding,
+    >,
     obj_marks: &mut [u64],
     uv_marks: &mut [u64],
     work: &mut Vec<u32>,
@@ -695,19 +718,31 @@ pub(super) fn trace_work_list(
             | ObjectKind::StyleSheetList { .. } => {}
             // Observer-family (MutationObserver / ResizeObserver /
             // IntersectionObserver) — unified `ObjectKind::Observer`
-            // variant.  Carries only the inline `(kind, observer_id)`,
-            // no `ObjectId`, so trace fan-out from here is a no-op for
-            // all three kinds.  Per-observer state lives crate-side
-            // (queued records / target lists / init config) or as
-            // `*ObservedBy` ECS components on observed entities (no
-            // per-VM `ObjectId` to fan out to); the JS `(callback,
-            // instance)` pair lives on `HostData::*_observer_bindings`
-            // and is rooted via `HostData::gc_root_object_ids` for the
-            // observer's lifetime.  The registries' queued records hold
-            // only `Entity` / `String` values (no `ObjectId`), so they
-            // also need no trace pass.
+            // variant.  Carries the inline `(kind, observer_id)`; the
+            // JS `(callback, instance)` pair lives on
+            // `HostData::*_observer_bindings` keyed by `observer_id`.
+            // Mark the `callback` (an OWNERSHIP edge — the observer
+            // instance owns its callback) so it survives while the
+            // instance is reachable, including the JS-referenced-but-idle
+            // case where the keepalive predicate pushes nothing (the
+            // observer observes nothing) yet a later `observe()` must still
+            // find + fire its callback (S5-3c; mirrors the TreeWalker /
+            // NodeIterator filter + Selection→Range fan-out).  The registries'
+            // queued records / target lists / init config hold only
+            // `Entity` / `String` values (no `ObjectId`), so they need no
+            // trace pass; the `instance` is this arm's own reachable object.
             #[cfg(feature = "engine")]
-            ObjectKind::Observer { .. } => {}
+            ObjectKind::Observer { kind, observer_id } => {
+                use super::super::value::ObserverKind;
+                let bindings = match kind {
+                    ObserverKind::Mutation => mutation_observer_bindings,
+                    ObserverKind::Resize => resize_observer_bindings,
+                    ObserverKind::Intersection => intersection_observer_bindings,
+                };
+                if let Some(binding) = bindings.get(observer_id) {
+                    mark_object(binding.callback, obj_marks, work);
+                }
+            }
             // `Storage` instances carry only the `is_local: bool`
             // discriminator inline (not an `ObjectId`).  The cached
             // `localStorage` / `sessionStorage` wrappers are rooted

@@ -1312,6 +1312,30 @@ impl VmInner {
             None => &empty_wrapper_store,
         };
 
+        // S5-3c — observer `(callback, instance)` binding maps.  The
+        // `ObjectKind::Observer` trace arm marks a reachable observer instance's
+        // `binding.callback` (ownership edge) so the callback survives while the
+        // instance is reachable.  Empty fallback when unbound (no observer
+        // wrapper can be reachable then — the binding maps live on HostData).
+        #[cfg(feature = "engine")]
+        let empty_observer_bindings: std::collections::HashMap<
+            u64,
+            super::super::host::observer_common::ObserverBinding,
+        > = std::collections::HashMap::new();
+        #[cfg(feature = "engine")]
+        let (mo_bindings_ref, ro_bindings_ref, io_bindings_ref) = match self.host_data.as_deref() {
+            Some(hd) => (
+                &hd.mutation_observer_bindings,
+                &hd.resize_observer_bindings,
+                &hd.intersection_observer_bindings,
+            ),
+            None => (
+                &empty_observer_bindings,
+                &empty_observer_bindings,
+                &empty_observer_bindings,
+            ),
+        };
+
         trace_work_list(
             roots.objects,
             roots.upvalues,
@@ -1379,6 +1403,12 @@ impl VmInner {
             &self.idb_cursor_states,
             #[cfg(feature = "engine")]
             &self.crypto_key_js_cache,
+            #[cfg(feature = "engine")]
+            mo_bindings_ref,
+            #[cfg(feature = "engine")]
+            ro_bindings_ref,
+            #[cfg(feature = "engine")]
+            io_bindings_ref,
             &mut self.gc_object_marks,
             &mut self.gc_upvalue_marks,
             &mut self.gc_work_list,
@@ -1931,6 +1961,32 @@ impl VmInner {
                 hd.event_source_states.retain(|id, _| bit_get(marks, id.0));
                 hd.sse_conn_to_object
                     .retain(|_, obj_id| bit_get(marks, obj_id.0));
+                // S5-3c — Mutation / Resize / Intersection observer bindings.
+                // The construct-time for-life root was removed from
+                // `gc_root_object_ids`; the keepalive seam
+                // (`gc/keepalive.rs`, which ran BEFORE this sweep) now marks a
+                // binding's `instance` + `callback` iff the observer has ≥1
+                // active observation. Prune each binding-map ROW by the
+                // wrapper's (`instance`) mark bit — so the STRUCT does not leak
+                // and no stale, index-reusable `instance` ObjectId lingers.
+                // Three-way lifecycle (mirrors the `vm_event_listeners.retain`
+                // pattern above): observing → predicate-marked → kept;
+                // not-observing-but-JS-referenced → JS-marked → kept (a later
+                // `observe()` still finds its binding); not-observing +
+                // unreferenced → unmarked → pruned (the leak fix). Keying on
+                // `instance` alone is sufficient AND never orphans the callback:
+                // a kept row's `callback` is reachable-from-`instance` — marked
+                // by the keepalive predicate push when observing (§4.2), OR by
+                // the `ObjectKind::Observer` OWNERSHIP trace edge (`gc/trace.rs`)
+                // when the instance is JS-reachable but idle (the predicate
+                // pushes nothing) — so whenever `instance` survives, its callback
+                // survives too.
+                hd.mutation_observer_bindings
+                    .retain(|_, b| bit_get(marks, b.instance.0));
+                hd.resize_observer_bindings
+                    .retain(|_, b| bit_get(marks, b.instance.0));
+                hd.intersection_observer_bindings
+                    .retain(|_, b| bit_get(marks, b.instance.0));
                 // Emit Close messages to the broker for swept
                 // connections.  Best-effort: a disconnected handle
                 // silently no-ops via `send`'s bool return.
