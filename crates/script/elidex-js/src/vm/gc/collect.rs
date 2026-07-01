@@ -1885,6 +1885,20 @@ impl VmInner {
                 // an explicit design choice, GC sweep IS the
                 // explicit close for orphaned wrappers).
                 //
+                // S5-3b: this force-close is now the **else-branch** of
+                // the keepalive predicate (WebSockets §7 / HTML §9.2.9,
+                // `gc/keepalive.rs` `KeepaliveClass::{WebSocket,
+                // EventSource}`).  A listener-held (or, for WS,
+                // data-queued) non-CLOSED connection is marked by
+                // `keepalive_survivors` (which runs before this sweep),
+                // so its `bit_get(marks, …)` is set → it is NOT in the
+                // dead set → it survives and keeps delivering.  Only a
+                // genuine orphan (no listener, no queued data) or a
+                // CLOSED wrapper reaches here unmarked — exactly the
+                // spec's "GC while open ⇒ closing handshake / abort
+                // fetch" case.  No edit was needed in this block: it
+                // keys purely on the mark bit.
+                //
                 // Reverse maps are pruned by VALUE (`ObjectId`)
                 // mark bit, mirroring the conn → instance routing
                 // direction.
