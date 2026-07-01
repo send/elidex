@@ -355,6 +355,17 @@ impl IntersectionObserverRegistry {
 /// `IntersectionObserver` wrapper stays rooted iff its id is in this set.
 /// **Despawn-safe by construction** — a despawned entity's `IntersectionObservedBy`
 /// is gone with the entity, so its (observer, target) pair is never scanned.
+///
+/// Unlike `MutationObserver`, IntersectionObserver has NO second "pending
+/// undelivered entries" keepalive clause: its delivery is **synchronous** within
+/// `deliver_intersection_observations` (`gather_observations` computes the
+/// threshold-crossing entries and delivers them in the SAME call), and this
+/// registry keeps NO persistent per-observer entry queue that survives a GC-able
+/// window between "entry queued" and "delivered". (`takeRecords()` correspondingly
+/// returns an empty array — the VM buffers no entries between frames.) Crossing
+/// entries are recomputed each frame from the live `IntersectionObservedBy`
+/// components (ratio diff), so there is no cross-checkpoint pending state to root.
+/// Active-observation membership is the sole keepalive signal.
 #[must_use]
 pub fn observing_observer_ids(dom: &EcsDom) -> std::collections::HashSet<u64> {
     let mut ids = std::collections::HashSet::new();

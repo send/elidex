@@ -536,6 +536,39 @@ impl MutationObserverRegistry {
         self.records.values().any(|queue| !queue.is_empty())
     }
 
+    /// The raw ids of the observers that have ≥1 **pending undelivered record**
+    /// — i.e. a NON-EMPTY entry in the per-observer record queue (`records`).
+    ///
+    /// This is the second GC-keepalive clause the observer arm marshals (S5-3c):
+    /// an observer with a queued record awaiting the "notify mutation observers"
+    /// microtask (WHATWG DOM §4.3.2 "Queuing a mutation record" enqueues the
+    /// record + queues the §4.3 "notify mutation observers" microtask) must stay
+    /// alive to deliver it, even if its last *observation* just ended (its target
+    /// despawned / it was `disconnect()`ed after the record queued but before the
+    /// microtask ran). Losing the wrapper in that window would drop the queued
+    /// records (the delivery path takes the records, then a missing binding row
+    /// silently discards them) = observable data loss. This is the exact analogue
+    /// of the SSE §9.2.9 "task queued on the remote event task source" strong-
+    /// reference clause (`es_keepalive`'s `has_queued_task`).
+    ///
+    /// Keyed on NON-EMPTY `records`, **not** on `pending` membership: `takeRecords()`
+    /// empties an observer's record queue (`take_records`) but deliberately does
+    /// NOT remove it from `pending` (so the microtask still runs the step-6.3
+    /// transient clear for it). An observer whose queue the page already drained
+    /// via `takeRecords()` has nothing left to deliver, so it does NOT need the
+    /// pending-record keepalive — keying on `records` (the precise "has undelivered
+    /// data" signal) avoids over-keeping a stale-pending, empty-queue observer.
+    /// This reads only the registry (HostData), NO World access — so it is valid
+    /// regardless of bound / unbound.
+    #[must_use]
+    pub fn observers_with_pending_records(&self) -> std::collections::HashSet<u64> {
+        self.records
+            .iter()
+            .filter(|(_, queue)| !queue.is_empty())
+            .map(|(id, _)| id.raw())
+            .collect()
+    }
+
     /// Take the agent's **pending mutation observers** as `notifySet` (WHATWG DOM
     /// §4.3 "notify mutation observers" step 2 clone + step 3 empty), in **append
     /// order** (the ordered-set order each observer first received a record this

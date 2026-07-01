@@ -311,6 +311,17 @@ pub(super) fn keepalive_survivors(vm: &VmInner) -> Vec<ObjectId> {
     // actually fires) rooted; both release together when the last observation
     // ends (id ∉ set ⇒ neither pushed). Replaces the removed construct-time
     // for-life root in `HostData::gc_root_object_ids` (S5-3c over-root/leak fix).
+    //
+    // MutationObserver carries a SECOND, disjoint keepalive clause: an observer
+    // with ≥1 pending undelivered record (its record queue awaiting the DOM §4.3
+    // "notify mutation observers" microtask) must stay alive to deliver it, even
+    // once its last observation has ended — see the bound-branch comment below.
+    // RO/IO have NO analogous clause: their delivery is synchronous within
+    // `deliver_{resize,intersection}_observations` (gather-then-deliver in one
+    // call, entries recomputed each frame from live `*ObservedBy` components),
+    // with no persistent per-observer entry queue that survives a GC-able window
+    // between "entry queued" and "delivered". So only the mutation arm ORs in the
+    // pending-records disjunct.
     if let Some(hd) = vm.host_data.as_deref() {
         if hd.is_bound() {
             // BOUND GC — evaluate the PRECISE membership predicate. The World is
@@ -323,8 +334,25 @@ pub(super) fn keepalive_survivors(vm: &VmInner) -> Vec<ObjectId> {
             // no-observer page pays nothing here every GC.
             if !hd.mutation_observer_bindings.is_empty() {
                 let ids = elidex_api_observers::mutation::observing_observer_ids(hd.dom_shared());
+                // Second keepalive clause (independent of observation membership):
+                // an observer with ≥1 pending undelivered record must stay alive to
+                // deliver it, even if its last observation just ended (target
+                // despawned / `disconnect()`ed) between the record queuing (DOM
+                // §4.3.2 "Queuing a mutation record") and the §4.3 "notify mutation
+                // observers" microtask. Without this, a mid-window GC would prune
+                // the binding row → `deliver_pending_mutation_records` takes the
+                // records but finds no binding → the records are DROPPED and the
+                // callback never fires = observable data loss. This mirrors the SSE
+                // §9.2.9 "task queued on the remote event task source" strong-
+                // reference clause (`es_keepalive`'s `has_queued_task`). Reads only
+                // the registry (HostData, no World), so it is a separate disjunct
+                // OR-ed with the World-derived observing-membership set above. Keyed
+                // on non-empty `records` (not stale `pending` membership) so an
+                // observer the page already drained via `takeRecords()` is NOT
+                // over-kept (see `observers_with_pending_records`).
+                let pending = hd.mutation_observers.observers_with_pending_records();
                 for (oid, b) in &hd.mutation_observer_bindings {
-                    if ids.contains(oid) {
+                    if ids.contains(oid) || pending.contains(oid) {
                         keep.push(b.instance);
                         keep.push(b.callback);
                     }

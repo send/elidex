@@ -153,6 +153,28 @@ GC dfn in DOM is §3.2.1 AbortSignal). By contrast RO/IO carry **EXPLICIT** two-
 observation" = "is observing ≥1 target"), but the spec basis differs per class — inferred (MO) vs explicit
 (RO/IO).
 
+**⚠ SECOND keepalive clause for MutationObserver — the queued-record liveness (CORRECTION, `/code-review`
+2026-07-02).** Registered-observer-list membership is **NOT the whole predicate**. DOM §4.3.2 "Queuing a
+mutation record" (`#queue-a-mutation-record`, step 4.2 "Enqueue record to observer's record queue" + step
+5 "Queue a mutation observer microtask") + §4.3 "notify mutation observers" (`#notify-mutation-observers`,
+step 6.1 "Let records be a clone of mo's record queue" → step 6.4 "invoke mo's callback") mean an observer
+with a **queued but undelivered record** must stay alive to deliver it — **even once its last observation
+has ended** (its sole observed target despawned, or it was `disconnect()`ed, after the record queued but
+before the notify microtask ran). In that window the observer is NOT in any node's registered observer
+list (membership zero), yet dropping it loses the queued records: the delivery path (`take_records` then a
+missing binding lookup) silently discards them, and the callback never fires = observable data loss. So
+the **full MutationObserver keepalive predicate = "has ≥1 active observation OR has ≥1 pending undelivered
+record"**. This is the exact analogue of the SSE §9.2.9 "task queued on the remote event task source"
+strong-reference clause that S5-3b's `es_keepalive` `has_queued_task` INCLUDED — the same "queued task
+awaiting the notify microtask ⇒ strong reference" liveness, which the membership-only analysis above
+missed. The pending-record disjunct is engine-indep (`mutation::observers_with_pending_records(&self) ->
+HashSet<u64>`, reading the registry's `records` queue — HostData only, **no World**, so it holds bound AND
+unbound), keyed on **non-empty `records`** (not stale `pending` membership: `takeRecords()` empties
+`records` without touching `pending`, so a drained observer has nothing to deliver and needs no keepalive).
+**RO/IO have NO analogous clause** (§2.2/§2.3): their delivery is synchronous (gather-then-deliver in one
+`deliver_*` call, no persistent cross-checkpoint entry queue), so active-observation membership is their
+sole signal.
+
 ### §2.2 ResizeObserver — resize-observer-1 §3.5 Lifetime + §3.2.2 internal slots (`resize-observer-1`, webref 2026-07-02)
 **PRIMARY keepalive basis = §3.5 "ResizeObserver Lifetime" (`#lifetime`)**, which states the exact
 normative predicate verbatim: *"A ResizeObserver will remain alive until both of these conditions are met:
@@ -296,6 +318,7 @@ mark-roots pass consulting the predicate). "Touch" names the predicate / mark-pa
 |---|---|---|---|---|---|
 | DOM §2.8 Observing event listeners (`#observing-event-listeners`) | general default (no bare-listener keepalive) | — | seam does NOT root on bare-listener presence; observers are membership-rooted, not listener-rooted | ✓ | yes (page) |
 | DOM §4.3 registered-observer-list (`#registered-observer-list`) | MutationObserver, ≥1 active registration | has ≥1 `MutationObservedBy` observation for this observer | direct membership mark in `keepalive_survivors` → `mutation::observing_observer_ids` (D2) / count (D1) | ✓ | yes (`observe`) |
+| DOM §4.3.2 "Queuing a mutation record" (`#queue-a-mutation-record`) step 4.2/5 + §4.3 "notify mutation observers" (`#notify-mutation-observers`) | MutationObserver, ≥1 pending undelivered record (queued, awaiting the notify microtask) | has a NON-EMPTY `records` queue — **stays alive even with zero active observations** (target despawned / disconnected mid-window) | SECOND disjunct in `keepalive_survivors` (OR-ed with membership) → `mutation::observers_with_pending_records` (registry-only, no World) | ✓ | yes (`observe` → mutate) |
 | DOM §4.3.1 `observe()` (`#interface-mutationobserver`) step 7 | observe an already-observed target | REPLACE existing registration (no double-membership) | predicate reads current membership (D2 set / D1 replace-not-add count) | ✓ | yes |
 | DOM §4.2.3 "Mutation algorithms" — remove algorithm step 15 / §4.3 transient registered observers | transient observation | transient membership counts while present, cleared at notify step 6.3 | same predicate reads `transient:true` entries as membership (D2 automatic; D1 counts add/clear) | ✓ | no (engine-driven) |
 | resize-observer-1 §3.2.2 `[[observationTargets]]` (`#dom-resizeobserver-observationtargets-slot`) | ResizeObserver, `[[observationTargets]]` non-empty | has ≥1 `ResizeObservedBy` observation | direct membership mark in `keepalive_survivors` → `resize::observing_observer_ids` (D2) / count (D1) | ✓ | yes (`observe`) |
@@ -532,7 +555,7 @@ transient observation → id present while transient present), independent of th
 
 | Class | Spec § (webref) | elidex keepalive predicate | Wiring site | Replaces / fixes |
 |---|---|---|---|---|
-| **MutationObserver** | DOM §4.3 registered-observer-list (`dom#registered-observer-list`; no GC-note) | **has ≥1 active observation** (any `MutationObservedBy` entry with `observer == this`, permanent OR transient) | **rule** `elidex_api_observers::mutation::observing_observer_ids(dom) -> HashSet<u64>` (NEW); **seam** iterates `mutation_observer_bindings` (`host_data.rs:281`), pushes `[instance, callback]` for ids ∈ set | **FIXES the construct-time for-life over-root / leak** (`gc_root_object_ids` `:1712-1723`; `disconnect` no-release `mutation_observer.rs:249-261`) |
+| **MutationObserver** | DOM §4.3 registered-observer-list (`dom#registered-observer-list`; no GC-note) **+ §4.3.2 queued-record / §4.3 notify** (pending-record liveness) | **has ≥1 active observation OR ≥1 pending undelivered record** (any `MutationObservedBy` entry with `observer == this`, permanent OR transient; OR a non-empty `records` queue) | **rule** `mutation::observing_observer_ids(dom) -> HashSet<u64>` (World, D2) **OR-ed with** `mutation::observers_with_pending_records() -> HashSet<u64>` (registry-only, no World); **seam** iterates `mutation_observer_bindings` (`host_data.rs:281`), pushes `[instance, callback]` for ids in EITHER set | **FIXES the construct-time for-life over-root / leak** (`gc_root_object_ids` `:1712-1723`; `disconnect` no-release `mutation_observer.rs:249-261`) **AND the queued-record data-loss** (pending record dropped if wrapper swept mid-window — `/code-review` 2026-07-02) |
 | **ResizeObserver** | resize-observer-1 §3.5 "Lifetime" (`#lifetime`, EXPLICIT two-condition keepalive prose) — mechanism §3.2.2 `[[observationTargets]]` (`#dom-resizeobserver-observationtargets-slot`) | **has ≥1 active observation** (any `ResizeObservedBy` entry with `observer == this`) | **rule** `elidex_api_observers::resize::observing_observer_ids(dom)` (NEW); **seam** iterates `resize_observer_bindings` (`host_data.rs:297`) | same over-root fix (RO binding) |
 | **IntersectionObserver** | intersection-observer §3.3 "Lifetime" (`#lifetime`, EXPLICIT two-condition keepalive prose) — mechanism §3.1.3 `[[ObservationTargets]]` (`#dom-intersectionobserver-observationtargets-slot`) | **has ≥1 active observation** (any `IntersectionObservedBy` entry with `observer == this`) | **rule** `elidex_api_observers::intersection::observing_observer_ids(dom)` (NEW); **seam** iterates `intersection_observer_bindings` (`host_data.rs:308`) | same over-root fix (IO binding) |
 | **PerformanceObserver** | performance-timeline §4 (`#performanceobserver`) | — (not implemented in VM: no `ObjectKind`, no registry) | — | **reference-only / OUT OF SCOPE** — born into the seam when the interface lands (cf. parent §3 XHR row) |
@@ -622,6 +645,22 @@ hecs archetype query** over the entities carrying `*ObservedBy` and flat-maps th
   simply deferred to the next bound GC. **No borrow conflict; D2 is feasible on the landed `&VmInner`
   seam.**
 
+#### §5.2.1 The pending-record disjunct — registry-only, so it holds bound AND unbound (CORRECTION)
+The MutationObserver predicate is **not** the D2 membership query alone: it is OR-ed with the
+**pending-record** disjunct `mutation::observers_with_pending_records() -> HashSet<u64>` (§2.1's second
+clause; DOM §4.3.2 queued-record / §4.3 notify). Unlike `observing_observer_ids` (which reads the World's
+`*ObservedBy` components), this reads **only the registry's `records` queue** — a HostData-owned side-store
+with **NO World access**. Two consequences:
+- **It is valid regardless of `is_bound()`.** The bound branch evaluates it explicitly (OR-ed with the D2
+  membership set). The unbound branch's keep-all fail-safe already covers every binding (so pending-record
+  observers are covered there too), so no separate unbound handling is needed — but the disjunct is *not*
+  gated on `dom_shared` (it never touches the World), so it could be evaluated in either branch safely.
+- **Key on non-empty `records`, NOT `pending` membership.** `takeRecords()` empties an observer's `records`
+  queue (`take_records`) but deliberately leaves it in the `pending` notifySet (so notify step 6.3's
+  transient clear still runs — `mutation/mod.rs` `pending` doc). A drained observer has nothing to deliver,
+  so it needs no pending-record keepalive; keying on the record queue (the precise "has undelivered data"
+  signal) avoids over-keeping a stale-pending, empty-queue observer.
+
 > **Plan-review decision (Q3) — recommend D2.** D2 is the ideal / ECS-native / spec-faithful choice: a
 > single cheap linear query of the canonical per-entity truth, despawn-safe **by construction**, drift-
 > free, and needing **no new despawn chokepoint** (D1 needs one, or it stale-leaks — partially defeating
@@ -700,10 +739,11 @@ PR, not bundled).
 | **GC-rooting (seam mark)** | ✔ membership mark in `keepalive_survivors` (shape B, direct) | ✔ same | ✔ same |
 | **membership source** | `MutationObservedBy` entries (permanent + transient) | `ResizeObservedBy` entries | `IntersectionObservedBy` entries |
 | **per-class predicate (engine-indep)** | `mutation::observing_observer_ids` (D2) | `resize::observing_observer_ids` | `intersection::observing_observer_ids` |
-| **active-state** | membership ≥1 (no readyState axis) | membership ≥1 | membership ≥1 |
-| **callback-root duality** | push BOTH `instance` + `callback`; release both at last observation | same | same |
+| **active-state** | membership ≥1 (no readyState axis) **OR ≥1 pending undelivered record** | membership ≥1 | membership ≥1 |
+| **pending-record liveness** | ✔ SECOND disjunct — non-empty `records` queue keeps the observer alive **even at zero observations** (queued record awaiting the notify microtask, DOM §4.3.2/§4.3); registry-only (no World) | ✖ NONE — synchronous gather-then-deliver, no persistent cross-checkpoint entry queue | ✖ NONE — same (VM buffers no entries; `takeRecords()` returns empty) |
+| **callback-root duality** | push BOTH `instance` + `callback`; release both at last observation **AND after the last pending record delivers** | same | same |
 | **binding-row prune** | sweep `mutation_observer_bindings.retain(by instance mark bit)` | `resize_observer_bindings.retain(...)` | `intersection_observer_bindings.retain(...)` |
-| **despawn-safety** | D2: component gone ⇒ not scanned (safe); D1: stale-high (needs hook) | same | same |
+| **despawn-safety** | D2: component gone ⇒ membership drops (safe); D1: stale-high (needs hook). **Refined by the pending-record disjunct**: despawn of the sole target ⇒ collectible **ONLY IF no pending records** — a despawned-target observer with a queued record STILL survives (to deliver it) | same, minus the pending-record refinement (no such disjunct) | same |
 | **behavior-change** | **YES** — never-observed / disconnected unreferenced observer becomes COLLECTIBLE (over-root/leak fix) | **YES** — same | **YES** — same |
 | **unbind-lifecycle (per-VM)** | binding map RETAINED on unbind (`vm_api.rs:685-696`); observations PERSIST (World not despawned, `host_data.rs:1212-1215`); unbound GC KEEPS ALL bindings (World unreadable → fail-safe, §4.2); shrunk by sweep prune at a BOUND GC | same | same |
 | **B1-home (component defer)** | exception (a) per-VM now → component after B1 (target tracking ALREADY ECS-native) | same | same |
@@ -745,6 +785,17 @@ PR, not bundled).
    genuine idles. Test: an OBSERVING but unreferenced observer survives an unbound GC (binding row
    retained) and RESUMES delivery after rebind; separately, an IDLE unreferenced observer is collected at
    the next BOUND GC (§9). (This is the case the earlier "empty set ⇒ collectible" framing MISSED.)
+8. **pending-record × despawn** (§2.1 second clause, `/code-review` 2026-07-02): the membership-only
+   predicate MISSED that a MutationObserver with a queued-but-undelivered record must survive **even at
+   zero observations**. The intersection cell "despawn of sole target → collectible" is REFINED to
+   "collectible **ONLY IF no pending records**". A page that observes N, mutates N (queuing a record +
+   joining `pending`), then drops the JS ref AND despawns N before the notify microtask: N's
+   `MutationObservedBy` vanishes (membership zero), but the record is still queued — dropping the wrapper
+   loses it (delivery `take_records` then a missing-binding lookup silently discards → callback never
+   fires = data loss). Fix = the OR-ed `observers_with_pending_records` disjunct (registry-only, no World).
+   RO/IO are UNAFFECTED (no persistent entry queue; synchronous delivery). Test: §9's pending-record
+   regression (observe → queue-record → despawn → GC → survives → deliver → callback fires); negative
+   control: a `takeRecords()`-drained observer (empty queue) with no observation IS collected.
 7. **step-1-snapshot independence** (§2.5): confirm S5-3c has **no** dependency on / coupling with
    `#11-keepalive-event-loop-step1-snapshot` (WS-only; observers are live-membership-keyed). The absent
    thing is the **"as of the last time the event loop reached step 1" KEEPALIVE-SNAPSHOT tiering**
@@ -788,6 +839,19 @@ S5-3a/b** (§0.3): the headline asserts an idle observer **IS collected**.
   observer is **COLLECTIBLE** (its sole observation vanished with the entity). **D2 passes for free; D1
   passes only if a despawn→decrement hook was added.** Repeat RO/IO. (This is the test that operationally
   distinguishes the two designs — include it regardless of the choice.)
+- **(d') PENDING-RECORD × DESPAWN regression (the queued-record data-loss fix, `/code-review` 2026-07-02):**
+  `mo.observe(N, {childList:true})`, drop the `mo` JS ref, then **queue a MutationRecord WITHOUT running
+  the notify microtask** (`vm.inner.queue_mutation_record(record)` — enqueues into the `records` queue +
+  joins `pending`), then **despawn N** (its `MutationObservedBy` vanishes → observation membership drops to
+  zero) → `collect_garbage()` → assert the observer **SURVIVES** (binding row retained, on the
+  pending-record clause ALONE — no active observation) → `deliver_pending_mutation_records()` → assert the
+  callback **FIRES** with the queued record (`records.length === 1`), i.e. the record is **not silently
+  dropped**. Without the disjunct the binding row is pruned and the record is lost. **Companion negative
+  control:** an observer whose queue the page **drained via `takeRecords()`** (empty `records`) with no
+  observation + no JS ref IS **collected** — proving the disjunct keys on non-empty `records`, not stale
+  `pending` membership, so a drained observer is not over-kept. (Engine-indep half in `elidex-api-observers`
+  `tests_core.rs`: after `notify`, `observers_with_pending_records` contains the id; after `take_records`,
+  it does not.) **MO-only** — RO/IO owe no analogous test (no persistent entry queue).
 - **(e) UNBOUND-GC keep-all + rebind-resume (the DECISIVE fail-safe test — §4.2 unbound branch):** an
   **OBSERVING** but **UNREFERENCED** observer (`mo.observe(el, …)`, drop the `mo` JS ref, `el` still in
   the tree) → **unbind** the VM → `collect_garbage()` **while unbound** → assert the observer's

@@ -270,6 +270,17 @@ impl ResizeObserverRegistry {
 /// `ResizeObserver` wrapper stays rooted iff its id is in this set. **Despawn-
 /// safe by construction** — a despawned entity's `ResizeObservedBy` is gone with
 /// the entity, so its (observer, target) pair is never scanned.
+///
+/// Unlike `MutationObserver`, ResizeObserver has NO second "pending undelivered
+/// entries" keepalive clause: its delivery is **synchronous** within
+/// `deliver_resize_observations` (§3.4 "Broadcast active observations" runs
+/// inside "update the rendering" — `gather_observations` gathers the active
+/// entries and delivers them in the SAME call), and this registry keeps NO
+/// persistent per-observer entry queue that survives a GC-able window between
+/// "entry queued" and "delivered". Active entries are recomputed each frame from
+/// the live `ResizeObservedBy` components (size-change diff), so there is no
+/// cross-checkpoint pending state to root. Active-observation membership is the
+/// sole keepalive signal.
 #[must_use]
 pub fn observing_observer_ids(dom: &EcsDom) -> std::collections::HashSet<u64> {
     let mut ids = std::collections::HashSet::new();

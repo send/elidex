@@ -339,6 +339,50 @@ fn pending_observer_survives_take_records() {
     );
 }
 
+/// S5-3c pending-records keepalive clause: after `notify` queues a record for an
+/// observer, `observers_with_pending_records` contains its id; after
+/// `take_records` drains the queue, it does not. This is the engine-indep truth
+/// source for the GC-keepalive "has ≥1 pending undelivered record" disjunct.
+#[test]
+fn observers_with_pending_records_tracks_nonempty_queue() {
+    let mut dom = EcsDom::new();
+    let el = elem(&mut dom, "div");
+    let mut reg = MutationObserverRegistry::new();
+    let id = reg.register();
+    reg.observe(&mut dom, id, el, child_list_init());
+
+    // No record yet → not pending.
+    assert!(
+        reg.observers_with_pending_records().is_empty(),
+        "a registered observer with an empty queue is not pending"
+    );
+
+    let child = elem(&mut dom, "span");
+    reg.notify(&dom, &child_list_added(el, vec![child]));
+    let pending = reg.observers_with_pending_records();
+    assert!(
+        pending.contains(&id.raw()),
+        "an observer with a queued record is pending"
+    );
+    assert_eq!(pending.len(), 1);
+
+    // Drain the queue (models `takeRecords()`): the record is gone → not pending,
+    // even though the observer stays in the `pending` notifySet (keyed on
+    // NON-EMPTY `records`, not `pending` membership).
+    assert_eq!(reg.take_records(id).len(), 1);
+    assert!(
+        reg.observers_with_pending_records().is_empty(),
+        "after take_records the queue is empty ⇒ no longer pending (not over-kept on stale `pending`)"
+    );
+    // The observer IS still in the pending notifySet (takeRecords doesn't remove
+    // it) — proving the two signals are distinct.
+    assert_eq!(
+        reg.take_pending_observers(),
+        vec![id],
+        "takeRecords leaves the observer in the pending notifySet"
+    );
+}
+
 /// A `ChildList` mutation record on `target` adding `added`.
 fn child_list_added(target: Entity, added: Vec<Entity>) -> SessionRecord {
     SessionRecord {
