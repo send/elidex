@@ -23,9 +23,10 @@
 //! - [`super::super::host_data::HostData::resize_observer_bindings`]
 //!   — `HashMap<u64, ObserverBinding>` from observer ID to the
 //!   `(callback, instance)` JS-identity pair.  Both `ObjectId`s in
-//!   each binding are rooted via
-//!   [`super::super::host_data::HostData::gc_root_object_ids`] so the
-//!   callback + instance survive GC for the observer's lifetime.
+//!   each binding are rooted by the keepalive seam's active-observation
+//!   predicate ([`super::super::gc::keepalive::keepalive_survivors`], S5-3c)
+//!   so the callback + instance survive GC while the observer observes ≥1
+//!   target, and the binding row is sweep-pruned once collectible.
 //!
 //! [`super::super::value::ObjectKind::Observer`] with
 //! [`super::super::value::ObserverKind::Resize`] carries the

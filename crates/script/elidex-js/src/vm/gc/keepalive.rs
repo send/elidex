@@ -28,7 +28,7 @@
 //!
 //! The rooted thing is a per-VM `ObjectId` (the side-store→component rule's
 //! per-VM-identity-handle exception (a) — `Vm::unbind`'s cross-DOM-aliasing
-//! note): component-on-entity is world_id-gated and deferred
+//! note): component-on-entity is B1-gated and deferred
 //! (`#11-eventtarget-keepalive-component-migration`).  ⚠ SUPERSEDED 2026-06-30:
 //! world_id retracted → agent-scoped `EcsDom` World (PR #434,
 //! `docs/plans/2026-06-agent-scoped-ecsdom-world.md`); under B1 (1-agent=1-World)
@@ -38,8 +38,13 @@
 //! [`vm_path_has_listener`], itself composed from the engine-independent
 //! `EventListeners` API; the `WebSocket` / `EventSource` arms [S5-3b] marshal VM
 //! state and delegate their tier rule to `elidex-api-ws::{ws_keepalive,
-//! es_keepalive}`).  The remaining observer arm marshals to
-//! `elidex-api-observers` (S5-3c).
+//! es_keepalive}`).  The observer arm [S5-3c, LANDED] marshals to
+//! `elidex-api-observers::observing_observer_ids` — the Mutation / Resize /
+//! Intersection observers are **membership** registrants (active-observation
+//! membership) marked directly in [`keepalive_survivors`] (shape B), NOT a
+//! [`KeepaliveClass`] listener-predicate variant.  After S5-3c every non-Node
+//! keepalive registrant is on this seam (the hard pre-flip gate
+//! `#11-eventtarget-keepalive-registrant-coverage` is retired).
 
 #![cfg(feature = "engine")]
 
@@ -63,12 +68,16 @@ use super::super::VmInner;
 ///
 /// S5-3a landed the `MediaQueryList` arm (the FLIP-precondition); S5-3b adds the
 /// `WebSocket` / `EventSource` arms (state-tiered listener subset, the tier rule
-/// delegated to `elidex-api-ws::{ws_keepalive, es_keepalive}`).  The remaining
-/// non-Node EventTargets migrate their existing divergent roots onto this seam
-/// **before** the S5-6 flip (the hard pre-flip gate
-/// `#11-eventtarget-keepalive-registrant-coverage`): the Mutation / Resize /
-/// Intersection observers (active-observation membership, S5-3c — delegated to
-/// `elidex-api-observers`).
+/// delegated to `elidex-api-ws::{ws_keepalive, es_keepalive}`).  S5-3c landed the
+/// Mutation / Resize / Intersection observers (active-observation membership,
+/// delegated to `elidex-api-observers`) — but as a **membership** registrant
+/// marked directly in [`keepalive_survivors`] (shape B), NOT a `KeepaliveClass`
+/// variant: an observer's keepalive is not a listener test (its callback fires
+/// from observation deliveries, not `addEventListener` on the observer).  With
+/// the observers on the seam, the hard pre-flip gate
+/// `#11-eventtarget-keepalive-registrant-coverage` is retired — every non-Node
+/// EventTarget keepalive is now on this seam, so no divergent construct-time /
+/// force-close root remains for the S5-6 flip.
 /// A future `AbortSignalDependent` arm would root an `AbortSignal.any()`
 /// composite under the DOM §3.2.1 dependent-signal predicate (non-aborted ∧
 /// source-signals-non-empty ∧ listenered) — but that is a **behavior change**
@@ -289,6 +298,84 @@ pub(super) fn keepalive_survivors(vm: &VmInner) -> Vec<ObjectId> {
             .into_iter()
             .filter(|&id| KeepaliveClass::EventSource.keepalive(vm, id)),
     );
+
+    // Mutation / Resize / Intersection observers — a **membership** registrant
+    // (shape B, marked directly like `AbortSignal.timeout`, NOT a
+    // `KeepaliveClass` listener-predicate variant: an observer's callback fires
+    // from OBSERVATION deliveries, not from `addEventListener` on the observer,
+    // so its keepalive is not a listener test). Predicate = "has ≥1 active
+    // observation" (DOM §4.3 registered-observer-list / RO §3.5 / IO §3.3
+    // Lifetime; RO-IO `[[observationTargets]]` non-empty), owned by engine-indep
+    // `elidex-api-observers::observing_observer_ids`. A surviving observer keeps
+    // BOTH its `instance` (callback `this` + 2nd arg) AND its `callback` (what
+    // actually fires) rooted; both release together when the last observation
+    // ends (id ∉ set ⇒ neither pushed). Replaces the removed construct-time
+    // for-life root in `HostData::gc_root_object_ids` (S5-3c over-root/leak fix).
+    if let Some(hd) = vm.host_data.as_deref() {
+        if hd.is_bound() {
+            // BOUND GC — evaluate the PRECISE membership predicate. The World is
+            // readable via `dom_shared` (asserts `is_bound`), so derive the
+            // observing-id set ONCE per kind from the live per-entity
+            // `*ObservedBy` components (D2), then keep every binding whose id is
+            // a member. Despawn-safe by construction (a despawned entity's
+            // component is gone ⇒ its membership vanishes with no registry hook).
+            let dom = hd.dom_shared();
+            let mo_ids = elidex_api_observers::mutation::observing_observer_ids(dom);
+            let ro_ids = elidex_api_observers::resize::observing_observer_ids(dom);
+            let io_ids = elidex_api_observers::intersection::observing_observer_ids(dom);
+            for (oid, b) in &hd.mutation_observer_bindings {
+                if mo_ids.contains(oid) {
+                    keep.push(b.instance);
+                    keep.push(b.callback);
+                }
+            }
+            for (oid, b) in &hd.resize_observer_bindings {
+                if ro_ids.contains(oid) {
+                    keep.push(b.instance);
+                    keep.push(b.callback);
+                }
+            }
+            for (oid, b) in &hd.intersection_observer_bindings {
+                if io_ids.contains(oid) {
+                    keep.push(b.instance);
+                    keep.push(b.callback);
+                }
+            }
+        } else {
+            // UNBOUND GC — `dom_ptr` is null, so the `EcsDom` World is
+            // UNREADABLE (`dom_shared` would assert) and the membership
+            // predicate CANNOT be evaluated. FAIL-SAFE = KEEP ALL observer
+            // bindings, mirroring the MQL arm (`:236-256`, keeps every
+            // `document`-tagged MQL across an unbound inter-batch GC) and the
+            // unconditional `AbortSignal.timeout` membership mark (`:261`, no
+            // `is_bound` guard). `Vm::unbind` NULLs `dom_ptr` but does NOT
+            // despawn the externally-owned World (`host_data.rs` `unbind` vs the
+            // raw-pointer `bind`), so the `*ObservedBy` observations PERSIST
+            // across a mere unbind; a genuinely-observing no-JS-ref observer
+            // must survive so the next same-document rebind's `deliver` can fire
+            // it (skipping-to-collect here would prune a still-observing
+            // observer's binding = a NEW under-root regression). This over-keep
+            // is TRANSIENT and SELF-CORRECTING: the next BOUND GC runs the
+            // precise predicate and collects genuine idles. It is NOT the
+            // immortal-until-unbind leak S5-3c fixes (idle observers are still
+            // collected at the frequent bound GCs; unbound GCs are rare).
+            keep.extend(
+                hd.mutation_observer_bindings
+                    .values()
+                    .flat_map(|b| [b.instance, b.callback]),
+            );
+            keep.extend(
+                hd.resize_observer_bindings
+                    .values()
+                    .flat_map(|b| [b.instance, b.callback]),
+            );
+            keep.extend(
+                hd.intersection_observer_bindings
+                    .values()
+                    .flat_map(|b| [b.instance, b.callback]),
+            );
+        }
+    }
 
     keep
 }

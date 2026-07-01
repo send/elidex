@@ -259,6 +259,28 @@ impl ResizeObserverRegistry {
     }
 }
 
+/// The raw ids of the resize observers that currently have ≥1 active
+/// observation — Resize Observer §3.5 "Lifetime" ("the observer is not
+/// observing any targets" ⇒ collectible) mechanised by the `[[observationTargets]]`
+/// slot (§3.2.2), here the per-entity `ResizeObservedBy` components. Derived in
+/// one hecs archetype query, flat-mapping every observation's `observer` id into
+/// the set.
+///
+/// This is the GC-keepalive predicate `elidex-js` marshals (S5-3c): a
+/// `ResizeObserver` wrapper stays rooted iff its id is in this set. **Despawn-
+/// safe by construction** — a despawned entity's `ResizeObservedBy` is gone with
+/// the entity, so its (observer, target) pair is never scanned.
+#[must_use]
+pub fn observing_observer_ids(dom: &EcsDom) -> std::collections::HashSet<u64> {
+    let mut ids = std::collections::HashSet::new();
+    for (_entity, comp) in &mut dom.world().query::<(Entity, &ResizeObservedBy)>() {
+        for obs in &comp.0 {
+            ids.insert(obs.observer.raw());
+        }
+    }
+    ids
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -447,5 +469,84 @@ mod tests {
             dom.world().get::<&ResizeObservedBy>(el).is_err(),
             "a retired id must not be reusable for observe"
         );
+    }
+
+    // --- observing_observer_ids (the S5-3c GC-keepalive membership query) ---
+
+    #[test]
+    fn observing_ids_empty_world_is_empty() {
+        let dom = EcsDom::new();
+        assert!(observing_observer_ids(&dom).is_empty());
+    }
+
+    #[test]
+    fn observing_ids_present_after_observe() {
+        let mut dom = EcsDom::new();
+        let el = elem(&mut dom, "div");
+        let mut reg = ResizeObserverRegistry::new();
+        let id = reg.register();
+        reg.observe(&mut dom, id, el, ResizeObserverOptions::default());
+
+        let ids = observing_observer_ids(&dom);
+        assert!(ids.contains(&id.raw()));
+        assert_eq!(ids.len(), 1);
+    }
+
+    #[test]
+    fn observing_ids_absent_after_unobserve() {
+        let mut dom = EcsDom::new();
+        let el = elem(&mut dom, "div");
+        let mut reg = ResizeObserverRegistry::new();
+        let id = reg.register();
+        reg.observe(&mut dom, id, el, ResizeObserverOptions::default());
+        reg.unobserve(&mut dom, id, el);
+        assert!(
+            observing_observer_ids(&dom).is_empty(),
+            "unobserve of the sole target ⇒ non-member (collectible)"
+        );
+    }
+
+    #[test]
+    fn observing_ids_absent_after_disconnect() {
+        let mut dom = EcsDom::new();
+        let el = elem(&mut dom, "div");
+        let mut reg = ResizeObserverRegistry::new();
+        let id = reg.register();
+        reg.observe(&mut dom, id, el, ResizeObserverOptions::default());
+        reg.disconnect(&mut dom, id);
+        assert!(observing_observer_ids(&dom).is_empty());
+    }
+
+    #[test]
+    fn observing_ids_absent_after_despawn_of_sole_target() {
+        let mut dom = EcsDom::new();
+        let el = elem(&mut dom, "div");
+        let mut reg = ResizeObserverRegistry::new();
+        let id = reg.register();
+        reg.observe(&mut dom, id, el, ResizeObserverOptions::default());
+        assert!(observing_observer_ids(&dom).contains(&id.raw()));
+
+        let _ = dom.destroy_entity(el);
+        assert!(
+            observing_observer_ids(&dom).is_empty(),
+            "despawn of the sole observed entity drops membership (despawn-safe)"
+        );
+    }
+
+    #[test]
+    fn observing_ids_two_observers_distinct_targets_both_present() {
+        let mut dom = EcsDom::new();
+        let a = elem(&mut dom, "div");
+        let b = elem(&mut dom, "section");
+        let mut reg = ResizeObserverRegistry::new();
+        let id_a = reg.register();
+        let id_b = reg.register();
+        reg.observe(&mut dom, id_a, a, ResizeObserverOptions::default());
+        reg.observe(&mut dom, id_b, b, ResizeObserverOptions::default());
+
+        let ids = observing_observer_ids(&dom);
+        assert!(ids.contains(&id_a.raw()));
+        assert!(ids.contains(&id_b.raw()));
+        assert_eq!(ids.len(), 2);
     }
 }

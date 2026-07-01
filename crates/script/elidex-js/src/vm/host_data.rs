@@ -262,22 +262,26 @@ mod engine_feature {
         /// ID.  Keyed by the raw `MutationObserverId` u64 (matches the
         /// inline `ObjectKind::Observer { kind: Mutation, observer_id }`
         /// payload).  Both `ObjectId`s in each [`ObserverBinding`] are
-        /// rooted via [`Self::gc_root_object_ids`] so the callback +
-        /// instance wrapper survive any GC cycle while the observer is
-        /// alive.
+        /// rooted by the keepalive seam's **active-observation predicate**
+        /// (`gc/keepalive.rs` `keepalive_survivors`, S5-3c) — kept iff the
+        /// observer has ≥1 active observation (DOM §4.3 registered-observer-list
+        /// membership) — so the callback + instance wrapper survive a GC
+        /// **while the observer observes**, and become collectible once its last
+        /// observation ends (`disconnect()` / `unobserve()` of the last target /
+        /// despawn of the sole observed entity), unless independently JS-rooted.
         ///
         /// **Retained across `Vm::unbind`** — keyed by VM-monotonic
         /// `observer_id`, not by `Entity` or recycled `ObjectId`, so
         /// cross-DOM aliasing does not apply.  A retained `mo`
         /// reference can re-`observe` after a rebind (same or
-        /// different DOM) and have its callback fire.  Trade-off:
-        /// this map grows monotonically with `new MutationObserver()`
-        /// calls and is never shrunk — `disconnect()` per spec only
-        /// clears observation targets, not the binding, and
-        /// `Vm::unbind` intentionally retains the map.  Long-lived
-        /// VMs that churn many observers accumulate dead entries;
-        /// weak-rooting / sweep-time cleanup is tracked at
-        /// `#11-mutation-observer-extras`.
+        /// different DOM) and have its callback fire.  The binding **row** no
+        /// longer leaks (S5-3c): `gc/collect.rs` sweep-prunes each row whose
+        /// `instance` mark bit is clear, so a `disconnect()`ed / never-observed
+        /// unreferenced observer's row is reclaimed at the next GC (the prior
+        /// grow-monotonically-until-unbind leak is fixed for the collected case).
+        /// The residual `#11-mutation-observer-extras` scope is the **non-
+        /// keepalive** extras only (primitive→`ToObject` init parsing,
+        /// `Symbol.iterator` filter handling, etc.), **not** the binding leak.
         pub(crate) mutation_observer_bindings: HashMap<u64, ObserverBinding>,
         /// `ResizeObserver` registry (W3C Resize Observer §3) — owns
         /// the monotonic observer ID counter; observation target lists
@@ -292,8 +296,9 @@ mod engine_feature {
         pub(crate) resize_observers: elidex_api_observers::resize::ResizeObserverRegistry,
         /// `(callback, instance)` binding per `ResizeObserver` ID.
         /// Same shape / retain-across-unbind contract as
-        /// [`Self::mutation_observer_bindings`]; rooted via
-        /// [`Self::gc_root_object_ids`].
+        /// [`Self::mutation_observer_bindings`]; rooted by the keepalive seam's
+        /// active-observation predicate and sweep-pruned by row (S5-3c) —
+        /// Resize Observer §3.5 "Lifetime".
         pub(crate) resize_observer_bindings: HashMap<u64, ObserverBinding>,
         /// `IntersectionObserver` registry (W3C Intersection Observer §3) —
         /// owns the monotonic observer ID counter + per-observer
@@ -1704,24 +1709,18 @@ mod engine_feature {
             // here: they are strong-marked by the unified wrapper-store mark
             // loop in `gc/roots.rs` via the `MarkAgent::StrongRoot` arm
             // (`#11-wrapper-identity-seam`).
-            // Three per-kind binding maps × 2 ObjectIds per entry
-            // — `[b.callback, b.instance]` is flat-mapped inline so
-            // adding a 4th observer kind is a single entry in the
-            // binding-map array here rather than a new pair of
-            // `chain(...)` calls.
+            //
+            // The three `*_observer_bindings` are NOT chained here (S5-3c):
+            // rooting them at construction for life was an over-root / leak (a
+            // never-observed or `disconnect()`ed observer with no JS ref stayed
+            // immortal until `Vm::unbind`). They are now rooted by the keepalive
+            // seam's active-observation predicate (`gc/keepalive.rs`
+            // `keepalive_survivors`) — kept iff the observer has ≥1 active
+            // observation — and their binding-map rows are swept by the instance
+            // mark bit in `gc/collect.rs`.
             self.listener_store
                 .values()
                 .copied()
-                .chain(
-                    [
-                        &self.mutation_observer_bindings,
-                        &self.resize_observer_bindings,
-                        &self.intersection_observer_bindings,
-                    ]
-                    .into_iter()
-                    .flat_map(|m| m.values())
-                    .flat_map(|b| [b.callback, b.instance]),
-                )
                 // D-17 `#11-custom-elements-vm`: every registered CE
                 // constructor + cached whenDefined Promise must stay
                 // GC-rooted for the registry's lifetime — otherwise an

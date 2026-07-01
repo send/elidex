@@ -603,6 +603,31 @@ pub fn clear_all_transient_observers(dom: &mut EcsDom) {
     retain_observations(dom, |o| !o.transient);
 }
 
+/// The raw ids of the mutation observers that currently have ≥1 active
+/// observation — the WHATWG DOM §4.3 **registered-observer-list membership**
+/// (an observer is reachable from every node whose registered observer list it
+/// is in). Derived in one hecs archetype query over the live per-entity
+/// `MutationObservedBy` components, flat-mapping every observation's `observer`
+/// id (permanent **or** transient — a transient registered observer is a
+/// registered observer, §4.3) into the set.
+///
+/// This is the GC-keepalive predicate `elidex-js` marshals (S5-3c): a
+/// `MutationObserver` wrapper stays rooted iff its id is in this set. **Despawn-
+/// safe by construction** — a despawned entity's `MutationObservedBy` is gone
+/// with the entity, so a stale (observer, despawned-target) pair is never
+/// scanned; the observer's membership drops to zero the instant its sole
+/// observed entity despawns, with no registry decrement hook.
+#[must_use]
+pub fn observing_observer_ids(dom: &EcsDom) -> std::collections::HashSet<u64> {
+    let mut ids = std::collections::HashSet::new();
+    for (_entity, comp) in &mut dom.world().query::<(Entity, &MutationObservedBy)>() {
+        for obs in &comp.0 {
+            ids.insert(obs.observer.raw());
+        }
+    }
+    ids
+}
+
 #[cfg(test)]
 mod tests_core;
 

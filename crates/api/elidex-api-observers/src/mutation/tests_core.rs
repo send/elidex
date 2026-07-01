@@ -352,3 +352,150 @@ fn child_list_added(target: Entity, added: Vec<Entity>) -> SessionRecord {
         old_value: None,
     }
 }
+
+// --- observing_observer_ids (the S5-3c GC-keepalive membership query) -------
+
+fn child_list_init() -> MutationObserverInit {
+    MutationObserverInit {
+        child_list: true,
+        ..Default::default()
+    }
+}
+
+#[test]
+fn observing_ids_empty_world_is_empty() {
+    let dom = EcsDom::new();
+    assert!(
+        observing_observer_ids(&dom).is_empty(),
+        "no observations ⇒ empty membership set"
+    );
+}
+
+#[test]
+fn observing_ids_present_after_observe() {
+    let mut dom = EcsDom::new();
+    let el = elem(&mut dom, "div");
+    let mut reg = MutationObserverRegistry::new();
+    let id = reg.register();
+    reg.observe(&mut dom, id, el, child_list_init());
+
+    let ids = observing_observer_ids(&dom);
+    assert!(
+        ids.contains(&id.raw()),
+        "an actively-observing observer is a member"
+    );
+    assert_eq!(ids.len(), 1);
+}
+
+#[test]
+fn observing_ids_absent_after_disconnect() {
+    let mut dom = EcsDom::new();
+    let el = elem(&mut dom, "div");
+    let mut reg = MutationObserverRegistry::new();
+    let id = reg.register();
+    reg.observe(&mut dom, id, el, child_list_init());
+    reg.disconnect(&mut dom, id);
+
+    assert!(
+        observing_observer_ids(&dom).is_empty(),
+        "disconnect ends the only observation ⇒ non-member (collectible)"
+    );
+}
+
+#[test]
+fn observing_ids_absent_after_despawn_of_sole_target() {
+    // The despawn-safety proof at the unit level: a despawned entity's
+    // `MutationObservedBy` vanishes with the entity, so the observer's
+    // membership drops to zero with no registry decrement hook.
+    let mut dom = EcsDom::new();
+    let el = elem(&mut dom, "div");
+    let mut reg = MutationObserverRegistry::new();
+    let id = reg.register();
+    reg.observe(&mut dom, id, el, child_list_init());
+    assert!(observing_observer_ids(&dom).contains(&id.raw()));
+
+    let _ = dom.destroy_entity(el);
+    assert!(
+        observing_observer_ids(&dom).is_empty(),
+        "despawn of the sole observed entity drops membership (despawn-safe by construction)"
+    );
+}
+
+#[test]
+fn observing_ids_include_transient_membership() {
+    // A transient registered observer is a registered observer (§4.3): it counts
+    // as membership automatically (the transient entry lives in the same
+    // `MutationObservedBy` component the query flat-maps). A transient added onto
+    // a node that carries NO permanent registration for `id` still makes `id` a
+    // member; clearing that transient (notify step 6.3) drops it.
+    let mut dom = EcsDom::new();
+    let root = elem(&mut dom, "div");
+    let removed = elem(&mut dom, "span");
+    let _ = dom.append_child(root, removed);
+
+    let mut reg = MutationObserverRegistry::new();
+    let id = reg.register();
+    reg.observe(
+        &mut dom,
+        id,
+        root,
+        MutationObserverInit {
+            child_list: true,
+            subtree: true,
+            ..Default::default()
+        },
+    );
+    // `add_transient_observers(root, [removed])` walks `removed`'s inclusive
+    // ancestors, finds the `subtree:true` permanent on `root`, and appends a
+    // transient copy onto `removed` (tagged `transient:true`). `removed` carries
+    // ONLY that transient (no permanent registration of `id`).
+    reg.add_transient_observers(&mut dom, root, &[removed]);
+    {
+        // Confirm the transient landed on `removed` and is the only registration
+        // there (so its membership contribution is genuinely the transient's).
+        let comp = dom
+            .world()
+            .get::<&MutationObservedBy>(removed)
+            .expect("removed carries a transient registration");
+        assert!(comp.0.iter().all(|o| o.transient && o.observer == id));
+    }
+
+    let ids = observing_observer_ids(&dom);
+    assert!(
+        ids.contains(&id.raw()),
+        "a transient registered observer counts as membership automatically"
+    );
+
+    // Clear the transient (notify step 6.3): the transient on `removed` is gone,
+    // but the permanent on `root` still anchors membership.
+    clear_transient_observers(&mut dom, id);
+    assert!(
+        dom.world().get::<&MutationObservedBy>(removed).is_err(),
+        "clearing removed the transient (and emptied removed's component)"
+    );
+    assert!(
+        observing_observer_ids(&dom).contains(&id.raw()),
+        "the permanent registration keeps membership after the transient clear"
+    );
+
+    // Drop the permanent too → no membership remains (fully collectible).
+    reg.disconnect(&mut dom, id);
+    assert!(observing_observer_ids(&dom).is_empty());
+}
+
+#[test]
+fn observing_ids_two_observers_distinct_targets_both_present() {
+    let mut dom = EcsDom::new();
+    let a = elem(&mut dom, "div");
+    let b = elem(&mut dom, "section");
+    let mut reg = MutationObserverRegistry::new();
+    let id_a = reg.register();
+    let id_b = reg.register();
+    reg.observe(&mut dom, id_a, a, child_list_init());
+    reg.observe(&mut dom, id_b, b, child_list_init());
+
+    let ids = observing_observer_ids(&dom);
+    assert!(ids.contains(&id_a.raw()));
+    assert!(ids.contains(&id_b.raw()));
+    assert_eq!(ids.len(), 2);
+}
