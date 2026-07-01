@@ -131,6 +131,7 @@ mod tests_promise_rejection_event;
 mod tests_range;
 mod tests_readable_stream;
 mod tests_realtime;
+mod tests_realtime_keepalive;
 mod tests_remove_event_listener;
 mod tests_request_response;
 mod tests_resize_observer;

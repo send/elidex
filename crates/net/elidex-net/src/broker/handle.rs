@@ -8,7 +8,7 @@
 //! the renderer can run in an OS-level sandbox without direct IO
 //! capability.
 
-use std::collections::HashSet;
+use std::collections::{HashSet, VecDeque};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread::JoinHandle;
@@ -88,7 +88,7 @@ impl NetworkProcessHandle {
             request_tx: self.request_tx.clone(),
             control_tx: self.control_tx.clone(),
             response_rx,
-            buffered: std::cell::RefCell::new(Vec::new()),
+            buffered: std::cell::RefCell::new(VecDeque::new()),
             // Slot #10.6c: pre-set to `true` if the ack was lost
             // (timeout / disconnect).  Reuses slot #10.6b's
             // `unregistered` short-circuit machinery so the
@@ -164,7 +164,12 @@ pub struct NetworkHandle {
     pub(super) response_rx: crossbeam_channel::Receiver<NetworkToRenderer>,
     /// Events buffered during blocking fetch (drained by `drain_events()`).
     /// Uses `RefCell` for interior mutability (content thread is single-threaded).
-    pub(super) buffered: std::cell::RefCell<Vec<NetworkToRenderer>>,
+    /// `VecDeque` for O(1) front-pop: the elidex-js VM's `tick_network`
+    /// realtime drain pops `batch` events off the FRONT
+    /// ([`pop_buffered_front`](Self::pop_buffered_front)); with a `Vec`
+    /// each `remove(0)` was O(n), making the drain O(n²) per tick on a
+    /// busy WS/SSE stream (Codex R5-F2).
+    pub(super) buffered: std::cell::RefCell<VecDeque<NetworkToRenderer>>,
     /// Slot #10.6b: set to `true` once this handle's drain has
     /// observed the [`NetworkToRenderer::RendererUnregistered`]
     /// back-edge.  Sender on the broker side is the
@@ -281,7 +286,7 @@ impl NetworkHandle {
             request_tx,
             control_tx,
             response_rx,
-            buffered: std::cell::RefCell::new(Vec::new()),
+            buffered: std::cell::RefCell::new(VecDeque::new()),
             // Disconnected handles never see a broker-side
             // marker (the response channel is closed at
             // construction), so the flag stays `false`
@@ -354,7 +359,7 @@ impl NetworkHandle {
             request_tx: self.request_tx.clone(),
             control_tx: self.control_tx.clone(),
             response_rx,
-            buffered: std::cell::RefCell::new(Vec::new()),
+            buffered: std::cell::RefCell::new(VecDeque::new()),
             // Siblings get fresh flag state.  Each has its own
             // response channel + cid, so the parent's unregister
             // marker is delivered only on the parent's response
@@ -483,7 +488,7 @@ impl NetworkHandle {
                 .unwrap_or_else(|| Err(format!("mock: no response for {url_str}")));
             self.buffered
                 .borrow_mut()
-                .push(NetworkToRenderer::FetchResponse(fetch_id, result));
+                .push_back(NetworkToRenderer::FetchResponse(fetch_id, result));
             return fetch_id;
         }
 
@@ -492,7 +497,7 @@ impl NetworkHandle {
         if self.check_unregistered() {
             self.buffered
                 .borrow_mut()
-                .push(NetworkToRenderer::FetchResponse(
+                .push_back(NetworkToRenderer::FetchResponse(
                     fetch_id,
                     Err("renderer unregistered".into()),
                 ));
@@ -521,7 +526,7 @@ impl NetworkHandle {
             self.outstanding_fetches.borrow_mut().remove(&fetch_id);
             self.buffered
                 .borrow_mut()
-                .push(NetworkToRenderer::FetchResponse(
+                .push_back(NetworkToRenderer::FetchResponse(
                     fetch_id,
                     Err("network process disconnected".into()),
                 ));
@@ -635,7 +640,7 @@ impl NetworkHandle {
                     // `outstanding_fetches`) and buffer for the
                     // next drain.
                     self.outstanding_fetches.borrow_mut().remove(&id);
-                    buf.push(NetworkToRenderer::FetchResponse(id, result));
+                    buf.push_back(NetworkToRenderer::FetchResponse(id, result));
                 }
                 Ok(NetworkToRenderer::RendererUnregistered) => {
                     // Broker tore us down mid-call.  Flip the
@@ -659,14 +664,14 @@ impl NetworkHandle {
                         if sid == fetch_id {
                             continue;
                         }
-                        buf.push(NetworkToRenderer::FetchResponse(
+                        buf.push_back(NetworkToRenderer::FetchResponse(
                             sid,
                             Err("renderer unregistered".into()),
                         ));
                     }
                     return Err("renderer unregistered".into());
                 }
-                Ok(other) => buf.push(other),
+                Ok(other) => buf.push_back(other),
                 Err(crossbeam_channel::RecvTimeoutError::Timeout) => {
                     self.outstanding_fetches.borrow_mut().remove(&fetch_id);
                     return Err("fetch timeout (30s)".into());
@@ -724,7 +729,7 @@ impl NetworkHandle {
         // borrow is cheaper).
         let mut buf = self.buffered.borrow_mut();
         while let Ok(evt) = self.response_rx.try_recv() {
-            self.process_response(evt, &mut |e| buf.push(e));
+            self.process_response(evt, &mut |e| buf.push_back(e));
         }
         drop(buf);
         self.unregistered.load(Ordering::Acquire)

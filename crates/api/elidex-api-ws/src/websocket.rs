@@ -120,6 +120,51 @@ pub fn is_mixed_content(origin_scheme: &str, ws_url: &url::Url) -> bool {
     origin_scheme == "https" && ws_url.scheme() == "ws"
 }
 
+/// The spec-faithful WebSocket **GC keepalive** rule (WHATWG WebSockets §7
+/// "Garbage collection") — the engine-independent half of the keepalive seam's
+/// `WebSocket` arm (the VM-side seam in `elidex-js` `vm/gc/keepalive.rs` marshals
+/// the readyState + a typed-listener closure and calls this).
+///
+/// Per §7 a `WebSocket` must be kept alive while:
+/// - readyState is **CONNECTING** and it has a listener for
+///   `open`/`message`/`error`/`close`; or
+/// - readyState is **OPEN** and it has a listener for `message`/`error`/`close`; or
+/// - readyState is **CLOSING** and it has a listener for `error`/`close`.
+///
+/// This is a **pure readyState-tier check**. §7's fourth (no-listener) clause —
+/// "an established connection that has **data queued to be transmitted** to the
+/// network must not be garbage collected" — is an **OUTBOUND** clause and is
+/// **OMITTED as vacuous in elidex**: once `send()` emits, the outbound bytes are
+/// **broker-owned FIFO** (they transmit ahead of any GC-emitted `WebSocketClose`
+/// regardless of whether the wrapper survives — WebSockets §3.1 `send(data)`,
+/// `#dom-websocket-send`), so keeping the wrapper alive on a `buffered_amount`
+/// input would protect nothing. Worse, `buffered_amount` is incremented
+/// **unconditionally** (including CLOSING/CLOSED sends that never transmit and
+/// never clear), so keying keepalive on it would **over-root a listener-less
+/// CLOSING socket into an indefinite leak** (Codex F1). Hence no `has_queued_data`
+/// parameter and no in-flight axis.
+///
+/// CLOSED is never kept (a closed socket can deliver nothing). GC-while-open ⇒
+/// start the closing handshake — the seam's force-close *else* branch for a
+/// connection this rule does NOT keep.
+///
+/// `has_listener(event_type)` reports whether the socket has a live listener (an
+/// `addEventListener` registration **or** a live `on<type>` handler) for the
+/// given event type — supplied by the engine seam over its listener store; this
+/// rule owns only *which* types §7 keeps alive per readyState.
+pub fn ws_keepalive(state: WsReadyState, has_listener: impl Fn(&str) -> bool) -> bool {
+    match state {
+        WsReadyState::Connecting => ["open", "message", "error", "close"]
+            .iter()
+            .any(|&t| has_listener(t)),
+        WsReadyState::Open => ["message", "error", "close"]
+            .iter()
+            .any(|&t| has_listener(t)),
+        WsReadyState::Closing => ["error", "close"].iter().any(|&t| has_listener(t)),
+        WsReadyState::Closed => false,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -222,5 +267,56 @@ mod tests {
         assert!(is_mixed_content("https", &ws));
         assert!(!is_mixed_content("https", &wss));
         assert!(!is_mixed_content("http", &ws));
+    }
+
+    #[test]
+    fn ws_keepalive_connecting_tier() {
+        // §7: CONNECTING keeps for open / message / error / close.
+        for t in ["open", "message", "error", "close"] {
+            assert!(
+                ws_keepalive(WsReadyState::Connecting, |e| e == t),
+                "CONNECTING + {t} listener must keep alive"
+            );
+        }
+        assert!(!ws_keepalive(WsReadyState::Connecting, |e| e == "bogus"));
+        assert!(!ws_keepalive(WsReadyState::Connecting, |_| false));
+    }
+
+    #[test]
+    fn ws_keepalive_open_tier() {
+        // §7: OPEN keeps for message / error / close only.
+        for t in ["message", "error", "close"] {
+            assert!(
+                ws_keepalive(WsReadyState::Open, |e| e == t),
+                "OPEN + {t} listener must keep alive"
+            );
+        }
+        // `open` is NOT in the OPEN tier (proves tiered, not any-listener).
+        assert!(!ws_keepalive(WsReadyState::Open, |e| e == "open"));
+        assert!(!ws_keepalive(WsReadyState::Open, |_| false));
+    }
+
+    #[test]
+    fn ws_keepalive_closing_tier() {
+        // §7: CLOSING keeps for error / close only.
+        for t in ["error", "close"] {
+            assert!(
+                ws_keepalive(WsReadyState::Closing, |e| e == t),
+                "CLOSING + {t} listener must keep alive"
+            );
+        }
+        // `open` / `message` are NOT in the CLOSING tier.
+        assert!(!ws_keepalive(WsReadyState::Closing, |e| e == "open"));
+        assert!(!ws_keepalive(WsReadyState::Closing, |e| e == "message"));
+        // A listener-less CLOSING socket is collectible — the §7 data-queued
+        // clause is OMITTED (no `buffered_amount` over-root, the F1 guard at the
+        // unit level).
+        assert!(!ws_keepalive(WsReadyState::Closing, |_| false));
+    }
+
+    #[test]
+    fn ws_keepalive_closed_never() {
+        // CLOSED is never kept — not by any listener.
+        assert!(!ws_keepalive(WsReadyState::Closed, |_| true));
     }
 }

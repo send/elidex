@@ -15,6 +15,8 @@
 //! pre-`drain_fetch_responses_only` pattern; retained for direct
 //! embedders who push events back themselves.
 
+use std::collections::VecDeque;
+
 use super::{FetchId, NetworkHandle, NetworkToRenderer, Response};
 
 impl NetworkHandle {
@@ -120,7 +122,9 @@ impl NetworkHandle {
         // this drain's own buffer borrow.
         let prior: Vec<NetworkToRenderer> = self.buffered.borrow_mut().drain(..).collect();
         let mut fetches: Vec<(FetchId, Result<Response, String>)> = Vec::with_capacity(prior.len());
-        let mut kept: Vec<NetworkToRenderer> = Vec::with_capacity(prior.len());
+        // `kept` is a `VecDeque` so it can be assigned back to the
+        // `buffered` field directly (R5-F2 — front-pop is O(1)).
+        let mut kept: VecDeque<NetworkToRenderer> = VecDeque::with_capacity(prior.len());
         // Scope the partition closure so its mutable borrows on
         // `fetches` / `kept` are released before we re-acquire
         // `self.buffered` below — without the scope, those
@@ -128,7 +132,7 @@ impl NetworkHandle {
         {
             let mut emit = |evt: NetworkToRenderer| match evt {
                 NetworkToRenderer::FetchResponse(id, result) => fetches.push((id, result)),
-                other => kept.push(other),
+                other => kept.push_back(other),
             };
             for evt in prior {
                 self.process_response(evt, &mut emit);
@@ -139,6 +143,143 @@ impl NetworkHandle {
         }
         *self.buffered.borrow_mut() = kept;
         fetches
+    }
+
+    /// Drain the response channel into `buffered`, routing each event
+    /// through `process_response` (marker consume / straggler
+    /// synthesis).  Buffered events already precede channel arrivals,
+    /// so appending settled channel events keeps them exactly where an
+    /// unfiltered drain would place them — arrival order is preserved.
+    ///
+    /// Shared prologue of [`Self::has_pending_event_for_conn`] (the
+    /// count-bounded batch pop [`Self::pop_buffered_front`] is
+    /// buffered-only and does NOT settle): the peek must see the FULL
+    /// inbound pipeline (channel + buffer), not just already-buffered
+    /// events — else a GC / peek between an arrival and the first drain
+    /// misses a channel-pending event (Codex R2a).  The drain methods
+    /// ([`Self::drain_events`] / [`Self::drain_fetch_responses_only`])
+    /// keep their own inline settle: they interleave the channel drain
+    /// with a partition/collect step and have a different shape.
+    fn settle_channel_into_buffer(&self) {
+        let mut newly: Vec<NetworkToRenderer> = Vec::new();
+        while let Ok(evt) = self.response_rx.try_recv() {
+            self.process_response(evt, &mut |e| newly.push(e));
+        }
+        if !newly.is_empty() {
+            self.buffered.borrow_mut().extend(newly);
+        }
+    }
+
+    /// Number of events currently in the internal buffer — the finite
+    /// realtime batch size for the elidex-js VM's `tick_network`
+    /// count-bounded drain.  Snapshotted AFTER
+    /// [`Self::drain_fetch_responses_only`] (which drains `response_rx`
+    /// into `buffered`, fetch replies partitioned out) so it counts
+    /// exactly the WS/SSE events settled for THIS tick; the VM then pops
+    /// that many via [`Self::pop_buffered_front`], leaving any mid-loop
+    /// arrival (channel or a GC-time `has_pending_event_for_conn` settle,
+    /// both of which land at the BACK) for the next tick.
+    #[must_use]
+    pub fn buffered_len(&self) -> usize {
+        self.buffered.borrow().len()
+    }
+
+    /// Pop the FRONT buffered event WITHOUT settling the channel — the
+    /// buffered-only counterpart to the drain methods'
+    /// settle-then-partition (this does NOT re-drain `response_rx`).
+    ///
+    /// The elidex-js VM's `tick_network` drives the realtime dispatch
+    /// loop as a COUNT-BOUNDED batch: it takes `batch =`
+    /// [`buffered_len`](Self::buffered_len) once (after
+    /// [`Self::drain_fetch_responses_only`] settled the channel) and calls
+    /// this exactly `batch` times.  Because this does NOT re-drain
+    /// `response_rx`, an event arriving mid-loop — whether pushed to the
+    /// channel by the network thread or moved into `buffered` by a
+    /// GC-time [`Self::has_pending_event_for_conn`] settle (which
+    /// `.extend`s the BACK) — lands past the batch boundary and is NOT
+    /// dispatched this tick; the next tick's `drain_fetch_responses_only`
+    /// handles it.  That hard-bounds the realtime tick under a busy stream
+    /// (Codex R4 F1: the old whole-buffer `pop` re-settled the channel
+    /// every iteration and livelocked).  **Fetch-reply safety is
+    /// orthogonal**: `dispatch_realtime_event` SETTLES any `FetchResponse`
+    /// that reaches the realtime arm rather than dropping it (Codex R5-F1
+    /// Fix B), so a mid-loop fetch reply is never leaked regardless of
+    /// which GC window (past-batch or in-batch) settled it into `buffered`.
+    /// The count bound's role here is purely the F1 realtime tick-bound —
+    /// it no longer carries the fetch-reply-safety guarantee the R4 fix
+    /// once rested on it (the realtime arm dropped fetch replies then →
+    /// Promise leak; settle-not-drop closed that).
+    ///
+    /// The un-popped tail stays in `buffered`, so a sibling
+    /// [`Self::has_pending_event_for_conn`] scan during the dispatch of an
+    /// earlier batch event still sees the not-yet-popped events for every
+    /// conn (Codex R3 finding 3 sibling-conn keepalive).
+    ///
+    /// Routes the popped event through `process_response` for the
+    /// raw-buffered-`FetchResponse` `outstanding_fetches` bookkeeping and
+    /// asserts the marker-free `buffered` invariant, identical to the
+    /// old whole-buffer pop's post-pop step — only the settle prologue is
+    /// dropped.
+    /// Returns `None` when `buffered` is empty (regardless of any
+    /// channel-pending events — this is buffered-only by design).
+    ///
+    /// Front-pop is O(1): `buffered` is a `VecDeque` (Codex R5-F2), so a
+    /// full `batch`-length realtime drain is O(n) not the O(n²) a `Vec`
+    /// `remove(0)` per pop would cost on a busy WS/SSE stream.
+    /// Single-threaded content-thread borrows only.
+    #[must_use]
+    pub fn pop_buffered_front(&self) -> Option<NetworkToRenderer> {
+        let front = self.buffered.borrow_mut().pop_front()?;
+        let mut emitted: Vec<NetworkToRenderer> = Vec::new();
+        self.process_response(front, &mut |e| emitted.push(e));
+        debug_assert_eq!(
+            emitted.len(),
+            1,
+            "pop_buffered_front: front-of-buffer event must emit exactly one event — \
+             `buffered` must never hold a RendererUnregistered marker \
+             (markers are consumed at settle time)",
+        );
+        emitted.into_iter().next()
+    }
+
+    /// Peek: is there an [`NetworkToRenderer::EventSourceEvent`] pending for
+    /// `conn_id` anywhere in the inbound pipeline (channel + buffer), awaiting a
+    /// later [`Self::drain_events`]?
+    ///
+    /// The elidex-js VM's GC keepalive seam calls this to derive the HTML §9.2.9
+    /// "task queued on the remote event task source" clause: an inbound SSE event
+    /// buffers here **between** [`Self::drain_fetch_responses_only`] and
+    /// [`Self::drain_events`], and an allocation-triggered GC in that window must
+    /// keep the target `EventSource` wrapper alive so the buffered event can still
+    /// be routed (else it is silently dropped via a reverse-map miss, Codex F3).
+    ///
+    /// This **settles the channel into the buffer** (same `process_response`
+    /// routing a drain uses) then scans `buffered` — it is NOT non-draining. An
+    /// inbound `EventSourceEvent` can still sit in `response_rx` (not yet moved to
+    /// `buffered`) at GC time — e.g. a GC firing between arrival and the very
+    /// first drain — so a scan of `buffered` alone would miss it and the peek
+    /// would report "no queued task" for a conn that in fact has one (Codex R2a,
+    /// F3 silent-drop one layer up). Draining the channel into `buffered` here is
+    /// safe for arrival order and fetch settlement because the drain methods
+    /// ([`Self::drain_events`] / [`Self::drain_fetch_responses_only`]) process the
+    /// buffer *before* the channel: moving channel-pending events to the buffer
+    /// early keeps them ahead of any later channel arrivals, exactly where an
+    /// unfiltered drain would have placed them. Markers / stragglers are handled
+    /// identically to a drain because the same `process_response` routing runs.
+    /// Single-threaded content-thread borrows only.
+    #[must_use]
+    pub fn has_pending_event_for_conn(&self, conn_id: u64) -> bool {
+        // Settle any channel-pending events into `buffered` (via `process_response`,
+        // identical to the drain methods' channel handling) so the scan sees the FULL
+        // inbound pipeline (channel + buffer), not just already-buffered events — else a
+        // GC between arrival and the first drain misses a channel-pending event (Codex
+        // R2a). A later `drain_events` / `drain_fetch_responses_only` processes `prior`
+        // (buffered) first, so this early move preserves arrival order and fetch settlement.
+        self.settle_channel_into_buffer();
+        self.buffered
+            .borrow()
+            .iter()
+            .any(|evt| matches!(evt, NetworkToRenderer::EventSourceEvent(id, _) if *id == conn_id))
     }
 
     /// Push events back onto the internal buffer so the next
@@ -161,7 +302,14 @@ impl NetworkHandle {
         let mut buf = self.buffered.borrow_mut();
         // Re-buffered events come before anything arriving on the
         // channel since `drain_events` reads `buffered` first.
-        buf.splice(0..0, events);
+        // `VecDeque` has no `splice`; append-then-rotate front-inserts
+        // `events` preserving their relative order (`extend` pushes to
+        // the BACK, `rotate_right(n)` moves the tail-n to the FRONT).
+        // Test-only helper (no production caller), so the rotate cost
+        // is irrelevant (Codex R5-F2).
+        let n = events.len();
+        buf.extend(events);
+        buf.rotate_right(n);
     }
 }
 
@@ -188,7 +336,7 @@ mod tests {
             request_tx,
             control_tx,
             response_rx,
-            buffered: std::cell::RefCell::new(Vec::new()),
+            buffered: std::cell::RefCell::new(VecDeque::new()),
             unregistered: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
             outstanding_fetches: std::cell::RefCell::new(std::collections::HashSet::new()),
             #[cfg(feature = "test-hooks")]
@@ -339,6 +487,74 @@ mod tests {
     }
 
     #[test]
+    fn has_pending_event_for_conn_matches_only_buffered_sse_for_that_conn() {
+        let renderer = NetworkHandle::disconnected();
+        // No buffered events → no pending event for any conn.
+        assert!(!renderer.has_pending_event_for_conn(7));
+
+        renderer.rebuffer_events(vec![
+            NetworkToRenderer::WebSocketEvent(7, crate::ws::WsEvent::TextMessage("ws".into())),
+            NetworkToRenderer::EventSourceEvent(
+                7,
+                crate::sse::SseEvent::Event {
+                    event_type: "foo".into(),
+                    data: "hi".into(),
+                    last_event_id: String::new(),
+                },
+            ),
+        ]);
+        // Matches the SSE event for conn 7 (NOT the WS event, NOT another conn).
+        assert!(renderer.has_pending_event_for_conn(7));
+        assert!(!renderer.has_pending_event_for_conn(9));
+
+        // The peek settles the channel into the buffer but leaves the already-
+        // buffered events intact (no channel here → nothing moves), so a repeat
+        // peek still reports the same and the later drain still returns both.
+        assert!(renderer.has_pending_event_for_conn(7));
+        let drained = renderer.drain_events();
+        assert_eq!(drained.len(), 2);
+        // Drained → no longer pending.
+        assert!(!renderer.has_pending_event_for_conn(7));
+    }
+
+    #[test]
+    fn has_pending_event_for_conn_sees_channel_pending_sse_before_first_drain() {
+        // Codex R2a: an inbound `EventSourceEvent` sitting in `response_rx` (not
+        // yet moved to `buffered`) — e.g. a GC firing between arrival and the very
+        // first drain — MUST be visible to the peek, else the §9.2.9 task-queued
+        // clause reports "no queued task" for a conn that has one → F3 silent
+        // drop. The peek settles the channel into the buffer (same
+        // `process_response` routing a drain uses), so it covers the full inbound
+        // pipeline (channel + buffer), not just already-buffered events.
+        let (renderer, response_tx) = handle_with_injectable_channel();
+        // Nothing buffered yet; the event lives only on the channel.
+        response_tx
+            .send(NetworkToRenderer::EventSourceEvent(
+                11,
+                crate::sse::SseEvent::Event {
+                    event_type: "foo".into(),
+                    data: "hi".into(),
+                    last_event_id: String::new(),
+                },
+            ))
+            .unwrap();
+        // A buffered-only scan would miss this; the peek settles the channel first.
+        assert!(
+            renderer.has_pending_event_for_conn(11),
+            "a channel-pending SSE event must be seen by the peek (R2a)",
+        );
+        // Wrong conn still doesn't match, and the settle didn't drop the event:
+        // a subsequent `drain_events` still delivers it.
+        assert!(!renderer.has_pending_event_for_conn(9));
+        let drained = renderer.drain_events();
+        assert_eq!(drained.len(), 1);
+        assert!(matches!(
+            drained[0],
+            NetworkToRenderer::EventSourceEvent(11, _)
+        ));
+    }
+
+    #[test]
     fn drain_fetch_responses_only_keeps_buffered_non_fetch_before_channel_non_fetch() {
         // Sibling guarantee for the non-fetch side: the relative
         // order of *non-fetch* events across (prior buffer, channel
@@ -378,5 +594,263 @@ mod tests {
             }
             other => panic!("expected WS('arrival'), got {other:?}"),
         }
+    }
+
+    fn sse_event(conn: u64, data: &str) -> NetworkToRenderer {
+        NetworkToRenderer::EventSourceEvent(
+            conn,
+            crate::sse::SseEvent::Event {
+                event_type: "message".into(),
+                data: data.into(),
+                last_event_id: String::new(),
+            },
+        )
+    }
+
+    fn ws_text(conn: u64, txt: &str) -> NetworkToRenderer {
+        NetworkToRenderer::WebSocketEvent(conn, crate::ws::WsEvent::TextMessage(txt.into()))
+    }
+
+    #[test]
+    fn pop_buffered_front_returns_front_leaving_tail_buffered() {
+        // The count-bounded batch drain's per-event step (the elidex-js VM's
+        // `tick_network` loop, Codex R3 finding 3): each `pop_buffered_front`
+        // returns the FRONT event and leaves the rest in the buffer, so a
+        // `has_pending_event_for_conn` scan between pops still sees the
+        // not-yet-pulled events for every conn.
+        let renderer = NetworkHandle::disconnected();
+        renderer.rebuffer_events(vec![
+            sse_event(0, "a"),
+            sse_event(1, "b"),
+            sse_event(0, "c"),
+        ]);
+        assert_eq!(renderer.buffered_len(), 3);
+
+        // Before pulling: both conns show pending.
+        assert!(renderer.has_pending_event_for_conn(0));
+        assert!(renderer.has_pending_event_for_conn(1));
+
+        // Pop #1 (conn 0 "a"); conn 1's event is still buffered.
+        let e0 = renderer.pop_buffered_front().expect("event 1");
+        assert!(matches!(e0, NetworkToRenderer::EventSourceEvent(0, _)));
+        assert!(
+            renderer.has_pending_event_for_conn(1),
+            "sibling conn 1's event must remain buffered while conn 0's dispatches (R3)",
+        );
+
+        // Pop #2 (conn 1 "b").
+        let e1 = renderer.pop_buffered_front().expect("event 2");
+        assert!(matches!(e1, NetworkToRenderer::EventSourceEvent(1, _)));
+
+        // Pop #3 (conn 0 "c").
+        let e2 = renderer.pop_buffered_front().expect("event 3");
+        assert!(matches!(e2, NetworkToRenderer::EventSourceEvent(0, _)));
+
+        // Drained.
+        assert!(renderer.pop_buffered_front().is_none());
+        assert!(!renderer.has_pending_event_for_conn(0));
+        assert!(!renderer.has_pending_event_for_conn(1));
+    }
+
+    #[test]
+    fn pop_buffered_front_does_not_settle_channel() {
+        // Buffered-only guard (Codex R4): a channel-pending event (not yet in
+        // `buffered`) is NOT visible to `pop_buffered_front` — it does NOT settle
+        // the channel, so the front pop of an empty buffer returns `None` even
+        // though the channel holds an event.  That event is still recoverable via
+        // a subsequent drain (nothing was dropped).
+        let (renderer, response_tx) = handle_with_injectable_channel();
+        response_tx.send(sse_event(3, "x")).unwrap();
+        // Buffer empty, channel NOT settled — the no-settle guard.
+        assert!(
+            renderer.pop_buffered_front().is_none(),
+            "pop_buffered_front must NOT settle the channel (buffered-only)",
+        );
+        // The event is still recoverable: a real drain settles and returns it.
+        let drained = renderer.drain_events();
+        assert_eq!(drained.len(), 1);
+        assert!(matches!(
+            drained[0],
+            NetworkToRenderer::EventSourceEvent(3, _)
+        ));
+    }
+
+    #[test]
+    fn pop_buffered_front_bookkeeps_raw_buffered_fetchresponse() {
+        // A `FetchResponse` sitting directly in `buffered` (raw-buffered, not
+        // arriving via the channel) still needs its `outstanding_fetches` id
+        // removed when popped — `pop_buffered_front` routes the popped event
+        // through `process_response` for exactly that bookkeeping (mirrors the
+        // old marker test's bookkeeping intent, minus the marker — markers are
+        // never buffered).
+        let renderer = NetworkHandle::disconnected();
+        let fid = FetchId::next();
+        renderer.outstanding_fetches.borrow_mut().insert(fid);
+        renderer.rebuffer_events(vec![NetworkToRenderer::FetchResponse(
+            fid,
+            Ok(ok_response()),
+        )]);
+
+        let ev = renderer
+            .pop_buffered_front()
+            .expect("raw-buffered FetchResponse popped");
+        match ev {
+            NetworkToRenderer::FetchResponse(id, Ok(_)) => assert_eq!(id, fid),
+            other => panic!("expected FetchResponse, got {other:?}"),
+        }
+        assert!(
+            !renderer.outstanding_fetches.borrow().contains(&fid),
+            "popping a raw-buffered FetchResponse must remove its outstanding_fetches id",
+        );
+    }
+
+    #[test]
+    fn count_bounded_batch_leaves_mid_loop_channel_arrival_for_next_tick() {
+        // Codex R4 F1 (hard-bound the tick) at broker level: the VM's
+        // `tick_network` runs a COUNT-BOUNDED batch — snapshot `batch =
+        // buffered_len()` after the fetch drain, then pop exactly `batch` events
+        // buffered-only.  A mid-loop channel arrival lands PAST the batch
+        // boundary and is NOT consumed this tick (the old whole-buffer pop
+        // re-settled the channel every iteration and livelocked under a busy
+        // stream).  The arrival is recovered by the next tick's drain.
+        let (renderer, response_tx) = handle_with_injectable_channel();
+        renderer.rebuffer_events(vec![ws_text(1, "w1"), ws_text(1, "w2")]);
+        let batch = renderer.buffered_len();
+        assert_eq!(batch, 2);
+
+        // Simulate a mid-loop network-thread arrival on the channel.
+        response_tx.send(ws_text(1, "w3")).unwrap();
+
+        // The count-bounded loop: exactly `batch` pops, buffered-only.
+        let mut dispatched: Vec<NetworkToRenderer> = Vec::new();
+        let mut iters = 0;
+        for _ in 0..batch {
+            iters += 1;
+            let Some(ev) = renderer.pop_buffered_front() else {
+                break;
+            };
+            dispatched.push(ev);
+        }
+        assert_eq!(iters, batch, "the loop ran exactly `batch` times");
+        assert_eq!(dispatched.len(), 2);
+        let texts: Vec<String> = dispatched
+            .iter()
+            .map(|e| match e {
+                NetworkToRenderer::WebSocketEvent(_, crate::ws::WsEvent::TextMessage(s)) => {
+                    s.clone()
+                }
+                other => panic!("expected WS text, got {other:?}"),
+            })
+            .collect();
+        assert_eq!(texts, vec!["w1".to_string(), "w2".to_string()]);
+        assert!(
+            !texts.iter().any(|t| t == "w3"),
+            "the mid-loop arrival must NOT be consumed by this batch (hard bound)",
+        );
+
+        // Next tick: the drain settles the channel and recovers "w3".
+        let next = renderer.drain_events();
+        assert_eq!(next.len(), 1);
+        match &next[0] {
+            NetworkToRenderer::WebSocketEvent(_, crate::ws::WsEvent::TextMessage(s)) => {
+                assert_eq!(s, "w3");
+            }
+            other => panic!("expected WS('w3') next tick, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn count_bounded_batch_does_not_drop_mid_loop_fetch_reply() {
+        // Codex R4 F2 (fetch reply not pulled into the realtime batch) at broker
+        // level: a `FetchResponse` arriving mid-callback (on the channel, after
+        // the fetch drain ran this tick) must NOT be pulled into the realtime
+        // batch — the old per-iteration settle pulled it into `buffered`, cleared
+        // its `outstanding_fetches` id, and the realtime arm then dropped it →
+        // Promise leak.  Count-bounded buffered-only pops leave it in
+        // `response_rx` for the next tick's `drain_fetch_responses_only`.  (The
+        // arm-level safety net is now settle-not-drop — Codex R5-F1 Fix B — so a
+        // reply that DID reach the arm would be settled anyway; this test pins the
+        // complementary guarantee that the count bound keeps it off the realtime
+        // path in the first place.)
+        let (renderer, response_tx) = handle_with_injectable_channel();
+        renderer.rebuffer_events(vec![ws_text(1, "w1")]);
+        let batch = renderer.buffered_len();
+        assert_eq!(batch, 1);
+
+        // Simulate a mid-callback fetch reply on the channel.
+        let fid = FetchId::next();
+        response_tx
+            .send(NetworkToRenderer::FetchResponse(fid, Ok(ok_response())))
+            .unwrap();
+
+        // The count-bounded loop dispatches only the buffered WS event.
+        let mut dispatched: Vec<NetworkToRenderer> = Vec::new();
+        for _ in 0..batch {
+            let Some(ev) = renderer.pop_buffered_front() else {
+                break;
+            };
+            dispatched.push(ev);
+        }
+        assert_eq!(dispatched.len(), 1);
+        assert!(
+            matches!(
+                dispatched[0],
+                NetworkToRenderer::WebSocketEvent(1, crate::ws::WsEvent::TextMessage(_))
+            ),
+            "only the buffered WS event is dispatched this batch",
+        );
+
+        // The fetch reply is recovered — settle-able next tick, NOT dropped.
+        let fetches = renderer.drain_fetch_responses_only();
+        let ids: Vec<FetchId> = fetches.iter().map(|(id, _)| *id).collect();
+        assert_eq!(ids, vec![fid]);
+        assert!(fetches[0].1.is_ok());
+    }
+
+    #[test]
+    fn count_bounded_batch_does_not_drop_gc_settled_fetch_reply() {
+        // Codex R4 F2 GC-settle residual — the path the count bound closes but the
+        // pure-channel F2 test (`count_bounded_batch_does_not_drop_mid_loop_fetch_reply`)
+        // does NOT exercise. During batch dispatch a GC fires and
+        // `has_pending_event_for_conn` runs `settle_channel_into_buffer`, appending a
+        // mid-callback FetchResponse to the BACK of `buffered` (past the batch
+        // boundary snapshotted before the loop). The count bound must NOT pop it this
+        // tick; the next tick's `drain_fetch_responses_only` recovers + settles it.
+        let (renderer, response_tx) = handle_with_injectable_channel();
+        renderer.rebuffer_events(vec![ws_text(1, "w1"), ws_text(1, "w2")]);
+        let batch = renderer.buffered_len();
+        assert_eq!(batch, 2);
+
+        let mut dispatched: Vec<NetworkToRenderer> = Vec::new();
+        for i in 0..batch {
+            let Some(ev) = renderer.pop_buffered_front() else {
+                break;
+            };
+            dispatched.push(ev);
+            if i == 0 {
+                // Simulate a GC firing during dispatch of event 0: a mid-callback
+                // FetchResponse arrives on the channel and a keepalive peek
+                // (`has_pending_event_for_conn`) settles it into `buffered`'s BACK.
+                let fid = FetchId::next();
+                response_tx
+                    .send(NetworkToRenderer::FetchResponse(fid, Ok(ok_response())))
+                    .unwrap();
+                let _ = renderer.has_pending_event_for_conn(999);
+                // `buffered` is now [w2, FetchResponse(fid)] — the FetchResponse is
+                // past the batch boundary (index 1 >= remaining batch slots).
+            }
+        }
+        // Only the two batched WS events were dispatched — the GC-settled
+        // FetchResponse was NOT popped by the count-bounded loop.
+        assert_eq!(dispatched.len(), 2);
+        assert!(dispatched
+            .iter()
+            .all(|e| matches!(e, NetworkToRenderer::WebSocketEvent(..))));
+
+        // The GC-settled FetchResponse is recovered next tick, NOT dropped.
+        let fetches = renderer.drain_fetch_responses_only();
+        let ids: Vec<FetchId> = fetches.iter().map(|(id, _)| *id).collect();
+        assert_eq!(ids.len(), 1);
+        assert!(fetches[0].1.is_ok());
     }
 }

@@ -43,7 +43,8 @@ use super::event_target_dispatch_vm::{
 
 /// Handle `WsEvent::Connected { protocol, extensions }`.
 ///
-/// Order per WHATWG §9.3 "the WebSocket connection is established"
+/// Order per WebSockets Standard §4 (Feedback from the protocol),
+/// "When the WebSocket connection is established"
 /// (step 3 onwards): transition state → populate negotiated fields →
 /// fire `Event("open")` via cached `onopen`.  Handlers observe the
 /// post-transition state when they re-enter via `this.readyState`
@@ -85,7 +86,8 @@ pub(super) fn dispatch_ws_connected(
 
 /// Handle `WsEvent::Closed { code, reason, was_clean }`.
 ///
-/// Order per WHATWG §9.3 close algorithm: transition state → fire
+/// Order per WebSockets Standard §4 (Feedback from the protocol),
+/// "When the WebSocket connection is closed": transition state → fire
 /// `CloseEvent("close", {code, reason, wasClean})` via cached
 /// `onclose`.  Idempotent if the side-table already moved past
 /// CLOSED (e.g. unbind / GC sweep raced).
@@ -121,8 +123,8 @@ pub(super) fn dispatch_ws_closed(
 ///
 /// Fires `MessageEvent("message", { data: s, origin, lastEventId:
 /// "", source: null, ports: [] })` through the cached `onmessage`
-/// handler.  `origin` is the **WebSocket URL's** origin (per WHATWG
-/// §9.3.7), NOT the page origin — read from the side-table's
+/// handler.  `origin` is the **WebSocket URL's** origin (per WebSockets
+/// Standard §4, Feedback from the protocol), NOT the page origin — read from the side-table's
 /// pre-interned `origin_sid` (computed once at ctor time, no
 /// per-dispatch URL parse).  No state transition.
 pub(super) fn dispatch_ws_text_message(ctx: &mut NativeContext<'_>, instance: ObjectId, s: &str) {
@@ -150,9 +152,10 @@ pub(super) fn dispatch_ws_text_message(ctx: &mut NativeContext<'_>, instance: Ob
 
 /// Handle `WsEvent::BinaryMessage(bytes)`.
 ///
-/// `data` is allocated as a `Blob` (with empty MIME per WHATWG
-/// §9.3.7 "if type is Binary and binaryType is 'blob', … type
-/// attribute set to the empty string") when `binaryType === "blob"`,
+/// `data` is allocated as a `Blob` (with empty MIME per WebSockets
+/// Standard §4, Feedback from the protocol: "type indicates that the
+/// data is Binary and binary type is 'blob' … a new Blob object")
+/// when `binaryType === "blob"`,
 /// or as a fresh `ArrayBuffer` when `binaryType === "arraybuffer"`.  The
 /// allocation is deferred into `fire_vm_message_event`'s `build_data`
 /// thunk, which runs it only past the lazy-alloc gate — so a socket with
@@ -201,7 +204,8 @@ pub(super) fn dispatch_ws_binary_message(
 /// Handle `WsEvent::Error(_)`.
 ///
 /// Fires a plain `Event("error")` through the cached `onerror`
-/// handler.  Per WHATWG §9.3.7 the WebSocket `"error"` event is a
+/// handler.  Per WebSockets Standard §4 (Feedback from the protocol)
+/// the WebSocket `"error"` event is a
 /// plain `Event`, NOT an `ErrorEvent` (no message / filename /
 /// lineno).  Discarding the broker's error string here is correct
 /// per spec — the script-visible surface is intentionally opaque to
@@ -219,7 +223,8 @@ pub(super) fn dispatch_ws_error(ctx: &mut NativeContext<'_>, instance: ObjectId)
 /// broker's reported bytes-flushed count.  Saturating arithmetic
 /// guards against the broker over-reporting (e.g. due to internal
 /// re-fragmentation accounting that diverges from the JS-visible
-/// `saturating_add` in `send()`).  No event fires per WHATWG §9.3
+/// `saturating_add` in `send()`).  No event fires per WebSockets
+/// Standard §3 (The WebSocket interface)
 /// — `bufferedAmount` is a pull-only observable.
 pub(super) fn dispatch_ws_bytes_sent(ctx: &mut NativeContext<'_>, instance: ObjectId, n: u64) {
     let Some(hd) = ctx.vm.host_data.as_deref_mut() else {

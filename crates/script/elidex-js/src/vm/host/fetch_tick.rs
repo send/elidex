@@ -4,11 +4,18 @@
 //! PR5-async-fetch lifecycle:
 //!
 //! - [`VmInner::tick_network`] — public-facing per-tick drain entry.
-//!   Pulls only fetch replies via
+//!   Pulls fetch replies via
 //!   [`elidex_net::broker::NetworkHandle::drain_fetch_responses_only`]
-//!   so WS/SSE events stay in the broker handle's internal buffer
-//!   for a sibling consumer's later `drain_events`.  Always runs
-//!   the post-tick microtask checkpoint, even when no handle is
+//!   (which settles `response_rx` into the handle's internal buffer,
+//!   fetch replies partitioned out), then consumes the realtime WS/SSE
+//!   batch itself as a COUNT-BOUNDED drain — snapshot
+//!   [`buffered_len`](elidex_net::broker::NetworkHandle::buffered_len)
+//!   once and pop exactly that many via
+//!   [`pop_buffered_front`](elidex_net::broker::NetworkHandle::pop_buffered_front)
+//!   (Codex R4: hard-bounds the tick against a busy-stream livelock;
+//!   a fetch reply that reaches the realtime arm is SETTLED there, not
+//!   dropped — Codex R5-F1, see `dispatch_realtime_event`).  Always
+//!   runs the post-tick microtask checkpoint, even when no handle is
 //!   installed (R4.1).
 //! - [`VmInner::settle_fetch`] — private helper that settles a single
 //!   pending Promise from a `FetchResponse(id, result)` event,
@@ -27,7 +34,7 @@
 
 use elidex_net::broker::FetchId;
 
-use super::super::value::{JsValue, ObjectId, VmError};
+use super::super::value::{JsValue, NativeContext, ObjectId, VmError};
 use super::super::VmInner;
 use super::blob::{reject_promise_sync, resolve_promise_sync};
 use super::cors::{classify_response_type, CorsOutcome};
@@ -42,12 +49,22 @@ impl VmInner {
     ///
     /// Uses
     /// [`elidex_net::broker::NetworkHandle::drain_fetch_responses_only`]
-    /// so any WS/SSE events on the handle stay in its internal
-    /// buffer for a sibling consumer (e.g. the boa-side realtime
-    /// bridge during the boa→VM cutover) to drain on its own
-    /// schedule.  Non-fetch event ordering across the handle is
-    /// preserved by the broker API — see that method's doc for
-    /// the order guarantee.
+    /// to settle fetch replies (it drains `response_rx` into the
+    /// handle's internal buffer and partitions the fetch replies out),
+    /// then consumes the residual WS/SSE events itself as a
+    /// COUNT-BOUNDED batch: snapshot
+    /// [`buffered_len`](elidex_net::broker::NetworkHandle::buffered_len)
+    /// once and pop exactly that many via
+    /// [`pop_buffered_front`](elidex_net::broker::NetworkHandle::pop_buffered_front)
+    /// — buffered-only, NO per-iteration channel re-settle.  That hard-
+    /// bounds the tick under a busy stream and leaves any event arriving
+    /// mid-loop (channel or GC-time settle, both landing at the BACK)
+    /// for the next tick (Codex R4 F1).  A `FetchResponse` that a GC-time
+    /// keepalive settle drags into the batch is SETTLED by
+    /// `dispatch_realtime_event`, not dropped (Codex R5-F1), so fetch-
+    /// reply safety no longer depends on the count bound.  Non-fetch
+    /// event ordering across the handle is preserved by the broker API —
+    /// see that method's doc for the order guarantee.
     ///
     /// Always runs the microtask checkpoint at the end, even when
     /// no handle is installed — `tick_network` is also a generic
@@ -75,7 +92,31 @@ impl VmInner {
             // Per-event variant dispatch lives in
             // `dispatch_realtime_event` below; this loop only
             // owns the drain + partition-by-reverse-map glue.
-            for event in handle.drain_events() {
+            //
+            // Count-bounded realtime batch (Codex R4 F1).
+            // `drain_fetch_responses_only` above already drained
+            // `response_rx` into `buffered` (fetch replies partitioned
+            // OUT), so `buffered_len()` is the finite WS/SSE snapshot
+            // for THIS tick.  Pop exactly that many from the front
+            // (buffered-only, NO per-iteration channel re-settle): the
+            // tick is HARD-bounded even under a busy stream — the old
+            // whole-buffer pop re-drained the channel every iteration
+            // and livelocked (busy-stream livelock, F1).  That is now
+            // the count bound's ONLY job: fetch-reply safety (F2 / Codex
+            // R5-F1) is handled ORTHOGONALLY by settle-instead-of-drop
+            // in `dispatch_realtime_event` — a `FetchResponse` that
+            // reaches the realtime arm (via a GC-time
+            // `has_pending_event_for_conn` keepalive settle) is now
+            // SETTLED there, not dropped, so correctness no longer rests
+            // on the count bound keeping fetch replies out of the batch.
+            // The un-popped tail stays in `buffered`, visible to a
+            // sibling `has_pending_event_for_conn` scan (Codex R3
+            // finding 3 sibling-conn keepalive).
+            let batch = handle.buffered_len();
+            for _ in 0..batch {
+                let Some(event) = handle.pop_buffered_front() else {
+                    break;
+                };
                 self.dispatch_realtime_event(event);
             }
         }
@@ -110,6 +151,27 @@ impl VmInner {
     /// up front.  Each helper takes `&mut self` and re-borrows
     /// `host_data` for its mutation (state transition, field
     /// populate) before the handler call.
+    ///
+    /// GC-safety (Codex R3): the resolved `instance` is rooted for
+    /// the whole dispatch window via
+    /// [`VmInner::push_temp_root`](super::super::VmInner::push_temp_root)
+    /// — the canonical dispatch-window rooting discipline, mirroring
+    /// the S5-3a MQL arm (`host::media_query`) and the VisualViewport
+    /// producer.  The temp-root is pushed BEFORE the per-variant
+    /// helper transitions the connection state and allocates the
+    /// event object.  Without it, an allocation-triggered GC inside
+    /// `create_fresh_event_object` (which runs after the state
+    /// transition, before the handler) could sweep the target — whose
+    /// new-state keepalive tier may exclude the listener the in-flight
+    /// task will service — and dispatch would resume into a freed
+    /// slot.  The guard pops on scope exit (panic-safe: `VmTempRoot`'s
+    /// `Drop` restores the stack even during unwinding); a re-entrant
+    /// `tick_network` from a JS callback nests naturally because each
+    /// nested dispatch pushes its own temp-root above the outer
+    /// target (`vm.stack` is a GC root and the dispatch helpers route
+    /// through the shared `fire_vm_*` / `create_fresh_event_object`
+    /// core, which restores `vm.stack` before returning, so the outer
+    /// entry survives with identity intact).
     fn dispatch_realtime_event(&mut self, event: elidex_net::broker::NetworkToRenderer) {
         use elidex_net::broker::NetworkToRenderer;
         use elidex_net::sse::SseEvent;
@@ -123,10 +185,20 @@ impl VmInner {
                 else {
                     return;
                 };
-                // The dispatch helpers UA-fire through the shared §2.9
-                // VmObject core, which needs a `NativeContext`; build one
-                // for the fire (precedent: `dispatch_file_read_task`).
-                let mut ctx = super::super::value::NativeContext::new_call(self);
+                // Root the target for the dispatch window (Codex R3)
+                // via the canonical `push_temp_root` discipline
+                // (mirrors the S5-3a MQL arm `host::media_query`): the
+                // state transition + event-object alloc below run with
+                // the target otherwise rooted only by the keepalive
+                // predicate, whose new-state tier may drop the servicing
+                // listener.  The `NativeContext` is built from the guard
+                // (which derefs to `&mut VmInner`); the dispatch helpers
+                // UA-fire through the shared §2.9 VmObject core, which
+                // needs a `NativeContext` (precedent:
+                // `dispatch_file_read_task`).  `guard` drops at the end of
+                // this arm, popping the temp-root off `vm.stack`.
+                let mut guard = self.push_temp_root(JsValue::Object(instance));
+                let mut ctx = NativeContext::new_call(&mut guard);
                 match ws_event {
                     WsEvent::Connected {
                         protocol,
@@ -154,7 +226,8 @@ impl VmInner {
                         );
                     }
                     WsEvent::Error(_msg) => {
-                        // Per WHATWG §9.3.7 the script-visible "error"
+                        // Per WebSockets Standard §4 (Feedback from the
+                        // protocol) the script-visible "error"
                         // is a plain Event with no detail — the broker
                         // message is discarded intentionally to avoid
                         // leaking server-internals through the
@@ -174,9 +247,11 @@ impl VmInner {
                 else {
                     return;
                 };
-                // The dispatch helpers UA-fire through the shared §2.9
-                // VmObject core, which needs a `NativeContext`.
-                let mut ctx = super::super::value::NativeContext::new_call(self);
+                // Root the target for the dispatch window (Codex R3)
+                // via `push_temp_root` — see the WS arm above.  `guard`
+                // drops at the end of this arm, popping the temp-root.
+                let mut guard = self.push_temp_root(JsValue::Object(instance));
+                let mut ctx = NativeContext::new_call(&mut guard);
                 match sse_event {
                     SseEvent::Connected { final_url } => {
                         super::event_source_dispatch::dispatch_sse_connected(
@@ -209,13 +284,28 @@ impl VmInner {
                     }
                 }
             }
-            // FetchResponse already drained by
-            // `drain_fetch_responses_only` above — should never
-            // appear in `drain_events`'s residual stream, but the
-            // arm is exhaustive so the broker's existing
-            // ordering invariant is the only contract this code
-            // relies on.
-            NetworkToRenderer::FetchResponse(_, _) | NetworkToRenderer::RendererUnregistered => {}
+            // A `FetchResponse` can reach the realtime path only if a GC-time
+            // `has_pending_event_for_conn` keepalive settle dragged it into
+            // `buffered` (that peek routes the whole `response_rx`, incl. fetch
+            // replies). Two windows: step-3 dispatch (past the `batch` boundary —
+            // the count bound leaves it for the next tick) and step-1 fetch
+            // settlement (in-batch, before the `buffered_len()` snapshot — latent
+            // today since that allocation runs `gc_enabled = false`, real under a
+            // future runtime relaxation). SETTLE it here rather than drop: the drop
+            // leaked the JS Promise permanently (Codex R4-F2 / R5-F1). This is
+            // window-agnostic — correctness no longer depends on the count bound
+            // keeping fetch replies out of the batch — and `settle_fetch` is
+            // idempotent on an already-settled id (`pending_fetches.remove` →
+            // `else return`), so a benign double-arrival is a no-op. Settlement only
+            // enqueues the Promise reaction (no synchronous JS), so it drains at the
+            // same end-of-`tick_network` microtask checkpoint as the normal
+            // fetch-before-realtime order — the out-of-usual-order settle is not
+            // observable.
+            NetworkToRenderer::FetchResponse(id, result) => self.settle_fetch(id, result),
+            // The `RendererUnregistered` marker is consumed at settle-time
+            // (`process_response`) and synthesised into `FetchResponse(id, Err(..))`
+            // stragglers, so a bare marker never reaches here — exhaustive no-op.
+            NetworkToRenderer::RendererUnregistered => {}
         }
     }
 
@@ -380,6 +470,96 @@ impl VmInner {
                 let reason = g.vm_error_to_thrown(&err);
                 reject_promise_sync(&mut g, promise, reason);
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::rc::Rc;
+
+    use elidex_net::broker::{NetworkHandle, NetworkToRenderer};
+    use elidex_net::{HttpVersion, Response as NetResponse};
+
+    use super::super::super::value::JsValue;
+    use super::super::super::Vm;
+
+    fn ok_response(url: &str) -> NetResponse {
+        let parsed = url::Url::parse(url).expect("valid URL");
+        NetResponse {
+            status: 200,
+            headers: vec![("content-type".to_string(), "text/plain".to_string())],
+            body: bytes::Bytes::from_static(b"ok"),
+            url: parsed.clone(),
+            version: HttpVersion::H1,
+            url_list: vec![parsed],
+            is_redirect_tainted: false,
+            credentialed_network: false,
+        }
+    }
+
+    /// Codex R5-F1 regression: a `FetchResponse` that reaches
+    /// `dispatch_realtime_event` (the realtime arm) must SETTLE its
+    /// pending Promise, not drop it.
+    ///
+    /// This exercises Fix B (settle-instead-of-drop) directly at the
+    /// arm.  The in-batch step-1 window that lets a fetch reply reach
+    /// this arm is not reachable through a full `tick_network` today
+    /// (`drain_fetch_responses_only` partitions every fetch reply out
+    /// before the batch snapshot, and the step-3 GC-settle lands past
+    /// the batch boundary — both proven by the count-bounded broker
+    /// tests in `elidex-net`), so the cleanest feasible level is a
+    /// direct call to the private `dispatch_realtime_event` with a
+    /// pending fetch registered.  If the arm dropped the reply (the
+    /// pre-fix `FetchResponse => {}`), `globalThis.r` would stay at
+    /// its initial value; a settle runs the `.then` reaction.
+    #[test]
+    fn realtime_arm_settles_fetch_response_instead_of_dropping() {
+        let mut vm = Vm::new();
+        // Same-origin so the fetch classifies as `Basic` (an opaque
+        // about:blank origin would force the cross-origin reject path).
+        vm.inner.navigation.current_url =
+            url::Url::parse("http://example.com/page").expect("valid base URL");
+        vm.install_network_handle(Rc::new(NetworkHandle::mock_with_responses(vec![])));
+        vm.eval(
+            "globalThis.r = 'untouched'; \
+             fetch('http://example.com/api').then(resp => { globalThis.r = resp.status; });",
+        )
+        .unwrap();
+
+        // Exactly one pending fetch was dispatched; grab its id.
+        assert_eq!(vm.inner.pending_fetches.len(), 1, "one pending fetch");
+        let fetch_id = *vm
+            .inner
+            .pending_fetches
+            .keys()
+            .next()
+            .expect("pending fetch id");
+
+        // Drive the reply THROUGH the realtime arm (not the fetch
+        // partition path).  Pre-fix this dropped the reply and leaked
+        // the Promise.
+        vm.inner
+            .dispatch_realtime_event(NetworkToRenderer::FetchResponse(
+                fetch_id,
+                Ok(ok_response("http://example.com/api")),
+            ));
+
+        assert_eq!(
+            vm.inner.pending_fetches.len(),
+            0,
+            "the realtime arm must settle (remove) the pending fetch, not drop it",
+        );
+
+        // Drain the queued `.then` reaction (handle-less microtask
+        // checkpoint) and confirm the Promise fulfilled with status 200.
+        vm.tick_network();
+        match vm.get_global("r") {
+            Some(JsValue::Number(n)) => assert!(
+                (n - 200.0).abs() < f64::EPSILON,
+                "Promise must fulfil to 200, got {n}",
+            ),
+            other => panic!("expected r == 200 (settled), got {other:?}"),
         }
     }
 }
