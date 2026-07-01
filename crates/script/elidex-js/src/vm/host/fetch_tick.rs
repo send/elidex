@@ -12,9 +12,11 @@
 //!   [`buffered_len`](elidex_net::broker::NetworkHandle::buffered_len)
 //!   once and pop exactly that many via
 //!   [`pop_buffered_front`](elidex_net::broker::NetworkHandle::pop_buffered_front)
-//!   (Codex R4: hard-bounds the tick and keeps a mid-callback fetch
-//!   reply out of the realtime drop path).  Always runs the post-tick
-//!   microtask checkpoint, even when no handle is installed (R4.1).
+//!   (Codex R4: hard-bounds the tick against a busy-stream livelock;
+//!   a fetch reply that reaches the realtime arm is SETTLED there, not
+//!   dropped — Codex R5-F1, see `dispatch_realtime_event`).  Always
+//!   runs the post-tick microtask checkpoint, even when no handle is
+//!   installed (R4.1).
 //! - [`VmInner::settle_fetch`] — private helper that settles a single
 //!   pending Promise from a `FetchResponse(id, result)` event,
 //!   pruning the matching back-refs / abort-observer entries.
@@ -57,9 +59,12 @@ impl VmInner {
     /// — buffered-only, NO per-iteration channel re-settle.  That hard-
     /// bounds the tick under a busy stream and leaves any event arriving
     /// mid-loop (channel or GC-time settle, both landing at the BACK)
-    /// for the next tick (Codex R4 F1/F2).  Non-fetch event ordering
-    /// across the handle is preserved by the broker API — see that
-    /// method's doc for the order guarantee.
+    /// for the next tick (Codex R4 F1).  A `FetchResponse` that a GC-time
+    /// keepalive settle drags into the batch is SETTLED by
+    /// `dispatch_realtime_event`, not dropped (Codex R5-F1), so fetch-
+    /// reply safety no longer depends on the count bound.  Non-fetch
+    /// event ordering across the handle is preserved by the broker API —
+    /// see that method's doc for the order guarantee.
     ///
     /// Always runs the microtask checkpoint at the end, even when
     /// no handle is installed — `tick_network` is also a generic
@@ -88,26 +93,22 @@ impl VmInner {
             // `dispatch_realtime_event` below; this loop only
             // owns the drain + partition-by-reverse-map glue.
             //
-            // Count-bounded realtime batch (Codex R4 F1/F2).
+            // Count-bounded realtime batch (Codex R4 F1).
             // `drain_fetch_responses_only` above already drained
             // `response_rx` into `buffered` (fetch replies partitioned
             // OUT), so `buffered_len()` is the finite WS/SSE snapshot
             // for THIS tick.  Pop exactly that many from the front
-            // (buffered-only, NO per-iteration channel re-settle):
-            //   - the tick is HARD-bounded even under a busy stream
-            //     (F1) — the old whole-buffer pop re-drained the
-            //     channel every iteration and livelocked;
-            //   - a fetch reply arriving mid-callback stays in
-            //     `response_rx` for the NEXT tick's
-            //     `drain_fetch_responses_only` (F2) — the old
-            //     per-iteration settle pulled it into `buffered`,
-            //     cleared its `outstanding_fetches` id, then the
-            //     `FetchResponse => {}` arm in `dispatch_realtime_event`
-            //     dropped it (Promise leak);
-            //   - a GC-time `has_pending_event_for_conn` settle (R2a)
-            //     `.extend`s new arrivals onto the BACK, past the batch
-            //     boundary → not dispatched this tick, so the count
-            //     bound also closes the GC-settle residual of F1/F2.
+            // (buffered-only, NO per-iteration channel re-settle): the
+            // tick is HARD-bounded even under a busy stream — the old
+            // whole-buffer pop re-drained the channel every iteration
+            // and livelocked (busy-stream livelock, F1).  That is now
+            // the count bound's ONLY job: fetch-reply safety (F2 / Codex
+            // R5-F1) is handled ORTHOGONALLY by settle-instead-of-drop
+            // in `dispatch_realtime_event` — a `FetchResponse` that
+            // reaches the realtime arm (via a GC-time
+            // `has_pending_event_for_conn` keepalive settle) is now
+            // SETTLED there, not dropped, so correctness no longer rests
+            // on the count bound keeping fetch replies out of the batch.
             // The un-popped tail stays in `buffered`, visible to a
             // sibling `has_pending_event_for_conn` scan (Codex R3
             // finding 3 sibling-conn keepalive).
@@ -283,36 +284,28 @@ impl VmInner {
                     }
                 }
             }
-            // FetchResponse / RendererUnregistered can never reach
-            // the count-bounded realtime batch: `tick_network` snapshots
-            // `buffered_len()` AFTER `drain_fetch_responses_only` has
-            // partitioned every fetch reply out and consumed the
-            // `RendererUnregistered` marker (Codex R4 F2 — the old
-            // per-iteration settle could pull a mid-callback FetchResponse
-            // in here and this drop leaked its Promise; the count bound
-            // now keeps such an arrival in `response_rx` for the next
-            // tick's drain).  The arm stays exhaustive; the drop is
-            // unreachable in practice and safe by construction.
-            //
-            // The subtler path the count bound also closes: a
-            // mid-callback FetchResponse can be settled into `buffered`
-            // NOT via a channel arrival but by a GC-time
-            // `has_pending_event_for_conn` (the R2a keepalive peek) firing
-            // DURING batch dispatch — but that path `.extend`s the reply
-            // onto the BACK of `buffered`, PAST the `batch` boundary that
-            // was snapshotted BEFORE the loop, so it is likewise not
-            // popped this tick and is recovered by the next tick's
-            // `drain_fetch_responses_only`.
-            //
-            // Unreachability here rests on two invariants: (1) `batch` is
-            // snapshotted ONCE before the loop (never re-read per
-            // iteration), and (2) the settle path only APPENDS to the
-            // BACK (never front-inserts at an index < batch).  A future
-            // refactor breaking either would let a FetchResponse reach
-            // this arm and leak its Promise — guarded by the regression
-            // test `count_bounded_batch_does_not_drop_gc_settled_fetch_reply`
-            // in `elidex-net`'s `broker::buffered` tests.
-            NetworkToRenderer::FetchResponse(_, _) | NetworkToRenderer::RendererUnregistered => {}
+            // A `FetchResponse` can reach the realtime path only if a GC-time
+            // `has_pending_event_for_conn` keepalive settle dragged it into
+            // `buffered` (that peek routes the whole `response_rx`, incl. fetch
+            // replies). Two windows: step-3 dispatch (past the `batch` boundary —
+            // the count bound leaves it for the next tick) and step-1 fetch
+            // settlement (in-batch, before the `buffered_len()` snapshot — latent
+            // today since that allocation runs `gc_enabled = false`, real under a
+            // future runtime relaxation). SETTLE it here rather than drop: the drop
+            // leaked the JS Promise permanently (Codex R4-F2 / R5-F1). This is
+            // window-agnostic — correctness no longer depends on the count bound
+            // keeping fetch replies out of the batch — and `settle_fetch` is
+            // idempotent on an already-settled id (`pending_fetches.remove` →
+            // `else return`), so a benign double-arrival is a no-op. Settlement only
+            // enqueues the Promise reaction (no synchronous JS), so it drains at the
+            // same end-of-`tick_network` microtask checkpoint as the normal
+            // fetch-before-realtime order — the out-of-usual-order settle is not
+            // observable.
+            NetworkToRenderer::FetchResponse(id, result) => self.settle_fetch(id, result),
+            // The `RendererUnregistered` marker is consumed at settle-time
+            // (`process_response`) and synthesised into `FetchResponse(id, Err(..))`
+            // stragglers, so a bare marker never reaches here — exhaustive no-op.
+            NetworkToRenderer::RendererUnregistered => {}
         }
     }
 
@@ -477,6 +470,96 @@ impl VmInner {
                 let reason = g.vm_error_to_thrown(&err);
                 reject_promise_sync(&mut g, promise, reason);
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::rc::Rc;
+
+    use elidex_net::broker::{NetworkHandle, NetworkToRenderer};
+    use elidex_net::{HttpVersion, Response as NetResponse};
+
+    use super::super::super::value::JsValue;
+    use super::super::super::Vm;
+
+    fn ok_response(url: &str) -> NetResponse {
+        let parsed = url::Url::parse(url).expect("valid URL");
+        NetResponse {
+            status: 200,
+            headers: vec![("content-type".to_string(), "text/plain".to_string())],
+            body: bytes::Bytes::from_static(b"ok"),
+            url: parsed.clone(),
+            version: HttpVersion::H1,
+            url_list: vec![parsed],
+            is_redirect_tainted: false,
+            credentialed_network: false,
+        }
+    }
+
+    /// Codex R5-F1 regression: a `FetchResponse` that reaches
+    /// `dispatch_realtime_event` (the realtime arm) must SETTLE its
+    /// pending Promise, not drop it.
+    ///
+    /// This exercises Fix B (settle-instead-of-drop) directly at the
+    /// arm.  The in-batch step-1 window that lets a fetch reply reach
+    /// this arm is not reachable through a full `tick_network` today
+    /// (`drain_fetch_responses_only` partitions every fetch reply out
+    /// before the batch snapshot, and the step-3 GC-settle lands past
+    /// the batch boundary — both proven by the count-bounded broker
+    /// tests in `elidex-net`), so the cleanest feasible level is a
+    /// direct call to the private `dispatch_realtime_event` with a
+    /// pending fetch registered.  If the arm dropped the reply (the
+    /// pre-fix `FetchResponse => {}`), `globalThis.r` would stay at
+    /// its initial value; a settle runs the `.then` reaction.
+    #[test]
+    fn realtime_arm_settles_fetch_response_instead_of_dropping() {
+        let mut vm = Vm::new();
+        // Same-origin so the fetch classifies as `Basic` (an opaque
+        // about:blank origin would force the cross-origin reject path).
+        vm.inner.navigation.current_url =
+            url::Url::parse("http://example.com/page").expect("valid base URL");
+        vm.install_network_handle(Rc::new(NetworkHandle::mock_with_responses(vec![])));
+        vm.eval(
+            "globalThis.r = 'untouched'; \
+             fetch('http://example.com/api').then(resp => { globalThis.r = resp.status; });",
+        )
+        .unwrap();
+
+        // Exactly one pending fetch was dispatched; grab its id.
+        assert_eq!(vm.inner.pending_fetches.len(), 1, "one pending fetch");
+        let fetch_id = *vm
+            .inner
+            .pending_fetches
+            .keys()
+            .next()
+            .expect("pending fetch id");
+
+        // Drive the reply THROUGH the realtime arm (not the fetch
+        // partition path).  Pre-fix this dropped the reply and leaked
+        // the Promise.
+        vm.inner
+            .dispatch_realtime_event(NetworkToRenderer::FetchResponse(
+                fetch_id,
+                Ok(ok_response("http://example.com/api")),
+            ));
+
+        assert_eq!(
+            vm.inner.pending_fetches.len(),
+            0,
+            "the realtime arm must settle (remove) the pending fetch, not drop it",
+        );
+
+        // Drain the queued `.then` reaction (handle-less microtask
+        // checkpoint) and confirm the Promise fulfilled with status 200.
+        vm.tick_network();
+        match vm.get_global("r") {
+            Some(JsValue::Number(n)) => assert!(
+                (n - 200.0).abs() < f64::EPSILON,
+                "Promise must fulfil to 200, got {n}",
+            ),
+            other => panic!("expected r == 200 (settled), got {other:?}"),
         }
     }
 }

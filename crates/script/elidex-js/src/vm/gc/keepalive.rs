@@ -140,6 +140,16 @@ impl KeepaliveClass {
                 // data-queued clause is dropped as vacuous/F1; see
                 // `elidex_api_ws::ws_keepalive`). (Copy the scalar out so the
                 // `host_data` borrow is dropped before the listener closure.)
+                //
+                // KNOWN divergence (deferred — slot `#11-keepalive-event-loop-step1-snapshot`,
+                // plan-memo §8/§10): WebSockets §7 keys these tiers to the readyState "as of the
+                // last time the event loop reached step 1", but this reads the LIVE `ready_state`.
+                // A bystander WS that flips CONNECTING→OPEN mid-turn can be force-closed one turn
+                // early by a sibling-dispatch GC (the shipped `push_temp_root` roots only the
+                // current dispatch target, not bystanders). WS-only: HTML §9.2.9 is live-keyed, so
+                // the `EventSource` arm below reading live `ready_state` is already spec-correct.
+                // Severity narrow (one-turn-early `WebSocketClose`, no JS callback lost); the fix
+                // (a per-turn step-1 snapshot) is a plan-reviewed slice, orthogonal to push_temp_root.
                 let Some(ready_state) = vm
                     .host_data
                     .as_deref()

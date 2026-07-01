@@ -15,6 +15,8 @@
 //! pre-`drain_fetch_responses_only` pattern; retained for direct
 //! embedders who push events back themselves.
 
+use std::collections::VecDeque;
+
 use super::{FetchId, NetworkHandle, NetworkToRenderer, Response};
 
 impl NetworkHandle {
@@ -120,7 +122,9 @@ impl NetworkHandle {
         // this drain's own buffer borrow.
         let prior: Vec<NetworkToRenderer> = self.buffered.borrow_mut().drain(..).collect();
         let mut fetches: Vec<(FetchId, Result<Response, String>)> = Vec::with_capacity(prior.len());
-        let mut kept: Vec<NetworkToRenderer> = Vec::with_capacity(prior.len());
+        // `kept` is a `VecDeque` so it can be assigned back to the
+        // `buffered` field directly (R5-F2 — front-pop is O(1)).
+        let mut kept: VecDeque<NetworkToRenderer> = VecDeque::with_capacity(prior.len());
         // Scope the partition closure so its mutable borrows on
         // `fetches` / `kept` are released before we re-acquire
         // `self.buffered` below — without the scope, those
@@ -128,7 +132,7 @@ impl NetworkHandle {
         {
             let mut emit = |evt: NetworkToRenderer| match evt {
                 NetworkToRenderer::FetchResponse(id, result) => fetches.push((id, result)),
-                other => kept.push(other),
+                other => kept.push_back(other),
             };
             for evt in prior {
                 self.process_response(evt, &mut emit);
@@ -194,12 +198,17 @@ impl NetworkHandle {
     /// GC-time [`Self::has_pending_event_for_conn`] settle (which
     /// `.extend`s the BACK) — lands past the batch boundary and is NOT
     /// dispatched this tick; the next tick's `drain_fetch_responses_only`
-    /// handles it.  That is what hard-bounds the tick (Codex R4 F1:
-    /// the old whole-buffer `pop`'s per-iteration settle livelocked under
-    /// a busy stream) and keeps a mid-callback `FetchResponse` recoverable
-    /// instead of dropped (Codex R4 F2: the per-iteration settle pulled
-    /// it into `buffered`, cleared its `outstanding_fetches` id, then the
-    /// realtime `FetchResponse => {}` arm dropped it → Promise leak).
+    /// handles it.  That hard-bounds the realtime tick under a busy stream
+    /// (Codex R4 F1: the old whole-buffer `pop` re-settled the channel
+    /// every iteration and livelocked).  **Fetch-reply safety is
+    /// orthogonal**: `dispatch_realtime_event` SETTLES any `FetchResponse`
+    /// that reaches the realtime arm rather than dropping it (Codex R5-F1
+    /// Fix B), so a mid-loop fetch reply is never leaked regardless of
+    /// which GC window (past-batch or in-batch) settled it into `buffered`.
+    /// The count bound's role here is purely the F1 realtime tick-bound —
+    /// it no longer carries the fetch-reply-safety guarantee the R4 fix
+    /// once rested on it (the realtime arm dropped fetch replies then →
+    /// Promise leak; settle-not-drop closed that).
     ///
     /// The un-popped tail stays in `buffered`, so a sibling
     /// [`Self::has_pending_event_for_conn`] scan during the dispatch of an
@@ -213,16 +222,14 @@ impl NetworkHandle {
     /// dropped.
     /// Returns `None` when `buffered` is empty (regardless of any
     /// channel-pending events — this is buffered-only by design).
+    ///
+    /// Front-pop is O(1): `buffered` is a `VecDeque` (Codex R5-F2), so a
+    /// full `batch`-length realtime drain is O(n) not the O(n²) a `Vec`
+    /// `remove(0)` per pop would cost on a busy WS/SSE stream.
     /// Single-threaded content-thread borrows only.
     #[must_use]
     pub fn pop_buffered_front(&self) -> Option<NetworkToRenderer> {
-        let front = {
-            let mut buf = self.buffered.borrow_mut();
-            if buf.is_empty() {
-                return None;
-            }
-            buf.remove(0)
-        };
+        let front = self.buffered.borrow_mut().pop_front()?;
         let mut emitted: Vec<NetworkToRenderer> = Vec::new();
         self.process_response(front, &mut |e| emitted.push(e));
         debug_assert_eq!(
@@ -295,7 +302,14 @@ impl NetworkHandle {
         let mut buf = self.buffered.borrow_mut();
         // Re-buffered events come before anything arriving on the
         // channel since `drain_events` reads `buffered` first.
-        buf.splice(0..0, events);
+        // `VecDeque` has no `splice`; append-then-rotate front-inserts
+        // `events` preserving their relative order (`extend` pushes to
+        // the BACK, `rotate_right(n)` moves the tail-n to the FRONT).
+        // Test-only helper (no production caller), so the rotate cost
+        // is irrelevant (Codex R5-F2).
+        let n = events.len();
+        buf.extend(events);
+        buf.rotate_right(n);
     }
 }
 
@@ -322,7 +336,7 @@ mod tests {
             request_tx,
             control_tx,
             response_rx,
-            buffered: std::cell::RefCell::new(Vec::new()),
+            buffered: std::cell::RefCell::new(VecDeque::new()),
             unregistered: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
             outstanding_fetches: std::cell::RefCell::new(std::collections::HashSet::new()),
             #[cfg(feature = "test-hooks")]
@@ -747,13 +761,17 @@ mod tests {
 
     #[test]
     fn count_bounded_batch_does_not_drop_mid_loop_fetch_reply() {
-        // Codex R4 F2 (fetch reply not dropped) at broker level: a
-        // `FetchResponse` arriving mid-callback (on the channel, after the fetch
-        // drain ran this tick) must NOT be pulled into the realtime batch — the
-        // old per-iteration settle pulled it into `buffered`, cleared its
-        // `outstanding_fetches` id, then the realtime `FetchResponse => {}` arm
-        // DROPPED it → Promise leak.  Count-bounded buffered-only pops leave it
-        // in `response_rx` for the next tick's `drain_fetch_responses_only`.
+        // Codex R4 F2 (fetch reply not pulled into the realtime batch) at broker
+        // level: a `FetchResponse` arriving mid-callback (on the channel, after
+        // the fetch drain ran this tick) must NOT be pulled into the realtime
+        // batch — the old per-iteration settle pulled it into `buffered`, cleared
+        // its `outstanding_fetches` id, and the realtime arm then dropped it →
+        // Promise leak.  Count-bounded buffered-only pops leave it in
+        // `response_rx` for the next tick's `drain_fetch_responses_only`.  (The
+        // arm-level safety net is now settle-not-drop — Codex R5-F1 Fix B — so a
+        // reply that DID reach the arm would be settled anyway; this test pins the
+        // complementary guarantee that the count bound keeps it off the realtime
+        // path in the first place.)
         let (renderer, response_tx) = handle_with_injectable_channel();
         renderer.rebuffer_events(vec![ws_text(1, "w1")]);
         let batch = renderer.buffered_len();
