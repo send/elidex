@@ -27,7 +27,7 @@
 
 use elidex_net::broker::FetchId;
 
-use super::super::value::{JsValue, ObjectId, VmError};
+use super::super::value::{JsValue, NativeContext, ObjectId, VmError};
 use super::super::VmInner;
 use super::blob::{reject_promise_sync, resolve_promise_sync};
 use super::cors::{classify_response_type, CorsOutcome};
@@ -75,7 +75,19 @@ impl VmInner {
             // Per-event variant dispatch lives in
             // `dispatch_realtime_event` below; this loop only
             // owns the drain + partition-by-reverse-map glue.
-            for event in handle.drain_events() {
+            //
+            // Pull ONE event at a time (`pop_one`) rather than
+            // draining the whole buffer into a local Vec — the
+            // not-yet-dispatched events stay IN the broker buffer, so
+            // an allocation-triggered GC mid-dispatch (inside
+            // `dispatch_realtime_event`'s event-object alloc) sees the
+            // still-buffered events when it evaluates
+            // `has_pending_event_for_conn` for a SIBLING conn, and
+            // keeps that sibling's wrapper alive (Codex R3 finding 3
+            // sibling-conn case).  A whole-buffer drain would empty
+            // the buffer up front, making the peek wrongly report "no
+            // queued task" for every not-yet-dispatched conn.
+            while let Some(event) = handle.pop_one() {
                 self.dispatch_realtime_event(event);
             }
         }
@@ -110,6 +122,27 @@ impl VmInner {
     /// up front.  Each helper takes `&mut self` and re-borrows
     /// `host_data` for its mutation (state transition, field
     /// populate) before the handler call.
+    ///
+    /// GC-safety (Codex R3): the resolved `instance` is rooted for
+    /// the whole dispatch window via
+    /// [`VmInner::push_temp_root`](super::super::VmInner::push_temp_root)
+    /// — the canonical dispatch-window rooting discipline, mirroring
+    /// the S5-3a MQL arm (`host::media_query`) and the VisualViewport
+    /// producer.  The temp-root is pushed BEFORE the per-variant
+    /// helper transitions the connection state and allocates the
+    /// event object.  Without it, an allocation-triggered GC inside
+    /// `create_fresh_event_object` (which runs after the state
+    /// transition, before the handler) could sweep the target — whose
+    /// new-state keepalive tier may exclude the listener the in-flight
+    /// task will service — and dispatch would resume into a freed
+    /// slot.  The guard pops on scope exit (panic-safe: `VmTempRoot`'s
+    /// `Drop` restores the stack even during unwinding); a re-entrant
+    /// `tick_network` from a JS callback nests naturally because each
+    /// nested dispatch pushes its own temp-root above the outer
+    /// target (`vm.stack` is a GC root and the dispatch helpers route
+    /// through the shared `fire_vm_*` / `create_fresh_event_object`
+    /// core, which restores `vm.stack` before returning, so the outer
+    /// entry survives with identity intact).
     fn dispatch_realtime_event(&mut self, event: elidex_net::broker::NetworkToRenderer) {
         use elidex_net::broker::NetworkToRenderer;
         use elidex_net::sse::SseEvent;
@@ -123,10 +156,20 @@ impl VmInner {
                 else {
                     return;
                 };
-                // The dispatch helpers UA-fire through the shared §2.9
-                // VmObject core, which needs a `NativeContext`; build one
-                // for the fire (precedent: `dispatch_file_read_task`).
-                let mut ctx = super::super::value::NativeContext::new_call(self);
+                // Root the target for the dispatch window (Codex R3)
+                // via the canonical `push_temp_root` discipline
+                // (mirrors the S5-3a MQL arm `host::media_query`): the
+                // state transition + event-object alloc below run with
+                // the target otherwise rooted only by the keepalive
+                // predicate, whose new-state tier may drop the servicing
+                // listener.  The `NativeContext` is built from the guard
+                // (which derefs to `&mut VmInner`); the dispatch helpers
+                // UA-fire through the shared §2.9 VmObject core, which
+                // needs a `NativeContext` (precedent:
+                // `dispatch_file_read_task`).  `guard` drops at the end of
+                // this arm, popping the temp-root off `vm.stack`.
+                let mut guard = self.push_temp_root(JsValue::Object(instance));
+                let mut ctx = NativeContext::new_call(&mut guard);
                 match ws_event {
                     WsEvent::Connected {
                         protocol,
@@ -154,7 +197,8 @@ impl VmInner {
                         );
                     }
                     WsEvent::Error(_msg) => {
-                        // Per WHATWG §9.3.7 the script-visible "error"
+                        // Per WebSockets Standard §4 (Feedback from the
+                        // protocol) the script-visible "error"
                         // is a plain Event with no detail — the broker
                         // message is discarded intentionally to avoid
                         // leaking server-internals through the
@@ -174,9 +218,11 @@ impl VmInner {
                 else {
                     return;
                 };
-                // The dispatch helpers UA-fire through the shared §2.9
-                // VmObject core, which needs a `NativeContext`.
-                let mut ctx = super::super::value::NativeContext::new_call(self);
+                // Root the target for the dispatch window (Codex R3)
+                // via `push_temp_root` — see the WS arm above.  `guard`
+                // drops at the end of this arm, popping the temp-root.
+                let mut guard = self.push_temp_root(JsValue::Object(instance));
+                let mut ctx = NativeContext::new_call(&mut guard);
                 match sse_event {
                     SseEvent::Connected { final_url } => {
                         super::event_source_dispatch::dispatch_sse_connected(

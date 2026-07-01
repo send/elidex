@@ -240,6 +240,8 @@ impl Vm {
                 gc_bytes_since_last: 0,
                 gc_threshold: 65536,
                 gc_enabled: false,
+                #[cfg(test)]
+                force_gc_before_next_alloc: false,
                 html_element_constructor: None,
                 active_bound_key: None,
                 host_data: None,

@@ -91,6 +91,22 @@ fn buffer_sse_no_tick(vm: &Vm, conn_id: u64, ev: SseEvent) {
     handle.rebuffer_events(vec![NetworkToRenderer::EventSourceEvent(conn_id, ev)]);
 }
 
+/// Inject a WS event and drive `tick_network` with a GC armed to fire during
+/// the FIRST object allocation of the dispatch — i.e. INSIDE the event-object
+/// build (`create_fresh_event_object`), which runs AFTER the connection-state
+/// transition but BEFORE the handler fires. This is the Codex R3
+/// dispatch-window: the target is rooted there only by the keepalive predicate,
+/// whose new-state tier can exclude the servicing listener. The
+/// `force_gc_before_next_alloc` one-shot (checked in `VmInner::alloc_object`)
+/// lands the collection precisely in that window — the pressure threshold can't
+/// hit it deterministically.
+fn inject_ws_gc_in_dispatch(vm: &mut Vm, conn_id: u64, ev: WsEvent) {
+    let handle = vm.inner.network_handle.clone().expect("handle installed");
+    handle.rebuffer_events(vec![NetworkToRenderer::WebSocketEvent(conn_id, ev)]);
+    vm.inner.force_gc_before_next_alloc = true;
+    vm.tick_network();
+}
+
 fn ws_connected() -> WsEvent {
     WsEvent::Connected {
         protocol: String::new(),
@@ -548,7 +564,8 @@ fn es_closed_buffered_event_not_delivered_and_collected_r2b() {
 
 #[test]
 fn unbind_force_closes_even_listener_held_connection() {
-    // Regression guard for the §8.4 distinction: the GC keepalive keeps a
+    // Regression guard for the WebSockets §7 (Garbage collection) distinction:
+    // the GC keepalive keeps a
     // listener-held connection, but `Vm::unbind` (the spec's "Document goes
     // away ⇒ make disappear / forcibly close") force-closes EVERY connection,
     // listener-held or not — so a connection the keepalive just kept across a GC
@@ -591,4 +608,199 @@ fn unbind_force_closes_even_listener_held_connection() {
     );
     drop(session);
     drop(dom);
+}
+
+// ---------------------------------------------------------------------------
+// Dispatch-window under-rooting — Codex R3 findings 1/2/3
+//
+// The keepalive predicate samples the connection's INSTANTANEOUS
+// post-transition readyState. During the dispatch window —
+// `dispatch_realtime_event` has transitioned the side-table state, and the
+// event object is being allocated (`create_fresh_event_object` →
+// `alloc_object`) — the target wrapper is rooted by NOTHING except the
+// predicate, whose tier for the NEW state can exclude the listener the
+// in-flight task will service. An allocation-triggered GC there (real:
+// `tick_network` runs with `gc_enabled = true`) would sweep the target, and
+// dispatch would then resume into a freed slot → VM panic
+// (`expect("object already freed")`). The dispatch-window root — the target
+// pushed onto `vm.stack` via `push_temp_root` for the whole per-event dispatch
+// (the canonical dispatch-window rooting discipline, mirroring the S5-3a MQL
+// arm in `host::media_query`) — closes the window. These tests arm a GC to fire
+// INSIDE the event-object alloc via the `force_gc_before_next_alloc` one-shot;
+// each FAILS without the root and passes with it.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn ws_open_window_target_rooted_during_dispatch_gc_f1_regression() {
+    // F1 (`websocket.rs:162` OPEN tier {message,error,close}): a WebSocket
+    // whose ONLY listener is `open` (out of the OPEN tier), no retained JS
+    // reference. Drive the `Connected` dispatch: state transitions CONNECTING →
+    // OPEN, then the `open` event object is allocated. A GC armed to fire during
+    // that alloc sees an OPEN socket whose only listener (`open`) is NOT in the
+    // OPEN keepalive tier — so WITHOUT the dispatch-window root it is swept
+    // mid-dispatch and the resume panics. WITH the root: the `open` callback
+    // runs, no `WebSocketClose` is emitted, no panic.
+    with_realtime_vm(false, |vm, handle| {
+        vm.eval(
+            "globalThis.opened = 0; \
+             new WebSocket('ws://example.com/socket') \
+                 .addEventListener('open', function () { globalThis.opened++; });",
+        )
+        .unwrap();
+        let _ = handle.drain_recorded_outgoing(); // clear ctor WebSocketOpen
+
+        // GC fires INSIDE the `open` event-object alloc (post-transition).
+        inject_ws_gc_in_dispatch(vm, 0, ws_connected());
+
+        // The `open` handler ran — the target survived the dispatch-window GC.
+        assert_eval_number(vm, "opened", 1.0);
+        assert_eq!(
+            outgoing_count(handle, "WebSocketClose("),
+            0,
+            "the dispatch target must NOT be force-closed by a mid-dispatch GC (F1)",
+        );
+    });
+}
+
+#[test]
+fn ws_close_window_target_rooted_during_dispatch_gc_f2_regression() {
+    // F2 (`websocket.rs:164` CLOSING/CLOSED window): a WebSocket whose ONLY
+    // listener is `close`. Injecting a broker `Closed` transitions OPEN →
+    // CLOSED and then allocates the CloseEvent. A GC armed during that alloc
+    // sees a CLOSED socket — and `ws_keepalive(CLOSED)` is `false` for ANY
+    // listener (a closed socket can deliver nothing more). WITHOUT the
+    // dispatch-window root the target is swept mid-dispatch and the CloseEvent
+    // resume panics; WITH it, the `close` callback runs and no panic occurs.
+    // (This is the WS lifecycle-event instance of the former F2
+    // event-loop-step-1 snapshot gap — the readyState the predicate samples
+    // during dispatch differs from the pre-transition value, and the only
+    // window where that is observable is exactly here.)
+    with_realtime_vm(false, |vm, handle| {
+        vm.eval(
+            "globalThis.closed_n = 0; \
+             new WebSocket('ws://example.com/socket') \
+                 .addEventListener('close', function () { globalThis.closed_n++; });",
+        )
+        .unwrap();
+        inject_ws(vm, 0, ws_connected()); // → OPEN (normal, no GC)
+        let _ = handle.drain_recorded_outgoing();
+
+        // GC fires INSIDE the CloseEvent alloc (post OPEN → CLOSED transition).
+        inject_ws_gc_in_dispatch(
+            vm,
+            0,
+            WsEvent::Closed {
+                code: 1000,
+                reason: "normal".to_string(),
+                was_clean: true,
+            },
+        );
+
+        // The `close` handler ran — the target survived the dispatch-window GC.
+        assert_eval_number(vm, "closed_n", 1.0);
+    });
+}
+
+#[test]
+fn es_drained_window_named_event_target_rooted_during_dispatch_gc_f3_regression() {
+    // F3 (`keepalive.rs:175` drained-window): an OPEN EventSource whose ONLY
+    // listener is a NAMED event (`'foo'`, NOT in the ES tier {message,error}),
+    // with TWO buffered `'foo'` events. `tick_network` pulls them ONE at a time
+    // (`pop_one`) — event 2 stays IN the broker buffer while event 1 dispatches.
+    // A GC armed during event 1's dispatch (event-object alloc) must keep the
+    // target alive via BOTH mechanisms working together: the dispatch-window
+    // root (event 1's target) AND `has_queued_task` (event 2 still buffered, so
+    // `has_pending_event_for_conn` is true). Result: both events deliver and the
+    // wrapper survives. WITHOUT the fix, the GC sweeps the wrapper mid-dispatch
+    // (its `'foo'` listener is out of tier) and the resume — plus event 2's
+    // reverse-map lookup — fail.
+    with_realtime_vm(true, |vm, handle| {
+        vm.eval(
+            "globalThis.foos = 0; \
+             new EventSource('/events') \
+                 .addEventListener('foo', function () { globalThis.foos++; });",
+        )
+        .unwrap();
+        inject_sse(vm, 0, sse_connected()); // → OPEN (normal, no GC)
+        let _ = handle.drain_recorded_outgoing();
+
+        // Buffer TWO 'foo' events; tick with a GC armed during dispatch of #1.
+        let foo = |data: &str| SseEvent::Event {
+            event_type: "foo".to_string(),
+            data: data.to_string(),
+            last_event_id: String::new(),
+        };
+        let net = vm.inner.network_handle.clone().expect("handle installed");
+        net.rebuffer_events(vec![
+            NetworkToRenderer::EventSourceEvent(0, foo("one")),
+            NetworkToRenderer::EventSourceEvent(0, foo("two")),
+        ]);
+        vm.inner.force_gc_before_next_alloc = true;
+        vm.tick_network();
+
+        // BOTH events delivered and the wrapper survived.
+        assert_eval_number(vm, "foos", 2.0);
+        assert_eq!(
+            es_state_count(vm),
+            1,
+            "the named-event EventSource must survive the mid-dispatch GC (F3)",
+        );
+        assert_eq!(
+            outgoing_count(handle, "EventSourceClose("),
+            0,
+            "the survived EventSource must NOT be force-closed",
+        );
+    });
+
+    // Sibling-conn variant: while conn 0's event 1 dispatches (GC armed), a
+    // SECOND conn's event stays buffered. `pop_one` keeps it in the broker
+    // buffer, so `has_pending_event_for_conn(conn 1)` stays true and the sibling
+    // wrapper is kept alive; both conns then deliver.
+    with_realtime_vm(true, |vm, handle| {
+        vm.eval(
+            "globalThis.a = 0; globalThis.b = 0; \
+             globalThis.esA = new EventSource('/a'); \
+             globalThis.esA.addEventListener('foo', function () { globalThis.a++; }); \
+             globalThis.esB = new EventSource('/b'); \
+             globalThis.esB.addEventListener('bar', function () { globalThis.b++; });",
+        )
+        .unwrap();
+        // Two distinct conns: ctor assigns conn ids 0 and 1 in order.
+        inject_sse(vm, 0, sse_connected()); // conn 0 → OPEN
+        inject_sse(vm, 1, sse_connected()); // conn 1 → OPEN
+                                            // Drop the retained JS refs so only the listeners anchor each wrapper.
+        vm.eval("globalThis.esA = null; globalThis.esB = null;")
+            .unwrap();
+        let _ = handle.drain_recorded_outgoing();
+
+        let net = vm.inner.network_handle.clone().expect("handle installed");
+        net.rebuffer_events(vec![
+            NetworkToRenderer::EventSourceEvent(
+                0,
+                SseEvent::Event {
+                    event_type: "foo".to_string(),
+                    data: "x".to_string(),
+                    last_event_id: String::new(),
+                },
+            ),
+            NetworkToRenderer::EventSourceEvent(
+                1,
+                SseEvent::Event {
+                    event_type: "bar".to_string(),
+                    data: "y".to_string(),
+                    last_event_id: String::new(),
+                },
+            ),
+        ]);
+        vm.inner.force_gc_before_next_alloc = true;
+        vm.tick_network();
+
+        assert_eval_number(vm, "a", 1.0);
+        assert_eval_number(vm, "b", 1.0);
+        assert_eq!(
+            es_state_count(vm),
+            2,
+            "both sibling EventSources must survive the mid-dispatch GC (F3 sibling-conn)",
+        );
+    });
 }

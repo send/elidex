@@ -621,18 +621,31 @@ site is under the touch-time threshold at impl).
    target (§2.0 fact 4). So `es_keepalive(has_queued_task=true)` is the sole GC root standing between a
    buffered inbound event and a silent-drop. Getting this wrong = data loss for every named-event SSE
    consumer on any allocation-triggered GC (which fires mid-`tick_network`, §2.0 fact 1).
-8. **WS §7 "readyState as of event-loop step 1" letter-gap = F2** (`keepalive.rs:141`): WS §7 keys the
-   listener tiers to the readyState "as of the last time the event loop reached step 1"; elidex reads the
-   **LIVE current** `ready_state` (`WebSocketState` has only the live field — no per-turn snapshot). Given
-   mid-turn GC (§2.0 fact 1) this letter-divergence is **real and constructible**. But it has **no
-   demonstrated observable consequence**: (a) the dispatch target is `this`-rooted during its own handler
-   (§2.0 fact 4) so a mid-handler GC cannot collect the socket being dispatched to; (b) after the `open`
-   handler returns, an `open`-only-listener OPEN socket has no deliverable events (open fires once; no
-   message/error/close listener) so collecting it loses nothing script-observable. **Disposition:
-   documented accepted letter-gap + low-priority slot `#11-keepalive-event-loop-step1-snapshot`** (a
-   cross-cutting per-turn readyState-snapshot mechanism affecting ALL keepalive arms, not just WS) IF
-   elidex later wants strict §7 letter-conformance — **NOT a this-PR fix**. Plan-review: confirm the
-   no-observable-break reasoning.
+8. **WS §7 "readyState as of event-loop step 1" letter-gap = F2 — ✅ CLOSED by the Codex R3
+   dispatch-window root (PR #440).** WS §7 keys the listener tiers to the readyState "as of the last time
+   the event loop reached step 1"; elidex reads the **LIVE current** `ready_state` (`WebSocketState` has
+   only the live field — no per-turn snapshot). Given mid-turn GC (§2.0 fact 1) this letter-divergence is
+   **real and constructible**. The plan originally dispositioned it as observably-inert on the premise
+   *"the dispatch target is `this`-rooted during its own handler"* — **Codex R3 refuted that premise**:
+   `this`-rooting only holds once the handler is RUNNING. During the **dispatch window** —
+   `dispatch_realtime_event` has transitioned the connection state and `create_fresh_event_object` →
+   `alloc_object` is building the event object BEFORE the handler runs — the target is rooted by NOTHING
+   except the keepalive predicate, whose tier for the **just-transitioned** state can EXCLUDE the
+   servicing listener (Codex R3 findings 1/2 = the WS `open`-window / `close`-window lifecycle-event
+   instances; finding 3 = the ES named-event message-task instance). A GC there (real —
+   `tick_network` runs with `gc_enabled = true`) sweeps the target and the dispatch resumes into a freed
+   slot → panic. **Fix = the `push_temp_root` dispatch-window discipline** — the target is pushed onto
+   `vm.stack` (already a GC root) via `VmInner::push_temp_root` for the whole per-event dispatch in
+   `fetch_tick.rs`, reusing the established dispatch-window rooting mechanism (mirroring the S5-3a MQL arm
+   in `host::media_query` and the VisualViewport producer) rather than a parallel bespoke root stack —
+   **one-issue-one-way**. `VmTempRoot`'s `Drop` pops on scope exit and is panic-safe (restores the stack
+   during unwinding); re-entrancy nests naturally (each nested dispatch pushes its own temp-root above the
+   outer target). **Plus** the `pop_one` one-at-a-time broker drain (finding 3 sibling-conn case: keeps
+   `has_pending_event_for_conn` accurate for conns whose events are still buffered). This subsumes the
+   readyState divergence for the ONLY window where it is observable, so the former slot
+   `#11-keepalive-event-loop-step1-snapshot` is **CLOSED, not deferred** (§10). Regression tests:
+   `tests_realtime_keepalive` F1/F2/F3, each failing without the root (GC armed INSIDE the dispatch-window
+   event alloc via `force_gc_before_next_alloc`).
 
 ---
 
@@ -694,15 +707,17 @@ protects are VM-resident; S5-3b only ensures their targets survive to be deliver
 
 ## §10 Deferred slots + open questions (per-PR cap ≤3)
 
-### Slots (two parent-carved to REGISTER + one NEW low-priority from Codex F2 — see reconciliation)
+### Slots (two parent-carved to REGISTER; the Codex-F2 slot is CLOSED, not deferred — see reconciliation)
 The two parent-carved slots below were **carved as NEW by the parent S5-3 §10** but **never landed in the
 canonical registry** `memory/project_open-defer-slots.md` — S5-3a (#430) registered only the *predecessor*
 `#11-eventtarget-listener-keepalive-rooting`. So the registry currently has the predecessor (still
 carrying the **refuted** "GENERIC EventTarget alive while listenered" any-listener framing, §2) and
 **not** these two. They are program-level slots (not new S5-3b scope); registering them is a ledger
-catch-up. S5-3b additionally carves **one NEW low-priority slot** from Codex F2
-(`#11-keepalive-event-loop-step1-snapshot`, the per-turn readyState-snapshot letter-gap, §8 edge 8) —
-a single new defer, within the ≤3 per-PR cap. **S5-3b owns the reconciliation** (deliverable below).
+catch-up. The Codex-F2 candidate `#11-keepalive-event-loop-step1-snapshot` was **originally carved as a
+NEW low-priority slot** but is **now CLOSED by the Codex R3 dispatch-window-root fix** (its
+"observably-inert" premise was refuted — the gap IS observable in the dispatch window, and the root
+subsumes it; slot detail below). So S5-3b carves **zero net new deferred slots**. **S5-3b owns the
+reconciliation** (deliverable below).
 
 - **`#11-eventtarget-keepalive-component-migration`** (carved by parent §10, **registry-absent**,
   B1-gated) — S5-3b adds WS/ES as new per-VM HostData registrants; the component-on-entity ideal stays
@@ -710,18 +725,28 @@ a single new defer, within the ≤3 per-PR cap. **S5-3b owns the reconciliation*
 - **`#11-eventtarget-keepalive-registrant-coverage`** (carved by parent §10, **registry-absent**, HARD
   pre-flip gate) — S5-3b **satisfies the WS/ES portion**. After S5-3b, only **S5-3c (observers)**
   remains off the seam; the gate stays open until S5-3c lands (before S5-6).
-- **`#11-keepalive-event-loop-step1-snapshot`** (NEW, low-priority, carved by Codex F2 / §8 edge 8) — WS
-  §7 (and analogously all keepalive arms) key the listener tiers to "readyState as of the last time the
-  event loop reached step 1"; elidex reads the LIVE current readyState (no per-turn snapshot). Given
-  mid-turn GC (§2.0 fact 1) this is a **real but observably-inert letter-gap** (§8 edge 8). The
-  cross-cutting per-turn readyState-snapshot mechanism (which would affect **all** keepalive arms, not
-  just WS) is deferred to this slot IF elidex later wants strict §7 letter-conformance. **NOT a this-PR
-  fix** — documented accepted gap. **Defer triplet** — *Why deferred*: no observable break (target is
-  `this`-rooted during its handler; an `open`-only OPEN socket delivers nothing post-open, §8 edge 8), and
-  the mechanism is cross-cutting (all arms) so out of this WS/ES slice; *Re-evaluation trigger*: a
-  production/WPT case where a cross-GC readyState change is script-observable, OR the S5-6 flip's
-  spec-conformance pass electing strict §7 letter-fidelity; *Re-evaluation date*: **at the S5-6 flip
-  conformance review** (the first point the VM keepalive path is live and letter-conformance is testable).
+- **`#11-keepalive-event-loop-step1-snapshot`** (Codex F2 / §8 edge 8) — ✅ **CLOSED by the Codex R3
+  dispatch-window-root fix (PR #440), NOT a deferred slot.** The disposition below was **wrong**: it
+  mis-classified the letter-gap as "observably-inert" on the premise that *"the dispatch target is
+  `this`-rooted during its own handler"*. Codex R3 refuted that premise — the target is rooted by
+  `this` only once the handler is RUNNING; during the **dispatch window** (`dispatch_realtime_event` has
+  transitioned the connection state, and `create_fresh_event_object` → `alloc_object` is building the
+  event object, BEFORE the handler runs) the target is rooted by NOTHING except the keepalive predicate,
+  whose tier for the **just-transitioned** readyState can exclude the listener the in-flight task will
+  service. An allocation-triggered GC there (real — `tick_network` runs with `gc_enabled = true`) sweeps
+  the target and the dispatch resumes into a freed slot. This IS the "readyState as of event-loop step 1
+  vs. live" divergence made observable, and it is **the only window where the divergence has a
+  consequence**. The fix — the `push_temp_root` dispatch-window discipline (the target pushed onto
+  `vm.stack` for the whole per-event dispatch in `fetch_tick.rs`, reusing the established rooting
+  mechanism that the S5-3a MQL arm / VisualViewport producer already use — **one-issue-one-way**, not a
+  parallel bespoke root stack), + the `pop_one` one-at-a-time broker drain that keeps
+  `has_pending_event_for_conn` accurate for sibling conns — **subsumes** the divergence for that window,
+  so the slot is closed rather than deferred. Regression tests: `tests_realtime_keepalive` F1/F2/F3
+  (each fails without the root, arming a GC INSIDE the dispatch-window event alloc via the
+  `force_gc_before_next_alloc` test one-shot). The residual "strict per-turn readyState snapshot for
+  keepalive tiers OUTSIDE the dispatch window" is **not** a real gap: outside the dispatch window the
+  target is either JS-reachable (rooted normally) or a genuine orphan (correctly collectible), so no
+  snapshot mechanism is owed. No successor slot.
 - **ES task-queued clause** — **NOT deferred; INCLUDED in S5-3b** (§2.3 SWAP). Codex R1 refuted the
   original "vacuous under inline drain" premise: the inbound event **is** buffered across a mid-turn GC
   window (§2.0 facts 1-4), so omitting the clause would silently drop named-event SSE deliveries (F3).
@@ -732,10 +757,12 @@ a single new defer, within the ≤3 per-PR cap. **S5-3b owns the reconciliation*
 At S5-3b landing (in the landing-memo / `project_open-defer-slots.md` update — the slot-registration
 convention point, per `feedback_defer-ledger-philosophy-lens`):
 1. **Register** `#11-eventtarget-keepalive-registrant-coverage` (active HARD pre-flip gate, now tracking
-   **S5-3c** — observers must land before S5-6), `#11-eventtarget-keepalive-component-migration`
-   (B1-gated), and **`#11-keepalive-event-loop-step1-snapshot`** (NEW, low-priority, Codex F2 — per-turn
-   readyState-snapshot for strict §7 letter-conformance across all keepalive arms) in
-   `project_open-defer-slots.md`.
+   **S5-3c** — observers must land before S5-6) and `#11-eventtarget-keepalive-component-migration`
+   (B1-gated) in `project_open-defer-slots.md`. **Do NOT** register
+   `#11-keepalive-event-loop-step1-snapshot` — the Codex-R3 dispatch-window-root fix **closed** it (its
+   "observably-inert" disposition was refuted; the root subsumes the divergence for the only window where
+   it is observable). If a stub for it already exists in the registry, mark it **CLOSED (subsumed by the
+   PR #440 dispatch-window root)**.
 2. **Reframe + retire** the predecessor `#11-eventtarget-listener-keepalive-rooting` slot text — its
    "GENERIC 'EventTarget alive while listenered'" framing is **refuted** by §2 (the parent §12 named
    this an S5-3a deliverable; S5-3a left it undone). Reframe to the **keepalive-predicate seam**
@@ -775,12 +802,15 @@ convention point, per `feedback_defer-ledger-philosophy-lens`):
 - **Q6 (unbind force-close not a regression):** Confirm unbind force-closing **even a listener-held**
   conn (`drain_realtime_for_unbind`) is the spec's document-teardown forcible-close (distinct from GC
   keepalive), correct and unchanged. Lean: **yes**.
-- **Q7 (F2 letter-gap disposition):** Confirm the WS §7 "readyState as of event-loop step 1" letter-gap
-  (elidex reads live readyState, no per-turn snapshot — §8 edge 8) has **no observable break** given (a)
-  the dispatch target is `this`-rooted during its own handler (§2.0 fact 4) and (b) an `open`-only OPEN
-  socket has no post-`open` deliverable events. Disposition: **documented accepted gap** + low-priority
-  slot `#11-keepalive-event-loop-step1-snapshot` (cross-cutting per-turn snapshot for ALL arms). Plan-
-  review confirms the no-observable-break reasoning is sound and that this is correctly NOT a this-PR fix.
+- **Q7 (F2 letter-gap disposition):** ~~Confirm the WS §7 "readyState as of event-loop step 1"
+  letter-gap has no observable break given the target is `this`-rooted during its handler.~~
+  **SUPERSEDED — Codex R3 refuted the "no observable break" premise (PR #440).** The `this`-rooting
+  premise fails during the **dispatch window** (state transitioned, event object being allocated, handler
+  NOT yet running): the target is unrooted there and a mid-dispatch GC sweeps it → resume into a freed
+  slot. The gap is therefore **real and observable**, and is **CLOSED** by the `push_temp_root`
+  dispatch-window discipline (reusing the established S5-3a MQL rooting mechanism — one-issue-one-way, not
+  a parallel bespoke root stack) + `pop_one` sibling-accurate drain (§8 edge 8, §10). No accepted gap, no
+  deferred slot.
 
 ---
 

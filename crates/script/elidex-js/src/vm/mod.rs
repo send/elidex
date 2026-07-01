@@ -255,6 +255,19 @@ pub(crate) struct VmInner {
     pub(crate) gc_threshold: usize,
     /// GC enabled flag.  `false` during init and native function calls.
     pub(crate) gc_enabled: bool,
+    /// Test-only one-shot: when `true`, the next
+    /// [`Self::alloc_object`](super::vm::VmInner::alloc_object) forces
+    /// a `collect_garbage()` before installing the new object
+    /// (regardless of the allocation-pressure threshold), then clears
+    /// the flag.  Lets a test land a GC precisely INSIDE the realtime
+    /// dispatch window — after the connection-state transition, during
+    /// the event-object allocation — which the pressure-threshold
+    /// path cannot deterministically hit.  Guards the Codex R3
+    /// dispatch-window under-rooting regression tests
+    /// (`tests_realtime_keepalive`).  Compiled only under `cfg(test)`
+    /// so it adds no production field.
+    #[cfg(test)]
+    pub(crate) force_gc_before_next_alloc: bool,
     /// `globalThis.HTMLElement` constructable function `ObjectId`. Populated
     /// by `register_html_element_constructor` (D-17b §4.1) at globals init,
     /// `None` until registered. Read by `native_html_element_ctor`

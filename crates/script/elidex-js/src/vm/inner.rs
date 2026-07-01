@@ -83,6 +83,18 @@ impl VmInner {
         // from VmInner fields (e.g., `self.object_prototype`) are always
         // rooted.  For complex cases (e.g., `create_closure`, `do_new`),
         // callers temporarily push values onto the stack or disable GC.
+        // Test-only one-shot: force a GC before installing the new
+        // object, landing a collection at an arbitrary allocation
+        // site (e.g. INSIDE the realtime dispatch window) that the
+        // pressure threshold can't deterministically hit.  Only fires
+        // while GC is enabled, matching the production invariant that
+        // native windows with `gc_enabled = false` never collect.
+        // Clears itself so it fires exactly once.
+        #[cfg(test)]
+        if self.gc_enabled && self.force_gc_before_next_alloc {
+            self.force_gc_before_next_alloc = false;
+            self.collect_garbage();
+        }
         if self.gc_enabled
             && self
                 .gc_bytes_since_last

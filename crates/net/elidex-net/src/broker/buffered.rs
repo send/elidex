@@ -141,6 +141,113 @@ impl NetworkHandle {
         fetches
     }
 
+    /// Drain the response channel into `buffered`, routing each event
+    /// through `process_response` (marker consume / straggler
+    /// synthesis).  Buffered events already precede channel arrivals,
+    /// so appending settled channel events keeps them exactly where an
+    /// unfiltered drain would place them — arrival order is preserved.
+    ///
+    /// Shared prologue of [`Self::pop_one`] and
+    /// [`Self::has_pending_event_for_conn`]: both must see the FULL
+    /// inbound pipeline (channel + buffer), not just already-buffered
+    /// events — else a GC / peek between an arrival and the first drain
+    /// misses a channel-pending event (Codex R2a).  The drain methods
+    /// ([`Self::drain_events`] / [`Self::drain_fetch_responses_only`])
+    /// keep their own inline settle: they interleave the channel drain
+    /// with a partition/collect step and have a different shape.
+    fn settle_channel_into_buffer(&self) {
+        let mut newly: Vec<NetworkToRenderer> = Vec::new();
+        while let Ok(evt) = self.response_rx.try_recv() {
+            self.process_response(evt, &mut |e| newly.push(e));
+        }
+        if !newly.is_empty() {
+            self.buffered.borrow_mut().extend(newly);
+        }
+    }
+
+    /// Pull **one** pending event at a time, leaving the rest in the
+    /// internal buffer.
+    ///
+    /// Unlike [`Self::drain_events`] (which empties the whole buffer
+    /// into a returned `Vec`), this settles the channel into
+    /// `buffered` — identical `process_response` routing to a drain,
+    /// and to [`Self::has_pending_event_for_conn`]'s channel-settle —
+    /// then pops and returns the **front** event, leaving every
+    /// not-yet-pulled event IN `buffered`.
+    ///
+    /// The elidex-js VM's `tick_network` loops
+    /// `while let Some(event) = handle.pop_one() { dispatch(event) }`
+    /// so that while dispatching event N, a
+    /// [`Self::has_pending_event_for_conn`] scan for a sibling conn
+    /// still sees that conn's not-yet-dispatched events (they remain
+    /// buffered) — the GC keepalive predicate stays accurate for
+    /// every conn, not just the one currently dispatching (Codex R3
+    /// finding 3 sibling-conn case).  A `drain_events` pre-empties the
+    /// buffer, which would make that scan wrongly report "no queued
+    /// task" and let a sibling wrapper be swept mid-turn.
+    ///
+    /// Marker consume / straggler synthesis happens entirely at
+    /// **settle time**, not at pop-front:
+    /// `settle_channel_into_buffer` routes every channel
+    /// arrival through `process_response`, so a
+    /// [`NetworkToRenderer::RendererUnregistered`] back-edge is
+    /// consumed there (never buffered) and its synthetic
+    /// `FetchResponse(id, Err("renderer unregistered"))` stragglers
+    /// are the events that land IN `buffered` (ascending `FetchId`).
+    /// **Invariant: `buffered` never holds a `RendererUnregistered`
+    /// marker** — every writer pushes a `FetchResponse` / `WebSocketEvent`
+    /// / `EventSourceEvent`, and the settle / re-buffer paths re-insert
+    /// only non-markers.  So by the time we pop the front, the buffer
+    /// holds only deliverable non-marker events and each pops as
+    /// **exactly one** event.  Routing the popped event through
+    /// `process_response` here is purely for the raw-`FetchResponse`
+    /// `outstanding_fetches` bookkeeping (a `FetchResponse` buffered
+    /// directly still needs its id removed); it is guaranteed to emit
+    /// that single event.  A `debug_assert` guards the invariant so a
+    /// future writer that buffered a bare marker fails loudly in tests.
+    ///
+    /// Returns `None` only when the inbound pipeline is fully empty.
+    /// Single-threaded content-thread borrows only.
+    #[must_use]
+    pub fn pop_one(&self) -> Option<NetworkToRenderer> {
+        // Settle any channel-pending events into `buffered` first
+        // (same routing a drain uses) so the front-of-buffer pop sees
+        // the full inbound pipeline in arrival order — buffered events
+        // precede channel arrivals, exactly where an unfiltered drain
+        // would place them.  This is also where a `RendererUnregistered`
+        // marker is consumed and its stragglers synthesised INTO the
+        // buffer, so what remains below is marker-free.
+        self.settle_channel_into_buffer();
+        let front = {
+            let mut buf = self.buffered.borrow_mut();
+            if buf.is_empty() {
+                return None;
+            }
+            // `remove(0)` is an O(n) front-shift, so the `tick_network`
+            // drain loop is O(n²) in the per-tick event count.  This is
+            // accepted as a bounded-`n` design: realtime per-tick `n` is
+            // single-digit (a handful of WS/SSE frames per renderer tick),
+            // so the O(n²) is immaterial.  We `remove(0)` (not drain the
+            // whole buffer) so the un-dispatched tail stays buffered for a
+            // sibling `has_pending_event_for_conn` scan (Codex R3 finding 3).
+            buf.remove(0)
+        };
+        // `front` is never a `RendererUnregistered` marker (invariant
+        // above), so `process_response` emits exactly one event — this
+        // call is only for the `outstanding_fetches` id removal on a
+        // raw-buffered `FetchResponse`.
+        let mut emitted: Vec<NetworkToRenderer> = Vec::new();
+        self.process_response(front, &mut |e| emitted.push(e));
+        debug_assert_eq!(
+            emitted.len(),
+            1,
+            "pop_one: front-of-buffer event must emit exactly one event — \
+             `buffered` must never hold a RendererUnregistered marker \
+             (markers are consumed at settle time)",
+        );
+        emitted.into_iter().next()
+    }
+
     /// Peek: is there an [`NetworkToRenderer::EventSourceEvent`] pending for
     /// `conn_id` anywhere in the inbound pipeline (channel + buffer), awaiting a
     /// later [`Self::drain_events`]?
@@ -174,15 +281,7 @@ impl NetworkHandle {
         // GC between arrival and the first drain misses a channel-pending event (Codex
         // R2a). A later `drain_events` / `drain_fetch_responses_only` processes `prior`
         // (buffered) first, so this early move preserves arrival order and fetch settlement.
-        {
-            let mut newly: Vec<NetworkToRenderer> = Vec::new();
-            while let Ok(evt) = self.response_rx.try_recv() {
-                self.process_response(evt, &mut |e| newly.push(e));
-            }
-            if !newly.is_empty() {
-                self.buffered.borrow_mut().extend(newly);
-            }
-        }
+        self.settle_channel_into_buffer();
         self.buffered
             .borrow()
             .iter()
@@ -494,5 +593,100 @@ mod tests {
             }
             other => panic!("expected WS('arrival'), got {other:?}"),
         }
+    }
+
+    fn sse_event(conn: u64, data: &str) -> NetworkToRenderer {
+        NetworkToRenderer::EventSourceEvent(
+            conn,
+            crate::sse::SseEvent::Event {
+                event_type: "message".into(),
+                data: data.into(),
+                last_event_id: String::new(),
+            },
+        )
+    }
+
+    #[test]
+    fn pop_one_returns_events_one_at_a_time_leaving_the_rest_buffered() {
+        // The one-at-a-time drain (the elidex-js VM's `tick_network` loop, Codex
+        // R3 part 2): each `pop_one` returns the FRONT event and leaves the rest
+        // in the buffer, so a `has_pending_event_for_conn` scan between pops
+        // still sees the not-yet-pulled events for every conn.
+        let renderer = NetworkHandle::disconnected();
+        renderer.rebuffer_events(vec![
+            sse_event(0, "a"),
+            sse_event(1, "b"),
+            sse_event(0, "c"),
+        ]);
+
+        // Before pulling: both conns show pending.
+        assert!(renderer.has_pending_event_for_conn(0));
+        assert!(renderer.has_pending_event_for_conn(1));
+
+        // Pop #1 (conn 0 "a"); conn 1's event is still buffered.
+        let e0 = renderer.pop_one().expect("event 1");
+        assert!(matches!(e0, NetworkToRenderer::EventSourceEvent(0, _)));
+        assert!(
+            renderer.has_pending_event_for_conn(1),
+            "sibling conn 1's event must remain buffered while conn 0's dispatches (R3)",
+        );
+
+        // Pop #2 (conn 1 "b").
+        let e1 = renderer.pop_one().expect("event 2");
+        assert!(matches!(e1, NetworkToRenderer::EventSourceEvent(1, _)));
+
+        // Pop #3 (conn 0 "c").
+        let e2 = renderer.pop_one().expect("event 3");
+        assert!(matches!(e2, NetworkToRenderer::EventSourceEvent(0, _)));
+
+        // Drained.
+        assert!(renderer.pop_one().is_none());
+        assert!(!renderer.has_pending_event_for_conn(0));
+        assert!(!renderer.has_pending_event_for_conn(1));
+    }
+
+    #[test]
+    fn pop_one_settles_channel_before_popping() {
+        // A channel-pending event (not yet in `buffered`) must be visible to
+        // `pop_one` — it settles the channel into the buffer first, same routing
+        // as a drain / `has_pending_event_for_conn`.
+        let (renderer, response_tx) = handle_with_injectable_channel();
+        response_tx.send(sse_event(3, "x")).unwrap();
+        let e = renderer.pop_one().expect("channel event settled + popped");
+        assert!(matches!(e, NetworkToRenderer::EventSourceEvent(3, _)));
+        assert!(renderer.pop_one().is_none());
+    }
+
+    #[test]
+    fn pop_one_consumes_unregister_marker_and_synthesises_straggler() {
+        // Exercises the SETTLE-path marker handling (the real marker path): the
+        // marker is sent on the CHANNEL, so `pop_one`'s
+        // `settle_channel_into_buffer` prologue routes it through
+        // `process_response` — consuming the `RendererUnregistered` marker (never
+        // returned) and synthesising the in-flight fetch tracked in
+        // `outstanding_fetches` into a terminal `Err` straggler INTO the buffer.
+        // The pop-front then returns that straggler (same contract as a drain)
+        // rather than stranding the renderer-side Promise.  The buffer itself
+        // never holds the raw marker, so no pop-front marker branch is needed.
+        let (renderer, response_tx) = handle_with_injectable_channel();
+        // Register an in-flight fetch so the marker has a straggler to synthesise.
+        let inflight = FetchId::next();
+        renderer.outstanding_fetches.borrow_mut().insert(inflight);
+        response_tx
+            .send(NetworkToRenderer::RendererUnregistered)
+            .unwrap();
+
+        let ev = renderer
+            .pop_one()
+            .expect("straggler emitted from consumed marker");
+        match ev {
+            NetworkToRenderer::FetchResponse(id, Err(msg)) => {
+                assert_eq!(id, inflight);
+                assert_eq!(msg, "renderer unregistered");
+            }
+            other => panic!("expected synthetic Err straggler, got {other:?}"),
+        }
+        // Marker itself never surfaced; nothing else pending.
+        assert!(renderer.pop_one().is_none());
     }
 }
