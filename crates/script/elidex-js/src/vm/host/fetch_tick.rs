@@ -4,12 +4,17 @@
 //! PR5-async-fetch lifecycle:
 //!
 //! - [`VmInner::tick_network`] — public-facing per-tick drain entry.
-//!   Pulls only fetch replies via
+//!   Pulls fetch replies via
 //!   [`elidex_net::broker::NetworkHandle::drain_fetch_responses_only`]
-//!   so WS/SSE events stay in the broker handle's internal buffer
-//!   for a sibling consumer's later `drain_events`.  Always runs
-//!   the post-tick microtask checkpoint, even when no handle is
-//!   installed (R4.1).
+//!   (which settles `response_rx` into the handle's internal buffer,
+//!   fetch replies partitioned out), then consumes the realtime WS/SSE
+//!   batch itself as a COUNT-BOUNDED drain — snapshot
+//!   [`buffered_len`](elidex_net::broker::NetworkHandle::buffered_len)
+//!   once and pop exactly that many via
+//!   [`pop_buffered_front`](elidex_net::broker::NetworkHandle::pop_buffered_front)
+//!   (Codex R4: hard-bounds the tick and keeps a mid-callback fetch
+//!   reply out of the realtime drop path).  Always runs the post-tick
+//!   microtask checkpoint, even when no handle is installed (R4.1).
 //! - [`VmInner::settle_fetch`] — private helper that settles a single
 //!   pending Promise from a `FetchResponse(id, result)` event,
 //!   pruning the matching back-refs / abort-observer entries.
@@ -42,12 +47,19 @@ impl VmInner {
     ///
     /// Uses
     /// [`elidex_net::broker::NetworkHandle::drain_fetch_responses_only`]
-    /// so any WS/SSE events on the handle stay in its internal
-    /// buffer for a sibling consumer (e.g. the boa-side realtime
-    /// bridge during the boa→VM cutover) to drain on its own
-    /// schedule.  Non-fetch event ordering across the handle is
-    /// preserved by the broker API — see that method's doc for
-    /// the order guarantee.
+    /// to settle fetch replies (it drains `response_rx` into the
+    /// handle's internal buffer and partitions the fetch replies out),
+    /// then consumes the residual WS/SSE events itself as a
+    /// COUNT-BOUNDED batch: snapshot
+    /// [`buffered_len`](elidex_net::broker::NetworkHandle::buffered_len)
+    /// once and pop exactly that many via
+    /// [`pop_buffered_front`](elidex_net::broker::NetworkHandle::pop_buffered_front)
+    /// — buffered-only, NO per-iteration channel re-settle.  That hard-
+    /// bounds the tick under a busy stream and leaves any event arriving
+    /// mid-loop (channel or GC-time settle, both landing at the BACK)
+    /// for the next tick (Codex R4 F1/F2).  Non-fetch event ordering
+    /// across the handle is preserved by the broker API — see that
+    /// method's doc for the order guarantee.
     ///
     /// Always runs the microtask checkpoint at the end, even when
     /// no handle is installed — `tick_network` is also a generic
@@ -76,18 +88,34 @@ impl VmInner {
             // `dispatch_realtime_event` below; this loop only
             // owns the drain + partition-by-reverse-map glue.
             //
-            // Pull ONE event at a time (`pop_one`) rather than
-            // draining the whole buffer into a local Vec — the
-            // not-yet-dispatched events stay IN the broker buffer, so
-            // an allocation-triggered GC mid-dispatch (inside
-            // `dispatch_realtime_event`'s event-object alloc) sees the
-            // still-buffered events when it evaluates
-            // `has_pending_event_for_conn` for a SIBLING conn, and
-            // keeps that sibling's wrapper alive (Codex R3 finding 3
-            // sibling-conn case).  A whole-buffer drain would empty
-            // the buffer up front, making the peek wrongly report "no
-            // queued task" for every not-yet-dispatched conn.
-            while let Some(event) = handle.pop_one() {
+            // Count-bounded realtime batch (Codex R4 F1/F2).
+            // `drain_fetch_responses_only` above already drained
+            // `response_rx` into `buffered` (fetch replies partitioned
+            // OUT), so `buffered_len()` is the finite WS/SSE snapshot
+            // for THIS tick.  Pop exactly that many from the front
+            // (buffered-only, NO per-iteration channel re-settle):
+            //   - the tick is HARD-bounded even under a busy stream
+            //     (F1) — the old whole-buffer pop re-drained the
+            //     channel every iteration and livelocked;
+            //   - a fetch reply arriving mid-callback stays in
+            //     `response_rx` for the NEXT tick's
+            //     `drain_fetch_responses_only` (F2) — the old
+            //     per-iteration settle pulled it into `buffered`,
+            //     cleared its `outstanding_fetches` id, then the
+            //     `FetchResponse => {}` arm in `dispatch_realtime_event`
+            //     dropped it (Promise leak);
+            //   - a GC-time `has_pending_event_for_conn` settle (R2a)
+            //     `.extend`s new arrivals onto the BACK, past the batch
+            //     boundary → not dispatched this tick, so the count
+            //     bound also closes the GC-settle residual of F1/F2.
+            // The un-popped tail stays in `buffered`, visible to a
+            // sibling `has_pending_event_for_conn` scan (Codex R3
+            // finding 3 sibling-conn keepalive).
+            let batch = handle.buffered_len();
+            for _ in 0..batch {
+                let Some(event) = handle.pop_buffered_front() else {
+                    break;
+                };
                 self.dispatch_realtime_event(event);
             }
         }
@@ -255,12 +283,35 @@ impl VmInner {
                     }
                 }
             }
-            // FetchResponse already drained by
-            // `drain_fetch_responses_only` above — should never
-            // appear in `drain_events`'s residual stream, but the
-            // arm is exhaustive so the broker's existing
-            // ordering invariant is the only contract this code
-            // relies on.
+            // FetchResponse / RendererUnregistered can never reach
+            // the count-bounded realtime batch: `tick_network` snapshots
+            // `buffered_len()` AFTER `drain_fetch_responses_only` has
+            // partitioned every fetch reply out and consumed the
+            // `RendererUnregistered` marker (Codex R4 F2 — the old
+            // per-iteration settle could pull a mid-callback FetchResponse
+            // in here and this drop leaked its Promise; the count bound
+            // now keeps such an arrival in `response_rx` for the next
+            // tick's drain).  The arm stays exhaustive; the drop is
+            // unreachable in practice and safe by construction.
+            //
+            // The subtler path the count bound also closes: a
+            // mid-callback FetchResponse can be settled into `buffered`
+            // NOT via a channel arrival but by a GC-time
+            // `has_pending_event_for_conn` (the R2a keepalive peek) firing
+            // DURING batch dispatch — but that path `.extend`s the reply
+            // onto the BACK of `buffered`, PAST the `batch` boundary that
+            // was snapshotted BEFORE the loop, so it is likewise not
+            // popped this tick and is recovered by the next tick's
+            // `drain_fetch_responses_only`.
+            //
+            // Unreachability here rests on two invariants: (1) `batch` is
+            // snapshotted ONCE before the loop (never re-read per
+            // iteration), and (2) the settle path only APPENDS to the
+            // BACK (never front-inserts at an index < batch).  A future
+            // refactor breaking either would let a FetchResponse reach
+            // this arm and leak its Promise — guarded by the regression
+            // test `count_bounded_batch_does_not_drop_gc_settled_fetch_reply`
+            // in `elidex-net`'s `broker::buffered` tests.
             NetworkToRenderer::FetchResponse(_, _) | NetworkToRenderer::RendererUnregistered => {}
         }
     }

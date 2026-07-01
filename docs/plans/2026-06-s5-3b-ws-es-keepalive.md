@@ -43,9 +43,16 @@ sends are **broker-owned FIFO once emitted**, transmitted regardless of wrapper 
 consequence: **§2.3's no-listener-clause mapping is SWAPPED** — WS `data-queued` is **VACUOUS in elidex
 → OMIT** (and keying keepalive on `buffered_amount` would *over-root* a listener-less CLOSING socket into
 an indefinite leak — Codex F1), while ES `task-queued` is **MEANINGFUL → INCLUDE** (it is exactly the
-missing GC root for the inbound buffer window — Codex F3). A third finding (F2) records a real but
-observably-inert §7 "readyState as of event-loop step 1" letter-gap → documented + slotted, not fixed
-here. The rest of the memo (seam, layering, tests, edge matrix) is updated to this corrected substrate.
+missing GC root for the inbound buffer window — Codex F3). A third finding (F2) records a **real and
+observable** WS §7 "readyState as of event-loop step 1" letter-gap: originally dispositioned "observably-inert"
+(refuted by Codex R3), then wrongly CLOSED by the R3 dispatch-window root, and now — per **Codex R4-F3** —
+**REOPENED + DEFERRED** to a plan-reviewed **WS-scoped** per-turn step-1 snapshot slice (the dispatch-window root covers
+only the CURRENT target, not a BYSTANDER WS socket's step-1-vs-live tier divergence; §8 edge 8, §10). This
+gap is **WS-only** — WS §7 keys its tiers to the readyState *"as of the last time the event loop reached
+step 1"* (a step-1 SNAPSHOT), whereas HTML §9.2.9 keys the ES tiers to the **live** readyState (*"While
+an EventSource object's readyState is …"*), so the ES arm reading the live `ready_state` is **already
+spec-correct — there is no ES step-1 divergence**. The rest
+of the memo (seam, layering, tests, edge matrix) is updated to this corrected substrate.
 
 **Implementation status:** the committed impl on branch `s5-3b-ws-es-keepalive` (PR #440, `4fda1cda`)
 reflects the **OLD pre-R1 design** (WS `has_queued_data` present, ES `has_queued_task` absent, docstrings
@@ -621,8 +628,8 @@ site is under the touch-time threshold at impl).
    target (§2.0 fact 4). So `es_keepalive(has_queued_task=true)` is the sole GC root standing between a
    buffered inbound event and a silent-drop. Getting this wrong = data loss for every named-event SSE
    consumer on any allocation-triggered GC (which fires mid-`tick_network`, §2.0 fact 1).
-8. **WS §7 "readyState as of event-loop step 1" letter-gap = F2 — ✅ CLOSED by the Codex R3
-   dispatch-window root (PR #440).** WS §7 keys the listener tiers to the readyState "as of the last time
+8. **WS §7 "readyState as of event-loop step 1" letter-gap = F2 — ⚠ REOPENED + DEFERRED (Codex R4-F3);
+   the R3 dispatch-window root covers only the CURRENT dispatch target, not bystanders.** WS §7 keys the listener tiers to the readyState "as of the last time
    the event loop reached step 1"; elidex reads the **LIVE current** `ready_state` (`WebSocketState` has
    only the live field — no per-turn snapshot). Given mid-turn GC (§2.0 fact 1) this letter-divergence is
    **real and constructible**. The plan originally dispositioned it as observably-inert on the premise
@@ -641,9 +648,27 @@ site is under the touch-time threshold at impl).
    **one-issue-one-way**. `VmTempRoot`'s `Drop` pops on scope exit and is panic-safe (restores the stack
    during unwinding); re-entrancy nests naturally (each nested dispatch pushes its own temp-root above the
    outer target). **Plus** the `pop_one` one-at-a-time broker drain (finding 3 sibling-conn case: keeps
-   `has_pending_event_for_conn` accurate for conns whose events are still buffered). This subsumes the
-   readyState divergence for the ONLY window where it is observable, so the former slot
-   `#11-keepalive-event-loop-step1-snapshot` is **CLOSED, not deferred** (§10). Regression tests:
+   `has_pending_event_for_conn` accurate for conns whose events are still buffered). This fixes the
+   use-after-free of the **CURRENT dispatch target** across its own state transition + event-object alloc,
+   and is **shipped + correct for that scope** — keep it. But **Codex R4-F3** (`keepalive.rs:147`) exposed
+   a **BYSTANDER** case the dispatch-window root does NOT cover: an unreferenced WebSocket with **only** an
+   `open` listener flips CONNECTING→OPEN when its `Connected` event dispatches; a later
+   allocation-triggered GC in the **SAME `tick_network` turn** — fired while dispatching a **sibling**
+   event (the sibling is `push_temp_root`-rooted; the bystander is NOT) — reads the bystander's **live**
+   OPEN `ready_state`, whose OPEN tier excludes `open`, and force-closes it **one turn early**. WS §7
+   keys the tiers to the readyState *"as of the last time the event loop reached step 1"* (a step-1
+   SNAPSHOT) — still CONNECTING that turn, whose tier INCLUDES `open`, so the bystander should be
+   **kept**. (This is **WS-only**: HTML §9.2.9 keys the ES tiers to the **live** readyState — *"While an
+   EventSource object's readyState is …"* — so the ES arm reading live `ready_state` is **already
+   spec-correct**; there is no ES step-1 divergence.) So the letter-divergence is **real and NOT
+   subsumed** by the dispatch-window root: `push_temp_root` and the WS per-turn step-1 snapshot are
+   **ORTHOGONAL** — `push_temp_root` roots the current dispatch target across
+   its own state transition + event-object alloc; the snapshot fixes the WS tier readyState for **ALL**
+   WS sockets (incl. bystanders) at event-loop step 1. Both are needed in the correct final design. So the
+   slot `#11-keepalive-event-loop-step1-snapshot` is **REOPENED and DEFERRED** to a plan-reviewed
+   WS-scoped per-turn-snapshot slice (§10). **Severity is NARROW**: no JS callback is lost (the bystander's `open`
+   already fired and cannot re-fire; a message on a listener-less socket would fire nothing) — only a
+   `WebSocketClose` network side-effect one turn early. Regression tests:
    `tests_realtime_keepalive` F1/F2/F3, each failing without the root (GC armed INSIDE the dispatch-window
    event alloc via `force_gc_before_next_alloc`).
 
@@ -707,17 +732,18 @@ protects are VM-resident; S5-3b only ensures their targets survive to be deliver
 
 ## §10 Deferred slots + open questions (per-PR cap ≤3)
 
-### Slots (two parent-carved to REGISTER; the Codex-F2 slot is CLOSED, not deferred — see reconciliation)
+### Slots (two parent-carved to REGISTER; the Codex-F2 step-1-snapshot slot is REOPENED + DEFERRED — see reconciliation)
 The two parent-carved slots below were **carved as NEW by the parent S5-3 §10** but **never landed in the
 canonical registry** `memory/project_open-defer-slots.md` — S5-3a (#430) registered only the *predecessor*
 `#11-eventtarget-listener-keepalive-rooting`. So the registry currently has the predecessor (still
 carrying the **refuted** "GENERIC EventTarget alive while listenered" any-listener framing, §2) and
 **not** these two. They are program-level slots (not new S5-3b scope); registering them is a ledger
 catch-up. The Codex-F2 candidate `#11-keepalive-event-loop-step1-snapshot` was **originally carved as a
-NEW low-priority slot** but is **now CLOSED by the Codex R3 dispatch-window-root fix** (its
-"observably-inert" premise was refuted — the gap IS observable in the dispatch window, and the root
-subsumes it; slot detail below). So S5-3b carves **zero net new deferred slots**. **S5-3b owns the
-reconciliation** (deliverable below).
+NEW low-priority slot**, then wrongly **CLOSED by the Codex R3 dispatch-window-root fix**, and is now
+**REOPENED + DEFERRED**: **Codex R4-F3** exposed that the dispatch-window root covers only the CURRENT
+dispatch target, NOT a BYSTANDER socket's step-1-vs-live tier divergence (slot detail below). So S5-3b
+carries **one** reopened deferred slice — the per-turn step-1 snapshot — plus the two parent-carved
+registry-catch-up slots. **S5-3b owns the reconciliation** (deliverable below).
 
 - **`#11-eventtarget-keepalive-component-migration`** (carved by parent §10, **registry-absent**,
   B1-gated) — S5-3b adds WS/ES as new per-VM HostData registrants; the component-on-entity ideal stays
@@ -725,28 +751,45 @@ reconciliation** (deliverable below).
 - **`#11-eventtarget-keepalive-registrant-coverage`** (carved by parent §10, **registry-absent**, HARD
   pre-flip gate) — S5-3b **satisfies the WS/ES portion**. After S5-3b, only **S5-3c (observers)**
   remains off the seam; the gate stays open until S5-3c lands (before S5-6).
-- **`#11-keepalive-event-loop-step1-snapshot`** (Codex F2 / §8 edge 8) — ✅ **CLOSED by the Codex R3
-  dispatch-window-root fix (PR #440), NOT a deferred slot.** The disposition below was **wrong**: it
-  mis-classified the letter-gap as "observably-inert" on the premise that *"the dispatch target is
-  `this`-rooted during its own handler"*. Codex R3 refuted that premise — the target is rooted by
-  `this` only once the handler is RUNNING; during the **dispatch window** (`dispatch_realtime_event` has
-  transitioned the connection state, and `create_fresh_event_object` → `alloc_object` is building the
-  event object, BEFORE the handler runs) the target is rooted by NOTHING except the keepalive predicate,
-  whose tier for the **just-transitioned** readyState can exclude the listener the in-flight task will
-  service. An allocation-triggered GC there (real — `tick_network` runs with `gc_enabled = true`) sweeps
-  the target and the dispatch resumes into a freed slot. This IS the "readyState as of event-loop step 1
-  vs. live" divergence made observable, and it is **the only window where the divergence has a
-  consequence**. The fix — the `push_temp_root` dispatch-window discipline (the target pushed onto
-  `vm.stack` for the whole per-event dispatch in `fetch_tick.rs`, reusing the established rooting
-  mechanism that the S5-3a MQL arm / VisualViewport producer already use — **one-issue-one-way**, not a
-  parallel bespoke root stack), + the `pop_one` one-at-a-time broker drain that keeps
-  `has_pending_event_for_conn` accurate for sibling conns — **subsumes** the divergence for that window,
-  so the slot is closed rather than deferred. Regression tests: `tests_realtime_keepalive` F1/F2/F3
-  (each fails without the root, arming a GC INSIDE the dispatch-window event alloc via the
-  `force_gc_before_next_alloc` test one-shot). The residual "strict per-turn readyState snapshot for
-  keepalive tiers OUTSIDE the dispatch window" is **not** a real gap: outside the dispatch window the
-  target is either JS-reachable (rooted normally) or a genuine orphan (correctly collectible), so no
-  snapshot mechanism is owed. No successor slot.
+- **`#11-keepalive-event-loop-step1-snapshot`** (Codex F2 / §8 edge 8) — ⚠ **REOPENED + DEFERRED (Codex
+  R4-F3), a deferred slot again.** This slot's disposition has now been **wrong twice**: first
+  mis-classified as "observably-inert" (refuted by Codex R3), then wrongly **CLOSED by the R3
+  dispatch-window-root fix**. The corrected root: the `push_temp_root` dispatch-window discipline (the
+  target pushed onto `vm.stack` for the whole per-event dispatch in `fetch_tick.rs`, reusing the
+  established rooting mechanism that the S5-3a MQL arm / VisualViewport producer already use —
+  **one-issue-one-way**) fixes the use-after-free of the **CURRENT dispatch target** across its own state
+  transition + event-object alloc, and is **shipped + correct for that scope**. But it covers **only** the
+  current target — **not bystanders**. **Codex R4-F3** (`keepalive.rs:147`): an unreferenced WebSocket
+  with **only** an `open` listener flips CONNECTING→OPEN when its `Connected` event dispatches; a later
+  allocation-triggered GC in the **SAME `tick_network` turn** — fired while dispatching a **sibling** event
+  (the sibling is `push_temp_root`-rooted; the bystander is NOT) — reads the bystander's **live** OPEN
+  `ready_state`, whose OPEN tier excludes `open`, and force-closes it **one turn early**. WS §7 keys the
+  tiers to the readyState *"as of the last time the event loop reached step 1"* (a step-1 SNAPSHOT) —
+  still CONNECTING that turn, whose tier INCLUDES `open`, so the bystander should be **kept**. This is
+  **WS-only**: HTML §9.2.9 keys the ES tiers to the **live** readyState (*"While an EventSource object's
+  readyState is …"*), so the ES arm reading live `ready_state` is **already spec-correct — there is no ES
+  step-1 divergence**. So the letter-divergence is **real and NOT subsumed** by the dispatch-window root.
+  `push_temp_root` and the WS per-turn step-1 snapshot are **ORTHOGONAL** — `push_temp_root` roots the
+  current dispatch target across
+  its own state transition + event-object alloc; the snapshot fixes the WS tier readyState for **ALL** WS
+  sockets (incl. bystanders) at event-loop step 1. Both are needed in the correct final design; the slot
+  **coexists** with the shipped `push_temp_root` root. **Successor = a plan-reviewed WS-scoped
+  per-turn-snapshot slice**: a WS per-turn readyState snapshot captured at event-loop step 1. **Defer-not-inline**
+  because it is edge-dense along **WS-INTERNAL** axes (≥3 intersecting invariant axes: (1) the step-1
+  snapshot capture point vs the mid-tick readyState mutations from `Connected` dispatch; (2) orthogonal
+  coexistence with the shipped `push_temp_root` dispatch-window root; (3) mid-turn-GC timing that reads the
+  tier; (4) the bystander-vs-current-dispatch-target distinction), edge-dense →
+  **`/elidex-plan-review` mandatory** per CLAUDE.md; and this is the **2nd wrong disposition** on this same
+  slot, so it must route through plan-review, not a 3rd inline guess. **Severity is NARROW**: no JS
+  callback is lost (the bystander's `open` already fired and cannot re-fire; a message on a listener-less
+  socket would fire nothing) — only a `WebSocketClose` network side-effect one turn early. Regression
+  tests: `tests_realtime_keepalive` F1/F2/F3 (each fails without the `push_temp_root` root, arming a GC
+  INSIDE the dispatch-window event alloc via the `force_gc_before_next_alloc` test one-shot).
+  **Re-evaluation date/trigger:** re-evaluate at the WS per-turn-snapshot `/elidex-plan-review` slice,
+  **targeted before the S5-6 flip** (folded into the pre-flip keepalive review). This is a **SOFT target,
+  NOT a hard flip-blocker** — the severity is narrow (a bystander WS force-closed one turn early via a
+  spurious `WebSocketClose`; no JS callback is lost), so the flip need not block on it, but the pre-flip
+  keepalive review is the natural point to fold the WS step-1 snapshot in.
 - **ES task-queued clause** — **NOT deferred; INCLUDED in S5-3b** (§2.3 SWAP). Codex R1 refuted the
   original "vacuous under inline drain" premise: the inbound event **is** buffered across a mid-turn GC
   window (§2.0 facts 1-4), so omitting the clause would silently drop named-event SSE deliveries (F3).
@@ -758,11 +801,15 @@ At S5-3b landing (in the landing-memo / `project_open-defer-slots.md` update —
 convention point, per `feedback_defer-ledger-philosophy-lens`):
 1. **Register** `#11-eventtarget-keepalive-registrant-coverage` (active HARD pre-flip gate, now tracking
    **S5-3c** — observers must land before S5-6) and `#11-eventtarget-keepalive-component-migration`
-   (B1-gated) in `project_open-defer-slots.md`. **Do NOT** register
-   `#11-keepalive-event-loop-step1-snapshot` — the Codex-R3 dispatch-window-root fix **closed** it (its
-   "observably-inert" disposition was refuted; the root subsumes the divergence for the only window where
-   it is observable). If a stub for it already exists in the registry, mark it **CLOSED (subsumed by the
-   PR #440 dispatch-window root)**.
+   (B1-gated) in `project_open-defer-slots.md`. **Also register**
+   `#11-keepalive-event-loop-step1-snapshot` as **REOPENED** (**WS-scoped** per-turn readyState snapshot
+   slice captured at event-loop step 1 — HTML §9.2.9 is live-keyed so the ES arm is already spec-correct,
+   no ES divergence, **`/elidex-plan-review`-required**, **coexists** with the
+   shipped `push_temp_root` dispatch-window root — orthogonal, both needed). Codex R4-F3 exposed the
+   bystander step-1-vs-live tier divergence the dispatch-window root does NOT cover, so its earlier CLOSED
+   disposition was wrong (2nd wrong disposition on this slot). If a stub for it already exists in the
+   registry, update it to **REOPENED + DEFERRED (Codex R4-F3, per-turn step-1 snapshot slice,
+   plan-review-required)**.
 2. **Reframe + retire** the predecessor `#11-eventtarget-listener-keepalive-rooting` slot text — its
    "GENERIC 'EventTarget alive while listenered'" framing is **refuted** by §2 (the parent §12 named
    this an S5-3a deliverable; S5-3a left it undone). Reframe to the **keepalive-predicate seam**
@@ -807,10 +854,16 @@ convention point, per `feedback_defer-ledger-philosophy-lens`):
   **SUPERSEDED — Codex R3 refuted the "no observable break" premise (PR #440).** The `this`-rooting
   premise fails during the **dispatch window** (state transitioned, event object being allocated, handler
   NOT yet running): the target is unrooted there and a mid-dispatch GC sweeps it → resume into a freed
-  slot. The gap is therefore **real and observable**, and is **CLOSED** by the `push_temp_root`
-  dispatch-window discipline (reusing the established S5-3a MQL rooting mechanism — one-issue-one-way, not
-  a parallel bespoke root stack) + `pop_one` sibling-accurate drain (§8 edge 8, §10). No accepted gap, no
-  deferred slot.
+  slot. The gap is therefore **real and observable**. The `push_temp_root` dispatch-window discipline
+  (reusing the established S5-3a MQL rooting mechanism — one-issue-one-way, not a parallel bespoke root
+  stack) + `pop_one` sibling-accurate drain (§8 edge 8, §10) **closes the current-target use-after-free**
+  and is shipped. But **Codex R4-F3** exposed the **BYSTANDER** step-1-vs-live tier divergence it does
+  **NOT** cover (an unreferenced `open`-only WS flips CONNECTING→OPEN and is force-closed one turn early by
+  a GC fired while dispatching a **sibling** — the bystander is not `push_temp_root`-rooted). So the slot
+  `#11-keepalive-event-loop-step1-snapshot` is **REOPENED + deferred** to a plan-reviewed **WS-scoped**
+  per-turn-snapshot slice (WS-only — WS §7 is step-1-snapshot-keyed but HTML §9.2.9 is live-keyed so the
+  ES arm is already spec-correct; orthogonal to `push_temp_root` — both needed; narrow severity =
+  one-turn-early `WebSocketClose`, no JS callback lost).
 
 ---
 

@@ -706,7 +706,8 @@ fn es_drained_window_named_event_target_rooted_during_dispatch_gc_f3_regression(
     // F3 (`keepalive.rs:175` drained-window): an OPEN EventSource whose ONLY
     // listener is a NAMED event (`'foo'`, NOT in the ES tier {message,error}),
     // with TWO buffered `'foo'` events. `tick_network` pulls them ONE at a time
-    // (`pop_one`) — event 2 stays IN the broker buffer while event 1 dispatches.
+    // (count-bounded batch via `pop_buffered_front`) — event 2 stays IN the
+    // broker buffer while event 1 dispatches.
     // A GC armed during event 1's dispatch (event-object alloc) must keep the
     // target alive via BOTH mechanisms working together: the dispatch-window
     // root (event 1's target) AND `has_queued_task` (event 2 still buffered, so
@@ -753,8 +754,9 @@ fn es_drained_window_named_event_target_rooted_during_dispatch_gc_f3_regression(
     });
 
     // Sibling-conn variant: while conn 0's event 1 dispatches (GC armed), a
-    // SECOND conn's event stays buffered. `pop_one` keeps it in the broker
-    // buffer, so `has_pending_event_for_conn(conn 1)` stays true and the sibling
+    // SECOND conn's event stays buffered. The count-bounded batch
+    // (`pop_buffered_front`) keeps it in the broker buffer, so
+    // `has_pending_event_for_conn(conn 1)` stays true and the sibling
     // wrapper is kept alive; both conns then deliver.
     with_realtime_vm(true, |vm, handle| {
         vm.eval(
