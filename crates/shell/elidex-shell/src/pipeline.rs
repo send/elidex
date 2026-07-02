@@ -23,7 +23,7 @@ use crate::resolve_with_mode;
 /// Carried by the iframe load paths (`content/iframe/load.rs`, including the
 /// OOP thread's initial build and its `Navigate` re-build in
 /// `content/iframe/thread.rs`) into the pipeline builders so
-/// [`run_scripts_and_finalize`] installs it at the same pre-eval seam that
+/// `run_scripts_and_finalize` installs it at the same pre-eval seam that
 /// seeds the cookie jar / viewport / device facts.
 /// Invariant (S5-4b, closes `#11-iframe-origin-before-initial-scripts`):
 /// **security installs precede the first eval on ALL iframe paths**
