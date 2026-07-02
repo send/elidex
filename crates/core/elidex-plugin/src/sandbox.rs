@@ -113,8 +113,9 @@ pub fn popups_allowed(flags: Option<IframeSandboxFlags>) -> bool {
 /// WHATWG HTML §8.1.3.4 "scripting is enabled" for an environment settings
 /// object (`html#enabling-and-disabling-scripting`): enabled iff scripts are
 /// allowed ([`scripts_allowed`]). The other §8.1.3.4 conditions (UA support,
-/// user disable, WebDriver BiDi) are constant today — this is the named seam
-/// for a future user-disable toggle.
+/// user disable, WebDriver BiDi) are constant: user disable is a UA settings
+/// feature elidex does not implement (nothing to gate, no slot owed); if such
+/// a feature ever lands, its condition composes here.
 #[must_use]
 pub fn scripting_enabled(flags: Option<IframeSandboxFlags>) -> bool {
     scripts_allowed(flags)
