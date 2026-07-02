@@ -90,7 +90,7 @@ pub(super) fn run_scripts_and_finalize(
     viewport: Size,
     device_facts: crate::ipc::DeviceFacts,
     engine_mode: EngineMode,
-    frame_security: Option<&FrameSecurity>,
+    frame_security: Option<FrameSecurity>,
 ) -> (SessionCore, JsRuntime, ViewportOverflow) {
     let stylesheet_refs: Vec<&Stylesheet> = stylesheets.iter().collect();
 
@@ -115,6 +115,13 @@ pub(super) fn run_scripts_and_finalize(
 
     if let Some(url) = current_url {
         runtime.set_current_url(Some(url.clone()));
+        // Top-level document (`frame_security: None`): unsandboxed, origin
+        // derived from the URL.
+        if frame_security.is_none() {
+            runtime
+                .bridge()
+                .set_origin(elidex_plugin::SecurityOrigin::from_url(url));
+        }
     }
 
     // Security-install chokepoint (S5-4b): sandbox flags + origin + iframe
@@ -129,20 +136,10 @@ pub(super) fn run_scripts_and_finalize(
     // `make_out_of_process_entry`, `iframe/thread.rs` `handle_navigate`) pass
     // `Some` too — no post-build install sequence anywhere. Closes
     // `#11-iframe-origin-before-initial-scripts`.
-    match frame_security {
-        Some(security) => {
-            runtime.bridge().set_sandbox_flags(security.sandbox_flags);
-            runtime.bridge().set_origin(security.origin.clone());
-            runtime.bridge().set_iframe_depth(security.iframe_depth);
-        }
-        // Top-level document: unsandboxed, origin derived from the URL.
-        None => {
-            if let Some(url) = current_url {
-                runtime
-                    .bridge()
-                    .set_origin(elidex_plugin::SecurityOrigin::from_url(url));
-            }
-        }
+    if let Some(security) = frame_security {
+        runtime.bridge().set_sandbox_flags(security.sandbox_flags);
+        runtime.bridge().set_origin(security.origin);
+        runtime.bridge().set_iframe_depth(security.iframe_depth);
     }
 
     // Seed the JS bridge viewport + device facts BEFORE running scripts so initial

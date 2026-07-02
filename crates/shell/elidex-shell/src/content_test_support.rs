@@ -91,23 +91,10 @@ pub(super) fn build_test_content_state(
         viewport,
         crate::ipc::DeviceFacts::default(),
     );
-    // Build at the cell's seed (DEFAULT, seq 0 / facts_seq 0) → high-water marks 0,
-    // matching the `build_pipeline_*` size above; a test `SetViewport` then applies with
-    // `seq ≥ 1`, a `SetDeviceFacts` with `facts_seq ≥ 1`.
-    let viewport_cell = crate::ipc::ViewportCell::new(viewport);
-    let mut state = ContentState::new(
-        content,
-        elidex_navigation::NavigationController::new(),
-        pipeline,
-        Box::new(|| {}),
-        viewport_cell,
-        0,
-        0,
-    );
-    super::scroll::update_viewport_scroll_dimensions(&mut state);
-    super::iframe::scan_initial_iframes(&mut state);
-    state.re_render();
-    (state, browser)
+    (
+        finalize_test_content_state(content, pipeline, viewport),
+        browser,
+    )
 }
 
 /// Like [`build_test_content_state`], but with a top-level document **URL** —
@@ -141,6 +128,25 @@ pub(super) fn build_test_content_state_with_url(
         // Top-level document: no frame security (origin derives from `url`).
         None,
     );
+    (
+        finalize_test_content_state(content, pipeline, viewport),
+        browser,
+    )
+}
+
+/// Wrap a freshly built pipeline into a driveable `ContentState` — the shared
+/// tail of [`build_test_content_state`] / [`build_test_content_state_with_url`].
+///
+/// Seeds the viewport cell at the build size (seq 0 / facts_seq 0) → high-water
+/// marks 0, matching the `build_pipeline_*` size the pipeline was built at; a
+/// test `SetViewport` then applies with `seq ≥ 1`, a `SetDeviceFacts` with
+/// `facts_seq ≥ 1`. Scans initial iframes and renders once so the state is
+/// ready to drive.
+fn finalize_test_content_state(
+    content: LocalChannel<ContentToBrowser, BrowserToContent>,
+    pipeline: crate::PipelineResult,
+    viewport: elidex_plugin::Size,
+) -> ContentState {
     let viewport_cell = crate::ipc::ViewportCell::new(viewport);
     let mut state = ContentState::new(
         content,
@@ -154,7 +160,7 @@ pub(super) fn build_test_content_state_with_url(
     super::scroll::update_viewport_scroll_dimensions(&mut state);
     super::iframe::scan_initial_iframes(&mut state);
     state.re_render();
-    (state, browser)
+    state
 }
 
 /// Read the value of an attribute on the `<div>` with the given `id` — the shared

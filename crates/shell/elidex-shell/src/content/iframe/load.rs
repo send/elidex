@@ -25,8 +25,6 @@ use super::types::{
 ///
 /// `ctx.depth` is the nesting depth of this iframe (`parent_depth + 1`).
 /// It is stored on the iframe's bridge so nested iframes can compute their own depth.
-#[allow(clippy::cast_precision_loss)] // u32 width/height to f32 is acceptable for CSS pixels.
-#[allow(clippy::too_many_lines)] // Multi-source iframe loading with security checks.
 pub fn load_iframe(
     iframe_data: &elidex_ecs::IframeData,
     ctx: &IframeLoadContext<'_>,
@@ -39,6 +37,17 @@ pub fn load_iframe(
 
     // Parse sandbox flags once — used by both origin override and meta construction.
     let sandbox_flags = parse_sandbox(iframe_data);
+
+    // A real `src` URL (srcdoc absent — srcdoc takes precedence): network load,
+    // with its origin derived from the loaded URL inside.
+    if iframe_data.srcdoc.is_none() {
+        if let Some(src) = iframe_data.src.as_deref() {
+            if !src.is_empty() && src != "about:blank" {
+                return load_iframe_from_url(src, iframe_data, sandbox_flags, ctx);
+            }
+        }
+    }
+
     // srcdoc / about:blank / no-src documents inherit the parent origin
     // (WHATWG HTML §4.8.5), with sandbox / credentialless opaqueness applied.
     // Computed BEFORE the pipeline build: the build runs the initial scripts,
@@ -48,35 +57,13 @@ pub fn load_iframe(
         sandbox_flags,
         iframe_data.credentialless,
     );
-
-    // Determine content source.
-    let pipeline = if let Some(srcdoc) = &iframe_data.srcdoc {
-        // srcdoc: parse inline HTML.
-        build_iframe_pipeline(
-            srcdoc,
-            ctx.parent_url.cloned(),
-            ctx,
-            &frame_security(inherited_origin, sandbox_flags, ctx),
-        )
-    } else if let Some(src) = &iframe_data.src {
-        if src.is_empty() || src == "about:blank" {
-            build_iframe_pipeline(
-                "",
-                ctx.parent_url.cloned(),
-                ctx,
-                &frame_security(inherited_origin, sandbox_flags, ctx),
-            )
-        } else {
-            return load_iframe_from_url(src, iframe_data, sandbox_flags, ctx);
-        }
-    } else {
-        build_iframe_pipeline(
-            "",
-            ctx.parent_url.cloned(),
-            ctx,
-            &frame_security(inherited_origin, sandbox_flags, ctx),
-        )
-    };
+    let content = iframe_data.srcdoc.as_deref().unwrap_or("");
+    let pipeline = build_iframe_pipeline(
+        content,
+        ctx.parent_url.cloned(),
+        ctx,
+        frame_security(inherited_origin, sandbox_flags, ctx),
+    );
 
     let entry = make_in_process_entry(pipeline);
     set_referrer(&entry, ctx);
@@ -133,11 +120,8 @@ fn load_iframe_from_url(
                 return blank_entry(SecurityOrigin::opaque(), iframe_data, ctx);
             }
 
-            let origin = apply_sandbox_origin(
-                SecurityOrigin::from_url(&loaded.url),
-                sandbox_flags,
-                iframe_data.credentialless,
-            );
+            let origin =
+                apply_sandbox_origin(doc_origin, sandbox_flags, iframe_data.credentialless);
 
             if ctx.parent_origin != &origin {
                 return make_out_of_process_entry(
@@ -193,7 +177,7 @@ fn load_iframe_from_url(
                 ctx.device_facts,
                 // Security installs precede the initial scripts run inside this
                 // build (see `FrameSecurity`).
-                Some(&frame_security(origin, sandbox_flags, ctx)),
+                Some(frame_security(origin, sandbox_flags, ctx)),
             );
             // Keep credentialless broker alive for the iframe pipeline's lifetime.
             if let Some(cb) = credentialless_broker {
@@ -266,7 +250,6 @@ pub(super) fn make_in_process_entry(pipeline: crate::PipelineResult) -> IframeEn
 /// (`content_iframe_security_tests`), which drive this entry directly with a
 /// synthesized `LoadedDocument` — the production route requires a real
 /// cross-origin network load.
-#[allow(clippy::cast_precision_loss)]
 pub(in crate::content) fn make_out_of_process_entry(
     loaded: elidex_navigation::LoadedDocument,
     security: crate::FrameSecurity,
@@ -301,7 +284,7 @@ pub(in crate::content) fn make_out_of_process_entry(
             // build (see `FrameSecurity`) — the same chokepoint as the
             // in-process paths. `FrameSecurity` is `Send`, captured into this
             // thread.
-            Some(&security),
+            Some(security),
         );
 
         iframe_thread_main(oop_pipeline, &iframe_chan);
@@ -330,7 +313,7 @@ fn blank_entry(
         "",
         ctx.parent_url.cloned(),
         ctx,
-        &frame_security(origin, sandbox_flags, ctx),
+        frame_security(origin, sandbox_flags, ctx),
     ))
 }
 
@@ -365,7 +348,7 @@ fn build_iframe_pipeline(
     html: &str,
     url: Option<url::Url>,
     ctx: &IframeLoadContext<'_>,
-    security: &crate::FrameSecurity,
+    security: crate::FrameSecurity,
 ) -> crate::PipelineResult {
     crate::build_pipeline_interactive_shared(
         html,

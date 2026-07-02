@@ -679,7 +679,7 @@ pub(crate) fn build_pipeline_interactive_shared(
     cookie_jar: Option<Arc<elidex_net::CookieJar>>,
     viewport: Size,
     device_facts: crate::ipc::DeviceFacts,
-    frame_security: Option<&FrameSecurity>,
+    frame_security: Option<FrameSecurity>,
 ) -> PipelineResult {
     let parse_result = parse_progressive_str(html);
     for err in &parse_result.errors {
@@ -895,7 +895,7 @@ pub fn build_pipeline_from_loaded(
     cookie_jar: Option<Arc<elidex_net::CookieJar>>,
     viewport: Size,
     device_facts: crate::ipc::DeviceFacts,
-    frame_security: Option<&FrameSecurity>,
+    frame_security: Option<FrameSecurity>,
 ) -> PipelineResult {
     let elidex_navigation::LoadedDocument {
         mut dom,
@@ -976,7 +976,7 @@ pub fn build_pipeline_from_loaded(
 pub fn build_pipeline_from_url(
     url: &url::Url,
     viewport: Size,
-    frame_security: Option<&FrameSecurity>,
+    frame_security: Option<FrameSecurity>,
 ) -> Result<PipelineResult, elidex_navigation::LoadError> {
     // Standalone mode: use a disconnected handle for pipeline (no broker).
     // load_document still routes through NetworkHandle::fetch_blocking which

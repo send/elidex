@@ -217,7 +217,7 @@ fn handle_navigate(
         sandbox_flags: sandbox,
         iframe_depth: pipeline.runtime.bridge().iframe_depth(),
     };
-    match crate::build_pipeline_from_url(url, viewport, Some(&security)) {
+    match crate::build_pipeline_from_url(url, viewport, Some(security)) {
         Ok(new_pipeline) => {
             *pipeline = new_pipeline;
             let _ = channel.send(IframeToBrowser::DisplayListReady(
