@@ -265,10 +265,16 @@ mod engine_feature {
         /// rooted by the keepalive seam's **active-observation predicate**
         /// (`gc/keepalive.rs` `keepalive_survivors`, S5-3c) — kept iff the
         /// observer has ≥1 active observation (DOM §4.3 registered-observer-list
-        /// membership) — so the callback + instance wrapper survive a GC
-        /// **while the observer observes**, and become collectible once its last
-        /// observation ends (`disconnect()` / `unobserve()` of the last target /
-        /// despawn of the sole observed entity), unless independently JS-rooted.
+        /// membership) **OR ≥1 pending undelivered `MutationRecord`** (a non-empty
+        /// record queue awaiting the §4.3 "notify mutation observers" microtask —
+        /// so a record queued just before its sole target despawned / the observer
+        /// `disconnect()`ed still survives to deliver; the second disjunct is
+        /// MutationObserver-only, RO/IO have no persistent entry queue). So the
+        /// callback + instance wrapper survive a GC **while the observer observes
+        /// or still has a record to deliver**, and become collectible only once
+        /// its last observation ends (`disconnect()` / `unobserve()` of the last
+        /// target / despawn of the sole observed entity) **AND** its record queue
+        /// is drained, unless independently JS-rooted.
         ///
         /// **Retained across `Vm::unbind`** — keyed by VM-monotonic
         /// `observer_id`, not by `Entity` or recycled `ObjectId`, so
@@ -1726,7 +1732,8 @@ mod engine_feature {
             // immortal until `Vm::unbind`). They are now rooted by the keepalive
             // seam's active-observation predicate (`gc/keepalive.rs`
             // `keepalive_survivors`) — kept iff the observer has ≥1 active
-            // observation — and their binding-map rows are swept by the instance
+            // observation (or, MutationObserver-only, ≥1 pending undelivered
+            // record) — and their binding-map rows are swept by the instance
             // mark bit in `gc/collect.rs`.
             self.listener_store
                 .values()

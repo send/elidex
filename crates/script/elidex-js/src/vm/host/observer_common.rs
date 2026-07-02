@@ -113,9 +113,11 @@ pub(crate) fn require_observer_receiver(
 ///
 /// Both `ObjectId`s are rooted by the keepalive seam's active-observation
 /// predicate ([`super::super::gc::keepalive::keepalive_survivors`], S5-3c) — kept
-/// iff the observer has ≥1 active observation — so the JS callback + observer
-/// wrapper survive any GC cycle **while the observer observes**, and become
-/// collectible once its last observation ends (unless independently JS-rooted).
+/// iff the observer has ≥1 active observation, OR (MutationObserver only) ≥1
+/// pending undelivered record — so the JS callback + observer wrapper survive any
+/// GC cycle **while the observer observes or still has a record to deliver**, and
+/// become collectible once its last observation ends (and, for MutationObserver,
+/// its record queue drains) unless independently JS-rooted.
 /// The binding-map row is sweep-pruned by the `instance` mark bit
 /// (`gc/collect.rs`).  Retained across `Vm::unbind` because the
 /// `u64` key is per-registry monotonic (no `Entity` / recycled
