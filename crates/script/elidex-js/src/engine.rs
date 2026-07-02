@@ -153,15 +153,29 @@ impl ScriptEngine for ElidexJsEngine {
         // before resolving its callable, so UA-initiated dispatch honours
         // inline `<body onload="...">`-style handlers identically to the
         // script dispatch walk. No-op for `addEventListener` listeners. It is
-        // also the scripting-disabled chokepoint (HTML §8.1.8.1 "getting the
-        // current value of the event handler" step 3.2): when scripting is
-        // disabled it does NOT compile a raw inline handler, so the
-        // `get_listener` read below returns `None` and the handler does not run
-        // — invocation suppressed by construction, no per-path gate, and no
-        // destructive delete (a compiled callable's value is preserved).
+        // also the scripting-disabled COMPILE chokepoint (HTML §8.1.8.1
+        // "getting the current value of the event handler" step 3.2): when
+        // scripting is disabled it does NOT compile a raw inline handler, so
+        // the `get_listener` read below returns `None` and the handler does
+        // not run — no destructive delete (a compiled callable's value is
+        // preserved).
         self.vm
             .inner
             .ensure_event_handler_current(current_target, listener_id);
+
+        // HTML §8.1.8.1 "the event handler processing algorithm" step 1: an
+        // already-COMPILED handler callable must not be invoked when
+        // scripting is disabled for the target (full §8.1.3.4 predicate incl.
+        // the platform-object browsing-context-null clause — a different
+        // predicate from the flag-only compile gate above). Handler-derived
+        // listeners only; `addEventListener` listeners are never gated.
+        if self
+            .vm
+            .inner
+            .event_handler_invocation_suppressed(current_target, listener_id)
+        {
+            return;
+        }
 
         // 1. Resolve the listener function ObjectId from HostData's
         //    listener_store.  A miss means the listener was removed

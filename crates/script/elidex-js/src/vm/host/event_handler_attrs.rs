@@ -48,7 +48,8 @@
 use elidex_ecs::NodeKind;
 use elidex_script_session::{
     event_handler_attr_event_type, event_handler_attr_spec_level, EventListeners, HandlerScope,
-    ListenerId, EVENT_HANDLER_ATTRS, WORKER_EVENT_HANDLER_ATTRS, WORKER_OBJECT_EVENT_HANDLER_ATTRS,
+    ListenerId, ListenerKind, EVENT_HANDLER_ATTRS, WORKER_EVENT_HANDLER_ATTRS,
+    WORKER_OBJECT_EVENT_HANDLER_ATTRS,
 };
 
 use super::super::shape::PropertyAttrs;
@@ -539,18 +540,19 @@ impl VmInner {
         // skipped for a non-raw value), and the "event handler processing
         // algorithm" step 1 suppresses *invocation*, never the value. Deleting
         // would lose the author's function from the IDL getter (Codex #327 R9).
-        // Invocation of the realizable inline handler is suppressed by
-        // construction (never compiled → nothing to invoke); a *compiled*
-        // event-handler callable cannot coexist with scripting-disabled here
-        // (every callable-store path — lazy-compile, the IDL setter,
-        // addEventListener — needs `eval`, which the gate blocks; sandbox flags
-        // are fixed at document load; cross-document handler dispatch is
-        // unwired). Step-1 invocation suppression for that non-realizable case
-        // is deferred (slot #11-scripting-disabled-eventhandler-processing-step1)
-        // until cross-document handler dispatch makes it reachable.
+        //
+        // This COMPILE gate tests the sandbox FLAG only — per spec. The
+        // *invocation* of an already-compiled callable is a different gate
+        // with a different predicate: "the event handler processing
+        // algorithm" step 1 (`html#the-event-handler-processing-algorithm`)
+        // tests the full §8.1.3.4 scripting-disabled predicate including the
+        // platform-object clauses, and lives at the invocation paths via
+        // [`Self::scripting_disabled_for_platform_object`] /
+        // [`Self::event_handler_invocation_suppressed`]. Keying both gates to
+        // one predicate would be spec-wrong in either direction.
         // addEventListener (`Normal`) listeners hold no uncompiled source and
         // are not event handlers (WHATWG DOM "inner invoke" has no scripting
-        // gate), so they are untouched.
+        // gate), so they are untouched by both gates.
         if self
             .host_data
             .as_deref()
@@ -582,6 +584,112 @@ impl VmInner {
         } else if cleared {
             self.remove_listener_and_prune_back_ref(id);
         }
+    }
+
+    /// WHATWG HTML §8.1.3.4 "scripting is disabled for a platform object"
+    /// (`html#enabling-and-disabling-scripting`), the predicate behind *the
+    /// event handler processing algorithm* step 1
+    /// (`html#the-event-handler-processing-algorithm`: "If scripting is
+    /// disabled for eventTarget, then return"). `target` is the dispatch
+    /// target's entity; `None` = a non-entity platform object (`VmObject`
+    /// listener home), which gets the settings-level check only.
+    ///
+    /// Composition (marshal-scale — two reads + a compare; the settings-level
+    /// rule lives engine-independent in [`elidex_plugin::sandbox`]):
+    ///
+    /// - **settings-level**: `scripting_enabled(sandbox_flags)` (§8.1.3.4
+    ///   conditions 1–4 over the delivered surface);
+    /// - **clause (b)**: target implements `Node` and its node document's
+    ///   browsing context is null. The VM models exactly ONE top-level
+    ///   browsing context, whose active document is the bound
+    ///   `document_entity` — so a node document other than the bound document
+    ///   has a null browsing context (`DOMParser` documents, cloned
+    ///   documents, fragment-parse temporaries). Same single-BC query shape
+    ///   as `native_node_get_is_connected` (`node_proto.rs`).
+    /// - **clause (c)** (`Window` target with a browsing-context-null
+    ///   associated document) never fires today: the Window entity is not a
+    ///   Node (`NodeKind::Window`, `is_node() == false`) and its associated
+    ///   document IS the bound document by construction while bound — the
+    ///   settings-level check is the whole delivered predicate for it.
+    ///
+    /// Known bounds of the clause-(b) data source (`AssociatedDocument`):
+    ///
+    /// - detached-iframe documents (the spec's motivating clause-(b) case)
+    ///   cannot arise in the single-browsing-context VM model — moot, not
+    ///   un-gated;
+    /// - `<template>` content nodes resolve their owner document to the main
+    ///   document today (a false NEGATIVE: treated as having a browsing
+    ///   context) until `#11-template-contents-owner-document` gives template
+    ///   contents a real inert owner document — the gate is correct over the
+    ///   `AssociatedDocument` data and self-heals when that slot lands;
+    /// - a Node whose owner document is unresolvable (legacy entities without
+    ///   `AssociatedDocument`, detached from any document tree) fails OPEN
+    ///   (not suppressed): such nodes belong to the bound document's realm by
+    ///   construction, and failing closed would regress handlers on
+    ///   parser-built nodes that scripts detach.
+    pub(crate) fn scripting_disabled_for_platform_object(
+        &mut self,
+        target: Option<elidex_ecs::Entity>,
+    ) -> bool {
+        let Some(host) = self.host_data.as_deref_mut() else {
+            // Unbound: no document context to evaluate — never reached from a
+            // dispatch walk (dispatch requires a bound VM); fail open.
+            return false;
+        };
+        if !elidex_plugin::sandbox::scripting_enabled(host.sandbox_flags()) {
+            return true;
+        }
+        let (Some(entity), Some(document)) = (target, host.document_entity_opt()) else {
+            return false;
+        };
+        let dom = host.dom();
+        // Clause (b) applies to objects implementing `Node` only — Window /
+        // Worker / OffscreenCanvas entities (`is_node() == false`) and
+        // non-DOM entities fall through to the settings-level verdict.
+        match dom.node_kind(entity) {
+            Some(NodeKind::Document) => entity != document,
+            Some(kind) if kind.is_node() => {
+                // `owner_document` = the node document for non-Document nodes
+                // (WHATWG DOM §4.4); `None` = unresolvable → fail open (see
+                // the doc-comment bounds).
+                dom.owner_document(entity)
+                    .is_some_and(|node_doc| node_doc != document)
+            }
+            _ => false,
+        }
+    }
+
+    /// *The event handler processing algorithm* step 1 gate
+    /// (`html#the-event-handler-processing-algorithm`) for the invocation
+    /// paths that resolve a listener by `(target entity, id)` without a
+    /// dispatch-plan `is_handler` snapshot (`ScriptEngine::call_listener`,
+    /// the `unhandledrejection` UA-fire): `true` iff the listener is
+    /// handler-derived (`ListenerKind::EventHandler`) AND scripting is
+    /// disabled for `target` per
+    /// [`Self::scripting_disabled_for_platform_object`]. Step 1 gates event
+    /// HANDLERS only — plain `addEventListener` listeners are never
+    /// suppressed (WHATWG DOM "inner invoke" has no scripting gate).
+    pub(crate) fn event_handler_invocation_suppressed(
+        &mut self,
+        target: elidex_ecs::Entity,
+        id: ListenerId,
+    ) -> bool {
+        let is_handler = self
+            .host_data
+            .as_deref_mut()
+            .and_then(|host| {
+                host.dom()
+                    .world()
+                    .get::<&EventListeners>(target)
+                    .ok()
+                    .map(|listeners| {
+                        listeners
+                            .find_entry(id)
+                            .is_some_and(|e| matches!(e.kind, ListenerKind::EventHandler { .. }))
+                    })
+            })
+            .unwrap_or(false);
+        is_handler && self.scripting_disabled_for_platform_object(Some(target))
     }
 }
 

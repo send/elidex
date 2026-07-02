@@ -668,7 +668,12 @@ component is introduced pre-B1 (avoids a dual-SoT).
 
 > **§5.0 Touch-set line counts (1000-line touch-time discipline)**: `vm/host_data.rs` = **1953**
 > — S5-4a must run the touch-time cohesion-seam assessment at kickoff (standalone prereq split PR
-> if a real seam exists; note the §5.1 delegation itself REDUCES lines);
+> if a real seam exists; note the §5.1 delegation itself REDUCES lines).
+> **✅ ASSESSED at 4a kickoff (2026-07-03): no split** — a single `HostData` struct + a single
+> field-accessor `impl` is a 一枚岩 cohesive unit (no real seam; splitting would be line-count
+> mechanics, and the struct-level seam question coincides with the already-deferred VmInner
+> sub-struct refactor — `memory/vm-inner-substruct-deferral.md`, no slot). The S5-4a delegation
+> itself reduces the file;
 > `content/event_handlers.rs` = 994 (the 4c re-key may cross 1000 — monitor);
 > `vm/host/window.rs` = 784 + four new natives (monitor).
 
@@ -903,7 +908,9 @@ integration (same posture as S5-3a/b/c):
   wrongly blocked — fail-closed, acceptable interim); repeat-signal? activation will recur at
   fullscreen/clipboard/autoplay gates. **Trigger**: first user-activation-gated API beyond top-nav,
   or S5-8. **Re-eval**: S5-8 plan-memo, calendar backstop **2026-09-30**.
-- **D3 `#11-scripting-disabled-platform-object-clauses`** (CONDITIONAL — carved by S5-4a **only
+- **D3 `#11-scripting-disabled-platform-object-clauses`** — **NOT CREATED (§9-Q3 resolved
+  "representable" at 4a kickoff, 2026-07-03; the clause shipped in 4a)**. Original conditional
+  carve, kept for the record (CONDITIONAL — carved by S5-4a **only
   if** §9-Q3 resolves "not yet representable"): §8.1.3.4 platform-object clauses (b)/(c)
   (browsing-context-null) refinement of the step-1 gate. **Audit**: spec-core? yes (§2.2); one-way?
   yes — the step-1 gate composes `settings ∧ platform_object(target)`, the clause slots in;
@@ -946,7 +953,19 @@ slices, not a side-effect.
   module outgrowing plugin's vocabulary-crate role (e.g. once activation tracking lands), the
   fallback is a dedicated engine-indep `elidex-security` crate — judged premature now (one module,
   one concern; a crate for 6 functions is structure without load).
-- **Q3 (clause-(b) representability, 4a)**: can the VM observe "node document's browsing context is
+- **Q3 (clause-(b) representability, 4a)** — **✅ RESOLVED at 4a kickoff (2026-07-03):
+  representable now.** Clause (b) ships in 4a via the bound-document proxy: the VM models exactly
+  ONE top-level browsing context whose active document is the bound `document_entity`, so "node
+  document's browsing context is null" = `EcsDom::owner_document(target)` (self for a Document
+  node) resolves to a document ≠ `HostData::document_entity_opt()` — the same single-BC query
+  shape as `native_node_get_is_connected` (`node_proto.rs`). D3 is NOT carved. Two caveats,
+  recorded in-code at the predicate (`VmInner::scripting_disabled_for_platform_object`):
+  (a) detached-iframe documents (the spec's motivating clause-(b) case) cannot arise in the
+  single-browsing-context VM model — moot/unreachable, not un-gated; (b) `<template>` content
+  nodes are false NEGATIVES (owner resolves to the main document) until
+  `#11-template-contents-owner-document` gives template contents a real inert owner document —
+  the gate is correct over the `AssociatedDocument` data and self-heals when that slot lands.
+  Original question, kept for the record: can the VM observe "node document's browsing context is
   null" today via the C0 (#412) null-stubs, or does D3 carve? Impl-verify at 4a kickoff — the memo
   deliberately leaves both paths specified (§5.1.2, §8-D3).
 - **Q4 (`_parent` vs `_top` routing fidelity, 4c)**: boa routes BOTH to `set_pending_navigation`

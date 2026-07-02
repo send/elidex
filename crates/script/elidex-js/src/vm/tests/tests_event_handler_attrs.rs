@@ -523,3 +523,88 @@ fn distinct_event_types_resolve_independently() {
         assert_eq!(eval_str(vm, "globalThis.log"), "ab");
     });
 }
+
+// ---------------------------------------------------------------------------
+// S5-4a: HTML §8.1.8.1 scripting-disabled gates — the COMPILE gate
+// ("getting the current value of the event handler" step 3.2, flag-only)
+// vs the INVOKE gate ("the event handler processing algorithm" step 1,
+// full §8.1.3.4 predicate incl. the platform-object clause (b)).
+// ---------------------------------------------------------------------------
+
+// ---- S5-4a: compile gate — sandboxed doc keeps getter null, dispatch runs nothing ----
+#[test]
+fn sandboxed_no_allow_scripts_compile_gate_nulls_getter_and_dispatch() {
+    with_el(|vm| {
+        vm.host_data()
+            .expect("bound VM has HostData installed")
+            .set_sandbox_flags(Some(elidex_plugin::IframeSandboxFlags::empty()));
+        vm.eval(
+            "globalThis.ran = false; \
+             el.setAttribute('onclick', 'globalThis.ran = true'); \
+             el.dispatchEvent(new Event('click'));",
+        )
+        .unwrap();
+        // Step 3.2: the raw inline source never compiles → getter is null.
+        assert!(eval_bool(vm, "el.onclick === null"));
+        assert!(!eval_bool(vm, "globalThis.ran"));
+    });
+}
+
+// ---- S5-4a: step-1 invoke gate — compiled handler on a browsing-context-null
+// document's node is suppressed; addEventListener on the same target is NOT ----
+#[test]
+fn compiled_handler_on_null_bc_document_node_suppressed_listener_still_runs() {
+    with_el(|vm| {
+        // A DOMParser document has no browsing context (§8.1.3.4 clause (b):
+        // the target implements Node and its node document's browsing
+        // context is null). The handler COMPILES (the IDL setter stores the
+        // callable; scripting is enabled settings-level), so only the step-1
+        // invocation gate can suppress it.
+        vm.eval(
+            "globalThis.handlerRan = false; globalThis.listenerRan = false; \
+             var doc2 = new DOMParser().parseFromString('<div id=\"d\"></div>', 'text/html'); \
+             globalThis.d = doc2.getElementById('d'); \
+             globalThis.d.onclick = function () { globalThis.handlerRan = true; }; \
+             globalThis.d.addEventListener('click', function () { globalThis.listenerRan = true; }); \
+             globalThis.d.dispatchEvent(new Event('click'));",
+        )
+        .unwrap();
+        // Handler-derived callable: invocation suppressed (step 1).
+        assert!(!eval_bool(vm, "globalThis.handlerRan"));
+        // Plain listener: step 1 gates event HANDLERS only.
+        assert!(eval_bool(vm, "globalThis.listenerRan"));
+        // Step 1 suppresses INVOCATION only — the compiled callable is still
+        // the IDL getter's value (deleting it would be the step-3.2 conflation).
+        assert!(eval_bool(vm, "typeof globalThis.d.onclick === 'function'"));
+    });
+}
+
+// ---- S5-4a: step-1 gate regression pins — targets whose node document IS the
+// bound document (or that are not Nodes at all) stay un-suppressed ----
+#[test]
+fn step1_gate_does_not_suppress_bound_document_targets() {
+    with_el(|vm| {
+        vm.eval(
+            "globalThis.docRan = false; \
+             globalThis.detachedRan = false; \
+             globalThis.windowRan = false; \
+             document.onclick = function () { globalThis.docRan = true; }; \
+             document.dispatchEvent(new Event('click')); \
+             var e2 = document.createElement('div'); \
+             e2.onclick = function () { globalThis.detachedRan = true; }; \
+             e2.dispatchEvent(new Event('click')); \
+             window.onpopstate = function () { globalThis.windowRan = true; }; \
+             window.dispatchEvent(new Event('popstate'));",
+        )
+        .unwrap();
+        // The bound Document: node document is itself — clause (b) must not
+        // misread `owner_document == None` (Document.ownerDocument is null).
+        assert!(eval_bool(vm, "globalThis.docRan"));
+        // A detached main-document element: node document is the bound
+        // document (browsing context non-null) — handlers run.
+        assert!(eval_bool(vm, "globalThis.detachedRan"));
+        // The Window entity is not a Node (clause (c) never fires while
+        // bound) — settings-level only, which is enabled here.
+        assert!(eval_bool(vm, "globalThis.windowRan"));
+    });
+}

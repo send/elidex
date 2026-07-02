@@ -189,7 +189,9 @@ impl DispatchTarget {
     /// reconcile (Node only, via [`Self::reconcile_handler`]) then reads the
     /// engine-side `listener_store`.  `None` = the listener was removed
     /// between plan-freeze and now (the §2.9 step 6 removed-field check) →
-    /// the caller silently skips it.
+    /// the caller silently skips it — or, for handler-derived entries, the
+    /// HTML §8.1.8.1 *event handler processing algorithm* step 1 gate below
+    /// suppressed the invocation.
     pub(crate) fn resolve_callable(
         self,
         ctx: &mut NativeContext<'_>,
@@ -197,6 +199,23 @@ impl DispatchTarget {
     ) -> Option<ObjectId> {
         if entry.is_handler {
             self.reconcile_handler(ctx, entry.id);
+            // WHATWG HTML §8.1.8.1 "the event handler processing algorithm"
+            // step 1 (`html#the-event-handler-processing-algorithm`): "If
+            // scripting is disabled for eventTarget, then return" — an
+            // already-COMPILED handler callable must not run when scripting
+            // is disabled for the target (settings-level §8.1.3.4 ∧ the
+            // platform-object clauses; see
+            // `VmInner::scripting_disabled_for_platform_object`). Suppresses
+            // invocation only — the stored callable (and the IDL getter's
+            // view of it) is untouched. `Normal` (addEventListener)
+            // listeners are never gated (step 1 is handler-specific).
+            let node = match self {
+                DispatchTarget::Node(entity) => Some(entity),
+                DispatchTarget::VmObject(_) => None,
+            };
+            if ctx.vm.scripting_disabled_for_platform_object(node) {
+                return None;
+            }
         }
         ctx.vm
             .host_data

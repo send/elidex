@@ -530,6 +530,15 @@ fn dispatch_unhandled_rejection_event(
         // non-`walk_phase` dispatch path). No-op for `addEventListener`
         // listeners.
         vm.ensure_event_handler_current(document, entry.id);
+        // HTML §8.1.8.1 "the event handler processing algorithm" step 1 gate
+        // for handler-derived entries (same gate as the dispatch-walk
+        // `resolve_callable` / `call_listener` sites). The target here is
+        // always the bound document — clause (b) can never fire (its node
+        // document is itself, the one document whose browsing context is
+        // non-null) — so this is the uniform settings-level check only.
+        if vm.event_handler_invocation_suppressed(document, entry.id) {
+            continue;
+        }
         let Some(func_id) = vm
             .host_data
             .as_deref()
