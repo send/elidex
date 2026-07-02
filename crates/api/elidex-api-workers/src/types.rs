@@ -2,9 +2,9 @@
 
 /// Messages sent from the parent thread to a dedicated worker thread.
 ///
-/// Neither direction carries an origin: `Worker.postMessage` and
-/// `DedicatedWorkerGlobalScope.postMessage` act as if they invoked
-/// `postMessage` on the entangled port (WHATWG HTML §10.2.6.3), and the
+/// Neither direction carries an origin: `Worker.postMessage` (WHATWG HTML
+/// §10.2.6.3) and `DedicatedWorkerGlobalScope.postMessage` (§10.2.1.2) act
+/// as if they invoked `postMessage` on the entangled port, and the
 /// *message port post message steps* (§9.4.4,
 /// `#message-port-post-message-steps`) step 7.7 fire the `message` event
 /// initializing only `data` + `ports` — `MessageEvent.origin` stays the
@@ -23,7 +23,7 @@ pub enum ParentToWorker {
 /// Messages sent from a dedicated worker thread back to the parent.
 ///
 /// Carries no origin — see [`ParentToWorker`] (WHATWG HTML §9.4.4 *message
-/// port post message steps* step 7.7 / §10.2.6.3 port delegation).
+/// port post message steps* step 7.7 / §10.2.1.2 port delegation).
 #[derive(Debug)]
 pub enum WorkerToParent {
     /// Worker called `postMessage(data)`.

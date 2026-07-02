@@ -373,7 +373,8 @@ pub(super) fn native_json_stringify(
 ///
 /// [`native_json_stringify`] wraps this and interns the result into a live JS
 /// string. Cross-thread IPC paths (`Worker.postMessage` /
-/// `WorkerGlobalScope.postMessage`, WHATWG HTML §10.2.1.2 / §10.2.6.3) call
+/// `DedicatedWorkerGlobalScope.postMessage`, WHATWG HTML §10.2.6.3 /
+/// §10.2.1.2) call
 /// this directly: their JSON blobs are transient (copied straight into the
 /// crossbeam channel), so interning them would grow the GC-less `StringPool`
 /// unboundedly for chatty workers.

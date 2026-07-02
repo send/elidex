@@ -632,7 +632,7 @@ fn main_worker_message_event_target_and_origin() {
         // *message port post message steps* (WHATWG HTML §9.4.4, step 7.7)
         // initialize only `data` + `ports`, and
         // `DedicatedWorkerGlobalScope.postMessage` delegates to the port
-        // (§10.2.6.3). NOT the worker script origin, NOT the page origin.
+        // (§10.2.1.2). NOT the worker script origin, NOT the page origin.
         assert_eq!(eval_str_on(vm, "globalThis.origin"), "");
     });
 }
@@ -673,8 +673,9 @@ fn main_worker_messageerror_origin_is_empty() {
             pump_until(vm, "globalThis.errOrigin !== null", Duration::from_secs(5)),
             "messageerror never arrived"
         );
-        // Like `message` (§9.4.4 step 7.4/7.7), a worker `messageerror`
-        // MessageEvent carries `origin = ""` and a `null` data payload.
+        // A `messageerror` is fired using `MessageEvent` (§9.4.4 step 7.4);
+        // like `message` (step 7.7), it carries `origin = ""` and a `null`
+        // data payload.
         assert_eq!(eval_str_on(vm, "globalThis.errOrigin"), "");
         assert!(eval_bool_on(vm, "globalThis.errData === null"));
     });
