@@ -412,7 +412,7 @@ mod engine_feature {
         pub(crate) node_iterator_states_shared:
             std::sync::Arc<std::sync::Mutex<HashMap<u64, elidex_dom_api::NodeIteratorState>>>,
         /// Per-iterator wrapper `ObjectId` cache.  Mirrors the
-        /// `mutation_observer_instances` pattern — keyed by the
+        /// `mutation_observer_bindings` per-id pattern — keyed by the
         /// monotonic `iterator_id: u64` carried inline in
         /// `ObjectKind::NodeIterator { iterator_id }`.  Sweep tail
         /// prunes dead entries (`unregister`s the iterator from

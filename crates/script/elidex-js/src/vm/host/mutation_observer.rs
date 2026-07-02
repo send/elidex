@@ -22,9 +22,11 @@
 //! - [`super::super::host_data::HostData::mutation_observer_bindings`]
 //!   — `HashMap<u64, ObserverBinding>` from observer ID to the
 //!   `(callback, instance)` JS-identity pair.  Both `ObjectId`s in
-//!   each binding are rooted by the keepalive seam's active-observation
-//!   predicate ([`super::super::gc::keepalive::keepalive_survivors`], S5-3c)
-//!   so they survive GC while the observer observes ≥1 target, and the
+//!   each binding are rooted by the keepalive seam's predicate
+//!   ([`super::super::gc::keepalive::keepalive_survivors`], S5-3c — ≥1
+//!   active observation OR ≥1 pending undelivered record, the full
+//!   statement lives at the seam) so they survive GC while the observer
+//!   observes ≥1 target or still has a record to deliver, and the
 //!   binding row is sweep-pruned once collectible.
 //!
 //! [`super::super::value::ObjectKind::Observer`] with

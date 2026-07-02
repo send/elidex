@@ -205,9 +205,10 @@ pub(super) fn trace_work_list(
     // marks its `binding.callback` (an OWNERSHIP edge: the observer instance
     // owns its callback) so the callback survives while the observer instance
     // is reachable — including the JS-referenced-but-idle case, where the
-    // keepalive predicate does NOT push the pair (the observer observes
-    // nothing) yet the callback must survive so a later `observe()` still
-    // fires.  Mirrors the TreeWalker / NodeIterator filter fan-out (Copilot R8)
+    // keepalive predicate does NOT push the pair (no active observation nor —
+    // MutationObserver — queued records) yet the callback must survive so a
+    // later `observe()` still fires.  Mirrors the TreeWalker / NodeIterator
+    // filter fan-out (Copilot R8)
     // and the Selection→Range cache mark: reachable-from-the-instance, not a
     // keepalive root.  The `instance` field is not marked here (marking self is
     // a no-op; the instance is the arm's own reachable object).
@@ -724,8 +725,9 @@ pub(super) fn trace_work_list(
             // Mark the `callback` (an OWNERSHIP edge — the observer
             // instance owns its callback) so it survives while the
             // instance is reachable, including the JS-referenced-but-idle
-            // case where the keepalive predicate pushes nothing (the
-            // observer observes nothing) yet a later `observe()` must still
+            // case where the keepalive predicate pushes nothing (no active
+            // observation nor — MutationObserver — queued records) yet a
+            // later `observe()` must still
             // find + fire its callback (S5-3c; mirrors the TreeWalker /
             // NodeIterator filter + Selection→Range fan-out).  The registries'
             // queued records / target lists / init config hold only

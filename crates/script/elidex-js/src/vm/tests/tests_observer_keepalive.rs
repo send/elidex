@@ -1,5 +1,5 @@
 //! S5-3c — the observer (Mutation / Resize / Intersection) GC-keepalive arm
-//! (`#11-eventtarget-listener-keepalive-rooting`, the active-observation
+//! (`#11-eventtarget-listener-keepalive-rooting`, the observer keepalive
 //! predicate).
 //!
 //! **The oracle is FLIPPED vs S5-3a/b** (the WS/ES/MQL under-root fixes, whose
@@ -9,7 +9,10 @@
 //! released it → immortal-until-`Vm::unbind` leak. S5-3c routes the observers
 //! through the keepalive seam with the spec predicate **"has ≥1 active
 //! observation"** (DOM §4.3 registered-observer-list / RO §3.5 / IO §3.3
-//! Lifetime); a never-observed / disconnected unreferenced observer becomes
+//! Lifetime) — OR-ed, MutationObserver only, with **"has ≥1 pending
+//! undelivered record"** (full predicate = `gc/keepalive.rs`
+//! `keepalive_survivors`); a never-observed / disconnected unreferenced
+//! observer becomes
 //! **collectible** (its binding-map row is pruned in the sweep). So the headline
 //! here asserts an idle observer **IS collected**.
 //!

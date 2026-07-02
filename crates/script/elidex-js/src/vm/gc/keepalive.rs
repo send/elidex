@@ -39,9 +39,10 @@
 //! `EventListeners` API; the `WebSocket` / `EventSource` arms [S5-3b] marshal VM
 //! state and delegate their tier rule to `elidex-api-ws::{ws_keepalive,
 //! es_keepalive}`).  The observer arm [S5-3c, LANDED] marshals to
-//! `elidex-api-observers::observing_observer_ids` — the Mutation / Resize /
-//! Intersection observers are **membership** registrants (active-observation
-//! membership) marked directly in [`keepalive_survivors`] (shape B), NOT a
+//! `elidex-api-observers::observing_observer_ids` (OR-ed, MutationObserver
+//! only, with `observers_with_pending_records` — the queued-undelivered-record
+//! clause) — the Mutation / Resize / Intersection observers are **membership**
+//! registrants marked directly in [`keepalive_survivors`] (shape B), NOT a
 //! [`KeepaliveClass`] listener-predicate variant.  After S5-3c every non-Node
 //! keepalive registrant is on this seam (the hard pre-flip gate
 //! `#11-eventtarget-keepalive-registrant-coverage` is retired).
@@ -69,7 +70,8 @@ use super::super::VmInner;
 /// S5-3a landed the `MediaQueryList` arm (the FLIP-precondition); S5-3b adds the
 /// `WebSocket` / `EventSource` arms (state-tiered listener subset, the tier rule
 /// delegated to `elidex-api-ws::{ws_keepalive, es_keepalive}`).  S5-3c landed the
-/// Mutation / Resize / Intersection observers (active-observation membership,
+/// Mutation / Resize / Intersection observers (active-observation membership —
+/// OR-ed, MutationObserver only, with the queued-undelivered-record clause —
 /// delegated to `elidex-api-observers`) — but as a **membership** registrant
 /// marked directly in [`keepalive_survivors`] (shape B), NOT a `KeepaliveClass`
 /// variant: an observer's keepalive is not a listener test (its callback fires
@@ -216,7 +218,7 @@ impl KeepaliveClass {
 ///
 /// - **listener-predicate** registrants ([`KeepaliveClass`]) — survival is the
 ///   interface's own type-restricted rule.  `MediaQueryList` + `WebSocket` /
-///   `EventSource` now (S5-3a/b); the observers join before the flip (S5-3c).
+///   `EventSource` (S5-3a/b).
 ///   `WebSocket` / `EventSource` are state-tiered (WebSockets §7 / HTML §9.2.9,
 ///   delegated to `elidex-api-ws`) over the per-VM `HostData::websocket_states` /
 ///   `event_source_states` side-stores; a kept connection survives the
@@ -235,7 +237,10 @@ impl KeepaliveClass {
 ///   §3.2.1 Garbage collection, the *dependent*-signal predicate) — routed here
 ///   from `mark_roots` pass (j) so non-Node EventTarget
 ///   keepalive lives in one home (behavior-neutral: the same signal set is
-///   marked).
+///   marked).  The Mutation / Resize / Intersection observers (S5-3c) are also
+///   membership registrants: kept with ≥1 active observation — OR,
+///   MutationObserver only, ≥1 queued undelivered record (the inline observer
+///   notes below are the full statement).
 pub(super) fn keepalive_survivors(vm: &VmInner) -> Vec<ObjectId> {
     let current_document = vm
         .host_data

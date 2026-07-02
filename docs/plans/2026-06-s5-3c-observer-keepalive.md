@@ -47,7 +47,9 @@ stays live, **no external dependency**. The deliverable extends the existing kee
 in `keepalive_survivors` like the `AbortSignal.timeout` membership root, **not** a `KeepaliveClass`
 listener-predicate variant (shape B, settled §4.2 / Q2) — whose spec-faithful predicate is
 **"the observer has ≥1 active observation"** (DOM §4.3 registered-observer-list membership;
-the RO/IO `[[observationTargets]]` internal-slot analogue). A never-observed or disconnected observer
+the RO/IO `[[observationTargets]]` internal-slot analogue) — **OR-ed, MutationObserver only, with
+"has ≥1 pending undelivered record"** (the §2.1 ⚠ CORRECTION; RO/IO have no such clause).
+A never-observed or disconnected observer
 with no retained JS reference becomes **collectible** — fixing the latent leak that today a
 `new MutationObserver(cb)` (or `.disconnect()`ed observer) is **immortal until `Vm::unbind`** (§1).
 
@@ -63,8 +65,9 @@ The seam is a **per-registrant keepalive PREDICATE**, never an "any-listener roo
 observable; there is no general listener-keepalive rule — S5-3 §2). For the observers the keepalive is
 **not a listener test at all** — an observer's callback fires from **observation** deliveries, not from
 `addEventListener` on the observer object. So the observer predicate is **registry-membership**: kept
-alive iff it **currently observes ≥1 target**. §2–§5 must not regress to "any listener" or to
-"construct-time root".
+alive iff it **currently observes ≥1 target** — OR, MutationObserver only, still has a queued
+undelivered record (the §2.1 ⚠ CORRECTION; also membership-shaped — a registry fact, never a listener
+test). §2–§5 must not regress to "any listener" or to "construct-time root".
 
 ### §0.3 The DIRECTION FLIP vs S5-3a/b (state this so the test oracle is right)
 S5-3a/b fixed **UNDER-rooting**: a listener-held MQL / WS / ES was *wrongly collected* (its only anchor

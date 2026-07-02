@@ -1821,17 +1821,18 @@ impl VmInner {
             // additionally drop the state-table entry (no separate
             // engine-side registry).
             //
-            // `mutation_observer_callbacks` / `_instances` use the
-            // same per-observer-id pattern but the callback ObjectId
-            // is unconditionally rooted via `gc_root_object_ids`,
-            // making this prune the only place where the side-table
-            // can shed entries.  TreeWalker / NodeIterator filter
+            // The `*_observer_bindings` maps use the same
+            // per-observer-id pattern, but their `(callback, instance)`
+            // pairs are keepalive-kept (`gc/keepalive.rs`, S5-3c — no
+            // longer unconditionally rooted via `gc_root_object_ids`)
+            // and their rows are pruned by the dedicated S5-3c sweep
+            // block below.  TreeWalker / NodeIterator filter
             // ObjectIds (Copilot R8) are NOT rooted via
             // `gc_root_object_ids` — they reach GC only via the
             // per-wrapper trace fan-out in `vm/gc/trace.rs`.  This
             // sweep prunes the state-table entry once the wrapper
             // ObjectId itself is unmarked, mirroring the
-            // mutation_observer pattern except for the rooting side.
+            // observer-binding pattern except for the rooting side.
             if let Some(hd) = self.host_data.as_deref_mut() {
                 // Range — collect dead range_ids first to avoid
                 // double-borrowing `host_data` (we need both
@@ -1965,18 +1966,22 @@ impl VmInner {
                 // The construct-time for-life root was removed from
                 // `gc_root_object_ids`; the keepalive seam
                 // (`gc/keepalive.rs`, which ran BEFORE this sweep) now marks a
-                // binding's `instance` + `callback` iff the observer has ≥1
-                // active observation. Prune each binding-map ROW by the
-                // wrapper's (`instance`) mark bit — so the STRUCT does not leak
-                // and no stale, index-reusable `instance` ObjectId lingers.
+                // binding's `instance` + `callback` iff the observer is
+                // keepalive-kept (≥1 active observation, or — MutationObserver
+                // only — ≥1 queued undelivered record; the full predicate lives
+                // at the seam, `keepalive_survivors`). Prune each binding-map
+                // ROW by the wrapper's (`instance`) mark bit — so the STRUCT
+                // does not leak and no stale, index-reusable `instance`
+                // ObjectId lingers.
                 // Three-way lifecycle (mirrors the `vm_event_listeners.retain`
-                // pattern above): observing → predicate-marked → kept;
-                // not-observing-but-JS-referenced → JS-marked → kept (a later
-                // `observe()` still finds its binding); not-observing +
+                // pattern above): keepalive-worthy → predicate-marked → kept;
+                // idle-but-JS-referenced → JS-marked → kept (a later
+                // `observe()` still finds its binding); idle +
                 // unreferenced → unmarked → pruned (the leak fix). Keying on
                 // `instance` alone is sufficient AND never orphans the callback:
                 // a kept row's `callback` is reachable-from-`instance` — marked
-                // by the keepalive predicate push when observing (§4.2), OR by
+                // by the keepalive predicate push when keepalive-worthy (§4.2),
+                // OR by
                 // the `ObjectKind::Observer` OWNERSHIP trace edge (`gc/trace.rs`)
                 // when the instance is JS-reachable but idle (the predicate
                 // pushes nothing) — so whenever `instance` survives, its callback

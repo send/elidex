@@ -669,8 +669,11 @@ pub fn clear_all_transient_observers(dom: &mut EcsDom) {
 /// id (permanent **or** transient — a transient registered observer is a
 /// registered observer, §4.3) into the set.
 ///
-/// This is the GC-keepalive predicate `elidex-js` marshals (S5-3c): a
-/// `MutationObserver` wrapper stays rooted iff its id is in this set. **Despawn-
+/// This is the **membership disjunct** of the GC-keepalive predicate
+/// `elidex-js` marshals (S5-3c): a `MutationObserver` wrapper stays rooted if
+/// its id is in this set OR in `observers_with_pending_records` (the
+/// queued-undelivered-record clause; the full predicate lives at the seam,
+/// `elidex-js` `gc/keepalive.rs`). **Despawn-
 /// safe by construction** — a despawned entity's `MutationObservedBy` is gone
 /// with the entity, so a stale (observer, despawned-target) pair is never
 /// scanned; the observer's membership drops to zero the instant its sole
