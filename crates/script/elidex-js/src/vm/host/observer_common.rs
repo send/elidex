@@ -26,16 +26,17 @@
 //!   element allocation does not collapse the partially-filled
 //!   array).
 //! - [`deliver_to_observer_callbacks`] — the shared per-observer
-//!   delivery loop: run the per-kind registry `prepare`, temp-root the
-//!   observer instance + callback **before** the (GC-capable) records
-//!   array is built, invoke the JS callback with `(records, observer)`,
-//!   report exceptions via `eprintln!`, then drain microtasks at end.
-//!   Each per-kind `deliver_*` method on `VmInner` is now a thin shell
-//!   that supplies (a) a `prepare` closure doing registry work ONLY
-//!   (record drain / observation lookup / binding copy — no JS
-//!   allocation) that returns `(binding, opaque owned record data)`,
-//!   and (b) a `build` closure that marshals that owned data into the
-//!   JS Array once the binding is rooted.
+//!   delivery loop: resolve + **batch-root** every observer's
+//!   `(instance, callback)` this delivery will touch, then per observer
+//!   run the registry `prepare`, marshal the records/entries Array with
+//!   `build`, invoke the JS callback with `(records, observer)`, report
+//!   exceptions via `eprintln!`, and drain microtasks at end.  Each
+//!   per-kind `deliver_*` method on `VmInner` is now a thin shell that
+//!   supplies (a) a `lookup` closure resolving the binding for the batch
+//!   root, (b) a `prepare` closure doing registry work ONLY (record
+//!   drain / observation lookup — no JS allocation) returning the opaque
+//!   owned record data, and (c) a `build` closure that marshals that
+//!   owned data into the JS Array once the whole batch is rooted.
 //! - [`read_dict_field`] — `undefined → None`, anything else →
 //!   `Some(value)` WebIDL §3.10.7 dictionary-member reader, hoisted
 //!   from the original `mutation_observer.rs` site.  Used by all
@@ -187,75 +188,106 @@ where
 /// microtask checkpoint (HTML §8.1.7.3 — perform a microtask checkpoint; chained `.then` reactions
 /// fire before this call returns).
 ///
-/// **GC-keepalive invariant (S5-3c data-loss fix):** the observer's
-/// `(instance, callback)` must be temp-rooted across *every* GC-capable
-/// allocation from the moment its keepalive anchor is released until its
-/// callback returns.  The anchor can lapse **mid-delivery**, before the
-/// records array is even built:
+/// **GC-keepalive invariant (S5-3c data-loss fix): a delivery batch is a
+/// single GC snapshot — *every* binding this delivery will touch must
+/// stay rooted from batch-start until batch-end.** An earlier observer's
+/// callback can, mid-batch, collapse a *later, not-yet-delivered* peer's
+/// last keepalive anchor and drop its only JS reference; a GC anywhere in
+/// the remainder of the batch (an allocation in the callback itself, or
+/// in a subsequent observer's `build`) would then sweep-prune the peer's
+/// binding row and free/reuse its `instance` / `callback` `ObjectId`
+/// slots — so when the loop reaches the peer its lookup misses, its
+/// already-gathered entry is silently dropped (lost notification), or a
+/// copied binding dangles (use-after-collect). The anchor lapses in two
+/// distinct shapes:
 ///
-/// - **Mutation**: `prepare`'s `take_records` drains the observer's
-///   pending-record queue (the `#11` pending-records keepalive clause's
-///   sole anchor once the target has despawned), so from that point the
-///   binding is unanchored — yet `build_mutation_records_array` is a
-///   GC-capable allocation.
-/// - **Resize / Intersection**: an *earlier* observer's callback can
-///   reentrantly `disconnect()` / `unobserve()` a later, not-yet-
-///   delivered peer, dropping its active-observation membership (the RO
-///   §3.5 / IO §3.3 keepalive anchor) before *its* entries array is
-///   built.
+/// - **Resize / Intersection**: the delivery *pre-gathers* entries for
+///   ALL observer ids into a local map BEFORE the delivery loop.  An
+///   earlier observer's callback can reentrantly `disconnect()` /
+///   `unobserve()` a later peer, dropping its active-observation
+///   membership (the RO §3.5 / IO §3.3 keepalive anchor) and its JS ref
+///   while the peer's entry sits gathered-but-undelivered.
+/// - **Mutation**: each pending observer *self-anchors* via its own
+///   record queue (`observers_with_pending_records`) until its
+///   `take_records` at its own turn, so a peer cannot be collected
+///   mid-loop by another observer's callback.  But `take_records` *at
+///   its own turn* releases that anchor before the (GC-capable)
+///   `build_mutation_records_array` runs.
 ///
-/// A GC in that window, with no independent JS reference to the
-/// observer, would sweep-prune its binding row and free/reuse its
-/// `instance` / `callback` `ObjectId` slots → the copied `binding`
-/// dangles → stale-callback-on-stale-instance use-after-collect + lost
-/// notification.  So the helper roots `callback` **and** `instance`
-/// **before** calling `build`, not just before `call`.
+/// The batch root is the **uniform** guarantee across both shapes (one
+/// issue, one way): rather than root only the current turn's binding
+/// (which covers the mutation build window but not the RO/IO pre-gather
+/// window), resolve + root every binding up front and hold the roots
+/// until the whole batch is delivered.  The observer instances have **no
+/// other root** once the keepalive predicate stops covering them: the
+/// `ObjectKind::Observer` trace edge only marks a binding's callback when
+/// its instance is itself reachable-from-a-root, which it is NOT once
+/// disconnected + unreferenced mid-batch — hence both slots are pushed
+/// explicitly here.
 ///
-/// The two-closure split makes that possible:
+/// The three-closure split makes that possible:
 ///
-/// - `prepare(vm, observer_id) -> Option<(binding, R)>` — registry work
-///   ONLY (record drain / observation lookup / binding copy).  MUST NOT
-///   allocate JS objects (nothing to root yet).  Returning `None` skips
-///   that observer (the per-kind callsites use this to drop ids whose
-///   registry has no pending records, or whose binding lookup failed —
-///   both legitimate "race with unobserve / disconnect" outcomes).  `R`
+/// - `lookup(vm, observer_id) -> Option<ObserverBinding>` — resolve the
+///   binding for the batch root.  MUST NOT allocate JS objects (runs in
+///   the Phase-1 root-building loop).  Returning `None` drops that id
+///   from the batch (its binding lookup failed — a legitimate "race with
+///   a prior collection / unbind" outcome).
+/// - `prepare(vm, observer_id) -> Option<R>` — registry work ONLY
+///   (record drain / observation lookup).  MUST NOT allocate JS objects.
+///   Returning `None` skips that observer's callback (the per-kind
+///   callsites use this to drop ids whose registry has no pending
+///   records — a legitimate "drained via `takeRecords()`" outcome).  `R`
 ///   is opaque owned per-kind record data (`Vec<MutationRecord>` /
 ///   `Vec<ResizeObserverEntry>` / `Vec<IntersectionObserverEntry>`).
 /// - `build(vm, R) -> JsValue` — the GC-capable marshal of `R` into the
-///   records/entries Array, run with the binding already rooted.
-///
-/// The observer instance has **no other root** once the keepalive
-/// predicate stops covering it: the wrapper-cache trace edge only marks
-/// the callback when the instance is itself reachable-from-a-root, which
-/// it is NOT mid-delivery — hence both slots are pushed explicitly here.
+///   records/entries Array, run with the whole batch already rooted.
 ///
 /// The microtask drain runs **unconditionally** post-loop — matches
 /// `deliver_mutation_records`' embedder-API parity contract: even an
 /// empty `observer_ids` slice yields a microtask checkpoint so
 /// chained promises queued from earlier in the same frame fire on
 /// the same boundary.
-pub(crate) fn deliver_to_observer_callbacks<R, P, B>(
+pub(crate) fn deliver_to_observer_callbacks<R, L, P, B>(
     vm: &mut VmInner,
     observer_ids: &[u64],
+    mut lookup: L,
     mut prepare: P,
     mut build: B,
 ) where
-    P: FnMut(&mut VmInner, u64) -> Option<(ObserverBinding, R)>,
+    L: FnMut(&mut VmInner, u64) -> Option<ObserverBinding>,
+    P: FnMut(&mut VmInner, u64) -> Option<R>,
     B: FnMut(&mut VmInner, R) -> JsValue,
 {
+    // Phase 1 — resolve + BATCH-ROOT every binding this delivery will
+    // touch. `push_stack_scope` roots an arbitrary number of values for
+    // the scope's lifetime (each `frame.stack.push` is a GC root until
+    // the scope drops), so both `ObjectId`s of every observer in the
+    // batch stay rooted through the entire Phase-2 delivery loop — a GC
+    // triggered by ANY observer's callback / build cannot prune a
+    // later peer's binding row. `batch` is a separate Vec (no borrow
+    // conflict with `frame`, which mutably borrows the VM).
+    let mut frame = vm.push_stack_scope();
+    let mut batch: Vec<(u64, ObserverBinding)> = Vec::with_capacity(observer_ids.len());
     for &observer_id in observer_ids {
-        let Some((binding, prepared)) = prepare(vm, observer_id) else {
+        if let Some(binding) = lookup(&mut frame, observer_id) {
+            frame.stack.push(JsValue::Object(binding.instance));
+            frame.stack.push(JsValue::Object(binding.callback));
+            batch.push((observer_id, binding));
+        }
+    }
+
+    // Phase 2 — per-observer registry work + marshal + callback, all
+    // under the batch root established in Phase 1.
+    for (observer_id, binding) in &batch {
+        let Some(prepared) = prepare(&mut frame, *observer_id) else {
             continue;
         };
         let observer_val = JsValue::Object(binding.instance);
-        // Root BOTH the callback and the instance BEFORE `build` — the
-        // keepalive anchor may already have lapsed (see the invariant
-        // above), so a GC inside `build` would otherwise free these
-        // slots. These roots cover the build allocation AND the call.
-        let mut cb_guard = vm.push_temp_root(JsValue::Object(binding.callback));
-        let mut observer_guard = cb_guard.push_temp_root(observer_val);
-        let records_arr = build(&mut observer_guard, prepared);
-        let mut records_guard = observer_guard.push_temp_root(records_arr);
+        let records_arr = build(&mut frame, prepared);
+        // Per-turn root for the freshly-built records array across the
+        // call (its identity-assert holds because `call` restores the
+        // stack). The batch root already covers `instance` + `callback`.
+        let mut records_guard = frame.push_temp_root(records_arr);
         if let Err(err) =
             records_guard.call(binding.callback, observer_val, &[records_arr, observer_val])
         {
@@ -267,9 +299,8 @@ pub(crate) fn deliver_to_observer_callbacks<R, P, B>(
             eprintln!("[JS Observer Error] {err:?}");
         }
         drop(records_guard);
-        drop(observer_guard);
-        drop(cb_guard);
     }
+    drop(frame);
     vm.drain_microtasks();
 }
 

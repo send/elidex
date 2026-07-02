@@ -415,21 +415,22 @@ impl VmInner {
         deliver_to_observer_callbacks(
             self,
             &observer_ids,
+            // `lookup`: resolve the binding for the Phase-1 batch root so
+            // every gathered observer stays rooted through the whole
+            // delivery — an earlier callback that `disconnect()`s a later,
+            // gathered-but-undelivered peer + drops its JS ref cannot let
+            // a mid-batch GC prune the peer's binding (silent entry drop).
+            |vm, id| {
+                vm.host_data
+                    .as_deref()
+                    .and_then(|hd| hd.resize_observer_bindings.get(&id).copied())
+            },
             // `prepare`: registry work only, NO JS allocation. `remove`
             // (each id is delivered exactly once) hands ownership of the
             // entries to `build`, avoiding a borrow of the captured map
             // across the GC-capable marshal.
-            |vm, id| {
-                let entries = observations.remove(&id)?;
-                let binding = vm
-                    .host_data
-                    .as_deref()?
-                    .resize_observer_bindings
-                    .get(&id)
-                    .copied()?;
-                Some((binding, entries))
-            },
-            // `build`: GC-capable marshal, run with `binding` rooted.
+            |_vm, id| observations.remove(&id),
+            // `build`: GC-capable marshal, run with the batch rooted.
             |vm, entries| build_marshalled_array(vm, &entries, resize_entry_to_js),
         );
     }
