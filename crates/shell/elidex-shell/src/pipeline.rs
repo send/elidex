@@ -17,6 +17,30 @@ use elidex_plugin::{EngineMode, Size};
 
 use crate::resolve_with_mode;
 
+/// Security state of a (sub-)frame document, installed on the JS bridge
+/// **before the first eval** (WHATWG HTML §7.1.5 sandboxing / §7.1.1 origin).
+///
+/// Carried by the iframe load paths (`content/iframe/load.rs`) into the
+/// pipeline builders so [`run_scripts_and_finalize`] installs it at the same
+/// pre-eval seam that seeds the cookie jar / viewport / device facts.
+/// Invariant (S5-4b, closes `#11-iframe-origin-before-initial-scripts`):
+/// **security installs precede the first eval on ALL in-process paths** — a
+/// sandboxed iframe's initial scripts must observe the opaque origin (and the
+/// sandbox flags, e.g. the `allow-scripts` eval gate), not the URL-derived
+/// tuple origin. This is the `set_origin` contract the engine documents
+/// (`elidex-js` `HostData::set_origin`: the embedder "installs it before
+/// scripts run"). `None` = top-level document (origin derived from the URL,
+/// unsandboxed, depth 0).
+pub struct FrameSecurity {
+    /// The document origin, with sandbox / credentialless opaqueness already
+    /// applied (`apply_sandbox_origin`).
+    pub origin: elidex_plugin::SecurityOrigin,
+    /// Parsed `sandbox` attribute flags (`None` = no `sandbox` attribute).
+    pub sandbox_flags: Option<elidex_plugin::IframeSandboxFlags>,
+    /// Iframe nesting depth (`MAX_IFRAME_DEPTH` enforcement across `EcsDom`s).
+    pub iframe_depth: usize,
+}
+
 /// Flush pending DOM mutations and drain custom element reactions.
 ///
 /// This helper combines the three steps that must always run together:
@@ -45,6 +69,9 @@ fn flush_with_ce_reactions(
 /// The `registry` is passed in from the caller to avoid creating a duplicate
 /// registry when the caller already holds one (e.g. for storage in `PipelineResult`).
 ///
+/// `frame_security` (`Some` on in-process iframe builds) is installed on the
+/// bridge **before** step 2 — see [`FrameSecurity`] for the ordering invariant.
+///
 /// Returns `(SessionCore, JsRuntime, ViewportOverflow)` for the caller to include in `PipelineResult`.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn run_scripts_and_finalize(
@@ -60,6 +87,7 @@ pub(super) fn run_scripts_and_finalize(
     viewport: Size,
     device_facts: crate::ipc::DeviceFacts,
     engine_mode: EngineMode,
+    frame_security: Option<&FrameSecurity>,
 ) -> (SessionCore, JsRuntime, ViewportOverflow) {
     let stylesheet_refs: Vec<&Stylesheet> = stylesheets.iter().collect();
 
@@ -84,9 +112,33 @@ pub(super) fn run_scripts_and_finalize(
 
     if let Some(url) = current_url {
         runtime.set_current_url(Some(url.clone()));
-        runtime
-            .bridge()
-            .set_origin(elidex_plugin::SecurityOrigin::from_url(url));
+    }
+
+    // Security-install chokepoint (S5-4b): sandbox flags + origin + iframe
+    // depth land BEFORE the first eval below, so a frame's *initial* scripts
+    // already observe them — the `allow-scripts` eval gate applies to the
+    // initial scripts, and a sandboxed (no `allow-same-origin`) iframe's
+    // scripts see the opaque origin, never the URL-derived tuple origin
+    // (WHATWG HTML §7.1.5 sandboxed scripts / sandboxed origin flags; the
+    // engine's `set_origin` contract, `elidex-js` `HostData::set_origin` —
+    // installed "before scripts run"). The out-of-process iframe path installs
+    // the same state on its own thread (`iframe/load.rs`
+    // `make_out_of_process_entry`). Closes
+    // `#11-iframe-origin-before-initial-scripts`.
+    match frame_security {
+        Some(security) => {
+            runtime.bridge().set_sandbox_flags(security.sandbox_flags);
+            runtime.bridge().set_origin(security.origin.clone());
+            runtime.bridge().set_iframe_depth(security.iframe_depth);
+        }
+        // Top-level document: unsandboxed, origin derived from the URL.
+        None => {
+            if let Some(url) = current_url {
+                runtime
+                    .bridge()
+                    .set_origin(elidex_plugin::SecurityOrigin::from_url(url));
+            }
+        }
     }
 
     // Seed the JS bridge viewport + device facts BEFORE running scripts so initial

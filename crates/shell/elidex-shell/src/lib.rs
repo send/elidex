@@ -20,6 +20,7 @@ mod gpu;
 pub mod ipc;
 pub(crate) mod key_map;
 mod pipeline;
+pub use pipeline::FrameSecurity;
 pub mod quota;
 
 #[cfg(test)]
@@ -548,6 +549,8 @@ pub fn build_pipeline_interactive(html: &str, css: &str) -> PipelineResult {
         // No window → default device facts (1× / Light); C3 facts are a window thing.
         crate::ipc::DeviceFacts::default(),
         EngineMode::BrowserCompat,
+        // Top-level document: no frame security (unsandboxed, URL-derived origin).
+        None,
     );
 
     let display_list = build_display_list(&dom, &font_db);
@@ -625,6 +628,8 @@ pub(crate) fn build_pipeline_interactive_with_network(
         viewport,
         device_facts,
         EngineMode::BrowserCompat,
+        // Top-level document: no frame security (unsandboxed, URL-derived origin).
+        None,
     );
 
     let display_list = build_display_list(&dom, &font_db);
@@ -674,6 +679,7 @@ pub(crate) fn build_pipeline_interactive_shared(
     cookie_jar: Option<Arc<elidex_net::CookieJar>>,
     viewport: Size,
     device_facts: crate::ipc::DeviceFacts,
+    frame_security: Option<&FrameSecurity>,
 ) -> PipelineResult {
     let parse_result = parse_progressive_str(html);
     for err in &parse_result.errors {
@@ -706,6 +712,7 @@ pub(crate) fn build_pipeline_interactive_shared(
         viewport,
         device_facts,
         EngineMode::BrowserCompat,
+        frame_security,
     );
 
     let display_list = build_display_list(&dom, &font_db);
@@ -876,6 +883,10 @@ pub(crate) fn re_render(result: &mut PipelineResult) -> Vec<elidex_script_sessio
 ///
 /// Merges all stylesheets, executes all scripts in document order,
 /// resolves styles, computes layout, and builds the display list.
+///
+/// `frame_security` is `Some` on in-process iframe builds: it installs the
+/// sandbox flags / origin / depth on the bridge **before** the initial
+/// scripts run (see [`FrameSecurity`]). Top-level builds pass `None`.
 pub fn build_pipeline_from_loaded(
     loaded: elidex_navigation::LoadedDocument,
     network_handle: Rc<elidex_net::broker::NetworkHandle>,
@@ -883,6 +894,7 @@ pub fn build_pipeline_from_loaded(
     cookie_jar: Option<Arc<elidex_net::CookieJar>>,
     viewport: Size,
     device_facts: crate::ipc::DeviceFacts,
+    frame_security: Option<&FrameSecurity>,
 ) -> PipelineResult {
     let elidex_navigation::LoadedDocument {
         mut dom,
@@ -913,6 +925,7 @@ pub fn build_pipeline_from_loaded(
         viewport,
         device_facts,
         EngineMode::BrowserCompat,
+        frame_security,
     );
 
     let display_list = build_display_list(&dom, &font_db);
@@ -974,6 +987,8 @@ pub fn build_pipeline_from_url(
         viewport,
         // Standalone (no window) → default device facts (1× / Light).
         crate::ipc::DeviceFacts::default(),
+        // Top-level document: no frame security (unsandboxed, URL-derived origin).
+        None,
     );
     result.broker_keepalive = Some(np); // Keep broker alive for pipeline lifetime.
     Ok(result)

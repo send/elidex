@@ -110,6 +110,53 @@ pub(super) fn build_test_content_state(
     (state, browser)
 }
 
+/// Like [`build_test_content_state`], but with a top-level document **URL** —
+/// so the parent pipeline carries a real tuple origin (`SecurityOrigin::from_url`)
+/// and `state.pipeline.url` is `Some`. Iframe security tests use this: a
+/// sandboxed child's opaque origin is only distinguishable from "inherited the
+/// parent origin" when the parent origin is a tuple, and the srcdoc/blank
+/// iframe build feeds the parent URL into the child pipeline as its base URL.
+pub(super) fn build_test_content_state_with_url(
+    html: &str,
+    url: url::Url,
+) -> (
+    ContentState,
+    LocalChannel<BrowserToContent, ContentToBrowser>,
+) {
+    let (browser, content) = crate::ipc::channel_pair::<BrowserToContent, ContentToBrowser>();
+    let nh = std::rc::Rc::new(elidex_net::broker::NetworkHandle::disconnected());
+    let viewport = elidex_plugin::Size::new(
+        crate::DEFAULT_VIEWPORT_WIDTH,
+        crate::DEFAULT_VIEWPORT_HEIGHT,
+    );
+    let pipeline = crate::build_pipeline_interactive_shared(
+        html,
+        Some(url),
+        std::sync::Arc::new(elidex_text::FontDatabase::new()),
+        nh,
+        std::sync::Arc::new(crate::create_css_property_registry()),
+        None,
+        viewport,
+        crate::ipc::DeviceFacts::default(),
+        // Top-level document: no frame security (origin derives from `url`).
+        None,
+    );
+    let viewport_cell = crate::ipc::ViewportCell::new(viewport);
+    let mut state = ContentState::new(
+        content,
+        elidex_navigation::NavigationController::new(),
+        pipeline,
+        Box::new(|| {}),
+        viewport_cell,
+        0,
+        0,
+    );
+    super::scroll::update_viewport_scroll_dimensions(&mut state);
+    super::iframe::scan_initial_iframes(&mut state);
+    state.re_render();
+    (state, browser)
+}
+
 /// Read the value of an attribute on the `<div>` with the given `id` — the shared
 /// DOM probe both content-thread test modules use to assert a script-driven
 /// attribute mutation landed (after a `re_render` flush).

@@ -39,40 +39,46 @@ pub fn load_iframe(
 
     // Parse sandbox flags once — used by both origin override and meta construction.
     let sandbox_flags = parse_sandbox(iframe_data);
+    // srcdoc / about:blank / no-src documents inherit the parent origin
+    // (WHATWG HTML §4.8.5), with sandbox / credentialless opaqueness applied.
+    // Computed BEFORE the pipeline build: the build runs the initial scripts,
+    // which must already observe this origin (see `FrameSecurity`).
+    let inherited_origin = apply_sandbox_origin(
+        ctx.parent_origin.clone(),
+        sandbox_flags,
+        iframe_data.credentialless,
+    );
 
-    // Determine content source and origin.
-    let (pipeline, iframe_origin) = if let Some(srcdoc) = &iframe_data.srcdoc {
-        // srcdoc: parse inline HTML, inherit parent origin (WHATWG HTML §4.8.5).
-        let pipeline = build_iframe_pipeline(srcdoc, ctx.parent_url.cloned(), ctx);
-        let origin = apply_sandbox_origin(
-            ctx.parent_origin.clone(),
-            sandbox_flags,
-            iframe_data.credentialless,
-        );
-        (pipeline, origin)
+    // Determine content source.
+    let pipeline = if let Some(srcdoc) = &iframe_data.srcdoc {
+        // srcdoc: parse inline HTML.
+        build_iframe_pipeline(
+            srcdoc,
+            ctx.parent_url.cloned(),
+            ctx,
+            &frame_security(inherited_origin, sandbox_flags, ctx),
+        )
     } else if let Some(src) = &iframe_data.src {
         if src.is_empty() || src == "about:blank" {
-            let pipeline = build_iframe_pipeline("", ctx.parent_url.cloned(), ctx);
-            let origin = apply_sandbox_origin(
-                ctx.parent_origin.clone(),
-                sandbox_flags,
-                iframe_data.credentialless,
-            );
-            (pipeline, origin)
+            build_iframe_pipeline(
+                "",
+                ctx.parent_url.cloned(),
+                ctx,
+                &frame_security(inherited_origin, sandbox_flags, ctx),
+            )
         } else {
             return load_iframe_from_url(src, iframe_data, sandbox_flags, ctx);
         }
     } else {
-        let pipeline = build_iframe_pipeline("", ctx.parent_url.cloned(), ctx);
-        let origin = apply_sandbox_origin(
-            ctx.parent_origin.clone(),
-            sandbox_flags,
-            iframe_data.credentialless,
-        );
-        (pipeline, origin)
+        build_iframe_pipeline(
+            "",
+            ctx.parent_url.cloned(),
+            ctx,
+            &frame_security(inherited_origin, sandbox_flags, ctx),
+        )
     };
 
-    let entry = make_in_process_entry(pipeline, iframe_origin, ctx.depth, sandbox_flags);
+    let entry = make_in_process_entry(pipeline);
     set_referrer(&entry, ctx);
     entry
 }
@@ -181,12 +187,15 @@ fn load_iframe_from_url(
                 // iframe's `devicePixelRatio`/`matchMedia` are correct from birth instead
                 // of stuck at 1×/Light on a HiDPI/dark display.
                 ctx.device_facts,
+                // Security installs precede the initial scripts run inside this
+                // build (see `FrameSecurity`).
+                Some(&frame_security(origin, sandbox_flags, ctx)),
             );
             // Keep credentialless broker alive for the iframe pipeline's lifetime.
             if let Some(cb) = credentialless_broker {
                 pipeline.broker_keepalive = Some(cb);
             }
-            let entry = make_in_process_entry(pipeline, origin, ctx.depth, sandbox_flags);
+            let entry = make_in_process_entry(pipeline);
             set_referrer(&entry, ctx);
             entry
         }
@@ -219,21 +228,13 @@ fn set_referrer(entry: &IframeEntry, ctx: &IframeLoadContext<'_>) {
 // Entry constructors
 // ---------------------------------------------------------------------------
 
-/// Create a same-origin `IframeEntry` from a pipeline and origin.
+/// Create a same-origin `IframeEntry` from a pipeline.
 ///
-/// `depth` is the nesting depth of this iframe, stored on the bridge for
-/// correct `MAX_IFRAME_DEPTH` enforcement across nested `EcsDom` instances.
-#[allow(clippy::cast_precision_loss)]
-pub(super) fn make_in_process_entry(
-    pipeline: crate::PipelineResult,
-    origin: SecurityOrigin,
-    depth: usize,
-    sandbox_flags: Option<IframeSandboxFlags>,
-) -> IframeEntry {
-    pipeline.runtime.bridge().set_sandbox_flags(sandbox_flags);
-    pipeline.runtime.bridge().set_origin(origin);
-    pipeline.runtime.bridge().set_iframe_depth(depth);
-
+/// The security state (sandbox flags / origin / depth) is NOT installed here:
+/// it rides the pipeline build as [`crate::FrameSecurity`] so it is on the
+/// bridge **before** the initial scripts run (S5-4b ordering invariant) — by
+/// the time this constructor wraps the pipeline, the installs already happened.
+pub(super) fn make_in_process_entry(pipeline: crate::PipelineResult) -> IframeEntry {
     IframeEntry {
         handle: IframeHandle::InProcess(Box::new(InProcessIframe {
             pipeline,
@@ -283,6 +284,9 @@ fn make_out_of_process_entry(
             // across origins on the same display, so a cross-origin OOP frame inherits them
             // too (they carry no origin-private information — already exposed via matchMedia).
             device_facts,
+            // OOP path keeps its established install sequence below (S5-4b
+            // scoped the pre-eval reorder to the in-process paths).
+            None,
         );
 
         oop_pipeline
@@ -319,12 +323,12 @@ fn blank_entry(
     ctx: &IframeLoadContext<'_>,
 ) -> IframeEntry {
     let sandbox_flags = parse_sandbox(iframe_data);
-    make_in_process_entry(
-        build_iframe_pipeline("", ctx.parent_url.cloned(), ctx),
-        origin,
-        ctx.depth,
-        sandbox_flags,
-    )
+    make_in_process_entry(build_iframe_pipeline(
+        "",
+        ctx.parent_url.cloned(),
+        ctx,
+        &frame_security(origin, sandbox_flags, ctx),
+    ))
 }
 
 // ---------------------------------------------------------------------------
@@ -339,11 +343,26 @@ fn parse_sandbox(iframe_data: &elidex_ecs::IframeData) -> Option<IframeSandboxFl
         .map(elidex_plugin::parse_sandbox_attribute)
 }
 
+/// Bundle the security state an in-process iframe build installs **before**
+/// its initial scripts run (see [`crate::FrameSecurity`]).
+fn frame_security(
+    origin: SecurityOrigin,
+    sandbox_flags: Option<IframeSandboxFlags>,
+    ctx: &IframeLoadContext<'_>,
+) -> crate::FrameSecurity {
+    crate::FrameSecurity {
+        origin,
+        sandbox_flags,
+        iframe_depth: ctx.depth,
+    }
+}
+
 /// Build an iframe pipeline from HTML content, sharing the parent's resources.
 fn build_iframe_pipeline(
     html: &str,
     url: Option<url::Url>,
     ctx: &IframeLoadContext<'_>,
+    security: &crate::FrameSecurity,
 ) -> crate::PipelineResult {
     crate::build_pipeline_interactive_shared(
         html,
@@ -360,6 +379,7 @@ fn build_iframe_pipeline(
         // Device facts ARE known: window/display facts inherited from the parent (C3),
         // not box facts — so seed the real dppx/color-scheme, not a 1×/Light placeholder.
         ctx.device_facts,
+        Some(security),
     )
 }
 
