@@ -8,9 +8,10 @@
 //! - per-observer state lives on `HostData` keyed by a monotonic
 //!   `observer_id: u64` (CLAUDE.md side-store exception (a) — per-VM
 //!   identity handle: callback `ObjectId` + instance `ObjectId`),
-//! - delivery iterates the observer ids with work, looks up the
-//!   `(callback, instance)` pair, temp-roots both across the JS
-//!   callback invocation, and ends with a microtask checkpoint,
+//! - delivery resolves every observer's `(callback, instance)` pair
+//!   and **batch-roots** them across the whole delivery (a batch is a
+//!   single GC snapshot), then per observer builds the records array +
+//!   invokes the callback, and ends with a microtask checkpoint,
 //! - records / entries are marshalled into a JS Array of plain
 //!   shaped Objects with `WEBIDL_RO` member properties.
 //!

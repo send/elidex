@@ -357,9 +357,10 @@ pub(super) fn keepalive_survivors(vm: &VmInner) -> Vec<ObjectId> {
                 // subsequent GC). The INTRA-delivery window — after `take_records`
                 // has drained the queue but before/while the record-array is
                 // built and the callback runs — is covered NOT by this clause but
-                // by the temp-root the shared delivery helper pushes for the
+                // by the batch root the shared delivery helper holds for the
                 // binding (`observer_common::deliver_to_observer_callbacks`, which
-                // roots `instance` + `callback` before the GC-capable build).
+                // roots every observer's `instance` + `callback` for the whole
+                // delivery batch, spanning the GC-capable build + callback).
                 let pending = hd.mutation_observers.observers_with_pending_records();
                 for (oid, b) in &hd.mutation_observer_bindings {
                     if ids.contains(oid) || pending.contains(oid) {
