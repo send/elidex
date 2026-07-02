@@ -97,6 +97,13 @@ allow = [
 [bans]
 multiple-versions = "warn"
 wildcards = "allow"
+deny = [
+    # Tripwire for the RUSTSEC-2026-0194/0195 advisories.ignore above: cargo-deny
+    # ignores are per-advisory-ID (global), so pin quick-xml to its two reviewed
+    # transitive parents.  Any NEW direct dependent (e.g. a web-content XML path)
+    # fails this bans check and forces re-evaluating the ignore.
+    { name = "quick-xml", wrappers = ["wayland-scanner", "zbus_xml"] },
+]
 
 [sources]
 unknown-registry = "deny"
