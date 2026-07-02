@@ -231,7 +231,8 @@ fn handle_navigate(
     //   (a) referrer: `inputs.referrer` carries the INITIAL parent referrer
     //       (`bridge.referrer()`) across the frame's OWN navigation. A real
     //       in-frame navigation should instead source the referrer from the
-    //       frame's PREVIOUS document URL (per-navigation referrer chain, §7.4),
+    //       frame's PREVIOUS document URL (per-navigation referrer chain,
+    //       HTML §7.4.2 Navigation),
     //       not the embedder's original referrer.
     //   (b) cookies: `build_pipeline_from_url` spawns a fresh standalone broker
     //       with an EMPTY cookie jar (relocated verbatim, pre-existing) — a real

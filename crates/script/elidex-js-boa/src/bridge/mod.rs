@@ -293,7 +293,9 @@ struct IframeBridgeState {
     /// Whether this document loads in a `credentialless` iframe. Persisted (like
     /// the sandbox flags) so a same-frame navigation can re-derive the opaque
     /// origin — a credentialless browsing context keeps its opaque origin across
-    /// navigations (HTML anonymous-iframe / credentialless).
+    /// navigations (anonymous-iframe `credentialless` attribute; opaque-origin
+    /// semantics pre-existing — not an HTML LS iframe attribute, HTML's only
+    /// `credentialless` is the COEP embedder-policy value).
     credentialless: bool,
     /// Queued postMessage events for delivery in the next event loop tick.
     pending_post_messages: Vec<(String, String)>,
