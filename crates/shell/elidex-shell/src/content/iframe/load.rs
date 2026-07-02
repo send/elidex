@@ -141,10 +141,12 @@ fn load_iframe_from_url(
                 // BEFORE sandbox opaque-ification), so a same-origin request that
                 // is merely sandboxed-to-opaque still shares the full parent URL
                 // (W3C Referrer Policy §3 default `strict-origin-when-cross-origin`,
-                // §3.7). The TLS-downgrade "no referrer" case and full per-request
-                // ReferrerPolicy (meta referrer, rel=noreferrer, Referrer-Policy
-                // header) are deferred → slot #11-referrer-policy (a new carve;
-                // ledger registration is a landing deliverable).
+                // §3.7). The TLS-downgrade "no referrer" case IS handled inside
+                // `frame_referrer` (secure source → non-secure request → None);
+                // only full per-request ReferrerPolicy (meta referrer,
+                // rel=noreferrer, Referrer-Policy header, referrerpolicy attr) is
+                // deferred → slot #11-referrer-policy (a new carve; ledger
+                // registration is a landing deliverable).
                 let mut state =
                     pre_eval_state(origin, sandbox_flags, iframe_data.credentialless, ctx);
                 state.referrer = frame_referrer(ctx.parent_url, ctx.parent_origin, &doc_origin);
@@ -393,8 +395,13 @@ fn strip_url_for_referrer(url: &url::Url) -> String {
 /// sandboxed-to-opaque still shares the full parent URL.
 ///
 /// - same-origin → the full parent URL, stripped for use as a referrer.
-/// - cross-origin → the parent ORIGIN serialization only (`None` if opaque, see
-///   [`cross_origin_referrer`]).
+/// - cross-origin (same security) → the parent ORIGIN serialization only
+///   (`None` if opaque, see [`cross_origin_referrer`]).
+/// - cross-origin TLS downgrade (secure referrer source → non-secure request)
+///   → `None`: a potentially-trustworthy `referrerURL` with a
+///   non-potentially-trustworthy current URL sends no referrer at all (W3C
+///   Referrer Policy §3.7). Same-origin is necessarily same-scheme, so a
+///   downgrade only ever arises on the cross-origin path.
 fn frame_referrer(
     parent_url: Option<&url::Url>,
     parent_origin: &SecurityOrigin,
@@ -402,9 +409,24 @@ fn frame_referrer(
 ) -> Option<String> {
     if parent_origin == request_origin {
         parent_url.map(strip_url_for_referrer)
+    } else if is_secure_origin(parent_origin) && !is_secure_origin(request_origin) {
+        // TLS downgrade (e.g. https parent → http child): no referrer (§3.7).
+        None
     } else {
         cross_origin_referrer(parent_origin)
     }
+}
+
+/// Whether an origin's scheme is a "potentially trustworthy" secure transport
+/// for the Referrer Policy TLS-downgrade check (W3C Referrer Policy §3.7): a
+/// secure referrer source navigating a non-secure request URL sends no
+/// referrer. Scheme-based classification — `https` / `wss` are secure, `http` /
+/// `ws` (and everything else, incl. opaque) are not — matching how elidex
+/// classifies mixed content elsewhere (`cookie_jar.rs` `is_secure`, the WS
+/// mixed-content gate). Opaque origins are treated as non-secure (they take the
+/// [`cross_origin_referrer`] `None` path regardless).
+fn is_secure_origin(origin: &SecurityOrigin) -> bool {
+    matches!(origin, SecurityOrigin::Tuple { scheme, .. } if scheme == "https" || scheme == "wss")
 }
 
 /// The `document.referrer` a **cross-origin** sub-frame receives: only the
@@ -414,10 +436,12 @@ fn frame_referrer(
 /// An opaque parent origin has no usable referrer to share (serialized `"null"`
 /// is not a referrer), so this yields `None` (empty `document.referrer`).
 ///
-/// Full per-request ReferrerPolicy (meta referrer, rel=noreferrer,
-/// Referrer-Policy header) and the TLS-downgrade "no referrer" case are deferred
-/// → slot `#11-referrer-policy` (a new carve; ledger registration is a landing
-/// deliverable).
+/// The TLS-downgrade "no referrer" case (secure source → non-secure request) is
+/// part of the SAME default policy and is HANDLED in [`frame_referrer`] (via
+/// [`is_secure_origin`], §3.7). Only full per-request ReferrerPolicy (meta
+/// referrer, `rel=noreferrer`, `Referrer-Policy` header, `referrerpolicy` attr)
+/// remains deferred → slot `#11-referrer-policy` (a new carve; ledger
+/// registration is a landing deliverable).
 fn cross_origin_referrer(parent_origin: &SecurityOrigin) -> Option<String> {
     match parent_origin {
         SecurityOrigin::Tuple { .. } => Some(parent_origin.serialize()),
@@ -640,5 +664,35 @@ mod tests {
     #[test]
     fn cross_origin_referrer_opaque_parent_is_none() {
         assert_eq!(cross_origin_referrer(&SecurityOrigin::opaque()), None);
+    }
+
+    /// R2: a TLS downgrade — an https parent embedding a cross-origin http
+    /// child — sends NO referrer (a potentially-trustworthy referrerURL with a
+    /// non-potentially-trustworthy current URL, W3C Referrer Policy §3.7), not
+    /// the parent origin. Falsify by reverting the downgrade branch in
+    /// `frame_referrer` (it would return `Some("https://parent.example")`).
+    #[test]
+    fn frame_referrer_https_to_http_downgrade_is_none() {
+        let parent = url::Url::parse("https://parent.example/a/b?q").unwrap();
+        let request = origin("http://other.example/");
+        assert_eq!(
+            frame_referrer(Some(&parent), &origin("https://parent.example/"), &request),
+            None,
+            "secure→non-secure cross-origin downgrade must omit the referrer entirely"
+        );
+    }
+
+    /// R2 control: an http parent → http cross-origin child is NOT a downgrade
+    /// (source was never potentially-trustworthy), so the parent origin is
+    /// still sent (§3.7 "referrerURL is a non-potentially trustworthy URL").
+    #[test]
+    fn frame_referrer_http_to_http_cross_origin_is_origin() {
+        let parent = url::Url::parse("http://parent.example/a/b?q").unwrap();
+        let request = origin("http://other.example/");
+        assert_eq!(
+            frame_referrer(Some(&parent), &origin("http://parent.example/"), &request).as_deref(),
+            Some("http://parent.example"),
+            "non-secure source cross-origin is not a downgrade; parent origin is sent"
+        );
     }
 }
