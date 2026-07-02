@@ -1312,6 +1312,30 @@ impl VmInner {
             None => &empty_wrapper_store,
         };
 
+        // S5-3c — observer `(callback, instance)` binding maps.  The
+        // `ObjectKind::Observer` trace arm marks a reachable observer instance's
+        // `binding.callback` (ownership edge) so the callback survives while the
+        // instance is reachable.  Empty fallback when unbound (no observer
+        // wrapper can be reachable then — the binding maps live on HostData).
+        #[cfg(feature = "engine")]
+        let empty_observer_bindings: std::collections::HashMap<
+            u64,
+            super::super::host::observer_common::ObserverBinding,
+        > = std::collections::HashMap::new();
+        #[cfg(feature = "engine")]
+        let (mo_bindings_ref, ro_bindings_ref, io_bindings_ref) = match self.host_data.as_deref() {
+            Some(hd) => (
+                &hd.mutation_observer_bindings,
+                &hd.resize_observer_bindings,
+                &hd.intersection_observer_bindings,
+            ),
+            None => (
+                &empty_observer_bindings,
+                &empty_observer_bindings,
+                &empty_observer_bindings,
+            ),
+        };
+
         trace_work_list(
             roots.objects,
             roots.upvalues,
@@ -1379,6 +1403,12 @@ impl VmInner {
             &self.idb_cursor_states,
             #[cfg(feature = "engine")]
             &self.crypto_key_js_cache,
+            #[cfg(feature = "engine")]
+            mo_bindings_ref,
+            #[cfg(feature = "engine")]
+            ro_bindings_ref,
+            #[cfg(feature = "engine")]
+            io_bindings_ref,
             &mut self.gc_object_marks,
             &mut self.gc_upvalue_marks,
             &mut self.gc_work_list,
@@ -1791,17 +1821,18 @@ impl VmInner {
             // additionally drop the state-table entry (no separate
             // engine-side registry).
             //
-            // `mutation_observer_callbacks` / `_instances` use the
-            // same per-observer-id pattern but the callback ObjectId
-            // is unconditionally rooted via `gc_root_object_ids`,
-            // making this prune the only place where the side-table
-            // can shed entries.  TreeWalker / NodeIterator filter
+            // The `*_observer_bindings` maps use the same
+            // per-observer-id pattern, but their `(callback, instance)`
+            // pairs are keepalive-kept (`gc/keepalive.rs`, S5-3c — no
+            // longer unconditionally rooted via `gc_root_object_ids`)
+            // and their rows are pruned by the dedicated S5-3c sweep
+            // block below.  TreeWalker / NodeIterator filter
             // ObjectIds (Copilot R8) are NOT rooted via
             // `gc_root_object_ids` — they reach GC only via the
             // per-wrapper trace fan-out in `vm/gc/trace.rs`.  This
             // sweep prunes the state-table entry once the wrapper
             // ObjectId itself is unmarked, mirroring the
-            // mutation_observer pattern except for the rooting side.
+            // observer-binding pattern except for the rooting side.
             if let Some(hd) = self.host_data.as_deref_mut() {
                 // Range — collect dead range_ids first to avoid
                 // double-borrowing `host_data` (we need both
@@ -1931,6 +1962,86 @@ impl VmInner {
                 hd.event_source_states.retain(|id, _| bit_get(marks, id.0));
                 hd.sse_conn_to_object
                     .retain(|_, obj_id| bit_get(marks, obj_id.0));
+                // S5-3c — Mutation / Resize / Intersection observer bindings.
+                // The construct-time for-life root was removed from
+                // `gc_root_object_ids`; the keepalive seam
+                // (`gc/keepalive.rs`, which ran BEFORE this sweep) now marks a
+                // binding's `instance` + `callback` iff the observer is
+                // keepalive-kept (≥1 active observation, or — MutationObserver
+                // only — ≥1 queued undelivered record; the full predicate lives
+                // at the seam, `keepalive_survivors`). Prune each binding-map
+                // ROW by the wrapper's (`instance`) mark bit — so the STRUCT
+                // does not leak and no stale, index-reusable `instance`
+                // ObjectId lingers.
+                // Three-way lifecycle (mirrors the `vm_event_listeners.retain`
+                // pattern above): keepalive-worthy → predicate-marked → kept;
+                // idle-but-JS-referenced → JS-marked → kept (a later
+                // `observe()` still finds its binding); idle +
+                // unreferenced → unmarked → pruned (the leak fix). Keying on
+                // `instance` alone is sufficient AND never orphans the callback:
+                // a kept row's `callback` is reachable-from-`instance` — marked
+                // by the keepalive predicate push when keepalive-worthy (§4.2),
+                // OR by
+                // the `ObjectKind::Observer` OWNERSHIP trace edge (`gc/trace.rs`)
+                // when the instance is JS-reachable but idle (the predicate
+                // pushes nothing) — so whenever `instance` survives, its callback
+                // survives too.
+                //
+                // Pruning the binding row alone would leave the engine-indep
+                // *registry* row for the same id (`MutationObserverRegistry`'s
+                // empty-`Vec` `records` + `pending` slot / `ResizeObserverRegistry`'s
+                // `registered` id / `IntersectionObserverRegistry`'s parsed config)
+                // growing until `Vm::unbind` — the second half of the very binding
+                // leak S5-3c fixes. So capture each pruned id while retaining and
+                // `retire_collected` it from its registry, leaving NO registry-side
+                // residual. Dom-free: an unmarked (pruned) row means the observer
+                // is NEITHER observing (no `*ObservedBy` membership → predicate did
+                // not mark it) NOR pending-records-kept, so it is guaranteed
+                // non-observing — its observation components are already gone and no
+                // `&mut EcsDom` target-list scrub is needed (which would force a
+                // redundant no-op World mutation mid-sweep). The `retire_collected`
+                // loop runs after the map `retain` borrow drops and touches a
+                // DIFFERENT `hd` field (`hd.<kind>_observers`), so the borrows are
+                // disjoint.
+                let mut pruned_mutation: Vec<u64> = Vec::new();
+                hd.mutation_observer_bindings.retain(|oid, b| {
+                    let keep = bit_get(marks, b.instance.0);
+                    if !keep {
+                        pruned_mutation.push(*oid);
+                    }
+                    keep
+                });
+                for oid in pruned_mutation {
+                    hd.mutation_observers.retire_collected(
+                        elidex_api_observers::mutation::MutationObserverId::from_raw(oid),
+                    );
+                }
+                let mut pruned_resize: Vec<u64> = Vec::new();
+                hd.resize_observer_bindings.retain(|oid, b| {
+                    let keep = bit_get(marks, b.instance.0);
+                    if !keep {
+                        pruned_resize.push(*oid);
+                    }
+                    keep
+                });
+                for oid in pruned_resize {
+                    hd.resize_observers.retire_collected(
+                        elidex_api_observers::resize::ResizeObserverId::from_raw(oid),
+                    );
+                }
+                let mut pruned_intersection: Vec<u64> = Vec::new();
+                hd.intersection_observer_bindings.retain(|oid, b| {
+                    let keep = bit_get(marks, b.instance.0);
+                    if !keep {
+                        pruned_intersection.push(*oid);
+                    }
+                    keep
+                });
+                for oid in pruned_intersection {
+                    hd.intersection_observers.retire_collected(
+                        elidex_api_observers::intersection::IntersectionObserverId::from_raw(oid),
+                    );
+                }
                 // Emit Close messages to the broker for swept
                 // connections.  Best-effort: a disconnected handle
                 // silently no-ops via `send`'s bool return.

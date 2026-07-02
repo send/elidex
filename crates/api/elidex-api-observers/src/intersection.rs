@@ -208,6 +208,36 @@ impl IntersectionObserverRegistry {
         self.observers.remove(&id);
     }
 
+    /// Drop the registry-internal bookkeeping for an observer whose JS wrapper
+    /// was GC-collected (binding row swept). Dom-free: a GC-collected observer is
+    /// guaranteed non-observing (its observation components are already gone), so
+    /// no target-list scrub is needed — mirrors the mutation registry's
+    /// `clear_pending_records` rationale. Called only from the `gc/collect.rs`
+    /// binding-row sweep. Drops the `RegisteredObserver` config
+    /// (`IntersectionObserverInit` + parsed rootMargin — the only per-observer
+    /// state; observations live on the `IntersectionObservedBy` components,
+    /// already gone); `next_id` stays monotonic.
+    ///
+    /// **Internal VM-integration helper — not a supported public API** (hence
+    /// `#[doc(hidden)]`). The GC-only precondition — the observer is already
+    /// proven collected (non-observing + non-pending) — is the caller's
+    /// obligation; call only from the `gc/collect.rs` binding-row sweep.
+    #[doc(hidden)]
+    pub fn retire_collected(&mut self, id: IntersectionObserverId) {
+        self.observers.remove(&id);
+    }
+
+    /// Number of retained per-observer configs. VM-integration + test oracle for
+    /// the GC-sweep [`Self::retire_collected`] retirement — `observers` has no
+    /// public reader. `#[doc(hidden)]` (not part of the supported API surface),
+    /// mirroring the mutation registry's `clear_pending_records` VM-integration
+    /// marking.
+    #[doc(hidden)]
+    #[must_use]
+    pub fn observers_len(&self) -> usize {
+        self.observers.len()
+    }
+
     /// Scrub retained explicit-root `Entity` references in every
     /// registered observer's [`IntersectionObserverInit::root`], reverting
     /// them to `None` (implicit viewport).  Called by the embedder at
@@ -342,6 +372,39 @@ impl IntersectionObserverRegistry {
 
         grouped.into_iter().collect()
     }
+}
+
+/// The raw ids of the intersection observers that currently have ≥1 active
+/// observation — Intersection Observer §3.3 "Lifetime" ("the observer is not
+/// observing any targets" ⇒ collectible) mechanised by the `[[ObservationTargets]]`
+/// slot (§3.1.3), here the per-entity `IntersectionObservedBy` components. Derived
+/// in one hecs archetype query, flat-mapping every observation's `observer` id
+/// into the set.
+///
+/// This is the GC-keepalive predicate `elidex-js` marshals (S5-3c): an
+/// `IntersectionObserver` wrapper stays rooted iff its id is in this set.
+/// **Despawn-safe by construction** — a despawned entity's `IntersectionObservedBy`
+/// is gone with the entity, so its (observer, target) pair is never scanned.
+///
+/// Unlike `MutationObserver`, IntersectionObserver has NO second "pending
+/// undelivered entries" keepalive clause: its delivery is **synchronous** within
+/// `deliver_intersection_observations` (`gather_observations` computes the
+/// threshold-crossing entries and delivers them in the SAME call), and this
+/// registry keeps NO persistent per-observer entry queue that survives a GC-able
+/// window between "entry queued" and "delivered". (`takeRecords()` correspondingly
+/// returns an empty array — the VM buffers no entries between frames.) Crossing
+/// entries are recomputed each frame from the live `IntersectionObservedBy`
+/// components (ratio diff), so there is no cross-checkpoint pending state to root.
+/// Active-observation membership is the sole keepalive signal.
+#[must_use]
+pub fn observing_observer_ids(dom: &EcsDom) -> std::collections::HashSet<u64> {
+    let mut ids = std::collections::HashSet::new();
+    for (_entity, comp) in &mut dom.world().query::<(Entity, &IntersectionObservedBy)>() {
+        for obs in &comp.0 {
+            ids.insert(obs.observer.raw());
+        }
+    }
+    ids
 }
 
 /// Compute the intersection ratio from a pre-resolved target area and
@@ -950,5 +1013,125 @@ mod tests {
         sorted.sort_unstable();
         assert_eq!(got.len(), 4);
         assert_eq!(got, sorted, "gather must deliver in id-sorted order");
+    }
+
+    #[test]
+    fn retire_collected_drops_observer_config() {
+        // S5-3c registry-side leak fix: `retire_collected` drops the observer's
+        // `RegisteredObserver` config (init + parsed rootMargin) for a GC-collected
+        // wrapper (binding row pruned), so the registry does not grow monotonically.
+        // Dom-free — a collected observer is guaranteed non-observing, so no
+        // target-list scrub is needed.
+        let mut reg = IntersectionObserverRegistry::new();
+        let id = reg
+            .register(IntersectionObserverInit {
+                root_margin: "10px".to_string(),
+                threshold: vec![0.5],
+                ..Default::default()
+            })
+            .expect("valid rootMargin");
+        assert_eq!(reg.observers_len(), 1);
+
+        reg.retire_collected(id);
+        assert_eq!(
+            reg.observers_len(),
+            0,
+            "retire_collected drops the per-observer config (no residual)"
+        );
+        // A retired id is not reusable for observe (mirrors unregister).
+        let mut dom = EcsDom::new();
+        let el = elem(&mut dom, "div");
+        reg.observe(&mut dom, id, el);
+        assert!(
+            dom.world().get::<&IntersectionObservedBy>(el).is_err(),
+            "a retired id must not be reusable for observe"
+        );
+        // next_id stays monotonic across the retire.
+        let id2 = register_default(&mut reg);
+        assert_ne!(id2.raw(), id.raw());
+    }
+
+    // --- observing_observer_ids (the S5-3c GC-keepalive membership query) ---
+
+    fn register_default(reg: &mut IntersectionObserverRegistry) -> IntersectionObserverId {
+        reg.register(IntersectionObserverInit::default())
+            .expect("default init has valid rootMargin")
+    }
+
+    #[test]
+    fn observing_ids_empty_world_is_empty() {
+        let dom = EcsDom::new();
+        assert!(observing_observer_ids(&dom).is_empty());
+    }
+
+    #[test]
+    fn observing_ids_present_after_observe() {
+        let mut dom = EcsDom::new();
+        let el = elem(&mut dom, "div");
+        let mut reg = IntersectionObserverRegistry::new();
+        let id = register_default(&mut reg);
+        reg.observe(&mut dom, id, el);
+
+        let ids = observing_observer_ids(&dom);
+        assert!(ids.contains(&id.raw()));
+        assert_eq!(ids.len(), 1);
+    }
+
+    #[test]
+    fn observing_ids_absent_after_unobserve() {
+        let mut dom = EcsDom::new();
+        let el = elem(&mut dom, "div");
+        let mut reg = IntersectionObserverRegistry::new();
+        let id = register_default(&mut reg);
+        reg.observe(&mut dom, id, el);
+        reg.unobserve(&mut dom, id, el);
+        assert!(
+            observing_observer_ids(&dom).is_empty(),
+            "unobserve of the sole target ⇒ non-member (collectible)"
+        );
+    }
+
+    #[test]
+    fn observing_ids_absent_after_disconnect() {
+        let mut dom = EcsDom::new();
+        let el = elem(&mut dom, "div");
+        let mut reg = IntersectionObserverRegistry::new();
+        let id = register_default(&mut reg);
+        reg.observe(&mut dom, id, el);
+        reg.disconnect(&mut dom, id);
+        assert!(observing_observer_ids(&dom).is_empty());
+    }
+
+    #[test]
+    fn observing_ids_absent_after_despawn_of_sole_target() {
+        let mut dom = EcsDom::new();
+        let el = elem(&mut dom, "div");
+        let mut reg = IntersectionObserverRegistry::new();
+        let id = register_default(&mut reg);
+        reg.observe(&mut dom, id, el);
+        assert!(observing_observer_ids(&dom).contains(&id.raw()));
+
+        let _ = dom.destroy_entity(el);
+        assert!(
+            observing_observer_ids(&dom).is_empty(),
+            "despawn of the sole observed entity drops membership (despawn-safe)"
+        );
+    }
+
+    #[test]
+    fn observing_ids_two_observers_distinct_targets_both_present() {
+        let mut dom = EcsDom::new();
+        let a = elem(&mut dom, "div");
+        let b = elem(&mut dom, "section");
+        let mut reg = IntersectionObserverRegistry::new();
+        let id_a = register_default(&mut reg);
+        let id_b = register_default(&mut reg);
+        reg.observe(&mut dom, id_a, a);
+        reg.observe(&mut dom, id_b, b);
+
+        let ids = observing_observer_ids(&dom);
+        assert!(ids.contains(&id_a.raw()));
+        assert!(ids.contains(&id_b.raw()));
+        assert_eq!(ids.len(), 2);
     }
 }

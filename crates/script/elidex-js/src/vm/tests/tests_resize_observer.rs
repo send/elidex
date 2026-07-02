@@ -579,10 +579,12 @@ fn resize_observer_two_observers_on_same_target_both_fire() {
 #[test]
 fn resize_observer_callback_survives_gc_via_root_chain() {
     // Even with no JS-stack reference to `ro` (assignment to a local
-    // `var` inside a `function` that has returned), the
-    // `gc_root_object_ids` chain via `HostData::resize_observer_bindings`
-    // must keep the callback + instance alive across a GC cycle so the
-    // next deliver tick still fires.
+    // `var` inside a `function` that has returned), the observer here is
+    // actively observing `target`, so the keepalive seam's active-observation
+    // predicate (S5-3c, `gc/keepalive.rs`) keeps its callback + instance alive
+    // across a GC cycle so the next deliver tick still fires.  (Pre-S5-3c this
+    // survived via the construct-time `gc_root_object_ids` root; now it survives
+    // because it is observing — the leak-fix collects only IDLE observers.)
     let mut vm = Vm::new();
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();

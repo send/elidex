@@ -196,6 +196,34 @@ impl ResizeObserverRegistry {
         self.registered.remove(&id);
     }
 
+    /// Drop the registry-internal bookkeeping for an observer whose JS wrapper
+    /// was GC-collected (binding row swept). Dom-free: a GC-collected observer is
+    /// guaranteed non-observing (its observation components are already gone), so
+    /// no target-list scrub is needed — mirrors the mutation registry's
+    /// `clear_pending_records` rationale. Called only from the `gc/collect.rs`
+    /// binding-row sweep. Retires only the `registered` id set (RO holds no other
+    /// per-observer state; observations live on the `ResizeObservedBy`
+    /// components, already gone); `next_id` stays monotonic.
+    ///
+    /// **Internal VM-integration helper — not a supported public API** (hence
+    /// `#[doc(hidden)]`). The GC-only precondition — the observer is already
+    /// proven collected (non-observing + non-pending) — is the caller's
+    /// obligation; call only from the `gc/collect.rs` binding-row sweep.
+    #[doc(hidden)]
+    pub fn retire_collected(&mut self, id: ResizeObserverId) {
+        self.registered.remove(&id);
+    }
+
+    /// Number of retained observer ids. VM-integration + test oracle for the
+    /// GC-sweep [`Self::retire_collected`] retirement — `registered` has no public
+    /// reader. `#[doc(hidden)]` (not part of the supported API surface), mirroring
+    /// the mutation registry's `clear_pending_records` VM-integration marking.
+    #[doc(hidden)]
+    #[must_use]
+    pub fn registered_len(&self) -> usize {
+        self.registered.len()
+    }
+
     /// Gather resize observations by comparing current sizes against last known
     /// sizes (Resize Observer §3.4.1 "Gather active observations at depth" /
     /// §3.4.5 "Broadcast active observations").
@@ -257,6 +285,39 @@ impl ResizeObserverRegistry {
 
         grouped.into_iter().collect()
     }
+}
+
+/// The raw ids of the resize observers that currently have ≥1 active
+/// observation — Resize Observer §3.5 "Lifetime" ("the observer is not
+/// observing any targets" ⇒ collectible) mechanised by the `[[observationTargets]]`
+/// slot (§3.2.2), here the per-entity `ResizeObservedBy` components. Derived in
+/// one hecs archetype query, flat-mapping every observation's `observer` id into
+/// the set.
+///
+/// This is the GC-keepalive predicate `elidex-js` marshals (S5-3c): a
+/// `ResizeObserver` wrapper stays rooted iff its id is in this set. **Despawn-
+/// safe by construction** — a despawned entity's `ResizeObservedBy` is gone with
+/// the entity, so its (observer, target) pair is never scanned.
+///
+/// Unlike `MutationObserver`, ResizeObserver has NO second "pending undelivered
+/// entries" keepalive clause: its delivery is **synchronous** within
+/// `deliver_resize_observations` (§3.4.5 "Broadcast active resize observations" runs
+/// inside "update the rendering" — `gather_observations` gathers the active
+/// entries and delivers them in the SAME call), and this registry keeps NO
+/// persistent per-observer entry queue that survives a GC-able window between
+/// "entry queued" and "delivered". Active entries are recomputed each frame from
+/// the live `ResizeObservedBy` components (size-change diff), so there is no
+/// cross-checkpoint pending state to root. Active-observation membership is the
+/// sole keepalive signal.
+#[must_use]
+pub fn observing_observer_ids(dom: &EcsDom) -> std::collections::HashSet<u64> {
+    let mut ids = std::collections::HashSet::new();
+    for (_entity, comp) in &mut dom.world().query::<(Entity, &ResizeObservedBy)>() {
+        for obs in &comp.0 {
+            ids.insert(obs.observer.raw());
+        }
+    }
+    ids
 }
 
 #[cfg(test)]
@@ -447,5 +508,113 @@ mod tests {
             dom.world().get::<&ResizeObservedBy>(el).is_err(),
             "a retired id must not be reusable for observe"
         );
+    }
+
+    #[test]
+    fn retire_collected_drops_registered_id() {
+        // S5-3c registry-side leak fix: `retire_collected` retires the observer's
+        // `registered` id for a GC-collected wrapper (binding row pruned), so the
+        // registry does not grow monotonically. Dom-free — a collected observer is
+        // guaranteed non-observing, so no target-list scrub is needed.
+        let mut reg = ResizeObserverRegistry::new();
+        let id = reg.register();
+        assert_eq!(reg.registered_len(), 1);
+
+        reg.retire_collected(id);
+        assert_eq!(
+            reg.registered_len(),
+            0,
+            "retire_collected drops the registered id (no residual)"
+        );
+        // A retired id is not reusable for observe (mirrors unregister).
+        let mut dom = EcsDom::new();
+        let el = elem(&mut dom, "div");
+        reg.observe(&mut dom, id, el, ResizeObserverOptions::default());
+        assert!(
+            dom.world().get::<&ResizeObservedBy>(el).is_err(),
+            "a retired id must not be reusable for observe"
+        );
+        // next_id stays monotonic across the retire.
+        let id2 = reg.register();
+        assert_ne!(id2.raw(), id.raw());
+    }
+
+    // --- observing_observer_ids (the S5-3c GC-keepalive membership query) ---
+
+    #[test]
+    fn observing_ids_empty_world_is_empty() {
+        let dom = EcsDom::new();
+        assert!(observing_observer_ids(&dom).is_empty());
+    }
+
+    #[test]
+    fn observing_ids_present_after_observe() {
+        let mut dom = EcsDom::new();
+        let el = elem(&mut dom, "div");
+        let mut reg = ResizeObserverRegistry::new();
+        let id = reg.register();
+        reg.observe(&mut dom, id, el, ResizeObserverOptions::default());
+
+        let ids = observing_observer_ids(&dom);
+        assert!(ids.contains(&id.raw()));
+        assert_eq!(ids.len(), 1);
+    }
+
+    #[test]
+    fn observing_ids_absent_after_unobserve() {
+        let mut dom = EcsDom::new();
+        let el = elem(&mut dom, "div");
+        let mut reg = ResizeObserverRegistry::new();
+        let id = reg.register();
+        reg.observe(&mut dom, id, el, ResizeObserverOptions::default());
+        reg.unobserve(&mut dom, id, el);
+        assert!(
+            observing_observer_ids(&dom).is_empty(),
+            "unobserve of the sole target ⇒ non-member (collectible)"
+        );
+    }
+
+    #[test]
+    fn observing_ids_absent_after_disconnect() {
+        let mut dom = EcsDom::new();
+        let el = elem(&mut dom, "div");
+        let mut reg = ResizeObserverRegistry::new();
+        let id = reg.register();
+        reg.observe(&mut dom, id, el, ResizeObserverOptions::default());
+        reg.disconnect(&mut dom, id);
+        assert!(observing_observer_ids(&dom).is_empty());
+    }
+
+    #[test]
+    fn observing_ids_absent_after_despawn_of_sole_target() {
+        let mut dom = EcsDom::new();
+        let el = elem(&mut dom, "div");
+        let mut reg = ResizeObserverRegistry::new();
+        let id = reg.register();
+        reg.observe(&mut dom, id, el, ResizeObserverOptions::default());
+        assert!(observing_observer_ids(&dom).contains(&id.raw()));
+
+        let _ = dom.destroy_entity(el);
+        assert!(
+            observing_observer_ids(&dom).is_empty(),
+            "despawn of the sole observed entity drops membership (despawn-safe)"
+        );
+    }
+
+    #[test]
+    fn observing_ids_two_observers_distinct_targets_both_present() {
+        let mut dom = EcsDom::new();
+        let a = elem(&mut dom, "div");
+        let b = elem(&mut dom, "section");
+        let mut reg = ResizeObserverRegistry::new();
+        let id_a = reg.register();
+        let id_b = reg.register();
+        reg.observe(&mut dom, id_a, a, ResizeObserverOptions::default());
+        reg.observe(&mut dom, id_b, b, ResizeObserverOptions::default());
+
+        let ids = observing_observer_ids(&dom);
+        assert!(ids.contains(&id_a.raw()));
+        assert!(ids.contains(&id_b.raw()));
+        assert_eq!(ids.len(), 2);
     }
 }

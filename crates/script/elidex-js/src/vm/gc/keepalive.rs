@@ -28,7 +28,7 @@
 //!
 //! The rooted thing is a per-VM `ObjectId` (the side-store→component rule's
 //! per-VM-identity-handle exception (a) — `Vm::unbind`'s cross-DOM-aliasing
-//! note): component-on-entity is world_id-gated and deferred
+//! note): component-on-entity is B1-gated and deferred
 //! (`#11-eventtarget-keepalive-component-migration`).  ⚠ SUPERSEDED 2026-06-30:
 //! world_id retracted → agent-scoped `EcsDom` World (PR #434,
 //! `docs/plans/2026-06-agent-scoped-ecsdom-world.md`); under B1 (1-agent=1-World)
@@ -38,8 +38,14 @@
 //! [`vm_path_has_listener`], itself composed from the engine-independent
 //! `EventListeners` API; the `WebSocket` / `EventSource` arms [S5-3b] marshal VM
 //! state and delegate their tier rule to `elidex-api-ws::{ws_keepalive,
-//! es_keepalive}`).  The remaining observer arm marshals to
-//! `elidex-api-observers` (S5-3c).
+//! es_keepalive}`).  The observer arm [S5-3c, LANDED] marshals to
+//! `elidex-api-observers::observing_observer_ids` (OR-ed, MutationObserver
+//! only, with `observers_with_pending_records` — the queued-undelivered-record
+//! clause) — the Mutation / Resize / Intersection observers are **membership**
+//! registrants marked directly in [`keepalive_survivors`] (shape B), NOT a
+//! [`KeepaliveClass`] listener-predicate variant.  After S5-3c every non-Node
+//! keepalive registrant is on this seam (the hard pre-flip gate
+//! `#11-eventtarget-keepalive-registrant-coverage` is retired).
 
 #![cfg(feature = "engine")]
 
@@ -63,12 +69,17 @@ use super::super::VmInner;
 ///
 /// S5-3a landed the `MediaQueryList` arm (the FLIP-precondition); S5-3b adds the
 /// `WebSocket` / `EventSource` arms (state-tiered listener subset, the tier rule
-/// delegated to `elidex-api-ws::{ws_keepalive, es_keepalive}`).  The remaining
-/// non-Node EventTargets migrate their existing divergent roots onto this seam
-/// **before** the S5-6 flip (the hard pre-flip gate
-/// `#11-eventtarget-keepalive-registrant-coverage`): the Mutation / Resize /
-/// Intersection observers (active-observation membership, S5-3c — delegated to
-/// `elidex-api-observers`).
+/// delegated to `elidex-api-ws::{ws_keepalive, es_keepalive}`).  S5-3c landed the
+/// Mutation / Resize / Intersection observers (active-observation membership —
+/// OR-ed, MutationObserver only, with the queued-undelivered-record clause —
+/// delegated to `elidex-api-observers`) — but as a **membership** registrant
+/// marked directly in [`keepalive_survivors`] (shape B), NOT a `KeepaliveClass`
+/// variant: an observer's keepalive is not a listener test (its callback fires
+/// from observation deliveries, not `addEventListener` on the observer).  With
+/// the observers on the seam, the hard pre-flip gate
+/// `#11-eventtarget-keepalive-registrant-coverage` is retired — every non-Node
+/// EventTarget keepalive is now on this seam, so no divergent construct-time /
+/// force-close root remains for the S5-6 flip.
 /// A future `AbortSignalDependent` arm would root an `AbortSignal.any()`
 /// composite under the DOM §3.2.1 dependent-signal predicate (non-aborted ∧
 /// source-signals-non-empty ∧ listenered) — but that is a **behavior change**
@@ -207,7 +218,7 @@ impl KeepaliveClass {
 ///
 /// - **listener-predicate** registrants ([`KeepaliveClass`]) — survival is the
 ///   interface's own type-restricted rule.  `MediaQueryList` + `WebSocket` /
-///   `EventSource` now (S5-3a/b); the observers join before the flip (S5-3c).
+///   `EventSource` (S5-3a/b).
 ///   `WebSocket` / `EventSource` are state-tiered (WebSockets §7 / HTML §9.2.9,
 ///   delegated to `elidex-api-ws`) over the per-VM `HostData::websocket_states` /
 ///   `event_source_states` side-stores; a kept connection survives the
@@ -226,7 +237,10 @@ impl KeepaliveClass {
 ///   §3.2.1 Garbage collection, the *dependent*-signal predicate) — routed here
 ///   from `mark_roots` pass (j) so non-Node EventTarget
 ///   keepalive lives in one home (behavior-neutral: the same signal set is
-///   marked).
+///   marked).  The Mutation / Resize / Intersection observers (S5-3c) are also
+///   membership registrants: kept with ≥1 active observation — OR,
+///   MutationObserver only, ≥1 queued undelivered record (the inline observer
+///   notes below are the full statement).
 pub(super) fn keepalive_survivors(vm: &VmInner) -> Vec<ObjectId> {
     let current_document = vm
         .host_data
@@ -289,6 +303,131 @@ pub(super) fn keepalive_survivors(vm: &VmInner) -> Vec<ObjectId> {
             .into_iter()
             .filter(|&id| KeepaliveClass::EventSource.keepalive(vm, id)),
     );
+
+    // Mutation / Resize / Intersection observers — a **membership** registrant
+    // (shape B, marked directly like `AbortSignal.timeout`, NOT a
+    // `KeepaliveClass` listener-predicate variant: an observer's callback fires
+    // from OBSERVATION deliveries, not from `addEventListener` on the observer,
+    // so its keepalive is not a listener test). Predicate = "has ≥1 active
+    // observation" (DOM §4.3 registered-observer-list / RO §3.5 / IO §3.3
+    // Lifetime; RO-IO `[[observationTargets]]` non-empty), owned by engine-indep
+    // `elidex-api-observers::observing_observer_ids`. A surviving observer keeps
+    // BOTH its `instance` (callback `this` + 2nd arg) AND its `callback` (what
+    // actually fires) rooted; both release together when the last observation
+    // ends (id ∉ set ⇒ neither pushed). Replaces the removed construct-time
+    // for-life root in `HostData::gc_root_object_ids` (S5-3c over-root/leak fix).
+    //
+    // MutationObserver carries a SECOND, disjoint keepalive clause: an observer
+    // with ≥1 pending undelivered record (its record queue awaiting the DOM §4.3
+    // "notify mutation observers" microtask) must stay alive to deliver it, even
+    // once its last observation has ended — see the bound-branch comment below.
+    // RO/IO have NO analogous clause: their delivery is synchronous within
+    // `deliver_{resize,intersection}_observations` (gather-then-deliver in one
+    // call, entries recomputed each frame from live `*ObservedBy` components),
+    // with no persistent per-observer entry queue that survives a GC-able window
+    // between "entry queued" and "delivered". So only the mutation arm ORs in the
+    // pending-records disjunct.
+    if let Some(hd) = vm.host_data.as_deref() {
+        if hd.is_bound() {
+            // BOUND GC — evaluate the PRECISE membership predicate. The World is
+            // readable via `dom_shared` (asserts `is_bound`), so derive the
+            // observing-id set per kind from the live per-entity `*ObservedBy`
+            // components (D2), then keep every binding whose id is a member.
+            // Despawn-safe by construction (a despawned entity's component is
+            // gone ⇒ its membership vanishes with no registry hook). The World
+            // query is skipped when a kind's binding map is empty — the common
+            // no-observer page pays nothing here every GC.
+            if !hd.mutation_observer_bindings.is_empty() {
+                let ids = elidex_api_observers::mutation::observing_observer_ids(hd.dom_shared());
+                // Second keepalive clause (independent of observation membership):
+                // an observer with ≥1 pending undelivered record must stay alive to
+                // deliver it, even if its last observation just ended (target
+                // despawned / `disconnect()`ed) between the record queuing (DOM
+                // §4.3.2 "Queuing a mutation record") and the §4.3 "notify mutation
+                // observers" microtask. Without this, a mid-window GC would prune
+                // the binding row → `deliver_pending_mutation_records` takes the
+                // records but finds no binding → the records are DROPPED and the
+                // callback never fires = observable data loss. This mirrors the SSE
+                // §9.2.9 "task queued on the remote event task source" strong-
+                // reference clause (`es_keepalive`'s `has_queued_task`). Reads only
+                // the registry (HostData, no World), so it is a separate disjunct
+                // OR-ed with the World-derived observing-membership set above. Keyed
+                // on non-empty `records` (not stale `pending` membership) so an
+                // observer the page already drained via `takeRecords()` is NOT
+                // over-kept (see `observers_with_pending_records`).
+                //
+                // Coverage boundary: this clause anchors the binding only up to
+                // the point `deliver_pending_mutation_records` drains the queue
+                // via `take_records` (records emptied ⇒ id ∉ `pending` on any
+                // subsequent GC). The INTRA-delivery window — after `take_records`
+                // has drained the queue but before/while the record-array is
+                // built and the callback runs — is covered NOT by this clause but
+                // by the batch root the shared delivery helper holds for the
+                // binding (`observer_common::deliver_to_observer_callbacks`, which
+                // roots every observer's `instance` + `callback` for the whole
+                // delivery batch, spanning the GC-capable build + callback).
+                let pending = hd.mutation_observers.observers_with_pending_records();
+                for (oid, b) in &hd.mutation_observer_bindings {
+                    if ids.contains(oid) || pending.contains(oid) {
+                        keep.push(b.instance);
+                        keep.push(b.callback);
+                    }
+                }
+            }
+            if !hd.resize_observer_bindings.is_empty() {
+                let ids = elidex_api_observers::resize::observing_observer_ids(hd.dom_shared());
+                for (oid, b) in &hd.resize_observer_bindings {
+                    if ids.contains(oid) {
+                        keep.push(b.instance);
+                        keep.push(b.callback);
+                    }
+                }
+            }
+            if !hd.intersection_observer_bindings.is_empty() {
+                let ids =
+                    elidex_api_observers::intersection::observing_observer_ids(hd.dom_shared());
+                for (oid, b) in &hd.intersection_observer_bindings {
+                    if ids.contains(oid) {
+                        keep.push(b.instance);
+                        keep.push(b.callback);
+                    }
+                }
+            }
+        } else {
+            // UNBOUND GC — `dom_ptr` is null, so the `EcsDom` World is
+            // UNREADABLE (`dom_shared` would assert) and the membership
+            // predicate CANNOT be evaluated. FAIL-SAFE = KEEP ALL observer
+            // bindings, mirroring the MQL arm (`:236-256`, keeps every
+            // `document`-tagged MQL across an unbound inter-batch GC) and the
+            // unconditional `AbortSignal.timeout` membership mark (`:261`, no
+            // `is_bound` guard). `Vm::unbind` NULLs `dom_ptr` but does NOT
+            // despawn the externally-owned World (`host_data.rs` `unbind` vs the
+            // raw-pointer `bind`), so the `*ObservedBy` observations PERSIST
+            // across a mere unbind; a genuinely-observing no-JS-ref observer
+            // must survive so the next same-document rebind's `deliver` can fire
+            // it (skipping-to-collect here would prune a still-observing
+            // observer's binding = a NEW under-root regression). This over-keep
+            // is TRANSIENT and SELF-CORRECTING: the next BOUND GC runs the
+            // precise predicate and collects genuine idles. It is NOT the
+            // immortal-until-unbind leak S5-3c fixes (idle observers are still
+            // collected at the frequent bound GCs; unbound GCs are rare).
+            keep.extend(
+                hd.mutation_observer_bindings
+                    .values()
+                    .flat_map(|b| [b.instance, b.callback]),
+            );
+            keep.extend(
+                hd.resize_observer_bindings
+                    .values()
+                    .flat_map(|b| [b.instance, b.callback]),
+            );
+            keep.extend(
+                hd.intersection_observer_bindings
+                    .values()
+                    .flat_map(|b| [b.instance, b.callback]),
+            );
+        }
+    }
 
     keep
 }

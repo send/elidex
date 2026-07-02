@@ -23,9 +23,10 @@
 //! - [`super::super::host_data::HostData::resize_observer_bindings`]
 //!   — `HashMap<u64, ObserverBinding>` from observer ID to the
 //!   `(callback, instance)` JS-identity pair.  Both `ObjectId`s in
-//!   each binding are rooted via
-//!   [`super::super::host_data::HostData::gc_root_object_ids`] so the
-//!   callback + instance survive GC for the observer's lifetime.
+//!   each binding are rooted by the keepalive seam's active-observation
+//!   predicate ([`super::super::gc::keepalive::keepalive_survivors`], S5-3c)
+//!   so the callback + instance survive GC while the observer observes ≥1
+//!   target, and the binding row is sweep-pruned once collectible.
 //!
 //! [`super::super::value::ObjectKind::Observer`] with
 //! [`super::super::value::ObserverKind::Resize`] carries the
@@ -410,17 +411,28 @@ impl VmInner {
         };
         let observer_ids: Vec<u64> = observations.keys().copied().collect();
 
-        deliver_to_observer_callbacks(self, &observer_ids, |vm, id| {
-            let entries = observations.get(&id)?;
-            let binding = vm
-                .host_data
-                .as_deref()?
-                .resize_observer_bindings
-                .get(&id)
-                .copied()?;
-            let entries_arr = build_marshalled_array(vm, entries, resize_entry_to_js);
-            Some((binding, entries_arr))
-        });
+        let mut observations = observations;
+        deliver_to_observer_callbacks(
+            self,
+            &observer_ids,
+            // `lookup`: resolve the binding for the Phase-1 batch root so
+            // every gathered observer stays rooted through the whole
+            // delivery — an earlier callback that `disconnect()`s a later,
+            // gathered-but-undelivered peer + drops its JS ref cannot let
+            // a mid-batch GC prune the peer's binding (silent entry drop).
+            |vm, id| {
+                vm.host_data
+                    .as_deref()
+                    .and_then(|hd| hd.resize_observer_bindings.get(&id).copied())
+            },
+            // `prepare`: registry work only, NO JS allocation. `remove`
+            // (each id is delivered exactly once) hands ownership of the
+            // entries to `build`, avoiding a borrow of the captured map
+            // across the GC-capable marshal.
+            |_vm, id| observations.remove(&id),
+            // `build`: GC-capable marshal, run with the batch rooted.
+            |vm, entries| build_marshalled_array(vm, &entries, resize_entry_to_js),
+        );
     }
 }
 

@@ -22,9 +22,12 @@
 //! - [`super::super::host_data::HostData::mutation_observer_bindings`]
 //!   — `HashMap<u64, ObserverBinding>` from observer ID to the
 //!   `(callback, instance)` JS-identity pair.  Both `ObjectId`s in
-//!   each binding are rooted via
-//!   [`super::super::host_data::HostData::gc_root_object_ids`] so
-//!   they survive GC for the observer's lifetime.
+//!   each binding are rooted by the keepalive seam's predicate
+//!   ([`super::super::gc::keepalive::keepalive_survivors`], S5-3c — ≥1
+//!   active observation OR ≥1 pending undelivered record, the full
+//!   statement lives at the seam) so they survive GC while the observer
+//!   observes ≥1 target or still has a record to deliver, and the
+//!   binding row is sweep-pruned once collectible.
 //!
 //! [`super::super::value::ObjectKind::Observer`] with
 //! [`super::super::value::ObserverKind::Mutation`] carries the
@@ -495,6 +498,17 @@ impl VmInner {
         super::observer_common::deliver_to_observer_callbacks(
             self,
             &observer_ids,
+            // `lookup`: resolve the binding for the Phase-1 batch root.
+            // Every pending observer in `notifySet` has a binding (the
+            // constructor inserts it and only a GC-collection prunes it,
+            // which the batch root now prevents mid-batch), so none is
+            // dropped from the batch — preserving delivery order + count.
+            |vm, observer_id| {
+                vm.host_data
+                    .as_deref()
+                    .and_then(|hd| hd.mutation_observer_bindings.get(&observer_id).copied())
+            },
+            // `prepare`: registry work only, NO JS allocation.
             |vm, observer_id| {
                 let mo_id =
                     elidex_api_observers::mutation::MutationObserverId::from_raw(observer_id);
@@ -513,17 +527,23 @@ impl VmInner {
                 // rather than as one upfront set pass preserves that ordering and
                 // lets a transient created by *this* observer's own callback
                 // survive to the next microtask.
+                //
+                // ORDER is spec-load-bearing: take_records (6.2) →
+                // clear_transient (6.3) → is_empty short-circuit. `prepare`
+                // does NO JS allocation, and the observer's `(instance,
+                // callback)` binding is already batch-rooted in Phase 1
+                // (see `deliver_to_observer_callbacks`), so draining the
+                // pending-record queue here — even though it releases the
+                // sole keepalive anchor once the target has despawned —
+                // cannot leave the binding collectible during the
+                // subsequent GC-capable record-array build.
                 elidex_api_observers::mutation::clear_transient_observers(host.dom(), mo_id);
                 if records.is_empty() {
                     return None;
                 }
-                let binding = host.mutation_observer_bindings.get(&observer_id).copied()?;
-                // Build the array AFTER releasing the host borrow (via
-                // the function-scope drop here) — the shared helper
-                // re-acquires `vm` to allocate the JS Array.
-                let records_arr = build_mutation_records_array(vm, &records);
-                Some((binding, records_arr))
+                Some(records)
             },
+            |vm, records| build_mutation_records_array(vm, &records),
         );
     }
 
