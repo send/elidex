@@ -20,7 +20,16 @@ mod gpu;
 pub mod ipc;
 pub(crate) mod key_map;
 mod pipeline;
-pub use pipeline::{FrameSecurity, FrameSecurityInputs};
+pub use pipeline::{
+    build_pipeline_from_loaded, build_pipeline_from_url, build_pipeline_interactive, FrameSecurity,
+    FrameSecurityInputs,
+};
+// `pub(crate)` builders keep their crate-only visibility across the move — the
+// re-export mirrors the original in-`lib.rs` `pub(crate) fn` reach so every
+// `crate::build_pipeline_*` call site stays identical.
+pub(crate) use pipeline::{
+    build_pipeline_interactive_shared, build_pipeline_interactive_with_network,
+};
 pub mod quota;
 
 #[cfg(test)]
@@ -31,16 +40,13 @@ use std::sync::Arc;
 
 use elidex_css::Stylesheet;
 use elidex_css_anim::engine::AnimationEngine;
-use elidex_dom_compat::{
-    get_presentational_hints, legacy_ua_stylesheet, parse_compat_stylesheet_with_registry,
-};
+use elidex_dom_compat::{get_presentational_hints, legacy_ua_stylesheet};
 use elidex_ecs::EcsDom;
 use elidex_ecs::Entity;
-use elidex_html_parser::parse_progressive_str;
-use elidex_js_boa::{extract_scripts, JsRuntime};
+use elidex_js_boa::JsRuntime;
 use elidex_layout::layout_tree;
 use elidex_plugin::{EngineMode, Size, Vector, ViewportOverflow};
-use elidex_render::{build_display_list, build_display_list_with_scroll, DisplayList};
+use elidex_render::{build_display_list_with_scroll, DisplayList};
 use elidex_script_session::{ScriptContext, SessionCore};
 use elidex_style::resolve_styles_with_compat;
 use elidex_text::FontDatabase;
@@ -48,7 +54,7 @@ use winit::event_loop::EventLoop;
 
 use animation::{
     apply_active_animations, collect_computed_without_anim, collect_old_anim_styles,
-    create_animation_engine, detect_and_start_transitions, sync_css_animations,
+    detect_and_start_transitions, sync_css_animations,
 };
 
 use app::App;
@@ -505,246 +511,6 @@ impl PipelineResult {
     }
 }
 
-/// Execute the rendering pipeline and return all state for interactive use.
-///
-/// Like `build_pipeline`, but returns the full `PipelineResult` instead
-/// of just the display list. This allows the shell to handle user events,
-/// dispatch DOM events, and re-render.
-#[must_use]
-pub fn build_pipeline_interactive(html: &str, css: &str) -> PipelineResult {
-    let parse_result = parse_progressive_str(html);
-    for err in &parse_result.errors {
-        eprintln!("HTML parse warning: {err}");
-    }
-    let mut dom = parse_result.dom;
-    let document = parse_result.document;
-
-    elidex_form::init_form_controls(&mut dom);
-
-    let registry = Arc::new(create_css_property_registry());
-
-    let stylesheets = vec![parse_compat_stylesheet_with_registry(
-        css,
-        elidex_css::Origin::Author,
-        Some(&registry),
-    )];
-    let font_db = Arc::new(FontDatabase::new());
-
-    let scripts = extract_scripts(&dom, document);
-    let script_sources: Vec<&str> = scripts.iter().map(|s| s.source.as_str()).collect();
-
-    let (session, runtime, viewport_overflow) = pipeline::run_scripts_and_finalize(
-        &mut dom,
-        document,
-        &stylesheets,
-        &script_sources,
-        None, // No NetworkHandle in standalone mode.
-        None, // No CookieJar.
-        &font_db,
-        None,
-        &registry,
-        // Standalone/test build: no window, so the default viewport is the
-        // explicit choice (D6 — not a silent in-pipeline guess).
-        Size::new(DEFAULT_VIEWPORT_WIDTH, DEFAULT_VIEWPORT_HEIGHT),
-        // No window → default device facts (1× / Light); C3 facts are a window thing.
-        crate::ipc::DeviceFacts::default(),
-        EngineMode::BrowserCompat,
-        // Top-level document: no frame security (unsandboxed, URL-derived origin).
-        None,
-    );
-
-    let display_list = build_display_list(&dom, &font_db);
-
-    let animation_engine = create_animation_engine(&stylesheets);
-
-    let mut result = PipelineResult {
-        display_list,
-        dom,
-        document,
-        session,
-        runtime,
-        stylesheets,
-        font_db,
-        url: None,
-        network_handle: Rc::new(elidex_net::broker::NetworkHandle::disconnected()),
-        registry,
-        animation_engine,
-        viewport: Size::new(DEFAULT_VIEWPORT_WIDTH, DEFAULT_VIEWPORT_HEIGHT),
-        caret_visible: true,
-        ancestor_cache: elidex_form::AncestorCache::new(),
-        viewport_overflow,
-        scroll_offset: Vector::<f32>::ZERO,
-        broker_keepalive: None,
-        engine_mode: EngineMode::BrowserCompat,
-    };
-
-    // Start CSS animations declared in initial styles.
-    sync_css_animations(&mut result, &[]);
-
-    // Sync stylesheet data to the JS bridge for CSSOM access.
-    sync_stylesheets_to_bridge(&result.runtime, &result.stylesheets);
-
-    result
-}
-
-/// Like [`build_pipeline_interactive`] but with a `NetworkHandle` for network access.
-pub(crate) fn build_pipeline_interactive_with_network(
-    html: &str,
-    css: &str,
-    network_handle: Rc<elidex_net::broker::NetworkHandle>,
-    cookie_jar: Arc<elidex_net::CookieJar>,
-    viewport: Size,
-    device_facts: crate::ipc::DeviceFacts,
-) -> PipelineResult {
-    let parse_result = parse_progressive_str(html);
-    for err in &parse_result.errors {
-        eprintln!("HTML parse warning: {err}");
-    }
-    let mut dom = parse_result.dom;
-    let document = parse_result.document;
-
-    elidex_form::init_form_controls(&mut dom);
-
-    let registry = Arc::new(create_css_property_registry());
-    let stylesheets = vec![parse_compat_stylesheet_with_registry(
-        css,
-        elidex_css::Origin::Author,
-        Some(&registry),
-    )];
-    let font_db = Arc::new(FontDatabase::new());
-    let scripts = extract_scripts(&dom, document);
-    let script_sources: Vec<&str> = scripts.iter().map(|s| s.source.as_str()).collect();
-
-    let (session, runtime, viewport_overflow) = pipeline::run_scripts_and_finalize(
-        &mut dom,
-        document,
-        &stylesheets,
-        &script_sources,
-        Some(Rc::clone(&network_handle)),
-        Some(cookie_jar),
-        &font_db,
-        None,
-        &registry,
-        viewport,
-        device_facts,
-        EngineMode::BrowserCompat,
-        // Top-level document: no frame security (unsandboxed, URL-derived origin).
-        None,
-    );
-
-    let display_list = build_display_list(&dom, &font_db);
-    let animation_engine = create_animation_engine(&stylesheets);
-
-    let mut result = PipelineResult {
-        display_list,
-        dom,
-        document,
-        session,
-        runtime,
-        stylesheets,
-        font_db,
-        url: None,
-        network_handle,
-        registry,
-        animation_engine,
-        viewport,
-        caret_visible: true,
-        ancestor_cache: elidex_form::AncestorCache::new(),
-        viewport_overflow,
-        scroll_offset: Vector::<f32>::ZERO,
-        broker_keepalive: None,
-        engine_mode: EngineMode::BrowserCompat,
-    };
-
-    sync_css_animations(&mut result, &[]);
-    sync_stylesheets_to_bridge(&result.runtime, &result.stylesheets);
-
-    result
-}
-
-/// Build a pipeline from HTML, sharing the parent's resources.
-///
-/// Like [`build_pipeline_interactive`], but uses the provided `font_db`,
-/// `network_handle`, and `registry` instead of creating fresh instances.
-// Mirrors `run_scripts_and_finalize`: the construction inputs (resources + viewport +
-// device facts) are each distinct values fed straight through to the builder; bundling
-// them into a struct would only move the argument list, not reduce it.
-#[allow(clippy::too_many_arguments)]
-pub(crate) fn build_pipeline_interactive_shared(
-    html: &str,
-    url: Option<url::Url>,
-    font_db: Arc<FontDatabase>,
-    network_handle: Rc<elidex_net::broker::NetworkHandle>,
-    registry: Arc<elidex_plugin::CssPropertyRegistry>,
-    cookie_jar: Option<Arc<elidex_net::CookieJar>>,
-    viewport: Size,
-    device_facts: crate::ipc::DeviceFacts,
-    frame_security: Option<FrameSecurity>,
-) -> PipelineResult {
-    let parse_result = parse_progressive_str(html);
-    for err in &parse_result.errors {
-        eprintln!("HTML parse warning: {err}");
-    }
-    let mut dom = parse_result.dom;
-    let document = parse_result.document;
-
-    elidex_form::init_form_controls(&mut dom);
-
-    let stylesheets = vec![parse_compat_stylesheet_with_registry(
-        "",
-        elidex_css::Origin::Author,
-        Some(&registry),
-    )];
-
-    let scripts = extract_scripts(&dom, document);
-    let script_sources: Vec<&str> = scripts.iter().map(|s| s.source.as_str()).collect();
-
-    let (session, runtime, viewport_overflow) = pipeline::run_scripts_and_finalize(
-        &mut dom,
-        document,
-        &stylesheets,
-        &script_sources,
-        Some(Rc::clone(&network_handle)),
-        cookie_jar,
-        &font_db,
-        url.as_ref(),
-        &registry,
-        viewport,
-        device_facts,
-        EngineMode::BrowserCompat,
-        frame_security,
-    );
-
-    let display_list = build_display_list(&dom, &font_db);
-    let animation_engine = create_animation_engine(&stylesheets);
-
-    let mut result = PipelineResult {
-        display_list,
-        dom,
-        document,
-        session,
-        runtime,
-        stylesheets,
-        font_db,
-        url,
-        network_handle,
-        registry,
-        animation_engine,
-        viewport,
-        caret_visible: true,
-        ancestor_cache: elidex_form::AncestorCache::new(),
-        viewport_overflow,
-        scroll_offset: Vector::<f32>::ZERO,
-        broker_keepalive: None,
-        engine_mode: EngineMode::BrowserCompat,
-    };
-
-    sync_css_animations(&mut result, &[]);
-    sync_stylesheets_to_bridge(&result.runtime, &result.stylesheets);
-
-    result
-}
-
 /// Re-render after DOM changes: re-resolve styles, re-layout, and rebuild display list.
 ///
 /// Includes transition detection: saves old computed values for entities with
@@ -877,136 +643,6 @@ pub(crate) fn re_render(result: &mut PipelineResult) -> Vec<elidex_script_sessio
     );
 
     mutation_records
-}
-
-/// Build a pipeline from a pre-loaded document (from [`elidex_navigation::load_document`]).
-///
-/// Merges all stylesheets, executes all scripts in document order,
-/// resolves styles, computes layout, and builds the display list.
-///
-/// `frame_security` is `Some` on iframe builds (in-process AND the OOP iframe
-/// thread): it installs the sandbox flags / origin / depth on the bridge
-/// **before** the initial scripts run (see [`FrameSecurity`]). Top-level
-/// builds pass `None`.
-pub fn build_pipeline_from_loaded(
-    loaded: elidex_navigation::LoadedDocument,
-    network_handle: Rc<elidex_net::broker::NetworkHandle>,
-    font_db: Arc<FontDatabase>,
-    cookie_jar: Option<Arc<elidex_net::CookieJar>>,
-    viewport: Size,
-    device_facts: crate::ipc::DeviceFacts,
-    frame_security: Option<FrameSecurity>,
-) -> PipelineResult {
-    let elidex_navigation::LoadedDocument {
-        mut dom,
-        document,
-        stylesheets,
-        scripts,
-        url,
-        response_headers: _, // Used by iframe loading for CSP/X-Frame-Options checks.
-        manifest_url: _,     // Handled by content thread → IPC → browser thread.
-    } = loaded;
-
-    elidex_form::init_form_controls(&mut dom);
-
-    let script_sources: Vec<&str> = scripts.iter().map(|s| s.source.as_str()).collect();
-
-    let registry = Arc::new(create_css_property_registry());
-
-    let (session, runtime, viewport_overflow) = pipeline::run_scripts_and_finalize(
-        &mut dom,
-        document,
-        &stylesheets,
-        &script_sources,
-        Some(Rc::clone(&network_handle)),
-        cookie_jar,
-        &font_db,
-        Some(&url),
-        &registry,
-        viewport,
-        device_facts,
-        EngineMode::BrowserCompat,
-        frame_security,
-    );
-
-    let display_list = build_display_list(&dom, &font_db);
-
-    let animation_engine = create_animation_engine(&stylesheets);
-
-    let mut result = PipelineResult {
-        display_list,
-        dom,
-        document,
-        session,
-        runtime,
-        stylesheets,
-        font_db,
-        url: Some(url),
-        network_handle,
-        registry,
-        animation_engine,
-        viewport,
-        caret_visible: true,
-        ancestor_cache: elidex_form::AncestorCache::new(),
-        viewport_overflow,
-        scroll_offset: Vector::<f32>::ZERO,
-        broker_keepalive: None,
-        engine_mode: EngineMode::BrowserCompat,
-    };
-
-    // Start CSS animations declared in initial styles.
-    sync_css_animations(&mut result, &[]);
-
-    // Sync stylesheet data to the JS bridge for CSSOM access.
-    sync_stylesheets_to_bridge(&result.runtime, &result.stylesheets);
-
-    result
-}
-
-/// Build a pipeline from a URL.
-///
-/// Spawns a temporary Network Process broker to load the document (standalone mode).
-/// Content threads should use `build_pipeline_from_loaded` with a proper `NetworkHandle`.
-///
-/// `frame_security` is `Some` on the OOP iframe thread's `Navigate` re-build
-/// (`content/iframe/thread.rs`). It carries [`FrameSecurityInputs`] rather than
-/// a fully-formed `FrameSecurity` because the frame's origin must be derived
-/// from the **post-redirect** `loaded.url` (S5-4b F-a/F-c): this builder resolves
-/// the fetch (following redirects) and only then computes
-/// `FrameSecurity.origin = apply_sandbox_origin(from_url(loaded.url), flags,
-/// credentialless)` — the same derivation the initial OOP load performs — before
-/// installing it at the pre-eval chokepoint (see [`FrameSecurity`]). Standalone
-/// top-level callers pass `None` (URL-derived origin, unsandboxed).
-pub fn build_pipeline_from_url(
-    url: &url::Url,
-    viewport: Size,
-    frame_security: Option<FrameSecurityInputs>,
-) -> Result<PipelineResult, elidex_navigation::LoadError> {
-    // Standalone mode: use a disconnected handle for pipeline (no broker).
-    // load_document still routes through NetworkHandle::fetch_blocking which
-    // returns "network process disconnected" for disconnected handles, so
-    // we create a temporary broker for standalone URL loading.
-    let np = elidex_net::broker::spawn_network_process(elidex_net::NetClient::new());
-    let network_handle = Rc::new(np.create_renderer_handle());
-    let loaded = elidex_navigation::load_document(url, &network_handle, None)?;
-    // Derive the frame security from the post-redirect loaded URL: the origin
-    // (and its credentialless/sandbox opaqueness) is a property of the document
-    // that actually loaded, not of the requested URL (F-a/F-c).
-    let frame_security = frame_security.map(|inputs| inputs.into_frame_security(&loaded.url));
-    let font_db = Arc::new(FontDatabase::new());
-    let cookie_jar = Arc::clone(np.cookie_jar());
-    let mut result = build_pipeline_from_loaded(
-        loaded,
-        network_handle,
-        font_db,
-        Some(cookie_jar),
-        viewport,
-        // Standalone (no window) → default device facts (1× / Light).
-        crate::ipc::DeviceFacts::default(),
-        frame_security,
-    );
-    result.broker_keepalive = Some(np); // Keep broker alive for pipeline lifetime.
-    Ok(result)
 }
 
 /// Run the browser from a URL string, opening a window.
