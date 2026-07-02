@@ -50,11 +50,11 @@ impl WorkerHandle {
         &self.script_url
     }
 
-    /// Send a `postMessage` to the worker.
-    pub fn post_message(&self, data: String, origin: String) {
-        let _ = self
-            .channel
-            .send(ParentToWorker::PostMessage { data, origin });
+    /// Send a `postMessage` to the worker. No origin travels with it — the
+    /// worker-side `message` event is fired with `origin = ""` (WHATWG HTML
+    /// §9.4.4 *message port post message steps* step 7.7).
+    pub fn post_message(&self, data: String) {
+        let _ = self.channel.send(ParentToWorker::PostMessage { data });
     }
 
     /// Try to receive a message from the worker without blocking.

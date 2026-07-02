@@ -144,8 +144,10 @@ fn worker_thread_main_with_handle(
         // Receive messages from parent with timeout.
         match channel.recv_timeout(FRAME_INTERVAL) {
             Ok(msg) => match msg {
-                ParentToWorker::PostMessage { data, origin } => {
-                    runtime.dispatch_worker_message(&mut session, &mut dom, doc, &data, &origin);
+                // Channel carries no origin (WHATWG HTML §9.4.4 step 7.7:
+                // worker MessageEvent.origin stays "").
+                ParentToWorker::PostMessage { data } => {
+                    runtime.dispatch_worker_message(&mut session, &mut dom, doc, &data, "");
                 }
                 ParentToWorker::Shutdown => {
                     runtime.bridge().clear_all_timers();

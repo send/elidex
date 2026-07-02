@@ -152,7 +152,7 @@ mod tests {
                 let _ = tx.send(data);
             }
         });
-        handle.post_message("ping".into(), "https://example.com".into());
+        handle.post_message("ping".into());
         assert_eq!(
             rx.recv_timeout(std::time::Duration::from_secs(2))
                 .as_deref(),

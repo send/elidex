@@ -223,12 +223,9 @@ fn build_worker_js_object(ctx: &mut Context, bridge: &HostBridge) -> JsObject {
 
                 let worker_id = find_worker_id_from_this(this, ctx);
                 if let Some(id) = worker_id {
-                    let origin = bridge
-                        .current_url()
-                        .map_or_else(|| "null".to_string(), |u| u.origin().ascii_serialization());
                     bridge.with_worker_registry(|reg| {
                         if let Some(entry) = reg.get_entry_mut(id) {
-                            entry.handle.post_message(json_str, origin);
+                            entry.handle.post_message(json_str);
                         }
                     });
                 }

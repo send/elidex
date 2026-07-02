@@ -203,7 +203,7 @@ pub(crate) fn run_worker_with_source(
         let _ = channel.send(WorkerToParent::Closed);
         return;
     }
-    drain_outgoing(&mut vm, channel, script_url);
+    drain_outgoing(&mut vm, channel);
 
     loop {
         if vm.inner.worker_close_requested {
@@ -212,8 +212,12 @@ pub(crate) fn run_worker_with_source(
         }
 
         match channel.recv_timeout(FRAME_INTERVAL) {
-            Ok(ParentToWorker::PostMessage { data, origin }) => {
-                vm.inner.dispatch_worker_message(&data, &origin);
+            // `origin = ""`: the *message port post message steps* (WHATWG
+            // HTML §9.4.4, step 7.7) initialize only `data` + `ports` on the
+            // `message` event, and `Worker.postMessage` delegates to the port
+            // (§10.2.6.3) — `MessageEvent.origin` keeps its `""` default.
+            Ok(ParentToWorker::PostMessage { data }) => {
+                vm.inner.dispatch_worker_message(&data, "");
             }
             // `terminate()` (Shutdown) and a dropped parent channel both end
             // the worker (WHATWG HTML §10.2.4 "terminate a worker").
@@ -224,7 +228,7 @@ pub(crate) fn run_worker_with_source(
         vm.inner.drain_microtasks();
         vm.inner.drain_timers(Instant::now());
         vm.tick_network();
-        drain_outgoing(&mut vm, channel, script_url);
+        drain_outgoing(&mut vm, channel);
 
         if vm.inner.worker_close_requested {
             let _ = channel.send(WorkerToParent::Closed);
@@ -234,18 +238,16 @@ pub(crate) fn run_worker_with_source(
 }
 
 /// Forward any `self.postMessage()` data queued during the last tick to the
-/// parent, stamping each with the worker scope's origin (the script URL's
-/// origin per WHATWG HTML §10.2.1.2).
-fn drain_outgoing(vm: &mut Vm, channel: &WorkerChannel, script_url: &url::Url) {
+/// parent. No origin is stamped: `DedicatedWorkerGlobalScope.postMessage`
+/// delegates to the port (WHATWG HTML §10.2.6.3), whose *message port post
+/// message steps* (§9.4.4, step 7.7) leave the parent-side
+/// `MessageEvent.origin` at its `""` default.
+fn drain_outgoing(vm: &mut Vm, channel: &WorkerChannel) {
     if vm.inner.worker_outgoing.is_empty() {
         return;
     }
-    let origin = script_url.origin().ascii_serialization();
     for data in std::mem::take(&mut vm.inner.worker_outgoing) {
-        let _ = channel.send(WorkerToParent::PostMessage {
-            data,
-            origin: origin.clone(),
-        });
+        let _ = channel.send(WorkerToParent::PostMessage { data });
     }
 }
 

@@ -212,21 +212,21 @@ fn worker_is_secure_context_inherits_from_creator_not_script_url() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn onmessage_handler_receives_data_and_origin() {
+fn onmessage_handler_receives_data_and_empty_origin() {
+    // The dedicated-worker loop (`worker_thread.rs`) passes `origin = ""`:
+    // the *message port post message steps* (WHATWG HTML §9.4.4, step 7.7)
+    // initialize only `data` + `ports`, and `Worker.postMessage` delegates to
+    // the port (§10.2.6.3) — `MessageEvent.origin` keeps its `""` default.
     with_worker_vm("", WORKER_URL, true, |vm| {
         vm.eval(
             "globalThis.got = null; globalThis.gotOrigin = null;
              self.onmessage = function(e) { globalThis.got = e.data; globalThis.gotOrigin = e.origin; };",
         )
         .unwrap();
-        vm.inner
-            .dispatch_worker_message("\"hello\"", "https://sender.example");
+        vm.inner.dispatch_worker_message("\"hello\"", "");
 
         assert_eq!(eval_str_on(vm, "globalThis.got"), "hello");
-        assert_eq!(
-            eval_str_on(vm, "globalThis.gotOrigin"),
-            "https://sender.example"
-        );
+        assert_eq!(eval_str_on(vm, "globalThis.gotOrigin"), "");
     });
 }
 
@@ -238,8 +238,8 @@ fn add_event_listener_message_receives_in_order() {
              self.addEventListener('message', function(e) { globalThis.rx.push(e.data); });",
         )
         .unwrap();
-        vm.inner.dispatch_worker_message("\"a\"", "o");
-        vm.inner.dispatch_worker_message("42", "o");
+        vm.inner.dispatch_worker_message("\"a\"", "");
+        vm.inner.dispatch_worker_message("42", "");
 
         assert_eq!(eval_str_on(vm, "globalThis.rx.join(',')"), "a,42");
     });
@@ -388,11 +388,43 @@ fn worker_thread_round_trip_echo() {
         );
     });
 
-    handle.post_message("\"ping\"".to_string(), "https://example.com".to_string());
+    handle.post_message("\"ping\"".to_string());
 
     match recv_within(&handle, Duration::from_secs(5)) {
-        Some(WorkerToParent::PostMessage { data, .. }) => assert_eq!(data, "\"ping pong\""),
+        Some(WorkerToParent::PostMessage { data }) => assert_eq!(data, "\"ping pong\""),
         other => panic!("expected echoed PostMessage, got {other:?}"),
+    }
+}
+
+#[test]
+fn worker_thread_inbound_message_origin_is_empty() {
+    // Parent→worker direction of the S5-4e contract: the worker-side
+    // `message` event fires with `origin = ""` — the *message port post
+    // message steps* (WHATWG HTML §9.4.4, step 7.7) initialize only `data` +
+    // `ports`, and `Worker.postMessage` delegates to the port (§10.2.6.3).
+    // The worker echoes `typeof e.origin` + the emptiness verdict so a
+    // missing property and a stamped origin both fail distinctly.
+    let url = Url::parse(WORKER_URL).unwrap();
+    let body_url = url.clone();
+    let handle = spawn_worker(String::new(), url, move |ch| {
+        run_worker_with_source(
+            "self.onmessage = function(e) {
+                 postMessage(typeof e.origin + ':' + (e.origin === '' ? 'empty' : e.origin));
+             };",
+            &body_url,
+            String::new(),
+            true,
+            CredentialsMode::SameOrigin,
+            None,
+            elidex_plugin::EngineMode::BrowserCompat,
+            &ch,
+        );
+    });
+
+    handle.post_message("\"ping\"".to_string());
+    match recv_within(&handle, Duration::from_secs(5)) {
+        Some(WorkerToParent::PostMessage { data }) => assert_eq!(data, "\"string:empty\""),
+        other => panic!("expected origin probe reply, got {other:?}"),
     }
 }
 
@@ -422,9 +454,9 @@ fn worker_thread_accepts_sibling_network_handle() {
         );
     });
 
-    handle.post_message("\"probe\"".to_string(), "https://example.com".to_string());
+    handle.post_message("\"probe\"".to_string());
     match recv_within(&handle, Duration::from_secs(5)) {
-        Some(WorkerToParent::PostMessage { data, .. }) => assert_eq!(data, "\"function\""),
+        Some(WorkerToParent::PostMessage { data }) => assert_eq!(data, "\"function\""),
         other => panic!("expected `typeof fetch` reply, got {other:?}"),
     }
     drop(handle);
@@ -601,8 +633,55 @@ fn main_worker_message_event_target_and_origin() {
             "worker reply never arrived"
         );
         assert!(eval_bool_on(vm, "globalThis.targetIsWorker === true"));
-        // The worker scope's origin is the (opaque) `data:` URL origin.
-        assert_eq!(eval_str_on(vm, "globalThis.origin"), "null");
+        // Worker→parent direction of the S5-4e contract: `origin = ""` — the
+        // *message port post message steps* (WHATWG HTML §9.4.4, step 7.7)
+        // initialize only `data` + `ports`, and
+        // `DedicatedWorkerGlobalScope.postMessage` delegates to the port
+        // (§10.2.6.3). NOT the worker script origin, NOT the page origin.
+        assert_eq!(eval_str_on(vm, "globalThis.origin"), "");
+    });
+}
+
+#[test]
+fn main_worker_messageerror_origin_is_empty() {
+    with_main_vm(|vm| {
+        // A real worker supplies the entity + cached `Worker` wrapper + the
+        // `onmessageerror` handler ...
+        vm.eval(
+            r#"globalThis.errOrigin = null; globalThis.errData = "unset";
+               const w = new Worker("data:text/javascript,self.onmessage=function(){}");
+               w.onmessageerror = function(e) {
+                 globalThis.errOrigin = e.origin;
+                 globalThis.errData = e.data;
+               };"#,
+        )
+        .expect("ctor succeeds");
+        // ... and a synthetic peer feeds one `MessageError` frame through the
+        // drain (the VM worker harness never emits `MessageError` itself —
+        // its serialization failures throw `DataCloneError` at the sender, so
+        // the drain arm is only reachable via the channel directly). Mapping
+        // the peer's registry id onto the existing worker entity routes the
+        // dispatch at that entity's listeners.
+        let entity = *vm
+            .inner
+            .worker_entities
+            .values()
+            .next()
+            .expect("worker entity exists");
+        let peer = spawn_worker(String::new(), Url::parse(WORKER_URL).unwrap(), move |ch| {
+            let _ = ch.send(WorkerToParent::MessageError);
+        });
+        let peer_id = vm.inner.worker_registry.register(peer);
+        vm.inner.worker_entities.insert(peer_id, entity);
+
+        assert!(
+            pump_until(vm, "globalThis.errOrigin !== null", Duration::from_secs(5)),
+            "messageerror never arrived"
+        );
+        // Like `message` (§9.4.4 step 7.4/7.7), a worker `messageerror`
+        // MessageEvent carries `origin = ""` and a `null` data payload.
+        assert_eq!(eval_str_on(vm, "globalThis.errOrigin"), "");
+        assert!(eval_bool_on(vm, "globalThis.errData === null"));
     });
 }
 

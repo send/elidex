@@ -471,12 +471,7 @@ impl JsRuntime {
             .into_iter()
             .map(|msg| match msg {
                 OutgoingMessage::Data(data) => {
-                    let origin = self
-                        .bridge
-                        .worker_script_url()
-                        .origin()
-                        .ascii_serialization();
-                    elidex_api_workers::WorkerToParent::PostMessage { data, origin }
+                    elidex_api_workers::WorkerToParent::PostMessage { data }
                 }
                 OutgoingMessage::SerializationError => {
                     elidex_api_workers::WorkerToParent::MessageError
@@ -628,8 +623,10 @@ impl JsRuntime {
 
         for (worker_id, msg) in messages {
             match msg {
-                elidex_api_workers::WorkerToParent::PostMessage { data, origin } => {
-                    let event_script = Self::build_message_event_script(&data, &origin);
+                // Channel carries no origin (WHATWG HTML §9.4.4 step 7.7:
+                // worker MessageEvent.origin stays "").
+                elidex_api_workers::WorkerToParent::PostMessage { data } => {
+                    let event_script = Self::build_message_event_script(&data, "");
                     self.dispatch_parent_worker_event(
                         session,
                         dom,
