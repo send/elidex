@@ -374,11 +374,10 @@ fn close_sets_close_requested() {
 #[test]
 fn worker_thread_round_trip_echo() {
     let url = Url::parse(WORKER_URL).unwrap();
-    let body_url = url.clone();
-    let handle = spawn_worker(String::new(), url, move |ch| {
+    let handle = spawn_worker(String::new(), move |ch| {
         run_worker_with_source(
             "self.onmessage = function(e) { postMessage(e.data + ' pong'); };",
-            &body_url,
+            &url,
             String::new(),
             true,
             CredentialsMode::SameOrigin,
@@ -405,13 +404,12 @@ fn worker_thread_inbound_message_origin_is_empty() {
     // The worker echoes `typeof e.origin` + the emptiness verdict so a
     // missing property and a stamped origin both fail distinctly.
     let url = Url::parse(WORKER_URL).unwrap();
-    let body_url = url.clone();
-    let handle = spawn_worker(String::new(), url, move |ch| {
+    let handle = spawn_worker(String::new(), move |ch| {
         run_worker_with_source(
             "self.onmessage = function(e) {
                  postMessage(typeof e.origin + ':' + (e.origin === '' ? 'empty' : e.origin));
              };",
-            &body_url,
+            &url,
             String::new(),
             true,
             CredentialsMode::SameOrigin,
@@ -440,11 +438,10 @@ fn worker_thread_accepts_sibling_network_handle() {
     let sibling = np.create_renderer_handle().create_sibling_handle();
 
     let url = Url::parse(WORKER_URL).unwrap();
-    let body_url = url.clone();
-    let handle = spawn_worker(String::new(), url, move |ch| {
+    let handle = spawn_worker(String::new(), move |ch| {
         run_worker_with_source(
             "self.onmessage = function(e) { postMessage(typeof fetch); };",
-            &body_url,
+            &url,
             String::new(),
             true,
             CredentialsMode::SameOrigin,
@@ -470,10 +467,9 @@ fn worker_data_url_non_js_mime_rejected() {
     // step must reject it (WHATWG HTML §10.2.4) rather than evaluate the HTML
     // as script (F-R9-1).
     let url = Url::parse("data:text/html,<h1>hi</h1>").unwrap();
-    let body_url = url.clone();
-    let handle = spawn_worker(String::new(), url, move |ch| {
+    let handle = spawn_worker(String::new(), move |ch| {
         run_worker(
-            &body_url,
+            &url,
             String::new(),
             true,
             CredentialsMode::SameOrigin,
@@ -491,11 +487,10 @@ fn worker_data_url_non_js_mime_rejected() {
 #[test]
 fn worker_thread_close_sends_closed_and_exits() {
     let url = Url::parse(WORKER_URL).unwrap();
-    let body_url = url.clone();
-    let handle = spawn_worker(String::new(), url, move |ch| {
+    let handle = spawn_worker(String::new(), move |ch| {
         run_worker_with_source(
             "close();",
-            &body_url,
+            &url,
             String::new(),
             true,
             CredentialsMode::SameOrigin,
@@ -668,7 +663,7 @@ fn main_worker_messageerror_origin_is_empty() {
             .values()
             .next()
             .expect("worker entity exists");
-        let peer = spawn_worker(String::new(), Url::parse(WORKER_URL).unwrap(), move |ch| {
+        let peer = spawn_worker(String::new(), move |ch| {
             let _ = ch.send(WorkerToParent::MessageError);
         });
         let peer_id = vm.inner.worker_registry.register(peer);

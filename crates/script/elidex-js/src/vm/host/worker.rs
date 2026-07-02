@@ -163,9 +163,11 @@ impl VmInner {
                         );
                     }
                     // A `messageerror` is itself a `MessageEvent` with a `null`
-                    // data payload (WHATWG HTML §10.2.6.1) — fire it through the
-                    // same MessageEvent path, not a bare `Event`. Like `message`
-                    // (§9.4.4 step 7.4/7.7), its `origin` stays `""`.
+                    // data payload — the *message port post message steps* fire
+                    // it using `MessageEvent` (WHATWG HTML §9.4.4 step 7.4) —
+                    // so route it through the same MessageEvent path, not a
+                    // bare `Event`. Like `message` (step 7.7), its `origin`
+                    // stays `""`.
                     WorkerToParent::MessageError => {
                         let type_sid = self.strings.intern("messageerror");
                         self.dispatch_message_event_at(
@@ -357,13 +359,13 @@ fn native_worker_constructor(
         super::worker_scope::url_is_secure_context(&ctx.vm.navigation.current_url);
 
     let name = options.name;
-    let worker_url = resolved.clone();
+    let worker_url = resolved;
     let worker_name = name.clone();
     // The worker realm inherits this (the creator's) engine-wide mode — a
     // `BrowserCore`/`App` document's workers must not silently reset to the
     // default (they install the same policy-gated surface).
     let engine_mode = ctx.vm.engine_mode;
-    let handle = spawn_worker(name, resolved, move |channel| {
+    let handle = spawn_worker(name, move |channel| {
         crate::vm::worker_thread::run_worker(
             &worker_url,
             worker_name,

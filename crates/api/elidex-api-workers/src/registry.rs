@@ -11,7 +11,6 @@ use std::collections::HashMap;
 use std::thread::JoinHandle;
 
 use elidex_plugin::{channel_pair, LocalChannel};
-use url::Url;
 
 use crate::handle::WorkerHandle;
 use crate::types::{ParentToWorker, WorkerToParent};
@@ -109,28 +108,24 @@ impl WorkerRegistry {
 /// This is the engine-independent half of the spawn: channel-pair creation,
 /// thread spawn, and handle assembly. No JS-runtime type appears in the
 /// signature — `body` is an opaque `FnOnce`, not a runtime trait.
-pub fn spawn_worker<F>(name: String, script_url: Url, body: F) -> WorkerHandle
+pub fn spawn_worker<F>(name: String, body: F) -> WorkerHandle
 where
     F: FnOnce(LocalChannel<WorkerToParent, ParentToWorker>) + Send + 'static,
 {
     let (parent_channel, worker_channel) = channel_pair::<ParentToWorker, WorkerToParent>();
     let thread: JoinHandle<()> = std::thread::spawn(move || body(worker_channel));
-    WorkerHandle::new(name, script_url, parent_channel, thread)
+    WorkerHandle::new(name, parent_channel, thread)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn dummy_url() -> Url {
-        Url::parse("https://example.com/w.js").expect("valid")
-    }
-
     #[test]
     fn ids_are_monotonic_and_unique() {
         let mut reg = WorkerRegistry::new();
-        let a = spawn_worker("a".into(), dummy_url(), |_ch| {});
-        let b = spawn_worker("b".into(), dummy_url(), |_ch| {});
+        let a = spawn_worker("a".into(), |_ch| {});
+        let b = spawn_worker("b".into(), |_ch| {});
         let id_a = reg.register(a);
         let id_b = reg.register(b);
         assert_eq!(id_a, 1);
@@ -144,7 +139,7 @@ mod tests {
     #[test]
     fn spawn_runs_body_with_worker_channel() {
         let (tx, rx) = crossbeam_channel::unbounded::<String>();
-        let handle = spawn_worker("echo".into(), dummy_url(), move |ch| {
+        let handle = spawn_worker("echo".into(), move |ch| {
             // Worker side: wait for one PostMessage, echo its data back out.
             if let Ok(ParentToWorker::PostMessage { data, .. }) =
                 ch.recv_timeout(std::time::Duration::from_secs(2))
