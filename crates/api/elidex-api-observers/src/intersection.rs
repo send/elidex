@@ -217,6 +217,12 @@ impl IntersectionObserverRegistry {
     /// (`IntersectionObserverInit` + parsed rootMargin — the only per-observer
     /// state; observations live on the `IntersectionObservedBy` components,
     /// already gone); `next_id` stays monotonic.
+    ///
+    /// **Internal VM-integration helper — not a supported public API** (hence
+    /// `#[doc(hidden)]`). The GC-only precondition — the observer is already
+    /// proven collected (non-observing + non-pending) — is the caller's
+    /// obligation; call only from the `gc/collect.rs` binding-row sweep.
+    #[doc(hidden)]
     pub fn retire_collected(&mut self, id: IntersectionObserverId) {
         self.observers.remove(&id);
     }

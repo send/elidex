@@ -367,6 +367,12 @@ impl MutationObserverRegistry {
     /// Removes the (necessarily empty — a collected observer is non-pending, so
     /// its record queue drained) `records` row and its `pending` membership.
     /// `next_id` is left untouched (monotonic id allocator).
+    ///
+    /// **Internal VM-integration helper — not a supported public API** (hence
+    /// `#[doc(hidden)]`). The GC-only precondition — the observer is already
+    /// proven collected (non-observing + non-pending) — is the caller's
+    /// obligation; call only from the `gc/collect.rs` binding-row sweep.
+    #[doc(hidden)]
     pub fn retire_collected(&mut self, id: MutationObserverId) {
         self.records.remove(&id);
         self.pending.retain(|o| *o != id);
