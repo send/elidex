@@ -33,7 +33,7 @@ use elidex_plugin::IframeSandboxFlags;
 ///   bound.
 ///
 /// **Effective node document (adopt-equivalent, clause (b))**: elidex's
-/// insertion path does not yet run the DOM §4.2.3 pre-insert adoption
+/// insertion path does not yet run the DOM §4.2.3 insert adoption
 /// step ("adopt node into parent's node document" —
 /// `EcsDom::append_child` relinks without re-homing `AssociatedDocument`),
 /// so a *connected* node's stored owner pointer is unreliable in BOTH
@@ -197,7 +197,8 @@ mod tests {
         // Move the foreign node into the bound document's tree. elidex's
         // `append_child` does NOT adopt (`AssociatedDocument` still points
         // at doc2) — the predicate's tree-root rule must treat it as
-        // adopted (DOM §4.2.3 pre-insert step 2 equivalence).
+        // adopted (DOM §4.2.3 insert step 7 substep 1, "adopt node into
+        // parent's node document").
         assert!(dom.remove_child(doc2, foreign));
         let container = dom.create_element_with_owner("div", Attributes::default(), Some(doc));
         assert!(dom.append_child(doc, container));

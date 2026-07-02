@@ -661,7 +661,7 @@ fn step1_gate_does_not_suppress_bound_document_targets() {
 
 // ---- S5-4a (PR #444 Codex R2): adopt-equivalent clause (b) — a DOMParser
 // node APPENDED into the bound document's tree is NOT suppressed. elidex's
-// insertion path does not run DOM §4.2.3 pre-insert adoption (append_child
+// insertion path does not run DOM §4.2.3 insert adoption (append_child
 // relinks; `AssociatedDocument` stays stale = doc2), so the predicate must
 // resolve the node document via the composed tree root (the `isConnected`
 // query): in-tree ⇒ the bound document, spec-adopt-equivalently. The missing

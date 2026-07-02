@@ -713,7 +713,7 @@ the comment already says so, keep it).
 **⚠ CORRECTION (external review, PR #444 Codex R2)**: (1) the platform-object composition was
 relocated to engine-indep `elidex-script-session::scripting` (Layering: the `VmInner` predicate is
 now a marshal wrapper reading `HostData` state and delegating); (2) clause (b) hardened with the
-**adopt-equivalent tree-root rule** — elidex's insertion path lacks DOM §4.2.3 pre-insert adoption
+**adopt-equivalent tree-root rule** — elidex's insertion path lacks DOM §4.2.3 insert adoption
 (`append_child` relinks without re-homing `AssociatedDocument`), so a `DOMParser` node appended
 into the bound document kept a stale owner and was wrongly suppressed; the predicate now treats a
 node whose composed tree root IS the bound document as having the bound document as its node
@@ -956,7 +956,8 @@ integration (same posture as S5-3a/b/c):
 - **D4 `#11-cross-document-adopt-on-insert`** (carved by S5-4a — external-review PR #444 Codex
   R2/R4/R5 predicate hardening; a DIFFERENT, newly-surfaced carve than the not-created D3): elidex
   does not implement DOM §4.2.3 insertion adoption (`AssociatedDocument` is not mutated on
-  cross-document insert), so the §8.1.8.1 clause-(b) gate uses a composed-tree-root
+  cross-document insert), so the §8.1.3.4 clause-(b) gate (the scripting-disabled-for-a-platform-object
+predicate, invoked at §8.1.8.1 step 1) uses a composed-tree-root
   effective-document proxy — correct for live tree position but **over-suppressing (fails CLOSED)** a
   node adopted into the active document then removed (adoption is sticky; elidex has no "was-adopted"
   state). **Audit**: spec-core? yes (DOM §4.2.3 adopt on insert); one-way? yes — implementing
