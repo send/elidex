@@ -61,6 +61,17 @@ ignore = [
     # `rsa` crate ships constant-time decryption (RustCrypto/RSA#390), revisit:
     # swap the OAEP seam back to pure-Rust and drop aws-lc-rs (then path (a)).
     "RUSTSEC-2023-0071",
+    # RUSTSEC-2026-0194 / RUSTSEC-2026-0195 — quick-xml 0.39.4 DoS-class issues
+    # (quadratic duplicate-attribute check; unbounded NsReader namespace
+    # allocation).  Fix = quick-xml >=0.41.0, unreachable: quick-xml is
+    # transitive-only via wayland-scanner 0.31.10 (`^0.39`) and zbus_xml 5.1.1
+    # (`^0.39`) — no parent release accepts 0.41 yet.  Exposure: build-time
+    # proc-macro XML (trusted vendored wayland protocols) + Linux D-Bus
+    # introspection XML; no web-content-facing quick-xml path.  REMOVAL TRIGGER:
+    # zbus_xml >5.1.1 (upstream zbus main already on 0.41) + a wayland-scanner
+    # release past ^0.39/^0.40 — re-check on the next Dependabot cycle.
+    "RUSTSEC-2026-0194",
+    "RUSTSEC-2026-0195",
 ]
 
 [licenses]
@@ -86,6 +97,13 @@ allow = [
 [bans]
 multiple-versions = "warn"
 wildcards = "allow"
+deny = [
+    # Tripwire for the RUSTSEC-2026-0194/0195 advisories.ignore above: cargo-deny
+    # ignores are per-advisory-ID (global), so pin quick-xml to its two reviewed
+    # transitive parents.  Any NEW direct dependent (e.g. a web-content XML path)
+    # fails this bans check and forces re-evaluating the ignore.
+    { name = "quick-xml", wrappers = ["wayland-scanner", "zbus_xml"] },
+]
 
 [sources]
 unknown-registry = "deny"
