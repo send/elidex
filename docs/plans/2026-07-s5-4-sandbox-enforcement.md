@@ -424,6 +424,13 @@ and the direct falsifier of the `set_origin` contract doc (`host_data.rs:1097-11
 is the correct template**: `make_out_of_process_entry` :254-310 sets flags :288-291 + origin :292-298
 BEFORE `iframe_thread_main` :300 runs scripts.
 
+**⚠ CORRECTION (S5-4b impl contact, 2026-07-03)**: the "OOP path is the correct template" claim is
+falsified — initial scripts are evaluated INSIDE `build_pipeline_from_loaded` (~:272), i.e. BEFORE
+the :288-298 installs, so the OOP path had the same ordering gap. And since a sandboxed URL-load
+iframe's opaque origin ≠ parent routes it to the OOP path (`load.rs:136`), the URL-case harm was on
+OOP. S5-4b fixed BOTH: the security installs converge on a single pre-eval chokepoint in the
+pipeline builder (`FrameSecurity` threaded into `run_scripts_and_finalize`), in-process AND OOP.
+
 ### §3.4 Fetch request-origin hold-out (S5-4d)
 
 `crates/script/elidex-js/src/vm/host/fetch/dispatch.rs` — `origin_for_request(source, _target)`
@@ -728,6 +735,14 @@ sentinel** (opaque origin → sentinel bucket, `storage.rs:103` — observable i
 postMessage-origin oracle only if an in-process iframe→parent delivery site exists (none found at
 HEAD — OOP forwarding only). Unsandboxed iframe unchanged; srcdoc + blank paths covered; OOP path
 regression-pinned.
+
+**⚠ CORRECTION (S5-4b impl contact, 2026-07-03)**: the storage-bucket sentinel cite
+(`storage.rs:103`) is VM-side; the shell's live engine pre-flip is boa, whose localStorage keys off
+`current_url`-derived `cached_origin` (not `set_origin`) — so the storage sentinel is unobservable
+in shell until the S5-6 flip. Delivered oracles instead: the boa eval gate (sandboxed script does
+not run) + the WS mixed-content gate (opaque origin passes where tuple throws), both falsified by
+HEAD-order simulation. **Registered S5-6 flip deliverable**: add the storage-bucket-sentinel shell
+test once the VM is live.
 
 **Edges**: E2 (origin×script ordering — THE slice), E6 (S5-4d test fidelity dep). No engine change;
 no new state.
