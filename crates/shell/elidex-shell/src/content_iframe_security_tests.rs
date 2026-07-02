@@ -2,11 +2,12 @@
 //!
 //! Invariant under test (closes `#11-iframe-origin-before-initial-scripts`):
 //! the security installs (`set_sandbox_flags` + `set_origin` +
-//! `set_iframe_depth`) precede the FIRST eval on every in-process iframe
-//! shape — srcdoc, about:blank, no-src, URL-load, and the `blank_entry`
-//! fallback. They land as one block at the `run_scripts_and_finalize`
-//! pre-eval chokepoint (`crate::FrameSecurity`), so an order-proof against
-//! that block covers all three setters at once.
+//! `set_iframe_depth`) precede the FIRST eval on every iframe shape —
+//! in-process (srcdoc, about:blank, no-src, URL-load, and the `blank_entry`
+//! fallback) AND out-of-process (`make_out_of_process_entry`). They land as
+//! one block at the `run_scripts_and_finalize` pre-eval chokepoint
+//! (`crate::FrameSecurity`), so an order-proof against that block covers all
+//! three setters at once.
 //!
 //! Oracle notes (boa is the live shell engine until the S5-6 flip):
 //!
@@ -30,10 +31,29 @@
 //!   the storage sentinel only becomes observable in the shell at the S5-6
 //!   engine flip.
 //!
-//! The OOP path (`make_out_of_process_entry`) is intentionally untouched by
-//! S5-4b and keeps its own install sequence.
+//! **OOP path reachability.** The production route into
+//! `make_out_of_process_entry` needs a successful cross-origin
+//! `load_document` — a real network fetch, so it is unreachable over the
+//! test harness's disconnected `NetworkHandle` (a URL-load iframe here falls
+//! into `blank_entry` instead). The OOP tests therefore drive the entry
+//! constructor directly with a synthesized `LoadedDocument`; the caller-side
+//! origin/flags computation they skip (`apply_sandbox_origin`,
+//! `parse_sandbox`) is covered by the in-process tests above and the
+//! `elidex-plugin` unit tests. The OOP pipeline lives on its own thread, so
+//! the oracle is the IPC channel: `postMessage` from the initial script is
+//! forwarded as `IframeToBrowser::PostMessage` whose `origin` field is
+//! `bridge.origin().serialize()` captured **at call time** — a direct probe
+//! of the origin the initial script observed (and message presence/absence
+//! probes the `allow-scripts` eval gate). The thread's `Navigate` re-build
+//! (`iframe/thread.rs` `handle_navigate`) rides the same `FrameSecurity`
+//! seam but is not drivable here (`build_pipeline_from_url` spawns a real
+//! network broker), so its ordering is guaranteed by the shared chokepoint
+//! rather than a dedicated test.
 
-use super::iframe::{IframeEntry, IframeHandle, InProcessIframe};
+use super::iframe::{
+    make_out_of_process_entry, BrowserToIframe, IframeEntry, IframeHandle, IframeToBrowser,
+    InProcessIframe,
+};
 use super::test_support::{
     build_test_content_state, build_test_content_state_with_url, probe_attr,
 };
@@ -254,5 +274,173 @@ fn blank_entry_fallback_installs_sandbox_state() {
         ),
         "sandbox without allow-same-origin must yield an opaque origin on the \
          blank fallback too"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// OOP path (see the module doc for reachability + oracle notes)
+// ---------------------------------------------------------------------------
+
+/// Synthesize the `LoadedDocument` a successful cross-origin fetch would
+/// produce (the disconnected test network cannot produce a real one).
+fn synth_cross_origin_loaded(html: &str, url: &str) -> elidex_navigation::LoadedDocument {
+    let parsed = elidex_html_parser::parse_progressive_str(html);
+    let scripts = elidex_js_boa::extract_scripts(&parsed.dom, parsed.document)
+        .into_iter()
+        .map(|s| elidex_navigation::ResolvedScript {
+            source: s.source,
+            entity: s.entity,
+        })
+        .collect();
+    elidex_navigation::LoadedDocument {
+        dom: parsed.dom,
+        document: parsed.document,
+        stylesheets: Vec::new(),
+        scripts,
+        url: url::Url::parse(url).expect("test URL should parse"),
+        response_headers: std::collections::HashMap::new(),
+        manifest_url: None,
+    }
+}
+
+/// Pump the OOP entry's channel until two `DisplayListReady` frames arrive,
+/// then shut the thread down and return the collected `PostMessage`s.
+///
+/// Two frames, not one: the iframe thread's loop sends the frame's display
+/// list BEFORE draining the bridge's pending `postMessage` queue in the same
+/// iteration, so posts queued by the *initial* scripts (during the build,
+/// before the loop) are on the channel only once the SECOND frame is —
+/// channel delivery is FIFO. The two-frame requirement also proves the
+/// pipeline built and the thread is alive (non-vacuity for the
+/// no-message-expected case).
+fn run_oop_and_collect_posts(entry: IframeEntry) -> Vec<(String, String)> {
+    let IframeHandle::OutOfProcess(mut oop) = entry.handle else {
+        panic!("expected an out-of-process iframe entry");
+    };
+    let mut posts = Vec::new();
+    let mut frames = 0_usize;
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    while frames < 2 && std::time::Instant::now() < deadline {
+        match oop
+            .channel
+            .recv_timeout(std::time::Duration::from_millis(100))
+        {
+            Ok(IframeToBrowser::DisplayListReady(_)) => frames += 1,
+            Ok(IframeToBrowser::PostMessage { data, origin }) => posts.push((data, origin)),
+            Err(crossbeam_channel::RecvTimeoutError::Timeout) => {}
+            Err(crossbeam_channel::RecvTimeoutError::Disconnected) => break,
+        }
+    }
+    assert!(
+        frames >= 2,
+        "the OOP iframe thread never produced two frames — pipeline build \
+         failed or thread died"
+    );
+    let _ = oop.channel.send(BrowserToIframe::Shutdown);
+    if let Some(thread) = oop.thread.take() {
+        thread
+            .join()
+            .expect("OOP iframe thread should join cleanly");
+    }
+    posts
+}
+
+/// OOP eval-gate order-proof: sandbox WITHOUT `allow-scripts` → the initial
+/// script must NOT run on the iframe thread (WHATWG HTML §7.1.5 sandboxed
+/// scripts flag). Pre-fix, `make_out_of_process_entry` passed `None` to the
+/// build and installed the flags only after `build_pipeline_from_loaded` had
+/// already evaluated the scripts — the probe message arrived and this test
+/// fails under that ordering (verified by temporary inversion).
+#[test]
+fn oop_iframe_flags_installed_before_initial_scripts() {
+    let loaded = synth_cross_origin_loaded(
+        r#"<script>postMessage("s5-4b-gate-probe","*");</script>"#,
+        "https://other.example/",
+    );
+    let entry = make_out_of_process_entry(
+        loaded,
+        crate::FrameSecurity {
+            origin: elidex_plugin::SecurityOrigin::opaque(),
+            sandbox_flags: Some(elidex_plugin::IframeSandboxFlags::empty()),
+            iframe_depth: 1,
+        },
+        crate::ipc::DeviceFacts::default(),
+    );
+    let posts = run_oop_and_collect_posts(entry);
+    assert!(
+        posts.is_empty(),
+        "a sandboxed (no allow-scripts) OOP iframe must not run its initial \
+         scripts, but a probe postMessage arrived: {posts:?}"
+    );
+}
+
+/// OOP origin order-proof: sandboxed (`allow-scripts`, no `allow-same-origin`)
+/// → the initial script observes the **opaque** origin at eval time. The
+/// forwarded message's `origin` field is `bridge.origin().serialize()` read
+/// synchronously inside `postMessage`, so `"null"` here means the opaque
+/// origin was installed before the eval. Pre-fix the eval saw the
+/// URL-derived tuple (`run_scripts_and_finalize`'s `None` arm installs
+/// `SecurityOrigin::from_url`), the message carried
+/// `"https://other.example"`, and this test fails under that ordering
+/// (verified by temporary inversion).
+#[test]
+fn oop_sandboxed_iframe_initial_script_observes_opaque_origin() {
+    let loaded = synth_cross_origin_loaded(
+        r#"<script>postMessage("s5-4b-origin-probe","*");</script>"#,
+        "https://other.example/",
+    );
+    let entry = make_out_of_process_entry(
+        loaded,
+        crate::FrameSecurity {
+            origin: elidex_plugin::SecurityOrigin::opaque(),
+            sandbox_flags: Some(elidex_plugin::IframeSandboxFlags::ALLOW_SCRIPTS),
+            iframe_depth: 1,
+        },
+        crate::ipc::DeviceFacts::default(),
+    );
+    let posts = run_oop_and_collect_posts(entry);
+    assert_eq!(
+        posts.len(),
+        1,
+        "the allow-scripts initial script should have posted exactly one probe: {posts:?}"
+    );
+    assert_eq!(posts[0].0, "s5-4b-origin-probe");
+    assert_eq!(
+        posts[0].1, "null",
+        "the initial script must observe the opaque sandbox origin at eval \
+         time, not the URL-derived tuple origin"
+    );
+}
+
+/// Unsandboxed OOP control (regression pin + oracle discrimination): a
+/// cross-origin document without sandbox keeps its URL-derived tuple origin,
+/// and the origin oracle above really reports the eval-time origin (the
+/// serialized tuple shows up when the origin IS the tuple).
+#[test]
+fn oop_unsandboxed_iframe_initial_script_observes_tuple_origin() {
+    let url = "https://other.example/";
+    let loaded = synth_cross_origin_loaded(
+        r#"<script>postMessage("s5-4b-tuple-probe","*");</script>"#,
+        url,
+    );
+    let entry = make_out_of_process_entry(
+        loaded,
+        crate::FrameSecurity {
+            origin: elidex_plugin::SecurityOrigin::from_url(&url::Url::parse(url).unwrap()),
+            sandbox_flags: None,
+            iframe_depth: 1,
+        },
+        crate::ipc::DeviceFacts::default(),
+    );
+    let posts = run_oop_and_collect_posts(entry);
+    assert_eq!(
+        posts.len(),
+        1,
+        "the initial script should have posted: {posts:?}"
+    );
+    assert_eq!(posts[0].0, "s5-4b-tuple-probe");
+    assert_eq!(
+        posts[0].1, "https://other.example",
+        "an unsandboxed cross-origin document keeps its URL-derived tuple origin"
     );
 }

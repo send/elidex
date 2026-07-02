@@ -274,13 +274,17 @@ impl super::super::VmInner {
     /// opaque — but it has no propagating consumer and serializes to `"null"`
     /// either way.
     ///
-    /// At the S5 flip the iframe pipeline must install the override **before**
-    /// running a frame's initial scripts: `iframe/load.rs` currently builds the
-    /// pipeline (which runs scripts) before `make_in_process_entry` calls
-    /// `set_origin`, so a sandboxed iframe's first script would read the
-    /// fallback / parent origin instead of its opaque `"null"`. This is a
-    /// pre-existing shell-ordering gap shared with the live boa path (no S1b
-    /// regression) → slot `#11-iframe-origin-before-initial-scripts`.
+    /// The iframe pipeline must install the override **before** running a
+    /// frame's initial scripts — and the shell now does, on ALL iframe paths
+    /// (in-process and out-of-process, including the OOP thread's `Navigate`
+    /// re-build): the security state rides the pipeline build as
+    /// `elidex-shell` `FrameSecurity` and is installed at the
+    /// `run_scripts_and_finalize` pre-eval chokepoint, so a sandboxed
+    /// iframe's first script reads its opaque `"null"` origin, never the
+    /// fallback / parent origin (S5-4b, closed slot
+    /// `#11-iframe-origin-before-initial-scripts`). At the S5-6 flip the VM
+    /// inherits that ordering unchanged — the contract stays: install the
+    /// override before the first eval.
     ///
     /// Relatedly, a *tuple* override installed at load is pinned for the
     /// document's lifetime. S1c makes `location` navigation enqueue-only (no

@@ -199,21 +199,27 @@ fn handle_navigate(
     // Rebuild at the iframe's current box (tracked in `pipeline.viewport` via
     // SetViewport), not DEFAULT — consistent with the top-level navigation fix (C1).
     let viewport = pipeline.viewport;
-    match crate::build_pipeline_from_url(url, viewport) {
+    // Carry the frame's security state from the old pipeline into the re-build:
+    // the sandbox flags persist across navigation (the `<iframe sandbox>`
+    // attribute governs the browsing context, B1 fix — a sandboxed iframe
+    // without allow-same-origin gets the opaque origin even after navigation),
+    // and the depth is a property of the frame's position, not the document.
+    // Riding [`crate::FrameSecurity`] puts the installs at the pre-eval
+    // chokepoint, so the navigated document's *initial* scripts already observe
+    // them (S5-4b) — previously this re-build evaluated the scripts with the
+    // URL-derived tuple origin and no flags, then installed after the fact.
+    let sandbox = pipeline.runtime.bridge().sandbox_flags();
+    let security = crate::FrameSecurity {
+        origin: apply_sandbox_origin_from_flags(
+            elidex_plugin::SecurityOrigin::from_url(url),
+            sandbox,
+        ),
+        sandbox_flags: sandbox,
+        iframe_depth: pipeline.runtime.bridge().iframe_depth(),
+    };
+    match crate::build_pipeline_from_url(url, viewport, Some(&security)) {
         Ok(new_pipeline) => {
-            // Preserve sandbox flags from the old pipeline.
-            let sandbox = pipeline.runtime.bridge().sandbox_flags();
             *pipeline = new_pipeline;
-            pipeline.runtime.bridge().set_sandbox_flags(sandbox);
-            // Apply sandbox origin override (B1 fix): sandboxed iframes without
-            // allow-same-origin must get opaque origin even after navigation.
-            pipeline
-                .runtime
-                .bridge()
-                .set_origin(apply_sandbox_origin_from_flags(
-                    elidex_plugin::SecurityOrigin::from_url(url),
-                    sandbox,
-                ));
             let _ = channel.send(IframeToBrowser::DisplayListReady(
                 pipeline.display_list.clone(),
             ));

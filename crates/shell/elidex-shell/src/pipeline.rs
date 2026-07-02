@@ -20,17 +20,19 @@ use crate::resolve_with_mode;
 /// Security state of a (sub-)frame document, installed on the JS bridge
 /// **before the first eval** (WHATWG HTML §7.1.5 sandboxing / §7.1.1 origin).
 ///
-/// Carried by the iframe load paths (`content/iframe/load.rs`) into the
-/// pipeline builders so [`run_scripts_and_finalize`] installs it at the same
-/// pre-eval seam that seeds the cookie jar / viewport / device facts.
+/// Carried by the iframe load paths (`content/iframe/load.rs`, including the
+/// OOP thread's initial build and its `Navigate` re-build in
+/// `content/iframe/thread.rs`) into the pipeline builders so
+/// [`run_scripts_and_finalize`] installs it at the same pre-eval seam that
+/// seeds the cookie jar / viewport / device facts.
 /// Invariant (S5-4b, closes `#11-iframe-origin-before-initial-scripts`):
-/// **security installs precede the first eval on ALL in-process paths** — a
-/// sandboxed iframe's initial scripts must observe the opaque origin (and the
-/// sandbox flags, e.g. the `allow-scripts` eval gate), not the URL-derived
-/// tuple origin. This is the `set_origin` contract the engine documents
-/// (`elidex-js` `HostData::set_origin`: the embedder "installs it before
-/// scripts run"). `None` = top-level document (origin derived from the URL,
-/// unsandboxed, depth 0).
+/// **security installs precede the first eval on ALL iframe paths**
+/// (in-process AND out-of-process) — a sandboxed iframe's initial scripts must
+/// observe the opaque origin (and the sandbox flags, e.g. the `allow-scripts`
+/// eval gate), not the URL-derived tuple origin. This is the `set_origin`
+/// contract the engine documents (`elidex-js` `HostData::set_origin`: the
+/// embedder "installs it before scripts run"). `None` = top-level document
+/// (origin derived from the URL, unsandboxed, depth 0).
 pub struct FrameSecurity {
     /// The document origin, with sandbox / credentialless opaqueness already
     /// applied (`apply_sandbox_origin`).
@@ -69,8 +71,9 @@ fn flush_with_ce_reactions(
 /// The `registry` is passed in from the caller to avoid creating a duplicate
 /// registry when the caller already holds one (e.g. for storage in `PipelineResult`).
 ///
-/// `frame_security` (`Some` on in-process iframe builds) is installed on the
-/// bridge **before** step 2 — see [`FrameSecurity`] for the ordering invariant.
+/// `frame_security` (`Some` on iframe builds, in-process and OOP-thread) is
+/// installed on the bridge **before** step 2 — see [`FrameSecurity`] for the
+/// ordering invariant.
 ///
 /// Returns `(SessionCore, JsRuntime, ViewportOverflow)` for the caller to include in `PipelineResult`.
 #[allow(clippy::too_many_arguments)]
@@ -121,9 +124,10 @@ pub(super) fn run_scripts_and_finalize(
     // scripts see the opaque origin, never the URL-derived tuple origin
     // (WHATWG HTML §7.1.5 sandboxed scripts / sandboxed origin flags; the
     // engine's `set_origin` contract, `elidex-js` `HostData::set_origin` —
-    // installed "before scripts run"). The out-of-process iframe path installs
-    // the same state on its own thread (`iframe/load.rs`
-    // `make_out_of_process_entry`). Closes
+    // installed "before scripts run"). The out-of-process iframe path routes
+    // through this SAME seam: its thread-side builds (`iframe/load.rs`
+    // `make_out_of_process_entry`, `iframe/thread.rs` `handle_navigate`) pass
+    // `Some` too — no post-build install sequence anywhere. Closes
     // `#11-iframe-origin-before-initial-scripts`.
     match frame_security {
         Some(security) => {

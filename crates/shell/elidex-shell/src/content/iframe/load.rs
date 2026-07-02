@@ -140,7 +140,11 @@ fn load_iframe_from_url(
             );
 
             if ctx.parent_origin != &origin {
-                return make_out_of_process_entry(loaded, sandbox_flags, ctx.device_facts);
+                return make_out_of_process_entry(
+                    loaded,
+                    frame_security(origin, sandbox_flags, ctx),
+                    ctx.device_facts,
+                );
             }
 
             // Use credentialless handle if applicable, otherwise parent's.
@@ -251,15 +255,24 @@ pub(super) fn make_in_process_entry(pipeline: crate::PipelineResult) -> IframeEn
 /// Receives the already-fetched `LoadedDocument` from the parent thread,
 /// avoiding a redundant HTTP request. The `PipelineResult` is constructed
 /// on the iframe thread because it contains `!Send` types (`Rc`, boa `Context`).
+///
+/// `security` (already sandbox/credentialless-adjusted by the caller) rides the
+/// pipeline build as [`crate::FrameSecurity`] — the same pre-eval chokepoint as
+/// the in-process paths, so the initial scripts run inside the build already
+/// observe the origin / sandbox flags / depth (S5-4b ordering invariant). No
+/// post-build install sequence exists on this path anymore.
+///
+/// `pub(in crate::content)` for the OOP-path ordering tests
+/// (`content_iframe_security_tests`), which drive this entry directly with a
+/// synthesized `LoadedDocument` — the production route requires a real
+/// cross-origin network load.
 #[allow(clippy::cast_precision_loss)]
-fn make_out_of_process_entry(
+pub(in crate::content) fn make_out_of_process_entry(
     loaded: elidex_navigation::LoadedDocument,
-    sandbox_flags: Option<IframeSandboxFlags>,
+    security: crate::FrameSecurity,
     device_facts: crate::ipc::DeviceFacts,
 ) -> IframeEntry {
     let (parent_chan, iframe_chan) = crate::ipc::channel_pair::<BrowserToIframe, IframeToBrowser>();
-
-    let loaded_url = loaded.url.clone();
 
     let thread = std::thread::spawn(move || {
         // Build pipeline on this thread (PipelineResult is !Send).
@@ -284,22 +297,12 @@ fn make_out_of_process_entry(
             // across origins on the same display, so a cross-origin OOP frame inherits them
             // too (they carry no origin-private information — already exposed via matchMedia).
             device_facts,
-            // OOP path keeps its established install sequence below (S5-4b
-            // scoped the pre-eval reorder to the in-process paths).
-            None,
+            // Security installs precede the initial scripts run inside this
+            // build (see `FrameSecurity`) — the same chokepoint as the
+            // in-process paths. `FrameSecurity` is `Send`, captured into this
+            // thread.
+            Some(&security),
         );
-
-        oop_pipeline
-            .runtime
-            .bridge()
-            .set_sandbox_flags(sandbox_flags);
-        oop_pipeline
-            .runtime
-            .bridge()
-            .set_origin(apply_sandbox_origin_from_flags(
-                SecurityOrigin::from_url(&loaded_url),
-                sandbox_flags,
-            ));
 
         iframe_thread_main(oop_pipeline, &iframe_chan);
     });
@@ -343,8 +346,8 @@ fn parse_sandbox(iframe_data: &elidex_ecs::IframeData) -> Option<IframeSandboxFl
         .map(elidex_plugin::parse_sandbox_attribute)
 }
 
-/// Bundle the security state an in-process iframe build installs **before**
-/// its initial scripts run (see [`crate::FrameSecurity`]).
+/// Bundle the security state an iframe build (in-process or OOP-thread)
+/// installs **before** its initial scripts run (see [`crate::FrameSecurity`]).
 fn frame_security(
     origin: SecurityOrigin,
     sandbox_flags: Option<IframeSandboxFlags>,

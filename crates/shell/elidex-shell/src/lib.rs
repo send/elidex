@@ -884,9 +884,10 @@ pub(crate) fn re_render(result: &mut PipelineResult) -> Vec<elidex_script_sessio
 /// Merges all stylesheets, executes all scripts in document order,
 /// resolves styles, computes layout, and builds the display list.
 ///
-/// `frame_security` is `Some` on in-process iframe builds: it installs the
-/// sandbox flags / origin / depth on the bridge **before** the initial
-/// scripts run (see [`FrameSecurity`]). Top-level builds pass `None`.
+/// `frame_security` is `Some` on iframe builds (in-process AND the OOP iframe
+/// thread): it installs the sandbox flags / origin / depth on the bridge
+/// **before** the initial scripts run (see [`FrameSecurity`]). Top-level
+/// builds pass `None`.
 pub fn build_pipeline_from_loaded(
     loaded: elidex_navigation::LoadedDocument,
     network_handle: Rc<elidex_net::broker::NetworkHandle>,
@@ -966,9 +967,16 @@ pub fn build_pipeline_from_loaded(
 ///
 /// Spawns a temporary Network Process broker to load the document (standalone mode).
 /// Content threads should use `build_pipeline_from_loaded` with a proper `NetworkHandle`.
+///
+/// `frame_security` is `Some` on the OOP iframe thread's `Navigate` re-build
+/// (`content/iframe/thread.rs`): the navigated document's initial scripts run
+/// inside this build, so the sandbox flags / origin / depth must ride it to
+/// the pre-eval chokepoint (see [`FrameSecurity`]). Standalone top-level
+/// callers pass `None` (URL-derived origin, unsandboxed).
 pub fn build_pipeline_from_url(
     url: &url::Url,
     viewport: Size,
+    frame_security: Option<&FrameSecurity>,
 ) -> Result<PipelineResult, elidex_navigation::LoadError> {
     // Standalone mode: use a disconnected handle for pipeline (no broker).
     // load_document still routes through NetworkHandle::fetch_blocking which
@@ -987,8 +995,7 @@ pub fn build_pipeline_from_url(
         viewport,
         // Standalone (no window) → default device facts (1× / Light).
         crate::ipc::DeviceFacts::default(),
-        // Top-level document: no frame security (unsandboxed, URL-derived origin).
-        None,
+        frame_security,
     );
     result.broker_keepalive = Some(np); // Keep broker alive for pipeline lifetime.
     Ok(result)

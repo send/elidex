@@ -25,6 +25,11 @@ pub(super) use lifecycle::{
     check_lazy_iframes, detect_iframe_mutations, find_iframe_by_name, navigate_iframe,
     scan_initial_iframes,
 };
+// Exposed within `content` for the OOP-path ordering tests
+// (`content_iframe_security_tests`), which drive the OOP entry directly with a
+// synthesized `LoadedDocument`.
+#[cfg(test)]
+pub(super) use load::make_out_of_process_entry;
 pub(super) use render::{re_render_all_iframes, tick_iframe_timers};
 pub(super) use thread::{click_event_types, mouse_event_init_from_click};
 pub use types::*;
