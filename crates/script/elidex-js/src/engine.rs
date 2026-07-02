@@ -146,6 +146,7 @@ impl ScriptEngine for ElidexJsEngine {
         event: &mut DispatchEvent,
         current_target: Entity,
         passive: bool,
+        is_handler: bool,
         _ctx: &mut ScriptContext<'_>,
     ) {
         // HTML §8.1.8.1: bring an event-handler IDL attribute backing up to
@@ -163,16 +164,13 @@ impl ScriptEngine for ElidexJsEngine {
             .inner
             .ensure_event_handler_current(current_target, listener_id);
 
-        // HTML §8.1.8.1 "the event handler processing algorithm" step 1: an
-        // already-COMPILED handler callable must not be invoked when
-        // scripting is disabled for the target (full §8.1.3.4 predicate incl.
-        // the platform-object browsing-context-null clause — a different
-        // predicate from the flag-only compile gate above). Handler-derived
-        // listeners only; `addEventListener` listeners are never gated.
-        if self
-            .vm
-            .inner
-            .event_handler_invocation_suppressed(current_target, listener_id)
+        // §8.1.8.1 processing step 1 — see
+        // `VmInner::scripting_disabled_for_platform_object`.
+        if is_handler
+            && self
+                .vm
+                .inner
+                .scripting_disabled_for_platform_object(Some(current_target))
         {
             return;
         }

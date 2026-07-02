@@ -16,6 +16,7 @@ mod js_value;
 mod layout_types;
 mod logical;
 pub mod origin;
+pub mod process_sandbox;
 mod registry;
 pub mod sandbox;
 mod spec_level;
@@ -56,12 +57,12 @@ pub use layout_types::{
 pub use logical::{LogicalEdges, LogicalRect, LogicalSize, WritingModeContext};
 pub use origin::{
     can_have_url_rewritten, check_x_frame_options, hex_encode_for_path, is_framing_allowed,
-    parse_frame_ancestors, parse_iframe_allow_attribute, parse_sandbox_attribute, AllowList,
-    FrameAncestorSource, FrameAncestorsPolicy, IframeSandboxFlags, PermissionsPolicy,
-    SecurityOrigin, MAX_IFRAME_DEPTH,
+    parse_frame_ancestors, parse_iframe_allow_attribute, AllowList, FrameAncestorSource,
+    FrameAncestorsPolicy, PermissionsPolicy, SecurityOrigin, MAX_IFRAME_DEPTH,
 };
+pub use process_sandbox::{PlatformSandbox, SandboxError, SandboxPolicy};
 pub use registry::PluginRegistry;
-pub use sandbox::{PlatformSandbox, SandboxError, SandboxPolicy};
+pub use sandbox::{parse_sandbox_attribute, IframeSandboxFlags};
 pub use spec_level::{
     CssSpecLevel, DomSpecLevel, EngineMode, EsSpecLevel, HtmlSpecLevel, SpecLevelPolicy,
     StyleCompatPolicy, WebApiSpecLevel,

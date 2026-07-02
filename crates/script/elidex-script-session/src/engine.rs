@@ -66,12 +66,20 @@ pub trait ScriptEngine {
     ///
     /// `passive` indicates whether the listener was registered with
     /// `{ passive: true }` — if so, `preventDefault()` must be a no-op.
+    ///
+    /// `is_handler` is the dispatch plan's
+    /// [`ListenerPlanEntry::is_handler`](crate::event_dispatch::ListenerPlanEntry::is_handler)
+    /// snapshot — `true` for event-handler-derived listeners, which the
+    /// engine gates per HTML §8.1.8.1 "the event handler processing
+    /// algorithm" step 1 (plain `addEventListener` listeners are never
+    /// scripting-gated).
     fn call_listener(
         &mut self,
         listener_id: ListenerId,
         event: &mut DispatchEvent,
         current_target: Entity,
         passive: bool,
+        is_handler: bool,
         ctx: &mut ScriptContext<'_>,
     );
 

@@ -505,6 +505,11 @@ out both and selects `elidex-plugin`** (`crates/core/elidex-plugin/src/origin.rs
 
 **Shape** (final naming = impl detail; the review point is the seam):
 
+> [S5-4a kickoff naming resolution: the pre-existing OS process-sandbox module was renamed to
+> `elidex_plugin::process_sandbox`, and `IframeSandboxFlags` + `parse_sandbox_attribute` moved from
+> `origin.rs` into `sandbox.rs`, so the flag set and its laws share the module — the
+> `elidex_plugin::sandbox::*` cites in this memo are exact; §3.1's `origin.rs` line cites are pre-move.]
+
 ```rust
 // elidex-plugin (engine-independent; the ONE canonical home)
 impl IframeSandboxFlags { /* per-capability bit tests, incl. the 2-arg top-nav decision */ }

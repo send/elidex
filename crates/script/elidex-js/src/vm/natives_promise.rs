@@ -446,6 +446,9 @@ fn dispatch_unhandled_rejection_event(
         id: elidex_script_session::ListenerId,
         once: bool,
         passive: bool,
+        /// Event-handler-derived (`ListenerKind::EventHandler`) — the §8.1.8.1
+        /// processing step-1 gate applies to these entries only.
+        is_handler: bool,
     }
 
     // `HostData` must be bound and the document entity must have at
@@ -485,6 +488,10 @@ fn dispatch_unhandled_rejection_event(
                 id: e.id,
                 once: e.once,
                 passive: e.passive,
+                is_handler: matches!(
+                    e.kind,
+                    elidex_script_session::ListenerKind::EventHandler { .. }
+                ),
             })
             .collect()
     };
@@ -530,13 +537,15 @@ fn dispatch_unhandled_rejection_event(
         // non-`walk_phase` dispatch path). No-op for `addEventListener`
         // listeners.
         vm.ensure_event_handler_current(document, entry.id);
-        // HTML §8.1.8.1 "the event handler processing algorithm" step 1 gate
-        // for handler-derived entries (same gate as the dispatch-walk
-        // `resolve_callable` / `call_listener` sites). The target here is
-        // always the bound document — clause (b) can never fire (its node
-        // document is itself, the one document whose browsing context is
-        // non-null) — so this is the uniform settings-level check only.
-        if vm.event_handler_invocation_suppressed(document, entry.id) {
+        // §8.1.8.1 processing step 1 — see
+        // `VmInner::scripting_disabled_for_platform_object`. Target = the
+        // bound document ⇒ clause (b) cannot fire; settings-level check only.
+        if entry.is_handler
+            && vm
+                .host_data
+                .as_deref()
+                .is_some_and(|h| !elidex_plugin::sandbox::scripting_enabled(h.sandbox_flags()))
+        {
             continue;
         }
         let Some(func_id) = vm

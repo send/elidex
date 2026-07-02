@@ -1,23 +1,57 @@
-//! Sandboxing — the two independent planes elidex enforces.
+//! Content sandboxing (WHATWG HTML §7.1.5) — the `<iframe sandbox>` flag set
+//! and its laws in one module: [`IframeSandboxFlags`] (positive allow-token
+//! representation; `None` = unsandboxed document, `Some(empty)` = maximum
+//! restriction, i.e. an empty `sandbox=""` attribute), the token parser
+//! [`parse_sandbox_attribute`], and the capability predicates decided over
+//! them. Delivered predicates: [`scripts_allowed`] / [`forms_allowed`] /
+//! [`popups_allowed`] / [`scripting_enabled`]; `modals_allowed` and
+//! `top_navigation_allowed` land with their consumers in S5-4c.
 //!
-//! 1. **Process sandbox** (`SandboxPolicy` / `PlatformSandbox`): security
-//!    constraints applied to content *processes*. Enforcement is implemented
-//!    in the `elidex-sandbox` crate using platform-specific mechanisms
-//!    (seccomp-bpf, sandbox-exec, restricted tokens).
-//! 2. **Content sandbox** (the capability predicates below): WHATWG HTML
-//!    §7.1.5 `<iframe sandbox>` browsing-context restrictions, decided over
-//!    [`IframeSandboxFlags`] (parsed in [`crate::origin`]). This module is
-//!    the **one canonical home** for these predicates — every engine
-//!    (VM / boa) and the shell delegate here instead of re-testing flag
-//!    bits at call sites.
-//!
-//! The two planes share the word "sandbox" and nothing else: the process
-//! sandbox is an OS isolation boundary, the content sandbox is a per-
-//! browsing-context capability set.
+//! Distinct from the OS *process* sandbox ([`crate::process_sandbox`]),
+//! which shares the word "sandbox" and nothing else.
 
-use std::fmt;
+bitflags::bitflags! {
+    /// Sandbox flags for `<iframe sandbox>` attribute (WHATWG HTML §4.8.5).
+    ///
+    /// An empty `sandbox` attribute (no tokens) means all flags are cleared
+    /// (maximum restrictions). Each `allow-*` token sets a corresponding flag.
+    #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
+    pub struct IframeSandboxFlags: u16 {
+        /// Allow script execution in the sandboxed iframe.
+        const ALLOW_SCRIPTS        = 1 << 0;
+        /// Treat the iframe as same-origin with its parent (instead of opaque).
+        const ALLOW_SAME_ORIGIN    = 1 << 1;
+        /// Allow form submission.
+        const ALLOW_FORMS          = 1 << 2;
+        /// Allow `window.open()` and `target="_blank"` links.
+        const ALLOW_POPUPS         = 1 << 3;
+        /// Allow navigation of the top-level browsing context.
+        const ALLOW_TOP_NAVIGATION = 1 << 4;
+        /// Allow `alert()`, `confirm()`, and `prompt()` modals.
+        const ALLOW_MODALS         = 1 << 5;
+    }
+}
 
-use crate::origin::IframeSandboxFlags;
+/// Parse the `sandbox` attribute value into [`IframeSandboxFlags`].
+///
+/// An empty string or `None` returns empty flags (all restrictions enabled).
+/// Unrecognized tokens are silently ignored per WHATWG HTML §4.8.5.
+#[must_use]
+pub fn parse_sandbox_attribute(value: &str) -> IframeSandboxFlags {
+    let mut flags = IframeSandboxFlags::empty();
+    for token in value.split_ascii_whitespace() {
+        match token {
+            "allow-scripts" => flags |= IframeSandboxFlags::ALLOW_SCRIPTS,
+            "allow-same-origin" => flags |= IframeSandboxFlags::ALLOW_SAME_ORIGIN,
+            "allow-forms" => flags |= IframeSandboxFlags::ALLOW_FORMS,
+            "allow-popups" => flags |= IframeSandboxFlags::ALLOW_POPUPS,
+            "allow-top-navigation" => flags |= IframeSandboxFlags::ALLOW_TOP_NAVIGATION,
+            "allow-modals" => flags |= IframeSandboxFlags::ALLOW_MODALS,
+            _ => {} // Unrecognized tokens silently ignored per spec.
+        }
+    }
+    flags
+}
 
 // ---------------------------------------------------------------------------
 // Content-sandbox capability predicates (WHATWG HTML §7.1.5 Sandboxing)
@@ -63,172 +97,64 @@ pub fn popups_allowed(flags: Option<IframeSandboxFlags>) -> bool {
 }
 
 /// WHATWG HTML §8.1.3.4 "scripting is enabled" for an environment settings
-/// object (`html#enabling-and-disabling-scripting`), settings-level
-/// composition over the delivered surface. Scripting is enabled when ALL of:
-///
-/// 1. the UA supports scripting — constant `true` (elidex ships a script
-///    engine unconditionally);
-/// 2. the user has not disabled scripting for this settings object —
-///    constant `false` today (no user toggle exists; this predicate is the
-///    hook to thread one through when it does);
-/// 3. the settings object's global is not a `Window`, **or** its associated
-///    `Document`'s active sandboxing flag set does not have the *sandboxed
-///    scripts browsing context flag* set — over the delivered surface this
-///    is exactly [`scripts_allowed`] (the flag is the §7.1.5 inversion of
-///    `ALLOW_SCRIPTS`);
-/// 4. scripting is enabled for WebDriver BiDi — constant `true` (no
-///    WebDriver BiDi surface exists).
-///
-/// The §8.1.3.4 *platform-object* clauses (browsing-context-null Node /
-/// Window targets) are per-object facts a pure flag predicate cannot see;
-/// they compose at the caller (the VM's event-handler processing step-1
-/// gate).
+/// object (`html#enabling-and-disabling-scripting`): enabled iff scripts are
+/// allowed ([`scripts_allowed`]). The other §8.1.3.4 conditions (UA support,
+/// user disable, WebDriver BiDi) are constant today — this is the named seam
+/// for a future user-disable toggle.
 #[must_use]
 pub fn scripting_enabled(flags: Option<IframeSandboxFlags>) -> bool {
-    // (1) UA-supports ∧ (2) ¬user-disabled ∧ (4) WebDriver-BiDi are the
-    // documented constants above; (3) is the live clause.
     scripts_allowed(flags)
-}
-
-/// Error returned when sandbox enforcement fails.
-#[derive(Debug, Clone)]
-pub struct SandboxError {
-    /// Human-readable description of the failure.
-    pub message: String,
-}
-
-impl SandboxError {
-    /// Create a new `SandboxError` with the given message.
-    pub fn new(message: impl Into<String>) -> Self {
-        Self {
-            message: message.into(),
-        }
-    }
-}
-
-impl fmt::Display for SandboxError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "sandbox error: {}", self.message)
-    }
-}
-
-impl std::error::Error for SandboxError {}
-
-/// Filesystem access level for a sandboxed process.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
-#[non_exhaustive]
-pub enum FilesystemAccess {
-    /// No filesystem access allowed.
-    #[default]
-    None,
-    /// Read-only access to allowed paths.
-    ReadOnly,
-    /// Full read-write access to allowed paths.
-    ReadWrite,
-}
-
-/// Network access level for a sandboxed process.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
-#[non_exhaustive]
-pub enum NetworkAccess {
-    /// No network access allowed.
-    None,
-    /// Only same-origin requests allowed.
-    #[default]
-    SameOrigin,
-    /// Unrestricted network access.
-    Full,
-}
-
-/// Security policy applied to a content process.
-///
-/// Defines what system resources a sandboxed process may access.
-/// Currently type-only; enforcement requires OS process isolation (future phase).
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct SandboxPolicy {
-    /// Filesystem access level.
-    pub filesystem: FilesystemAccess,
-    /// Network access level.
-    pub network: NetworkAccess,
-    /// Whether IPC with the browser process is allowed.
-    pub ipc: bool,
-    /// Whether GPU access is allowed.
-    pub gpu: bool,
-}
-
-impl Default for SandboxPolicy {
-    fn default() -> Self {
-        Self::strict()
-    }
-}
-
-impl SandboxPolicy {
-    /// Strict policy: no filesystem, same-origin network, IPC only.
-    #[must_use]
-    pub fn strict() -> Self {
-        Self {
-            filesystem: FilesystemAccess::None,
-            network: NetworkAccess::SameOrigin,
-            ipc: true,
-            gpu: false,
-        }
-    }
-
-    /// Permissive policy: full access to all resources.
-    #[must_use]
-    pub fn permissive() -> Self {
-        Self {
-            filesystem: FilesystemAccess::ReadWrite,
-            network: NetworkAccess::Full,
-            ipc: true,
-            gpu: true,
-        }
-    }
-
-    /// Web content policy: no filesystem, same-origin network, IPC + GPU.
-    #[must_use]
-    pub fn web_content() -> Self {
-        Self {
-            filesystem: FilesystemAccess::None,
-            network: NetworkAccess::SameOrigin,
-            ipc: true,
-            gpu: true,
-        }
-    }
-}
-
-/// Platform-specific sandbox implementation.
-///
-/// Each variant carries a [`SandboxPolicy`] describing the desired constraints.
-/// The `Unsandboxed` variant is used when no OS-level sandboxing is available
-/// (e.g. single-process mode).
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-#[non_exhaustive]
-pub enum PlatformSandbox {
-    /// Linux seccomp-bpf sandbox.
-    LinuxSeccomp {
-        /// The sandbox policy to enforce.
-        policy: SandboxPolicy,
-    },
-    /// macOS App Sandbox.
-    MacOSAppSandbox {
-        /// The sandbox policy to enforce.
-        policy: SandboxPolicy,
-    },
-    /// Windows restricted token sandbox.
-    WindowsRestricted {
-        /// The sandbox policy to enforce.
-        policy: SandboxPolicy,
-    },
-    /// No OS-level sandboxing.
-    Unsandboxed,
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    // ── content-sandbox capability predicates (§7.1.5 / §8.1.3.4) ──────────
+    // ── token parser (§4.8.5) ───────────────────────────────────────────────
+
+    #[test]
+    fn sandbox_empty_string() {
+        let flags = parse_sandbox_attribute("");
+        assert!(flags.is_empty());
+    }
+
+    #[test]
+    fn sandbox_single_token() {
+        let flags = parse_sandbox_attribute("allow-scripts");
+        assert!(flags.contains(IframeSandboxFlags::ALLOW_SCRIPTS));
+        assert!(!flags.contains(IframeSandboxFlags::ALLOW_FORMS));
+    }
+
+    #[test]
+    fn sandbox_multiple_tokens() {
+        let flags = parse_sandbox_attribute("allow-scripts allow-same-origin allow-forms");
+        assert!(flags.contains(IframeSandboxFlags::ALLOW_SCRIPTS));
+        assert!(flags.contains(IframeSandboxFlags::ALLOW_SAME_ORIGIN));
+        assert!(flags.contains(IframeSandboxFlags::ALLOW_FORMS));
+        assert!(!flags.contains(IframeSandboxFlags::ALLOW_POPUPS));
+    }
+
+    #[test]
+    fn sandbox_unrecognized_tokens_ignored() {
+        let flags = parse_sandbox_attribute("allow-scripts unknown-token allow-forms");
+        assert!(flags.contains(IframeSandboxFlags::ALLOW_SCRIPTS));
+        assert!(flags.contains(IframeSandboxFlags::ALLOW_FORMS));
+    }
+
+    #[test]
+    fn sandbox_all_flags() {
+        let flags = parse_sandbox_attribute(
+            "allow-scripts allow-same-origin allow-forms allow-popups allow-top-navigation allow-modals",
+        );
+        assert!(flags.contains(IframeSandboxFlags::ALLOW_SCRIPTS));
+        assert!(flags.contains(IframeSandboxFlags::ALLOW_SAME_ORIGIN));
+        assert!(flags.contains(IframeSandboxFlags::ALLOW_FORMS));
+        assert!(flags.contains(IframeSandboxFlags::ALLOW_POPUPS));
+        assert!(flags.contains(IframeSandboxFlags::ALLOW_TOP_NAVIGATION));
+        assert!(flags.contains(IframeSandboxFlags::ALLOW_MODALS));
+    }
+
+    // ── capability predicates (§7.1.5 / §8.1.3.4) ──────────────────────────
 
     #[test]
     fn unsandboxed_allows_everything() {
@@ -289,59 +215,5 @@ mod tests {
         ] {
             assert_eq!(scripting_enabled(flags), scripts_allowed(flags));
         }
-    }
-
-    // ── process-sandbox policy types ────────────────────────────────────────
-
-    #[test]
-    fn strict_policy() {
-        let p = SandboxPolicy::strict();
-        assert_eq!(p.filesystem, FilesystemAccess::None);
-        assert_eq!(p.network, NetworkAccess::SameOrigin);
-        assert!(p.ipc);
-        assert!(!p.gpu);
-    }
-
-    #[test]
-    fn permissive_policy() {
-        let p = SandboxPolicy::permissive();
-        assert_eq!(p.filesystem, FilesystemAccess::ReadWrite);
-        assert_eq!(p.network, NetworkAccess::Full);
-        assert!(p.ipc);
-        assert!(p.gpu);
-    }
-
-    #[test]
-    fn web_content_policy() {
-        let p = SandboxPolicy::web_content();
-        assert_eq!(p.filesystem, FilesystemAccess::None);
-        assert_eq!(p.network, NetworkAccess::SameOrigin);
-        assert!(p.ipc);
-        assert!(p.gpu);
-    }
-
-    #[test]
-    fn default_is_strict() {
-        let p = SandboxPolicy::default();
-        assert_eq!(p, SandboxPolicy::strict());
-    }
-
-    #[test]
-    fn platform_sandbox_variants() {
-        let policy = SandboxPolicy::web_content();
-        let linux = PlatformSandbox::LinuxSeccomp {
-            policy: policy.clone(),
-        };
-        let macos = PlatformSandbox::MacOSAppSandbox {
-            policy: policy.clone(),
-        };
-        let windows = PlatformSandbox::WindowsRestricted { policy };
-        let unsandboxed = PlatformSandbox::Unsandboxed;
-
-        // Verify Debug + PartialEq work.
-        assert_ne!(linux, unsandboxed);
-        assert_ne!(macos, unsandboxed);
-        assert_ne!(windows, unsandboxed);
-        assert_eq!(unsandboxed, PlatformSandbox::Unsandboxed);
     }
 }

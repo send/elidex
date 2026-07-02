@@ -842,6 +842,8 @@ impl ScriptEngine for JsRuntime {
         event: &mut DispatchEvent,
         current_target: Entity,
         passive: bool,
+        // boa has no invocation-time scripting gate (compile-gate only).
+        _is_handler: bool,
         ctx: &mut ScriptContext<'_>,
     ) {
         self.call_listener_impl(listener_id, event, current_target, passive, ctx);

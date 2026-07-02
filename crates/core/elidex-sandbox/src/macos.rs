@@ -12,7 +12,7 @@
 use std::ffi::CString;
 use std::ptr;
 
-use elidex_plugin::sandbox::{FilesystemAccess, NetworkAccess};
+use elidex_plugin::process_sandbox::{FilesystemAccess, NetworkAccess};
 use elidex_plugin::{SandboxError, SandboxPolicy};
 
 use crate::SandboxEnforcer;
