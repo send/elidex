@@ -32,23 +32,27 @@ use elidex_plugin::IframeSandboxFlags;
 ///   not a Node and its associated document IS the bound document while
 ///   bound.
 ///
-/// **Adopt-equivalent node-document resolution**: elidex's insertion path
-/// does not yet run the DOM §4.2.3 pre-insert adoption step ("adopt node
-/// into parent's node document" — `EcsDom::append_child` relinks without
-/// re-homing `AssociatedDocument`), so a node parsed into a throwaway
-/// document and then appended into the bound document's tree keeps a stale
-/// owner pointer. Clause (b) therefore resolves the node document
-/// spec-adopt-equivalently: when the node's composed tree root IS the
-/// bound document (the same query `Node.isConnected` uses), a
-/// spec-correct adopt would have re-homed it on insertion → its node
-/// document is the bound document → NOT suppressed. Only a node outside
-/// the bound document's tree falls through to the
-/// `owner_document(entity) != bound_document` comparison. The underlying
-/// missing insertion-adoption is carved as defer slot
-/// `#11-cross-document-adopt-on-insert`; when it lands this branch becomes
-/// a pure fast path (root == document ⇒ owner_document == document).
+/// **Effective node document (adopt-equivalent, clause (b))**: elidex's
+/// insertion path does not yet run the DOM §4.2.3 pre-insert adoption
+/// step ("adopt node into parent's node document" —
+/// `EcsDom::append_child` relinks without re-homing `AssociatedDocument`),
+/// so a *connected* node's stored owner pointer is unreliable in BOTH
+/// directions (a node parsed into a throwaway document then appended into
+/// the bound tree keeps its foreign owner; a bound-created node appended
+/// into a `DOMParser` / null-BC document keeps the bound owner). Clause
+/// (b) therefore resolves the node's *effective node document* from its
+/// composed tree root — the value a spec-correct adopt would have written
+/// — via one rule: if the composed tree root IS a Document (the node is
+/// connected, the same query `Node.isConnected` uses) that root is the
+/// effective node document; otherwise (a detached node) fall back to
+/// `owner_document(entity)` (`AssociatedDocument`). Clause (b) suppresses
+/// iff the effective node document is not the bound document. The
+/// underlying missing insertion-adoption is carved as defer slot
+/// `#11-cross-document-adopt-on-insert`; when it lands `AssociatedDocument`
+/// becomes reliable for connected nodes and this rule collapses to a plain
+/// `owner_document(entity) != bound_document` compare.
 ///
-/// A Node whose owner document is unresolvable fails OPEN (not
+/// A Node whose effective node document is unresolvable fails OPEN (not
 /// suppressed): such nodes belong to the bound document's realm by
 /// construction, and failing closed would regress handlers on
 /// parser-built nodes that scripts detach. Caveats: detached-iframe
@@ -78,18 +82,20 @@ pub fn scripting_disabled_for_platform_object(
     match dom.node_kind_inferred(entity) {
         Some(NodeKind::Document) => entity != document,
         Some(kind) if kind.is_node() => {
-            // Adopt-equivalent resolution (see the doc-comment): a node
-            // living in the bound document's composed tree HAS the bound
-            // document as its node document, whatever a stale
-            // `AssociatedDocument` says.
-            if dom.find_tree_root_composed(entity) == document {
-                return false;
-            }
-            // `owner_document` = the node document for non-Document nodes
-            // (WHATWG DOM §4.4); `None` = unresolvable → fail open (see
-            // the doc-comment bounds).
-            dom.owner_document(entity)
-                .is_some_and(|node_doc| node_doc != document)
+            // Effective node document via the composed tree root
+            // (adopt-equivalent proxy — see the doc-comment). A connected
+            // node's node document IS its tree-root Document (whatever a
+            // stale `AssociatedDocument` says, in either direction); a
+            // detached node falls back to `owner_document`
+            // (`AssociatedDocument`). `None` = unresolvable → fail open.
+            let root = dom.find_tree_root_composed(entity);
+            let effective_document =
+                if matches!(dom.node_kind_inferred(root), Some(NodeKind::Document)) {
+                    Some(root)
+                } else {
+                    dom.owner_document(entity)
+                };
+            effective_document.is_some_and(|node_doc| node_doc != document)
         }
         _ => false,
     }
@@ -205,6 +211,31 @@ mod tests {
         assert!(scripting_disabled_for_platform_object(
             &dom,
             Some(foreign),
+            Some(doc),
+            None
+        ));
+    }
+
+    #[test]
+    fn bound_created_node_appended_into_foreign_doc_is_suppressed() {
+        // Mirror of `appended_foreign_node_is_adopt_equivalent_not_suppressed`:
+        // a node CREATED by the bound document then appended INTO the
+        // foreign (`DOMParser`-like) tree. `append_child` does NOT adopt,
+        // so `AssociatedDocument` still points at the bound document
+        // (stale) — the directional rule would read that and NOT suppress,
+        // but the effective node document is the foreign tree root, whose
+        // browsing context is null → clause (b) SUPPRESSES.
+        let (mut dom, doc, doc2, _foreign) = two_doc_fixture();
+        let el = dom.create_element_with_owner("div", Attributes::default(), Some(doc));
+        assert!(dom.append_child(doc2, el));
+        assert_eq!(
+            dom.get_associated_document(el),
+            Some(doc),
+            "fixture: append must NOT have adopted (else this test pins nothing)"
+        );
+        assert!(scripting_disabled_for_platform_object(
+            &dom,
+            Some(el),
             Some(doc),
             None
         ));

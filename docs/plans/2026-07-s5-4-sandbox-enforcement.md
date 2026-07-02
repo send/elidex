@@ -88,9 +88,10 @@ Human-PM confirmation requested at plan-review: (a) the 5-slice split, (b) S5-4c
 (c) the S5-4e scope narrowing (§2.6 — SW messages are spec-required to CARRY origin, so the slot's
 "empty origin" fix applies to the dedicated-worker channel only).
 
-**✅ RESOLVED at plan-review (2026-07-03)**: Q1 adjudicated — the 5-slice structure + S5-4c
-in-memo ACCEPTED (post-F1/F2 the §5.3.2 design is specified to disposition-enum depth; a dedicated
-memo would add nothing). The §9-Q1 text is retained for the record, marked resolved.
+**✅ RESOLVED at plan-review — converged BEFORE the first S5-4a implementation commit (2026-07-02)**:
+Q1 adjudicated — the 5-slice structure + S5-4c in-memo ACCEPTED (post-F1/F2 the §5.3.2 design is
+specified to disposition-enum depth; a dedicated memo would add nothing). The §9-Q1 text is retained
+for the record, marked resolved.
 
 ---
 

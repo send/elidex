@@ -706,3 +706,30 @@ fn appended_then_removed_domparser_node_suppressed_again() {
         assert_eq!(eval_str(vm, "String(globalThis.count)"), "1");
     });
 }
+
+// ---- S5-4a (PR #444 Codex R4): the MIRROR of the adopt-equivalent case —
+// a node CREATED by the bound document, handler assigned, then appended INTO
+// a DOMParser (null-BC) document. `append_child` does not adopt, so the stale
+// `AssociatedDocument` still points at the bound document; the directional
+// rule would read that and NOT suppress. But the node's effective node
+// document is its composed tree root (the foreign Document, browsing context
+// null) → clause (b) SUPPRESSES. The unified effective-document rule reads the
+// tree root, not the stale owner. Adoption itself = `#11-cross-document-adopt-on-insert`. ----
+#[test]
+fn bound_created_node_appended_into_domparser_doc_suppressed() {
+    with_el(|vm| {
+        vm.eval(
+            "globalThis.ran = false; \
+             var doc2 = new DOMParser().parseFromString('<div id=\"host\"></div>', 'text/html'); \
+             globalThis.e = document.createElement('div'); \
+             globalThis.e.onclick = function () { globalThis.ran = true; }; \
+             doc2.getElementById('host').appendChild(globalThis.e); \
+             globalThis.e.dispatchEvent(new Event('click'));",
+        )
+        .unwrap();
+        // Appended into the foreign (null-BC) tree ⇒ effective node document
+        // is the foreign root ⇒ handler SUPPRESSED (step 1), even though the
+        // stale owner still points at the bound document.
+        assert!(!eval_bool(vm, "globalThis.ran"));
+    });
+}
