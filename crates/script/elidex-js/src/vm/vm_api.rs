@@ -689,11 +689,14 @@ impl Vm {
             // `Entity` or recycled `ObjectId`), so cross-DOM aliasing
             // does not apply, and a retained `mo` / `ro` / `io` that
             // re-observes after a rebind needs its callback intact to
-            // fire.  The trade-off is a bounded leak per
-            // `new <Observer>()` call (callback + instance wrapper
-            // rooted until the VM drops); cleanup belongs to a future
-            // weak-rooting design tracked in
-            // `#11-mutation-observer-extras`.
+            // fire.  Retained-but-idle bindings are no longer a
+            // for-life leak: the GC keepalive seam keeps a binding
+            // only per its liveness predicate (canonical statement =
+            // `gc/keepalive.rs` `keepalive_survivors`), and the sweep
+            // (`gc/collect.rs`) prunes collected binding rows and
+            // `retire_collected`s their registry entries — including
+            // after a rebind, once the World is readable again (while
+            // unbound, bindings are kept fail-safe).
             //
             // Internal-config `Entity` references inside each registry
             // ARE cross-DOM-aliasing risks though: `IntersectionObserverInit
