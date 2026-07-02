@@ -1,5 +1,5 @@
 //! Internal pipeline helpers: script execution, lifecycle event dispatch, and
-//! the `build_pipeline_*` builder family (co-located with [`FrameSecurity`] and
+//! the `build_pipeline_*` builder family (co-located with [`PreEvalFrameState`] and
 //! the `run_scripts_and_finalize` chokepoint they feed).
 
 use std::rc::Rc;
@@ -27,8 +27,12 @@ use crate::{
     DEFAULT_VIEWPORT_HEIGHT, DEFAULT_VIEWPORT_WIDTH,
 };
 
-/// Security state of a (sub-)frame document, installed on the JS bridge
-/// **before the first eval** (WHATWG HTML §7.1.5 sandboxing / §7.1.1 origin).
+/// Frame state installed on the JS bridge **before the first eval**. It bundles
+/// two concerns that share the same pre-eval install point but not the same
+/// spec role: `origin` / `sandbox_flags` / `iframe_depth` are **security**
+/// (WHATWG HTML §7.1.5 sandboxing / §7.1.1 origin), while `referrer` is
+/// **navigation metadata** (§4.8.5) — hence the neutral `PreEvalFrameState`
+/// name rather than a security-only one.
 ///
 /// Carried by the iframe load paths (`content/iframe/load.rs`, including the
 /// OOP thread's initial build and its `Navigate` re-build in
@@ -36,14 +40,14 @@ use crate::{
 /// `run_scripts_and_finalize` installs it at the same pre-eval seam that
 /// seeds the cookie jar / viewport / device facts.
 /// Invariant (S5-4b, closes `#11-iframe-origin-before-initial-scripts`):
-/// **security installs precede the first eval on ALL iframe paths**
+/// **the installs precede the first eval on ALL iframe paths**
 /// (in-process AND out-of-process) — a sandboxed iframe's initial scripts must
 /// observe the opaque origin (and the sandbox flags, e.g. the `allow-scripts`
 /// eval gate), not the URL-derived tuple origin. This is the `set_origin`
 /// contract the engine documents (`elidex-js` `HostData::set_origin`: the
 /// embedder "installs it before scripts run"). `None` = top-level document
 /// (origin derived from the URL, unsandboxed, depth 0).
-pub struct FrameSecurity {
+pub struct PreEvalFrameState {
     /// The document origin, with sandbox / credentialless opaqueness already
     /// applied (`apply_sandbox_origin`).
     pub origin: elidex_plugin::SecurityOrigin,
@@ -55,7 +59,7 @@ pub struct FrameSecurity {
     /// the sandbox flags) so a same-frame navigation can re-derive the opaque
     /// origin a credentialless browsing context keeps across navigations. Note
     /// the credentialless→opaque-origin semantics itself is pre-existing
-    /// (`apply_sandbox_origin`, predates S5-4b); `FrameSecurity` only carries
+    /// (`apply_sandbox_origin`, predates S5-4b); `PreEvalFrameState` only carries
     /// the flag so `Navigate` stays consistent with the initial load.
     pub credentialless: bool,
     /// The document's referrer — the parent document URL for an iframe (WHATWG
@@ -65,13 +69,13 @@ pub struct FrameSecurity {
     pub referrer: Option<String>,
 }
 
-/// Deferred inputs for deriving a (sub-)frame's [`FrameSecurity`] **after** the
+/// Deferred inputs for deriving a (sub-)frame's [`PreEvalFrameState`] **after** the
 /// document loads — used by the URL-loading rebuild (`build_pipeline_from_url`,
 /// the OOP iframe `Navigate` path) where the origin must come from the final
 /// post-redirect `loaded.url`, not the requested URL (S5-4b F-a/F-c). The
 /// srcdoc / inherited-origin paths derive their origin before the build and
-/// pass a fully-formed [`FrameSecurity`] instead.
-pub struct FrameSecurityInputs {
+/// pass a fully-formed [`PreEvalFrameState`] instead.
+pub struct PreEvalFrameInputs {
     /// Parsed `sandbox` attribute flags (`None` = no `sandbox` attribute).
     pub sandbox_flags: Option<elidex_plugin::IframeSandboxFlags>,
     /// Whether this is a `credentialless` iframe (opaques the origin).
@@ -82,7 +86,7 @@ pub struct FrameSecurityInputs {
     pub referrer: Option<String>,
 }
 
-// `FrameSecurityInputs::into_frame_security` (the post-redirect origin
+// `PreEvalFrameInputs::into_pre_eval_state` (the post-redirect origin
 // derivation) lives in `content/iframe/load.rs`, beside the `apply_sandbox_origin`
 // policy it applies — see that module. Keeping the derivation next to its policy
 // lets `apply_sandbox_origin` stay private to `content/iframe`; the URL-loading
@@ -117,8 +121,8 @@ fn flush_with_ce_reactions(
 /// The `registry` is passed in from the caller to avoid creating a duplicate
 /// registry when the caller already holds one (e.g. for storage in `PipelineResult`).
 ///
-/// `frame_security` (`Some` on iframe builds, in-process and OOP-thread) is
-/// installed on the bridge **before** step 2 — see [`FrameSecurity`] for the
+/// `pre_eval_state` (`Some` on iframe builds, in-process and OOP-thread) is
+/// installed on the bridge **before** step 2 — see [`PreEvalFrameState`] for the
 /// ordering invariant.
 ///
 /// Returns `(SessionCore, JsRuntime, ViewportOverflow)` for the caller to include in `PipelineResult`.
@@ -136,7 +140,7 @@ pub(super) fn run_scripts_and_finalize(
     viewport: Size,
     device_facts: crate::ipc::DeviceFacts,
     engine_mode: EngineMode,
-    frame_security: Option<FrameSecurity>,
+    pre_eval_state: Option<PreEvalFrameState>,
 ) -> (SessionCore, JsRuntime, ViewportOverflow) {
     let stylesheet_refs: Vec<&Stylesheet> = stylesheets.iter().collect();
 
@@ -161,9 +165,9 @@ pub(super) fn run_scripts_and_finalize(
 
     if let Some(url) = current_url {
         runtime.set_current_url(Some(url.clone()));
-        // Top-level document (`frame_security: None`): unsandboxed, origin
+        // Top-level document (`pre_eval_state: None`): unsandboxed, origin
         // derived from the URL.
-        if frame_security.is_none() {
+        if pre_eval_state.is_none() {
             runtime
                 .bridge()
                 .set_origin(elidex_plugin::SecurityOrigin::from_url(url));
@@ -182,17 +186,17 @@ pub(super) fn run_scripts_and_finalize(
     // `make_out_of_process_entry`, `iframe/thread.rs` `handle_navigate`) pass
     // `Some` too — no post-build install sequence anywhere. Closes
     // `#11-iframe-origin-before-initial-scripts`.
-    if let Some(security) = frame_security {
-        runtime.bridge().set_sandbox_flags(security.sandbox_flags);
-        runtime.bridge().set_origin(security.origin);
-        runtime.bridge().set_iframe_depth(security.iframe_depth);
-        runtime.bridge().set_credentialless(security.credentialless);
+    if let Some(state) = pre_eval_state {
+        runtime.bridge().set_sandbox_flags(state.sandbox_flags);
+        runtime.bridge().set_origin(state.origin);
+        runtime.bridge().set_iframe_depth(state.iframe_depth);
+        runtime.bridge().set_credentialless(state.credentialless);
         // Referrer rides the same pre-eval install so the initial scripts read a
         // populated `document.referrer` (the parent document URL, §4.8.5), not
         // the empty default — previously a post-build `set_referrer` landed it
         // only after the initial scripts had already run (and never on the OOP
         // path).
-        runtime.bridge().set_referrer(security.referrer);
+        runtime.bridge().set_referrer(state.referrer);
     }
 
     // Seed the JS bridge viewport + device facts BEFORE running scripts so initial
@@ -573,7 +577,7 @@ pub(crate) fn build_pipeline_interactive_shared(
     cookie_jar: Option<Arc<elidex_net::CookieJar>>,
     viewport: Size,
     device_facts: crate::ipc::DeviceFacts,
-    frame_security: Option<FrameSecurity>,
+    pre_eval_state: Option<PreEvalFrameState>,
 ) -> PipelineResult {
     let parse_result = parse_progressive_str(html);
     for err in &parse_result.errors {
@@ -606,7 +610,7 @@ pub(crate) fn build_pipeline_interactive_shared(
         viewport,
         device_facts,
         EngineMode::BrowserCompat,
-        frame_security,
+        pre_eval_state,
     );
 
     let display_list = build_display_list(&dom, &font_db);
@@ -644,9 +648,9 @@ pub(crate) fn build_pipeline_interactive_shared(
 /// Merges all stylesheets, executes all scripts in document order,
 /// resolves styles, computes layout, and builds the display list.
 ///
-/// `frame_security` is `Some` on iframe builds (in-process AND the OOP iframe
+/// `pre_eval_state` is `Some` on iframe builds (in-process AND the OOP iframe
 /// thread): it installs the sandbox flags / origin / depth on the bridge
-/// **before** the initial scripts run (see [`FrameSecurity`]). Top-level
+/// **before** the initial scripts run (see [`PreEvalFrameState`]). Top-level
 /// builds pass `None`.
 pub fn build_pipeline_from_loaded(
     loaded: elidex_navigation::LoadedDocument,
@@ -655,7 +659,7 @@ pub fn build_pipeline_from_loaded(
     cookie_jar: Option<Arc<elidex_net::CookieJar>>,
     viewport: Size,
     device_facts: crate::ipc::DeviceFacts,
-    frame_security: Option<FrameSecurity>,
+    pre_eval_state: Option<PreEvalFrameState>,
 ) -> PipelineResult {
     let elidex_navigation::LoadedDocument {
         mut dom,
@@ -686,7 +690,7 @@ pub fn build_pipeline_from_loaded(
         viewport,
         device_facts,
         EngineMode::BrowserCompat,
-        frame_security,
+        pre_eval_state,
     );
 
     let display_list = build_display_list(&dom, &font_db);
@@ -728,19 +732,19 @@ pub fn build_pipeline_from_loaded(
 /// Spawns a temporary Network Process broker to load the document (standalone mode).
 /// Content threads should use `build_pipeline_from_loaded` with a proper `NetworkHandle`.
 ///
-/// `frame_security` is `Some` on the OOP iframe thread's `Navigate` re-build
-/// (`content/iframe/thread.rs`). It carries [`FrameSecurityInputs`] rather than
-/// a fully-formed `FrameSecurity` because the frame's origin must be derived
+/// `pre_eval_state` is `Some` on the OOP iframe thread's `Navigate` re-build
+/// (`content/iframe/thread.rs`). It carries [`PreEvalFrameInputs`] rather than
+/// a fully-formed `PreEvalFrameState` because the frame's origin must be derived
 /// from the **post-redirect** `loaded.url` (S5-4b F-a/F-c): this builder resolves
 /// the fetch (following redirects) and only then computes
-/// `FrameSecurity.origin = apply_sandbox_origin(from_url(loaded.url), flags,
+/// `PreEvalFrameState.origin = apply_sandbox_origin(from_url(loaded.url), flags,
 /// credentialless)` — the same derivation the initial OOP load performs — before
-/// installing it at the pre-eval chokepoint (see [`FrameSecurity`]). Standalone
+/// installing it at the pre-eval chokepoint (see [`PreEvalFrameState`]). Standalone
 /// top-level callers pass `None` (URL-derived origin, unsandboxed).
 pub fn build_pipeline_from_url(
     url: &url::Url,
     viewport: Size,
-    frame_security: Option<FrameSecurityInputs>,
+    pre_eval_state: Option<PreEvalFrameInputs>,
 ) -> Result<PipelineResult, elidex_navigation::LoadError> {
     // Standalone mode: use a disconnected handle for pipeline (no broker).
     // load_document still routes through NetworkHandle::fetch_blocking which
@@ -752,7 +756,7 @@ pub fn build_pipeline_from_url(
     // Derive the frame security from the post-redirect loaded URL: the origin
     // (and its credentialless/sandbox opaqueness) is a property of the document
     // that actually loaded, not of the requested URL (F-a/F-c).
-    let frame_security = frame_security.map(|inputs| inputs.into_frame_security(&loaded.url));
+    let pre_eval_state = pre_eval_state.map(|inputs| inputs.into_pre_eval_state(&loaded.url));
     let font_db = Arc::new(FontDatabase::new());
     let cookie_jar = Arc::clone(np.cookie_jar());
     let mut result = build_pipeline_from_loaded(
@@ -763,7 +767,7 @@ pub fn build_pipeline_from_url(
         viewport,
         // Standalone (no window) → default device facts (1× / Light).
         crate::ipc::DeviceFacts::default(),
-        frame_security,
+        pre_eval_state,
     );
     result.broker_keepalive = Some(np); // Keep broker alive for pipeline lifetime.
     Ok(result)

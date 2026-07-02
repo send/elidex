@@ -278,7 +278,7 @@ impl super::super::VmInner {
     /// frame's initial scripts — and the shell now does, on ALL iframe paths
     /// (in-process and out-of-process, including the OOP thread's `Navigate`
     /// re-build): the security state rides the pipeline build as
-    /// `elidex-shell` `FrameSecurity` and is installed at the
+    /// `elidex-shell` `PreEvalFrameState` and is installed at the
     /// `run_scripts_and_finalize` pre-eval chokepoint, so a sandboxed
     /// iframe's first script reads its opaque `"null"` origin, never the
     /// fallback / parent origin (S5-4b, closed slot

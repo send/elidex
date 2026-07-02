@@ -21,8 +21,8 @@ pub mod ipc;
 pub(crate) mod key_map;
 mod pipeline;
 pub use pipeline::{
-    build_pipeline_from_loaded, build_pipeline_from_url, build_pipeline_interactive, FrameSecurity,
-    FrameSecurityInputs,
+    build_pipeline_from_loaded, build_pipeline_from_url, build_pipeline_interactive,
+    PreEvalFrameInputs, PreEvalFrameState,
 };
 // `pub(crate)` builders keep their crate-only visibility across the move — the
 // re-export mirrors the original in-`lib.rs` `pub(crate) fn` reach so every

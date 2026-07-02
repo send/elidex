@@ -56,15 +56,15 @@ pub fn load_iframe(
 
     // srcdoc / about:blank / no-src documents inherit the parent origin
     // (WHATWG HTML §4.8.5), with sandbox / credentialless opaqueness applied.
-    // Computed BEFORE the pipeline build (via `frame_security`): the build runs
+    // Computed BEFORE the pipeline build (via `pre_eval_state`): the build runs
     // the initial scripts, which must already observe this origin — and the
-    // referrer, both installed at the pre-eval chokepoint (see `FrameSecurity`).
+    // referrer, both installed at the pre-eval chokepoint (see `PreEvalFrameState`).
     let content = iframe_data.srcdoc.as_deref().unwrap_or("");
     let pipeline = build_iframe_pipeline(
         content,
         ctx.parent_url.cloned(),
         ctx,
-        frame_security(
+        pre_eval_state(
             parent_inherited_origin(iframe_data, sandbox_flags, ctx),
             sandbox_flags,
             iframe_data.credentialless,
@@ -140,10 +140,10 @@ fn load_iframe_from_url(
                 // referrer" case and full per-request ReferrerPolicy (meta referrer,
                 // rel=noreferrer, Referrer-Policy header) are deferred → slot
                 // #11-referrer-policy.
-                let mut security =
-                    frame_security(origin, sandbox_flags, iframe_data.credentialless, ctx);
-                security.referrer = cross_origin_referrer(ctx.parent_origin);
-                return make_out_of_process_entry(loaded, security, ctx.device_facts);
+                let mut state =
+                    pre_eval_state(origin, sandbox_flags, iframe_data.credentialless, ctx);
+                state.referrer = cross_origin_referrer(ctx.parent_origin);
+                return make_out_of_process_entry(loaded, state, ctx.device_facts);
             }
 
             // Use credentialless handle if applicable, otherwise parent's.
@@ -191,8 +191,8 @@ fn load_iframe_from_url(
                 // of stuck at 1×/Light on a HiDPI/dark display.
                 ctx.device_facts,
                 // Security installs precede the initial scripts run inside this
-                // build (see `FrameSecurity`).
-                Some(frame_security(
+                // build (see `PreEvalFrameState`).
+                Some(pre_eval_state(
                     origin,
                     sandbox_flags,
                     iframe_data.credentialless,
@@ -224,7 +224,7 @@ fn load_iframe_from_url(
 /// Create a same-origin `IframeEntry` from a pipeline.
 ///
 /// The security state (sandbox flags / origin / depth) is NOT installed here:
-/// it rides the pipeline build as [`crate::FrameSecurity`] so it is on the
+/// it rides the pipeline build as [`crate::PreEvalFrameState`] so it is on the
 /// bridge **before** the initial scripts run (S5-4b ordering invariant) — by
 /// the time this constructor wraps the pipeline, the installs already happened.
 pub(super) fn make_in_process_entry(pipeline: crate::PipelineResult) -> IframeEntry {
@@ -245,8 +245,8 @@ pub(super) fn make_in_process_entry(pipeline: crate::PipelineResult) -> IframeEn
 /// avoiding a redundant HTTP request. The `PipelineResult` is constructed
 /// on the iframe thread because it contains `!Send` types (`Rc`, boa `Context`).
 ///
-/// `security` (already sandbox/credentialless-adjusted by the caller) rides the
-/// pipeline build as [`crate::FrameSecurity`] — the same pre-eval chokepoint as
+/// `state` (already sandbox/credentialless-adjusted by the caller) rides the
+/// pipeline build as [`crate::PreEvalFrameState`] — the same pre-eval chokepoint as
 /// the in-process paths, so the initial scripts run inside the build already
 /// observe the origin / sandbox flags / depth (S5-4b ordering invariant). No
 /// post-build install sequence exists on this path anymore.
@@ -257,7 +257,7 @@ pub(super) fn make_in_process_entry(pipeline: crate::PipelineResult) -> IframeEn
 /// cross-origin network load.
 pub(in crate::content) fn make_out_of_process_entry(
     loaded: elidex_navigation::LoadedDocument,
-    security: crate::FrameSecurity,
+    state: crate::PreEvalFrameState,
     device_facts: crate::ipc::DeviceFacts,
 ) -> IframeEntry {
     let (parent_chan, iframe_chan) = crate::ipc::channel_pair::<BrowserToIframe, IframeToBrowser>();
@@ -286,10 +286,10 @@ pub(in crate::content) fn make_out_of_process_entry(
             // too (they carry no origin-private information — already exposed via matchMedia).
             device_facts,
             // Security installs precede the initial scripts run inside this
-            // build (see `FrameSecurity`) — the same chokepoint as the
-            // in-process paths. `FrameSecurity` is `Send`, captured into this
+            // build (see `PreEvalFrameState`) — the same chokepoint as the
+            // in-process paths. `PreEvalFrameState` is `Send`, captured into this
             // thread.
-            Some(security),
+            Some(state),
         );
 
         iframe_thread_main(oop_pipeline, &iframe_chan);
@@ -322,7 +322,7 @@ fn blank_entry(
         "",
         ctx.parent_url.cloned(),
         ctx,
-        frame_security(origin, sandbox_flags, credentialless, ctx),
+        pre_eval_state(origin, sandbox_flags, credentialless, ctx),
     ))
 }
 
@@ -339,18 +339,18 @@ fn parse_sandbox(iframe_data: &elidex_ecs::IframeData) -> Option<IframeSandboxFl
 }
 
 /// Bundle the security state an iframe build (in-process or OOP-thread)
-/// installs **before** its initial scripts run (see [`crate::FrameSecurity`]).
+/// installs **before** its initial scripts run (see [`crate::PreEvalFrameState`]).
 ///
 /// The referrer is the parent document URL (WHATWG HTML §4.8.5); it rides the
 /// same pre-eval chokepoint as origin/flags/depth so the initial scripts read a
 /// populated `document.referrer`.
-fn frame_security(
+fn pre_eval_state(
     origin: SecurityOrigin,
     sandbox_flags: Option<IframeSandboxFlags>,
     credentialless: bool,
     ctx: &IframeLoadContext<'_>,
-) -> crate::FrameSecurity {
-    crate::FrameSecurity {
+) -> crate::PreEvalFrameState {
+    crate::PreEvalFrameState {
         origin,
         sandbox_flags,
         iframe_depth: ctx.depth,
@@ -362,7 +362,7 @@ fn frame_security(
 /// The `document.referrer` a **cross-origin** sub-frame receives: only the
 /// parent's ORIGIN serialization, per the HTML referrer-policy default
 /// (`strict-origin-when-cross-origin`) — not the full parent URL the
-/// same-origin path exposes (see [`frame_security`]). An opaque parent origin
+/// same-origin path exposes (see [`pre_eval_state`]). An opaque parent origin
 /// has no usable referrer to share (serialized `"null"` is not a referrer), so
 /// this yields `None` (empty `document.referrer`).
 ///
@@ -398,7 +398,7 @@ fn build_iframe_pipeline(
     html: &str,
     url: Option<url::Url>,
     ctx: &IframeLoadContext<'_>,
-    security: crate::FrameSecurity,
+    state: crate::PreEvalFrameState,
 ) -> crate::PipelineResult {
     crate::build_pipeline_interactive_shared(
         html,
@@ -415,7 +415,7 @@ fn build_iframe_pipeline(
         // Device facts ARE known: window/display facts inherited from the parent (C3),
         // not box facts — so seed the real dppx/color-scheme, not a 1×/Light placeholder.
         ctx.device_facts,
-        Some(security),
+        Some(state),
     )
 }
 
@@ -465,7 +465,7 @@ pub(super) fn check_framing_allowed(
 /// `credentialless`, returns an opaque origin. Otherwise returns the input origin.
 ///
 /// Private to `content/iframe`: the post-redirect origin derivation
-/// ([`crate::FrameSecurityInputs::into_frame_security`], co-located below)
+/// ([`crate::PreEvalFrameInputs::into_pre_eval_state`], co-located below)
 /// reuses this single policy for the URL-loading rebuild, so the policy never
 /// leaves this module.
 fn apply_sandbox_origin(
@@ -486,11 +486,11 @@ fn apply_sandbox_origin(
 
 // The post-redirect origin derivation is co-located with the
 // [`apply_sandbox_origin`] policy it applies (rather than in `pipeline.rs` with
-// the [`crate::FrameSecurity`] bundle) so the policy stays private to this
+// the [`crate::PreEvalFrameState`] bundle) so the policy stays private to this
 // module — the URL-loading builder (`build_pipeline_from_url`) invokes the
 // resolver by method dispatch instead of reaching up into the origin policy.
-impl crate::FrameSecurityInputs {
-    /// Derive the [`crate::FrameSecurity`] from the **post-redirect** loaded URL.
+impl crate::PreEvalFrameInputs {
+    /// Derive the [`crate::PreEvalFrameState`] from the **post-redirect** loaded URL.
     ///
     /// The origin is `apply_sandbox_origin(from_url(loaded_url), flags,
     /// credentialless)` — the exact derivation the initial OOP load performs on
@@ -498,8 +498,8 @@ impl crate::FrameSecurityInputs {
     /// the URL it actually resolved to (post-redirect), and a credentialless
     /// frame keeps its opaque origin.
     #[must_use]
-    pub fn into_frame_security(self, loaded_url: &url::Url) -> crate::FrameSecurity {
-        crate::FrameSecurity {
+    pub fn into_pre_eval_state(self, loaded_url: &url::Url) -> crate::PreEvalFrameState {
+        crate::PreEvalFrameState {
             origin: apply_sandbox_origin(
                 SecurityOrigin::from_url(loaded_url),
                 self.sandbox_flags,

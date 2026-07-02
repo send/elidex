@@ -211,14 +211,14 @@ fn handle_navigate(
     //     navigation (the OOP path never set it pre-S5-4b — F-b).
     // The origin itself is NOT precomputed here: it must derive from the
     // POST-redirect `loaded.url`, which only `build_pipeline_from_url` knows
-    // after resolving the fetch (F-a). Passing [`crate::FrameSecurityInputs`]
+    // after resolving the fetch (F-a). Passing [`crate::PreEvalFrameInputs`]
     // defers that derivation to the builder, which then installs the resulting
-    // [`crate::FrameSecurity`] at the pre-eval chokepoint so the navigated
+    // [`crate::PreEvalFrameState`] at the pre-eval chokepoint so the navigated
     // document's *initial* scripts already observe the final origin — where
     // previously this re-build precomputed the origin from the *requested* URL
     // (mis-attributing redirected loads) and installed after the scripts ran.
     let bridge = pipeline.runtime.bridge();
-    let inputs = crate::FrameSecurityInputs {
+    let inputs = crate::PreEvalFrameInputs {
         sandbox_flags: bridge.sandbox_flags(),
         credentialless: bridge.credentialless(),
         iframe_depth: bridge.iframe_depth(),

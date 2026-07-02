@@ -6,7 +6,7 @@
 //! in-process (srcdoc, about:blank, no-src, URL-load, and the `blank_entry`
 //! fallback) AND out-of-process (`make_out_of_process_entry`). They land as
 //! one block at the `run_scripts_and_finalize` pre-eval chokepoint
-//! (`crate::FrameSecurity`), so an order-proof against that block covers all
+//! (`crate::PreEvalFrameState`), so an order-proof against that block covers all
 //! three setters at once.
 //!
 //! Oracle notes (boa is the live shell engine until the S5-6 flip):
@@ -45,16 +45,16 @@
 //! `bridge.origin().serialize()` captured **at call time** — a direct probe
 //! of the origin the initial script observed (and message presence/absence
 //! probes the `allow-scripts` eval gate). The thread's `Navigate` re-build
-//! (`iframe/thread.rs` `handle_navigate`) rides the same `FrameSecurity`
+//! (`iframe/thread.rs` `handle_navigate`) rides the same `PreEvalFrameState`
 //! seam but is not drivable here (`build_pipeline_from_url` spawns a real
 //! network broker), so its ordering is guaranteed by the shared chokepoint
 //! rather than a dedicated test.
 //!
 //! **Navigate origin derivation (F-a/F-c).** `handle_navigate` no longer
 //! precomputes the origin from the *requested* URL; it hands
-//! `FrameSecurityInputs` to `build_pipeline_from_url`, which derives
-//! `FrameSecurity.origin` from the **post-redirect** `loaded.url`
-//! (`FrameSecurityInputs::into_frame_security`) with the persisted
+//! `PreEvalFrameInputs` to `build_pipeline_from_url`, which derives
+//! `PreEvalFrameState.origin` from the **post-redirect** `loaded.url`
+//! (`PreEvalFrameInputs::into_pre_eval_state`) with the persisted
 //! credentialless flag applied. The full path (redirect follow) needs the live
 //! broker `build_pipeline_from_url` spawns — unreachable here — so the
 //! `navigate_inputs_*` unit tests pin the reachable equivalent: the derivation
@@ -229,7 +229,7 @@ fn unsandboxed_iframe_initial_script_observes_tuple_origin() {
 /// `src="about:blank"` arm: the reordered plumbing still installs the
 /// security state (there are no initial scripts on this arm — the install
 /// itself is the pin, guarding against the arm being missed by the
-/// `FrameSecurity` threading).
+/// `PreEvalFrameState` threading).
 #[test]
 fn about_blank_iframe_installs_sandbox_state() {
     let (state, _browser) = build_test_content_state(
@@ -264,7 +264,7 @@ fn no_src_iframe_installs_sandbox_state() {
 }
 
 /// `blank_entry` fallback arm (invalid `src` URL): the blank document still
-/// gets the security installs through the same `FrameSecurity` threading.
+/// gets the security installs through the same `PreEvalFrameState` threading.
 #[test]
 fn blank_entry_fallback_installs_sandbox_state() {
     let (state, _browser) = build_test_content_state_with_url(
@@ -292,7 +292,7 @@ fn blank_entry_fallback_installs_sandbox_state() {
 /// script reads the parent document URL as `document.referrer` (WHATWG HTML
 /// §4.8.5), not the empty default. Pre-fix, `set_referrer` ran only AFTER the
 /// pipeline build had already evaluated the initial scripts, so an initial-load
-/// script saw `""`. Falsify by reverting the fold into `FrameSecurity`.
+/// script saw `""`. Falsify by reverting the fold into `PreEvalFrameState`.
 ///
 /// This is the **same-origin (in-process)** path: it keeps the FULL parent URL
 /// (the cross-origin OOP path trims to the parent ORIGIN — see
@@ -418,7 +418,7 @@ fn oop_iframe_flags_installed_before_initial_scripts() {
     );
     let entry = make_out_of_process_entry(
         loaded,
-        crate::FrameSecurity {
+        crate::PreEvalFrameState {
             origin: elidex_plugin::SecurityOrigin::opaque(),
             sandbox_flags: Some(elidex_plugin::IframeSandboxFlags::empty()),
             iframe_depth: 1,
@@ -452,7 +452,7 @@ fn oop_sandboxed_iframe_initial_script_observes_opaque_origin() {
     );
     let entry = make_out_of_process_entry(
         loaded,
-        crate::FrameSecurity {
+        crate::PreEvalFrameState {
             origin: elidex_plugin::SecurityOrigin::opaque(),
             sandbox_flags: Some(elidex_plugin::IframeSandboxFlags::ALLOW_SCRIPTS),
             iframe_depth: 1,
@@ -488,7 +488,7 @@ fn oop_unsandboxed_iframe_initial_script_observes_tuple_origin() {
     );
     let entry = make_out_of_process_entry(
         loaded,
-        crate::FrameSecurity {
+        crate::PreEvalFrameState {
             origin: elidex_plugin::SecurityOrigin::from_url(&url::Url::parse(url).unwrap()),
             sandbox_flags: None,
             iframe_depth: 1,
@@ -513,7 +513,7 @@ fn oop_unsandboxed_iframe_initial_script_observes_tuple_origin() {
 /// OOP cross-origin referrer default (`strict-origin-when-cross-origin`): a
 /// cross-origin OOP iframe's initial script reads `document.referrer` == the
 /// parent's ORIGIN, not the full parent URL. The referrer rides the same
-/// pre-eval chokepoint as origin/flags (`FrameSecurity`), so the *initial*
+/// pre-eval chokepoint as origin/flags (`PreEvalFrameState`), so the *initial*
 /// script already observes it — the probe posts `document.referrer` as its
 /// message data. The initial-load trim source (`load.rs` OOP branch →
 /// `cross_origin_referrer`) is unit-tested in `content/iframe/load.rs` and
@@ -528,7 +528,7 @@ fn oop_cross_origin_iframe_initial_script_observes_parent_origin_referrer() {
     );
     let entry = make_out_of_process_entry(
         loaded,
-        crate::FrameSecurity {
+        crate::PreEvalFrameState {
             origin: elidex_plugin::SecurityOrigin::from_url(
                 &url::Url::parse("https://other.example/").unwrap(),
             ),
@@ -557,8 +557,8 @@ fn oop_cross_origin_iframe_initial_script_observes_parent_origin_referrer() {
 // ---------------------------------------------------------------------------
 // Reachable equivalent of the OOP `Navigate` re-build (the full redirect-follow
 // path needs the live broker `build_pipeline_from_url` spawns — see module doc).
-// `handle_navigate` builds `FrameSecurityInputs` from the persisted bridge state
-// and the builder resolves the origin via `into_frame_security(&loaded.url)`.
+// `handle_navigate` builds `PreEvalFrameInputs` from the persisted bridge state
+// and the builder resolves the origin via `into_pre_eval_state(&loaded.url)`.
 
 /// F-a: the navigated document's origin comes from the **post-redirect**
 /// `loaded.url`, not the requested URL. A load whose fetch resolves to
@@ -568,26 +568,23 @@ fn oop_cross_origin_iframe_initial_script_observes_parent_origin_referrer() {
 /// different (requested) URL yields a different origin.
 #[test]
 fn navigate_inputs_derive_origin_from_loaded_url() {
-    let inputs = crate::FrameSecurityInputs {
+    let inputs = crate::PreEvalFrameInputs {
         sandbox_flags: None,
         credentialless: false,
         iframe_depth: 2,
         referrer: Some("https://parent.example/".to_string()),
     };
     let loaded = url::Url::parse("https://final.example/page").unwrap();
-    let security = inputs.into_frame_security(&loaded);
+    let state = inputs.into_pre_eval_state(&loaded);
     assert_eq!(
-        security.origin.serialize(),
+        state.origin.serialize(),
         "https://final.example",
         "origin must be derived from the post-redirect loaded URL, not the requested one"
     );
     // The persisted frame facts ride through the rebuild unchanged.
-    assert_eq!(
-        security.referrer.as_deref(),
-        Some("https://parent.example/")
-    );
-    assert_eq!(security.iframe_depth, 2);
-    assert!(!security.credentialless);
+    assert_eq!(state.referrer.as_deref(), Some("https://parent.example/"));
+    assert_eq!(state.iframe_depth, 2);
+    assert!(!state.credentialless);
 }
 
 /// F-c (derivation half): a credentialless frame keeps its opaque origin across
@@ -598,21 +595,21 @@ fn navigate_inputs_derive_origin_from_loaded_url() {
 /// tuple.
 #[test]
 fn navigate_inputs_credentialless_stays_opaque() {
-    let inputs = crate::FrameSecurityInputs {
+    let inputs = crate::PreEvalFrameInputs {
         sandbox_flags: None,
         credentialless: true,
         iframe_depth: 1,
         referrer: None,
     };
     let loaded = url::Url::parse("https://final.example/page").unwrap();
-    let security = inputs.into_frame_security(&loaded);
+    let state = inputs.into_pre_eval_state(&loaded);
     assert!(
-        matches!(security.origin, elidex_plugin::SecurityOrigin::Opaque(_)),
+        matches!(state.origin, elidex_plugin::SecurityOrigin::Opaque(_)),
         "a credentialless frame must keep an opaque origin after navigation, got {:?}",
-        security.origin
+        state.origin
     );
     assert!(
-        security.credentialless,
+        state.credentialless,
         "the credentialless flag rides through so the NEXT navigation stays opaque too"
     );
 }
