@@ -20,7 +20,7 @@ mod gpu;
 pub mod ipc;
 pub(crate) mod key_map;
 mod pipeline;
-pub use pipeline::FrameSecurity;
+pub use pipeline::{FrameSecurity, FrameSecurityInputs};
 pub mod quota;
 
 #[cfg(test)]
@@ -969,14 +969,18 @@ pub fn build_pipeline_from_loaded(
 /// Content threads should use `build_pipeline_from_loaded` with a proper `NetworkHandle`.
 ///
 /// `frame_security` is `Some` on the OOP iframe thread's `Navigate` re-build
-/// (`content/iframe/thread.rs`): the navigated document's initial scripts run
-/// inside this build, so the sandbox flags / origin / depth must ride it to
-/// the pre-eval chokepoint (see [`FrameSecurity`]). Standalone top-level
-/// callers pass `None` (URL-derived origin, unsandboxed).
+/// (`content/iframe/thread.rs`). It carries [`FrameSecurityInputs`] rather than
+/// a fully-formed `FrameSecurity` because the frame's origin must be derived
+/// from the **post-redirect** `loaded.url` (S5-4b F-a/F-c): this builder resolves
+/// the fetch (following redirects) and only then computes
+/// `FrameSecurity.origin = apply_sandbox_origin(from_url(loaded.url), flags,
+/// credentialless)` — the same derivation the initial OOP load performs — before
+/// installing it at the pre-eval chokepoint (see [`FrameSecurity`]). Standalone
+/// top-level callers pass `None` (URL-derived origin, unsandboxed).
 pub fn build_pipeline_from_url(
     url: &url::Url,
     viewport: Size,
-    frame_security: Option<FrameSecurity>,
+    frame_security: Option<FrameSecurityInputs>,
 ) -> Result<PipelineResult, elidex_navigation::LoadError> {
     // Standalone mode: use a disconnected handle for pipeline (no broker).
     // load_document still routes through NetworkHandle::fetch_blocking which
@@ -985,6 +989,10 @@ pub fn build_pipeline_from_url(
     let np = elidex_net::broker::spawn_network_process(elidex_net::NetClient::new());
     let network_handle = Rc::new(np.create_renderer_handle());
     let loaded = elidex_navigation::load_document(url, &network_handle, None)?;
+    // Derive the frame security from the post-redirect loaded URL: the origin
+    // (and its credentialless/sandbox opaqueness) is a property of the document
+    // that actually loaded, not of the requested URL (F-a/F-c).
+    let frame_security = frame_security.map(|inputs| inputs.into_frame_security(&loaded.url));
     let font_db = Arc::new(FontDatabase::new());
     let cookie_jar = Arc::clone(np.cookie_jar());
     let mut result = build_pipeline_from_loaded(

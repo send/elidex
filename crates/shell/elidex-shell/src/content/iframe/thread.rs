@@ -2,7 +2,6 @@
 
 use elidex_plugin::Size;
 
-use super::load::apply_sandbox_origin_from_flags;
 use super::types::{BrowserToIframe, IframeToBrowser};
 
 use crate::ipc::LocalChannel;
@@ -199,25 +198,33 @@ fn handle_navigate(
     // Rebuild at the iframe's current box (tracked in `pipeline.viewport` via
     // SetViewport), not DEFAULT — consistent with the top-level navigation fix (C1).
     let viewport = pipeline.viewport;
-    // Carry the frame's security state from the old pipeline into the re-build:
-    // the sandbox flags persist across navigation (the `<iframe sandbox>`
-    // attribute governs the browsing context, B1 fix — a sandboxed iframe
-    // without allow-same-origin gets the opaque origin even after navigation),
-    // and the depth is a property of the frame's position, not the document.
-    // Riding [`crate::FrameSecurity`] puts the installs at the pre-eval
-    // chokepoint, so the navigated document's *initial* scripts already observe
-    // them (S5-4b) — previously this re-build evaluated the scripts with the
-    // URL-derived tuple origin and no flags, then installed after the fact.
-    let sandbox = pipeline.runtime.bridge().sandbox_flags();
-    let security = crate::FrameSecurity {
-        origin: apply_sandbox_origin_from_flags(
-            elidex_plugin::SecurityOrigin::from_url(url),
-            sandbox,
-        ),
-        sandbox_flags: sandbox,
-        iframe_depth: pipeline.runtime.bridge().iframe_depth(),
+    // Carry the frame's *persistent* security state from the old pipeline into
+    // the re-build — these are properties of the browsing context / frame, not
+    // of the retired document, so they survive the navigation:
+    //   - sandbox flags: the `<iframe sandbox>` attribute governs the context
+    //     (a sandboxed iframe without allow-same-origin stays opaque);
+    //   - credentialless: a credentialless context keeps its opaque origin
+    //     across navigations (F-c) — hardcoding `false` here regained a tuple
+    //     origin on navigation;
+    //   - depth: a property of the frame's position;
+    //   - referrer: the parent document URL (§4.8.5), unchanged by a same-frame
+    //     navigation (the OOP path never set it pre-S5-4b — F-b).
+    // The origin itself is NOT precomputed here: it must derive from the
+    // POST-redirect `loaded.url`, which only `build_pipeline_from_url` knows
+    // after resolving the fetch (F-a). Passing [`crate::FrameSecurityInputs`]
+    // defers that derivation to the builder, which then installs the resulting
+    // [`crate::FrameSecurity`] at the pre-eval chokepoint so the navigated
+    // document's *initial* scripts already observe the final origin — where
+    // previously this re-build precomputed the origin from the *requested* URL
+    // (mis-attributing redirected loads) and installed after the scripts ran.
+    let bridge = pipeline.runtime.bridge();
+    let inputs = crate::FrameSecurityInputs {
+        sandbox_flags: bridge.sandbox_flags(),
+        credentialless: bridge.credentialless(),
+        iframe_depth: bridge.iframe_depth(),
+        referrer: bridge.referrer(),
     };
-    match crate::build_pipeline_from_url(url, viewport, Some(security)) {
+    match crate::build_pipeline_from_url(url, viewport, Some(inputs)) {
         Ok(new_pipeline) => {
             *pipeline = new_pipeline;
             let _ = channel.send(IframeToBrowser::DisplayListReady(

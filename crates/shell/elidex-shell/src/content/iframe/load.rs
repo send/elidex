@@ -29,14 +29,20 @@ pub fn load_iframe(
     iframe_data: &elidex_ecs::IframeData,
     ctx: &IframeLoadContext<'_>,
 ) -> IframeEntry {
+    // Parse sandbox flags once, before the depth guard — every path (including
+    // the guard's blank fallback) reuses them without re-parsing.
+    let sandbox_flags = parse_sandbox(iframe_data);
+
     // Guard against excessive iframe nesting (DoS prevention).
     if ctx.depth >= elidex_plugin::MAX_IFRAME_DEPTH {
         eprintln!("iframe nesting exceeds MAX_IFRAME_DEPTH ({})", ctx.depth);
-        return blank_entry(SecurityOrigin::opaque(), iframe_data, ctx);
+        return blank_entry(
+            SecurityOrigin::opaque(),
+            sandbox_flags,
+            iframe_data.credentialless,
+            ctx,
+        );
     }
-
-    // Parse sandbox flags once — used by both origin override and meta construction.
-    let sandbox_flags = parse_sandbox(iframe_data);
 
     // A real `src` URL (srcdoc absent — srcdoc takes precedence): network load,
     // with its origin derived from the loaded URL inside.
@@ -50,28 +56,26 @@ pub fn load_iframe(
 
     // srcdoc / about:blank / no-src documents inherit the parent origin
     // (WHATWG HTML §4.8.5), with sandbox / credentialless opaqueness applied.
-    // Computed BEFORE the pipeline build: the build runs the initial scripts,
-    // which must already observe this origin (see `FrameSecurity`).
-    let inherited_origin = apply_sandbox_origin(
-        ctx.parent_origin.clone(),
-        sandbox_flags,
-        iframe_data.credentialless,
-    );
+    // Computed BEFORE the pipeline build (via `frame_security`): the build runs
+    // the initial scripts, which must already observe this origin — and the
+    // referrer, both installed at the pre-eval chokepoint (see `FrameSecurity`).
     let content = iframe_data.srcdoc.as_deref().unwrap_or("");
     let pipeline = build_iframe_pipeline(
         content,
         ctx.parent_url.cloned(),
         ctx,
-        frame_security(inherited_origin, sandbox_flags, ctx),
+        frame_security(
+            parent_inherited_origin(iframe_data, sandbox_flags, ctx),
+            sandbox_flags,
+            iframe_data.credentialless,
+            ctx,
+        ),
     );
 
-    let entry = make_in_process_entry(pipeline);
-    set_referrer(&entry, ctx);
-    entry
+    make_in_process_entry(pipeline)
 }
 
 /// Load an iframe from a URL, handling security checks and origin-based dispatch.
-#[allow(clippy::cast_precision_loss)]
 fn load_iframe_from_url(
     src: &str,
     iframe_data: &elidex_ecs::IframeData,
@@ -85,12 +89,9 @@ fn load_iframe_from_url(
     let Ok(resolved) = base.join(src) else {
         eprintln!("iframe: invalid src URL: {src}");
         return blank_entry(
-            apply_sandbox_origin(
-                ctx.parent_origin.clone(),
-                sandbox_flags,
-                iframe_data.credentialless,
-            ),
-            iframe_data,
+            parent_inherited_origin(iframe_data, sandbox_flags, ctx),
+            sandbox_flags,
+            iframe_data.credentialless,
             ctx,
         );
     };
@@ -117,7 +118,12 @@ fn load_iframe_from_url(
                     "iframe blocked by frame-ancestors/X-Frame-Options: {}",
                     loaded.url
                 );
-                return blank_entry(SecurityOrigin::opaque(), iframe_data, ctx);
+                return blank_entry(
+                    SecurityOrigin::opaque(),
+                    sandbox_flags,
+                    iframe_data.credentialless,
+                    ctx,
+                );
             }
 
             let origin =
@@ -126,7 +132,7 @@ fn load_iframe_from_url(
             if ctx.parent_origin != &origin {
                 return make_out_of_process_entry(
                     loaded,
-                    frame_security(origin, sandbox_flags, ctx),
+                    frame_security(origin, sandbox_flags, iframe_data.credentialless, ctx),
                     ctx.device_facts,
                 );
             }
@@ -177,38 +183,28 @@ fn load_iframe_from_url(
                 ctx.device_facts,
                 // Security installs precede the initial scripts run inside this
                 // build (see `FrameSecurity`).
-                Some(frame_security(origin, sandbox_flags, ctx)),
+                Some(frame_security(
+                    origin,
+                    sandbox_flags,
+                    iframe_data.credentialless,
+                    ctx,
+                )),
             );
             // Keep credentialless broker alive for the iframe pipeline's lifetime.
             if let Some(cb) = credentialless_broker {
                 pipeline.broker_keepalive = Some(cb);
             }
-            let entry = make_in_process_entry(pipeline);
-            set_referrer(&entry, ctx);
-            entry
+            make_in_process_entry(pipeline)
         }
         Err(e) => {
             eprintln!("iframe load error: {e}");
             blank_entry(
-                apply_sandbox_origin(
-                    ctx.parent_origin.clone(),
-                    sandbox_flags,
-                    iframe_data.credentialless,
-                ),
-                iframe_data,
+                parent_inherited_origin(iframe_data, sandbox_flags, ctx),
+                sandbox_flags,
+                iframe_data.credentialless,
                 ctx,
             )
         }
-    }
-}
-
-/// Set the referrer to the parent document's URL (WHATWG HTML §4.8.5).
-fn set_referrer(entry: &IframeEntry, ctx: &IframeLoadContext<'_>) {
-    if let IframeHandle::InProcess(ref ip) = entry.handle {
-        ip.pipeline
-            .runtime
-            .bridge()
-            .set_referrer(ctx.parent_url.map(url::Url::to_string));
     }
 }
 
@@ -303,17 +299,21 @@ pub(in crate::content) fn make_out_of_process_entry(
 ///
 /// Used when iframe loading fails, is blocked by security headers,
 /// or exceeds the nesting depth limit. Always same-origin (`InProcess`).
+///
+/// The caller passes the already-parsed `sandbox_flags` and the `credentialless`
+/// flag — every call site holds them, so this fallback never re-parses the
+/// `sandbox` attribute.
 fn blank_entry(
     origin: SecurityOrigin,
-    iframe_data: &elidex_ecs::IframeData,
+    sandbox_flags: Option<IframeSandboxFlags>,
+    credentialless: bool,
     ctx: &IframeLoadContext<'_>,
 ) -> IframeEntry {
-    let sandbox_flags = parse_sandbox(iframe_data);
     make_in_process_entry(build_iframe_pipeline(
         "",
         ctx.parent_url.cloned(),
         ctx,
-        frame_security(origin, sandbox_flags, ctx),
+        frame_security(origin, sandbox_flags, credentialless, ctx),
     ))
 }
 
@@ -331,16 +331,40 @@ fn parse_sandbox(iframe_data: &elidex_ecs::IframeData) -> Option<IframeSandboxFl
 
 /// Bundle the security state an iframe build (in-process or OOP-thread)
 /// installs **before** its initial scripts run (see [`crate::FrameSecurity`]).
+///
+/// The referrer is the parent document URL (WHATWG HTML §4.8.5); it rides the
+/// same pre-eval chokepoint as origin/flags/depth so the initial scripts read a
+/// populated `document.referrer`.
 fn frame_security(
     origin: SecurityOrigin,
     sandbox_flags: Option<IframeSandboxFlags>,
+    credentialless: bool,
     ctx: &IframeLoadContext<'_>,
 ) -> crate::FrameSecurity {
     crate::FrameSecurity {
         origin,
         sandbox_flags,
         iframe_depth: ctx.depth,
+        credentialless,
+        referrer: ctx.parent_url.map(url::Url::to_string),
     }
+}
+
+/// Parent-inherited origin with sandbox / credentialless opaqueness applied.
+///
+/// The srcdoc / about:blank / no-src documents and the invalid-src / load-error
+/// fallbacks all inherit the parent origin the same way (WHATWG HTML §4.8.5),
+/// so this collapses the repeated `apply_sandbox_origin(parent_origin, …)`.
+fn parent_inherited_origin(
+    iframe_data: &elidex_ecs::IframeData,
+    sandbox_flags: Option<IframeSandboxFlags>,
+    ctx: &IframeLoadContext<'_>,
+) -> SecurityOrigin {
+    apply_sandbox_origin(
+        ctx.parent_origin.clone(),
+        sandbox_flags,
+        iframe_data.credentialless,
+    )
 }
 
 /// Build an iframe pipeline from HTML content, sharing the parent's resources.
@@ -413,7 +437,11 @@ pub(super) fn check_framing_allowed(
 ///
 /// If sandbox is present without `allow-same-origin`, or if the iframe is
 /// `credentialless`, returns an opaque origin. Otherwise returns the input origin.
-fn apply_sandbox_origin(
+///
+/// `pub(crate)` so the post-redirect origin derivation
+/// ([`crate::FrameSecurityInputs::into_frame_security`]) reuses this single
+/// policy for the URL-loading rebuild instead of duplicating it.
+pub(crate) fn apply_sandbox_origin(
     origin: SecurityOrigin,
     sandbox_flags: Option<IframeSandboxFlags>,
     credentialless: bool,
@@ -427,15 +455,4 @@ fn apply_sandbox_origin(
         return SecurityOrigin::opaque();
     }
     origin
-}
-
-/// Apply sandbox origin override from pre-parsed flags (B1 fix).
-///
-/// Used by the OOP iframe thread on `Navigate`, where credentialless status
-/// is not available — only the pre-parsed `IframeSandboxFlags` from the bridge.
-pub(super) fn apply_sandbox_origin_from_flags(
-    origin: SecurityOrigin,
-    sandbox: Option<IframeSandboxFlags>,
-) -> SecurityOrigin {
-    apply_sandbox_origin(origin, sandbox, false)
 }

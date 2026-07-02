@@ -49,6 +49,21 @@ impl HostBridge {
         self.inner.borrow().iframe.referrer.clone()
     }
 
+    /// Set whether this document loads in a `credentialless` iframe.
+    ///
+    /// Persisted (like the sandbox flags) so a same-frame navigation can
+    /// re-derive the opaque origin a credentialless browsing context keeps
+    /// across navigations.
+    pub fn set_credentialless(&self, credentialless: bool) {
+        self.inner.borrow_mut().iframe.credentialless = credentialless;
+    }
+
+    /// Get whether this document loads in a `credentialless` iframe.
+    #[must_use]
+    pub fn credentialless(&self) -> bool {
+        self.inner.borrow().iframe.credentialless
+    }
+
     /// Set sandbox flags for this document (if inside a sandboxed iframe).
     pub fn set_sandbox_flags(&self, flags: Option<elidex_plugin::IframeSandboxFlags>) {
         self.inner.borrow_mut().iframe.sandbox_flags = flags;

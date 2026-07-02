@@ -49,6 +49,17 @@
 //! seam but is not drivable here (`build_pipeline_from_url` spawns a real
 //! network broker), so its ordering is guaranteed by the shared chokepoint
 //! rather than a dedicated test.
+//!
+//! **Navigate origin derivation (F-a/F-c).** `handle_navigate` no longer
+//! precomputes the origin from the *requested* URL; it hands
+//! `FrameSecurityInputs` to `build_pipeline_from_url`, which derives
+//! `FrameSecurity.origin` from the **post-redirect** `loaded.url`
+//! (`FrameSecurityInputs::into_frame_security`) with the persisted
+//! credentialless flag applied. The full path (redirect follow) needs the live
+//! broker `build_pipeline_from_url` spawns — unreachable here — so the
+//! `navigate_inputs_*` unit tests pin the reachable equivalent: the derivation
+//! reads the loaded (final) URL, not the requested one, and a credentialless
+//! frame stays opaque across the navigation.
 
 use super::iframe::{
     make_out_of_process_entry, BrowserToIframe, IframeEntry, IframeHandle, IframeToBrowser,
@@ -277,6 +288,50 @@ fn blank_entry_fallback_installs_sandbox_state() {
     );
 }
 
+/// F-b: the referrer rides the pre-eval chokepoint, so the iframe's *initial*
+/// script reads the parent document URL as `document.referrer` (WHATWG HTML
+/// §4.8.5), not the empty default. Pre-fix, `set_referrer` ran only AFTER the
+/// pipeline build had already evaluated the initial scripts, so an initial-load
+/// script saw `""`. Falsify by reverting the fold into `FrameSecurity`.
+#[test]
+fn iframe_initial_script_observes_parent_referrer() {
+    let (state, _browser) = build_test_content_state_with_url(
+        r#"<iframe srcdoc='<div id="p"></div><script>document.getElementById("p").setAttribute("data-ref",document.referrer);</script>'></iframe>"#,
+        url::Url::parse("https://parent.example/").unwrap(),
+    );
+    let ip = in_process_entry(&state);
+    assert_eq!(
+        probe_attr(&ip.pipeline, "p", "data-ref").as_deref(),
+        Some("https://parent.example/"),
+        "the initial script must read the parent URL as document.referrer, not the empty default"
+    );
+}
+
+/// F-c (persistence half): a `credentialless` iframe stores the flag on its
+/// bridge and carries the opaque origin. The persisted flag is exactly what the
+/// OOP `Navigate` re-build reads (`bridge.credentialless()`) to keep the origin
+/// opaque across a navigation — see the `navigate_inputs_*` unit tests for the
+/// derivation half. Pre-S5-4b the bridge held no credentialless bit at all.
+#[test]
+fn credentialless_iframe_persists_flag_and_opaque_origin() {
+    let (state, _browser) = build_test_content_state_with_url(
+        r#"<iframe credentialless srcdoc='<div id="p"></div>'></iframe>"#,
+        url::Url::parse("https://parent.example/").unwrap(),
+    );
+    let ip = in_process_entry(&state);
+    assert!(
+        ip.pipeline.runtime.bridge().credentialless(),
+        "a credentialless iframe must persist the flag on its bridge"
+    );
+    assert!(
+        matches!(
+            ip.pipeline.runtime.bridge().origin(),
+            elidex_plugin::SecurityOrigin::Opaque(_)
+        ),
+        "credentialless yields an opaque origin"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // OOP path (see the module doc for reachability + oracle notes)
 // ---------------------------------------------------------------------------
@@ -363,6 +418,8 @@ fn oop_iframe_flags_installed_before_initial_scripts() {
             origin: elidex_plugin::SecurityOrigin::opaque(),
             sandbox_flags: Some(elidex_plugin::IframeSandboxFlags::empty()),
             iframe_depth: 1,
+            credentialless: false,
+            referrer: None,
         },
         crate::ipc::DeviceFacts::default(),
     );
@@ -395,6 +452,8 @@ fn oop_sandboxed_iframe_initial_script_observes_opaque_origin() {
             origin: elidex_plugin::SecurityOrigin::opaque(),
             sandbox_flags: Some(elidex_plugin::IframeSandboxFlags::ALLOW_SCRIPTS),
             iframe_depth: 1,
+            credentialless: false,
+            referrer: None,
         },
         crate::ipc::DeviceFacts::default(),
     );
@@ -429,6 +488,8 @@ fn oop_unsandboxed_iframe_initial_script_observes_tuple_origin() {
             origin: elidex_plugin::SecurityOrigin::from_url(&url::Url::parse(url).unwrap()),
             sandbox_flags: None,
             iframe_depth: 1,
+            credentialless: false,
+            referrer: None,
         },
         crate::ipc::DeviceFacts::default(),
     );
@@ -442,5 +503,70 @@ fn oop_unsandboxed_iframe_initial_script_observes_tuple_origin() {
     assert_eq!(
         posts[0].1, "https://other.example",
         "an unsandboxed cross-origin document keeps its URL-derived tuple origin"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Navigate origin derivation — post-redirect + credentialless (F-a / F-c)
+// ---------------------------------------------------------------------------
+// Reachable equivalent of the OOP `Navigate` re-build (the full redirect-follow
+// path needs the live broker `build_pipeline_from_url` spawns — see module doc).
+// `handle_navigate` builds `FrameSecurityInputs` from the persisted bridge state
+// and the builder resolves the origin via `into_frame_security(&loaded.url)`.
+
+/// F-a: the navigated document's origin comes from the **post-redirect**
+/// `loaded.url`, not the requested URL. A load whose fetch resolves to
+/// `https://final.example/` must attribute the document there — pre-fix,
+/// `handle_navigate` derived the origin from the *requested* URL before the
+/// fetch, mis-attributing any redirected load. Falsify: deriving from a
+/// different (requested) URL yields a different origin.
+#[test]
+fn navigate_inputs_derive_origin_from_loaded_url() {
+    let inputs = crate::FrameSecurityInputs {
+        sandbox_flags: None,
+        credentialless: false,
+        iframe_depth: 2,
+        referrer: Some("https://parent.example/".to_string()),
+    };
+    let loaded = url::Url::parse("https://final.example/page").unwrap();
+    let security = inputs.into_frame_security(&loaded);
+    assert_eq!(
+        security.origin.serialize(),
+        "https://final.example",
+        "origin must be derived from the post-redirect loaded URL, not the requested one"
+    );
+    // The persisted frame facts ride through the rebuild unchanged.
+    assert_eq!(
+        security.referrer.as_deref(),
+        Some("https://parent.example/")
+    );
+    assert_eq!(security.iframe_depth, 2);
+    assert!(!security.credentialless);
+}
+
+/// F-c (derivation half): a credentialless frame keeps its opaque origin across
+/// a navigation even when the loaded URL is a real tuple. Pre-fix,
+/// `handle_navigate` hardcoded `credentialless = false` into the origin
+/// derivation, so a credentialless frame regained a tuple origin on navigation.
+/// Falsify: dropping the credentialless input yields the `https://final.example`
+/// tuple.
+#[test]
+fn navigate_inputs_credentialless_stays_opaque() {
+    let inputs = crate::FrameSecurityInputs {
+        sandbox_flags: None,
+        credentialless: true,
+        iframe_depth: 1,
+        referrer: None,
+    };
+    let loaded = url::Url::parse("https://final.example/page").unwrap();
+    let security = inputs.into_frame_security(&loaded);
+    assert!(
+        matches!(security.origin, elidex_plugin::SecurityOrigin::Opaque(_)),
+        "a credentialless frame must keep an opaque origin after navigation, got {:?}",
+        security.origin
+    );
+    assert!(
+        security.credentialless,
+        "the credentialless flag rides through so the NEXT navigation stays opaque too"
     );
 }

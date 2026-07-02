@@ -41,6 +41,58 @@ pub struct FrameSecurity {
     pub sandbox_flags: Option<elidex_plugin::IframeSandboxFlags>,
     /// Iframe nesting depth (`MAX_IFRAME_DEPTH` enforcement across `EcsDom`s).
     pub iframe_depth: usize,
+    /// Whether this is a `credentialless` iframe. Persisted on the bridge (like
+    /// the sandbox flags) so a same-frame navigation can re-derive the opaque
+    /// origin a credentialless browsing context keeps across navigations. Note
+    /// the credentialless→opaque-origin semantics itself is pre-existing
+    /// (`apply_sandbox_origin`, predates S5-4b); `FrameSecurity` only carries
+    /// the flag so `Navigate` stays consistent with the initial load.
+    pub credentialless: bool,
+    /// The document's referrer — the parent document URL for an iframe (WHATWG
+    /// HTML §4.8.5). Installed at the same pre-eval chokepoint as origin/flags
+    /// so the initial scripts read a populated `document.referrer` instead of
+    /// `""`. `None` = no referrer (top-level, or parent has no URL).
+    pub referrer: Option<String>,
+}
+
+/// Deferred inputs for deriving a (sub-)frame's [`FrameSecurity`] **after** the
+/// document loads — used by the URL-loading rebuild (`build_pipeline_from_url`,
+/// the OOP iframe `Navigate` path) where the origin must come from the final
+/// post-redirect `loaded.url`, not the requested URL (S5-4b F-a/F-c). The
+/// srcdoc / inherited-origin paths derive their origin before the build and
+/// pass a fully-formed [`FrameSecurity`] instead.
+pub struct FrameSecurityInputs {
+    /// Parsed `sandbox` attribute flags (`None` = no `sandbox` attribute).
+    pub sandbox_flags: Option<elidex_plugin::IframeSandboxFlags>,
+    /// Whether this is a `credentialless` iframe (opaques the origin).
+    pub credentialless: bool,
+    /// Iframe nesting depth.
+    pub iframe_depth: usize,
+    /// Referrer URL (parent document URL); carried across the rebuild unchanged.
+    pub referrer: Option<String>,
+}
+
+impl FrameSecurityInputs {
+    /// Derive the [`FrameSecurity`] from the **post-redirect** loaded URL: the
+    /// origin is `apply_sandbox_origin(from_url(loaded_url), flags, credentialless)`
+    /// — the exact derivation the initial OOP load performs on `loaded.url`
+    /// (`content/iframe/load.rs`), so `Navigate` attributes the navigated
+    /// document to the URL it actually resolved to (post-redirect), and a
+    /// credentialless frame keeps its opaque origin.
+    #[must_use]
+    pub fn into_frame_security(self, loaded_url: &url::Url) -> FrameSecurity {
+        FrameSecurity {
+            origin: crate::content::iframe::apply_sandbox_origin(
+                elidex_plugin::SecurityOrigin::from_url(loaded_url),
+                self.sandbox_flags,
+                self.credentialless,
+            ),
+            sandbox_flags: self.sandbox_flags,
+            iframe_depth: self.iframe_depth,
+            credentialless: self.credentialless,
+            referrer: self.referrer,
+        }
+    }
 }
 
 /// Flush pending DOM mutations and drain custom element reactions.
@@ -140,6 +192,13 @@ pub(super) fn run_scripts_and_finalize(
         runtime.bridge().set_sandbox_flags(security.sandbox_flags);
         runtime.bridge().set_origin(security.origin);
         runtime.bridge().set_iframe_depth(security.iframe_depth);
+        runtime.bridge().set_credentialless(security.credentialless);
+        // Referrer rides the same pre-eval install so the initial scripts read a
+        // populated `document.referrer` (the parent document URL, §4.8.5), not
+        // the empty default — previously a post-build `set_referrer` landed it
+        // only after the initial scripts had already run (and never on the OOP
+        // path).
+        runtime.bridge().set_referrer(security.referrer);
     }
 
     // Seed the JS bridge viewport + device facts BEFORE running scripts so initial

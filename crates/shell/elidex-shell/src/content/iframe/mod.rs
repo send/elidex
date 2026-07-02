@@ -30,6 +30,11 @@ pub(super) use lifecycle::{
 // synthesized `LoadedDocument`.
 #[cfg(test)]
 pub(super) use load::make_out_of_process_entry;
+// The sandbox / credentialless origin-override policy — invoked by
+// `FrameSecurityInputs::into_frame_security` (`pipeline.rs`) so the URL-loading
+// rebuild derives its origin from the post-redirect `loaded.url` the same way
+// the initial OOP load does.
+pub(crate) use load::apply_sandbox_origin;
 pub(super) use render::{re_render_all_iframes, tick_iframe_timers};
 pub(super) use thread::{click_event_types, mouse_event_init_from_click};
 pub use types::*;

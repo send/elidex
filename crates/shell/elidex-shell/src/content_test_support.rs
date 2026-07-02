@@ -62,6 +62,26 @@ pub(super) fn spawn_test_content_sized(
     spawn_content_thread(content, nh, jar, html, css, viewport_cell, Box::new(|| {}))
 }
 
+/// Shared setup **head** of the two `build_test_content_state*` builders: a
+/// browser/content channel pair, a disconnected network handle, and the DEFAULT
+/// viewport. Each builder constructs its own `PipelineResult` over these
+/// (differing only in the `build_pipeline_*` entry point / cookie jar / URL),
+/// then hands it to the shared [`finalize_test_content_state`] tail.
+fn test_content_scaffold() -> (
+    LocalChannel<BrowserToContent, ContentToBrowser>,
+    LocalChannel<ContentToBrowser, BrowserToContent>,
+    std::rc::Rc<elidex_net::broker::NetworkHandle>,
+    elidex_plugin::Size,
+) {
+    let (browser, content) = crate::ipc::channel_pair::<BrowserToContent, ContentToBrowser>();
+    let nh = std::rc::Rc::new(elidex_net::broker::NetworkHandle::disconnected());
+    let viewport = elidex_plugin::Size::new(
+        crate::DEFAULT_VIEWPORT_WIDTH,
+        crate::DEFAULT_VIEWPORT_HEIGHT,
+    );
+    (browser, content, nh, viewport)
+}
+
 /// Build a `ContentState` directly (over a disconnected network handle) for tests
 /// that drive the content thread **synchronously on the test thread** — e.g.
 /// iframe lifecycle, or `run_event_loop` shutdown handling (the pipeline is
@@ -76,13 +96,8 @@ pub(super) fn build_test_content_state(
     ContentState,
     LocalChannel<BrowserToContent, ContentToBrowser>,
 ) {
-    let (browser, content) = crate::ipc::channel_pair::<BrowserToContent, ContentToBrowser>();
-    let nh = std::rc::Rc::new(elidex_net::broker::NetworkHandle::disconnected());
+    let (browser, content, nh, viewport) = test_content_scaffold();
     let jar = std::sync::Arc::new(elidex_net::CookieJar::new());
-    let viewport = elidex_plugin::Size::new(
-        crate::DEFAULT_VIEWPORT_WIDTH,
-        crate::DEFAULT_VIEWPORT_HEIGHT,
-    );
     let pipeline = crate::build_pipeline_interactive_with_network(
         html,
         css,
@@ -110,12 +125,7 @@ pub(super) fn build_test_content_state_with_url(
     ContentState,
     LocalChannel<BrowserToContent, ContentToBrowser>,
 ) {
-    let (browser, content) = crate::ipc::channel_pair::<BrowserToContent, ContentToBrowser>();
-    let nh = std::rc::Rc::new(elidex_net::broker::NetworkHandle::disconnected());
-    let viewport = elidex_plugin::Size::new(
-        crate::DEFAULT_VIEWPORT_WIDTH,
-        crate::DEFAULT_VIEWPORT_HEIGHT,
-    );
+    let (browser, content, nh, viewport) = test_content_scaffold();
     let pipeline = crate::build_pipeline_interactive_shared(
         html,
         Some(url),
