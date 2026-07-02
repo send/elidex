@@ -658,3 +658,51 @@ fn step1_gate_does_not_suppress_bound_document_targets() {
         assert!(eval_bool(vm, "globalThis.windowRan"));
     });
 }
+
+// ---- S5-4a (PR #444 Codex R2): adopt-equivalent clause (b) — a DOMParser
+// node APPENDED into the bound document's tree is NOT suppressed. elidex's
+// insertion path does not run DOM §4.2.3 pre-insert adoption (append_child
+// relinks; `AssociatedDocument` stays stale = doc2), so the predicate must
+// resolve the node document via the composed tree root (the `isConnected`
+// query): in-tree ⇒ the bound document, spec-adopt-equivalently. The missing
+// insertion-adoption itself is defer slot `#11-cross-document-adopt-on-insert`. ----
+#[test]
+fn appended_domparser_node_handler_runs_adopt_equivalent() {
+    with_el(|vm| {
+        vm.eval(
+            "globalThis.ran = false; \
+             var doc2 = new DOMParser().parseFromString('<div id=\"d\"></div>', 'text/html'); \
+             globalThis.d = doc2.getElementById('d'); \
+             document.appendChild(globalThis.d); \
+             globalThis.d.onclick = function () { globalThis.ran = true; }; \
+             globalThis.d.dispatchEvent(new Event('click'));",
+        )
+        .unwrap();
+        // In the bound document's tree ⇒ node document IS the bound document
+        // (a spec-correct adopt would have re-homed it) ⇒ handler runs.
+        assert!(eval_bool(vm, "globalThis.ran"));
+    });
+}
+
+// ---- S5-4a (PR #444 Codex R2): the adopt-equivalence is tree-membership,
+// not a one-way latch — removing the node detaches it with its stale
+// `AssociatedDocument` (doc2) intact, so clause (b) suppresses again. ----
+#[test]
+fn appended_then_removed_domparser_node_suppressed_again() {
+    with_el(|vm| {
+        vm.eval(
+            "globalThis.count = 0; \
+             var doc2 = new DOMParser().parseFromString('<div id=\"d\"></div>', 'text/html'); \
+             globalThis.d = doc2.getElementById('d'); \
+             globalThis.d.onclick = function () { globalThis.count += 1; }; \
+             document.appendChild(globalThis.d); \
+             globalThis.d.dispatchEvent(new Event('click')); \
+             document.removeChild(globalThis.d); \
+             globalThis.d.dispatchEvent(new Event('click'));",
+        )
+        .unwrap();
+        // First dispatch (in-tree): runs. Second (detached again, owner
+        // falls back to the stale doc2): suppressed.
+        assert_eq!(eval_str(vm, "String(globalThis.count)"), "1");
+    });
+}

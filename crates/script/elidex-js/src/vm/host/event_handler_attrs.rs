@@ -580,34 +580,16 @@ impl VmInner {
         }
     }
 
-    /// WHATWG HTML §8.1.3.4 "scripting is disabled for a platform object"
-    /// (`html#enabling-and-disabling-scripting`) — the canonical predicate
-    /// behind *the event handler processing algorithm* step 1
-    /// (`html#the-event-handler-processing-algorithm`: "If scripting is
-    /// disabled for eventTarget, then return"). Step 1 gates event HANDLERS
-    /// only (the dispatch plan's `is_handler` snapshot); plain
-    /// `addEventListener` listeners are never suppressed. `target` is the
-    /// dispatch target's entity; `None` = a non-entity platform object
-    /// (`VmObject` listener home), which gets the settings-level check only.
-    ///
-    /// Composition (marshal-scale — two reads + a compare; the settings-level
-    /// rule lives engine-independent in [`elidex_plugin::sandbox`]):
-    ///
-    /// - **settings-level**: `scripting_enabled(sandbox_flags)`;
-    /// - **clause (b)**: target is a `Node` whose node document is not the
-    ///   bound document — in the single-browsing-context VM model exactly
-    ///   those documents have a null browsing context (`DOMParser` /
-    ///   cloned / fragment-parse documents);
-    /// - **clause (c)** (`Window`) never fires today: the Window entity is
-    ///   not a Node and its associated document IS the bound document while
-    ///   bound.
-    ///
-    /// A Node whose owner document is unresolvable fails OPEN (not
-    /// suppressed): such nodes belong to the bound document's realm by
-    /// construction, and failing closed would regress handlers on
-    /// parser-built nodes that scripts detach. Caveats: detached-iframe
-    /// documents = unreachable in the single-BC model; the `<template>`
-    /// contents false-negative rides `#11-template-contents-owner-document`.
+    /// WHATWG HTML §8.1.3.4 "scripting is disabled for a platform object" —
+    /// thin marshal wrapper (Layering mandate: `vm/host/` marshals, the
+    /// HTML algorithm lives engine-independent): read the bound `HostData`
+    /// state (`sandbox_flags` / `document_entity_opt`), borrow the DOM, and
+    /// delegate to the canonical composition in
+    /// [`elidex_script_session::scripting::scripting_disabled_for_platform_object`]
+    /// (settings-level clause ∧ platform-object clause (b), incl. the
+    /// adopt-equivalent node-document resolution and the fail-open bounds —
+    /// see its doc-comment). `target = None` = a non-entity platform object
+    /// (`VmObject` listener home) → settings-level check only.
     pub(crate) fn scripting_disabled_for_platform_object(
         &mut self,
         target: Option<elidex_ecs::Entity>,
@@ -617,31 +599,24 @@ impl VmInner {
             // dispatch walk (dispatch requires a bound VM); fail open.
             return false;
         };
-        if !elidex_plugin::sandbox::scripting_enabled(host.sandbox_flags()) {
-            return true;
+        let flags = host.sandbox_flags();
+        if !host.is_bound() {
+            // HostData present but no DOM bound (VmObject-only dispatch —
+            // e.g. AbortSignal / FileReader handlers on a DOM-less VM):
+            // there is no `&EcsDom` to marshal, and the session fn's own
+            // document-less path is exactly the settings-level verdict, so
+            // apply that verdict directly. Not a composition fork — the
+            // single settings-level rule in `elidex_plugin::sandbox` is
+            // what both paths evaluate.
+            return !elidex_plugin::sandbox::scripting_enabled(flags);
         }
-        let (Some(entity), Some(document)) = (target, host.document_entity_opt()) else {
-            return false;
-        };
-        let dom = host.dom();
-        // Clause (b) applies to objects implementing `Node` only — Window /
-        // Worker / OffscreenCanvas entities (`is_node() == false`) and
-        // non-DOM entities fall through to the settings-level verdict.
-        // `node_kind_inferred` (the crate's brand-check convention, cf.
-        // `node_proto.rs` / `dom_bridge.rs`) also covers legacy entities
-        // carrying `TagType`/`TextContent` but no `NodeKind` component, so
-        // a NodeKind-less node of a null-BC document is still suppressed.
-        match dom.node_kind_inferred(entity) {
-            Some(NodeKind::Document) => entity != document,
-            Some(kind) if kind.is_node() => {
-                // `owner_document` = the node document for non-Document nodes
-                // (WHATWG DOM §4.4); `None` = unresolvable → fail open (see
-                // the doc-comment bounds).
-                dom.owner_document(entity)
-                    .is_some_and(|node_doc| node_doc != document)
-            }
-            _ => false,
-        }
+        let document = host.document_entity_opt();
+        elidex_script_session::scripting_disabled_for_platform_object(
+            host.dom(),
+            target,
+            document,
+            flags,
+        )
     }
 }
 

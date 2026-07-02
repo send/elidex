@@ -709,6 +709,15 @@ compile gate (:554-560) is *re-keyed verbatim* onto the canonical predicate — 
 **flag clause only** (spec step 3.2 tests the sandbox flag, NOT full scripting-disabled — §2.7-C1;
 the comment already says so, keep it).
 
+**⚠ CORRECTION (external review, PR #444 Codex R2)**: (1) the platform-object composition was
+relocated to engine-indep `elidex-script-session::scripting` (Layering: the `VmInner` predicate is
+now a marshal wrapper reading `HostData` state and delegating); (2) clause (b) hardened with the
+**adopt-equivalent tree-root rule** — elidex's insertion path lacks DOM §4.2.3 pre-insert adoption
+(`append_child` relinks without re-homing `AssociatedDocument`), so a `DOMParser` node appended
+into the bound document kept a stale owner and was wrongly suppressed; the predicate now treats a
+node whose composed tree root IS the bound document as having the bound document as its node
+document. The missing insertion-adoption is carved as `#11-cross-document-adopt-on-insert`.
+
 **Tests**: plugin truth tables (None/Some(empty)/each bit); VM: sandboxed-no-allow-scripts doc —
 handler attr present → getter yields null + dispatch runs nothing (compile gate); compiled-then-
 disabled — handler compiled while enabled, then dispatch under clause-(b) conditions → suppressed

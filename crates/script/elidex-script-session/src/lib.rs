@@ -20,6 +20,7 @@ pub mod event_queue;
 mod identity_map;
 mod mutation;
 mod navigation;
+pub mod scripting;
 mod session;
 mod types;
 
@@ -50,5 +51,6 @@ pub use mutation::{
     OuterHtmlError, SetInnerHtmlOptions,
 };
 pub use navigation::{HistoryAction, NavigationRequest};
+pub use scripting::scripting_disabled_for_platform_object;
 pub use session::{CssomSheetState, SessionCore};
 pub use types::{ComponentKind, DomApiError, DomApiErrorKind, JsObjectRef, ReadyState};
