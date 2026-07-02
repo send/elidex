@@ -196,6 +196,28 @@ impl ResizeObserverRegistry {
         self.registered.remove(&id);
     }
 
+    /// Drop the registry-internal bookkeeping for an observer whose JS wrapper
+    /// was GC-collected (binding row swept). Dom-free: a GC-collected observer is
+    /// guaranteed non-observing (its observation components are already gone), so
+    /// no target-list scrub is needed — mirrors the mutation registry's
+    /// `clear_pending_records` rationale. Called only from the `gc/collect.rs`
+    /// binding-row sweep. Retires only the `registered` id set (RO holds no other
+    /// per-observer state; observations live on the `ResizeObservedBy`
+    /// components, already gone); `next_id` stays monotonic.
+    pub fn retire_collected(&mut self, id: ResizeObserverId) {
+        self.registered.remove(&id);
+    }
+
+    /// Number of retained observer ids. VM-integration + test oracle for the
+    /// GC-sweep [`Self::retire_collected`] retirement — `registered` has no public
+    /// reader. `#[doc(hidden)]` (not part of the supported API surface), mirroring
+    /// the mutation registry's `clear_pending_records` VM-integration marking.
+    #[doc(hidden)]
+    #[must_use]
+    pub fn registered_len(&self) -> usize {
+        self.registered.len()
+    }
+
     /// Gather resize observations by comparing current sizes against last known
     /// sizes (Resize Observer §3.4.1 "Gather active observations at depth" /
     /// §3.4.5 "Broadcast active observations").
@@ -480,6 +502,35 @@ mod tests {
             dom.world().get::<&ResizeObservedBy>(el).is_err(),
             "a retired id must not be reusable for observe"
         );
+    }
+
+    #[test]
+    fn retire_collected_drops_registered_id() {
+        // S5-3c registry-side leak fix: `retire_collected` retires the observer's
+        // `registered` id for a GC-collected wrapper (binding row pruned), so the
+        // registry does not grow monotonically. Dom-free — a collected observer is
+        // guaranteed non-observing, so no target-list scrub is needed.
+        let mut reg = ResizeObserverRegistry::new();
+        let id = reg.register();
+        assert_eq!(reg.registered_len(), 1);
+
+        reg.retire_collected(id);
+        assert_eq!(
+            reg.registered_len(),
+            0,
+            "retire_collected drops the registered id (no residual)"
+        );
+        // A retired id is not reusable for observe (mirrors unregister).
+        let mut dom = EcsDom::new();
+        let el = elem(&mut dom, "div");
+        reg.observe(&mut dom, id, el, ResizeObserverOptions::default());
+        assert!(
+            dom.world().get::<&ResizeObservedBy>(el).is_err(),
+            "a retired id must not be reusable for observe"
+        );
+        // next_id stays monotonic across the retire.
+        let id2 = reg.register();
+        assert_ne!(id2.raw(), id.raw());
     }
 
     // --- observing_observer_ids (the S5-3c GC-keepalive membership query) ---

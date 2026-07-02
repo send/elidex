@@ -358,6 +358,31 @@ impl MutationObserverRegistry {
         self.pending.retain(|o| *o != id);
     }
 
+    /// Drop the registry-internal bookkeeping for an observer whose JS wrapper
+    /// was GC-collected (binding row swept). Dom-free: a GC-collected observer is
+    /// guaranteed non-observing (its observation components are already gone), so
+    /// no target-list scrub is needed — mirrors [`Self::clear_pending_records`]'s
+    /// rationale. Called only from the `gc/collect.rs` binding-row sweep.
+    ///
+    /// Removes the (necessarily empty — a collected observer is non-pending, so
+    /// its record queue drained) `records` row and its `pending` membership.
+    /// `next_id` is left untouched (monotonic id allocator).
+    pub fn retire_collected(&mut self, id: MutationObserverId) {
+        self.records.remove(&id);
+        self.pending.retain(|o| *o != id);
+    }
+
+    /// Number of registry-internal `records` rows (one per still-registered
+    /// observer). VM-integration + test oracle for the GC-sweep
+    /// [`Self::retire_collected`] retirement — the private `records` map has no
+    /// public reader. `#[doc(hidden)]` (not part of the supported API surface),
+    /// mirroring [`Self::clear_pending_records`]'s VM-integration-helper marking.
+    #[doc(hidden)]
+    #[must_use]
+    pub fn records_len(&self) -> usize {
+        self.records.len()
+    }
+
     /// Drain every observer's pending records without dropping observer ids.
     ///
     /// **Internal VM-integration helper — not a supported public API** (hence

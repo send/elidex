@@ -1981,12 +1981,62 @@ impl VmInner {
                 // when the instance is JS-reachable but idle (the predicate
                 // pushes nothing) — so whenever `instance` survives, its callback
                 // survives too.
-                hd.mutation_observer_bindings
-                    .retain(|_, b| bit_get(marks, b.instance.0));
-                hd.resize_observer_bindings
-                    .retain(|_, b| bit_get(marks, b.instance.0));
-                hd.intersection_observer_bindings
-                    .retain(|_, b| bit_get(marks, b.instance.0));
+                //
+                // Pruning the binding row alone would leave the engine-indep
+                // *registry* row for the same id (`MutationObserverRegistry`'s
+                // empty-`Vec` `records` + `pending` slot / `ResizeObserverRegistry`'s
+                // `registered` id / `IntersectionObserverRegistry`'s parsed config)
+                // growing until `Vm::unbind` — the second half of the very binding
+                // leak S5-3c fixes. So capture each pruned id while retaining and
+                // `retire_collected` it from its registry, leaving NO registry-side
+                // residual. Dom-free: an unmarked (pruned) row means the observer
+                // is NEITHER observing (no `*ObservedBy` membership → predicate did
+                // not mark it) NOR pending-records-kept, so it is guaranteed
+                // non-observing — its observation components are already gone and no
+                // `&mut EcsDom` target-list scrub is needed (which would force a
+                // redundant no-op World mutation mid-sweep). The `retire_collected`
+                // loop runs after the map `retain` borrow drops and touches a
+                // DIFFERENT `hd` field (`hd.<kind>_observers`), so the borrows are
+                // disjoint.
+                let mut pruned_mutation: Vec<u64> = Vec::new();
+                hd.mutation_observer_bindings.retain(|oid, b| {
+                    let keep = bit_get(marks, b.instance.0);
+                    if !keep {
+                        pruned_mutation.push(*oid);
+                    }
+                    keep
+                });
+                for oid in pruned_mutation {
+                    hd.mutation_observers.retire_collected(
+                        elidex_api_observers::mutation::MutationObserverId::from_raw(oid),
+                    );
+                }
+                let mut pruned_resize: Vec<u64> = Vec::new();
+                hd.resize_observer_bindings.retain(|oid, b| {
+                    let keep = bit_get(marks, b.instance.0);
+                    if !keep {
+                        pruned_resize.push(*oid);
+                    }
+                    keep
+                });
+                for oid in pruned_resize {
+                    hd.resize_observers.retire_collected(
+                        elidex_api_observers::resize::ResizeObserverId::from_raw(oid),
+                    );
+                }
+                let mut pruned_intersection: Vec<u64> = Vec::new();
+                hd.intersection_observer_bindings.retain(|oid, b| {
+                    let keep = bit_get(marks, b.instance.0);
+                    if !keep {
+                        pruned_intersection.push(*oid);
+                    }
+                    keep
+                });
+                for oid in pruned_intersection {
+                    hd.intersection_observers.retire_collected(
+                        elidex_api_observers::intersection::IntersectionObserverId::from_raw(oid),
+                    );
+                }
                 // Emit Close messages to the broker for swept
                 // connections.  Best-effort: a disconnected handle
                 // silently no-ops via `send`'s bool return.

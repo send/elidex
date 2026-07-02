@@ -383,6 +383,60 @@ fn observers_with_pending_records_tracks_nonempty_queue() {
     );
 }
 
+/// S5-3c registry-side leak fix: `retire_collected` drops the registry-internal
+/// `records` row (and any `pending` membership) for a GC-collected observer, so
+/// the registry does not grow monotonically alongside the (already-pruned)
+/// HostData binding row. Dom-free — a collected observer is guaranteed
+/// non-observing, so no target-list scrub is needed.
+#[test]
+fn retire_collected_drops_records_row() {
+    let mut dom = EcsDom::new();
+    let el = elem(&mut dom, "div");
+    let mut reg = MutationObserverRegistry::new();
+    let id = reg.register();
+    reg.observe(&mut dom, id, el, child_list_init());
+    assert_eq!(
+        reg.records_len(),
+        1,
+        "the registered observer has a records row"
+    );
+
+    // The GC-sweep retirement (id captured from a pruned binding row).
+    reg.retire_collected(id);
+    assert_eq!(
+        reg.records_len(),
+        0,
+        "retire_collected drops the registry-internal records row (no residual)"
+    );
+    // Idempotent + monotonic id preserved: re-registering yields a FRESH id
+    // (next_id untouched), and a redundant retire of an already-gone id is a no-op.
+    reg.retire_collected(id);
+    let id2 = reg.register();
+    assert_ne!(id2.raw(), id.raw(), "next_id stays monotonic across retire");
+}
+
+/// `retire_collected` also clears a stale `pending` (notifySet) membership for
+/// the collected observer, so a later delivery cycle cannot iterate a retired id.
+#[test]
+fn retire_collected_clears_pending_membership() {
+    let mut dom = EcsDom::new();
+    let el = elem(&mut dom, "div");
+    let mut reg = MutationObserverRegistry::new();
+    let id = reg.register();
+    reg.observe(&mut dom, id, el, child_list_init());
+    let child = elem(&mut dom, "span");
+    reg.notify(&dom, &child_list_added(el, vec![child]));
+    // Drain the record queue but leave the observer in the pending notifySet
+    // (models takeRecords()), then retire it.
+    let _ = reg.take_records(id);
+    reg.retire_collected(id);
+    assert!(
+        reg.take_pending_observers().is_empty(),
+        "retire_collected removes the observer from the pending notifySet"
+    );
+    assert_eq!(reg.records_len(), 0);
+}
+
 /// A `ChildList` mutation record on `target` adding `added`.
 fn child_list_added(target: Entity, added: Vec<Entity>) -> SessionRecord {
     SessionRecord {

@@ -208,6 +208,30 @@ impl IntersectionObserverRegistry {
         self.observers.remove(&id);
     }
 
+    /// Drop the registry-internal bookkeeping for an observer whose JS wrapper
+    /// was GC-collected (binding row swept). Dom-free: a GC-collected observer is
+    /// guaranteed non-observing (its observation components are already gone), so
+    /// no target-list scrub is needed — mirrors the mutation registry's
+    /// `clear_pending_records` rationale. Called only from the `gc/collect.rs`
+    /// binding-row sweep. Drops the `RegisteredObserver` config
+    /// (`IntersectionObserverInit` + parsed rootMargin — the only per-observer
+    /// state; observations live on the `IntersectionObservedBy` components,
+    /// already gone); `next_id` stays monotonic.
+    pub fn retire_collected(&mut self, id: IntersectionObserverId) {
+        self.observers.remove(&id);
+    }
+
+    /// Number of retained per-observer configs. VM-integration + test oracle for
+    /// the GC-sweep [`Self::retire_collected`] retirement — `observers` has no
+    /// public reader. `#[doc(hidden)]` (not part of the supported API surface),
+    /// mirroring the mutation registry's `clear_pending_records` VM-integration
+    /// marking.
+    #[doc(hidden)]
+    #[must_use]
+    pub fn observers_len(&self) -> usize {
+        self.observers.len()
+    }
+
     /// Scrub retained explicit-root `Entity` references in every
     /// registered observer's [`IntersectionObserverInit::root`], reverting
     /// them to `None` (implicit viewport).  Called by the embedder at
@@ -983,6 +1007,42 @@ mod tests {
         sorted.sort_unstable();
         assert_eq!(got.len(), 4);
         assert_eq!(got, sorted, "gather must deliver in id-sorted order");
+    }
+
+    #[test]
+    fn retire_collected_drops_observer_config() {
+        // S5-3c registry-side leak fix: `retire_collected` drops the observer's
+        // `RegisteredObserver` config (init + parsed rootMargin) for a GC-collected
+        // wrapper (binding row pruned), so the registry does not grow monotonically.
+        // Dom-free — a collected observer is guaranteed non-observing, so no
+        // target-list scrub is needed.
+        let mut reg = IntersectionObserverRegistry::new();
+        let id = reg
+            .register(IntersectionObserverInit {
+                root_margin: "10px".to_string(),
+                threshold: vec![0.5],
+                ..Default::default()
+            })
+            .expect("valid rootMargin");
+        assert_eq!(reg.observers_len(), 1);
+
+        reg.retire_collected(id);
+        assert_eq!(
+            reg.observers_len(),
+            0,
+            "retire_collected drops the per-observer config (no residual)"
+        );
+        // A retired id is not reusable for observe (mirrors unregister).
+        let mut dom = EcsDom::new();
+        let el = elem(&mut dom, "div");
+        reg.observe(&mut dom, id, el);
+        assert!(
+            dom.world().get::<&IntersectionObservedBy>(el).is_err(),
+            "a retired id must not be reusable for observe"
+        );
+        // next_id stays monotonic across the retire.
+        let id2 = register_default(&mut reg);
+        assert_ne!(id2.raw(), id.raw());
     }
 
     // --- observing_observer_ids (the S5-3c GC-keepalive membership query) ---
