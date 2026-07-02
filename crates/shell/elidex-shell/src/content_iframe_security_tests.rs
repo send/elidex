@@ -293,6 +293,10 @@ fn blank_entry_fallback_installs_sandbox_state() {
 /// §4.8.5), not the empty default. Pre-fix, `set_referrer` ran only AFTER the
 /// pipeline build had already evaluated the initial scripts, so an initial-load
 /// script saw `""`. Falsify by reverting the fold into `FrameSecurity`.
+///
+/// This is the **same-origin (in-process)** path: it keeps the FULL parent URL
+/// (the cross-origin OOP path trims to the parent ORIGIN — see
+/// `oop_cross_origin_iframe_initial_script_observes_parent_origin_referrer`).
 #[test]
 fn iframe_initial_script_observes_parent_referrer() {
     let (state, _browser) = build_test_content_state_with_url(
@@ -503,6 +507,48 @@ fn oop_unsandboxed_iframe_initial_script_observes_tuple_origin() {
     assert_eq!(
         posts[0].1, "https://other.example",
         "an unsandboxed cross-origin document keeps its URL-derived tuple origin"
+    );
+}
+
+/// OOP cross-origin referrer default (`strict-origin-when-cross-origin`): a
+/// cross-origin OOP iframe's initial script reads `document.referrer` == the
+/// parent's ORIGIN, not the full parent URL. The referrer rides the same
+/// pre-eval chokepoint as origin/flags (`FrameSecurity`), so the *initial*
+/// script already observes it — the probe posts `document.referrer` as its
+/// message data. The initial-load trim source (`load.rs` OOP branch →
+/// `cross_origin_referrer`) is unit-tested in `content/iframe/load.rs` and
+/// shares the same network-gated reachability as the OOP origin derivation (see
+/// the module doc), so this test pins delivery through the OOP chokepoint.
+/// Falsify by forwarding a full-URL referrer here.
+#[test]
+fn oop_cross_origin_iframe_initial_script_observes_parent_origin_referrer() {
+    let loaded = synth_cross_origin_loaded(
+        r#"<script>postMessage(document.referrer,"*");</script>"#,
+        "https://other.example/",
+    );
+    let entry = make_out_of_process_entry(
+        loaded,
+        crate::FrameSecurity {
+            origin: elidex_plugin::SecurityOrigin::from_url(
+                &url::Url::parse("https://other.example/").unwrap(),
+            ),
+            sandbox_flags: None,
+            iframe_depth: 1,
+            credentialless: false,
+            // The cross-origin default: parent ORIGIN, not the full parent URL.
+            referrer: Some("https://parent.example".to_string()),
+        },
+        crate::ipc::DeviceFacts::default(),
+    );
+    let posts = run_oop_and_collect_posts(entry);
+    assert_eq!(
+        posts.len(),
+        1,
+        "the initial script should have posted: {posts:?}"
+    );
+    assert_eq!(
+        posts[0].0, "https://parent.example",
+        "a cross-origin OOP iframe reads the parent ORIGIN as document.referrer, not the full URL"
     );
 }
 

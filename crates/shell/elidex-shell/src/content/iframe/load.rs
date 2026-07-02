@@ -130,11 +130,20 @@ fn load_iframe_from_url(
                 apply_sandbox_origin(doc_origin, sandbox_flags, iframe_data.credentialless);
 
             if ctx.parent_origin != &origin {
-                return make_out_of_process_entry(
-                    loaded,
-                    frame_security(origin, sandbox_flags, iframe_data.credentialless, ctx),
-                    ctx.device_facts,
-                );
+                // OOP ⟺ cross-origin: this branch is taken exactly when the frame
+                // origin differs from the parent's (or credentialless/opaque), so
+                // the loaded document is cross-origin to its embedder. Per the HTML
+                // referrer-policy default (`strict-origin-when-cross-origin`), a
+                // cross-origin document receives only the parent's ORIGIN as
+                // `document.referrer`, not the full parent URL (which the
+                // same-origin in-process path below keeps). The TLS-downgrade "no
+                // referrer" case and full per-request ReferrerPolicy (meta referrer,
+                // rel=noreferrer, Referrer-Policy header) are deferred → slot
+                // #11-referrer-policy.
+                let mut security =
+                    frame_security(origin, sandbox_flags, iframe_data.credentialless, ctx);
+                security.referrer = cross_origin_referrer(ctx.parent_origin);
+                return make_out_of_process_entry(loaded, security, ctx.device_facts);
             }
 
             // Use credentialless handle if applicable, otherwise parent's.
@@ -350,6 +359,23 @@ fn frame_security(
     }
 }
 
+/// The `document.referrer` a **cross-origin** sub-frame receives: only the
+/// parent's ORIGIN serialization, per the HTML referrer-policy default
+/// (`strict-origin-when-cross-origin`) — not the full parent URL the
+/// same-origin path exposes (see [`frame_security`]). An opaque parent origin
+/// has no usable referrer to share (serialized `"null"` is not a referrer), so
+/// this yields `None` (empty `document.referrer`).
+///
+/// Full per-request ReferrerPolicy (meta referrer, rel=noreferrer,
+/// Referrer-Policy header) and the TLS-downgrade "no referrer" case are deferred
+/// → slot `#11-referrer-policy`.
+fn cross_origin_referrer(parent_origin: &SecurityOrigin) -> Option<String> {
+    match parent_origin {
+        SecurityOrigin::Tuple { .. } => Some(parent_origin.serialize()),
+        SecurityOrigin::Opaque(_) => None,
+    }
+}
+
 /// Parent-inherited origin with sandbox / credentialless opaqueness applied.
 ///
 /// The srcdoc / about:blank / no-src documents and the invalid-src / load-error
@@ -455,4 +481,30 @@ pub(crate) fn apply_sandbox_origin(
         return SecurityOrigin::opaque();
     }
     origin
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{cross_origin_referrer, SecurityOrigin};
+
+    /// A cross-origin sub-frame's referrer is trimmed to the parent's ORIGIN
+    /// (HTML referrer-policy default `strict-origin-when-cross-origin`), never
+    /// the full parent URL. Falsify by reverting the OOP trim to the full URL.
+    #[test]
+    fn cross_origin_referrer_is_parent_origin_not_full_url() {
+        let parent =
+            SecurityOrigin::from_url(&url::Url::parse("https://parent.example/a/b?q").unwrap());
+        assert_eq!(
+            cross_origin_referrer(&parent).as_deref(),
+            Some("https://parent.example"),
+            "cross-origin referrer must be the parent ORIGIN, not the full URL"
+        );
+    }
+
+    /// An opaque parent origin has no usable referrer to share (`"null"` is not
+    /// a referrer), so a cross-origin child gets an empty `document.referrer`.
+    #[test]
+    fn cross_origin_referrer_opaque_parent_is_none() {
+        assert_eq!(cross_origin_referrer(&SecurityOrigin::opaque()), None);
+    }
 }

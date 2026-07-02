@@ -224,6 +224,21 @@ fn handle_navigate(
         iframe_depth: bridge.iframe_depth(),
         referrer: bridge.referrer(),
     };
+    // KNOWN-INCOMPLETE (slot #11-oop-iframe-navigate-completeness — a new carve;
+    // ledger registration is a landing deliverable). This `Navigate` path has NO
+    // production sender today (nothing sends `BrowserToIframe::Navigate` yet), so
+    // both gaps below are latent, not live:
+    //   (a) referrer: `inputs.referrer` carries the INITIAL parent referrer
+    //       (`bridge.referrer()`) across the frame's OWN navigation. A real
+    //       in-frame navigation should instead source the referrer from the
+    //       frame's PREVIOUS document URL (per-navigation referrer chain, §7.4),
+    //       not the embedder's original referrer.
+    //   (b) cookies: `build_pipeline_from_url` spawns a fresh standalone broker
+    //       with an EMPTY cookie jar (relocated verbatim, pre-existing) — a real
+    //       navigation must hand off the frame's existing cookie jar / network
+    //       handle instead of starting cookie-less.
+    // Neither is fixed here: referrer-chain tracking + per-navigation cookie-jar
+    // handoff are out of scope until a production Navigate sender exists.
     match crate::build_pipeline_from_url(url, viewport, Some(inputs)) {
         Ok(new_pipeline) => {
             *pipeline = new_pipeline;
