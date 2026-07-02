@@ -531,23 +531,21 @@ fn dispatch_unhandled_rejection_event(
     // mutations (e.g. `e.foo = 1`) into the next listener's view, which
     // diverges from the regular dispatch path.
     for entry in pending {
+        // §8.1.8.1 processing step 1 — the canonical
+        // `VmInner::scripting_disabled_for_platform_object` predicate,
+        // gated BEFORE the step-2 "getting the current value" compile
+        // below. Clause (b) is provably false for the bound-document
+        // target today; routed through the canonical predicate anyway so
+        // future composition changes cannot diverge per-path.
+        if entry.is_handler && vm.scripting_disabled_for_platform_object(Some(document)) {
+            continue;
+        }
         // HTML §8.1.8.1: lazy-compile / drop an event-handler IDL attribute
         // backing before resolving its callable (a content-attribute
         // `onunhandledrejection` would otherwise never compile on this
         // non-`walk_phase` dispatch path). No-op for `addEventListener`
         // listeners.
         vm.ensure_event_handler_current(document, entry.id);
-        // §8.1.8.1 processing step 1 — see
-        // `VmInner::scripting_disabled_for_platform_object`. Target = the
-        // bound document ⇒ clause (b) cannot fire; settings-level check only.
-        if entry.is_handler
-            && vm
-                .host_data
-                .as_deref()
-                .is_some_and(|h| !elidex_plugin::sandbox::scripting_enabled(h.sandbox_flags()))
-        {
-            continue;
-        }
         let Some(func_id) = vm
             .host_data
             .as_deref()

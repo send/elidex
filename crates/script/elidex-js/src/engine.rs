@@ -149,6 +149,20 @@ impl ScriptEngine for ElidexJsEngine {
         is_handler: bool,
         _ctx: &mut ScriptContext<'_>,
     ) {
+        // §8.1.8.1 event handler processing algorithm step 1 — see
+        // `VmInner::scripting_disabled_for_platform_object`. Precedes step
+        // 2's "getting the current value" (the reconcile/compile below), so
+        // a suppressed target's raw inline handler source is never compiled
+        // during dispatch.
+        if is_handler
+            && self
+                .vm
+                .inner
+                .scripting_disabled_for_platform_object(Some(current_target))
+        {
+            return;
+        }
+
         // HTML §8.1.8.1: bring an event-handler IDL attribute backing up to
         // date (lazy-compile a pending inline source / drop a cleared one)
         // before resolving its callable, so UA-initiated dispatch honours
@@ -163,17 +177,6 @@ impl ScriptEngine for ElidexJsEngine {
         self.vm
             .inner
             .ensure_event_handler_current(current_target, listener_id);
-
-        // §8.1.8.1 processing step 1 — see
-        // `VmInner::scripting_disabled_for_platform_object`.
-        if is_handler
-            && self
-                .vm
-                .inner
-                .scripting_disabled_for_platform_object(Some(current_target))
-        {
-            return;
-        }
 
         // 1. Resolve the listener function ObjectId from HostData's
         //    listener_store.  A miss means the listener was removed

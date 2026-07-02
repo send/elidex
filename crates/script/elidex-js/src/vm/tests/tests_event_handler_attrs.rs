@@ -10,11 +10,11 @@
 
 #![cfg(feature = "engine")]
 
-use elidex_ecs::EcsDom;
+use elidex_ecs::{EcsDom, Entity};
 use elidex_script_session::SessionCore;
 
 use super::super::test_helpers::{eval_str, setup_with_element};
-use super::super::value::JsValue;
+use super::super::value::{JsValue, ObjectKind};
 use super::super::Vm;
 
 /// RAII guard that unbinds the VM on drop — including during a panic
@@ -53,6 +53,17 @@ fn eval_bool(vm: &mut Vm, src: &str) -> bool {
         JsValue::Boolean(b) => b,
         other => panic!("expected boolean, got {other:?}"),
     }
+}
+
+/// Resolve the `Entity` behind a `HostObject` wrapper value.
+fn entity_of(vm: &Vm, value: JsValue) -> Entity {
+    let JsValue::Object(id) = value else {
+        panic!("value is not an object: {value:?}")
+    };
+    let ObjectKind::HostObject { entity_bits } = vm.inner.get_object(id).kind else {
+        panic!("value is not a HostObject")
+    };
+    Entity::from_bits(entity_bits).expect("valid entity bits")
 }
 
 /// Evaluate `src` and expect a number result.
@@ -576,6 +587,45 @@ fn compiled_handler_on_null_bc_document_node_suppressed_listener_still_runs() {
         // Step 1 suppresses INVOCATION only — the compiled callable is still
         // the IDL getter's value (deleting it would be the step-3.2 conflation).
         assert!(eval_bool(vm, "typeof globalThis.d.onclick === 'function'"));
+    });
+}
+
+// ---- S5-4a: step-1 gate precedes step 2 — a suppressed target's raw inline
+// source is NOT compiled during dispatch (§8.1.8.1 step 1 fires before
+// "getting the current value of the event handler") ----
+#[test]
+fn suppressed_target_dispatch_does_not_compile_raw_inline_handler() {
+    with_el(|vm| {
+        vm.eval(
+            "globalThis.ran = false; \
+             var doc2 = new DOMParser().parseFromString('<div id=\"d\"></div>', 'text/html'); \
+             globalThis.d = doc2.getElementById('d'); \
+             globalThis.d.setAttribute('onclick', 'globalThis.ran = true'); \
+             globalThis.d.dispatchEvent(new Event('click'));",
+        )
+        .unwrap();
+        assert!(!eval_bool(vm, "globalThis.ran"));
+        // Oracle: the raw inline source is STILL uncompiled after dispatch —
+        // the step-1 gate returned before the step-2 compile, so no callable
+        // was ever stored for the handler's ListenerId. (Reading the IDL
+        // getter would itself lazily compile, so inspect the store directly.)
+        let d_val = vm.eval("globalThis.d").unwrap();
+        let d = entity_of(vm, d_val);
+        let host = vm.host_data().expect("bound VM has HostData installed");
+        let id = {
+            let listeners = host
+                .dom()
+                .world_mut()
+                .get::<&elidex_script_session::EventListeners>(d)
+                .expect("target has an EventListeners component");
+            listeners
+                .find_event_handler("click")
+                .expect("handler listener entry survives the suppressed dispatch")
+        };
+        assert!(
+            host.get_listener(id).is_none(),
+            "suppressed dispatch must not compile the raw inline handler"
+        );
     });
 }
 

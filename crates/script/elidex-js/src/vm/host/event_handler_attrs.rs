@@ -627,7 +627,11 @@ impl VmInner {
         // Clause (b) applies to objects implementing `Node` only — Window /
         // Worker / OffscreenCanvas entities (`is_node() == false`) and
         // non-DOM entities fall through to the settings-level verdict.
-        match dom.node_kind(entity) {
+        // `node_kind_inferred` (the crate's brand-check convention, cf.
+        // `node_proto.rs` / `dom_bridge.rs`) also covers legacy entities
+        // carrying `TagType`/`TextContent` but no `NodeKind` component, so
+        // a NodeKind-less node of a null-BC document is still suppressed.
+        match dom.node_kind_inferred(entity) {
             Some(NodeKind::Document) => entity != document,
             Some(kind) if kind.is_node() => {
                 // `owner_document` = the node document for non-Document nodes

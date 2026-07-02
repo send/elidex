@@ -4,8 +4,13 @@
 //! restriction, i.e. an empty `sandbox=""` attribute), the token parser
 //! [`parse_sandbox_attribute`], and the capability predicates decided over
 //! them. Delivered predicates: [`scripts_allowed`] / [`forms_allowed`] /
-//! [`popups_allowed`] / [`scripting_enabled`]; `modals_allowed` and
-//! `top_navigation_allowed` land with their consumers in S5-4c.
+//! [`popups_allowed`] / [`scripting_enabled`]. The remaining open-coded
+//! capability checks — boa `iframe_bridge.rs` modals_allowed, boa
+//! `globals/window/mod.rs` and shell `content/event_handlers.rs`
+//! top-navigation checks — are S5-4c migration targets: S5-4c lands
+//! `modals_allowed` and the spec's 2-flag
+//! `top_navigation_allowed(flags, activation)` (the 1-arg form would be
+//! wrong-shaped) and delegates those sites to it.
 //!
 //! Distinct from the OS *process* sandbox ([`crate::process_sandbox`]),
 //! which shares the word "sandbox" and nothing else.
@@ -34,21 +39,30 @@ bitflags::bitflags! {
 
 /// Parse the `sandbox` attribute value into [`IframeSandboxFlags`].
 ///
-/// An empty string or `None` returns empty flags (all restrictions enabled).
-/// Unrecognized tokens are silently ignored per WHATWG HTML §4.8.5.
+/// The attribute value is "an unordered set of unique space-separated
+/// tokens that are **ASCII case-insensitive**" (WHATWG HTML §4.8.5,
+/// `html#attr-iframe-sandbox`), so each `allow-*` token is matched ASCII
+/// case-insensitively. An empty string returns empty flags (all
+/// restrictions enabled). Unrecognized tokens are silently ignored per
+/// spec.
 #[must_use]
 pub fn parse_sandbox_attribute(value: &str) -> IframeSandboxFlags {
     let mut flags = IframeSandboxFlags::empty();
     for token in value.split_ascii_whitespace() {
-        match token {
-            "allow-scripts" => flags |= IframeSandboxFlags::ALLOW_SCRIPTS,
-            "allow-same-origin" => flags |= IframeSandboxFlags::ALLOW_SAME_ORIGIN,
-            "allow-forms" => flags |= IframeSandboxFlags::ALLOW_FORMS,
-            "allow-popups" => flags |= IframeSandboxFlags::ALLOW_POPUPS,
-            "allow-top-navigation" => flags |= IframeSandboxFlags::ALLOW_TOP_NAVIGATION,
-            "allow-modals" => flags |= IframeSandboxFlags::ALLOW_MODALS,
-            _ => {} // Unrecognized tokens silently ignored per spec.
-        }
+        flags |= match token {
+            t if t.eq_ignore_ascii_case("allow-scripts") => IframeSandboxFlags::ALLOW_SCRIPTS,
+            t if t.eq_ignore_ascii_case("allow-same-origin") => {
+                IframeSandboxFlags::ALLOW_SAME_ORIGIN
+            }
+            t if t.eq_ignore_ascii_case("allow-forms") => IframeSandboxFlags::ALLOW_FORMS,
+            t if t.eq_ignore_ascii_case("allow-popups") => IframeSandboxFlags::ALLOW_POPUPS,
+            t if t.eq_ignore_ascii_case("allow-top-navigation") => {
+                IframeSandboxFlags::ALLOW_TOP_NAVIGATION
+            }
+            t if t.eq_ignore_ascii_case("allow-modals") => IframeSandboxFlags::ALLOW_MODALS,
+            // Unrecognized tokens silently ignored per spec.
+            _ => IframeSandboxFlags::empty(),
+        };
     }
     flags
 }
@@ -139,6 +153,29 @@ mod tests {
         let flags = parse_sandbox_attribute("allow-scripts unknown-token allow-forms");
         assert!(flags.contains(IframeSandboxFlags::ALLOW_SCRIPTS));
         assert!(flags.contains(IframeSandboxFlags::ALLOW_FORMS));
+    }
+
+    #[test]
+    fn sandbox_tokens_are_ascii_case_insensitive() {
+        // §4.8.5 `attr-iframe-sandbox`: the value is "an unordered set of
+        // unique space-separated tokens that are ASCII case-insensitive".
+        for value in ["ALLOW-SCRIPTS", "Allow-Scripts", "aLLoW-sCrIpTs"] {
+            let flags = parse_sandbox_attribute(value);
+            assert_eq!(
+                flags,
+                IframeSandboxFlags::ALLOW_SCRIPTS,
+                "value = {value:?}"
+            );
+        }
+        // Mixed-case across multiple distinct tokens; casing must not leak
+        // capabilities beyond the named token.
+        let flags = parse_sandbox_attribute("Allow-Forms ALLOW-TOP-NAVIGATION allow-Modals");
+        assert!(flags.contains(IframeSandboxFlags::ALLOW_FORMS));
+        assert!(flags.contains(IframeSandboxFlags::ALLOW_TOP_NAVIGATION));
+        assert!(flags.contains(IframeSandboxFlags::ALLOW_MODALS));
+        assert!(!flags.contains(IframeSandboxFlags::ALLOW_SCRIPTS));
+        assert!(!flags.contains(IframeSandboxFlags::ALLOW_SAME_ORIGIN));
+        assert!(!flags.contains(IframeSandboxFlags::ALLOW_POPUPS));
     }
 
     #[test]
