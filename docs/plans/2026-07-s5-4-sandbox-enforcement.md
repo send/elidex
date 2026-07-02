@@ -25,9 +25,9 @@ edge-dense security work, hence this mandatory `/elidex-plan-review` before any 
 > per-VM HostData; the migration is the agent-scoped-World **B1** program, post-S5, PR #434
 > `docs/plans/2026-06-agent-scoped-ecsdom-world.md`).
 
-All file:line cites grep-verified against `main` HEAD `78d4d2e6` (2026-07-03; incl. the
+All file:line cites grep-verified against `main` HEAD `78d4d2e6` (2026-07-02; incl. the
 plan-review fix pass F1–F14, same date/HEAD). Every spec § / anchor
-webref-verified 2026-07-03 (sources: `html`, `fetch`, `service-workers`; §2.7 records the corrections
+webref-verified 2026-07-02 (sources: `html`, `fetch`, `service-workers`; §2.7 records the corrections
 where the slot ledger's expected anchors were wrong).
 
 ---
@@ -168,7 +168,7 @@ lands the enforcement BEFORE the flip so S5-6 swaps engines onto an already-gate
 
 ---
 
-## §2 Spec substrate (webref-verified 2026-07-03)
+## §2 Spec substrate (webref-verified 2026-07-02)
 
 ### §2.1 HTML §7.1.5 Sandboxing (`html#sandboxing`) — the flag set + token parse
 
@@ -425,7 +425,7 @@ and the direct falsifier of the `set_origin` contract doc (`host_data.rs:1097-11
 is the correct template**: `make_out_of_process_entry` :254-310 sets flags :288-291 + origin :292-298
 BEFORE `iframe_thread_main` :300 runs scripts.
 
-**⚠ CORRECTION (S5-4b impl contact, 2026-07-03)**: the "OOP path is the correct template" claim is
+**⚠ CORRECTION (S5-4b impl contact, 2026-07-02)**: the "OOP path is the correct template" claim is
 falsified — initial scripts are evaluated INSIDE `build_pipeline_from_loaded` (~:272), i.e. BEFORE
 the :288-298 installs, so the OOP path had the same ordering gap. And since a sandboxed URL-load
 iframe's opaque origin ≠ parent routes it to the OOP path (`load.rs:136`), the URL-case harm was on
@@ -682,7 +682,7 @@ component is introduced pre-B1 (avoids a dual-SoT).
 > **§5.0 Touch-set line counts (1000-line touch-time discipline)**: `vm/host_data.rs` = **1953**
 > — S5-4a must run the touch-time cohesion-seam assessment at kickoff (standalone prereq split PR
 > if a real seam exists; note the §5.1 delegation itself REDUCES lines).
-> **✅ ASSESSED at 4a kickoff (2026-07-03): no split** — a single `HostData` struct + a single
+> **✅ ASSESSED at 4a kickoff (2026-07-02): no split** — a single `HostData` struct + a single
 > field-accessor `impl` is a 一枚岩 cohesive unit (no real seam; splitting would be line-count
 > mechanics, and the struct-level seam question coincides with the already-deferred VmInner
 > sub-struct refactor — `memory/vm-inner-substruct-deferral.md`, no slot). The S5-4a delegation
@@ -750,7 +750,7 @@ postMessage-origin oracle only if an in-process iframe→parent delivery site ex
 HEAD — OOP forwarding only). Unsandboxed iframe unchanged; srcdoc + blank paths covered; OOP path
 regression-pinned.
 
-**⚠ CORRECTION (S5-4b impl contact, 2026-07-03)**: the storage-bucket sentinel cite
+**⚠ CORRECTION (S5-4b impl contact, 2026-07-02)**: the storage-bucket sentinel cite
 (`storage.rs:103`) is VM-side; the shell's live engine pre-flip is boa, whose localStorage keys off
 `current_url`-derived `cached_origin` (not `set_origin`) — so the storage sentinel is unobservable
 in shell until the S5-6 flip. Delivered oracles instead: the boa eval gate (sandboxed script does
@@ -911,7 +911,7 @@ integration (same posture as S5-3a/b/c):
 
 ---
 
-## §8 Deferred carves (+ audits; cap ≤3 — actual: 4c = 1 new (D2) + 1 fold-append (D1); 4a = D3 conditional; others 0)
+## §8 Deferred carves (+ audits; cap ≤3 — actual: 4c = 1 new (D2) + 1 fold-append (D1); 4a = 1 new (D4, external-review predicate-hardening) [D3 NOT created — §9-Q3 resolved representable]; others 0)
 
 - **D1 (FOLD — no new slot minted)**: popup sandboxing-flag-set propagation (§7.1.5 propagate-flag
   + choosing a navigable step 8, "create a new top-level traversable" case, substep 9), *one
@@ -943,7 +943,7 @@ integration (same posture as S5-3a/b/c):
   fullscreen/clipboard/autoplay gates. **Trigger**: first user-activation-gated API beyond top-nav,
   or S5-8. **Re-eval**: S5-8 plan-memo, calendar backstop **2026-09-30**.
 - **D3 `#11-scripting-disabled-platform-object-clauses`** — **NOT CREATED (§9-Q3 resolved
-  "representable" at 4a kickoff, 2026-07-03; the clause shipped in 4a)**. Original conditional
+  "representable" at 4a kickoff, 2026-07-02; the clause shipped in 4a)**. Original conditional
   carve, kept for the record (CONDITIONAL — carved by S5-4a **only
   if** §9-Q3 resolves "not yet representable"): §8.1.3.4 platform-object clauses (b)/(c)
   (browsing-context-null) refinement of the step-1 gate. **Audit**: spec-core? yes (§2.2); one-way?
@@ -953,6 +953,20 @@ integration (same posture as S5-3a/b/c):
   null-stub → real browsing-context-null representation landing. **Re-eval**: at the
   `#11-browsing-context-state-ecs-components` / B1 disposition, calendar backstop **2026-10-31**.
   If Q3 resolves "representable now", D3 is not created and the clause ships in 4a.
+- **D4 `#11-cross-document-adopt-on-insert`** (carved by S5-4a — external-review PR #444 Codex
+  R2/R4/R5 predicate hardening; a DIFFERENT, newly-surfaced carve than the not-created D3): elidex
+  does not implement DOM §4.2.3 insertion adoption (`AssociatedDocument` is not mutated on
+  cross-document insert), so the §8.1.8.1 clause-(b) gate uses a composed-tree-root
+  effective-document proxy — correct for live tree position but **over-suppressing (fails CLOSED)** a
+  node adopted into the active document then removed (adoption is sticky; elidex has no "was-adopted"
+  state). **Audit**: spec-core? yes (DOM §4.2.3 adopt on insert); one-way? yes — implementing
+  adoption re-homes `AssociatedDocument` and the proxy collapses to a direct `owner_document` read;
+  pragmatic-debt? the fail-closed edge is exotic (a DOMParser/foreign-doc node inserted-then-removed,
+  then its handler dispatched) and safe-direction for a security gate; repeat-signal? this defect
+  underlies R2/R4/R5 (three predicate rounds) AND the sibling `owner_document` consumers
+  (`selection.rs`, `document_base.rs`, the `ownerDocument` getter, `href`/`baseURI`) noted in the
+  R2/R4 same-pattern audits. **Trigger**: a DOM adoption implementation, or a WPT/site exercising
+  DOMParser-node adoption + event dispatch. **Re-eval**: **2026-10-31**.
 
 - **Slot-trigger disposition (existing slots, no new carve)**:
   `#11-storage-opaque-origin-securityerror` + `#11-cookie-opaque-origin-securityerror` (§1.3) —
@@ -987,7 +1001,7 @@ slices, not a side-effect.
   module outgrowing plugin's vocabulary-crate role (e.g. once activation tracking lands), the
   fallback is a dedicated engine-indep `elidex-security` crate — judged premature now (one module,
   one concern; a crate for 6 functions is structure without load).
-- **Q3 (clause-(b) representability, 4a)** — **✅ RESOLVED at 4a kickoff (2026-07-03):
+- **Q3 (clause-(b) representability, 4a)** — **✅ RESOLVED at 4a kickoff (2026-07-02):
   representable now.** Clause (b) ships in 4a via the bound-document proxy: the VM models exactly
   ONE top-level browsing context whose active document is the bound `document_entity`, so "node
   document's browsing context is null" = `EcsDom::owner_document(target)` (self for a Document
