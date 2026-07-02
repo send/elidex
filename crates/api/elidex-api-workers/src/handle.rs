@@ -40,9 +40,8 @@ impl WorkerHandle {
         &self.name
     }
 
-    /// Send a `postMessage` to the worker. No origin travels with it — the
-    /// worker-side `message` event is fired with `origin = ""` (WHATWG HTML
-    /// §9.4.4 *message port post message steps* step 7.7).
+    /// Send a `postMessage` to the worker. No origin travels with it — see
+    /// [`ParentToWorker`].
     pub fn post_message(&self, data: String) {
         let _ = self.channel.send(ParentToWorker::PostMessage { data });
     }
