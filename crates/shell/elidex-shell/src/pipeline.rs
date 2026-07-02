@@ -82,28 +82,12 @@ pub struct FrameSecurityInputs {
     pub referrer: Option<String>,
 }
 
-impl FrameSecurityInputs {
-    /// Derive the [`FrameSecurity`] from the **post-redirect** loaded URL: the
-    /// origin is `apply_sandbox_origin(from_url(loaded_url), flags, credentialless)`
-    /// — the exact derivation the initial OOP load performs on `loaded.url`
-    /// (`content/iframe/load.rs`), so `Navigate` attributes the navigated
-    /// document to the URL it actually resolved to (post-redirect), and a
-    /// credentialless frame keeps its opaque origin.
-    #[must_use]
-    pub fn into_frame_security(self, loaded_url: &url::Url) -> FrameSecurity {
-        FrameSecurity {
-            origin: crate::content::iframe::apply_sandbox_origin(
-                elidex_plugin::SecurityOrigin::from_url(loaded_url),
-                self.sandbox_flags,
-                self.credentialless,
-            ),
-            sandbox_flags: self.sandbox_flags,
-            iframe_depth: self.iframe_depth,
-            credentialless: self.credentialless,
-            referrer: self.referrer,
-        }
-    }
-}
+// `FrameSecurityInputs::into_frame_security` (the post-redirect origin
+// derivation) lives in `content/iframe/load.rs`, beside the `apply_sandbox_origin`
+// policy it applies — see that module. Keeping the derivation next to its policy
+// lets `apply_sandbox_origin` stay private to `content/iframe`; the URL-loading
+// builder below (`build_pipeline_from_url`) invokes the resolver by method
+// dispatch rather than reaching up into the sandbox-origin policy.
 
 /// Flush pending DOM mutations and drain custom element reactions.
 ///

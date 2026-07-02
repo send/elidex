@@ -464,10 +464,11 @@ pub(super) fn check_framing_allowed(
 /// If sandbox is present without `allow-same-origin`, or if the iframe is
 /// `credentialless`, returns an opaque origin. Otherwise returns the input origin.
 ///
-/// `pub(crate)` so the post-redirect origin derivation
-/// ([`crate::FrameSecurityInputs::into_frame_security`]) reuses this single
-/// policy for the URL-loading rebuild instead of duplicating it.
-pub(crate) fn apply_sandbox_origin(
+/// Private to `content/iframe`: the post-redirect origin derivation
+/// ([`crate::FrameSecurityInputs::into_frame_security`], co-located below)
+/// reuses this single policy for the URL-loading rebuild, so the policy never
+/// leaves this module.
+fn apply_sandbox_origin(
     origin: SecurityOrigin,
     sandbox_flags: Option<IframeSandboxFlags>,
     credentialless: bool,
@@ -481,6 +482,35 @@ pub(crate) fn apply_sandbox_origin(
         return SecurityOrigin::opaque();
     }
     origin
+}
+
+// The post-redirect origin derivation is co-located with the
+// [`apply_sandbox_origin`] policy it applies (rather than in `pipeline.rs` with
+// the [`crate::FrameSecurity`] bundle) so the policy stays private to this
+// module — the URL-loading builder (`build_pipeline_from_url`) invokes the
+// resolver by method dispatch instead of reaching up into the origin policy.
+impl crate::FrameSecurityInputs {
+    /// Derive the [`crate::FrameSecurity`] from the **post-redirect** loaded URL.
+    ///
+    /// The origin is `apply_sandbox_origin(from_url(loaded_url), flags,
+    /// credentialless)` — the exact derivation the initial OOP load performs on
+    /// `loaded.url` (above), so `Navigate` attributes the navigated document to
+    /// the URL it actually resolved to (post-redirect), and a credentialless
+    /// frame keeps its opaque origin.
+    #[must_use]
+    pub fn into_frame_security(self, loaded_url: &url::Url) -> crate::FrameSecurity {
+        crate::FrameSecurity {
+            origin: apply_sandbox_origin(
+                SecurityOrigin::from_url(loaded_url),
+                self.sandbox_flags,
+                self.credentialless,
+            ),
+            sandbox_flags: self.sandbox_flags,
+            iframe_depth: self.iframe_depth,
+            credentialless: self.credentialless,
+            referrer: self.referrer,
+        }
+    }
 }
 
 #[cfg(test)]
