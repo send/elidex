@@ -718,6 +718,10 @@ now a marshal wrapper reading `HostData` state and delegating); (2) clause (b) h
 into the bound document kept a stale owner and was wrongly suppressed; the predicate now treats a
 node whose composed tree root IS the bound document as having the bound document as its node
 document. The missing insertion-adoption is carved as `#11-cross-document-adopt-on-insert`.
+R5 surfaced the inserted-then-removed adoption-persistence edge (a node adopted into the active
+document then removed should stay ENABLED, since DOM §4.2.3 adoption is sticky): the gate uses the
+live composed-tree-root proxy and fails closed on that edge; a spec-correct fix needs DOM adoption,
+out of S5-4a scope → deferred to `#11-cross-document-adopt-on-insert`.
 
 **Tests**: plugin truth tables (None/Some(empty)/each bit); VM: sandboxed-no-allow-scripts doc —
 handler attr present → getter yields null + dispatch runs nothing (compile gate); compiled-then-
