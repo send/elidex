@@ -733,6 +733,15 @@ cohesive addition co-located with the existing `vm_event_listeners.retain` (conf
 under threshold at impl — if `collect.rs` itself needs a touch-time split, that is a standalone prereq
 PR, not bundled).
 
+**⚠ CORRECTION (impl outcome, Codex R10 2026-07-02).** The plan-time claim above did not survive the
+implementation: measured on the landed tree, `intersection.rs` 954 → **1137** (crossed the 1000-line
+threshold in this PR), the new `vm/tests/tests_observer_keepalive.rs` lands at **1212**, `collect.rs`
+1961 → **2072** (+111, past the >50-LoC backstop), and `keepalive.rs` 295 → 433 (still under). Per this
+section's own reservation and CLAUDE.md (split = 単独 PR / 単独 commit, never bundled into the feature
+PR), the touch-time split is dispositioned as the **immediate follow-up standalone PR** right after this
+PR merges — candidate seams: the test module by scenario group; `intersection.rs` keepalive/membership
+vs geometry/gathering; `collect.rs` gated on a genuine cohesion-seam judgment, not a mechanical cut.
+
 ---
 
 ## §8 Edge matrix (review-tail pre-empt)
