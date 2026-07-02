@@ -26,10 +26,14 @@
 //!   error messages discriminate which origin the initial script observed.
 //!   The plan-memo's storage-bucket sentinel (`elidex-js`
 //!   `vm/host/storage.rs` routing through `document_origin()`) is a
-//!   VM-surface oracle: boa keys localStorage off the `current_url`-derived
-//!   `cached_origin` (`bridge/document_state.rs`), not off `set_origin`, so
-//!   the storage sentinel only becomes observable in the shell at the S5-6
-//!   engine flip.
+//!   VM-surface oracle. Boa now keys localStorage off the installed origin too
+//!   (`set_origin` syncs the `current_url`-derived `cached_origin`,
+//!   `bridge/iframe_bridge.rs`), so the sandbox storage sentinel is exercised
+//!   directly by the boa unit tests
+//!   (`bridge/document_state.rs` `installed_opaque_origin_wins_localstorage_partition_over_url`);
+//!   the *shell*-driven URL-load path only becomes observable at the S5-6
+//!   engine flip (the harness's disconnected `NetworkHandle` can't fetch a
+//!   URL-load iframe to the storage read — see the OOP reachability note).
 //!
 //! **OOP path reachability.** The production route into
 //! `make_out_of_process_entry` needs a successful cross-origin

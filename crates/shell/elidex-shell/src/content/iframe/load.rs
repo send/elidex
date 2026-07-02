@@ -126,25 +126,28 @@ fn load_iframe_from_url(
                 );
             }
 
-            let origin =
-                apply_sandbox_origin(doc_origin, sandbox_flags, iframe_data.credentialless);
+            let origin = apply_sandbox_origin(
+                doc_origin.clone(),
+                sandbox_flags,
+                iframe_data.credentialless,
+            );
 
             if ctx.parent_origin != &origin {
-                // OOP ⟺ cross-origin: this branch is taken exactly when the frame
-                // origin differs from the parent's (or credentialless/opaque), so
-                // the loaded document is cross-origin to its embedder. Per the
-                // W3C Referrer Policy §3 default referrer policy (the
-                // "strict-origin-when-cross-origin" value, §3.7), a cross-origin
-                // document receives only the parent's ORIGIN as
-                // `document.referrer`, not the full parent URL (which the
-                // same-origin in-process path below keeps). The TLS-downgrade "no
-                // referrer" case and full per-request ReferrerPolicy (meta referrer,
-                // rel=noreferrer, Referrer-Policy header) are deferred → slot
-                // #11-referrer-policy (a new carve; ledger registration is a
-                // landing deliverable).
+                // OOP routing ⟺ the *document* origin differs from the parent's
+                // (cross-origin OR sandboxed/credentialless-opaque), so the frame
+                // needs its own process. But the referrer's cross-origin-ness is
+                // the REQUEST relationship, not this routing decision: it keys on
+                // `parent_origin` vs `doc_origin` (the ACTUAL loaded-URL origin,
+                // BEFORE sandbox opaque-ification), so a same-origin request that
+                // is merely sandboxed-to-opaque still shares the full parent URL
+                // (W3C Referrer Policy §3 default `strict-origin-when-cross-origin`,
+                // §3.7). The TLS-downgrade "no referrer" case and full per-request
+                // ReferrerPolicy (meta referrer, rel=noreferrer, Referrer-Policy
+                // header) are deferred → slot #11-referrer-policy (a new carve;
+                // ledger registration is a landing deliverable).
                 let mut state =
                     pre_eval_state(origin, sandbox_flags, iframe_data.credentialless, ctx);
-                state.referrer = cross_origin_referrer(ctx.parent_origin);
+                state.referrer = frame_referrer(ctx.parent_url, ctx.parent_origin, &doc_origin);
                 return make_out_of_process_entry(loaded, state, ctx.device_facts);
             }
 
@@ -343,9 +346,14 @@ fn parse_sandbox(iframe_data: &elidex_ecs::IframeData) -> Option<IframeSandboxFl
 /// Bundle the security state an iframe build (in-process or OOP-thread)
 /// installs **before** its initial scripts run (see [`crate::PreEvalFrameState`]).
 ///
-/// The referrer is the parent document URL (WHATWG HTML §4.8.5); it rides the
-/// same pre-eval chokepoint as origin/flags/depth so the initial scripts read a
-/// populated `document.referrer`.
+/// The referrer is the parent document URL (WHATWG HTML §4.8.5), stripped for
+/// use as a referrer (userinfo + fragment removed, see [`strip_url_for_referrer`]);
+/// it rides the same pre-eval chokepoint as origin/flags/depth so the initial
+/// scripts read a populated `document.referrer`.
+///
+/// This is the same-origin default (srcdoc / about:blank / same-origin URL
+/// in-process build); the cross-origin trim is applied at the call site via
+/// [`frame_referrer`].
 fn pre_eval_state(
     origin: SecurityOrigin,
     sandbox_flags: Option<IframeSandboxFlags>,
@@ -357,7 +365,45 @@ fn pre_eval_state(
         sandbox_flags,
         iframe_depth: ctx.depth,
         credentialless,
-        referrer: ctx.parent_url.map(url::Url::to_string),
+        referrer: ctx.parent_url.map(strip_url_for_referrer),
+    }
+}
+
+/// Strip a URL "for use as a referrer" (WHATWG Fetch §4.3 "strip url for use as
+/// a referrer" / Referrer Policy): remove the username, password, and fragment
+/// so parent credentials (`user:pass@`) and fragment secrets (`#…`) never leak
+/// into a sub-frame's `document.referrer`. Mirrors the VM's
+/// `Vm::set_navigation_referrer` sanitisation (`elidex-js` `vm/vm_api.rs`) — the
+/// `Referer` header and `document.referrer` share the same exposure surface.
+fn strip_url_for_referrer(url: &url::Url) -> String {
+    let mut url = url.clone();
+    url.set_fragment(None);
+    let _ = url.set_username("");
+    let _ = url.set_password(None);
+    url.to_string()
+}
+
+/// The `document.referrer` a sub-frame receives, per the W3C Referrer Policy §3
+/// default policy ("strict-origin-when-cross-origin", §3.7).
+///
+/// Cross-origin-ness is the REQUEST relationship — `parent_origin` (the referrer
+/// source) vs `request_origin` (`from_url(loaded.url)`, the ACTUAL loaded-URL
+/// origin BEFORE any sandbox opaque-ification) — NOT the post-sandbox document
+/// origin and NOT the OOP-routing decision. A same-origin request that is merely
+/// sandboxed-to-opaque still shares the full parent URL.
+///
+/// - same-origin → the full parent URL, stripped for use as a referrer.
+/// - cross-origin → the parent ORIGIN serialization only (`None` if opaque, see
+///   [`cross_origin_referrer`]).
+fn frame_referrer(
+    parent_url: Option<&url::Url>,
+    parent_origin: &SecurityOrigin,
+    request_origin: &SecurityOrigin,
+) -> Option<String> {
+    if parent_origin == request_origin {
+        parent_url.map(strip_url_for_referrer)
+    } else {
+        cross_origin_referrer(parent_origin)
     }
 }
 
@@ -518,7 +564,61 @@ impl crate::PreEvalFrameInputs {
 
 #[cfg(test)]
 mod tests {
-    use super::{cross_origin_referrer, SecurityOrigin};
+    use super::{cross_origin_referrer, frame_referrer, strip_url_for_referrer, SecurityOrigin};
+
+    fn origin(s: &str) -> SecurityOrigin {
+        SecurityOrigin::from_url(&url::Url::parse(s).unwrap())
+    }
+
+    /// F2: a **same-origin** request that is merely sandboxed-to-opaque (OOP
+    /// routed) still shares the FULL (stripped) parent URL — the referrer keys
+    /// on the request relationship (`parent_origin` == `request_origin`), not the
+    /// post-sandbox opaque document origin. Falsify by reverting the OOP branch
+    /// to `cross_origin_referrer(parent_origin)`.
+    #[test]
+    fn frame_referrer_same_origin_request_keeps_full_url() {
+        let parent = url::Url::parse("https://parent.example/a/b?q").unwrap();
+        let request = origin("https://parent.example/child");
+        assert_eq!(
+            frame_referrer(Some(&parent), &origin("https://parent.example/"), &request).as_deref(),
+            Some("https://parent.example/a/b?q"),
+            "same-origin request must expose the full parent URL, even when sandboxed"
+        );
+    }
+
+    /// F2: a genuinely cross-origin request → parent ORIGIN only.
+    #[test]
+    fn frame_referrer_cross_origin_request_is_origin_only() {
+        let parent = url::Url::parse("https://parent.example/a/b?q").unwrap();
+        let request = origin("https://other.example/");
+        assert_eq!(
+            frame_referrer(Some(&parent), &origin("https://parent.example/"), &request).as_deref(),
+            Some("https://parent.example"),
+            "cross-origin request must be trimmed to the parent ORIGIN"
+        );
+    }
+
+    /// F3: userinfo + fragment are stripped before the parent URL becomes a
+    /// same-origin referrer (WHATWG Fetch "strip url for use as a referrer"), so
+    /// credentials/secrets never leak via `document.referrer`. Falsify by
+    /// reverting `strip_url_for_referrer` to a bare `to_string()`.
+    #[test]
+    fn strip_url_for_referrer_removes_userinfo_and_fragment() {
+        let url = url::Url::parse("https://user:pass@parent.example/path#frag").unwrap();
+        assert_eq!(strip_url_for_referrer(&url), "https://parent.example/path");
+    }
+
+    /// F3 through the same-origin `frame_referrer` path (end-to-end for the OOP
+    /// same-origin-sandboxed case): the stripped full URL, not the raw one.
+    #[test]
+    fn frame_referrer_same_origin_strips_userinfo_and_fragment() {
+        let parent = url::Url::parse("https://user:pass@parent.example/path#frag").unwrap();
+        let request = origin("https://parent.example/child");
+        assert_eq!(
+            frame_referrer(Some(&parent), &origin("https://parent.example/"), &request).as_deref(),
+            Some("https://parent.example/path"),
+        );
+    }
 
     /// A cross-origin sub-frame's referrer is trimmed to the parent's ORIGIN
     /// (W3C Referrer Policy §3 default referrer policy, the
