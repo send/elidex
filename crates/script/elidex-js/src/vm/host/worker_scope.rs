@@ -218,13 +218,9 @@ impl VmInner {
     /// the worker-scope entity (the global object's backing entity) and
     /// delegates to the shared [`dispatch_message_event_at`](Self::dispatch_message_event_at)
     /// helper, with the worker's `globalThis` as the event target wrapper.
-    ///
-    /// `origin` is caller-supplied because the two realms differ by spec: the
-    /// dedicated-worker loop (`worker_thread.rs`) passes `""` (§9.4.4 *message
-    /// port post message steps* step 7.7 initialize only `data` + `ports`),
-    /// while the Service Worker loop (`sw_thread.rs`) passes the sender's
-    /// incumbent origin (`ExtendableMessageEvent.origin` is spec-required,
-    /// Service Workers §3.1.5 `postMessage(message, options)`).
+    /// Passes `origin` straight through — see
+    /// [`dispatch_message_event_at`](Self::dispatch_message_event_at) for the
+    /// dedicated-worker `""` vs SW-incumbent origin contract.
     pub(in crate::vm) fn dispatch_worker_message(&mut self, data_json: &str, origin: &str) {
         let global_id = self.global_object;
         let ObjectKind::HostObject {

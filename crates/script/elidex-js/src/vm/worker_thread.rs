@@ -212,10 +212,8 @@ pub(crate) fn run_worker_with_source(
         }
 
         match channel.recv_timeout(FRAME_INTERVAL) {
-            // `origin = ""`: the *message port post message steps* (WHATWG
-            // HTML §9.4.4, step 7.7) initialize only `data` + `ports` on the
-            // `message` event, and `Worker.postMessage` delegates to the port
-            // (§10.2.6.3) — `MessageEvent.origin` keeps its `""` default.
+            // origin = "" per the message-port post-message steps — see
+            // `elidex_api_workers::ParentToWorker`.
             Ok(ParentToWorker::PostMessage { data }) => {
                 vm.inner.dispatch_worker_message(&data, "");
             }
@@ -238,10 +236,8 @@ pub(crate) fn run_worker_with_source(
 }
 
 /// Forward any `self.postMessage()` data queued during the last tick to the
-/// parent. No origin is stamped: `DedicatedWorkerGlobalScope.postMessage`
-/// delegates to the port (WHATWG HTML §10.2.6.3), whose *message port post
-/// message steps* (§9.4.4, step 7.7) leave the parent-side
-/// `MessageEvent.origin` at its `""` default.
+/// parent. No origin is stamped — origin = `""` per the message-port
+/// post-message steps, see [`elidex_api_workers::WorkerToParent`].
 fn drain_outgoing(vm: &mut Vm, channel: &WorkerChannel) {
     if vm.inner.worker_outgoing.is_empty() {
         return;

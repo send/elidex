@@ -144,8 +144,8 @@ fn worker_thread_main_with_handle(
         // Receive messages from parent with timeout.
         match channel.recv_timeout(FRAME_INTERVAL) {
             Ok(msg) => match msg {
-                // Channel carries no origin (WHATWG HTML §9.4.4 step 7.7:
-                // worker MessageEvent.origin stays "").
+                // origin = "" per the message-port post-message steps — see
+                // `elidex_api_workers::ParentToWorker`.
                 ParentToWorker::PostMessage { data } => {
                     runtime.dispatch_worker_message(&mut session, &mut dom, doc, &data, "");
                 }

@@ -623,8 +623,8 @@ impl JsRuntime {
 
         for (worker_id, msg) in messages {
             match msg {
-                // Channel carries no origin (WHATWG HTML §9.4.4 step 7.7:
-                // worker MessageEvent.origin stays "").
+                // origin = "" per the message-port post-message steps — see
+                // `elidex_api_workers::ParentToWorker`.
                 elidex_api_workers::WorkerToParent::PostMessage { data } => {
                     let event_script = Self::build_message_event_script(&data, "");
                     self.dispatch_parent_worker_event(

@@ -140,12 +140,8 @@ impl VmInner {
 
             for msg in messages {
                 match msg {
-                    // `origin = ""`: the *message port post message steps*
-                    // (WHATWG HTML §9.4.4, step 7.7) fire the `message` event
-                    // initializing only `data` + `ports`, and `Worker` /
-                    // `DedicatedWorkerGlobalScope` `postMessage` delegate to
-                    // the port (§10.2.6.3) — so `MessageEvent.origin` keeps
-                    // the `MessageEventInit` default empty string.
+                    // origin = "" per the message-port post-message steps —
+                    // see `elidex_api_workers::ParentToWorker`.
                     WorkerToParent::PostMessage { data } => {
                         let type_sid = self.well_known.message;
                         self.dispatch_message_event_at(type_sid, entity, target_wrapper, &data, "");
@@ -500,13 +496,9 @@ fn native_worker_post_message(
     let data = args.first().copied().unwrap_or(JsValue::Undefined);
     let serialized = super::worker_scope::serialize_message(ctx, data)?;
     // No origin travels with the message (S5-4e, closes slot
-    // `#11-worker-port-message-no-origin`): `Worker.postMessage` acts as if it
-    // invoked `postMessage` on this's outside port (WHATWG HTML §10.2.6.3),
-    // and the *message port post message steps* (§9.4.4,
-    // `#message-port-post-message-steps`) step 7.7 fire the `message` event
-    // initializing only `data` + `ports` — the worker-side
-    // `MessageEvent.origin` stays `""` (unlike window.postMessage §9.3.3,
-    // where the origin IS initialized).
+    // `#11-worker-port-message-no-origin`) — origin = "" per the message-port
+    // post-message steps, see `elidex_api_workers::ParentToWorker`. Unlike
+    // window.postMessage (§9.3.3), where the origin IS initialized.
     if let Some(handle) = ctx.vm.worker_registry.get(worker_id) {
         handle.post_message(serialized);
     }
