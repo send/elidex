@@ -605,7 +605,6 @@ fn worker_postmessage_roundtrip() {
     // Send a message.
     let _ = parent_ch.send(ParentToWorker::PostMessage {
         data: r#"{"ping":42}"#.to_string(),
-        origin: "https://example.com".to_string(),
     });
 
     // Collect echo.

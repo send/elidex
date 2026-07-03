@@ -1,28 +1,35 @@
 //! IPC message types for parent ↔ worker communication.
 
 /// Messages sent from the parent thread to a dedicated worker thread.
+///
+/// Neither direction carries an origin: `Worker.postMessage` (WHATWG HTML
+/// §10.2.6.3) and `DedicatedWorkerGlobalScope.postMessage` (§10.2.1.2) act
+/// as if they invoked `postMessage` on the entangled port, and the
+/// *message port post message steps* (§9.4.4,
+/// `#message-port-post-message-steps`) step 7.7 fire the `message` event
+/// initializing only `data` + `ports` — `MessageEvent.origin` stays the
+/// `MessageEventInit` default `""` on both endpoints.
 #[derive(Debug)]
 pub enum ParentToWorker {
     /// Deliver a message (JSON-serialized) to the worker's `onmessage`.
     PostMessage {
         /// JSON-serialized message data.
         data: String,
-        /// Origin of the sending context (for `MessageEvent.origin`).
-        origin: String,
     },
     /// Terminate the worker thread (from `worker.terminate()`).
     Shutdown,
 }
 
 /// Messages sent from a dedicated worker thread back to the parent.
+///
+/// Carries no origin — see [`ParentToWorker`] (WHATWG HTML §9.4.4 *message
+/// port post message steps* step 7.7 / §10.2.1.2 port delegation).
 #[derive(Debug)]
 pub enum WorkerToParent {
     /// Worker called `postMessage(data)`.
     PostMessage {
         /// JSON-serialized message data.
         data: String,
-        /// Origin of the worker's global scope (worker script URL's origin).
-        origin: String,
     },
     /// An uncaught error occurred in the worker.
     Error {

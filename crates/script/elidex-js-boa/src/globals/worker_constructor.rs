@@ -162,7 +162,6 @@ fn construct_worker(
     // thread — the constructor returns the Worker object immediately.
     let (parent_channel, worker_channel) = elidex_plugin::channel_pair();
 
-    let script_url_clone = resolved.clone();
     let name_clone = name.clone();
     // Create a sibling NetworkHandle for the worker, sharing the parent's broker.
     let Some(worker_nh) = bridge.create_sibling_network_handle() else {
@@ -171,17 +170,11 @@ fn construct_worker(
             .into());
     };
     let thread_handle = std::thread::spawn(move || {
-        crate::worker_thread::worker_thread_main(
-            script_url_clone,
-            name_clone,
-            worker_channel,
-            worker_nh,
-        );
+        crate::worker_thread::worker_thread_main(resolved, name_clone, worker_channel, worker_nh);
     });
 
     // 7. Create WorkerHandle and register in bridge.
-    let handle =
-        elidex_api_workers::WorkerHandle::new(name, resolved, parent_channel, thread_handle);
+    let handle = elidex_api_workers::WorkerHandle::new(name, parent_channel, thread_handle);
 
     let worker_id = bridge.register_worker(handle, worker_obj.clone());
 
@@ -223,12 +216,9 @@ fn build_worker_js_object(ctx: &mut Context, bridge: &HostBridge) -> JsObject {
 
                 let worker_id = find_worker_id_from_this(this, ctx);
                 if let Some(id) = worker_id {
-                    let origin = bridge
-                        .current_url()
-                        .map_or_else(|| "null".to_string(), |u| u.origin().ascii_serialization());
                     bridge.with_worker_registry(|reg| {
                         if let Some(entry) = reg.get_entry_mut(id) {
-                            entry.handle.post_message(json_str, origin);
+                            entry.handle.post_message(json_str);
                         }
                     });
                 }

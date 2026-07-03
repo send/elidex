@@ -218,6 +218,9 @@ impl VmInner {
     /// the worker-scope entity (the global object's backing entity) and
     /// delegates to the shared [`dispatch_message_event_at`](Self::dispatch_message_event_at)
     /// helper, with the worker's `globalThis` as the event target wrapper.
+    /// Passes `origin` straight through — see
+    /// [`dispatch_message_event_at`](Self::dispatch_message_event_at) for the
+    /// dedicated-worker `""` vs SW-incumbent origin contract.
     pub(in crate::vm) fn dispatch_worker_message(&mut self, data_json: &str, origin: &str) {
         let global_id = self.global_object;
         let ObjectKind::HostObject {
@@ -249,7 +252,11 @@ impl VmInner {
     /// ([`dispatch_worker_message`](Self::dispatch_worker_message), target = the
     /// worker's `globalThis`) and the main-side per-tick drain
     /// ([`drain_worker_messages`](Self::drain_worker_messages), target = the
-    /// `Worker` object). `source` is always `null` — neither realm exposes the
+    /// `Worker` object). `origin` is caller-supplied: `""` on the
+    /// dedicated-worker port surface (§9.4.4 *message port post message steps*
+    /// step 7.7 initialize only `data` + `ports`), the sender's incumbent
+    /// origin on the Service Worker path (SW §3.1.5). `source` is always
+    /// `null` — neither realm exposes the
     /// peer as a worker-visible object. Dispatched through the shared
     /// `dispatch_script_event` walker so the matching `on*` handler and every
     /// `addEventListener` listener fire with correct `{once}` / `{signal}`

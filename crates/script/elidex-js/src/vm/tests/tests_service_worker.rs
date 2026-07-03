@@ -658,9 +658,14 @@ fn client_post_message_routes_to_client_id() {
 
 #[test]
 fn inbound_post_message_fires_message_event() {
+    // Regression pin (S5-4e contrast): the SW channel KEEPS carrying the
+    // sender's origin — `ExtendableMessageEvent.origin` is spec-required
+    // (Service Workers §3.1.5 `postMessage(message, options)`: "Let origin be
+    // incumbentSettings's origin"), the opposite polarity of the
+    // dedicated-worker port channel (HTML §9.4.4 step 7.7: origin stays "").
     let h = Harness::spawn(
         "self.__last = '';
-         self.onmessage = e => { self.__last = e.data; };
+         self.onmessage = e => { self.__last = e.origin + '|' + e.data; };
          self.onfetch = e => e.respondWith(new Response(String(self.__last)));",
     );
     h.send(ContentToSw::PostMessage {
@@ -671,7 +676,7 @@ fn inbound_post_message_fires_message_event() {
     h.send(fetch_event("https://example.com/x", "c1"));
     match h.recv() {
         SwToContent::FetchResponse { response, .. } => {
-            assert_eq!(body_string(&response), "hello-sw");
+            assert_eq!(body_string(&response), "https://example.com|hello-sw");
         }
         other => panic!("expected FetchResponse, got {other:?}"),
     }

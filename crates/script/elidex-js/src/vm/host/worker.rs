@@ -115,13 +115,7 @@ impl VmInner {
         for (worker_id, entity) in workers {
             let mut messages = Vec::new();
             let mut closed = false;
-            // The worker's own origin (its script URL's origin), for stamping
-            // worker→parent events that carry no origin field (`messageerror`).
-            // Mirrors `PostMessage { origin, .. }`, which the worker thread
-            // stamps with this same value (WHATWG HTML §10.2.1.2).
-            let mut worker_origin = String::new();
             if let Some(handle) = self.worker_registry.get(worker_id) {
-                worker_origin = handle.script_url().origin().ascii_serialization();
                 loop {
                     match handle.try_recv() {
                         Ok(msg) => messages.push(msg),
@@ -146,15 +140,11 @@ impl VmInner {
 
             for msg in messages {
                 match msg {
-                    WorkerToParent::PostMessage { data, origin } => {
+                    // origin = "" per the message-port post-message steps —
+                    // see `elidex_api_workers::ParentToWorker`.
+                    WorkerToParent::PostMessage { data } => {
                         let type_sid = self.well_known.message;
-                        self.dispatch_message_event_at(
-                            type_sid,
-                            entity,
-                            target_wrapper,
-                            &data,
-                            &origin,
-                        );
+                        self.dispatch_message_event_at(type_sid, entity, target_wrapper, &data, "");
                     }
                     WorkerToParent::Error {
                         message,
@@ -173,8 +163,11 @@ impl VmInner {
                         );
                     }
                     // A `messageerror` is itself a `MessageEvent` with a `null`
-                    // data payload (WHATWG HTML §10.2.6.1) — fire it through the
-                    // same MessageEvent path, not a bare `Event`.
+                    // data payload — the *message port post message steps* fire
+                    // it using `MessageEvent` (WHATWG HTML §9.4.4 step 7.4) —
+                    // so route it through the same MessageEvent path, not a
+                    // bare `Event`. Like `message` (step 7.7), its `origin`
+                    // stays `""`.
                     WorkerToParent::MessageError => {
                         let type_sid = self.strings.intern("messageerror");
                         self.dispatch_message_event_at(
@@ -182,7 +175,7 @@ impl VmInner {
                             entity,
                             target_wrapper,
                             "null",
-                            &worker_origin,
+                            "",
                         );
                     }
                     WorkerToParent::Closed => closed = true,
@@ -366,15 +359,14 @@ fn native_worker_constructor(
         super::worker_scope::url_is_secure_context(&ctx.vm.navigation.current_url);
 
     let name = options.name;
-    let worker_url = resolved.clone();
     let worker_name = name.clone();
     // The worker realm inherits this (the creator's) engine-wide mode — a
     // `BrowserCore`/`App` document's workers must not silently reset to the
     // default (they install the same policy-gated surface).
     let engine_mode = ctx.vm.engine_mode;
-    let handle = spawn_worker(name, resolved, move |channel| {
+    let handle = spawn_worker(name, move |channel| {
         crate::vm::worker_thread::run_worker(
-            &worker_url,
+            &resolved,
             worker_name,
             is_secure_context,
             credentials,
@@ -504,19 +496,12 @@ fn native_worker_post_message(
     let (_entity, worker_id) = require_worker(ctx, this, "postMessage")?;
     let data = args.first().copied().unwrap_or(JsValue::Undefined);
     let serialized = super::worker_scope::serialize_message(ctx, data)?;
-    // S1b §5 carve-out (NOT a settings-object-origin reader → deliberately
-    // NOT routed through `document_origin()`): WHATWG HTML §9.4.4
-    // message-port-post-message-steps fire the worker's `message` event with
-    // NO `origin` attribute (unlike window.postMessage §9.3.3). This
-    // `current_url`-derived page tag is a pre-existing VM-specific extension,
-    // not the document origin — migrating it (e.g. → "null" for a sandboxed
-    // page) would diverge from the spec's "no origin", the same overreach the
-    // CRIT-F1 carve-out avoided for `location.origin`. Spec-faithful
-    // MessageEvent.origin (no origin set) for port messages is a separate
-    // future change, not S1b → slot `#11-worker-port-message-no-origin`.
-    let origin = ctx.vm.navigation.current_url.origin().ascii_serialization();
+    // No origin travels with the message (S5-4e, closes slot
+    // `#11-worker-port-message-no-origin`) — origin = "" per the message-port
+    // post-message steps, see `elidex_api_workers::ParentToWorker`. Unlike
+    // window.postMessage (§9.3.3), where the origin IS initialized.
     if let Some(handle) = ctx.vm.worker_registry.get(worker_id) {
-        handle.post_message(serialized, origin);
+        handle.post_message(serialized);
     }
     Ok(JsValue::Undefined)
 }

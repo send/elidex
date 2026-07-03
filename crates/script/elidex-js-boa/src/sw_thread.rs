@@ -308,7 +308,7 @@ fn sw_thread_run(
 
         // Drain outgoing messages (postMessage from SW to clients).
         for msg in runtime.drain_worker_outgoing() {
-            if let elidex_api_workers::WorkerToParent::PostMessage { data, origin: _ } = msg {
+            if let elidex_api_workers::WorkerToParent::PostMessage { data } = msg {
                 let _ = channel.send(SwToContent::PostMessage {
                     client_id: String::new(), // TODO: route to correct client
                     data,
