@@ -510,14 +510,6 @@ impl HostDriver for ElidexJsEngine {
             .is_none_or(HostData::popups_allowed)
     }
 
-    fn modals_allowed(&self) -> bool {
-        self.vm
-            .inner
-            .host_data
-            .as_deref()
-            .is_none_or(HostData::modals_allowed)
-    }
-
     fn iframe_depth(&self) -> usize {
         self.vm
             .inner

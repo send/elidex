@@ -539,7 +539,11 @@ impl JsRuntime {
             .into_iter()
             .map(|(name, url)| elidex_script_session::NamedFrameNavigation {
                 name,
-                url: url.to_string(),
+                // boa resolves the empty-url case to about:blank at enqueue
+                // (its pre-flip baseline), so the drained url is always
+                // concrete → `Some`. The VM engine is the one that carries a
+                // null urlRecord (`None`) through this field.
+                url: Some(url.to_string()),
                 aux_nav_allowed: true,
             })
             .collect()

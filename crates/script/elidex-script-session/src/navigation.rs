@@ -97,9 +97,15 @@ pub struct NamedFrameNavigation {
     /// ASCII case-insensitive per §7.3.1.7 — the name itself is preserved
     /// verbatim for the shell's own name-matching rules).
     pub name: String,
-    /// The resolved absolute target URL (same contract as
-    /// [`OpenTabRequest::url`]).
-    pub url: String,
+    /// The resolved absolute target URL, or `None` when `window.open` was
+    /// called with an **empty** url (WHATWG HTML §7.2.2.1 *window open steps*
+    /// step 3-4: the urlRecord stays null). The distinction is load-bearing
+    /// and cannot be pre-resolved to about:blank at the VM, because whether
+    /// the named target hits an existing navigable (step 16.1 — navigate only
+    /// when urlRecord is non-null; empty = no-op) or creates a new one
+    /// (step 15.3 — a new navigable's null urlRecord defaults to about:blank)
+    /// is decided by the shell's frame-tree lookup at drain time.
+    pub url: Option<String>,
     /// The §7.3.1.7 step-3 sandboxing-flag-set **snapshot** taken at call
     /// time: whether the *sandboxed auxiliary navigation* flag permitted a
     /// new top-level traversable when `window.open` ran. The shell's

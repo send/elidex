@@ -212,15 +212,7 @@ pub(super) fn process_pending_actions(state: &mut ContentState) -> bool {
     let open_tabs = state.pipeline.runtime.take_pending_open_tabs();
     if !open_tabs.is_empty() {
         state.send_display_list();
-        for req in open_tabs {
-            // `req.url` is the already-resolved absolute URL the engine
-            // produced from a `url::Url`, so the re-parse off the `String`
-            // wire type is infallible in practice — the guard is defensive,
-            // not error-swallowing.
-            if let Ok(url) = url::Url::parse(&req.url) {
-                state.notify_browser(crate::ipc::ContentToBrowser::OpenNewTab(url));
-            }
-        }
+        notify_open_new_tabs(state, open_tabs);
         return true;
     }
 
@@ -236,6 +228,27 @@ pub(super) fn process_pending_actions(state: &mut ContentState) -> bool {
     }
 
     false
+}
+
+/// Send an `OpenNewTab` chrome action for each drained `window.open`
+/// popup / `_blank` request (WHATWG HTML §7.2.2.1). Shared by both drain
+/// pumps — `process_pending_actions` and the async `run_event_loop` — so the
+/// parse-and-notify shape has one home (a change to how a popup surfaces —
+/// error reporting, feature handling — lands once).
+///
+/// `req.url` is an already-resolved absolute URL (engine-side; the empty-url
+/// case is materialized to about:blank before enqueue for the `_blank`/popup
+/// path), so `url::Url::parse` is infallible in practice — the guard is
+/// defensive, not error-swallowing.
+pub(super) fn notify_open_new_tabs(
+    state: &mut ContentState,
+    requests: Vec<elidex_script_session::OpenTabRequest>,
+) {
+    for req in requests {
+        if let Ok(url) = url::Url::parse(&req.url) {
+            state.notify_browser(crate::ipc::ContentToBrowser::OpenNewTab(url));
+        }
+    }
 }
 
 /// Route the drained named-target `window.open` navigations (WHATWG HTML
@@ -256,20 +269,31 @@ pub(super) fn process_pending_actions(state: &mut ContentState) -> bool {
 ///   §7.3.1.7 step 8 sandboxed-auxiliary-navigation case — "may report to a
 ///   developer console"). The previously-ungated promotion was the sandbox
 ///   bypass this slice closes.
+///
+/// `nav.url` is `None` when `window.open` was called with an empty url
+/// (§7.2.2.1 window open steps — null urlRecord): a **HIT** (existing
+/// navigable) is then a NO-OP (step 16.1 navigates only for a non-null
+/// urlRecord), while a **MISS** (new navigable) defaults to about:blank
+/// (step 15.3).
 pub(crate) fn route_frame_navigations(
     state: &mut ContentState,
     navigations: Vec<elidex_script_session::NamedFrameNavigation>,
 ) {
     for nav in navigations {
-        // `nav.url` is an already-resolved absolute URL (engine-side), so
-        // every `url::Url::parse` below is infallible in practice — the
-        // guards are defensive, not error-swallowing.
+        // A present `nav.url` is an already-resolved absolute URL
+        // (engine-side), so `url::Url::parse` on it is infallible in
+        // practice — the guards are defensive, not error-swallowing.
         if let Some(iframe_entity) = super::iframe::find_iframe_by_name(state, &nav.name) {
-            if let Ok(url) = url::Url::parse(&nav.url) {
+            // HIT — existing navigable: navigate only for a non-null
+            // urlRecord (§7.2.2.1 step 16.1); an empty-url open is a no-op.
+            if let Some(url) = nav.url.as_deref().and_then(|u| url::Url::parse(u).ok()) {
                 super::iframe::navigate_iframe(state, iframe_entity, &url);
             }
         } else if nav.aux_nav_allowed {
-            if let Ok(url) = url::Url::parse(&nav.url) {
+            // MISS — new navigable: a null urlRecord defaults to about:blank
+            // (§7.2.2.1 step 15.3).
+            let url_str = nav.url.as_deref().unwrap_or("about:blank");
+            if let Ok(url) = url::Url::parse(url_str) {
                 state.notify_browser(crate::ipc::ContentToBrowser::OpenNewTab(url));
             }
         }

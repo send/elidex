@@ -344,15 +344,15 @@ pub trait HostDriver {
     #[must_use]
     fn popups_allowed(&self) -> bool;
 
-    /// Whether simple dialogs are allowed (sandbox `allow-modals` = the
-    /// §7.1.5 *sandboxed modals flag*). `true` on an unsandboxed /
-    /// un-configured engine. Implementations answer via the canonical
-    /// predicate home `elidex_plugin::sandbox::modals_allowed` over their
-    /// stored flags; the consumer is HTML §8.9.1 *cannot show simple
-    /// dialogs* step 1 (`html#cannot-show-simple-dialogs`), the gate each
-    /// `alert` / `confirm` / `prompt` native runs first.
-    #[must_use]
-    fn modals_allowed(&self) -> bool;
+    // `modals_allowed` is intentionally NOT on this trait: unlike
+    // `forms_allowed` / `popups_allowed` (consulted shell-side for the
+    // form-submit / link-target gates), the *sandboxed modals flag* (§7.1.5)
+    // is enforced entirely inside the engine's `alert`/`confirm`/`prompt`
+    // natives (HTML §8.9.1 *cannot show simple dialogs* step 1) — the shell
+    // has no modal gate to drive. So it lives only as the engine-internal
+    // predicate (`HostData::modals_allowed` → `elidex_plugin::sandbox`),
+    // matching the `scripts_allowed` precedent (also engine-internal, off
+    // this trait). Adding it here would be an unconsumed trait surface.
 
     /// The iframe nesting depth of this document (`0` = top-level).
     #[must_use]

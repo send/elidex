@@ -778,7 +778,23 @@ logic is signature-identical to `HostDriver` and the S5-6 flip swaps the runtime
 it (E4). (5) The link-top-nav re-key end-to-end regression is pinned at the predicate seam only — no
 shell click-simulation harness exists and blocked/allowed both terminate in `send_display_list`
 (indistinguishable on the channel); gap documented in-test. `event_handlers.rs` = 997 lines post-edit
-(under 1000, no restructure). **CLOSES `#11-vm-sandbox-method-gates-and-modals`.**
+(under 1000, no restructure). **Post-review refinements** (pre-push `/code-review` + `/elidex-review`):
+(6) **Empty-url urlRecord is threaded as `Option`, NOT pre-resolved to about:blank** (§7.2.2.1 steps
+3-4/15.3/16.1 — webref-verified): `window.open("", "_self")`/`_top`/`_parent` and a named-target HIT are
+NO-OPs (an existing navigable is navigated only for a non-null urlRecord, step 16.1), while a `_blank`/popup
+or named-MISS *new* navigable defaults to about:blank (step 15.3). This corrected a real bug in the first
+draft (empty-url `_self` destroyed the current document). `NamedFrameNavigation.url` is `Option<String>`
+so the existing-vs-new choice stays the shell's (resolved at frame-tree lookup). A whitespace-only url is
+NOT empty (JS-empty check, spec step 4) — it URL-parses to the document URL, a deliberate divergence from
+boa's non-spec `trim()` guard. (7) `HostDriver::modals_allowed` was NOT added to the session trait after
+all (deviation from the §5.3 scope-1 "session-trait surface" line): the modals gate is entirely
+engine-internal (the `alert`/`confirm`/`prompt` natives), the shell has no modal gate to drive, so — like
+`scripts_allowed` (also engine-internal, off the trait) — it lives only as `HostData::modals_allowed`;
+a trait method would be dead surface. (8) `window.rs` crossed 1000 (784→1021) via the four natives → the
+dialog/open group was split into the sibling `vm/host/window_dialogs.rs` (touch-time cohesion seam;
+window.rs back to 791). (9) The open-tab drain parse+notify body was deduped into
+`content/navigation.rs::notify_open_new_tabs`, shared by both drain pumps. **CLOSES
+`#11-vm-sandbox-method-gates-and-modals`.**
 
 **Scope**: (1) `ALLOW_MODALS` predicate + `ALLOW_TOP_NAVIGATION_BY_USER_ACTIVATION` bit + token
 parse + `top_navigation_allowed` (§4.3.3) in `elidex-plugin`; `modals_allowed` VM accessor

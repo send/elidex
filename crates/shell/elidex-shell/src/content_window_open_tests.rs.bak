@@ -125,7 +125,7 @@ fn named_miss_without_aux_nav_grant_drops_silently() {
         &mut state,
         vec![elidex_script_session::NamedFrameNavigation {
             name: "nonexistent".to_string(),
-            url: Some("https://example.com/".to_string()),
+            url: "https://example.com/".to_string(),
             aux_nav_allowed: false,
         }],
     );
@@ -143,7 +143,7 @@ fn named_miss_with_aux_nav_grant_promotes_to_open_new_tab() {
         &mut state,
         vec![elidex_script_session::NamedFrameNavigation {
             name: "nonexistent".to_string(),
-            url: Some("https://example.com/".to_string()),
+            url: "https://example.com/".to_string(),
             aux_nav_allowed: true,
         }],
     );
@@ -168,7 +168,7 @@ fn named_hit_navigates_iframe_ungated() {
         &mut state,
         vec![elidex_script_session::NamedFrameNavigation {
             name: "child".to_string(),
-            url: Some("https://navigated.example/".to_string()),
+            url: "https://navigated.example/".to_string(),
             aux_nav_allowed: false,
         }],
     );
@@ -180,52 +180,6 @@ fn named_hit_navigates_iframe_ungated() {
         iframe_src(&state).as_deref(),
         Some("https://navigated.example/"),
         "a named HIT updates the target iframe's src (ungated navigate), even with aux_nav_allowed=false"
-    );
-}
-
-/// Empty-url named MISS (`url: None`) → new navigable defaulting to
-/// about:blank (§7.2.2.1 step 15.3), gated on the aux-nav grant.
-#[test]
-fn named_miss_empty_url_promotes_to_about_blank_tab() {
-    let (mut state, browser) = build_test_content_state("<div>no iframe here</div>", "");
-    route_frame_navigations(
-        &mut state,
-        vec![elidex_script_session::NamedFrameNavigation {
-            name: "nonexistent".to_string(),
-            url: None,
-            aux_nav_allowed: true,
-        }],
-    );
-    assert_eq!(
-        drain_open_new_tabs(&browser),
-        vec![url::Url::parse("about:blank").unwrap()],
-        "an empty-url named MISS opens an about:blank tab (new-navigable default)"
-    );
-}
-
-/// Empty-url named HIT (`url: None`) → NO-OP: §7.2.2.1 step 16.1 navigates an
-/// existing navigable only for a non-null urlRecord, so the found iframe is
-/// left untouched (its `src` unchanged) and no tab opens.
-#[test]
-fn named_hit_empty_url_is_a_noop() {
-    let (mut state, browser) = build_test_content_state_with_url(
-        r#"<iframe name="child" srcdoc="<p>child</p>"></iframe>"#,
-        url::Url::parse("https://parent.example/").unwrap(),
-    );
-    let src_before = iframe_src(&state);
-    route_frame_navigations(
-        &mut state,
-        vec![elidex_script_session::NamedFrameNavigation {
-            name: "child".to_string(),
-            url: None,
-            aux_nav_allowed: true,
-        }],
-    );
-    assert!(drain_open_new_tabs(&browser).is_empty());
-    assert_eq!(
-        iframe_src(&state),
-        src_before,
-        "an empty-url named HIT is a no-op — the existing iframe is not navigated"
     );
 }
 

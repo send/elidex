@@ -237,7 +237,7 @@ fn open_named_sandboxed_snapshots_negative_aux_verdict() {
         frame_navs(&mut vm),
         vec![NamedFrameNavigation {
             name: "frameA".to_string(),
-            url: "https://example.com/f".to_string(),
+            url: Some("https://example.com/f".to_string()),
             aux_nav_allowed: false,
         }]
     );
@@ -295,6 +295,60 @@ fn open_no_args_opens_about_blank_tab() {
             url: "about:blank".to_string()
         }]
     );
+}
+
+#[test]
+fn open_empty_url_to_existing_navigable_is_a_noop() {
+    // §7.2.2.1 window open steps: an empty url leaves urlRecord NULL (step
+    // 3-4), and step 16.1 navigates an EXISTING navigable only for a
+    // non-null urlRecord — so `window.open("", "_self")` (and `_top` /
+    // `_parent`, all the own-context targets in the single-navigable model)
+    // is a NO-OP that preserves the current document, NOT a navigation to
+    // about:blank. Regression pin: an earlier draft materialized about:blank
+    // for every empty-url path and would have destroyed the page here.
+    let mut vm = vm_with_flags(None);
+    assert!(eval_bool(&mut vm, "window.open('', '_self') === null;"));
+    assert!(eval_bool(&mut vm, "window.open('', '_top') === null;"));
+    assert!(eval_bool(&mut vm, "window.open('', '_parent') === null;"));
+    assert!(eval_bool(
+        &mut vm,
+        "window.open(undefined, '_self') === null;"
+    ));
+    assert_no_intents(&mut vm);
+}
+
+#[test]
+fn open_empty_url_named_target_carries_none_urlrecord() {
+    // §7.2.2.1: an empty-url named open snapshots a NULL urlRecord onto the
+    // channel (`url: None`), leaving the existing-vs-new navigable choice —
+    // step 16.1 no-op on HIT vs step 15.3 about:blank on MISS — to the
+    // shell's frame-tree lookup at drain time.
+    let mut vm = vm_with_flags(Some(IframeSandboxFlags::ALLOW_POPUPS));
+    vm.eval("window.open('', 'frameA');").unwrap();
+    assert_eq!(
+        frame_navs(&mut vm),
+        vec![NamedFrameNavigation {
+            name: "frameA".to_string(),
+            url: None,
+            aux_nav_allowed: true,
+        }]
+    );
+}
+
+#[test]
+fn open_whitespace_only_url_is_not_the_empty_string() {
+    // §7.2.2.1 step 4 keys on the *JS* empty string, so a whitespace-only
+    // url is NOT empty and IS encoding-parsed: the WHATWG URL parser strips
+    // the leading/trailing spaces and resolves the empty relative reference
+    // to the document URL → a NON-null urlRecord → step 16.1 navigates the
+    // existing navigable to the current URL (reload-equivalent). This pins
+    // the intended divergence from boa's non-spec `trim().is_empty()` guard:
+    // a future regression to a trim-based empty check would wrongly make this
+    // a no-op and fail here.
+    let mut vm = vm_with_flags(None);
+    assert!(eval_bool(&mut vm, "window.open('   ', '_self') === null;"));
+    let nav = take_nav(&mut vm).expect("whitespace url resolves to a non-null urlRecord");
+    assert_eq!(nav.url, "https://example.com/");
 }
 
 #[test]
