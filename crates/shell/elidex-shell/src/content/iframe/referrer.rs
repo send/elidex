@@ -37,7 +37,7 @@ fn strip_referrer_url(url: &url::Url) -> String {
 }
 
 /// Canonicalize the iframe element's `referrerpolicy` content attribute to its
-/// HTML §2.3.5 enumerated keyword, reusing the engine-independent
+/// HTML §2.3.3 enumerated keyword, reusing the engine-independent
 /// [`enumerated_reflect`](elidex_dom_api::element::enumerated_reflect) table
 /// (`REFERRER_POLICY_VALUES`) shared with the `referrerPolicy` IDL getters.
 ///
@@ -79,7 +79,8 @@ pub(super) fn iframe_referrer_policy(iframe_data: &elidex_ecs::IframeData) -> &'
 /// **No valid referrer source** precondition (applies to EVERY policy, NOT
 /// policy-overridable — even `unsafe-url`, because §8.4 step 2 strips a
 /// local-scheme source to "no referrer" before the policy switch runs) →
-/// `None`: `source_origin` is opaque (§8.3 step 2.2), OR `source_url` has a
+/// `None`: `source_origin` is opaque (§8.3 step 3 → "client" → Window
+/// sub-branch, opaque-origin gate 2.2), OR `source_url` has a
 /// Fetch **local scheme** (`about` / `blob` / `data`, §8.4 step 2). The
 /// local-scheme test is on the **source URL scheme, not the origin** — an
 /// `about:blank` parent has a local scheme but an inherited (non-opaque, tuple)
@@ -264,7 +265,8 @@ mod tests {
 
     /// Step 1 (opaque origin): `default_referrer` yields `None` for an
     /// opaque-origin source (data:/file:/sandboxed — W3C Referrer Policy §8.3
-    /// step 2.2), so a child of such a parent never receives a leaked URL.
+    /// step 3 → "client" → Window sub-branch, opaque-origin gate 2.2), so a
+    /// child of such a parent never receives a leaked URL.
     /// Falsify by dropping the opaque-origin gate.
     #[test]
     fn default_referrer_opaque_source_is_none() {

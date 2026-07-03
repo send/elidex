@@ -87,7 +87,7 @@ impl SecurityOrigin {
     }
 
     /// Whether this origin is *potentially trustworthy* (W3C Secure Contexts
-    /// §3.2 "is origin potentially trustworthy") for the reachable subset:
+    /// §3.1 "is origin potentially trustworthy") for the reachable subset:
     /// a `https`/`wss` (secure-transport) tuple, OR a tuple whose host is
     /// loopback (`127.0.0.0/8`, IPv6 `::1`, or `localhost`/`*.localhost`).
     /// Opaque origins are never potentially trustworthy here.
@@ -134,7 +134,7 @@ impl SecurityOrigin {
 }
 
 /// Whether an origin host is a loopback identifier per W3C Secure Contexts
-/// §3.2 "is origin potentially trustworthy" (the `127.0.0.0/8` block, IPv6
+/// §3.1 "is origin potentially trustworthy" (the `127.0.0.0/8` block, IPv6
 /// `::1`, and the `localhost` / `*.localhost` names). The host is the raw
 /// `SecurityOrigin` host string (IPv6 hosts arrive bracketed, e.g. `[::1]`).
 fn host_is_loopback(host: &str) -> bool {
