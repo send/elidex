@@ -571,6 +571,26 @@ fn coerce_dialog_arg(
     Ok(())
 }
 
+/// Coerce an optional `DOMString`/`USVString` argument to an owned `String`,
+/// substituting `default` when the argument is absent or `undefined` (the
+/// WebIDL `optional … = "…"` default — `ToString(undefined)` is not run).
+/// The `ToString` of a present non-`undefined` argument executes for its
+/// side effects per WebIDL argument-conversion order.
+fn coerce_string_arg(
+    ctx: &mut NativeContext<'_>,
+    args: &[JsValue],
+    idx: usize,
+    default: &str,
+) -> Result<String, VmError> {
+    match args.get(idx).copied().unwrap_or(JsValue::Undefined) {
+        JsValue::Undefined => Ok(default.to_string()),
+        v => {
+            let sid = coerce::to_string(ctx.vm, v)?;
+            Ok(ctx.vm.strings.get_utf8(sid))
+        }
+    }
+}
+
 /// `window.alert(message)` (WHATWG HTML §8.9.1, `#dom-alert`).
 pub(super) fn native_window_alert(
     ctx: &mut NativeContext<'_>,
@@ -644,20 +664,8 @@ pub(super) fn native_window_open(
     // = "_blank", optional [LegacyNullToEmptyString] DOMString features =
     // "")` — all three convert before the method steps (`ToString` side
     // effects observable); absent / `undefined` takes the default.
-    let url_input = match args.first().copied().unwrap_or(JsValue::Undefined) {
-        JsValue::Undefined => String::new(),
-        v => {
-            let sid = coerce::to_string(ctx.vm, v)?;
-            ctx.vm.strings.get_utf8(sid)
-        }
-    };
-    let target = match args.get(1).copied().unwrap_or(JsValue::Undefined) {
-        JsValue::Undefined => "_blank".to_string(),
-        v => {
-            let sid = coerce::to_string(ctx.vm, v)?;
-            ctx.vm.strings.get_utf8(sid)
-        }
-    };
+    let url_input = coerce_string_arg(ctx, args, 0, "")?;
+    let target = coerce_string_arg(ctx, args, 1, "_blank")?;
     // `features` is converted (side effects) then ignored — boa parity;
     // tokenization (noopener / noreferrer / popup sizing) rides the S5-8
     // WindowProxy/auxiliary-context program (memo §5.3.2, fold
@@ -677,14 +685,7 @@ pub(super) fn native_window_open(
     let resolved = if url_input.is_empty() {
         super::navigation::parse_about_blank()
     } else {
-        let Some(parsed) = super::location::resolve_url(ctx, &url_input) else {
-            let syntax = ctx.vm.well_known.dom_exc_syntax_error;
-            return Err(VmError::dom_exception(
-                syntax,
-                format!("Failed to execute 'open' on 'Window': invalid URL '{url_input}'."),
-            ));
-        };
-        parsed
+        super::location::resolve_url_or_syntax_error(ctx, &url_input, "execute 'open' on 'Window'")?
     };
 
     // The target dispatch + sandbox gates are the engine-independent

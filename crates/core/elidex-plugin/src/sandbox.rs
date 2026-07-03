@@ -7,12 +7,11 @@
 //! [`modals_allowed`] / [`top_navigation_allowed`] (the spec's 2-flag
 //! top-navigation decision, taking the caller's transient-activation fact
 //! as a parameter) / [`scripting_enabled`]. This module is the canonical
-//! predicate home: capability checks delegate here rather than open-coding
-//! a `contains` test. Remaining open-coded sites: the shell
-//! `content/event_handlers.rs` link-target top-navigation check (re-keyed
-//! onto [`top_navigation_allowed`] in the S5-4c shell stage) and the boa
-//! `iframe_bridge.rs` / `globals/window/mod.rs` checks (boa is the
-//! pre-flip baseline the S5-6 boa deletion removes wholesale).
+//! predicate home: every capability check delegates here rather than
+//! open-coding a `contains` test — the VM `HostData` accessors, the boa
+//! `iframe_bridge.rs` / `globals/window/mod.rs` sites, and the shell
+//! `content/event_handlers.rs` link-target top-navigation gate all route
+//! through these functions (S5-4c closed the last open-coded sites).
 //!
 //! Distinct from the OS *process* sandbox ([`crate::process_sandbox`]),
 //! which shares the word "sandbox" and nothing else.
