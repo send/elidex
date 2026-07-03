@@ -320,8 +320,8 @@ fn iframe_initial_script_observes_parent_referrer() {
 /// never leak into the child's `document.referrer` (W3C Referrer Policy §8.3
 /// step 2.2 opaque-origin document / §8.4 step 2 local scheme). The child
 /// srcdoc inherits the opaque origin and reads the empty referrer default.
-/// Falsify by dropping the opaque-origin/local-scheme gate in
-/// `parent_referrer_url` — the `data:` URL would leak here.
+/// Falsify by dropping the step-1 opaque-origin/local-scheme gate in
+/// `default_referrer` — the `data:` URL would leak here.
 #[test]
 fn local_scheme_parent_discloses_no_referrer() {
     let (state, _browser) = build_test_content_state_with_url(
@@ -542,7 +542,7 @@ fn oop_unsandboxed_iframe_initial_script_observes_tuple_origin() {
 /// pre-eval chokepoint as origin/flags (`PreEvalFrameState`), so the *initial*
 /// script already observes it — the probe posts `document.referrer` as its
 /// message data. The initial-load trim source (`load.rs` OOP branch →
-/// `cross_origin_referrer`) is unit-tested in `content/iframe/load.rs` and
+/// `default_referrer`) is unit-tested in `content/iframe/load.rs` and
 /// shares the same network-gated reachability as the OOP origin derivation (see
 /// the module doc), so this test pins delivery through the OOP chokepoint.
 /// Falsify by forwarding a full-URL referrer here.
