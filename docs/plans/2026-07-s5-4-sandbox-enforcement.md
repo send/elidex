@@ -763,6 +763,23 @@ no new state.
 
 ### §5.3 S5-4c — VM sandbox method gates + modals + window.open
 
+**✅ LANDED (2026-07-04)** — implemented as spec'd below with these impl-contact refinements:
+(1) **App-mode is drain-AND-DROP, not routing** (refines §4.3.2's "same trait call" claim): inline
+interactive `app/navigation.rs` drains both new channels but has no new-tab facility (`ChromeAction::NewTab`
+is a threaded-mode-only no-op inline) and no iframe registry, so it drains-to-drop for leak-prevention
+only; real routing lives in the content-thread `process_pending_actions`. (2) The named-frame routing
+loop was extracted into a `pub(crate) route_frame_navigations` in `content/navigation.rs` (HIT → ungated
+`navigate_iframe`; MISS → `OpenNewTab` iff `aux_nav_allowed`) to make the MISS-gate unit-testable (the
+boa path can only produce `aux_nav_allowed: true`). (3) Drain sites re-parse the channel `url: String`
+into `url::Url` (VM/boa resolve to absolute pre-enqueue; parse-failure skips). (4) boa's `JsRuntime`
+gained engine-agnostic `take_pending_open_tabs`/`take_pending_frame_navigations` wrappers over its private
+bridge drains (`aux_nav_allowed: true` by construction — entry gate already passed) so the shell drain
+logic is signature-identical to `HostDriver` and the S5-6 flip swaps the runtime type without touching
+it (E4). (5) The link-top-nav re-key end-to-end regression is pinned at the predicate seam only — no
+shell click-simulation harness exists and blocked/allowed both terminate in `send_display_list`
+(indistinguishable on the channel); gap documented in-test. `event_handlers.rs` = 997 lines post-edit
+(under 1000, no restructure). **CLOSES `#11-vm-sandbox-method-gates-and-modals`.**
+
 **Scope**: (1) `ALLOW_MODALS` predicate + `ALLOW_TOP_NAVIGATION_BY_USER_ACTIVATION` bit + token
 parse + `top_navigation_allowed` (§4.3.3) in `elidex-plugin`; `modals_allowed` VM accessor
 (`HostData`) + session-trait surface (parity with `forms_allowed`/`popups_allowed` — the trait gap
