@@ -497,6 +497,54 @@ impl JsRuntime {
         self.bridge.take_pending_history()
     }
 
+    /// Drain the gate-passed `window.open` popup / `_blank` requests as the
+    /// engine-agnostic session type (WHATWG HTML §7.2.2.1 window open steps →
+    /// §7.3.1.7 step 8's create-a-new-top-level-traversable case).
+    ///
+    /// Mechanical wrapper over the boa-private `drain_pending_open_tabs`: it
+    /// maps each raw `url::Url` into an [`elidex_script_session::OpenTabRequest`]
+    /// so the shell drain sites are signature-identical with the
+    /// [`elidex_script_session::HostDriver`] method of the same name — the S5-6
+    /// flip then swaps the runtime type without touching the drain logic
+    /// (memo §4.3.2 / edge E4).
+    pub fn take_pending_open_tabs(&mut self) -> Vec<elidex_script_session::OpenTabRequest> {
+        self.bridge
+            .drain_pending_open_tabs()
+            .into_iter()
+            .map(|url| elidex_script_session::OpenTabRequest {
+                url: url.to_string(),
+            })
+            .collect()
+    }
+
+    /// Drain the named-target `window.open` navigations as the engine-agnostic
+    /// session type (WHATWG HTML §7.3.1.7 *the rules for choosing a navigable*).
+    ///
+    /// Mechanical wrapper over the boa-private `drain_pending_navigate_iframe`:
+    /// it maps each raw `(name, url)` pair into an
+    /// [`elidex_script_session::NamedFrameNavigation`] with `aux_nav_allowed:
+    /// true` **by construction** — boa's `window.open` entry gate
+    /// (`globals/window/mod.rs:359`) blocks ALL of `window.open` when popups are
+    /// sandboxed, so anything that reached this queue already passed the popup
+    /// gate; the boa path can therefore only ever produce a permissive verdict.
+    /// The VM engine carries the real per-call §7.3.1.7 step-3 snapshot on the
+    /// same field. Same signature-parity / S5-6-flip rationale as
+    /// [`take_pending_open_tabs`](Self::take_pending_open_tabs) (memo §4.3.2 /
+    /// edge E4).
+    pub fn take_pending_frame_navigations(
+        &mut self,
+    ) -> Vec<elidex_script_session::NamedFrameNavigation> {
+        self.bridge
+            .drain_pending_navigate_iframe()
+            .into_iter()
+            .map(|(name, url)| elidex_script_session::NamedFrameNavigation {
+                name,
+                url: url.to_string(),
+                aux_nav_allowed: true,
+            })
+            .collect()
+    }
+
     /// Set the session history length on the bridge.
     pub fn set_history_length(&self, len: usize) {
         self.bridge.set_history_length(len);

@@ -32,6 +32,20 @@ impl App {
             return true;
         }
 
+        // Drain the `window.open` back-channels so they cannot leak across
+        // navigations (a queue left un-drained would surface on the next task).
+        // Legacy inline mode has no new-tab capability (`ChromeAction::NewTab`
+        // is threaded-mode only, see `handle_chrome_action`) and no iframe
+        // registry (`InteractiveState` carries no iframes — iframes are a
+        // content-thread facility), so both channels are drained-and-dropped
+        // here. Threaded content mode does the real routing in
+        // `content/navigation.rs::process_pending_actions`.
+        let _ = interactive.pipeline.runtime.take_pending_open_tabs();
+        let _ = interactive
+            .pipeline
+            .runtime
+            .take_pending_frame_navigations();
+
         false
     }
 

@@ -396,9 +396,17 @@ fn register_window_open(ctx: &mut Context, bridge: &HostBridge) {
                         });
                     }
                     "_parent" | "_top" => {
-                        if bridge.sandbox_flags().is_some_and(|f| {
-                            !f.contains(elidex_plugin::IframeSandboxFlags::ALLOW_TOP_NAVIGATION)
-                        }) {
+                        // Script-initiated open passes `false` (no transient-
+                        // activation tracking in the workspace — carve
+                        // `#11-transient-activation-tracking`); with
+                        // activation=false this is behavior-identical to the old
+                        // raw `contains(ALLOW_TOP_NAVIGATION)` check (the
+                        // `allowed(TOP_NAV)` disjunct short-circuits). Delegates
+                        // to the canonical predicate home.
+                        if !elidex_plugin::sandbox::top_navigation_allowed(
+                            bridge.sandbox_flags(),
+                            false,
+                        ) {
                             return Ok(JsValue::null());
                         }
                         bridge.set_pending_navigation(elidex_script_session::NavigationRequest {

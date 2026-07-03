@@ -204,39 +204,71 @@ pub(super) fn process_pending_actions(state: &mut ContentState) -> bool {
         return true;
     }
 
-    // window.open(_blank) → send OpenNewTab to browser thread.
-    let open_tabs = state.pipeline.runtime.bridge().drain_pending_open_tabs();
+    // window.open(_blank) → send OpenNewTab to browser thread. Drained via the
+    // engine-agnostic session trait surface (`take_pending_open_tabs`), not the
+    // boa bridge — the S5-6 flip swaps the runtime type without touching this
+    // site (memo §4.3.2 / edge E4). The enqueue is popup-gated at the native, so
+    // a sandbox-blocked popup never reaches this drain.
+    let open_tabs = state.pipeline.runtime.take_pending_open_tabs();
     if !open_tabs.is_empty() {
         state.send_display_list();
-        for url in open_tabs {
-            state.notify_browser(crate::ipc::ContentToBrowser::OpenNewTab(url));
+        for req in open_tabs {
+            if let Ok(url) = url::Url::parse(&req.url) {
+                state.notify_browser(crate::ipc::ContentToBrowser::OpenNewTab(url));
+            }
         }
         return true;
     }
 
     // window.focus() is handled in content/mod.rs drain loop — do not duplicate here.
 
-    // window.open with named target → navigate matching iframe or open new tab.
-    let navigate_iframes = state
-        .pipeline
-        .runtime
-        .bridge()
-        .drain_pending_navigate_iframe();
+    // window.open with named target → route to matching iframe or (gated) new tab.
+    let navigate_iframes = state.pipeline.runtime.take_pending_frame_navigations();
     if !navigate_iframes.is_empty() {
-        for (name, url) in navigate_iframes {
-            if let Some(iframe_entity) = super::iframe::find_iframe_by_name(state, &name) {
-                super::iframe::navigate_iframe(state, iframe_entity, &url);
-            } else {
-                // No matching iframe → open in new tab.
-                state.notify_browser(crate::ipc::ContentToBrowser::OpenNewTab(url));
-            }
-        }
+        route_frame_navigations(state, navigate_iframes);
         state.re_render();
         state.send_display_list();
         return true;
     }
 
     false
+}
+
+/// Route the drained named-target `window.open` navigations (WHATWG HTML
+/// §7.3.1.7) against the current document's iframe tree.
+///
+/// - **HIT** (`find_iframe_by_name` matches a descendant iframe) →
+///   `navigate_iframe`, **ungated**. This is spec-correct: `find_iframe_by_name`
+///   (`content/iframe/lifecycle.rs`) searches only the current document's
+///   iframes, so the source is an ancestor of the target ⇒ HTML §7.4.2.4 step 2
+///   ("If source is an ancestor of target, then return true") discharges the
+///   *allowed by sandboxing to navigate* check unconditionally. Revisit if the
+///   lookup ever widens beyond descendants (folded into slot
+///   `#11-browsing-context-model-window-open-postmessage`).
+/// - **MISS** → promote to a new tab **only when** the payload's call-time
+///   `aux_nav_allowed` snapshot permits (§7.3.1.7 step 3 snapshots the
+///   sandboxing flag set at call time — never re-read live flags here). A
+///   sandboxed no-`allow-popups` document's miss is dropped silently (HTML
+///   §7.3.1.7 step 8 sandboxed-auxiliary-navigation case — "may report to a
+///   developer console"). The previously-ungated promotion was the sandbox
+///   bypass this slice closes.
+pub(crate) fn route_frame_navigations(
+    state: &mut ContentState,
+    navigations: Vec<elidex_script_session::NamedFrameNavigation>,
+) {
+    for nav in navigations {
+        if let Some(iframe_entity) = super::iframe::find_iframe_by_name(state, &nav.name) {
+            if let Ok(url) = url::Url::parse(&nav.url) {
+                super::iframe::navigate_iframe(state, iframe_entity, &url);
+            }
+        } else if nav.aux_nav_allowed {
+            if let Ok(url) = url::Url::parse(&nav.url) {
+                state.notify_browser(crate::ipc::ContentToBrowser::OpenNewTab(url));
+            }
+        }
+        // else: MISS without an aux-nav grant → drop (sandboxed auxiliary
+        // navigation, §7.3.1.7 step 8).
+    }
 }
 
 pub(super) fn handle_history_action(

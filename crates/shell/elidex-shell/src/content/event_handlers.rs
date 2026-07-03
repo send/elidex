@@ -197,18 +197,21 @@ pub(super) fn handle_click(state: &mut ContentState, click: &crate::ipc::MouseCl
                         return;
                     }
                     Some("_top" | "_parent")
-                        if state
-                            .pipeline
-                            .runtime
-                            .bridge()
-                            .sandbox_flags()
-                            .is_some_and(|f| {
-                                !f.contains(elidex_plugin::IframeSandboxFlags::ALLOW_TOP_NAVIGATION)
-                            }) =>
+                        if !elidex_plugin::sandbox::top_navigation_allowed(
+                            state.pipeline.runtime.bridge().sandbox_flags(),
+                            true,
+                        ) =>
                     {
-                        // Sandbox allow-top-navigation check (WHATWG HTML §4.8.5):
-                        // block navigation to parent/top from sandboxed iframes
-                        // without the allow-top-navigation flag.
+                        // Sandbox top-navigation check (WHATWG HTML §7.4.2.4
+                        // *allowed by sandboxing to navigate* steps 3.2/3.3):
+                        // block navigation to parent/top from a sandboxed iframe
+                        // lacking a top-navigation grant. A link CLICK is a user
+                        // gesture, so `activation = true` is the statically-
+                        // correct per-call-site truth here (memo §4.3.3) — this
+                        // is what makes `allow-top-navigation-by-user-activation`
+                        // permit the navigation while `window.open` (activation
+                        // = false) does not. Real transient-activation tracking
+                        // is carved (`#11-transient-activation-tracking`).
                         state.send_display_list();
                         return;
                     }

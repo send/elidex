@@ -142,10 +142,15 @@ pub(super) fn run_event_loop(state: &mut ContentState) {
 
         elidex_js_boa::bridge::local_storage::flush_dirty_stores();
 
-        for url in state.pipeline.runtime.bridge().drain_pending_open_tabs() {
+        for req in state.pipeline.runtime.take_pending_open_tabs() {
             // OpenNewTab is a user-visible chrome action — wake (a pure-async
             // window.open with no DOM change would otherwise stall under Wait).
-            state.notify_browser(ContentToBrowser::OpenNewTab(url));
+            // Drained via the engine-agnostic session trait surface, not the boa
+            // bridge — the S5-6 flip swaps the runtime type here too (memo
+            // §4.3.2 / edge E4).
+            if let Ok(url) = url::Url::parse(&req.url) {
+                state.notify_browser(ContentToBrowser::OpenNewTab(url));
+            }
         }
 
         if state.pipeline.runtime.bridge().take_pending_focus() {
