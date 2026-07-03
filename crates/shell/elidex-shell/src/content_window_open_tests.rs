@@ -22,7 +22,9 @@
 //! `ContentToBrowser` channel (drain wiring) + the iframe `src` attribute
 //! (HIT navigate) — the same seams the S5-4b ordering tests observe.
 
-use super::navigation::{process_pending_actions, route_frame_navigations};
+use super::navigation::{
+    drain_async_window_open_channels, process_pending_actions, route_frame_navigations,
+};
 use super::test_support::{build_test_content_state, build_test_content_state_with_url};
 use super::ContentState;
 use crate::ipc::{BrowserToContent, ContentToBrowser, LocalChannel};
@@ -180,6 +182,43 @@ fn named_hit_navigates_iframe_ungated() {
         iframe_src(&state).as_deref(),
         Some("https://navigated.example/"),
         "a named HIT updates the target iframe's src (ungated navigate), even with aux_nav_allowed=false"
+    );
+}
+
+/// Async-pump drain symmetry (edge E4, Codex R1): the async `run_event_loop`
+/// pump must drain the NAMED `window.open` channel too, not only `_blank`.
+/// A named-target open queued outside an input turn (timer / postMessage)
+/// would otherwise stall forever. Drive `drain_async_window_open_channels`
+/// (the async pump's drain body) directly, with a named nav enqueued on the
+/// runtime queue → the matching iframe is navigated (HIT), and the helper
+/// reports `true` (re-render needed). Before the fix the async pump never
+/// drained this channel, so the enqueued nav was silently stranded.
+#[test]
+fn async_pump_drains_named_window_open_channel() {
+    let (mut state, browser) = build_test_content_state_with_url(
+        r#"<iframe name="child" srcdoc="<p>child</p>"></iframe>"#,
+        url::Url::parse("https://parent.example/").unwrap(),
+    );
+    // Enqueue a named open on the runtime back-channel (what a timer-driven
+    // `window.open('/x', 'child')` produces), then run ONLY the async pump's
+    // drain — no `process_pending_actions` (the input-driven path).
+    state.pipeline.runtime.bridge().set_pending_navigate_iframe(
+        "child".to_string(),
+        url::Url::parse("https://navigated.example/").unwrap(),
+    );
+    let needs_render = drain_async_window_open_channels(&mut state);
+    assert!(
+        needs_render,
+        "a named HIT re-navigates an iframe → re-render"
+    );
+    assert!(
+        drain_open_new_tabs(&browser).is_empty(),
+        "a named HIT navigates the iframe, never promotes to a new tab"
+    );
+    assert_eq!(
+        iframe_src(&state).as_deref(),
+        Some("https://navigated.example/"),
+        "the async pump routed the named open to the matching iframe"
     );
 }
 

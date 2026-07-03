@@ -230,6 +230,31 @@ pub(super) fn process_pending_actions(state: &mut ContentState) -> bool {
     false
 }
 
+/// Drain BOTH `window.open` back-channels for the async `run_event_loop`
+/// pump and route them: `_blank`/popup → `OpenNewTab`, named → the frame
+/// tree ([`route_frame_navigations`]). Returns `true` iff a named navigation
+/// was routed (a HIT re-navigates an iframe → the caller must re-render;
+/// popup-only / empty batches need no render).
+///
+/// This exists so the async pump drains the named channel too, NOT only
+/// `_blank`: a named-target `window.open` from a pure-async turn (a timer /
+/// postMessage with no later user input) never reaches the input-driven
+/// `process_pending_actions`, so draining only the popup channel here would
+/// strand its `NamedFrameNavigation` in the queue forever (edge E4 — both
+/// back-channels must drain at every pump). `process_pending_actions` keeps
+/// its own per-action early-return structure (different render granularity),
+/// so the two pumps share the leaf routing helpers, not this batching.
+pub(super) fn drain_async_window_open_channels(state: &mut ContentState) -> bool {
+    let open_tabs = state.pipeline.runtime.take_pending_open_tabs();
+    notify_open_new_tabs(state, open_tabs);
+    let frame_navs = state.pipeline.runtime.take_pending_frame_navigations();
+    if frame_navs.is_empty() {
+        return false;
+    }
+    route_frame_navigations(state, frame_navs);
+    true
+}
+
 /// Send an `OpenNewTab` chrome action for each drained `window.open`
 /// popup / `_blank` request (WHATWG HTML §7.2.2.1). Shared by both drain
 /// pumps — `process_pending_actions` and the async `run_event_loop` — so the

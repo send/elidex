@@ -148,8 +148,14 @@ pub(super) fn run_event_loop(state: &mut ContentState) {
         // bridge — the S5-6 flip swaps the runtime type here too (memo
         // §4.3.2 / edge E4). Shared parse-and-notify body with
         // `process_pending_actions`.
-        let open_tabs = state.pipeline.runtime.take_pending_open_tabs();
-        super::navigation::notify_open_new_tabs(state, open_tabs);
+        //
+        // BOTH `window.open` back-channels must drain here, not only the
+        // `_blank` one: a named-target open from a pure-async turn (a timer /
+        // postMessage with no later user input) never reaches the input-driven
+        // `process_pending_actions`, so draining only `open_tabs` would strand
+        // its `NamedFrameNavigation` in the queue forever (E4 drain symmetry).
+        // A routed named HIT re-navigates an iframe → re-render.
+        needs_render |= super::navigation::drain_async_window_open_channels(state);
 
         if state.pipeline.runtime.bridge().take_pending_focus() {
             state.notify_browser(ContentToBrowser::FocusWindow);
