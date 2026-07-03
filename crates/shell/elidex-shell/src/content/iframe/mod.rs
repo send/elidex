@@ -7,12 +7,14 @@
 //!
 //! - `types` — IPC messages, handle types, metadata, load context
 //! - `load` — URL resolution, security checks, pipeline construction
+//! - `referrer` — W3C Referrer Policy computation for child documents
 //! - `thread` — Cross-origin iframe thread event loop
 //! - `lifecycle` — Mutation detection, lazy loading, unloading, DOM scanning
 //! - `render` — Display list management for parent compositing
 
 mod lifecycle;
 mod load;
+mod referrer;
 mod render;
 pub(super) mod thread;
 mod types;
