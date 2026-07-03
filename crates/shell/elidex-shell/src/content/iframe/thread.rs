@@ -2,7 +2,6 @@
 
 use elidex_plugin::Size;
 
-use super::load::apply_sandbox_origin_from_flags;
 use super::types::{BrowserToIframe, IframeToBrowser};
 
 use crate::ipc::LocalChannel;
@@ -199,21 +198,51 @@ fn handle_navigate(
     // Rebuild at the iframe's current box (tracked in `pipeline.viewport` via
     // SetViewport), not DEFAULT — consistent with the top-level navigation fix (C1).
     let viewport = pipeline.viewport;
-    match crate::build_pipeline_from_url(url, viewport) {
+    // Carry the frame's *persistent* security state from the old pipeline into
+    // the re-build — these are properties of the browsing context / frame, not
+    // of the retired document, so they survive the navigation:
+    //   - sandbox flags: the `<iframe sandbox>` attribute governs the context
+    //     (a sandboxed iframe without allow-same-origin stays opaque);
+    //   - credentialless: a credentialless context keeps its opaque origin
+    //     across navigations (F-c) — hardcoding `false` here regained a tuple
+    //     origin on navigation;
+    //   - depth: a property of the frame's position;
+    //   - referrer: the parent document URL (§4.8.5), unchanged by a same-frame
+    //     navigation (the OOP path never set it pre-S5-4b — F-b).
+    // The origin itself is NOT precomputed here: it must derive from the
+    // POST-redirect `loaded.url`, which only `build_pipeline_from_url` knows
+    // after resolving the fetch (F-a). Passing [`crate::PreEvalFrameInputs`]
+    // defers that derivation to the builder, which then installs the resulting
+    // [`crate::PreEvalFrameState`] at the pre-eval chokepoint so the navigated
+    // document's *initial* scripts already observe the final origin — where
+    // previously this re-build precomputed the origin from the *requested* URL
+    // (mis-attributing redirected loads) and installed after the scripts ran.
+    let bridge = pipeline.runtime.bridge();
+    let inputs = crate::PreEvalFrameInputs {
+        sandbox_flags: bridge.sandbox_flags(),
+        credentialless: bridge.credentialless(),
+        iframe_depth: bridge.iframe_depth(),
+        referrer: bridge.referrer(),
+    };
+    // KNOWN-INCOMPLETE (slot #11-oop-iframe-navigate-completeness — a new carve;
+    // ledger registration is a landing deliverable). This `Navigate` path has NO
+    // production sender today (nothing sends `BrowserToIframe::Navigate` yet), so
+    // both gaps below are latent, not live:
+    //   (a) referrer: `inputs.referrer` carries the INITIAL parent referrer
+    //       (`bridge.referrer()`) across the frame's OWN navigation. A real
+    //       in-frame navigation should instead source the referrer from the
+    //       frame's PREVIOUS document URL (per-navigation referrer chain,
+    //       HTML §7.4.2 Navigation),
+    //       not the embedder's original referrer.
+    //   (b) cookies: `build_pipeline_from_url` spawns a fresh standalone broker
+    //       with an EMPTY cookie jar (relocated verbatim, pre-existing) — a real
+    //       navigation must hand off the frame's existing cookie jar / network
+    //       handle instead of starting cookie-less.
+    // Neither is fixed here: referrer-chain tracking + per-navigation cookie-jar
+    // handoff are out of scope until a production Navigate sender exists.
+    match crate::build_pipeline_from_url(url, viewport, Some(inputs)) {
         Ok(new_pipeline) => {
-            // Preserve sandbox flags from the old pipeline.
-            let sandbox = pipeline.runtime.bridge().sandbox_flags();
             *pipeline = new_pipeline;
-            pipeline.runtime.bridge().set_sandbox_flags(sandbox);
-            // Apply sandbox origin override (B1 fix): sandboxed iframes without
-            // allow-same-origin must get opaque origin even after navigation.
-            pipeline
-                .runtime
-                .bridge()
-                .set_origin(apply_sandbox_origin_from_flags(
-                    elidex_plugin::SecurityOrigin::from_url(url),
-                    sandbox,
-                ));
             let _ = channel.send(IframeToBrowser::DisplayListReady(
                 pipeline.display_list.clone(),
             ));

@@ -1,21 +1,97 @@
-//! Internal pipeline helpers: script execution and lifecycle event dispatch.
+//! Internal pipeline helpers: script execution, lifecycle event dispatch, and
+//! the `build_pipeline_*` builder family (co-located with [`PreEvalFrameState`] and
+//! the `run_scripts_and_finalize` chokepoint they feed).
 
 use std::rc::Rc;
 use std::sync::Arc;
 
 use elidex_css::media::Medium;
 use elidex_css::Stylesheet;
+use elidex_dom_compat::parse_compat_stylesheet_with_registry;
 use elidex_ecs::EcsDom;
 use elidex_ecs::Entity;
-use elidex_js_boa::JsRuntime;
+use elidex_html_parser::parse_progressive_str;
+use elidex_js_boa::{extract_scripts, JsRuntime};
 use elidex_layout::layout_tree;
+use elidex_render::build_display_list;
 use elidex_script_session::{DispatchEvent, ScriptContext, SessionCore};
+use elidex_text::FontDatabase;
 
 use elidex_plugin::ViewportOverflow;
 
-use elidex_plugin::{EngineMode, Size};
+use elidex_plugin::{EngineMode, Size, Vector};
 
-use crate::resolve_with_mode;
+use crate::animation::{create_animation_engine, sync_css_animations};
+use crate::{
+    create_css_property_registry, resolve_with_mode, sync_stylesheets_to_bridge, PipelineResult,
+    DEFAULT_VIEWPORT_HEIGHT, DEFAULT_VIEWPORT_WIDTH,
+};
+
+/// Frame state installed on the JS bridge **before the first eval**. It bundles
+/// two concerns that share the same pre-eval install point but not the same
+/// spec role: `origin` / `sandbox_flags` / `iframe_depth` are **security**
+/// (WHATWG HTML §7.1.5 sandboxing / §7.1.1 origin), while `referrer` is
+/// **navigation metadata** (§4.8.5) — hence the neutral `PreEvalFrameState`
+/// name rather than a security-only one.
+///
+/// Carried by the iframe load paths (`content/iframe/load.rs`, including the
+/// OOP thread's initial build and its `Navigate` re-build in
+/// `content/iframe/thread.rs`) into the pipeline builders so
+/// `run_scripts_and_finalize` installs it at the same pre-eval seam that
+/// seeds the cookie jar / viewport / device facts.
+/// Invariant (S5-4b, closes `#11-iframe-origin-before-initial-scripts`):
+/// **the installs precede the first eval on ALL iframe paths**
+/// (in-process AND out-of-process) — a sandboxed iframe's initial scripts must
+/// observe the opaque origin (and the sandbox flags, e.g. the `allow-scripts`
+/// eval gate), not the URL-derived tuple origin. This is the `set_origin`
+/// contract the engine documents (`elidex-js` `HostData::set_origin`: the
+/// embedder "installs it before scripts run"). `None` = top-level document
+/// (origin derived from the URL, unsandboxed, depth 0).
+pub struct PreEvalFrameState {
+    /// The document origin, with sandbox / credentialless opaqueness already
+    /// applied (`apply_sandbox_origin`).
+    pub origin: elidex_plugin::SecurityOrigin,
+    /// Parsed `sandbox` attribute flags (`None` = no `sandbox` attribute).
+    pub sandbox_flags: Option<elidex_plugin::IframeSandboxFlags>,
+    /// Iframe nesting depth (`MAX_IFRAME_DEPTH` enforcement across `EcsDom`s).
+    pub iframe_depth: usize,
+    /// Whether this is a `credentialless` iframe. Persisted on the bridge (like
+    /// the sandbox flags) so a same-frame navigation can re-derive the opaque
+    /// origin a credentialless browsing context keeps across navigations. Note
+    /// the credentialless→opaque-origin semantics itself is pre-existing
+    /// (`apply_sandbox_origin`, predates S5-4b); `PreEvalFrameState` only carries
+    /// the flag so `Navigate` stays consistent with the initial load.
+    pub credentialless: bool,
+    /// The document's referrer — the parent document URL for an iframe (WHATWG
+    /// HTML §4.8.5). Installed at the same pre-eval chokepoint as origin/flags
+    /// so the initial scripts read a populated `document.referrer` instead of
+    /// `""`. `None` = no referrer (top-level, or parent has no URL).
+    pub referrer: Option<String>,
+}
+
+/// Deferred inputs for deriving a (sub-)frame's [`PreEvalFrameState`] **after** the
+/// document loads — used by the URL-loading rebuild (`build_pipeline_from_url`,
+/// the OOP iframe `Navigate` path) where the origin must come from the final
+/// post-redirect `loaded.url`, not the requested URL (S5-4b F-a/F-c). The
+/// srcdoc / inherited-origin paths derive their origin before the build and
+/// pass a fully-formed [`PreEvalFrameState`] instead.
+pub struct PreEvalFrameInputs {
+    /// Parsed `sandbox` attribute flags (`None` = no `sandbox` attribute).
+    pub sandbox_flags: Option<elidex_plugin::IframeSandboxFlags>,
+    /// Whether this is a `credentialless` iframe (opaques the origin).
+    pub credentialless: bool,
+    /// Iframe nesting depth.
+    pub iframe_depth: usize,
+    /// Referrer URL (parent document URL); carried across the rebuild unchanged.
+    pub referrer: Option<String>,
+}
+
+// `PreEvalFrameInputs::into_pre_eval_state` (the post-redirect origin
+// derivation) lives in `content/iframe/load.rs`, beside the `apply_sandbox_origin`
+// policy it applies — see that module. Keeping the derivation next to its policy
+// lets `apply_sandbox_origin` stay private to `content/iframe`; the URL-loading
+// builder below (`build_pipeline_from_url`) invokes the resolver by method
+// dispatch rather than reaching up into the sandbox-origin policy.
 
 /// Flush pending DOM mutations and drain custom element reactions.
 ///
@@ -45,6 +121,10 @@ fn flush_with_ce_reactions(
 /// The `registry` is passed in from the caller to avoid creating a duplicate
 /// registry when the caller already holds one (e.g. for storage in `PipelineResult`).
 ///
+/// `pre_eval_state` (`Some` on iframe builds, in-process and OOP-thread) is
+/// installed on the bridge **before** step 2 — see [`PreEvalFrameState`] for the
+/// ordering invariant.
+///
 /// Returns `(SessionCore, JsRuntime, ViewportOverflow)` for the caller to include in `PipelineResult`.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn run_scripts_and_finalize(
@@ -60,6 +140,7 @@ pub(super) fn run_scripts_and_finalize(
     viewport: Size,
     device_facts: crate::ipc::DeviceFacts,
     engine_mode: EngineMode,
+    pre_eval_state: Option<PreEvalFrameState>,
 ) -> (SessionCore, JsRuntime, ViewportOverflow) {
     let stylesheet_refs: Vec<&Stylesheet> = stylesheets.iter().collect();
 
@@ -84,9 +165,38 @@ pub(super) fn run_scripts_and_finalize(
 
     if let Some(url) = current_url {
         runtime.set_current_url(Some(url.clone()));
-        runtime
-            .bridge()
-            .set_origin(elidex_plugin::SecurityOrigin::from_url(url));
+        // Top-level document (`pre_eval_state: None`): unsandboxed, origin
+        // derived from the URL.
+        if pre_eval_state.is_none() {
+            runtime
+                .bridge()
+                .set_origin(elidex_plugin::SecurityOrigin::from_url(url));
+        }
+    }
+
+    // Security-install chokepoint (S5-4b): sandbox flags + origin + iframe
+    // depth land BEFORE the first eval below, so a frame's *initial* scripts
+    // already observe them — the `allow-scripts` eval gate applies to the
+    // initial scripts, and a sandboxed (no `allow-same-origin`) iframe's
+    // scripts see the opaque origin, never the URL-derived tuple origin
+    // (WHATWG HTML §7.1.5 sandboxed scripts / sandboxed origin flags; the
+    // engine's `set_origin` contract, `elidex-js` `HostData::set_origin` —
+    // installed "before scripts run"). The out-of-process iframe path routes
+    // through this SAME seam: its thread-side builds (`iframe/load.rs`
+    // `make_out_of_process_entry`, `iframe/thread.rs` `handle_navigate`) pass
+    // `Some` too — no post-build install sequence anywhere. Closes
+    // `#11-iframe-origin-before-initial-scripts`.
+    if let Some(state) = pre_eval_state {
+        runtime.bridge().set_sandbox_flags(state.sandbox_flags);
+        runtime.bridge().set_origin(state.origin);
+        runtime.bridge().set_iframe_depth(state.iframe_depth);
+        runtime.bridge().set_credentialless(state.credentialless);
+        // Referrer rides the same pre-eval install so the initial scripts read a
+        // populated `document.referrer` (the parent document URL, §4.8.5), not
+        // the empty default — previously a post-build `set_referrer` landed it
+        // only after the initial scripts had already run (and never on the OOP
+        // path).
+        runtime.bridge().set_referrer(state.referrer);
     }
 
     // Seed the JS bridge viewport + device facts BEFORE running scripts so initial
@@ -287,4 +397,378 @@ pub(crate) fn dispatch_unload_events(
     );
     flush_with_ce_reactions(runtime, session, dom, document);
     true
+}
+
+// ---------------------------------------------------------------------------
+// Pipeline builders (moved from lib.rs — touch-time 1000-line split, S5-4b F-f)
+// ---------------------------------------------------------------------------
+
+/// Execute the rendering pipeline and return all state for interactive use.
+///
+/// Like `build_pipeline`, but returns the full `PipelineResult` instead
+/// of just the display list. This allows the shell to handle user events,
+/// dispatch DOM events, and re-render.
+#[must_use]
+pub fn build_pipeline_interactive(html: &str, css: &str) -> PipelineResult {
+    let parse_result = parse_progressive_str(html);
+    for err in &parse_result.errors {
+        eprintln!("HTML parse warning: {err}");
+    }
+    let mut dom = parse_result.dom;
+    let document = parse_result.document;
+
+    elidex_form::init_form_controls(&mut dom);
+
+    let registry = Arc::new(create_css_property_registry());
+
+    let stylesheets = vec![parse_compat_stylesheet_with_registry(
+        css,
+        elidex_css::Origin::Author,
+        Some(&registry),
+    )];
+    let font_db = Arc::new(FontDatabase::new());
+
+    let scripts = extract_scripts(&dom, document);
+    let script_sources: Vec<&str> = scripts.iter().map(|s| s.source.as_str()).collect();
+
+    let (session, runtime, viewport_overflow) = run_scripts_and_finalize(
+        &mut dom,
+        document,
+        &stylesheets,
+        &script_sources,
+        None, // No NetworkHandle in standalone mode.
+        None, // No CookieJar.
+        &font_db,
+        None,
+        &registry,
+        // Standalone/test build: no window, so the default viewport is the
+        // explicit choice (D6 — not a silent in-pipeline guess).
+        Size::new(DEFAULT_VIEWPORT_WIDTH, DEFAULT_VIEWPORT_HEIGHT),
+        // No window → default device facts (1× / Light); C3 facts are a window thing.
+        crate::ipc::DeviceFacts::default(),
+        EngineMode::BrowserCompat,
+        // Top-level document: no frame security (unsandboxed, URL-derived origin).
+        None,
+    );
+
+    let display_list = build_display_list(&dom, &font_db);
+
+    let animation_engine = create_animation_engine(&stylesheets);
+
+    let mut result = PipelineResult {
+        display_list,
+        dom,
+        document,
+        session,
+        runtime,
+        stylesheets,
+        font_db,
+        url: None,
+        network_handle: Rc::new(elidex_net::broker::NetworkHandle::disconnected()),
+        registry,
+        animation_engine,
+        viewport: Size::new(DEFAULT_VIEWPORT_WIDTH, DEFAULT_VIEWPORT_HEIGHT),
+        caret_visible: true,
+        ancestor_cache: elidex_form::AncestorCache::new(),
+        viewport_overflow,
+        scroll_offset: Vector::<f32>::ZERO,
+        broker_keepalive: None,
+        engine_mode: EngineMode::BrowserCompat,
+    };
+
+    // Start CSS animations declared in initial styles.
+    sync_css_animations(&mut result, &[]);
+
+    // Sync stylesheet data to the JS bridge for CSSOM access.
+    sync_stylesheets_to_bridge(&result.runtime, &result.stylesheets);
+
+    result
+}
+
+/// Like [`build_pipeline_interactive`] but with a `NetworkHandle` for network access.
+pub(crate) fn build_pipeline_interactive_with_network(
+    html: &str,
+    css: &str,
+    network_handle: Rc<elidex_net::broker::NetworkHandle>,
+    cookie_jar: Arc<elidex_net::CookieJar>,
+    viewport: Size,
+    device_facts: crate::ipc::DeviceFacts,
+) -> PipelineResult {
+    let parse_result = parse_progressive_str(html);
+    for err in &parse_result.errors {
+        eprintln!("HTML parse warning: {err}");
+    }
+    let mut dom = parse_result.dom;
+    let document = parse_result.document;
+
+    elidex_form::init_form_controls(&mut dom);
+
+    let registry = Arc::new(create_css_property_registry());
+    let stylesheets = vec![parse_compat_stylesheet_with_registry(
+        css,
+        elidex_css::Origin::Author,
+        Some(&registry),
+    )];
+    let font_db = Arc::new(FontDatabase::new());
+    let scripts = extract_scripts(&dom, document);
+    let script_sources: Vec<&str> = scripts.iter().map(|s| s.source.as_str()).collect();
+
+    let (session, runtime, viewport_overflow) = run_scripts_and_finalize(
+        &mut dom,
+        document,
+        &stylesheets,
+        &script_sources,
+        Some(Rc::clone(&network_handle)),
+        Some(cookie_jar),
+        &font_db,
+        None,
+        &registry,
+        viewport,
+        device_facts,
+        EngineMode::BrowserCompat,
+        // Top-level document: no frame security (unsandboxed, URL-derived origin).
+        None,
+    );
+
+    let display_list = build_display_list(&dom, &font_db);
+    let animation_engine = create_animation_engine(&stylesheets);
+
+    let mut result = PipelineResult {
+        display_list,
+        dom,
+        document,
+        session,
+        runtime,
+        stylesheets,
+        font_db,
+        url: None,
+        network_handle,
+        registry,
+        animation_engine,
+        viewport,
+        caret_visible: true,
+        ancestor_cache: elidex_form::AncestorCache::new(),
+        viewport_overflow,
+        scroll_offset: Vector::<f32>::ZERO,
+        broker_keepalive: None,
+        engine_mode: EngineMode::BrowserCompat,
+    };
+
+    sync_css_animations(&mut result, &[]);
+    sync_stylesheets_to_bridge(&result.runtime, &result.stylesheets);
+
+    result
+}
+
+/// Build a pipeline from HTML, sharing the parent's resources.
+///
+/// Like [`build_pipeline_interactive`], but uses the provided `font_db`,
+/// `network_handle`, and `registry` instead of creating fresh instances.
+// Mirrors `run_scripts_and_finalize`: the construction inputs (resources + viewport +
+// device facts) are each distinct values fed straight through to the builder; bundling
+// them into a struct would only move the argument list, not reduce it.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn build_pipeline_interactive_shared(
+    html: &str,
+    url: Option<url::Url>,
+    font_db: Arc<FontDatabase>,
+    network_handle: Rc<elidex_net::broker::NetworkHandle>,
+    registry: Arc<elidex_plugin::CssPropertyRegistry>,
+    cookie_jar: Option<Arc<elidex_net::CookieJar>>,
+    viewport: Size,
+    device_facts: crate::ipc::DeviceFacts,
+    pre_eval_state: Option<PreEvalFrameState>,
+) -> PipelineResult {
+    let parse_result = parse_progressive_str(html);
+    for err in &parse_result.errors {
+        eprintln!("HTML parse warning: {err}");
+    }
+    let mut dom = parse_result.dom;
+    let document = parse_result.document;
+
+    elidex_form::init_form_controls(&mut dom);
+
+    let stylesheets = vec![parse_compat_stylesheet_with_registry(
+        "",
+        elidex_css::Origin::Author,
+        Some(&registry),
+    )];
+
+    let scripts = extract_scripts(&dom, document);
+    let script_sources: Vec<&str> = scripts.iter().map(|s| s.source.as_str()).collect();
+
+    let (session, runtime, viewport_overflow) = run_scripts_and_finalize(
+        &mut dom,
+        document,
+        &stylesheets,
+        &script_sources,
+        Some(Rc::clone(&network_handle)),
+        cookie_jar,
+        &font_db,
+        url.as_ref(),
+        &registry,
+        viewport,
+        device_facts,
+        EngineMode::BrowserCompat,
+        pre_eval_state,
+    );
+
+    let display_list = build_display_list(&dom, &font_db);
+    let animation_engine = create_animation_engine(&stylesheets);
+
+    let mut result = PipelineResult {
+        display_list,
+        dom,
+        document,
+        session,
+        runtime,
+        stylesheets,
+        font_db,
+        url,
+        network_handle,
+        registry,
+        animation_engine,
+        viewport,
+        caret_visible: true,
+        ancestor_cache: elidex_form::AncestorCache::new(),
+        viewport_overflow,
+        scroll_offset: Vector::<f32>::ZERO,
+        broker_keepalive: None,
+        engine_mode: EngineMode::BrowserCompat,
+    };
+
+    sync_css_animations(&mut result, &[]);
+    sync_stylesheets_to_bridge(&result.runtime, &result.stylesheets);
+
+    result
+}
+
+/// Build a pipeline from a pre-loaded document (from [`elidex_navigation::load_document`]).
+///
+/// Merges all stylesheets, executes all scripts in document order,
+/// resolves styles, computes layout, and builds the display list.
+///
+/// `pre_eval_state` is `Some` on iframe builds (in-process AND the OOP iframe
+/// thread): it installs the sandbox flags / origin / depth on the bridge
+/// **before** the initial scripts run (see [`PreEvalFrameState`]). Top-level
+/// builds pass `None`.
+pub fn build_pipeline_from_loaded(
+    loaded: elidex_navigation::LoadedDocument,
+    network_handle: Rc<elidex_net::broker::NetworkHandle>,
+    font_db: Arc<FontDatabase>,
+    cookie_jar: Option<Arc<elidex_net::CookieJar>>,
+    viewport: Size,
+    device_facts: crate::ipc::DeviceFacts,
+    pre_eval_state: Option<PreEvalFrameState>,
+) -> PipelineResult {
+    let elidex_navigation::LoadedDocument {
+        mut dom,
+        document,
+        stylesheets,
+        scripts,
+        url,
+        response_headers: _, // Used by iframe loading for CSP/X-Frame-Options checks.
+        manifest_url: _,     // Handled by content thread → IPC → browser thread.
+    } = loaded;
+
+    elidex_form::init_form_controls(&mut dom);
+
+    let script_sources: Vec<&str> = scripts.iter().map(|s| s.source.as_str()).collect();
+
+    let registry = Arc::new(create_css_property_registry());
+
+    let (session, runtime, viewport_overflow) = run_scripts_and_finalize(
+        &mut dom,
+        document,
+        &stylesheets,
+        &script_sources,
+        Some(Rc::clone(&network_handle)),
+        cookie_jar,
+        &font_db,
+        Some(&url),
+        &registry,
+        viewport,
+        device_facts,
+        EngineMode::BrowserCompat,
+        pre_eval_state,
+    );
+
+    let display_list = build_display_list(&dom, &font_db);
+
+    let animation_engine = create_animation_engine(&stylesheets);
+
+    let mut result = PipelineResult {
+        display_list,
+        dom,
+        document,
+        session,
+        runtime,
+        stylesheets,
+        font_db,
+        url: Some(url),
+        network_handle,
+        registry,
+        animation_engine,
+        viewport,
+        caret_visible: true,
+        ancestor_cache: elidex_form::AncestorCache::new(),
+        viewport_overflow,
+        scroll_offset: Vector::<f32>::ZERO,
+        broker_keepalive: None,
+        engine_mode: EngineMode::BrowserCompat,
+    };
+
+    // Start CSS animations declared in initial styles.
+    sync_css_animations(&mut result, &[]);
+
+    // Sync stylesheet data to the JS bridge for CSSOM access.
+    sync_stylesheets_to_bridge(&result.runtime, &result.stylesheets);
+
+    result
+}
+
+/// Build a pipeline from a URL.
+///
+/// Spawns a temporary Network Process broker to load the document (standalone mode).
+/// Content threads should use `build_pipeline_from_loaded` with a proper `NetworkHandle`.
+///
+/// `pre_eval_state` is `Some` on the OOP iframe thread's `Navigate` re-build
+/// (`content/iframe/thread.rs`). It carries [`PreEvalFrameInputs`] rather than
+/// a fully-formed `PreEvalFrameState` because the frame's origin must be derived
+/// from the **post-redirect** `loaded.url` (S5-4b F-a/F-c): this builder resolves
+/// the fetch (following redirects) and only then computes
+/// `PreEvalFrameState.origin = apply_sandbox_origin(from_url(loaded.url), flags,
+/// credentialless)` — the same derivation the initial OOP load performs — before
+/// installing it at the pre-eval chokepoint (see [`PreEvalFrameState`]). Standalone
+/// top-level callers pass `None` (URL-derived origin, unsandboxed).
+pub fn build_pipeline_from_url(
+    url: &url::Url,
+    viewport: Size,
+    pre_eval_state: Option<PreEvalFrameInputs>,
+) -> Result<PipelineResult, elidex_navigation::LoadError> {
+    // Standalone mode: use a disconnected handle for pipeline (no broker).
+    // load_document still routes through NetworkHandle::fetch_blocking which
+    // returns "network process disconnected" for disconnected handles, so
+    // we create a temporary broker for standalone URL loading.
+    let np = elidex_net::broker::spawn_network_process(elidex_net::NetClient::new());
+    let network_handle = Rc::new(np.create_renderer_handle());
+    let loaded = elidex_navigation::load_document(url, &network_handle, None)?;
+    // Derive the frame security from the post-redirect loaded URL: the origin
+    // (and its credentialless/sandbox opaqueness) is a property of the document
+    // that actually loaded, not of the requested URL (F-a/F-c).
+    let pre_eval_state = pre_eval_state.map(|inputs| inputs.into_pre_eval_state(&loaded.url));
+    let font_db = Arc::new(FontDatabase::new());
+    let cookie_jar = Arc::clone(np.cookie_jar());
+    let mut result = build_pipeline_from_loaded(
+        loaded,
+        network_handle,
+        font_db,
+        Some(cookie_jar),
+        viewport,
+        // Standalone (no window) → default device facts (1× / Light).
+        crate::ipc::DeviceFacts::default(),
+        pre_eval_state,
+    );
+    result.broker_keepalive = Some(np); // Keep broker alive for pipeline lifetime.
+    Ok(result)
 }

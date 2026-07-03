@@ -6,8 +6,24 @@ use super::HostBridge;
 
 impl HostBridge {
     /// Set the security origin for this document.
+    ///
+    /// The installed origin is the single source of truth for the bound
+    /// document's origin, so this also **syncs the URL-derived `cached_origin`**
+    /// (the localStorage partition key, `bridge/document_state.rs`
+    /// `local_storage_origin`). Otherwise a sandboxed / credentialless URL
+    /// iframe — whose chokepoint installs an OPAQUE origin here *after*
+    /// `set_current_url` already seeded the tuple `cached_origin` from the URL
+    /// (`bridge/navigation.rs`) — would partition storage under the real tuple
+    /// origin, a sandbox origin-isolation bypass. An opaque origin serializes to
+    /// `"null"`, which `local_storage_origin` maps to the isolated per-bridge
+    /// `null:<id>` key (WHATWG HTML §7.1.1 origin is stable document state;
+    /// §12.2.3 storage partitions by document origin). Mirrors the VM, where
+    /// storage keys off `document_origin()` (override-first), not the URL
+    /// (`elidex-js` `vm/host/storage.rs`).
     pub fn set_origin(&self, origin: elidex_plugin::SecurityOrigin) {
-        self.inner.borrow_mut().iframe.origin = origin;
+        let mut inner = self.inner.borrow_mut();
+        inner.cached_origin = origin.serialize();
+        inner.iframe.origin = origin;
     }
 
     /// Get the security origin of this document.
@@ -47,6 +63,21 @@ impl HostBridge {
     #[must_use]
     pub fn referrer(&self) -> Option<String> {
         self.inner.borrow().iframe.referrer.clone()
+    }
+
+    /// Set whether this document loads in a `credentialless` iframe.
+    ///
+    /// Persisted (like the sandbox flags) so a same-frame navigation can
+    /// re-derive the opaque origin a credentialless browsing context keeps
+    /// across navigations.
+    pub fn set_credentialless(&self, credentialless: bool) {
+        self.inner.borrow_mut().iframe.credentialless = credentialless;
+    }
+
+    /// Get whether this document loads in a `credentialless` iframe.
+    #[must_use]
+    pub fn credentialless(&self) -> bool {
+        self.inner.borrow().iframe.credentialless
     }
 
     /// Set sandbox flags for this document (if inside a sandboxed iframe).

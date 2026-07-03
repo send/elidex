@@ -575,6 +575,8 @@ fn content_thread_main_url(
         Some(cookie_jar),
         viewport,
         snapshot.facts,
+        // Top-level document: no frame security (URL-derived origin).
+        None,
     );
 
     let mut nav_controller = NavigationController::new();
@@ -807,6 +809,10 @@ mod test_support;
 #[cfg(test)]
 #[path = "../content_tests.rs"]
 mod content_tests;
+
+#[cfg(test)]
+#[path = "../content_iframe_security_tests.rs"]
+mod iframe_security_tests;
 
 #[cfg(test)]
 #[path = "../viewport_tests.rs"]

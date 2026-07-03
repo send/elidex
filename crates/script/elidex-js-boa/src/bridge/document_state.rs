@@ -113,8 +113,11 @@ impl HostBridge {
 
     /// Get the origin string for localStorage keying.
     ///
-    /// Reads from the cached origin string in `HostBridgeInner`,
-    /// which is updated whenever `set_current_url` is called.
+    /// Reads from the cached origin string in `HostBridgeInner`, which is
+    /// updated both by `set_current_url` (URL-derived default) and by
+    /// `set_origin` (the installed override, which WINS — so a
+    /// sandboxed/credentialless iframe partitions storage under its opaque
+    /// origin, not the URL tuple; see `bridge/iframe_bridge.rs`).
     ///
     /// Opaque origins (data: URLs, sandboxed iframes) serialize to "null"
     /// per the URL spec. To prevent storage cross-contamination between
@@ -189,5 +192,42 @@ impl HostBridge {
     /// Drain pending localStorage change notifications.
     pub fn drain_storage_changes(&self) -> Vec<super::StorageChange> {
         std::mem::take(&mut self.inner.borrow_mut().pending_storage_changes)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::HostBridge;
+    use elidex_plugin::SecurityOrigin;
+
+    /// F1 (sandbox origin-isolation): a sandboxed / credentialless URL iframe
+    /// installs an OPAQUE origin via `set_origin` **after** `set_current_url`
+    /// already seeded the tuple `cached_origin` from the URL. The installed
+    /// opaque origin must WIN the localStorage partition key — else the frame
+    /// aliases the real origin's storage bucket (a sandbox bypass). Falsify by
+    /// reverting the `set_origin` → `cached_origin` sync.
+    #[test]
+    fn installed_opaque_origin_wins_localstorage_partition_over_url() {
+        let bridge = HostBridge::new();
+        bridge.set_current_url(Some(url::Url::parse("https://example.com/page").unwrap()));
+        bridge.set_origin(SecurityOrigin::opaque());
+        let key = bridge.local_storage_origin();
+        assert!(
+            key.starts_with("null:"),
+            "sandboxed URL iframe must partition storage under the isolated \
+             opaque key, not the URL tuple origin; got {key}"
+        );
+    }
+
+    /// Regression pin: a same-origin (unsandboxed) URL iframe / top-level
+    /// document installs a TUPLE origin — the partition key stays the tuple, not
+    /// isolated-opaque.
+    #[test]
+    fn installed_tuple_origin_keeps_url_partition() {
+        let bridge = HostBridge::new();
+        let u = url::Url::parse("https://example.com/page").unwrap();
+        bridge.set_current_url(Some(u.clone()));
+        bridge.set_origin(SecurityOrigin::from_url(&u));
+        assert_eq!(bridge.local_storage_origin(), "https://example.com");
     }
 }

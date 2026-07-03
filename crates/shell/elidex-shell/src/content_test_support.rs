@@ -62,6 +62,26 @@ pub(super) fn spawn_test_content_sized(
     spawn_content_thread(content, nh, jar, html, css, viewport_cell, Box::new(|| {}))
 }
 
+/// Shared setup **head** of the two `build_test_content_state*` builders: a
+/// browser/content channel pair, a disconnected network handle, and the DEFAULT
+/// viewport. Each builder constructs its own `PipelineResult` over these
+/// (differing only in the `build_pipeline_*` entry point / cookie jar / URL),
+/// then hands it to the shared [`finalize_test_content_state`] tail.
+fn test_content_scaffold() -> (
+    LocalChannel<BrowserToContent, ContentToBrowser>,
+    LocalChannel<ContentToBrowser, BrowserToContent>,
+    std::rc::Rc<elidex_net::broker::NetworkHandle>,
+    elidex_plugin::Size,
+) {
+    let (browser, content) = crate::ipc::channel_pair::<BrowserToContent, ContentToBrowser>();
+    let nh = std::rc::Rc::new(elidex_net::broker::NetworkHandle::disconnected());
+    let viewport = elidex_plugin::Size::new(
+        crate::DEFAULT_VIEWPORT_WIDTH,
+        crate::DEFAULT_VIEWPORT_HEIGHT,
+    );
+    (browser, content, nh, viewport)
+}
+
 /// Build a `ContentState` directly (over a disconnected network handle) for tests
 /// that drive the content thread **synchronously on the test thread** — e.g.
 /// iframe lifecycle, or `run_event_loop` shutdown handling (the pipeline is
@@ -76,13 +96,8 @@ pub(super) fn build_test_content_state(
     ContentState,
     LocalChannel<BrowserToContent, ContentToBrowser>,
 ) {
-    let (browser, content) = crate::ipc::channel_pair::<BrowserToContent, ContentToBrowser>();
-    let nh = std::rc::Rc::new(elidex_net::broker::NetworkHandle::disconnected());
+    let (browser, content, nh, viewport) = test_content_scaffold();
     let jar = std::sync::Arc::new(elidex_net::CookieJar::new());
-    let viewport = elidex_plugin::Size::new(
-        crate::DEFAULT_VIEWPORT_WIDTH,
-        crate::DEFAULT_VIEWPORT_HEIGHT,
-    );
     let pipeline = crate::build_pipeline_interactive_with_network(
         html,
         css,
@@ -91,9 +106,57 @@ pub(super) fn build_test_content_state(
         viewport,
         crate::ipc::DeviceFacts::default(),
     );
-    // Build at the cell's seed (DEFAULT, seq 0 / facts_seq 0) → high-water marks 0,
-    // matching the `build_pipeline_*` size above; a test `SetViewport` then applies with
-    // `seq ≥ 1`, a `SetDeviceFacts` with `facts_seq ≥ 1`.
+    (
+        finalize_test_content_state(content, pipeline, viewport),
+        browser,
+    )
+}
+
+/// Like [`build_test_content_state`], but with a top-level document **URL** —
+/// so the parent pipeline carries a real tuple origin (`SecurityOrigin::from_url`)
+/// and `state.pipeline.url` is `Some`. Iframe security tests use this: a
+/// sandboxed child's opaque origin is only distinguishable from "inherited the
+/// parent origin" when the parent origin is a tuple, and the srcdoc/blank
+/// iframe build feeds the parent URL into the child pipeline as its base URL.
+pub(super) fn build_test_content_state_with_url(
+    html: &str,
+    url: url::Url,
+) -> (
+    ContentState,
+    LocalChannel<BrowserToContent, ContentToBrowser>,
+) {
+    let (browser, content, nh, viewport) = test_content_scaffold();
+    let pipeline = crate::build_pipeline_interactive_shared(
+        html,
+        Some(url),
+        std::sync::Arc::new(elidex_text::FontDatabase::new()),
+        nh,
+        std::sync::Arc::new(crate::create_css_property_registry()),
+        None,
+        viewport,
+        crate::ipc::DeviceFacts::default(),
+        // Top-level document: no frame security (origin derives from `url`).
+        None,
+    );
+    (
+        finalize_test_content_state(content, pipeline, viewport),
+        browser,
+    )
+}
+
+/// Wrap a freshly built pipeline into a driveable `ContentState` — the shared
+/// tail of [`build_test_content_state`] / [`build_test_content_state_with_url`].
+///
+/// Seeds the viewport cell at the build size (seq 0 / facts_seq 0) → high-water
+/// marks 0, matching the `build_pipeline_*` size the pipeline was built at; a
+/// test `SetViewport` then applies with `seq ≥ 1`, a `SetDeviceFacts` with
+/// `facts_seq ≥ 1`. Scans initial iframes and renders once so the state is
+/// ready to drive.
+fn finalize_test_content_state(
+    content: LocalChannel<ContentToBrowser, BrowserToContent>,
+    pipeline: crate::PipelineResult,
+    viewport: elidex_plugin::Size,
+) -> ContentState {
     let viewport_cell = crate::ipc::ViewportCell::new(viewport);
     let mut state = ContentState::new(
         content,
@@ -107,7 +170,7 @@ pub(super) fn build_test_content_state(
     super::scroll::update_viewport_scroll_dimensions(&mut state);
     super::iframe::scan_initial_iframes(&mut state);
     state.re_render();
-    (state, browser)
+    state
 }
 
 /// Read the value of an attribute on the `<div>` with the given `id` — the shared

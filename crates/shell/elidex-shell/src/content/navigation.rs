@@ -145,6 +145,8 @@ pub(super) fn handle_navigate(
                 cookie_jar,
                 viewport,
                 snapshot.facts,
+                // Top-level document: no frame security (URL-derived origin).
+                None,
             );
             state.pipeline = new_pipeline;
             // Focus lives in the new pipeline's `EcsDom` (empty by construction

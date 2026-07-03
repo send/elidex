@@ -87,6 +87,29 @@ impl SecurityOrigin {
         Self::Opaque(OPAQUE_COUNTER.fetch_add(1, Ordering::Relaxed))
     }
 
+    /// Whether this origin is *potentially trustworthy* (W3C Secure Contexts
+    /// §3.1 "is origin potentially trustworthy") for the reachable subset:
+    /// a `https`/`wss` (secure-transport) tuple, OR a tuple whose host is
+    /// loopback (`127.0.0.0/8`, IPv6 `::1`, or `localhost`/`*.localhost`).
+    /// Opaque origins are never potentially trustworthy here.
+    ///
+    /// `SecurityOrigin::from_url` only mints tuple origins for `http`/`https`,
+    /// so the `wss` arm is dormant on today's inputs but kept for algorithmic
+    /// fidelity. This is the shared primitive the Referrer Policy TLS-downgrade
+    /// check keys on (a secure referrer source navigating a non-potentially-
+    /// trustworthy request URL sends no referrer); routing through it means a
+    /// loopback-`http` child is correctly treated as secure rather than as a
+    /// downgrade.
+    #[must_use]
+    pub fn is_potentially_trustworthy(&self) -> bool {
+        match self {
+            Self::Tuple { scheme, host, .. } => {
+                scheme == "https" || scheme == "wss" || host_is_loopback(host)
+            }
+            Self::Opaque(_) => false,
+        }
+    }
+
     /// Returns the origin as a serialized string (WHATWG §7.1.1).
     ///
     /// Tuple origins serialize as `"scheme://host:port"`.
@@ -108,6 +131,25 @@ impl SecurityOrigin {
             }
             Self::Opaque(_) => "null".to_string(),
         }
+    }
+}
+
+/// Whether an origin host is a loopback identifier per W3C Secure Contexts
+/// §3.1 "is origin potentially trustworthy" (the `127.0.0.0/8` block, IPv6
+/// `::1`, and the `localhost` / `*.localhost` names). The host is the raw
+/// `SecurityOrigin` host string (IPv6 hosts arrive bracketed, e.g. `[::1]`).
+fn host_is_loopback(host: &str) -> bool {
+    if host == "localhost" || host.ends_with(".localhost") {
+        return true;
+    }
+    let bare = host
+        .strip_prefix('[')
+        .and_then(|h| h.strip_suffix(']'))
+        .unwrap_or(host);
+    match bare.parse::<std::net::IpAddr>() {
+        Ok(std::net::IpAddr::V4(v4)) => v4.octets()[0] == 127, // 127.0.0.0/8
+        Ok(std::net::IpAddr::V6(v6)) => v6.is_loopback(),      // ::1
+        Err(_) => false,
     }
 }
 
@@ -601,6 +643,24 @@ mod tests {
     #[test]
     fn serialize_opaque_origin() {
         assert_eq!(SecurityOrigin::opaque().serialize(), "null");
+    }
+
+    #[test]
+    fn potentially_trustworthy_secure_and_loopback() {
+        let of = |s: &str| SecurityOrigin::from_url(&url::Url::parse(s).unwrap());
+        // Secure transport.
+        assert!(of("https://example.com/").is_potentially_trustworthy());
+        // Loopback http is trustworthy despite the insecure scheme.
+        assert!(of("http://localhost/").is_potentially_trustworthy());
+        assert!(of("http://sub.localhost/").is_potentially_trustworthy());
+        assert!(of("http://127.0.0.1/").is_potentially_trustworthy());
+        assert!(of("http://127.9.9.9/").is_potentially_trustworthy());
+        assert!(of("http://[::1]/").is_potentially_trustworthy());
+        // Plain public http is NOT trustworthy.
+        assert!(!of("http://example.com/").is_potentially_trustworthy());
+        assert!(!of("http://192.168.0.1/").is_potentially_trustworthy());
+        // Opaque origins are never trustworthy.
+        assert!(!SecurityOrigin::opaque().is_potentially_trustworthy());
     }
 
     // --- CSP frame-ancestors tests ---

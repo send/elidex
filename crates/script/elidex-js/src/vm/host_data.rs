@@ -1097,7 +1097,7 @@ mod engine_feature {
 
         /// Install the document's security origin (WHATWG HTML §7.1.1).  The
         /// embedder's load path computes it (`SecurityOrigin::from_url`, or the
-        /// opaque sandbox origin via the shell's `apply_sandbox_origin_from_flags`)
+        /// opaque sandbox origin via the shell's `apply_sandbox_origin`)
         /// and installs it before scripts run; [`super::VmInner::document_origin`]
         /// reads it (falling back to the `current_url`-derived origin when unset).
         pub(crate) fn set_origin(&mut self, origin: elidex_plugin::SecurityOrigin) {

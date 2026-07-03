@@ -108,6 +108,8 @@ impl App {
                     cookie_jar,
                     viewport,
                     device_facts,
+                    // Top-level document: no frame security (URL-derived origin).
+                    None,
                 );
                 interactive.pipeline = new_pipeline;
                 interactive

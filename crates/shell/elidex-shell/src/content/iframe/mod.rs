@@ -7,12 +7,14 @@
 //!
 //! - `types` — IPC messages, handle types, metadata, load context
 //! - `load` — URL resolution, security checks, pipeline construction
+//! - `referrer` — W3C Referrer Policy computation for child documents
 //! - `thread` — Cross-origin iframe thread event loop
 //! - `lifecycle` — Mutation detection, lazy loading, unloading, DOM scanning
 //! - `render` — Display list management for parent compositing
 
 mod lifecycle;
 mod load;
+mod referrer;
 mod render;
 pub(super) mod thread;
 mod types;
@@ -25,6 +27,11 @@ pub(super) use lifecycle::{
     check_lazy_iframes, detect_iframe_mutations, find_iframe_by_name, navigate_iframe,
     scan_initial_iframes,
 };
+// Exposed within `content` for the OOP-path ordering tests
+// (`content_iframe_security_tests`), which drive the OOP entry directly with a
+// synthesized `LoadedDocument`.
+#[cfg(test)]
+pub(super) use load::make_out_of_process_entry;
 pub(super) use render::{re_render_all_iframes, tick_iframe_timers};
 pub(super) use thread::{click_event_types, mouse_event_init_from_click};
 pub use types::*;
