@@ -191,8 +191,9 @@ mod engine_feature {
         /// component at its spec-correct grain per the decision's grain rule (PR #434
         /// §5 req 5), *not* a permanent CLAUDE.md side-store (b) exception like
         /// `cookie_jar`.  Read
-        /// by [`Self::scripts_allowed`] (the eval gate; S1b adds the
-        /// `forms`/`popups`/`modals` accessors + their consumer wiring).
+        /// by [`Self::scripts_allowed`] (the eval gate) and the
+        /// per-capability [`Self::forms_allowed`] / [`Self::popups_allowed`] /
+        /// [`Self::modals_allowed`] accessors.
         sandbox_flags: Option<elidex_plugin::IframeSandboxFlags>,
         /// The document's security origin override (WHATWG HTML §7.1.1).
         /// `None` until the embedder's load path installs it via
@@ -1093,6 +1094,15 @@ mod engine_feature {
         /// [`elidex_plugin::sandbox`].
         pub(crate) fn popups_allowed(&self) -> bool {
             elidex_plugin::sandbox::popups_allowed(self.sandbox_flags)
+        }
+
+        /// Whether simple dialogs are allowed (sandbox `allow-modals` = the
+        /// §7.1.5 *sandboxed modals flag*; WHATWG HTML §7.1.5).  Delegates to
+        /// the canonical predicate home [`elidex_plugin::sandbox`].  Read by
+        /// the §8.9.1 *cannot show simple dialogs* step-1 gate in the
+        /// `alert` / `confirm` / `prompt` natives.
+        pub(crate) fn modals_allowed(&self) -> bool {
+            elidex_plugin::sandbox::modals_allowed(self.sandbox_flags)
         }
 
         /// Install the document's security origin (WHATWG HTML §7.1.1).  The

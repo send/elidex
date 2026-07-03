@@ -36,6 +36,10 @@ use elidex_css::media::{ColorScheme, ReducedMotion};
 // Read only by the (compat-webapi-gated) Web Storage accessor install (A2).
 #[cfg(feature = "compat-webapi")]
 use elidex_script_session::web_storage_spec_level;
+use elidex_script_session::{
+    window_open_disposition, NamedFrameNavigation, NavigationRequest, OpenTabRequest,
+    WindowOpenDisposition,
+};
 
 use super::super::coerce;
 use super::super::shape;
@@ -503,6 +507,231 @@ pub(super) fn native_window_set_name(
     Ok(JsValue::Undefined)
 }
 
+// ---------------------------------------------------------------------------
+// Simple dialogs (WHATWG HTML §8.9.1) + window.open (§7.2.2.1) — the
+// sandbox-gated method group (S5-4c).  All four natives are marshal-only:
+// they WebIDL-convert JsValue arguments, run the engine-independent gate
+// (`elidex_plugin::sandbox` predicates / the
+// `elidex_script_session::window_open_disposition` target dispatch), and
+// enqueue on the `NavigationState` back-channels or return the spec's
+// step-1 constant.  No algorithm bodies live here (Layering mandate).
+// ---------------------------------------------------------------------------
+
+/// HTML §8.9.1 *cannot show simple dialogs* (`#cannot-show-simple-dialogs`),
+/// composed at marshal scale for the three simple-dialog natives:
+///
+/// - **Step 1** — the *sandboxed modals flag*: the canonical predicate
+///   [`elidex_plugin::sandbox::modals_allowed`] over the document's flags
+///   via `HostData` (no installed `HostData` = unsandboxed, permissive —
+///   the absence of a security context never silently denies, the
+///   `scripts_allowed` convention).
+/// - **Step 2** (relevant-settings-object origin vs top-level origin not
+///   same origin-domain) is *subsumed*: the permanent step-4 opt-in below
+///   fires first-class before step 2 could ever be observed, so the
+///   top-level origin is NOT threaded to the VM for it (demand-gated on a
+///   real presentation surface).
+/// - **Step 4** — *"Optionally, return true"*: elidex's UA policy opts in
+///   **permanently** (headless — no dialog surface exists), so presentation
+///   never happens and each method's step-1 return value (alert →
+///   undefined / confirm → false / prompt → null) is simultaneously
+///   spec-conformant and boa-parity.
+///
+/// Security by structure: each native returns through this chokepoint
+/// before any presentation branch exists, so a future shell modal surface
+/// can only attach behind the gate.
+fn cannot_show_simple_dialogs(ctx: &mut NativeContext<'_>) -> bool {
+    // Step 1: active sandboxing flag set has the sandboxed modals flag.
+    if !ctx.host_opt().is_none_or(|hd| hd.modals_allowed()) {
+        return true;
+    }
+    // Step 4: the permanent UA opt-in (see above; step 2 is unobservable
+    // behind it, step 3's termination nesting level is never nonzero here —
+    // the VM has no `close()`-driven termination nesting).
+    true
+}
+
+/// Run the WebIDL `DOMString` conversion for one simple-dialog argument,
+/// discarding the result.  The conversion runs BEFORE the method steps per
+/// WebIDL argument-conversion order, so a passed object's `toString` side
+/// effects are observable even when the dialog cannot show — which is why
+/// this cannot be skipped despite no presentation surface consuming the
+/// string.  Absent / `undefined` arguments take the `optional DOMString =
+/// ""` default with no conversion (for `alert`'s overload pair the
+/// distinction is unobservable: `ToString(undefined)` has no side effects).
+fn coerce_dialog_arg(
+    ctx: &mut NativeContext<'_>,
+    args: &[JsValue],
+    idx: usize,
+) -> Result<(), VmError> {
+    if let Some(&arg) = args.get(idx) {
+        if !matches!(arg, JsValue::Undefined) {
+            coerce::to_string(ctx.vm, arg)?;
+        }
+    }
+    Ok(())
+}
+
+/// `window.alert(message)` (WHATWG HTML §8.9.1, `#dom-alert`).
+pub(super) fn native_window_alert(
+    ctx: &mut NativeContext<'_>,
+    _this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    // WebIDL conversion first (`alert()` / `alert(DOMString message)`).
+    coerce_dialog_arg(ctx, args, 0)?;
+    // §8.9.1 alert steps step 2: cannot show simple dialogs → return.
+    if cannot_show_simple_dialogs(ctx) {
+        return Ok(JsValue::Undefined);
+    }
+    // Steps 3-6 (present + pause) — unreachable while the UA opts into
+    // §8.9.1 step 4 permanently; a shell modal surface attaches here,
+    // behind the gate.
+    Ok(JsValue::Undefined)
+}
+
+/// `window.confirm(message)` (WHATWG HTML §8.9.1, `#dom-confirm`).
+pub(super) fn native_window_confirm(
+    ctx: &mut NativeContext<'_>,
+    _this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    // WebIDL conversion first (`optional DOMString message = ""`).
+    coerce_dialog_arg(ctx, args, 0)?;
+    // §8.9.1 confirm steps step 1: cannot show simple dialogs → return false.
+    if cannot_show_simple_dialogs(ctx) {
+        return Ok(JsValue::Boolean(false));
+    }
+    // Steps 2-6 — unreachable (permanent step-4 opt-in, see the gate).
+    Ok(JsValue::Boolean(false))
+}
+
+/// `window.prompt(message, default)` (WHATWG HTML §8.9.1, `#dom-prompt`).
+pub(super) fn native_window_prompt(
+    ctx: &mut NativeContext<'_>,
+    _this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    // WebIDL conversion first (`optional DOMString message = "", optional
+    // DOMString default = ""` — BOTH convert before the method steps).
+    coerce_dialog_arg(ctx, args, 0)?;
+    coerce_dialog_arg(ctx, args, 1)?;
+    // §8.9.1 prompt steps step 1: cannot show simple dialogs → return null.
+    if cannot_show_simple_dialogs(ctx) {
+        return Ok(JsValue::Null);
+    }
+    // Steps 2-7 — unreachable (permanent step-4 opt-in, see the gate).
+    Ok(JsValue::Null)
+}
+
+/// `window.open(url, target, features)` (WHATWG HTML §7.2.2.1 window open
+/// steps, `#window-open-steps`).  Marshal-only: WebIDL-convert the three
+/// optional arguments, resolve `url` at the JsValue boundary (parse failure
+/// → `"SyntaxError"` DOMException, step 4.2 — boundary marshalling, thrown
+/// BEFORE dispatch), route the target through the engine-independent
+/// [`elidex_script_session::window_open_disposition`], and enqueue on the
+/// matching `NavigationState` back-channel.
+///
+/// Returns `null` on every non-throw path: the WindowProxy return (steps
+/// 17-18) needs the auxiliary browsing-context model (S5-8), and a
+/// sandbox-blocked request is a silent `null` (the spec's "may report to a
+/// developer console").
+pub(super) fn native_window_open(
+    ctx: &mut NativeContext<'_>,
+    _this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    // WebIDL: `open(optional USVString url = "", optional DOMString target
+    // = "_blank", optional [LegacyNullToEmptyString] DOMString features =
+    // "")` — all three convert before the method steps (`ToString` side
+    // effects observable); absent / `undefined` takes the default.
+    let url_input = match args.first().copied().unwrap_or(JsValue::Undefined) {
+        JsValue::Undefined => String::new(),
+        v => {
+            let sid = coerce::to_string(ctx.vm, v)?;
+            ctx.vm.strings.get_utf8(sid)
+        }
+    };
+    let target = match args.get(1).copied().unwrap_or(JsValue::Undefined) {
+        JsValue::Undefined => "_blank".to_string(),
+        v => {
+            let sid = coerce::to_string(ctx.vm, v)?;
+            ctx.vm.strings.get_utf8(sid)
+        }
+    };
+    // `features` is converted (side effects) then ignored — boa parity;
+    // tokenization (noopener / noreferrer / popup sizing) rides the S5-8
+    // WindowProxy/auxiliary-context program (memo §5.3.2, fold
+    // `#11-browsing-context-model-window-open-postmessage`).
+    // `[LegacyNullToEmptyString]`: `null` → `""` without `ToString`.
+    match args.get(2).copied().unwrap_or(JsValue::Undefined) {
+        JsValue::Undefined | JsValue::Null => {}
+        v => {
+            coerce::to_string(ctx.vm, v)?;
+        }
+    }
+
+    // Steps 3-4: an empty url leaves the record `about:blank` (step 15.3's
+    // default); a non-empty url is encoding-parsed relative to the document
+    // (the `location` seam, `resolve_url`) — failure throws ("If urlRecord
+    // is failure, then throw a \"SyntaxError\" DOMException", step 4.2).
+    let resolved = if url_input.is_empty() {
+        super::navigation::parse_about_blank()
+    } else {
+        let Some(parsed) = super::location::resolve_url(ctx, &url_input) else {
+            let syntax = ctx.vm.well_known.dom_exc_syntax_error;
+            return Err(VmError::dom_exception(
+                syntax,
+                format!("Failed to execute 'open' on 'Window': invalid URL '{url_input}'."),
+            ));
+        };
+        parsed
+    };
+
+    // The target dispatch + sandbox gates are the engine-independent
+    // disposition function (HTML §7.3.1.7 / §7.4.2.4).  Script-initiated
+    // `window.open` has NO transient activation — the conservative constant
+    // `false` (elidex has no user-activation tracking yet; carve
+    // `#11-transient-activation-tracking`, memo §4.3.3).  The flags read
+    // happens inside the batch-bind bracket by construction (the native
+    // runs under `eval`).
+    let flags = ctx.host_opt().and_then(|hd| hd.sandbox_flags());
+    let url = resolved.to_string();
+    match window_open_disposition(&target, flags, false) {
+        // §7.3.1.7 step 8 sandboxed-auxiliary-navigation case / §7.4.2.4
+        // top-navigation denial: enqueue nothing — a blocked request never
+        // enters a queue (enqueue-time gating), and the return is a silent
+        // `null`.
+        WindowOpenDisposition::Blocked => {}
+        // `_self` — and `_parent`/`_top` in the single-navigable model —
+        // navigate the own browsing context (boa-parity routing; the real
+        // parent/top navigable tree is S5-8).  Same channel + shape as
+        // `location.assign` (push, not replace).
+        WindowOpenDisposition::SelfNavigate | WindowOpenDisposition::TopNavigate => {
+            ctx.vm.navigation.enqueue_navigation(NavigationRequest {
+                url,
+                replace: false,
+            });
+        }
+        // A named target rides the dedicated channel with the call-time
+        // aux-nav snapshot; the name is passed as-given (only keyword
+        // DETECTION is case-insensitive — shell-side name matching owns its
+        // own rules).
+        WindowOpenDisposition::Named { aux_nav_allowed } => {
+            ctx.vm
+                .navigation
+                .enqueue_frame_navigation(NamedFrameNavigation {
+                    name: target,
+                    url,
+                    aux_nav_allowed,
+                });
+        }
+        WindowOpenDisposition::OpenTab => {
+            ctx.vm.navigation.enqueue_open_tab(OpenTabRequest { url });
+        }
+    }
+    Ok(JsValue::Null)
+}
+
 impl VmInner {
     /// Populate `self.window_prototype` with the window-specific
     /// own-property suite (viewport accessors + scrollTo/scrollBy)
@@ -622,6 +851,13 @@ const WINDOW_METHODS: &[(&str, super::super::NativeFn)] = &[
     // CSSOM-View §4 "Extensions to the Window Interface": `matchMedia(query)`
     // returns a live `MediaQueryList` (CSSOM-View §4.2).
     ("matchMedia", super::media_query::native_window_match_media),
+    // WHATWG HTML §8.9.1 simple dialogs + §7.2.2.1 window.open — the
+    // sandbox-gated method group (S5-4c); see the section comment above
+    // `cannot_show_simple_dialogs`.
+    ("alert", native_window_alert),
+    ("confirm", native_window_confirm),
+    ("prompt", native_window_prompt),
+    ("open", native_window_open),
 ];
 
 // `pageXOffset` / `pageYOffset` are spec aliases for `scrollX` /

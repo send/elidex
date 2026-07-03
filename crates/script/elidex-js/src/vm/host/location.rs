@@ -49,8 +49,10 @@ use super::super::VmInner;
 /// accepts both absolute and relative inputs per WHATWG URL §4.4 —
 /// an absolute input replaces the base, a relative input composes.
 /// Returns `None` on parse failure; the caller translates that to a
-/// `DOMException("SyntaxError")`.
-fn resolve_url(ctx: &NativeContext<'_>, input: &str) -> Option<Url> {
+/// `DOMException("SyntaxError")`.  Shared with the `window.open` native
+/// (`super::window`), whose §7.2.2.1 step 4.1 is the same
+/// encoding-parse-relative-to-the-document operation.
+pub(super) fn resolve_url(ctx: &NativeContext<'_>, input: &str) -> Option<Url> {
     ctx.vm.navigation.current_url.join(input).ok()
 }
 

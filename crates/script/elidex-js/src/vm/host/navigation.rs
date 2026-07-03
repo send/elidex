@@ -32,7 +32,9 @@
 
 use std::collections::VecDeque;
 
-use elidex_script_session::{HistoryAction, NavigationRequest};
+use elidex_script_session::{
+    HistoryAction, NamedFrameNavigation, NavigationRequest, OpenTabRequest,
+};
 use url::Url;
 
 use super::super::value::JsValue;
@@ -61,6 +63,18 @@ const MAX_PENDING_HISTORY_ACTIONS: usize = 1024;
 /// [`HostDriver::set_session_history`](elidex_script_session::HostDriver::set_session_history),
 /// so a drift between the two constants only perturbs the within-turn estimate.
 const SESSION_HISTORY_CAP: usize = 50;
+
+/// Upper bound shared by the two per-turn `window.open` back-channel queues
+/// ([`NavigationState::pending_open_tabs`] /
+/// [`NavigationState::pending_frame_navigations`]) — the popup-spam clamp.
+/// Unlike [`MAX_PENDING_HISTORY_ACTIONS`] (which evicts the OLDEST so the
+/// queue's tail keeps matching the synchronously-updated `current_url`),
+/// overflow here drops the **new** entry: each queued item is an independent
+/// "open a window" effect with no newest-wins state to preserve, so refusing
+/// further popups once a turn has buffered this many is the UA-conservative
+/// choice — a runaway `while (true) window.open(...)` loop stops adding work
+/// instead of silently rotating which popups survive.
+const MAX_PENDING_WINDOW_OPENS: usize = 1024;
 
 /// Per-`Vm` navigation state — the **current-document view** of the shell-owned
 /// session history (see the module docs). Not a session-history stack: the
@@ -143,6 +157,26 @@ pub(crate) struct NavigationState {
     /// lose the traversal and reorder the operation sequence the shell replays
     /// (see [`Self::enqueue_history`]).
     pub(crate) pending_history: VecDeque<HistoryAction>,
+    /// Gate-passed `window.open` popup / `_blank` requests (WHATWG HTML
+    /// §7.2.2.1 window open steps → §7.3.1.7 step 8's
+    /// create-a-new-top-level-traversable case), drained per turn by the
+    /// shell's `take_pending_open_tabs`.  A **FIFO queue** like
+    /// [`Self::pending_history`]: several `window.open` calls in one task
+    /// each request an independent new tab and must all surface.  The
+    /// enqueue is popup-gated at the `window.open` native (a sandbox-blocked
+    /// popup never enters the queue — security by structure), and the queue
+    /// is a transient per-browsing-context *event queue* of work items, not
+    /// a per-entity fact (the `pending_history` shape), so it stays VM-side
+    /// under B1 unchanged.  Bounded at [`MAX_PENDING_WINDOW_OPENS`]
+    /// (overflow drops the NEW entry — see the const).
+    pub(crate) pending_open_tabs: VecDeque<OpenTabRequest>,
+    /// Named-target `window.open` navigations (WHATWG HTML §7.3.1.7),
+    /// drained per turn by the shell's `take_pending_frame_navigations`.
+    /// FIFO + bounded like [`Self::pending_open_tabs`].  Each entry carries
+    /// the call-time §7.3.1.7 step-3 sandboxing-flag-set snapshot
+    /// (`aux_nav_allowed`) the shell's named-MISS → new-tab promotion
+    /// consults instead of re-reading live flags.
+    pub(crate) pending_frame_navigations: VecDeque<NamedFrameNavigation>,
     /// URL of the previous Document, used to back `document.referrer` (WHATWG
     /// HTML §3.1.4 "Resource metadata management").  `None` when no previous
     /// Document is recorded — the spec maps this to the empty string at the JS
@@ -153,7 +187,9 @@ pub(crate) struct NavigationState {
 
 /// Parse `"about:blank"` once at construction — a panic here would
 /// indicate a broken `url` crate build (the literal is WHATWG-valid).
-fn parse_about_blank() -> Url {
+/// Also used by the `window.open` native (`super::window`): an empty `url`
+/// argument opens `about:blank` (§7.2.2.1 window open steps step 15.3).
+pub(super) fn parse_about_blank() -> Url {
     Url::parse("about:blank").expect("`about:blank` must parse as a WHATWG URL")
 }
 
@@ -169,6 +205,8 @@ impl NavigationState {
             current_state: JsValue::Null,
             pending_navigation: None,
             pending_history: VecDeque::new(),
+            pending_open_tabs: VecDeque::new(),
+            pending_frame_navigations: VecDeque::new(),
             referrer: None,
         }
     }
@@ -222,6 +260,30 @@ impl NavigationState {
             }
         }
         self.pending_history.push_back(action);
+    }
+
+    /// Enqueue a gate-passed `window.open` popup / `_blank` request for the
+    /// shell (FIFO — see [`Self::pending_open_tabs`]).  The caller (the
+    /// `window.open` native) has already run the popup gate: only an
+    /// [`elidex_script_session::WindowOpenDisposition::OpenTab`] disposition
+    /// reaches here.  At [`MAX_PENDING_WINDOW_OPENS`] the NEW request is
+    /// dropped (refuse further popups — the spam clamp; see the const).
+    pub(crate) fn enqueue_open_tab(&mut self, request: OpenTabRequest) {
+        if self.pending_open_tabs.len() >= MAX_PENDING_WINDOW_OPENS {
+            return;
+        }
+        self.pending_open_tabs.push_back(request);
+    }
+
+    /// Enqueue a named-target `window.open` navigation for the shell (FIFO —
+    /// see [`Self::pending_frame_navigations`]), carrying the call-time
+    /// `aux_nav_allowed` snapshot.  Same overflow policy as
+    /// [`Self::enqueue_open_tab`].
+    pub(crate) fn enqueue_frame_navigation(&mut self, request: NamedFrameNavigation) {
+        if self.pending_frame_navigations.len() >= MAX_PENDING_WINDOW_OPENS {
+            return;
+        }
+        self.pending_frame_navigations.push_back(request);
     }
 
     /// Advance the current-document view for a synchronous `pushState` append

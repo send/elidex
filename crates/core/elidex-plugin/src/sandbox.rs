@@ -3,14 +3,16 @@
 //! representation; `None` = unsandboxed document, `Some(empty)` = maximum
 //! restriction, i.e. an empty `sandbox=""` attribute), the token parser
 //! [`parse_sandbox_attribute`], and the capability predicates decided over
-//! them. Delivered predicates: [`scripts_allowed`] / [`forms_allowed`] /
-//! [`popups_allowed`] / [`scripting_enabled`]. The remaining open-coded
-//! capability checks — boa `iframe_bridge.rs` modals_allowed, boa
-//! `globals/window/mod.rs` and shell `content/event_handlers.rs`
-//! top-navigation checks — are S5-4c migration targets: S5-4c lands
-//! `modals_allowed` and the spec's 2-flag
-//! `top_navigation_allowed(flags, activation)` (the 1-arg form would be
-//! wrong-shaped) and delegates those sites to it.
+//! them: [`scripts_allowed`] / [`forms_allowed`] / [`popups_allowed`] /
+//! [`modals_allowed`] / [`top_navigation_allowed`] (the spec's 2-flag
+//! top-navigation decision, taking the caller's transient-activation fact
+//! as a parameter) / [`scripting_enabled`]. This module is the canonical
+//! predicate home: capability checks delegate here rather than open-coding
+//! a `contains` test. Remaining open-coded sites: the shell
+//! `content/event_handlers.rs` link-target top-navigation check (re-keyed
+//! onto [`top_navigation_allowed`] in the S5-4c shell stage) and the boa
+//! `iframe_bridge.rs` / `globals/window/mod.rs` checks (boa is the
+//! pre-flip baseline the S5-6 boa deletion removes wholesale).
 //!
 //! Distinct from the OS *process* sandbox ([`crate::process_sandbox`]),
 //! which shares the word "sandbox" and nothing else.
@@ -34,6 +36,14 @@ bitflags::bitflags! {
         const ALLOW_TOP_NAVIGATION = 1 << 4;
         /// Allow `alert()`, `confirm()`, and `prompt()` modals.
         const ALLOW_MODALS         = 1 << 5;
+        /// Allow navigation of the top-level browsing context, but only
+        /// when the source has transient user activation
+        /// (`allow-top-navigation-by-user-activation`,
+        /// `html#attr-iframe-sandbox-allow-top-navigation-by-user-activation`).
+        /// The token maps 1:1 onto this bit at parse time; the §7.1.5
+        /// "`allow-top-navigation` implies it" conformance note is encoded
+        /// in [`top_navigation_allowed`]'s disjunction, not here.
+        const ALLOW_TOP_NAVIGATION_BY_USER_ACTIVATION = 1 << 6;
     }
 }
 
@@ -58,6 +68,14 @@ pub fn parse_sandbox_attribute(value: &str) -> IframeSandboxFlags {
             t if t.eq_ignore_ascii_case("allow-popups") => IframeSandboxFlags::ALLOW_POPUPS,
             t if t.eq_ignore_ascii_case("allow-top-navigation") => {
                 IframeSandboxFlags::ALLOW_TOP_NAVIGATION
+            }
+            // 1:1 token→bit mapping: the §7.1.5 both-tokens rule
+            // (`allow-top-navigation` wins / implies this one; using both is
+            // a document conformance error) lives in the
+            // `top_navigation_allowed` predicate's disjunction, so the parse
+            // stays a pure token table.
+            t if t.eq_ignore_ascii_case("allow-top-navigation-by-user-activation") => {
+                IframeSandboxFlags::ALLOW_TOP_NAVIGATION_BY_USER_ACTIVATION
             }
             t if t.eq_ignore_ascii_case("allow-modals") => IframeSandboxFlags::ALLOW_MODALS,
             // Unrecognized tokens silently ignored per spec.
@@ -108,6 +126,48 @@ pub fn forms_allowed(flags: Option<IframeSandboxFlags>) -> bool {
 #[must_use]
 pub fn popups_allowed(flags: Option<IframeSandboxFlags>) -> bool {
     flags.is_none_or(|f| f.contains(IframeSandboxFlags::ALLOW_POPUPS))
+}
+
+/// Whether simple dialogs / modals are allowed (WHATWG HTML §7.1.5).
+///
+/// `ALLOW_MODALS` (`allow-modals`) clears the spec's *sandboxed modals
+/// flag* (`html#sandboxed-modals-flag`), whose prose prevents
+/// `window.alert()` / `confirm()` / `print()` / `prompt()` and the
+/// prompting in response to the `beforeunload` event. The gate site is
+/// §8.9.1 *cannot show simple dialogs* (`html#cannot-show-simple-dialogs`)
+/// step 1.
+#[must_use]
+pub fn modals_allowed(flags: Option<IframeSandboxFlags>) -> bool {
+    flags.is_none_or(|f| f.contains(IframeSandboxFlags::ALLOW_MODALS))
+}
+
+/// Whether navigating the top-level traversable is allowed (WHATWG HTML
+/// §7.4.2.4 *allowed by sandboxing to navigate*, `html#allowed-to-navigate`,
+/// steps 3.2/3.3 — mirrored here in allow-form).
+///
+/// The spec keeps TWO top-navigation restriction flags (§7.1.5): the
+/// *sandboxed top-level navigation without user activation browsing context
+/// flag* (`html#sandboxed-top-level-navigation-without-user-activation-browsing-context-flag`,
+/// cleared by `ALLOW_TOP_NAVIGATION`) blocks a source with **no** transient
+/// activation (step 3.3), and the *…with user activation…* flag
+/// (`html#sandboxed-top-level-navigation-with-user-activation-browsing-context-flag`,
+/// cleared by `ALLOW_TOP_NAVIGATION_BY_USER_ACTIVATION` **or** by
+/// `ALLOW_TOP_NAVIGATION` — the §7.1.5 both-tokens note: `allow-top-navigation`
+/// wins / implies the by-user-activation grant) blocks a source that has it
+/// (step 3.2). In the positive allow-token form that is exactly the
+/// disjunction below. Callers pass their own transient-activation fact:
+/// script-initiated paths pass `false` (the conservative constant — elidex
+/// has no user-activation tracking yet), a direct user-gesture site passes
+/// `true` statically.
+#[must_use]
+pub fn top_navigation_allowed(
+    flags: Option<IframeSandboxFlags>,
+    has_transient_activation: bool,
+) -> bool {
+    let allowed = |bit| flags.is_none_or(|f| f.contains(bit));
+    allowed(IframeSandboxFlags::ALLOW_TOP_NAVIGATION)
+        || (has_transient_activation
+            && allowed(IframeSandboxFlags::ALLOW_TOP_NAVIGATION_BY_USER_ACTIVATION))
 }
 
 /// WHATWG HTML §8.1.3.4 "scripting is enabled" for an environment settings
@@ -182,7 +242,8 @@ mod tests {
     #[test]
     fn sandbox_all_flags() {
         let flags = parse_sandbox_attribute(
-            "allow-scripts allow-same-origin allow-forms allow-popups allow-top-navigation allow-modals",
+            "allow-scripts allow-same-origin allow-forms allow-popups allow-top-navigation \
+             allow-modals allow-top-navigation-by-user-activation",
         );
         assert!(flags.contains(IframeSandboxFlags::ALLOW_SCRIPTS));
         assert!(flags.contains(IframeSandboxFlags::ALLOW_SAME_ORIGIN));
@@ -190,6 +251,35 @@ mod tests {
         assert!(flags.contains(IframeSandboxFlags::ALLOW_POPUPS));
         assert!(flags.contains(IframeSandboxFlags::ALLOW_TOP_NAVIGATION));
         assert!(flags.contains(IframeSandboxFlags::ALLOW_MODALS));
+        assert!(flags.contains(IframeSandboxFlags::ALLOW_TOP_NAVIGATION_BY_USER_ACTIVATION));
+    }
+
+    #[test]
+    fn sandbox_top_navigation_by_user_activation_token() {
+        // 1:1 token→bit mapping (case-insensitive like every token); the
+        // `allow-top-navigation` implication lives in the predicate, so the
+        // token sets ONLY its own bit …
+        for value in [
+            "allow-top-navigation-by-user-activation",
+            "ALLOW-TOP-NAVIGATION-BY-USER-ACTIVATION",
+            "Allow-Top-Navigation-By-User-Activation",
+        ] {
+            assert_eq!(
+                parse_sandbox_attribute(value),
+                IframeSandboxFlags::ALLOW_TOP_NAVIGATION_BY_USER_ACTIVATION,
+                "value = {value:?}"
+            );
+        }
+        // … and `allow-top-navigation` does NOT set it at parse time (the
+        // §7.1.5 both-tokens combination is a document conformance error
+        // whose "allow-top-navigation wins" resolution is encoded in
+        // `top_navigation_allowed`, not the token table).
+        let top_only = parse_sandbox_attribute("allow-top-navigation");
+        assert!(!top_only.contains(IframeSandboxFlags::ALLOW_TOP_NAVIGATION_BY_USER_ACTIVATION));
+        let both =
+            parse_sandbox_attribute("allow-top-navigation allow-top-navigation-by-user-activation");
+        assert!(both.contains(IframeSandboxFlags::ALLOW_TOP_NAVIGATION));
+        assert!(both.contains(IframeSandboxFlags::ALLOW_TOP_NAVIGATION_BY_USER_ACTIVATION));
     }
 
     // ── capability predicates (§7.1.5 / §8.1.3.4) ──────────────────────────
@@ -199,6 +289,7 @@ mod tests {
         assert!(scripts_allowed(None));
         assert!(forms_allowed(None));
         assert!(popups_allowed(None));
+        assert!(modals_allowed(None));
         assert!(scripting_enabled(None));
     }
 
@@ -208,7 +299,55 @@ mod tests {
         assert!(!scripts_allowed(flags));
         assert!(!forms_allowed(flags));
         assert!(!popups_allowed(flags));
+        assert!(!modals_allowed(flags));
         assert!(!scripting_enabled(flags));
+    }
+
+    #[test]
+    fn modals_allowed_tracks_only_the_modals_bit() {
+        assert!(modals_allowed(Some(IframeSandboxFlags::ALLOW_MODALS)));
+        // Sibling grants do not leak into the modals capability.
+        assert!(!modals_allowed(Some(IframeSandboxFlags::ALLOW_SCRIPTS)));
+        assert!(!modals_allowed(Some(IframeSandboxFlags::ALLOW_POPUPS)));
+        // Nor does the modals grant leak outward.
+        let modals = Some(IframeSandboxFlags::ALLOW_MODALS);
+        assert!(!scripts_allowed(modals));
+        assert!(!popups_allowed(modals));
+    }
+
+    #[test]
+    fn top_navigation_allowed_full_truth_table() {
+        // §7.4.2.4 steps 3.2/3.3 over the 2-flag pair (§4.3.3 disjunction):
+        // flags ∈ {None, empty, TOP_NAV, BY_UA, both} × activation ∈ {f, t}.
+        use IframeSandboxFlags as F;
+        let by_ua = F::ALLOW_TOP_NAVIGATION_BY_USER_ACTIVATION;
+        let cases: [(Option<F>, bool, bool); 10] = [
+            // Unsandboxed: allowed regardless of activation.
+            (None, false, true),
+            (None, true, true),
+            // Maximum restriction: both restriction flags set → never.
+            (Some(F::empty()), false, false),
+            (Some(F::empty()), true, false),
+            // `allow-top-navigation` clears BOTH restriction flags (the
+            // §7.1.5 implication): allowed regardless of activation.
+            (Some(F::ALLOW_TOP_NAVIGATION), false, true),
+            (Some(F::ALLOW_TOP_NAVIGATION), true, true),
+            // `allow-top-navigation-by-user-activation` alone clears only
+            // the *with-user-activation* flag: activation-gated (step 3.3
+            // still blocks the no-activation source).
+            (Some(by_ua), false, false),
+            (Some(by_ua), true, true),
+            // Both tokens: `allow-top-navigation` wins — same as TOP_NAV.
+            (Some(F::ALLOW_TOP_NAVIGATION | by_ua), false, true),
+            (Some(F::ALLOW_TOP_NAVIGATION | by_ua), true, true),
+        ];
+        for (flags, activation, expected) in cases {
+            assert_eq!(
+                top_navigation_allowed(flags, activation),
+                expected,
+                "flags = {flags:?}, activation = {activation}"
+            );
+        }
     }
 
     #[test]

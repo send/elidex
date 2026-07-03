@@ -170,6 +170,7 @@ mod tests_wasm;
 mod tests_websocket;
 mod tests_window_global;
 mod tests_window_iframe_props;
+mod tests_window_open_modals;
 mod tests_worker;
 mod tests_wrapper_intern;
 

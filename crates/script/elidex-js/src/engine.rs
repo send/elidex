@@ -13,7 +13,7 @@ use elidex_css::media::{ColorScheme, ReducedMotion};
 use elidex_ecs::Entity;
 use elidex_script_session::{
     DispatchEvent, EvalResult, HistoryAction, HostDriver, ListenerId, MutationRecord,
-    NavigationRequest, ScriptContext, ScriptEngine,
+    NamedFrameNavigation, NavigationRequest, OpenTabRequest, ScriptContext, ScriptEngine,
 };
 
 use crate::vm::host_data::HostData;
@@ -437,6 +437,14 @@ impl HostDriver for ElidexJsEngine {
         std::mem::take(&mut self.vm.inner.navigation.pending_history).into()
     }
 
+    fn take_pending_open_tabs(&mut self) -> Vec<OpenTabRequest> {
+        std::mem::take(&mut self.vm.inner.navigation.pending_open_tabs).into()
+    }
+
+    fn take_pending_frame_navigations(&mut self) -> Vec<NamedFrameNavigation> {
+        std::mem::take(&mut self.vm.inner.navigation.pending_frame_navigations).into()
+    }
+
     fn set_session_history(&mut self, index: usize, length: usize) {
         // index + length pushed together so they never desync (a `back` moves
         // the index without changing length, so pushing only length would leave
@@ -500,6 +508,14 @@ impl HostDriver for ElidexJsEngine {
             .host_data
             .as_deref()
             .is_none_or(HostData::popups_allowed)
+    }
+
+    fn modals_allowed(&self) -> bool {
+        self.vm
+            .inner
+            .host_data
+            .as_deref()
+            .is_none_or(HostData::modals_allowed)
     }
 
     fn iframe_depth(&self) -> usize {
