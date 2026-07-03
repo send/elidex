@@ -1,5 +1,9 @@
 //! Iframe loading: URL resolution, security checks, pipeline construction.
 
+use elidex_dom_api::element::enumerated_reflect::{
+    canonicalize_enumerated_attr, REFERRER_POLICY_INVALID_DEFAULT, REFERRER_POLICY_MISSING_DEFAULT,
+    REFERRER_POLICY_VALUES,
+};
 use elidex_navigation::NavigationController;
 use elidex_plugin::{IframeSandboxFlags, SecurityOrigin};
 
@@ -32,6 +36,9 @@ pub fn load_iframe(
     // Parse sandbox flags once, before the depth guard — every path (including
     // the guard's blank fallback) reuses them without re-parsing.
     let sandbox_flags = parse_sandbox(iframe_data);
+    // The iframe element's `referrerpolicy` attribute (canonical keyword), read
+    // once and threaded into every referrer computation below.
+    let referrer_policy = iframe_referrer_policy(iframe_data);
 
     // Guard against excessive iframe nesting (DoS prevention).
     if ctx.depth >= elidex_plugin::MAX_IFRAME_DEPTH {
@@ -40,6 +47,7 @@ pub fn load_iframe(
             SecurityOrigin::opaque(),
             sandbox_flags,
             iframe_data.credentialless,
+            referrer_policy,
             ctx,
         );
     }
@@ -49,7 +57,7 @@ pub fn load_iframe(
     if iframe_data.srcdoc.is_none() {
         if let Some(src) = iframe_data.src.as_deref() {
             if !src.is_empty() && src != "about:blank" {
-                return load_iframe_from_url(src, iframe_data, sandbox_flags, ctx);
+                return load_iframe_from_url(src, iframe_data, sandbox_flags, referrer_policy, ctx);
             }
         }
     }
@@ -68,6 +76,7 @@ pub fn load_iframe(
             parent_inherited_origin(iframe_data, sandbox_flags, ctx),
             sandbox_flags,
             iframe_data.credentialless,
+            referrer_policy,
             ctx,
         ),
     );
@@ -76,10 +85,12 @@ pub fn load_iframe(
 }
 
 /// Load an iframe from a URL, handling security checks and origin-based dispatch.
+#[allow(clippy::too_many_lines)] // Cohesive load → framing-check → origin-dispatch routine.
 fn load_iframe_from_url(
     src: &str,
     iframe_data: &elidex_ecs::IframeData,
     sandbox_flags: Option<IframeSandboxFlags>,
+    referrer_policy: &str,
     ctx: &IframeLoadContext<'_>,
 ) -> IframeEntry {
     let base = ctx
@@ -92,6 +103,7 @@ fn load_iframe_from_url(
             parent_inherited_origin(iframe_data, sandbox_flags, ctx),
             sandbox_flags,
             iframe_data.credentialless,
+            referrer_policy,
             ctx,
         );
     };
@@ -122,6 +134,7 @@ fn load_iframe_from_url(
                     SecurityOrigin::opaque(),
                     sandbox_flags,
                     iframe_data.credentialless,
+                    referrer_policy,
                     ctx,
                 );
             }
@@ -140,17 +153,28 @@ fn load_iframe_from_url(
                 // `parent_origin` vs `doc_origin` (the ACTUAL loaded-URL origin,
                 // BEFORE sandbox opaque-ification), so a same-origin request that
                 // is merely sandboxed-to-opaque still shares the full parent URL
-                // (W3C Referrer Policy §3 default `strict-origin-when-cross-origin`,
-                // §8.3). The whole default policy — no-referrer-source gates
-                // (opaque origin / local scheme), TLS downgrade, cross-vs-same trim
-                // — is the ONE `default_referrer` pipeline applied to every path;
-                // only full per-request ReferrerPolicy (meta referrer,
-                // rel=noreferrer, Referrer-Policy header, referrerpolicy attr) is
+                // (W3C Referrer Policy §8.3). The whole policy — no-referrer-source
+                // precondition (opaque origin / local scheme), TLS downgrade,
+                // per-policy URL/origin/none selection — is the ONE
+                // `compute_referrer` pipeline applied to every path under the
+                // iframe element's `referrerpolicy` attribute; only the OTHER
+                // per-request ReferrerPolicy sources (meta referrer, rel=noreferrer,
+                // Referrer-Policy header, no-attr parent-policy inheritance) remain
                 // deferred → slot #11-referrer-policy (a new carve; ledger
                 // registration is a landing deliverable).
-                let mut state =
-                    pre_eval_state(origin, sandbox_flags, iframe_data.credentialless, ctx);
-                state.referrer = default_referrer(ctx.parent_url, ctx.parent_origin, &doc_origin);
+                let mut state = pre_eval_state(
+                    origin,
+                    sandbox_flags,
+                    iframe_data.credentialless,
+                    referrer_policy,
+                    ctx,
+                );
+                state.referrer = compute_referrer(
+                    referrer_policy,
+                    ctx.parent_url,
+                    ctx.parent_origin,
+                    &doc_origin,
+                );
                 return make_out_of_process_entry(loaded, state, ctx.device_facts);
             }
 
@@ -204,6 +228,7 @@ fn load_iframe_from_url(
                     origin,
                     sandbox_flags,
                     iframe_data.credentialless,
+                    referrer_policy,
                     ctx,
                 )),
             );
@@ -219,6 +244,7 @@ fn load_iframe_from_url(
                 parent_inherited_origin(iframe_data, sandbox_flags, ctx),
                 sandbox_flags,
                 iframe_data.credentialless,
+                referrer_policy,
                 ctx,
             )
         }
@@ -324,13 +350,14 @@ fn blank_entry(
     origin: SecurityOrigin,
     sandbox_flags: Option<IframeSandboxFlags>,
     credentialless: bool,
+    referrer_policy: &str,
     ctx: &IframeLoadContext<'_>,
 ) -> IframeEntry {
     make_in_process_entry(build_iframe_pipeline(
         "",
         ctx.parent_url.cloned(),
         ctx,
-        pre_eval_state(origin, sandbox_flags, credentialless, ctx),
+        pre_eval_state(origin, sandbox_flags, credentialless, referrer_policy, ctx),
     ))
 }
 
@@ -349,16 +376,19 @@ fn parse_sandbox(iframe_data: &elidex_ecs::IframeData) -> Option<IframeSandboxFl
 /// Bundle the security state an iframe build (in-process or OOP-thread)
 /// installs **before** its initial scripts run (see [`crate::PreEvalFrameState`]).
 ///
-/// The referrer is computed by the single [`default_referrer`] pipeline; it
-/// rides the same pre-eval chokepoint as origin/flags/depth so the initial
-/// scripts read a populated `document.referrer`. This is the same-origin default
-/// (srcdoc / about:blank / same-origin URL in-process build), so the request
-/// origin passed IS the parent origin; the cross-origin call site (OOP branch)
-/// passes the real request origin instead.
+/// The referrer is computed by the single [`compute_referrer`] pipeline under
+/// the iframe element's `referrer_policy` (canonical keyword from
+/// [`iframe_referrer_policy`]); it rides the same pre-eval chokepoint as
+/// origin/flags/depth so the initial scripts read a populated
+/// `document.referrer`. This is the same-origin path (srcdoc / about:blank /
+/// same-origin URL in-process build), so the request origin passed IS the
+/// parent origin; the cross-origin call site (OOP branch) passes the real
+/// request origin instead.
 fn pre_eval_state(
     origin: SecurityOrigin,
     sandbox_flags: Option<IframeSandboxFlags>,
     credentialless: bool,
+    referrer_policy: &str,
     ctx: &IframeLoadContext<'_>,
 ) -> crate::PreEvalFrameState {
     crate::PreEvalFrameState {
@@ -366,9 +396,14 @@ fn pre_eval_state(
         sandbox_flags,
         iframe_depth: ctx.depth,
         credentialless,
-        // Same-origin default: srcdoc / about:blank / same-origin URL loads
-        // inherit the parent origin, so the request origin IS the parent origin.
-        referrer: default_referrer(ctx.parent_url, ctx.parent_origin, ctx.parent_origin),
+        // Same-origin path: srcdoc / about:blank / same-origin URL loads inherit
+        // the parent origin, so the request origin IS the parent origin.
+        referrer: compute_referrer(
+            referrer_policy,
+            ctx.parent_url,
+            ctx.parent_origin,
+            ctx.parent_origin,
+        ),
     }
 }
 
@@ -395,13 +430,38 @@ fn strip_referrer_url(url: &url::Url) -> String {
     url.to_string()
 }
 
-/// The `document.referrer` a child document receives, per the W3C Referrer
-/// Policy §3 DEFAULT policy ("strict-origin-when-cross-origin", §3.7). This is
-/// the ONE canonical pipeline every iframe path routes through (in-process
-/// same-origin, OOP cross-origin, and — via the persisted bridge referrer — the
-/// navigate rebuild), applied uniformly IN ORDER (§8.3 "Determine request's
-/// Referrer" → §8.4 "Strip url for use as a referrer"):
+/// Canonicalize the iframe element's `referrerpolicy` content attribute to its
+/// HTML §2.3.5 enumerated keyword, reusing the engine-independent
+/// [`enumerated_reflect`](elidex_dom_api::element::enumerated_reflect) table
+/// (`REFERRER_POLICY_VALUES`) shared with the `referrerPolicy` IDL getters.
 ///
+/// Missing / invalid / unknown → `""` (the empty keyword), which
+/// [`compute_referrer`] maps to the DEFAULT policy
+/// `strict-origin-when-cross-origin`. `iframe_data.referrer_policy` was parsed
+/// into `IframeData` at DOM-build time; this connects that previously-dead
+/// field.
+fn iframe_referrer_policy(iframe_data: &elidex_ecs::IframeData) -> &'static str {
+    canonicalize_enumerated_attr(
+        iframe_data.referrer_policy.as_deref(),
+        REFERRER_POLICY_VALUES,
+        REFERRER_POLICY_MISSING_DEFAULT,
+        REFERRER_POLICY_INVALID_DEFAULT,
+    )
+}
+
+/// The `document.referrer` a child document receives under a given W3C Referrer
+/// Policy (§8.3 "Determine request's Referrer"). This is the ONE canonical
+/// pipeline every iframe path routes through (in-process same-origin, OOP
+/// cross-origin, and — via the persisted bridge referrer — the navigate
+/// rebuild), applied uniformly IN ORDER (§8.3 → §8.4 "Strip url for use as a
+/// referrer").
+///
+/// - `policy`: the iframe element's canonical `referrerpolicy` keyword (from
+///   [`iframe_referrer_policy`]). The empty / unknown keyword maps to the
+///   DEFAULT `strict-origin-when-cross-origin` (§3, §8.3 note "if request's
+///   referrer policy is the empty string"). This honours the author's explicit
+///   `<iframe referrerpolicy=…>` directive — the ONLY per-request
+///   ReferrerPolicy source modelled (see the deferred-slot note below).
 /// - `source_url` / `source_origin`: the parent (referrer source) document URL
 ///   and origin.
 /// - `request_origin`: the child request's origin (`from_url(loaded.url)`, the
@@ -410,39 +470,61 @@ fn strip_referrer_url(url: &url::Url) -> String {
 ///   same-origin request that is merely sandboxed-to-opaque still shares the
 ///   full parent URL.
 ///
-/// Steps (each yielding `None` = no `Referer` / empty `document.referrer`):
+/// **No valid referrer source** precondition (applies to EVERY policy, NOT
+/// policy-overridable — even `unsafe-url`, because §8.4 step 2 strips a
+/// local-scheme source to "no referrer" before the policy switch runs) →
+/// `None`: `source_origin` is opaque (§8.3 step 2.2), OR `source_url` has a
+/// Fetch **local scheme** (`about` / `blob` / `data`, §8.4 step 2). The
+/// local-scheme test is on the **source URL scheme, not the origin** — an
+/// `about:blank` parent has a local scheme but an inherited (non-opaque, tuple)
+/// origin, so it is caught here on BOTH the same-origin AND cross-origin paths
+/// (where an origin-opaque-only gate would leak it cross-origin).
 ///
-/// 1. **No valid referrer source** → `None`: `source_origin` is opaque (§8.3
-///    step 2.2), OR `source_url` has a Fetch **local scheme** (`about` / `blob`
-///    / `data`, §8.4 step 2). The local-scheme test is on the **source URL
-///    scheme, not the origin** — an `about:blank` parent has a local scheme but
-///    an inherited (non-opaque, tuple) origin, so it is caught here on BOTH the
-///    same-origin AND cross-origin paths (where an origin-opaque-only gate would
-///    leak it cross-origin).
-/// 2. `referrerURL` = strip `source_url` (username / password / fragment
-///    removed, [`strip_referrer_url`]).
-/// 3. **Downgrade** → `None`: `source_origin` is potentially-trustworthy AND
-///    `request_origin` is NOT (§3.7). "Potentially trustworthy" — not merely
-///    `https` — via [`SecurityOrigin::is_potentially_trustworthy`], so an https
-///    parent embedding a loopback-`http` child (`http://localhost`,
-///    `http://127.0.0.1`, `http://[::1]`) is NOT a downgrade. Same-origin is
-///    necessarily same-scheme, so a downgrade only ever arises cross-origin.
-/// 4. **Cross-origin** (`source_origin != request_origin`) → the source
-///    ORIGIN-as-URL: its serialization followed by U+002F SOLIDUS (`/`) — §8.4
-///    with the origin-only flag leaves an empty path that serializes as `/`.
-/// 5. **Same-origin** → the stripped `referrerURL` (full URL, userinfo /
-///    fragment removed).
+/// After the precondition, the two §8.4 forms are:
 ///
-/// Only full per-request ReferrerPolicy (meta referrer, `rel=noreferrer`,
-/// `Referrer-Policy` header, `referrerpolicy` attr) remains deferred → slot
+/// - `referrerURL` = strip `source_url` (username / password / fragment
+///   removed, [`strip_referrer_url`]) — the full source URL.
+/// - `referrerOrigin` = the source ORIGIN-as-URL: its serialization followed by
+///   U+002F SOLIDUS (`/`) — §8.4 with the origin-only flag leaves an empty path
+///   that serializes as `/`.
+///
+/// and `downgrade` = `source_origin` is potentially-trustworthy AND
+/// `request_origin` is NOT (§3.7 / §8.3). "Potentially trustworthy" — not
+/// merely `https` — via [`SecurityOrigin::is_potentially_trustworthy`], so an
+/// https parent embedding a loopback-`http` child (`http://localhost`,
+/// `http://127.0.0.1`, `http://[::1]`) is NOT a downgrade. Same-origin is
+/// necessarily same-scheme, so a downgrade only ever arises cross-origin.
+///
+/// The §8.3 step-8 per-policy switch:
+///
+/// - `no-referrer` → `None`.
+/// - `no-referrer-when-downgrade` → `referrerURL`, or `None` on downgrade.
+/// - `same-origin` → `referrerURL` if same-origin, else `None`.
+/// - `origin` → `referrerOrigin` always.
+/// - `strict-origin` → `referrerOrigin`, or `None` on downgrade.
+/// - `origin-when-cross-origin` → `referrerURL` if same-origin, else
+///   `referrerOrigin`.
+/// - `strict-origin-when-cross-origin` (DEFAULT; empty / unset / unknown maps
+///   here) → `referrerURL` if same-origin, else `None` on downgrade, else
+///   `referrerOrigin`.
+/// - `unsafe-url` → `referrerURL` always (still gated by the precondition).
+///
+/// Only the OTHER per-request ReferrerPolicy sources remain deferred → slot
 /// `#11-referrer-policy` (a new carve; ledger registration is a landing
-/// deliverable).
-fn default_referrer(
+/// deliverable): the `<meta name="referrer">` element, the `Referrer-Policy`
+/// response header, `rel=noreferrer` / `rel=noopener` on links, and
+/// per-subresource-fetch policy inheritance — including the rule that an iframe
+/// with NO `referrerpolicy` attribute inherits the parent document's referrer
+/// policy (here the no-attr case falls to the fixed default, not the parent's
+/// policy).
+fn compute_referrer(
+    policy: &str,
     source_url: Option<&url::Url>,
     source_origin: &SecurityOrigin,
     request_origin: &SecurityOrigin,
 ) -> Option<String> {
-    // Step 1: no valid referrer source (opaque origin OR local-scheme URL).
+    // "No valid referrer source" precondition (opaque origin OR local-scheme
+    // URL) — applies to ALL policies, so it precedes the switch.
     if matches!(source_origin, SecurityOrigin::Opaque(_)) {
         return None;
     }
@@ -450,16 +532,36 @@ fn default_referrer(
     if is_local_scheme(source_url.scheme()) {
         return None;
     }
-    // Step 3: TLS downgrade (potentially-trustworthy source → non-p.t. request).
-    if source_origin.is_potentially_trustworthy() && !request_origin.is_potentially_trustworthy() {
-        return None;
-    }
-    if source_origin == request_origin {
-        // Step 5 (via step 2 strip): same-origin → stripped full source URL.
-        Some(strip_referrer_url(source_url))
-    } else {
-        // Step 4: cross-origin → source ORIGIN-as-URL (trailing `/`).
-        Some(format!("{}/", source_origin.serialize()))
+
+    let referrer_url = || strip_referrer_url(source_url);
+    let referrer_origin = || format!("{}/", source_origin.serialize());
+    let same_origin = source_origin == request_origin;
+    let downgrade =
+        source_origin.is_potentially_trustworthy() && !request_origin.is_potentially_trustworthy();
+
+    match policy {
+        "no-referrer" => None,
+        "no-referrer-when-downgrade" => (!downgrade).then(referrer_url),
+        "same-origin" => same_origin.then(referrer_url),
+        "origin" => Some(referrer_origin()),
+        "strict-origin" => (!downgrade).then(referrer_origin),
+        "origin-when-cross-origin" => Some(if same_origin {
+            referrer_url()
+        } else {
+            referrer_origin()
+        }),
+        "unsafe-url" => Some(referrer_url()),
+        // "strict-origin-when-cross-origin" — the DEFAULT, also reached by the
+        // empty / unset / unknown keyword.
+        _ => {
+            if same_origin {
+                Some(referrer_url())
+            } else if downgrade {
+                None
+            } else {
+                Some(referrer_origin())
+            }
+        }
     }
 }
 
@@ -602,11 +704,17 @@ impl crate::PreEvalFrameInputs {
 
 #[cfg(test)]
 mod tests {
-    use super::{default_referrer, strip_referrer_url, SecurityOrigin};
+    use super::{compute_referrer, strip_referrer_url, SecurityOrigin};
 
     fn origin(s: &str) -> SecurityOrigin {
         SecurityOrigin::from_url(&url::Url::parse(s).unwrap())
     }
+
+    /// The DEFAULT referrer policy: the empty / unset `referrerpolicy` keyword
+    /// maps to `strict-origin-when-cross-origin`. All the pre-existing referrer
+    /// tests exercise this policy (they predate honouring the attribute), so
+    /// they route through it here.
+    const DEFAULT: &str = "";
 
     /// Step 5: a **same-origin** request that is merely sandboxed-to-opaque (OOP
     /// routed) still shares the FULL (stripped) source URL — the referrer keys
@@ -618,8 +726,13 @@ mod tests {
         let parent = url::Url::parse("https://parent.example/a/b?q").unwrap();
         let request = origin("https://parent.example/child");
         assert_eq!(
-            default_referrer(Some(&parent), &origin("https://parent.example/"), &request)
-                .as_deref(),
+            compute_referrer(
+                DEFAULT,
+                Some(&parent),
+                &origin("https://parent.example/"),
+                &request
+            )
+            .as_deref(),
             Some("https://parent.example/a/b?q"),
             "same-origin request must expose the full parent URL, even when sandboxed"
         );
@@ -632,8 +745,13 @@ mod tests {
         let parent = url::Url::parse("https://parent.example/a/b?q").unwrap();
         let request = origin("https://other.example/");
         assert_eq!(
-            default_referrer(Some(&parent), &origin("https://parent.example/"), &request)
-                .as_deref(),
+            compute_referrer(
+                DEFAULT,
+                Some(&parent),
+                &origin("https://parent.example/"),
+                &request
+            )
+            .as_deref(),
             Some("https://parent.example/"),
             "cross-origin request must be trimmed to the source ORIGIN-as-URL"
         );
@@ -668,7 +786,7 @@ mod tests {
             // local-scheme gate for about:/blob:.
             let src = origin("https://parent.example/");
             assert_eq!(
-                default_referrer(Some(&url), &src, &src),
+                compute_referrer(DEFAULT, Some(&url), &src, &src),
                 None,
                 "local-scheme URL {u} must have no referrer"
             );
@@ -684,7 +802,7 @@ mod tests {
         let data_parent = url::Url::parse("data:text/html,<p>hi").unwrap();
         let opaque = SecurityOrigin::opaque();
         assert_eq!(
-            default_referrer(Some(&data_parent), &opaque, &opaque),
+            compute_referrer(DEFAULT, Some(&data_parent), &opaque, &opaque),
             None,
             "an opaque-origin source has no referrer to disclose"
         );
@@ -699,7 +817,7 @@ mod tests {
         let about = url::Url::parse("about:blank").unwrap();
         let tuple = origin("https://parent.example/");
         assert_eq!(
-            default_referrer(Some(&about), &tuple, &tuple),
+            compute_referrer(DEFAULT, Some(&about), &tuple, &tuple),
             None,
             "an about:blank parent (local-scheme URL) discloses no referrer even \
              with an inherited tuple origin"
@@ -720,7 +838,7 @@ mod tests {
         let tuple = origin("https://parent.example/");
         let cross = origin("https://other.example/");
         assert_eq!(
-            default_referrer(Some(&about), &tuple, &cross),
+            compute_referrer(DEFAULT, Some(&about), &tuple, &cross),
             None,
             "an about:blank (local-scheme) parent leaks NO referrer cross-origin, \
              even though its inherited origin is a non-opaque tuple"
@@ -737,8 +855,13 @@ mod tests {
         let parent = url::Url::parse("https://parent.example/a/b?q").unwrap();
         let request = origin("http://localhost/");
         assert_eq!(
-            default_referrer(Some(&parent), &origin("https://parent.example/"), &request)
-                .as_deref(),
+            compute_referrer(
+                DEFAULT,
+                Some(&parent),
+                &origin("https://parent.example/"),
+                &request
+            )
+            .as_deref(),
             Some("https://parent.example/"),
             "loopback-http is potentially trustworthy, so this is not a downgrade"
         );
@@ -751,8 +874,13 @@ mod tests {
         let parent = url::Url::parse("https://user:pass@parent.example/path#frag").unwrap();
         let request = origin("https://parent.example/child");
         assert_eq!(
-            default_referrer(Some(&parent), &origin("https://parent.example/"), &request)
-                .as_deref(),
+            compute_referrer(
+                DEFAULT,
+                Some(&parent),
+                &origin("https://parent.example/"),
+                &request
+            )
+            .as_deref(),
             Some("https://parent.example/path"),
         );
     }
@@ -764,7 +892,8 @@ mod tests {
     fn default_referrer_opaque_source_cross_origin_is_none() {
         let parent = url::Url::parse("data:text/html,<p>hi").unwrap();
         assert_eq!(
-            default_referrer(
+            compute_referrer(
+                DEFAULT,
                 Some(&parent),
                 &SecurityOrigin::opaque(),
                 &origin("https://other.example/")
@@ -783,7 +912,12 @@ mod tests {
         let parent = url::Url::parse("https://parent.example/a/b?q").unwrap();
         let request = origin("http://other.example/");
         assert_eq!(
-            default_referrer(Some(&parent), &origin("https://parent.example/"), &request),
+            compute_referrer(
+                DEFAULT,
+                Some(&parent),
+                &origin("https://parent.example/"),
+                &request
+            ),
             None,
             "secure→non-secure cross-origin downgrade must omit the referrer entirely"
         );
@@ -797,9 +931,214 @@ mod tests {
         let parent = url::Url::parse("http://parent.example/a/b?q").unwrap();
         let request = origin("http://other.example/");
         assert_eq!(
-            default_referrer(Some(&parent), &origin("http://parent.example/"), &request).as_deref(),
+            compute_referrer(
+                DEFAULT,
+                Some(&parent),
+                &origin("http://parent.example/"),
+                &request
+            )
+            .as_deref(),
             Some("http://parent.example/"),
             "non-secure source cross-origin is not a downgrade; source origin is sent"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // Per-policy switch (§8.3 step 8) — the iframe element's `referrerpolicy`
+    // attribute is now HONORED (R5). Each drives `compute_referrer` with an
+    // explicit canonical keyword, holding the source/request fixed.
+    // -----------------------------------------------------------------------
+
+    /// `no-referrer` → NEVER a referrer, even same-origin with a full valid
+    /// source URL (§8.3 "no-referrer" → return no referrer). This is the leak
+    /// this finding closes: `<iframe referrerpolicy="no-referrer">` must send
+    /// NOTHING where the DEFAULT policy would send the full parent URL. Falsify
+    /// by reverting to the hardcoded default policy — it would return
+    /// `Some("https://parent.example/a/b?q")`.
+    #[test]
+    fn compute_referrer_no_referrer_policy_is_always_none() {
+        let parent = url::Url::parse("https://parent.example/a/b?q").unwrap();
+        let same = origin("https://parent.example/");
+        assert_eq!(
+            compute_referrer("no-referrer", Some(&parent), &same, &same),
+            None,
+            "referrerpolicy=no-referrer must disclose no referrer even same-origin"
+        );
+    }
+
+    /// `unsafe-url` → the FULL stripped source URL even CROSS-ORIGIN and even on
+    /// a TLS downgrade (§8.3 "unsafe-url" → return referrerURL), where the
+    /// default would trim to the origin or drop it.
+    #[test]
+    fn compute_referrer_unsafe_url_policy_keeps_full_url_cross_origin() {
+        let parent = url::Url::parse("https://parent.example/a/b?q#frag").unwrap();
+        let cross_downgrade = origin("http://other.example/");
+        assert_eq!(
+            compute_referrer("unsafe-url", Some(&parent), &origin("https://parent.example/"), &cross_downgrade)
+                .as_deref(),
+            Some("https://parent.example/a/b?q"),
+            "referrerpolicy=unsafe-url sends the full (stripped) URL even cross-origin on a downgrade"
+        );
+    }
+
+    /// `unsafe-url` is STILL gated by the "no valid referrer source"
+    /// precondition: a local-scheme source URL yields `None` regardless of the
+    /// most-permissive policy (§8.4 step 2 strips it before the switch).
+    #[test]
+    fn compute_referrer_unsafe_url_policy_still_gated_by_local_scheme() {
+        let about = url::Url::parse("about:blank").unwrap();
+        let tuple = origin("https://parent.example/");
+        assert_eq!(
+            compute_referrer("unsafe-url", Some(&about), &tuple, &tuple),
+            None,
+            "the local-scheme precondition is not policy-overridable, even by unsafe-url"
+        );
+    }
+
+    /// `origin` → the source ORIGIN-as-URL for BOTH same-origin and cross-origin
+    /// (§8.3 "origin" → return referrerOrigin), where the default keeps the full
+    /// URL same-origin.
+    #[test]
+    fn compute_referrer_origin_policy_is_origin_form_both_ways() {
+        let parent = url::Url::parse("https://parent.example/a/b?q").unwrap();
+        let src = origin("https://parent.example/");
+        assert_eq!(
+            compute_referrer("origin", Some(&parent), &src, &src).as_deref(),
+            Some("https://parent.example/"),
+            "referrerpolicy=origin trims the same-origin referrer to the origin"
+        );
+        assert_eq!(
+            compute_referrer(
+                "origin",
+                Some(&parent),
+                &src,
+                &origin("https://other.example/")
+            )
+            .as_deref(),
+            Some("https://parent.example/"),
+            "referrerpolicy=origin is the origin form cross-origin too"
+        );
+    }
+
+    /// `same-origin` → the full URL same-origin but `None` CROSS-ORIGIN (§8.3
+    /// "same-origin" step 2 → no referrer), where the default would send the
+    /// cross-origin ORIGIN-as-URL.
+    #[test]
+    fn compute_referrer_same_origin_policy_drops_cross_origin() {
+        let parent = url::Url::parse("https://parent.example/a/b?q").unwrap();
+        let src = origin("https://parent.example/");
+        assert_eq!(
+            compute_referrer("same-origin", Some(&parent), &src, &src).as_deref(),
+            Some("https://parent.example/a/b?q"),
+            "referrerpolicy=same-origin keeps the full URL for a same-origin request"
+        );
+        assert_eq!(
+            compute_referrer(
+                "same-origin",
+                Some(&parent),
+                &src,
+                &origin("https://other.example/")
+            ),
+            None,
+            "referrerpolicy=same-origin sends nothing cross-origin"
+        );
+    }
+
+    /// `strict-origin` → the origin form, but `None` on a TLS downgrade (§8.3
+    /// "strict-origin" step 1), and origin form (not full URL) even same-origin.
+    #[test]
+    fn compute_referrer_strict_origin_policy_downgrade_and_same_origin() {
+        let parent = url::Url::parse("https://parent.example/a/b?q").unwrap();
+        let src = origin("https://parent.example/");
+        assert_eq!(
+            compute_referrer(
+                "strict-origin",
+                Some(&parent),
+                &src,
+                &origin("http://other.example/")
+            ),
+            None,
+            "referrerpolicy=strict-origin drops the referrer on an https→http downgrade"
+        );
+        assert_eq!(
+            compute_referrer("strict-origin", Some(&parent), &src, &src).as_deref(),
+            Some("https://parent.example/"),
+            "referrerpolicy=strict-origin is the origin form even same-origin"
+        );
+    }
+
+    /// `origin-when-cross-origin` → full URL same-origin, origin form
+    /// cross-origin, and — unlike the default `strict-` variant — does NOT drop
+    /// on downgrade (§8.3 "origin-when-cross-origin" has no downgrade branch).
+    #[test]
+    fn compute_referrer_origin_when_cross_origin_no_downgrade_drop() {
+        let parent = url::Url::parse("https://parent.example/a/b?q").unwrap();
+        let src = origin("https://parent.example/");
+        assert_eq!(
+            compute_referrer("origin-when-cross-origin", Some(&parent), &src, &src).as_deref(),
+            Some("https://parent.example/a/b?q"),
+            "same-origin keeps the full URL"
+        );
+        assert_eq!(
+            compute_referrer(
+                "origin-when-cross-origin",
+                Some(&parent),
+                &src,
+                &origin("http://other.example/")
+            )
+            .as_deref(),
+            Some("https://parent.example/"),
+            "origin-when-cross-origin still sends the origin on a downgrade (no strict drop)"
+        );
+    }
+
+    /// `no-referrer-when-downgrade` → full URL, dropped only on a downgrade
+    /// (§8.3), so a cross-origin non-downgrade request keeps the FULL URL
+    /// (contrast the default, which trims cross-origin to the origin).
+    #[test]
+    fn compute_referrer_no_referrer_when_downgrade_keeps_full_cross_origin() {
+        let parent = url::Url::parse("https://parent.example/a/b?q").unwrap();
+        let src = origin("https://parent.example/");
+        assert_eq!(
+            compute_referrer(
+                "no-referrer-when-downgrade",
+                Some(&parent),
+                &src,
+                &origin("https://other.example/")
+            )
+            .as_deref(),
+            Some("https://parent.example/a/b?q"),
+            "no-referrer-when-downgrade keeps the full URL cross-origin when not downgrading"
+        );
+        assert_eq!(
+            compute_referrer(
+                "no-referrer-when-downgrade",
+                Some(&parent),
+                &src,
+                &origin("http://other.example/")
+            ),
+            None,
+            "no-referrer-when-downgrade drops on an https→http downgrade"
+        );
+    }
+
+    /// An unknown / invalid policy keyword falls to the DEFAULT
+    /// `strict-origin-when-cross-origin` behaviour (the `_` match arm), the same
+    /// as the empty keyword — cross-origin trims to the origin.
+    #[test]
+    fn compute_referrer_unknown_policy_falls_to_default() {
+        let parent = url::Url::parse("https://parent.example/a/b?q").unwrap();
+        let src = origin("https://parent.example/");
+        assert_eq!(
+            compute_referrer(
+                "bogus-policy",
+                Some(&parent),
+                &src,
+                &origin("https://other.example/")
+            )
+            .as_deref(),
+            Some("https://parent.example/"),
+            "an unrecognised keyword behaves as the default policy"
         );
     }
 }

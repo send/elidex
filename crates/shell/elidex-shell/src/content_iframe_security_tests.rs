@@ -315,13 +315,36 @@ fn iframe_initial_script_observes_parent_referrer() {
     );
 }
 
+/// R5 (end-to-end): the iframe element's own `referrerpolicy="no-referrer"`
+/// attribute is HONORED — the same-origin srcdoc frame that
+/// `iframe_initial_script_observes_parent_referrer` shows exposing the full
+/// parent URL under the DEFAULT policy now reads the EMPTY `document.referrer`,
+/// because the author's directive suppresses it. The attribute is parsed into
+/// `IframeData::referrer_policy` at DOM-build time and threaded into
+/// `compute_referrer`. Falsify by reverting `compute_referrer` to the hardcoded
+/// default policy (ignoring the parsed attribute) — the probe would read
+/// `https://parent.example/` and this leak would reopen.
+#[test]
+fn iframe_referrerpolicy_no_referrer_suppresses_referrer() {
+    let (state, _browser) = build_test_content_state_with_url(
+        r#"<iframe referrerpolicy="no-referrer" srcdoc='<div id="p"></div><script>document.getElementById("p").setAttribute("data-ref",document.referrer);</script>'></iframe>"#,
+        url::Url::parse("https://parent.example/").unwrap(),
+    );
+    let ip = in_process_entry(&state);
+    assert_eq!(
+        probe_attr(&ip.pipeline, "p", "data-ref").as_deref(),
+        Some(""),
+        "referrerpolicy=no-referrer must yield an empty document.referrer, not the parent URL"
+    );
+}
+
 /// R3-F3 (end-to-end, same-origin/in-process path): a **local-scheme /
 /// opaque-origin** parent (`data:` here) discloses NO referrer — its URL must
 /// never leak into the child's `document.referrer` (W3C Referrer Policy §8.3
 /// step 2.2 opaque-origin document / §8.4 step 2 local scheme). The child
 /// srcdoc inherits the opaque origin and reads the empty referrer default.
-/// Falsify by dropping the step-1 opaque-origin/local-scheme gate in
-/// `default_referrer` — the `data:` URL would leak here.
+/// Falsify by dropping the "no valid referrer source" precondition in
+/// `compute_referrer` — the `data:` URL would leak here.
 #[test]
 fn local_scheme_parent_discloses_no_referrer() {
     let (state, _browser) = build_test_content_state_with_url(
@@ -542,7 +565,7 @@ fn oop_unsandboxed_iframe_initial_script_observes_tuple_origin() {
 /// pre-eval chokepoint as origin/flags (`PreEvalFrameState`), so the *initial*
 /// script already observes it — the probe posts `document.referrer` as its
 /// message data. The initial-load trim source (`load.rs` OOP branch →
-/// `default_referrer`) is unit-tested in `content/iframe/load.rs` and
+/// `compute_referrer`) is unit-tested in `content/iframe/load.rs` and
 /// shares the same network-gated reachability as the OOP origin derivation (see
 /// the module doc), so this test pins delivery through the OOP chokepoint.
 /// Falsify by forwarding a full-URL referrer here.
