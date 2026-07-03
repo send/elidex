@@ -315,6 +315,28 @@ fn iframe_initial_script_observes_parent_referrer() {
     );
 }
 
+/// R3-F3 (end-to-end, same-origin/in-process path): a **local-scheme /
+/// opaque-origin** parent (`data:` here) discloses NO referrer — its URL must
+/// never leak into the child's `document.referrer` (W3C Referrer Policy §8.3
+/// step 2.2 opaque-origin document / §8.4 step 2 local scheme). The child
+/// srcdoc inherits the opaque origin and reads the empty referrer default.
+/// Falsify by dropping the opaque-origin/local-scheme gate in
+/// `parent_referrer_url` — the `data:` URL would leak here.
+#[test]
+fn local_scheme_parent_discloses_no_referrer() {
+    let (state, _browser) = build_test_content_state_with_url(
+        r#"<iframe srcdoc='<div id="p"></div><script>document.getElementById("p").setAttribute("data-ref",document.referrer);</script>'></iframe>"#,
+        url::Url::parse("data:text/html,<p>parent</p>").unwrap(),
+    );
+    let ip = in_process_entry(&state);
+    assert_eq!(
+        probe_attr(&ip.pipeline, "p", "data-ref").as_deref(),
+        Some(""),
+        "a data: (opaque-origin/local-scheme) parent must disclose no referrer, \
+         not leak its data: URL"
+    );
+}
+
 /// F-c (persistence half): a `credentialless` iframe stores the flag on its
 /// bridge and carries the opaque origin. The persisted flag is exactly what the
 /// OOP `Navigate` re-build reads (`bridge.credentialless()`) to keep the origin
@@ -539,8 +561,9 @@ fn oop_cross_origin_iframe_initial_script_observes_parent_origin_referrer() {
             sandbox_flags: None,
             iframe_depth: 1,
             credentialless: false,
-            // The cross-origin default: parent ORIGIN, not the full parent URL.
-            referrer: Some("https://parent.example".to_string()),
+            // The cross-origin default: parent ORIGIN-as-URL (trailing slash,
+            // R3-F1), not the full parent URL.
+            referrer: Some("https://parent.example/".to_string()),
         },
         crate::ipc::DeviceFacts::default(),
     );
@@ -551,8 +574,8 @@ fn oop_cross_origin_iframe_initial_script_observes_parent_origin_referrer() {
         "the initial script should have posted: {posts:?}"
     );
     assert_eq!(
-        posts[0].0, "https://parent.example",
-        "a cross-origin OOP iframe reads the parent ORIGIN as document.referrer, not the full URL"
+        posts[0].0, "https://parent.example/",
+        "a cross-origin OOP iframe reads the parent ORIGIN-as-URL as document.referrer, not the full URL"
     );
 }
 

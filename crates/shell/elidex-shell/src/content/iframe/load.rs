@@ -141,9 +141,10 @@ fn load_iframe_from_url(
                 // BEFORE sandbox opaque-ification), so a same-origin request that
                 // is merely sandboxed-to-opaque still shares the full parent URL
                 // (W3C Referrer Policy §3 default `strict-origin-when-cross-origin`,
-                // §3.7). The TLS-downgrade "no referrer" case IS handled inside
-                // `frame_referrer` (secure source → non-secure request → None);
-                // only full per-request ReferrerPolicy (meta referrer,
+                // §8.3). The TLS-downgrade "no referrer" case IS handled inside
+                // `frame_referrer` (potentially-trustworthy source →
+                // non-potentially-trustworthy request → None); only full
+                // per-request ReferrerPolicy (meta referrer,
                 // rel=noreferrer, Referrer-Policy header, referrerpolicy attr) is
                 // deferred → slot #11-referrer-policy (a new carve; ledger
                 // registration is a landing deliverable).
@@ -348,10 +349,11 @@ fn parse_sandbox(iframe_data: &elidex_ecs::IframeData) -> Option<IframeSandboxFl
 /// Bundle the security state an iframe build (in-process or OOP-thread)
 /// installs **before** its initial scripts run (see [`crate::PreEvalFrameState`]).
 ///
-/// The referrer is the parent document URL (WHATWG HTML §4.8.5), stripped for
-/// use as a referrer (userinfo + fragment removed, see [`strip_url_for_referrer`]);
-/// it rides the same pre-eval chokepoint as origin/flags/depth so the initial
-/// scripts read a populated `document.referrer`.
+/// The referrer is the parent document URL (WHATWG HTML §4.8.5), taken "for use
+/// as a referrer" via [`parent_referrer_url`] (userinfo + fragment stripped, and
+/// `None` for an opaque-origin or local-scheme parent); it rides the same
+/// pre-eval chokepoint as origin/flags/depth so the initial scripts read a
+/// populated `document.referrer`.
 ///
 /// This is the same-origin default (srcdoc / about:blank / same-origin URL
 /// in-process build); the cross-origin trim is applied at the call site via
@@ -367,22 +369,52 @@ fn pre_eval_state(
         sandbox_flags,
         iframe_depth: ctx.depth,
         credentialless,
-        referrer: ctx.parent_url.map(strip_url_for_referrer),
+        referrer: parent_referrer_url(ctx.parent_origin, ctx.parent_url),
     }
 }
 
-/// Strip a URL "for use as a referrer" (WHATWG Fetch §4.3 "strip url for use as
-/// a referrer" / Referrer Policy): remove the username, password, and fragment
-/// so parent credentials (`user:pass@`) and fragment secrets (`#…`) never leak
-/// into a sub-frame's `document.referrer`. Mirrors the VM's
-/// `Vm::set_navigation_referrer` sanitisation (`elidex-js` `vm/vm_api.rs`) — the
-/// `Referer` header and `document.referrer` share the same exposure surface.
-fn strip_url_for_referrer(url: &url::Url) -> String {
+/// Strip a URL "for use as a referrer" (W3C Referrer Policy §8.4 "Strip url for
+/// use as a referrer"): a local-scheme URL (`about` / `blob` / `data`, Fetch
+/// "local scheme") has no referrer (step 2 → `None`); otherwise remove the
+/// username, password, and fragment so parent credentials (`user:pass@`) and
+/// fragment secrets (`#…`) never leak into a sub-frame's `document.referrer`
+/// (steps 3–5). Mirrors the VM's `Vm::set_navigation_referrer` sanitisation
+/// (`elidex-js` `vm/vm_api.rs`) — the `Referer` header and `document.referrer`
+/// share the same exposure surface.
+fn strip_url_for_referrer(url: &url::Url) -> Option<String> {
+    // Step 2: local-scheme URL → no referrer. `about:blank` (whose *origin* may
+    // be an inherited tuple) is caught here even when the opaque-origin gate in
+    // `parent_referrer_url` does not fire.
+    if matches!(url.scheme(), "about" | "blob" | "data") {
+        return None;
+    }
     let mut url = url.clone();
     url.set_fragment(None);
     let _ = url.set_username("");
     let _ = url.set_password(None);
-    url.to_string()
+    Some(url.to_string())
+}
+
+/// The parent document's URL "for use as a referrer", or `None` when the parent
+/// has no referrer to disclose. Two gates, both yielding `None` (W3C Referrer
+/// Policy §8.3 "Determine request's Referrer"):
+///
+/// - the parent's origin is opaque (data: / file: / sandboxed parent — step 2.2
+///   "if document's origin is an opaque origin, return no referrer");
+/// - the parent's URL is a local scheme (about: / blob: / data:, via
+///   [`strip_url_for_referrer`]) — this also covers an `about:blank` parent
+///   whose *inherited* origin is a non-opaque tuple.
+///
+/// This is the full-URL (same-origin / same-document-default) referrer; the
+/// cross-origin trim is [`cross_origin_referrer`].
+fn parent_referrer_url(
+    parent_origin: &SecurityOrigin,
+    parent_url: Option<&url::Url>,
+) -> Option<String> {
+    if matches!(parent_origin, SecurityOrigin::Opaque(_)) {
+        return None;
+    }
+    parent_url.and_then(strip_url_for_referrer)
 }
 
 /// The `document.referrer` a sub-frame receives, per the W3C Referrer Policy §3
@@ -394,57 +426,57 @@ fn strip_url_for_referrer(url: &url::Url) -> String {
 /// origin and NOT the OOP-routing decision. A same-origin request that is merely
 /// sandboxed-to-opaque still shares the full parent URL.
 ///
-/// - same-origin → the full parent URL, stripped for use as a referrer.
-/// - cross-origin (same security) → the parent ORIGIN serialization only
+/// - same-origin → the full parent URL, stripped for use as a referrer
+///   (`None` for an opaque-origin or local-scheme parent, see
+///   [`parent_referrer_url`]).
+/// - cross-origin (same security) → the parent ORIGIN-as-URL serialization
 ///   (`None` if opaque, see [`cross_origin_referrer`]).
-/// - cross-origin TLS downgrade (secure referrer source → non-secure request)
-///   → `None`: a potentially-trustworthy `referrerURL` with a
-///   non-potentially-trustworthy current URL sends no referrer at all (W3C
-///   Referrer Policy §3.7). Same-origin is necessarily same-scheme, so a
-///   downgrade only ever arises on the cross-origin path.
+/// - cross-origin TLS downgrade (potentially-trustworthy referrer source →
+///   non-potentially-trustworthy request) → `None` (W3C Referrer Policy §8.3
+///   "strict-origin-when-cross-origin" step 2). "Potentially trustworthy" —
+///   not merely `https` — so an https parent embedding a loopback-`http` child
+///   (`http://localhost`, `http://127.0.0.1`, `http://[::1]`) is NOT a
+///   downgrade and still gets the origin referrer. Same-origin is necessarily
+///   same-scheme, so a downgrade only ever arises on the cross-origin path.
 fn frame_referrer(
     parent_url: Option<&url::Url>,
     parent_origin: &SecurityOrigin,
     request_origin: &SecurityOrigin,
 ) -> Option<String> {
     if parent_origin == request_origin {
-        parent_url.map(strip_url_for_referrer)
-    } else if is_secure_origin(parent_origin) && !is_secure_origin(request_origin) {
-        // TLS downgrade (e.g. https parent → http child): no referrer (§3.7).
+        parent_referrer_url(parent_origin, parent_url)
+    } else if parent_origin.is_potentially_trustworthy()
+        && !request_origin.is_potentially_trustworthy()
+    {
+        // TLS downgrade (e.g. https parent → public http child): no referrer
+        // (§8.3 step 2). Routes through the shared potentially-trustworthy
+        // primitive so loopback-http children are correctly excluded.
         None
     } else {
         cross_origin_referrer(parent_origin)
     }
 }
 
-/// Whether an origin's scheme is a "potentially trustworthy" secure transport
-/// for the Referrer Policy TLS-downgrade check (W3C Referrer Policy §3.7): a
-/// secure referrer source navigating a non-secure request URL sends no
-/// referrer. Scheme-based classification — `https` / `wss` are secure, `http` /
-/// `ws` (and everything else, incl. opaque) are not — matching how elidex
-/// classifies mixed content elsewhere (`cookie_jar.rs` `is_secure`, the WS
-/// mixed-content gate). Opaque origins are treated as non-secure (they take the
-/// [`cross_origin_referrer`] `None` path regardless).
-fn is_secure_origin(origin: &SecurityOrigin) -> bool {
-    matches!(origin, SecurityOrigin::Tuple { scheme, .. } if scheme == "https" || scheme == "wss")
-}
-
-/// The `document.referrer` a **cross-origin** sub-frame receives: only the
-/// parent's ORIGIN serialization, per the W3C Referrer Policy §3 default
-/// referrer policy (the "strict-origin-when-cross-origin" value, §3.7) — not
-/// the full parent URL the same-origin path exposes (see [`pre_eval_state`]).
-/// An opaque parent origin has no usable referrer to share (serialized `"null"`
-/// is not a referrer), so this yields `None` (empty `document.referrer`).
+/// The `document.referrer` a **cross-origin** sub-frame receives: the parent's
+/// ORIGIN as a URL — its serialization followed by U+002F SOLIDUS (`/`) — per
+/// the W3C Referrer Policy §3 default referrer policy (the
+/// "strict-origin-when-cross-origin" value, §8.3 → `referrerOrigin`, produced by
+/// "strip url for use as a referrer" with the origin-only flag, which leaves the
+/// path an empty string that serializes as `/`). Not the full parent URL the
+/// same-origin path exposes (see [`pre_eval_state`]). An opaque parent origin
+/// has no usable referrer to share (serialized `"null"` is not a referrer), so
+/// this yields `None` (empty `document.referrer`).
 ///
-/// The TLS-downgrade "no referrer" case (secure source → non-secure request) is
-/// part of the SAME default policy and is HANDLED in [`frame_referrer`] (via
-/// [`is_secure_origin`], §3.7). Only full per-request ReferrerPolicy (meta
-/// referrer, `rel=noreferrer`, `Referrer-Policy` header, `referrerpolicy` attr)
-/// remains deferred → slot `#11-referrer-policy` (a new carve; ledger
-/// registration is a landing deliverable).
+/// The TLS-downgrade "no referrer" case (potentially-trustworthy source →
+/// non-potentially-trustworthy request) is part of the SAME default policy and
+/// is HANDLED in [`frame_referrer`] (via
+/// [`SecurityOrigin::is_potentially_trustworthy`], §8.3). Only full per-request
+/// ReferrerPolicy (meta referrer, `rel=noreferrer`, `Referrer-Policy` header,
+/// `referrerpolicy` attr) remains deferred → slot `#11-referrer-policy` (a new
+/// carve; ledger registration is a landing deliverable).
 fn cross_origin_referrer(parent_origin: &SecurityOrigin) -> Option<String> {
     match parent_origin {
-        SecurityOrigin::Tuple { .. } => Some(parent_origin.serialize()),
+        SecurityOrigin::Tuple { .. } => Some(format!("{}/", parent_origin.serialize())),
         SecurityOrigin::Opaque(_) => None,
     }
 }
@@ -588,7 +620,10 @@ impl crate::PreEvalFrameInputs {
 
 #[cfg(test)]
 mod tests {
-    use super::{cross_origin_referrer, frame_referrer, strip_url_for_referrer, SecurityOrigin};
+    use super::{
+        cross_origin_referrer, frame_referrer, parent_referrer_url, strip_url_for_referrer,
+        SecurityOrigin,
+    };
 
     fn origin(s: &str) -> SecurityOrigin {
         SecurityOrigin::from_url(&url::Url::parse(s).unwrap())
@@ -610,15 +645,16 @@ mod tests {
         );
     }
 
-    /// F2: a genuinely cross-origin request → parent ORIGIN only.
+    /// F2: a genuinely cross-origin request → parent ORIGIN-as-URL (trailing
+    /// slash, R3-F1).
     #[test]
     fn frame_referrer_cross_origin_request_is_origin_only() {
         let parent = url::Url::parse("https://parent.example/a/b?q").unwrap();
         let request = origin("https://other.example/");
         assert_eq!(
             frame_referrer(Some(&parent), &origin("https://parent.example/"), &request).as_deref(),
-            Some("https://parent.example"),
-            "cross-origin request must be trimmed to the parent ORIGIN"
+            Some("https://parent.example/"),
+            "cross-origin request must be trimmed to the parent ORIGIN-as-URL"
         );
     }
 
@@ -629,7 +665,74 @@ mod tests {
     #[test]
     fn strip_url_for_referrer_removes_userinfo_and_fragment() {
         let url = url::Url::parse("https://user:pass@parent.example/path#frag").unwrap();
-        assert_eq!(strip_url_for_referrer(&url), "https://parent.example/path");
+        assert_eq!(
+            strip_url_for_referrer(&url).as_deref(),
+            Some("https://parent.example/path")
+        );
+    }
+
+    /// R3-F3: a local-scheme URL (`about` / `blob` / `data`, Fetch "local
+    /// scheme") has no referrer to strip (W3C Referrer Policy §8.4 step 2), so
+    /// its `data:`/`about:`/`blob:` URL never leaks into `document.referrer`.
+    /// Falsify by removing the local-scheme guard in `strip_url_for_referrer`.
+    #[test]
+    fn strip_url_for_referrer_local_scheme_is_none() {
+        for u in [
+            "data:text/html,<p>hi",
+            "about:blank",
+            "blob:https://x.example/uuid",
+        ] {
+            assert_eq!(
+                strip_url_for_referrer(&url::Url::parse(u).unwrap()),
+                None,
+                "local-scheme URL {u} must have no referrer"
+            );
+        }
+    }
+
+    /// R3-F3: `parent_referrer_url` yields `None` for an opaque-origin parent
+    /// (data:/file:/sandboxed — W3C Referrer Policy §8.3 step 2.2), so a
+    /// same-origin child of such a parent never receives a leaked URL. Falsify by
+    /// dropping the opaque-origin gate.
+    #[test]
+    fn parent_referrer_url_opaque_parent_is_none() {
+        let data_parent = url::Url::parse("data:text/html,<p>hi").unwrap();
+        assert_eq!(
+            parent_referrer_url(&SecurityOrigin::opaque(), Some(&data_parent)),
+            None,
+            "an opaque-origin parent has no referrer to disclose"
+        );
+    }
+
+    /// R3-F3: an `about:blank` parent whose *inherited* origin is a non-opaque
+    /// tuple still yields no referrer (its URL is a local scheme) — the
+    /// local-scheme gate catches it where the opaque-origin gate does not.
+    /// Falsify by removing the local-scheme guard in `strip_url_for_referrer`.
+    #[test]
+    fn parent_referrer_url_about_blank_tuple_origin_is_none() {
+        let about = url::Url::parse("about:blank").unwrap();
+        assert_eq!(
+            parent_referrer_url(&origin("https://parent.example/"), Some(&about)),
+            None,
+            "an about:blank parent (local-scheme URL) discloses no referrer even \
+             with an inherited tuple origin"
+        );
+    }
+
+    /// R3-F2: an https parent embedding a cross-origin **loopback**-`http` child
+    /// (`http://localhost`) is NOT a TLS downgrade — loopback http is
+    /// potentially trustworthy (Secure Contexts) — so the child still receives
+    /// the parent ORIGIN-as-URL referrer, not `None`. Falsify by reverting the
+    /// downgrade check to a bare `https` scheme test.
+    #[test]
+    fn frame_referrer_https_to_loopback_http_is_not_downgrade() {
+        let parent = url::Url::parse("https://parent.example/a/b?q").unwrap();
+        let request = origin("http://localhost/");
+        assert_eq!(
+            frame_referrer(Some(&parent), &origin("https://parent.example/"), &request).as_deref(),
+            Some("https://parent.example/"),
+            "loopback-http is potentially trustworthy, so this is not a downgrade"
+        );
     }
 
     /// F3 through the same-origin `frame_referrer` path (end-to-end for the OOP
@@ -654,8 +757,8 @@ mod tests {
             SecurityOrigin::from_url(&url::Url::parse("https://parent.example/a/b?q").unwrap());
         assert_eq!(
             cross_origin_referrer(&parent).as_deref(),
-            Some("https://parent.example"),
-            "cross-origin referrer must be the parent ORIGIN, not the full URL"
+            Some("https://parent.example/"),
+            "cross-origin referrer must be the parent ORIGIN-as-URL (trailing /), not the full URL"
         );
     }
 
@@ -691,7 +794,7 @@ mod tests {
         let request = origin("http://other.example/");
         assert_eq!(
             frame_referrer(Some(&parent), &origin("http://parent.example/"), &request).as_deref(),
-            Some("http://parent.example"),
+            Some("http://parent.example/"),
             "non-secure source cross-origin is not a downgrade; parent origin is sent"
         );
     }
