@@ -5,15 +5,18 @@
 //! confirm → false / prompt → null on BOTH gate branches — the permanent
 //! §8.9.1 step-4 opt-in makes the gate behaviorally invisible, memo E12) plus
 //! WebIDL argument-conversion observability.  The `window.open` oracle is the
-//! back-channel **queue structure**: which of `pending_navigation` /
-//! `pending_open_tabs` / `pending_frame_navigations` a call reaches (or does
-//! not reach — a blocked request never enters a queue) per
-//! target × sandbox-flag row.
+//! back-channel **queue structure**: whether a call reaches the single-slot
+//! `pending_navigation` (own-context) or the ordered `pending_window_open`
+//! queue (as a `Popup` or `NamedFrame` intent), or is blocked (a blocked
+//! request never enters a queue), per target × sandbox-flag row — and the
+//! call ORDER preserved across popup / named intents on that one queue.
 
 #![cfg(feature = "engine")]
 
 use elidex_plugin::IframeSandboxFlags;
-use elidex_script_session::{NamedFrameNavigation, NavigationRequest, OpenTabRequest};
+use elidex_script_session::{
+    NamedFrameNavigation, NavigationRequest, OpenTabRequest, WindowOpenIntent,
+};
 
 use super::super::host_data::HostData;
 use super::super::value::JsValue;
@@ -49,17 +52,38 @@ fn eval_string(vm: &mut Vm, src: &str) -> String {
     }
 }
 
-/// Drain the popup / `_blank` back-channel queue.
-fn open_tabs(vm: &mut Vm) -> Vec<OpenTabRequest> {
-    vm.inner.navigation.pending_open_tabs.drain(..).collect()
+/// Drain the whole ordered `window.open` intent queue (popups + named
+/// interleaved in call order) — the destructive primitive, for order pins.
+fn window_opens(vm: &mut Vm) -> Vec<WindowOpenIntent> {
+    vm.inner.navigation.pending_window_open.drain(..).collect()
 }
 
-/// Drain the named-target back-channel queue.
+/// The popup (`_blank`) intents on the queue, in call order — a
+/// **non-destructive** partition (clones), so a test can also read
+/// [`frame_navs`] and see the full queue partitioned.
+fn open_tabs(vm: &mut Vm) -> Vec<OpenTabRequest> {
+    vm.inner
+        .navigation
+        .pending_window_open
+        .iter()
+        .filter_map(|i| match i {
+            WindowOpenIntent::Popup(req) => Some(req.clone()),
+            WindowOpenIntent::NamedFrame(_) => None,
+        })
+        .collect()
+}
+
+/// The named-target intents on the queue, in call order — a
+/// **non-destructive** partition (clones), sibling of [`open_tabs`].
 fn frame_navs(vm: &mut Vm) -> Vec<NamedFrameNavigation> {
     vm.inner
         .navigation
-        .pending_frame_navigations
-        .drain(..)
+        .pending_window_open
+        .iter()
+        .filter_map(|i| match i {
+            WindowOpenIntent::NamedFrame(nav) => Some(nav.clone()),
+            WindowOpenIntent::Popup(_) => None,
+        })
         .collect()
 }
 
@@ -360,6 +384,39 @@ fn open_empty_target_string_is_blank() {
     let mut vm = vm_with_flags(Some(IframeSandboxFlags::ALLOW_POPUPS));
     vm.eval("window.open('/z', '');").unwrap();
     assert_eq!(open_tabs(&mut vm).len(), 1);
+}
+
+#[test]
+fn open_mixed_named_and_blank_preserve_global_call_order() {
+    // Codex R2 regression: a `_blank` popup and a named-target open in one
+    // task must surface on ONE ordered queue in CALL order — `window.open('/
+    // first', 'missing'); window.open('/second', '_blank')` must route /first
+    // (named) BEFORE /second (_blank). Two separate queues (drained
+    // popups-then-named) would reverse this, opening /second's tab first.
+    let mut vm = vm_with_flags(None);
+    vm.eval(
+        "window.open('/first', 'missing'); \
+         window.open('/second', '_blank'); \
+         window.open('/third', 'other');",
+    )
+    .unwrap();
+    let intents = window_opens(&mut vm);
+    // Exactly the call order, interleaved across the two intent kinds.
+    assert_eq!(intents.len(), 3);
+    assert!(matches!(
+        &intents[0],
+        WindowOpenIntent::NamedFrame(n)
+            if n.name == "missing" && n.url.as_deref() == Some("https://example.com/first")
+    ));
+    assert!(matches!(
+        &intents[1],
+        WindowOpenIntent::Popup(p) if p.url == "https://example.com/second"
+    ));
+    assert!(matches!(
+        &intents[2],
+        WindowOpenIntent::NamedFrame(n)
+            if n.name == "other" && n.url.as_deref() == Some("https://example.com/third")
+    ));
 }
 
 #[test]

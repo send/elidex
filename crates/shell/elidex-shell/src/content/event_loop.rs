@@ -142,20 +142,17 @@ pub(super) fn run_event_loop(state: &mut ContentState) {
 
         elidex_js_boa::bridge::local_storage::flush_dirty_stores();
 
-        // OpenNewTab is a user-visible chrome action — wake (a pure-async
+        // window.open — route the ordered tab-creation / named-navigation
+        // queue (a user-visible chrome action, so we wake: a pure-async
         // window.open with no DOM change would otherwise stall under Wait).
         // Drained via the engine-agnostic session trait surface, not the boa
-        // bridge — the S5-6 flip swaps the runtime type here too (memo
-        // §4.3.2 / edge E4). Shared parse-and-notify body with
-        // `process_pending_actions`.
-        //
-        // BOTH `window.open` back-channels must drain here, not only the
-        // `_blank` one: a named-target open from a pure-async turn (a timer /
-        // postMessage with no later user input) never reaches the input-driven
-        // `process_pending_actions`, so draining only `open_tabs` would strand
-        // its `NamedFrameNavigation` in the queue forever (E4 drain symmetry).
-        // A routed named HIT re-navigates an iframe → re-render.
-        needs_render |= super::navigation::drain_async_window_open_channels(state);
+        // bridge — the S5-6 flip swaps the runtime type here too (memo §4.3.2 /
+        // edge E4). Same ordered routing as `process_pending_actions`: a
+        // named-target open from a pure-async turn (timer / postMessage) MUST
+        // drain here too, not only `_blank`, or it would strand forever. A
+        // routed named HIT re-navigates an iframe → re-render.
+        let window_opens = state.pipeline.runtime.take_pending_window_opens();
+        needs_render |= super::navigation::route_window_opens(state, window_opens);
 
         if state.pipeline.runtime.bridge().take_pending_focus() {
             state.notify_browser(ContentToBrowser::FocusWindow);

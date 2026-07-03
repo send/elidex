@@ -118,6 +118,26 @@ pub struct NamedFrameNavigation {
     pub aux_nav_allowed: bool,
 }
 
+/// One `window.open` effect that creates or targets a navigable, carried on a
+/// **single ordered queue** (WHATWG HTML §7.2.2.1 — each `window.open` call is
+/// a distinct step, and the resulting tab-creation / frame-navigation must
+/// happen in call order). Popup (`_blank`) and named-target opens both end up
+/// as user-visible browser actions (a new tab, or a named-MISS promotion), so
+/// they share ONE queue: two independent queues would let a later `_blank`
+/// surface before an earlier named MISS, reversing the order the page issued
+/// them. (`_self`/`_parent`/`_top` are own-context navigations on the separate
+/// [`NavigationRequest`] channel — a different effect, not tab creation.)
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum WindowOpenIntent {
+    /// A `_blank`/popup open (gate-passed — a sandbox-blocked popup never
+    /// reaches the queue): open a new tab.
+    Popup(OpenTabRequest),
+    /// A named-target open: the shell resolves the name against its frame tree
+    /// at drain time (HIT → navigate the iframe; MISS → gated new-tab
+    /// promotion via [`NamedFrameNavigation::aux_nav_allowed`]).
+    NamedFrame(NamedFrameNavigation),
+}
+
 /// The outcome of `window.open`'s target dispatch — which back-channel (if
 /// any) a request routes to. Produced by [`window_open_disposition`]; each
 /// variant maps to exactly one enqueue site in the engine.

@@ -13,7 +13,7 @@ use elidex_css::media::{ColorScheme, ReducedMotion};
 use elidex_ecs::Entity;
 use elidex_script_session::{
     DispatchEvent, EvalResult, HistoryAction, HostDriver, ListenerId, MutationRecord,
-    NamedFrameNavigation, NavigationRequest, OpenTabRequest, ScriptContext, ScriptEngine,
+    NavigationRequest, ScriptContext, ScriptEngine, WindowOpenIntent,
 };
 
 use crate::vm::host_data::HostData;
@@ -437,12 +437,8 @@ impl HostDriver for ElidexJsEngine {
         std::mem::take(&mut self.vm.inner.navigation.pending_history).into()
     }
 
-    fn take_pending_open_tabs(&mut self) -> Vec<OpenTabRequest> {
-        std::mem::take(&mut self.vm.inner.navigation.pending_open_tabs).into()
-    }
-
-    fn take_pending_frame_navigations(&mut self) -> Vec<NamedFrameNavigation> {
-        std::mem::take(&mut self.vm.inner.navigation.pending_frame_navigations).into()
+    fn take_pending_window_opens(&mut self) -> Vec<WindowOpenIntent> {
+        std::mem::take(&mut self.vm.inner.navigation.pending_window_open).into()
     }
 
     fn set_session_history(&mut self, index: usize, length: usize) {

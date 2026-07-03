@@ -763,7 +763,18 @@ no new state.
 
 ### §5.3 S5-4c — VM sandbox method gates + modals + window.open
 
-**✅ LANDED (2026-07-04)** — implemented as spec'd below with these impl-contact refinements:
+**✅ LANDED (2026-07-04)** — **⚠ POST-LANDING DESIGN CORRECTION (Codex R1+R2 convergence)**: the
+§4.3.2 **two-queue** back-channel (`pending_open_tabs` + `pending_frame_navigations`) was replaced by
+a **single ordered queue** `pending_window_open: VecDeque<WindowOpenIntent>` (`WindowOpenIntent =
+Popup(OpenTabRequest) | NamedFrame(NamedFrameNavigation)`), draining via ONE
+`HostDriver::take_pending_window_opens` routed by ONE shell `route_window_opens`. Two independent
+queues were the root defect behind two Codex findings: R1 (an async pump drained only one queue → a
+named `window.open` from a timer/postMessage stranded forever) and R2 (cross-call order lost → a later
+`_blank` surfaced before an earlier named MISS). A single ordered FIFO dissolves both (call order
+preserved by construction; one drain method makes "drain only one queue" unrepresentable) and satisfies
+the memo's own §4.3.2 "multiple `window.open` calls in one task must all surface" + CLAUDE.md
+"One issue, one way". The §4.3.2 two-queue text below is SUPERSEDED by this note. — implemented as
+spec'd below with these impl-contact refinements:
 (1) **App-mode is drain-AND-DROP, not routing** (refines §4.3.2's "same trait call" claim): inline
 interactive `app/navigation.rs` drains both new channels but has no new-tab facility (`ChromeAction::NewTab`
 is a threaded-mode-only no-op inline) and no iframe registry, so it drains-to-drop for leak-prevention

@@ -2,14 +2,15 @@
 //!
 //! Two invariants under test:
 //!
-//! - **Drain wiring (edge E4)**: `process_pending_actions` drains the
-//!   `window.open` back-channels through the engine-agnostic session trait
-//!   surface (`JsRuntime::take_pending_open_tabs`), not the boa bridge. A
-//!   gate-passed `_blank` open surfaces as `ContentToBrowser::OpenNewTab`; a
-//!   sandbox-blocked open (boa's entry gate at `globals/window/mod.rs:359`
-//!   blocks ALL of `window.open` without `allow-popups`) surfaces nothing —
-//!   pinning the boa path end-to-end until the S5-6 flip.
-//! - **Named-target MISS gating (edge E3)**: `route_frame_navigations` promotes
+//! - **Drain wiring (edge E4)**: both pumps drain the ordered `window.open`
+//!   intent queue through the engine-agnostic session trait surface
+//!   (`JsRuntime::take_pending_window_opens`), not the boa bridge, and route it
+//!   via `route_window_opens` (one home, call order preserved). A gate-passed
+//!   `_blank` open surfaces as `ContentToBrowser::OpenNewTab`; a sandbox-blocked
+//!   open (boa's entry gate at `globals/window/mod.rs:359` blocks ALL of
+//!   `window.open` without `allow-popups`) surfaces nothing — pinning the boa
+//!   path end-to-end until the S5-6 flip.
+//! - **Named-target MISS gating (edge E3)**: `route_window_opens` promotes
 //!   a named-target MISS to a new tab **only** when the payload's call-time
 //!   `aux_nav_allowed` snapshot permits (HTML §7.3.1.7 step 3 / step 8
 //!   sandboxed auxiliary navigation); a HIT navigates the found iframe ungated
@@ -22,12 +23,18 @@
 //! `ContentToBrowser` channel (drain wiring) + the iframe `src` attribute
 //! (HIT navigate) — the same seams the S5-4b ordering tests observe.
 
-use super::navigation::{
-    drain_async_window_open_channels, process_pending_actions, route_frame_navigations,
-};
+use elidex_script_session::{NamedFrameNavigation, OpenTabRequest, WindowOpenIntent};
+
+use super::navigation::{process_pending_actions, route_window_opens};
 use super::test_support::{build_test_content_state, build_test_content_state_with_url};
 use super::ContentState;
 use crate::ipc::{BrowserToContent, ContentToBrowser, LocalChannel};
+
+/// Wrap named-target navigations as ordered `window.open` intents (the shape
+/// `route_window_opens` consumes).
+fn named(navs: Vec<NamedFrameNavigation>) -> Vec<WindowOpenIntent> {
+    navs.into_iter().map(WindowOpenIntent::NamedFrame).collect()
+}
 
 /// Collect every `OpenNewTab` URL currently queued on the browser channel end.
 fn drain_open_new_tabs(
@@ -123,13 +130,13 @@ fn sandboxed_window_open_blank_surfaces_no_open_new_tab() {
 #[test]
 fn named_miss_without_aux_nav_grant_drops_silently() {
     let (mut state, browser) = build_test_content_state("<div>no iframe here</div>", "");
-    route_frame_navigations(
+    route_window_opens(
         &mut state,
-        vec![elidex_script_session::NamedFrameNavigation {
+        named(vec![NamedFrameNavigation {
             name: "nonexistent".to_string(),
             url: Some("https://example.com/".to_string()),
             aux_nav_allowed: false,
-        }],
+        }]),
     );
     assert!(
         drain_open_new_tabs(&browser).is_empty(),
@@ -141,13 +148,13 @@ fn named_miss_without_aux_nav_grant_drops_silently() {
 #[test]
 fn named_miss_with_aux_nav_grant_promotes_to_open_new_tab() {
     let (mut state, browser) = build_test_content_state("<div>no iframe here</div>", "");
-    route_frame_navigations(
+    route_window_opens(
         &mut state,
-        vec![elidex_script_session::NamedFrameNavigation {
+        named(vec![NamedFrameNavigation {
             name: "nonexistent".to_string(),
             url: Some("https://example.com/".to_string()),
             aux_nav_allowed: true,
-        }],
+        }]),
     );
     assert_eq!(
         drain_open_new_tabs(&browser),
@@ -166,13 +173,13 @@ fn named_hit_navigates_iframe_ungated() {
         r#"<iframe name="child" srcdoc="<p>child</p>"></iframe>"#,
         url::Url::parse("https://parent.example/").unwrap(),
     );
-    route_frame_navigations(
+    route_window_opens(
         &mut state,
-        vec![elidex_script_session::NamedFrameNavigation {
+        named(vec![NamedFrameNavigation {
             name: "child".to_string(),
             url: Some("https://navigated.example/".to_string()),
             aux_nav_allowed: false,
-        }],
+        }]),
     );
     assert!(
         drain_open_new_tabs(&browser).is_empty(),
@@ -186,13 +193,14 @@ fn named_hit_navigates_iframe_ungated() {
 }
 
 /// Async-pump drain symmetry (edge E4, Codex R1): the async `run_event_loop`
-/// pump must drain the NAMED `window.open` channel too, not only `_blank`.
+/// pump must drain the NAMED `window.open` intents too, not only `_blank`.
 /// A named-target open queued outside an input turn (timer / postMessage)
-/// would otherwise stall forever. Drive `drain_async_window_open_channels`
-/// (the async pump's drain body) directly, with a named nav enqueued on the
-/// runtime queue → the matching iframe is navigated (HIT), and the helper
-/// reports `true` (re-render needed). Before the fix the async pump never
-/// drained this channel, so the enqueued nav was silently stranded.
+/// would otherwise stall forever. Drive the async pump's drain — take the
+/// runtime's ordered window.open queue and route it — with a named nav
+/// enqueued on the runtime back-channel → the matching iframe is navigated
+/// (HIT), and `route_window_opens` reports `true` (re-render needed). Before
+/// the R1 fix the async pump never drained this channel, so the enqueued nav
+/// was silently stranded.
 #[test]
 fn async_pump_drains_named_window_open_channel() {
     let (mut state, browser) = build_test_content_state_with_url(
@@ -206,7 +214,8 @@ fn async_pump_drains_named_window_open_channel() {
         "child".to_string(),
         url::Url::parse("https://navigated.example/").unwrap(),
     );
-    let needs_render = drain_async_window_open_channels(&mut state);
+    let intents = state.pipeline.runtime.take_pending_window_opens();
+    let needs_render = route_window_opens(&mut state, intents);
     assert!(
         needs_render,
         "a named HIT re-navigates an iframe → re-render"
@@ -222,18 +231,48 @@ fn async_pump_drains_named_window_open_channel() {
     );
 }
 
+/// Global ordering (Codex R2): a named-MISS and a `_blank` popup interleaved
+/// on the ordered intent queue route their `OpenNewTab`s in QUEUE order — the
+/// shell preserves whatever call order the engine recorded. A named MISS
+/// (promoted) followed by a popup must open /first then /second, not reversed.
+#[test]
+fn route_window_opens_preserves_intent_order_across_popup_and_named() {
+    let (mut state, browser) = build_test_content_state("<div>no iframe here</div>", "");
+    route_window_opens(
+        &mut state,
+        vec![
+            WindowOpenIntent::NamedFrame(NamedFrameNavigation {
+                name: "missing".to_string(),
+                url: Some("https://first.example/".to_string()),
+                aux_nav_allowed: true,
+            }),
+            WindowOpenIntent::Popup(OpenTabRequest {
+                url: "https://second.example/".to_string(),
+            }),
+        ],
+    );
+    assert_eq!(
+        drain_open_new_tabs(&browser),
+        vec![
+            url::Url::parse("https://first.example/").unwrap(),
+            url::Url::parse("https://second.example/").unwrap(),
+        ],
+        "OpenNewTab order must match intent (call) order — named MISS before popup"
+    );
+}
+
 /// Empty-url named MISS (`url: None`) → new navigable defaulting to
 /// about:blank (§7.2.2.1 step 15.3), gated on the aux-nav grant.
 #[test]
 fn named_miss_empty_url_promotes_to_about_blank_tab() {
     let (mut state, browser) = build_test_content_state("<div>no iframe here</div>", "");
-    route_frame_navigations(
+    route_window_opens(
         &mut state,
-        vec![elidex_script_session::NamedFrameNavigation {
+        named(vec![NamedFrameNavigation {
             name: "nonexistent".to_string(),
             url: None,
             aux_nav_allowed: true,
-        }],
+        }]),
     );
     assert_eq!(
         drain_open_new_tabs(&browser),
@@ -252,13 +291,13 @@ fn named_hit_empty_url_is_a_noop() {
         url::Url::parse("https://parent.example/").unwrap(),
     );
     let src_before = iframe_src(&state);
-    route_frame_navigations(
+    route_window_opens(
         &mut state,
-        vec![elidex_script_session::NamedFrameNavigation {
+        named(vec![NamedFrameNavigation {
             name: "child".to_string(),
             url: None,
             aux_nav_allowed: true,
-        }],
+        }]),
     );
     assert!(drain_open_new_tabs(&browser).is_empty());
     assert_eq!(

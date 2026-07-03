@@ -11,7 +11,7 @@ use elidex_ecs::{EcsDom, Entity};
 use crate::event_dispatch::DispatchEvent;
 use crate::event_listener::ListenerId;
 use crate::mutation::MutationRecord;
-use crate::navigation::{HistoryAction, NamedFrameNavigation, NavigationRequest, OpenTabRequest};
+use crate::navigation::{HistoryAction, NavigationRequest, WindowOpenIntent};
 use crate::session::SessionCore;
 
 /// Result of evaluating a script.
@@ -272,27 +272,17 @@ pub trait HostDriver {
     /// turn each commit an independent session-history mutation.
     fn take_pending_history(&mut self) -> Vec<HistoryAction>;
 
-    /// Drain the gate-passed `window.open` popup / `_blank` requests (WHATWG
-    /// HTML §7.2.2.1 window open steps → §7.3.1.7 step 8's create-a-new-
-    /// top-level-traversable case), in FIFO order like
-    /// [`take_pending_history`](Self::take_pending_history) — several
-    /// `window.open` calls in one turn must all surface. The shell drains
-    /// these each pump and opens a new tab per request; the enqueue is
-    /// popup-gated (a sandbox-blocked popup never enters the queue). boa's
-    /// private bridge channels coexist with this drain only until the S5-6
-    /// flip deletes the crate.
-    fn take_pending_open_tabs(&mut self) -> Vec<OpenTabRequest>;
-
-    /// Drain the named-target `window.open` navigations (WHATWG HTML
-    /// §7.3.1.7), in FIFO order like
-    /// [`take_pending_history`](Self::take_pending_history). The shell
-    /// resolves each name against its frame tree: on HIT navigate the found
-    /// navigable; on MISS promote to a new tab **only** when the payload's
-    /// snapshotted [`NamedFrameNavigation::aux_nav_allowed`] verdict allows
-    /// (never re-read live flags — §7.3.1.7 step 3 snapshots the sandboxing
-    /// flag set at call time). Same S5-6 boa-coexistence bound as
-    /// [`take_pending_open_tabs`](Self::take_pending_open_tabs).
-    fn take_pending_frame_navigations(&mut self) -> Vec<NamedFrameNavigation>;
+    /// Drain the `window.open` tab-creation / named-navigation intents
+    /// (WHATWG HTML §7.2.2.1) as ONE ordered [`Vec`] in **call order** —
+    /// popup (`_blank`) and named opens interleaved on a single FIFO, because
+    /// both become user-visible browser actions and the page's issue order
+    /// must be preserved (two separate queues would let a later `_blank`
+    /// surface before an earlier named MISS). The shell drains this each pump
+    /// (see [`WindowOpenIntent`](crate::WindowOpenIntent) for how each variant
+    /// routes); the enqueue is popup-gated (a sandbox-blocked popup never
+    /// enters the queue). boa's private bridge channels coexist with this
+    /// drain only until the S5-6 flip deletes the crate.
+    fn take_pending_window_opens(&mut self) -> Vec<WindowOpenIntent>;
 
     /// Push the authoritative session-history position — the current entry's
     /// 0-based `index` and total `length` — together (so they never desync) after

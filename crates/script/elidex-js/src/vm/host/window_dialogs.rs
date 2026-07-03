@@ -19,7 +19,7 @@
 
 use elidex_script_session::{
     window_open_disposition, NamedFrameNavigation, NavigationRequest, OpenTabRequest,
-    WindowOpenDisposition,
+    WindowOpenDisposition, WindowOpenIntent,
 };
 
 use super::super::coerce;
@@ -233,7 +233,7 @@ pub(super) fn native_window_open(
                 });
             }
         }
-        // A named target rides the dedicated channel with the call-time
+        // A named target rides the shared ordered queue with the call-time
         // aux-nav snapshot; the name is passed as-given (only keyword
         // DETECTION is case-insensitive — shell-side name matching owns its
         // own rules).  The urlRecord null-vs-value distinction rides the
@@ -242,22 +242,25 @@ pub(super) fn native_window_open(
         WindowOpenDisposition::Named { aux_nav_allowed } => {
             ctx.vm
                 .navigation
-                .enqueue_frame_navigation(NamedFrameNavigation {
+                .enqueue_window_open(WindowOpenIntent::NamedFrame(NamedFrameNavigation {
                     name: target,
                     url: url_record.map(|record| record.to_string()),
                     aux_nav_allowed,
-                });
+                }));
         }
         // A `_blank`/popup target is ALWAYS a new auxiliary navigable, so
         // §7.2.2.1 step 15.3 applies: a null urlRecord defaults to
         // about:blank (materialized here since the OpenTab channel carries a
-        // concrete url).
+        // concrete url).  Enqueued on the SAME ordered queue as named opens
+        // so call order between a popup and a named MISS is preserved.
         WindowOpenDisposition::OpenTab => {
             let url = url_record.map_or_else(
                 || super::navigation::parse_about_blank().to_string(),
                 |record| record.to_string(),
             );
-            ctx.vm.navigation.enqueue_open_tab(OpenTabRequest { url });
+            ctx.vm
+                .navigation
+                .enqueue_window_open(WindowOpenIntent::Popup(OpenTabRequest { url }));
         }
     }
     Ok(JsValue::Null)

@@ -497,56 +497,49 @@ impl JsRuntime {
         self.bridge.take_pending_history()
     }
 
-    /// Drain the gate-passed `window.open` popup / `_blank` requests as the
-    /// engine-agnostic session type (WHATWG HTML §7.2.2.1 window open steps →
-    /// §7.3.1.7 step 8's create-a-new-top-level-traversable case).
+    /// Drain the `window.open` tab-creation / named-navigation intents as the
+    /// engine-agnostic session type (WHATWG HTML §7.2.2.1), matching the
+    /// [`elidex_script_session::HostDriver::take_pending_window_opens`] method
+    /// so the shell drain sites are signature-identical — the S5-6 flip swaps
+    /// the runtime type without touching the drain logic (memo §4.3.2 / edge
+    /// E4).
     ///
-    /// Mechanical wrapper over the boa-private `drain_pending_open_tabs`: it
-    /// maps each raw `url::Url` into an [`elidex_script_session::OpenTabRequest`]
-    /// so the shell drain sites are signature-identical with the
-    /// [`elidex_script_session::HostDriver`] method of the same name — the S5-6
-    /// flip then swaps the runtime type without touching the drain logic
-    /// (memo §4.3.2 / edge E4).
-    pub fn take_pending_open_tabs(&mut self) -> Vec<elidex_script_session::OpenTabRequest> {
-        self.bridge
+    /// Mechanical wrapper over the two boa-private bridge queues
+    /// (`drain_pending_open_tabs` + `drain_pending_navigate_iframe`). boa
+    /// stores popup and named opens in **separate** bridge queues and does not
+    /// record their relative call order, so this concatenates popups then
+    /// named — a **best-effort** ordering that is the pre-flip boa baseline
+    /// (the same pre-existing cross-channel ordering gap boa had before this
+    /// wrapper; not feature work on the deletion-bound crate). The VM engine
+    /// is the one that preserves true call order, on its single ordered queue.
+    /// `aux_nav_allowed: true` **by construction** — boa's `window.open` entry
+    /// gate (`globals/window/mod.rs:359`) blocks ALL of `window.open` when
+    /// popups are sandboxed, so anything that reached these queues already
+    /// passed the popup gate; and `url: Some(...)` because boa resolves the
+    /// empty-url case to about:blank at enqueue (the VM carries `None`).
+    pub fn take_pending_window_opens(&mut self) -> Vec<elidex_script_session::WindowOpenIntent> {
+        use elidex_script_session::{NamedFrameNavigation, OpenTabRequest, WindowOpenIntent};
+        let popups = self
+            .bridge
             .drain_pending_open_tabs()
             .into_iter()
-            .map(|url| elidex_script_session::OpenTabRequest {
-                url: url.to_string(),
-            })
-            .collect()
-    }
-
-    /// Drain the named-target `window.open` navigations as the engine-agnostic
-    /// session type (WHATWG HTML §7.3.1.7 *the rules for choosing a navigable*).
-    ///
-    /// Mechanical wrapper over the boa-private `drain_pending_navigate_iframe`:
-    /// it maps each raw `(name, url)` pair into an
-    /// [`elidex_script_session::NamedFrameNavigation`] with `aux_nav_allowed:
-    /// true` **by construction** — boa's `window.open` entry gate
-    /// (`globals/window/mod.rs:359`) blocks ALL of `window.open` when popups are
-    /// sandboxed, so anything that reached this queue already passed the popup
-    /// gate; the boa path can therefore only ever produce a permissive verdict.
-    /// The VM engine carries the real per-call §7.3.1.7 step-3 snapshot on the
-    /// same field. Same signature-parity / S5-6-flip rationale as
-    /// [`take_pending_open_tabs`](Self::take_pending_open_tabs) (memo §4.3.2 /
-    /// edge E4).
-    pub fn take_pending_frame_navigations(
-        &mut self,
-    ) -> Vec<elidex_script_session::NamedFrameNavigation> {
-        self.bridge
+            .map(|url| {
+                WindowOpenIntent::Popup(OpenTabRequest {
+                    url: url.to_string(),
+                })
+            });
+        let named = self
+            .bridge
             .drain_pending_navigate_iframe()
             .into_iter()
-            .map(|(name, url)| elidex_script_session::NamedFrameNavigation {
-                name,
-                // boa resolves the empty-url case to about:blank at enqueue
-                // (its pre-flip baseline), so the drained url is always
-                // concrete → `Some`. The VM engine is the one that carries a
-                // null urlRecord (`None`) through this field.
-                url: Some(url.to_string()),
-                aux_nav_allowed: true,
-            })
-            .collect()
+            .map(|(name, url)| {
+                WindowOpenIntent::NamedFrame(NamedFrameNavigation {
+                    name,
+                    url: Some(url.to_string()),
+                    aux_nav_allowed: true,
+                })
+            });
+        popups.chain(named).collect()
     }
 
     /// Set the session history length on the bridge.

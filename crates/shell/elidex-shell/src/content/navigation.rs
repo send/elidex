@@ -204,127 +204,103 @@ pub(super) fn process_pending_actions(state: &mut ContentState) -> bool {
         return true;
     }
 
-    // window.open(_blank) → send OpenNewTab to browser thread. Drained via the
-    // engine-agnostic session trait surface (`take_pending_open_tabs`), not the
-    // boa bridge — the S5-6 flip swaps the runtime type without touching this
-    // site (memo §4.3.2 / edge E4). The enqueue is popup-gated at the native, so
-    // a sandbox-blocked popup never reaches this drain.
-    let open_tabs = state.pipeline.runtime.take_pending_open_tabs();
-    if !open_tabs.is_empty() {
+    // window.open → route the ordered tab-creation / named-navigation queue.
+    // Drained via the engine-agnostic session trait surface
+    // (`take_pending_window_opens`), not the boa bridge — the S5-6 flip swaps
+    // the runtime type without touching this site (memo §4.3.2 / edge E4). ONE
+    // ordered queue preserves call order across `_blank` popups and named
+    // opens (a later `_blank` must not surface before an earlier named MISS).
+    // The enqueue is popup-gated at the native, so a sandbox-blocked popup
+    // never reaches this drain.
+    let window_opens = state.pipeline.runtime.take_pending_window_opens();
+    if !window_opens.is_empty() {
+        // Route in order (popups → OpenNewTab, named → iframe/tab); a named
+        // HIT re-navigates an iframe so our render changed → re-render before
+        // the single display-list flush. One send per drain (a popup-only /
+        // MISS-only batch leaves our render unchanged, so the flush just
+        // re-sends the current frame — the OpenNewTab / SetDisplayList
+        // ordering on the channel is immaterial, both are browser-directed).
+        if route_window_opens(state, window_opens) {
+            state.re_render();
+        }
         state.send_display_list();
-        notify_open_new_tabs(state, open_tabs);
         return true;
     }
 
     // window.focus() is handled in content/mod.rs drain loop — do not duplicate here.
 
-    // window.open with named target → route to matching iframe or (gated) new tab.
-    let navigate_iframes = state.pipeline.runtime.take_pending_frame_navigations();
-    if !navigate_iframes.is_empty() {
-        route_frame_navigations(state, navigate_iframes);
-        state.re_render();
-        state.send_display_list();
-        return true;
-    }
-
     false
 }
 
-/// Drain BOTH `window.open` back-channels for the async `run_event_loop`
-/// pump and route them: `_blank`/popup → `OpenNewTab`, named → the frame
-/// tree ([`route_frame_navigations`]). Returns `true` iff a named navigation
-/// was routed (a HIT re-navigates an iframe → the caller must re-render;
-/// popup-only / empty batches need no render).
+/// Route the drained ordered `window.open` intents (WHATWG HTML §7.2.2.1) in
+/// call order — popup and named opens interleaved on ONE queue so a later
+/// `_blank` never surfaces before an earlier named MISS. Returns `true` iff a
+/// named HIT re-navigated an iframe (the caller must re-render); popup-only /
+/// MISS-only / empty batches need no local render. Shared by BOTH drain pumps
+/// (`process_pending_actions` and the async `run_event_loop`) so the routing
+/// has one home — a named open from a pure-async turn (a timer / postMessage
+/// with no later user input) reaches the same routing as an input-driven one
+/// (edge E4).
 ///
-/// This exists so the async pump drains the named channel too, NOT only
-/// `_blank`: a named-target `window.open` from a pure-async turn (a timer /
-/// postMessage with no later user input) never reaches the input-driven
-/// `process_pending_actions`, so draining only the popup channel here would
-/// strand its `NamedFrameNavigation` in the queue forever (edge E4 — both
-/// back-channels must drain at every pump). `process_pending_actions` keeps
-/// its own per-action early-return structure (different render granularity),
-/// so the two pumps share the leaf routing helpers, not this batching.
-pub(super) fn drain_async_window_open_channels(state: &mut ContentState) -> bool {
-    let open_tabs = state.pipeline.runtime.take_pending_open_tabs();
-    notify_open_new_tabs(state, open_tabs);
-    let frame_navs = state.pipeline.runtime.take_pending_frame_navigations();
-    if frame_navs.is_empty() {
-        return false;
-    }
-    route_frame_navigations(state, frame_navs);
-    true
-}
-
-/// Send an `OpenNewTab` chrome action for each drained `window.open`
-/// popup / `_blank` request (WHATWG HTML §7.2.2.1). Shared by both drain
-/// pumps — `process_pending_actions` and the async `run_event_loop` — so the
-/// parse-and-notify shape has one home (a change to how a popup surfaces —
-/// error reporting, feature handling — lands once).
-///
-/// `req.url` is an already-resolved absolute URL (engine-side; the empty-url
-/// case is materialized to about:blank before enqueue for the `_blank`/popup
-/// path), so `url::Url::parse` is infallible in practice — the guard is
-/// defensive, not error-swallowing.
-pub(super) fn notify_open_new_tabs(
+/// Per intent:
+/// - **[`WindowOpenIntent::Popup`]** → `OpenNewTab`. The url is an
+///   already-resolved absolute URL (engine-side; empty-url materialized to
+///   about:blank before enqueue), so `url::Url::parse` is infallible in
+///   practice — the guard is defensive, not error-swallowing.
+/// - **[`WindowOpenIntent::NamedFrame`]** resolved against the current
+///   document's iframe tree:
+///   - **HIT** (`find_iframe_by_name` matches a descendant iframe) →
+///     `navigate_iframe`, **ungated**. Spec-correct: `find_iframe_by_name`
+///     (`content/iframe/lifecycle.rs`) searches only the current document's
+///     iframes, so the source is an ancestor of the target ⇒ HTML §7.4.2.4
+///     step 2 discharges the *allowed by sandboxing to navigate* check
+///     unconditionally. Revisit if the lookup ever widens beyond descendants
+///     (folded into slot `#11-browsing-context-model-window-open-postmessage`).
+///   - **MISS** → promote to a new tab **only when** the payload's call-time
+///     `aux_nav_allowed` snapshot permits (§7.3.1.7 step 3 snapshots the
+///     sandboxing flag set at call time — never re-read live flags). A
+///     sandboxed no-`allow-popups` MISS is dropped silently (§7.3.1.7 step 8
+///     sandboxed auxiliary navigation — "may report to a developer console").
+///     The previously-ungated promotion was the sandbox bypass this slice
+///     closes.
+///   - `url == None` (empty-url open, null urlRecord): a HIT is a NO-OP
+///     (§7.2.2.1 step 16.1 navigates only for a non-null urlRecord); a MISS
+///     defaults to about:blank (step 15.3).
+pub(crate) fn route_window_opens(
     state: &mut ContentState,
-    requests: Vec<elidex_script_session::OpenTabRequest>,
-) {
-    for req in requests {
-        if let Ok(url) = url::Url::parse(&req.url) {
-            state.notify_browser(crate::ipc::ContentToBrowser::OpenNewTab(url));
-        }
-    }
-}
-
-/// Route the drained named-target `window.open` navigations (WHATWG HTML
-/// §7.3.1.7) against the current document's iframe tree.
-///
-/// - **HIT** (`find_iframe_by_name` matches a descendant iframe) →
-///   `navigate_iframe`, **ungated**. This is spec-correct: `find_iframe_by_name`
-///   (`content/iframe/lifecycle.rs`) searches only the current document's
-///   iframes, so the source is an ancestor of the target ⇒ HTML §7.4.2.4 step 2
-///   ("If source is an ancestor of target, then return true") discharges the
-///   *allowed by sandboxing to navigate* check unconditionally. Revisit if the
-///   lookup ever widens beyond descendants (folded into slot
-///   `#11-browsing-context-model-window-open-postmessage`).
-/// - **MISS** → promote to a new tab **only when** the payload's call-time
-///   `aux_nav_allowed` snapshot permits (§7.3.1.7 step 3 snapshots the
-///   sandboxing flag set at call time — never re-read live flags here). A
-///   sandboxed no-`allow-popups` document's miss is dropped silently (HTML
-///   §7.3.1.7 step 8 sandboxed-auxiliary-navigation case — "may report to a
-///   developer console"). The previously-ungated promotion was the sandbox
-///   bypass this slice closes.
-///
-/// `nav.url` is `None` when `window.open` was called with an empty url
-/// (§7.2.2.1 window open steps — null urlRecord): a **HIT** (existing
-/// navigable) is then a NO-OP (step 16.1 navigates only for a non-null
-/// urlRecord), while a **MISS** (new navigable) defaults to about:blank
-/// (step 15.3).
-pub(crate) fn route_frame_navigations(
-    state: &mut ContentState,
-    navigations: Vec<elidex_script_session::NamedFrameNavigation>,
-) {
-    for nav in navigations {
-        // A present `nav.url` is an already-resolved absolute URL
-        // (engine-side), so `url::Url::parse` on it is infallible in
-        // practice — the guards are defensive, not error-swallowing.
-        if let Some(iframe_entity) = super::iframe::find_iframe_by_name(state, &nav.name) {
-            // HIT — existing navigable: navigate only for a non-null
-            // urlRecord (§7.2.2.1 step 16.1); an empty-url open is a no-op.
-            if let Some(url) = nav.url.as_deref().and_then(|u| url::Url::parse(u).ok()) {
-                super::iframe::navigate_iframe(state, iframe_entity, &url);
+    intents: Vec<elidex_script_session::WindowOpenIntent>,
+) -> bool {
+    use elidex_script_session::WindowOpenIntent;
+    let mut navigated_iframe = false;
+    for intent in intents {
+        match intent {
+            WindowOpenIntent::Popup(req) => {
+                if let Ok(url) = url::Url::parse(&req.url) {
+                    state.notify_browser(crate::ipc::ContentToBrowser::OpenNewTab(url));
+                }
             }
-        } else if nav.aux_nav_allowed {
-            // MISS — new navigable: a null urlRecord defaults to about:blank
-            // (§7.2.2.1 step 15.3).
-            let url_str = nav.url.as_deref().unwrap_or("about:blank");
-            if let Ok(url) = url::Url::parse(url_str) {
-                state.notify_browser(crate::ipc::ContentToBrowser::OpenNewTab(url));
+            WindowOpenIntent::NamedFrame(nav) => {
+                if let Some(iframe_entity) = super::iframe::find_iframe_by_name(state, &nav.name) {
+                    // HIT — existing navigable: navigate only for a non-null
+                    // urlRecord (§7.2.2.1 step 16.1); an empty-url open is a no-op.
+                    if let Some(url) = nav.url.as_deref().and_then(|u| url::Url::parse(u).ok()) {
+                        super::iframe::navigate_iframe(state, iframe_entity, &url);
+                        navigated_iframe = true;
+                    }
+                } else if nav.aux_nav_allowed {
+                    // MISS — new navigable: a null urlRecord defaults to
+                    // about:blank (§7.2.2.1 step 15.3).
+                    let url_str = nav.url.as_deref().unwrap_or("about:blank");
+                    if let Ok(url) = url::Url::parse(url_str) {
+                        state.notify_browser(crate::ipc::ContentToBrowser::OpenNewTab(url));
+                    }
+                }
+                // else: MISS without an aux-nav grant → drop (sandboxed
+                // auxiliary navigation, §7.3.1.7 step 8).
             }
         }
-        // else: MISS without an aux-nav grant → drop (sandboxed auxiliary
-        // navigation, §7.3.1.7 step 8).
     }
+    navigated_iframe
 }
 
 pub(super) fn handle_history_action(
