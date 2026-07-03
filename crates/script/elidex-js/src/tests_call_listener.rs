@@ -101,7 +101,7 @@ fn first_green_listener_calls_prevent_default() {
     // by the VM impl (microtask drain wires up in PR3 C6); construct
     // a fresh one for each call.
     let mut ctx = ScriptContext::new(&mut session, &mut dom, doc);
-    engine.call_listener(listener_id, &mut event, target, false, &mut ctx);
+    engine.call_listener(listener_id, &mut event, target, false, false, &mut ctx);
 
     assert!(
         event.flags.default_prevented,
@@ -161,7 +161,14 @@ fn call_listener_lazy_compiles_inline_handler() {
 
     let mut event = DispatchEvent::new("click", target);
     let mut ctx = ScriptContext::new(&mut session, &mut dom, doc);
-    engine.call_listener(listener_id, &mut event, target, false, &mut ctx);
+    engine.call_listener(
+        listener_id,
+        &mut event,
+        target,
+        false,
+        /* is_handler */ true,
+        &mut ctx,
+    );
 
     assert_eq!(
         engine.vm().eval("globalThis.x").unwrap(),
@@ -217,7 +224,14 @@ fn call_listener_skips_inline_handler_when_scripting_disabled() {
 
     let mut event = DispatchEvent::new("click", target);
     let mut ctx = ScriptContext::new(&mut session, &mut dom, doc);
-    engine.call_listener(listener_id, &mut event, target, false, &mut ctx);
+    engine.call_listener(
+        listener_id,
+        &mut event,
+        target,
+        false,
+        /* is_handler */ true,
+        &mut ctx,
+    );
 
     // The inline handler was never compiled (no callable stored) and never ran.
     assert!(
@@ -267,6 +281,7 @@ fn passive_listener_prevent_default_is_silently_ignored() {
         &mut event,
         target,
         /* passive */ true,
+        /* is_handler */ false,
         &mut ctx,
     );
 
@@ -298,7 +313,7 @@ fn stop_propagation_syncs_to_dispatch_flags() {
 
     let mut event = DispatchEvent::new("click", target);
     let mut ctx = ScriptContext::new(&mut session, &mut dom, doc);
-    engine.call_listener(listener_id, &mut event, target, false, &mut ctx);
+    engine.call_listener(listener_id, &mut event, target, false, false, &mut ctx);
 
     assert!(
         event.flags.propagation_stopped,
@@ -336,7 +351,7 @@ fn current_target_is_the_this_binding_for_the_listener() {
 
     let mut event = DispatchEvent::new("click", target);
     let mut ctx = ScriptContext::new(&mut session, &mut dom, doc);
-    engine.call_listener(listener_id, &mut event, target, false, &mut ctx);
+    engine.call_listener(listener_id, &mut event, target, false, false, &mut ctx);
 
     let m = engine
         .vm()
@@ -382,7 +397,7 @@ fn microtask_scheduled_inside_listener_fires_on_next_run_microtasks() {
 
     let mut event = DispatchEvent::new("click", target);
     let mut ctx = ScriptContext::new(&mut session, &mut dom, doc);
-    engine.call_listener(listener_id, &mut event, target, false, &mut ctx);
+    engine.call_listener(listener_id, &mut event, target, false, false, &mut ctx);
 
     // Inside the listener body the microtask is queued but not yet
     // run — verify it is still pending right after `call_listener`.
@@ -436,6 +451,7 @@ fn missing_listener_id_silently_no_ops() {
         &mut event,
         target,
         false,
+        /* is_handler */ false,
         &mut ctx,
     );
 

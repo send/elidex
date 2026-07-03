@@ -472,7 +472,14 @@ pub fn script_dispatch_event_core(
                     }
                 }
 
-                engine.call_listener(entry.id, event, *entity, entry.passive, ctx);
+                engine.call_listener(
+                    entry.id,
+                    event,
+                    *entity,
+                    entry.passive,
+                    entry.is_handler,
+                    ctx,
+                );
 
                 // HTML §8.1.7.3: microtask checkpoint after each listener.
                 engine.run_microtasks(ctx);

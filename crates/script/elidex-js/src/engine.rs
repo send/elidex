@@ -146,19 +146,34 @@ impl ScriptEngine for ElidexJsEngine {
         event: &mut DispatchEvent,
         current_target: Entity,
         passive: bool,
+        is_handler: bool,
         _ctx: &mut ScriptContext<'_>,
     ) {
+        // §8.1.8.1 event handler processing algorithm step 1 — see
+        // `VmInner::scripting_disabled_for_platform_object`. Precedes step
+        // 2's "getting the current value" (the reconcile/compile below), so
+        // a suppressed target's raw inline handler source is never compiled
+        // during dispatch.
+        if is_handler
+            && self
+                .vm
+                .inner
+                .scripting_disabled_for_platform_object(Some(current_target))
+        {
+            return;
+        }
+
         // HTML §8.1.8.1: bring an event-handler IDL attribute backing up to
         // date (lazy-compile a pending inline source / drop a cleared one)
         // before resolving its callable, so UA-initiated dispatch honours
         // inline `<body onload="...">`-style handlers identically to the
         // script dispatch walk. No-op for `addEventListener` listeners. It is
-        // also the scripting-disabled chokepoint (HTML §8.1.8.1 "getting the
-        // current value of the event handler" step 3.2): when scripting is
-        // disabled it does NOT compile a raw inline handler, so the
-        // `get_listener` read below returns `None` and the handler does not run
-        // — invocation suppressed by construction, no per-path gate, and no
-        // destructive delete (a compiled callable's value is preserved).
+        // also the scripting-disabled COMPILE chokepoint (HTML §8.1.8.1
+        // "getting the current value of the event handler" step 3.2): when
+        // scripting is disabled it does NOT compile a raw inline handler, so
+        // the `get_listener` read below returns `None` and the handler does
+        // not run — no destructive delete (a compiled callable's value is
+        // preserved).
         self.vm
             .inner
             .ensure_event_handler_current(current_target, listener_id);

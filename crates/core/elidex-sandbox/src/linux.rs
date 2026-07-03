@@ -8,7 +8,7 @@
 
 use std::collections::BTreeMap;
 
-use elidex_plugin::sandbox::NetworkAccess;
+use elidex_plugin::process_sandbox::NetworkAccess;
 use elidex_plugin::{SandboxError, SandboxPolicy};
 use seccompiler::{
     BackendError, BpfProgram, SeccompAction, SeccompFilter, SeccompRule, TargetArch,
@@ -129,14 +129,14 @@ fn build_filter(policy: &SandboxPolicy) -> Result<SeccompFilter, BackendError> {
     }
 
     // Filesystem: open/openat only if filesystem access is not None.
-    if policy.filesystem != elidex_plugin::sandbox::FilesystemAccess::None {
+    if policy.filesystem != elidex_plugin::process_sandbox::FilesystemAccess::None {
         rules.insert(libc::SYS_openat, vec![]);
         rules.insert(libc::SYS_access, vec![]);
         rules.insert(libc::SYS_stat, vec![]);
         rules.insert(libc::SYS_readlink, vec![]);
         rules.insert(libc::SYS_getcwd, vec![]);
 
-        if policy.filesystem == elidex_plugin::sandbox::FilesystemAccess::ReadWrite {
+        if policy.filesystem == elidex_plugin::process_sandbox::FilesystemAccess::ReadWrite {
             rules.insert(libc::SYS_unlink, vec![]);
             rules.insert(libc::SYS_rename, vec![]);
             rules.insert(libc::SYS_mkdir, vec![]);

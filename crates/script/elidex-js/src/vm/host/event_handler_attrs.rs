@@ -539,18 +539,14 @@ impl VmInner {
         // skipped for a non-raw value), and the "event handler processing
         // algorithm" step 1 suppresses *invocation*, never the value. Deleting
         // would lose the author's function from the IDL getter (Codex #327 R9).
-        // Invocation of the realizable inline handler is suppressed by
-        // construction (never compiled → nothing to invoke); a *compiled*
-        // event-handler callable cannot coexist with scripting-disabled here
-        // (every callable-store path — lazy-compile, the IDL setter,
-        // addEventListener — needs `eval`, which the gate blocks; sandbox flags
-        // are fixed at document load; cross-document handler dispatch is
-        // unwired). Step-1 invocation suppression for that non-realizable case
-        // is deferred (slot #11-scripting-disabled-eventhandler-processing-step1)
-        // until cross-document handler dispatch makes it reachable.
-        // addEventListener (`Normal`) listeners hold no uncompiled source and
-        // are not event handlers (WHATWG DOM "inner invoke" has no scripting
-        // gate), so they are untouched.
+        //
+        // This COMPILE gate tests the sandbox FLAG only — per spec. The
+        // *invocation* of an already-compiled callable is a different gate
+        // with a different predicate (the full §8.1.3.4 platform-object
+        // predicate) — see [`Self::scripting_disabled_for_platform_object`].
+        // Keying both gates to one predicate would be spec-wrong in either
+        // direction. addEventListener (`Normal`) listeners hold no uncompiled
+        // source and are not event handlers, so they are untouched by both.
         if self
             .host_data
             .as_deref()
@@ -582,6 +578,45 @@ impl VmInner {
         } else if cleared {
             self.remove_listener_and_prune_back_ref(id);
         }
+    }
+
+    /// WHATWG HTML §8.1.3.4 "scripting is disabled for a platform object" —
+    /// thin marshal wrapper (Layering mandate: `vm/host/` marshals, the
+    /// HTML algorithm lives engine-independent): read the bound `HostData`
+    /// state (`sandbox_flags` / `document_entity_opt`), borrow the DOM, and
+    /// delegate to the canonical composition in
+    /// [`elidex_script_session::scripting::scripting_disabled_for_platform_object`]
+    /// (settings-level clause ∧ platform-object clause (b), incl. the
+    /// adopt-equivalent node-document resolution and the fail-open bounds —
+    /// see its doc-comment). `target = None` = a non-entity platform object
+    /// (`VmObject` listener home) → settings-level check only.
+    pub(crate) fn scripting_disabled_for_platform_object(
+        &mut self,
+        target: Option<elidex_ecs::Entity>,
+    ) -> bool {
+        let Some(host) = self.host_data.as_deref_mut() else {
+            // Unbound: no document context to evaluate — never reached from a
+            // dispatch walk (dispatch requires a bound VM); fail open.
+            return false;
+        };
+        let flags = host.sandbox_flags();
+        if !host.is_bound() {
+            // HostData present but no DOM bound (VmObject-only dispatch —
+            // e.g. AbortSignal / FileReader handlers on a DOM-less VM):
+            // there is no `&EcsDom` to marshal, and the session fn's own
+            // document-less path is exactly the settings-level verdict, so
+            // apply that verdict directly. Not a composition fork — the
+            // single settings-level rule in `elidex_plugin::sandbox` is
+            // what both paths evaluate.
+            return !elidex_plugin::sandbox::scripting_enabled(flags);
+        }
+        let document = host.document_entity_opt();
+        elidex_script_session::scripting_disabled_for_platform_object(
+            host.dom(),
+            target,
+            document,
+            flags,
+        )
     }
 }
 
