@@ -58,13 +58,19 @@ use elidex_plugin::IframeSandboxFlags;
 /// parser-built nodes that scripts detach. Caveats: detached-iframe
 /// documents = unreachable in the single-BC model; the `<template>`
 /// contents false-negative rides `#11-template-contents-owner-document`.
-/// The composed-tree-root proxy is correct only for a node's LIVE tree
-/// position: a node adopted into the active document then REMOVED is
-/// over-suppressed (fails CLOSED — the safe direction for a security gate)
-/// because DOM §4.2.3 adoption is sticky yet elidex lacks it
-/// (`AssociatedDocument` never mutates on cross-document insert, so the
-/// removed orphan resolves back to its foreign owner); the spec-correct
-/// fix rides `#11-cross-document-adopt-on-insert`.
+/// The composed-tree-root proxy is correct for the reachable cases — a
+/// node's live tree position, including a `DOMParser` node appended into
+/// the active document — but is a best-effort approximation for any node
+/// MOVED between documents, because elidex does not implement DOM §4.2.3
+/// insertion adoption (`AssociatedDocument` is not re-homed on a
+/// cross-document insert). The known imperfect facets — adopt-then-remove
+/// (over-suppress), a live main-document node appended into a detached
+/// foreign subtree (under-suppress), and their reverses — are ALL bounded
+/// by this and deferred to `#11-cross-document-adopt-on-insert`; no single
+/// tree / owner-document rule resolves every facet (each refinement trades
+/// which facet is wrong), so the proxy is not refined per-facet. It fails
+/// CLOSED on the suppress-vs-run ambiguity where it can (the safe
+/// direction for a security gate).
 ///
 /// Clause (b) applies to objects implementing `Node` only — Window /
 /// Worker / OffscreenCanvas entities (`is_node() == false`) and non-DOM

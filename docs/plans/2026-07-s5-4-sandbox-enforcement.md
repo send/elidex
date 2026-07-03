@@ -958,9 +958,14 @@ integration (same posture as S5-3a/b/c):
   does not implement DOM §4.2.3 insertion adoption (`AssociatedDocument` is not mutated on
   cross-document insert), so the §8.1.3.4 clause-(b) gate (the scripting-disabled-for-a-platform-object
 predicate, invoked at §8.1.8.1 step 1) uses a composed-tree-root
-  effective-document proxy — correct for live tree position but **over-suppressing (fails CLOSED)** a
-  node adopted into the active document then removed (adoption is sticky; elidex has no "was-adopted"
-  state). **Audit**: spec-core? yes (DOM §4.2.3 adopt on insert); one-way? yes — implementing
+  effective-document proxy — correct for a node's live tree position but a best-effort approximation
+  for the whole class of nodes **MOVED between documents** (adoption is sticky yet elidex has no
+  "was-adopted" state). The imperfect facets span BOTH directions: **over-suppress (fails CLOSED)** a
+  node adopted into the active document then removed, and **under-suppress** a live main-document node
+  appended into a detached foreign (DOMParser-built) subtree — plus their reverses. No single
+  tree/owner-document rule closes all facets (each refinement trades which facet is wrong), so the
+  proxy is intentionally **not refined per-facet**; all facets are bounded here. **Audit**: spec-core?
+  yes (DOM §4.2.3 adopt on insert); one-way? yes — implementing
   adoption re-homes `AssociatedDocument` and the proxy collapses to a direct `owner_document` read;
   pragmatic-debt? the fail-closed edge is exotic (a DOMParser/foreign-doc node inserted-then-removed,
   then its handler dispatched) and safe-direction for a security gate; repeat-signal? this defect
