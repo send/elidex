@@ -93,33 +93,24 @@ impl HostBridge {
 
     /// Check if scripts are allowed (sandbox allow-scripts flag).
     /// Returns `true` if not sandboxed or if allow-scripts is set.
+    /// Delegates to the canonical predicate home [`elidex_plugin::sandbox`].
     #[must_use]
     pub fn scripts_allowed(&self) -> bool {
-        self.inner
-            .borrow()
-            .iframe
-            .sandbox_flags
-            .is_none_or(|f| f.contains(elidex_plugin::IframeSandboxFlags::ALLOW_SCRIPTS))
+        elidex_plugin::sandbox::scripts_allowed(self.inner.borrow().iframe.sandbox_flags)
     }
 
     /// Check if forms are allowed (sandbox allow-forms flag).
+    /// Delegates to the canonical predicate home [`elidex_plugin::sandbox`].
     #[must_use]
     pub fn forms_allowed(&self) -> bool {
-        self.inner
-            .borrow()
-            .iframe
-            .sandbox_flags
-            .is_none_or(|f| f.contains(elidex_plugin::IframeSandboxFlags::ALLOW_FORMS))
+        elidex_plugin::sandbox::forms_allowed(self.inner.borrow().iframe.sandbox_flags)
     }
 
     /// Check if popups are allowed (sandbox allow-popups flag).
+    /// Delegates to the canonical predicate home [`elidex_plugin::sandbox`].
     #[must_use]
     pub fn popups_allowed(&self) -> bool {
-        self.inner
-            .borrow()
-            .iframe
-            .sandbox_flags
-            .is_none_or(|f| f.contains(elidex_plugin::IframeSandboxFlags::ALLOW_POPUPS))
+        elidex_plugin::sandbox::popups_allowed(self.inner.borrow().iframe.sandbox_flags)
     }
 
     /// Check if modals (alert/confirm/prompt) are allowed.

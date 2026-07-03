@@ -1065,9 +1065,10 @@ mod engine_feature {
         /// §7.1.5 sandboxed scripts flag).  `true` when not sandboxed or
         /// when the sandbox grants `allow-scripts`; the eval gate
         /// short-circuits to a silent success when this is `false`.
+        /// Delegates to the canonical predicate home
+        /// [`elidex_plugin::sandbox`].
         pub(crate) fn scripts_allowed(&self) -> bool {
-            self.sandbox_flags
-                .is_none_or(|f| f.contains(elidex_plugin::IframeSandboxFlags::ALLOW_SCRIPTS))
+            elidex_plugin::sandbox::scripts_allowed(self.sandbox_flags)
         }
 
         /// The sandbox flags for this document's browsing context, if it is
@@ -1080,18 +1081,18 @@ mod engine_feature {
         }
 
         /// Whether form submission is allowed (sandbox `allow-forms`; WHATWG
-        /// HTML §7.1.5).  `true` when not sandboxed or when the flag is
-        /// granted — the same `is_none_or` shape as [`Self::scripts_allowed`].
+        /// HTML §7.1.5).  Delegates to the canonical predicate home
+        /// [`elidex_plugin::sandbox`], like [`Self::scripts_allowed`].
         pub(crate) fn forms_allowed(&self) -> bool {
-            self.sandbox_flags
-                .is_none_or(|f| f.contains(elidex_plugin::IframeSandboxFlags::ALLOW_FORMS))
+            elidex_plugin::sandbox::forms_allowed(self.sandbox_flags)
         }
 
-        /// Whether popups are allowed (sandbox `allow-popups`; WHATWG HTML
-        /// §7.1.5).  `true` when not sandboxed or when the flag is granted.
+        /// Whether popups are allowed (sandbox `allow-popups` = the §7.1.5
+        /// *sandboxed auxiliary navigation* flag; WHATWG HTML §7.1.5).
+        /// Delegates to the canonical predicate home
+        /// [`elidex_plugin::sandbox`].
         pub(crate) fn popups_allowed(&self) -> bool {
-            self.sandbox_flags
-                .is_none_or(|f| f.contains(elidex_plugin::IframeSandboxFlags::ALLOW_POPUPS))
+            elidex_plugin::sandbox::popups_allowed(self.sandbox_flags)
         }
 
         /// Install the document's security origin (WHATWG HTML §7.1.1).  The

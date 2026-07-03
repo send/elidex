@@ -66,12 +66,20 @@ pub trait ScriptEngine {
     ///
     /// `passive` indicates whether the listener was registered with
     /// `{ passive: true }` — if so, `preventDefault()` must be a no-op.
+    ///
+    /// `is_handler` is the dispatch plan's
+    /// [`ListenerPlanEntry::is_handler`](crate::event_dispatch::ListenerPlanEntry::is_handler)
+    /// snapshot — `true` for event-handler-derived listeners, which the
+    /// engine gates per HTML §8.1.8.1 "the event handler processing
+    /// algorithm" step 1 (plain `addEventListener` listeners are never
+    /// scripting-gated).
     fn call_listener(
         &mut self,
         listener_id: ListenerId,
         event: &mut DispatchEvent,
         current_target: Entity,
         passive: bool,
+        is_handler: bool,
         ctx: &mut ScriptContext<'_>,
     );
 
@@ -301,12 +309,16 @@ pub trait HostDriver {
     fn sandbox_flags(&self) -> Option<elidex_plugin::IframeSandboxFlags>;
 
     /// Whether form submission is allowed (sandbox `allow-forms`; §7.1.5).
-    /// `true` on an unsandboxed / un-configured engine.
+    /// `true` on an unsandboxed / un-configured engine. Implementations
+    /// answer via the canonical predicate home `elidex_plugin::sandbox`
+    /// over their stored flags.
     #[must_use]
     fn forms_allowed(&self) -> bool;
 
-    /// Whether popups are allowed (sandbox `allow-popups`; §7.1.5).
-    /// `true` on an unsandboxed / un-configured engine.
+    /// Whether popups are allowed (sandbox `allow-popups` = the §7.1.5
+    /// *sandboxed auxiliary navigation* flag). `true` on an unsandboxed /
+    /// un-configured engine. Implementations answer via the canonical
+    /// predicate home `elidex_plugin::sandbox` over their stored flags.
     #[must_use]
     fn popups_allowed(&self) -> bool;
 

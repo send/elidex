@@ -147,6 +147,29 @@ fn post_message_mismatched_url_origin_drops_silently() {
 }
 
 #[test]
+fn post_message_event_origin_is_document_origin() {
+    // Regression pin (S5-4e contrast): the *window post message steps*
+    // (WHATWG HTML §9.3.3, `#window-post-message-steps`) DO initialize
+    // `MessageEvent.origin` — to the incumbent settings origin, read via the
+    // canonical `document_origin()` resolver — unlike the dedicated-worker
+    // port channel (§9.4.4 step 7.7), where `origin` stays `""`.
+    setup_bound_vm!(vm, session, dom, doc);
+    vm.inner.navigation.current_url =
+        url::Url::parse("https://example.com/app/index.html").unwrap();
+    vm.eval(
+        "globalThis.gotOrigin = null;
+         window.addEventListener('message', function(e){ globalThis.gotOrigin = e.origin; });
+         window.postMessage('x', '*');",
+    )
+    .unwrap();
+    assert_eq!(
+        eval_string(&mut vm, "globalThis.gotOrigin;"),
+        "https://example.com"
+    );
+    vm.unbind();
+}
+
+#[test]
 fn post_message_malformed_origin_throws_syntax_error() {
     setup_bound_vm!(vm, session, dom, doc);
     let src = "

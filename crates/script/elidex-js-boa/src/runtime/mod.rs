@@ -471,12 +471,7 @@ impl JsRuntime {
             .into_iter()
             .map(|msg| match msg {
                 OutgoingMessage::Data(data) => {
-                    let origin = self
-                        .bridge
-                        .worker_script_url()
-                        .origin()
-                        .ascii_serialization();
-                    elidex_api_workers::WorkerToParent::PostMessage { data, origin }
+                    elidex_api_workers::WorkerToParent::PostMessage { data }
                 }
                 OutgoingMessage::SerializationError => {
                     elidex_api_workers::WorkerToParent::MessageError
@@ -628,8 +623,10 @@ impl JsRuntime {
 
         for (worker_id, msg) in messages {
             match msg {
-                elidex_api_workers::WorkerToParent::PostMessage { data, origin } => {
-                    let event_script = Self::build_message_event_script(&data, &origin);
+                // origin = "" per the message-port post-message steps — see
+                // `elidex_api_workers::ParentToWorker`.
+                elidex_api_workers::WorkerToParent::PostMessage { data } => {
+                    let event_script = Self::build_message_event_script(&data, "");
                     self.dispatch_parent_worker_event(
                         session,
                         dom,
@@ -842,6 +839,8 @@ impl ScriptEngine for JsRuntime {
         event: &mut DispatchEvent,
         current_target: Entity,
         passive: bool,
+        // boa has no invocation-time scripting gate (compile-gate only).
+        _is_handler: bool,
         ctx: &mut ScriptContext<'_>,
     ) {
         self.call_listener_impl(listener_id, event, current_target, passive, ctx);

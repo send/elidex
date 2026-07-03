@@ -1,7 +1,8 @@
-//! Security origin and iframe sandbox types (WHATWG HTML §7.1.1, §4.8.5).
+//! Security origin types and computations (WHATWG HTML §7.1.1).
 //!
-//! Provides [`SecurityOrigin`] for same-origin policy enforcement and
-//! [`IframeSandboxFlags`] for `<iframe sandbox>` attribute parsing.
+//! Provides [`SecurityOrigin`] for same-origin policy enforcement. The
+//! `<iframe sandbox>` flag set and its capability predicates live in
+//! [`crate::sandbox`].
 
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -156,53 +157,6 @@ impl std::fmt::Display for SecurityOrigin {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(&self.serialize())
     }
-}
-
-// ---------------------------------------------------------------------------
-// IframeSandboxFlags
-// ---------------------------------------------------------------------------
-
-bitflags::bitflags! {
-    /// Sandbox flags for `<iframe sandbox>` attribute (WHATWG HTML §4.8.5).
-    ///
-    /// An empty `sandbox` attribute (no tokens) means all flags are cleared
-    /// (maximum restrictions). Each `allow-*` token sets a corresponding flag.
-    #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
-    pub struct IframeSandboxFlags: u16 {
-        /// Allow script execution in the sandboxed iframe.
-        const ALLOW_SCRIPTS        = 1 << 0;
-        /// Treat the iframe as same-origin with its parent (instead of opaque).
-        const ALLOW_SAME_ORIGIN    = 1 << 1;
-        /// Allow form submission.
-        const ALLOW_FORMS          = 1 << 2;
-        /// Allow `window.open()` and `target="_blank"` links.
-        const ALLOW_POPUPS         = 1 << 3;
-        /// Allow navigation of the top-level browsing context.
-        const ALLOW_TOP_NAVIGATION = 1 << 4;
-        /// Allow `alert()`, `confirm()`, and `prompt()` modals.
-        const ALLOW_MODALS         = 1 << 5;
-    }
-}
-
-/// Parse the `sandbox` attribute value into [`IframeSandboxFlags`].
-///
-/// An empty string or `None` returns empty flags (all restrictions enabled).
-/// Unrecognized tokens are silently ignored per WHATWG HTML §4.8.5.
-#[must_use]
-pub fn parse_sandbox_attribute(value: &str) -> IframeSandboxFlags {
-    let mut flags = IframeSandboxFlags::empty();
-    for token in value.split_ascii_whitespace() {
-        match token {
-            "allow-scripts" => flags |= IframeSandboxFlags::ALLOW_SCRIPTS,
-            "allow-same-origin" => flags |= IframeSandboxFlags::ALLOW_SAME_ORIGIN,
-            "allow-forms" => flags |= IframeSandboxFlags::ALLOW_FORMS,
-            "allow-popups" => flags |= IframeSandboxFlags::ALLOW_POPUPS,
-            "allow-top-navigation" => flags |= IframeSandboxFlags::ALLOW_TOP_NAVIGATION,
-            "allow-modals" => flags |= IframeSandboxFlags::ALLOW_MODALS,
-            _ => {} // Unrecognized tokens silently ignored per spec.
-        }
-    }
-    flags
 }
 
 // ---------------------------------------------------------------------------
@@ -707,48 +661,6 @@ mod tests {
         assert!(!of("http://192.168.0.1/").is_potentially_trustworthy());
         // Opaque origins are never trustworthy.
         assert!(!SecurityOrigin::opaque().is_potentially_trustworthy());
-    }
-
-    #[test]
-    fn sandbox_empty_string() {
-        let flags = parse_sandbox_attribute("");
-        assert!(flags.is_empty());
-    }
-
-    #[test]
-    fn sandbox_single_token() {
-        let flags = parse_sandbox_attribute("allow-scripts");
-        assert!(flags.contains(IframeSandboxFlags::ALLOW_SCRIPTS));
-        assert!(!flags.contains(IframeSandboxFlags::ALLOW_FORMS));
-    }
-
-    #[test]
-    fn sandbox_multiple_tokens() {
-        let flags = parse_sandbox_attribute("allow-scripts allow-same-origin allow-forms");
-        assert!(flags.contains(IframeSandboxFlags::ALLOW_SCRIPTS));
-        assert!(flags.contains(IframeSandboxFlags::ALLOW_SAME_ORIGIN));
-        assert!(flags.contains(IframeSandboxFlags::ALLOW_FORMS));
-        assert!(!flags.contains(IframeSandboxFlags::ALLOW_POPUPS));
-    }
-
-    #[test]
-    fn sandbox_unrecognized_tokens_ignored() {
-        let flags = parse_sandbox_attribute("allow-scripts unknown-token allow-forms");
-        assert!(flags.contains(IframeSandboxFlags::ALLOW_SCRIPTS));
-        assert!(flags.contains(IframeSandboxFlags::ALLOW_FORMS));
-    }
-
-    #[test]
-    fn sandbox_all_flags() {
-        let flags = parse_sandbox_attribute(
-            "allow-scripts allow-same-origin allow-forms allow-popups allow-top-navigation allow-modals",
-        );
-        assert!(flags.contains(IframeSandboxFlags::ALLOW_SCRIPTS));
-        assert!(flags.contains(IframeSandboxFlags::ALLOW_SAME_ORIGIN));
-        assert!(flags.contains(IframeSandboxFlags::ALLOW_FORMS));
-        assert!(flags.contains(IframeSandboxFlags::ALLOW_POPUPS));
-        assert!(flags.contains(IframeSandboxFlags::ALLOW_TOP_NAVIGATION));
-        assert!(flags.contains(IframeSandboxFlags::ALLOW_MODALS));
     }
 
     // --- CSP frame-ancestors tests ---

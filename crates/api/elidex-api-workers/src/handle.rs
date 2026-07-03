@@ -18,15 +18,12 @@ pub struct WorkerHandle {
     pub(crate) thread: Option<JoinHandle<()>>,
     /// Worker name (from `new Worker(url, { name })` option).
     pub(crate) name: String,
-    /// Worker script URL (for error reporting and `WorkerLocation`).
-    pub(crate) script_url: url::Url,
 }
 
 impl WorkerHandle {
     /// Create a new worker handle.
     pub fn new(
         name: String,
-        script_url: url::Url,
         channel: LocalChannel<ParentToWorker, WorkerToParent>,
         thread: JoinHandle<()>,
     ) -> Self {
@@ -34,7 +31,6 @@ impl WorkerHandle {
             channel,
             thread: Some(thread),
             name,
-            script_url,
         }
     }
 
@@ -44,17 +40,10 @@ impl WorkerHandle {
         &self.name
     }
 
-    /// The worker's script URL.
-    #[must_use]
-    pub fn script_url(&self) -> &url::Url {
-        &self.script_url
-    }
-
-    /// Send a `postMessage` to the worker.
-    pub fn post_message(&self, data: String, origin: String) {
-        let _ = self
-            .channel
-            .send(ParentToWorker::PostMessage { data, origin });
+    /// Send a `postMessage` to the worker. No origin travels with it — see
+    /// [`ParentToWorker`].
+    pub fn post_message(&self, data: String) {
+        let _ = self.channel.send(ParentToWorker::PostMessage { data });
     }
 
     /// Try to receive a message from the worker without blocking.
