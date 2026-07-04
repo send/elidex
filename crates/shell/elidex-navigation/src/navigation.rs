@@ -162,6 +162,26 @@ impl NavigationController {
         self.index.map(|i| &self.entries[i].url)
     }
 
+    /// The current cursor position (0-based index into the entry stack), or
+    /// `None` when no page is loaded. Paired with
+    /// [`restore_index`](Self::restore_index) to make a traversal atomic: capture
+    /// this before a `go_back`/`go_forward`/`go` move, then restore it if the
+    /// subsequent load fails.
+    pub fn current_index(&self) -> Option<usize> {
+        self.index
+    }
+
+    /// Roll back a traversal whose load failed — restore the cursor captured by
+    /// [`current_index`](Self::current_index) before the move. Keeps the cursor
+    /// consistent with the still-active document: `go_back`/`go_forward`/`go`
+    /// shift `index` eagerly, but if the traversal load then fails the old
+    /// document (and its history position) is still live, so the unreached
+    /// target index must be undone. A failed traversal moves only the cursor
+    /// (never the entry stack), so the captured index is still valid.
+    pub fn restore_index(&mut self, index: Option<usize>) {
+        self.index = index;
+    }
+
     /// Returns `true` if there is a previous entry to navigate to.
     pub fn can_go_back(&self) -> bool {
         self.index.is_some_and(|i| i > 0)

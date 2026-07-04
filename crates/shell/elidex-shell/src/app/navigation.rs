@@ -182,7 +182,9 @@ impl App {
     /// `content/navigation.rs::handle_history_action`: the drain loop breaks only
     /// on a genuine rebuild, so a no-op / failed-load traversal leaves the
     /// current document active and the remaining same-turn intents still apply
-    /// (Codex R1 P2 / R2).
+    /// (Codex R1 P2 / R2). A failed-load traversal also rolls back the
+    /// `NavigationController` cursor (`restore_index`) so the traversal is atomic
+    /// (Codex R3).
     pub(super) fn handle_history_action(
         &mut self,
         action: &elidex_script_session::HistoryAction,
@@ -194,20 +196,40 @@ impl App {
         match action {
             elidex_script_session::HistoryAction::Back
             | elidex_script_session::HistoryAction::Forward => {
+                // Capture the cursor before the eager `go_*` move so a failed load
+                // rolls it back (traversal atomicity — Codex R3, mirrors
+                // `content/navigation.rs`).
+                let prev_index = interactive.nav_controller.current_index();
                 let url = if matches!(action, elidex_script_session::HistoryAction::Back) {
                     interactive.nav_controller.go_back().cloned()
                 } else {
                     interactive.nav_controller.go_forward().cloned()
                 };
                 if let Some(url) = url {
-                    self.navigate_to_history_url(&url)
+                    if self.navigate_to_history_url(&url) {
+                        true
+                    } else {
+                        // Load failed → old document still active → undo the move.
+                        if let Some(interactive) = self.interactive.as_mut() {
+                            interactive.nav_controller.restore_index(prev_index);
+                        }
+                        false
+                    }
                 } else {
                     false
                 }
             }
             elidex_script_session::HistoryAction::Go(delta) => {
+                let prev_index = interactive.nav_controller.current_index();
                 if let Some(url) = interactive.nav_controller.go(*delta).cloned() {
-                    self.navigate_to_history_url(&url)
+                    if self.navigate_to_history_url(&url) {
+                        true
+                    } else {
+                        if let Some(interactive) = self.interactive.as_mut() {
+                            interactive.nav_controller.restore_index(prev_index);
+                        }
+                        false
+                    }
                 } else {
                     false
                 }

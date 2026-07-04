@@ -321,3 +321,50 @@ fn failed_traversal_load_does_not_drop_trailing_history() {
         "the trailing pushState IS applied (a failed-load traversal must not drop same-turn history)"
     );
 }
+
+/// Traversal atomicity (Codex R3): `NavigationController::go_back` moves the
+/// cursor eagerly, BEFORE `handle_navigate` runs. When the load fails (the
+/// disconnected harness) the traversal must be atomic — the eager move is rolled
+/// back (`restore_index`), leaving the cursor on the still-active document. So a
+/// trailing same-turn `pushState` commits from the ORIGINAL index and does not
+/// truncate the entry the failed `Back` tried (and failed) to leave. Without the
+/// rollback the cursor would sit on the prior entry and the pushState would
+/// truncate the active one.
+#[test]
+fn failed_traversal_load_rolls_back_cursor() {
+    let (mut state, _browser) = build_test_content_state_with_url("<p>doc</p>", base());
+    state.nav_controller.push(base()); // index 0 = base
+    state
+        .nav_controller
+        .push(url::Url::parse("https://example.com/a").unwrap()); // index 1 = /a
+    assert_eq!(state.nav_controller.current_index(), Some(1));
+
+    // A Back whose load FAILS must NOT leave the cursor moved.
+    let superseded = handle_history_action(&mut state, &HistoryAction::Back);
+    assert!(!superseded, "a failed-load traversal does not supersede");
+    assert_eq!(
+        state.nav_controller.current_index(),
+        Some(1),
+        "the eager go_back move is rolled back on load failure — cursor unchanged"
+    );
+    assert_eq!(
+        state.nav_controller.current_url().map(url::Url::as_str),
+        Some("https://example.com/a"),
+        "the still-active document is /a, not the unreached base"
+    );
+
+    // A trailing same-turn pushState commits from the original index (1): it
+    // appends after /a (len 3), preserving /a. Without the rollback the cursor
+    // would sit at base (index 0) and this pushState would TRUNCATE /a (len 2).
+    handle_history_action(&mut state, &push_state("/kept"));
+    assert_eq!(
+        state.nav_controller.len(),
+        3,
+        "pushState appended after /a → [base, /a, /kept]; the rollback preserved /a"
+    );
+    assert_eq!(
+        state.nav_controller.go_back().map(url::Url::as_str),
+        Some("https://example.com/a"),
+        "back from /kept lands on /a — preserved because the failed Back's cursor move was rolled back"
+    );
+}

@@ -418,7 +418,10 @@ pub(crate) fn route_window_opens(
 /// this to STOP replaying remaining same-turn intents ONLY once a traversal
 /// genuinely superseded the document (Codex R1 P2 / R2): a no-op or failed-load
 /// traversal leaves the current document active, so the loop CONTINUES and the
-/// trailing intents still apply.
+/// trailing intents still apply. On a failed-load traversal the eager
+/// `NavigationController` cursor move is **rolled back** (`restore_index`),
+/// keeping the traversal atomic (move+load or neither) so a continuing trailing
+/// `pushState` commits from the correct index (Codex R3).
 pub(super) fn handle_history_action(
     state: &mut ContentState,
     action: &elidex_script_session::HistoryAction,
@@ -426,20 +429,38 @@ pub(super) fn handle_history_action(
     match action {
         elidex_script_session::HistoryAction::Back
         | elidex_script_session::HistoryAction::Forward => {
+            // Capture the cursor BEFORE the eager `go_*` move so a failed load can
+            // roll it back (traversal atomicity — Codex R3): `go_back`/`go_forward`
+            // shift the index up front, but `handle_navigate` may fail to load and
+            // leave the OLD document active, so the cursor must not stay on the
+            // unreached target (else a trailing same-turn `pushState` commits from
+            // the wrong index and truncates the active entry).
+            let prev_index = state.nav_controller.current_index();
             let url = if matches!(action, elidex_script_session::HistoryAction::Back) {
                 state.nav_controller.go_back().cloned()
             } else {
                 state.nav_controller.go_forward().cloned()
             };
             if let Some(url) = url {
-                handle_navigate(state, &url, true, None)
+                if handle_navigate(state, &url, true, None) {
+                    true
+                } else {
+                    state.nav_controller.restore_index(prev_index);
+                    false
+                }
             } else {
                 false
             }
         }
         elidex_script_session::HistoryAction::Go(delta) => {
+            let prev_index = state.nav_controller.current_index();
             if let Some(url) = state.nav_controller.go(*delta).cloned() {
-                handle_navigate(state, &url, true, None)
+                if handle_navigate(state, &url, true, None) {
+                    true
+                } else {
+                    state.nav_controller.restore_index(prev_index);
+                    false
+                }
             } else {
                 false
             }
