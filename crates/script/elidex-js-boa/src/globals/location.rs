@@ -115,7 +115,7 @@ pub fn register_location(ctx: &mut Context, bridge: &HostBridge) -> JsValue {
                         .map(|s| s.to_std_string_escaped())
                         .unwrap_or_default();
                     bridge.set_pending_navigation(NavigationRequest {
-                        url: href,
+                        url: resolve_against_current(bridge, href),
                         replace: false,
                     });
                     Ok(JsValue::undefined())
@@ -144,7 +144,7 @@ pub fn register_location(ctx: &mut Context, bridge: &HostBridge) -> JsValue {
     init.function(
         NativeFunction::from_copy_closure_with_captures(
             |_this, args, bridge, ctx| -> JsResult<JsValue> {
-                let url = args
+                let raw = args
                     .first()
                     .ok_or_else(|| {
                         JsNativeError::typ().with_message("location.assign: URL argument required")
@@ -152,7 +152,7 @@ pub fn register_location(ctx: &mut Context, bridge: &HostBridge) -> JsValue {
                     .to_string(ctx)?
                     .to_std_string_escaped();
                 bridge.set_pending_navigation(NavigationRequest {
-                    url,
+                    url: resolve_against_current(bridge, raw),
                     replace: false,
                 });
                 Ok(JsValue::undefined())
@@ -168,14 +168,17 @@ pub fn register_location(ctx: &mut Context, bridge: &HostBridge) -> JsValue {
     init.function(
         NativeFunction::from_copy_closure_with_captures(
             |_this, args, bridge, ctx| -> JsResult<JsValue> {
-                let url = args
+                let raw = args
                     .first()
                     .ok_or_else(|| {
                         JsNativeError::typ().with_message("location.replace: URL argument required")
                     })?
                     .to_string(ctx)?
                     .to_std_string_escaped();
-                bridge.set_pending_navigation(NavigationRequest { url, replace: true });
+                bridge.set_pending_navigation(NavigationRequest {
+                    url: resolve_against_current(bridge, raw),
+                    replace: true,
+                });
                 Ok(JsValue::undefined())
             },
             b,
@@ -223,6 +226,26 @@ fn url_prop(bridge: &HostBridge, f: impl FnOnce(&url::Url) -> String) -> JsValue
         Some(url) => JsValue::from(js_string!(f(&url))),
         None => JsValue::from(js_string!("")),
     }
+}
+
+/// Resolve a page-supplied navigation URL against the CURRENT document URL at
+/// enqueue time — the `location` setters encoding-parse the input **relative to
+/// the entry settings object** (WHATWG HTML §7.2.4 "The Location interface" —
+/// `href` setter step 2 / `assign` step 3 / `replace` step 2; the base is the
+/// entry settings object's API base URL, ≈ the document base URL, of which
+/// `bridge.current_url()` is the elidex approximation), matching the VM path
+/// (`elidex-js` `vm/host/location.rs` → `current_url.join(input)`). Returns the
+/// resolved absolute URL string so the stored [`NavigationRequest`] is already
+/// absolute (like `PushState.url`) — the shell's later `resolve_nav_url` is then
+/// base-independent, so a same-turn `pushState` mutating `pipeline.url` before
+/// the shell drains the navigation cannot change the relative-nav base (5a's
+/// history-before-navigation drain order). Falls back to the raw string when
+/// there is no current URL or the join fails (the shell re-parses + validates).
+fn resolve_against_current(bridge: &HostBridge, raw: String) -> String {
+    bridge
+        .current_url()
+        .and_then(|base| base.join(&raw).ok())
+        .map_or(raw, |u| u.to_string())
 }
 
 #[cfg(test)]
@@ -359,6 +382,39 @@ mod tests {
         let nav = bridge.take_pending_navigation().unwrap();
         assert_eq!(nav.url, "https://new.com/");
         assert!(!nav.replace);
+    }
+
+    #[test]
+    fn location_assign_resolves_relative_against_current_url() {
+        // Resolved at enqueue against the current document URL (like the VM),
+        // NOT stored raw — so the shell's later `resolve_nav_url` is
+        // base-independent even if a same-turn pushState mutates `pipeline.url`.
+        let (mut ctx, bridge) = setup_with_url("https://example.com/dir/page");
+        ctx.eval(Source::from_bytes("location.assign('other')"))
+            .unwrap();
+        let nav = bridge.take_pending_navigation().unwrap();
+        assert_eq!(nav.url, "https://example.com/dir/other");
+        assert!(!nav.replace);
+    }
+
+    #[test]
+    fn location_href_setter_resolves_relative_against_current_url() {
+        let (mut ctx, bridge) = setup_with_url("https://example.com/dir/page");
+        ctx.eval(Source::from_bytes("location.href = '/root'"))
+            .unwrap();
+        let nav = bridge.take_pending_navigation().unwrap();
+        assert_eq!(nav.url, "https://example.com/root");
+        assert!(!nav.replace);
+    }
+
+    #[test]
+    fn location_replace_resolves_relative_against_current_url() {
+        let (mut ctx, bridge) = setup_with_url("https://example.com/dir/page");
+        ctx.eval(Source::from_bytes("location.replace('sub/leaf')"))
+            .unwrap();
+        let nav = bridge.take_pending_navigation().unwrap();
+        assert_eq!(nav.url, "https://example.com/dir/sub/leaf");
+        assert!(nav.replace);
     }
 
     #[test]

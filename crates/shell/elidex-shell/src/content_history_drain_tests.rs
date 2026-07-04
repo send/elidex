@@ -22,7 +22,7 @@
 
 use elidex_script_session::{HistoryAction, NavigationRequest};
 
-use super::navigation::{handle_history_action, process_pending_actions};
+use super::navigation::{handle_history_action, handle_navigate, process_pending_actions};
 use super::test_support::build_test_content_state_with_url;
 use crate::ipc::{BrowserToContent, ContentToBrowser, LocalChannel};
 
@@ -229,11 +229,29 @@ fn pure_pushstate_turn_unchanged() {
     );
 }
 
-/// The `handle_history_action` return contract the drain-loop break keys on: a
-/// traversal that actually navigated reports `true` (superseded the document via
-/// a pipeline rebuild), everything else reports `false`. Keying on "drove
-/// handle_navigate" — not "is a traversal variant" — is why a no-op out-of-range
-/// `go` reports `false`: the drain loop must CONTINUE past it, not break.
+/// `handle_navigate` reports whether it **replaced the pipeline**. In the
+/// disconnected test harness `load_document` always fails (Err branch →
+/// `NavigationFailed`, `state.pipeline` unchanged), so it returns `false` — the
+/// signal `handle_history_action` propagates so a failed traversal load does NOT
+/// supersede the current document (Codex R2). The `true`-on-success case needs a
+/// real load (VM / connected-integration-covered).
+#[test]
+fn handle_navigate_reports_false_on_failed_load() {
+    let (mut state, _browser) = build_test_content_state_with_url("<p>doc</p>", base());
+    let target = url::Url::parse("https://example.com/a").unwrap();
+    assert!(
+        !handle_navigate(&mut state, &target, false, None),
+        "a failed load leaves the pipeline unchanged → handle_navigate reports false"
+    );
+}
+
+/// The `handle_history_action` return contract the drain-loop break keys on:
+/// `true` ONLY for a traversal that genuinely superseded the document (a target
+/// existed AND `handle_navigate` replaced the pipeline). In the disconnected
+/// harness every `load_document` fails, so a `Back`/`Go` with a target still
+/// returns `false` (no replacement) — alongside `PushState`/`ReplaceState` and a
+/// no-op out-of-range `go`. So NONE of these break the drain loop here; the
+/// `true`-on-successful-rebuild case is VM / connected-integration-covered.
 #[test]
 fn handle_history_action_reports_rebuild() {
     let (mut state, _browser) = build_test_content_state_with_url("<p>doc</p>", base());
@@ -243,11 +261,11 @@ fn handle_history_action_reports_rebuild() {
         .nav_controller
         .push(url::Url::parse("https://example.com/a").unwrap());
 
-    // A Back with a prior entry drives handle_navigate → reports a rebuild
-    // (whether the load then succeeds is irrelevant — the branch was taken).
+    // A Back with a prior entry drives handle_navigate, but the load fails in the
+    // harness → the pipeline is NOT replaced → reports NO supersede (false).
     assert!(
-        handle_history_action(&mut state, &HistoryAction::Back),
-        "a Back that traverses to a prior entry drives handle_navigate → reports rebuild"
+        !handle_history_action(&mut state, &HistoryAction::Back),
+        "a traversal whose load fails does not replace the pipeline → reports no supersede"
     );
     // pushState / replaceState never rebuild.
     assert!(
@@ -258,30 +276,33 @@ fn handle_history_action_reports_rebuild() {
         !handle_history_action(&mut state, &replace_state("/c")),
         "replaceState commits in place without rebuilding the pipeline"
     );
-    // A no-op traversal (out-of-range go) drives no handle_navigate → no rebuild
-    // → the loop must CONTINUE past it (report false, not break).
+    // A no-op traversal (out-of-range go) drives no handle_navigate at all → no
+    // supersede → the loop must CONTINUE past it.
     assert!(
         !handle_history_action(&mut state, &HistoryAction::Go(999)),
-        "an out-of-range go is a no-op (no handle_navigate) → reports no rebuild"
+        "an out-of-range go is a no-op (no handle_navigate) → reports no supersede"
     );
 }
 
-/// The drain-loop break end-to-end: a `pushState` sequenced AFTER a
-/// pipeline-rebuilding `Back` in the SAME turn is NOT replayed onto the fresh
-/// (superseded) page. boa's bridge is single-slot, so a real two-item `Vec`
-/// cannot flow through `process_pending_actions` pre-flip (the full multi-item
-/// loop break is VM-covered post-flip); this drives the exact loop the drain
-/// runs — `for action in &history { if handle_history_action(..) { break; } }`.
+/// Load-failure correctness (Codex R2): when a same-turn traversal's load FAILS
+/// the document is NOT superseded, so the drain loop must CONTINUE and the
+/// trailing same-turn `pushState` IS applied to the (still-active) document. In
+/// the disconnected harness `load_document` always fails, so this is the path
+/// exercised here; the complementary successful-load supersede-and-break (the
+/// trailing intent dropped) is VM / connected-integration-covered. Drives the
+/// exact loop the drain runs — `for a in &history { if handle_history_action(..)
+/// { break; } }` (boa's single-slot bridge can't flow a real two-item `Vec`
+/// through `process_pending_actions` pre-flip).
 #[test]
-fn pushstate_after_rebuilding_back_is_not_replayed() {
+fn failed_traversal_load_does_not_drop_trailing_history() {
     let (mut state, _browser) = build_test_content_state_with_url("<p>doc</p>", base());
     state.nav_controller.push(base());
     state
         .nav_controller
         .push(url::Url::parse("https://example.com/a").unwrap());
-    // index=1, len=2; a Back traverses to `base` and rebuilds.
+    // index=1, len=2; a Back traverses to `base` but its load FAILS (harness).
 
-    let history = vec![HistoryAction::Back, push_state("/injected")];
+    let history = vec![HistoryAction::Back, push_state("/kept")];
     let mut applied = 0usize;
     for action in &history {
         applied += 1;
@@ -291,19 +312,12 @@ fn pushstate_after_rebuilding_back_is_not_replayed() {
     }
 
     assert_eq!(
-        applied, 1,
-        "the loop breaks after the rebuilding Back — the trailing pushState is never reached"
+        applied, 2,
+        "the Back's load failed → no supersede → the loop continues to the trailing pushState"
     );
-    // Back moved the current entry to `base`; the forward `/a` entry is intact. A
-    // replayed `pushState('/injected')` would have truncated `/a` and made
-    // `/injected` current — neither is true.
     assert_eq!(
         state.nav_controller.current_url().map(url::Url::as_str),
-        Some("https://example.com/"),
-        "current entry is the Back target (base), not the injected pushState URL"
-    );
-    assert!(
-        state.nav_controller.can_go_forward(),
-        "the forward /a entry survives — the post-traversal pushState was NOT replayed (a replay would truncate it)"
+        Some("https://example.com/kept"),
+        "the trailing pushState IS applied (a failed-load traversal must not drop same-turn history)"
     );
 }

@@ -31,7 +31,18 @@ use elidex_plugin::IframeSandboxFlags;
 /// the new URL back into the engine after the load.
 #[derive(Clone, Debug)]
 pub struct NavigationRequest {
-    /// The target URL string (page-supplied; the shell resolves + validates it).
+    /// The engine's **enqueue-resolved** target URL. The `location` setters
+    /// encoding-parse the input **relative to the entry settings object** (WHATWG
+    /// HTML §7.2.4 "The Location interface" — `href` setter step 2 / `assign`
+    /// step 3 / `replace` step 2; the base is the entry settings object's API
+    /// base URL, ≈ the document base URL, of which the engine's `current_url` is
+    /// the elidex approximation), resolving against the URL current when the
+    /// setter ran — NOT a later same-turn mutation (the same enqueue-time
+    /// resolution as [`HistoryAction::PushState::url`]). So this is **absolute on
+    /// the success path**; the boa producer may fall back to the raw (possibly
+    /// relative) string for a no-base / unparseable input (the VM instead raises
+    /// a SyntaxError, never storing raw), which the shell re-parses +
+    /// scheme-validates (a base-independent no-op for an already-absolute URL).
     pub url: String,
     /// `true` for `location.replace()` / `location.reload()` (replace the
     /// current session-history entry rather than pushing a new one).

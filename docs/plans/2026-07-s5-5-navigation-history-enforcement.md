@@ -27,7 +27,10 @@ plan-review 必須").
 > `elidex_plugin::sandbox` / `elidex_script_session::navigation`); (2) **boa = light-touch**
 > (deletion-bound, D-26 PR7): boa's current behavior is the parity baseline, and boa is touched ONLY
 > to keep CI compiling — a contract field it gains is passed `None`, a new back-channel it gains is a
-> no-op stub; no boa-side feature work; (3) **no per-VM-side-store → component migration in any S5
+> no-op stub; no boa-side feature work (one narrow VM-parity carve — a fix keeping the *live* boa engine
+> correct across a change THIS S5 slice introduces, e.g. 5a's location resolve-at-enqueue, recorded in
+> §3.2 — is permitted; it aligns boa with the VM, adding no capability the VM has not shipped); (3) **no
+> per-VM-side-store → component migration in any S5
 > PR** (umbrella §0.1; `document_origin` / `NavigationState` stay interim per-VM HostData; the
 > migration is the agent-scoped-World **B1** program, post-S5, PR #434
 > `docs/plans/2026-06-agent-scoped-ecsdom-world.md`); (4) **session history is a browsing-context /
@@ -35,7 +38,7 @@ plan-review 必須").
 > legitimate shell side-store (CLAUDE.md ECS-native exception (b)), NOT an ECS component.
 
 All file:line cites grep-verified against `main` HEAD `31c1f76d` (2026-07-04, the S5-4d merge). Every
-spec § / anchor / algorithm-step webref-verified 2026-07-05 (source: `html` monolithic multipage);
+spec § / anchor / algorithm-step webref-verified 2026-07-04 (source: `html` monolithic multipage);
 §2.7 records the corrections where the slot ledger's or umbrella's cite shorthand was imprecise.
 
 ---
@@ -185,7 +188,7 @@ navigation surface.
 
 ---
 
-## §2 Spec substrate (webref-verified 2026-07-05, source `html`)
+## §2 Spec substrate (webref-verified 2026-07-04, source `html`)
 
 ### §2.1 The §heading ↔ title ↔ anchor triples (Axis 4 — all lookup-verified)
 
@@ -283,7 +286,7 @@ delta-resolved target step; a delta that resolves out of range is a no-op — ma
   and the task framing "fragment nav fires hashchange; traversal fires popstate" **understate** the
   spec: per §7.4.2.3.3 step 14 → §7.4.6.2 step 6.4.3, **fragment navigation fires popstate too**
   (state = null). This is the modern (post-navigables-rewrite) unified behavior and matches current
-  Chrome/Firefox. The matrix (§2.2) is authoritative. **Algorithm-traced + confirmed 2026-07-05**: for
+  Chrome/Firefox. The matrix (§2.2) is authoritative. **Algorithm-traced + confirmed 2026-07-04**: for
   a fresh fragment nav, *update document for history step application* step 2 `documentsEntryChanged` =
   (document's latest entry ≠ the new entry) = TRUE, step 1 `documentIsNew` = (latest entry is null) =
   FALSE ⇒ step 6.4.3 fires popstate; the state is null because the new entry never carries the classic
@@ -367,6 +370,20 @@ adjusts boa's concrete `take_pending_history` to return `Vec` (mechanical light-
 slot yields a 0/1-element Vec; the change also stops boa's drop-all-but-one, harmless as boa is
 deletion-bound). Same reconciliation applies to `set_history_length(len)` (boa `runtime/mod.rs:546`)
 vs the trait's `set_session_history(index, length)` (§3.5 — deferred to the natural site, §5.1).
+
+⚠ **boa location resolve-at-enqueue (a VM-parity carve this slice owns — §0(2)).** Independent of the
+drain signature, 5a's history-before-navigation reorder exposes a *boa-only, live pre-flip* regression:
+boa's `location.href=` / `assign` / `replace` store the **raw** arg (`globals/location.rs`), so once the
+reorder commits a same-turn `pushState` **before** draining the navigation, a *relative* nav resolves
+against the pushState-mutated `pipeline.url` instead of the URL current when the setter ran. The VM
+already resolves at enqueue (`vm/host/location.rs:136` — encoding-parse relative to the entry settings
+object, HTML §7.2.4 "The Location interface"). 5a aligns boa: it resolves the arg against
+`bridge.current_url()` at enqueue (a new `resolve_against_current` helper), so **both** engines store an
+already-absolute `NavigationRequest.url` (raw-string fallback only on a no-base / unparseable input,
+which the shell re-parses) and the shell's `resolve_nav_url` is base-independent. This is **VM-parity,
+not new boa capability** — the §0(2) light-touch carve for keeping the *live* engine correct across a
+change THIS slice introduces (the #446 boa cache-sync / #447 `window.open` boa-touch shape) — and is
+distinct from §9-Q4's rejected "boa fires hashchange" (which WOULD add capability the VM path drives).
 
 ### §3.3 State is dropped; popstate/hashchange never fired; scrollRestoration stubbed (S5-5b/c)
 
@@ -732,6 +749,18 @@ type-swap-stable at S5-6; (3) apply the same reorder to the inline `app/navigati
 `process_pending_navigation`. **No same-document restructure** (that is 5b) — 5a only fixes ORDER +
 drain-completeness on the existing (rebuild-based) history handling.
 
+**§5.1.0 R-loop additions (Codex R1/R2, folded into 5a).** Two correctness threads surfaced in external
+review and land within 5a's scope: **(a) supersede-signal contract** — the FIFO history drain must STOP
+once a same-turn traversal (`back`/`forward`/`go`) *successfully* rebuilds the pipeline, else the
+remaining intents (captured from the navigated-away document) replay onto the fresh page. So
+`handle_navigate` / `handle_history_action` (content) + `navigate_to_history_url` /
+`handle_history_action` (inline) return a `bool` = "a traversal load succeeded and replaced the
+pipeline", and the drain loops `break` on it. This is a **control-flow return, no new persistent state**:
+a no-op or *failed-load* traversal returns `false` so the loop CONTINUES (a failed load must not drop
+trailing same-turn history — Codex R2, else a stale-runtime document loses its `pushState`).
+**(b) boa location resolve-at-enqueue** — the VM-parity carve recorded in §3.2 (relative-nav base
+correctness under the reorder).
+
 **§5.1.1 Spec basis**: §7.4.4 makes the URL/history update synchronous (it happened during the script),
 so a same-turn `pushState(); location.href=` must commit the pushState entry (already reflected in the
 VM's `current_url`) to the `NavigationController` **before** the async navigation supersedes — exactly
@@ -742,8 +771,11 @@ why window-opens already drain first (a pipeline-replacing effect strands anythi
 (was: boa dropped `/b`). `replaceState` + navigation ordering. A pure-navigation turn is unchanged.
 
 **Edges**: E1 (history-before-nav ordering — the slice); E7 (traversal + navigation same-turn — both
-rebuild, one wins; 5a does not worsen it, §6). No engine-behavior change; no new state; NOT edge-dense
-(single axis) → base-case narrow, terminal under this memo's plan-review.
+rebuild, one wins; 5a does not worsen it, §6). Adds a **supersede-signal control-flow contract**
+(§5.1.0(a): a `bool` "successful-traversal-rebuild" return threaded through
+`handle_navigate` / `handle_history_action` / `navigate_to_history_url` + break-on-rebuild drain) — a
+return value, **no new persistent state** — plus the §3.2 boa resolve-at-enqueue VM-parity fix. NOT
+edge-dense (single axis) → base-case narrow, terminal under this memo's plan-review.
 
 ### §5.2 S5-5b — synchronous fragment navigation + the shared same-document primitive
 

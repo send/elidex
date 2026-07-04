@@ -38,9 +38,11 @@ impl App {
         let history_applied = !pending_history.is_empty();
         for action in &pending_history {
             if self.handle_history_action(action) {
-                // A traversal rebuilt the pipeline; the remaining same-turn
-                // history intents belong to the now-superseded document and must
-                // NOT be replayed onto the fresh page (Codex R1 P2, mirrors
+                // A traversal's load SUCCEEDED and rebuilt the pipeline (a no-op
+                // or failed-load traversal returns `false` and does NOT break);
+                // the remaining same-turn history intents belong to the
+                // now-superseded document and must NOT be replayed onto the fresh
+                // page (Codex R1 P2 / R2, mirrors
                 // `content/navigation.rs::process_pending_actions`).
                 break;
             }
@@ -95,13 +97,17 @@ impl App {
         }
     }
 
-    /// Navigate to a URL from the history (back/forward).
-    pub(super) fn navigate_to_history_url(&mut self, url: &url::Url) {
+    /// Navigate to a URL from the history (back/forward). Returns `true` iff the
+    /// pipeline was **replaced (the load succeeded)** — the inline mirror of
+    /// `content/navigation.rs::handle_navigate`'s success signal, so a
+    /// failed-load traversal does NOT supersede the same-turn history drain
+    /// (Codex R2).
+    pub(super) fn navigate_to_history_url(&mut self, url: &url::Url) -> bool {
         if !self.load_url_into_pipeline(url) {
-            return;
+            return false;
         }
         let Some(interactive) = self.interactive.as_mut() else {
-            return;
+            return false;
         };
         interactive
             .pipeline
@@ -110,6 +116,7 @@ impl App {
         if let Some(state) = &self.render_state {
             state.window.set_title(&interactive.window_title);
         }
+        true
     }
 
     /// Load a URL into the current pipeline, updating interactive state.
@@ -166,14 +173,16 @@ impl App {
     }
 
     /// Handle a pending history action from JS. Returns `true` iff it
-    /// **superseded the document via a pipeline-rebuilding traversal** — a
-    /// `Back`/`Forward`/`Go` whose `NavigationController` move returned a target
-    /// and drove `navigate_to_history_url` (mirrors
-    /// `content/navigation.rs::handle_history_action`). Returns `false` for
-    /// `PushState`/`ReplaceState` and for a no-op traversal (no navigate). The
-    /// drain loop breaks after a rebuild so remaining same-turn intents captured
-    /// from the superseded document are not replayed onto the fresh page (Codex
-    /// R1 P2).
+    /// **superseded the document via a pipeline-rebuilding traversal that
+    /// LOADED** — a `Back`/`Forward`/`Go` whose `NavigationController` move
+    /// returned a target AND whose `navigate_to_history_url` load succeeded
+    /// (replaced the pipeline). Returns `false` for `PushState`/`ReplaceState`,
+    /// for a no-op traversal (no target), and for a traversal whose load FAILED
+    /// (old document still active). Mirrors
+    /// `content/navigation.rs::handle_history_action`: the drain loop breaks only
+    /// on a genuine rebuild, so a no-op / failed-load traversal leaves the
+    /// current document active and the remaining same-turn intents still apply
+    /// (Codex R1 P2 / R2).
     pub(super) fn handle_history_action(
         &mut self,
         action: &elidex_script_session::HistoryAction,
@@ -191,16 +200,14 @@ impl App {
                     interactive.nav_controller.go_forward().cloned()
                 };
                 if let Some(url) = url {
-                    self.navigate_to_history_url(&url);
-                    true
+                    self.navigate_to_history_url(&url)
                 } else {
                     false
                 }
             }
             elidex_script_session::HistoryAction::Go(delta) => {
                 if let Some(url) = interactive.nav_controller.go(*delta).cloned() {
-                    self.navigate_to_history_url(&url);
-                    true
+                    self.navigate_to_history_url(&url)
                 } else {
                     false
                 }
