@@ -152,7 +152,7 @@ pub(super) fn run_event_loop(state: &mut ContentState) {
         // drain here too, not only `_blank`, or it would strand forever. A
         // routed named HIT re-navigates an iframe → re-render.
         let window_opens = state.pipeline.runtime.take_pending_window_opens();
-        needs_render |= super::navigation::route_window_opens(state, window_opens);
+        needs_render |= super::navigation::route_window_opens(state, window_opens).navigated_iframe;
 
         if state.pipeline.runtime.bridge().take_pending_focus() {
             state.notify_browser(ContentToBrowser::FocusWindow);

@@ -78,9 +78,13 @@ fn window_open_blank_drains_to_open_new_tab() {
         "",
     );
     let processed = process_pending_actions(&mut state);
+    // A `_blank` popup opens ANOTHER context — it is applied (OpenNewTab below)
+    // but does NOT count as an own-context action, so `process_pending_actions`
+    // reports `false` (a co-located link's default navigation must not be
+    // suppressed by the popup).
     assert!(
-        processed,
-        "a queued open-tab must be drained by process_pending_actions"
+        !processed,
+        "a _blank popup is not an own-context navigation"
     );
     let tabs = drain_open_new_tabs(&browser);
     assert_eq!(
@@ -215,11 +219,12 @@ fn async_pump_drains_named_window_open_channel() {
         url::Url::parse("https://navigated.example/").unwrap(),
     );
     let intents = state.pipeline.runtime.take_pending_window_opens();
-    let needs_render = route_window_opens(&mut state, intents);
+    let outcome = route_window_opens(&mut state, intents);
     assert!(
-        needs_render,
+        outcome.navigated_iframe,
         "a named HIT re-navigates an iframe → re-render"
     );
+    assert!(outcome.any_effect, "a named HIT is a real effect");
     assert!(
         drain_open_new_tabs(&browser).is_empty(),
         "a named HIT navigates the iframe, never promotes to a new tab"
@@ -228,6 +233,80 @@ fn async_pump_drains_named_window_open_channel() {
         iframe_src(&state).as_deref(),
         Some("https://navigated.example/"),
         "the async pump routed the named open to the matching iframe"
+    );
+}
+
+/// Codex R5-F1: a batch whose every intent is a dropped no-op (a sandbox-blocked
+/// named MISS) reports `any_effect == false`, so `process_pending_actions` does
+/// not claim an action and a caller's default (a link's `<a href>` navigation)
+/// is not suppressed by a `window.open` that did nothing.
+#[test]
+fn route_window_opens_reports_no_effect_for_dropped_noop() {
+    let (mut state, browser) = build_test_content_state("<div>no iframe here</div>", "");
+    let outcome = route_window_opens(
+        &mut state,
+        named(vec![NamedFrameNavigation {
+            name: "missing".to_string(),
+            url: Some("https://x.example/".to_string()),
+            aux_nav_allowed: false,
+        }]),
+    );
+    assert!(
+        !outcome.any_effect,
+        "a sandbox-blocked MISS is dropped — not a real effect"
+    );
+    assert!(!outcome.navigated_iframe);
+    assert!(drain_open_new_tabs(&browser).is_empty());
+}
+
+/// Codex R5-F3: a `javascript:` / `vbscript:` `window.open` URL is blocked by the
+/// shell navigation chokepoint (`resolve_nav_url`), NOT forwarded as an
+/// `OpenNewTab` — the same scheme filter link / location navigation applies.
+#[test]
+fn route_window_opens_blocks_javascript_scheme_popup() {
+    let (mut state, browser) = build_test_content_state("<div>doc</div>", "");
+    let outcome = route_window_opens(
+        &mut state,
+        vec![WindowOpenIntent::Popup(OpenTabRequest {
+            url: "javascript:alert(1)".to_string(),
+        })],
+    );
+    assert!(
+        !outcome.any_effect,
+        "a blocked-scheme popup produces no OpenNewTab"
+    );
+    assert!(
+        drain_open_new_tabs(&browser).is_empty(),
+        "javascript: must never reach the browser as a new tab"
+    );
+}
+
+/// Codex R5-F2: a same-turn `_blank` popup + own-context (`_self` / `location`)
+/// navigation must BOTH surface. `process_pending_actions` drains the
+/// (non-destructive) window.open queue BEFORE the pipeline-replacing navigation,
+/// so the popup is not stranded on the old pipeline's runtime. Drives the boa
+/// back-channels directly (a `_blank` open + a `_self`-style pending navigation
+/// to a `data:` URL — inline, no network) and asserts the popup's `OpenNewTab`
+/// still fires. Before the fix, the navigation was drained first and replaced
+/// the pipeline, losing the popup.
+#[test]
+fn window_open_popup_survives_same_turn_self_navigation() {
+    let (mut state, browser) = build_test_content_state("<div>doc</div>", "");
+    let bridge = state.pipeline.runtime.bridge();
+    bridge.queue_open_tab(url::Url::parse("https://popup.example/").unwrap());
+    bridge.set_pending_navigation(elidex_script_session::NavigationRequest {
+        url: "data:text/html,<p>next</p>".to_string(),
+        replace: false,
+    });
+    let acted = process_pending_actions(&mut state);
+    assert!(
+        acted,
+        "the own-context _self navigation is reported as an own-context action"
+    );
+    assert_eq!(
+        drain_open_new_tabs(&browser),
+        vec![url::Url::parse("https://popup.example/").unwrap()],
+        "the _blank popup must open even though a same-turn _self navigation ran"
     );
 }
 

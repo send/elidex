@@ -813,7 +813,20 @@ DESIGN CORRECTION note above): the two back-channels collapsed into one `pending
 VecDeque<WindowOpenIntent>`, one `take_pending_window_opens` drain, one `route_window_opens` routing
 home — call order preserved by construction across popup + named intents, and the async-pump drain gap
 (R1) becomes unrepresentable. (10) The queue's overflow spam-clamp (`MAX_PENDING_WINDOW_OPENS`, drops
-the NEW intent past the bound) is pinned by test. **CLOSES `#11-vm-sandbox-method-gates-and-modals`.**
+the NEW intent past the bound) is pinned by test. (11) **Codex R5 drain-correctness triple**: (a)
+`process_pending_actions` now drains the (non-destructive) window.open queue BEFORE the pipeline-replacing
+own-context navigation — a same-turn `window.open('_blank'); window.open('_self')` no longer strands the
+popup (the two channels stay distinct effect classes: own-context nav = last-wins `pending_navigation`
+shared with `location.*`; other-context open = FIFO `pending_window_open`, so no queue unification needed —
+the bug was drain ORDER); (b) `process_pending_actions` now returns `true` only for an OWN-CONTEXT navigation (`location.*` /
+`window.open('_self'/'_top')` / history), NOT for `window.open` tab/iframe opens — those act on OTHER
+contexts and are applied but must not suppress a co-located link's default `<a href>` navigation (a browser
+opens the popup AND navigates the link). `route_window_opens` returns
+`WindowOpenOutcome { navigated_iframe, any_effect }`; `any_effect` gates only the display-list flush (a no-op
+MISS / empty-url HIT / blocked scheme sends nothing), so Codex F1's no-op-suppresses-link case AND the
+broader real-popup-suppresses-link case are both closed; (c) all window.open tab/iframe URLs route through the shell's `resolve_nav_url` chokepoint, so a
+`javascript:`/`vbscript:` `window.open` is blocked like link/location navigation. **CLOSES
+`#11-vm-sandbox-method-gates-and-modals`.**
 
 **Scope**: (1) `ALLOW_MODALS` predicate + `ALLOW_TOP_NAVIGATION_BY_USER_ACTIVATION` bit + token
 parse + `top_navigation_allowed` (§4.3.3) in `elidex-plugin`; `modals_allowed` VM accessor
