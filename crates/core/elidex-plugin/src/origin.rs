@@ -78,6 +78,9 @@ impl SecurityOrigin {
         }
     }
 
+    /// Same-origin per WHATWG HTML §7.1.1 ("same origin"): an opaque origin is
+    /// same-origin only with itself.
+    ///
     /// True iff this origin is same-origin with `url`'s origin. An opaque origin
     /// never matches a tuple origin (opaque is same-origin with nothing but itself).
     pub fn same_origin_with_url(&self, url: &url::Url) -> bool {

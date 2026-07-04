@@ -195,8 +195,9 @@ fn reject_same_origin_cross_origin(
 /// `document_origin()` settings-object-origin resolver (the resolver
 /// the Window and Service Worker realms' sibling readers also use:
 /// postMessage / WebSocket / EventSource `Origin` / storage
-/// partition).  Used by the cookie-attach gate (WHATWG Fetch §3.1.7)
-/// and the Stage-4 `response_type` CORS classifier.
+/// partition).  Used by the cookie-attach gate (WHATWG Fetch §4.6
+/// "HTTP-network-or-cache fetch" step 21.1, `Append a request Cookie
+/// header`) and the Stage-4 `response_type` CORS classifier.
 ///
 /// **Dedicated-worker exception**: `run_worker_with_source` never
 /// seeds `navigation.current_url` (unlike `sw_thread`), so a
@@ -211,6 +212,16 @@ fn reject_same_origin_cross_origin(
 /// equals no tuple), not a scheme special-case.  `document_origin()`
 /// is identity-stable, so two fetches from the same document carry
 /// the same `Opaque(_)` (S5-4d).
+///
+/// **Navigation staleness** (shared with every settings-object-origin
+/// reader, deferred → `#11-vm-navigation-origin-resync`):
+/// `document_origin()` prefers a load-time origin override that the
+/// shell's `set_current_url` does not resync on a same-navigable
+/// navigation, so a post-navigation fetch could read the prior
+/// document's origin.  Dormant at HEAD (`current_url` is not
+/// shell-driven on a persistent VM until the S5-6 flip); re-keying
+/// fetch onto `document_origin()` makes it *consistent* with the other
+/// readers rather than introducing a fetch-unique hazard.
 ///
 /// The broker's `Request.origin = None` is reserved for
 /// **embedder-driven callers** that bypass the VM-side fetch path
@@ -363,6 +374,14 @@ fn attach_default_origin(request: &mut elidex_net::Request) {
 /// - Cross-origin without TLS downgrade → origin only.
 /// - HTTPS → HTTP (TLS downgrade) → no header.
 /// - Non-HTTP/HTTPS source or target → no header.
+///
+/// **Opaque-origin note** (deferred → `#11-referrer-policy`): this path
+/// derives the Referer from the tuple `source` URL, so a sandboxed
+/// (opaque-origin) document that now sends `Origin: null` (S5-4d) still
+/// emits a tuple `Referer`.  NOT an S5-4d regression — the Referer
+/// leaked identically pre-S5-4d and the Origin isolation is a strict
+/// improvement; suppressing an opaque origin's Referer is the
+/// referrer-policy surface's concern, tracked by that slot.
 fn attach_default_referer(source: &Url, request: &mut elidex_net::Request) {
     const REFERER: &str = "Referer";
     let already_set = request
