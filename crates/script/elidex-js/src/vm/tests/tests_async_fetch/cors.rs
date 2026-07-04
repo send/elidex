@@ -236,7 +236,7 @@ fn opaque_origin_initiator_emits_origin_null_header() {
 #[test]
 fn fetch_threads_opaque_origin_for_about_blank_initiator() {
     // Copilot R3 fix: `about:blank` script-initiated fetches
-    // produce an opaque origin (Origin::Opaque, ascii_serialization
+    // produce an opaque origin (SecurityOrigin::Opaque, serialize()
     // = "null") rather than `None`.  The previous behaviour —
     // returning `None` for non-HTTP(S) — caused the classifier to
     // short-circuit to `Basic`, which was a CORS bypass.
