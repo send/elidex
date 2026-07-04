@@ -87,10 +87,9 @@ pub(super) fn build_net_request(
             apply_cache_mode_headers(&mut headers, cache);
             let doc_origin = fetch_request_origin(ctx);
             reject_same_origin_cross_origin(&doc_origin, &url, mode)?;
-            let origin = Some(doc_origin.clone());
             let cors_meta = super::super::cors::FetchCorsMeta {
                 request_url: url.clone(),
-                request_origin: origin.clone(),
+                request_origin: Some(doc_origin.clone()),
                 request_mode: mode,
                 redirect_mode: redirect,
             };
@@ -99,12 +98,12 @@ pub(super) fn build_net_request(
                 url,
                 headers,
                 body: final_body.unwrap_or_default(),
-                origin,
+                origin: Some(doc_origin),
                 redirect,
                 credentials,
                 mode,
             };
-            attach_default_origin(&doc_origin, &mut request);
+            attach_default_origin(&mut request);
             attach_default_referer(&ctx.vm.navigation.current_url, &mut request);
             return Ok((request, cors_meta));
         }
@@ -139,10 +138,9 @@ pub(super) fn build_net_request(
     apply_cache_mode_headers(&mut headers, cache);
     let doc_origin = fetch_request_origin(ctx);
     reject_same_origin_cross_origin(&doc_origin, &url, mode)?;
-    let origin = Some(doc_origin.clone());
     let cors_meta = super::super::cors::FetchCorsMeta {
         request_url: url.clone(),
-        request_origin: origin.clone(),
+        request_origin: Some(doc_origin.clone()),
         request_mode: mode,
         redirect_mode: redirect,
     };
@@ -151,12 +149,12 @@ pub(super) fn build_net_request(
         url,
         headers,
         body: final_body.unwrap_or_default(),
-        origin,
+        origin: Some(doc_origin),
         redirect,
         credentials,
         mode,
     };
-    attach_default_origin(&doc_origin, &mut request);
+    attach_default_origin(&mut request);
     attach_default_referer(&ctx.vm.navigation.current_url, &mut request);
     Ok((request, cors_meta))
 }
@@ -183,7 +181,7 @@ fn reject_same_origin_cross_origin(
     if mode != RequestMode::SameOrigin {
         return Ok(());
     }
-    if *source == SecurityOrigin::from_url(target) {
+    if source.same_origin_with_url(target) {
         return Ok(());
     }
     Err(VmError::type_error(
@@ -194,11 +192,17 @@ fn reject_same_origin_cross_origin(
 /// The origin threaded to the broker as `request.origin` for a
 /// script-initiated `fetch()` — the initiator document's
 /// [`SecurityOrigin`], resolved through the VM's canonical
-/// `document_origin()` settings-object-origin resolver (the same
-/// resolver every sibling reader uses: postMessage / WebSocket /
-/// EventSource `Origin` / storage partition).  Used by the
-/// cookie-attach gate (WHATWG Fetch §3.1.7) and the Stage-4
-/// `response_type` CORS classifier.
+/// `document_origin()` settings-object-origin resolver (the resolver
+/// the Window and Service Worker realms' sibling readers also use:
+/// postMessage / WebSocket / EventSource `Origin` / storage
+/// partition).  Used by the cookie-attach gate (WHATWG Fetch §3.1.7)
+/// and the Stage-4 `response_type` CORS classifier.
+///
+/// **Dedicated-worker exception**: `run_worker_with_source` never
+/// seeds `navigation.current_url` (unlike `sw_thread`), so a
+/// dedicated worker's fetch here carries the `about:blank` opaque
+/// `"null"` origin, not its script origin (pre-existing, deferred →
+/// slot `#11-dedicated-worker-settings-origin-seed`).
 ///
 /// For a sandboxed iframe (or `data:` / `about:blank`) the
 /// document origin is opaque, so the request serialises `Origin:
@@ -310,7 +314,7 @@ fn apply_default_content_type(headers: &mut Vec<(String, String)>, ct: Option<&s
 /// internal caller pre-populates `request.headers` before reaching
 /// `build_net_request`.
 ///
-/// `source` is the initiator document's [`SecurityOrigin`] (see
+/// The initiator origin is read from `request.origin` (populated by
 /// [`fetch_request_origin`]) — a sandboxed document's opaque origin
 /// equals no tuple, so this always takes the cross-origin branch
 /// and emits `Origin: null`.  This is *serializing a request
@@ -318,7 +322,7 @@ fn apply_default_content_type(headers: &mut Vec<(String, String)>, ct: Option<&s
 /// redirect-taint is trivially "same-origin", so only the inner
 /// opaque→`"null"` clause fires here (the redirect-taint outer
 /// clause lives in the response classifier — E7).
-fn attach_default_origin(source: &SecurityOrigin, request: &mut elidex_net::Request) {
+fn attach_default_origin(request: &mut elidex_net::Request) {
     const ORIGIN: &str = "Origin";
     if request
         .headers
@@ -330,16 +334,18 @@ fn attach_default_origin(source: &SecurityOrigin, request: &mut elidex_net::Requ
     if !matches!(request.url.scheme(), "http" | "https") {
         return;
     }
-    if *source == SecurityOrigin::from_url(&request.url) {
+    let Some(source) = request.origin.as_ref() else {
+        return;
+    };
+    if source.same_origin_with_url(&request.url) {
         return;
     }
     // Always emit Origin for cross-origin HTTP(S) targets.
     // `SecurityOrigin::serialize()` returns `"null"` for an opaque
     // origin (HTML §7.1.1) — the spec-mandated value for a
     // sandboxed / opaque-initiator CORS request.
-    request
-        .headers
-        .push((ORIGIN.to_string(), source.serialize()));
+    let serialized = source.serialize();
+    request.headers.push((ORIGIN.to_string(), serialized));
 }
 
 /// Attach the `Referer` header that WHATWG Fetch's default referrer

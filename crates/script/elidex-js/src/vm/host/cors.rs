@@ -200,8 +200,8 @@ pub(crate) fn classify_response_type(
     // document is cross-origin with everything). Both stay
     // load-bearing.
     let same_origin = !is_redirect_tainted
-        && *source == SecurityOrigin::from_url(response_url)
-        && *source == SecurityOrigin::from_url(request_url);
+        && source.same_origin_with_url(response_url)
+        && source.same_origin_with_url(request_url);
     if same_origin {
         return CorsOutcome::Ok(CorsClassification {
             response_type: ResponseType::Basic,

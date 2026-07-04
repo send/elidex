@@ -78,6 +78,12 @@ impl SecurityOrigin {
         }
     }
 
+    /// True iff this origin is same-origin with `url`'s origin. An opaque origin
+    /// never matches a tuple origin (opaque is same-origin with nothing but itself).
+    pub fn same_origin_with_url(&self, url: &url::Url) -> bool {
+        *self == Self::from_url(url)
+    }
+
     /// Create a new unique opaque origin.
     ///
     /// Each call returns a distinct opaque origin, matching WHATWG §7.1.1

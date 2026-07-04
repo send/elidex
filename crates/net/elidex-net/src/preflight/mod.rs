@@ -128,7 +128,7 @@ pub fn requires_preflight(request: &Request) -> bool {
 /// only reachable from a misconfigured caller.
 fn is_same_origin(request: &Request) -> bool {
     match &request.origin {
-        Some(origin) => *origin == elidex_plugin::SecurityOrigin::from_url(&request.url),
+        Some(origin) => origin.same_origin_with_url(&request.url),
         None => false,
     }
 }

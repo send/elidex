@@ -217,7 +217,7 @@ fn should_attach_cookies(request: &Request) -> bool {
         CredentialsMode::Include => true,
         CredentialsMode::SameOrigin => match &request.origin {
             None => true,
-            Some(source) => *source == SecurityOrigin::from_url(&request.url),
+            Some(source) => source.same_origin_with_url(&request.url),
         },
     }
 }
@@ -252,7 +252,7 @@ fn should_store_set_cookie_from(
         CredentialsMode::Include => true,
         CredentialsMode::SameOrigin => match origin {
             None => true,
-            Some(source) => *source == SecurityOrigin::from_url(response_url) && !redirect_tainted,
+            Some(source) => source.same_origin_with_url(response_url) && !redirect_tainted,
         },
     }
 }
