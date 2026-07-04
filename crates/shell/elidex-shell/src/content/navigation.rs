@@ -239,7 +239,15 @@ pub(super) fn process_pending_actions(state: &mut ContentState) -> bool {
     let pending_history = state.pipeline.runtime.take_pending_history();
     let history_applied = !pending_history.is_empty();
     for action in &pending_history {
-        handle_history_action(state, action);
+        if handle_history_action(state, action) {
+            // A traversal (`back`/`forward`/`go`) just rebuilt `state.pipeline`
+            // (fresh runtime); the REMAINING same-turn history intents were
+            // captured from the now-superseded (navigated-away) document, so they
+            // must NOT be replayed onto the fresh page — e.g. a trailing
+            // `pushState` after a `history.back()` must not mutate the new page's
+            // URL/history (Codex R1 P2). Stop the drain here.
+            break;
+        }
     }
 
     // Own-context navigation (may replace the pipeline) — AFTER the history
@@ -251,14 +259,15 @@ pub(super) fn process_pending_actions(state: &mut ContentState) -> bool {
     // navigation follows (no redundant double-send). This is the pushState+nav
     // common case 5a targets.
     //
-    // Caveat — a TRAVERSAL history action (`back`/`forward`/`go`) in the loop
-    // above already rebuilt `state.pipeline` via `handle_navigate(is_history_nav)`,
-    // so this `take_pending_navigation()` reads the FRESH (empty) runtime: a
-    // same-turn `pending_navigation` that lived on the pre-traversal runtime is
-    // discarded and the traversal wins. That is the bounded same-turn
-    // traversal+navigation race the plan carves as §6-E7 / §8-D5
-    // (`#11-traversal-navigation-same-turn-race`) — "one wins" either way (nav
-    // pre-5a, traversal post-5a), within D5's deferred envelope.
+    // Caveat — if a TRAVERSAL history action (`back`/`forward`/`go`) in the loop
+    // above rebuilt `state.pipeline`, the loop already BROKE (the remaining
+    // same-turn history intents, captured from the superseded document, were
+    // dropped — not replayed). This `take_pending_navigation()` then reads the
+    // FRESH (empty) runtime, so a same-turn `pending_navigation` from the
+    // pre-traversal runtime is likewise discarded and the traversal wins — the
+    // bounded same-turn traversal+navigation race the plan carves as §6-E7 /
+    // §8-D5 (`#11-traversal-navigation-same-turn-race`), "one wins" either way
+    // (nav pre-5a, traversal post-5a), within D5's deferred envelope.
     if let Some(nav_req) = state.pipeline.runtime.take_pending_navigation() {
         let resolved = resolve_nav_url(state.pipeline.url.as_ref(), &nav_req.url);
         if let Some(target_url) = resolved {
@@ -386,10 +395,22 @@ pub(crate) fn route_window_opens(
     }
 }
 
+/// Apply a single history action. Returns `true` iff it **superseded the
+/// document via a pipeline-rebuilding traversal** — a `Back`/`Forward`/`Go`
+/// whose `NavigationController` move returned a target URL and drove
+/// `handle_navigate(is_history_nav)`. Returns `false` for
+/// `PushState`/`ReplaceState` (no rebuild) AND for a **no-op traversal** (an
+/// out-of-range `go` / empty `go_back`/`go_forward` returning `None` → no
+/// `handle_navigate`, so the drain loop must CONTINUE past it). The FIFO drain
+/// loop keys on this to STOP replaying the remaining same-turn intents once a
+/// traversal navigates away — they belong to the now-superseded document (Codex
+/// R1 P2). (Whether the traversal's subsequent load ultimately succeeds does not
+/// change the answer: the branch was taken, the document's intent stream is
+/// superseded.)
 pub(super) fn handle_history_action(
     state: &mut ContentState,
     action: &elidex_script_session::HistoryAction,
-) {
+) -> bool {
     match action {
         elidex_script_session::HistoryAction::Back
         | elidex_script_session::HistoryAction::Forward => {
@@ -400,11 +421,17 @@ pub(super) fn handle_history_action(
             };
             if let Some(url) = url {
                 handle_navigate(state, &url, true, None);
+                true
+            } else {
+                false
             }
         }
         elidex_script_session::HistoryAction::Go(delta) => {
             if let Some(url) = state.nav_controller.go(*delta).cloned() {
                 handle_navigate(state, &url, true, None);
+                true
+            } else {
+                false
             }
         }
         elidex_script_session::HistoryAction::PushState { url, .. }
@@ -414,6 +441,7 @@ pub(super) fn handle_history_action(
                 elidex_script_session::HistoryAction::ReplaceState { .. }
             );
             apply_push_replace_state(state, url.as_deref(), replace);
+            false
         }
     }
 }

@@ -228,3 +228,82 @@ fn pure_pushstate_turn_unchanged() {
         "a pure-history turn ships exactly one display list (unchanged single-action behavior)"
     );
 }
+
+/// The `handle_history_action` return contract the drain-loop break keys on: a
+/// traversal that actually navigated reports `true` (superseded the document via
+/// a pipeline rebuild), everything else reports `false`. Keying on "drove
+/// handle_navigate" — not "is a traversal variant" — is why a no-op out-of-range
+/// `go` reports `false`: the drain loop must CONTINUE past it, not break.
+#[test]
+fn handle_history_action_reports_rebuild() {
+    let (mut state, _browser) = build_test_content_state_with_url("<p>doc</p>", base());
+    // Populate the controller so a Back has a prior entry to traverse to.
+    state.nav_controller.push(base());
+    state
+        .nav_controller
+        .push(url::Url::parse("https://example.com/a").unwrap());
+
+    // A Back with a prior entry drives handle_navigate → reports a rebuild
+    // (whether the load then succeeds is irrelevant — the branch was taken).
+    assert!(
+        handle_history_action(&mut state, &HistoryAction::Back),
+        "a Back that traverses to a prior entry drives handle_navigate → reports rebuild"
+    );
+    // pushState / replaceState never rebuild.
+    assert!(
+        !handle_history_action(&mut state, &push_state("/b")),
+        "pushState commits an entry without rebuilding the pipeline"
+    );
+    assert!(
+        !handle_history_action(&mut state, &replace_state("/c")),
+        "replaceState commits in place without rebuilding the pipeline"
+    );
+    // A no-op traversal (out-of-range go) drives no handle_navigate → no rebuild
+    // → the loop must CONTINUE past it (report false, not break).
+    assert!(
+        !handle_history_action(&mut state, &HistoryAction::Go(999)),
+        "an out-of-range go is a no-op (no handle_navigate) → reports no rebuild"
+    );
+}
+
+/// The drain-loop break end-to-end: a `pushState` sequenced AFTER a
+/// pipeline-rebuilding `Back` in the SAME turn is NOT replayed onto the fresh
+/// (superseded) page. boa's bridge is single-slot, so a real two-item `Vec`
+/// cannot flow through `process_pending_actions` pre-flip (the full multi-item
+/// loop break is VM-covered post-flip); this drives the exact loop the drain
+/// runs — `for action in &history { if handle_history_action(..) { break; } }`.
+#[test]
+fn pushstate_after_rebuilding_back_is_not_replayed() {
+    let (mut state, _browser) = build_test_content_state_with_url("<p>doc</p>", base());
+    state.nav_controller.push(base());
+    state
+        .nav_controller
+        .push(url::Url::parse("https://example.com/a").unwrap());
+    // index=1, len=2; a Back traverses to `base` and rebuilds.
+
+    let history = vec![HistoryAction::Back, push_state("/injected")];
+    let mut applied = 0usize;
+    for action in &history {
+        applied += 1;
+        if handle_history_action(&mut state, action) {
+            break;
+        }
+    }
+
+    assert_eq!(
+        applied, 1,
+        "the loop breaks after the rebuilding Back — the trailing pushState is never reached"
+    );
+    // Back moved the current entry to `base`; the forward `/a` entry is intact. A
+    // replayed `pushState('/injected')` would have truncated `/a` and made
+    // `/injected` current — neither is true.
+    assert_eq!(
+        state.nav_controller.current_url().map(url::Url::as_str),
+        Some("https://example.com/"),
+        "current entry is the Back target (base), not the injected pushState URL"
+    );
+    assert!(
+        state.nav_controller.can_go_forward(),
+        "the forward /a entry survives — the post-traversal pushState was NOT replayed (a replay would truncate it)"
+    );
+}
