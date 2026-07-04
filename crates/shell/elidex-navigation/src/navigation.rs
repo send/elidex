@@ -115,71 +115,93 @@ impl NavigationController {
         }
     }
 
+    /// Peek the back-traversal target WITHOUT moving the cursor: the
+    /// `(index, URL)` a [`go_back`](Self::go_back) WOULD land on, or `None` at
+    /// the start of history. Paired with [`commit_index`](Self::commit_index) for
+    /// an **atomic traversal** — the shell peeks the target, loads it, and
+    /// commits the cursor ONLY on a successful load, so a failed traversal never
+    /// leaves the cursor speculatively moved (this retires the eager-move +
+    /// rollback pattern a capture/restore cursor would need).
+    pub fn peek_back(&self) -> Option<(usize, &url::Url)> {
+        let target = self.index.filter(|&i| i > 0)? - 1;
+        Some((target, &self.entries[target].url))
+    }
+
+    /// Peek the forward-traversal target WITHOUT moving the cursor (see
+    /// [`peek_back`](Self::peek_back)); `None` at the end of history.
+    pub fn peek_forward(&self) -> Option<(usize, &url::Url)> {
+        let target = self.index? + 1;
+        (target < self.entries.len()).then(|| (target, &self.entries[target].url))
+    }
+
+    /// Peek the `go(delta)` target WITHOUT moving the cursor (see
+    /// [`peek_back`](Self::peek_back)); `None` if the delta resolves out of
+    /// range. `delta == 0` resolves to the current entry (a reload).
+    pub fn peek_go(&self, delta: i32) -> Option<(usize, &url::Url)> {
+        let current = self.index?;
+        let abs = delta.unsigned_abs() as usize;
+        let target = if delta >= 0 {
+            current.checked_add(abs)?
+        } else {
+            current.checked_sub(abs)?
+        };
+        (target < self.entries.len()).then(|| (target, &self.entries[target].url))
+    }
+
+    /// Commit the cursor to a peeked target index (from
+    /// [`peek_back`](Self::peek_back) / [`peek_forward`](Self::peek_forward) /
+    /// [`peek_go`](Self::peek_go)) after its load succeeded — the second half of
+    /// an atomic traversal. A peek only returns in-range targets, so `index` is
+    /// always a valid entry position; the `debug_assert` pins that peek-then-commit
+    /// invariant (a violation would mean `entries` was mutated between peek and
+    /// commit — the reentrant-drain case deferred to `#11-session-history-task-queue-model`).
+    pub fn commit_index(&mut self, index: usize) {
+        debug_assert!(
+            index < self.entries.len(),
+            "commit_index: peeked target {index} out of range (entries.len() = {}) — \
+             entries mutated between peek and commit",
+            self.entries.len()
+        );
+        self.index = Some(index);
+    }
+
     /// Navigate back one step. Returns the new current URL, or `None`
-    /// if already at the beginning.
+    /// if already at the beginning. Eager convenience over
+    /// [`peek_back`](Self::peek_back) + [`commit_index`](Self::commit_index) for
+    /// the chrome-button path (which always commits); the atomic JS-history drain
+    /// uses peek-then-commit directly.
     pub fn go_back(&mut self) -> Option<&url::Url> {
-        let i = self.index.filter(|&i| i > 0)?;
-        self.index = Some(i - 1);
+        let target = self.peek_back().map(|(i, _)| i)?;
+        self.commit_index(target);
         self.current_url()
     }
 
     /// Navigate forward one step. Returns the new current URL, or `None`
-    /// if already at the end.
+    /// if already at the end. Eager convenience over
+    /// [`peek_forward`](Self::peek_forward) + [`commit_index`](Self::commit_index).
     pub fn go_forward(&mut self) -> Option<&url::Url> {
-        let i = self.index?;
-        if i + 1 < self.entries.len() {
-            self.index = Some(i + 1);
-            self.current_url()
-        } else {
-            None
-        }
+        let target = self.peek_forward().map(|(i, _)| i)?;
+        self.commit_index(target);
+        self.current_url()
     }
 
     /// Navigate by a relative offset. Positive = forward, negative = back.
     /// Returns the new current URL, or `None` if the offset is out of range.
+    /// Eager convenience over [`peek_go`](Self::peek_go) +
+    /// [`commit_index`](Self::commit_index).
     ///
     /// Note: `go(0)` returns the current URL. The shell re-fetches the same
     /// URL, effectively reloading the page (matching browser `history.go(0)`
     /// semantics).
     pub fn go(&mut self, delta: i32) -> Option<&url::Url> {
-        let current = self.index?;
-        let abs = delta.unsigned_abs() as usize;
-        let new_index = if delta >= 0 {
-            current.checked_add(abs)?
-        } else {
-            current.checked_sub(abs)?
-        };
-        if new_index < self.entries.len() {
-            self.index = Some(new_index);
-            self.current_url()
-        } else {
-            None
-        }
+        let target = self.peek_go(delta).map(|(i, _)| i)?;
+        self.commit_index(target);
+        self.current_url()
     }
 
     /// Returns the URL of the current entry, or `None` if no page is loaded.
     pub fn current_url(&self) -> Option<&url::Url> {
         self.index.map(|i| &self.entries[i].url)
-    }
-
-    /// The current cursor position (0-based index into the entry stack), or
-    /// `None` when no page is loaded. Paired with
-    /// [`restore_index`](Self::restore_index) to make a traversal atomic: capture
-    /// this before a `go_back`/`go_forward`/`go` move, then restore it if the
-    /// subsequent load fails.
-    pub fn current_index(&self) -> Option<usize> {
-        self.index
-    }
-
-    /// Roll back a traversal whose load failed — restore the cursor captured by
-    /// [`current_index`](Self::current_index) before the move. Keeps the cursor
-    /// consistent with the still-active document: `go_back`/`go_forward`/`go`
-    /// shift `index` eagerly, but if the traversal load then fails the old
-    /// document (and its history position) is still live, so the unreached
-    /// target index must be undone. A failed traversal moves only the cursor
-    /// (never the entry stack), so the captured index is still valid.
-    pub fn restore_index(&mut self, index: Option<usize>) {
-        self.index = index;
     }
 
     /// Returns `true` if there is a previous entry to navigate to.
@@ -324,6 +346,54 @@ mod tests {
         assert!(nav.go(1).is_none());
         // Current position unchanged.
         assert_eq!(nav.current_url().unwrap().as_str(), "https://a.com/");
+    }
+
+    #[test]
+    fn peek_does_not_move_cursor() {
+        let mut nav = NavigationController::new();
+        nav.push(url("https://a.com/"));
+        nav.push(url("https://b.com/"));
+        nav.push(url("https://c.com/"));
+        // At c.com (index 2). Peeks must NOT move the cursor.
+        assert_eq!(
+            nav.peek_back().map(|(i, u)| (i, u.as_str())),
+            Some((1, "https://b.com/"))
+        );
+        assert_eq!(nav.current_url().unwrap().as_str(), "https://c.com/");
+        assert_eq!(
+            nav.peek_go(-2).map(|(i, u)| (i, u.as_str())),
+            Some((0, "https://a.com/"))
+        );
+        assert_eq!(nav.current_url().unwrap().as_str(), "https://c.com/");
+        // Forward is a no-op at the end.
+        assert!(nav.peek_forward().is_none());
+        // Out-of-range peeks return None without moving.
+        assert!(nav.peek_go(5).is_none());
+        assert_eq!(nav.current_url().unwrap().as_str(), "https://c.com/");
+    }
+
+    #[test]
+    fn peek_then_commit_is_atomic() {
+        let mut nav = NavigationController::new();
+        nav.push(url("https://a.com/"));
+        nav.push(url("https://b.com/"));
+        // At b.com (index 1). Peek back but DON'T commit — cursor unmoved.
+        let (target, _) = nav.peek_back().unwrap();
+        assert_eq!(nav.current_url().unwrap().as_str(), "https://b.com/");
+        // Commit the peeked index — now the cursor moves.
+        nav.commit_index(target);
+        assert_eq!(nav.current_url().unwrap().as_str(), "https://a.com/");
+    }
+
+    #[test]
+    fn peek_go_zero_is_current() {
+        let mut nav = NavigationController::new();
+        nav.push(url("https://a.com/"));
+        nav.push(url("https://b.com/"));
+        assert_eq!(
+            nav.peek_go(0).map(|(i, u)| (i, u.as_str())),
+            Some((1, "https://b.com/"))
+        );
     }
 
     #[test]

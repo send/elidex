@@ -248,37 +248,40 @@ pub(super) fn process_pending_actions(state: &mut ContentState) -> bool {
     let history_applied = !pending_history.is_empty();
     for action in &pending_history {
         if handle_history_action(state, action) {
-            // A traversal (`back`/`forward`/`go`) just rebuilt `state.pipeline`
-            // — its load SUCCEEDED, fresh runtime (a no-op or failed-load
-            // traversal returns `false` and does NOT break). The REMAINING
-            // same-turn history intents were captured from the now-superseded
-            // (navigated-away) document, so they must NOT be replayed onto the
-            // fresh page — e.g. a trailing `pushState` after a `history.back()`
-            // must not mutate the new page's URL/history (Codex R1 P2 / R2). Stop
-            // the drain here.
-            break;
+            // A traversal (`back`/`forward`/`go`) just SUCCESSFULLY rebuilt
+            // `state.pipeline` — a fresh document is loaded and
+            // `handle_navigate`'s `notify_navigation` already shipped its display
+            // list. Return IMMEDIATELY: do NOT fall through to
+            // `take_pending_navigation()` below, which would read the FRESH
+            // runtime and drain a `location.*` the newly-loaded page's initial
+            // scripts queued (`build_pipeline_from_loaded` runs them before
+            // returning, `pipeline.rs:648,680`) — the traversal must win, not the
+            // fresh page's own nav (Codex #283, this slice's own regression: the
+            // 5a reorder created a fall-through onto the freshly-rebuilt runtime).
+            // Remaining same-turn history intents, captured from the
+            // now-superseded (navigated-away) document, are discarded with it. A
+            // no-op or failed-load traversal returns `false` and does NOT reach
+            // here, so the loop CONTINUES and trailing intents still apply (Codex
+            // R1 P2 / R2). The single-navigable "traversal = a later task"
+            // boundary the spec models (§7.4.3 queued task) is collapsed onto this
+            // synchronous return; a faithful task-queued model is the reframed
+            // deferred slot `#11-session-history-task-queue-model` (memo §8-D5).
+            return true;
         }
     }
 
     // Own-context navigation (may replace the pipeline) — AFTER the history
-    // above. For a NON-rebuild history action (pushState/replaceState — render
-    // nothing, do not touch the pipeline), the entries just committed live on the
-    // `NavigationController` (owned by `ContentState`, not the replaced pipeline),
-    // so they survive this navigation's rebuild; and the navigation ships its own
-    // display list — so the history drain intentionally does NOT send one when a
-    // navigation follows (no redundant double-send). This is the pushState+nav
-    // common case 5a targets.
-    //
-    // Caveat — a same-turn TRAVERSAL (`back`/`forward`/`go`) interacts with this
-    // navigation via the loop above: if the traversal's load SUCCEEDED it rebuilt
-    // `state.pipeline` and BROKE the loop (remaining history intents dropped), so
-    // this `take_pending_navigation()` reads the FRESH (empty) runtime and a
-    // same-turn `pending_navigation` from the pre-traversal runtime is discarded —
-    // the traversal wins. If the traversal's load FAILED it did NOT break (old
-    // document still active), so this reads the still-OLD runtime and the pending
-    // navigation proceeds — the navigation wins. Either way "one wins": the
-    // bounded same-turn traversal+navigation race the plan carves as §6-E7 / §8-D5
-    // (`#11-traversal-navigation-same-turn-race`), within D5's deferred envelope.
+    // above, and reached ONLY when NO same-turn traversal superseded the document
+    // (a superseding traversal `return true`s from the loop above). So this
+    // `take_pending_navigation()` always reads the ORIGINAL (non-superseded)
+    // runtime — the pending navigation THIS document's script queued, never a
+    // freshly-loaded page's. For a NON-rebuild history action
+    // (pushState/replaceState — render nothing, do not touch the pipeline), the
+    // entries just committed live on the `NavigationController` (owned by
+    // `ContentState`, not the replaced pipeline), so they survive this
+    // navigation's rebuild; and the navigation ships its own display list — so the
+    // history drain intentionally does NOT send one when a navigation follows (no
+    // redundant double-send). This is the pushState+nav common case 5a targets.
     if let Some(nav_req) = state.pipeline.runtime.take_pending_navigation() {
         let resolved = resolve_nav_url(state.pipeline.url.as_ref(), &nav_req.url);
         if let Some(target_url) = resolved {
@@ -408,20 +411,21 @@ pub(crate) fn route_window_opens(
 
 /// Apply a single history action. Returns `true` iff it **superseded the
 /// document via a pipeline-rebuilding traversal that LOADED** — a
-/// `Back`/`Forward`/`Go` whose `NavigationController` move returned a target URL
+/// `Back`/`Forward`/`Go` whose `NavigationController` peek yielded a target URL
 /// AND whose `handle_navigate(is_history_nav)` load succeeded (replaced
 /// `state.pipeline`). Returns `false` for `PushState`/`ReplaceState` (no
 /// rebuild), for a **no-op traversal** (an out-of-range `go` / empty
-/// `go_back`/`go_forward` returning `None` → no `handle_navigate`), AND for a
+/// `peek_back`/`peek_forward` returning `None` → no `handle_navigate`), AND for a
 /// traversal whose **load FAILED** (`handle_navigate` `Err` left the pipeline
 /// unchanged, so the old document is still active). The FIFO drain loop keys on
 /// this to STOP replaying remaining same-turn intents ONLY once a traversal
 /// genuinely superseded the document (Codex R1 P2 / R2): a no-op or failed-load
 /// traversal leaves the current document active, so the loop CONTINUES and the
-/// trailing intents still apply. On a failed-load traversal the eager
-/// `NavigationController` cursor move is **rolled back** (`restore_index`),
-/// keeping the traversal atomic (move+load or neither) so a continuing trailing
-/// `pushState` commits from the correct index (Codex R3).
+/// trailing intents still apply. The traversal is **atomic by construction**
+/// (peek-then-commit — Codex R3): the target index is peeked WITHOUT moving the
+/// cursor and committed (`commit_index`) ONLY after the load succeeds, so a
+/// failed load never leaves the cursor speculatively moved (no rollback path — a
+/// continuing trailing `pushState` commits from the correct, unmoved index).
 pub(super) fn handle_history_action(
     state: &mut ContentState,
     action: &elidex_script_session::HistoryAction,
@@ -429,38 +433,38 @@ pub(super) fn handle_history_action(
     match action {
         elidex_script_session::HistoryAction::Back
         | elidex_script_session::HistoryAction::Forward => {
-            // Capture the cursor BEFORE the eager `go_*` move so a failed load can
-            // roll it back (traversal atomicity — Codex R3): `go_back`/`go_forward`
-            // shift the index up front, but `handle_navigate` may fail to load and
-            // leave the OLD document active, so the cursor must not stay on the
-            // unreached target (else a trailing same-turn `pushState` commits from
-            // the wrong index and truncates the active entry).
-            let prev_index = state.nav_controller.current_index();
-            let url = if matches!(action, elidex_script_session::HistoryAction::Back) {
-                state.nav_controller.go_back().cloned()
+            // Peek the traversal target WITHOUT moving the cursor, then commit the
+            // move ONLY if the load succeeds — an atomic traversal (Codex R3). A
+            // failed load leaves the cursor on the still-active document, so a
+            // trailing same-turn `pushState` commits from the correct index (no
+            // rollback needed — the cursor never moved speculatively). Clone the
+            // URL to drop the `nav_controller` borrow before the `&mut state` load.
+            let peeked = if matches!(action, elidex_script_session::HistoryAction::Back) {
+                state.nav_controller.peek_back()
             } else {
-                state.nav_controller.go_forward().cloned()
+                state.nav_controller.peek_forward()
             };
-            if let Some(url) = url {
-                if handle_navigate(state, &url, true, None) {
-                    true
-                } else {
-                    state.nav_controller.restore_index(prev_index);
-                    false
-                }
+            let Some((target_index, url)) = peeked.map(|(i, u)| (i, u.clone())) else {
+                return false;
+            };
+            if handle_navigate(state, &url, true, None) {
+                state.nav_controller.commit_index(target_index);
+                true
             } else {
                 false
             }
         }
         elidex_script_session::HistoryAction::Go(delta) => {
-            let prev_index = state.nav_controller.current_index();
-            if let Some(url) = state.nav_controller.go(*delta).cloned() {
-                if handle_navigate(state, &url, true, None) {
-                    true
-                } else {
-                    state.nav_controller.restore_index(prev_index);
-                    false
-                }
+            let Some((target_index, url)) = state
+                .nav_controller
+                .peek_go(*delta)
+                .map(|(i, u)| (i, u.clone()))
+            else {
+                return false;
+            };
+            if handle_navigate(state, &url, true, None) {
+                state.nav_controller.commit_index(target_index);
+                true
             } else {
                 false
             }

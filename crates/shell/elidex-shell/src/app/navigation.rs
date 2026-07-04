@@ -38,13 +38,16 @@ impl App {
         let history_applied = !pending_history.is_empty();
         for action in &pending_history {
             if self.handle_history_action(action) {
-                // A traversal's load SUCCEEDED and rebuilt the pipeline (a no-op
-                // or failed-load traversal returns `false` and does NOT break);
-                // the remaining same-turn history intents belong to the
-                // now-superseded document and must NOT be replayed onto the fresh
-                // page (Codex R1 P2 / R2, mirrors
-                // `content/navigation.rs::process_pending_actions`).
-                break;
+                // A traversal's load SUCCEEDED and rebuilt the pipeline — return
+                // IMMEDIATELY rather than falling through to
+                // `take_pending_navigation()` below, which would drain a
+                // `location.*` the freshly-loaded page's initial scripts queued
+                // onto the FRESH runtime (Codex #283). A no-op or failed-load
+                // traversal returns `false` and does NOT reach here, so the loop
+                // CONTINUES and trailing same-turn intents still apply (Codex R1
+                // P2 / R2). Mirrors
+                // `content/navigation.rs::process_pending_actions`.
+                return true;
             }
         }
 
@@ -174,17 +177,18 @@ impl App {
 
     /// Handle a pending history action from JS. Returns `true` iff it
     /// **superseded the document via a pipeline-rebuilding traversal that
-    /// LOADED** — a `Back`/`Forward`/`Go` whose `NavigationController` move
-    /// returned a target AND whose `navigate_to_history_url` load succeeded
+    /// LOADED** — a `Back`/`Forward`/`Go` whose `NavigationController` peek
+    /// yielded a target AND whose `navigate_to_history_url` load succeeded
     /// (replaced the pipeline). Returns `false` for `PushState`/`ReplaceState`,
     /// for a no-op traversal (no target), and for a traversal whose load FAILED
     /// (old document still active). Mirrors
-    /// `content/navigation.rs::handle_history_action`: the drain loop breaks only
-    /// on a genuine rebuild, so a no-op / failed-load traversal leaves the
+    /// `content/navigation.rs::handle_history_action`: the drain loop returns
+    /// only on a genuine rebuild, so a no-op / failed-load traversal leaves the
     /// current document active and the remaining same-turn intents still apply
-    /// (Codex R1 P2 / R2). A failed-load traversal also rolls back the
-    /// `NavigationController` cursor (`restore_index`) so the traversal is atomic
-    /// (Codex R3).
+    /// (Codex R1 P2 / R2). The traversal is atomic by construction
+    /// (peek-then-commit — Codex R3): the cursor is committed (`commit_index`)
+    /// only after the load succeeds, so a failed load never moves it (no rollback
+    /// path).
     pub(super) fn handle_history_action(
         &mut self,
         action: &elidex_script_session::HistoryAction,
@@ -196,40 +200,42 @@ impl App {
         match action {
             elidex_script_session::HistoryAction::Back
             | elidex_script_session::HistoryAction::Forward => {
-                // Capture the cursor before the eager `go_*` move so a failed load
-                // rolls it back (traversal atomicity — Codex R3, mirrors
-                // `content/navigation.rs`).
-                let prev_index = interactive.nav_controller.current_index();
-                let url = if matches!(action, elidex_script_session::HistoryAction::Back) {
-                    interactive.nav_controller.go_back().cloned()
+                // Peek the target WITHOUT moving the cursor, then commit the move
+                // ONLY on a successful load — an atomic traversal (Codex R3,
+                // mirrors `content/navigation.rs`). A failed load leaves the
+                // cursor on the still-active document (no rollback needed — it
+                // never moved). Clone the URL to drop the `interactive` borrow
+                // before the `&mut self` load below.
+                let peeked = if matches!(action, elidex_script_session::HistoryAction::Back) {
+                    interactive.nav_controller.peek_back()
                 } else {
-                    interactive.nav_controller.go_forward().cloned()
+                    interactive.nav_controller.peek_forward()
                 };
-                if let Some(url) = url {
-                    if self.navigate_to_history_url(&url) {
-                        true
-                    } else {
-                        // Load failed → old document still active → undo the move.
-                        if let Some(interactive) = self.interactive.as_mut() {
-                            interactive.nav_controller.restore_index(prev_index);
-                        }
-                        false
+                let Some((target_index, url)) = peeked.map(|(i, u)| (i, u.clone())) else {
+                    return false;
+                };
+                if self.navigate_to_history_url(&url) {
+                    if let Some(interactive) = self.interactive.as_mut() {
+                        interactive.nav_controller.commit_index(target_index);
                     }
+                    true
                 } else {
                     false
                 }
             }
             elidex_script_session::HistoryAction::Go(delta) => {
-                let prev_index = interactive.nav_controller.current_index();
-                if let Some(url) = interactive.nav_controller.go(*delta).cloned() {
-                    if self.navigate_to_history_url(&url) {
-                        true
-                    } else {
-                        if let Some(interactive) = self.interactive.as_mut() {
-                            interactive.nav_controller.restore_index(prev_index);
-                        }
-                        false
+                let Some((target_index, url)) = interactive
+                    .nav_controller
+                    .peek_go(*delta)
+                    .map(|(i, u)| (i, u.clone()))
+                else {
+                    return false;
+                };
+                if self.navigate_to_history_url(&url) {
+                    if let Some(interactive) = self.interactive.as_mut() {
+                        interactive.nav_controller.commit_index(target_index);
                     }
+                    true
                 } else {
                     false
                 }

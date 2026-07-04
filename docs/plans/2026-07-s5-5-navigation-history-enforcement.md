@@ -489,14 +489,31 @@ import the traversal queue.** Justification (the fidelity is *ideal*, not a shor
    single application with final values, firing the events once. Same observable result, no best-guess
    phase.
 3. What is observable — the entry model, the event-firing matrix (§2.2), state/scroll round-trip — is
-   preserved exactly. What is dropped — the queue, the twice-call — is unobservable machinery for a
-   race elidex's single-navigable model cannot have.
+   preserved exactly. What is dropped — the *multi-navigable* queue, the twice-call — is unobservable
+   machinery for a race elidex's single-navigable model cannot have.
+
+**⚠ Correction (post-R1–R4): the single-navigable *task boundary* must be KEPT — dropping it is the root
+of the review tail.** Points 1–2 correctly drop the *multi-navigable* serialization and the
+*double-application* (both are machinery for a cross-navigable race the single-navigable model cannot
+have). But §7.4.3 *traverse the history by a delta* also models, even for ONE navigable, a **task
+boundary**: it **queues a task** to run *apply the history step* (§7.4.6.1), so a traversal runs as a
+*later* task, while §7.4.4 *URL and history update steps* (pushState/replaceState) run **synchronously in
+the current task**. So `history.back(); history.pushState(…)` is spec-modeled as "pushState commits
+synchronously THIS task; back() runs as a LATER task" — they **phase-separate**, they do not collide. The
+§4.1 collapse onto the synchronous `Vec+index` silently dropped that single-navigable task boundary too,
+draining a same-turn traversal *and* the sync updates in ONE synchronous pass; the R1–R4 clauses in
+`process_pending_actions` (`break` / fall-through / cursor-restore / the final `return true`) are ad-hoc
+reconstructions of the missing boundary. Keeping it is **cheap on the single-writer content thread**
+(defer *apply the history step* to a post-drain content-thread task); its omission is what these review
+rounds hand-reconstructed. 5a is the correct-for-boa **narrow order fix** under the collapsed model
+(boa's single-slot back-channel makes ≤1 action/turn reachable, §3.2); the faithful task-queued model
+lands in a later plan-reviewed slice (§8-D5, `#11-session-history-task-queue-model`).
 
 This mirrors S5-4d's mapping of the spec's async fetch pipeline onto elidex's simpler broker. **Ratify
-at plan-review** (§9-Q2): is the Vec+index + synchronous-apply the right fidelity, or does any
-observable behavior require the queue? (Known residual: a *pathological* same-turn traversal-then-sync-
-update — `history.back(); pushState(…)` — is applied in FIFO order rather than via the queue's race
-resolution; bounded, §6-E7, §8 audit.)
+at plan-review** (§9-Q2): is the Vec+index + synchronous-apply the right fidelity for the *entry/event*
+observables (yes), while the *task boundary* is kept as the §8-D5 follow-on? (Known residual: a *same-turn
+traversal-then-sync-update — `history.back(); pushState(…)` — is applied in one synchronous pass rather
+than phase-separated across tasks; bounded, §6-E7, §8-D5.)
 
 ### §4.2 The same-document primitive — a first-class shell path (S5-5b)
 
@@ -745,23 +762,44 @@ type-swap-stable at S5-6; (3) apply the same reorder to the inline `app/navigati
 `process_pending_navigation`. **No same-document restructure** (that is 5b) — 5a only fixes ORDER +
 drain-completeness on the existing (rebuild-based) history handling.
 
-**§5.1.0 R-loop additions (Codex R1/R2/R3, folded into 5a).** Correctness threads surfaced in external
-review and land within 5a's scope: **(a) supersede-signal contract** — the FIFO history drain must STOP
-once a same-turn traversal (`back`/`forward`/`go`) *successfully* rebuilds the pipeline, else the
-remaining intents (captured from the navigated-away document) replay onto the fresh page. So
-`handle_navigate` / `handle_history_action` (content) + `navigate_to_history_url` /
-`handle_history_action` (inline) return a `bool` = "a traversal load succeeded and replaced the
-pipeline", and the drain loops `break` on it. This is a **control-flow return, no new persistent state**:
-a no-op or *failed-load* traversal returns `false` so the loop CONTINUES (a failed load must not drop
-trailing same-turn history — Codex R2, else a stale-runtime document loses its `pushState`).
-**(b) traversal-cursor atomicity** (Codex R3) — `NavigationController::go_back`/`go_forward`/`go` move
-the index BEFORE `handle_navigate` runs, so a FAILED traversal load (which under (a) does NOT supersede)
-would leave the cursor at the failed-target index and let a trailing same-turn `pushState` commit from
-the wrong index (truncating the active entry). `handle_history_action` now captures the index before the
-move and **restores it if the load fails** (new `current_index`/`restore_index` on
-`NavigationController`), making a traversal atomic (move+load or neither). **(c) boa relative-nav base** —
-a boa-only, deletion-bound divergence DEFERRED to the S5-6 flip (§3.2; the VM is correct by construction,
-so it is NOT fixed on the boa engine in 5a).
+**§5.1.0 R-loop additions (Codex R1/R2/R3/R4, folded into 5a).** Correctness threads surfaced in
+external review and land within 5a's scope. Post-R4 root-cause re-derivation: R1–R4 are **ad-hoc
+reconstructions of the single-navigable task boundary the §4.1 collapse dropped** (§4.1 Correction). 5a
+keeps the collapsed synchronous model — correct for the boa-reachable surface (single-slot back-channel
+⇒ ≤1 action/turn, §3.2) — and fixes the ONE live-reachable defect narrowly, deferring the faithful
+task-queued model to §8-D5. The threads:
+**(a) supersede-signal contract** — the FIFO history drain must STOP once a same-turn traversal
+(`back`/`forward`/`go`) *successfully* rebuilds the pipeline, else the remaining intents (captured from
+the navigated-away document) replay onto the fresh page. So `handle_navigate` / `handle_history_action`
+(content) + `navigate_to_history_url` / `handle_history_action` (inline) return a `bool` = "a traversal
+load succeeded and replaced the pipeline", and the drain loops act on it. This is a **control-flow
+return, no new persistent state**: a no-op or *failed-load* traversal returns `false` so the loop
+CONTINUES (a failed load must not drop trailing same-turn history — Codex R2, else a stale-runtime
+document loses its `pushState`).
+**(a′) #283 — a supersede must `return true`, not `break`** (this slice's own regression, the ONE
+live-reachable finding): 5a's history-before-navigation reorder placed the history drain BEFORE the
+`take_pending_navigation()` drain, so `break`ing out of the history loop on a supersede *fell through* to
+`take_pending_navigation()` — which, after a successful traversal, reads the **freshly-loaded** runtime
+and drains a `location.*` the new page's initial scripts queued (`build_pipeline_from_loaded` runs them
+before returning). The fix is `break` → **`return true`**: a successful traversal has already shipped its
+display list, so the drain returns immediately and never touches the fresh page's nav. This restores
+symmetry with the pre-5a order (which returned right after the history action) and matches the normal-nav
+path. Reachability: boa's single-slot back-channel makes a multi-action FIFO turn unreachable pre-flip,
+so #283 is the only live one; **#259** (drop a trailing FIFO PushState after a supersede) is post-flip
+only, and **#448** (reentrant `restore_index` clobber) needs the dead SW path — both re-eval at §8-D5.
+**(b) traversal atomicity → peek-then-commit** (Codex R3, superseding R3's own capture/restore):
+`NavigationController::go_back`/`go_forward`/`go` moved the index BEFORE `handle_navigate` ran, so a
+FAILED traversal load (which under (a) does NOT supersede) left the cursor at the failed-target index and
+let a trailing same-turn `pushState` commit from the wrong index. Rather than the R3 eager-move +
+`restore_index` rollback (which Codex #448 flags can clobber reentrant mutations), the traversal is made
+**atomic by construction**: `NavigationController` gains `peek_back`/`peek_forward`/`peek_go` (return the
+would-be target index+URL WITHOUT moving the cursor) + `commit_index` (commit the cursor to a peeked
+index), and `handle_history_action` peeks → loads → commits the cursor **iff the load succeeded**. The
+cursor never moves speculatively, so there is no rollback path to clobber (`current_index`/`restore_index`
+are retired). One-issue-one-way: `go_back`/`go_forward`/`go` become thin eager `peek`+`commit` wrappers
+for the chrome-button path.
+**(c) boa relative-nav base** — a boa-only, deletion-bound divergence DEFERRED to the S5-6 flip (§3.2;
+the VM is correct by construction, so it is NOT fixed on the boa engine in 5a).
 
 **§5.1.1 Spec basis**: §7.4.4 makes the URL/history update synchronous (it happened during the script),
 so a same-turn `pushState(); location.href=` must commit the pushState entry (already reflected in the
@@ -772,14 +810,16 @@ why window-opens already drain first (a pipeline-replacing effect strands anythi
 `/b` navigation (was: `/a` dropped). `pushState('/a'); pushState('/b')` → both entries commit in order
 (was: boa dropped `/b`). `replaceState` + navigation ordering. A pure-navigation turn is unchanged.
 
-**Edges**: E1 (history-before-nav ordering — the slice); E7 (traversal + navigation same-turn — both
-rebuild, one wins; 5a does not worsen it, §6). Adds a **supersede-signal control-flow contract**
-(§5.1.0(a): a `bool` "successful-traversal-rebuild" return threaded through
-`handle_navigate` / `handle_history_action` / `navigate_to_history_url` + break-on-rebuild drain) — a
-return value, **no new persistent state** — plus **traversal-cursor atomicity** (§5.1.0(b): index
-rollback on a failed traversal load, via `current_index`/`restore_index`). The §3.2 boa relative-nav
-base is DEFERRED to the flip, not fixed here. NOT edge-dense (single axis) → base-case narrow, terminal
-under this memo's plan-review.
+**Edges**: E1 (history-before-nav ordering — the slice); E7 (traversal + navigation same-turn — 5a's
+`return true`-on-supersede makes the traversal win cleanly, #283; the faithful fix is the task boundary,
+§8-D5). Adds a **supersede-signal control-flow contract** (§5.1.0(a/a′): a `bool`
+"successful-traversal-rebuild" return threaded through `handle_navigate` / `handle_history_action` /
+`navigate_to_history_url` + a **return-true-on-rebuild** drain) — a return value, **no new persistent
+state** — plus **traversal atomicity by peek-then-commit** (§5.1.0(b): `peek_back`/`peek_forward`/`peek_go`
++ `commit_index`, the cursor moving iff the load succeeds — retiring the R3 `current_index`/`restore_index`
+rollback). The §3.2 boa relative-nav base is DEFERRED to the flip, not fixed here. NOT edge-dense (single
+axis) → base-case narrow, terminal under this memo's plan-review; the deeper task-queued model is the
+edge-dense follow-on (§8-D5).
 
 ### §5.2 S5-5b — synchronous fragment navigation + the shared same-document primitive
 
@@ -882,14 +922,16 @@ boundary / drain-order).
 | E4 | **state serialize/deserialize round-trip + cross-document survival** (live JsValue → serialized `HistoryEntry` → rebuilt-VM deserialize) | — | — | ✔ owns |
 | E5 | **focus persists on same-document nav ≠ reset on cross-document** (same-doc keeps `ElementState::FOCUS`; 5b's no-rebuild fixes the wrong reset) | — | ✔ owns | reads |
 | E6 | **engine-agnostic-now (shell same-document path) vs flip-inert (event firing)** — boa stubs the fire, VM fires; the shell path is observable pre-flip, the events are not | — | ✔ | ✔ |
-| E7 | **traversal + navigation same-turn coexistence** (both rebuild the pipeline; the second drain runs on the fresh VM → one wins). Pre-existing rebuild-model limit; 5a's reorder does not worsen it; same-document nav removes it for the *fragment/pushState* cases but a cross-document traversal + a location nav still race — bounded, §8 audit | ✔ (does-not-worsen) | narrows | narrows |
+| E7 | **traversal + navigation same-turn coexistence** (both rebuild the pipeline; the second drain runs on the fresh runtime → one wins). 5a's `return true`-on-supersede makes the *traversal* win cleanly — it does NOT drain the freshly-loaded page's nav (#283 fix); but a cross-document traversal + a location nav still collide in ONE synchronous drain pass under the collapsed model (§4.1). The faithful fix is the task-queued traversal (a *later* task) — reframed slot §8-D5 `#11-session-history-task-queue-model`; same-document nav (5b) removes it for the *fragment/pushState* cases | ✔ (`return true`; #283) | narrows | narrows |
 | E8 | **StructuredSerializeForStorage fidelity** (full structured-clone vs the JSON-shortcut interim matching the worker precedent + the pre-typed `Option<String>` field) | — | — | ✔ owns |
 | E9 | **fragment-nav popstate is counterintuitive** (§2.2 C1: fragment nav fires popstate-with-null, not just hashchange — the modern unified behavior; wiring only hashchange would be spec-wrong) | — | ✔ guard | reads |
 | E10 | **two navigation impls** (`content/` + `app/` near-duplicates both need the same-document path; the *primitive* is engine-indep so the duplication is confined to the thin drivers) | ✔ | ✔ | ✔ |
 
 **Densest slice = S5-5b** (E2+E3+E5+E6+E9) — the shared-core landing; it is why 5b is the slice with
 the peel-off consideration alongside 5c (§0). E7 (traversal+nav coexistence) is the one axis no slice
-fully closes → §8 audit / defer candidate.
+fully closes: 5a fixes its live-reachable facet (#283 `return true`), and the faithful resolution — the
+task-queued traversal boundary — is the reframed §8-D5 slot (`#11-session-history-task-queue-model`),
+which subsumes #259/#283/#448 + E7 and lands in a later plan-reviewed slice (edge-dense).
 
 ---
 
@@ -923,7 +965,7 @@ shell integration (the S5-3/S5-4 posture), with the **engine-agnostic-now vs fli
 
 ---
 
-## §8 Deferred carves (+ audits; cap ≤3 per PR — actual: 5a = 0; 5b = 1 (D2); 5c = 3 (D1, D3, D5); shared audit D4)
+## §8 Deferred carves (+ audits; cap ≤3 per PR — actual: 5a = 1 (D5, reframed); 5b = 1 (D2); 5c = 2 (D1, D3); shared audit D4)
 
 - **D1 `#11-history-state-structured-serialize-fidelity`** (carved by S5-5c, or FOLD into the existing
   worker-shortcut slot family): full `StructuredSerializeForStorage` for `history.state` (Blob / File /
@@ -959,16 +1001,28 @@ shell integration (the S5-3/S5-4 posture), with the **engine-agnostic-now vs fli
   out of S5-5 scope and out of the flip critical path. **Disposition**: note for the shell-arch backlog;
   not carved as a `#11-` slot (no spec surface — pure code-org), re-audited when the inline/thread shell
   split is next touched.
-- **D5 `#11-traversal-navigation-same-turn-race`** (carved by S5-5c, or audit-only): a same-turn
-  cross-document **traversal + location navigation** both rebuild the pipeline, so the second drain runs
-  on the fresh VM and one is lost (E7). The spec resolves this via the traversal queue's race handling
-  (§4.1), which elidex's synchronous single-navigable model collapses. **Audit**: spec-core? partial
-  (the queue exists for multi-navigable races elidex does not have; the single-navigable intra-turn
-  ordering is a genuine but pathological gap); one-way? yes — a future traversal-queue model (if ever
-  needed) subsumes it; pragmatic-debt? the FIFO best-effort ordering is defensible for the pathological
-  mixed-turn case; repeat-signal? only at multi-navigable traversal (S5-8/B1). **Trigger**: S5-8/B1
-  browsing-context model, or a site/WPT exercising mixed-turn traversal+nav. **Re-eval**: at S5-8/B1;
-  backstop **2026-10-31**.
+- **D5 `#11-session-history-task-queue-model`** (reframed from `#11-traversal-navigation-same-turn-race`;
+  carved by S5-5a): **implement the spec's task-queued traversal** — *apply the history step* (§7.4.6.1)
+  as a **deferred post-drain content-thread task**, so a same-turn traversal phase-separates from the
+  synchronous history/navigation updates (*URL and history update steps* §7.4.4 commit in the current
+  task; *traverse the history by a delta* §7.4.3 queues the traversal as a *later* task) instead of
+  colliding in ONE synchronous `process_pending_actions` drain pass. This is the faithful single-navigable
+  task boundary the §4.1 collapse dropped (§4.1 Correction) and that R1–R4 hand-reconstructed with ad-hoc
+  clauses. **This one (renamed) slot subsumes**: **#283** (drain fall-through onto the freshly-rebuilt
+  runtime — *fixed* narrowly in 5a by `return true`, but the structural fix is the task boundary);
+  **#259** (drop a trailing FIFO PushState after a supersede — post-flip only, unreachable under boa's
+  single-slot back-channel, re-evals here); **#448** (`restore_index` clobbers reentrant state — retired
+  in 5a by peek-then-commit; the reentrancy concern re-lands at the SW-interception / reentrant-drain
+  wiring, M4-10); and the **E7** traversal+navigation same-turn race. **Audit**: spec-core? yes (the task
+  boundary is §7.4.3/§7.4.6.1, not optional machinery — only the *multi-navigable* serialization is
+  elidex-inapplicable); one-way? yes — the task-queued model subsumes all four folded concerns at one
+  seam; pragmatic-debt? 5a's collapsed synchronous drain is correct for the boa-reachable surface (≤1
+  action/turn) but not for the post-flip multi-action turn; repeat-signal? every review round R1–R4
+  re-derived a facet of the missing boundary. **Lands in a future plan-reviewed slice** (5c, or a
+  dedicated 5d — edge-dense per CLAUDE.md, must not ride a narrow PR): #259 re-evals there; #448 re-evals
+  at the S5-6 flip / SW-interception (M4-10) reentrant wiring. **Trigger**: the multi-action drain
+  (post-flip), the SW-interception reentrant path, or a site/WPT exercising mixed-turn traversal+nav.
+  **Re-eval**: at 5c/5d kickoff; backstop **2026-10-31**.
 
 **Not carved (dispositioned in-memo, no slot)**: `hasUAVisualTransition` (always false, §1.3);
 Navigation API (non-goal, own program, §1.3); bfcache / cross-document-entry document reconstruction

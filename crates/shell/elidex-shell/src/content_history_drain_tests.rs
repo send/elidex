@@ -322,49 +322,108 @@ fn failed_traversal_load_does_not_drop_trailing_history() {
     );
 }
 
-/// Traversal atomicity (Codex R3): `NavigationController::go_back` moves the
-/// cursor eagerly, BEFORE `handle_navigate` runs. When the load fails (the
-/// disconnected harness) the traversal must be atomic — the eager move is rolled
-/// back (`restore_index`), leaving the cursor on the still-active document. So a
-/// trailing same-turn `pushState` commits from the ORIGINAL index and does not
-/// truncate the entry the failed `Back` tried (and failed) to leave. Without the
-/// rollback the cursor would sit on the prior entry and the pushState would
-/// truncate the active one.
+/// Traversal atomicity (Codex R3, peek-then-commit): a traversal peeks its
+/// target WITHOUT moving the cursor and commits the move (`commit_index`) ONLY on
+/// a successful load. When the load fails (the disconnected harness) the cursor
+/// never moved, so the still-active document — and a trailing same-turn
+/// `pushState` committing after it — is unaffected. This replaces the retired
+/// eager-move + `restore_index` rollback with never-moving-until-success (the
+/// `current_index`/`restore_index` cursor pair the R3 fix added is gone).
 #[test]
-fn failed_traversal_load_rolls_back_cursor() {
+fn failed_traversal_load_leaves_cursor_unmoved() {
     let (mut state, _browser) = build_test_content_state_with_url("<p>doc</p>", base());
     state.nav_controller.push(base()); // index 0 = base
     state
         .nav_controller
         .push(url::Url::parse("https://example.com/a").unwrap()); // index 1 = /a
-    assert_eq!(state.nav_controller.current_index(), Some(1));
-
-    // A Back whose load FAILS must NOT leave the cursor moved.
-    let superseded = handle_history_action(&mut state, &HistoryAction::Back);
-    assert!(!superseded, "a failed-load traversal does not supersede");
-    assert_eq!(
-        state.nav_controller.current_index(),
-        Some(1),
-        "the eager go_back move is rolled back on load failure — cursor unchanged"
-    );
     assert_eq!(
         state.nav_controller.current_url().map(url::Url::as_str),
         Some("https://example.com/a"),
-        "the still-active document is /a, not the unreached base"
+        "start on /a (the last-pushed entry)"
     );
 
-    // A trailing same-turn pushState commits from the original index (1): it
-    // appends after /a (len 3), preserving /a. Without the rollback the cursor
-    // would sit at base (index 0) and this pushState would TRUNCATE /a (len 2).
+    // A Back whose load FAILS must NOT move the cursor (peek-then-commit only
+    // commits on a successful load).
+    let superseded = handle_history_action(&mut state, &HistoryAction::Back);
+    assert!(!superseded, "a failed-load traversal does not supersede");
+    assert_eq!(
+        state.nav_controller.current_url().map(url::Url::as_str),
+        Some("https://example.com/a"),
+        "the cursor never moved — the still-active document is /a, not the unreached base"
+    );
+
+    // A trailing same-turn pushState commits from the unmoved index: it appends
+    // after /a (len 3), preserving /a. Had the cursor speculatively moved to base,
+    // this pushState would TRUNCATE /a (len 2).
     handle_history_action(&mut state, &push_state("/kept"));
     assert_eq!(
         state.nav_controller.len(),
         3,
-        "pushState appended after /a → [base, /a, /kept]; the rollback preserved /a"
+        "pushState appended after /a → [base, /a, /kept]; the cursor never left /a"
     );
     assert_eq!(
         state.nav_controller.go_back().map(url::Url::as_str),
         Some("https://example.com/a"),
-        "back from /kept lands on /a — preserved because the failed Back's cursor move was rolled back"
+        "back from /kept lands on /a — preserved because the failed Back never moved the cursor"
+    );
+}
+
+/// #283 (this slice's own regression): after a same-turn traversal SUCCEEDS and
+/// rebuilds the pipeline, the drain must NOT fall through to
+/// `take_pending_navigation()` and drain a `location.*` the FRESHLY-loaded page's
+/// initial scripts queued — the superseding traversal `return true`s from the
+/// history loop (the 5a fix) instead of `break`ing into the navigation drain.
+///
+/// Reachability boundary: a *successful* traversal needs a real `load_document`,
+/// but the disconnected test network `Err`s every load, so `handle_history_action`
+/// never returns `true` here (the same boundary `handle_history_action_reports_rebuild`
+/// documents). The discriminating success-path assertion — a nav queued by the
+/// fresh page is left UN-drained — is therefore VM / connected-integration
+/// coverage (registered as an S5-6-flip live-shell deliverable, alongside the
+/// other `true`-on-success cases in this file).
+///
+/// What IS reachable and pinned here is the COMPLEMENT sharing the same code
+/// path: a *failed* traversal does NOT supersede, so the loop CONTINUES and a
+/// same-turn `pending_navigation` on the still-current runtime DOES drain —
+/// confirming the `break`→`return true` refactor preserved the non-supersede
+/// fall-through exactly (an over-eager `return true` would have swallowed this
+/// navigation). Peek-then-commit also leaves the failed Back's cursor unmoved,
+/// and the turn ships exactly one display list (no double-send).
+#[test]
+fn failed_traversal_does_not_block_same_turn_navigation_drain() {
+    let (mut state, browser) = build_test_content_state_with_url("<p>doc</p>", base());
+    state.nav_controller.push(base());
+    state
+        .nav_controller
+        .push(url::Url::parse("https://example.com/a").unwrap());
+    // index=1 on /a; a same-turn Back (fails to load → no supersede) + a nav.
+    let bridge = state.pipeline.runtime.bridge();
+    bridge.set_pending_history(HistoryAction::Back);
+    bridge.set_pending_navigation(nav_to("/b"));
+    drain_browser(&browser);
+
+    let processed = process_pending_actions(&mut state);
+
+    assert!(
+        processed,
+        "the same-turn navigation is an own-context action"
+    );
+    // Back's load FAILED → no supersede → the loop continued → the /b navigation
+    // drained (and itself failed to load, so it never entered the controller).
+    // The cursor never moved (peek-then-commit), so it still sits on /a.
+    assert_eq!(
+        state.nav_controller.current_url().map(url::Url::as_str),
+        Some("https://example.com/a"),
+        "failed Back left the cursor on /a (peek-then-commit); /b nav failed to load"
+    );
+    assert_eq!(
+        state.nav_controller.len(),
+        2,
+        "no entry added: Back failed to supersede and /b failed to load"
+    );
+    assert_eq!(
+        count_display_lists(&browser),
+        1,
+        "the drained /b navigation ships exactly its pre-send display list (no double-send)"
     );
 }
