@@ -492,9 +492,20 @@ impl JsRuntime {
         self.bridge.take_pending_navigation()
     }
 
-    /// Take the pending history action (if any).
-    pub fn take_pending_history(&self) -> Option<elidex_script_session::HistoryAction> {
-        self.bridge.take_pending_history()
+    /// Take the pending history actions (WHATWG HTML §7.2.5) as an ordered
+    /// [`Vec`], matching
+    /// [`elidex_script_session::HostDriver::take_pending_history`] so the shell
+    /// drain sites are signature-identical — the S5-6 flip swaps the runtime
+    /// type without touching the drain logic (mirrors
+    /// [`Self::take_pending_window_opens`]).
+    ///
+    /// boa's private bridge slot is single last-wins (`Option`), so this yields
+    /// a 0-or-1-element Vec today; the VM engine yields every synchronous
+    /// `pushState`/`replaceState` of the turn on its FIFO queue. The adaptation
+    /// lives here (not in the deletion-bound bridge) so boa stays untouched
+    /// beyond keeping CI compiling.
+    pub fn take_pending_history(&self) -> Vec<elidex_script_session::HistoryAction> {
+        self.bridge.take_pending_history().into_iter().collect()
     }
 
     /// Drain the `window.open` tab-creation / named-navigation intents as the

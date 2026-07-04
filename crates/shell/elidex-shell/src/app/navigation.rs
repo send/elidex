@@ -13,36 +13,54 @@ impl App {
         let Some(interactive) = &mut self.interactive else {
             return false;
         };
-        let pipeline = &mut interactive.pipeline;
 
-        if let Some(nav_req) = pipeline.runtime.take_pending_navigation() {
-            let resolved = resolve_nav_url(pipeline.url.as_ref(), &nav_req.url);
+        // Drain the `window.open` back-channel FIRST so it cannot leak across a
+        // navigation (a queue left un-drained would surface on the next task).
+        // Legacy inline mode has no new-tab capability (`ChromeAction::NewTab`
+        // is threaded-mode only, see `handle_chrome_action`) and no iframe
+        // registry (`InteractiveState` carries no iframes — iframes are a
+        // content-thread facility), so the whole ordered window.open queue is
+        // drained-and-dropped here. Draining first (unconditional, mirroring the
+        // content thread's `process_pending_actions`) also closes the prior leak
+        // where an early navigation/history return skipped the drop. Threaded
+        // content mode does the real routing in
+        // `content/navigation.rs::process_pending_actions`.
+        let _ = interactive.pipeline.runtime.take_pending_window_opens();
+
+        // Own-context HISTORY drain BEFORE navigation (WHATWG HTML §7.4.4), FIFO
+        // — mirrors the content thread: a synchronous `pushState`/`replaceState`
+        // must commit its session-history entry before an async
+        // pipeline-replacing navigation supersedes, else a same-turn
+        // `pushState('/a'); location.href='/b'` strands `/a`. boa yields a
+        // 0/1-element Vec; the VM yields every action of the turn (type-stable
+        // across the S5-6 flip).
+        let pending_history = interactive.pipeline.runtime.take_pending_history();
+        let history_applied = !pending_history.is_empty();
+        for action in &pending_history {
+            self.handle_history_action(action);
+        }
+
+        // Re-borrow required by the borrow-checker: the loop above called
+        // `handle_history_action` (`&mut self`), so `self.interactive` needs a
+        // fresh borrow here. It stays `Some` — no path ever clears it
+        // (`navigate`/`navigate_to_history_url`/`load_url_into_pipeline` replace
+        // `interactive.pipeline` IN PLACE, never `self.interactive = None`) — so
+        // the `else` is an unreachable destructuring formality, not a real
+        // "interactive was dropped" path.
+        let Some(interactive) = &mut self.interactive else {
+            return history_applied;
+        };
+
+        // Own-context navigation — AFTER the history above.
+        if let Some(nav_req) = interactive.pipeline.runtime.take_pending_navigation() {
+            let resolved = resolve_nav_url(interactive.pipeline.url.as_ref(), &nav_req.url);
             if let Some(target_url) = resolved {
                 self.navigate(&target_url, nav_req.replace);
                 return true;
             }
         }
 
-        // Re-borrow interactive since self.navigate may have consumed it above.
-        let Some(interactive) = &mut self.interactive else {
-            return false;
-        };
-        if let Some(action) = interactive.pipeline.runtime.take_pending_history() {
-            self.handle_history_action(&action);
-            return true;
-        }
-
-        // Drain the `window.open` back-channels so they cannot leak across
-        // navigations (a queue left un-drained would surface on the next task).
-        // Legacy inline mode has no new-tab capability (`ChromeAction::NewTab`
-        // is threaded-mode only, see `handle_chrome_action`) and no iframe
-        // registry (`InteractiveState` carries no iframes — iframes are a
-        // content-thread facility), so the whole ordered window.open queue is
-        // drained-and-dropped here. Threaded content mode does the real
-        // routing in `content/navigation.rs::process_pending_actions`.
-        let _ = interactive.pipeline.runtime.take_pending_window_opens();
-
-        false
+        history_applied
     }
 
     /// Navigate to a new URL, replacing the current pipeline.

@@ -200,12 +200,13 @@ pub(super) fn handle_navigate(
 pub(super) fn process_pending_actions(state: &mut ContentState) -> bool {
     // window.open tab-creation / named-frame opens FIRST. These are effects on
     // OTHER browsing contexts that do NOT replace our pipeline, so they must be
-    // drained + applied BEFORE any own-context navigation below — otherwise a
-    // same-turn `window.open('_self')` / `location` navigation replaces the
-    // pipeline and strands the queued opens (they live on the old pipeline's
-    // runtime and are lost). The two channels are distinct effect classes:
-    // own-context navigation is last-wins (`pending_navigation`, shared with
-    // `location.*`), other-context open is FIFO-all-surface
+    // drained + applied BEFORE any own-context history/navigation below —
+    // otherwise a same-turn `window.open('_self')` / `location` navigation (or a
+    // `history.back()` traversal) replaces the pipeline and strands the queued
+    // opens (they live on the old pipeline's runtime and are lost). The channels
+    // are distinct effect classes: own-context navigation is last-wins
+    // (`pending_navigation`, shared with `location.*`), own-context history is
+    // FIFO (`pending_history`), other-context open is FIFO-all-surface
     // (`pending_window_open`). Drained via the engine-agnostic session trait
     // surface (`take_pending_window_opens`), not the boa bridge — the S5-6 flip
     // swaps the runtime type without touching this site (memo §4.3.2 / edge E4).
@@ -223,7 +224,41 @@ pub(super) fn process_pending_actions(state: &mut ContentState) -> bool {
         }
     }
 
-    // Own-context navigation (may replace the pipeline) — AFTER the opens above.
+    // Own-context HISTORY drain BEFORE the navigation drain below (WHATWG HTML
+    // §7.4.4 — the URL/history update ran synchronously during the script). A
+    // same-turn `pushState('/a'); location.href='/b'` enqueues both a history
+    // mutation and a navigation; the pushState entry must commit to the
+    // `NavigationController` BEFORE the async pipeline-replacing navigation
+    // supersedes, else it is stranded (the navigation early-returns and the
+    // history is never drained — the same reason window-opens drain first).
+    // Iterate the drained `Vec` in FIFO order: each synchronous
+    // `pushState`/`replaceState` is an independent session-history commit. boa's
+    // single-slot back-channel yields a 0/1-element Vec today; the VM engine
+    // yields every action of the turn — so this site is type-stable across the
+    // S5-6 flip (memo §3.2 / §5.1).
+    let pending_history = state.pipeline.runtime.take_pending_history();
+    let history_applied = !pending_history.is_empty();
+    for action in &pending_history {
+        handle_history_action(state, action);
+    }
+
+    // Own-context navigation (may replace the pipeline) — AFTER the history
+    // above. For a NON-rebuild history action (pushState/replaceState — render
+    // nothing, do not touch the pipeline), the entries just committed live on the
+    // `NavigationController` (owned by `ContentState`, not the replaced pipeline),
+    // so they survive this navigation's rebuild; and the navigation ships its own
+    // display list — so the history drain intentionally does NOT send one when a
+    // navigation follows (no redundant double-send). This is the pushState+nav
+    // common case 5a targets.
+    //
+    // Caveat — a TRAVERSAL history action (`back`/`forward`/`go`) in the loop
+    // above already rebuilt `state.pipeline` via `handle_navigate(is_history_nav)`,
+    // so this `take_pending_navigation()` reads the FRESH (empty) runtime: a
+    // same-turn `pending_navigation` that lived on the pre-traversal runtime is
+    // discarded and the traversal wins. That is the bounded same-turn
+    // traversal+navigation race the plan carves as §6-E7 / §8-D5
+    // (`#11-traversal-navigation-same-turn-race`) — "one wins" either way (nav
+    // pre-5a, traversal post-5a), within D5's deferred envelope.
     if let Some(nav_req) = state.pipeline.runtime.take_pending_navigation() {
         let resolved = resolve_nav_url(state.pipeline.url.as_ref(), &nav_req.url);
         if let Some(target_url) = resolved {
@@ -233,8 +268,17 @@ pub(super) fn process_pending_actions(state: &mut ContentState) -> bool {
         }
     }
 
-    if let Some(action) = state.pipeline.runtime.take_pending_history() {
-        handle_history_action(state, &action);
+    // No navigation applied — a pure-history turn ships its display list now and
+    // reports the own-context action (preserving the prior single-action path
+    // exactly: history-only turns render + return true).
+    //
+    // Caveat — for a pure TRAVERSAL turn (e.g. `history.back()` alone),
+    // `handle_navigate`'s own `notify_navigation` already sent a display list, so
+    // this trailing send is a second one. That double-send is PRE-EXISTING (the
+    // old order ran the identical `handle_history_action(...); send_display_list()`
+    // pair) and is unchanged by 5a; the no-redundant-double-send guarantee above
+    // is about the pushState+navigation case, not traversal.
+    if history_applied {
         state.send_display_list();
         return true;
     }
