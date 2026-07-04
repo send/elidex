@@ -552,7 +552,7 @@ predicate):
 | handler-attr compile | `ensure_event_handler_current` (exists, :554-560) | the ONLY raw-source→callable path |
 | handler invocation | same reconcile point + processing-step-1 check before invoke (§5.1) | dispatch cannot reach a handler-derived callable except via the chokepoint |
 | modals | `cannot_show_simple_dialogs(...)` helper called as step 1 of each of the 3 natives — natives return before any presentation branch exists | a future shell modal surface can only be driven from behind the gate |
-| popups / open-tab | the open-tab **back-channel enqueue** is gated (not the shell drain): a blocked popup never enters `pending_open_tabs` | shell drains can't leak what was never queued |
+| popups / open-tab | the open-tab **back-channel enqueue** is gated (not the shell drain): a blocked popup never enters `pending_window_open` | shell drains can't leak what was never queued |
 | top-nav | `top_navigation_allowed` at the two producers (VM `window.open` `_top`/`_parent` arm; shell link-target site `event_handlers.rs:199-214`) | the only two top-nav producers |
 | fetch credentials/origin | broker-side `should_attach_cookies` equality + serialize-at-header-attach (§4.4) | opaque strips credentials by type-level equality failure, not an if-branch |
 | storage | `storage.rs:103` via `document_origin()` (exists) | bucket keyed by canonical origin |
