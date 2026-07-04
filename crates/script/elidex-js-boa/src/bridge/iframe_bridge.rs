@@ -114,13 +114,10 @@ impl HostBridge {
     }
 
     /// Check if modals (alert/confirm/prompt) are allowed.
+    /// Delegates to the canonical predicate home [`elidex_plugin::sandbox`].
     #[must_use]
     pub fn modals_allowed(&self) -> bool {
-        self.inner
-            .borrow()
-            .iframe
-            .sandbox_flags
-            .is_none_or(|f| f.contains(elidex_plugin::IframeSandboxFlags::ALLOW_MODALS))
+        elidex_plugin::sandbox::modals_allowed(self.inner.borrow().iframe.sandbox_flags)
     }
 
     /// Queue a postMessage for delivery in the next event loop tick.

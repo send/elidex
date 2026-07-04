@@ -142,11 +142,17 @@ pub(super) fn run_event_loop(state: &mut ContentState) {
 
         elidex_js_boa::bridge::local_storage::flush_dirty_stores();
 
-        for url in state.pipeline.runtime.bridge().drain_pending_open_tabs() {
-            // OpenNewTab is a user-visible chrome action — wake (a pure-async
-            // window.open with no DOM change would otherwise stall under Wait).
-            state.notify_browser(ContentToBrowser::OpenNewTab(url));
-        }
+        // window.open — route the ordered tab-creation / named-navigation
+        // queue (a user-visible chrome action, so we wake: a pure-async
+        // window.open with no DOM change would otherwise stall under Wait).
+        // Drained via the engine-agnostic session trait surface, not the boa
+        // bridge — the S5-6 flip swaps the runtime type here too (memo §4.3.2 /
+        // edge E4). Same ordered routing as `process_pending_actions`: a
+        // named-target open from a pure-async turn (timer / postMessage) MUST
+        // drain here too, not only `_blank`, or it would strand forever. A
+        // routed named HIT re-navigates an iframe → re-render.
+        let window_opens = state.pipeline.runtime.take_pending_window_opens();
+        needs_render |= super::navigation::route_window_opens(state, window_opens).navigated_iframe;
 
         if state.pipeline.runtime.bridge().take_pending_focus() {
             state.notify_browser(ContentToBrowser::FocusWindow);

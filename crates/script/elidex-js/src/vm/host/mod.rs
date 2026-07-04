@@ -361,6 +361,7 @@ pub(super) mod websocket;
 #[cfg(feature = "engine")]
 pub(super) mod websocket_dispatch;
 pub(super) mod window;
+pub(super) mod window_dialogs;
 #[cfg(feature = "engine")]
 pub(super) mod worker;
 #[cfg(feature = "engine")]

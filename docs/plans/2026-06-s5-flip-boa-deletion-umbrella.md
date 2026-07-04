@@ -280,7 +280,7 @@ edge-dense discipline requires so per-PR plan-reviews can pre-empt the cross-PR 
 |---|---|---|---|---|---|---|
 | **origin** (document_origin SoT, interim per-VM) | — | ✔ (opaque/sandbox fetch + iframe-origin-before-scripts) | ✔ (nav-origin-resync) | reads (batch context) | — | ✔ (cross-window origin checks) |
 | **sandbox flags** (scripts/forms/popups/modals) | — | ✔ (the cluster) | — | gate read (eval bracket) | — | ✔ (popup/top-nav) |
-| **navigation** (NavigationRequest back-channel) | — | — | ✔ (resync + sync-fragment) | drains (frame batch) | — | ✔ (aux context nav) |
+| **navigation** (NavigationRequest back-channel) | — | ✔ (S5-4c window.open open-tab / named-frame channels) | ✔ (resync + sync-fragment) | drains (frame batch) | — | ✔ (aux context nav) |
 | **history** (HistoryAction / traversal / popstate) | — | — | ✔ (drain-before-nav, traversal) | drains | — | — |
 | **focus** (`ElementState::FOCUS`, A2c synthetic) | — | — | ✔ (nav focus-reset) | ✔ (synthetic dom-event dispatch, A2c) | — | ✔ (cross-frame focus, world_id) |
 | **storage-event** (broadcast/emit) | — | — | — | ✔ (VM emit-site at cutover) | — | ✔ (cross-window) |

@@ -49,9 +49,29 @@ use super::super::VmInner;
 /// accepts both absolute and relative inputs per WHATWG URL §4.4 —
 /// an absolute input replaces the base, a relative input composes.
 /// Returns `None` on parse failure; the caller translates that to a
-/// `DOMException("SyntaxError")`.
-fn resolve_url(ctx: &NativeContext<'_>, input: &str) -> Option<Url> {
+/// `DOMException("SyntaxError")`.  Shared with the `window.open` native
+/// (`super::window`), whose §7.2.2.1 step 4.1 is the same
+/// encoding-parse-relative-to-the-document operation.
+pub(super) fn resolve_url(ctx: &NativeContext<'_>, input: &str) -> Option<Url> {
     ctx.vm.navigation.current_url.join(input).ok()
+}
+
+/// [`resolve_url`] plus the shared parse-failure translation: a `None`
+/// becomes a `DOMException("SyntaxError")` whose message names the failing
+/// operation (`context`, e.g. `"set 'href' on 'Location'"`).  Every
+/// URL-taking navigation native (`href=`/`assign`/`replace`, `window.open`)
+/// throws this same shape on an unparseable input.
+pub(super) fn resolve_url_or_syntax_error(
+    ctx: &NativeContext<'_>,
+    input: &str,
+    context: &str,
+) -> Result<Url, VmError> {
+    resolve_url(ctx, input).ok_or_else(|| {
+        VmError::dom_exception(
+            ctx.vm.well_known.dom_exc_syntax_error,
+            format!("Failed to {context}: invalid URL '{input}'."),
+        )
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -113,13 +133,7 @@ pub(super) fn native_location_set_href(
     let arg = args.first().copied().unwrap_or(JsValue::Undefined);
     let sid = coerce::to_string(ctx.vm, arg)?;
     let input = ctx.vm.strings.get_utf8(sid);
-    let Some(parsed) = resolve_url(ctx, &input) else {
-        let syntax = ctx.vm.well_known.dom_exc_syntax_error;
-        return Err(VmError::dom_exception(
-            syntax,
-            format!("Failed to set 'href' on 'Location': invalid URL '{input}'."),
-        ));
-    };
+    let parsed = resolve_url_or_syntax_error(ctx, &input, "set 'href' on 'Location'")?;
     set_location(ctx, &parsed, false);
     Ok(JsValue::Undefined)
 }
@@ -226,13 +240,7 @@ pub(super) fn native_location_assign(
     let arg = args.first().copied().unwrap_or(JsValue::Undefined);
     let sid = coerce::to_string(ctx.vm, arg)?;
     let input = ctx.vm.strings.get_utf8(sid);
-    let Some(parsed) = resolve_url(ctx, &input) else {
-        let syntax = ctx.vm.well_known.dom_exc_syntax_error;
-        return Err(VmError::dom_exception(
-            syntax,
-            format!("Failed to execute 'assign' on 'Location': invalid URL '{input}'."),
-        ));
-    };
+    let parsed = resolve_url_or_syntax_error(ctx, &input, "execute 'assign' on 'Location'")?;
     set_location(ctx, &parsed, false);
     Ok(JsValue::Undefined)
 }
@@ -245,13 +253,7 @@ pub(super) fn native_location_replace(
     let arg = args.first().copied().unwrap_or(JsValue::Undefined);
     let sid = coerce::to_string(ctx.vm, arg)?;
     let input = ctx.vm.strings.get_utf8(sid);
-    let Some(parsed) = resolve_url(ctx, &input) else {
-        let syntax = ctx.vm.well_known.dom_exc_syntax_error;
-        return Err(VmError::dom_exception(
-            syntax,
-            format!("Failed to execute 'replace' on 'Location': invalid URL '{input}'."),
-        ));
-    };
+    let parsed = resolve_url_or_syntax_error(ctx, &input, "execute 'replace' on 'Location'")?;
     set_location(ctx, &parsed, true);
     Ok(JsValue::Undefined)
 }

@@ -50,7 +50,10 @@ pub use mutation::{
     character_data_record, convert_arg_source_records, Mutation, MutationKind, MutationRecord,
     OuterHtmlError, SetInnerHtmlOptions,
 };
-pub use navigation::{HistoryAction, NavigationRequest};
+pub use navigation::{
+    window_open_disposition, HistoryAction, NamedFrameNavigation, NavigationRequest,
+    OpenTabRequest, WindowOpenDisposition, WindowOpenIntent,
+};
 pub use scripting::scripting_disabled_for_platform_object;
 pub use session::{CssomSheetState, SessionCore};
 pub use types::{ComponentKind, DomApiError, DomApiErrorKind, JsObjectRef, ReadyState};

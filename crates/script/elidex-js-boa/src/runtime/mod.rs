@@ -497,6 +497,51 @@ impl JsRuntime {
         self.bridge.take_pending_history()
     }
 
+    /// Drain the `window.open` tab-creation / named-navigation intents as the
+    /// engine-agnostic session type (WHATWG HTML §7.2.2.1), matching the
+    /// [`elidex_script_session::HostDriver::take_pending_window_opens`] method
+    /// so the shell drain sites are signature-identical — the S5-6 flip swaps
+    /// the runtime type without touching the drain logic (memo §4.3.2 / edge
+    /// E4).
+    ///
+    /// Mechanical wrapper over the two boa-private bridge queues
+    /// (`drain_pending_open_tabs` + `drain_pending_navigate_iframe`). boa
+    /// stores popup and named opens in **separate** bridge queues and does not
+    /// record their relative call order, so this concatenates popups then
+    /// named — a **best-effort** ordering that is the pre-flip boa baseline
+    /// (the same pre-existing cross-channel ordering gap boa had before this
+    /// wrapper; not feature work on the deletion-bound crate). The VM engine
+    /// is the one that preserves true call order, on its single ordered queue.
+    /// `aux_nav_allowed: true` **by construction** — boa's `window.open` entry
+    /// gate (`globals/window/mod.rs:359`) blocks ALL of `window.open` when
+    /// popups are sandboxed, so anything that reached these queues already
+    /// passed the popup gate; and `url: Some(...)` because boa resolves the
+    /// empty-url case to about:blank at enqueue (the VM carries `None`).
+    pub fn take_pending_window_opens(&mut self) -> Vec<elidex_script_session::WindowOpenIntent> {
+        use elidex_script_session::{NamedFrameNavigation, OpenTabRequest, WindowOpenIntent};
+        let popups = self
+            .bridge
+            .drain_pending_open_tabs()
+            .into_iter()
+            .map(|url| {
+                WindowOpenIntent::Popup(OpenTabRequest {
+                    url: url.to_string(),
+                })
+            });
+        let named = self
+            .bridge
+            .drain_pending_navigate_iframe()
+            .into_iter()
+            .map(|(name, url)| {
+                WindowOpenIntent::NamedFrame(NamedFrameNavigation {
+                    name,
+                    url: Some(url.to_string()),
+                    aux_nav_allowed: true,
+                })
+            });
+        popups.chain(named).collect()
+    }
+
     /// Set the session history length on the bridge.
     pub fn set_history_length(&self, len: usize) {
         self.bridge.set_history_length(len);

@@ -552,7 +552,7 @@ predicate):
 | handler-attr compile | `ensure_event_handler_current` (exists, :554-560) | the ONLY raw-source→callable path |
 | handler invocation | same reconcile point + processing-step-1 check before invoke (§5.1) | dispatch cannot reach a handler-derived callable except via the chokepoint |
 | modals | `cannot_show_simple_dialogs(...)` helper called as step 1 of each of the 3 natives — natives return before any presentation branch exists | a future shell modal surface can only be driven from behind the gate |
-| popups / open-tab | the open-tab **back-channel enqueue** is gated (not the shell drain): a blocked popup never enters `pending_open_tabs` | shell drains can't leak what was never queued |
+| popups / open-tab | the open-tab **back-channel enqueue** is gated (not the shell drain): a blocked popup never enters `pending_window_open` | shell drains can't leak what was never queued |
 | top-nav | `top_navigation_allowed` at the two producers (VM `window.open` `_top`/`_parent` arm; shell link-target site `event_handlers.rs:199-214`) | the only two top-nav producers |
 | fetch credentials/origin | broker-side `should_attach_cookies` equality + serialize-at-header-attach (§4.4) | opaque strips credentials by type-level equality failure, not an if-branch |
 | storage | `storage.rs:103` via `document_origin()` (exists) | bucket keyed by canonical origin |
@@ -763,6 +763,71 @@ no new state.
 
 ### §5.3 S5-4c — VM sandbox method gates + modals + window.open
 
+**✅ LANDED (2026-07-04)** — **⚠ POST-LANDING DESIGN CORRECTION (Codex R1+R2 convergence)**: the
+§4.3.2 **two-queue** back-channel (`pending_open_tabs` + `pending_frame_navigations`) was replaced by
+a **single ordered queue** `pending_window_open: VecDeque<WindowOpenIntent>` (`WindowOpenIntent =
+Popup(OpenTabRequest) | NamedFrame(NamedFrameNavigation)`), draining via ONE
+`HostDriver::take_pending_window_opens` routed by ONE shell `route_window_opens`. Two independent
+queues were the root defect behind two Codex findings: R1 (an async pump drained only one queue → a
+named `window.open` from a timer/postMessage stranded forever) and R2 (cross-call order lost → a later
+`_blank` surfaced before an earlier named MISS). A single ordered FIFO dissolves both (call order
+preserved by construction; one drain method makes "drain only one queue" unrepresentable) and satisfies
+the memo's own §4.3.2 "multiple `window.open` calls in one task must all surface" + CLAUDE.md
+"One issue, one way". The §4.3.2 two-queue design text (above, incl. its `take_pending_open_tabs()` /
+`take_pending_frame_navigations()` / `route_frame_navigations` seam names) is SUPERSEDED by this note —
+those intermediate names do NOT exist in the delivered code; the real seams are
+`take_pending_window_opens` / `route_window_opens` over the one `WindowOpenIntent` queue. — implemented
+as spec'd below with these impl-contact refinements (stated in terms of the FINAL delivered API):
+(1) **App-mode is drain-AND-DROP, not routing** (refines §4.3.2's "same trait call" claim): inline
+interactive `app/navigation.rs` drains the ordered window.open queue (`take_pending_window_opens`) but has
+no new-tab facility (`ChromeAction::NewTab` is a threaded-mode-only no-op inline) and no iframe registry,
+so it drains-to-drop for leak-prevention only; real routing lives in the content-thread
+`process_pending_actions`. (2) All `window.open` routing (popup + named, in call order) is ONE
+`pub(crate) route_window_opens` in `content/navigation.rs` (Popup → `OpenNewTab`; NamedFrame HIT → ungated
+`navigate_iframe`; MISS → `OpenNewTab` iff `aux_nav_allowed`), shared by both drain pumps; the MISS-gate
+is unit-testable on synthesized intents (the boa path can only produce `aux_nav_allowed: true`).
+(3) Drain sites re-parse the channel `url: String` into `url::Url` (VM/boa resolve to absolute
+pre-enqueue; parse-failure skips). (4) boa's `JsRuntime` gained ONE engine-agnostic
+`take_pending_window_opens` wrapper concatenating its two private bridge drains (popups then named —
+best-effort order matching boa's prior effective order; `aux_nav_allowed: true` by construction, entry
+gate already passed) so the shell drain is signature-identical to `HostDriver` and the S5-6 flip swaps
+the runtime type without touching it (E4). (5) The link-top-nav re-key end-to-end regression is pinned at the predicate seam only — no
+shell click-simulation harness exists and blocked/allowed both terminate in `send_display_list`
+(indistinguishable on the channel); gap documented in-test. `event_handlers.rs` = 997 lines post-edit
+(under 1000, no restructure). **Post-review refinements** (pre-push `/code-review` + `/elidex-review`):
+(6) **Empty-url urlRecord is threaded as `Option`, NOT pre-resolved to about:blank** (§7.2.2.1 steps
+3-4/15.3/16.1 — webref-verified): `window.open("", "_self")`/`_top`/`_parent` and a named-target HIT are
+NO-OPs (an existing navigable is navigated only for a non-null urlRecord, step 16.1), while a `_blank`/popup
+or named-MISS *new* navigable defaults to about:blank (step 15.3). This corrected a real bug in the first
+draft (empty-url `_self` destroyed the current document). `NamedFrameNavigation.url` is `Option<String>`
+so the existing-vs-new choice stays the shell's (resolved at frame-tree lookup). A whitespace-only url is
+NOT empty (JS-empty check, spec step 4) — it URL-parses to the document URL, a deliberate divergence from
+boa's non-spec `trim()` guard. (7) `HostDriver::modals_allowed` was NOT added to the session trait after
+all (deviation from the §5.3 scope-1 "session-trait surface" line): the modals gate is entirely
+engine-internal (the `alert`/`confirm`/`prompt` natives), the shell has no modal gate to drive, so — like
+`scripts_allowed` (also engine-internal, off the trait) — it lives only as `HostData::modals_allowed`;
+a trait method would be dead surface. (8) `window.rs` crossed 1000 (784→1021) via the four natives → the
+dialog/open group was split into the sibling `vm/host/window_dialogs.rs` (touch-time cohesion seam;
+window.rs back to 791). (9) **Single ordered `window.open` queue** (Codex R2 root fix — see the
+DESIGN CORRECTION note above): the two back-channels collapsed into one `pending_window_open:
+VecDeque<WindowOpenIntent>`, one `take_pending_window_opens` drain, one `route_window_opens` routing
+home — call order preserved by construction across popup + named intents, and the async-pump drain gap
+(R1) becomes unrepresentable. (10) The queue's overflow spam-clamp (`MAX_PENDING_WINDOW_OPENS`, drops
+the NEW intent past the bound) is pinned by test. (11) **Codex R5 drain-correctness triple**: (a)
+`process_pending_actions` now drains the (non-destructive) window.open queue BEFORE the pipeline-replacing
+own-context navigation — a same-turn `window.open('_blank'); window.open('_self')` no longer strands the
+popup (the two channels stay distinct effect classes: own-context nav = last-wins `pending_navigation`
+shared with `location.*`; other-context open = FIFO `pending_window_open`, so no queue unification needed —
+the bug was drain ORDER); (b) `process_pending_actions` now returns `true` only for an OWN-CONTEXT navigation (`location.*` /
+`window.open('_self'/'_top')` / history), NOT for `window.open` tab/iframe opens — those act on OTHER
+contexts and are applied but must not suppress a co-located link's default `<a href>` navigation (a browser
+opens the popup AND navigates the link). `route_window_opens` returns
+`WindowOpenOutcome { navigated_iframe, any_effect }`; `any_effect` gates only the display-list flush (a no-op
+MISS / empty-url HIT / blocked scheme sends nothing), so Codex F1's no-op-suppresses-link case AND the
+broader real-popup-suppresses-link case are both closed; (c) all window.open tab/iframe URLs route through the shell's `resolve_nav_url` chokepoint, so a
+`javascript:`/`vbscript:` `window.open` is blocked like link/location navigation. **CLOSES
+`#11-vm-sandbox-method-gates-and-modals`.**
+
 **Scope**: (1) `ALLOW_MODALS` predicate + `ALLOW_TOP_NAVIGATION_BY_USER_ACTIVATION` bit + token
 parse + `top_navigation_allowed` (§4.3.3) in `elidex-plugin`; `modals_allowed` VM accessor
 (`HostData`) + session-trait surface (parity with `forms_allowed`/`popups_allowed` — the trait gap
@@ -917,7 +982,30 @@ integration (same posture as S5-3a/b/c):
   + choosing a navigable step 8, "create a new top-level traversable" case, substep 9), *one
   permitted sandboxed navigator*, features tokenization (noopener/noreferrer). These facets FOLD
   into the existing `#11-browsing-context-model-window-open-postmessage` slot — appending them to
-  that slot's ledger text at 4c landing is a registered landing deliverable. (Named-target-miss →
+  that slot's ledger text at 4c landing is a registered landing deliverable.
+  **⚠ ADDED at Codex R6 (2026-07-04, adversarial cumulative re-gate-adjudicated OUT-OF-SCOPE)** — two
+  more window.open facets FOLD into the SAME slot, both genuine cross-PR boundaries needing the
+  deferred call-time-navigable / browsing-context model (NOT bounded-fixable in S5-4c's engine/shell
+  layering; re-gate verdict, no security bypass):
+  **(T2) Call-time vs drain-time named-target resolution** — HTML §7.2.2.1/§7.3.1.7 resolve the
+  navigable DURING the `window.open()` call; elidex resolves the name against the live frame tree at
+  DRAIN time (shell `find_iframe_by_name`), so a frame inserted/renamed between the call and the drain
+  can flip a call-time MISS into a HIT. This is exactly the E3 (§2.8) documented NAME-axis deviation.
+  Un-fixable in-scope: the VM native (engine-side) has no reference to the shell's `state.iframes` /
+  parent `EcsDom` — resolving at call time IS the navigable model. Non-security: the aux-nav verdict is
+  snapshotted at call time and rides the payload (no sandbox bypass either way).
+  **(T3) Iframe-originated window.open opens strand** — `process_pending_actions` drains only the
+  PARENT pipeline's runtime; a script inside an in-process iframe (routed via
+  `try_route_click_to_iframe`) queues its intents on the CHILD pipeline's runtime, which nothing
+  drains. **PRE-EXISTING whole-iframe-intent-drain gap, NOT an S5-4c regression**: iframe-internal
+  `location.href` / `history.back` / a plain `<a target="_blank">` click ALL strand identically today
+  — no script/link navigation intent from an in-process iframe is drained anywhere; S5-4c merely added
+  `window.open` to that already-un-drained surface. A `_blank`-only partial forward is technically
+  bounded but would be a One-issue-one-way strangler half-measure (leaving iframe location/history/
+  named-open stranded); the clean fix is UNIFORM iframe-pipeline intent draining (iframe pipelines get
+  the same drain treatment as the parent) = the iframe browsing-context integration. First insertion
+  point when that lands: the `Popup`/`_blank` arm (its intent carries an absolute URL + the iframe's
+  own call-time sandbox verdict). (Named-target-miss →
   popup promotion is NOT in the fold: it is HANDLED by the §5.3.2 snapshot-verdict gate.) The fold
   ALSO carries the §5.3.2 named-HIT revisit clause: "HIT ungated" rests on the descendant-only
   `find_iframe_by_name` lookup (source = ancestor of target → §7.4.2.4 step 2 discharges); if

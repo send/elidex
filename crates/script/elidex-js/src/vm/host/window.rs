@@ -622,6 +622,13 @@ const WINDOW_METHODS: &[(&str, super::super::NativeFn)] = &[
     // CSSOM-View §4 "Extensions to the Window Interface": `matchMedia(query)`
     // returns a live `MediaQueryList` (CSSOM-View §4.2).
     ("matchMedia", super::media_query::native_window_match_media),
+    // WHATWG HTML §8.9.1 simple dialogs + §7.2.2.1 window.open — the
+    // sandbox-gated method group (S5-4c); marshal-only natives live in the
+    // sibling `window_dialogs` module.
+    ("alert", super::window_dialogs::native_window_alert),
+    ("confirm", super::window_dialogs::native_window_confirm),
+    ("prompt", super::window_dialogs::native_window_prompt),
+    ("open", super::window_dialogs::native_window_open),
 ];
 
 // `pageXOffset` / `pageYOffset` are spec aliases for `scrollX` /

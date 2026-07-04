@@ -11,7 +11,7 @@ use elidex_ecs::{EcsDom, Entity};
 use crate::event_dispatch::DispatchEvent;
 use crate::event_listener::ListenerId;
 use crate::mutation::MutationRecord;
-use crate::navigation::{HistoryAction, NavigationRequest};
+use crate::navigation::{HistoryAction, NavigationRequest, WindowOpenIntent};
 use crate::session::SessionCore;
 
 /// Result of evaluating a script.
@@ -272,6 +272,18 @@ pub trait HostDriver {
     /// turn each commit an independent session-history mutation.
     fn take_pending_history(&mut self) -> Vec<HistoryAction>;
 
+    /// Drain the `window.open` tab-creation / named-navigation intents
+    /// (WHATWG HTML §7.2.2.1) as ONE ordered [`Vec`] in **call order** —
+    /// popup (`_blank`) and named opens interleaved on a single FIFO, because
+    /// both become user-visible browser actions and the page's issue order
+    /// must be preserved (two separate queues would let a later `_blank`
+    /// surface before an earlier named MISS). The shell drains this each pump
+    /// (see [`WindowOpenIntent`](crate::WindowOpenIntent) for how each variant
+    /// routes); the enqueue is popup-gated (a sandbox-blocked popup never
+    /// enters the queue). boa's private bridge channels coexist with this
+    /// drain only until the S5-6 flip deletes the crate.
+    fn take_pending_window_opens(&mut self) -> Vec<WindowOpenIntent>;
+
     /// Push the authoritative session-history position — the current entry's
     /// 0-based `index` and total `length` — together (so they never desync) after
     /// a navigation/traversal commit, so `history.length` reads correctly and the
@@ -321,6 +333,16 @@ pub trait HostDriver {
     /// predicate home `elidex_plugin::sandbox` over their stored flags.
     #[must_use]
     fn popups_allowed(&self) -> bool;
+
+    // `modals_allowed` is intentionally NOT on this trait: unlike
+    // `forms_allowed` / `popups_allowed` (consulted shell-side for the
+    // form-submit / link-target gates), the *sandboxed modals flag* (§7.1.5)
+    // is enforced entirely inside the engine's `alert`/`confirm`/`prompt`
+    // natives (HTML §8.9.1 *cannot show simple dialogs* step 1) — the shell
+    // has no modal gate to drive. So it lives only as the engine-internal
+    // predicate (`HostData::modals_allowed` → `elidex_plugin::sandbox`),
+    // matching the `scripts_allowed` precedent (also engine-internal, off
+    // this trait). Adding it here would be an unconsumed trait surface.
 
     /// The iframe nesting depth of this document (`0` = top-level).
     #[must_use]
