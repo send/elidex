@@ -135,7 +135,7 @@ fn obtain_sw_source(script_url: &url::Url, handle: &NetworkHandle) -> Result<Str
     let request = elidex_net::Request {
         method: "GET".to_string(),
         url: script_url.clone(),
-        origin: Some(script_url.origin()),
+        origin: Some(elidex_plugin::SecurityOrigin::from_url(script_url)),
         credentials: CredentialsMode::SameOrigin,
         mode: elidex_net::RequestMode::SameOrigin,
         headers: vec![("Service-Worker".to_string(), "script".to_string())],

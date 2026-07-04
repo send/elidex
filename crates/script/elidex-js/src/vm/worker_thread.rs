@@ -123,7 +123,7 @@ fn obtain_worker_source(
     let request = elidex_net::Request {
         method: "GET".to_string(),
         url: script_url.clone(),
-        origin: Some(script_url.origin()),
+        origin: Some(elidex_plugin::SecurityOrigin::from_url(script_url)),
         credentials,
         mode: elidex_net::RequestMode::SameOrigin,
         ..Default::default()

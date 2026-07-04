@@ -891,6 +891,8 @@ read bound HostData by construction).
 
 ### §5.4 S5-4d — fetch opaque-origin isolation
 
+**✅ LANDED (2026-07-04)**
+
 **Scope**: the §4.4 type unification (`Request.origin: Option<SecurityOrigin>`) + re-keying the
 three VM dispatch sites onto `document_origin()` + serializer swaps (header/preflight/CORS) + the
 cookie-equality gate. Soft-dep on S5-4b: without it a sandboxed iframe's *initial* scripts still
@@ -976,7 +978,7 @@ integration (same posture as S5-3a/b/c):
 
 ---
 
-## §8 Deferred carves (+ audits; cap ≤3 — actual: 4c = 1 new (D2) + 1 fold-append (D1); 4a = 1 new (D4, external-review predicate-hardening) [D3 NOT created — §9-Q3 resolved representable]; others 0)
+## §8 Deferred carves (+ audits; cap ≤3 — actual: 4c = 1 new (D2) + 1 fold-append (D1); 4a = 1 new (D4, external-review predicate-hardening) [D3 NOT created — §9-Q3 resolved representable]; 4d = 1 new (D5, dedicated-worker settings-origin seed); others 0)
 
 - **D1 (FOLD — no new slot minted)**: popup sandboxing-flag-set propagation (§7.1.5 propagate-flag
   + choosing a navigable step 8, "create a new top-level traversable" case, substep 9), *one
@@ -1061,6 +1063,23 @@ predicate, invoked at §8.1.8.1 step 1) uses a composed-tree-root
   (`selection.rs`, `document_base.rs`, the `ownerDocument` getter, `href`/`baseURI`) noted in the
   R2/R4 same-pattern audits. **Trigger**: a DOM adoption implementation, or a WPT/site exercising
   DOMParser-node adoption + event dispatch. **Re-eval**: **2026-10-31**.
+- **D5 `#11-dedicated-worker-settings-origin-seed`** (carved by S5-4d): a dedicated worker's
+  `fetch()` carries the `about:blank` opaque `"null"` origin instead of its script origin, because
+  `run_worker_with_source` never seeds `navigation.current_url` (unlike `sw_thread.rs:198`, which
+  does). So after S5-4d re-keys fetch to `document_origin()`, dedicated-worker fetch is opaque while
+  the same worker's `importScripts`/source-load carry the real tuple origin via `from_url(script_url)`.
+  **Why deferred**: PRE-EXISTING (worker fetch was already opaque `about:blank` pre-S5-4d — not a
+  regression); it is a worker-realm settings-object-origin BOOTSTRAP concern, distinct from S5-4d's
+  plan-reviewed fetch-broker-origin-TYPE scope; the fix (seed `current_url` in
+  `run_worker_with_source`, mirroring `sw_thread.rs:198`) is a behavior change needing its own test +
+  spec check for the dedicated-worker origin. **Audit**: spec-core? yes (HTML worker settings-object
+  origin); one-way? yes — the ideal end-state makes `document_origin()` canonical across ALL realms
+  and lets `importScripts` drop its `from_url(script_url)` hand-roll (true One-issue-one-way);
+  pragmatic-debt? the interim over-restricts (a dedicated worker's same-origin `fetch()` is treated
+  as opaque = fail-closed, safe direction for a security-adjacent gate); repeat-signal? worker-realm
+  origin seeding recurs across postMessage / WebSocket / storage readers. **Trigger**: worker-realm
+  origin work / when dedicated-worker same-origin `fetch()` support is needed. **Re-eval**:
+  **2026-09-30** (backstop, same cadence as 4c's D2).
 
 - **Slot-trigger disposition (existing slots, no new carve)**:
   `#11-storage-opaque-origin-securityerror` + `#11-cookie-opaque-origin-securityerror` (§1.3) —

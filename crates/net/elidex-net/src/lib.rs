@@ -41,7 +41,7 @@ pub mod ws;
 use std::sync::Arc;
 
 use bytes::Bytes;
-use elidex_plugin::NetworkMiddleware;
+use elidex_plugin::{NetworkMiddleware, SecurityOrigin};
 
 pub use cancel::CancelHandle;
 pub use cookie_jar::{CookieJar, CookieSnapshot};
@@ -85,9 +85,12 @@ pub enum RedirectMode {
 /// - [`CredentialsMode::Omit`]: never attach Cookie / never
 ///   store Set-Cookie from the response.
 /// - [`CredentialsMode::SameOrigin`] (default): attach + store
-///   only when `request.origin == request.url.origin()` (both
-///   are [`url::Origin`] values; the comparison is opaque-aware
-///   per WHATWG HTML §3.2.1.2).  When `request.origin` is
+///   only when `request.origin` equals the request URL's
+///   [`SecurityOrigin`].  Both are engine [`SecurityOrigin`]
+///   values, so an opaque initiator (sandboxed document /
+///   `data:` script) never matches a tuple URL origin — the
+///   credential strip is structural, not an ad hoc scheme check
+///   (WHATWG HTML §7.1.1).  When `request.origin` is
 ///   `None` (no document origin context — e.g. embedder-driven
 ///   loads), behaves as `Include` since there's no cross-origin
 ///   boundary to gate.
@@ -159,17 +162,21 @@ pub struct Request {
     /// loads** with no document context (initial navigation,
     /// favicon prefetch, etc.) — these set the field via
     /// `..Default::default()`.  Script-initiated requests from
-    /// the VM-side fetch path **always** populate this field,
-    /// including opaque initiator origins (`about:blank` /
-    /// `data:` scripts), which use [`url::Origin::Opaque`] and
-    /// serialise as `"null"` (Copilot R3 + R4 PR #133).  Used
-    /// for cookie attach gating when [`Request::credentials`]
-    /// is [`CredentialsMode::SameOrigin`].  Stored as
-    /// [`url::Origin`] (rather than a full URL) so the broker
-    /// never sees the initiator's path / query / fragment —
-    /// the comparison surface matches the cookie-attach
-    /// contract exactly.
-    pub origin: Option<url::Origin>,
+    /// the VM-side fetch path **always** populate this field
+    /// with the initiator's document [`SecurityOrigin`]
+    /// (resolved through the VM's `document_origin()` settings-
+    /// object-origin resolver), including opaque origins from a
+    /// sandboxed iframe / `about:blank` / `data:` script, which
+    /// serialise as `"null"` and never match a tuple origin.
+    /// Used for cookie attach gating when
+    /// [`Request::credentials`] is [`CredentialsMode::SameOrigin`].
+    /// Stored as an engine [`SecurityOrigin`] (rather than
+    /// `url::Origin`) so the broker speaks one origin type end to
+    /// end and can carry an identity-stable opaque origin — a
+    /// `url::Origin::Opaque` is freshly-unique per construction
+    /// and could not represent "same sandboxed document across
+    /// two fetches" (S5-4d).
+    pub origin: Option<SecurityOrigin>,
     /// How the broker should handle 3xx redirects.  Default:
     /// [`RedirectMode::Follow`].
     pub redirect: RedirectMode,
@@ -190,18 +197,19 @@ pub struct Request {
 /// §3.1.7).
 ///
 /// - `Omit`: never attach.
-/// - `SameOrigin`: attach iff `request.origin` (an
-///   [`url::Origin`]) equals the request URL's origin.  When
-///   `request.origin` is `None` (genuinely no document
-///   context — embedder-driven loads such as initial
-///   navigation / favicon prefetch), attach unconditionally so
-///   the navigation pipeline keeps the pre-PR5-cors behaviour
-///   for top-level loads.  **Opaque initiator origins**
-///   (`about:blank` / `data:` scripts) must be represented as
-///   `Some(url::Origin::Opaque(_))`, **not** `None` — opaque
-///   never matches a tuple origin so SameOrigin correctly
-///   blocks cookies for opaque-initiator cross-origin fetches
-///   (Copilot R3 + R5 PR #133).
+/// - `SameOrigin`: attach iff `request.origin` (a
+///   [`SecurityOrigin`]) equals the request URL's
+///   [`SecurityOrigin::from_url`].  When `request.origin` is
+///   `None` (genuinely no document context — embedder-driven
+///   loads such as initial navigation / favicon prefetch),
+///   attach unconditionally so the navigation pipeline keeps
+///   the pre-PR5-cors behaviour for top-level loads.  **Opaque
+///   initiator origins** (sandboxed document / `about:blank` /
+///   `data:` scripts) are represented as
+///   `Some(SecurityOrigin::Opaque(_))`, **not** `None` — opaque
+///   never equals a tuple origin *by type*, so SameOrigin
+///   strips cookies for an opaque-initiator cross-origin fetch
+///   structurally, not via a per-call scheme check (S5-4d).
 /// - `Include`: always attach.
 fn should_attach_cookies(request: &Request) -> bool {
     match request.credentials {
@@ -209,7 +217,7 @@ fn should_attach_cookies(request: &Request) -> bool {
         CredentialsMode::Include => true,
         CredentialsMode::SameOrigin => match &request.origin {
             None => true,
-            Some(source) => *source == request.url.origin(),
+            Some(source) => source.same_origin_with_url(&request.url),
         },
     }
 }
@@ -235,7 +243,7 @@ fn should_attach_cookies(request: &Request) -> bool {
 /// hop "blesses" through this gate.
 fn should_store_set_cookie_from(
     credentials: CredentialsMode,
-    origin: Option<&url::Origin>,
+    origin: Option<&SecurityOrigin>,
     response_url: &url::Url,
     redirect_tainted: bool,
 ) -> bool {
@@ -244,7 +252,7 @@ fn should_store_set_cookie_from(
         CredentialsMode::Include => true,
         CredentialsMode::SameOrigin => match origin {
             None => true,
-            Some(source) => *source == response_url.origin() && !redirect_tainted,
+            Some(source) => source.same_origin_with_url(response_url) && !redirect_tainted,
         },
     }
 }

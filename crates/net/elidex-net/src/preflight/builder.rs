@@ -35,7 +35,7 @@ pub fn build_preflight_request(orig: &Request) -> Request {
     }
 
     if let Some(origin) = &orig.origin {
-        headers.push(("Origin".to_string(), origin.ascii_serialization()));
+        headers.push(("Origin".to_string(), origin.serialize()));
     }
 
     Request {
@@ -183,5 +183,23 @@ mod tests {
         let p = build_preflight_request(&r);
         let origin = header_value(&p.headers, "origin").unwrap();
         assert_eq!(origin, "https://example.com");
+    }
+
+    /// S5-4d: an opaque initiator origin serialises the preflight
+    /// `Origin` header as `"null"` (HTML §7.1.1) — the value a
+    /// sandboxed document sends on its CORS preflight, produced by
+    /// the `SecurityOrigin::serialize()` swap (was
+    /// `url::Origin::ascii_serialization`).
+    #[test]
+    fn build_preflight_opaque_origin_serializes_null() {
+        let r = req_with(
+            "PUT",
+            "https://api.other.com/",
+            "data:text/plain,x", // opaque initiator origin
+            vec![],
+        );
+        let p = build_preflight_request(&r);
+        let origin = header_value(&p.headers, "origin").unwrap();
+        assert_eq!(origin, "null");
     }
 }
