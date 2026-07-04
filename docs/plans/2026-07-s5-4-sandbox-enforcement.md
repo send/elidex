@@ -982,7 +982,30 @@ integration (same posture as S5-3a/b/c):
   + choosing a navigable step 8, "create a new top-level traversable" case, substep 9), *one
   permitted sandboxed navigator*, features tokenization (noopener/noreferrer). These facets FOLD
   into the existing `#11-browsing-context-model-window-open-postmessage` slot — appending them to
-  that slot's ledger text at 4c landing is a registered landing deliverable. (Named-target-miss →
+  that slot's ledger text at 4c landing is a registered landing deliverable.
+  **⚠ ADDED at Codex R6 (2026-07-04, adversarial cumulative re-gate-adjudicated OUT-OF-SCOPE)** — two
+  more window.open facets FOLD into the SAME slot, both genuine cross-PR boundaries needing the
+  deferred call-time-navigable / browsing-context model (NOT bounded-fixable in S5-4c's engine/shell
+  layering; re-gate verdict, no security bypass):
+  **(T2) Call-time vs drain-time named-target resolution** — HTML §7.2.2.1/§7.3.1.7 resolve the
+  navigable DURING the `window.open()` call; elidex resolves the name against the live frame tree at
+  DRAIN time (shell `find_iframe_by_name`), so a frame inserted/renamed between the call and the drain
+  can flip a call-time MISS into a HIT. This is exactly the E3 (§2.8) documented NAME-axis deviation.
+  Un-fixable in-scope: the VM native (engine-side) has no reference to the shell's `state.iframes` /
+  parent `EcsDom` — resolving at call time IS the navigable model. Non-security: the aux-nav verdict is
+  snapshotted at call time and rides the payload (no sandbox bypass either way).
+  **(T3) Iframe-originated window.open opens strand** — `process_pending_actions` drains only the
+  PARENT pipeline's runtime; a script inside an in-process iframe (routed via
+  `try_route_click_to_iframe`) queues its intents on the CHILD pipeline's runtime, which nothing
+  drains. **PRE-EXISTING whole-iframe-intent-drain gap, NOT an S5-4c regression**: iframe-internal
+  `location.href` / `history.back` / a plain `<a target="_blank">` click ALL strand identically today
+  — no script/link navigation intent from an in-process iframe is drained anywhere; S5-4c merely added
+  `window.open` to that already-un-drained surface. A `_blank`-only partial forward is technically
+  bounded but would be a One-issue-one-way strangler half-measure (leaving iframe location/history/
+  named-open stranded); the clean fix is UNIFORM iframe-pipeline intent draining (iframe pipelines get
+  the same drain treatment as the parent) = the iframe browsing-context integration. First insertion
+  point when that lands: the `Popup`/`_blank` arm (its intent carries an absolute URL + the iframe's
+  own call-time sandbox verdict). (Named-target-miss →
   popup promotion is NOT in the fold: it is HANDLED by the §5.3.2 snapshot-verdict gate.) The fold
   ALSO carries the §5.3.2 named-HIT revisit clause: "HIT ungated" rests on the descendant-only
   `find_iframe_by_name` lookup (source = ancestor of target → §7.4.2.4 step 2 discharges); if
