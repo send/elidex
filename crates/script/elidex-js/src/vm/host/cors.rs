@@ -25,6 +25,7 @@
 
 #![cfg(feature = "engine")]
 
+use elidex_plugin::SecurityOrigin;
 use url::Url;
 
 use super::request_response::{RedirectMode, RequestMode, ResponseType};
@@ -42,19 +43,19 @@ pub(crate) struct FetchCorsMeta {
     pub(crate) request_url: Url,
     /// Document origin that initiated the fetch.  Script-
     /// initiated VM-side fetches **always** carry
-    /// `Some(source.origin())` — including opaque origins from
-    /// `data:` / `about:blank` initiators (which serialise as
-    /// `"null"` and never match a tuple origin, so they always
-    /// fall through to the cors path).  `None` is reserved for
-    /// **embedder-driven callers** that bypass the VM fetch
-    /// path entirely (initial navigation pipeline, favicon
-    /// prefetch); those paths don't construct `FetchCorsMeta`
-    /// in practice but the option preserves the contract.
-    /// Stored as [`url::Origin`] so the classifier compares
-    /// origin-to-origin without a `.origin()` round-trip and so
-    /// the classifier never sees the initiator's path / query /
-    /// fragment (Copilot R1 + R3 + R4, PR #133).
-    pub(crate) request_origin: Option<url::Origin>,
+    /// `Some(vm.document_origin())` — including the opaque origin
+    /// of a sandboxed iframe / `data:` / `about:blank` initiator
+    /// (which serialises as `"null"` and never matches a tuple
+    /// origin, so they always fall through to the cors path).
+    /// `None` is reserved for **embedder-driven callers** that
+    /// bypass the VM fetch path entirely (initial navigation
+    /// pipeline, favicon prefetch); those paths don't construct
+    /// `FetchCorsMeta` in practice but the option preserves the
+    /// contract.  Stored as an engine [`SecurityOrigin`] so the
+    /// broker and classifier speak one origin type end to end and
+    /// so the classifier never sees the initiator's path / query
+    /// / fragment (S5-4d).
+    pub(crate) request_origin: Option<SecurityOrigin>,
     /// `init.mode` (or the source `Request`'s mode for the
     /// Request-input path).
     pub(crate) request_mode: RequestMode,
@@ -113,18 +114,20 @@ pub(crate) enum CorsOutcome {
 /// - `mode = "navigate"` is internal and cannot be reached from
 ///   JS-facing fetch (parser rejects it).
 ///
-/// `request_origin` is the document / worker origin that
-/// initiated the fetch (the value populated by
-/// [`super::fetch::origin_for_request`]).  Script-initiated
-/// fetches always carry `Some(origin)` — including opaque
-/// origins from `data:` / `about:blank` initiators (the
+/// `request_origin` is the initiator document's
+/// [`SecurityOrigin`] (the value populated by
+/// `fetch::dispatch::fetch_request_origin` from
+/// `vm.document_origin()`).  Script-initiated fetches always
+/// carry `Some(origin)` — including the opaque origin of a
+/// sandboxed iframe / `data:` / `about:blank` initiator (the
 /// classifier compares the opaque origin against the response
-/// origin and proceeds through the cors path because opaque !=
-/// any tuple origin).  `None` is reserved for **embedder-driven
-/// callers** that bypass the VM fetch path entirely (initial
-/// document load, favicon prefetch); those genuinely have no
-/// script-origin context against which to compute "cross-
-/// origin" so the classifier falls through to `Basic`.
+/// origin and proceeds through the cors path because opaque
+/// equals no tuple origin).  `None` is reserved for
+/// **embedder-driven callers** that bypass the VM fetch path
+/// entirely (initial document load, favicon prefetch); those
+/// genuinely have no script-origin context against which to
+/// compute "cross-origin" so the classifier falls through to
+/// `Basic`.
 ///
 /// `is_redirect_tainted` is the broker's accumulated tainted
 /// flag — see [`elidex_net::Response::is_redirect_tainted`].
@@ -141,16 +144,15 @@ pub(crate) enum CorsOutcome {
 /// dispatch-time `request_credentials == Include` derivation
 /// which ignored the §4.4 step 14.5 redirect downgrade.
 ///
-/// Copilot R3 (finding 3): before this PR, `origin_for_request`
-/// returned `None` for non-HTTP(S) initiators (`data:` /
-/// `about:blank`), which made the classifier short-circuit to
-/// `Basic` and bypass CORS for opaque-origin scripts.  Fixed
-/// upstream in `origin_for_request`; this function's `None`
-/// path is now unreachable from VM-side fetch and only serves
-/// the embedder fallback contract.
+/// The initiator origin is threaded through verbatim from
+/// `fetch_request_origin` (never coerced to `None` for a
+/// non-HTTP(S) initiator), so an opaque-origin script runs the
+/// cross-origin cors path rather than short-circuiting to
+/// `Basic`; this function's `None` path is unreachable from
+/// VM-side fetch and only serves the embedder fallback contract.
 #[allow(clippy::too_many_arguments)] // CORS classifier inputs are spec-mandated, not refactorable
 pub(crate) fn classify_response_type(
-    request_origin: Option<&url::Origin>,
+    request_origin: Option<&SecurityOrigin>,
     request_url: &Url,
     request_mode: RequestMode,
     redirect_mode: RedirectMode,
@@ -188,8 +190,18 @@ pub(crate) fn classify_response_type(
     // in place as a sanity sentinel: a tainted=false chain whose
     // request URL is itself cross-origin (no redirects, just a
     // direct cross-origin fetch) must run the cors path.
-    let same_origin =
-        !is_redirect_tainted && *source == response_url.origin() && *source == request_url.origin();
+    //
+    // E7 (S5-4d): *serializing a request origin* has two
+    // independent `"null"` / cross-origin producers that must
+    // compose, not shadow. `!is_redirect_tainted` is the OUTER
+    // clause (a tainted chain is never same-origin, even for a
+    // tuple origin); the `SecurityOrigin` equality is the inner
+    // one (an opaque initiator equals no tuple, so a sandboxed
+    // document is cross-origin with everything). Both stay
+    // load-bearing.
+    let same_origin = !is_redirect_tainted
+        && *source == SecurityOrigin::from_url(response_url)
+        && *source == SecurityOrigin::from_url(request_url);
     if same_origin {
         return CorsOutcome::Ok(CorsClassification {
             response_type: ResponseType::Basic,
@@ -249,7 +261,7 @@ pub(crate) fn classify_response_type(
 ///
 /// For non-credentialed requests, `*` is accepted as before.
 fn cors_check_passes(
-    source: &url::Origin,
+    source: &SecurityOrigin,
     response_headers: &[(String, String)],
     credentialed_network: bool,
 ) -> bool {
@@ -268,7 +280,7 @@ fn cors_check_passes(
             !credentialed_network
         }
         Some(value) => {
-            let serialised = source.ascii_serialization();
+            let serialised = source.serialize();
             if !value.eq_ignore_ascii_case(&serialised) {
                 return false;
             }
@@ -377,10 +389,10 @@ mod tests {
         Url::parse(s).expect("valid url")
     }
 
-    /// Helper: build a [`url::Origin`] from a URL string for
+    /// Helper: build a [`SecurityOrigin`] from a URL string for
     /// the classifier's `request_origin` parameter.
-    fn origin(s: &str) -> url::Origin {
-        url(s).origin()
+    fn origin(s: &str) -> SecurityOrigin {
+        SecurityOrigin::from_url(&url(s))
     }
 
     #[test]
@@ -828,6 +840,34 @@ mod tests {
                 opaque_shape: false
             })
         ));
+    }
+
+    /// S5-4d / E7 inner clause: an **opaque** initiator is
+    /// same-origin with nothing, so even an untainted
+    /// (`is_redirect_tainted = false`), direct, same-URL fetch that
+    /// would classify `Basic` for a tuple origin instead runs the
+    /// cors path for a sandboxed document (→ `NetworkError` with no
+    /// ACAO).  This is the opaque→cross-origin producer firing
+    /// independently of the redirect-taint outer clause (whose
+    /// tuple-origin counterpart is
+    /// `tainted_chain_landing_same_origin_is_not_basic`) — the two
+    /// compose, neither shadows the other.
+    #[test]
+    fn opaque_initiator_untainted_same_url_is_not_basic() {
+        let source = SecurityOrigin::opaque();
+        let target = url("http://example.com/api");
+        let out = classify_response_type(
+            Some(&source),
+            &target,
+            RequestMode::Cors,
+            RedirectMode::Follow,
+            &target,
+            200,
+            &[],
+            false, // untainted: the strip is purely the opaque inner clause
+            false,
+        );
+        assert!(matches!(out, CorsOutcome::NetworkError));
     }
 
     /// PR-cors-redirect-preflight Copilot R2: an `Include`-mode

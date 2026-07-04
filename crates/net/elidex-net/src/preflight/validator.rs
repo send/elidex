@@ -39,7 +39,7 @@ pub fn validate_preflight_response(
     let request_origin = orig
         .origin
         .as_ref()
-        .map(url::Origin::ascii_serialization)
+        .map(elidex_plugin::SecurityOrigin::serialize)
         .unwrap_or_default();
     match acao.as_str() {
         "*" if credentialed => {

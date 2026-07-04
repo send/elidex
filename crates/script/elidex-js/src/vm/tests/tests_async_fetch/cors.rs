@@ -21,7 +21,9 @@ use std::rc::Rc;
 
 use elidex_net::broker::NetworkHandle;
 use elidex_net::{HttpVersion, Response as NetResponse};
+use elidex_plugin::SecurityOrigin;
 
+use super::super::super::host_data::HostData;
 use super::super::super::value::JsValue;
 use super::super::super::Vm;
 use super::{drain, mock_vm, ok_response};
@@ -64,7 +66,9 @@ fn fetch_threads_same_origin_credentials_redirect_to_broker() {
     assert_eq!(req.redirect, elidex_net::RedirectMode::Manual);
     assert_eq!(
         req.origin,
-        Some(url::Url::parse("http://example.com/page").unwrap().origin())
+        Some(elidex_plugin::SecurityOrigin::from_url(
+            &url::Url::parse("http://example.com/page").unwrap()
+        ))
     );
 }
 
@@ -248,9 +252,144 @@ fn fetch_threads_opaque_origin_for_about_blank_initiator() {
         .origin
         .as_ref()
         .expect("script-initiated fetch always carries Some(origin)");
-    // Opaque origins serialise as "null" per HTML §3.2.1.2.
-    assert_eq!(origin.ascii_serialization(), "null");
-    assert!(!origin.is_tuple());
+    // Opaque origins serialise as "null" per HTML §7.1.1.
+    assert_eq!(origin.serialize(), "null");
+    assert!(matches!(origin, elidex_plugin::SecurityOrigin::Opaque(_)));
+}
+
+// ---------------------------------------------------------------------------
+// S5-4d: sandboxed (opaque-origin) document fetch isolation.  A
+// sandboxed iframe has a TUPLE `current_url` (its src) but an OPAQUE
+// document origin — installed as a `document_origin()` override
+// before scripts run (S5-4b).  The fetch request origin must be that
+// override, NOT `current_url.origin()`, so the document is
+// cross-origin with everything (`Origin: null`, credential strip,
+// `mode: "same-origin"` always rejected).  This is the whole point
+// of the S5-4d re-key.
+// ---------------------------------------------------------------------------
+
+/// Build a VM whose document origin is a fixed **opaque** origin
+/// (mirroring S5-4b installing a sandboxed iframe's opaque origin
+/// override before its first script) while `current_url` is a real
+/// http(s) URL.  Returns the installed opaque origin so tests can
+/// assert identity against the recorded request origin.
+fn vm_with_opaque_document(
+    document_url: &str,
+    responses: Vec<(url::Url, Result<NetResponse, String>)>,
+) -> (Vm, Rc<NetworkHandle>, SecurityOrigin) {
+    let mut vm = Vm::new();
+    vm.install_host_data(HostData::new());
+    // A single, identity-stable opaque origin for this document.
+    let sandbox_origin = SecurityOrigin::opaque();
+    vm.host_data()
+        .expect("host data just installed")
+        .set_origin(sandbox_origin.clone());
+    vm.inner.navigation.current_url = url::Url::parse(document_url).expect("valid document URL");
+    let handle = Rc::new(NetworkHandle::mock_with_responses(responses));
+    vm.install_network_handle(handle.clone());
+    (vm, handle, sandbox_origin)
+}
+
+/// The fetch request origin is the document's opaque **override**,
+/// not the tuple origin of `current_url` — so even a fetch to the
+/// same host as `current_url` carries the opaque origin and emits
+/// `Origin: null`.  On the pre-S5-4d code (which keyed on
+/// `current_url.origin()`) this request would have carried the
+/// tuple `http://example.com` origin and NO `Origin` header
+/// (same-origin), so this pins the re-key onto `document_origin()`.
+#[test]
+fn sandboxed_fetch_carries_opaque_document_origin_not_current_url() {
+    let target = url::Url::parse("http://example.com/api").unwrap();
+    let (mut vm, handle, sandbox_origin) = vm_with_opaque_document(
+        "http://example.com/app",
+        vec![(target, Ok(ok_response("http://example.com/api", "ok")))],
+    );
+    vm.eval("fetch('http://example.com/api', {credentials: 'omit'});")
+        .unwrap();
+    let logged = handle.drain_recorded_requests();
+    assert_eq!(logged.len(), 1);
+    // request.origin is the opaque override, not the http tuple of current_url.
+    assert_eq!(logged[0].origin, Some(sandbox_origin));
+    // Cross-origin (opaque vs tuple) → `Origin: null` even though the
+    // URL host equals the document URL host.
+    let origin_header = logged[0]
+        .headers
+        .iter()
+        .find(|(name, _)| name.eq_ignore_ascii_case("origin"))
+        .map(|(_, v)| v.as_str());
+    assert_eq!(origin_header, Some("null"));
+}
+
+/// The opaque document origin is identity-stable: two fetches from
+/// the same document carry the SAME `Opaque(u64)`, so the broker can
+/// reason about "same sandboxed document" across requests (the
+/// property a per-construction-unique `url::Origin::Opaque` could
+/// not provide — the reason the broker speaks `SecurityOrigin`).
+#[test]
+fn sandboxed_fetch_opaque_origin_is_identity_stable_across_two_fetches() {
+    let (mut vm, handle, sandbox_origin) = vm_with_opaque_document(
+        "http://example.com/app",
+        vec![
+            (
+                url::Url::parse("http://example.com/api1").unwrap(),
+                Ok(ok_response("http://example.com/api1", "ok")),
+            ),
+            (
+                url::Url::parse("http://example.com/api2").unwrap(),
+                Ok(ok_response("http://example.com/api2", "ok")),
+            ),
+        ],
+    );
+    vm.eval("fetch('http://example.com/api1', {credentials: 'omit'});")
+        .unwrap();
+    vm.eval("fetch('http://example.com/api2', {credentials: 'omit'});")
+        .unwrap();
+    let logged = handle.drain_recorded_requests();
+    assert_eq!(logged.len(), 2);
+    let o0 = logged[0].origin.as_ref().expect("origin present");
+    let o1 = logged[1].origin.as_ref().expect("origin present");
+    assert!(matches!(o0, SecurityOrigin::Opaque(_)));
+    assert_eq!(o0, o1, "same document → same opaque origin across fetches");
+    assert_eq!(*o0, sandbox_origin);
+}
+
+/// A `mode: "same-origin"` fetch from an opaque document is
+/// rejected even when the target URL shares the host of
+/// `current_url` — an opaque origin is same-origin with nothing.
+/// The rejection fires before broker dispatch (no request logged),
+/// proving the gate reads `document_origin()`, not
+/// `current_url.origin()` (which would have classified this as
+/// same-origin and allowed it on the pre-S5-4d code).
+#[test]
+fn sandboxed_fetch_same_origin_mode_rejected_against_own_host() {
+    let (mut vm, handle, _sandbox_origin) = vm_with_opaque_document(
+        "http://example.com/app",
+        vec![(
+            url::Url::parse("http://example.com/api").unwrap(),
+            Ok(ok_response("http://example.com/api", "should-not-reach")),
+        )],
+    );
+    vm.eval(
+        "globalThis.r = 'unset'; \
+         fetch('http://example.com/api', {mode: 'same-origin'}) \
+             .catch(e => { globalThis.r = e.message; });",
+    )
+    .unwrap();
+    drain(&mut vm);
+    match vm.get_global("r") {
+        Some(JsValue::String(id)) => {
+            let msg = vm.get_string(id);
+            assert!(
+                msg.contains("cross-origin") || msg.contains("same-origin"),
+                "expected same-origin rejection for opaque document, got {msg:?}"
+            );
+        }
+        other => panic!("expected rejection, got {other:?}"),
+    }
+    assert!(
+        handle.drain_recorded_requests().is_empty(),
+        "opaque document's same-origin-mode fetch must reject before dispatch"
+    );
 }
 
 // ---------------------------------------------------------------------------

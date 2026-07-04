@@ -24,7 +24,7 @@ use crate::Request;
 /// even if the URL+origin matched a previous cache entry.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct PreflightCacheKey {
-    /// `request.origin.ascii_serialization()`.  `Some(_)` is
+    /// `request.origin.serialize()`.  `Some(_)` is
     /// required — preflight is only meaningful for cross-origin
     /// requests, which always have a document origin.
     origin: String,
@@ -52,7 +52,7 @@ impl PreflightCacheKey {
     /// would vary on auto-injected headers and force needless
     /// cache misses (Copilot R1).
     pub fn from_request(request: &Request) -> Option<Self> {
-        let origin = request.origin.as_ref()?.ascii_serialization();
+        let origin = request.origin.as_ref()?.serialize();
         let header_set = request
             .headers
             .iter()
@@ -165,7 +165,9 @@ mod tests {
             url: url::Url::parse(url).unwrap(),
             headers,
             body: Bytes::new(),
-            origin: Some(url::Url::parse(origin).unwrap().origin()),
+            origin: Some(elidex_plugin::SecurityOrigin::from_url(
+                &url::Url::parse(origin).unwrap(),
+            )),
             redirect: RedirectMode::Follow,
             credentials: CredentialsMode::SameOrigin,
             mode: RequestMode::Cors,

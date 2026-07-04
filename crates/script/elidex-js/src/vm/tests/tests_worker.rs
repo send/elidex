@@ -292,7 +292,9 @@ fn import_scripts_fetches_validates_and_runs() {
         let req = recorded.last().expect("importScripts issued a request");
         assert_eq!(
             req.origin,
-            Some(Url::parse(WORKER_URL).unwrap().origin()),
+            Some(elidex_plugin::SecurityOrigin::from_url(
+                &Url::parse(WORKER_URL).unwrap()
+            )),
             "importScripts request must carry the worker origin"
         );
         assert_eq!(req.credentials, CredentialsMode::SameOrigin);

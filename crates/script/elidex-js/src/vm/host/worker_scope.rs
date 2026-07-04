@@ -434,7 +434,7 @@ pub(in crate::vm) fn native_import_scripts(
     // `{ credentials: 'include' }` worker could leak cookies cross-origin.
     // Cross-origin classic `importScripts` (no-cors) is intentionally
     // restricted to this PR's same-origin scope.
-    let worker_origin = base.origin();
+    let worker_origin = elidex_plugin::SecurityOrigin::from_url(&base);
     let Some(handle) = ctx.vm.network_handle.clone() else {
         return Err(VmError::type_error(
             "NetworkError: no network handle installed on this worker",

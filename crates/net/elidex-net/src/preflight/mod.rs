@@ -128,7 +128,7 @@ pub fn requires_preflight(request: &Request) -> bool {
 /// only reachable from a misconfigured caller.
 fn is_same_origin(request: &Request) -> bool {
     match &request.origin {
-        Some(origin) => *origin == request.url.origin(),
+        Some(origin) => *origin == elidex_plugin::SecurityOrigin::from_url(&request.url),
         None => false,
     }
 }
@@ -366,7 +366,9 @@ pub(super) fn req_with(
         url: url::Url::parse(url).unwrap(),
         headers,
         body: bytes::Bytes::new(),
-        origin: Some(url::Url::parse(origin).unwrap().origin()),
+        origin: Some(elidex_plugin::SecurityOrigin::from_url(
+            &url::Url::parse(origin).unwrap(),
+        )),
         mode: RequestMode::Cors,
         ..Default::default()
     }

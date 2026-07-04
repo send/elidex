@@ -12,6 +12,7 @@
 #![cfg(test)]
 
 use super::*;
+use elidex_plugin::SecurityOrigin;
 use std::sync::{Arc as StdArc, Mutex as StdMutex};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
@@ -83,7 +84,9 @@ fn cors_request(method: &str, port: u16, headers: Vec<(String, String)>) -> Requ
         url: url::Url::parse(&format!("http://127.0.0.1:{port}/data")).unwrap(),
         headers,
         body: Bytes::new(),
-        origin: Some(url::Url::parse("http://example.com/").unwrap().origin()),
+        origin: Some(SecurityOrigin::from_url(
+            &url::Url::parse("http://example.com/").unwrap(),
+        )),
         mode: RequestMode::Cors,
         credentials: CredentialsMode::SameOrigin,
         redirect: RedirectMode::Follow,
@@ -265,7 +268,9 @@ async fn cors_redirect_with_include_downgrades_credentials_for_set_cookie_storag
         url: url::Url::parse(&format!("http://127.0.0.1:{port_a}/start")).unwrap(),
         headers: Vec::new(),
         body: Bytes::new(),
-        origin: Some(url::Url::parse("http://example.com/").unwrap().origin()),
+        origin: Some(SecurityOrigin::from_url(
+            &url::Url::parse("http://example.com/").unwrap(),
+        )),
         mode: RequestMode::Cors,
         credentials: CredentialsMode::Include,
         redirect: RedirectMode::Follow,
@@ -401,7 +406,9 @@ async fn cors_redirect_re_preflights_and_succeeds() {
         url: url::Url::parse(&format!("http://127.0.0.1:{origin_port}/start")).unwrap(),
         headers: Vec::new(),
         body: Bytes::new(),
-        origin: Some(url::Url::parse("http://example.com/").unwrap().origin()),
+        origin: Some(SecurityOrigin::from_url(
+            &url::Url::parse("http://example.com/").unwrap(),
+        )),
         mode: RequestMode::Cors,
         credentials: CredentialsMode::SameOrigin,
         redirect: RedirectMode::Follow,
@@ -467,7 +474,9 @@ async fn cors_redirect_re_preflight_failure_blocks() {
         url: url::Url::parse(&format!("http://127.0.0.1:{origin_port}/start")).unwrap(),
         headers: Vec::new(),
         body: Bytes::new(),
-        origin: Some(url::Url::parse("http://example.com/").unwrap().origin()),
+        origin: Some(SecurityOrigin::from_url(
+            &url::Url::parse("http://example.com/").unwrap(),
+        )),
         mode: RequestMode::Cors,
         credentials: CredentialsMode::SameOrigin,
         redirect: RedirectMode::Follow,
@@ -503,7 +512,9 @@ async fn cors_redirect_simple_request_no_re_preflight() {
         url: url::Url::parse(&format!("http://127.0.0.1:{origin_port}/start")).unwrap(),
         headers: Vec::new(),
         body: Bytes::new(),
-        origin: Some(url::Url::parse("http://example.com/").unwrap().origin()),
+        origin: Some(SecurityOrigin::from_url(
+            &url::Url::parse("http://example.com/").unwrap(),
+        )),
         mode: RequestMode::Cors,
         credentials: CredentialsMode::SameOrigin,
         redirect: RedirectMode::Follow,
@@ -576,7 +587,9 @@ async fn cors_redirect_re_preflight_cache_hit() {
         url: url::Url::parse(&format!("http://127.0.0.1:{port}/start")).unwrap(),
         headers: Vec::new(),
         body: Bytes::new(),
-        origin: Some(url::Url::parse("http://example.com/").unwrap().origin()),
+        origin: Some(SecurityOrigin::from_url(
+            &url::Url::parse("http://example.com/").unwrap(),
+        )),
         mode: RequestMode::Cors,
         credentials: CredentialsMode::SameOrigin,
         redirect: RedirectMode::Follow,
@@ -618,14 +631,14 @@ async fn cors_redirect_tainted_chain_blocks_cookie_storage() {
         b"HTTP/1.1 200 OK\r\nSet-Cookie: tainted=yes; Path=/\r\nContent-Length: 1\r\nConnection: close\r\n\r\nL".to_vec(),
     ])
     .await;
-    let initiator_origin = url::Url::parse(&format!("http://127.0.0.1:{land_port}/page"))
-        .unwrap()
-        .origin();
+    let initiator_origin = SecurityOrigin::from_url(
+        &url::Url::parse(&format!("http://127.0.0.1:{land_port}/page")).unwrap(),
+    );
     // Cross-origin redirector at a *different* port.
     let location_header = format!("http://127.0.0.1:{land_port}/dest");
     let redirect_response = format!(
         "HTTP/1.1 302 Found\r\nLocation: {location_header}\r\nAccess-Control-Allow-Origin: {origin_str}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
-        origin_str = initiator_origin.ascii_serialization(),
+        origin_str = initiator_origin.serialize(),
     );
     let (origin_port, _origin_rec) =
         spawn_scripted_server(vec![redirect_response.into_bytes()]).await;
@@ -707,7 +720,9 @@ async fn cors_redirect_same_origin_hop_to_different_url_re_preflights() {
         url: url::Url::parse(&format!("http://127.0.0.1:{port}/start")).unwrap(),
         headers: Vec::new(),
         body: Bytes::new(),
-        origin: Some(url::Url::parse("http://example.com/").unwrap().origin()),
+        origin: Some(SecurityOrigin::from_url(
+            &url::Url::parse("http://example.com/").unwrap(),
+        )),
         mode: RequestMode::Cors,
         credentials: CredentialsMode::SameOrigin,
         redirect: RedirectMode::Follow,
