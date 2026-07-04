@@ -13,6 +13,8 @@ use std::collections::{BTreeSet, HashMap};
 use std::sync::Mutex;
 use std::time::Instant;
 
+use elidex_plugin::SecurityOrigin;
+
 use super::{is_broker_injected_header, is_cors_safelisted_request_header, PreflightAllowance};
 use crate::Request;
 
@@ -24,10 +26,22 @@ use crate::Request;
 /// even if the URL+origin matched a previous cache entry.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct PreflightCacheKey {
-    /// `request.origin.serialize()`.  `Some(_)` is
-    /// required — preflight is only meaningful for cross-origin
-    /// requests, which always have a document origin.
-    origin: String,
+    /// The initiator's identity-stable [`SecurityOrigin`] — NOT its
+    /// `"null"` serialization.  Keying on the origin (rather than
+    /// `serialize()`ing it into the key) keeps two distinct opaque
+    /// origins (two sandboxed / `data:` documents, `SecurityOrigin::
+    /// Opaque` with different ids) in DISTINCT cache entries instead
+    /// of collapsing both to `"null"`, so one sandboxed document's
+    /// preflight never satisfies another's OPTIONS check (S5-4d Codex
+    /// R3).  Fetch §4.9 keys the cache on a byte-serialized origin
+    /// (`null` for opaque) + a network partition key; elidex models no
+    /// partition key, so the identity-stable origin isolates distinct
+    /// opaque documents by construction (spec-permissible — the cache
+    /// is an optimization, so extra preflights are always allowed;
+    /// tuple origins are unaffected since equal tuples stay `Eq`).
+    /// `Some(_)` is required — preflight only applies to requests with
+    /// a document origin.
+    origin: SecurityOrigin,
     /// `request.url.as_str()` — full URL minus fragment (already
     /// stripped by `url::Url`).
     url: String,
@@ -52,7 +66,7 @@ impl PreflightCacheKey {
     /// would vary on auto-injected headers and force needless
     /// cache misses (Copilot R1).
     pub fn from_request(request: &Request) -> Option<Self> {
-        let origin = request.origin.as_ref()?.serialize();
+        let origin = request.origin.as_ref()?.clone();
         let header_set = request
             .headers
             .iter()
@@ -468,5 +482,70 @@ mod tests {
         cache.store(key.clone(), allowance(60));
         cache.clear();
         assert!(cache.lookup(&key).is_none());
+    }
+
+    /// S5-4d Codex R3: two DISTINCT opaque initiator origins
+    /// (`SecurityOrigin::Opaque` with different ids — e.g. two
+    /// sandboxed iframes sharing one `NetClient`) must NOT share a
+    /// preflight cache entry.  When the key `serialize()`d the origin,
+    /// both collapsed to `"null"`, letting one sandboxed document's
+    /// preflight satisfy another's OPTIONS check for the same
+    /// URL/method/header set; keeping the identity-stable
+    /// `SecurityOrigin` isolates them by construction.
+    #[test]
+    fn distinct_opaque_origins_do_not_collide() {
+        let mut r1 = req(
+            "PUT",
+            "https://api.other.com/x",
+            "https://example.com/",
+            vec![],
+        );
+        let mut r2 = req(
+            "PUT",
+            "https://api.other.com/x",
+            "https://example.com/",
+            vec![],
+        );
+        let o1 = SecurityOrigin::opaque();
+        let o2 = SecurityOrigin::opaque();
+        assert_ne!(o1, o2, "independently-minted opaque origins are distinct");
+        r1.origin = Some(o1);
+        r2.origin = Some(o2);
+        let k1 = PreflightCacheKey::from_request(&r1).unwrap();
+        let k2 = PreflightCacheKey::from_request(&r2).unwrap();
+        assert_ne!(
+            k1, k2,
+            "distinct opaque origins must produce distinct preflight cache keys"
+        );
+    }
+
+    /// Counterpart: the SAME opaque origin — identity-stable across
+    /// two requests from one sandboxed document — DOES share its cache
+    /// entry.  The isolation is per-origin-identity, not a blanket
+    /// opaque block, so a sandboxed document still benefits from its
+    /// own preflight cache.
+    #[test]
+    fn same_opaque_origin_shares_cache_key() {
+        let shared = SecurityOrigin::opaque();
+        let mut r1 = req(
+            "PUT",
+            "https://api.other.com/x",
+            "https://example.com/",
+            vec![],
+        );
+        let mut r2 = req(
+            "PUT",
+            "https://api.other.com/x",
+            "https://example.com/",
+            vec![],
+        );
+        r1.origin = Some(shared.clone());
+        r2.origin = Some(shared);
+        let k1 = PreflightCacheKey::from_request(&r1).unwrap();
+        let k2 = PreflightCacheKey::from_request(&r2).unwrap();
+        assert_eq!(
+            k1, k2,
+            "same opaque document (identity-stable origin) shares its own cache entry"
+        );
     }
 }
