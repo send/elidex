@@ -773,20 +773,25 @@ named `window.open` from a timer/postMessage stranded forever) and R2 (cross-cal
 `_blank` surfaced before an earlier named MISS). A single ordered FIFO dissolves both (call order
 preserved by construction; one drain method makes "drain only one queue" unrepresentable) and satisfies
 the memo's own §4.3.2 "multiple `window.open` calls in one task must all surface" + CLAUDE.md
-"One issue, one way". The §4.3.2 two-queue text below is SUPERSEDED by this note. — implemented as
-spec'd below with these impl-contact refinements:
+"One issue, one way". The §4.3.2 two-queue design text (above, incl. its `take_pending_open_tabs()` /
+`take_pending_frame_navigations()` / `route_frame_navigations` seam names) is SUPERSEDED by this note —
+those intermediate names do NOT exist in the delivered code; the real seams are
+`take_pending_window_opens` / `route_window_opens` over the one `WindowOpenIntent` queue. — implemented
+as spec'd below with these impl-contact refinements (stated in terms of the FINAL delivered API):
 (1) **App-mode is drain-AND-DROP, not routing** (refines §4.3.2's "same trait call" claim): inline
-interactive `app/navigation.rs` drains both new channels but has no new-tab facility (`ChromeAction::NewTab`
-is a threaded-mode-only no-op inline) and no iframe registry, so it drains-to-drop for leak-prevention
-only; real routing lives in the content-thread `process_pending_actions`. (2) The named-frame routing
-loop was extracted into a `pub(crate) route_frame_navigations` in `content/navigation.rs` (HIT → ungated
-`navigate_iframe`; MISS → `OpenNewTab` iff `aux_nav_allowed`) to make the MISS-gate unit-testable (the
-boa path can only produce `aux_nav_allowed: true`). (3) Drain sites re-parse the channel `url: String`
-into `url::Url` (VM/boa resolve to absolute pre-enqueue; parse-failure skips). (4) boa's `JsRuntime`
-gained engine-agnostic `take_pending_open_tabs`/`take_pending_frame_navigations` wrappers over its private
-bridge drains (`aux_nav_allowed: true` by construction — entry gate already passed) so the shell drain
-logic is signature-identical to `HostDriver` and the S5-6 flip swaps the runtime type without touching
-it (E4). (5) The link-top-nav re-key end-to-end regression is pinned at the predicate seam only — no
+interactive `app/navigation.rs` drains the ordered window.open queue (`take_pending_window_opens`) but has
+no new-tab facility (`ChromeAction::NewTab` is a threaded-mode-only no-op inline) and no iframe registry,
+so it drains-to-drop for leak-prevention only; real routing lives in the content-thread
+`process_pending_actions`. (2) All `window.open` routing (popup + named, in call order) is ONE
+`pub(crate) route_window_opens` in `content/navigation.rs` (Popup → `OpenNewTab`; NamedFrame HIT → ungated
+`navigate_iframe`; MISS → `OpenNewTab` iff `aux_nav_allowed`), shared by both drain pumps; the MISS-gate
+is unit-testable on synthesized intents (the boa path can only produce `aux_nav_allowed: true`).
+(3) Drain sites re-parse the channel `url: String` into `url::Url` (VM/boa resolve to absolute
+pre-enqueue; parse-failure skips). (4) boa's `JsRuntime` gained ONE engine-agnostic
+`take_pending_window_opens` wrapper concatenating its two private bridge drains (popups then named —
+best-effort order matching boa's prior effective order; `aux_nav_allowed: true` by construction, entry
+gate already passed) so the shell drain is signature-identical to `HostDriver` and the S5-6 flip swaps
+the runtime type without touching it (E4). (5) The link-top-nav re-key end-to-end regression is pinned at the predicate seam only — no
 shell click-simulation harness exists and blocked/allowed both terminate in `send_display_list`
 (indistinguishable on the channel); gap documented in-test. `event_handlers.rs` = 997 lines post-edit
 (under 1000, no restructure). **Post-review refinements** (pre-push `/code-review` + `/elidex-review`):
@@ -803,9 +808,12 @@ engine-internal (the `alert`/`confirm`/`prompt` natives), the shell has no modal
 `scripts_allowed` (also engine-internal, off the trait) — it lives only as `HostData::modals_allowed`;
 a trait method would be dead surface. (8) `window.rs` crossed 1000 (784→1021) via the four natives → the
 dialog/open group was split into the sibling `vm/host/window_dialogs.rs` (touch-time cohesion seam;
-window.rs back to 791). (9) The open-tab drain parse+notify body was deduped into
-`content/navigation.rs::notify_open_new_tabs`, shared by both drain pumps. **CLOSES
-`#11-vm-sandbox-method-gates-and-modals`.**
+window.rs back to 791). (9) **Single ordered `window.open` queue** (Codex R2 root fix — see the
+DESIGN CORRECTION note above): the two back-channels collapsed into one `pending_window_open:
+VecDeque<WindowOpenIntent>`, one `take_pending_window_opens` drain, one `route_window_opens` routing
+home — call order preserved by construction across popup + named intents, and the async-pump drain gap
+(R1) becomes unrepresentable. (10) The queue's overflow spam-clamp (`MAX_PENDING_WINDOW_OPENS`, drops
+the NEW intent past the bound) is pinned by test. **CLOSES `#11-vm-sandbox-method-gates-and-modals`.**
 
 **Scope**: (1) `ALLOW_MODALS` predicate + `ALLOW_TOP_NAVIGATION_BY_USER_ACTIVATION` bit + token
 parse + `top_navigation_allowed` (§4.3.3) in `elidex-plugin`; `modals_allowed` VM accessor
