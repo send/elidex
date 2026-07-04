@@ -440,6 +440,33 @@ fn open_multiple_calls_preserve_fifo_order() {
 }
 
 #[test]
+fn open_queue_clamps_at_max_dropping_new_intents() {
+    // `MAX_PENDING_WINDOW_OPENS` (1024) spam clamp: past the bound the NEW
+    // intent is dropped, NOT the oldest — a runaway `while (true)
+    // window.open(...)` loop stops adding work instead of rotating which
+    // opens survive (contrast `pending_history`, which evicts the oldest).
+    // So the retained intents are the EARLIEST calls, in call order.
+    let mut vm = vm_with_flags(None);
+    vm.eval("for (let i = 0; i < 1100; i++) { window.open('/p' + i, '_blank'); }")
+        .unwrap();
+    let intents = window_opens(&mut vm);
+    assert_eq!(
+        intents.len(),
+        1024,
+        "the queue clamps at MAX_PENDING_WINDOW_OPENS"
+    );
+    // First and last survivors are calls 0 and 1023 (the drop is at the tail).
+    assert!(matches!(
+        &intents[0],
+        WindowOpenIntent::Popup(p) if p.url == "https://example.com/p0"
+    ));
+    assert!(matches!(
+        &intents[1023],
+        WindowOpenIntent::Popup(p) if p.url == "https://example.com/p1023"
+    ));
+}
+
+#[test]
 fn open_features_string_is_converted_then_ignored() {
     // `features` is WebIDL-converted (side effects observable) then ignored
     // (tokenization = S5-8); junk and `null` (`[LegacyNullToEmptyString]`)
