@@ -51,8 +51,9 @@ pub use mutation::{
     OuterHtmlError, SetInnerHtmlOptions,
 };
 pub use navigation::{
-    window_open_disposition, HistoryAction, NamedFrameNavigation, NavigationRequest,
-    OpenTabRequest, WindowOpenDisposition, WindowOpenIntent,
+    window_open_disposition, HistoryAction, HistoryStepEvents, NamedFrameNavigation,
+    NavigationRequest, NavigationType, OpenTabRequest, SerializedState, WindowOpenDisposition,
+    WindowOpenIntent,
 };
 pub use scripting::scripting_disabled_for_platform_object;
 pub use session::{CssomSheetState, SessionCore};

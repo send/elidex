@@ -4,7 +4,7 @@
 //! hit-tested entity up to the viewport. Step 3 implements viewport-level
 //! scrolling only; element-level scroll containers will be added in Step 5.
 
-use elidex_ecs::{EcsDom, Entity};
+use elidex_ecs::{Attributes, EcsDom, Entity};
 use elidex_layout::{hit_test_with_scroll, HitTestQuery};
 use elidex_plugin::{ComputedStyle, Display, LayoutBox, Point, Rect, Vector};
 
@@ -170,6 +170,78 @@ pub(super) fn update_viewport_scroll_dimensions(state: &mut ContentState) {
     state.viewport_scroll.scroll_size.width = cw.max(state.viewport_scroll.client_size.width);
     state.viewport_scroll.scroll_size.height = ch.max(state.viewport_scroll.client_size.height);
     state.viewport_scroll.clamp_scroll();
+}
+
+/// Resolve the **indicated part** of the document for a URL fragment (WHATWG HTML
+/// §7.4.6.4 "The indicated part of the document") and return the viewport scroll
+/// offset that brings it into view, or `None` to leave the scroll unchanged.
+///
+/// Resolution: an element whose `id` equals the fragment, else an `<a>` element
+/// whose `name` equals it, tried first on the raw fragment then on its
+/// percent-decoded form (steps 3-8). An **empty** fragment (`#`), or a
+/// case-insensitive `"top"` matching no element (step 9), scrolls to the top of
+/// the document; any other non-empty fragment matching nothing returns `None`.
+///
+/// The offset is the indicated element's border-box top-left in document
+/// coordinates — aligning it to the viewport origin (scroll-into-view
+/// block-start). The caller applies + clamps it through the post-layout
+/// `re_render` scroll seam (application currency, §6.4). This function only
+/// resolves geometry from the DOM + layout, so it is engine-independent (the
+/// Layering mandate keeps scroll-resolution out of `vm/host/`). The focusing
+/// steps (§7.4.6.4 step 3.6) are deferred (§10-D2) — this lands the scroll only.
+pub(crate) fn scroll_offset_for_fragment(
+    dom: &EcsDom,
+    root: Entity,
+    fragment: &str,
+) -> Option<Vector> {
+    // Empty fragment (`#`) → top of the document (the empty-fragment special
+    // value, resolved before any element lookup).
+    if fragment.is_empty() {
+        return Some(Vector::<f32>::ZERO);
+    }
+    // id / `<a name>` match on the raw fragment, then on its percent-decoded form
+    // (§7.4.6.4 steps 3-8): id attributes are stored decoded, so a `#caf%C3%A9`
+    // URL fragment must decode to match the `café` id.
+    let decoded = percent_encoding::percent_decode_str(fragment).decode_utf8_lossy();
+    if let Some(element) = find_indicated_element(dom, root, fragment)
+        .or_else(|| find_indicated_element(dom, root, &decoded))
+    {
+        // A matched-but-boxless element (e.g. `display: none`) yields no offset —
+        // leave the scroll unchanged rather than fall through to the top.
+        let border_box = dom.world().get::<&LayoutBox>(element).ok()?.border_box();
+        return Some(Vector::new(border_box.origin.x, border_box.origin.y));
+    }
+    // No indicated element: a case-insensitive `"top"` fragment scrolls to the
+    // top (§7.4.6.4 step 9); every other non-empty fragment leaves scroll alone.
+    if decoded.eq_ignore_ascii_case("top") {
+        Some(Vector::<f32>::ZERO)
+    } else {
+        None
+    }
+}
+
+/// Find the first descendant of `root` that is a "potential indicated element"
+/// for `fragment` (WHATWG HTML §7.4.6.4): an element with `id == fragment`, or an
+/// `<a>` element with `name == fragment`. Prefers the id match (`find_by_id`,
+/// document order), then scans for a named `<a>`.
+fn find_indicated_element(dom: &EcsDom, root: Entity, fragment: &str) -> Option<Entity> {
+    if let Some(entity) = dom.find_by_id(root, fragment) {
+        return Some(entity);
+    }
+    let mut result = None;
+    dom.traverse_descendants(root, |entity| {
+        let is_named_anchor = dom.with_tag_name(entity, |t| t == Some("a"))
+            && dom
+                .world()
+                .get::<&Attributes>(entity)
+                .is_ok_and(|a| a.get("name") == Some(fragment));
+        if is_named_anchor {
+            result = Some(entity);
+            return false;
+        }
+        true
+    });
+    result
 }
 
 #[cfg(test)]

@@ -81,6 +81,7 @@ mod tests_gc_audit;
 mod tests_generator;
 mod tests_headers;
 mod tests_history;
+mod tests_history_events;
 mod tests_host_object;
 mod tests_html_button_proto;
 mod tests_html_element_proto;

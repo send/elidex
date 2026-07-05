@@ -11,7 +11,9 @@
 #![cfg(feature = "engine")]
 
 use elidex_ecs::{EcsDom, Entity};
-use elidex_script_session::{HistoryAction, HostDriver, ScriptContext, ScriptEngine, SessionCore};
+use elidex_script_session::{
+    HistoryAction, HostDriver, NavigationType, ScriptContext, ScriptEngine, SessionCore,
+};
 use url::Url;
 
 use crate::engine::ElidexJsEngine;
@@ -98,7 +100,7 @@ fn eval_location_assign_then_take_pending_navigation() {
         .take_pending_navigation()
         .expect("assign enqueued a navigation");
     assert_eq!(nav.url, "https://a.example/b");
-    assert!(!nav.replace);
+    assert_eq!(nav.nav_type, NavigationType::Push);
     // Drain-once: a second take is empty.
     assert!(engine.take_pending_navigation().is_none());
 }

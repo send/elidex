@@ -25,6 +25,24 @@
 use elidex_plugin::sandbox;
 use elidex_plugin::IframeSandboxFlags;
 
+/// The navigation TYPE (WHATWG HTML §7.4.2.2 "Beginning navigation" entry
+/// points). Orthogonal to the same-document URL classification: it distinguishes
+/// the history-cursor effect + excludes reload from the fragment (no-rebuild)
+/// path. Single-homes the nav-type that a `replace: bool` could not — `bool`
+/// collapsed `location.reload()` and `location.replace()` (both were `true`),
+/// so a fragment-URL reload could not be told apart from a same-page replace.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum NavigationType {
+    /// `location.href = …` / `location.assign()` / `<a href>` — push a new entry.
+    Push,
+    /// `location.replace()` — replace the current entry (§7.4.4 historyHandling
+    /// "replace").
+    Replace,
+    /// `location.reload()` — a distinct algorithm (HTML §7.4.3 Reloading),
+    /// `isSameDocument=false` (never takes the fragment no-rebuild path).
+    Reload,
+}
+
 /// A pending navigation request from `location.assign()` / `location.href = …`
 /// / `location.replace()` / `location.reload()` (WHATWG HTML §7.4.2.2
 /// "Beginning navigation"). The shell runs the navigate algorithm and commits
@@ -45,9 +63,13 @@ pub struct NavigationRequest {
     /// **deletion-bound divergence deferred to the S5-6 flip** (the VM is correct
     /// by construction; boa is not touched to fix it — §0 pre-decision (2)).
     pub url: String,
-    /// `true` for `location.replace()` / `location.reload()` (replace the
-    /// current session-history entry rather than pushing a new one).
-    pub replace: bool,
+    /// The navigation type ([`NavigationType`]) the setter recorded — `Push`
+    /// (`href=`/`assign`/`<a href>`), `Replace` (`replace()`), or `Reload`
+    /// (`reload()`). Replaces the earlier `replace: bool`, which could not
+    /// distinguish `reload()` from `replace()`. The shell drains map it to a
+    /// history-cursor effect (reload → no cursor advance; thread-mode still
+    /// collapses replace → push for the cursor op, deferred §10-D6).
+    pub nav_type: NavigationType,
 }
 
 /// A pending history action from the `History` interface (WHATWG HTML §7.2.5).
@@ -79,6 +101,34 @@ pub enum HistoryAction {
         /// Title (ignored per §7.2.5 — `unused` — but accepted for API compat).
         title: String,
     },
+}
+
+/// A minimal serialized `history.state` placeholder. 5b (synchronous fragment
+/// navigation) never carries a value — a fragment nav's popstate state is always
+/// `null` (WHATWG HTML §7.4.2.3.3 *navigate to a fragment* step 11.1 "Set
+/// history's state to null"). S5-5c (traversal) fills in the real
+/// `StructuredSerializeForStorage` form the engine `StructuredDeserialize`s.
+pub type SerializedState = Vec<u8>;
+
+/// The popstate / hashchange to fire for a same-document history-step
+/// application (WHATWG HTML §7.4.6.2 "update document for history step
+/// application" step 6.4). The **shell** decides which fire from its
+/// session-history entry model (the engine-independent decision); the **engine**
+/// reconstructs `history.state` and fires at the `Window`.
+///
+/// popstate fires **synchronously** (§7.4.6.2 step 6.4.3 "fire an event");
+/// hashchange is **enqueued** as a task (step 6.4.5 "queue a global task on the
+/// DOM manipulation task source"), so popstate is observed strictly before
+/// hashchange.
+#[derive(Clone, Debug, Default)]
+pub struct HistoryStepEvents {
+    /// `Some(None)` = fire popstate with `state = null` (fragment nav, 5b);
+    /// `Some(Some(bytes))` = fire popstate with `StructuredDeserialize(restored)`
+    /// (5c traversal); `None` = do not fire popstate.
+    pub popstate_state: Option<Option<SerializedState>>,
+    /// `Some((oldURL, newURL))` iff the fragment differs (§7.4.6.2 step 6.4.5);
+    /// `None` = do not fire hashchange.
+    pub hashchange: Option<(String, String)>,
 }
 
 /// A **gate-passed** `window.open` popup / `_blank` request (WHATWG HTML

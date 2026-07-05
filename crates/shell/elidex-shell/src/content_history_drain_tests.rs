@@ -20,7 +20,7 @@
 //! (`for action in &pending_history`) relies on is pinned here at the
 //! `handle_history_action` seam.
 
-use elidex_script_session::{HistoryAction, NavigationRequest};
+use elidex_script_session::{HistoryAction, NavigationRequest, NavigationType};
 
 use super::navigation::{
     handle_history_action, handle_navigate, process_pending_actions, HistoryCursorOp,
@@ -50,7 +50,7 @@ fn replace_state(path: &str) -> HistoryAction {
 fn nav_to(url: &str) -> NavigationRequest {
     NavigationRequest {
         url: url.to_string(),
-        replace: false,
+        nav_type: NavigationType::Push,
     }
 }
 

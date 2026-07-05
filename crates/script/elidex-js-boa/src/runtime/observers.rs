@@ -8,7 +8,7 @@ use boa_engine::property::Attribute;
 use boa_engine::{js_string, Context, JsValue};
 
 use elidex_ecs::{EcsDom, Entity};
-use elidex_script_session::SessionCore;
+use elidex_script_session::{HistoryStepEvents, SessionCore};
 
 use super::{JsRuntime, UnbindGuard};
 
@@ -275,6 +275,12 @@ impl JsRuntime {
             eprintln!("[JS Microtask Error] {err}");
         }
     }
+
+    /// Deliver a same-document history-step's popstate / hashchange (WHATWG HTML
+    /// §7.4.6.2). boa is deletion-bound (D-26 PR7) and never fired
+    /// popstate/hashchange — a no-op stub keeps the boa-concrete shell compiling;
+    /// the VM fires these; live at the S5-6 flip (flip-inert).
+    pub fn deliver_history_step_events(&mut self, _ev: HistoryStepEvents) {}
 }
 
 fn resize_entry_to_js(

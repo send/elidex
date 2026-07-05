@@ -525,14 +525,23 @@ layer:
 - **Same-document determination** (engine-indep pure fn, home = `elidex-navigation` alongside the
   controller it feeds, mirroring `window_open_disposition`'s home next to its channels): given the
   current document URL and a target URL, classify — **Fragment** (the target **equals the current
-  document URL when compared excluding fragments, AND the fragments differ** — covering fragment
-  add / change / **remove** / empty, since §7.4.2.3.3 applies whenever the URLs are equal excluding
-  fragments), **CrossDocument** (differs in path / query / scheme / host — full rebuild), **Reload**
-  (identical *including* the fragment — a rebuild, NOT fragment nav). This **corrects, not merely
-  promotes,** the `is_fragment_only` logic (§3.1): that flag requires the *target* to have a fragment,
-  so it misses `/a#x → /a` (removal) and `/a#x → /a#` (emptied) — both same-document per the spec, both
-  firing hashchange (oldURL frag ≠ newURL frag) + popstate — and must be generalized to the
-  equals-excluding-fragments predicate. (pushState/replaceState are a *separate* same-document entry point — the URL-and-history-
+  document URL when compared excluding fragments, AND the target's fragment is non-null** — the
+  *navigate* algorithm §7.4.2.2 step 15, conjuncts 3-4: "url equals … exclude fragments set to true"
+  AND "url's fragment is non-null" — covering fragment add / change / empty / identical-including-
+  fragment), **CrossDocument** (differs in path / query / scheme / host, OR the target has **no**
+  fragment — a full rebuild; fragment **removal** `/a#x → /a` and identical-with-no-fragment `/a → /a`
+  are CrossDocument, since their target fragment is null). The reload distinction (`location.reload()`)
+  is a call-site `cursor_op` fact, not a URL-classification. This **preserves, not generalizes,** the
+  `is_fragment_only` logic (§3.1): its `url.fragment().is_some()` clause is exactly step 15's "url's
+  fragment is non-null" and is already spec-correct — `/a#x → /a` (removal, target fragment null) is
+  CrossDocument (a full reload, matching real browsers) and `/a#x → /a#` (emptied, target fragment
+  `Some("")`) is Fragment (same-document), so nothing "must be generalized". 5b keeps the clause and
+  fixes the **wiring** (§3.1: the flag's only consumer was the SW-skip; the document rebuilt
+  regardless), upgrading the crude `split('#')` string compare to the `url` crate's `equals(exclude
+  fragments)` compare (a robustness refinement, semantically identical for valid serialized URLs).
+  *(This predicate was corrected during the S5-5b plan-review per the 5b memo §4 — the earlier
+  "fragments-differ / must be generalized" framing was spec-wrong; this SoT is reconciled to navigate
+  §7.4.2.2 step 15.)* (pushState/replaceState are a *separate* same-document entry point — the URL-and-history-
   update steps — not this classifier; they are already synchronous VM-side, §3.3, and only need the
   entry-model + drain wiring, not the fragment path.)
 - **On Fragment**: do NOT `load_document`, do NOT rebuild the pipeline. Instead: (1) update the VM's
@@ -843,12 +852,15 @@ boa-stubbed — §4.6): pre-flip the live boa shell does the no-rebuild + Naviga
 same-document path is engine-agnostic-now**; the **firing is flip-inert**.
 
 **§5.2.2 Same-document determination edge cases** (the precise predicate = equals-excluding-fragments
-AND fragments-differ, §4.2): fragment **add** (`/a → /a#x`); **change** (`/a#x → /a#y`); **remove**
-(`/a#x → /a` — fires hashchange, oldURL frag `x` ≠ newURL frag null); **empty** (`/a#x → /a#`, and
-`/a → /a#` — an empty fragment ⇒ top-of-document scroll, §2.5); **identical excluded** (`/a → /a`,
-fragments equal too — a **reload / rebuild**, NOT fragment nav); path-or-query differ (`/a → /b`,
-`/a → /a?q`) ⇒ CrossDocument (rebuild, unchanged). The removal + emptied cases are exactly the ones
-`is_fragment_only` (which requires the *target* to have a fragment) misses (§4.2). `replace` vs `push`
+AND the target's fragment is **non-null**, navigate §7.4.2.2 step 15, §4.2): fragment **add** (`/a →
+/a#x`); **change** (`/a#x → /a#y`); **empty** (`/a#x → /a#`, and `/a → /a#` — an empty fragment ⇒
+top-of-document scroll, §2.5); **remove** (`/a#x → /a` — target fragment **null** ⇒ **CrossDocument**,
+a full rebuild that fires **nothing** on the fragment path, matching real browsers' reload-on-fragment-
+removal); **identical excluded** (`/a → /a`, both fragments null — a **rebuild / CrossDocument**, NOT
+fragment nav); path-or-query differ (`/a → /b`, `/a → /a?q`) ⇒ CrossDocument (rebuild, unchanged). Both
+the removal and emptied cases are already classified **correctly** by `is_fragment_only`'s
+`fragment().is_some()` clause (removal → CrossDocument, emptied → Fragment); only the **wiring** was
+broken (§4.2), not the predicate. `replace` vs `push`
 rides the existing `NavigationRequest.replace` (`location.replace()`/`reload()` → replace).
 
 **Tests** (VM + shell integration): fragment nav does NOT re-fetch (network-request oracle: zero
@@ -949,11 +961,14 @@ shell integration (the S5-3/S5-4 posture), with the **engine-agnostic-now vs fli
   `deliver_history_step_events` and assert the events fire with the right state/URLs; a shell test pins
   boa's no-fire (stub) as the pre-flip baseline. **Registered S5-6 flip deliverable**: add the live
   shell popstate/hashchange test once the VM is the engine (mirrors S5-4b's storage-sentinel deferral).
-- **`elidex-navigation` unit**: the same-document classifier truth table — **add / change / remove /
-  empty ⇒ Fragment; path-or-query differ ⇒ CrossDocument; identical incl. fragment ⇒ Reload** —
-  exercising the equals-excluding-fragments-AND-fragments-differ predicate, with explicit rows for the
-  fragment-**removal** (`/a#x → /a`) and **emptied** (`/a#x → /a#`) cases `is_fragment_only` misses and
-  the identical-exclusion (`/a → /a` ≠ Fragment); `NavigationController` push/replace with state +
+- **`elidex-navigation` unit**: the same-document classifier truth table — **add / change / empty /
+  identical-incl-fragment ⇒ Fragment (SameDocument); removal / path-or-query differ / identical-
+  excluding-fragment ⇒ CrossDocument** — exercising the equals-excluding-fragments-AND-target-
+  fragment-non-null predicate (navigate §7.4.2.2 step 15), with explicit rows for the
+  fragment-**removal** (`/a#x → /a` ⇒ **CrossDocument**, target fragment null) and **emptied**
+  (`/a#x → /a#` ⇒ Fragment, target fragment `Some("")`) cases — both classified **correctly** by
+  `is_fragment_only`'s non-null-fragment clause, NOT "missed" — and the identical-exclusion
+  (`/a → /a` ⇒ CrossDocument, ≠ Fragment); `NavigationController` push/replace with state +
   scroll; traversal read path exposing target-entry state/scroll; eviction FIFO with state.
 - **WPT subset declaration**: the supported surface maps to `html/browsers/history/the-location-*` +
   `html/browsers/history/the-History-object/*` (pushState/replaceState/popstate/hashchange) +

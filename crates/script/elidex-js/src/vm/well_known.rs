@@ -242,6 +242,14 @@ define_well_known_strings! {
         state => "state",
     }
 
+    "History-step UA event type names (WHATWG HTML §7.4.6.2)" {
+        // The event *type* strings the UA fires at the Window for a
+        // same-document history-step application (`deliver_history_step_events`)
+        // — distinct from the `*_event_global` *constructor* names above.
+        popstate_event_type => "popstate",
+        hashchange_event_type => "hashchange",
+    }
+
     "Event payload property keys" {
         // Pre-interned so `create_event_object`'s payload installation
         // can feed them directly into the precomputed-shape slot array

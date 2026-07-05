@@ -11,7 +11,7 @@ use elidex_ecs::{EcsDom, Entity};
 use crate::event_dispatch::DispatchEvent;
 use crate::event_listener::ListenerId;
 use crate::mutation::MutationRecord;
-use crate::navigation::{HistoryAction, NavigationRequest, WindowOpenIntent};
+use crate::navigation::{HistoryAction, HistoryStepEvents, NavigationRequest, WindowOpenIntent};
 use crate::session::SessionCore;
 
 /// Result of evaluating a script.
@@ -299,6 +299,25 @@ pub trait HostDriver {
     /// `Referer` header (already stripped of fragment + credentials per the
     /// referrer-serialisation rules).
     fn set_navigation_referrer(&mut self, referrer: Option<url::Url>);
+
+    // ── history-step event delivery (per-navigation; WHATWG HTML §7.4.6.2) ──
+    //
+    // A same-document history-step application (fragment nav — 5b; traversal —
+    // 5c) fires popstate + hashchange at the Window. The shell decides WHICH
+    // events fire (its session-history entry model, engine-independent) and
+    // hands the decision here as a [`HistoryStepEvents`]; the engine
+    // reconstructs `history.state` and fires. Mirrors the media group's
+    // decision-then-deliver split, but the decision is a per-navigation value,
+    // not a stored environment — so this is a single deliver method, not a
+    // `set_*` + `deliver_*` pair.
+
+    /// Deliver the popstate / hashchange of a same-document history-step
+    /// application (WHATWG HTML §7.4.6.2 "update document for history step
+    /// application"). popstate fires **synchronously** with the reconstructed
+    /// `history.state` (step 6.4.3); hashchange is **enqueued** as a task
+    /// (step 6.4.5), so popstate is observed strictly before hashchange. A
+    /// no-op if `ev` fires neither.
+    fn deliver_history_step_events(&mut self, ev: HistoryStepEvents);
 
     // ── security context (per-browsing-context) ────────────────────────────
 

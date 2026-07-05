@@ -18,8 +18,8 @@
 #![cfg(feature = "engine")]
 
 use elidex_script_session::{
-    window_open_disposition, NamedFrameNavigation, NavigationRequest, OpenTabRequest,
-    WindowOpenDisposition, WindowOpenIntent,
+    window_open_disposition, NamedFrameNavigation, NavigationRequest, NavigationType,
+    OpenTabRequest, WindowOpenDisposition, WindowOpenIntent,
 };
 
 use super::super::coerce;
@@ -229,7 +229,7 @@ pub(super) fn native_window_open(
             if let Some(record) = url_record {
                 ctx.vm.navigation.enqueue_navigation(NavigationRequest {
                     url: record.to_string(),
-                    replace: false,
+                    nav_type: NavigationType::Push,
                 });
             }
         }

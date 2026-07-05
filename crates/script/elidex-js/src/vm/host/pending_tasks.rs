@@ -142,6 +142,20 @@ pub(crate) enum PendingTask {
         promise_id: ObjectId,
         outcome: super::cache::CacheDelivery,
     },
+    /// WHATWG HTML §7.4.6.2 "update document for history step application"
+    /// step 6.4.5: the ENQUEUED hashchange of a same-document history-step
+    /// application. [`super::history_events`]'s deliver fires popstate
+    /// synchronously then queues this task (the spec's "queue a global task on
+    /// the DOM manipulation task source" half), so popstate is observed strictly
+    /// before hashchange. The drain step
+    /// ([`super::history_events::dispatch_hashchange_task`]) builds a trusted
+    /// `HashChangeEvent { oldURL, newURL }` and fires it at the Window. Both
+    /// slots are interned `StringId`s (permanent StringPool entries, not GC
+    /// objects), so `mark_pending_tasks` in `gc/roots.rs` is a no-op arm.
+    HashChange {
+        old_url_sid: StringId,
+        new_url_sid: StringId,
+    },
 }
 
 // ---------------------------------------------------------------------------
@@ -269,6 +283,12 @@ impl VmInner {
                 outcome,
             } => {
                 super::cache::dispatch_cache_deliver(self, promise_id, outcome);
+            }
+            PendingTask::HashChange {
+                old_url_sid,
+                new_url_sid,
+            } => {
+                super::history_events::dispatch_hashchange_task(self, old_url_sid, new_url_sid);
             }
         }
     }

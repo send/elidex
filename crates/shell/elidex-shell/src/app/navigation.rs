@@ -1,5 +1,7 @@
 //! URL navigation, history actions, and chrome action handling.
 
+use elidex_script_session::{HistoryStepEvents, NavigationType};
+
 use super::App;
 use super::InteractiveState;
 
@@ -66,7 +68,7 @@ impl App {
         if let Some(nav_req) = interactive.pipeline.runtime.take_pending_navigation() {
             let resolved = resolve_nav_url(interactive.pipeline.url.as_ref(), &nav_req.url);
             if let Some(target_url) = resolved {
-                self.navigate(&target_url, nav_req.replace);
+                self.navigate(&target_url, nav_req.nav_type);
                 return true;
             }
         }
@@ -74,27 +76,123 @@ impl App {
         history_applied
     }
 
-    /// Navigate to a new URL, replacing the current pipeline.
+    /// Navigate to a new URL, rebuilding the current pipeline.
     ///
-    /// When `replace` is `true`, the current history entry is replaced
-    /// (matching `location.replace()` semantics). Otherwise a new entry
-    /// is pushed onto the history stack.
-    pub(super) fn navigate(&mut self, url: &url::Url, replace: bool) {
+    /// App-mode **honors** the [`NavigationType`] (unlike thread-mode, whose
+    /// drain collapses `Replace` → `Push` for the cursor op, §10-D6):
+    /// - `Push` (`href=`/`assign`/`<a href>`) pushes a new history entry;
+    /// - `Replace` (`location.replace()`) replaces the current entry in place;
+    /// - `Reload` (`location.reload()`) rebuilds with **no** cursor move — a
+    ///   fragment-URL reload must neither push an entry nor (Phase 2b) take the
+    ///   fragment no-rebuild path (§7.4.3 reload, `isSameDocument = false`). The
+    ///   enum distinguishes `Reload` from `Replace`, which a `replace: bool`
+    ///   could not.
+    pub(super) fn navigate(&mut self, url: &url::Url, nav_type: NavigationType) {
+        // --- Same-document (fragment) navigation (WHATWG HTML §7.4.2.2 navigate
+        // step 15) --- App-mode is GET-only (no `documentResource` — that step-15
+        // conjunct is vacuous) and honors the nav-type directly, so the fresh-nav
+        // conjunct is `nav_type != Reload` (a `Reload` rebuilds with no cursor move,
+        // §7.4.3 `isSameDocument = false`; the enum distinguishes it from a same-page
+        // `replace()`). Take the no-rebuild path iff the URL classifies SameDocument
+        // AND it is not a reload.
+        if nav_type != NavigationType::Reload {
+            let current = self
+                .interactive
+                .as_ref()
+                .and_then(|i| i.pipeline.url.clone());
+            if let Some(current) = current {
+                if elidex_navigation::classify_navigation(&current, url)
+                    == elidex_navigation::NavClass::SameDocument
+                {
+                    self.fragment_navigate(&current, url, nav_type);
+                    return;
+                }
+            }
+        }
+
         if !self.load_url_into_pipeline(url) {
             return;
         }
         let Some(interactive) = self.interactive.as_mut() else {
             return;
         };
-        if replace {
-            interactive.nav_controller.replace(url.clone());
-        } else {
-            interactive.nav_controller.push(url.clone());
+        match nav_type {
+            NavigationType::Push => interactive.nav_controller.push(url.clone()),
+            NavigationType::Replace => interactive.nav_controller.replace(url.clone()),
+            NavigationType::Reload => {}
         }
         interactive
             .pipeline
             .runtime
             .set_history_length(interactive.nav_controller.len());
+        if let Some(state) = &self.render_state {
+            state.window.set_title(&interactive.window_title);
+        }
+    }
+
+    /// Apply a same-document (fragment) navigation IN PLACE (WHATWG HTML
+    /// §7.4.2.3.3 *navigate to a fragment*) — app-mode's mirror of
+    /// `content/navigation.rs::fragment_navigate`. `current` is the pre-nav URL,
+    /// `target` the fragment URL. No pipeline rebuild, so the document + its
+    /// `EcsDom` (incl. focus) persist; the document origin stays correct BY
+    /// CONSTRUCTION (`set_current_url` re-derives the same URL-tuple origin — only
+    /// the fragment changed). `nav_type` is `Push` or `Replace` (never `Reload` —
+    /// excluded by the caller); app-mode HONORS the distinction (thread-mode
+    /// collapses `Replace` → `Push`, §10-D6).
+    fn fragment_navigate(
+        &mut self,
+        current: &url::Url,
+        target: &url::Url,
+        nav_type: NavigationType,
+    ) {
+        let Some(interactive) = self.interactive.as_mut() else {
+            return;
+        };
+        // Update the current document URL (shell copy + runtime `current_url`) —
+        // no `load_url_into_pipeline`, no rebuild.
+        interactive.pipeline.url = Some(target.clone());
+        interactive
+            .pipeline
+            .runtime
+            .set_current_url(Some(target.clone()));
+        // Finalize a same-document navigation, honoring push-vs-replace.
+        match nav_type {
+            NavigationType::Replace => interactive.nav_controller.replace(target.clone()),
+            NavigationType::Push | NavigationType::Reload => {
+                interactive.nav_controller.push(target.clone());
+            }
+        }
+        interactive
+            .pipeline
+            .runtime
+            .set_history_length(interactive.nav_controller.len());
+        interactive.window_title = format!("elidex \u{2014} {target}");
+        interactive.chrome.set_url(target);
+        // Scroll to the fragment. App-mode has no viewport-scroll application seam
+        // (unlike the content thread's `re_render` clamp/echo/`ScrollState` path),
+        // so set the pipeline scroll offset the free `re_render` reads when it
+        // rebuilds the display list. The missing clamp/echo is an app-mode-wide gap,
+        // not a fragment-nav one. Resolution rides the shared engine-independent
+        // helper (One-issue-one-way with the content thread).
+        if let Some(offset) = crate::content::scroll::scroll_offset_for_fragment(
+            &interactive.pipeline.dom,
+            interactive.pipeline.document,
+            target.fragment().unwrap_or_default(),
+        ) {
+            interactive.pipeline.scroll_offset = offset;
+        }
+        crate::re_render(&mut interactive.pipeline);
+        // Fire the history-step events (§7.4.6.2): popstate `state = null` always;
+        // hashchange iff the fragment differs. The VM fires; boa stubs — flip-inert.
+        let hashchange = (current.fragment() != target.fragment())
+            .then(|| (current.to_string(), target.to_string()));
+        interactive
+            .pipeline
+            .runtime
+            .deliver_history_step_events(HistoryStepEvents {
+                popstate_state: Some(None),
+                hashchange,
+            });
         if let Some(state) = &self.render_state {
             state.window.set_title(&interactive.window_title);
         }
@@ -269,7 +367,7 @@ impl App {
                     .or_else(|_| url::Url::parse(&format!("https://{url_str}")));
                 match parsed {
                     // navigate() calls chrome.set_url() on success internally.
-                    Ok(url) => self.navigate(&url, false),
+                    Ok(url) => self.navigate(&url, NavigationType::Push),
                     Err(e) => eprintln!("Invalid URL: {e}"),
                 }
             }
@@ -292,7 +390,12 @@ impl App {
                     .as_ref()
                     .and_then(|i| i.pipeline.url.clone());
                 if let Some(url) = url {
-                    self.navigate(&url, true);
+                    // Chrome reload is `Reload`, NOT `Replace` (the old `true`
+                    // meant reload) — else a fragment-URL (`/a#x`) chrome-reload
+                    // would take Phase 2b's fragment no-rebuild path and skip the
+                    // rebuild (the exact `reload()`-vs-`replace()` collision the
+                    // enum fixes).
+                    self.navigate(&url, NavigationType::Reload);
                 }
             }
             // Tab actions are only handled in threaded mode.

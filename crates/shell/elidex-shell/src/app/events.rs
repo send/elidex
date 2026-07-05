@@ -2,7 +2,7 @@
 
 use elidex_ecs::{Attributes, Entity, TagType, MAX_ANCESTOR_DEPTH};
 use elidex_plugin::{EventPayload, KeyboardEventInit, MouseEventInit};
-use elidex_script_session::DispatchEvent;
+use elidex_script_session::{DispatchEvent, NavigationType};
 
 use super::{winit_button_to_dom, App};
 
@@ -102,7 +102,7 @@ impl App {
                 })
             };
             if let Some(target_url) = nav_target {
-                self.navigate(&target_url, false);
+                self.navigate(&target_url, NavigationType::Push);
             }
         }
     }

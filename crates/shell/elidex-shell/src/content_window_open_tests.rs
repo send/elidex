@@ -296,7 +296,7 @@ fn window_open_popup_survives_same_turn_self_navigation() {
     bridge.queue_open_tab(url::Url::parse("https://popup.example/").unwrap());
     bridge.set_pending_navigation(elidex_script_session::NavigationRequest {
         url: "data:text/html,<p>next</p>".to_string(),
-        replace: false,
+        nav_type: elidex_script_session::NavigationType::Push,
     });
     let acted = process_pending_actions(&mut state);
     assert!(
