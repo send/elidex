@@ -266,6 +266,8 @@ fn fragment_navigate(state: &mut ContentState, current: &url::Url, target: &url:
         &state.pipeline.dom,
         state.pipeline.document,
         target.fragment().unwrap_or_default(),
+        state.viewport_scroll.scroll_offset,
+        state.viewport_scroll.client_size.width,
     );
     // §7.4.2.3.3 *navigate to a fragment* step 14 (update document for history
     // step application): fire popstate SYNCHRONOUSLY, with `history.state` reset

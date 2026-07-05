@@ -186,6 +186,8 @@ impl App {
             &interactive.pipeline.dom,
             interactive.pipeline.document,
             target.fragment().unwrap_or_default(),
+            interactive.pipeline.scroll_offset,
+            interactive.pipeline.viewport.width,
         );
         // §7.4.2.3.3 step 14 (update document for history step application): fire
         // popstate SYNCHRONOUSLY, with `history.state` reset to null, BEFORE the
