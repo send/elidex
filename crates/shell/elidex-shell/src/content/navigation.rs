@@ -251,9 +251,17 @@ fn fragment_navigate(state: &mut ContentState, current: &url::Url, target: &url:
     // `document.URL`). No `load_document`, no pipeline rebuild.
     state.pipeline.url = Some(target.clone());
     state.pipeline.runtime.set_current_url(Some(target.clone()));
-    // Finalize a same-document navigation: commit the history entry (cursor_op is
-    // `Push` by the branch guard) and push the new length.
-    state.nav_controller.push(target.clone());
+    // Finalize a same-document navigation: commit the history entry. A navigation
+    // to the URL the active entry ALREADY has (including the fragment) REPLACES
+    // the current entry — WHATWG HTML §7.4.2.2 step 13 resolves `historyHandling`
+    // to "replace" for an equal URL, and §7.4.2.3.3 step 7 replaces — so
+    // `location.href = location.href` or re-clicking the current `#id` does not
+    // grow `history.length`. A changed/added fragment pushes.
+    if current == target {
+        state.nav_controller.replace(target.clone());
+    } else {
+        state.nav_controller.push(target.clone());
+    }
     state
         .pipeline
         .runtime

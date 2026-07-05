@@ -110,6 +110,38 @@ fn fragment_nav_no_refetch_pushes_one_entry() {
     );
 }
 
+/// A same-document navigation to the URL the active entry ALREADY has (including
+/// the fragment) REPLACES rather than pushes (WHATWG HTML §7.4.2.2 step 13 auto
+/// history-handling / §7.4.2.3.3 step 7), so `location.href = location.href` or
+/// re-clicking the current `#id` does NOT grow `history.length`.
+#[test]
+fn fragment_nav_to_identical_url_replaces_not_pushes() {
+    let (mut state, browser) = build_test_content_state_with_url("<p>doc</p>", base());
+    drain_browser(&browser);
+
+    let target = url("https://example.com/#sec");
+    assert!(handle_navigate(
+        &mut state,
+        &target,
+        HistoryCursorOp::Push,
+        None
+    ));
+    let len_after_first = state.nav_controller.len();
+
+    // Navigate to the SAME URL (including the fragment) again — must REPLACE.
+    assert!(handle_navigate(
+        &mut state,
+        &target,
+        HistoryCursorOp::Push,
+        None
+    ));
+    assert_eq!(
+        state.nav_controller.len(),
+        len_after_first,
+        "re-navigating to the identical fragment URL replaces (no history growth)"
+    );
+}
+
 /// The scroll lands on the `#id` element AND the resolved offset reaches BOTH
 /// the display-list scroll offset and the JS-observable `scrollX`/`scrollY` echo
 /// (not shipped un-applied) — I6, via the post-layout `re_render` seam.

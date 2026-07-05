@@ -155,17 +155,26 @@ impl App {
             .pipeline
             .runtime
             .set_current_url(Some(target.clone()));
-        // Finalize a same-document navigation, honoring push-vs-replace. The
-        // caller (`navigate`) gates the fragment path on `nav_type != Reload`, so
-        // `Reload` never reaches here — make that explicit (fail loud, not a
-        // silent `push` that would be wrong if the guard were ever loosened).
-        match nav_type {
-            NavigationType::Push => interactive.nav_controller.push(target.clone()),
-            NavigationType::Replace => interactive.nav_controller.replace(target.clone()),
-            NavigationType::Reload => {
-                unreachable!(
-                    "reload never takes the same-document fragment path (excluded by `navigate`)"
-                )
+        // Finalize a same-document navigation. A navigation to the URL the active
+        // entry ALREADY has (including the fragment) REPLACES the current entry
+        // regardless of nav-type — WHATWG HTML §7.4.2.2 step 13 resolves
+        // `historyHandling` to "replace" for an equal URL (so re-navigating to the
+        // current `#id` does not grow `history.length`). Otherwise honor
+        // push-vs-replace. The caller (`navigate`) gates the fragment path on
+        // `nav_type != Reload`, so `Reload` never reaches here — make that explicit
+        // (fail loud, not a silent `push` that would be wrong if the guard were
+        // ever loosened).
+        if current == target {
+            interactive.nav_controller.replace(target.clone());
+        } else {
+            match nav_type {
+                NavigationType::Push => interactive.nav_controller.push(target.clone()),
+                NavigationType::Replace => interactive.nav_controller.replace(target.clone()),
+                NavigationType::Reload => {
+                    unreachable!(
+                        "reload never takes the same-document fragment path (excluded by `navigate`)"
+                    )
+                }
             }
         }
         interactive

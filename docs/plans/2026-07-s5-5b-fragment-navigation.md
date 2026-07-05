@@ -683,7 +683,23 @@ Boa stays the live shell engine; oracles = engine-level VM tests + targeted shel
   the hashchange task fires (Codex R3 §310). D5's task-queued event-loop model renders + drains after the
   handlers run in ONE place — do NOT patch each facet ad-hoc pre-flip (the fixes are untestable while boa
   stubs the events, and a per-facet extra `re_render` on the common no-handler path is the ad-hoc edifice
-  the model replaces).
+  the model replaces). **Codex R4** surfaced the VM-side half of the same root, also flip-inert:
+  `deliver_history_step_events` runs a microtask checkpoint immediately after the synchronous popstate
+  (before the shell's step-15 scroll — §98) and **self-drains** the enqueued hashchange with `drain_tasks`
+  inline instead of leaving it for the event-loop pump (§7.4.6.2 step 6.4.5 "queue a global task" — §113),
+  which can also pull unrelated already-queued tasks into the nav. Both are the inline-drain approximation
+  the memo's own §6.3 flagged; the D5 event-loop model fires popstate SYNC, lets the loop's render step
+  scroll, and lets the queued hashchange fire on the next tick — no inline `drain_microtasks`/`drain_tasks`.
+- **`#11-session-history-index-vm-publish`** (carve, Codex R4, flip-inert): the shell publishes only
+  `set_history_length(len)` after a same-document commit (and on **every** rebuild path — `content/
+  navigation.rs`/`app/navigation.rs`, 8 sites, PRE-EXISTING), but the VM's `pushState` accounting derives
+  the next length from its stored `current_index`, so a persistent-VM fragment nav (0→1) then a later
+  `pushState` leaves the index stale. The `HostDriver::set_session_history(index, length)` contract wants
+  both. Flip-inert (the VM index is only consulted once the VM is the live engine, S5-6) + repo-wide (not
+  a fragment-only fix — publishing index only on the fragment path would DESYNC it from the 7 length-only
+  rebuild sites), so the fix is the whole-surface `(index, length)` publish at the S5-6 flip, not a
+  fragment-local patch. **Trigger**: the S5-6 flip / a `nav_controller` current-index getter. **Re-eval**:
+  backstop **2026-10-31**.
 - **WPT subset**: `html/browsers/history/the-location-*` (fragment) + the popstate/hashchange subset —
   engine-independent equivalents (harness scope judged at impl; the unit/integration above is the
   regression gate per "Supported-surface testing").
