@@ -13,36 +13,65 @@ impl App {
         let Some(interactive) = &mut self.interactive else {
             return false;
         };
-        let pipeline = &mut interactive.pipeline;
 
-        if let Some(nav_req) = pipeline.runtime.take_pending_navigation() {
-            let resolved = resolve_nav_url(pipeline.url.as_ref(), &nav_req.url);
+        // Drain the `window.open` back-channel FIRST so it cannot leak across a
+        // navigation (a queue left un-drained would surface on the next task).
+        // Legacy inline mode has no new-tab capability (`ChromeAction::NewTab`
+        // is threaded-mode only, see `handle_chrome_action`) and no iframe
+        // registry (`InteractiveState` carries no iframes — iframes are a
+        // content-thread facility), so the whole ordered window.open queue is
+        // drained-and-dropped here. Draining first (unconditional, mirroring the
+        // content thread's `process_pending_actions`) also closes the prior leak
+        // where an early navigation/history return skipped the drop. Threaded
+        // content mode does the real routing in
+        // `content/navigation.rs::process_pending_actions`.
+        let _ = interactive.pipeline.runtime.take_pending_window_opens();
+
+        // Own-context HISTORY drain BEFORE navigation (WHATWG HTML §7.4.4), FIFO
+        // — mirrors the content thread: a synchronous `pushState`/`replaceState`
+        // must commit its session-history entry before an async
+        // pipeline-replacing navigation supersedes, else a same-turn
+        // `pushState('/a'); location.href='/b'` strands `/a`. boa yields a
+        // 0/1-element Vec; the VM yields every action of the turn (type-stable
+        // across the S5-6 flip).
+        let pending_history = interactive.pipeline.runtime.take_pending_history();
+        let history_applied = !pending_history.is_empty();
+        for action in &pending_history {
+            if self.handle_history_action(action) {
+                // A traversal's load SUCCEEDED and rebuilt the pipeline — return
+                // IMMEDIATELY rather than falling through to
+                // `take_pending_navigation()` below, which would drain a
+                // `location.*` the freshly-loaded page's initial scripts queued
+                // onto the FRESH runtime (Codex #283). A no-op or failed-load
+                // traversal returns `false` and does NOT reach here, so the loop
+                // CONTINUES and trailing same-turn intents still apply (Codex R1
+                // P2 / R2). Mirrors
+                // `content/navigation.rs::process_pending_actions`.
+                return true;
+            }
+        }
+
+        // Re-borrow required by the borrow-checker: the loop above called
+        // `handle_history_action` (`&mut self`), so `self.interactive` needs a
+        // fresh borrow here. It stays `Some` — no path ever clears it
+        // (`navigate`/`navigate_to_history_url`/`load_url_into_pipeline` replace
+        // `interactive.pipeline` IN PLACE, never `self.interactive = None`) — so
+        // the `else` is an unreachable destructuring formality, not a real
+        // "interactive was dropped" path.
+        let Some(interactive) = &mut self.interactive else {
+            return history_applied;
+        };
+
+        // Own-context navigation — AFTER the history above.
+        if let Some(nav_req) = interactive.pipeline.runtime.take_pending_navigation() {
+            let resolved = resolve_nav_url(interactive.pipeline.url.as_ref(), &nav_req.url);
             if let Some(target_url) = resolved {
                 self.navigate(&target_url, nav_req.replace);
                 return true;
             }
         }
 
-        // Re-borrow interactive since self.navigate may have consumed it above.
-        let Some(interactive) = &mut self.interactive else {
-            return false;
-        };
-        if let Some(action) = interactive.pipeline.runtime.take_pending_history() {
-            self.handle_history_action(&action);
-            return true;
-        }
-
-        // Drain the `window.open` back-channels so they cannot leak across
-        // navigations (a queue left un-drained would surface on the next task).
-        // Legacy inline mode has no new-tab capability (`ChromeAction::NewTab`
-        // is threaded-mode only, see `handle_chrome_action`) and no iframe
-        // registry (`InteractiveState` carries no iframes — iframes are a
-        // content-thread facility), so the whole ordered window.open queue is
-        // drained-and-dropped here. Threaded content mode does the real
-        // routing in `content/navigation.rs::process_pending_actions`.
-        let _ = interactive.pipeline.runtime.take_pending_window_opens();
-
-        false
+        history_applied
     }
 
     /// Navigate to a new URL, replacing the current pipeline.
@@ -71,13 +100,17 @@ impl App {
         }
     }
 
-    /// Navigate to a URL from the history (back/forward).
-    pub(super) fn navigate_to_history_url(&mut self, url: &url::Url) {
+    /// Navigate to a URL from the history (back/forward). Returns `true` iff the
+    /// pipeline was **replaced (the load succeeded)** — the inline mirror of
+    /// `content/navigation.rs::handle_navigate`'s success signal, so a
+    /// failed-load traversal does NOT supersede the same-turn history drain
+    /// (Codex R2).
+    pub(super) fn navigate_to_history_url(&mut self, url: &url::Url) -> bool {
         if !self.load_url_into_pipeline(url) {
-            return;
+            return false;
         }
         let Some(interactive) = self.interactive.as_mut() else {
-            return;
+            return false;
         };
         interactive
             .pipeline
@@ -86,6 +119,7 @@ impl App {
         if let Some(state) = &self.render_state {
             state.window.set_title(&interactive.window_title);
         }
+        true
     }
 
     /// Load a URL into the current pipeline, updating interactive state.
@@ -141,27 +175,69 @@ impl App {
         }
     }
 
-    /// Handle a pending history action from JS.
-    pub(super) fn handle_history_action(&mut self, action: &elidex_script_session::HistoryAction) {
+    /// Handle a pending history action from JS. Returns `true` iff it
+    /// **superseded the document via a pipeline-rebuilding traversal that
+    /// LOADED** — a `Back`/`Forward`/`Go` whose `NavigationController` peek
+    /// yielded a target AND whose `navigate_to_history_url` load succeeded
+    /// (replaced the pipeline). Returns `false` for `PushState`/`ReplaceState`,
+    /// for a no-op traversal (no target), and for a traversal whose load FAILED
+    /// (old document still active). Mirrors
+    /// `content/navigation.rs::handle_history_action`: the drain loop returns
+    /// only on a genuine rebuild, so a no-op / failed-load traversal leaves the
+    /// current document active and the remaining same-turn intents still apply
+    /// (Codex R1 P2 / R2). The traversal is atomic by construction
+    /// (peek-then-commit — Codex R3): the cursor is committed (`commit_index`)
+    /// only after the load succeeds, so a failed load never moves it (no rollback
+    /// path).
+    pub(super) fn handle_history_action(
+        &mut self,
+        action: &elidex_script_session::HistoryAction,
+    ) -> bool {
         let Some(interactive) = &mut self.interactive else {
-            return;
+            return false;
         };
 
         match action {
             elidex_script_session::HistoryAction::Back
             | elidex_script_session::HistoryAction::Forward => {
-                let url = if matches!(action, elidex_script_session::HistoryAction::Back) {
-                    interactive.nav_controller.go_back().cloned()
+                // Peek the target WITHOUT moving the cursor, then commit the move
+                // ONLY on a successful load — an atomic traversal (Codex R3,
+                // mirrors `content/navigation.rs`). A failed load leaves the
+                // cursor on the still-active document (no rollback needed — it
+                // never moved). Clone the URL to drop the `interactive` borrow
+                // before the `&mut self` load below.
+                let peeked = if matches!(action, elidex_script_session::HistoryAction::Back) {
+                    interactive.nav_controller.peek_back()
                 } else {
-                    interactive.nav_controller.go_forward().cloned()
+                    interactive.nav_controller.peek_forward()
                 };
-                if let Some(url) = url {
-                    self.navigate_to_history_url(&url);
+                let Some((target_index, url)) = peeked.map(|(i, u)| (i, u.clone())) else {
+                    return false;
+                };
+                if self.navigate_to_history_url(&url) {
+                    if let Some(interactive) = self.interactive.as_mut() {
+                        interactive.nav_controller.commit_index(target_index);
+                    }
+                    true
+                } else {
+                    false
                 }
             }
             elidex_script_session::HistoryAction::Go(delta) => {
-                if let Some(url) = interactive.nav_controller.go(*delta).cloned() {
-                    self.navigate_to_history_url(&url);
+                let Some((target_index, url)) = interactive
+                    .nav_controller
+                    .peek_go(*delta)
+                    .map(|(i, u)| (i, u.clone()))
+                else {
+                    return false;
+                };
+                if self.navigate_to_history_url(&url) {
+                    if let Some(interactive) = self.interactive.as_mut() {
+                        interactive.nav_controller.commit_index(target_index);
+                    }
+                    true
+                } else {
+                    false
                 }
             }
             elidex_script_session::HistoryAction::PushState { url, .. }
@@ -179,6 +255,7 @@ impl App {
                         state.window.set_title(&interactive.window_title);
                     }
                 }
+                false
             }
         }
     }

@@ -288,7 +288,7 @@ fn handle_message(msg: BrowserToContent, state: &mut ContentState) -> bool {
             if !proceed {
                 return true;
             }
-            navigation::handle_navigate(state, &url, false, None);
+            navigation::handle_navigate(state, &url, navigation::HistoryCursorOp::Push, None);
         }
 
         BrowserToContent::MouseClick(ref click) => {
@@ -483,7 +483,14 @@ fn handle_message(msg: BrowserToContent, state: &mut ContentState) -> bool {
                 );
                 if proceed {
                     if let Some(url) = state.nav_controller.go_back().cloned() {
-                        navigation::handle_navigate(state, &url, true, None);
+                        // `go_back` already eager-moved the cursor → Keep (do NOT
+                        // double-commit); `notify_navigation` reads the moved cursor.
+                        navigation::handle_navigate(
+                            state,
+                            &url,
+                            navigation::HistoryCursorOp::Keep,
+                            None,
+                        );
                     }
                 }
             }
@@ -499,7 +506,13 @@ fn handle_message(msg: BrowserToContent, state: &mut ContentState) -> bool {
                 );
                 if proceed {
                     if let Some(url) = state.nav_controller.go_forward().cloned() {
-                        navigation::handle_navigate(state, &url, true, None);
+                        // `go_forward` already eager-moved the cursor → Keep.
+                        navigation::handle_navigate(
+                            state,
+                            &url,
+                            navigation::HistoryCursorOp::Keep,
+                            None,
+                        );
                     }
                 }
             }
@@ -514,7 +527,13 @@ fn handle_message(msg: BrowserToContent, state: &mut ContentState) -> bool {
             );
             if proceed {
                 if let Some(url) = state.pipeline.url.clone() {
-                    navigation::handle_navigate(state, &url, true, None);
+                    // Reload never moves the cursor → Keep.
+                    navigation::handle_navigate(
+                        state,
+                        &url,
+                        navigation::HistoryCursorOp::Keep,
+                        None,
+                    );
                 }
             }
         }

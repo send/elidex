@@ -819,5 +819,9 @@ mod iframe_security_tests;
 mod window_open_tests;
 
 #[cfg(test)]
+#[path = "../content_history_drain_tests.rs"]
+mod history_drain_tests;
+
+#[cfg(test)]
 #[path = "../viewport_tests.rs"]
 mod viewport_tests;

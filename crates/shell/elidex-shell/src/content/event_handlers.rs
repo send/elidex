@@ -17,7 +17,7 @@ use super::form_input::{
     dispatch_input_event, dispatch_input_event_typed, dispatch_state_change_events,
     handle_form_reset, handle_form_submit, handle_label_click, toggle_checkbox_if_needed,
 };
-use super::navigation::{handle_navigate, process_pending_actions};
+use super::navigation::{handle_navigate, process_pending_actions, HistoryCursorOp};
 use super::ContentState;
 
 /// Clear `:active` state from all entities in the active chain.
@@ -235,7 +235,7 @@ pub(super) fn handle_click(state: &mut ContentState, click: &crate::ipc::MouseCl
                     }
                 }
                 state.send_display_list();
-                handle_navigate(state, &target_url, false, None);
+                handle_navigate(state, &target_url, HistoryCursorOp::Push, None);
                 return;
             }
         }

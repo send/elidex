@@ -8,20 +8,47 @@ use crate::ipc::ContentToBrowser;
 
 use super::ContentState;
 
+/// How a [`handle_navigate`] load moves the session-history cursor — resolved
+/// BEFORE `notify_navigation` (symmetric with the fresh-nav push) so the browser
+/// chrome's `NavigationState` (`can_go_back`/`can_go_forward`, derived from the
+/// controller's cursor) reflects the POST-move position. A JS traversal
+/// previously committed the cursor in the *caller* AFTER `handle_navigate`
+/// returned, so `notify_navigation` shipped a stale pre-move state (Codex R5).
+#[derive(Clone, Copy)]
+pub(super) enum HistoryCursorOp {
+    /// Fresh navigation: push a new entry (cursor → the new last entry).
+    Push,
+    /// JS traversal (`back`/`forward`/`go`): commit the peeked target index — the
+    /// atomic half of peek-then-commit, moved INSIDE `handle_navigate` (before
+    /// `notify_navigation`) so the chrome sees the committed position.
+    Commit(usize),
+    /// Reload, or a chrome-button traversal that already moved the cursor eagerly
+    /// (`go_back`/`go_forward`): no cursor change here.
+    Keep,
+}
+
 /// Navigate to a URL, loading the document and updating state.
 ///
-/// When `is_history_nav` is `true`, the URL is not pushed to the navigation
-/// controller (it was already moved by `go_back`/`go_forward`).
+/// `cursor_op` selects how this load moves the session-history cursor (see
+/// [`HistoryCursorOp`]) — applied in the `Ok` branch BEFORE `notify_navigation`,
+/// so the chrome's `NavigationState` reflects the post-move cursor and a failed
+/// load never moves it.
 ///
 /// When `request` is `Some`, that request is sent instead of a default GET
 /// (used for POST form submissions).
+///
+/// Returns `true` iff the load **succeeded and the pipeline was replaced**
+/// (`Ok`); `false` on load failure (`Err` — a `NavigationFailed` is sent and
+/// `state.pipeline` is left UNCHANGED, so the old document stays active). The
+/// history drain propagates this so a failed traversal load does not supersede
+/// the current document (Codex R2).
 #[allow(clippy::too_many_lines)]
 pub(super) fn handle_navigate(
     state: &mut ContentState,
     url: &url::Url,
-    is_history_nav: bool,
+    cursor_op: HistoryCursorOp,
     request: Option<elidex_net::Request>,
-) {
+) -> bool {
     // WHATWG SW Handle Fetch — skip SW interception in these cases:
     // 1. Fragment-only navigation (same-document, no network fetch).
     let is_fragment_only =
@@ -165,8 +192,15 @@ pub(super) fn handle_navigate(
             state.applied_facts_seq = facts_seq;
             super::scroll::update_viewport_scroll_dimensions(state);
 
-            if !is_history_nav {
-                state.nav_controller.push(url.clone());
+            // Move the session-history cursor BEFORE `notify_navigation` below,
+            // so the `NavigationState` it ships reads the post-move
+            // `can_go_back`/`can_go_forward` (Codex R5). A JS traversal commits
+            // here (the peeked target), symmetric with the fresh-nav push — the
+            // caller no longer commits after we return.
+            match cursor_op {
+                HistoryCursorOp::Push => state.nav_controller.push(url.clone()),
+                HistoryCursorOp::Commit(index) => state.nav_controller.commit_index(index),
+                HistoryCursorOp::Keep => {}
             }
             state.pipeline.runtime.set_current_url(Some(url.clone()));
             state
@@ -174,6 +208,7 @@ pub(super) fn handle_navigate(
                 .runtime
                 .set_history_length(state.nav_controller.len());
             state.notify_navigation(url);
+            true
         }
         Err(e) => {
             eprintln!("Content thread navigation error: {e}");
@@ -181,6 +216,7 @@ pub(super) fn handle_navigate(
                 url: url.clone(),
                 error: format!("{e}"),
             });
+            false
         }
     }
 }
@@ -200,12 +236,13 @@ pub(super) fn handle_navigate(
 pub(super) fn process_pending_actions(state: &mut ContentState) -> bool {
     // window.open tab-creation / named-frame opens FIRST. These are effects on
     // OTHER browsing contexts that do NOT replace our pipeline, so they must be
-    // drained + applied BEFORE any own-context navigation below — otherwise a
-    // same-turn `window.open('_self')` / `location` navigation replaces the
-    // pipeline and strands the queued opens (they live on the old pipeline's
-    // runtime and are lost). The two channels are distinct effect classes:
-    // own-context navigation is last-wins (`pending_navigation`, shared with
-    // `location.*`), other-context open is FIFO-all-surface
+    // drained + applied BEFORE any own-context history/navigation below —
+    // otherwise a same-turn `window.open('_self')` / `location` navigation (or a
+    // `history.back()` traversal) replaces the pipeline and strands the queued
+    // opens (they live on the old pipeline's runtime and are lost). The channels
+    // are distinct effect classes: own-context navigation is last-wins
+    // (`pending_navigation`, shared with `location.*`), own-context history is
+    // FIFO (`pending_history`), other-context open is FIFO-all-surface
     // (`pending_window_open`). Drained via the engine-agnostic session trait
     // surface (`take_pending_window_opens`), not the boa bridge — the S5-6 flip
     // swaps the runtime type without touching this site (memo §4.3.2 / edge E4).
@@ -223,18 +260,76 @@ pub(super) fn process_pending_actions(state: &mut ContentState) -> bool {
         }
     }
 
-    // Own-context navigation (may replace the pipeline) — AFTER the opens above.
-    if let Some(nav_req) = state.pipeline.runtime.take_pending_navigation() {
-        let resolved = resolve_nav_url(state.pipeline.url.as_ref(), &nav_req.url);
-        if let Some(target_url) = resolved {
-            state.send_display_list();
-            handle_navigate(state, &target_url, false, None);
+    // Own-context HISTORY drain BEFORE the navigation drain below (WHATWG HTML
+    // §7.4.4 — the URL/history update ran synchronously during the script). A
+    // same-turn `pushState('/a'); location.href='/b'` enqueues both a history
+    // mutation and a navigation; the pushState entry must commit to the
+    // `NavigationController` BEFORE the async pipeline-replacing navigation
+    // supersedes, else it is stranded (the navigation early-returns and the
+    // history is never drained — the same reason window-opens drain first).
+    // Iterate the drained `Vec` in FIFO order: each synchronous
+    // `pushState`/`replaceState` is an independent session-history commit. boa's
+    // single-slot back-channel yields a 0/1-element Vec today; the VM engine
+    // yields every action of the turn — so this site is type-stable across the
+    // S5-6 flip (memo §3.2 / §5.1).
+    let pending_history = state.pipeline.runtime.take_pending_history();
+    let history_applied = !pending_history.is_empty();
+    for action in &pending_history {
+        if handle_history_action(state, action) {
+            // A traversal (`back`/`forward`/`go`) just SUCCESSFULLY rebuilt
+            // `state.pipeline` — a fresh document is loaded and
+            // `handle_navigate`'s `notify_navigation` already shipped its display
+            // list. Return IMMEDIATELY: do NOT fall through to
+            // `take_pending_navigation()` below, which would read the FRESH
+            // runtime and drain a `location.*` the newly-loaded page's initial
+            // scripts queued (`build_pipeline_from_loaded` runs them before
+            // returning, `pipeline.rs:648,680`) — the traversal must win, not the
+            // fresh page's own nav (Codex #283, this slice's own regression: the
+            // 5a reorder created a fall-through onto the freshly-rebuilt runtime).
+            // Remaining same-turn history intents, captured from the
+            // now-superseded (navigated-away) document, are discarded with it. A
+            // no-op or failed-load traversal returns `false` and does NOT reach
+            // here, so the loop CONTINUES and trailing intents still apply (Codex
+            // R1 P2 / R2). The single-navigable "traversal = a later task"
+            // boundary the spec models (§7.4.3 queued task) is collapsed onto this
+            // synchronous return; a faithful task-queued model is the reframed
+            // deferred slot `#11-session-history-task-queue-model` (memo §8-D5).
             return true;
         }
     }
 
-    if let Some(action) = state.pipeline.runtime.take_pending_history() {
-        handle_history_action(state, &action);
+    // Own-context navigation (may replace the pipeline) — AFTER the history
+    // above, and reached ONLY when NO same-turn traversal superseded the document
+    // (a superseding traversal `return true`s from the loop above). So this
+    // `take_pending_navigation()` always reads the ORIGINAL (non-superseded)
+    // runtime — the pending navigation THIS document's script queued, never a
+    // freshly-loaded page's. For a NON-rebuild history action
+    // (pushState/replaceState — render nothing, do not touch the pipeline), the
+    // entries just committed live on the `NavigationController` (owned by
+    // `ContentState`, not the replaced pipeline), so they survive this
+    // navigation's rebuild; and the navigation ships its own display list — so the
+    // history drain intentionally does NOT send one when a navigation follows (no
+    // redundant double-send). This is the pushState+nav common case 5a targets.
+    if let Some(nav_req) = state.pipeline.runtime.take_pending_navigation() {
+        let resolved = resolve_nav_url(state.pipeline.url.as_ref(), &nav_req.url);
+        if let Some(target_url) = resolved {
+            state.send_display_list();
+            handle_navigate(state, &target_url, HistoryCursorOp::Push, None);
+            return true;
+        }
+    }
+
+    // No navigation applied — a pure-history turn ships its display list now and
+    // reports the own-context action (preserving the prior single-action path
+    // exactly: history-only turns render + return true).
+    //
+    // Caveat — for a pure TRAVERSAL turn (e.g. `history.back()` alone),
+    // `handle_navigate`'s own `notify_navigation` already sent a display list, so
+    // this trailing send is a second one. That double-send is PRE-EXISTING (the
+    // old order ran the identical `handle_history_action(...); send_display_list()`
+    // pair) and is unchanged by 5a; the no-redundant-double-send guarantee above
+    // is about the pushState+navigation case, not traversal.
+    if history_applied {
         state.send_display_list();
         return true;
     }
@@ -342,26 +437,69 @@ pub(crate) fn route_window_opens(
     }
 }
 
+/// Apply a single history action. Returns `true` iff it **superseded the
+/// document via a pipeline-rebuilding traversal that LOADED** — a
+/// `Back`/`Forward`/`Go` whose `NavigationController` peek yielded a target URL
+/// AND whose `handle_navigate` (with [`HistoryCursorOp::Commit`]) load succeeded
+/// (replaced `state.pipeline`). Returns `false` for `PushState`/`ReplaceState`
+/// (no rebuild), for a **no-op traversal** (an out-of-range `go` / empty
+/// `peek_back`/`peek_forward` returning `None` → no `handle_navigate`), AND for a
+/// traversal whose **load FAILED** (`handle_navigate` `Err` left the pipeline
+/// unchanged, so the old document is still active). The FIFO drain loop keys on
+/// this to STOP replaying remaining same-turn intents ONLY once a traversal
+/// genuinely superseded the document (Codex R1 P2 / R2): a no-op or failed-load
+/// traversal leaves the current document active, so the loop CONTINUES and the
+/// trailing intents still apply. The traversal is **atomic on the non-reentrant
+/// path** (peek-then-commit — Codex R3): the target index is peeked WITHOUT moving
+/// the cursor and committed (`commit_index`, threaded INTO `handle_navigate` via
+/// [`HistoryCursorOp::Commit`] so it precedes `notify_navigation` — Codex R5)
+/// ONLY after the load succeeds, so a failed load never leaves the cursor
+/// speculatively moved (no rollback path — a continuing trailing `pushState`
+/// commits from the correct, unmoved index). **One reentrancy vector is out of
+/// scope**: `handle_navigate`'s SW-fetch synchronous message pump can re-dispatch
+/// a nav-mutating message during its blocking wait, staling the held `target_index`
+/// before the commit — folded into the deferred `#11-session-history-task-queue-model`
+/// (the task-queued model + M4-10 async event loop remove the synchronous
+/// cross-wait window; unreachable today — the SW controller path is dead — and
+/// `commit_index`'s `debug_assert` backstops the out-of-range case in debug/test).
 pub(super) fn handle_history_action(
     state: &mut ContentState,
     action: &elidex_script_session::HistoryAction,
-) {
+) -> bool {
     match action {
         elidex_script_session::HistoryAction::Back
         | elidex_script_session::HistoryAction::Forward => {
-            let url = if matches!(action, elidex_script_session::HistoryAction::Back) {
-                state.nav_controller.go_back().cloned()
+            // Peek the traversal target WITHOUT moving the cursor; `handle_navigate`
+            // commits the move (via `HistoryCursorOp::Commit`) ONLY if the load
+            // succeeds — an atomic traversal (Codex R3), with the commit threaded
+            // into `handle_navigate` before its `notify_navigation` (Codex R5). A
+            // failed load leaves the cursor on the still-active document, so a
+            // trailing same-turn `pushState` commits from the correct index (no
+            // rollback needed — the cursor never moved speculatively). Clone the
+            // URL to drop the `nav_controller` borrow before the `&mut state` load.
+            let peeked = if matches!(action, elidex_script_session::HistoryAction::Back) {
+                state.nav_controller.peek_back()
             } else {
-                state.nav_controller.go_forward().cloned()
+                state.nav_controller.peek_forward()
             };
-            if let Some(url) = url {
-                handle_navigate(state, &url, true, None);
-            }
+            let Some((target_index, url)) = peeked.map(|(i, u)| (i, u.clone())) else {
+                return false;
+            };
+            // The commit lives INSIDE `handle_navigate` (its `Ok` branch, before
+            // `notify_navigation`) via `HistoryCursorOp::Commit`, so the chrome's
+            // `NavigationState` reads the post-move cursor and a failed load never
+            // moves it — atomic peek-then-commit at the navigate seam (Codex R5).
+            handle_navigate(state, &url, HistoryCursorOp::Commit(target_index), None)
         }
         elidex_script_session::HistoryAction::Go(delta) => {
-            if let Some(url) = state.nav_controller.go(*delta).cloned() {
-                handle_navigate(state, &url, true, None);
-            }
+            let Some((target_index, url)) = state
+                .nav_controller
+                .peek_go(*delta)
+                .map(|(i, u)| (i, u.clone()))
+            else {
+                return false;
+            };
+            handle_navigate(state, &url, HistoryCursorOp::Commit(target_index), None)
         }
         elidex_script_session::HistoryAction::PushState { url, .. }
         | elidex_script_session::HistoryAction::ReplaceState { url, .. } => {
@@ -370,6 +508,7 @@ pub(super) fn handle_history_action(
                 elidex_script_session::HistoryAction::ReplaceState { .. }
             );
             apply_push_replace_state(state, url.as_deref(), replace);
+            false
         }
     }
 }
