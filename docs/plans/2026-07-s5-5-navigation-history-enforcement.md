@@ -1014,11 +1014,21 @@ shell integration (the S5-3/S5-4 posture), with the **engine-agnostic-now vs fli
 - **D4 (audit, no new slot — feeds the shell-arch backlog)**: `content/navigation.rs` +
   `app/navigation.rs` are near-duplicate navigation drivers (§3.6); S5-5b/c apply the same-document
   change to both. Unifying the two shell navigation drivers is a shell-architecture refactor (the
-  primitive is already engine-indep, so only the thin drivers duplicate). **Audit**: one-issue-one-way
-  tension is real but the duplication is confined + the shared algorithm is single-homed; unifying is
-  out of S5-5 scope and out of the flip critical path. **Disposition**: note for the shell-arch backlog;
-  not carved as a `#11-` slot (no spec surface — pure code-org), re-audited when the inline/thread shell
-  split is next touched.
+  primitive is already engine-indep, so only the thin drivers duplicate). **Behavioral parity, not pure
+  dedup (Codex S5-5b R6)**: the inline (app-mode) driver additionally *lacks* the content thread's
+  post-layout scroll-application seam (`re_render`'s clamp-against-content-size + `scrollX`/`scrollY` echo
+  + document-root `ScrollState`, §4.6). Today an app-mode fragment scroll to a near-bottom `#id` sets the
+  raw target-top offset **un-clamped**, so it can overscroll past the maximum and render blank space
+  (P2, `app/navigation.rs` fragment path — **legacy-inline / `build_pipeline` test-API only**; the
+  production threaded path clamps correctly). So unification must *carry the application seam to app-mode*
+  (clamp/echo/`ScrollState`), not merely merge the two functions — the behavioral fix rides the same
+  refactor. A standalone inline app-mode clamp is **declined on purpose**: it would fork
+  `ViewportScroll::clamp_scroll` into a second, drift-prone site — the exact one-issue-one-way duplication
+  this audit exists to retire. **Audit**: one-issue-one-way tension is real but the duplication is confined
+  + the shared algorithm is single-homed; unifying is out of S5-5 scope and out of the flip critical path.
+  **Disposition**: note for the shell-arch backlog; not carved as a `#11-` slot (respects 5b's ≤3-carve cap;
+  the behavioral fix is inseparable from the driver-unification refactor — no separable spec surface to
+  carve), re-audited when the inline/thread shell split is next touched.
 - **D5 `#11-session-history-task-queue-model`** (reframed from `#11-traversal-navigation-same-turn-race`;
   carved by S5-5a): **implement the spec's task-queued traversal** — *apply the history step* (§7.4.6.1)
   as a **deferred post-drain content-thread task**, so a same-turn traversal phase-separates from the
