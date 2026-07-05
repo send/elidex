@@ -7,12 +7,29 @@ use super::HostBridge;
 impl HostBridge {
     /// Set the current page URL.
     ///
-    /// Also updates the cached origin string for localStorage keying.
+    /// Re-derives the URL-tuple `cached_origin` (the localStorage partition key)
+    /// **only when the installed origin is not opaque**. On a fresh load
+    /// `set_origin` runs right after and authoritatively syncs `cached_origin`
+    /// from the installed origin (`iframe_bridge.rs`), so the tuple seed here is
+    /// its provisional value; but a same-document (fragment) navigation
+    /// (`content/navigation.rs::fragment_navigate`) calls this WITHOUT a
+    /// following `set_origin` (no pipeline rebuild), so re-deriving from the URL
+    /// would switch an installed OPAQUE origin's isolated `null:<id>` partition
+    /// to the URL tuple — a sandbox origin-isolation bypass (§7.1.1 origin is
+    /// stable document state; §12.2.3 storage partitions by document origin).
+    /// Skipping the re-derive for an opaque origin preserves the partition; a
+    /// tuple origin is unaffected by a fragment (only the fragment differs), so
+    /// the re-derive is a harmless no-op there.
     pub fn set_current_url(&self, url: Option<url::Url>) {
         let mut inner = self.inner.borrow_mut();
-        inner.cached_origin = url
-            .as_ref()
-            .map_or("null".to_string(), |u| u.origin().ascii_serialization());
+        if !matches!(
+            inner.iframe.origin,
+            elidex_plugin::SecurityOrigin::Opaque(_)
+        ) {
+            inner.cached_origin = url
+                .as_ref()
+                .map_or("null".to_string(), |u| u.origin().ascii_serialization());
+        }
         inner.current_url = url;
     }
 

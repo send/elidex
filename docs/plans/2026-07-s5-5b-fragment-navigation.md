@@ -668,7 +668,12 @@ Boa stays the live shell engine; oracles = engine-level VM tests + targeted shel
   so today it would override — spec-wrong once popstate fires live), and the fragment offset is resolved
   against pre-popstate layout (§6.4 — a handler mutating layout above the target would stale it). Both are
   only observable + testable when popstate fires live (S5-6); revisit the `re_render` scroll-application
-  order there.
+  order there. **Also fold in the re-entrant-intent drain** (Codex R1, flip-inert): a popstate/hashchange
+  handler that calls `location.assign()` / `history.pushState()` during `fragment_navigate` queues an
+  intent AFTER `process_pending_actions` already drained the navigation/history queues, and
+  `fragment_navigate` returns without re-draining — so the handler's intent is stranded until the next
+  input pump. This is the re-entrancy the D5 task-queued model (`#11-session-history-task-queue-model`)
+  owns; wire the post-handler re-drain at the S5-6 flip (VM-live), where a handler actually runs.
 - **WPT subset**: `html/browsers/history/the-location-*` (fragment) + the popstate/hashchange subset —
   engine-independent equivalents (harness scope judged at impl; the unit/integration above is the
   regression gate per "Supported-surface testing").

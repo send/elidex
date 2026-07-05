@@ -114,10 +114,11 @@ impl HostBridge {
     /// Get the origin string for localStorage keying.
     ///
     /// Reads from the cached origin string in `HostBridgeInner`, which is
-    /// updated both by `set_current_url` (URL-derived default) and by
-    /// `set_origin` (the installed override, which WINS — so a
-    /// sandboxed/credentialless iframe partitions storage under its opaque
-    /// origin, not the URL tuple; see `bridge/iframe_bridge.rs`).
+    /// updated by `set_current_url` (URL-derived default — but NOT while an
+    /// opaque origin is installed, so a same-document fragment nav cannot clobber
+    /// it, `bridge/navigation.rs`) and by `set_origin` (the installed override,
+    /// which WINS — so a sandboxed/credentialless iframe partitions storage under
+    /// its opaque origin, not the URL tuple; see `bridge/iframe_bridge.rs`).
     ///
     /// Opaque origins (data: URLs, sandboxed iframes) serialize to "null"
     /// per the URL spec. To prevent storage cross-contamination between
@@ -228,6 +229,50 @@ mod tests {
         let u = url::Url::parse("https://example.com/page").unwrap();
         bridge.set_current_url(Some(u.clone()));
         bridge.set_origin(SecurityOrigin::from_url(&u));
+        assert_eq!(bridge.local_storage_origin(), "https://example.com");
+    }
+
+    /// F3 (S5-5b, Codex): a same-document (fragment) navigation calls
+    /// `set_current_url` WITHOUT re-running `set_origin` (no pipeline rebuild).
+    /// It must NOT re-derive `cached_origin` from the URL — that would switch an
+    /// installed OPAQUE origin's isolated `null:<id>` partition to the URL tuple,
+    /// the sandbox origin-isolation bypass the no-rebuild fragment path newly
+    /// exposes. The isolated opaque partition must survive the fragment nav.
+    /// Falsify by dropping the `!Opaque` guard in `set_current_url`.
+    #[test]
+    fn fragment_nav_preserves_opaque_localstorage_partition() {
+        let bridge = HostBridge::new();
+        let u = url::Url::parse("https://example.com/page").unwrap();
+        bridge.set_current_url(Some(u.clone()));
+        bridge.set_origin(SecurityOrigin::opaque());
+        let opaque_key = bridge.local_storage_origin();
+        assert!(
+            opaque_key.starts_with("null:"),
+            "installed opaque partition"
+        );
+        // The fragment nav: same URL + a fragment, `set_current_url` only.
+        bridge.set_current_url(Some(
+            url::Url::parse("https://example.com/page#sec").unwrap(),
+        ));
+        assert_eq!(
+            bridge.local_storage_origin(),
+            opaque_key,
+            "the fragment nav preserves the isolated opaque partition, not the URL tuple"
+        );
+    }
+
+    /// Regression pin (F3 sibling): a TUPLE-origin document's fragment nav is
+    /// unaffected — the partition key stays the tuple (the fragment does not
+    /// change the URL-tuple origin, so the re-derive is a harmless no-op).
+    #[test]
+    fn fragment_nav_keeps_tuple_localstorage_partition() {
+        let bridge = HostBridge::new();
+        let u = url::Url::parse("https://example.com/page").unwrap();
+        bridge.set_current_url(Some(u.clone()));
+        bridge.set_origin(SecurityOrigin::from_url(&u));
+        bridge.set_current_url(Some(
+            url::Url::parse("https://example.com/page#sec").unwrap(),
+        ));
         assert_eq!(bridge.local_storage_origin(), "https://example.com");
     }
 }
