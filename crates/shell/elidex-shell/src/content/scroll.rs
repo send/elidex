@@ -265,25 +265,43 @@ fn find_indicated_element(dom: &EcsDom, root: Entity, fragment: &str) -> Option<
     result
 }
 
-/// Inline-axis "nearest" scroll target (CSSOM View "scroll a target into view",
-/// the `inline: nearest` case §7.4.6.4 delegates to): keep the current inline
-/// scroll when the target's inline extent `[left, left + width)` already fits
-/// within the viewport `[current_x, current_x + viewport_width)`; otherwise scroll
-/// the minimum to reveal the nearer edge. A target wider than the viewport aligns
-/// to its start edge (`left`). `viewport_width == 0` (dimensions not yet measured)
-/// degrades to aligning the left edge — the pre-`inline: nearest` behaviour, no
-/// regression. The caller clamps the result against `max_scroll_x`.
+/// Inline-axis "nearest" scroll target — CSSOM View "determine the scroll-into-view
+/// position", the `inline: nearest` case (§7.4.6.4 delegates fragment scrolling to
+/// it). Given the target's inline extent `[left, left + width)`, the current
+/// scroll `current_x`, and the scrollport width, returns the new inline scroll:
+///
+/// - **both edges outside** the scrollport (target spans it) → do nothing (already
+///   in view) — the straddling-wide-target case;
+/// - **start edge outside** and target narrower than the scrollport, OR **end edge
+///   outside** and target wider → align the start edge (`left`);
+/// - **start edge outside** and target wider, OR **end edge outside** and narrower
+///   → align the end edge (`right - width`);
+/// - fully visible → do nothing.
+///
+/// So an already-visible target does not force a spurious sideways jump.
+/// `viewport_width == 0` (dimensions not yet measured) degrades to aligning the
+/// left edge (the pre-`inline: nearest` behaviour, no regression). The caller
+/// clamps the result against `max_scroll_x`.
 fn inline_nearest(target_left: f32, target_width: f32, current_x: f32, viewport_width: f32) -> f32 {
+    if viewport_width <= 0.0 {
+        return target_left; // dimensions unmeasured → align the start edge
+    }
     let target_right = target_left + target_width;
     let view_right = current_x + viewport_width;
-    if target_left >= current_x && target_right <= view_right {
-        current_x // already inline-visible → stay put (no spurious sideways jump)
-    } else if target_left < current_x {
-        target_left // start edge before the viewport → reveal from the left
+    let off_near = target_left < current_x; // inline start edge before the scrollport
+    let off_far = target_right > view_right; // inline end edge past the scrollport
+    if off_near && off_far {
+        current_x // both edges outside → target spans the scrollport, already in view
+    } else if (off_near && target_width < viewport_width)
+        || (off_far && target_width > viewport_width)
+    {
+        target_left // align the start edge
+    } else if (off_near && target_width > viewport_width)
+        || (off_far && target_width < viewport_width)
+    {
+        (target_right - viewport_width).max(0.0) // align the end edge
     } else {
-        // end edge past the viewport → reveal from the right; `.min(target_left)`
-        // keeps a target wider than the viewport aligned to its start edge.
-        (target_right - viewport_width).min(target_left).max(0.0)
+        current_x // fully visible → do nothing
     }
 }
 
@@ -306,11 +324,16 @@ mod tests {
         assert_eq!(inline_nearest(600.0, 200.0, 500.0, vw), 500.0);
         // Off the LEFT (target [100,300), view [500,1300)) → align left edge.
         assert_eq!(inline_nearest(100.0, 200.0, 500.0, vw), 100.0);
-        // Off the RIGHT (target [900,1000), view [0,800)) → align right edge
-        // (1000 - 800 = 200).
+        // Off the RIGHT, narrower than the viewport (target [900,1000), view
+        // [0,800)) → align the end edge (1000 - 800 = 200).
         assert_eq!(inline_nearest(900.0, 100.0, 0.0, vw), 200.0);
-        // Wider than the viewport (target [100,1100), view [0,800)) → align start.
+        // Off the RIGHT, wider than the viewport (target [100,1100), view [0,800),
+        // start inside) → align the START edge (100), not the end.
         assert_eq!(inline_nearest(100.0, 1000.0, 0.0, vw), 100.0);
+        // STRADDLING: wider than the viewport AND both edges outside (target
+        // [100,2000), view [500,1300)) → do nothing, the target already spans the
+        // viewport (the R3 regression fix — must NOT yank to left=100).
+        assert_eq!(inline_nearest(100.0, 1900.0, 500.0, vw), 500.0);
         // Unmeasured viewport (width 0) → degrades to aligning the left edge (the
         // pre-`inline: nearest` behaviour, no regression).
         assert_eq!(inline_nearest(300.0, 50.0, 0.0, 0.0), 300.0);

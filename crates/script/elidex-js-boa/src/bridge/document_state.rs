@@ -275,4 +275,17 @@ mod tests {
         ));
         assert_eq!(bridge.local_storage_origin(), "https://example.com");
     }
+
+    /// Regression pin (F3/R3, Codex): a standalone/embedded runtime that only
+    /// calls `set_current_url` (never `set_origin`) must still partition
+    /// localStorage under the URL tuple. A fresh bridge's DEFAULT-opaque origin
+    /// must NOT suppress the URL-derived seed — only an INSTALLED opaque override
+    /// does. Falsify by gating `set_current_url` on the origin variant alone
+    /// (without the `origin_installed` flag).
+    #[test]
+    fn standalone_set_current_url_seeds_url_partition_without_set_origin() {
+        let bridge = HostBridge::new();
+        bridge.set_current_url(Some(url::Url::parse("https://example.com/page").unwrap()));
+        assert_eq!(bridge.local_storage_origin(), "https://example.com");
+    }
 }

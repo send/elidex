@@ -24,6 +24,10 @@ impl HostBridge {
         let mut inner = self.inner.borrow_mut();
         inner.cached_origin = origin.serialize();
         inner.iframe.origin = origin;
+        // Mark the origin as authoritatively installed so a later same-document
+        // `set_current_url` preserves an opaque override's partition (vs a fresh
+        // bridge's default-opaque, which still seeds from the URL).
+        inner.iframe.origin_installed = true;
     }
 
     /// Get the security origin of this document.

@@ -674,6 +674,16 @@ Boa stays the live shell engine; oracles = engine-level VM tests + targeted shel
   `fragment_navigate` returns without re-draining — so the handler's intent is stranded until the next
   input pump. This is the re-entrancy the D5 task-queued model (`#11-session-history-task-queue-model`)
   owns; wire the post-handler re-drain at the S5-6 flip (VM-live), where a handler actually runs.
+  **The whole cluster is one root** (Codex R1+R3, self-root-check): a same-document nav fires events
+  (popstate SYNC, hashchange task) but does its single `re_render` + `notify_navigation` BEFORE/without a
+  post-handler pass, so every event-handler *effect* is unrendered/undrained. Facets, all flip-inert
+  (boa stubs the events): the **indicated-part resolution** must be recomputed after popstate (a handler
+  that adds/moves/removes the target changes step-15 geometry — Codex R3 §271, sharper than the offset-only
+  note above); a **hashchange handler's** DOM mutations / pending scrolls need a `re_render` + notify after
+  the hashchange task fires (Codex R3 §310). D5's task-queued event-loop model renders + drains after the
+  handlers run in ONE place — do NOT patch each facet ad-hoc pre-flip (the fixes are untestable while boa
+  stubs the events, and a per-facet extra `re_render` on the common no-handler path is the ad-hoc edifice
+  the model replaces).
 - **WPT subset**: `html/browsers/history/the-location-*` (fragment) + the popstate/hashchange subset —
   engine-independent equivalents (harness scope judged at impl; the unit/integration above is the
   regression gate per "Supported-surface testing").

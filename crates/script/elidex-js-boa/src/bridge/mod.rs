@@ -279,6 +279,13 @@ pub struct IdbVersionChangeMsg {
 struct IframeBridgeState {
     /// Security origin of this document (WHATWG HTML §7.5).
     origin: elidex_plugin::SecurityOrigin,
+    /// Whether `set_origin` has installed the authoritative origin yet. A fresh
+    /// bridge's `origin` DEFAULTS to `Opaque` (uninitialized), so this
+    /// distinguishes that default from an INSTALLED opaque (sandbox) override:
+    /// `set_current_url` only suppresses its URL-derived `cached_origin` seed once
+    /// an opaque override is installed, so a standalone/embedded runtime that
+    /// never calls `set_origin` still gets the documented URL-tuple partition.
+    origin_installed: bool,
     /// The `<iframe>` element entity in the parent DOM that contains this window.
     /// `None` for top-level documents.
     frame_element: Option<Entity>,
@@ -311,6 +318,7 @@ impl Default for IframeBridgeState {
     fn default() -> Self {
         Self {
             origin: elidex_plugin::SecurityOrigin::opaque(),
+            origin_installed: false,
             frame_element: None,
             referrer: None,
             sandbox_flags: None,
