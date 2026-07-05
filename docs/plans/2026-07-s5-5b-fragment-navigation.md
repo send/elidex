@@ -661,7 +661,16 @@ Boa stays the live shell engine; oracles = engine-level VM tests + targeted shel
   (popstate-strictly-before-hashchange); identical-via-href fires popstate but **NOT** hashchange
   (`oldFrag==newFrag`). A shell test pins boa's **no-fire** (stub) as the pre-flip baseline. **Registered
   S5-6 flip deliverable**: the live-shell popstate/hashchange test once the VM is the engine (mirrors
-  S5-4b's storage-sentinel deferral). **Fold into that deliverable the scroll-vs-popstate-handler
+  S5-4b's storage-sentinel deferral). **Bind the VM around the history-step delivery** (Codex R7,
+  flip-inert): the shell calls `deliver_history_step_events` directly on the runtime
+  (`content/navigation.rs` / `app/navigation.rs`) OUTSIDE any bind bracket — the shell has no VM-binding
+  concept (boa needs none). The VM impl gates on `HostData::is_bound()` (mirroring
+  `deliver_media_query_changes` + every VM-capability delivery method S5-2/5b already defer to S5-6), so
+  post-flip an unbound call silently no-ops popstate/hashchange; the VM tests bind manually, masking it.
+  The flip wiring must establish binding around delivery — the SAME (uniform) S5-6 decision that binds
+  MQL / resize / intersection / mutation delivery, NOT a history-only bracket (which would fork the
+  binding model). A pre-flip fix is impossible: the shell→VM bind wiring is itself built at S5-6. **Fold
+  into that deliverable the scroll-vs-popstate-handler
   ordering** (flip-inert today — boa stubs the events, so no popstate handler runs): the *navigate to a
   fragment* step-15 fragment scroll must WIN over a popstate handler's own `scrollTo` (the handler's
   queued scroll is applied by `re_render`'s `take_pending_scroll` after the directly-set fragment offset,
