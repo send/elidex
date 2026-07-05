@@ -11,7 +11,7 @@ mod form_input;
 pub(crate) mod iframe;
 mod ime;
 mod navigation;
-mod scroll;
+pub(crate) mod scroll;
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::thread::JoinHandle;
@@ -821,6 +821,10 @@ mod window_open_tests;
 #[cfg(test)]
 #[path = "../content_history_drain_tests.rs"]
 mod history_drain_tests;
+
+#[cfg(test)]
+#[path = "../content_fragment_nav_tests.rs"]
+mod fragment_nav_tests;
 
 #[cfg(test)]
 #[path = "../viewport_tests.rs"]

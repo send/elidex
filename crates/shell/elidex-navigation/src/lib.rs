@@ -10,5 +10,5 @@ pub mod navigation;
 pub mod resource;
 
 pub use loader::{load_document, LoadError, LoadedDocument, ResolvedScript};
-pub use navigation::{HistoryEntry, NavigationController};
+pub use navigation::{classify_navigation, HistoryEntry, NavClass, NavigationController};
 pub use resource::{ImageSource, ScriptSource, StyleSource};

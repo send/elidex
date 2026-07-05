@@ -12,8 +12,8 @@ use std::time::Instant;
 use elidex_css::media::{ColorScheme, ReducedMotion};
 use elidex_ecs::Entity;
 use elidex_script_session::{
-    DispatchEvent, EvalResult, HistoryAction, HostDriver, ListenerId, MutationRecord,
-    NavigationRequest, ScriptContext, ScriptEngine, WindowOpenIntent,
+    DispatchEvent, EvalResult, HistoryAction, HistoryStepEvents, HostDriver, ListenerId,
+    MutationRecord, NavigationRequest, ScriptContext, ScriptEngine, WindowOpenIntent,
 };
 
 use crate::vm::host_data::HostData;
@@ -455,6 +455,17 @@ impl HostDriver for ElidexJsEngine {
 
     fn set_navigation_referrer(&mut self, referrer: Option<url::Url>) {
         self.vm.set_navigation_referrer(referrer);
+    }
+
+    // ── history-step event delivery (per-navigation; §7.4.6.2) ────────────
+
+    fn deliver_history_step_events(&mut self, ev: HistoryStepEvents) {
+        // Marshal-only: decompose the engine-independent decision and forward to
+        // the VM's reconstruct+fire body (popstate SYNC, hashchange ENQUEUED),
+        // reaching `vm.inner` directly like the navigation back-channel above.
+        self.vm
+            .inner
+            .deliver_history_step_events(ev.popstate_state, ev.hashchange);
     }
 
     // ── security context (consolidated from S1b inherent) ─────────────────

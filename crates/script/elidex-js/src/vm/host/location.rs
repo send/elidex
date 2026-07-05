@@ -37,7 +37,7 @@
 
 #![cfg(feature = "engine")]
 
-use elidex_script_session::NavigationRequest;
+use elidex_script_session::{NavigationRequest, NavigationType};
 use url::Url;
 
 use super::super::coerce;
@@ -109,19 +109,19 @@ pub(super) fn native_location_get_href(
 }
 
 /// Shared setter body — used by `href = …`, `assign(url)`, and `replace(url)`.
-/// `replace_history` is `true` for `replace` (overwrite the current
-/// session-history entry), `false` for `href=`/`assign` (push a new one).
-/// `new_url` is the already-parsed + validated absolute target.
+/// `nav_type` is [`NavigationType::Replace`] for `replace` (overwrite the
+/// current session-history entry), [`NavigationType::Push`] for `href=`/`assign`
+/// (push a new one). `new_url` is the already-parsed + validated absolute target.
 ///
 /// Enqueue-only (WHATWG HTML §7.4.2.2 "Beginning navigation"): records a
 /// [`NavigationRequest`] for the shell to load, leaving `current_url` unchanged
 /// until the shell commits it via `set_current_url`.  The shell's
 /// `NavigationController` owns the session-history stack, so the VM does not
 /// push/replace an entry here.
-fn set_location(ctx: &mut NativeContext<'_>, new_url: &Url, replace_history: bool) {
+fn set_location(ctx: &mut NativeContext<'_>, new_url: &Url, nav_type: NavigationType) {
     ctx.vm.navigation.enqueue_navigation(NavigationRequest {
         url: new_url.to_string(),
-        replace: replace_history,
+        nav_type,
     });
 }
 
@@ -134,7 +134,7 @@ pub(super) fn native_location_set_href(
     let sid = coerce::to_string(ctx.vm, arg)?;
     let input = ctx.vm.strings.get_utf8(sid);
     let parsed = resolve_url_or_syntax_error(ctx, &input, "set 'href' on 'Location'")?;
-    set_location(ctx, &parsed, false);
+    set_location(ctx, &parsed, NavigationType::Push);
     Ok(JsValue::Undefined)
 }
 
@@ -241,7 +241,7 @@ pub(super) fn native_location_assign(
     let sid = coerce::to_string(ctx.vm, arg)?;
     let input = ctx.vm.strings.get_utf8(sid);
     let parsed = resolve_url_or_syntax_error(ctx, &input, "execute 'assign' on 'Location'")?;
-    set_location(ctx, &parsed, false);
+    set_location(ctx, &parsed, NavigationType::Push);
     Ok(JsValue::Undefined)
 }
 
@@ -254,7 +254,7 @@ pub(super) fn native_location_replace(
     let sid = coerce::to_string(ctx.vm, arg)?;
     let input = ctx.vm.strings.get_utf8(sid);
     let parsed = resolve_url_or_syntax_error(ctx, &input, "execute 'replace' on 'Location'")?;
-    set_location(ctx, &parsed, true);
+    set_location(ctx, &parsed, NavigationType::Replace);
     Ok(JsValue::Undefined)
 }
 
@@ -263,13 +263,15 @@ pub(super) fn native_location_reload(
     _this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    // `location.reload()` (WHATWG HTML §7.4.2.2) is a *replace* navigation to the
-    // current URL.  Enqueue-only: the shell performs the actual reload (matches
-    // boa `globals/location.rs` reload → `set_pending_navigation{replace:true}`).
+    // `location.reload()` (WHATWG HTML §7.4.3 Reloading and traversing) is a DISTINCT nav-type,
+    // not a fragment/replace navigation — `isSameDocument=false`, so the shell
+    // rebuilds even for a fragment-URL page (the drain maps `Reload` → no cursor
+    // advance). Enqueue-only: the shell performs the actual reload.
     let url = ctx.vm.navigation.current_url.to_string();
-    ctx.vm
-        .navigation
-        .enqueue_navigation(NavigationRequest { url, replace: true });
+    ctx.vm.navigation.enqueue_navigation(NavigationRequest {
+        url,
+        nav_type: NavigationType::Reload,
+    });
     Ok(JsValue::Undefined)
 }
 

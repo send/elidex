@@ -279,14 +279,29 @@ fn handle_message(msg: BrowserToContent, state: &mut ContentState) -> bool {
         }
 
         BrowserToContent::Navigate(url) => {
-            let proceed = crate::pipeline::dispatch_unload_events(
-                &mut state.pipeline.runtime,
-                &mut state.pipeline.session,
-                &mut state.pipeline.dom,
-                state.pipeline.document,
-            );
-            if !proceed {
-                return true;
+            // Only a CROSS-document address-bar nav dispatches unload/beforeunload.
+            // A same-page `#fragment` address-bar nav is same-document (*navigate to
+            // a fragment*, `isSameDocument = true`): it fires NO unload and takes the
+            // Fragment branch's no-rebuild path in `handle_navigate` (§6.3
+            // caller-audit — this address-bar `Push` caller is the one site with an
+            // unconditional pre-unload). A missing current URL classifies as
+            // cross-document (a full nav) — fire unload. Uses the same classifier +
+            // current-URL source (`state.pipeline.url`) as the Fragment branch, so
+            // the unload-skip and the no-rebuild decision agree.
+            let is_cross_document = state.pipeline.url.as_ref().is_none_or(|current| {
+                elidex_navigation::classify_navigation(current, &url)
+                    == elidex_navigation::NavClass::CrossDocument
+            });
+            if is_cross_document {
+                let proceed = crate::pipeline::dispatch_unload_events(
+                    &mut state.pipeline.runtime,
+                    &mut state.pipeline.session,
+                    &mut state.pipeline.dom,
+                    state.pipeline.document,
+                );
+                if !proceed {
+                    return true;
+                }
             }
             navigation::handle_navigate(state, &url, navigation::HistoryCursorOp::Push, None);
         }

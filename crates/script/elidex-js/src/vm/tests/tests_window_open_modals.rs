@@ -15,7 +15,7 @@
 
 use elidex_plugin::IframeSandboxFlags;
 use elidex_script_session::{
-    NamedFrameNavigation, NavigationRequest, OpenTabRequest, WindowOpenIntent,
+    NamedFrameNavigation, NavigationRequest, NavigationType, OpenTabRequest, WindowOpenIntent,
 };
 
 use super::super::host_data::HostData;
@@ -223,7 +223,7 @@ fn open_top_allow_top_navigation_enqueues_navigation() {
     assert!(eval_bool(&mut vm, "window.open('/x', '_top') === null;"));
     let nav = take_nav(&mut vm).expect("a navigation request was enqueued");
     assert_eq!(nav.url, "https://example.com/x");
-    assert!(!nav.replace);
+    assert_eq!(nav.nav_type, NavigationType::Push);
     assert!(open_tabs(&mut vm).is_empty());
 }
 
@@ -248,7 +248,7 @@ fn open_self_is_never_popup_gated() {
     assert!(eval_bool(&mut vm, "window.open('/y', '_self') === null;"));
     let nav = take_nav(&mut vm).expect("a navigation request was enqueued");
     assert_eq!(nav.url, "https://example.com/y");
-    assert!(!nav.replace);
+    assert_eq!(nav.nav_type, NavigationType::Push);
 }
 
 #[test]

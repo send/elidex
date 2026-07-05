@@ -392,7 +392,7 @@ fn register_window_open(ctx: &mut Context, bridge: &HostBridge) {
                     "_self" => {
                         bridge.set_pending_navigation(elidex_script_session::NavigationRequest {
                             url: url.to_string(),
-                            replace: false,
+                            nav_type: elidex_script_session::NavigationType::Push,
                         });
                     }
                     "_parent" | "_top" => {
@@ -411,7 +411,7 @@ fn register_window_open(ctx: &mut Context, bridge: &HostBridge) {
                         }
                         bridge.set_pending_navigation(elidex_script_session::NavigationRequest {
                             url: url.to_string(),
-                            replace: false,
+                            nav_type: elidex_script_session::NavigationType::Push,
                         });
                     }
                     named => {

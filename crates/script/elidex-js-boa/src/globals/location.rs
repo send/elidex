@@ -11,7 +11,7 @@ use boa_engine::object::ObjectInitializer;
 use boa_engine::property::Attribute;
 use boa_engine::{js_string, Context, JsNativeError, JsResult, JsValue, NativeFunction};
 
-use elidex_script_session::NavigationRequest;
+use elidex_script_session::{NavigationRequest, NavigationType};
 
 use crate::bridge::HostBridge;
 
@@ -116,7 +116,7 @@ pub fn register_location(ctx: &mut Context, bridge: &HostBridge) -> JsValue {
                         .unwrap_or_default();
                     bridge.set_pending_navigation(NavigationRequest {
                         url: href,
-                        replace: false,
+                        nav_type: NavigationType::Push,
                     });
                     Ok(JsValue::undefined())
                 },
@@ -153,7 +153,7 @@ pub fn register_location(ctx: &mut Context, bridge: &HostBridge) -> JsValue {
                     .to_std_string_escaped();
                 bridge.set_pending_navigation(NavigationRequest {
                     url,
-                    replace: false,
+                    nav_type: NavigationType::Push,
                 });
                 Ok(JsValue::undefined())
             },
@@ -175,7 +175,10 @@ pub fn register_location(ctx: &mut Context, bridge: &HostBridge) -> JsValue {
                     })?
                     .to_string(ctx)?
                     .to_std_string_escaped();
-                bridge.set_pending_navigation(NavigationRequest { url, replace: true });
+                bridge.set_pending_navigation(NavigationRequest {
+                    url,
+                    nav_type: NavigationType::Replace,
+                });
                 Ok(JsValue::undefined())
             },
             b,
@@ -192,7 +195,7 @@ pub fn register_location(ctx: &mut Context, bridge: &HostBridge) -> JsValue {
                 if let Some(url) = bridge.current_url() {
                     bridge.set_pending_navigation(NavigationRequest {
                         url: url.to_string(),
-                        replace: true,
+                        nav_type: NavigationType::Reload,
                     });
                 }
                 Ok(JsValue::undefined())
@@ -338,7 +341,7 @@ mod tests {
             .unwrap();
         let nav = bridge.take_pending_navigation().unwrap();
         assert_eq!(nav.url, "https://other.com/");
-        assert!(!nav.replace);
+        assert_eq!(nav.nav_type, NavigationType::Push);
     }
 
     #[test]
@@ -348,7 +351,7 @@ mod tests {
             .unwrap();
         let nav = bridge.take_pending_navigation().unwrap();
         assert_eq!(nav.url, "https://other.com/");
-        assert!(nav.replace);
+        assert_eq!(nav.nav_type, NavigationType::Replace);
     }
 
     #[test]
@@ -358,7 +361,7 @@ mod tests {
             .unwrap();
         let nav = bridge.take_pending_navigation().unwrap();
         assert_eq!(nav.url, "https://new.com/");
-        assert!(!nav.replace);
+        assert_eq!(nav.nav_type, NavigationType::Push);
     }
 
     #[test]
@@ -367,7 +370,8 @@ mod tests {
         ctx.eval(Source::from_bytes("location.reload()")).unwrap();
         let nav = bridge.take_pending_navigation().unwrap();
         assert_eq!(nav.url, "https://example.com/page");
-        assert!(nav.replace);
+        // `reload()` is `NavigationType::Reload`, distinct from `Replace`.
+        assert_eq!(nav.nav_type, NavigationType::Reload);
     }
 
     #[test]

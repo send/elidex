@@ -3,6 +3,8 @@
 use std::rc::Rc;
 use std::sync::Arc;
 
+use elidex_script_session::{HistoryStepEvents, NavigationType};
+
 use crate::app::navigation::resolve_nav_url;
 use crate::ipc::ContentToBrowser;
 
@@ -49,96 +51,104 @@ pub(super) fn handle_navigate(
     cursor_op: HistoryCursorOp,
     request: Option<elidex_net::Request>,
 ) -> bool {
-    // WHATWG SW Handle Fetch — skip SW interception in these cases:
-    // 1. Fragment-only navigation (same-document, no network fetch).
-    let is_fragment_only =
-        state
-            .pipeline
-            .runtime
-            .bridge()
-            .current_url()
-            .is_some_and(|ref current| {
-                current.as_str().split('#').next() == url.as_str().split('#').next()
-                    && url.fragment().is_some()
-            });
+    // --- Same-document (fragment) navigation (WHATWG HTML §7.4.2.2 navigate
+    // step 15) --- Take the no-rebuild path iff ALL FOUR step-15 conjuncts hold,
+    // factored across the URL-pure classifier + two call-site guards:
+    //   1. `classify_navigation == SameDocument` — the URL conjuncts (equals
+    //      excluding fragments AND target fragment non-null);
+    //   2. `request.is_none()` — `documentResource is null` (a POST body ⇒
+    //      CrossDocument, the body is sent). Defensive: the only `Some(request)`
+    //      caller (`form_input.rs` POST) already strips the fragment, so a
+    //      body-bearing nav reaches the classifier fragment-less ⇒ CrossDocument;
+    //   3. `cursor_op == Push` — a FRESH navigation, excluding reload (`Keep`) and
+    //      traversal (`Commit`) so a `location.reload()` of a `/a#x` page rebuilds.
+    // (`response is null` — the fourth conjunct — holds vacuously: `handle_navigate`
+    // has no `response` parameter.) A fragment nav does NO fetch, so it also never
+    // reaches the SW check below — which every rebuilding fall-through wants.
+    if request.is_none() && matches!(cursor_op, HistoryCursorOp::Push) {
+        if let Some(current) = state.pipeline.url.clone() {
+            if elidex_navigation::classify_navigation(&current, url)
+                == elidex_navigation::NavClass::SameDocument
+            {
+                return fragment_navigate(state, &current, url);
+            }
+        }
+    }
 
-    // 2. embed/object destination — always skip (SW spec Handle Fetch §1).
-    // 3. Shift+reload — skip (not yet tracked in this code path).
-    // These are handled by the browser thread for subresource requests.
+    // WHATWG SW Handle Fetch — a rebuilding navigation consults the controlling
+    // service worker. A fragment nav early-returned above; the other skip cases
+    // (embed/object destination — §1; shift+reload) are handled by the browser
+    // thread for subresource requests.
+    if let Some(sw_scope) = state.pipeline.runtime.bridge().sw_controller_scope() {
+        if elidex_api_sw::matches_scope(&sw_scope, url) {
+            // Send FetchEvent relay request to browser thread.
+            static FETCH_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+            let fetch_id = FETCH_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
-    if !is_fragment_only {
-        if let Some(sw_scope) = state.pipeline.runtime.bridge().sw_controller_scope() {
-            if elidex_api_sw::matches_scope(&sw_scope, url) {
-                // Send FetchEvent relay request to browser thread.
-                static FETCH_ID: std::sync::atomic::AtomicU64 =
-                    std::sync::atomic::AtomicU64::new(1);
-                let fetch_id = FETCH_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            let (method, headers, body) = match &request {
+                Some(req) => (req.method.clone(), req.headers.clone(), req.body.to_vec()),
+                None => ("GET".into(), vec![], vec![]),
+            };
+            let sw_request = elidex_api_sw::SwRequest {
+                url: url.clone(),
+                method,
+                headers,
+                body,
+                mode: "navigate".into(),
+                destination: "document".into(),
+                integrity: None,
+                redirect: "follow".into(),
+                referrer: "about:client".into(),
+                referrer_policy: String::new(),
+                cache_mode: "default".into(),
+                keepalive: false,
+            };
 
-                let (method, headers, body) = match &request {
-                    Some(req) => (req.method.clone(), req.headers.clone(), req.body.to_vec()),
-                    None => ("GET".into(), vec![], vec![]),
-                };
-                let sw_request = elidex_api_sw::SwRequest {
-                    url: url.clone(),
-                    method,
-                    headers,
-                    body,
-                    mode: "navigate".into(),
-                    destination: "document".into(),
-                    integrity: None,
-                    redirect: "follow".into(),
-                    referrer: "about:client".into(),
-                    referrer_policy: String::new(),
-                    cache_mode: "default".into(),
-                    keepalive: false,
-                };
+            let client_id = state.pipeline.runtime.bridge().client_id();
+            let _ = state
+                .channel
+                .send(crate::ipc::ContentToBrowser::SwFetchRequest {
+                    fetch_id,
+                    request: Box::new(sw_request),
+                    client_id,
+                    // The resulting document's client ID (for FetchEvent.resultingClientId).
+                    resulting_client_id: uuid::Uuid::new_v4().to_string(),
+                });
 
-                let client_id = state.pipeline.runtime.bridge().client_id();
-                let _ = state
-                    .channel
-                    .send(crate::ipc::ContentToBrowser::SwFetchRequest {
-                        fetch_id,
-                        request: Box::new(sw_request),
-                        client_id,
-                        // The resulting document's client ID (for FetchEvent.resultingClientId).
-                        resulting_client_id: uuid::Uuid::new_v4().to_string(),
-                    });
-
-                // Wait for SW response. This blocks the content thread; fully async
-                // navigation interception requires M4-10 (elidex-js VM event loop).
-                // Loop to avoid consuming unrelated messages.
-                let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
-                loop {
-                    let remaining = deadline.saturating_duration_since(std::time::Instant::now());
-                    if remaining.is_zero() {
-                        break; // Timeout — fall through to normal fetch.
+            // Wait for SW response. This blocks the content thread; fully async
+            // navigation interception requires M4-10 (elidex-js VM event loop).
+            // Loop to avoid consuming unrelated messages.
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+            loop {
+                let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+                if remaining.is_zero() {
+                    break; // Timeout — fall through to normal fetch.
+                }
+                match state.channel.recv_timeout(remaining) {
+                    Ok(crate::ipc::BrowserToContent::SwFetchResponse {
+                        fetch_id: resp_id,
+                        response: Some(resp),
+                    }) if resp_id == fetch_id => {
+                        tracing::debug!(
+                            url = %url,
+                            status = resp.status,
+                            "SW intercepted navigation"
+                        );
+                        // TODO: construct document from SW response body.
+                        break;
                     }
-                    match state.channel.recv_timeout(remaining) {
-                        Ok(crate::ipc::BrowserToContent::SwFetchResponse {
-                            fetch_id: resp_id,
-                            response: Some(resp),
-                        }) if resp_id == fetch_id => {
-                            tracing::debug!(
-                                url = %url,
-                                status = resp.status,
-                                "SW intercepted navigation"
-                            );
-                            // TODO: construct document from SW response body.
-                            break;
-                        }
-                        Ok(crate::ipc::BrowserToContent::SwFetchResponse {
-                            fetch_id: resp_id,
-                            response: None,
-                        }) if resp_id == fetch_id => {
-                            break; // Passthrough.
-                        }
-                        Ok(other) => {
-                            // Re-dispatch non-matching message (including
-                            // SwFetchResponse with wrong fetch_id).
-                            super::event_loop::handle_message_public(other, state);
-                        }
-                        Err(_) => break, // Timeout or disconnected.
+                    Ok(crate::ipc::BrowserToContent::SwFetchResponse {
+                        fetch_id: resp_id,
+                        response: None,
+                    }) if resp_id == fetch_id => {
+                        break; // Passthrough.
                     }
+                    Ok(other) => {
+                        // Re-dispatch non-matching message (including
+                        // SwFetchResponse with wrong fetch_id).
+                        super::event_loop::handle_message_public(other, state);
+                    }
+                    Err(_) => break, // Timeout or disconnected.
                 }
             }
         }
@@ -219,6 +229,96 @@ pub(super) fn handle_navigate(
             false
         }
     }
+}
+
+/// Apply a same-document (fragment) navigation IN PLACE (WHATWG HTML §7.4.2.3.3
+/// *navigate to a fragment*), the no-rebuild path [`handle_navigate`] early-returns
+/// into once the four step-15 conjuncts hold. `current` is the pre-nav document
+/// URL, `target` the fragment URL (its fragment is non-null by construction).
+///
+/// Replicates the normal `Push` path's post-nav bookkeeping MINUS the pipeline
+/// rebuild, so the existing document and its `EcsDom` — including
+/// `ElementState::FOCUS` — persist (the focus-persist fix; no ad-hoc focus reset).
+/// The document origin stays correct BY CONSTRUCTION (§6.5, closes
+/// `#11-vm-navigation-origin-resync`): `set_current_url` re-derives the same
+/// URL-tuple origin (only the fragment changed) and never touches an installed
+/// opaque/sandbox override, so `fetch` / `new WebSocket()` keep keying on the
+/// unchanged origin. Returns `true` — a fragment nav succeeds (mirrors
+/// `handle_navigate`'s success return).
+fn fragment_navigate(state: &mut ContentState, current: &url::Url, target: &url::Url) -> bool {
+    // Update the current document URL: the shell copy (the relative-URL base for
+    // the next navigation) + the runtime's `current_url` (`location.*` /
+    // `document.URL`). No `load_document`, no pipeline rebuild.
+    state.pipeline.url = Some(target.clone());
+    state.pipeline.runtime.set_current_url(Some(target.clone()));
+    // Finalize a same-document navigation: commit the history entry. A navigation
+    // to the URL the active entry ALREADY has (including the fragment) REPLACES
+    // the current entry — WHATWG HTML §7.4.2.2 step 13 resolves `historyHandling`
+    // to "replace" for an equal URL, and §7.4.2.3.3 step 7 replaces — so
+    // `location.href = location.href` or re-clicking the current `#id` does not
+    // grow `history.length`. A changed/added fragment pushes.
+    if current == target {
+        state.nav_controller.replace(target.clone());
+    } else {
+        state.nav_controller.push(target.clone());
+    }
+    state
+        .pipeline
+        .runtime
+        .set_history_length(state.nav_controller.len());
+    // Resolve the fragment scroll offset against the current (pre-nav) layout —
+    // computed BEFORE firing popstate (below) so it reads live geometry
+    // unaffected by a popstate handler; the existing document's layout is current
+    // (no rebuild). Applied AFTER popstate, via the post-layout `re_render` seam.
+    let offset = super::scroll::scroll_offset_for_fragment(
+        &state.pipeline.dom,
+        state.pipeline.document,
+        target.fragment().unwrap_or_default(),
+        state.viewport_scroll.scroll_offset,
+        state.viewport_scroll.client_size.width,
+    );
+    // §7.4.2.3.3 *navigate to a fragment* step 14 (update document for history
+    // step application): fire popstate SYNCHRONOUSLY, with `history.state` reset
+    // to null, BEFORE the fragment scroll (step 15) — a synchronous popstate
+    // handler must observe the PRE-scroll scroll position (`window.scrollY`).
+    // hashchange is a queued task that fires AFTER the scroll (below). The VM
+    // fires (popstate SYNC); boa stubs it — flip-inert until S5-6.
+    state
+        .pipeline
+        .runtime
+        .deliver_history_step_events(HistoryStepEvents {
+            popstate_state: Some(None),
+            hashchange: None,
+        });
+    // step 15: scroll to the fragment through the post-layout `re_render` seam
+    // (§6.4) — set the resolved offset on `viewport_scroll`, then `re_render`
+    // applies + clamps it against the content size, echoes `scrollX`/`scrollY` +
+    // the document-root `ScrollState`, flushes any popstate handler's DOM
+    // mutations, and rebuilds the display list — NOT an inline set +
+    // `send_display_list` (which would ship the offset un-applied).
+    if let Some(offset) = offset {
+        state.viewport_scroll.scroll_offset = offset;
+    }
+    state.re_render();
+    // Ship the scrolled frame + the new title / URL / nav-state (mirrors the
+    // normal `Push` path's `notify_navigation`, MINUS the rebuild).
+    state.notify_navigation(target);
+    // §7.4.6.2 step 6.4.5: the hashchange task, queued at step 14, fires as a
+    // LATER task — after the synchronous scroll (step 15) — iff the fragment
+    // differs. Delivering it in a second call keeps the spec order
+    // popstate → scroll → hashchange (and popstate strictly-before-hashchange).
+    if let Some(hashchange) =
+        (current.fragment() != target.fragment()).then(|| (current.to_string(), target.to_string()))
+    {
+        state
+            .pipeline
+            .runtime
+            .deliver_history_step_events(HistoryStepEvents {
+                popstate_state: None,
+                hashchange: Some(hashchange),
+            });
+    }
+    true
 }
 
 /// Process any pending JS navigation / window.open / history action after
@@ -314,7 +414,19 @@ pub(super) fn process_pending_actions(state: &mut ContentState) -> bool {
         let resolved = resolve_nav_url(state.pipeline.url.as_ref(), &nav_req.url);
         if let Some(target_url) = resolved {
             state.send_display_list();
-            handle_navigate(state, &target_url, HistoryCursorOp::Push, None);
+            // Map the nav-type to a history-cursor effect. `Reload` → `Keep`
+            // (rebuild, NO cursor advance) — fixes `location.reload()` pushing a
+            // spurious history entry (it previously hardcoded `Push`), and is the
+            // guard Phase 2b's fragment branch uses to exclude a fragment-URL
+            // reload from the no-rebuild path (`cursor_op == Push`). `Push`/
+            // `Replace` → `Push`: thread-mode still collapses `Replace` → `Push`
+            // for the cursor op (a pre-existing drop, deferred §10-D6 — the enum
+            // only CONVEYS the distinction here).
+            let cursor_op = match nav_req.nav_type {
+                NavigationType::Reload => HistoryCursorOp::Keep,
+                NavigationType::Push | NavigationType::Replace => HistoryCursorOp::Push,
+            };
+            handle_navigate(state, &target_url, cursor_op, None);
             return true;
         }
     }

@@ -23,6 +23,10 @@ pub(crate) mod tab;
 mod threaded;
 mod viewport;
 
+#[cfg(test)]
+#[path = "../app_fragment_nav_tests.rs"]
+mod fragment_nav_tests;
+
 use std::sync::Arc;
 
 use winit::application::ApplicationHandler;

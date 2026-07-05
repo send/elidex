@@ -4,7 +4,7 @@
 //! hit-tested entity up to the viewport. Step 3 implements viewport-level
 //! scrolling only; element-level scroll containers will be added in Step 5.
 
-use elidex_ecs::{EcsDom, Entity};
+use elidex_ecs::{Attributes, EcsDom, Entity};
 use elidex_layout::{hit_test_with_scroll, HitTestQuery};
 use elidex_plugin::{ComputedStyle, Display, LayoutBox, Point, Rect, Vector};
 
@@ -172,10 +172,183 @@ pub(super) fn update_viewport_scroll_dimensions(state: &mut ContentState) {
     state.viewport_scroll.clamp_scroll();
 }
 
+/// Resolve the **indicated part** of the document for a URL fragment (WHATWG HTML
+/// §7.4.6.4 "Scrolling to a fragment" — the "select the indicated part"
+/// algorithm) and return the viewport scroll offset that brings it into view, or
+/// `None` to leave the scroll unchanged.
+///
+/// Resolution: an element whose `id` equals the fragment, else an `<a>` element
+/// whose `name` equals it, tried first on the raw fragment then on its
+/// percent-decoded form (steps 4-8). An **empty** fragment (`#`), or a
+/// case-insensitive `"top"` matching no element (step 10), scrolls to the top of
+/// the document; any other non-empty fragment matching nothing returns `None`.
+///
+/// The offset aligns the indicated element per CSSOM View "scroll a target into
+/// view" (§7.4.6.4 delegates to it): **block: start** — the target's top aligns to
+/// the viewport origin (`border_box.origin.y`); **inline: nearest** — the inline
+/// (horizontal) axis stays at `current` unless the target is off-screen
+/// horizontally, in which case it scrolls the minimum to reveal the nearer edge
+/// (so an already-visible target on a wide page is NOT yanked sideways). `current`
+/// is the pre-nav scroll offset and `viewport_width` the client width, both for
+/// the inline visibility test. The caller applies + clamps the result through the
+/// post-layout `re_render` scroll seam (application currency, §6.4). This function
+/// only resolves geometry from the DOM + layout, so it is engine-independent (the
+/// Layering mandate keeps scroll-resolution out of `vm/host/`). The focusing steps
+/// (§7.4.6.4 step 3.6) are deferred (§10-D2) — this lands the scroll only.
+pub(crate) fn scroll_offset_for_fragment(
+    dom: &EcsDom,
+    root: Entity,
+    fragment: &str,
+    current: Vector,
+    viewport_width: f32,
+) -> Option<Vector> {
+    // Empty fragment (`#`) → top of the document (the empty-fragment special
+    // value, resolved before any element lookup).
+    if fragment.is_empty() {
+        return Some(Vector::<f32>::ZERO);
+    }
+    // id / `<a name>` match on the raw fragment, then on its percent-decoded form
+    // (§7.4.6.4 steps 4-8): id attributes are stored decoded, so a `#caf%C3%A9`
+    // URL fragment must decode to match the `café` id. The decoded retry is
+    // skipped when decoding was a no-op (`decoded == fragment`, i.e. no
+    // `%`-escape) — it would re-walk the tree with identical input for the same
+    // result.
+    let decoded = percent_encoding::percent_decode_str(fragment).decode_utf8_lossy();
+    if let Some(element) = find_indicated_element(dom, root, fragment).or_else(|| {
+        (decoded.as_ref() != fragment)
+            .then(|| find_indicated_element(dom, root, &decoded))
+            .flatten()
+    }) {
+        // A matched-but-boxless element (e.g. `display: none`) yields no offset —
+        // leave the scroll unchanged rather than fall through to the top.
+        let border_box = dom.world().get::<&LayoutBox>(element).ok()?.border_box();
+        // block: start (align the target's top); inline: nearest (keep the
+        // current inline scroll unless the target needs revealing).
+        let x = inline_nearest(
+            border_box.origin.x,
+            border_box.size.width,
+            current.x,
+            viewport_width,
+        );
+        return Some(Vector::new(x, border_box.origin.y));
+    }
+    // No indicated element: a case-insensitive `"top"` fragment scrolls to the
+    // top (§7.4.6.4 step 10); every other non-empty fragment leaves scroll alone.
+    if decoded.eq_ignore_ascii_case("top") {
+        Some(Vector::<f32>::ZERO)
+    } else {
+        None
+    }
+}
+
+/// Find the first descendant of `root` that is a "potential indicated element"
+/// for `fragment` (WHATWG HTML §7.4.6.4): an element with `id == fragment`, or an
+/// `<a>` element with `name == fragment`. Prefers the id match (`find_by_id`,
+/// document order), then scans for a named `<a>`.
+fn find_indicated_element(dom: &EcsDom, root: Entity, fragment: &str) -> Option<Entity> {
+    if let Some(entity) = dom.find_by_id(root, fragment) {
+        return Some(entity);
+    }
+    let mut result = None;
+    dom.traverse_descendants(root, |entity| {
+        let is_named_anchor = dom.with_tag_name(entity, |t| t == Some("a"))
+            && dom
+                .world()
+                .get::<&Attributes>(entity)
+                .is_ok_and(|a| a.get("name") == Some(fragment));
+        if is_named_anchor {
+            result = Some(entity);
+            return false;
+        }
+        true
+    });
+    result
+}
+
+/// Inline-axis "nearest" scroll target — CSSOM View "determine the scroll-into-view
+/// position", the `inline: nearest` case (§7.4.6.4 delegates fragment scrolling to
+/// it). Given the target's inline extent `[left, left + width)`, the current
+/// scroll `current_x`, and the scrollport width, returns the new inline scroll:
+///
+/// - **both edges outside** the scrollport (target spans it) → do nothing (already
+///   in view) — the straddling-wide-target case;
+/// - **start edge outside** and target no wider than the scrollport, OR **end edge
+///   outside** and target wider → align the start edge (`left`);
+/// - **start edge outside** and target wider, OR **end edge outside** and no wider
+///   → align the end edge (`right - width`);
+/// - fully visible → do nothing.
+///
+/// A target EXACTLY the scrollport width with one edge outside is revealed by
+/// aligning that outside edge (the `<=` boundary): a bare `<` would leave it
+/// clipped.
+///
+/// So an already-visible target does not force a spurious sideways jump.
+/// `viewport_width == 0` (dimensions not yet measured) degrades to aligning the
+/// left edge (the pre-`inline: nearest` behaviour, no regression). The caller
+/// clamps the result against `max_scroll_x`.
+fn inline_nearest(target_left: f32, target_width: f32, current_x: f32, viewport_width: f32) -> f32 {
+    if viewport_width <= 0.0 {
+        return target_left; // dimensions unmeasured → align the start edge
+    }
+    let target_right = target_left + target_width;
+    let view_right = current_x + viewport_width;
+    let off_near = target_left < current_x; // inline start edge before the scrollport
+    let off_far = target_right > view_right; // inline end edge past the scrollport
+    if off_near && off_far {
+        current_x // both edges outside → target spans the scrollport, already in view
+    } else if (off_near && target_width <= viewport_width)
+        || (off_far && target_width > viewport_width)
+    {
+        target_left // align the start edge
+    } else if (off_near && target_width > viewport_width)
+        || (off_far && target_width <= viewport_width)
+    {
+        (target_right - viewport_width).max(0.0) // align the end edge
+    } else {
+        current_x // fully visible → do nothing
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use elidex_ecs::ScrollState;
     use elidex_plugin::{Overflow, ViewportOverflow};
+
+    /// `inline_nearest` (fragment scroll, `inline: nearest`, §7.4.6.4 → CSSOM):
+    /// an already-visible target keeps the current inline scroll (no spurious
+    /// sideways jump — the R2 fix); an off-screen target reveals the nearer edge.
+    #[test]
+    fn inline_nearest_keeps_visible_reveals_offscreen() {
+        use super::inline_nearest;
+        let vw = 800.0;
+        // Already fully visible (target [100,300) ⊂ view [0,800)) → stay put.
+        assert_eq!(inline_nearest(100.0, 200.0, 0.0, vw), 0.0);
+        // Visible while the page is scrolled right (view [500,1300), target
+        // [600,800)) → stay put (the exact bug: no yank back to left=600).
+        assert_eq!(inline_nearest(600.0, 200.0, 500.0, vw), 500.0);
+        // Off the LEFT (target [100,300), view [500,1300)) → align left edge.
+        assert_eq!(inline_nearest(100.0, 200.0, 500.0, vw), 100.0);
+        // Off the RIGHT, narrower than the viewport (target [900,1000), view
+        // [0,800)) → align the end edge (1000 - 800 = 200).
+        assert_eq!(inline_nearest(900.0, 100.0, 0.0, vw), 200.0);
+        // Off the RIGHT, wider than the viewport (target [100,1100), view [0,800),
+        // start inside) → align the START edge (100), not the end.
+        assert_eq!(inline_nearest(100.0, 1000.0, 0.0, vw), 100.0);
+        // STRADDLING: wider than the viewport AND both edges outside (target
+        // [100,2000), view [500,1300)) → do nothing, the target already spans the
+        // viewport (the R3 regression fix — must NOT yank to left=100).
+        assert_eq!(inline_nearest(100.0, 1900.0, 500.0, vw), 500.0);
+        // EQUAL WIDTH, off the LEFT (target [100,900) width==vw, view [500,1300))
+        // → align the start edge (100), revealing the 400px clipped on the left —
+        // the R5 fix: a bare `<` width check left it at 500 (clipped).
+        assert_eq!(inline_nearest(100.0, 800.0, 500.0, vw), 100.0);
+        // EQUAL WIDTH, off the RIGHT (target [600,1400) width==vw, view [0,800))
+        // → align the end edge (1400 - 800 = 600).
+        assert_eq!(inline_nearest(600.0, 800.0, 0.0, vw), 600.0);
+        // Unmeasured viewport (width 0) → degrades to aligning the left edge (the
+        // pre-`inline: nearest` behaviour, no regression).
+        assert_eq!(inline_nearest(300.0, 50.0, 0.0, 0.0), 300.0);
+    }
 
     #[test]
     fn viewport_scroll_down() {

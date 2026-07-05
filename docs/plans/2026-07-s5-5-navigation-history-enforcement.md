@@ -525,14 +525,23 @@ layer:
 - **Same-document determination** (engine-indep pure fn, home = `elidex-navigation` alongside the
   controller it feeds, mirroring `window_open_disposition`'s home next to its channels): given the
   current document URL and a target URL, classify — **Fragment** (the target **equals the current
-  document URL when compared excluding fragments, AND the fragments differ** — covering fragment
-  add / change / **remove** / empty, since §7.4.2.3.3 applies whenever the URLs are equal excluding
-  fragments), **CrossDocument** (differs in path / query / scheme / host — full rebuild), **Reload**
-  (identical *including* the fragment — a rebuild, NOT fragment nav). This **corrects, not merely
-  promotes,** the `is_fragment_only` logic (§3.1): that flag requires the *target* to have a fragment,
-  so it misses `/a#x → /a` (removal) and `/a#x → /a#` (emptied) — both same-document per the spec, both
-  firing hashchange (oldURL frag ≠ newURL frag) + popstate — and must be generalized to the
-  equals-excluding-fragments predicate. (pushState/replaceState are a *separate* same-document entry point — the URL-and-history-
+  document URL when compared excluding fragments, AND the target's fragment is non-null** — the
+  *navigate* algorithm §7.4.2.2 step 15, conjuncts 3-4: "url equals … exclude fragments set to true"
+  AND "url's fragment is non-null" — covering fragment add / change / empty / identical-including-
+  fragment), **CrossDocument** (differs in path / query / scheme / host, OR the target has **no**
+  fragment — a full rebuild; fragment **removal** `/a#x → /a` and identical-with-no-fragment `/a → /a`
+  are CrossDocument, since their target fragment is null). The reload distinction (`location.reload()`)
+  is a call-site `cursor_op` fact, not a URL-classification. This **preserves, not generalizes,** the
+  `is_fragment_only` logic (§3.1): its `url.fragment().is_some()` clause is exactly step 15's "url's
+  fragment is non-null" and is already spec-correct — `/a#x → /a` (removal, target fragment null) is
+  CrossDocument (a full reload, matching real browsers) and `/a#x → /a#` (emptied, target fragment
+  `Some("")`) is Fragment (same-document), so nothing "must be generalized". 5b keeps the clause and
+  fixes the **wiring** (§3.1: the flag's only consumer was the SW-skip; the document rebuilt
+  regardless), upgrading the crude `split('#')` string compare to the `url` crate's `equals(exclude
+  fragments)` compare (a robustness refinement, semantically identical for valid serialized URLs).
+  *(This predicate was corrected during the S5-5b plan-review per the 5b memo §4 — the earlier
+  "fragments-differ / must be generalized" framing was spec-wrong; this SoT is reconciled to navigate
+  §7.4.2.2 step 15.)* (pushState/replaceState are a *separate* same-document entry point — the URL-and-history-
   update steps — not this classifier; they are already synchronous VM-side, §3.3, and only need the
   entry-model + drain wiring, not the fragment path.)
 - **On Fragment**: do NOT `load_document`, do NOT rebuild the pipeline. Instead: (1) update the VM's
@@ -843,13 +852,19 @@ boa-stubbed — §4.6): pre-flip the live boa shell does the no-rebuild + Naviga
 same-document path is engine-agnostic-now**; the **firing is flip-inert**.
 
 **§5.2.2 Same-document determination edge cases** (the precise predicate = equals-excluding-fragments
-AND fragments-differ, §4.2): fragment **add** (`/a → /a#x`); **change** (`/a#x → /a#y`); **remove**
-(`/a#x → /a` — fires hashchange, oldURL frag `x` ≠ newURL frag null); **empty** (`/a#x → /a#`, and
-`/a → /a#` — an empty fragment ⇒ top-of-document scroll, §2.5); **identical excluded** (`/a → /a`,
-fragments equal too — a **reload / rebuild**, NOT fragment nav); path-or-query differ (`/a → /b`,
-`/a → /a?q`) ⇒ CrossDocument (rebuild, unchanged). The removal + emptied cases are exactly the ones
-`is_fragment_only` (which requires the *target* to have a fragment) misses (§4.2). `replace` vs `push`
-rides the existing `NavigationRequest.replace` (`location.replace()`/`reload()` → replace).
+AND the target's fragment is **non-null**, navigate §7.4.2.2 step 15, §4.2): fragment **add** (`/a →
+/a#x`); **change** (`/a#x → /a#y`); **empty** (`/a#x → /a#`, and `/a → /a#` — an empty fragment ⇒
+top-of-document scroll, §2.5); **remove** (`/a#x → /a` — target fragment **null** ⇒ **CrossDocument**,
+a full rebuild that fires **nothing** on the fragment path, matching real browsers' reload-on-fragment-
+removal); **identical excluded** (`/a → /a`, both fragments null — a **rebuild / CrossDocument**, NOT
+fragment nav); path-or-query differ (`/a → /b`, `/a → /a?q`) ⇒ CrossDocument (rebuild, unchanged). Both
+the removal and emptied cases are already classified **correctly** by `is_fragment_only`'s
+`fragment().is_some()` clause (removal → CrossDocument, emptied → Fragment); only the **wiring** was
+broken (§4.2), not the predicate. `push`/`replace`/`reload`
+rides `NavigationRequest.nav_type` (`NavigationType {Push,Replace,Reload}`; `location.replace()` →
+`Replace`, `location.reload()` → `Reload` — a **distinct** type, §7.4.3 `isSameDocument=false`, not a
+replace). App-mode honors all three; the thread-mode drain currently collapses `Replace → Push` for the
+cursor op (deferred, `#11-thread-mode-drain-replace-honoring`).
 
 **Tests** (VM + shell integration): fragment nav does NOT re-fetch (network-request oracle: zero
 requests) + fires hashchange with correct old/new URL + fires popstate with state=null; `location.href`
@@ -949,11 +964,14 @@ shell integration (the S5-3/S5-4 posture), with the **engine-agnostic-now vs fli
   `deliver_history_step_events` and assert the events fire with the right state/URLs; a shell test pins
   boa's no-fire (stub) as the pre-flip baseline. **Registered S5-6 flip deliverable**: add the live
   shell popstate/hashchange test once the VM is the engine (mirrors S5-4b's storage-sentinel deferral).
-- **`elidex-navigation` unit**: the same-document classifier truth table — **add / change / remove /
-  empty ⇒ Fragment; path-or-query differ ⇒ CrossDocument; identical incl. fragment ⇒ Reload** —
-  exercising the equals-excluding-fragments-AND-fragments-differ predicate, with explicit rows for the
-  fragment-**removal** (`/a#x → /a`) and **emptied** (`/a#x → /a#`) cases `is_fragment_only` misses and
-  the identical-exclusion (`/a → /a` ≠ Fragment); `NavigationController` push/replace with state +
+- **`elidex-navigation` unit**: the same-document classifier truth table — **add / change / empty /
+  identical-incl-fragment ⇒ Fragment (SameDocument); removal / path-or-query differ / identical-
+  excluding-fragment ⇒ CrossDocument** — exercising the equals-excluding-fragments-AND-target-
+  fragment-non-null predicate (navigate §7.4.2.2 step 15), with explicit rows for the
+  fragment-**removal** (`/a#x → /a` ⇒ **CrossDocument**, target fragment null) and **emptied**
+  (`/a#x → /a#` ⇒ Fragment, target fragment `Some("")`) cases — both classified **correctly** by
+  `is_fragment_only`'s non-null-fragment clause, NOT "missed" — and the identical-exclusion
+  (`/a → /a` ⇒ CrossDocument, ≠ Fragment); `NavigationController` push/replace with state +
   scroll; traversal read path exposing target-entry state/scroll; eviction FIFO with state.
 - **WPT subset declaration**: the supported surface maps to `html/browsers/history/the-location-*` +
   `html/browsers/history/the-History-object/*` (pushState/replaceState/popstate/hashchange) +
@@ -965,7 +983,7 @@ shell integration (the S5-3/S5-4 posture), with the **engine-agnostic-now vs fli
 
 ---
 
-## §8 Deferred carves (+ audits; cap ≤3 per PR — actual: 5a = 1 (D5, reframed); 5b = 1 (D2); 5c = 2 (D1, D3); shared audit D4)
+## §8 Deferred carves (+ audits; cap ≤3 per PR — actual: 5a = 1 (D5, reframed); 5b = 3 (D2, D6, D7); 5c = 2 (D1, D3); shared audit D4)
 
 - **D1 `#11-history-state-structured-serialize-fidelity`** (carved by S5-5c, or FOLD into the existing
   worker-shortcut slot family): full `StructuredSerializeForStorage` for `history.state` (Blob / File /
@@ -996,11 +1014,21 @@ shell integration (the S5-3/S5-4 posture), with the **engine-agnostic-now vs fli
 - **D4 (audit, no new slot — feeds the shell-arch backlog)**: `content/navigation.rs` +
   `app/navigation.rs` are near-duplicate navigation drivers (§3.6); S5-5b/c apply the same-document
   change to both. Unifying the two shell navigation drivers is a shell-architecture refactor (the
-  primitive is already engine-indep, so only the thin drivers duplicate). **Audit**: one-issue-one-way
-  tension is real but the duplication is confined + the shared algorithm is single-homed; unifying is
-  out of S5-5 scope and out of the flip critical path. **Disposition**: note for the shell-arch backlog;
-  not carved as a `#11-` slot (no spec surface — pure code-org), re-audited when the inline/thread shell
-  split is next touched.
+  primitive is already engine-indep, so only the thin drivers duplicate). **Behavioral parity, not pure
+  dedup (Codex S5-5b R6)**: the inline (app-mode) driver additionally *lacks* the content thread's
+  post-layout scroll-application seam (`re_render`'s clamp-against-content-size + `scrollX`/`scrollY` echo
+  + document-root `ScrollState`, §4.6). Today an app-mode fragment scroll to a near-bottom `#id` sets the
+  raw target-top offset **un-clamped**, so it can overscroll past the maximum and render blank space
+  (P2, `app/navigation.rs` fragment path — **legacy-inline / `build_pipeline` test-API only**; the
+  production threaded path clamps correctly). So unification must *carry the application seam to app-mode*
+  (clamp/echo/`ScrollState`), not merely merge the two functions — the behavioral fix rides the same
+  refactor. A standalone inline app-mode clamp is **declined on purpose**: it would fork
+  `ViewportScroll::clamp_scroll` into a second, drift-prone site — the exact one-issue-one-way duplication
+  this audit exists to retire. **Audit**: one-issue-one-way tension is real but the duplication is confined
+  + the shared algorithm is single-homed; unifying is out of S5-5 scope and out of the flip critical path.
+  **Disposition**: note for the shell-arch backlog; not carved as a `#11-` slot (respects 5b's ≤3-carve cap;
+  the behavioral fix is inseparable from the driver-unification refactor — no separable spec surface to
+  carve), re-audited when the inline/thread shell split is next touched.
 - **D5 `#11-session-history-task-queue-model`** (reframed from `#11-traversal-navigation-same-turn-race`;
   carved by S5-5a): **implement the spec's task-queued traversal** — *apply the history step* (§7.4.6.1)
   as a **deferred post-drain content-thread task**, so a same-turn traversal phase-separates from the
@@ -1031,13 +1059,34 @@ shell integration (the S5-3/S5-4 posture), with the **engine-agnostic-now vs fli
   at the S5-6 flip / SW-interception (M4-10) reentrant wiring. **Trigger**: the multi-action drain
   (post-flip), the SW-interception reentrant path, or a site/WPT exercising mixed-turn traversal+nav.
   **Re-eval**: at 5c/5d kickoff; backstop **2026-10-31**.
+- **D6 `#11-thread-mode-drain-replace-honoring`** (carved by S5-5b, plan-review R2): the `NavigationType`
+  enum CONVEYS `Replace`, but the thread-mode drain maps `Replace → HistoryCursorOp::Push` (collapsing the
+  replace-vs-push cursor distinction), so a thread-mode `location.replace()` navigation adds a
+  session-history entry instead of replacing it — a **pre-existing** gap (NOT 5b-introduced; the drain
+  hardcoded `Push` pre-5b), and app-mode already honors the full enum. **Audit**: spec-core? yes
+  (historyHandling push/replace, §7.4.4/§7.4.2.2); one-way? yes — extend the same `nav_type → cursor_op`
+  map the `Reload → Keep` case uses (needs a `HistoryCursorOp` replace-equivalent, touching the 5a-owned
+  drain); pragmatic-debt? interim = thread-mode `location.replace()` pushes (a `history.length` off-by-one,
+  rare/minor; app-mode is correct); repeat-signal? the nav-type conveyance (reload fixed, replace the
+  sibling). **Trigger**: a site/WPT exercising thread-mode `location.replace()` history semantics, or the
+  next thread-mode nav-drain touch. **Re-eval**: backstop **2026-10-31**.
+- **D7 `#11-iframe-fragment-navigation`** (carved by S5-5b, plan-review R2): iframe fragment navigations
+  still full-rebuild. The iframe nav path is a **distinct 3-arg** `handle_navigate(pipeline, url, channel)`
+  (`content/iframe/thread.rs`), separate from the top-level/app-mode `handle_navigate` 5b touches; 5b's
+  `#11-synchronous-fragment-navigation` closure covers **top-level + app-mode only**. **Audit**: spec-core?
+  yes (§7.4.2.3.3 applies per-navigable, iframes included); one-way? yes — the same-document primitive
+  (classifier + branch + back-channel) is engine-indep, so the iframe path consumes it once wired;
+  pragmatic-debt? interim = iframe `#frag` navs rebuild (loses same-document semantics + focus/scroll, but
+  safe); repeat-signal? the OOP-iframe nav surface (S5-4b iframe origin, S5-8 browsing-context).
+  **Trigger**: iframe same-document nav fidelity work / the OOP-iframe surface (S5-8). **Re-eval**: backstop
+  **2026-10-31**.
 
 **Not carved (dispositioned in-memo, no slot)**: `hasUAVisualTransition` (always false, §1.3);
 Navigation API (non-goal, own program, §1.3); bfcache / cross-document-entry document reconstruction
 (non-goal); pushState-on-initial-about:blank → replace (§2.4 step 4 — small, folds into 5c's
 same-document entry handling if `is initial about:blank` is representable, else a one-line audit note —
 **verify at 5c kickoff**, §9-Q6). Defer-ledger reconciliation (closing the 4 covered slots + registering
-D1/D2/D3/D5) is a landing deliverable of the respective slices.
+D1/D2/D3/D5/D6/D7) is a landing deliverable of the respective slices.
 
 ---
 

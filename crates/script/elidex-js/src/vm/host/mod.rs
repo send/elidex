@@ -162,6 +162,8 @@ pub(super) mod globals;
 pub(crate) mod headers;
 pub(super) mod history;
 #[cfg(feature = "engine")]
+pub(super) mod history_events;
+#[cfg(feature = "engine")]
 pub(super) mod html_anchor_proto;
 #[cfg(feature = "engine")]
 pub(super) mod html_area_proto;

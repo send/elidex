@@ -246,6 +246,70 @@ impl Default for NavigationController {
     }
 }
 
+/// The same-document determination for a navigation (WHATWG HTML §7.4.2.2
+/// "Beginning navigation", the *navigate* algorithm step 15).
+///
+/// Distinguishes a **fragment** navigation — which updates the active
+/// document's URL, session-history entry, and scroll position *in place* (no
+/// fetch, no reparse, the existing document and its focus state persist) — from
+/// a navigation that rebuilds the document.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum NavClass {
+    /// The two URLs are equal excluding fragments AND the target's fragment is
+    /// non-null: a fragment navigation (navigate step 15 → *navigate to a
+    /// fragment*). Handled in place, without rebuilding the document.
+    SameDocument,
+    /// Every other navigation — a genuine cross-document load, a same-URL
+    /// reload, or a fragment **removal** (`…#x` → `…`, target fragment null).
+    /// Handled by rebuilding the document.
+    CrossDocument,
+}
+
+/// Classify a navigation as same-document (fragment) or cross-document (WHATWG
+/// HTML §7.4.2.2 *navigate* step 15).
+///
+/// `current` is the active document's URL; `target` is the requested URL.
+/// Returns [`NavClass::SameDocument`] **iff** the two URLs are equal excluding
+/// their fragments AND `target`'s fragment is non-null (step 15 conjuncts 3-4);
+/// otherwise [`NavClass::CrossDocument`] — which covers a true cross-document
+/// load, a same-URL reload, AND a fragment removal.
+///
+/// The predicate is deliberately **URL-pure** so it can live in this
+/// engine-independent crate: step 15's other two conjuncts (`documentResource
+/// is null`, `response is null`) are not URL facts and are gated by the shell
+/// caller.
+///
+/// The fragment-**removal** case (`http://x/a#x` → `http://x/a`) is
+/// `CrossDocument`: the target's fragment is null, so step 15's fourth conjunct
+/// fails and the navigation is a full reload — matching real browsers. A naive
+/// "fragments differ" predicate would wrongly treat removal as same-document
+/// (pinned in the truth-table test).
+pub fn classify_navigation(current: &url::Url, target: &url::Url) -> NavClass {
+    // navigate step 15 conjunct 3 ("url equals … with exclude fragments set to
+    // true") and conjunct 4 ("url's fragment is non-null").
+    if url_equals_excluding_fragments(current, target) && target.fragment().is_some() {
+        NavClass::SameDocument
+    } else {
+        NavClass::CrossDocument
+    }
+}
+
+/// Compare two URLs ignoring their fragments — navigate step 15's "url equals
+/// navigable's active session history entry's URL with exclude fragments set to
+/// true".
+///
+/// Clears each URL's fragment on a clone and compares by the `url` crate's
+/// serialization. This is a robustness upgrade over a crude `split('#').next()`
+/// string compare: it uses normalized serializations, so default-port,
+/// percent-encoding, and other normalization differences are handled correctly.
+fn url_equals_excluding_fragments(a: &url::Url, b: &url::Url) -> bool {
+    let mut a = a.clone();
+    let mut b = b.clone();
+    a.set_fragment(None);
+    b.set_fragment(None);
+    a == b
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -471,6 +535,113 @@ mod tests {
         assert_eq!(
             nav.go_back().unwrap().as_str(),
             &format!("https://page{expected_idx}.com/")
+        );
+    }
+
+    // --- Same-document classifier (WHATWG HTML §7.4.2.2 navigate step 15) ---
+
+    /// Pin url 2.x's `fragment()` distinction that the classifier's step-15
+    /// "url's fragment is non-null" conjunct rests on: a *removed* fragment is
+    /// `None` (⇒ CrossDocument), an *emptied* `#` fragment is `Some("")`
+    /// (⇒ SameDocument), and a present fragment is `Some("x")`. If a url-crate
+    /// change ever collapsed emptied and removed, the classifier correction
+    /// (removal ⇒ CrossDocument, emptied ⇒ SameDocument) would silently regress.
+    #[test]
+    fn url_crate_fragment_semantics_pinned() {
+        assert_eq!(url("http://x/a").fragment(), None, "removed ⇒ None");
+        assert_eq!(
+            url("http://x/a#").fragment(),
+            Some(""),
+            "emptied ⇒ Some(\"\")"
+        );
+        assert_eq!(
+            url("http://x/a#x").fragment(),
+            Some("x"),
+            "present ⇒ Some(\"x\")"
+        );
+    }
+
+    /// The full same-document classification truth table (plan §4.2 / §9).
+    /// SameDocument IFF the URLs are equal excluding fragments AND the target
+    /// fragment is non-null (navigate step 15 conjuncts 3-4). The **removal**
+    /// (`/a#x → /a`) and **query-differ** (`/a?q=1 → /a?q=2#x`) rows are exactly
+    /// the ones a naive "fragments differ" predicate gets wrong, so they are
+    /// pinned here alongside every other case.
+    #[test]
+    fn classify_navigation_truth_table() {
+        use NavClass::{CrossDocument, SameDocument};
+        // (current, target, expected, label)
+        let cases = [
+            ("http://x/a", "http://x/a#x", SameDocument, "add fragment"),
+            (
+                "http://x/a#x",
+                "http://x/a#y",
+                SameDocument,
+                "change fragment",
+            ),
+            (
+                "http://x/a#x",
+                "http://x/a",
+                CrossDocument,
+                "remove fragment (target frag null)",
+            ),
+            (
+                "http://x/a#x",
+                "http://x/a#",
+                SameDocument,
+                "empty fragment (target frag Some(\"\"))",
+            ),
+            (
+                "http://x/a",
+                "http://x/a#",
+                SameDocument,
+                "add empty fragment",
+            ),
+            (
+                "http://x/a#x",
+                "http://x/a#x",
+                SameDocument,
+                "identical incl. fragment",
+            ),
+            (
+                "http://x/a",
+                "http://x/a",
+                CrossDocument,
+                "identical, no fragment",
+            ),
+            ("http://x/a", "http://x/b", CrossDocument, "path differs"),
+            (
+                "http://x/a?q=1",
+                "http://x/a?q=2#x",
+                CrossDocument,
+                "query differs (even with a fragment)",
+            ),
+            (
+                "http://x/a",
+                "https://x/a#x",
+                CrossDocument,
+                "scheme differs",
+            ),
+            ("http://x/a", "http://y/a#x", CrossDocument, "host differs"),
+        ];
+        for (current, target, expected, label) in cases {
+            assert_eq!(
+                classify_navigation(&url(current), &url(target)),
+                expected,
+                "classify_navigation({current}, {target}) [{label}]",
+            );
+        }
+    }
+
+    /// The helper compares normalized `url`-crate serializations, so it is
+    /// robust where a crude `split('#')` string compare would differ: a
+    /// default-port target is equal-excluding-fragments to its port-less form,
+    /// so it classifies SameDocument given a non-null fragment.
+    #[test]
+    fn classify_navigation_normalizes_default_port() {
+        assert_eq!(
+            classify_navigation(&url("http://x:80/a"), &url("http://x/a#f")),
+            NavClass::SameDocument,
         );
     }
 }

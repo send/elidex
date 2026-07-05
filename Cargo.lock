@@ -2510,6 +2510,7 @@ dependencies = [
  "elidex-storage-core",
  "elidex-style",
  "elidex-text",
+ "percent-encoding",
  "pollster",
  "tracing",
  "url",

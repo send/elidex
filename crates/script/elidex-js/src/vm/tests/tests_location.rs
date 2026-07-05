@@ -7,7 +7,7 @@
 
 #![cfg(feature = "engine")]
 
-use elidex_script_session::NavigationRequest;
+use elidex_script_session::{NavigationRequest, NavigationType};
 
 use super::super::value::JsValue;
 use super::super::Vm;
@@ -62,7 +62,7 @@ fn location_href_setter_enqueues_and_leaves_url_unchanged() {
     );
     let nav = take_nav(&mut vm);
     assert_eq!(nav.url, "https://other.com/a?x=1#y");
-    assert!(!nav.replace);
+    assert_eq!(nav.nav_type, NavigationType::Push);
 }
 
 #[test]
@@ -139,7 +139,7 @@ fn location_assign_enqueues_navigation() {
     vm.eval("location.assign('https://a/')").unwrap();
     let nav = take_nav(&mut vm);
     assert_eq!(nav.url, "https://a/");
-    assert!(!nav.replace);
+    assert_eq!(nav.nav_type, NavigationType::Push);
 }
 
 #[test]
@@ -148,19 +148,21 @@ fn location_replace_enqueues_replace_navigation() {
     vm.eval("location.replace('https://a/')").unwrap();
     let nav = take_nav(&mut vm);
     assert_eq!(nav.url, "https://a/");
-    assert!(nav.replace);
+    assert_eq!(nav.nav_type, NavigationType::Replace);
     // Enqueue-only: `current_url` unchanged.
     assert_eq!(eval_string(&mut vm, "location.href;"), "about:blank");
 }
 
 #[test]
-fn location_reload_enqueues_replace_to_current_url() {
+fn location_reload_enqueues_reload_to_current_url() {
     let mut vm = Vm::new();
     set_base(&mut vm, "https://example.com/page");
     vm.eval("location.reload();").unwrap();
     let nav = take_nav(&mut vm);
     assert_eq!(nav.url, "https://example.com/page");
-    assert!(nav.replace);
+    // `reload()` is `NavigationType::Reload` (a distinct algorithm, §7.4.3), not
+    // `Replace` — the two-bool `replace` could not distinguish them.
+    assert_eq!(nav.nav_type, NavigationType::Reload);
     assert_eq!(
         eval_string(&mut vm, "location.href;"),
         "https://example.com/page"

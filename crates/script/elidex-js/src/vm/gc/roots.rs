@@ -544,6 +544,10 @@ pub(super) fn mark_roots(
                     }
                 }
             }
+            // The enqueued hashchange (§7.4.6.2) carries only interned
+            // `StringId`s (permanent StringPool entries), never a GC object —
+            // nothing to trace between enqueue and drain.
+            super::super::host::pending_tasks::PendingTask::HashChange { .. } => {}
         }
     }
 
