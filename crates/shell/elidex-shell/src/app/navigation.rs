@@ -155,11 +155,17 @@ impl App {
             .pipeline
             .runtime
             .set_current_url(Some(target.clone()));
-        // Finalize a same-document navigation, honoring push-vs-replace.
+        // Finalize a same-document navigation, honoring push-vs-replace. The
+        // caller (`navigate`) gates the fragment path on `nav_type != Reload`, so
+        // `Reload` never reaches here — make that explicit (fail loud, not a
+        // silent `push` that would be wrong if the guard were ever loosened).
         match nav_type {
+            NavigationType::Push => interactive.nav_controller.push(target.clone()),
             NavigationType::Replace => interactive.nav_controller.replace(target.clone()),
-            NavigationType::Push | NavigationType::Reload => {
-                interactive.nav_controller.push(target.clone());
+            NavigationType::Reload => {
+                unreachable!(
+                    "reload never takes the same-document fragment path (excluded by `navigate`)"
+                )
             }
         }
         interactive
@@ -168,31 +174,51 @@ impl App {
             .set_history_length(interactive.nav_controller.len());
         interactive.window_title = format!("elidex \u{2014} {target}");
         interactive.chrome.set_url(target);
-        // Scroll to the fragment. App-mode has no viewport-scroll application seam
-        // (unlike the content thread's `re_render` clamp/echo/`ScrollState` path),
-        // so set the pipeline scroll offset the free `re_render` reads when it
-        // rebuilds the display list. The missing clamp/echo is an app-mode-wide gap,
-        // not a fragment-nav one. Resolution rides the shared engine-independent
-        // helper (One-issue-one-way with the content thread).
-        if let Some(offset) = crate::content::scroll::scroll_offset_for_fragment(
+        // Resolve the fragment scroll offset against the current (pre-nav) layout,
+        // BEFORE firing popstate (below) so it reads live geometry. App-mode has
+        // no viewport-scroll application seam (unlike the content thread's
+        // `re_render` clamp/echo/`ScrollState` path), so the offset is set on the
+        // pipeline for the free `re_render` to read; the missing clamp/echo is an
+        // app-mode-wide gap (folds into the driver-unification backlog, cluster
+        // §8-D4), not a fragment-nav one. Resolution rides the shared
+        // engine-independent helper (One-issue-one-way with the content thread).
+        let offset = crate::content::scroll::scroll_offset_for_fragment(
             &interactive.pipeline.dom,
             interactive.pipeline.document,
             target.fragment().unwrap_or_default(),
-        ) {
-            interactive.pipeline.scroll_offset = offset;
-        }
-        crate::re_render(&mut interactive.pipeline);
-        // Fire the history-step events (§7.4.6.2): popstate `state = null` always;
-        // hashchange iff the fragment differs. The VM fires; boa stubs — flip-inert.
-        let hashchange = (current.fragment() != target.fragment())
-            .then(|| (current.to_string(), target.to_string()));
+        );
+        // §7.4.2.3.3 step 14 (update document for history step application): fire
+        // popstate SYNCHRONOUSLY, with `history.state` reset to null, BEFORE the
+        // fragment scroll (step 15) — a synchronous popstate handler observes the
+        // PRE-scroll scroll position. hashchange is a queued task that fires AFTER
+        // the scroll (below). The VM fires; boa stubs — flip-inert until S5-6.
         interactive
             .pipeline
             .runtime
             .deliver_history_step_events(HistoryStepEvents {
                 popstate_state: Some(None),
-                hashchange,
+                hashchange: None,
             });
+        // step 15: scroll to the fragment.
+        if let Some(offset) = offset {
+            interactive.pipeline.scroll_offset = offset;
+        }
+        crate::re_render(&mut interactive.pipeline);
+        // §7.4.6.2 step 6.4.5: the hashchange task, queued at step 14, fires as a
+        // LATER task — after the synchronous scroll (step 15) — iff the fragment
+        // differs. Delivering it in a second call keeps the spec order
+        // popstate → scroll → hashchange (and popstate strictly-before-hashchange).
+        if let Some(hashchange) = (current.fragment() != target.fragment())
+            .then(|| (current.to_string(), target.to_string()))
+        {
+            interactive
+                .pipeline
+                .runtime
+                .deliver_history_step_events(HistoryStepEvents {
+                    popstate_state: None,
+                    hashchange: Some(hashchange),
+                });
+        }
         if let Some(state) = &self.render_state {
             state.window.set_title(&interactive.window_title);
         }

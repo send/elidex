@@ -258,37 +258,56 @@ fn fragment_navigate(state: &mut ContentState, current: &url::Url, target: &url:
         .pipeline
         .runtime
         .set_history_length(state.nav_controller.len());
-    // Scroll to the fragment through the post-layout `re_render` seam (§6.4): set
-    // the resolved offset on `viewport_scroll`, then `re_render` applies + clamps
-    // it against the content size, echoes `scrollX`/`scrollY` + the document-root
-    // `ScrollState`, and rebuilds the display list — NOT an inline set +
-    // `send_display_list` (which would ship the offset un-applied). The existing
-    // document's layout is current (no rebuild), so resolution is against live
-    // geometry.
-    if let Some(offset) = super::scroll::scroll_offset_for_fragment(
+    // Resolve the fragment scroll offset against the current (pre-nav) layout —
+    // computed BEFORE firing popstate (below) so it reads live geometry
+    // unaffected by a popstate handler; the existing document's layout is current
+    // (no rebuild). Applied AFTER popstate, via the post-layout `re_render` seam.
+    let offset = super::scroll::scroll_offset_for_fragment(
         &state.pipeline.dom,
         state.pipeline.document,
         target.fragment().unwrap_or_default(),
-    ) {
+    );
+    // §7.4.2.3.3 *navigate to a fragment* step 14 (update document for history
+    // step application): fire popstate SYNCHRONOUSLY, with `history.state` reset
+    // to null, BEFORE the fragment scroll (step 15) — a synchronous popstate
+    // handler must observe the PRE-scroll scroll position (`window.scrollY`).
+    // hashchange is a queued task that fires AFTER the scroll (below). The VM
+    // fires (popstate SYNC); boa stubs it — flip-inert until S5-6.
+    state
+        .pipeline
+        .runtime
+        .deliver_history_step_events(HistoryStepEvents {
+            popstate_state: Some(None),
+            hashchange: None,
+        });
+    // step 15: scroll to the fragment through the post-layout `re_render` seam
+    // (§6.4) — set the resolved offset on `viewport_scroll`, then `re_render`
+    // applies + clamps it against the content size, echoes `scrollX`/`scrollY` +
+    // the document-root `ScrollState`, flushes any popstate handler's DOM
+    // mutations, and rebuilds the display list — NOT an inline set +
+    // `send_display_list` (which would ship the offset un-applied).
+    if let Some(offset) = offset {
         state.viewport_scroll.scroll_offset = offset;
     }
     state.re_render();
     // Ship the scrolled frame + the new title / URL / nav-state (mirrors the
     // normal `Push` path's `notify_navigation`, MINUS the rebuild).
     state.notify_navigation(target);
-    // Fire the history-step events (§7.4.6.2): popstate with `state = null`
-    // ALWAYS; hashchange (with the serialized old/new URLs) iff the fragment
-    // differs (step 6.4.5). The VM fires (popstate SYNC, hashchange ENQUEUED);
-    // boa stubs it — flip-inert until S5-6.
-    let hashchange = (current.fragment() != target.fragment())
-        .then(|| (current.to_string(), target.to_string()));
-    state
-        .pipeline
-        .runtime
-        .deliver_history_step_events(HistoryStepEvents {
-            popstate_state: Some(None),
-            hashchange,
-        });
+    // §7.4.6.2 step 6.4.5: the hashchange task, queued at step 14, fires as a
+    // LATER task — after the synchronous scroll (step 15) — iff the fragment
+    // differs. Delivering it in a second call keeps the spec order
+    // popstate → scroll → hashchange (and popstate strictly-before-hashchange).
+    if let Some(hashchange) =
+        (current.fragment() != target.fragment()).then(|| (current.to_string(), target.to_string()))
+    {
+        state
+            .pipeline
+            .runtime
+            .deliver_history_step_events(HistoryStepEvents {
+                popstate_state: None,
+                hashchange: Some(hashchange),
+            });
+    }
     true
 }
 

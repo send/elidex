@@ -148,3 +148,45 @@ fn deliver_is_a_noop_when_unbound() {
     );
     // Reached here without panic — the unbound gate held.
 }
+
+#[test]
+fn fragment_nav_popstate_resets_history_state_to_null() {
+    // A fragment nav fires popstate with state=null AND must reset the persistent
+    // `history.state` getter to null (§7.4.6.2 step 6.3 "restore the history
+    // object's state" before step 6.4.3 fire; §7.4.2.3.3 step 11.1 "Set history's
+    // state to null"). Regression pin: without the restore, popstate.state is null
+    // but `history.state` keeps the stale pre-nav `pushState` value.
+    setup_bound_vm!(vm, session, dom, doc);
+
+    // pushState sets the classic history state; `history.state` reflects it.
+    vm.eval("history.pushState({a: 1}, '')").unwrap();
+    assert_eq!(
+        eval_string(&mut vm, "JSON.stringify(history.state)"),
+        "{\"a\":1}"
+    );
+
+    // Inside the popstate handler, `history.state` must already be null and agree
+    // with `event.state` (both null) — the restore happens BEFORE the fire.
+    vm.eval(
+        "globalThis.stateInHandler = 'UNSET';
+         window.addEventListener('popstate', function (e) {
+             globalThis.stateInHandler = (history.state === null && e.state === null)
+                 ? 'both-null'
+                 : String(history.state) + '/' + String(e.state);
+         });",
+    )
+    .unwrap();
+
+    // Fragment nav: popstate with state=null.
+    vm.inner.deliver_history_step_events(Some(None), None);
+
+    // The handler observed both null, and `history.state` stays null afterward
+    // (not the stale `{a:1}`).
+    assert_eq!(
+        eval_string(&mut vm, "globalThis.stateInHandler"),
+        "both-null"
+    );
+    assert_eq!(eval_string(&mut vm, "String(history.state)"), "null");
+
+    vm.unbind();
+}

@@ -860,8 +860,11 @@ removal); **identical excluded** (`/a → /a`, both fragments null — a **rebui
 fragment nav); path-or-query differ (`/a → /b`, `/a → /a?q`) ⇒ CrossDocument (rebuild, unchanged). Both
 the removal and emptied cases are already classified **correctly** by `is_fragment_only`'s
 `fragment().is_some()` clause (removal → CrossDocument, emptied → Fragment); only the **wiring** was
-broken (§4.2), not the predicate. `replace` vs `push`
-rides the existing `NavigationRequest.replace` (`location.replace()`/`reload()` → replace).
+broken (§4.2), not the predicate. `push`/`replace`/`reload`
+rides `NavigationRequest.nav_type` (`NavigationType {Push,Replace,Reload}`; `location.replace()` →
+`Replace`, `location.reload()` → `Reload` — a **distinct** type, §7.4.3 `isSameDocument=false`, not a
+replace). App-mode honors all three; the thread-mode drain currently collapses `Replace → Push` for the
+cursor op (deferred, `#11-thread-mode-drain-replace-honoring`).
 
 **Tests** (VM + shell integration): fragment nav does NOT re-fetch (network-request oracle: zero
 requests) + fires hashchange with correct old/new URL + fires popstate with state=null; `location.href`
@@ -980,7 +983,7 @@ shell integration (the S5-3/S5-4 posture), with the **engine-agnostic-now vs fli
 
 ---
 
-## §8 Deferred carves (+ audits; cap ≤3 per PR — actual: 5a = 1 (D5, reframed); 5b = 1 (D2); 5c = 2 (D1, D3); shared audit D4)
+## §8 Deferred carves (+ audits; cap ≤3 per PR — actual: 5a = 1 (D5, reframed); 5b = 3 (D2, D6, D7); 5c = 2 (D1, D3); shared audit D4)
 
 - **D1 `#11-history-state-structured-serialize-fidelity`** (carved by S5-5c, or FOLD into the existing
   worker-shortcut slot family): full `StructuredSerializeForStorage` for `history.state` (Blob / File /
@@ -1046,13 +1049,34 @@ shell integration (the S5-3/S5-4 posture), with the **engine-agnostic-now vs fli
   at the S5-6 flip / SW-interception (M4-10) reentrant wiring. **Trigger**: the multi-action drain
   (post-flip), the SW-interception reentrant path, or a site/WPT exercising mixed-turn traversal+nav.
   **Re-eval**: at 5c/5d kickoff; backstop **2026-10-31**.
+- **D6 `#11-thread-mode-drain-replace-honoring`** (carved by S5-5b, plan-review R2): the `NavigationType`
+  enum CONVEYS `Replace`, but the thread-mode drain maps `Replace → HistoryCursorOp::Push` (collapsing the
+  replace-vs-push cursor distinction), so a thread-mode `location.replace()` navigation adds a
+  session-history entry instead of replacing it — a **pre-existing** gap (NOT 5b-introduced; the drain
+  hardcoded `Push` pre-5b), and app-mode already honors the full enum. **Audit**: spec-core? yes
+  (historyHandling push/replace, §7.4.4/§7.4.2.2); one-way? yes — extend the same `nav_type → cursor_op`
+  map the `Reload → Keep` case uses (needs a `HistoryCursorOp` replace-equivalent, touching the 5a-owned
+  drain); pragmatic-debt? interim = thread-mode `location.replace()` pushes (a `history.length` off-by-one,
+  rare/minor; app-mode is correct); repeat-signal? the nav-type conveyance (reload fixed, replace the
+  sibling). **Trigger**: a site/WPT exercising thread-mode `location.replace()` history semantics, or the
+  next thread-mode nav-drain touch. **Re-eval**: backstop **2026-10-31**.
+- **D7 `#11-iframe-fragment-navigation`** (carved by S5-5b, plan-review R2): iframe fragment navigations
+  still full-rebuild. The iframe nav path is a **distinct 3-arg** `handle_navigate(pipeline, url, channel)`
+  (`content/iframe/thread.rs`), separate from the top-level/app-mode `handle_navigate` 5b touches; 5b's
+  `#11-synchronous-fragment-navigation` closure covers **top-level + app-mode only**. **Audit**: spec-core?
+  yes (§7.4.2.3.3 applies per-navigable, iframes included); one-way? yes — the same-document primitive
+  (classifier + branch + back-channel) is engine-indep, so the iframe path consumes it once wired;
+  pragmatic-debt? interim = iframe `#frag` navs rebuild (loses same-document semantics + focus/scroll, but
+  safe); repeat-signal? the OOP-iframe nav surface (S5-4b iframe origin, S5-8 browsing-context).
+  **Trigger**: iframe same-document nav fidelity work / the OOP-iframe surface (S5-8). **Re-eval**: backstop
+  **2026-10-31**.
 
 **Not carved (dispositioned in-memo, no slot)**: `hasUAVisualTransition` (always false, §1.3);
 Navigation API (non-goal, own program, §1.3); bfcache / cross-document-entry document reconstruction
 (non-goal); pushState-on-initial-about:blank → replace (§2.4 step 4 — small, folds into 5c's
 same-document entry handling if `is initial about:blank` is representable, else a one-line audit note —
 **verify at 5c kickoff**, §9-Q6). Defer-ledger reconciliation (closing the 4 covered slots + registering
-D1/D2/D3/D5) is a landing deliverable of the respective slices.
+D1/D2/D3/D5/D6/D7) is a landing deliverable of the respective slices.
 
 ---
 

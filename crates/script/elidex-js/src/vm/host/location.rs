@@ -263,7 +263,7 @@ pub(super) fn native_location_reload(
     _this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    // `location.reload()` (WHATWG HTML §7.4.3 Reloading) is a DISTINCT nav-type,
+    // `location.reload()` (WHATWG HTML §7.4.3 Reloading and traversing) is a DISTINCT nav-type,
     // not a fragment/replace navigation — `isSameDocument=false`, so the shell
     // rebuilds even for a fragment-URL page (the drain maps `Reload` → no cursor
     // advance). Enqueue-only: the shell performs the actual reload.

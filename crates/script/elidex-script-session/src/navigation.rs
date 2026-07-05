@@ -38,8 +38,8 @@ pub enum NavigationType {
     /// `location.replace()` — replace the current entry (§7.4.4 historyHandling
     /// "replace").
     Replace,
-    /// `location.reload()` — a distinct algorithm (HTML §7.4.3 Reloading),
-    /// `isSameDocument=false` (never takes the fragment no-rebuild path).
+    /// `location.reload()` — a distinct algorithm (HTML §7.4.3 Reloading and
+    /// traversing), `isSameDocument=false` (never takes the fragment no-rebuild path).
     Reload,
 }
 

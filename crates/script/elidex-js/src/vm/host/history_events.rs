@@ -78,9 +78,19 @@ impl VmInner {
             return;
         };
 
-        // 1. popstate — SYNCHRONOUS (§7.4.6.2 step 6.4.3 "fire an event").
+        // 1. Restore history.state, then fire popstate — SYNCHRONOUS (§7.4.6.2
+        //    step 6.3 "restore the history object's state", then step 6.4.3
+        //    "fire an event").
         if let Some(state_opt) = popstate_state {
             let state = reconstruct_history_state(state_opt);
+            // Step 6.3: restore `history.state` to the reconstructed value
+            // BEFORE firing popstate — a fragment nav resets it to null
+            // (§7.4.2.3.3 step 11.1 "Set history's state to null"), so a
+            // synchronous popstate handler reads a `history.state` consistent
+            // with the event's `state`. Without this, `history.state` keeps the
+            // stale pre-nav `pushState` value while `popstate.state` is null.
+            // (`JsValue` is `Copy`, so `state` is reused for the fire below.)
+            self.navigation.current_state = state;
             self.fire_popstate(window_entity, state);
             // Clean up after the synchronous dispatch (perform a microtask
             // checkpoint) so a popstate listener's microtasks settle strictly

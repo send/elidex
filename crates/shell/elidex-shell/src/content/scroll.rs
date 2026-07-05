@@ -173,13 +173,14 @@ pub(super) fn update_viewport_scroll_dimensions(state: &mut ContentState) {
 }
 
 /// Resolve the **indicated part** of the document for a URL fragment (WHATWG HTML
-/// §7.4.6.4 "The indicated part of the document") and return the viewport scroll
-/// offset that brings it into view, or `None` to leave the scroll unchanged.
+/// §7.4.6.4 "Scrolling to a fragment" — the "select the indicated part"
+/// algorithm) and return the viewport scroll offset that brings it into view, or
+/// `None` to leave the scroll unchanged.
 ///
 /// Resolution: an element whose `id` equals the fragment, else an `<a>` element
 /// whose `name` equals it, tried first on the raw fragment then on its
-/// percent-decoded form (steps 3-8). An **empty** fragment (`#`), or a
-/// case-insensitive `"top"` matching no element (step 9), scrolls to the top of
+/// percent-decoded form (steps 4-8). An **empty** fragment (`#`), or a
+/// case-insensitive `"top"` matching no element (step 10), scrolls to the top of
 /// the document; any other non-empty fragment matching nothing returns `None`.
 ///
 /// The offset is the indicated element's border-box top-left in document
@@ -200,7 +201,7 @@ pub(crate) fn scroll_offset_for_fragment(
         return Some(Vector::<f32>::ZERO);
     }
     // id / `<a name>` match on the raw fragment, then on its percent-decoded form
-    // (§7.4.6.4 steps 3-8): id attributes are stored decoded, so a `#caf%C3%A9`
+    // (§7.4.6.4 steps 4-8): id attributes are stored decoded, so a `#caf%C3%A9`
     // URL fragment must decode to match the `café` id. The decoded retry is
     // skipped when decoding was a no-op (`decoded == fragment`, i.e. no
     // `%`-escape) — it would re-walk the tree with identical input for the same
@@ -217,7 +218,7 @@ pub(crate) fn scroll_offset_for_fragment(
         return Some(Vector::new(border_box.origin.x, border_box.origin.y));
     }
     // No indicated element: a case-insensitive `"top"` fragment scrolls to the
-    // top (§7.4.6.4 step 9); every other non-empty fragment leaves scroll alone.
+    // top (§7.4.6.4 step 10); every other non-empty fragment leaves scroll alone.
     if decoded.eq_ignore_ascii_case("top") {
         Some(Vector::<f32>::ZERO)
     } else {
