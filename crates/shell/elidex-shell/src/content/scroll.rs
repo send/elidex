@@ -272,11 +272,15 @@ fn find_indicated_element(dom: &EcsDom, root: Entity, fragment: &str) -> Option<
 ///
 /// - **both edges outside** the scrollport (target spans it) → do nothing (already
 ///   in view) — the straddling-wide-target case;
-/// - **start edge outside** and target narrower than the scrollport, OR **end edge
+/// - **start edge outside** and target no wider than the scrollport, OR **end edge
 ///   outside** and target wider → align the start edge (`left`);
-/// - **start edge outside** and target wider, OR **end edge outside** and narrower
+/// - **start edge outside** and target wider, OR **end edge outside** and no wider
 ///   → align the end edge (`right - width`);
 /// - fully visible → do nothing.
+///
+/// A target EXACTLY the scrollport width with one edge outside is revealed by
+/// aligning that outside edge (the `<=` boundary): a bare `<` would leave it
+/// clipped.
 ///
 /// So an already-visible target does not force a spurious sideways jump.
 /// `viewport_width == 0` (dimensions not yet measured) degrades to aligning the
@@ -292,12 +296,12 @@ fn inline_nearest(target_left: f32, target_width: f32, current_x: f32, viewport_
     let off_far = target_right > view_right; // inline end edge past the scrollport
     if off_near && off_far {
         current_x // both edges outside → target spans the scrollport, already in view
-    } else if (off_near && target_width < viewport_width)
+    } else if (off_near && target_width <= viewport_width)
         || (off_far && target_width > viewport_width)
     {
         target_left // align the start edge
     } else if (off_near && target_width > viewport_width)
-        || (off_far && target_width < viewport_width)
+        || (off_far && target_width <= viewport_width)
     {
         (target_right - viewport_width).max(0.0) // align the end edge
     } else {
@@ -334,6 +338,13 @@ mod tests {
         // [100,2000), view [500,1300)) → do nothing, the target already spans the
         // viewport (the R3 regression fix — must NOT yank to left=100).
         assert_eq!(inline_nearest(100.0, 1900.0, 500.0, vw), 500.0);
+        // EQUAL WIDTH, off the LEFT (target [100,900) width==vw, view [500,1300))
+        // → align the start edge (100), revealing the 400px clipped on the left —
+        // the R5 fix: a bare `<` width check left it at 500 (clipped).
+        assert_eq!(inline_nearest(100.0, 800.0, 500.0, vw), 100.0);
+        // EQUAL WIDTH, off the RIGHT (target [600,1400) width==vw, view [0,800))
+        // → align the end edge (1400 - 800 = 600).
+        assert_eq!(inline_nearest(600.0, 800.0, 0.0, vw), 600.0);
         // Unmeasured viewport (width 0) → degrades to aligning the left edge (the
         // pre-`inline: nearest` behaviour, no regression).
         assert_eq!(inline_nearest(300.0, 50.0, 0.0, 0.0), 300.0);
