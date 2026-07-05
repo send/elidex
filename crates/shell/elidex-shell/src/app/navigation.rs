@@ -96,11 +96,11 @@ impl App {
         // `replace()`). Take the no-rebuild path iff the URL classifies SameDocument
         // AND it is not a reload.
         if nav_type != NavigationType::Reload {
-            let current = self
+            if let Some(current) = self
                 .interactive
                 .as_ref()
-                .and_then(|i| i.pipeline.url.clone());
-            if let Some(current) = current {
+                .and_then(|i| i.pipeline.url.clone())
+            {
                 if elidex_navigation::classify_navigation(&current, url)
                     == elidex_navigation::NavClass::SameDocument
                 {

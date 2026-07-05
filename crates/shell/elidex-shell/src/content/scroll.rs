@@ -201,11 +201,16 @@ pub(crate) fn scroll_offset_for_fragment(
     }
     // id / `<a name>` match on the raw fragment, then on its percent-decoded form
     // (§7.4.6.4 steps 3-8): id attributes are stored decoded, so a `#caf%C3%A9`
-    // URL fragment must decode to match the `café` id.
+    // URL fragment must decode to match the `café` id. The decoded retry is
+    // skipped when decoding was a no-op (`decoded == fragment`, i.e. no
+    // `%`-escape) — it would re-walk the tree with identical input for the same
+    // result.
     let decoded = percent_encoding::percent_decode_str(fragment).decode_utf8_lossy();
-    if let Some(element) = find_indicated_element(dom, root, fragment)
-        .or_else(|| find_indicated_element(dom, root, &decoded))
-    {
+    if let Some(element) = find_indicated_element(dom, root, fragment).or_else(|| {
+        (decoded.as_ref() != fragment)
+            .then(|| find_indicated_element(dom, root, &decoded))
+            .flatten()
+    }) {
         // A matched-but-boxless element (e.g. `display: none`) yields no offset —
         // leave the scroll unchanged rather than fall through to the top.
         let border_box = dom.world().get::<&LayoutBox>(element).ok()?.border_box();
