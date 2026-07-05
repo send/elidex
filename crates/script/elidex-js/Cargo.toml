@@ -59,7 +59,7 @@ engine = [
 
 [dependencies]
 hashbrown = "0.17"
-num-bigint = "0.4"
+num-bigint = "0.5"
 num-traits = "0.2"
 regress = { workspace = true }
 unicode-ident = "1.0"
