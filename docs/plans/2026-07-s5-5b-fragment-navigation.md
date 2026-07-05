@@ -661,7 +661,14 @@ Boa stays the live shell engine; oracles = engine-level VM tests + targeted shel
   (popstate-strictly-before-hashchange); identical-via-href fires popstate but **NOT** hashchange
   (`oldFrag==newFrag`). A shell test pins boa's **no-fire** (stub) as the pre-flip baseline. **Registered
   S5-6 flip deliverable**: the live-shell popstate/hashchange test once the VM is the engine (mirrors
-  S5-4b's storage-sentinel deferral).
+  S5-4b's storage-sentinel deferral). **Fold into that deliverable the scroll-vs-popstate-handler
+  ordering** (flip-inert today — boa stubs the events, so no popstate handler runs): the *navigate to a
+  fragment* step-15 fragment scroll must WIN over a popstate handler's own `scrollTo` (the handler's
+  queued scroll is applied by `re_render`'s `take_pending_scroll` after the directly-set fragment offset,
+  so today it would override — spec-wrong once popstate fires live), and the fragment offset is resolved
+  against pre-popstate layout (§6.4 — a handler mutating layout above the target would stale it). Both are
+  only observable + testable when popstate fires live (S5-6); revisit the `re_render` scroll-application
+  order there.
 - **WPT subset**: `html/browsers/history/the-location-*` (fragment) + the popstate/hashchange subset —
   engine-independent equivalents (harness scope judged at impl; the unit/integration above is the
   regression gate per "Supported-surface testing").
