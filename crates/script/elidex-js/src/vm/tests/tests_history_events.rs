@@ -100,6 +100,67 @@ fn popstate_sync_then_hashchange_enqueued_in_order() {
 }
 
 #[test]
+fn popstate_and_hashchange_target_is_the_real_window() {
+    // Regression pin (S5-5b VM finding): a Window-targeted UA dispatch must seed
+    // `event.target` / `event.currentTarget` with the *real* Window — the global
+    // object (`globalThis` / `window`, i.e. `VmInner::global_object`) — NOT a
+    // parallel Node-prototype `HostObject` allocated for the window entity. Both
+    // slots route through `create_element_wrapper(window_entity)`, which must
+    // resolve the window entity to `global_object` (never a synthetic node
+    // wrapper), so `popstate.target === window` / `hashchange.target === window`.
+    // `currentTarget` is read INSIDE the handler because it is cleared at dispatch
+    // finalize (as is `target`), so both are only observable mid-dispatch.
+    setup_bound_vm!(vm, session, dom, doc);
+
+    vm.eval(
+        "globalThis.popTarget = 'UNSET';
+         globalThis.popCurrent = 'UNSET';
+         globalThis.hashTarget = 'UNSET';
+         globalThis.hashCurrent = 'UNSET';
+         window.addEventListener('popstate', function (e) {
+             globalThis.popTarget = (e.target === globalThis) ? 'window' : 'other';
+             globalThis.popCurrent = (e.currentTarget === globalThis) ? 'window' : 'other';
+         });
+         window.addEventListener('hashchange', function (e) {
+             globalThis.hashTarget = (e.target === globalThis) ? 'window' : 'other';
+             globalThis.hashCurrent = (e.currentTarget === globalThis) ? 'window' : 'other';
+         });",
+    )
+    .unwrap();
+
+    // Fragment nav: fires popstate (sync) then hashchange (enqueued task).
+    vm.inner.deliver_history_step_events(
+        Some(None),
+        Some(("http://x/a#old".to_string(), "http://x/a#new".to_string())),
+    );
+
+    // popstate: both target and currentTarget are the real Window (=== globalThis).
+    assert_eq!(
+        eval_string(&mut vm, "globalThis.popTarget"),
+        "window",
+        "popstate.target must be the real window (globalThis), not a node wrapper"
+    );
+    assert_eq!(
+        eval_string(&mut vm, "globalThis.popCurrent"),
+        "window",
+        "popstate.currentTarget must be the real window (globalThis)"
+    );
+    // hashchange (enqueued task): same invariant.
+    assert_eq!(
+        eval_string(&mut vm, "globalThis.hashTarget"),
+        "window",
+        "hashchange.target must be the real window (globalThis), not a node wrapper"
+    );
+    assert_eq!(
+        eval_string(&mut vm, "globalThis.hashCurrent"),
+        "window",
+        "hashchange.currentTarget must be the real window (globalThis)"
+    );
+
+    vm.unbind();
+}
+
+#[test]
 fn popstate_fires_without_hashchange_when_fragment_unchanged() {
     setup_bound_vm!(vm, session, dom, doc);
     install_recorders(&mut vm);
