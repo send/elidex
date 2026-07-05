@@ -1011,14 +1011,22 @@ shell integration (the S5-3/S5-4 posture), with the **engine-agnostic-now vs fli
   clauses. **This one (renamed) slot subsumes**: **#283** (drain fall-through onto the freshly-rebuilt
   runtime — *fixed* narrowly in 5a by `return true`, but the structural fix is the task boundary);
   **#259** (drop a trailing FIFO PushState after a supersede — post-flip only, unreachable under boa's
-  single-slot back-channel, re-evals here); **#448** (`restore_index` clobbers reentrant state — retired
-  in 5a by peek-then-commit; the reentrancy concern re-lands at the SW-interception / reentrant-drain
-  wiring, M4-10); and the **E7** traversal+navigation same-turn race. **Audit**: spec-core? yes (the task
-  boundary is §7.4.3/§7.4.6.1, not optional machinery — only the *multi-navigable* serialization is
-  elidex-inapplicable); one-way? yes — the task-queued model subsumes all four folded concerns at one
-  seam; pragmatic-debt? 5a's collapsed synchronous drain is correct for the boa-reachable surface (≤1
-  action/turn) but not for the post-flip multi-action turn; repeat-signal? every review round R1–R4
-  re-derived a facet of the missing boundary. **Lands in a future plan-reviewed slice** (5c, or a
+  single-slot back-channel, re-evals here); **#448 + the R5-review SW-pump held-peek vector** (the SW-fetch
+  synchronous message pump in `handle_navigate` can re-dispatch a nav-mutating message during its blocking
+  wait, mutating `nav_controller.entries` mid-traversal: #448's `restore_index`-clobber form was retired in
+  5a by peek-then-commit, but peek-then-commit's OWN exposure — a held `target_index` staling before
+  `commit_index` — remains; both are the SAME SW-reentrancy root, **unreachable today** [SW controller path
+  dead — `sw_controller_scope()` always `None`], `commit_index`'s `debug_assert` backstops the out-of-range
+  case, and both re-land at the SW-interception / async-event-loop wiring, M4-10); the **chrome-button
+  traversal** stays eager (`event_loop.rs` `go_back()`/`go_forward()` move BEFORE `handle_navigate`, with no
+  rollback on a failed load — a pre-existing atomicity gap, behaviourally unchanged by 5a, that the unified
+  task-queued model closes for all traversal entry points); and the **E7** traversal+navigation same-turn
+  race. **Audit**: spec-core? yes (the task boundary is §7.4.3/§7.4.6.1, not optional machinery — only the
+  *multi-navigable* serialization is elidex-inapplicable); one-way? yes — the task-queued model subsumes all
+  the folded concerns (drain-order, FIFO, reentrancy, chrome atomicity) at one seam; pragmatic-debt? 5a's
+  collapsed synchronous drain is correct for the boa-reachable surface (≤1 action/turn) but not for the
+  post-flip multi-action turn; repeat-signal? every review round R1–R5 re-derived a facet of the missing
+  boundary. **Lands in a future plan-reviewed slice** (5c, or a
   dedicated 5d — edge-dense per CLAUDE.md, must not ride a narrow PR): #259 re-evals there; #448 re-evals
   at the S5-6 flip / SW-interception (M4-10) reentrant wiring. **Trigger**: the multi-action drain
   (post-flip), the SW-interception reentrant path, or a site/WPT exercising mixed-turn traversal+nav.

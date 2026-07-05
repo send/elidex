@@ -22,7 +22,9 @@
 
 use elidex_script_session::{HistoryAction, NavigationRequest};
 
-use super::navigation::{handle_history_action, handle_navigate, process_pending_actions};
+use super::navigation::{
+    handle_history_action, handle_navigate, process_pending_actions, HistoryCursorOp,
+};
 use super::test_support::build_test_content_state_with_url;
 use crate::ipc::{BrowserToContent, ContentToBrowser, LocalChannel};
 
@@ -63,6 +65,19 @@ fn count_display_lists(browser: &LocalChannel<BrowserToContent, ContentToBrowser
     let mut n = 0;
     while let Ok(msg) = browser.try_recv() {
         if matches!(msg, ContentToBrowser::DisplayListReady(_)) {
+            n += 1;
+        }
+    }
+    n
+}
+
+/// Count the `NavigationState` (chrome `can_go_back`/`can_go_forward`) messages
+/// currently queued on the browser channel — shipped only from `notify_navigation`
+/// in `handle_navigate`'s `Ok` branch (post-cursor-commit).
+fn count_navigation_states(browser: &LocalChannel<BrowserToContent, ContentToBrowser>) -> usize {
+    let mut n = 0;
+    while let Ok(msg) = browser.try_recv() {
+        if matches!(msg, ContentToBrowser::NavigationState { .. }) {
             n += 1;
         }
     }
@@ -235,13 +250,53 @@ fn pure_pushstate_turn_unchanged() {
 /// signal `handle_history_action` propagates so a failed traversal load does NOT
 /// supersede the current document (Codex R2). The `true`-on-success case needs a
 /// real load (VM / connected-integration-covered).
+///
+/// Also pins that the [`HistoryCursorOp`] is applied ONLY in the `Ok` branch: a
+/// fresh-nav `Push` on a failed load pushes NOTHING (the cursor op is
+/// success-gated, so a failed load never mutates the controller — the reachable
+/// half of the R5 commit-before-notify move).
 #[test]
 fn handle_navigate_reports_false_on_failed_load() {
     let (mut state, _browser) = build_test_content_state_with_url("<p>doc</p>", base());
     let target = url::Url::parse("https://example.com/a").unwrap();
     assert!(
-        !handle_navigate(&mut state, &target, false, None),
+        !handle_navigate(&mut state, &target, HistoryCursorOp::Push, None),
         "a failed load leaves the pipeline unchanged → handle_navigate reports false"
+    );
+    assert_eq!(
+        state.nav_controller.len(),
+        0,
+        "Push runs only in the Ok branch → a failed load pushes no entry (cursor op is success-gated)"
+    );
+}
+
+/// The `HistoryCursorOp::Commit` half of the R5 fix, at the `handle_navigate`
+/// seam: a JS traversal threads `Commit(target)` INTO `handle_navigate` (its `Ok`
+/// branch, before `notify_navigation`) rather than committing in the caller after
+/// return. On a failed load (the disconnected harness) the `Ok` branch is
+/// unreached, so the commit never fires and the cursor stays put — pinning that
+/// the commit is success-gated at the seam (the atomic-traversal invariant now
+/// living inside `handle_navigate`). The success path (commit THEN notify, so the
+/// shipped `NavigationState` reads the moved cursor) needs a real load and is
+/// VM / connected-integration coverage.
+#[test]
+fn handle_navigate_commit_op_is_success_gated() {
+    let (mut state, _browser) = build_test_content_state_with_url("<p>doc</p>", base());
+    state.nav_controller.push(base()); // index 0
+    state
+        .nav_controller
+        .push(url::Url::parse("https://example.com/a").unwrap()); // index 1 (current)
+
+    // Ask handle_navigate to commit back to index 0, but the load FAILS → the Ok
+    // branch (where Commit runs) is never reached → the cursor stays on index 1.
+    assert!(
+        !handle_navigate(&mut state, &base(), HistoryCursorOp::Commit(0), None),
+        "a failed load reports false"
+    );
+    assert_eq!(
+        state.nav_controller.current_url().map(url::Url::as_str),
+        Some("https://example.com/a"),
+        "Commit runs only in the Ok branch → a failed load never moves the cursor (still on /a)"
     );
 }
 
@@ -425,5 +480,54 @@ fn failed_traversal_does_not_block_same_turn_navigation_drain() {
         count_display_lists(&browser),
         1,
         "the drained /b navigation ships exactly its pre-send display list (no double-send)"
+    );
+}
+
+/// Codex R5: a successful JS traversal moves the session-history cursor
+/// (`HistoryCursorOp::Commit`) INSIDE `handle_navigate`, BEFORE `notify_navigation`
+/// ships the chrome `NavigationState`. So `history.back()` from the last entry
+/// reports `can_go_forward = true` (post-move) rather than the stale pre-move
+/// `false` the caller-side commit produced. The old order committed the cursor in
+/// the *caller* AFTER `handle_navigate` returned, so `notify_navigation` had
+/// already shipped the pre-move state.
+///
+/// Reachability boundary (same as `#283` above): the DISCRIMINATING success-path
+/// assertion — the shipped `NavigationState` carries the *committed*
+/// `can_go_back`/`can_go_forward` — needs a real `load_document`, but the
+/// disconnected test network `Err`s every load, so `handle_navigate`'s `Ok`
+/// branch (where the commit + `notify_navigation` run) is unreachable here. That
+/// assertion is registered as VM / connected-integration coverage (an S5-6-flip
+/// live-shell deliverable, alongside the other `true`-on-success cases in this
+/// file).
+///
+/// What IS reachable and pinned here is the COMPLEMENT: a FAILED traversal ships
+/// NO `NavigationState` at all (the `Err` branch sends only `NavigationFailed`),
+/// so the stale-chrome-state bug cannot manifest on the failed path — the
+/// `NavigationState` is coupled to the `Ok` branch that now commits before it. A
+/// regression that shipped `NavigationState` from the failed path (e.g. a caller
+/// that notified unconditionally) would break this.
+#[test]
+fn failed_traversal_ships_no_navigation_state() {
+    let (mut state, browser) = build_test_content_state_with_url("<p>doc</p>", base());
+    state.nav_controller.push(base());
+    state
+        .nav_controller
+        .push(url::Url::parse("https://example.com/a").unwrap());
+    // index=1 on /a; a Back peeks index 0 but its load FAILS in the harness.
+    drain_browser(&browser);
+
+    let superseded = handle_history_action(&mut state, &HistoryAction::Back);
+
+    assert!(!superseded, "a failed-load traversal does not supersede");
+    assert_eq!(
+        count_navigation_states(&browser),
+        0,
+        "a failed traversal ships no NavigationState — it is sent only from the Ok branch, \
+         after the cursor commit (Codex R5)"
+    );
+    assert_eq!(
+        state.nav_controller.current_url().map(url::Url::as_str),
+        Some("https://example.com/a"),
+        "the cursor never moved (commit is success-gated inside handle_navigate)"
     );
 }

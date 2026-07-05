@@ -246,7 +246,12 @@ fn execute_submission(
     target_url: &url::Url,
 ) {
     if method == "get" {
-        super::navigation::handle_navigate(state, target_url, false, None);
+        super::navigation::handle_navigate(
+            state,
+            target_url,
+            super::navigation::HistoryCursorOp::Push,
+            None,
+        );
     } else if method == "post" {
         if enctype == "multipart/form-data" {
             tracing::warn!(
@@ -270,7 +275,12 @@ fn execute_submission(
             body: bytes::Bytes::from(encoded),
             ..Default::default()
         };
-        super::navigation::handle_navigate(state, target_url, false, Some(request));
+        super::navigation::handle_navigate(
+            state,
+            target_url,
+            super::navigation::HistoryCursorOp::Push,
+            Some(request),
+        );
     }
 }
 

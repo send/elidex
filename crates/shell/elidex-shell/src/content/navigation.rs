@@ -8,10 +8,31 @@ use crate::ipc::ContentToBrowser;
 
 use super::ContentState;
 
+/// How a [`handle_navigate`] load moves the session-history cursor — resolved
+/// BEFORE `notify_navigation` (symmetric with the fresh-nav push) so the browser
+/// chrome's `NavigationState` (`can_go_back`/`can_go_forward`, derived from the
+/// controller's cursor) reflects the POST-move position. A JS traversal
+/// previously committed the cursor in the *caller* AFTER `handle_navigate`
+/// returned, so `notify_navigation` shipped a stale pre-move state (Codex R5).
+#[derive(Clone, Copy)]
+pub(super) enum HistoryCursorOp {
+    /// Fresh navigation: push a new entry (cursor → the new last entry).
+    Push,
+    /// JS traversal (`back`/`forward`/`go`): commit the peeked target index — the
+    /// atomic half of peek-then-commit, moved INSIDE `handle_navigate` (before
+    /// `notify_navigation`) so the chrome sees the committed position.
+    Commit(usize),
+    /// Reload, or a chrome-button traversal that already moved the cursor eagerly
+    /// (`go_back`/`go_forward`): no cursor change here.
+    Keep,
+}
+
 /// Navigate to a URL, loading the document and updating state.
 ///
-/// When `is_history_nav` is `true`, the URL is not pushed to the navigation
-/// controller (it was already moved by `go_back`/`go_forward`).
+/// `cursor_op` selects how this load moves the session-history cursor (see
+/// [`HistoryCursorOp`]) — applied in the `Ok` branch BEFORE `notify_navigation`,
+/// so the chrome's `NavigationState` reflects the post-move cursor and a failed
+/// load never moves it.
 ///
 /// When `request` is `Some`, that request is sent instead of a default GET
 /// (used for POST form submissions).
@@ -25,7 +46,7 @@ use super::ContentState;
 pub(super) fn handle_navigate(
     state: &mut ContentState,
     url: &url::Url,
-    is_history_nav: bool,
+    cursor_op: HistoryCursorOp,
     request: Option<elidex_net::Request>,
 ) -> bool {
     // WHATWG SW Handle Fetch — skip SW interception in these cases:
@@ -171,8 +192,15 @@ pub(super) fn handle_navigate(
             state.applied_facts_seq = facts_seq;
             super::scroll::update_viewport_scroll_dimensions(state);
 
-            if !is_history_nav {
-                state.nav_controller.push(url.clone());
+            // Move the session-history cursor BEFORE `notify_navigation` below,
+            // so the `NavigationState` it ships reads the post-move
+            // `can_go_back`/`can_go_forward` (Codex R5). A JS traversal commits
+            // here (the peeked target), symmetric with the fresh-nav push — the
+            // caller no longer commits after we return.
+            match cursor_op {
+                HistoryCursorOp::Push => state.nav_controller.push(url.clone()),
+                HistoryCursorOp::Commit(index) => state.nav_controller.commit_index(index),
+                HistoryCursorOp::Keep => {}
             }
             state.pipeline.runtime.set_current_url(Some(url.clone()));
             state
@@ -286,7 +314,7 @@ pub(super) fn process_pending_actions(state: &mut ContentState) -> bool {
         let resolved = resolve_nav_url(state.pipeline.url.as_ref(), &nav_req.url);
         if let Some(target_url) = resolved {
             state.send_display_list();
-            handle_navigate(state, &target_url, false, None);
+            handle_navigate(state, &target_url, HistoryCursorOp::Push, None);
             return true;
         }
     }
@@ -412,20 +440,28 @@ pub(crate) fn route_window_opens(
 /// Apply a single history action. Returns `true` iff it **superseded the
 /// document via a pipeline-rebuilding traversal that LOADED** — a
 /// `Back`/`Forward`/`Go` whose `NavigationController` peek yielded a target URL
-/// AND whose `handle_navigate(is_history_nav)` load succeeded (replaced
-/// `state.pipeline`). Returns `false` for `PushState`/`ReplaceState` (no
-/// rebuild), for a **no-op traversal** (an out-of-range `go` / empty
+/// AND whose `handle_navigate` (with [`HistoryCursorOp::Commit`]) load succeeded
+/// (replaced `state.pipeline`). Returns `false` for `PushState`/`ReplaceState`
+/// (no rebuild), for a **no-op traversal** (an out-of-range `go` / empty
 /// `peek_back`/`peek_forward` returning `None` → no `handle_navigate`), AND for a
 /// traversal whose **load FAILED** (`handle_navigate` `Err` left the pipeline
 /// unchanged, so the old document is still active). The FIFO drain loop keys on
 /// this to STOP replaying remaining same-turn intents ONLY once a traversal
 /// genuinely superseded the document (Codex R1 P2 / R2): a no-op or failed-load
 /// traversal leaves the current document active, so the loop CONTINUES and the
-/// trailing intents still apply. The traversal is **atomic by construction**
-/// (peek-then-commit — Codex R3): the target index is peeked WITHOUT moving the
-/// cursor and committed (`commit_index`) ONLY after the load succeeds, so a
-/// failed load never leaves the cursor speculatively moved (no rollback path — a
-/// continuing trailing `pushState` commits from the correct, unmoved index).
+/// trailing intents still apply. The traversal is **atomic on the non-reentrant
+/// path** (peek-then-commit — Codex R3): the target index is peeked WITHOUT moving
+/// the cursor and committed (`commit_index`, threaded INTO `handle_navigate` via
+/// [`HistoryCursorOp::Commit`] so it precedes `notify_navigation` — Codex R5)
+/// ONLY after the load succeeds, so a failed load never leaves the cursor
+/// speculatively moved (no rollback path — a continuing trailing `pushState`
+/// commits from the correct, unmoved index). **One reentrancy vector is out of
+/// scope**: `handle_navigate`'s SW-fetch synchronous message pump can re-dispatch
+/// a nav-mutating message during its blocking wait, staling the held `target_index`
+/// before the commit — folded into the deferred `#11-session-history-task-queue-model`
+/// (the task-queued model + M4-10 async event loop remove the synchronous
+/// cross-wait window; unreachable today — the SW controller path is dead — and
+/// `commit_index`'s `debug_assert` backstops the out-of-range case in debug/test).
 pub(super) fn handle_history_action(
     state: &mut ContentState,
     action: &elidex_script_session::HistoryAction,
@@ -433,8 +469,10 @@ pub(super) fn handle_history_action(
     match action {
         elidex_script_session::HistoryAction::Back
         | elidex_script_session::HistoryAction::Forward => {
-            // Peek the traversal target WITHOUT moving the cursor, then commit the
-            // move ONLY if the load succeeds — an atomic traversal (Codex R3). A
+            // Peek the traversal target WITHOUT moving the cursor; `handle_navigate`
+            // commits the move (via `HistoryCursorOp::Commit`) ONLY if the load
+            // succeeds — an atomic traversal (Codex R3), with the commit threaded
+            // into `handle_navigate` before its `notify_navigation` (Codex R5). A
             // failed load leaves the cursor on the still-active document, so a
             // trailing same-turn `pushState` commits from the correct index (no
             // rollback needed — the cursor never moved speculatively). Clone the
@@ -447,12 +485,11 @@ pub(super) fn handle_history_action(
             let Some((target_index, url)) = peeked.map(|(i, u)| (i, u.clone())) else {
                 return false;
             };
-            if handle_navigate(state, &url, true, None) {
-                state.nav_controller.commit_index(target_index);
-                true
-            } else {
-                false
-            }
+            // The commit lives INSIDE `handle_navigate` (its `Ok` branch, before
+            // `notify_navigation`) via `HistoryCursorOp::Commit`, so the chrome's
+            // `NavigationState` reads the post-move cursor and a failed load never
+            // moves it — atomic peek-then-commit at the navigate seam (Codex R5).
+            handle_navigate(state, &url, HistoryCursorOp::Commit(target_index), None)
         }
         elidex_script_session::HistoryAction::Go(delta) => {
             let Some((target_index, url)) = state
@@ -462,12 +499,7 @@ pub(super) fn handle_history_action(
             else {
                 return false;
             };
-            if handle_navigate(state, &url, true, None) {
-                state.nav_controller.commit_index(target_index);
-                true
-            } else {
-                false
-            }
+            handle_navigate(state, &url, HistoryCursorOp::Commit(target_index), None)
         }
         elidex_script_session::HistoryAction::PushState { url, .. }
         | elidex_script_session::HistoryAction::ReplaceState { url, .. } => {
