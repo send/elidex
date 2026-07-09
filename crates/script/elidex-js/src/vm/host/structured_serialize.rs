@@ -51,15 +51,18 @@ use super::super::VmInner;
 ///   slot's codec, so it is NOT special-cased here (Codex R5; avoids a bespoke
 ///   `undefined` sentinel over the "UTF-8 JSON" wire — One-issue-one-way).
 /// - **A throwing `toJSON`**: `StructuredSerializeInternal` serializes ordinary
-///   objects via enumerable-property `Get` and **never invokes** JSON's `toJSON`
-///   hook (§2.7.3 step 24), so a throwing `toJSON` does NOT abort real
-///   serialization. The JSON shortcut *does* call it and throws — a JSON-only
-///   exception that must degrade, not propagate and lose the history entry (Codex
-///   R5).
+///   objects via enumerable-property `? Get` (§2.7.3 step 26.4, the Object branch
+///   entered at step 24) and **never invokes** JSON's `toJSON` hook, so a throwing
+///   `toJSON` does NOT abort real serialization. The JSON shortcut *does* call it
+///   and throws — a JSON-only exception that must degrade, not propagate and lose
+///   the history entry (Codex R5).
 /// - **A throwing property getter**: structured clone WOULD propagate it (via
-///   `? Get`, §2.7.3 step 24). The JSON shortcut cannot distinguish it from the
-///   `toJSON` throw above (both surface as one opaque exception), so it degrades
-///   here too — a gap the walker restores.
+///   `? Get`, §2.7.3 step 26.4.1). The interim could tell it apart from the
+///   `toJSON` throw above only by a `toJSON`-skip that partially reimplements
+///   structured-clone semantics on the shared JSON encoder (which also backs
+///   `Worker.postMessage`) — a half-structured-clone mode the walker slot owns
+///   wholesale — so it degrades here too rather than growing that seam (deferred by
+///   design, not by impossibility; a gap the walker restores).
 pub(in crate::vm) fn structured_serialize_for_storage(
     ctx: &mut NativeContext<'_>,
     value: JsValue,

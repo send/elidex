@@ -178,7 +178,8 @@ fn state_mutate(
     // the WebIDL arg coercions (above), before the step-5 URL parse + gate. The
     // interim JSON-shortcut serializer is TOTAL (never throws): a representable value
     // → `Some(bytes)`, anything else → `None`. A throwing `toJSON` does NOT abort
-    // (`StructuredSerializeInternal` never invokes it, §2.7.3 step 24) — it degrades
+    // (`StructuredSerializeInternal` serializes objects via `? Get`, §2.7.3 step
+    // 26.4, and never invokes `toJSON`) — it degrades
     // like BigInt/cyclic (CR-3). `None` = no restorable state (a cross-document
     // traversal restores `null`). The spec's "Rethrow any exceptions" is vacuous in
     // the interim; the full walker slot re-enables real throwing (`DataCloneError` +
