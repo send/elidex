@@ -37,6 +37,7 @@ fn push_state(path: &str) -> HistoryAction {
     HistoryAction::PushState {
         url: Some(path.to_string()),
         title: String::new(),
+        serialized_state: None,
     }
 }
 
@@ -44,6 +45,7 @@ fn replace_state(path: &str) -> HistoryAction {
     HistoryAction::ReplaceState {
         url: Some(path.to_string()),
         title: String::new(),
+        serialized_state: None,
     }
 }
 

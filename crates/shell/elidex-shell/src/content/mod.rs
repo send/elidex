@@ -151,12 +151,15 @@ impl ContentState {
         self.send_display_list();
     }
 
-    /// Push or replace a URL in the navigation controller.
+    /// Push or replace a URL in the navigation controller for a
+    /// `pushState`/`replaceState` — a **same-document** history mutation, so the
+    /// entry inherits the current document's identity (`document_sequence`); a
+    /// later traversal between it and its document-siblings restores in place.
     fn push_or_replace(&mut self, url: url::Url, replace: bool) {
         if replace {
-            self.nav_controller.replace(url);
+            self.nav_controller.replace_same_document(url);
         } else {
-            self.nav_controller.push(url);
+            self.nav_controller.push_same_document(url);
         }
     }
 
@@ -576,6 +579,8 @@ fn content_thread_main_url(
         viewport,
         snapshot.facts,
         // Top-level document: no frame security (URL-derived origin).
+        None,
+        // Initial document load (not a traversal) → no `history.state` seed.
         None,
     );
 

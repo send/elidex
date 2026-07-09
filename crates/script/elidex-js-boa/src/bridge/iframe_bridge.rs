@@ -69,6 +69,15 @@ impl HostBridge {
         self.inner.borrow().iframe.referrer.clone()
     }
 
+    /// Seed `history.state` on document construction (WHATWG HTML §7.4.6.2 step
+    /// 6.3 restore-without-fire — the cross-document-traversal case). **boa is
+    /// deletion-bound (D-26 PR7) and never serializes the classic state (its
+    /// pushState passes `serialized_state: None`), so the seed it receives is
+    /// always `None`** — this is a light-touch **no-op stub** keeping the shared
+    /// pre-eval install seam compiling; the real restore is a VM capability
+    /// (`elidex-js` `VmInner::seed_history_state`), live at the S5-6 flip.
+    pub fn set_history_state(&self, _serialized_state: Option<Vec<u8>>) {}
+
     /// Set whether this document loads in a `credentialless` iframe.
     ///
     /// Persisted (like the sandbox flags) so a same-frame navigation can

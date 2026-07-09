@@ -457,6 +457,13 @@ impl HostDriver for ElidexJsEngine {
         self.vm.set_navigation_referrer(referrer);
     }
 
+    fn set_history_state(&mut self, serialized_state: Option<Vec<u8>>) {
+        // Restore-WITHOUT-fire (§7.4.6.2 step 6.3): StructuredDeserialize the
+        // bytes → `history.state`, no popstate (the cross-document traversal case
+        // is `documentIsNew=true`). Marshal-only; reaches `vm.inner` directly.
+        self.vm.inner.seed_history_state(serialized_state);
+    }
+
     // ── history-step event delivery (per-navigation; §7.4.6.2) ────────────
 
     fn deliver_history_step_events(&mut self, ev: HistoryStepEvents) {

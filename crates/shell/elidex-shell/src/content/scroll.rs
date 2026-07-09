@@ -172,6 +172,18 @@ pub(super) fn update_viewport_scroll_dimensions(state: &mut ContentState) {
     state.viewport_scroll.clamp_scroll();
 }
 
+/// Convert a persisted session-history `scroll_position` — `(x, y)` in CSS px,
+/// stored as `f64` on the `HistoryEntry` — into a viewport scroll offset for
+/// restore-on-arrive (WHATWG HTML §7.4.6.2 step 6.4.4). One home for the
+/// `(f64, f64)` → `Vector` conversion, shared by both shells (One-issue-one-way).
+/// The narrowing f64→f32 cast is a display-precision truncation (scroll offsets
+/// are small, bounded by the content size), matching the rest of the `f32` scroll
+/// transport.
+#[allow(clippy::cast_possible_truncation)]
+pub(crate) fn scroll_offset_from_position((x, y): (f64, f64)) -> elidex_plugin::Vector {
+    elidex_plugin::Vector::new(x as f32, y as f32)
+}
+
 /// Resolve the **indicated part** of the document for a URL fragment (WHATWG HTML
 /// §7.4.6.4 "Scrolling to a fragment" — the "select the indicated part"
 /// algorithm) and return the viewport scroll offset that brings it into view, or

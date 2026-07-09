@@ -141,6 +141,7 @@ pub(super) fn run_scripts_and_finalize(
     device_facts: crate::ipc::DeviceFacts,
     engine_mode: EngineMode,
     pre_eval_state: Option<PreEvalFrameState>,
+    history_state: Option<Vec<u8>>,
 ) -> (SessionCore, JsRuntime, ViewportOverflow) {
     let stylesheet_refs: Vec<&Stylesheet> = stylesheets.iter().collect();
 
@@ -213,6 +214,18 @@ pub(super) fn run_scripts_and_finalize(
         .set_viewport(viewport.width, viewport.height);
     runtime.bridge().set_device_pixel_ratio(device_facts.dppx);
     runtime.bridge().set_color_scheme(device_facts.color_scheme);
+
+    // Seed `history.state` from the session-history entry BEFORE the initial
+    // scripts run (WHATWG HTML §7.4.6.2 step 6.3 "restore the history object
+    // state", which precedes step 8.4 "scripts may run" — J5): a CROSS-document
+    // traversal's rebuilt document reads the restored `history.state`, not `null`.
+    // This is the restore-WITHOUT-fire seed (NO popstate — the fresh document is
+    // `documentIsNew=true`, so §7.4.6.2 step 6.4 is skipped — J6), distinct from
+    // the same-document `deliver_history_step_events` fire path. `None` (a plain
+    // load / fresh nav) → `null`. Flip-inert value: the live boa `set_history_state`
+    // is a no-op stub (boa passes `None` on every pushState, so the seed is `None`
+    // anyway); the VM's `HostDriver::set_history_state` lights this up at S5-6.
+    runtime.bridge().set_history_state(history_state);
 
     for source in script_sources {
         let mut ctx = ScriptContext::new(&mut session, dom, document);
@@ -449,6 +462,8 @@ pub fn build_pipeline_interactive(html: &str, css: &str) -> PipelineResult {
         EngineMode::BrowserCompat,
         // Top-level document: no frame security (unsandboxed, URL-derived origin).
         None,
+        // No traversal → no `history.state` seed (standalone/test build).
+        None,
     );
 
     let display_list = build_display_list(&dom, &font_db);
@@ -527,6 +542,8 @@ pub(crate) fn build_pipeline_interactive_with_network(
         device_facts,
         EngineMode::BrowserCompat,
         // Top-level document: no frame security (unsandboxed, URL-derived origin).
+        None,
+        // No traversal → no `history.state` seed.
         None,
     );
 
@@ -611,6 +628,9 @@ pub(crate) fn build_pipeline_interactive_shared(
         device_facts,
         EngineMode::BrowserCompat,
         pre_eval_state,
+        // Iframe same-document traversal (its `history.state` seed) is out of
+        // scope for 5c (D7 `#11-iframe-fragment-navigation`); top-level only.
+        None,
     );
 
     let display_list = build_display_list(&dom, &font_db);
@@ -652,6 +672,13 @@ pub(crate) fn build_pipeline_interactive_shared(
 /// thread): it installs the sandbox flags / origin / depth on the bridge
 /// **before** the initial scripts run (see [`PreEvalFrameState`]). Top-level
 /// builds pass `None`.
+///
+/// `history_state` is `Some` on a CROSS-document history *traversal* rebuild
+/// (`content/navigation.rs`): the target session-history entry's serialized
+/// `history.state`, seeded on the bridge **before** the initial scripts run
+/// (§7.4.6.2 step 6.3, restore-without-fire — J5/J6). A fresh navigation / reload
+/// passes `None` (`history.state = null`).
+#[allow(clippy::too_many_arguments)]
 pub fn build_pipeline_from_loaded(
     loaded: elidex_navigation::LoadedDocument,
     network_handle: Rc<elidex_net::broker::NetworkHandle>,
@@ -660,6 +687,7 @@ pub fn build_pipeline_from_loaded(
     viewport: Size,
     device_facts: crate::ipc::DeviceFacts,
     pre_eval_state: Option<PreEvalFrameState>,
+    history_state: Option<Vec<u8>>,
 ) -> PipelineResult {
     let elidex_navigation::LoadedDocument {
         mut dom,
@@ -691,6 +719,7 @@ pub fn build_pipeline_from_loaded(
         device_facts,
         EngineMode::BrowserCompat,
         pre_eval_state,
+        history_state,
     );
 
     let display_list = build_display_list(&dom, &font_db);
@@ -768,6 +797,8 @@ pub fn build_pipeline_from_url(
         // Standalone (no window) → default device facts (1× / Light).
         crate::ipc::DeviceFacts::default(),
         pre_eval_state,
+        // Standalone URL load → no traversal → no `history.state` seed.
+        None,
     );
     result.broker_keepalive = Some(np); // Keep broker alive for pipeline lifetime.
     Ok(result)

@@ -228,6 +228,9 @@ fn load_iframe_from_url(
                     referrer_policy,
                     ctx,
                 )),
+                // Iframe load is not a top-level history traversal → no
+                // `history.state` seed (iframe traversal is D7, non-goal).
+                None,
             );
             // Keep credentialless broker alive for the iframe pipeline's lifetime.
             if let Some(cb) = credentialless_broker {
@@ -321,6 +324,9 @@ pub(in crate::content) fn make_out_of_process_entry(
             // in-process paths. `PreEvalFrameState` is `Send`, captured into this
             // thread.
             Some(state),
+            // OOP iframe load is not a top-level history traversal → no
+            // `history.state` seed (iframe traversal is D7, non-goal).
+            None,
         );
 
         iframe_thread_main(oop_pipeline, &iframe_chan);
