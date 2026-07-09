@@ -176,13 +176,15 @@ fn state_mutate(
 
     // §7.2.5 step 3: `serializedData = StructuredSerializeForStorage(data)` — after
     // the WebIDL arg coercions (above), before the step-5 URL parse + gate. The
-    // interim JSON-shortcut serializer DEGRADES to `None` (no throw) for a value
-    // JSON cannot represent (BigInt / cyclic / Map / Date — all structured-cloneable,
-    // so a throw would be spec-wrong, CR-3); only a user exception thrown *during*
-    // serialization (a throwing `toJSON`/getter) propagates. `None` = no restorable
-    // state (a cross-document traversal restores `null`).
+    // interim JSON-shortcut serializer is TOTAL (never throws): a representable value
+    // → `Some(bytes)`, anything else → `None`. A throwing `toJSON` does NOT abort
+    // (`StructuredSerializeInternal` never invokes it, §2.7.3 step 24) — it degrades
+    // like BigInt/cyclic (CR-3). `None` = no restorable state (a cross-document
+    // traversal restores `null`). The spec's "Rethrow any exceptions" is vacuous in
+    // the interim; the full walker slot re-enables real throwing (`DataCloneError` +
+    // getter-exception propagation), at which point this regains a fallible result.
     let serialized_state =
-        super::structured_serialize::structured_serialize_for_storage(ctx, state)?;
+        super::structured_serialize::structured_serialize_for_storage(ctx, state);
 
     // §7.2.5 step 5/6: newURL is the document URL when `url` is null OR the **empty
     // string** — the historical empty-string special case, which (per step 6's note)

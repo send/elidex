@@ -544,24 +544,34 @@ fn function_state_succeeds_with_null_state_interim(// CR-3 opposite deviation (D
 }
 
 #[test]
-fn throwing_tojson_propagates_not_degrades() {
-    // A user exception thrown DURING serialization (a throwing `toJSON`) is NOT a
-    // representability failure — it propagates unchanged (the shared push/replace
-    // steps step 3 "Rethrow any exceptions"), aborting the pushState before the URL
-    // side-effect.
+fn throwing_tojson_degrades_to_null_interim() {
+    // `StructuredSerializeInternal` (WHATWG HTML §2.7.3 step 24) serializes ordinary
+    // objects via enumerable-property `Get` and NEVER invokes JSON's `toJSON` hook,
+    // so a throwing `toJSON` does NOT abort real structured serialization. The interim
+    // JSON shortcut *does* call it and `JSON.stringify` throws — a JSON-only exception
+    // that must DEGRADE to no restorable state (like BigInt/cyclic, CR-3), NOT
+    // propagate and lose the history entry (Codex R5). The pushState SUCCEEDS: the URL
+    // applies and the entry is enqueued with `serialized_state: None`. (A throwing
+    // property *getter* — which real clone WOULD propagate via `? Get` — also degrades
+    // here, an interim gap the full walker restores; the JSON shortcut cannot tell the
+    // two apart.)
     let mut vm = new_vm_with_base(); // http://localhost/
-    let name = eval_string(
-        &mut vm,
-        "var n = 'none';
-         var o = { toJSON: function () { throw new Error('boom'); } };
-         try { history.pushState(o, '', '/should-not-apply'); }
-         catch (e) { n = e.message; }
-         n;",
-    );
-    assert_eq!(name, "boom");
-    // No URL side-effect, no enqueue — the throw preceded step 5.
-    assert_eq!(eval_string(&mut vm, "location.pathname;"), "/");
-    assert!(vm.inner.navigation.pending_history.is_empty());
+    vm.eval(
+        "var o = { toJSON: function () { throw new Error('boom'); } };
+         history.pushState(o, '', '/applies');",
+    )
+    .unwrap();
+    // URL side-effect happened (no throw), entry enqueued with null state.
+    assert_eq!(eval_string(&mut vm, "location.pathname;"), "/applies");
+    match take_one_history(&mut vm) {
+        HistoryAction::PushState {
+            serialized_state, ..
+        } => assert_eq!(
+            serialized_state, None,
+            "throwing toJSON degrades to None, no throw"
+        ),
+        other => panic!("expected PushState, got {other:?}"),
+    }
 }
 
 #[test]

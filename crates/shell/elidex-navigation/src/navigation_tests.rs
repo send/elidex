@@ -479,6 +479,31 @@ fn replace_clears_prior_state_and_scroll_new_document() {
 }
 
 #[test]
+fn reload_restamp_preserves_scroll_for_restore() {
+    // A reload (`restamp_current_document`) replaces the *document* WITHOUT moving
+    // the cursor, so — unlike `replace`/`push`, which stamp a new entry and clear
+    // scroll — it must PRESERVE the current entry's captured scroll. That is the
+    // seam the shell reload path reads back (`current_scroll_position()`) to land
+    // `location.reload()` where the user was rather than at the top (Codex R5 F2);
+    // if restamp cleared scroll, that restore would silently break.
+    let mut nav = NavigationController::new();
+    nav.push(url("https://a.com/"));
+    nav.set_current_scroll((10.0, 20.0));
+    let seq_before = nav.entry(0).unwrap().document_sequence;
+    nav.restamp_current_document();
+    assert_eq!(
+        nav.current_scroll_position(),
+        Some((10.0, 20.0)),
+        "reload preserves the captured scroll for restore-on-arrive"
+    );
+    assert_ne!(
+        nav.entry(0).unwrap().document_sequence,
+        seq_before,
+        "reload still stamps a fresh document_sequence"
+    );
+}
+
+#[test]
 fn rebuild_traversal_restamps_target_so_siblings_stay_cross_document() {
     // A cross-document traversal REBUILDS the target as a fresh document, so the
     // shell re-stamps it (`restamp_current_document` after `commit_index`).

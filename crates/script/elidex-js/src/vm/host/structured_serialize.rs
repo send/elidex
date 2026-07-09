@@ -23,46 +23,55 @@
 #![cfg(feature = "engine")]
 
 use super::super::natives_json::{parse_json_str, stringify_to_string};
-use super::super::value::{JsValue, NativeContext, VmError, VmErrorKind};
+use super::super::value::{JsValue, NativeContext};
 use super::super::VmInner;
 
 /// `StructuredSerializeForStorage(value)` → **optional** storage bytes (WHATWG HTML
 /// §7.2.5 step 3 / §2.7.5, `forStorage = true`).
 ///
-/// Interim JSON-shortcut (UTF-8 JSON). Because `JSON.stringify`'s error set does
-/// NOT match `StructuredSerializeForStorage`'s in either direction (structured
-/// clone **succeeds** for BigInt / cyclic / Map / Date, which JSON throws on; and
-/// JSON silently drops functions / symbols, which structured clone must throw
-/// `DataCloneError` on), the interim **never throws for a representability
-/// failure** — it **degrades to `Ok(None)`** (no restorable state; a cross-document
-/// traversal restores `null`). Throwing `DataCloneError` for a JSON-unrepresentable
-/// value would regress `pushState({v: 10n})` etc., which browsers accept (CR-3).
-/// The opposite deviation (a `function` / `symbol` succeeding with null state where
-/// the spec mandates `DataCloneError`) is a distinct interim gap, both fixed only
-/// by the full structured-clone walker (`#11-history-state-structured-serialize-fidelity`).
+/// Interim JSON-shortcut (UTF-8 JSON). The interim is **total — it never throws**;
+/// a representable value → `Some(bytes)`, anything else → `None` (no restorable
+/// state; a cross-document traversal / reload restores `null`). `JSON.stringify`'s
+/// error set does not match `StructuredSerializeForStorage`'s in either direction,
+/// so every mismatch degrades rather than surfacing as a `pushState` abort. The
+/// spec-fidelity gaps this leaves — all closed by the full structured-clone walker
+/// (`#11-history-state-structured-serialize-fidelity`), at which point the noted
+/// tests flip as visible landing signals — are:
 ///
-/// Only a **user exception thrown *during* serialization** — a throwing `toJSON` /
-/// property getter (a [`VmErrorKind::ThrowValue`], matching the shared push/replace
-/// steps step 3 "Rethrow any exceptions") — propagates as `Err`. A representable
-/// value → `Ok(Some(bytes))`; anything JSON cannot represent → `Ok(None)`.
+/// - **BigInt / cyclic / Map / Date**: structured clone **succeeds** (all
+///   cloneable) but `JSON.stringify` throws. Degrade to `None` rather than throw
+///   `DataCloneError`, which would regress `pushState({v: 10n})` etc. that browsers
+///   accept (CR-3).
+/// - **`function` / `symbol`**: structured clone must throw `DataCloneError`, but
+///   `JSON.stringify` renders them as `undefined` → `None`. The opposite-direction
+///   gap (succeeds where the spec throws).
+/// - **`undefined`**: a primitive that `StructuredSerializeInternal` round-trips as
+///   `undefined` (§2.7.3 step 4), but JSON cannot encode → collapses to `None`
+///   (restores `null`). Preserving it needs a tagged non-JSON encoding = the walker
+///   slot's codec, so it is NOT special-cased here (Codex R5; avoids a bespoke
+///   `undefined` sentinel over the "UTF-8 JSON" wire — One-issue-one-way).
+/// - **A throwing `toJSON`**: `StructuredSerializeInternal` serializes ordinary
+///   objects via enumerable-property `Get` and **never invokes** JSON's `toJSON`
+///   hook (§2.7.3 step 24), so a throwing `toJSON` does NOT abort real
+///   serialization. The JSON shortcut *does* call it and throws — a JSON-only
+///   exception that must degrade, not propagate and lose the history entry (Codex
+///   R5).
+/// - **A throwing property getter**: structured clone WOULD propagate it (via
+///   `? Get`, §2.7.3 step 24). The JSON shortcut cannot distinguish it from the
+///   `toJSON` throw above (both surface as one opaque exception), so it degrades
+///   here too — a gap the walker restores.
 pub(in crate::vm) fn structured_serialize_for_storage(
     ctx: &mut NativeContext<'_>,
     value: JsValue,
-) -> Result<Option<Vec<u8>>, VmError> {
-    // The two `Ok(None)` outcomes are semantically distinct (an `undefined`-ish
-    // top-level value vs a representability failure) but share the same degrade
-    // result; kept as separate documented arms.
-    #[allow(clippy::match_same_arms)]
+) -> Option<Vec<u8>> {
     match stringify_to_string(ctx, value, JsValue::Undefined, JsValue::Undefined) {
-        Ok(Some(json)) => Ok(Some(json.into_bytes())),
-        // A top-level value `JSON.stringify` renders as `undefined` (a `function` /
-        // `symbol` / `undefined`) → no restorable state (restores `null`).
-        Ok(None) => Ok(None),
-        // A user exception thrown during serialization propagates unchanged.
-        Err(e) if matches!(e.kind, VmErrorKind::ThrowValue(_)) => Err(e),
-        // A representability failure (circular / `BigInt` / depth cap) — all
-        // structured-cloneable, so degrade rather than throw (CR-3).
-        Err(_) => Ok(None),
+        Ok(Some(json)) => Some(json.into_bytes()),
+        // Everything else degrades to no restorable state: a top-level value JSON
+        // renders as `undefined` (`function` / `symbol` / `undefined`), a
+        // representability failure (cyclic / `BigInt` / depth cap), OR a user
+        // exception thrown during serialization (throwing `toJSON` / getter). See
+        // the per-case rationale above — all restored to fidelity by the walker slot.
+        _ => None,
     }
 }
 

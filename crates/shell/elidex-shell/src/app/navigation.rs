@@ -151,7 +151,20 @@ impl App {
             // — re-stamp the current entry's document identity (else a neighbor entry
             // sharing its pre-reload `document_sequence` mis-classifies same-document
             // on a later traversal).
-            NavigationType::Reload => interactive.nav_controller.restamp_current_document(),
+            NavigationType::Reload => {
+                interactive.nav_controller.restamp_current_document();
+                // The pre-reload scroll offset was captured onto the current entry
+                // (`capture_scroll_on_leave`) and `load_url_into_pipeline` reset
+                // `pipeline.scroll_offset` to 0; reapply it so `location.reload()` /
+                // chrome Reload lands where the user was (browsers preserve scroll on
+                // reload). Mirror of the content-thread `HistoryCursorOp::Keep` restore
+                // — the cursor did not move, so the CURRENT entry holds the offset.
+                if let Some((x, y)) = interactive.nav_controller.current_scroll_position() {
+                    interactive.pipeline.scroll_offset =
+                        crate::content::scroll::scroll_offset_from_position((x, y));
+                    crate::re_render(&mut interactive.pipeline);
+                }
+            }
         }
         interactive
             .pipeline
