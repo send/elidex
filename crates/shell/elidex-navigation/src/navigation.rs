@@ -173,6 +173,12 @@ impl NavigationController {
             self.entries[idx].url = url;
             self.entries[idx].navigation_api_id = new_id;
             self.entries[idx].document_sequence = seq;
+            // A NEW document replaces the entry in place, so it carries NONE of the
+            // replaced entry's classic `history.state` or persisted scroll — else a
+            // later reload/traversal of the replacement would seed/restore stale
+            // state from the prior (e.g. `pushState`'d) document.
+            self.entries[idx].classic_history_api_state = None;
+            self.entries[idx].scroll_position = None;
         } else {
             self.push(url);
         }
@@ -303,6 +309,15 @@ impl NavigationController {
     pub fn current_serialized_state(&self) -> Option<Vec<u8>> {
         self.index
             .and_then(|i| self.entries[i].classic_history_api_state.clone())
+    }
+
+    /// The current entry's persisted scroll offset `(x, y)` — the value a **reload**
+    /// restores into the rebuilt document (scrollRestoration `auto`; the sibling of
+    /// a traversal's `entry(target).scroll_position`). `None` when no page is loaded
+    /// or nothing was captured.
+    #[must_use]
+    pub fn current_scroll_position(&self) -> Option<(f64, f64)> {
+        self.index.and_then(|i| self.entries[i].scroll_position)
     }
 
     /// Classify a traversal to the peeked `target_index` by **document identity**
@@ -945,6 +960,43 @@ mod tests {
         nav3.restamp_current_document(); // reload the base → doc 2 at index 0
                                          // From reloaded base (doc 2, index 0), forward to #x (still doc 1) → Rebuild.
         assert_eq!(nav3.resolve_traversal(1), TraversalKind::Rebuild);
+    }
+
+    #[test]
+    fn replace_clears_prior_state_and_scroll_new_document() {
+        // `location.replace()` stamps a NEW document in place → it must carry NONE
+        // of the replaced (e.g. pushState'd) entry's classic state or scroll, else a
+        // later reload/traversal resurrects stale state (Codex R1 F2).
+        let mut nav = NavigationController::new();
+        nav.push(url("https://a.com/"));
+        nav.push_same_document(url("https://a.com/x")); // pushState entry
+        nav.set_current_state(Some(b"{\"n\":1}".to_vec()));
+        nav.set_current_scroll((10.0, 20.0));
+        let seq_before = nav.entry(1).unwrap().document_sequence;
+        // location.replace() → new document, state + scroll cleared.
+        nav.replace(url("https://a.com/y"));
+        let e = nav.entry(1).unwrap();
+        assert_eq!(
+            e.classic_history_api_state, None,
+            "replace clears classic state"
+        );
+        assert_eq!(e.scroll_position, None, "replace clears scroll");
+        assert_ne!(
+            e.document_sequence, seq_before,
+            "replace stamps a new document_sequence"
+        );
+        // replace_same_document (replaceState) does NOT clear — same document, the
+        // caller writes the new state.
+        nav.set_current_state(Some(b"keep".to_vec()));
+        nav.set_current_scroll((1.0, 2.0));
+        nav.replace_same_document(url("https://a.com/z"));
+        let e = nav.entry(1).unwrap();
+        assert_eq!(
+            e.classic_history_api_state.as_deref(),
+            Some(b"keep".as_slice()),
+            "replace_same_document keeps state (caller overwrites)"
+        );
+        assert_eq!(e.scroll_position, Some((1.0, 2.0)));
     }
 
     #[test]

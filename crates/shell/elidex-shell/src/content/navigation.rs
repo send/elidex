@@ -232,6 +232,21 @@ pub(super) fn handle_navigate(
                 HistoryCursorOp::Keep => state.nav_controller.current_serialized_state(),
                 HistoryCursorOp::Push => None,
             };
+            // Persisted scroll to restore AFTER the rebuild is laid out (§7.4.6.1
+            // "restore persisted state"; scrollRestoration=auto). `capture_scroll_on_leave`
+            // stored it on the departing entry; the return trip reapplies it — for a
+            // cross-document Commit traversal (the PEEKED TARGET entry — DR-1) and a
+            // reload (the current entry). A fresh navigation (`Push`) lands at the top
+            // (a new entry, no captured offset). Without this, a cross-document Back
+            // rebuilds at the top even though the offset was captured (F3).
+            let restored_scroll = match cursor_op {
+                HistoryCursorOp::Commit(target_index) => state
+                    .nav_controller
+                    .entry(target_index)
+                    .and_then(|e| e.scroll_position),
+                HistoryCursorOp::Keep => state.nav_controller.current_scroll_position(),
+                HistoryCursorOp::Push => None,
+            };
             let new_pipeline = crate::build_pipeline_from_loaded(
                 loaded,
                 network_handle,
@@ -293,6 +308,16 @@ pub(super) fn handle_navigate(
                 .pipeline
                 .runtime
                 .set_history_length(state.nav_controller.len());
+            // Restore the persisted scroll onto the freshly-laid-out document, then
+            // `re_render` clamps it against the rebuilt content size + echoes
+            // `scrollX`/`scrollY`, so the display list `notify_navigation` ships is
+            // already scrolled (not an un-applied 0 offset). Only for a traversal /
+            // reload with a captured offset (F3).
+            if let Some((x, y)) = restored_scroll {
+                state.viewport_scroll.scroll_offset =
+                    super::scroll::scroll_offset_from_position((x, y));
+                state.re_render();
+            }
             state.notify_navigation(url);
             true
         }
@@ -373,6 +398,12 @@ fn same_document_step(
             } else {
                 state.nav_controller.push_same_document(target.clone());
             }
+            // A fragment navigation sets `history.state` to null (§7.4.2.3.3 step
+            // 11.1 — the popstate below fires `Some(None)`), so the entry must carry
+            // NO classic state. A push already reset it, but a replace (a same-URL
+            // re-nav) would keep the prior `pushState`'d entry's state — clear it so
+            // a later reload/traversal restores null, not the stale value (F4).
+            state.nav_controller.set_current_state(None);
         }
         SameDocStep::Traversal { target_index, .. } => {
             state.nav_controller.commit_index(*target_index);
@@ -815,6 +846,13 @@ fn apply_push_replace_state(
             }
         }
         state.pipeline.url = Some(resolved_url.clone());
+        // A `pushState` (non-replace) pushes a NEW entry, leaving the current one —
+        // capture its scroll first (WHATWG HTML §7.4.6.1 save-persisted-state on
+        // leaving any entry), else a later Back to it restores no scroll. This drain
+        // path bypasses `handle_navigate`'s capture, so it needs its own (CR-6/F1).
+        if !replace {
+            capture_scroll_on_leave(state);
+        }
         state.push_or_replace(resolved_url.clone(), replace);
         // Store the StructuredSerializeForStorage bytes on the just-committed
         // entry (§7.4.4 step 3) so a later cross-document traversal restores it.
@@ -837,6 +875,9 @@ fn apply_push_replace_state(
         let Some(current) = state.pipeline.url.clone() else {
             return;
         };
+        if !replace {
+            capture_scroll_on_leave(state);
+        }
         state.push_or_replace(current, replace);
         state.nav_controller.set_current_state(serialized_state);
         state

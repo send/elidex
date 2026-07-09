@@ -228,6 +228,10 @@ impl App {
                         }
                     }
                 }
+                // A fragment navigation sets `history.state` to null (§7.4.2.3.3 step
+                // 11.1 — the popstate below fires `Some(None)`); a same-URL replace
+                // would keep the prior `pushState`'d state, so clear it (F4).
+                interactive.nav_controller.set_current_state(None);
             }
             AppSameDocStep::Traversal { target_index, .. } => {
                 interactive.nav_controller.commit_index(*target_index);
@@ -638,6 +642,13 @@ fn apply_state_change(
             .nav_controller
             .replace_same_document(url.clone());
     } else {
+        // A `pushState` (non-replace) pushes a NEW entry, leaving the current one —
+        // capture its scroll first (§7.4.6.1 save-persisted-state; CR-6/F1) so a
+        // later Back to it restores scroll. App-mode's mirror of the content path.
+        let off = interactive.pipeline.scroll_offset;
+        interactive
+            .nav_controller
+            .set_current_scroll((f64::from(off.x), f64::from(off.y)));
         interactive.nav_controller.push_same_document(url.clone());
     }
     // Store the StructuredSerializeForStorage bytes on the just-committed entry
