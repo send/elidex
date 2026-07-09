@@ -234,11 +234,16 @@ fn state_mutate(
     let pushed_url = new_url.to_string();
 
     // §7.2.5 step 10 → the "URL and history update steps" (§7.4.4): synchronously set
-    // the document URL + the current entry's state, so a same-script
-    // `location.href` / `history.state` read observes them (unlike boa, which is
-    // enqueue-only and reads stale).
+    // the document URL + restore `history.state` from the just-serialized entry, so a
+    // same-script `location.href` / `history.state` read observes them (unlike boa,
+    // which is enqueue-only and reads stale). §7.4.4 restores the history object state
+    // from the NEW entry AFTER serialization, so `history.state` is the serialized
+    // SNAPSHOT (`seed_history_state` = `StructuredDeserialize(bytes)`, or `null` for a
+    // JSON-unrepresentable value), NOT the live `state` object — else `history.state`
+    // would observe post-pushState mutations of the passed object (`o.n = 2`) or keep
+    // a value a later traversal/reload restores differently (R2-F2 / Codex R2).
     ctx.vm.navigation.current_url = new_url;
-    ctx.vm.navigation.current_state = state;
+    ctx.vm.seed_history_state(serialized_state.clone());
 
     // `pushState` appends a new entry after the current one, discarding any
     // forward entries, and moves to it — so synchronously (§7.4.4) the current

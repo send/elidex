@@ -535,10 +535,25 @@ impl App {
         // passes `None` on every pushState) AND app-mode's rebuild path is folded
         // into the §8-D4 driver-unification audit, which threads it once at S5-6
         // rather than duplicating content-mode's seed plumbing here now.
+        // Read the target entry's persisted scroll BEFORE the rebuild resets
+        // `pipeline.scroll_offset`; reapply it after the commit (mirror of the
+        // content-thread `restored_scroll`, R2-F3). App-mode's scroll seam is a plain
+        // set-offset + `re_render` — no clamp/echo (the §8-D4 gap), but the offset
+        // still lands instead of the page staying at the top.
+        let restored_scroll = self
+            .interactive
+            .as_ref()
+            .and_then(|i| i.nav_controller.entry(target_index))
+            .and_then(|e| e.scroll_position);
         if self.navigate_to_history_url(target) {
             if let Some(interactive) = self.interactive.as_mut() {
                 interactive.nav_controller.commit_index(target_index);
                 interactive.nav_controller.restamp_current_document();
+                if let Some((x, y)) = restored_scroll {
+                    interactive.pipeline.scroll_offset =
+                        crate::content::scroll::scroll_offset_from_position((x, y));
+                    crate::re_render(&mut interactive.pipeline);
+                }
             }
             true
         } else {

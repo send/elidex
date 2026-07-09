@@ -387,6 +387,29 @@ fn history_state_round_trips_through_push_state() {
 }
 
 #[test]
+fn history_state_is_a_serialized_snapshot_not_the_live_object() {
+    // §7.4.4 restores `history.state` from the NEW entry AFTER serialization — so it
+    // is the serialized SNAPSHOT (a structured clone), NOT the live object passed to
+    // pushState. Mutating the passed object afterward must NOT be observed, and the
+    // value must match what a traversal/reload restores (Codex R2-F2).
+    let mut vm = new_vm_with_base();
+    vm.eval("var o = { n: 1 }; history.pushState(o, '', '/a'); o.n = 2;")
+        .unwrap();
+    assert_eq!(
+        eval_number(&mut vm, "history.state.n;"),
+        1.0,
+        "history.state is the snapshot (1), not the live mutated object (2)"
+    );
+    // A JSON-unrepresentable state (BigInt) degrades to null immediately — CONSISTENT
+    // with the traversal/reload restore (not the live BigInt), the interim D1 gap.
+    vm.eval("history.pushState({ v: 10n }, '', '/b');").unwrap();
+    match vm.eval("history.state;").unwrap() {
+        JsValue::Null => {}
+        other => panic!("expected null (degraded snapshot), got {other:?}"),
+    }
+}
+
+#[test]
 fn history_go_zero_enqueues_go_zero() {
     // §7.2.5: `go(0)` reloads the current entry — the VM enqueues `Go(0)` (the
     // shell's NavigationController.go(0) re-fetches), NOT a no-op.
