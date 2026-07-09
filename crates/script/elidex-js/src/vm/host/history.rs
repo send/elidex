@@ -161,52 +161,68 @@ fn state_mutate(
         String::new()
     };
 
-    // §7.2.5 step 5/6: newURL is the document URL when `url` is null/undefined OR
-    // the **empty string** — the historical empty-string special case, which (per
-    // step 6's note) is NOT parsed, unlike `location.href = ""`.  Otherwise parse
-    // it relative to the document URL and run the can-have-url-rewritten gate.
-    let url_arg = args.get(2).copied().unwrap_or(JsValue::Undefined);
-    let new_url = if matches!(url_arg, JsValue::Undefined | JsValue::Null) {
-        ctx.vm.navigation.current_url.clone()
+    // WebIDL argument conversion (`pushState(any data, DOMString unused,
+    // optional USVString? url = null)`) runs left-to-right **before** the method
+    // algorithm — so the `url` (arg 2) is coerced to a string HERE, before the
+    // step-3 serialize below (CR-4 / WebIDL arg-conversion order). `null` when the
+    // arg is omitted / null / undefined (`USVString?` default null).
+    let url_arg = args.get(2).copied().unwrap_or(JsValue::Null);
+    let url_string: Option<String> = if matches!(url_arg, JsValue::Undefined | JsValue::Null) {
+        None
     } else {
         let sid = coerce::to_string(ctx.vm, url_arg)?;
-        let input = ctx.vm.strings.get_utf8(sid);
-        if input.is_empty() {
-            // Empty-string special case: keep the document URL unchanged, so a
-            // trailing `#fragment` survives (parsing "" would resolve it away).
-            ctx.vm.navigation.current_url.clone()
-        } else {
-            // §7.2.5 step 6.1: parse `url` relative to the current document URL.
-            let Ok(parsed) = ctx.vm.navigation.current_url.join(&input) else {
-                // §7.2.5 step 6.2: "If newURL is failure, throw a SecurityError" —
-                // pushState/replaceState report **SecurityError** (not SyntaxError)
-                // on a URL that fails to parse, unlike the `location.href =` setter
-                // (§7.2.4 href-setter step 3, which throws SyntaxError).
-                let security = ctx.vm.well_known.dom_exc_security_error;
-                return Err(VmError::dom_exception(
-                    security,
-                    format!(
-                        "Failed to execute 'pushState'/'replaceState' on 'History': invalid URL '{input}'."
-                    ),
-                ));
-            };
-            // §7.2.5 step 6.3: "If document cannot have its URL rewritten to
-            // newURL, throw a SecurityError".  This is the document-URL-rewrite
-            // check ([`can_have_url_rewritten`]), NOT an origin comparison: they
-            // diverge for an inherited-origin `about:blank`/`srcdoc` document,
-            // whose URL is `about:blank`, so a rewrite to the inherited tuple
-            // origin's URL fails the scheme/host check even though
-            // `document_origin()` would match.  For an ordinary http(s) document
-            // this still rejects cross-origin rewrites (scheme/host/port differ).
-            if !can_have_url_rewritten(&ctx.vm.navigation.current_url, &parsed) {
-                let security = ctx.vm.well_known.dom_exc_security_error;
-                return Err(VmError::dom_exception(
-                    security,
-                    "Failed to execute 'pushState'/'replaceState' on 'History': the new URL must be same-origin with the document and rewritable from its URL.".to_string(),
-                ));
-            }
-            parsed
+        Some(ctx.vm.strings.get_utf8(sid))
+    };
+
+    // §7.2.5 step 3: `serializedData = StructuredSerializeForStorage(data)` — after
+    // the WebIDL arg coercions (above), before the step-5 URL parse + gate. The
+    // interim JSON-shortcut serializer DEGRADES to `None` (no throw) for a value
+    // JSON cannot represent (BigInt / cyclic / Map / Date — all structured-cloneable,
+    // so a throw would be spec-wrong, CR-3); only a user exception thrown *during*
+    // serialization (a throwing `toJSON`/getter) propagates. `None` = no restorable
+    // state (a cross-document traversal restores `null`).
+    let serialized_state =
+        super::structured_serialize::structured_serialize_for_storage(ctx, state)?;
+
+    // §7.2.5 step 5/6: newURL is the document URL when `url` is null OR the **empty
+    // string** — the historical empty-string special case, which (per step 6's note)
+    // is NOT parsed, unlike `location.href = ""`.  Otherwise parse the (already
+    // coerced) string relative to the document URL and run the gate.
+    let new_url = if let Some(input) = url_string.filter(|s| !s.is_empty()) {
+        // §7.2.5 step 6.1: parse `url` relative to the current document URL.
+        let Ok(parsed) = ctx.vm.navigation.current_url.join(&input) else {
+            // §7.2.5 step 6.2: "If newURL is failure, throw a SecurityError" —
+            // pushState/replaceState report **SecurityError** (not SyntaxError)
+            // on a URL that fails to parse, unlike the `location.href =` setter
+            // (§7.2.4 href-setter step 3, which throws SyntaxError).
+            let security = ctx.vm.well_known.dom_exc_security_error;
+            return Err(VmError::dom_exception(
+                security,
+                format!(
+                    "Failed to execute 'pushState'/'replaceState' on 'History': invalid URL '{input}'."
+                ),
+            ));
+        };
+        // §7.2.5 step 6.3: "If document cannot have its URL rewritten to
+        // newURL, throw a SecurityError".  This is the document-URL-rewrite
+        // check ([`can_have_url_rewritten`]), NOT an origin comparison: they
+        // diverge for an inherited-origin `about:blank`/`srcdoc` document,
+        // whose URL is `about:blank`, so a rewrite to the inherited tuple
+        // origin's URL fails the scheme/host check even though
+        // `document_origin()` would match.  For an ordinary http(s) document
+        // this still rejects cross-origin rewrites (scheme/host/port differ).
+        if !can_have_url_rewritten(&ctx.vm.navigation.current_url, &parsed) {
+            let security = ctx.vm.well_known.dom_exc_security_error;
+            return Err(VmError::dom_exception(
+                security,
+                "Failed to execute 'pushState'/'replaceState' on 'History': the new URL must be same-origin with the document and rewritable from its URL.".to_string(),
+            ));
         }
+        parsed
+    } else {
+        // `url` null / omitted / empty string → keep the current document URL (the
+        // empty-string special case preserves a trailing `#fragment`).
+        ctx.vm.navigation.current_url.clone()
     };
 
     // The enqueued action carries the **effective** URL (newURL), never `None`, so
@@ -245,11 +261,13 @@ fn state_mutate(
         HistoryAction::ReplaceState {
             url: Some(pushed_url),
             title,
+            serialized_state,
         }
     } else {
         HistoryAction::PushState {
             url: Some(pushed_url),
             title,
+            serialized_state,
         }
     };
     ctx.vm.navigation.enqueue_history(action);

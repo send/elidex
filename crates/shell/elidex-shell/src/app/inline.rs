@@ -233,19 +233,29 @@ impl App {
                 .map(|i| i.modifiers.state())
                 .unwrap_or_default();
             if mods.alt_key() {
-                let nav_url = match &key_event.logical_key {
-                    winit::keyboard::Key::Named(winit::keyboard::NamedKey::ArrowLeft) => self
-                        .interactive
-                        .as_mut()
-                        .and_then(|i| i.nav_controller.go_back().cloned()),
-                    winit::keyboard::Key::Named(winit::keyboard::NamedKey::ArrowRight) => self
-                        .interactive
-                        .as_mut()
-                        .and_then(|i| i.nav_controller.go_forward().cloned()),
+                // Alt+Left / Alt+Right = keyboard Back/Forward: route through the
+                // same peek-then-commit traversal path as the toolbar buttons + JS
+                // history (`traverse_to` → `resolve_traversal`), so a same-document
+                // keyboard traversal restores in place (One-issue-one-way).
+                let peeked = match &key_event.logical_key {
+                    winit::keyboard::Key::Named(winit::keyboard::NamedKey::ArrowLeft) => {
+                        self.interactive.as_ref().and_then(|i| {
+                            i.nav_controller
+                                .peek_back()
+                                .map(|(idx, u)| (idx, u.clone()))
+                        })
+                    }
+                    winit::keyboard::Key::Named(winit::keyboard::NamedKey::ArrowRight) => {
+                        self.interactive.as_ref().and_then(|i| {
+                            i.nav_controller
+                                .peek_forward()
+                                .map(|(idx, u)| (idx, u.clone()))
+                        })
+                    }
                     _ => None,
                 };
-                if let Some(url) = nav_url {
-                    self.navigate_to_history_url(&url);
+                if let Some((target_index, url)) = peeked {
+                    self.traverse_to(target_index, &url);
                     if let Some(s) = &self.render_state {
                         s.window.request_redraw();
                     }

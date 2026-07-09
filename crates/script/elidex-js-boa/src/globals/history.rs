@@ -44,6 +44,10 @@ fn push_or_replace_state(
 }
 
 /// Register the `window.history` object.
+// boa is deletion-bound (D-26 PR7); the 5c `serialized_state: None` light-touch
+// additions push this just over the line budget — not worth a split of code slated
+// for removal.
+#[allow(clippy::too_many_lines)]
 pub fn register_history(ctx: &mut Context, bridge: &HostBridge) -> JsValue {
     // Clone the realm before creating ObjectInitializer to avoid borrow conflict.
     let realm = ctx.realm().clone();
@@ -136,6 +140,10 @@ pub fn register_history(ctx: &mut Context, bridge: &HostBridge) -> JsValue {
                 push_or_replace_state(args, bridge, ctx, |url, title| HistoryAction::PushState {
                     url,
                     title,
+                    // boa is deletion-bound (D-26 PR7): it does not serialize the
+                    // state (§7.2.5 step 3) — light-touch, so the entry carries no
+                    // restorable state and a traversal fires popstate with null.
+                    serialized_state: None,
                 })
             },
             b,
@@ -150,7 +158,12 @@ pub fn register_history(ctx: &mut Context, bridge: &HostBridge) -> JsValue {
         NativeFunction::from_copy_closure_with_captures(
             |_this, args, bridge, ctx| -> JsResult<JsValue> {
                 push_or_replace_state(args, bridge, ctx, |url, title| {
-                    HistoryAction::ReplaceState { url, title }
+                    // boa light-touch — no state serialization (§7.2.5 step 3).
+                    HistoryAction::ReplaceState {
+                        url,
+                        title,
+                        serialized_state: None,
+                    }
                 })
             },
             b,

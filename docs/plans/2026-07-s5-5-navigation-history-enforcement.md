@@ -675,13 +675,17 @@ serialized into the engine-independent `HistoryEntry`. Flow:
    document reconstruction (§1.3's non-goal stays scoped to the *exact prior document*); the seam is
    proven (S5-4b precedent), so the "carve a slot if too coupled" fallback does NOT trigger.
 
-**Serialized form** (`SerializedState`): the `HistoryEntry.classic_history_api_state` field is already
-typed `Option<String>` ("JSON string", §3.4). The ideal end-state is full `StructuredSerializeForStorage`
-(handles Blob/File/Map/Date/cycles); the **interim reuses the same JSON-shortcut** the worker
-postMessage path already uses (`worker_scope.rs:341-361` — an explicitly-tracked deviation from full
-StructuredSerialize), so the `Option<String>` field type is honored and no new serialization primitive
-is invented. **Full StructuredSerializeForStorage fidelity folds into the existing worker-shortcut slot
-family** (§8-D1), not a new invention. **Ratify** (§9-Q3): JSON-shortcut interim (matching the worker
+**Serialized form** (`SerializedState`): ⚠ **corrected by the 5c memo §4.1** (this predates the landed 5b
+wire). 5b landed the delivery wire as `SerializedState = Vec<u8>` (`script-session/navigation.rs`), so the
+`HistoryEntry.classic_history_api_state` field is **aligned to `Option<Vec<u8>>`** (NOT the earlier
+`Option<String>` "JSON string" framing) — one serialized representation end-to-end (VM serialize →
+`HistoryAction` → `HistoryEntry` → `HistoryStepEvents` → VM deserialize). The ideal end-state is full
+`StructuredSerializeForStorage` (handles Blob/File/Map/Date/cycles); the **interim reuses the same
+JSON-shortcut** the worker postMessage path already uses (`worker_scope.rs` — an explicitly-tracked
+deviation from full StructuredSerialize), homed as a shared `Vec<u8>` byte seam, so no new serialization
+primitive is invented and D1 becomes a seam-**body** swap (field/wire unchanged). **Full
+StructuredSerializeForStorage fidelity folds into the existing worker-shortcut slot family** (§8-D1), not a
+new invention. **Ratify** (§9-Q3): JSON-shortcut interim (matching the worker
 precedent + the pre-typed field) vs blocking on full StructuredSerializeForStorage.
 
 ### §4.6 Scroll capture + restore (S5-5b scroll-to-fragment; S5-5c persist/restore)
@@ -938,7 +942,7 @@ boundary / drain-order).
 | E5 | **focus persists on same-document nav ≠ reset on cross-document** (same-doc keeps `ElementState::FOCUS`; 5b's no-rebuild fixes the wrong reset) | — | ✔ owns | reads |
 | E6 | **engine-agnostic-now (shell same-document path) vs flip-inert (event firing)** — boa stubs the fire, VM fires; the shell path is observable pre-flip, the events are not | — | ✔ | ✔ |
 | E7 | **traversal + navigation same-turn coexistence** (both rebuild the pipeline; the second drain runs on the fresh runtime → one wins). 5a's `return true`-on-supersede makes the *traversal* win cleanly — it does NOT drain the freshly-loaded page's nav (#283 fix); but a cross-document traversal + a location nav still collide in ONE synchronous drain pass under the collapsed model (§4.1). The faithful fix is the task-queued traversal (a *later* task) — reframed slot §8-D5 `#11-session-history-task-queue-model`; same-document nav (5b) removes it for the *fragment/pushState* cases | ✔ (`return true`; #283) | narrows | narrows |
-| E8 | **StructuredSerializeForStorage fidelity** (full structured-clone vs the JSON-shortcut interim matching the worker precedent + the pre-typed `Option<String>` field) | — | — | ✔ owns |
+| E8 | **StructuredSerializeForStorage fidelity** (full structured-clone vs the JSON-shortcut interim matching the worker precedent + the `Option<Vec<u8>>` field aligned to the 5b `SerializedState` wire, 5c memo §4.1) | — | — | ✔ owns |
 | E9 | **fragment-nav popstate is counterintuitive** (§2.2 C1: fragment nav fires popstate-with-null, not just hashchange — the modern unified behavior; wiring only hashchange would be spec-wrong) | — | ✔ guard | reads |
 | E10 | **two navigation impls** (`content/` + `app/` near-duplicates both need the same-document path; the *primitive* is engine-indep so the duplication is confined to the thin drivers) | ✔ | ✔ | ✔ |
 
@@ -983,7 +987,7 @@ shell integration (the S5-3/S5-4 posture), with the **engine-agnostic-now vs fli
 
 ---
 
-## §8 Deferred carves (+ audits; cap ≤3 per PR — actual: 5a = 1 (D5, reframed); 5b = 3 (D2, D6, D7); 5c = 2 (D1, D3); shared audit D4)
+## §8 Deferred carves (+ audits; cap ≤3 per PR — actual: 5a = 1 (D5, reframed); 5b = 3 (D2, D6, D7); 5c = 3 (D1, D3, D8 — the initial-about:blank flag, 5c memo §4.4); shared audit D4)
 
 - **D1 `#11-history-state-structured-serialize-fidelity`** (carved by S5-5c, or FOLD into the existing
   worker-shortcut slot family): full `StructuredSerializeForStorage` for `history.state` (Blob / File /
@@ -1105,8 +1109,9 @@ D1/D2/D3/D5/D6/D7) is a landing deliverable of the respective slices.
   (Known residual: the pathological same-turn traversal-then-sync-update, E7/D5.)
 - **Q3 (state serialization fidelity, 5c)** — ratify the **JSON-shortcut interim** for
   `StructuredSerializeForStorage(history.state)` (matching the existing worker-postMessage precedent +
-  the pre-typed `Option<String>` field), with full structured-clone-to-storage folded into the
-  worker-shortcut slot (§4.5 / D1)? Or block 5c on full StructuredSerializeForStorage?
+  the `Option<Vec<u8>>` field aligned to the landed 5b `SerializedState` wire, 5c memo §4.1), with full
+  structured-clone-to-storage folded into the worker-shortcut slot (§4.5 / D1)? Or block 5c on full
+  StructuredSerializeForStorage?
 - **Q4 (engine-agnostic-now vs flip-inert, PM)** — ratify the classification (§4.6): the shell
   same-document **path** (no-rebuild / NavigationController / scroll) is engine-agnostic-now (observable
   in the live boa shell), while the event **firing** (popstate + hashchange) is **flip-inert** (VM-fired,

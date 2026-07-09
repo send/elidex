@@ -489,48 +489,11 @@ fn handle_message(msg: BrowserToContent, state: &mut ContentState) -> bool {
         }
 
         BrowserToContent::GoBack => {
-            if state.nav_controller.can_go_back() {
-                let proceed = crate::pipeline::dispatch_unload_events(
-                    &mut state.pipeline.runtime,
-                    &mut state.pipeline.session,
-                    &mut state.pipeline.dom,
-                    state.pipeline.document,
-                );
-                if proceed {
-                    if let Some(url) = state.nav_controller.go_back().cloned() {
-                        // `go_back` already eager-moved the cursor → Keep (do NOT
-                        // double-commit); `notify_navigation` reads the moved cursor.
-                        navigation::handle_navigate(
-                            state,
-                            &url,
-                            navigation::HistoryCursorOp::Keep,
-                            None,
-                        );
-                    }
-                }
-            }
+            chrome_traverse(state, ChromeTraversal::Back);
         }
 
         BrowserToContent::GoForward => {
-            if state.nav_controller.can_go_forward() {
-                let proceed = crate::pipeline::dispatch_unload_events(
-                    &mut state.pipeline.runtime,
-                    &mut state.pipeline.session,
-                    &mut state.pipeline.dom,
-                    state.pipeline.document,
-                );
-                if proceed {
-                    if let Some(url) = state.nav_controller.go_forward().cloned() {
-                        // `go_forward` already eager-moved the cursor → Keep.
-                        navigation::handle_navigate(
-                            state,
-                            &url,
-                            navigation::HistoryCursorOp::Keep,
-                            None,
-                        );
-                    }
-                }
-            }
+            chrome_traverse(state, ChromeTraversal::Forward);
         }
 
         BrowserToContent::Reload => {
@@ -609,4 +572,52 @@ fn handle_message(msg: BrowserToContent, state: &mut ContentState) -> bool {
         | BrowserToContent::SwFetchResponse { .. } => {}
     }
     true
+}
+
+/// Direction of a chrome Back/Forward-button traversal.
+#[derive(Clone, Copy)]
+enum ChromeTraversal {
+    Back,
+    Forward,
+}
+
+/// Apply a chrome Back/Forward-button traversal through the SAME peek-then-commit
+/// path as a JS `history.back()`/`forward()` (`navigation::handle_navigate` with
+/// `Commit`), so a same-document toolbar traversal restores state + scroll and
+/// fires popstate IN PLACE (no rebuild) exactly like the JS API — One-issue-one-way,
+/// retiring the old eager `go_back`/`go_forward` + always-rebuild path (which also
+/// non-atomically moved the cursor before the load). `beforeunload`/`unload` fire
+/// ONLY for a cross-document traversal (`resolve_traversal` = `Rebuild`): a
+/// same-document traversal does not destroy the document, so it must not run the
+/// unload steps, and a cancelled `beforeunload` blocks only a document-destroying
+/// traversal.
+fn chrome_traverse(state: &mut ContentState, direction: ChromeTraversal) {
+    let peeked = match direction {
+        ChromeTraversal::Back => state.nav_controller.peek_back(),
+        ChromeTraversal::Forward => state.nav_controller.peek_forward(),
+    };
+    let Some((target_index, url)) = peeked.map(|(i, u)| (i, u.clone())) else {
+        return;
+    };
+    let cross_document = matches!(
+        state.nav_controller.resolve_traversal(target_index),
+        elidex_navigation::TraversalKind::Rebuild
+    );
+    if cross_document {
+        let proceed = crate::pipeline::dispatch_unload_events(
+            &mut state.pipeline.runtime,
+            &mut state.pipeline.session,
+            &mut state.pipeline.dom,
+            state.pipeline.document,
+        );
+        if !proceed {
+            return; // beforeunload cancelled the (document-destroying) traversal.
+        }
+    }
+    navigation::handle_navigate(
+        state,
+        &url,
+        navigation::HistoryCursorOp::Commit(target_index),
+        None,
+    );
 }

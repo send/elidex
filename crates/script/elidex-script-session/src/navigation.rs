@@ -93,6 +93,11 @@ pub enum HistoryAction {
         url: Option<String>,
         /// Title (ignored per §7.2.5 — `unused` — but accepted for API compat).
         title: String,
+        /// The `StructuredSerializeForStorage(state)` bytes (WHATWG HTML §7.2.5
+        /// step 3), stored on the pushed `HistoryEntry` so a later cross-document
+        /// traversal can restore `history.state`. `None` = null state (or the
+        /// **boa** engine, which passes `None` — light-touch, deletion-bound).
+        serialized_state: Option<SerializedState>,
     },
     /// `history.replaceState(state, title, url?)`
     ReplaceState {
@@ -100,6 +105,9 @@ pub enum HistoryAction {
         url: Option<String>,
         /// Title (ignored per §7.2.5 — `unused` — but accepted for API compat).
         title: String,
+        /// The `StructuredSerializeForStorage(state)` bytes (§7.2.5 step 3).
+        /// `None` = null state (or **boa**, light-touch).
+        serialized_state: Option<SerializedState>,
     },
 }
 

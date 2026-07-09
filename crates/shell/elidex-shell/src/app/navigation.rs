@@ -5,6 +5,26 @@ use elidex_script_session::{HistoryStepEvents, NavigationType};
 use super::App;
 use super::InteractiveState;
 
+/// Which same-document history-step application [`App::same_document_step`] is
+/// applying — the app-mode mirror of `content/navigation.rs::SameDocStep`. One
+/// primitive, parameterized over the two consumers (a fresh fragment navigation
+/// vs a same-document traversal); NOT a fork.
+enum AppSameDocStep {
+    /// A fresh fragment navigation (WHATWG HTML §7.4.2.3.3): push/replace per the
+    /// nav-type (or replace for a URL equal to the active entry's, §7.4.2.2 step
+    /// 13); popstate `state = null`; scroll resolved from the target fragment.
+    FragmentNav(NavigationType),
+    /// A same-document traversal (§7.4.6.2 step 6.4): commit the cursor to the
+    /// peeked target; popstate `state` = the target entry's serialized state (the
+    /// general form — a `None`-state entry ⇒ `null`); scroll = the target entry's
+    /// persisted `scroll_position` (step 6.4.4).
+    Traversal {
+        target_index: usize,
+        popstate_state: Option<Vec<u8>>,
+        scroll_position: Option<(f64, f64)>,
+    },
+}
+
 impl App {
     /// Check for and process any pending JS navigation or history action.
     ///
@@ -40,14 +60,15 @@ impl App {
         let history_applied = !pending_history.is_empty();
         for action in &pending_history {
             if self.handle_history_action(action) {
-                // A traversal's load SUCCEEDED and rebuilt the pipeline — return
-                // IMMEDIATELY rather than falling through to
-                // `take_pending_navigation()` below, which would drain a
-                // `location.*` the freshly-loaded page's initial scripts queued
-                // onto the FRESH runtime (Codex #283). A no-op or failed-load
-                // traversal returns `false` and does NOT reach here, so the loop
-                // CONTINUES and trailing same-turn intents still apply (Codex R1
-                // P2 / R2). Mirrors
+                // A traversal handled the turn — a cross-document rebuild that
+                // loaded, OR a same-document traversal applied in place (restored +
+                // fired popstate). Return IMMEDIATELY rather than falling through to
+                // `take_pending_navigation()` below, which (on the rebuild path)
+                // would drain a `location.*` the freshly-loaded page's initial
+                // scripts queued onto the FRESH runtime (Codex #283). A no-target /
+                // failed-load traversal returns `false` and does NOT reach
+                // here, so the loop CONTINUES and trailing same-turn intents still
+                // apply (Codex R1 P2 / R2). Mirrors
                 // `content/navigation.rs::process_pending_actions`.
                 return true;
             }
@@ -88,6 +109,11 @@ impl App {
     ///   enum distinguishes `Reload` from `Replace`, which a `replace: bool`
     ///   could not.
     pub(super) fn navigate(&mut self, url: &url::Url, nav_type: NavigationType) {
+        // Capture the departing entry's scroll BEFORE any same-document gate or
+        // rebuild (WHATWG HTML §7.4.6.1 *activate history entry* step 1 — the common
+        // save-persisted-state chokepoint on leaving ANY entry, CR-6/F4), so a later
+        // `back()` to it restores the scroll.
+        self.capture_scroll_on_leave();
         // --- Same-document (fragment) navigation (WHATWG HTML §7.4.2.2 navigate
         // step 15) --- App-mode is GET-only (no `documentResource` — that step-15
         // conjunct is vacuous) and honors the nav-type directly, so the fresh-nav
@@ -104,7 +130,7 @@ impl App {
                 if elidex_navigation::classify_navigation(&current, url)
                     == elidex_navigation::NavClass::SameDocument
                 {
-                    self.fragment_navigate(&current, url, nav_type);
+                    self.same_document_step(&current, url, AppSameDocStep::FragmentNav(nav_type));
                     return;
                 }
             }
@@ -117,9 +143,15 @@ impl App {
             return;
         };
         match nav_type {
+            // Cross-document (the fragment path early-returned above): a fresh
+            // navigation and `location.replace()` are both NEW-document events.
             NavigationType::Push => interactive.nav_controller.push(url.clone()),
             NavigationType::Replace => interactive.nav_controller.replace(url.clone()),
-            NavigationType::Reload => {}
+            // A reload replaces the navigable's *document* without moving the cursor
+            // — re-stamp the current entry's document identity (else a neighbor entry
+            // sharing its pre-reload `document_sequence` mis-classifies same-document
+            // on a later traversal).
+            NavigationType::Reload => interactive.nav_controller.restamp_current_document(),
         }
         interactive
             .pipeline
@@ -130,21 +162,29 @@ impl App {
         }
     }
 
-    /// Apply a same-document (fragment) navigation IN PLACE (WHATWG HTML
-    /// §7.4.2.3.3 *navigate to a fragment*) — app-mode's mirror of
-    /// `content/navigation.rs::fragment_navigate`. `current` is the pre-nav URL,
-    /// `target` the fragment URL. No pipeline rebuild, so the document + its
-    /// `EcsDom` (incl. focus) persist; the document origin stays correct BY
-    /// CONSTRUCTION (`set_current_url` re-derives the same URL-tuple origin — only
-    /// the fragment changed). `nav_type` is `Push` or `Replace` (never `Reload` —
-    /// excluded by the caller); app-mode HONORS the distinction (thread-mode
-    /// collapses `Replace` → `Push`, §10-D6).
-    fn fragment_navigate(
-        &mut self,
-        current: &url::Url,
-        target: &url::Url,
-        nav_type: NavigationType,
-    ) {
+    /// Capture the current viewport scroll offset onto the entry being LEFT, BEFORE
+    /// a navigation moves the cursor or rebuilds the pipeline (WHATWG HTML §7.4.6.1
+    /// *activate history entry* step 1 — save persisted state on leaving any entry;
+    /// CR-6). App-mode's mirror of `content/navigation.rs::capture_scroll_on_leave`.
+    fn capture_scroll_on_leave(&mut self) {
+        if let Some(interactive) = self.interactive.as_mut() {
+            let off = interactive.pipeline.scroll_offset;
+            interactive
+                .nav_controller
+                .set_current_scroll((f64::from(off.x), f64::from(off.y)));
+        }
+    }
+
+    /// Apply a same-document history-step IN PLACE (no pipeline rebuild) — app-mode's
+    /// mirror of `content/navigation.rs::same_document_step`, the shared primitive for
+    /// BOTH a fresh fragment navigation (WHATWG HTML §7.4.2.3.3) and a same-document
+    /// traversal (§7.4.6.2), selected by `step`. `current` is the pre-step URL,
+    /// `target` the destination. No rebuild, so the document + its `EcsDom` (incl.
+    /// focus) persist; the document origin stays correct BY CONSTRUCTION
+    /// (`set_current_url` re-derives the same URL-tuple origin — only the
+    /// fragment/entry changed). App-mode HONORS the nav-type push-vs-replace
+    /// distinction (thread-mode collapses `Replace` → `Push`, §10-D6).
+    fn same_document_step(&mut self, current: &url::Url, target: &url::Url, step: AppSameDocStep) {
         let Some(interactive) = self.interactive.as_mut() else {
             return;
         };
@@ -155,26 +195,42 @@ impl App {
             .pipeline
             .runtime
             .set_current_url(Some(target.clone()));
-        // Finalize a same-document navigation. A navigation to the URL the active
-        // entry ALREADY has (including the fragment) REPLACES the current entry
-        // regardless of nav-type — WHATWG HTML §7.4.2.2 step 13 resolves
-        // `historyHandling` to "replace" for an equal URL (so re-navigating to the
-        // current `#id` does not grow `history.length`). Otherwise honor
-        // push-vs-replace. The caller (`navigate`) gates the fragment path on
-        // `nav_type != Reload`, so `Reload` never reaches here — make that explicit
-        // (fail loud, not a silent `push` that would be wrong if the guard were
-        // ever loosened).
-        if current == target {
-            interactive.nav_controller.replace(target.clone());
-        } else {
-            match nav_type {
-                NavigationType::Push => interactive.nav_controller.push(target.clone()),
-                NavigationType::Replace => interactive.nav_controller.replace(target.clone()),
-                NavigationType::Reload => {
-                    unreachable!(
-                        "reload never takes the same-document fragment path (excluded by `navigate`)"
-                    )
+        // Move the session-history cursor. A FRESH fragment nav to the URL the
+        // active entry ALREADY has (incl. fragment) REPLACES it regardless of
+        // nav-type — §7.4.2.2 step 13 resolves `historyHandling` to "replace" for
+        // an equal URL (so re-navigating to the current `#id` does not grow
+        // `history.length`); otherwise honor push-vs-replace (`Reload` is excluded
+        // by the caller — fail loud). A TRAVERSAL commits the peeked target entry.
+        match &step {
+            AppSameDocStep::FragmentNav(nav_type) => {
+                // A fragment navigation stays in the CURRENT document → inherit its
+                // `document_sequence` (same-document push/replace).
+                if current == target {
+                    interactive
+                        .nav_controller
+                        .replace_same_document(target.clone());
+                } else {
+                    match nav_type {
+                        NavigationType::Push => {
+                            interactive
+                                .nav_controller
+                                .push_same_document(target.clone());
+                        }
+                        NavigationType::Replace => {
+                            interactive
+                                .nav_controller
+                                .replace_same_document(target.clone());
+                        }
+                        NavigationType::Reload => {
+                            unreachable!(
+                                "reload never takes the same-document fragment path (excluded by `navigate`)"
+                            )
+                        }
+                    }
                 }
+            }
+            AppSameDocStep::Traversal { target_index, .. } => {
+                interactive.nav_controller.commit_index(*target_index);
             }
         }
         interactive
@@ -183,40 +239,55 @@ impl App {
             .set_history_length(interactive.nav_controller.len());
         interactive.window_title = format!("elidex \u{2014} {target}");
         interactive.chrome.set_url(target);
-        // Resolve the fragment scroll offset against the current (pre-nav) layout,
-        // BEFORE firing popstate (below) so it reads live geometry. App-mode has
-        // no viewport-scroll application seam (unlike the content thread's
-        // `re_render` clamp/echo/`ScrollState` path), so the offset is set on the
-        // pipeline for the free `re_render` to read; the missing clamp/echo is an
-        // app-mode-wide gap (folds into the driver-unification backlog, cluster
-        // §8-D4), not a fragment-nav one. Resolution rides the shared
-        // engine-independent helper (One-issue-one-way with the content thread).
-        let offset = crate::content::scroll::scroll_offset_for_fragment(
-            &interactive.pipeline.dom,
-            interactive.pipeline.document,
-            target.fragment().unwrap_or_default(),
-            interactive.pipeline.scroll_offset,
-            interactive.pipeline.viewport.width,
-        );
-        // §7.4.2.3.3 step 14 (update document for history step application): fire
-        // popstate SYNCHRONOUSLY, with `history.state` reset to null, BEFORE the
-        // fragment scroll (step 15) — a synchronous popstate handler observes the
-        // PRE-scroll scroll position. hashchange is a queued task that fires AFTER
-        // the scroll (below). The VM fires; boa stubs — flip-inert until S5-6.
+        // Resolve the scroll offset against the current (pre-step) layout, BEFORE
+        // firing popstate (below) so it reads live geometry. App-mode has no
+        // viewport-scroll application seam (unlike the content thread's `re_render`
+        // clamp/echo/`ScrollState` path), so the offset is set on the pipeline for
+        // the free `re_render` to read; the missing clamp/echo is an app-mode-wide
+        // gap (folds into the driver-unification backlog, cluster §8-D4), not a
+        // 5c one. A FRAGMENT nav resolves from the target fragment (§7.4.6.4, the
+        // shared engine-independent helper — One-issue-one-way with the content
+        // thread); a TRAVERSAL restores the target entry's persisted scroll
+        // (§7.4.6.2 step 6.4.4).
+        let offset = match &step {
+            AppSameDocStep::FragmentNav(_) => crate::content::scroll::scroll_offset_for_fragment(
+                &interactive.pipeline.dom,
+                interactive.pipeline.document,
+                target.fragment().unwrap_or_default(),
+                interactive.pipeline.scroll_offset,
+                interactive.pipeline.viewport.width,
+            ),
+            AppSameDocStep::Traversal {
+                scroll_position, ..
+            } => scroll_position.map(crate::content::scroll::scroll_offset_from_position),
+        };
+        // §7.4.6.2 step 6.3 + 6.4.3 (also §7.4.2.3.3 step 14): restore
+        // `history.state` then fire popstate SYNCHRONOUSLY, BEFORE the scroll — a
+        // synchronous popstate handler observes the PRE-scroll position. popstate
+        // is state-AGNOSTIC (fires whenever the entry changed): a fragment nav
+        // carries `null` (`Some(None)`), a traversal the target entry's serialized
+        // state (`Some(Some(bytes))`/`Some(None)`). hashchange is a queued task
+        // that fires AFTER the scroll (below). The VM fires; boa stubs — flip-inert
+        // until S5-6.
+        // Consume `step` here (moving the serialized state out — no clone).
+        let popstate_state = match step {
+            AppSameDocStep::FragmentNav(_) => None,
+            AppSameDocStep::Traversal { popstate_state, .. } => popstate_state,
+        };
         interactive
             .pipeline
             .runtime
             .deliver_history_step_events(HistoryStepEvents {
-                popstate_state: Some(None),
+                popstate_state: Some(popstate_state),
                 hashchange: None,
             });
-        // step 15: scroll to the fragment.
+        // step 6.4.4 / §7.4.2.3.3 step 15: scroll.
         if let Some(offset) = offset {
             interactive.pipeline.scroll_offset = offset;
         }
         crate::re_render(&mut interactive.pipeline);
-        // §7.4.6.2 step 6.4.5: the hashchange task, queued at step 14, fires as a
-        // LATER task — after the synchronous scroll (step 15) — iff the fragment
+        // §7.4.6.2 step 6.4.5: the hashchange task, queued at the fire above, runs
+        // as a LATER task — after the synchronous scroll — iff the fragment
         // differs. Delivering it in a second call keeps the spec order
         // popstate → scroll → hashchange (and popstate strictly-before-hashchange).
         if let Some(hashchange) = (current.fragment() != target.fragment())
@@ -289,6 +360,12 @@ impl App {
                     device_facts,
                     // Top-level document: no frame security (URL-derived origin).
                     None,
+                    // App-mode does not seed the rebuilt document's `history.state`
+                    // on a cross-document traversal (its value is flip-inert — boa
+                    // passes `None` on every pushState; the seed-threading lands
+                    // only on the content thread, plan §5.5). Same-document
+                    // traversals still restore + fire in place (`handle_history_action`).
+                    None,
                 );
                 interactive.pipeline = new_pipeline;
                 interactive
@@ -335,12 +412,10 @@ impl App {
         match action {
             elidex_script_session::HistoryAction::Back
             | elidex_script_session::HistoryAction::Forward => {
-                // Peek the target WITHOUT moving the cursor, then commit the move
-                // ONLY on a successful load — an atomic traversal (Codex R3,
-                // mirrors `content/navigation.rs`). A failed load leaves the
-                // cursor on the still-active document (no rollback needed — it
-                // never moved). Clone the URL to drop the `interactive` borrow
-                // before the `&mut self` load below.
+                // Peek the target WITHOUT moving the cursor; `traverse_to` commits
+                // it only after a successful cross-document load, or restores +
+                // fires in place for a same-document target. Clone the URL to drop
+                // the `interactive` borrow before the `&mut self` traversal below.
                 let peeked = if matches!(action, elidex_script_session::HistoryAction::Back) {
                     interactive.nav_controller.peek_back()
                 } else {
@@ -349,14 +424,7 @@ impl App {
                 let Some((target_index, url)) = peeked.map(|(i, u)| (i, u.clone())) else {
                     return false;
                 };
-                if self.navigate_to_history_url(&url) {
-                    if let Some(interactive) = self.interactive.as_mut() {
-                        interactive.nav_controller.commit_index(target_index);
-                    }
-                    true
-                } else {
-                    false
-                }
+                self.traverse_to(target_index, &url)
             }
             elidex_script_session::HistoryAction::Go(delta) => {
                 let Some((target_index, url)) = interactive
@@ -366,17 +434,18 @@ impl App {
                 else {
                     return false;
                 };
-                if self.navigate_to_history_url(&url) {
-                    if let Some(interactive) = self.interactive.as_mut() {
-                        interactive.nav_controller.commit_index(target_index);
-                    }
-                    true
-                } else {
-                    false
-                }
+                self.traverse_to(target_index, &url)
             }
-            elidex_script_session::HistoryAction::PushState { url, .. }
-            | elidex_script_session::HistoryAction::ReplaceState { url, .. } => {
+            elidex_script_session::HistoryAction::PushState {
+                url,
+                serialized_state,
+                ..
+            }
+            | elidex_script_session::HistoryAction::ReplaceState {
+                url,
+                serialized_state,
+                ..
+            } => {
                 let replace = matches!(
                     action,
                     elidex_script_session::HistoryAction::ReplaceState { .. }
@@ -384,7 +453,12 @@ impl App {
                 if let Some(resolved_url) =
                     resolve_state_url(interactive.pipeline.url.as_ref(), url.as_deref())
                 {
-                    apply_state_change(interactive, &resolved_url, replace);
+                    apply_state_change(
+                        interactive,
+                        &resolved_url,
+                        replace,
+                        serialized_state.clone(),
+                    );
                     interactive.window_title = format!("elidex \u{2014} {resolved_url}");
                     if let Some(state) = &self.render_state {
                         state.window.set_title(&interactive.window_title);
@@ -392,6 +466,79 @@ impl App {
                 }
                 false
             }
+        }
+    }
+
+    /// Apply a session-history traversal to `target_index` (WHATWG HTML §7.4.6.1),
+    /// classified by document identity (`resolve_traversal`). Returns `true` iff it
+    /// handled the turn — a cross-document rebuild that loaded (cursor committed;
+    /// a `go(0)` reload is this arm), OR a same-document traversal applied in place.
+    /// Returns `false` only on a cross-document load FAILURE (old document still
+    /// active, no rollback — the cursor never moved). Mirrors
+    /// `content/navigation.rs::handle_navigate`'s Commit arm.
+    pub(super) fn traverse_to(&mut self, target_index: usize, target: &url::Url) -> bool {
+        // Scoped borrow: capture scroll-on-leave, then classify the traversal by
+        // DOCUMENT IDENTITY (`resolve_traversal`, §7.4.6.1 step 14.10 — NOT URL, so
+        // `pushState` routing across different URLs is same-document, and a `go(0)`
+        // reload is `Rebuild`). Drop the borrow before the `&mut self`
+        // restore/rebuild below.
+        // Capture scroll-on-leave onto the entry being LEFT, BEFORE the cursor moves
+        // or a cross-document rebuild resets `pipeline.scroll_offset` (DR-4/CR-6).
+        self.capture_scroll_on_leave();
+        let (kind, current) = {
+            let Some(interactive) = self.interactive.as_mut() else {
+                return false;
+            };
+            let current = interactive.pipeline.url.clone();
+            let kind = interactive.nav_controller.resolve_traversal(target_index);
+            (kind, current)
+        };
+
+        match kind {
+            // Same-document → restore state + scroll and fire popstate in place.
+            elidex_navigation::TraversalKind::SameDocument {
+                state: popstate_state,
+                scroll: scroll_position,
+            } => {
+                // A same-document traversal implies a current document URL.
+                let current =
+                    current.expect("same-document traversal implies a current document URL");
+                self.same_document_step(
+                    &current,
+                    target,
+                    AppSameDocStep::Traversal {
+                        target_index,
+                        popstate_state,
+                        scroll_position,
+                    },
+                );
+                return true;
+            }
+            // Cross-document (incl. a `go(0)` reload) → fall through to the rebuild.
+            elidex_navigation::TraversalKind::Rebuild => {}
+        }
+
+        // Cross-document → rebuild + commit the cursor only on a successful load
+        // (atomic peek-then-commit — a failed load leaves the cursor on the still-
+        // active document, no rollback). The rebuilt target is a FRESH document, so
+        // re-stamp its identity (mirror of the content-thread Commit-rebuild arm) —
+        // else the rebuilt target keeps the `document_sequence` it shared with its
+        // former pushState/fragment siblings and a later traversal to such a sibling
+        // mis-classifies same-document. App-mode does NOT seed the rebuilt
+        // document's `history.state` on a cross-document traversal — an ADDRESSABLE
+        // gap (the target entry carries the state; app-mode could read it exactly
+        // like content-mode), deliberately deferred because it is flip-inert (boa
+        // passes `None` on every pushState) AND app-mode's rebuild path is folded
+        // into the §8-D4 driver-unification audit, which threads it once at S5-6
+        // rather than duplicating content-mode's seed plumbing here now.
+        if self.navigate_to_history_url(target) {
+            if let Some(interactive) = self.interactive.as_mut() {
+                interactive.nav_controller.commit_index(target_index);
+                interactive.nav_controller.restamp_current_document();
+            }
+            true
+        } else {
+            false
         }
     }
 
@@ -409,16 +556,23 @@ impl App {
                 }
             }
             crate::chrome::ChromeAction::Back | crate::chrome::ChromeAction::Forward => {
+                // Route the toolbar Back/Forward through the SAME peek-then-commit
+                // path as JS `history.back()`/`forward()` (`traverse_to` →
+                // `resolve_traversal`), so a same-document toolbar traversal restores
+                // state + scroll and fires popstate in place (One-issue-one-way with
+                // the JS API), and the eager `go_back`/`go_forward` non-atomic commit
+                // is retired.
                 let is_back = matches!(action, crate::chrome::ChromeAction::Back);
-                let url = self.interactive.as_mut().and_then(|i| {
+                let peeked = self.interactive.as_ref().and_then(|i| {
                     if is_back {
-                        i.nav_controller.go_back().cloned()
+                        i.nav_controller.peek_back()
                     } else {
-                        i.nav_controller.go_forward().cloned()
+                        i.nav_controller.peek_forward()
                     }
+                    .map(|(idx, u)| (idx, u.clone()))
                 });
-                if let Some(url) = url {
-                    self.navigate_to_history_url(&url);
+                if let Some((target_index, url)) = peeked {
+                    self.traverse_to(target_index, &url);
                 }
             }
             crate::chrome::ChromeAction::Reload => {
@@ -469,13 +623,28 @@ fn resolve_state_url(base: Option<&url::Url>, url_str: Option<&str>) -> Option<u
 ///
 /// When `replace` is `true`, the current history entry is replaced;
 /// otherwise a new entry is pushed.
-fn apply_state_change(interactive: &mut InteractiveState, url: &url::Url, replace: bool) {
+fn apply_state_change(
+    interactive: &mut InteractiveState,
+    url: &url::Url,
+    replace: bool,
+    serialized_state: Option<Vec<u8>>,
+) {
     interactive.pipeline.url = Some(url.clone());
+    // `pushState`/`replaceState` are SAME-document mutations → inherit the current
+    // document's `document_sequence` (a later traversal between this entry and its
+    // document-siblings restores in place, not a rebuild).
     if replace {
-        interactive.nav_controller.replace(url.clone());
+        interactive
+            .nav_controller
+            .replace_same_document(url.clone());
     } else {
-        interactive.nav_controller.push(url.clone());
+        interactive.nav_controller.push_same_document(url.clone());
     }
+    // Store the StructuredSerializeForStorage bytes on the just-committed entry
+    // (§7.4.4 step 3) for a later cross-document traversal to restore.
+    interactive
+        .nav_controller
+        .set_current_state(serialized_state);
     interactive.chrome.set_url(url);
     interactive
         .pipeline

@@ -411,11 +411,11 @@ fn back_forward_go_enqueue_actions() {
 
 #[test]
 fn traversal_preserves_current_state_until_commit() {
-    // A traversal is async (the shell loads the target entry), so it leaves
-    // `history.state` untouched — a same-turn read still sees the current entry's
-    // state, and a no-op traversal (`go(0)`) changes nothing.  Restoring the
-    // *target* entry's state on commit is the shell's job (slot
-    // `#11-history-state-traversal-popstate-fidelity`).
+    // A traversal is async (the shell loads the target entry), so the ENQUEUE
+    // leaves `history.state` untouched — a same-turn read still sees the current
+    // entry's state, and a no-op traversal (`go(0)`) changes nothing. Restoring the
+    // *target* entry's state is the shell's job at commit, via
+    // `deliver_history_step_events` (5c) — see `tests_history_events`.
     let mut vm = new_vm_with_base();
     vm.eval("history.pushState({step: 9}, '', '/a');").unwrap();
     assert_eq!(eval_number(&mut vm, "history.state.step;"), 9.0);
@@ -423,6 +423,122 @@ fn traversal_preserves_current_state_until_commit() {
     assert_eq!(eval_number(&mut vm, "history.state.step;"), 9.0);
     vm.eval("history.go(0);").unwrap();
     assert_eq!(eval_number(&mut vm, "history.state.step;"), 9.0);
+}
+
+#[test]
+fn push_state_enqueues_serialized_state_bytes() {
+    // §7.2.5 step 3: the VM serializes the state object (JSON-shortcut interim) to
+    // storage bytes on the enqueued action, so a later cross-document traversal can
+    // restore `history.state`. The VM ALWAYS serializes (`Some(bytes)`); the `None`
+    // variant is boa's light-touch.
+    let mut vm = new_vm_with_base();
+    vm.eval("history.pushState({step: 3}, '', '/a');").unwrap();
+    match take_one_history(&mut vm) {
+        HistoryAction::PushState {
+            serialized_state, ..
+        } => {
+            let bytes = serialized_state.expect("VM always serializes (Some), never boa-None");
+            assert_eq!(String::from_utf8(bytes).unwrap(), "{\"step\":3}");
+        }
+        other => panic!("expected PushState with serialized_state, got {other:?}"),
+    }
+}
+
+#[test]
+fn push_state_null_serializes_to_json_null() {
+    // A null (or undefined) state round-trips as JSON `null` bytes — so the entry
+    // carries a restorable `Some(b"null")`, deserializing back to `null`, not an
+    // ambiguous `None` (which would be indistinguishable from a plain-nav entry).
+    let mut vm = new_vm_with_base();
+    vm.eval("history.pushState(null, '', '/a');").unwrap();
+    match take_one_history(&mut vm) {
+        HistoryAction::PushState {
+            serialized_state, ..
+        } => {
+            assert_eq!(
+                String::from_utf8(serialized_state.unwrap()).unwrap(),
+                "null"
+            );
+        }
+        other => panic!("expected PushState, got {other:?}"),
+    }
+}
+
+#[test]
+fn cyclic_and_bigint_state_succeed_and_degrade_to_null(// CR-3
+) {
+    // `StructuredSerializeForStorage` SUCCEEDS for cyclic graphs + BigInt (both
+    // structured-cloneable); only `JSON.stringify` throws. The interim JSON-shortcut
+    // must therefore NOT throw DataCloneError — it degrades to no restorable state
+    // (`serialized_state: None`), so the pushState succeeds (URL updates, entry
+    // enqueued) and a later cross-document traversal restores `null`. Full-fidelity
+    // restore is D1 (`#11-history-state-structured-serialize-fidelity`).
+    let mut vm = new_vm_with_base(); // http://localhost/
+                                     // A cyclic state: pushState succeeds (no throw).
+    vm.eval("var o = {}; o.self = o; history.pushState(o, '', '/cyclic');")
+        .unwrap();
+    assert_eq!(eval_string(&mut vm, "location.pathname;"), "/cyclic");
+    match take_one_history(&mut vm) {
+        HistoryAction::PushState {
+            serialized_state, ..
+        } => assert_eq!(
+            serialized_state, None,
+            "cyclic degrades to None, not a throw"
+        ),
+        other => panic!("expected PushState, got {other:?}"),
+    }
+    // A BigInt state: likewise succeeds + degrades.
+    vm.eval("history.pushState({v: 10n}, '', '/bigint');")
+        .unwrap();
+    assert_eq!(eval_string(&mut vm, "location.pathname;"), "/bigint");
+    match take_one_history(&mut vm) {
+        HistoryAction::PushState {
+            serialized_state, ..
+        } => assert_eq!(serialized_state, None, "BigInt degrades to None"),
+        other => panic!("expected PushState, got {other:?}"),
+    }
+}
+
+#[test]
+fn function_state_succeeds_with_null_state_interim(// CR-3 opposite deviation (D1-owned)
+) {
+    // INTERIM behavior pin: the spec REQUIRES `pushState(function(){})` to throw
+    // DataCloneError (a function is non-cloneable), but the JSON shortcut renders it
+    // as `undefined` → `serialized_state: None` → the call SUCCEEDS with null state.
+    // This is the opposite-direction interim gap the JSON shortcut cannot fix; D1
+    // (the full structured-clone walker) turns this back into a DataCloneError throw
+    // — at which point this test flips (a visible D1 landing signal).
+    let mut vm = new_vm_with_base();
+    vm.eval("history.pushState(function () {}, '', '/fn');")
+        .unwrap();
+    assert_eq!(eval_string(&mut vm, "location.pathname;"), "/fn");
+    match take_one_history(&mut vm) {
+        HistoryAction::PushState {
+            serialized_state, ..
+        } => assert_eq!(serialized_state, None),
+        other => panic!("expected PushState, got {other:?}"),
+    }
+}
+
+#[test]
+fn throwing_tojson_propagates_not_degrades() {
+    // A user exception thrown DURING serialization (a throwing `toJSON`) is NOT a
+    // representability failure — it propagates unchanged (the shared push/replace
+    // steps step 3 "Rethrow any exceptions"), aborting the pushState before the URL
+    // side-effect.
+    let mut vm = new_vm_with_base(); // http://localhost/
+    let name = eval_string(
+        &mut vm,
+        "var n = 'none';
+         var o = { toJSON: function () { throw new Error('boom'); } };
+         try { history.pushState(o, '', '/should-not-apply'); }
+         catch (e) { n = e.message; }
+         n;",
+    );
+    assert_eq!(name, "boom");
+    // No URL side-effect, no enqueue — the throw preceded step 5.
+    assert_eq!(eval_string(&mut vm, "location.pathname;"), "/");
+    assert!(vm.inner.navigation.pending_history.is_empty());
 }
 
 #[test]

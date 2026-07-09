@@ -82,7 +82,7 @@ impl VmInner {
         //    step 6.3 "restore the history object's state", then step 6.4.3
         //    "fire an event").
         if let Some(state_opt) = popstate_state {
-            let state = reconstruct_history_state(state_opt);
+            let state = reconstruct_history_state(self, state_opt);
             // Step 6.3: restore `history.state` to the reconstructed value
             // BEFORE firing popstate — a fragment nav resets it to null
             // (§7.4.2.3.3 step 11.1 "Set history's state to null"), so a
@@ -189,20 +189,20 @@ impl VmInner {
     }
 }
 
-/// Reconstruct the `history.state` JS value a popstate fires with.
+/// Reconstruct the `history.state` JS value a popstate fires with (the *restore
+/// the history object state* step, WHATWG HTML §7.4.6.2 step 6.3 → its step 2
+/// `StructuredDeserialize`).
 ///
-/// - `None` = 5b **fragment navigation**: history's state is `null` (WHATWG HTML
-///   §7.4.2.3.3 *navigate to a fragment* step 11.1 "Set history's state to
-///   null").
-/// - `Some(_bytes)` = 5c **traversal**: the restored state, reconstructed via
-///   `StructuredDeserialize`. 5b never carries bytes, so this arm is a
-///   placeholder that S5-5c fills in (returning `null` for now keeps a carried
-///   value observably absent rather than mis-decoded).
-fn reconstruct_history_state(state: Option<Vec<u8>>) -> JsValue {
+/// - `None` = the entry carries **no** state — a **fragment navigation** (§7.4.2.3.3
+///   step 11.1 "Set history's state to null"), a plain-navigation entry, or any
+///   entry a boa-`None` pushState produced ⇒ `history.state = null`.
+/// - `Some(bytes)` = a **traversal** to a pushState'd entry: the restored state,
+///   `StructuredDeserialize(bytes)` (a decode failure → `null` per the restore
+///   step's "If this throws an exception, catch it and let state be null").
+fn reconstruct_history_state(vm: &mut VmInner, state: Option<Vec<u8>>) -> JsValue {
     match state {
         None => JsValue::Null,
-        // 5c: StructuredDeserialize(_bytes). Unreachable in 5b.
-        Some(_bytes) => JsValue::Null,
+        Some(bytes) => super::structured_serialize::structured_deserialize(vm, &bytes),
     }
 }
 

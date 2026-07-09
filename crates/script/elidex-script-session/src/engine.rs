@@ -300,6 +300,22 @@ pub trait HostDriver {
     /// referrer-serialisation rules).
     fn set_navigation_referrer(&mut self, referrer: Option<url::Url>);
 
+    /// Seed `history.state` on document construction from the current
+    /// session-history entry's serialized state (WHATWG HTML §7.4.6.2 step 6.3
+    /// "restore the history object state" — via `StructuredDeserialize`). This is
+    /// **restore-WITHOUT-fire**: step 6.3 runs regardless of `documentIsNew`, and
+    /// precedes step 8.4 "scripts may run", so a **cross-document traversal** to a
+    /// pushState'd entry rebuilds the pipeline (a fresh engine) whose *initial*
+    /// scripts must read the restored `history.state` — but fires **no** popstate
+    /// (step 6.4 is gated on `documentIsNew=false`; a fresh document is
+    /// `documentIsNew=true`). Distinct from [`deliver_history_step_events`], which
+    /// FIRES popstate. Installed at the pre-eval chokepoint (alongside the origin /
+    /// referrer / viewport seeds). `None` = null state (the common case, and the
+    /// **boa** engine, which passes `None` — light-touch).
+    ///
+    /// [`deliver_history_step_events`]: Self::deliver_history_step_events
+    fn set_history_state(&mut self, serialized_state: Option<Vec<u8>>);
+
     // ── history-step event delivery (per-navigation; WHATWG HTML §7.4.6.2) ──
     //
     // A same-document history-step application (fragment nav — 5b; traversal —
