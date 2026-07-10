@@ -280,8 +280,8 @@ pub(crate) struct VmInner {
     /// `None` outside a bound-accessor call.
     pub(crate) active_bound_key: Option<value::StringId>,
     /// Bounded per-VM console-capture buffer: `(level, message)` pairs the
-    /// console print natives tee into alongside their stderr output (WHATWG
-    /// Console §2). The level is always one of the natives' static literals
+    /// console print natives tee into alongside their stderr output (the tee
+    /// mirrors WHATWG Console §2.3 Printer). The level is always one of the natives' static literals
     /// (`"log"` / `"warn"` / …), so it is stored un-allocated. A retrievable
     /// test oracle for embedders ([`Vm::console_messages`], the S5-6 B26
     /// accessor replacing the boa runtime's `ConsoleOutput` capture); oldest

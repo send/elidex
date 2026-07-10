@@ -1,5 +1,5 @@
 //! Same-window task queue + `window.postMessage` (WHATWG HTML
-//! §9.4.3).
+//! §9.3.3).
 //!
 //! The HTML event loop's *task queue* (§8.1.7.1 "Task"), restricted to
 //! the single JavaScript realm that Phase 2 supports.  The only
@@ -68,7 +68,7 @@ pub(crate) enum PendingTask {
     /// Produced by `window.postMessage(message, targetOrigin)` after
     /// the origin has been matched.  The stored `data` is the
     /// already-`structuredClone`d payload; `origin` is the source
-    /// window's origin (WHATWG HTML §9.4.3 step 12 "origin of the
+    /// window's origin (WHATWG HTML §9.3.3 step 12 "origin of the
     /// source's relevant settings").
     PostMessage {
         target_window_id: ObjectId,
@@ -323,7 +323,7 @@ fn dispatch_file_read(
 /// Build a MessageEvent and dispatch it at `target_window_id`'s
 /// backing entity through the shared `dispatch_script_event` walker.
 ///
-/// Matches WHATWG HTML §9.4.3 step 14 + §2.9 "fire a trusted event
+/// Matches WHATWG HTML §9.3.3 step 14 + §2.9 "fire a trusted event
 /// with name `message` at a Window".  Routing through
 /// `dispatch_script_event` gives correct per-listener `{once}` /
 /// `{signal}` / `{passive}` handling for free — the manual walk
@@ -339,7 +339,7 @@ fn dispatch_post_message(
 ) {
     // Resolve the target window's backing entity.  If the VM lost
     // its HostData between enqueue and drain (vm.unbind()), silently
-    // drop — matching WHATWG §9.4.3 step 11 "if the target's
+    // drop — matching WHATWG §9.3.3 step 11 "if the target's
     // associated Document is not fully active, then abort".
     let Some(host) = vm.host_data.as_deref() else {
         return;
@@ -424,7 +424,7 @@ fn dispatch_post_message(
         .message;
     let timestamp_ms = g.start_instant.elapsed().as_secs_f64() * 1000.0;
     // `source` is `null` when the producer did not identify a
-    // window (WHATWG HTML §9.4.3 step 8).  `ports` is a fresh empty
+    // window (WHATWG HTML §9.3.3 step 8).  `ports` is a fresh empty
     // Array until MessagePort lands (plan §Deferred #16);
     // allocating per dispatch keeps identity fresh per event,
     // matching browser behaviour.  Allocate the Array BEFORE
@@ -464,7 +464,7 @@ fn dispatch_post_message(
     // swallowed here — the dispatch has already advanced through
     // as many listeners as possible, and postMessage has no
     // observable error channel to the enqueuing caller (the task
-    // is an async point, §9.4.3 step 13).
+    // is an async point, §9.3.3 step 13).
     let _ = dispatch_result;
 }
 
@@ -473,7 +473,7 @@ fn dispatch_post_message(
 // ---------------------------------------------------------------------------
 
 /// `window.postMessage(message, targetOrigin, transfer?)` — WHATWG
-/// HTML §9.4.3.  Also accepts the dictionary signature
+/// HTML §9.3.3.  Also accepts the dictionary signature
 /// `postMessage(message, options)` where `options` is
 /// `{targetOrigin?, transfer?}`.
 #[allow(clippy::similar_names)] // arg1 mirrors WebIDL parameter indexing
@@ -483,7 +483,7 @@ pub(super) fn native_window_post_message(
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     // 1. Binding-level arg count check (WebIDL "not enough
-    //    arguments" — sync TypeError before §9.4.3 proper).
+    //    arguments" — sync TypeError before §9.3.3 proper).
     let Some(&message) = args.first() else {
         return Err(VmError::type_error(
             "Failed to execute 'postMessage' on 'Window': 1 argument required, but only 0 present.",
@@ -498,7 +498,7 @@ pub(super) fn native_window_post_message(
     // 3. transfer validation — Phase 2 accepts only `undefined` /
     //    `null` / `[]`.  Non-empty list → DataCloneError (transfer
     //    semantics not yet wired).  Spec prescribes DataCloneError
-    //    for "not all items are transferable" (§9.4.3 step 5).
+    //    for "not all items are transferable" (§9.3.3 step 5).
     validate_transfer(ctx, transfer_val)?;
 
     // 3b. iframe→parent routing (S5-6a, B16 — WHATWG HTML §9.3.3 Posting
@@ -564,7 +564,7 @@ pub(super) fn native_window_post_message(
     // 6. Resolve target origin match vs own origin.
     let own_origin_sid = compute_own_origin_sid(ctx.vm);
     if !match_target_origin(ctx, parsed_target.as_ref(), own_origin_sid) {
-        // Silent return (spec §9.4.3 step 9 "if the origin of
+        // Silent return (spec §9.3.3 step 9 "if the origin of
         // targetWindow is not … then return").
         return Ok(JsValue::Undefined);
     }

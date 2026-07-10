@@ -111,7 +111,7 @@ impl Vm {
 
     /// Captured console output as `(level, message)` pairs in emission
     /// order — the retrievable oracle over the bounded per-VM buffer the
-    /// console print natives tee into (WHATWG Console §2; the S5-6 B26
+    /// console print natives tee into (the tee mirrors WHATWG Console §2.3 Printer; the S5-6 B26
     /// test-oracle accessor, replacing the boa runtime's
     /// `ConsoleOutput::messages()`). Marshal-scale surface: read by
     /// embedder tests, not by page script.

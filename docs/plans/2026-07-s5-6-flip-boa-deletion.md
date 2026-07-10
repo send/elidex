@@ -1107,6 +1107,26 @@ Measured at HEAD (`wc -l`):
 over the line with a real seam; the two ~990 files are watch-listed with a named seam if impl pushes
 them over.
 
+### §9.1 S5-6a VM-side files (the audit's shell-only table above omitted these — /elidex-review Axis-5 MIN)
+
+The S5-6a *prereq* PR grows VM-side files the §9 flip table (shell-only) did not enumerate:
+
+| File | Lines (post-6a) | 6a growth | Judgment |
+|---|---|---|---|
+| `elidex-js/src/vm/host_data.rs` | ~2190 (**already >1000 pre-6a: 2077**) | +113 (the 4 cross-context effect queues + enqueue/take) | **pre-existing monolith**; the +113 is a self-contained cohesion unit (`host_effects_queues` seam candidate, same shape as the `cssom_collect.rs` carve). A one-block carve does NOT bound a 2000-line file (→ token gesture); the proper touch-time response is a **standalone `host_data.rs` decomposition follow-up** (the discipline's "単独 PR / 単独 commit" — NOT bundled into this feature PR). Registered below. |
+| `elidex-js/src/vm/mod.rs` | 2749 (already >1000) | +16 (console_capture field) | <50, no seam obligation |
+| `elidex-js/src/vm/vm_api.rs` | 1255 (already >1000) | +17 (console_messages accessor) | <50 |
+| `elidex-js/src/vm/host/storage.rs` | 801 | +130 (B3 gate/enqueue + step-helpers) | under 1000; monitor |
+| `elidex-js/src/vm/natives.rs` | 851 | +34 (console tee) | under 1000 |
+| `elidex-js/src/vm/host/window.rs` | 816 | +25 (B13 focus native) | under 1000 |
+| `elidex-dom-api/src/cssom_sheet.rs` | **850** (was 796) | re-collection carved OUT to `cssom_collect.rs` (341) | **split applied** (CR9) — back under 1000 ✓ |
+
+**Follow-up registered** (`#11-host-data-decomposition`, standalone split, non-blocking): `host_data.rs`
+(2077 pre-existing) is 2× the threshold and this PR touches it; decompose along its field-cluster seams
+(the effect queues, the install handles, the per-VM identity caches, …) as a standalone prereq-style
+split PR — NOT bundled here, per the touch-time discipline's own "single-PR / single-commit" mandate.
+Backstop 2026-10-31.
+
 ---
 
 ## §10 Out-of-scope / defer ledger
@@ -1157,6 +1177,17 @@ policy-container componentization sweeps them.
 **Not carved (dispositioned in-memo)**: on-disk localStorage format identity (impl-time spot-check,
 item 7); stale §11.x storage cites beyond the touched sites (existing renumber-sweep owns them, §2.3-C1);
 `viewport_tests.rs` >1000 (watch-listed with named seam, §9).
+
+**Citation-sweep follow-up (S5-6a /elidex-review Axis-4)**: the diff-introduced / in-file-inconsistent
+cites were fixed in the touched files — `§4.6.7 Hyperlink auditing → CSSOM §6.3 Style Sheet Association`
+(cssom_sheet.rs, resource.rs; dfn `associated CSS style sheet` = §6.3.2) and the stale
+`§9.4.3 MessageEventTarget mixin → §9.3.3 Posting messages` window-post-message-steps family swept
+uniformly in `pending_tasks.rs` (all 10 were the same renumber, verified not a MessagePort/MessageEvent
+mixup). **Left to the standing renumber-sweep** (pre-existing, non-uniform, not diff-introduced —
+[[project_dom-events-section-renumber-sweep]] family): `natives.rs` console method docstrings
+(`console.info/debug/trace` = Console §2 → §1.1.5/§1.1.3/§1.1.8 Logging functions, per-method) +
+`tests_console.rs:1` module doc (§2 → §1 console namespace) + `cssom_sheet.rs` `document.styleSheets`
+`CSSOM §6.8 → §6.2.3/§6.2.2` (non-existent §6.8, pre-existing context lines).
 
 ---
 

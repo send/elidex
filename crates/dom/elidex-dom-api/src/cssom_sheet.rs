@@ -16,7 +16,7 @@
 //!   subtree `EcsDom::inclusive_descendants_version` (a direct
 //!   `<style>.textContent` write diverges it).
 //! - `<link rel="stylesheet">` — source is the `LinkStylesheet` component
-//!   (HTML §4.6.7 associated CSS style sheet, fetched by the loader);
+//!   (CSSOM §6.3 associated CSS style sheet, fetched by the loader);
 //!   version is the component's own monotonic counter, since the void
 //!   `<link>` has no child-text mutation signal.
 //!
@@ -79,7 +79,7 @@ pub(crate) fn sheet_version(sheet_entity: Entity, dom: &EcsDom) -> u64 {
 
 /// Parse `owner`'s stylesheet source: `<link>` parses its `LinkStylesheet`
 /// component text in place (no clone — the component can be a large
-/// external sheet); `<style>` collects its child text content (HTML §4.6.7
+/// external sheet); `<style>` collects its child text content (CSSOM §6.3
 /// associated style sheet vs `<style>` text node). The single owner-source
 /// parse branch, shared by the CSSOM session cache ([`sync_and_get_state`])
 /// and the cascade re-collection ([`collect_document_stylesheets`]).
@@ -761,7 +761,7 @@ pub fn count_stylesheet_owners(document: Entity, dom: &EcsDom) -> usize {
 }
 
 /// `true` if `entity` is a `<link>` with an associated CSS style sheet —
-/// non-null only after a successful load (HTML §4.6.7), i.e. a
+/// non-null only after a successful load (CSSOM §6.3), i.e. a
 /// `LinkStylesheet` component is attached. Backs the host `link.sheet`
 /// getter (CSSOM §6.2 `LinkStyle.sheet`).
 #[must_use]
@@ -793,7 +793,7 @@ fn walk_styles_inner(entity: Entity, dom: &EcsDom, visit: &mut impl FnMut(Entity
     });
     // CSSOM §6.8: `document.styleSheets` enumerates every element with an
     // associated CSS style sheet, in tree order. A `<link rel="stylesheet">`
-    // gains one once its resource loads (HTML §4.6.7) — signalled by the
+    // gains one once its resource loads (CSSOM §6.3) — signalled by the
     // `LinkStylesheet` component attached by the resource loader. The
     // component lookup short-circuits behind the tag match — a `<style>`
     // never carries one.

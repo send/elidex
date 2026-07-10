@@ -12,7 +12,7 @@ pub enum StyleSource {
     Inline(String),
     /// External `<link rel="stylesheet" href="...">` reference. Carries
     /// the `<link>` entity so the loader can attach the loaded sheet as a
-    /// component on it (HTML §4.6.7 associated CSS style sheet).
+    /// component on it (CSSOM §6.3 associated CSS style sheet).
     External {
         /// The `href` attribute value (relative or absolute URL).
         href: String,
