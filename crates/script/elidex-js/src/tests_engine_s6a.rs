@@ -410,14 +410,42 @@ fn iframe_depth_routes_post_message_to_parent_fifo() {
 
     let msgs = engine.take_pending_parent_messages();
     assert_eq!(msgs.len(), 2, "{msgs:?}");
-    // FIFO call order; data is the boa-parity ToString wire form and
-    // targetOrigin rides verbatim (the receive side applies the §9.3.3 gate).
+    // FIFO call order; data is the boa-parity ToString wire form.  A URL
+    // targetOrigin is resolved to its ORIGIN serialization before queuing
+    // (§9.3.3 step 5.3), so a bare-origin URL round-trips unchanged and "*"
+    // rides verbatim — the receive side then origin-gates.
     assert_eq!(msgs[0].data, "hello");
     assert_eq!(msgs[0].target_origin, "https://parent.example");
     assert_eq!(msgs[1].data, "again");
     assert_eq!(msgs[1].target_origin, "*");
     // Drain-once: a second take is empty.
     assert!(engine.take_pending_parent_messages().is_empty());
+}
+
+/// Regression (Codex PR#453 review): a URL `targetOrigin` carrying a path /
+/// query must be normalized to its ORIGIN serialization before being queued
+/// for the parent (WHATWG HTML §9.3.3 window post message steps, step 5.3
+/// "Set targetOrigin to parsedURL's origin").  Enqueuing the raw URL would
+/// make the receiving-side origin gate reject a legitimately same-origin
+/// message.
+#[test]
+fn iframe_post_message_target_origin_normalized_to_origin() {
+    let (mut engine, mut session, mut dom, doc) = fresh_unbound();
+    engine.set_iframe_depth(1);
+    let mut ctx = ScriptContext::new(&mut session, &mut dom, doc);
+    bind_engine(&mut engine, &mut ctx);
+    let r = ScriptEngine::eval(
+        &mut engine,
+        "window.postMessage('m', 'https://parent.example:8443/path?q=1#frag');",
+        &mut ctx,
+    );
+    assert!(r.success, "{:?}", r.error);
+    engine.unbind();
+
+    let msgs = engine.take_pending_parent_messages();
+    assert_eq!(msgs.len(), 1, "{msgs:?}");
+    // Origin only: scheme + host + non-default port, no path/query/fragment.
+    assert_eq!(msgs[0].target_origin, "https://parent.example:8443");
 }
 
 #[test]

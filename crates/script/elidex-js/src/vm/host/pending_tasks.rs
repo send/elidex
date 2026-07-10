@@ -523,19 +523,26 @@ pub(super) fn native_window_post_message(
         .map_or(0, super::super::host_data::HostData::iframe_depth);
     if iframe_depth > 0 {
         let target_origin_str = ctx.vm.strings.get_utf8(target_origin);
-        // Sender-side syntax validation (the shared validator); the origin
-        // GATE rides the payload to the receiving side.
-        let _ = validate_target_origin(ctx.vm, &target_origin_str)?;
-        // Window-post-message steps' solidus step: a "/" targetOrigin means
-        // "same origin as the SENDER" and the spec resolves it AT SEND TIME
-        // to incumbentSettings's origin.  It must be resolved HERE — carried
-        // verbatim, the receiver-side gate (which compares against the
-        // PARENT's origin) would read "/" as its own origin and always pass:
-        // a cross-origin delivery bypass.
-        let target_origin = if target_origin_str == "/" {
-            ctx.vm.document_origin().serialize()
-        } else {
-            target_origin_str
+        // Sender-side syntax validation + parse (the shared validator).  The
+        // window-post-message steps (WHATWG HTML §9.3.3) RESOLVE `targetOrigin`
+        // at send time, so the payload must carry an already-normalized origin
+        // and the receiving-side gate then compares origin-to-origin:
+        //   - step 5.3: a URL target → its parsed URL's ORIGIN (serialized),
+        //     NOT the raw URL.  Carried verbatim, `https://parent.example/path`
+        //     would be origin-compared against `https://parent.example` on the
+        //     receiving side and a legitimately same-origin message would be
+        //     dropped.  `ascii_serialization()` matches `match_target_origin`'s
+        //     target-side form (the same-window gate), so both gates agree.
+        //   - step 4: "/" → the SENDER's origin (incumbentSettings's origin).
+        //     Resolved HERE — carried verbatim the receiver gate (which
+        //     compares against the PARENT's origin) would read "/" as its own
+        //     origin and always pass: a cross-origin delivery bypass.
+        //   - "*" (parse → `None`, not "/") rides verbatim: the receiver
+        //     treats it as "any origin".
+        let target_origin = match validate_target_origin(ctx.vm, &target_origin_str)? {
+            Some(parsed) => parsed.origin().ascii_serialization(),
+            None if target_origin_str == "/" => ctx.vm.document_origin().serialize(),
+            None => target_origin_str,
         };
         let data_sid = coerce::to_string(ctx.vm, message)?;
         let data = ctx.vm.strings.get_utf8(data_sid);
