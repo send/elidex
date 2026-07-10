@@ -65,6 +65,7 @@ fn arg_name(
 /// (`new_version = Some`) and `deleteDatabase` (`new_version = None`).
 fn enqueue_versionchange(
     vm: &mut VmInner,
+    request_id: ObjectId,
     db_name: &str,
     old_version: u64,
     new_version: Option<u64>,
@@ -81,6 +82,10 @@ fn enqueue_versionchange(
     if let Some(host) = vm.host_data.as_deref_mut() {
         host.enqueue_idb_versionchange_request(elidex_script_session::IdbVersionChangeRequest {
             origin,
+            // The request's `ObjectId` value = the shell IPC correlation key
+            // (echoed back to unblock the opener). Minted here; the identity is
+            // gone by drain time.
+            request_id: u64::from(request_id.0),
             db_name: db_name.to_string(),
             old_version,
             new_version,
@@ -160,7 +165,7 @@ pub(crate) fn native_idb_open(
                     // failed begin rolls the upgrade back (`abort_upgrade`,
                     // the Err arm), and a broadcast for an upgrade that
                     // never happened must not stay queued.
-                    enqueue_versionchange(ctx.vm, &name, old_version, Some(new_version));
+                    enqueue_versionchange(ctx.vm, req, &name, old_version, Some(new_version));
                     let txn_id = create_upgrade_transaction(
                         ctx.vm,
                         db,
@@ -251,7 +256,7 @@ pub(crate) fn native_idb_delete_database(
             // deleting nothing broadcasts nothing (`old_version == 0` ⇔
             // absent — spec-correct where boa enqueued unconditionally).
             if old_version > 0 {
-                enqueue_versionchange(ctx.vm, &name, old_version, None);
+                enqueue_versionchange(ctx.vm, req, &name, old_version, None);
             }
             request::async_execute(
                 ctx.vm,

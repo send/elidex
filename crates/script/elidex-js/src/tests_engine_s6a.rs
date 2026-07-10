@@ -304,6 +304,9 @@ fn open_with_higher_version_enqueues_versionchange_request() {
     assert_eq!(reqs[0].new_version, Some(3));
     // Owning origin captured at enqueue (the shell's same-origin broadcast key).
     assert_eq!(reqs[0].origin, "https://example.com");
+    // Correlation id minted from the request identity (the shell echoes it to
+    // unblock the opener) — a real ObjectId, not a placeholder.
+    assert_ne!(reqs[0].request_id, 0);
     // Drain-once: a second take is empty.
     assert!(engine.take_pending_idb_versionchange_requests().is_empty());
 }
@@ -349,6 +352,7 @@ fn delete_database_enqueues_versionchange_request_with_null_new_version() {
     assert_eq!(reqs[0].new_version, None);
     // Owning origin captured at enqueue (same as the upgrade path).
     assert_eq!(reqs[0].origin, "https://example.com");
+    assert_ne!(reqs[0].request_id, 0);
 }
 
 /// Regression (Codex PR#453 R5): an opaque-origin document's IDB versionchange
@@ -379,6 +383,7 @@ fn opaque_origin_idb_versionchange_request_carries_identity_key_not_null() {
         reqs[0].origin, "null",
         "a lossy \"null\" key would cross-broadcast between unrelated opaque origins"
     );
+    assert_ne!(reqs[0].request_id, 0);
 }
 
 #[test]

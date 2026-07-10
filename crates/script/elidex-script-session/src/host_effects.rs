@@ -80,10 +80,18 @@ pub struct IdbVersionChangeRequest {
     /// Carried on the request rather than inferred at drain — a navigation between
     /// enqueue and drain, or a sandbox/opaque override, would mislocate a
     /// drain-side guess.  Matches the `origin` field the shell IPC
-    /// (`ContentToBrowser::IdbVersionChangeRequest`) already requires.  (The
-    /// cross-tab `request_id` correlation key rides the deferred connection-queue
-    /// work — `#11-idb-connection-queue` — where the correlation scheme is defined.)
+    /// (`ContentToBrowser::IdbVersionChangeRequest`) already requires.
     pub origin: String,
+    /// The originating open/delete request's correlation id — the VM request's
+    /// `ObjectId` value.  The shell IPC (`ContentToBrowser::IdbVersionChangeRequest`)
+    /// carries a `request_id` so the browser can echo `IdbUpgradeReady` /
+    /// `IdbConnectionsClosed` back to the opener; it must be minted HERE at the
+    /// enqueue site (the request identity is gone by drain time), so the payload
+    /// carries it rather than have the S5-6b wiring invent state after the fact.
+    /// (The blocking correlation that *consumes* it — wait-for-close before the
+    /// upgrade proceeds — is the deferred `#11-idb-connection-queue` work; the id
+    /// itself is a determinate value available now.)
+    pub request_id: u64,
     /// The database name.
     pub db_name: String,
     /// The database's current version at the time of the request.
