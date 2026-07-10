@@ -534,6 +534,14 @@ pub(super) fn native_window_post_message(
         .as_deref()
         .map_or(0, super::super::host_data::HostData::iframe_depth);
     if iframe_depth > 0 {
+        // Serialize the message FIRST (§9.3.3 step 7 — StructuredSerialize,
+        // here the boa-parity `ToString` wire form — precedes the origin-gate
+        // return at step 8.1): the conversion's side effects and throws (e.g. a
+        // throwing `toString`) must surface even when the message is ultimately
+        // undeliverable / dropped.  Matches the top-level path (clone before
+        // match) below.
+        let data_sid = coerce::to_string(ctx.vm, message)?;
+        let data = ctx.vm.strings.get_utf8(data_sid);
         // §9.3.3 RESOLVES `targetOrigin` at send time; the payload carries an
         // IDENTITY-PRESERVING origin key so the receiving-side gate can compare
         // origin-to-origin WITHOUT aliasing distinct opaque origins (a display
@@ -542,8 +550,9 @@ pub(super) fn native_window_post_message(
         //     serializes (`ascii_serialization()` matches `match_target_origin`'s
         //     target-side form); an OPAQUE URL origin (e.g. `data:`) is a FRESH
         //     opaque that can never be same-origin with the parent, so the
-        //     message is undeliverable — FAIL CLOSED (drop, don't enqueue)
-        //     rather than emit a lossy `"null"` for the future gate to alias.
+        //     message is undeliverable — FAIL CLOSED (drop, don't enqueue, AFTER
+        //     the serialization above) rather than emit a lossy `"null"` for the
+        //     future gate to alias.
         //   - step 4: "/" → the SENDER's origin as its identity-preserving
         //     `storage_origin_key` (opaque sender → the per-VM sentinel, NOT
         //     `"null"`; a tuple sender → its serialization).  Resolved HERE —
@@ -563,8 +572,6 @@ pub(super) fn native_window_post_message(
             None if target_origin_str == "/" => ctx.vm.storage_origin_key(),
             None => target_origin_str,
         };
-        let data_sid = coerce::to_string(ctx.vm, message)?;
-        let data = ctx.vm.strings.get_utf8(data_sid);
         // Sender origin (→ parent-side `MessageEvent.origin`, §9.3.3),
         // captured HERE where incumbentSettings's origin is authoritative —
         // opaque/sandbox senders serialize to `"null"`, the correct value.

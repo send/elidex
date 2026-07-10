@@ -575,6 +575,30 @@ fn iframe_post_message_opaque_url_target_is_fail_closed() {
     );
 }
 
+/// Regression (Codex PR#453 R12): the message is serialized BEFORE the
+/// fail-closed drop (§9.3.3 step 7 precedes the origin-gate return at step 8.1),
+/// so a throwing `toString` surfaces even when the opaque target makes the
+/// message undeliverable — it must not be silently suppressed by the early drop.
+#[test]
+fn iframe_post_message_throwing_tostring_surfaces_before_fail_closed() {
+    let (mut engine, mut session, mut dom, doc) = fresh_unbound();
+    engine.set_current_url(Some(url("https://iframe.example/child")));
+    engine.set_iframe_depth(1);
+    let mut ctx = ScriptContext::new(&mut session, &mut dom, doc);
+    bind_engine(&mut engine, &mut ctx);
+    let r = ScriptEngine::eval(
+        &mut engine,
+        "window.postMessage({ toString() { throw new Error('boom'); } }, 'data:text/html,y');",
+        &mut ctx,
+    );
+    assert!(
+        !r.success,
+        "a throwing toString must surface before the fail-closed drop"
+    );
+    engine.unbind();
+    assert!(engine.take_pending_parent_messages().is_empty());
+}
+
 #[test]
 fn top_level_post_message_self_delivers_and_fifo_stays_empty() {
     let (mut engine, mut session, mut dom, doc) = fresh_unbound();
