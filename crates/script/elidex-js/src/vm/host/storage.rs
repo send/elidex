@@ -247,6 +247,11 @@ fn enqueue_local_storage_change(
     old_value: Option<String>,
     new_value: Option<&str>,
 ) {
+    // No host context ⇒ nowhere to queue — skip before materialising the
+    // url/origin strings.
+    if vm.host_data.is_none() {
+        return;
+    }
     // §12.2.1 *broadcast a Storage object* step 2: the url member is the
     // serialization of the originating document's URL.
     let url = vm.navigation.current_url.as_str().to_string();

@@ -55,6 +55,29 @@ fn arg_name(
     Ok(ctx.get_utf8(sid))
 }
 
+/// Stage a cross-context version-change request on the `HostData` FIFO
+/// (S5-6a B6 — IndexedDB-3 §4.2, dfn *fire a version change event*): this
+/// VM cannot reach other contexts' open connections, so the shell drains
+/// the queue (`HostDriver::take_pending_idb_versionchange_requests`),
+/// broadcasts, and each receiving engine fires via
+/// `deliver_idb_versionchange` (the receive half of the wire).  The two
+/// callers are the spec's two fire sites: an open needing an upgrade
+/// (`new_version = Some`) and `deleteDatabase` (`new_version = None`).
+fn enqueue_versionchange(
+    vm: &mut VmInner,
+    db_name: &str,
+    old_version: u64,
+    new_version: Option<u64>,
+) {
+    if let Some(host) = vm.host_data.as_deref_mut() {
+        host.enqueue_idb_versionchange_request(elidex_script_session::IdbVersionChangeRequest {
+            db_name: db_name.to_string(),
+            old_version,
+            new_version,
+        });
+    }
+}
+
 /// `indexedDB.open(name, version?)` → `IDBOpenDBRequest` (W3C IDB §4.3 /
 /// §5.1).  Synchronous backend probe; result (or upgrade) delivered async.
 #[allow(clippy::too_many_lines)] // the §5.1 Success/UpgradeNeeded/Error branch set is one coherent algorithm
@@ -112,23 +135,10 @@ pub(crate) fn native_idb_open(
             old_version,
             new_version,
         }) => {
-            // S5-6a B6: an open that needs an upgrade must fire
+            // First fire site: an open that needs an upgrade must fire
             // `versionchange` at OTHER contexts' open connections to this
-            // database (IndexedDB-3 §4.2 Event interfaces, dfn *fire a
-            // version change event*).  This VM cannot reach them — stage the
-            // cross-context request on the `HostData` FIFO; the shell drains
-            // it (`HostDriver::take_pending_idb_versionchange_requests`),
-            // broadcasts, and each receiving engine fires via
-            // `deliver_idb_versionchange` (the receive half of the wire).
-            if let Some(host) = ctx.vm.host_data.as_deref_mut() {
-                host.enqueue_idb_versionchange_request(
-                    elidex_script_session::IdbVersionChangeRequest {
-                        db_name: name.clone(),
-                        old_version,
-                        new_version: Some(new_version),
-                    },
-                );
-            }
+            // database (see [`enqueue_versionchange`]).
+            enqueue_versionchange(ctx.vm, &name, old_version, Some(new_version));
             let db = database::create_database_wrapper(ctx.vm, handle.name(), handle.version());
             match elidex_indexeddb::IdbTransaction::begin(
                 backend.conn(),
@@ -220,24 +230,14 @@ pub(crate) fn native_idb_delete_database(
     let req = request::create_request(ctx.vm, None, None, true);
     match elidex_indexeddb::database::delete_database(&backend, &name) {
         Ok(old_version) => {
-            // S5-6a B6 (second fire site, the open-upgrade branch's twin): a
-            // deletion must fire `versionchange` (newVersion = null) at OTHER
-            // contexts' open connections (IndexedDB-3 §5.3 *delete a
-            // database* step 6) — stage the cross-context request for the
-            // shell to broadcast.  Gated on existence: step 4 returns 0 for
-            // a nonexistent database BEFORE the step-6 fire, so deleting
-            // nothing broadcasts nothing (`old_version == 0` ⇔ absent —
-            // spec-correct where boa enqueued unconditionally).
+            // Second fire site (the open-upgrade branch's twin): a deletion
+            // fires `versionchange` with newVersion = null (IndexedDB-3 §5.3
+            // *delete a database* step 6).  Existence-gated: step 4 returns
+            // 0 for a nonexistent database BEFORE the step-6 fire, so
+            // deleting nothing broadcasts nothing (`old_version == 0` ⇔
+            // absent — spec-correct where boa enqueued unconditionally).
             if old_version > 0 {
-                if let Some(host) = ctx.vm.host_data.as_deref_mut() {
-                    host.enqueue_idb_versionchange_request(
-                        elidex_script_session::IdbVersionChangeRequest {
-                            db_name: name.clone(),
-                            old_version,
-                            new_version: None,
-                        },
-                    );
-                }
+                enqueue_versionchange(ctx.vm, &name, old_version, None);
             }
             request::async_execute(
                 ctx.vm,

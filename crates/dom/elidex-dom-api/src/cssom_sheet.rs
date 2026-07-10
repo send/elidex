@@ -77,6 +77,19 @@ fn sheet_version(sheet_entity: Entity, dom: &EcsDom) -> u64 {
         )
 }
 
+/// Parse `owner`'s stylesheet source: `<link>` parses its `LinkStylesheet`
+/// component text in place (no clone — the component can be a large
+/// external sheet); `<style>` collects its child text content (HTML §4.6.7
+/// associated style sheet vs `<style>` text node). The single owner-source
+/// parse branch, shared by the CSSOM session cache ([`sync_and_get_state`])
+/// and the cascade re-collection ([`collect_document_stylesheets`]).
+fn parse_owner_source(owner: Entity, dom: &EcsDom) -> Stylesheet {
+    match dom.world().get::<&LinkStylesheet>(owner) {
+        Ok(link) => parse_stylesheet(&link.source, Origin::Author),
+        Err(_) => parse_stylesheet(&collect_text_content(owner, dom), Origin::Author),
+    }
+}
+
 /// Sync the cached `Stylesheet` against the current owner source and
 /// return a mutable reference. Re-parses (and reassigns rule_ids) when
 /// `sheet_version` indicates the source has changed since the last
@@ -93,14 +106,7 @@ fn sync_and_get_state<'a>(
         .get(&sheet_entity)
         .is_none_or(|s| s.snapshot_version != version);
     if needs_reparse {
-        // Parse from the owner source. `<link>` parses its `LinkStylesheet`
-        // component text in place (no clone — the component can be a large
-        // external sheet); `<style>` collects its child text content
-        // (HTML §4.6.7 associated style sheet vs `<style>` text node).
-        let parsed = match dom.world().get::<&LinkStylesheet>(sheet_entity) {
-            Ok(link) => parse_stylesheet(&link.source, Origin::Author),
-            Err(_) => parse_stylesheet(&collect_text_content(sheet_entity, dom), Origin::Author),
-        };
+        let parsed = parse_owner_source(sheet_entity, dom);
         session.cssom_sheets.insert(
             sheet_entity,
             CssomSheetState {
@@ -784,9 +790,10 @@ fn walk_styles_inner(entity: Entity, dom: &EcsDom, visit: &mut impl FnMut(Entity
     // CSSOM §6.8: `document.styleSheets` enumerates every element with an
     // associated CSS style sheet, in tree order. A `<link rel="stylesheet">`
     // gains one once its resource loads (HTML §4.6.7) — signalled by the
-    // `LinkStylesheet` component attached by the resource loader.
-    let is_loaded_link = dom.world().get::<&LinkStylesheet>(entity).is_ok();
-    if is_style || is_loaded_link {
+    // `LinkStylesheet` component attached by the resource loader. The
+    // component lookup short-circuits behind the tag match — a `<style>`
+    // never carries one.
+    if is_style || dom.world().get::<&LinkStylesheet>(entity).is_ok() {
         visit(entity);
     }
     for child in dom.children_iter(entity) {
@@ -816,8 +823,10 @@ fn walk_styles_inner(entity: Entity, dom: &EcsDom, visit: &mut impl FnMut(Entity
 /// is a detach, so a script-removed owner keeps its stamp but drops out
 /// of the collection via the connectedness (tree-walk) filter.
 pub struct CollectedStylesheet {
-    /// The parsed stylesheet as of `version`.
-    pub parsed: Stylesheet,
+    /// The parsed stylesheet as of `version`, shared (`Arc`) with the
+    /// cascade-input `Vec` that [`collect_document_stylesheets`] returns —
+    /// a cache hit is a pointer bump, never a deep `Stylesheet` clone.
+    pub parsed: std::sync::Arc<Stylesheet>,
     /// The owner's `sheet_version` at parse time.
     pub version: u64,
 }
@@ -832,13 +841,19 @@ pub struct CollectedStylesheet {
 /// [`CollectedStylesheet`] stamp.
 ///
 /// Designed to be called every frame: the no-change path is O(#owners)
-/// version compares plus the walk. Removal needs no dedicated signal —
+/// version compares plus `Arc` bumps plus the walk — the returned sheets
+/// are `Arc`-shared with the per-owner stamps, so assembly is pointer
+/// copies and the S5-6b caller can take a fresh `Vec` on every `re_render`
+/// without deep-cloning a stylesheet. Removal needs no dedicated signal —
 /// a script-removed owner is detached, not despawned
 /// (`EcsDom::remove_child` only detaches; the sole `despawn_subtree`
 /// caller is document teardown), so it simply stops being reachable from
 /// `document` and drops out of the walk while remaining a live entity.
 #[must_use]
-pub fn collect_document_stylesheets(document: Entity, dom: &mut EcsDom) -> Vec<Stylesheet> {
+pub fn collect_document_stylesheets(
+    document: Entity,
+    dom: &mut EcsDom,
+) -> Vec<std::sync::Arc<Stylesheet>> {
     let owners = collect_stylesheet_owners(document, dom);
     let mut sheets = Vec::with_capacity(owners.len());
     for owner in owners {
@@ -848,19 +863,15 @@ pub fn collect_document_stylesheets(document: Entity, dom: &mut EcsDom) -> Vec<S
             .get::<&CollectedStylesheet>(owner)
             .ok()
             .filter(|c| c.version == version)
-            .map(|c| c.parsed.clone());
+            .map(|c| std::sync::Arc::clone(&c.parsed));
         if let Some(parsed) = cached {
             sheets.push(parsed);
             continue;
         }
-        // Parse from the owner source — the same source branch as
-        // `sync_and_get_state`: `<link>` parses its `LinkStylesheet`
-        // component text; `<style>` collects its child text content.
-        let parsed = match dom.world().get::<&LinkStylesheet>(owner) {
-            Ok(link) => parse_stylesheet(&link.source, Origin::Author),
-            Err(_) => parse_stylesheet(&collect_text_content(owner, dom), Origin::Author),
-        };
-        sheets.push(parsed.clone());
+        // Miss: one parse (the shared owner-source branch), then two `Arc`
+        // bumps — one for the cascade input, one for the stamp.
+        let parsed = std::sync::Arc::new(parse_owner_source(owner, dom));
+        sheets.push(std::sync::Arc::clone(&parsed));
         // Raw non-instrumented stamp write (see [`CollectedStylesheet`]):
         // routing this through an instrumented mutation path would bump the
         // very versions the collect compares (and the document-root change
@@ -957,6 +968,26 @@ mod tests {
         link
     }
 
+    /// Make a re-parse observable: swap each owner's cached `parsed` for an
+    /// empty sentinel `Arc` while keeping the version stamp. A cache hit
+    /// returns the sentinel; a re-parse would return the real rules again.
+    fn sentinel_swap_cached(dom: &mut EcsDom, owners: &[Entity]) {
+        for &owner in owners {
+            let version = dom
+                .world()
+                .get::<&CollectedStylesheet>(owner)
+                .expect("stamped by a prior collect")
+                .version;
+            let _ = dom.world_mut().insert_one(
+                owner,
+                CollectedStylesheet {
+                    parsed: std::sync::Arc::new(Stylesheet::default()),
+                    version,
+                },
+            );
+        }
+    }
+
     /// Simulate a script CSSOM mutation on `owner`: fill the session cache,
     /// replace the parsed sheet, then flush it back to the owner source —
     /// the same sync → mutate → flush sequence the `InsertRule` handler runs.
@@ -1035,23 +1066,7 @@ mod tests {
             "the stamp write is a raw component insert and must not bump the root version"
         );
 
-        // Make a re-parse observable: swap each cached `parsed` for an empty
-        // sentinel (keeping the version stamp). A cache hit returns the
-        // sentinel; a re-parse would return the real rules again.
-        for owner in [s1, s2] {
-            let version = dom
-                .world()
-                .get::<&CollectedStylesheet>(owner)
-                .expect("stamped by the first collect")
-                .version;
-            let _ = dom.world_mut().insert_one(
-                owner,
-                CollectedStylesheet {
-                    parsed: Stylesheet::default(),
-                    version,
-                },
-            );
-        }
+        sentinel_swap_cached(&mut dom, &[s1, s2]);
         let idle = collect_document_stylesheets(root, &mut dom);
         assert_eq!(idle.len(), 2);
         assert!(
@@ -1078,22 +1093,8 @@ mod tests {
         let untouched = append_style(&mut dom, root, "p { color: blue }");
 
         let _ = collect_document_stylesheets(root, &mut dom);
-        // Sentinel-swap both caches (see the idle test) so a re-parse is
-        // observable per owner.
-        for owner in [changed, untouched] {
-            let version = dom
-                .world()
-                .get::<&CollectedStylesheet>(owner)
-                .expect("stamped")
-                .version;
-            let _ = dom.world_mut().insert_one(
-                owner,
-                CollectedStylesheet {
-                    parsed: Stylesheet::default(),
-                    version,
-                },
-            );
-        }
+        // Sentinel-swap both caches so a re-parse is observable per owner.
+        sentinel_swap_cached(&mut dom, &[changed, untouched]);
 
         // Edit the first <style>'s text through the instrumented mutation
         // path (a script `textContent` write shape): its subtree version

@@ -534,13 +534,16 @@ those sources into cascade input. Deleting the shadow-sync without a replacement
 - **Re-collection seam**: a new engine-indep `elidex-dom-api::collect_document_stylesheets(&mut
   EcsDom) -> …` that **lazily compares per-owner versions against a cached stamp** and re-parses
   (`elidex_css::parse_stylesheet`) only changed owners. `re_render` calls it **every frame** —
-  O(#owners) version compares on the no-change path, the same O(1)-per-owner discipline
-  `cssom_sheet.rs` documents. **Cache home (CLAUDE.md side-store rule)**: the parsed-stylesheet +
-  version stamp is per-entity, `Send + Sync`, derived state → an **ECS component on the owner
-  entity** (`CollectedStylesheet { parsed: Stylesheet, version: u64 }`) — SameObject-free derived
-  data, despawn = automatic cleanup (at document teardown — mid-life removal is a detach, see the
-  scope-bound bullet/I1), no entity-keyed side map. `PipelineResult.stylesheets` remains
-  the assembled cascade-input Vec, rebuilt from the components when any owner's version moved.
+  O(#owners) version compares + `Arc` bumps on the no-change path, the same O(1)-per-owner
+  discipline `cssom_sheet.rs` documents. **Cache home (CLAUDE.md side-store rule)**: the
+  parsed-stylesheet + version stamp is per-entity, `Send + Sync`, derived state → an **ECS
+  component on the owner entity** (`CollectedStylesheet { parsed: Arc<Stylesheet>, version: u64 }`
+  — the `Arc` is a /simplify-stage representation refinement, not a design change: cache hits and
+  cascade-input assembly are pointer copies, never a deep `Stylesheet` clone) — SameObject-free
+  derived data, despawn = automatic cleanup (at document teardown — mid-life removal is a detach,
+  see the scope-bound bullet/I1), no entity-keyed side map. `PipelineResult.stylesheets` remains
+  the assembled cascade-input Vec (`Arc`-shared with the stamps), rebuilt from the components when
+  any owner's version moved.
 - **Stamp write must not self-trigger (round-3 H2, investigated)**: the version instrumentation is
   **explicit, not hecs-level** — `rev_version(entity)` (`elidex-ecs/src/dom/mod.rs:710`, the
   Servo-style ancestor-propagating bump) is called only from the DOM mutation methods
@@ -988,7 +991,7 @@ consumer until 6b, **the test IS the connection**):
 | B16 parent-message queue | `iframe_depth > 0` ⇒ postMessage enqueues to the parent FIFO (self-delivery suppressed); depth 0 ⇒ self-delivers, FIFO stays empty |
 | B21 IDB deliver | `deliver_idb_versionchange(db, old, new)` fires `versionchange` on this VM's open connections (in-VM listener observes it); no open connection ⇒ no-op |
 | B26 console accessor | `console.log/warn/error` tee into the capture buffer; accessor returns them in order; buffer bounded |
-| §4.2 re-collection | unit oracle in 6a: `collect_document_stylesheets` picks up a written-back `<style>`/`LinkStylesheet` source, re-parses ONLY the changed owner, an idle pass does zero re-parse + zero stamp-key movement, AND the `<link>`-arm write-back moves the root version (the I2 option-A bump) without dirtying the per-owner compare (E11, both directions) |
+| §4.2 re-collection | unit oracle in 6a: `collect_document_stylesheets` picks up a written-back `<style>`/`LinkStylesheet` source, re-parses ONLY the changed owner (a hit = an `Arc` bump — the /simplify-stage `Arc<Stylesheet>` form), an idle pass does zero re-parse + zero stamp-key movement, AND the `<link>`-arm write-back moves the root version (the I2 option-A bump) without dirtying the per-owner compare (E11, both directions) |
 | §4.3.7 extraction | the 4 swapped call sites green against the `elidex-navigation` entry with boa still live (H8 — the one 6a change with a live shell oracle) |
 
 ### §7.2 New flip tests (the live conversions + additions)

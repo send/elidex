@@ -747,7 +747,7 @@ pub(super) const CONSOLE_CAPTURE_LIMIT: usize = 1024;
 fn console_output(
     ctx: &mut NativeContext<'_>,
     args: &[JsValue],
-    level: &str,
+    level: &'static str,
 ) -> Result<JsValue, VmError> {
     let parts: Vec<String> = args
         .iter()
@@ -766,9 +766,7 @@ fn console_output(
     if ctx.vm.console_capture.len() >= CONSOLE_CAPTURE_LIMIT {
         ctx.vm.console_capture.pop_front();
     }
-    ctx.vm
-        .console_capture
-        .push_back((level.to_string(), message));
+    ctx.vm.console_capture.push_back((level, message));
     Ok(JsValue::Undefined)
 }
 

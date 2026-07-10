@@ -281,11 +281,12 @@ pub(crate) struct VmInner {
     pub(crate) active_bound_key: Option<value::StringId>,
     /// Bounded per-VM console-capture buffer: `(level, message)` pairs the
     /// console print natives tee into alongside their stderr output (WHATWG
-    /// Console §2). A retrievable test oracle for embedders
-    /// ([`Vm::console_messages`], the S5-6 B26 accessor replacing the boa
-    /// runtime's `ConsoleOutput` capture); oldest entries drop first once
-    /// [`natives::CONSOLE_CAPTURE_LIMIT`] is reached.
-    pub(crate) console_capture: VecDeque<(String, String)>,
+    /// Console §2). The level is always one of the natives' static literals
+    /// (`"log"` / `"warn"` / …), so it is stored un-allocated. A retrievable
+    /// test oracle for embedders ([`Vm::console_messages`], the S5-6 B26
+    /// accessor replacing the boa runtime's `ConsoleOutput` capture); oldest
+    /// entries drop first once [`natives::CONSOLE_CAPTURE_LIMIT`] is reached.
+    pub(crate) console_capture: VecDeque<(&'static str, String)>,
     /// Host-provided data for browser shell integration (event listeners,
     /// DOM wrappers, timers, etc.).  `None` when the VM runs standalone
     /// (e.g., in unit tests without the `engine` feature).

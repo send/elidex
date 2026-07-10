@@ -523,17 +523,9 @@ pub(super) fn native_window_post_message(
         .map_or(0, super::super::host_data::HostData::iframe_depth);
     if iframe_depth > 0 {
         let target_origin_str = ctx.vm.strings.get_utf8(target_origin);
-        if target_origin_str != "*"
-            && target_origin_str != "/"
-            && url::Url::parse(&target_origin_str).is_err()
-        {
-            return Err(VmError::dom_exception(
-                ctx.vm.well_known.dom_exc_syntax_error,
-                format!(
-                    "Failed to execute 'postMessage' on 'Window': Invalid target origin '{target_origin_str}'.",
-                ),
-            ));
-        }
+        // Sender-side syntax validation only (the shared validator); the
+        // origin GATE rides the payload to the receiving side.
+        let _ = validate_target_origin(ctx.vm, &target_origin_str)?;
         let data_sid = coerce::to_string(ctx.vm, message)?;
         let data = ctx.vm.strings.get_utf8(data_sid);
         if let Some(host) = ctx.vm.host_data.as_deref_mut() {
@@ -649,6 +641,31 @@ fn compute_own_origin_sid(vm: &mut VmInner) -> StringId {
     vm.strings.intern(&origin_str)
 }
 
+/// Syntax-validate a `targetOrigin` string (WHATWG HTML §9.3.3's
+/// sender-side parse step): `"*"` and `"/"` are keywords (no parse,
+/// returns `None`); anything else must parse as a URL — `SyntaxError`
+/// otherwise — and returns the parsed URL for the caller's origin
+/// compare.  Shared by [`match_target_origin`] (the same-window gate) and
+/// the iframe→parent enqueue branch (which validates syntax but defers
+/// the origin gate to the receiving side).
+fn validate_target_origin(
+    vm: &VmInner,
+    target_origin_str: &str,
+) -> Result<Option<url::Url>, VmError> {
+    if target_origin_str == "*" || target_origin_str == "/" {
+        return Ok(None);
+    }
+    match url::Url::parse(target_origin_str) {
+        Ok(u) => Ok(Some(u)),
+        Err(_) => Err(VmError::dom_exception(
+            vm.well_known.dom_exc_syntax_error,
+            format!(
+                "Failed to execute 'postMessage' on 'Window': Invalid target origin '{target_origin_str}'.",
+            ),
+        )),
+    }
+}
+
 /// Match `targetOrigin` against own origin.
 ///
 /// - `"*"` → always match.
@@ -657,31 +674,21 @@ fn compute_own_origin_sid(vm: &mut VmInner) -> StringId {
 ///   share the settings object), so the comparison is trivially
 ///   satisfied and we short-circuit to `true`.  Cross-window
 ///   postMessage (PR5d) adds the actual own-vs-target comparison.
-/// - otherwise → parse as URL; `SyntaxError` on failure, then
-///   compare the parsed URL's origin to own origin.
+/// - otherwise → parse as URL ([`validate_target_origin`]; `SyntaxError`
+///   on failure), then compare the parsed URL's origin to own origin.
 fn match_target_origin(
     ctx: &mut NativeContext<'_>,
     target_origin: StringId,
     own_origin_sid: StringId,
 ) -> Result<bool, VmError> {
     let target_origin_str = ctx.vm.strings.get_utf8(target_origin);
-    if target_origin_str == "*" {
-        return Ok(true);
-    }
-    if target_origin_str == "/" {
-        return Ok(true); // same window ⇒ always own origin
-    }
-    match url::Url::parse(&target_origin_str) {
-        Ok(u) => {
+    match validate_target_origin(ctx.vm, &target_origin_str)? {
+        // Keyword: "*" always matches; "/" ⇒ same window ⇒ always own origin.
+        None => Ok(true),
+        Some(u) => {
             let target_origin_serialized = u.origin().ascii_serialization();
             let own_origin_str = ctx.vm.strings.get_utf8(own_origin_sid);
             Ok(target_origin_serialized == own_origin_str)
         }
-        Err(_) => Err(VmError::dom_exception(
-            ctx.vm.well_known.dom_exc_syntax_error,
-            format!(
-                "Failed to execute 'postMessage' on 'Window': Invalid target origin '{target_origin_str}'.",
-            ),
-        )),
     }
 }

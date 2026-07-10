@@ -117,7 +117,13 @@ impl Vm {
     /// embedder tests, not by page script.
     #[must_use]
     pub fn console_messages(&self) -> Vec<(String, String)> {
-        self.inner.console_capture.iter().cloned().collect()
+        // The buffer stores the level as the natives' `&'static str` literal;
+        // owned pairs are built only here, at the test-oracle read.
+        self.inner
+            .console_capture
+            .iter()
+            .map(|(level, message)| ((*level).to_string(), message.clone()))
+            .collect()
     }
 
     /// Install a `HostData` instance for browser shell integration.
