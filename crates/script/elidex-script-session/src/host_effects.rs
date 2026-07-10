@@ -71,6 +71,16 @@ pub struct StorageChange {
 /// — the receive half of the same §4.2 wire.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct IdbVersionChangeRequest {
+    /// The serialized origin that owns the database, captured at ENQUEUE time
+    /// (IndexedDB is origin-partitioned; the shell broadcasts `versionchange`
+    /// only to same-origin contexts).  Carried on the request rather than
+    /// inferred at drain — a navigation between enqueue and drain, or a
+    /// sandbox/opaque origin override, would mislocate a drain-side guess.
+    /// Matches the `origin` field the shell IPC (`ContentToBrowser::
+    /// IdbVersionChangeRequest`) already requires.  (The cross-tab
+    /// `request_id` correlation key rides the deferred connection-queue work
+    /// — `#11-idb-connection-queue` — where the correlation scheme is defined.)
+    pub origin: String,
     /// The database name.
     pub db_name: String,
     /// The database's current version at the time of the request.
@@ -102,6 +112,17 @@ pub struct ParentMessage {
     /// The message payload, `ToString`-serialized (the boa-parity interim
     /// wire format; structured serialization rides the S5-8/B1 model).
     pub data: String,
+    /// The SENDER's serialized origin (incumbentSettings's origin, §9.3.3),
+    /// captured at ENQUEUE via the canonical `document_origin().serialize()`
+    /// — identity-preserving: an opaque/sandbox sender serializes to
+    /// `opaque-origin:<nonce>` (the same wire form as `StorageChange.origin`),
+    /// NOT a lossy `"null"`.  Feeds the parent-side `MessageEvent.origin`; the
+    /// §9.3.3 opaque→`"null"` JS-facing projection is applied on the receiving
+    /// side.  Distinct from `target_origin`: the receiver needs the sender
+    /// origin (this) for `MessageEvent.origin` AND the gate input (below) for
+    /// delivery.  Matches the `origin` field the shell IPC
+    /// (`IframeToBrowser::PostMessage`) already requires.
+    pub origin: String,
     /// The `targetOrigin` gate input: `"*"`, or a URL/origin string
     /// (syntax-validated at the call site per §9.3.3).  A `"/"` argument is
     /// **already resolved to the SENDER's serialized origin at send time**

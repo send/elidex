@@ -289,6 +289,7 @@ mod storage {
 #[test]
 fn open_with_higher_version_enqueues_versionchange_request() {
     let (mut engine, mut session, mut dom, doc) = fresh_unbound();
+    engine.set_current_url(Some(url("https://example.com/page")));
     let mut ctx = ScriptContext::new(&mut session, &mut dom, doc);
     bind_engine(&mut engine, &mut ctx);
     // Fresh (lazily-created in-memory) backend: version 0 → 3 upgrade.
@@ -301,6 +302,8 @@ fn open_with_higher_version_enqueues_versionchange_request() {
     assert_eq!(reqs[0].db_name, "mydb");
     assert_eq!(reqs[0].old_version, 0);
     assert_eq!(reqs[0].new_version, Some(3));
+    // Owning origin captured at enqueue (the shell's same-origin broadcast key).
+    assert_eq!(reqs[0].origin, "https://example.com");
     // Drain-once: a second take is empty.
     assert!(engine.take_pending_idb_versionchange_requests().is_empty());
 }
@@ -325,6 +328,7 @@ fn reopen_at_current_version_enqueues_nothing() {
 #[test]
 fn delete_database_enqueues_versionchange_request_with_null_new_version() {
     let (mut engine, mut session, mut dom, doc) = fresh_unbound();
+    engine.set_current_url(Some(url("https://example.com/page")));
     let mut ctx = ScriptContext::new(&mut session, &mut dom, doc);
     bind_engine(&mut engine, &mut ctx);
     // Create the database at version 2 (this open enqueues its own request —
@@ -343,6 +347,8 @@ fn delete_database_enqueues_versionchange_request_with_null_new_version() {
     assert_eq!(reqs[0].db_name, "deldb");
     assert_eq!(reqs[0].old_version, 2);
     assert_eq!(reqs[0].new_version, None);
+    // Owning origin captured at enqueue (same as the upgrade path).
+    assert_eq!(reqs[0].origin, "https://example.com");
 }
 
 #[test]
@@ -387,6 +393,7 @@ fn window_focus_sets_pending_flag_and_take_drains_it() {
 #[test]
 fn iframe_depth_routes_post_message_to_parent_fifo() {
     let (mut engine, mut session, mut dom, doc) = fresh_unbound();
+    engine.set_current_url(Some(url("https://iframe.example/child")));
     engine.set_iframe_depth(1);
     let mut ctx = ScriptContext::new(&mut session, &mut dom, doc);
     bind_engine(&mut engine, &mut ctx);
@@ -418,6 +425,10 @@ fn iframe_depth_routes_post_message_to_parent_fifo() {
     assert_eq!(msgs[0].target_origin, "https://parent.example");
     assert_eq!(msgs[1].data, "again");
     assert_eq!(msgs[1].target_origin, "*");
+    // Sender origin (→ MessageEvent.origin) is captured at enqueue on every
+    // message, independent of the per-message targetOrigin gate.
+    assert_eq!(msgs[0].origin, "https://iframe.example");
+    assert_eq!(msgs[1].origin, "https://iframe.example");
     // Drain-once: a second take is empty.
     assert!(engine.take_pending_parent_messages().is_empty());
 }
@@ -431,6 +442,7 @@ fn iframe_depth_routes_post_message_to_parent_fifo() {
 #[test]
 fn iframe_post_message_target_origin_normalized_to_origin() {
     let (mut engine, mut session, mut dom, doc) = fresh_unbound();
+    engine.set_current_url(Some(url("https://iframe.example/child")));
     engine.set_iframe_depth(1);
     let mut ctx = ScriptContext::new(&mut session, &mut dom, doc);
     bind_engine(&mut engine, &mut ctx);
@@ -446,6 +458,8 @@ fn iframe_post_message_target_origin_normalized_to_origin() {
     assert_eq!(msgs.len(), 1, "{msgs:?}");
     // Origin only: scheme + host + non-default port, no path/query/fragment.
     assert_eq!(msgs[0].target_origin, "https://parent.example:8443");
+    // Sender origin captured at enqueue (→ MessageEvent.origin).
+    assert_eq!(msgs[0].origin, "https://iframe.example");
 }
 
 #[test]

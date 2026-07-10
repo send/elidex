@@ -69,8 +69,14 @@ fn enqueue_versionchange(
     old_version: u64,
     new_version: Option<u64>,
 ) {
+    // The owning origin, captured HERE at enqueue (IndexedDB is
+    // origin-partitioned; the shell routes `versionchange` to same-origin
+    // contexts only). Inferring it at drain would mislocate it across a
+    // navigation or a sandbox/opaque override.
+    let origin = vm.document_origin().serialize();
     if let Some(host) = vm.host_data.as_deref_mut() {
         host.enqueue_idb_versionchange_request(elidex_script_session::IdbVersionChangeRequest {
+            origin,
             db_name: db_name.to_string(),
             old_version,
             new_version,

@@ -556,9 +556,14 @@ pub(super) fn native_window_post_message(
         };
         let data_sid = coerce::to_string(ctx.vm, message)?;
         let data = ctx.vm.strings.get_utf8(data_sid);
+        // Sender origin (→ parent-side `MessageEvent.origin`, §9.3.3),
+        // captured HERE where incumbentSettings's origin is authoritative —
+        // opaque/sandbox senders serialize to `"null"`, the correct value.
+        let origin = ctx.vm.document_origin().serialize();
         if let Some(host) = ctx.vm.host_data.as_deref_mut() {
             host.enqueue_parent_message(elidex_script_session::ParentMessage {
                 data,
+                origin,
                 target_origin,
             });
         }
