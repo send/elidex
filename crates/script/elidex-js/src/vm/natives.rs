@@ -744,6 +744,16 @@ fn format_value_for_console(vm: &mut VmInner, val: JsValue) -> String {
 /// so a chatty page cannot grow the test-oracle buffer without bound.
 pub(super) const CONSOLE_CAPTURE_LIMIT: usize = 1024;
 
+/// Per-message byte cap for the capture buffer. The buffer is an
+/// always-on embedder/test oracle, not page-visible state, so the count
+/// cap alone is not enough — a page logging a few multi-MB values would
+/// keep those cloned strings alive across batch unbinds. Each captured
+/// message is truncated to this many bytes (the `eprintln!` above still
+/// emits the full text), bounding the whole buffer to
+/// `CONSOLE_CAPTURE_LIMIT * CONSOLE_CAPTURE_MSG_BYTES`. Realistic test
+/// oracle strings are far under this.
+pub(super) const CONSOLE_CAPTURE_MSG_BYTES: usize = 4096;
+
 fn console_output(
     ctx: &mut NativeContext<'_>,
     args: &[JsValue],
@@ -762,11 +772,27 @@ fn console_output(
         eprintln!("[{level}] {message}");
     }
     // Tee into the bounded per-VM capture buffer — the retrievable console
-    // oracle for embedder tests (`Vm::console_messages`, S5-6 B26).
+    // oracle for embedder tests (`Vm::console_messages`, S5-6 B26). Bound by
+    // BOTH entry count and per-message bytes (the full text already went to
+    // `eprintln!`; the oracle keeps a truncated copy so a page logging
+    // multi-MB values cannot retain them across batch unbinds).
+    let captured = if message.len() > CONSOLE_CAPTURE_MSG_BYTES {
+        let mut end = CONSOLE_CAPTURE_MSG_BYTES;
+        while !message.is_char_boundary(end) {
+            end -= 1;
+        }
+        format!(
+            "{}…[{} bytes truncated]",
+            &message[..end],
+            message.len() - end
+        )
+    } else {
+        message
+    };
     if ctx.vm.console_capture.len() >= CONSOLE_CAPTURE_LIMIT {
         ctx.vm.console_capture.pop_front();
     }
-    ctx.vm.console_capture.push_back((level, message));
+    ctx.vm.console_capture.push_back((level, captured));
     Ok(JsValue::Undefined)
 }
 

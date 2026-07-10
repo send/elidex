@@ -25,28 +25,24 @@ mod engine_feature {
     #[cfg(feature = "compat-webapi")]
     use elidex_storage_core::{SessionStorageState, WebStorageManager};
     use std::collections::{HashMap, HashSet};
-    // Used only by the (compat-webapi-gated) opaque-origin counter.
-    #[cfg(feature = "compat-webapi")]
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::sync::Arc;
 
     /// Per-process counter for opaque-origin sentinels (e.g. `about:blank`,
     /// `data:` URLs).  Each `HostData` claims one ID at construction time
-    /// and uses it to scope `localStorage` entries so two opaque-origin
-    /// VMs do not see each other's data through the manager's
-    /// origin-keyed registry.  Resets on process restart.
-    /// A2: used only for `localStorage` scoping — `compat-webapi`-gated.
-    #[cfg(feature = "compat-webapi")]
+    /// and uses it as the identity-preserving storage-partition key for
+    /// origin-scoped surfaces (`localStorage` AND IndexedDB versionchange —
+    /// see `VmInner::storage_origin_key`) so two opaque-origin VMs do not
+    /// alias.  Resets on process restart.  NOT `compat-webapi`-gated: the
+    /// IndexedDB broadcast key needs it in `engine`-only builds too.
     static OPAQUE_ORIGIN_COUNTER: AtomicU64 = AtomicU64::new(0);
 
     /// Prefix on per-VM opaque-origin sentinel strings.  Distinct
     /// from any `url::Origin::ascii_serialization()` output (which is
     /// always `scheme://host[:port]`) so the sentinel cannot collide
     /// with a real origin.
-    #[cfg(feature = "compat-webapi")]
     const OPAQUE_ORIGIN_PREFIX: &str = "opaque-origin:";
 
-    #[cfg(feature = "compat-webapi")]
     fn next_opaque_origin_id() -> String {
         let n = OPAQUE_ORIGIN_COUNTER.fetch_add(1, Ordering::Relaxed);
         format!("{OPAQUE_ORIGIN_PREFIX}{n}")
@@ -393,9 +389,9 @@ mod engine_feature {
         /// opaque origin (`about:blank`, `data:`, …).  Generated at
         /// `HostData::new` via [`OPAQUE_ORIGIN_COUNTER`] so two such
         /// VMs in the same process do not alias on the manager's
-        /// origin-keyed registry.
-        /// A2: only `localStorage` scoping reads it — `compat-webapi`-gated.
-        #[cfg(feature = "compat-webapi")]
+        /// origin-keyed registry.  Read by both `localStorage` scoping and
+        /// the IndexedDB versionchange broadcast key (via
+        /// `VmInner::storage_origin_key`), so NOT `compat-webapi`-gated.
         opaque_origin_sentinel: String,
         /// Fallback in-memory `localStorage` used when no
         /// `WebStorageManager` is installed.  Same `IndexMap` shape
@@ -877,7 +873,6 @@ mod engine_feature {
                 cache_backend: None,
                 #[cfg(feature = "compat-webapi")]
                 session_storage: SessionStorageState::new(),
-                #[cfg(feature = "compat-webapi")]
                 opaque_origin_sentinel: next_opaque_origin_id(),
                 #[cfg(feature = "compat-webapi")]
                 fallback_local_storage: SessionStorageState::new(),
@@ -1064,9 +1059,9 @@ mod engine_feature {
         }
 
         /// Stable per-VM opaque-origin string (e.g. `"opaque-origin:7"`).
-        /// Used by `vm/host/storage.rs` for `localStorage` scoping when
-        /// the current navigation URL's origin is opaque.
-        #[cfg(feature = "compat-webapi")]
+        /// The identity-preserving storage-partition key for an opaque document,
+        /// shared by `localStorage` scoping and the IndexedDB versionchange
+        /// broadcast key (`VmInner::storage_origin_key`).
         pub(crate) fn opaque_origin_sentinel(&self) -> &str {
             &self.opaque_origin_sentinel
         }

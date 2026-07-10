@@ -6,7 +6,7 @@
 //! assert on the bounded per-VM tee buffer behind
 //! [`Vm::console_messages`] (the S5-6 B26 test-oracle accessor).
 
-use super::super::natives::CONSOLE_CAPTURE_LIMIT;
+use super::super::natives::{CONSOLE_CAPTURE_LIMIT, CONSOLE_CAPTURE_MSG_BYTES};
 use super::super::Vm;
 use super::{eval_bool, eval_number, eval_string};
 
@@ -150,4 +150,37 @@ fn console_capture_is_bounded_dropping_oldest() {
     // Oldest entries dropped: the buffer starts at m5 and ends at the last.
     assert_eq!(msgs[0].1, "m5");
     assert_eq!(msgs[msgs.len() - 1].1, format!("m{}", n - 1));
+}
+
+/// Regression (Codex PR#453 R9): the always-on capture oracle bounds each
+/// entry by BYTES, not just count — a page logging a multi-MB value cannot
+/// retain it. The full text still went to `eprintln!`; only the retained copy
+/// is truncated.
+#[test]
+fn console_capture_truncates_oversized_messages() {
+    let mut vm = Vm::new();
+    let huge = CONSOLE_CAPTURE_MSG_BYTES * 4;
+    vm.eval(&format!("console.log('x'.repeat({huge}));"))
+        .unwrap();
+    let msgs = vm.console_messages();
+    assert_eq!(msgs.len(), 1);
+    let captured = &msgs[0].1;
+    assert!(
+        captured.len() < huge,
+        "oversized message must be truncated, kept {} of {huge} bytes",
+        captured.len()
+    );
+    assert!(
+        captured.len() <= CONSOLE_CAPTURE_MSG_BYTES + 64,
+        "retained bytes must be bounded by the per-message cap (+ marker), got {}",
+        captured.len()
+    );
+    assert!(
+        captured.contains("bytes truncated"),
+        "carries a truncation marker"
+    );
+    // A small message is retained verbatim (no truncation marker).
+    vm.eval("console.log('small');").unwrap();
+    let msgs = vm.console_messages();
+    assert_eq!(msgs[msgs.len() - 1].1, "small");
 }
