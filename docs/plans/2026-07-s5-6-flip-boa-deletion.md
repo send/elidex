@@ -720,14 +720,15 @@ membership), payload types on `elidex-script-session` (engine-indep, mirroring
   `take_pending_parent_messages() -> Vec<ParentMessage>` (named payload: `data` — the boa-parity
   `ToString` wire form — + `origin` [the SENDER's serialized origin → parent-side `MessageEvent.origin`,
   captured at enqueue] + `target_origin`); `iframe/thread.rs:113` converges. **The sender RESOLVES
-  `targetOrigin` at send time** (§9.3.3 steps 4–5, NOT verbatim as earlier plan text said): a URL
-  target → its parsed URL's ORIGIN serialization, `"/"` → the sender's origin, `"*"` rides verbatim —
-  so the receiver-side gate compares origin-to-origin. The §9.3.3 targetOrigin gate itself is applied
-  at the **receiving** side (S5-6b B16): it compares against the TARGET (parent) window's origin,
-  which the iframe VM cannot know. **⚠ S5-6b B16 requirement**: the gate must key on the
-  identity-preserving `storage_origin_key`, NOT the display `"null"` (an opaque `/`/URL target
-  serializes to `"null"` and would alias distinct opaque parents — the same aliasing class the IDB
-  broadcast key already avoids). Replaced wholesale by the S5-8/B1 WindowProxy model.
+  `targetOrigin` at send time to an IDENTITY-PRESERVING gate key** (§9.3.3 steps 4–5, NOT verbatim as
+  earlier plan text said), so the wire is never a lossy `"null"`: a URL target with a TUPLE origin →
+  its origin serialization; `"/"` → the sender's `storage_origin_key` (opaque sender → the per-VM
+  sentinel, never `"null"`); `"*"` rides verbatim; an OPAQUE URL target (`data:`) is a fresh opaque
+  that can never be same-origin with the parent, so it is **FAIL-CLOSED at the send site** (dropped,
+  not enqueued). The §9.3.3 targetOrigin gate itself is applied at the **receiving** side (S5-6b B16):
+  it compares the parent origin's `storage_origin_key` against this key (or honours `"*"`) — with no
+  `"null"` case to disambiguate, opaque origins cannot alias. Replaced wholesale by the S5-8/B1
+  WindowProxy model.
 - **Web-storage install** (B4): `install_web_storage(Arc<WebStorageManager>)` on the install group
   (§4.3.3).
 

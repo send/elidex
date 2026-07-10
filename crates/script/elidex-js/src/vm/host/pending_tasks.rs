@@ -534,24 +534,33 @@ pub(super) fn native_window_post_message(
         .as_deref()
         .map_or(0, super::super::host_data::HostData::iframe_depth);
     if iframe_depth > 0 {
-        // §9.3.3 RESOLVES `targetOrigin` at send time, so the payload carries an
-        // already-normalized origin and the receiving-side gate compares
-        // origin-to-origin:
-        //   - step 5.3: a URL target → its parsed URL's ORIGIN (serialized),
-        //     NOT the raw URL.  Carried verbatim, `https://parent.example/path`
-        //     would be origin-compared against `https://parent.example` on the
-        //     receiving side and a legitimately same-origin message would be
-        //     dropped.  `ascii_serialization()` matches `match_target_origin`'s
-        //     target-side form (the same-window gate), so both gates agree.
-        //   - step 4: "/" → the SENDER's origin (incumbentSettings's origin).
-        //     Resolved HERE — carried verbatim the receiver gate (which
-        //     compares against the PARENT's origin) would read "/" as its own
-        //     origin and always pass: a cross-origin delivery bypass.
-        //   - "*" (parse → `None`, not "/") rides verbatim: the receiver
-        //     treats it as "any origin".
+        // §9.3.3 RESOLVES `targetOrigin` at send time; the payload carries an
+        // IDENTITY-PRESERVING origin key so the receiving-side gate can compare
+        // origin-to-origin WITHOUT aliasing distinct opaque origins (a display
+        // `"null"` would let any opaque parent match any opaque target):
+        //   - step 5.3: a URL target → its parsed URL's ORIGIN. A TUPLE origin
+        //     serializes (`ascii_serialization()` matches `match_target_origin`'s
+        //     target-side form); an OPAQUE URL origin (e.g. `data:`) is a FRESH
+        //     opaque that can never be same-origin with the parent, so the
+        //     message is undeliverable — FAIL CLOSED (drop, don't enqueue)
+        //     rather than emit a lossy `"null"` for the future gate to alias.
+        //   - step 4: "/" → the SENDER's origin as its identity-preserving
+        //     `storage_origin_key` (opaque sender → the per-VM sentinel, NOT
+        //     `"null"`; a tuple sender → its serialization).  Resolved HERE —
+        //     carried verbatim the receiver gate (which compares against the
+        //     PARENT's origin) would read "/" as its own origin and always pass.
+        //   - "*" (parse → `None`, not "/") rides verbatim: any origin.
         let target_origin = match &parsed_target {
-            Some(parsed) => parsed.origin().ascii_serialization(),
-            None if target_origin_str == "/" => ctx.vm.document_origin().serialize(),
+            Some(parsed) => {
+                let parsed_origin = parsed.origin();
+                if parsed_origin.is_tuple() {
+                    parsed_origin.ascii_serialization()
+                } else {
+                    // Opaque URL target: undeliverable → fail closed.
+                    return Ok(JsValue::Undefined);
+                }
+            }
+            None if target_origin_str == "/" => ctx.vm.storage_origin_key(),
             None => target_origin_str,
         };
         let data_sid = coerce::to_string(ctx.vm, message)?;

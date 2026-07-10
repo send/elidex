@@ -519,6 +519,62 @@ fn iframe_post_message_opaque_sender_origin_is_null() {
     assert_eq!(msgs[0].origin, "null");
 }
 
+/// Regression (Codex PR#453 R11, P1): an opaque sender's `"/"` targetOrigin must
+/// carry the IDENTITY-PRESERVING key (the per-VM sentinel), NOT the display
+/// `"null"` — otherwise the future receiver gate would let any opaque parent
+/// match. (The `MessageEvent.origin` sender field stays the display `"null"`;
+/// only the gate KEY is identity-preserving.)
+#[test]
+fn iframe_post_message_opaque_sender_slash_target_is_identity_key() {
+    // No `set_current_url` → opaque sender origin.
+    let (mut engine, mut session, mut dom, doc) = fresh_unbound();
+    engine.set_iframe_depth(1);
+    let mut ctx = ScriptContext::new(&mut session, &mut dom, doc);
+    bind_engine(&mut engine, &mut ctx);
+    let r = ScriptEngine::eval(&mut engine, "window.postMessage('m', '/');", &mut ctx);
+    assert!(r.success, "{:?}", r.error);
+    engine.unbind();
+
+    let msgs = engine.take_pending_parent_messages();
+    assert_eq!(msgs.len(), 1, "{msgs:?}");
+    // The gate KEY is the identity-preserving sentinel...
+    assert!(
+        msgs[0].target_origin.starts_with("opaque-origin:"),
+        "opaque '/' gate key must be the identity sentinel, got {:?}",
+        msgs[0].target_origin
+    );
+    assert_ne!(msgs[0].target_origin, "null");
+    // ...while the displayed sender origin stays the spec `"null"`.
+    assert_eq!(msgs[0].origin, "null");
+}
+
+/// Regression (Codex PR#453 R11): an opaque URL targetOrigin (e.g. `data:`) is a
+/// fresh opaque that can never be same-origin with the parent, so the message is
+/// undeliverable and FAIL-CLOSED at the send site — never enqueued with a lossy
+/// `"null"` gate the receiver could alias.
+#[test]
+fn iframe_post_message_opaque_url_target_is_fail_closed() {
+    let (mut engine, mut session, mut dom, doc) = fresh_unbound();
+    engine.set_current_url(Some(url("https://iframe.example/child")));
+    engine.set_iframe_depth(1);
+    let mut ctx = ScriptContext::new(&mut session, &mut dom, doc);
+    bind_engine(&mut engine, &mut ctx);
+    // A valid, syntactically-parseable URL whose origin is opaque.
+    let r = ScriptEngine::eval(
+        &mut engine,
+        "window.postMessage('m', 'data:text/html,x');",
+        &mut ctx,
+    );
+    assert!(r.success, "{:?}", r.error);
+    engine.unbind();
+
+    // Fail-closed: undeliverable opaque target → nothing enqueued.
+    assert!(
+        engine.take_pending_parent_messages().is_empty(),
+        "opaque URL target must be dropped at the send site"
+    );
+}
+
 #[test]
 fn top_level_post_message_self_delivers_and_fifo_stays_empty() {
     let (mut engine, mut session, mut dom, doc) = fresh_unbound();

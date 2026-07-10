@@ -138,13 +138,21 @@ pub struct ParentMessage {
     /// gate input (below) for delivery.  Matches the `origin` field the shell IPC
     /// (`IframeToBrowser::PostMessage`) already requires.
     pub origin: String,
-    /// The `targetOrigin` gate input: `"*"`, or a URL/origin string
-    /// (syntax-validated at the call site per §9.3.3).  A `"/"` argument is
-    /// **already resolved to the SENDER's serialized origin at send time**
-    /// (the window-post-message steps' solidus step resolves `"/"` to
-    /// incumbentSettings's origin) — carried verbatim, the receiver-side
-    /// gate would read `"/"` against the PARENT's origin and always pass, a
-    /// cross-origin delivery bypass.  The receiving side applies the gate
-    /// against the target (parent) window's origin.
+    /// The `targetOrigin` gate input, an IDENTITY-PRESERVING origin key
+    /// resolved at send time (§9.3.3 steps 4–5) so the receiving-side gate
+    /// never aliases distinct opaque origins:
+    /// - `"*"` — any origin.
+    /// - `"/"` — resolved to the SENDER's `storage_origin_key` (a tuple
+    ///   serialization, or the per-VM opaque **sentinel**, never `"null"`) so
+    ///   an opaque sender's `"/"` gate matches only its own opaque origin.
+    /// - a URL target — its parsed URL's TUPLE origin serialization. An opaque
+    ///   URL origin (`data:`) is a fresh opaque that can never be same-origin
+    ///   with the parent, so such messages are FAIL-CLOSED at the send site
+    ///   (never enqueued) — the string is therefore never `"null"`.
+    ///
+    /// So the receiving gate (S5-6b B16) compares the parent origin's
+    /// `storage_origin_key` against this key (or honours `"*"`), with no lossy
+    /// `"null"` case to disambiguate. Distinct from `origin` above, which is the
+    /// DISPLAYED sender origin (`MessageEvent.origin`, where opaque IS `"null"`).
     pub target_origin: String,
 }
