@@ -377,6 +377,25 @@ fn post_message_nonempty_transfer_throws_data_clone_error() {
     vm.unbind();
 }
 
+/// Regression (Codex PR#453 re-review): an invalid `targetOrigin` combined
+/// with a non-empty transfer list must surface `SyntaxError`, NOT
+/// `DataCloneError`. WHATWG HTML §9.3.3 orders the targetOrigin parse
+/// (steps 4–5, SyntaxError) BEFORE StructuredSerializeWithTransfer (step 7,
+/// the DataCloneError source that also raises "not all items transferable").
+/// The transfer validation must run after the targetOrigin parse, not before.
+#[test]
+fn post_message_bad_origin_with_transfer_throws_syntax_error_not_data_clone() {
+    setup_bound_vm!(vm, session, dom, doc);
+    let src = "
+        var caught = null;
+        var buf = new ArrayBuffer(4);
+        try { window.postMessage(buf, 'not a url', [buf]); }
+        catch (e) { caught = e.name; }
+        caught;";
+    assert_eq!(eval_string(&mut vm, src), "SyntaxError");
+    vm.unbind();
+}
+
 // ---------------------------------------------------------------------------
 // Cycle round-trip through postMessage
 // ---------------------------------------------------------------------------

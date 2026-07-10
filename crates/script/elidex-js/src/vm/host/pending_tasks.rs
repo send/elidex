@@ -495,13 +495,26 @@ pub(super) fn native_window_post_message(
     let arg1 = args.get(1).copied().unwrap_or(JsValue::Undefined);
     let (target_origin, transfer_val) = extract_signature(ctx, arg1, args.get(2).copied())?;
 
-    // 3. transfer validation — Phase 2 accepts only `undefined` /
-    //    `null` / `[]`.  Non-empty list → DataCloneError (transfer
-    //    semantics not yet wired).  Spec prescribes DataCloneError
-    //    for "not all items are transferable" (§9.3.3 step 5).
+    // 3. targetOrigin parse + validate FIRST.  The window-post-message steps
+    //    (WHATWG HTML §9.3.3) order the targetOrigin parse (steps 4–5, the
+    //    SyntaxError source) BEFORE StructuredSerializeWithTransfer (step 7,
+    //    the DataCloneError source covering BOTH the transfer list AND the
+    //    message clone).  So an invalid `targetOrigin` combined with a
+    //    non-empty transfer list — or an uncloneable message — must surface
+    //    SyntaxError, never DataCloneError.  One parse, shared by both routing
+    //    paths below (one spec order, two contexts): `validate_target_origin`
+    //    returns the parsed URL, or `None` for the `"*"` / `"/"` keywords.
+    let target_origin_str = ctx.vm.strings.get_utf8(target_origin);
+    let parsed_target = validate_target_origin(ctx.vm, &target_origin_str)?;
+
+    // 4. transfer validation — Phase 2 accepts only `undefined` / `null` /
+    //    `[]`.  Non-empty list → DataCloneError (transfer semantics not yet
+    //    wired).  This is the spec's "not all items are transferable" case,
+    //    raised inside StructuredSerializeWithTransfer (§9.3.3 step 7) — hence
+    //    AFTER the targetOrigin parse above, never before it.
     validate_transfer(ctx, transfer_val)?;
 
-    // 3b. iframe→parent routing (S5-6a, B16 — WHATWG HTML §9.3.3 Posting
+    // 4b. iframe→parent routing (S5-6a, B16 — WHATWG HTML §9.3.3 Posting
     //     messages, `#dom-window-postmessage-options`).  In an iframe
     //     document's VM, `parent` / `top` resolve to `globalThis`
     //     (single-window stubs, `window.rs`), so a `postMessage` here is
@@ -509,8 +522,7 @@ pub(super) fn native_window_post_message(
     //     for the shell to forward to the parent document, instead of
     //     self-delivering.  The §9.3.3 origin gate is NOT applied here — it
     //     compares against the TARGET (parent) window's origin, which this
-    //     VM cannot know, so `targetOrigin` rides the payload verbatim
-    //     (syntax-validated below per the spec's sender-side parse step) and
+    //     VM cannot know, so the resolved `targetOrigin` rides the payload and
     //     the receiving side gates.  boa-parity interim: the routing-by-depth
     //     mirrors boa's context-routed single queue (top-level → self,
     //     iframe → parent), including its `ToString`-serialized `data` wire
@@ -522,11 +534,9 @@ pub(super) fn native_window_post_message(
         .as_deref()
         .map_or(0, super::super::host_data::HostData::iframe_depth);
     if iframe_depth > 0 {
-        let target_origin_str = ctx.vm.strings.get_utf8(target_origin);
-        // Sender-side syntax validation + parse (the shared validator).  The
-        // window-post-message steps (WHATWG HTML §9.3.3) RESOLVE `targetOrigin`
-        // at send time, so the payload must carry an already-normalized origin
-        // and the receiving-side gate then compares origin-to-origin:
+        // §9.3.3 RESOLVES `targetOrigin` at send time, so the payload carries an
+        // already-normalized origin and the receiving-side gate compares
+        // origin-to-origin:
         //   - step 5.3: a URL target → its parsed URL's ORIGIN (serialized),
         //     NOT the raw URL.  Carried verbatim, `https://parent.example/path`
         //     would be origin-compared against `https://parent.example` on the
@@ -539,7 +549,7 @@ pub(super) fn native_window_post_message(
         //     origin and always pass: a cross-origin delivery bypass.
         //   - "*" (parse → `None`, not "/") rides verbatim: the receiver
         //     treats it as "any origin".
-        let target_origin = match validate_target_origin(ctx.vm, &target_origin_str)? {
+        let target_origin = match &parsed_target {
             Some(parsed) => parsed.origin().ascii_serialization(),
             None if target_origin_str == "/" => ctx.vm.document_origin().serialize(),
             None => target_origin_str,
@@ -554,14 +564,6 @@ pub(super) fn native_window_post_message(
         }
         return Ok(JsValue::Undefined);
     }
-
-    // 4. targetOrigin parse + validate (window-post-message steps: the
-    //    SyntaxError parse step precedes the serialize step) — so an
-    //    invalid targetOrigin combined with an uncloneable message
-    //    surfaces SyntaxError, never DataCloneError.  Same order as the
-    //    iframe branch above (one spec order, two contexts).
-    let target_origin_str = ctx.vm.strings.get_utf8(target_origin);
-    let parsed_target = validate_target_origin(ctx.vm, &target_origin_str)?;
 
     // 5. Structured serialize `message` (the spec's serialize step;
     //    rethrow).  Clone throws surface synchronously; origin mismatch
