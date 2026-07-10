@@ -102,8 +102,13 @@ pub struct ParentMessage {
     /// The message payload, `ToString`-serialized (the boa-parity interim
     /// wire format; structured serialization rides the S5-8/B1 model).
     pub data: String,
-    /// The `targetOrigin` argument verbatim (`"*"`, `"/"`, or a URL string —
-    /// already syntax-validated at the call site per §9.3.3).  The receiving
-    /// side applies the origin gate against the target window's origin.
+    /// The `targetOrigin` gate input: `"*"`, or a URL/origin string
+    /// (syntax-validated at the call site per §9.3.3).  A `"/"` argument is
+    /// **already resolved to the SENDER's serialized origin at send time**
+    /// (the window-post-message steps' solidus step resolves `"/"` to
+    /// incumbentSettings's origin) — carried verbatim, the receiver-side
+    /// gate would read `"/"` against the PARENT's origin and always pass, a
+    /// cross-origin delivery bypass.  The receiving side applies the gate
+    /// against the target (parent) window's origin.
     pub target_origin: String,
 }

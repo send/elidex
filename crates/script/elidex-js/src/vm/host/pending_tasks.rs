@@ -523,42 +523,59 @@ pub(super) fn native_window_post_message(
         .map_or(0, super::super::host_data::HostData::iframe_depth);
     if iframe_depth > 0 {
         let target_origin_str = ctx.vm.strings.get_utf8(target_origin);
-        // Sender-side syntax validation only (the shared validator); the
-        // origin GATE rides the payload to the receiving side.
+        // Sender-side syntax validation (the shared validator); the origin
+        // GATE rides the payload to the receiving side.
         let _ = validate_target_origin(ctx.vm, &target_origin_str)?;
+        // Window-post-message steps' solidus step: a "/" targetOrigin means
+        // "same origin as the SENDER" and the spec resolves it AT SEND TIME
+        // to incumbentSettings's origin.  It must be resolved HERE — carried
+        // verbatim, the receiver-side gate (which compares against the
+        // PARENT's origin) would read "/" as its own origin and always pass:
+        // a cross-origin delivery bypass.
+        let target_origin = if target_origin_str == "/" {
+            ctx.vm.document_origin().serialize()
+        } else {
+            target_origin_str
+        };
         let data_sid = coerce::to_string(ctx.vm, message)?;
         let data = ctx.vm.strings.get_utf8(data_sid);
         if let Some(host) = ctx.vm.host_data.as_deref_mut() {
             host.enqueue_parent_message(elidex_script_session::ParentMessage {
                 data,
-                target_origin: target_origin_str,
+                target_origin,
             });
         }
         return Ok(JsValue::Undefined);
     }
 
-    // 4. Structured serialize `message`.  Clone throws surface
-    //    synchronously; origin mismatch is a silent return (checked
-    //    after, step 6).  Matches spec order: step 5 (serialize)
-    //    runs before step 7 (origin match).
+    // 4. targetOrigin parse + validate (window-post-message steps: the
+    //    SyntaxError parse step precedes the serialize step) — so an
+    //    invalid targetOrigin combined with an uncloneable message
+    //    surfaces SyntaxError, never DataCloneError.  Same order as the
+    //    iframe branch above (one spec order, two contexts).
+    let target_origin_str = ctx.vm.strings.get_utf8(target_origin);
+    let parsed_target = validate_target_origin(ctx.vm, &target_origin_str)?;
+
+    // 5. Structured serialize `message` (the spec's serialize step;
+    //    rethrow).  Clone throws surface synchronously; origin mismatch
+    //    is a silent return (checked after, step 6).
     let cloned = clone_value(ctx.vm, message)?;
 
-    // 5. Resolve target origin match vs own origin.
+    // 6. Resolve target origin match vs own origin.
     let own_origin_sid = compute_own_origin_sid(ctx.vm);
-    let origin_match = match_target_origin(ctx, target_origin, own_origin_sid)?;
-    if !origin_match {
+    if !match_target_origin(ctx, parsed_target.as_ref(), own_origin_sid) {
         // Silent return (spec §9.4.3 step 9 "if the origin of
         // targetWindow is not … then return").
         return Ok(JsValue::Undefined);
     }
 
-    // 6. Determine target & source windows.  Phase 2 same-window
+    // 7. Determine target & source windows.  Phase 2 same-window
     //    only — target is the caller's globalThis, source is the
     //    same window (round-trip postMessage is observable).
     let target_window_id = ctx.vm.global_object;
     let source_window_id = Some(ctx.vm.global_object);
 
-    // 7. Queue the task.  Drain runs at the end of the current
+    // 8. Queue the task.  Drain runs at the end of the current
     //    `eval` (after microtasks); until then `message` listeners
     //    observe nothing.
     ctx.vm.queue_task(PendingTask::PostMessage {
@@ -666,29 +683,27 @@ fn validate_target_origin(
     }
 }
 
-/// Match `targetOrigin` against own origin.
+/// Match a pre-parsed `targetOrigin` (the [`validate_target_origin`]
+/// output — parsed by the caller BEFORE serialize, per the spec's step
+/// order) against own origin.
 ///
-/// - `"*"` → always match.
-/// - `"/"` → spec: "restrict the message to the same origin as the
-///   source".  Phase 2 is same-window only (source and target
-///   share the settings object), so the comparison is trivially
-///   satisfied and we short-circuit to `true`.  Cross-window
-///   postMessage (PR5d) adds the actual own-vs-target comparison.
-/// - otherwise → parse as URL ([`validate_target_origin`]; `SyntaxError`
-///   on failure), then compare the parsed URL's origin to own origin.
+/// - `"*"` / `"/"` (`None`) → match: `"*"` always matches; `"/"` means
+///   "restrict the message to the same origin as the source", and Phase 2
+///   is same-window only (source and target share the settings object),
+///   so the comparison is trivially satisfied.  Cross-window postMessage
+///   (PR5d) adds the actual own-vs-target comparison.
+/// - a parsed URL → compare its origin to own origin.
 fn match_target_origin(
     ctx: &mut NativeContext<'_>,
-    target_origin: StringId,
+    parsed_target: Option<&url::Url>,
     own_origin_sid: StringId,
-) -> Result<bool, VmError> {
-    let target_origin_str = ctx.vm.strings.get_utf8(target_origin);
-    match validate_target_origin(ctx.vm, &target_origin_str)? {
-        // Keyword: "*" always matches; "/" ⇒ same window ⇒ always own origin.
-        None => Ok(true),
+) -> bool {
+    match parsed_target {
+        None => true,
         Some(u) => {
             let target_origin_serialized = u.origin().ascii_serialization();
             let own_origin_str = ctx.vm.strings.get_utf8(own_origin_sid);
-            Ok(target_origin_serialized == own_origin_str)
+            target_origin_serialized == own_origin_str
         }
     }
 }

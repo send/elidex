@@ -825,8 +825,11 @@ boa's, converge on `elidex-navigation`** — expose a pub inline-extraction entr
 `extract_inline_scripts(dom, document) -> Vec<ResolvedScript>` reusing the same walker) and point
 `pipeline.rs:444,528,614` + `content_iframe_security_tests.rs:396` at it. Spec surface: HTML
 **§4.12.1 The script element** (`#the-script-element`, webref-verified 2026-07-10) — the `type`
-classification (classic JS vs skip) the `elidex-navigation` walker already implements is that
-section's script-type model; the seam's scope (classic inline subset) is unchanged by the move.
+classification (classic JS vs skip) is that section's script-type model; **Stage-4 correction**:
+the walker's filter now implements the full §4.12.1 *JavaScript MIME type essence match*
+(mimesniff §4.6 `#javascript-mime-type`, 16 essences; empty/absent type = classic) — the earlier
+2-MIME-type filter had silently narrowed execution vs both boa and spec. The seam's scope stays
+the classic inline subset.
 Layering-correct: script extraction is document-load resource resolution (engine-independent,
 `elidex-navigation`'s exact charter) — not VM `host/` (no marshalling), not `elidex-script-session`
 (no Script↔ECS boundary concern; the session consumes sources, it does not gather them).

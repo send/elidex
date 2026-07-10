@@ -135,10 +135,6 @@ pub(crate) fn native_idb_open(
             old_version,
             new_version,
         }) => {
-            // First fire site: an open that needs an upgrade must fire
-            // `versionchange` at OTHER contexts' open connections to this
-            // database (see [`enqueue_versionchange`]).
-            enqueue_versionchange(ctx.vm, &name, old_version, Some(new_version));
             let db = database::create_database_wrapper(ctx.vm, handle.name(), handle.version());
             match elidex_indexeddb::IdbTransaction::begin(
                 backend.conn(),
@@ -147,6 +143,14 @@ pub(crate) fn native_idb_open(
                 elidex_indexeddb::IdbTransactionMode::VersionChange,
             ) {
                 Ok(vtxn) => {
+                    // First fire site: an open that needs an upgrade must
+                    // fire `versionchange` at OTHER contexts' open
+                    // connections (see [`enqueue_versionchange`]).  Enqueued
+                    // only AFTER the upgrade transaction actually began — a
+                    // failed begin rolls the upgrade back (`abort_upgrade`,
+                    // the Err arm), and a broadcast for an upgrade that
+                    // never happened must not stay queued.
+                    enqueue_versionchange(ctx.vm, &name, old_version, Some(new_version));
                     let txn_id = create_upgrade_transaction(
                         ctx.vm,
                         db,

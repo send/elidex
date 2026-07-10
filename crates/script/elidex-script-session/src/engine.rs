@@ -579,9 +579,22 @@ pub trait HostDriver {
     /// backend type carries the A2 absence guarantee — an app-profile build
     /// compiles the whole Web Storage family out; see this crate's
     /// `Cargo.toml` `[features]` note.
+    ///
+    /// **Gating contract — why this method (uniquely on this trait) has a
+    /// default body**: the method's existence is gated on THIS crate's
+    /// `web-storage` feature, while an implementor's override may be gated
+    /// on the implementor's OWN feature (elidex-js: `compat-webapi`, which
+    /// enables `web-storage` — but the implication is one-directional).
+    /// Cargo feature unification can therefore compile the trait WITH the
+    /// method while the implementor's override is compiled out; with a
+    /// required method that combination is an E0046 no `--all-features`
+    /// build ever exercises.  The default ignores the install — exactly the
+    /// no-backend engine's semantics (it stays on its in-memory fallback).
     #[cfg(feature = "web-storage")]
     fn install_web_storage(
         &mut self,
         manager: std::sync::Arc<elidex_storage_core::WebStorageManager>,
-    );
+    ) {
+        let _ = manager;
+    }
 }

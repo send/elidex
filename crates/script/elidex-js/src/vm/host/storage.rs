@@ -161,7 +161,10 @@ impl StorageBackend<'_> {
         }
     }
 
-    fn clear(&mut self) {
+    /// Clear the area, returning whether anything was removed — the
+    /// backend decides the §12.2.1 clear step-1 emptiness verdict
+    /// atomically with the clear (one lock on the shared manager).
+    fn clear(&mut self) -> bool {
         match self {
             Self::Local { manager, origin } => manager.local_clear(origin),
             Self::InMemory { state } => state.clear(),
@@ -269,6 +272,41 @@ fn enqueue_local_storage_change(
             new_value: new_value.map(str::to_owned),
             url,
         });
+    }
+}
+
+/// The §12.2.1 `setItem` method steps over the resolved backend: step 3.2
+/// (same-value early return → no broadcast — decided by the backend's
+/// returned previous value), step 4 (quota error, returned for the caller
+/// to map), steps 5+7 (set + broadcast).  ONE implementation of the method
+/// steps with two entry points — the `setItem` native and the WebIDL named
+/// setter ([`try_set`]) run the same algorithm by construction.
+fn set_item_steps(
+    vm: &mut VmInner,
+    is_local: bool,
+    key: &str,
+    value: &str,
+) -> Result<(), StorageError> {
+    let mut backend = backend_for(vm, is_local);
+    let result = backend.set(key, value);
+    drop(backend);
+    let old_value = result?;
+    if is_local && old_value.as_deref() != Some(value) {
+        enqueue_local_storage_change(vm, Some(key), old_value, Some(value));
+    }
+    Ok(())
+}
+
+/// The §12.2.1 `removeItem` method steps over the resolved backend: step 1
+/// (absent key → no broadcast — decided by the backend's returned removed
+/// value), step 5 (broadcast with key, oldValue, null).  Shared by the
+/// `removeItem` native and the WebIDL named deleter ([`try_delete`]).
+fn remove_item_steps(vm: &mut VmInner, is_local: bool, key: &str) {
+    let mut backend = backend_for(vm, is_local);
+    let removed = backend.remove(key);
+    drop(backend);
+    if is_local && removed.is_some() {
+        enqueue_local_storage_change(vm, Some(key), removed, None);
     }
 }
 
@@ -543,18 +581,8 @@ fn native_storage_set_item(
     let value_sid = super::super::coerce::to_string(ctx.vm, value_val)?;
     let key_str = ctx.vm.strings.get_utf8(key_sid);
     let value_str = ctx.vm.strings.get_utf8(value_sid);
-    let mut backend = backend_for(ctx.vm, is_local);
-    let result = backend.set(&key_str, &value_str);
-    drop(backend);
-    match result {
-        Ok(old_value) => {
-            // §12.2.1 setItem step 3.2: if oldValue is value, then return
-            // (no broadcast); step 7: broadcast with key, oldValue, value.
-            if is_local && old_value.as_deref() != Some(value_str.as_str()) {
-                enqueue_local_storage_change(ctx.vm, Some(&key_str), old_value, Some(&value_str));
-            }
-            Ok(JsValue::Undefined)
-        }
+    match set_item_steps(ctx.vm, is_local, &key_str, &value_str) {
+        Ok(()) => Ok(JsValue::Undefined),
         Err(err) => Err(map_storage_error(ctx.vm, err)),
     }
 }
@@ -577,14 +605,7 @@ fn native_storage_remove_item(
     let key_val = args.first().copied().unwrap_or(JsValue::Undefined);
     let key_sid = super::super::coerce::to_string(ctx.vm, key_val)?;
     let key_str = ctx.vm.strings.get_utf8(key_sid);
-    let mut backend = backend_for(ctx.vm, is_local);
-    let removed = backend.remove(&key_str);
-    drop(backend);
-    // §12.2.1 removeItem step 1: absent key → return (no broadcast);
-    // step 5: broadcast with key, oldValue, null.
-    if is_local && removed.is_some() {
-        enqueue_local_storage_change(ctx.vm, Some(&key_str), removed, None);
-    }
+    remove_item_steps(ctx.vm, is_local, &key_str);
     Ok(JsValue::Undefined)
 }
 
@@ -598,12 +619,14 @@ fn native_storage_clear(
         return Ok(JsValue::Undefined);
     }
     let mut backend = backend_for(ctx.vm, is_local);
-    // §12.2.1 clear step 1: empty map → return (no broadcast); step 3:
-    // broadcast with null, null, null.
-    let was_empty = backend.len() == 0;
-    backend.clear();
+    // §12.2.1 clear step 1 (empty map → no broadcast) + step 3 (broadcast
+    // with null, null, null).  The emptiness verdict comes back from the
+    // backend's clear itself — atomic under ONE lock on the shared
+    // cross-context manager (a separate `len()` probe would race a
+    // concurrent tab's writer into a false fire / false no-fire).
+    let removed_any = backend.clear();
     drop(backend);
-    if is_local && !was_empty {
+    if is_local && removed_any {
         enqueue_local_storage_change(ctx.vm, None, None, None);
     }
     Ok(JsValue::Undefined)
@@ -710,19 +733,10 @@ pub(crate) fn try_set(
     }
     let key_str = vm.strings.get_utf8(key_sid);
     let value_str = vm.strings.get_utf8(val_sid);
-    let mut backend = backend_for(vm, is_local);
-    let result = backend.set(&key_str, &value_str);
-    drop(backend);
-    match result {
-        Ok(old_value) => {
-            // WebIDL named setter = the §12.2.1 setItem method steps, so the
-            // same step-3.2 change gate + step-7 broadcast apply (see
-            // `native_storage_set_item`).
-            if is_local && old_value.as_deref() != Some(value_str.as_str()) {
-                enqueue_local_storage_change(vm, Some(&key_str), old_value, Some(&value_str));
-            }
-            Some(Ok(()))
-        }
+    // WebIDL named setter = the §12.2.1 setItem method steps — the shared
+    // [`set_item_steps`] (change gate + broadcast included).
+    match set_item_steps(vm, is_local, &key_str, &value_str) {
+        Ok(()) => Some(Ok(())),
         Err(err) => Some(Err(map_storage_error(vm, err))),
     }
 }
@@ -745,15 +759,9 @@ pub(crate) fn try_delete(
         return Some(Ok(true));
     }
     let key_str = vm.strings.get_utf8(key_sid);
-    let mut backend = backend_for(vm, is_local);
-    let removed = backend.remove(&key_str);
-    drop(backend);
-    // WebIDL named deleter = the §12.2.1 removeItem method steps, so the same
-    // step-1 absent-key gate + step-5 broadcast apply (see
-    // `native_storage_remove_item`).
-    if is_local && removed.is_some() {
-        enqueue_local_storage_change(vm, Some(&key_str), removed, None);
-    }
+    // WebIDL named deleter = the §12.2.1 removeItem method steps — the
+    // shared [`remove_item_steps`] (absent-key gate + broadcast included).
+    remove_item_steps(vm, is_local, &key_str);
     Some(Ok(true))
 }
 

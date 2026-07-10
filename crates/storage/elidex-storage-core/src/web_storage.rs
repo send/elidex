@@ -381,19 +381,27 @@ impl WebStorageManager {
     }
 
     /// Clear all entries for `origin`. No-op when already empty.
-    pub fn local_clear(&self, origin: &str) {
+    ///
+    /// Returns whether anything was removed (`false` for an already-empty
+    /// area), decided under the SAME lock as the clear: the HTML §12.2.1
+    /// `clear()` step-1 emptiness gate (empty map → no `storage`-event
+    /// broadcast) must be atomic with the clear on this shared
+    /// cross-context manager — a separate `local_len` probe would race a
+    /// concurrent writer into a false fire / false no-fire.
+    pub fn local_clear(&self, origin: &str) -> bool {
         let store = self.store_for(origin);
         let mut guard = store
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         if guard.data.is_empty() {
-            return;
+            return false;
         }
         guard.data.clear();
         guard.byte_size = 0;
         guard.dirty = true;
         drop(guard);
         self.mark_dirty(origin);
+        true
     }
 
     /// Number of entries in `origin`'s localStorage.
@@ -548,9 +556,15 @@ impl SessionStorageState {
         removed
     }
 
-    pub fn clear(&mut self) {
+    /// Clear all entries. Returns whether anything was removed (`false`
+    /// when already empty) — the same atomic emptiness-verdict shape as
+    /// [`WebStorageManager::local_clear`], so the `Storage` binding gates
+    /// its §12.2.1 clear broadcast on one call for both backends.
+    pub fn clear(&mut self) -> bool {
+        let had_entries = !self.data.is_empty();
         self.data.clear();
         self.byte_size = 0;
+        had_entries
     }
 
     #[must_use]

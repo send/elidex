@@ -108,18 +108,53 @@ pub fn extract_script_sources(dom: &EcsDom, document: Entity) -> Vec<ScriptSourc
     sources
 }
 
+/// The mimesniff *JavaScript MIME type* essence strings (MIME Sniffing §4.6
+/// MIME type groups, `#javascript-mime-type` — the 16-entry list,
+/// webref-verified).
+const JAVASCRIPT_MIME_ESSENCES: [&str; 16] = [
+    "application/ecmascript",
+    "application/javascript",
+    "application/x-ecmascript",
+    "application/x-javascript",
+    "text/ecmascript",
+    "text/javascript",
+    "text/javascript1.0",
+    "text/javascript1.1",
+    "text/javascript1.2",
+    "text/javascript1.3",
+    "text/javascript1.4",
+    "text/javascript1.5",
+    "text/jscript",
+    "text/livescript",
+    "text/x-ecmascript",
+    "text/x-javascript",
+];
+
+/// HTML §4.12.1 (prepare the script element) type classification for the
+/// classic-inline seam: the type string, stripped of leading/trailing ASCII
+/// whitespace, is a classic script when it is **empty** or a *JavaScript
+/// MIME type essence match* (mimesniff `#javascript-mime-type-essence-match`
+/// — an ASCII case-insensitive match against one of the 16 essence
+/// strings).  An essence match is on the WHOLE string: a value carrying
+/// parameters (`text/javascript;charset=utf-8`) is NOT a match and the
+/// script is skipped, per the dfn.
+fn is_classic_script_type(type_val: &str) -> bool {
+    let t = type_val.trim_matches(|c: char| c.is_ascii_whitespace());
+    t.is_empty()
+        || JAVASCRIPT_MIME_ESSENCES
+            .iter()
+            .any(|essence| t.eq_ignore_ascii_case(essence))
+}
+
 fn collect_scripts(dom: &EcsDom, entity: Entity, sources: &mut Vec<ScriptSource>) {
     if let Ok(tag) = dom.world().get::<&TagType>(entity) {
         if tag.0 == "script" {
             let attrs_ref = dom.world().get::<&Attributes>(entity).ok();
 
-            // Skip scripts with a non-JavaScript type attribute.
+            // Skip scripts whose `type` is not a classic-JavaScript type
+            // (HTML §4.12.1; an absent attribute is classic).
             if let Some(type_val) = attrs_ref.as_ref().and_then(|a| a.get("type")) {
-                let t = type_val.trim();
-                if !t.is_empty()
-                    && !t.eq_ignore_ascii_case("text/javascript")
-                    && !t.eq_ignore_ascii_case("application/javascript")
-                {
+                if !is_classic_script_type(type_val) {
                     return;
                 }
             }
@@ -408,6 +443,51 @@ mod tests {
         let _ = dom.append_child(doc, script);
         let sources = extract_script_sources(&dom, doc);
         assert_eq!(sources.len(), 1);
+    }
+
+    #[test]
+    fn script_type_javascript_essence_aliases_allowed() {
+        // HTML §4.12.1 step: a *JavaScript MIME type essence match*
+        // (mimesniff §4.6 `#javascript-mime-type`, 16 essences) — the full
+        // alias family executes, not just the two common types.
+        for alias in [
+            "application/x-javascript",
+            "text/ecmascript",
+            "text/jscript",
+            "text/livescript",
+            "text/javascript1.5",
+            "TEXT/JAVASCRIPT", // essence match is ASCII case-insensitive
+        ] {
+            let mut dom = EcsDom::new();
+            let doc = dom.create_document_root();
+            let mut attrs = Attributes::default();
+            attrs.set("type", alias);
+            let script = dom.create_element("script", attrs);
+            let text = dom.create_text("var x = 1;");
+            let _ = dom.append_child(script, text);
+            let _ = dom.append_child(doc, script);
+            let sources = extract_script_sources(&dom, doc);
+            assert_eq!(sources.len(), 1, "alias {alias:?} must execute");
+        }
+    }
+
+    #[test]
+    fn script_type_non_js_stays_skipped() {
+        // A genuinely non-JS type is skipped; so is a JS type carrying
+        // parameters (an ESSENCE match is on the whole string per the
+        // mimesniff dfn — `text/javascript;charset=utf-8` is not a match).
+        for skipped in ["text/template", "text/javascript;charset=utf-8"] {
+            let mut dom = EcsDom::new();
+            let doc = dom.create_document_root();
+            let mut attrs = Attributes::default();
+            attrs.set("type", skipped);
+            let script = dom.create_element("script", attrs);
+            let text = dom.create_text("var x = 1;");
+            let _ = dom.append_child(script, text);
+            let _ = dom.append_child(doc, script);
+            let sources = extract_script_sources(&dom, doc);
+            assert!(sources.is_empty(), "type {skipped:?} must be skipped");
+        }
     }
 
     #[test]

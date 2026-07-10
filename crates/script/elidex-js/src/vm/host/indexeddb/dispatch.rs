@@ -107,23 +107,27 @@ impl VmInner {
             .filter(|(_, s)| s.db_name == db_name && !s.closed)
             .map(|(id, _)| *id)
             .collect();
-        if targets.is_empty() {
-            return;
-        }
         let versionchange_sid = self.well_known.versionchange;
-        let mut ctx = NativeContext::new_call(self);
-        for db_id in targets {
-            // A throwing handler is contained by the dispatch core
-            // (report-an-exception); the remaining connections still hear
-            // their event.
-            let _ = fire_version_change_event(
-                &mut ctx,
-                db_id,
-                versionchange_sid,
-                old_version,
-                new_version,
-            );
+        {
+            let mut ctx = NativeContext::new_call(self);
+            for db_id in targets {
+                // A throwing handler is contained by the dispatch core
+                // (report-an-exception); the remaining connections still hear
+                // their event.
+                let _ = fire_version_change_event(
+                    &mut ctx,
+                    db_id,
+                    versionchange_sid,
+                    old_version,
+                    new_version,
+                );
+            }
         }
+        // Each deliver pass is its own microtask checkpoint (parity with the
+        // other `deliver_*` members — see `deliver_media_query_changes`),
+        // even when no open connection heard the event — so a pending
+        // microtask is never deferred past this turn.
+        self.drain_microtasks();
     }
 }
 

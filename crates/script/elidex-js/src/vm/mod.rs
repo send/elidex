@@ -286,6 +286,14 @@ pub(crate) struct VmInner {
     /// test oracle for embedders ([`Vm::console_messages`], the S5-6 B26
     /// accessor replacing the boa runtime's `ConsoleOutput` capture); oldest
     /// entries drop first once [`natives::CONSOLE_CAPTURE_LIMIT`] is reached.
+    ///
+    /// **Deliberately NOT cleared on [`Vm::unbind`]** (unlike the cross-DOM
+    /// identity caches unbind clears): under the batch-bind model, `unbind`
+    /// closes every batch bracket — a per-TURN boundary, not a navigation —
+    /// and the B26 oracle reads the buffer AFTER the bracket closes (the
+    /// same drain-after-bracket standing as the S5-6a `pending_*` queues).
+    /// Cross-navigation accumulation is unreachable pre-B1 (one Vm per
+    /// navigation, the flip's F18 invariant), and the buffer is bounded.
     pub(crate) console_capture: VecDeque<(&'static str, String)>,
     /// Host-provided data for browser shell integration (event listeners,
     /// DOM wrappers, timers, etc.).  `None` when the VM runs standalone

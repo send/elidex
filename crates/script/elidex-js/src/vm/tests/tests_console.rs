@@ -122,6 +122,22 @@ fn console_messages_persist_across_evals() {
 }
 
 #[test]
+fn console_messages_survive_unbind_for_post_bracket_reads() {
+    // The B26 oracle's read pattern: the shell/test reads the buffer AFTER
+    // the batch bracket closes (unbind is a per-TURN boundary under the
+    // batch-bind model, not a navigation) — so the capture deliberately
+    // survives `Vm::unbind`, like the S5-6a `pending_*` drain queues and
+    // unlike the cross-DOM identity caches unbind clears.  See the
+    // `console_capture` field doc.
+    let mut vm = Vm::new();
+    vm.eval("console.log('inside the bracket');").unwrap();
+    vm.unbind();
+    let msgs = vm.console_messages();
+    assert_eq!(msgs.len(), 1, "capture must survive the bracket close");
+    assert_eq!(msgs[0].1, "inside the bracket");
+}
+
+#[test]
 fn console_capture_is_bounded_dropping_oldest() {
     let mut vm = Vm::new();
     let n = CONSOLE_CAPTURE_LIMIT + 5;

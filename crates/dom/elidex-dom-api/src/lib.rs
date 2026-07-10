@@ -20,6 +20,7 @@ pub mod child_node;
 pub mod class_list;
 pub mod computed_style;
 pub mod css_namespace;
+pub mod cssom_collect;
 pub mod cssom_sheet;
 pub mod dialog;
 pub mod document;
@@ -63,11 +64,12 @@ pub use class_list::{
 };
 pub use computed_style::GetComputedStyle;
 pub use css_namespace::{CssEscape, CssSupports};
+pub use cssom_collect::{collect_document_stylesheets, CollectedStylesheet};
 pub use cssom_sheet::{
-    collect_document_stylesheets, collect_stylesheet_owners, count_stylesheet_owners,
-    link_has_loaded_sheet, link_sheet_href, CollectedStylesheet, CssRulesItemId, CssRulesLength,
-    DeleteRule, InsertRule, RuleCssText, RuleSelectorText, RuleStyleCssText,
-    RuleStyleGetPropertyPriority, RuleStyleGetPropertyValue, RuleStyleItem, RuleStyleLength,
+    collect_stylesheet_owners, count_stylesheet_owners, link_has_loaded_sheet, link_sheet_href,
+    CssRulesItemId, CssRulesLength, DeleteRule, InsertRule, RuleCssText, RuleSelectorText,
+    RuleStyleCssText, RuleStyleGetPropertyPriority, RuleStyleGetPropertyValue, RuleStyleItem,
+    RuleStyleLength,
 };
 pub use dialog::close_the_dialog;
 pub use document::{
