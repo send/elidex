@@ -364,7 +364,7 @@ investigated for an existing VM equivalent first).
 | B3 | `bridge().drain_storage_changes()` (`content/event_loop.rs:96`) | **VM: ABSENT** (no out-queue) | **ADD** trait drain group + VM enqueue (§4.3.2) |
 | B4 | `elidex_js_boa::bridge::local_storage::flush_dirty_stores()` (`event_loop.rs:143`) | VM: `WebStorageManager::flush_dirty` exists (`elidex-storage-core/web_storage.rs:450`) but `HostData::install_web_storage` (`host_data.rs:992`) has **zero production callers** — VM falls back to per-VM in-memory | **ADD** install + shell-owned manager + per-turn flush (§4.3.3) |
 | B5 | `bridge().drain_post_messages()` — TOP-LEVEL site (`event_loop.rs:88`, delivered to self) | VM: same-window `postMessage` is VM-internal (`vm/host/window.rs:610-611` → `pending_tasks::native_window_post_message`, delivered by the task drain) | DELETE the top-level site (VM self-delivers); the parent-side OOP drain `iframes.drain_oop_messages()` (`event_loop.rs:84`) is engine-indep, unchanged. **The iframe-side twin is B16 — a separate, REAL surface** |
-| B6 | `bridge().drain_idb_versionchange_requests()` (`event_loop.rs:106-121`) | **VM: ABSENT** (no cross-tab versionchange request queue; the VM has only in-VM `versionchange` event machinery — `vm/mod.rs:2301` prototype) | **ADD** to the §4.3.2 drain group (a drain left boa-only = the E4 forbidden form) |
+| B6 | `bridge().drain_idb_versionchange_requests()` (`event_loop.rs:106-121`) | **VM: ABSENT** (no cross-tab versionchange request queue; the VM has only in-VM `versionchange` event machinery — `vm/mod.rs:2301` prototype) | **ADD** to the §4.3.2 drain group, at **both** boa fire sites — open-upgrade AND `deleteDatabase` (§4.3.2) — (a drain left boa-only = the E4 forbidden form) |
 | B7 | `bridge().drain_sw_register_requests()` (`event_loop.rs:123-141`) | VM: routes SW register through the EXISTING trait `drain_sw_client_requests` (`engine.rs:231`; VM queue doc `vm/mod.rs:2465`) | CONVERGE onto the trait method |
 | B8 | `bridge().current_url()` (`event_loop.rs:124`) | trait `current_url` (`:262`) | CONVERGE (type-level) |
 | B9 | `deliver_media_query_changes(changed, session, dom, doc)` — shell-computed args (`content/mod.rs:621-627`; callers `event_loop.rs:441,471` after `re_evaluate_media_queries` `:466`) + `set_viewport` (`event_loop.rs:412`) | VM model INVERTED: `set_media_environment` (trait `:433`) + no-arg `deliver_media_query_changes` (`:448`; VM-internal eval, `vm/host/media_query.rs:412`) | REWIRE (§4.3.5) |
@@ -677,12 +677,23 @@ membership), payload types on `elidex-script-session` (engine-indep, mirroring
   Result<Option<String>, StorageError>` returns the previous value (its doc literally says "for
   StorageEvent `oldValue` pairing", `web_storage.rs:324-334`) and `local_remove -> Option<String>`
   (`:368`) likewise (the in-memory `SessionStorageState::set` `:524` has the same shape) — so the
-  host native does compare + enqueue-marshalling only; **no storage-core extension needed**.
+  host native does compare + enqueue-marshalling only; **no storage-core extension needed**. The
+  payload additionally carries the **storage-BUCKET `origin` string** (the shell's broadcast-targeting
+  key): the enqueue site's `current_origin` bucket key — the per-VM opaque-origin **sentinel** for
+  sandboxed/opaque documents — NOT a re-derivable `origin().serialize()`, which collapses every
+  opaque document to `"null"` and would alias unrelated sandboxed iframes' broadcasts across the
+  S5-4b isolation boundary.
 - **IDB versionchange, emit + receive TOGETHER** (B6 + B21, IndexedDB-3 §4.2 *fire a version change
-  event*): `take_pending_idb_versionchange_requests() -> Vec<IdbVersionChangeRequest>` (VM enqueue at
-  the open-with-higher-version path) + the receive-half deliver `deliver_idb_versionchange(db,
+  event*): `take_pending_idb_versionchange_requests() -> Vec<IdbVersionChangeRequest>` — VM enqueue
+  at **BOTH boa fire sites**: the open-with-higher-version path (`new_version = Some`; note a fresh
+  0→1 creating open also rides this branch, so every fresh-db open emits a request — boa same) AND
+  `deleteDatabase` (`new_version = None`, IndexedDB-3 §5.3 *delete a database* step 6;
+  existence-gated per step 4 — deleting a nonexistent database broadcasts nothing, spec-correct
+  where boa enqueued unconditionally) — + the receive-half deliver `deliver_idb_versionchange(db,
   old_version, new_version)` (fires `versionchange` on this VM's open connections — the VM's in-VM
-  event machinery exists, `vm/mod.rs:2301`; only the external entry is missing). The boa-inherent
+  event machinery exists, `vm/mod.rs:2301`; only the external entry is missing). The IPC
+  correlation `request_id` is NOT engine surface — the shell mints it at the drain→IPC seam (S5-6b),
+  where boa minted it in the bridge; it never crosses back into the engine. The boa-inherent
   receive site (`event_loop.rs:544-560` `dispatch_idb_versionchange`) converges onto the deliver.
   **Adjacent TODO dispositions (H10)**: the browser-side `TODO(M4-10)` at
   `app/content_messages.rs:257-258` (wait for `IdbConnectionsClosed` from all tabs / timeout before
@@ -696,7 +707,11 @@ membership), payload types on `elidex-script-session` (engine-indep, mirroring
 - **Pending-focus drain** (B13): `window.focus()` native → `HostData` flag →
   `take_pending_focus() -> bool` (boa parity: `bridge/viewport.rs:139-146`).
 - **Parent-message drain** (B16): iframe-depth-routed `pending_parent_messages` FIFO →
-  `take_pending_parent_messages() -> Vec<(String, String)>`; `iframe/thread.rs:113` converges.
+  `take_pending_parent_messages() -> Vec<ParentMessage>` (named payload: `data` — the boa-parity
+  `ToString` wire form — + `target_origin` **verbatim**); `iframe/thread.rs:113` converges. The
+  §9.3.3 targetOrigin gate is applied at the **receiving** side (S5-6b): it compares against the
+  TARGET (parent) window's origin, which the iframe VM cannot know — the sender only
+  syntax-validates (boa gated against the SENDER's own origin, a deletion-bound divergence).
   Replaced wholesale by the S5-8/B1 WindowProxy model.
 - **Web-storage install** (B4): `install_web_storage(Arc<WebStorageManager>)` on the install group
   (§4.3.3).
@@ -887,7 +902,7 @@ surface (the same exception (b)).
 | 4 | **CSSOM shadow-sync deletion + DOM→cascade re-collection** | deletion: `lib.rs:91,212,221-223,250-293,524-528` + `pipeline.rs:498,575,661,754`; oracles `tests.rs:849-866`; replacement (§4.2, G1 form): `elidex-dom-api::collect_document_stylesheets` with lazy per-owner version compare (`sheet_version` signals, `cssom_sheet.rs:68-76`) + the `CollectedStylesheet {parsed, version}` ECS component cache on owner entities; `re_render` calls it every frame | shadow code + tests deleted; `insertRule` rendered-outcome oracle green through the re-collection path; no-change frame = O(#owners) compares, zero re-parse (pinned); every §4.2 read site's post-flip source verified |
 | 5 | **Back-channel production callers live** | B9 MQL inversion (`content/mod.rs:621`; `event_loop.rs:441,466,471`) → `set_media_environment` + `deliver_media_query_changes`; `set_screen_dimensions` + `deliver_visual_viewport_events` producers wired (S5-2 deferral) **+ the initial pre-eval seed (F4, item 2)**; history delivery bracketed (4 sites §1.3); B13 pending-focus + B14 realtime-pump deletion + B15 unbind-teardown convergence + B24 worker-drain converge + B25 observer-delivery converges (`content/mod.rs:334,342,354`) + the §4.3.8 version-delta signal replacing the per-call needs_render bools and the record-fed shell consumers | every `deliver_*` has a live bracketed shell producer; VM `is_bound` gates pass by construction; first-paint matchMedia reads real device facts; iframe diff-scan + focusable invalidation run off the version delta |
 | 6 | **CE reactions** | `lib.rs:540-560` boa loop **dissolves** (§4.3.1: VM-native mutations settle CE inside the VM's own bounded checkpoints; `session.flush` is empty for them under the VM — `session.rs:114-126`); **extend `deliver_mutation_records` with the record→CE enqueue** for external records (observer-only at HEAD; single-homed classification factored into engine-indep `elidex-custom-elements` beside `CustomElementReactionConsumer` — H1; the `mutation_observer.rs:421` entry stays call-through); boa-parity interim owned by `#11-ce-reaction-mutation-observer-ordering` | CE + observer callbacks fire on the VM path for BOTH custody chains; **double-fire pin test green** (§7.2); no parallel record→CE re-implementation (one factored fn in `elidex-custom-elements`, two callers) |
-| 7 | **Storage + IDB cross-tab** | emit drains ADD (§4.3.2: trait group + `vm/host/storage.rs` enqueue + `event_loop.rs:96-121` swap; changed-ness/oldValue from the `WebStorageManager` set/remove returns — F10, no storage-core extension); IDB versionchange emit + receive (B6+B21, `deliver_idb_versionchange` replacing `event_loop.rs:544-560`); persistence ADD (§4.3.3: `install_web_storage` + shell manager + `event_loop.rs:143` → `flush_dirty`); receive path bracketed (`content/mod.rs:672`); S5-4b sentinel shell test; **fallback disposition (F14)**: `fallback_local_storage` stays the test/unconfigured fallback ONLY — production oracle = a shell test pinning that pipeline-constructed engines persist through the manager (+ a debug assertion at the shell construction seam that the install ran), so a future construction site cannot silently regress to in-memory | cross-tab StorageEvent + versionchange round-trip through two VM pipelines; localStorage persists to the same on-disk files; sandboxed iframe hits the sentinel bucket; production path provably manager-backed |
+| 7 | **Storage + IDB cross-tab** | emit drains ADD (§4.3.2: trait group + `vm/host/storage.rs` enqueue + `event_loop.rs:96-121` swap; changed-ness/oldValue from the `WebStorageManager` set/remove returns — F10, no storage-core extension); IDB versionchange emit (both fire sites — open-upgrade + `deleteDatabase`, §4.3.2) + receive (B6+B21, `deliver_idb_versionchange` replacing `event_loop.rs:544-560`; the shell mints the IPC `request_id` at the drain→IPC seam); persistence ADD (§4.3.3: `install_web_storage` + shell manager + `event_loop.rs:143` → `flush_dirty`); receive path bracketed (`content/mod.rs:672`); S5-4b sentinel shell test; **fallback disposition (F14)**: `fallback_local_storage` stays the test/unconfigured fallback ONLY — production oracle = a shell test pinning that pipeline-constructed engines persist through the manager (+ a debug assertion at the shell construction seam that the install ran), so a future construction site cannot silently regress to in-memory | cross-tab StorageEvent + versionchange round-trip through two VM pipelines; localStorage persists to the same on-disk files; sandboxed iframe hits the sentinel bucket; production path provably manager-backed |
 | 8 | **SW thread** | `app/sw_coordinator.rs:192` → `elidex_js::vm::sw_thread::sw_thread_main` with coordinator-owned `cache_conn` + `initial_clients` (§4.3.6) | SW lifecycle/fetch tests green on the VM SW; BrowserCompat hard-derive documented at the call |
 | 9 | **Dispatch + messaging + extract_scripts** | `script_dispatch_event` sites under brackets (item 3); top-level `drain_post_messages` site deleted (B5, VM self-delivers) + iframe parent-message out-queue ADD (B16, `iframe/thread.rs:113` converges); `drain_script_animations` site deleted (B22 — WAAPI = `#11-web-animations-element-animate`, S5-7, the §8 exception); `extract_scripts` unified into `elidex-navigation` (§4.3.7, HTML §4.12.1; `pipeline.rs:14,444,528,614`, `content_iframe_security_tests.rs:396`) | boa exports unreferenced; one script-extraction seam; iframe→parent postMessage round-trips on the VM |
 | 10 | **Flip-inert behaviors going live** (tests, no new mechanism beyond §4.3.4's re-drain) | live popstate/hashchange firing + `history.state` deserialize (S5-5b/5c registered); scroll-vs-popstate ordering + post-handler re-drain (interim, D5-superseded); relative-nav both-orders test (boa divergence erased); `(index,length)` publish ×8 | the S5-5 §2.2 event matrix observable in the live shell; stale-index repro fixed |
@@ -966,9 +981,9 @@ consumer until 6b, **the test IS the connection**):
 
 | ADD | 6a land-time oracle |
 |---|---|
-| B3 storage-change drain | setItem/removeItem/clear enqueue with correct key/old/new/url; **same-value setItem does NOT enqueue** (§12.2.1 setItem step 3.2); drain empties FIFO in order |
+| B3 storage-change drain | setItem/removeItem/clear enqueue with correct key/old/new/url + the bucket-`origin` (a tuple origin serializes; an opaque document carries its per-VM sentinel, never `"null"`); **same-value setItem does NOT enqueue** (§12.2.1 setItem step 3.2); drain empties FIFO in order |
 | B4 `install_web_storage` | post-install, Storage natives route through the manager (value visible via `WebStorageManager::local_get`), NOT `fallback_local_storage`; un-installed VM still falls back (hermetic-test pin, H11) |
-| B6 IDB emit drain | open-with-higher-version enqueues `IdbVersionChangeRequest {db, old, new}`; drain shape/order pinned |
+| B6 IDB emit drain | open-with-higher-version enqueues `IdbVersionChangeRequest {db, old, Some(new)}` (a fresh 0→1 creating open included); `deleteDatabase` enqueues `{db, old, None}` and a nonexistent-db delete enqueues NOTHING (§5.3 step 4 gate); drain shape/order pinned |
 | B13 pending-focus | `window.focus()` sets the flag; `take_pending_focus()` returns true ONCE then false (drain semantics) |
 | B16 parent-message queue | `iframe_depth > 0` ⇒ postMessage enqueues to the parent FIFO (self-delivery suppressed); depth 0 ⇒ self-delivers, FIFO stays empty |
 | B21 IDB deliver | `deliver_idb_versionchange(db, old, new)` fires `versionchange` on this VM's open connections (in-VM listener observes it); no open connection ⇒ no-op |

@@ -9,7 +9,9 @@ pub mod loader;
 pub mod navigation;
 pub mod resource;
 
-pub use loader::{load_document, LoadError, LoadedDocument, ResolvedScript};
+pub use loader::{
+    extract_inline_scripts, load_document, LoadError, LoadedDocument, ResolvedScript,
+};
 pub use navigation::{
     classify_navigation, HistoryEntry, NavClass, NavigationController, TraversalKind,
 };

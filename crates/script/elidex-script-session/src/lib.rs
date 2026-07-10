@@ -17,6 +17,7 @@ pub mod event_dispatch;
 pub mod event_handler_consumer;
 pub mod event_listener;
 pub mod event_queue;
+mod host_effects;
 mod identity_map;
 mod mutation;
 mod navigation;
@@ -42,6 +43,7 @@ pub use event_listener::{
     EventListeners, ListenerEntry, ListenerId, ListenerKind, UncompiledHandler,
 };
 pub use event_queue::{EventQueue, QueuedEvent};
+pub use host_effects::{IdbVersionChangeRequest, ParentMessage, StorageChange};
 pub use identity_map::IdentityMap;
 pub use mutation::{
     apply_append_child, apply_insert_before, apply_mutation, apply_remove_attribute,

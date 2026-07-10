@@ -10,6 +10,7 @@ use elidex_ecs::{EcsDom, Entity};
 
 use crate::event_dispatch::DispatchEvent;
 use crate::event_listener::ListenerId;
+use crate::host_effects::{IdbVersionChangeRequest, ParentMessage, StorageChange};
 use crate::mutation::MutationRecord;
 use crate::navigation::{HistoryAction, HistoryStepEvents, NavigationRequest, WindowOpenIntent};
 use crate::session::SessionCore;
@@ -219,6 +220,24 @@ pub trait HostDriver {
         registrations: &[(url::Url, elidex_api_sw::SwWorkerSnapshot)],
     );
 
+    /// Fire `versionchange` at this engine's open IndexedDB connections to
+    /// `db_name` (IndexedDB-3 §4.2 Event interfaces, dfn *fire a version
+    /// change event*) — the receive half of the cross-context version-change
+    /// wire whose emit half is
+    /// [`take_pending_idb_versionchange_requests`](Self::take_pending_idb_versionchange_requests):
+    /// another context's upgrade-opening engine enqueued the request, the
+    /// shell broadcast it, and this call delivers it.  `new_version` is
+    /// `None` for a database-deletion version change (the event's
+    /// `newVersion` member is null).  A no-op when this engine holds no open
+    /// connection to `db_name`.  Runs assuming bound, like the other
+    /// `deliver_*` methods.
+    fn deliver_idb_versionchange(
+        &mut self,
+        db_name: &str,
+        old_version: u64,
+        new_version: Option<u64>,
+    );
+
     // ── engine → host drain / read (per-turn) ──────────────────────────────
 
     /// Deliver any parent-side `postMessage` from dedicated/shared workers that
@@ -229,6 +248,54 @@ pub trait HostDriver {
     /// (register / update / unregister / postMessage) the page staged this turn,
     /// for the shell to forward to the service-worker coordinator.
     fn drain_sw_client_requests(&mut self) -> Vec<elidex_api_sw::SwClientRequest>;
+
+    // ── cross-context effect drains (per-turn) ─────────────────────────────
+    //
+    // Effects a bound engine cannot deliver itself because the receiver is
+    // another browsing context or the OS window: localStorage `storage`
+    // broadcasts, cross-tab IndexedDB `versionchange` requests, `window.focus()`
+    // requests, and iframe→parent `postMessage`.  Each is enqueued as an
+    // intent (the navigation back-channel model) and drained here in FIFO
+    // order; the shell routes them through its own IPC / window machinery.
+
+    /// Take the `localStorage` mutation broadcasts staged this turn (WHATWG
+    /// HTML §12.2.1 — `setItem` step 7 / `removeItem` step 5 / `clear` step 3
+    /// "Broadcast this…"), in mutation order, for the shell to fan out to the
+    /// OTHER same-origin contexts (§12.2.1 *broadcast a Storage object* step 3
+    /// excludes the originating storage, so the shell never routes one back to
+    /// this engine).  The engine enqueues only actual changes — a same-value
+    /// `setItem` (step 3.2 "If oldValue is value, then return"), a
+    /// `removeItem` of an absent key (step 1), and a `clear` of an empty map
+    /// (step 1) all broadcast nothing.
+    fn take_pending_storage_changes(&mut self) -> Vec<StorageChange>;
+
+    /// Take the cross-context IndexedDB version-change requests staged this
+    /// turn (IndexedDB-3 §4.2, dfn *fire a version change event*) — one per
+    /// `indexedDB.open()` that needed an upgrade — for the shell to broadcast
+    /// to the other same-origin contexts, whose engines deliver via
+    /// [`deliver_idb_versionchange`](Self::deliver_idb_versionchange) (the
+    /// receive half of the same wire).
+    fn take_pending_idb_versionchange_requests(&mut self) -> Vec<IdbVersionChangeRequest>;
+
+    /// Take the pending `window.focus()` request (WHATWG HTML §6.6.6 Focus
+    /// management APIs, the `Window` `focus()` method — `#dom-window-focus`),
+    /// draining it: `true` at most once per staged request, then `false`
+    /// until a script calls `window.focus()` again.  The engine only relays
+    /// the flag — the shell owns focusing the OS window; the §6.6.6 *window
+    /// focusing steps*' fidelity (focus stealing gates etc.) is the focus
+    /// program's scope, not this transport's.
+    fn take_pending_focus(&mut self) -> bool;
+
+    /// Take the iframe→parent `postMessage` intents staged this turn (WHATWG
+    /// HTML §9.3.3 Posting messages — `#dom-window-postmessage-options`), in
+    /// call order, for the shell to forward to the parent document.  Each
+    /// carries its `targetOrigin` verbatim because the §9.3.3 origin gate
+    /// compares against the TARGET (parent) window's origin, which only the
+    /// receiving side knows — see [`ParentMessage`].  Only an iframe-depth
+    /// engine enqueues here; a top-level engine's `postMessage` self-delivers
+    /// internally (boa-parity context routing, superseded at S5-8/B1 by the
+    /// real `WindowProxy` model).
+    fn take_pending_parent_messages(&mut self) -> Vec<ParentMessage>;
 
     /// The earliest pending timer deadline (WHATWG HTML §8.7) — the shell
     /// event-loop scheduler's next-wake hint, or `None` when no timer is
@@ -498,4 +565,23 @@ pub trait HostDriver {
     /// Install the cookie jar backing `document.cookie`. Requires a host context
     /// to already be installed on the engine (a no-op otherwise).
     fn install_cookie_jar(&mut self, jar: std::sync::Arc<elidex_net::CookieJar>);
+
+    /// Install the shared `WebStorageManager` backing `localStorage` (WHATWG
+    /// HTML §12.2 — origin-keyed, persistent).  The shell owns ONE
+    /// process-wide manager (a shared cross-cutting session resource, the
+    /// cookie-jar precedent) and installs it at pipeline construction; an
+    /// engine without one falls back to a per-engine in-memory store (the
+    /// hermetic test / unconfigured path — data is lost with the engine).
+    /// Requires a host context to already be installed (a no-op otherwise),
+    /// like [`install_cookie_jar`](Self::install_cookie_jar).
+    ///
+    /// Feature-gated on `web-storage` (unlike its siblings) because the
+    /// backend type carries the A2 absence guarantee — an app-profile build
+    /// compiles the whole Web Storage family out; see this crate's
+    /// `Cargo.toml` `[features]` note.
+    #[cfg(feature = "web-storage")]
+    fn install_web_storage(
+        &mut self,
+        manager: std::sync::Arc<elidex_storage_core::WebStorageManager>,
+    );
 }

@@ -12,8 +12,9 @@ use std::time::Instant;
 use elidex_css::media::{ColorScheme, ReducedMotion};
 use elidex_ecs::Entity;
 use elidex_script_session::{
-    DispatchEvent, EvalResult, HistoryAction, HistoryStepEvents, HostDriver, ListenerId,
-    MutationRecord, NavigationRequest, ScriptContext, ScriptEngine, WindowOpenIntent,
+    DispatchEvent, EvalResult, HistoryAction, HistoryStepEvents, HostDriver,
+    IdbVersionChangeRequest, ListenerId, MutationRecord, NavigationRequest, ParentMessage,
+    ScriptContext, ScriptEngine, StorageChange, WindowOpenIntent,
 };
 
 use crate::vm::host_data::HostData;
@@ -393,6 +394,20 @@ impl HostDriver for ElidexJsEngine {
         self.vm.seed_sw_client(controller, registrations);
     }
 
+    fn deliver_idb_versionchange(
+        &mut self,
+        db_name: &str,
+        old_version: u64,
+        new_version: Option<u64>,
+    ) {
+        // Marshal-only forward to the VM's reconstruct+fire body (the in-VM
+        // IDBVersionChangeEvent UA-fire seam), reaching `vm.inner` directly
+        // like `deliver_history_step_events`.
+        self.vm
+            .inner
+            .deliver_idb_versionchange(db_name, old_version, new_version);
+    }
+
     // ── engine → host drain / read (per-turn) ─────────────────────────────
 
     fn drain_worker_messages(&mut self) {
@@ -401,6 +416,47 @@ impl HostDriver for ElidexJsEngine {
 
     fn drain_sw_client_requests(&mut self) -> Vec<elidex_api_sw::SwClientRequest> {
         self.vm.drain_sw_client_requests()
+    }
+
+    // ── cross-context effect drains (per-turn; S5-6a) ─────────────────────
+    //
+    // All four queues live on the per-VM `HostData` (the transient
+    // event-queue standing of the navigation back-channel) and survive
+    // `unbind`, so the shell can drain them after the batch bracket closes.
+    // Each drains empty on an engine without an installed host context.
+
+    fn take_pending_storage_changes(&mut self) -> Vec<StorageChange> {
+        // A2: the Web Storage family (queue included) is compat-webapi-gated;
+        // an app-profile build has no storage natives to enqueue, so the
+        // drain is a constant empty Vec there.
+        #[cfg(feature = "compat-webapi")]
+        {
+            self.vm
+                .host_data()
+                .map_or_else(Vec::new, HostData::take_pending_storage_changes)
+        }
+        #[cfg(not(feature = "compat-webapi"))]
+        {
+            Vec::new()
+        }
+    }
+
+    fn take_pending_idb_versionchange_requests(&mut self) -> Vec<IdbVersionChangeRequest> {
+        self.vm
+            .host_data()
+            .map_or_else(Vec::new, HostData::take_pending_idb_versionchange_requests)
+    }
+
+    fn take_pending_focus(&mut self) -> bool {
+        self.vm
+            .host_data()
+            .is_some_and(HostData::take_pending_focus)
+    }
+
+    fn take_pending_parent_messages(&mut self) -> Vec<ParentMessage> {
+        self.vm
+            .host_data()
+            .map_or_else(Vec::new, HostData::take_pending_parent_messages)
     }
 
     fn next_timer_deadline(&self) -> Option<Instant> {
@@ -609,6 +665,24 @@ impl HostDriver for ElidexJsEngine {
         // otherwise, like the other `HostData`-backed setters above.
         if let Some(hd) = self.vm.host_data() {
             hd.install_cookie_jar(jar);
+        }
+    }
+
+    // The trait gates this method on elidex-script-session's `web-storage`
+    // feature, which this crate's `compat-webapi` enables (Cargo.toml) — so
+    // the method and this impl always appear together.
+    #[cfg(feature = "compat-webapi")]
+    fn install_web_storage(
+        &mut self,
+        manager: std::sync::Arc<elidex_storage_core::WebStorageManager>,
+    ) {
+        // Like the cookie jar: a shared cross-cutting session resource on
+        // `HostData`; a no-op without an installed host context.  Without an
+        // installed manager the Storage natives fall back to the per-VM
+        // in-memory `fallback_local_storage` (the hermetic test /
+        // unconfigured path).
+        if let Some(hd) = self.vm.host_data() {
+            hd.install_web_storage(manager);
         }
     }
 }

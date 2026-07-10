@@ -294,6 +294,28 @@ pub(super) fn native_window_scroll_by(
     Ok(JsValue::Undefined)
 }
 
+/// `window.focus()` — WHATWG HTML §6.6.6 Focus management APIs, the `Window`
+/// `focus()` method (`#dom-window-focus`).
+///
+/// The engine cannot focus the OS window itself, so the native only stages a
+/// pending-focus flag on `HostData`; the shell drains it per turn via
+/// `HostDriver::take_pending_focus` and applies the actual window focus
+/// (flag-relay boa parity — `bridge/viewport.rs`'s `request_focus`).  The
+/// §6.6.6 *window focusing steps*' fidelity (focus-stealing gates, system
+/// focus events) is the S2 focus program's scope, not this transport's.
+/// Distinct from element `.focus()` (`html_element_proto.rs`), which moves
+/// the DOCUMENT's focused element.
+pub(super) fn native_window_focus(
+    ctx: &mut NativeContext<'_>,
+    _this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    if let Some(host) = ctx.vm.host_data.as_deref_mut() {
+        host.request_window_focus();
+    }
+    Ok(JsValue::Undefined)
+}
+
 // ---------------------------------------------------------------------------
 // Viewport / scroll getters
 // ---------------------------------------------------------------------------
@@ -606,6 +628,9 @@ const WINDOW_METHODS: &[(&str, super::super::NativeFn)] = &[
     // `TypeError`).
     ("scroll", native_window_scroll_to),
     ("scrollBy", native_window_scroll_by),
+    // HTML §6.6.6 `window.focus()` (`#dom-window-focus`) — stages the
+    // pending-focus flag the shell drains (`take_pending_focus`).
+    ("focus", native_window_focus),
     (
         "postMessage",
         super::pending_tasks::native_window_post_message,

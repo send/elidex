@@ -393,13 +393,7 @@ fn credentialless_iframe_persists_flag_and_opaque_origin() {
 /// produce (the disconnected test network cannot produce a real one).
 fn synth_cross_origin_loaded(html: &str, url: &str) -> elidex_navigation::LoadedDocument {
     let parsed = elidex_html_parser::parse_progressive_str(html);
-    let scripts = elidex_js_boa::extract_scripts(&parsed.dom, parsed.document)
-        .into_iter()
-        .map(|s| elidex_navigation::ResolvedScript {
-            source: s.source,
-            entity: s.entity,
-        })
-        .collect();
+    let scripts = elidex_navigation::extract_inline_scripts(&parsed.dom, parsed.document);
     elidex_navigation::LoadedDocument {
         dom: parsed.dom,
         document: parsed.document,

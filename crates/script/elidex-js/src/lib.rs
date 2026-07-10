@@ -67,6 +67,10 @@ mod tests_engine_s2;
 
 #[cfg(test)]
 #[cfg(feature = "engine")]
+mod tests_engine_s6a;
+
+#[cfg(test)]
+#[cfg(feature = "engine")]
 mod tests_webapi_gate;
 
 mod lexer;

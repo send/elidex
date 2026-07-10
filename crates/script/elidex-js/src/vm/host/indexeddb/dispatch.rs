@@ -15,10 +15,12 @@
 
 #![cfg(feature = "engine")]
 
+use super::super::super::host_data::HostData;
 use super::super::super::shape::PropertyAttrs;
 use super::super::super::value::{
     CallMode, JsValue, NativeContext, ObjectId, PropertyKey, PropertyValue, StringId,
 };
+use super::super::super::VmInner;
 use super::super::event_target_dispatch_vm::{dispatch_vm_event, vm_path_has_listener};
 use super::super::events::EventInit;
 
@@ -71,6 +73,58 @@ pub(crate) fn fire_version_change_event(
     ];
     let proto = ctx.vm.idb_version_change_event_prototype;
     fire_idb_event_with_props(ctx, target, event_type, false, false, proto, &props)
+}
+
+impl VmInner {
+    /// Deliver a cross-context version change to this VM (S5-6a, B21 —
+    /// IndexedDB-3 §4.2 Event interfaces, dfn *fire a version change
+    /// event*): fire `versionchange` at every OPEN `IDBDatabase` connection
+    /// to `db_name`, the receive half of the wire whose emit half is the
+    /// `indexedDB.open()` upgrade branch's cross-context request
+    /// (`factory.rs`).  `new_version` is `None` for a database-deletion
+    /// version change (`IDBVersionChangeEvent.newVersion` = null).
+    ///
+    /// Marshal-only: another context made the decision; this reuses the
+    /// in-VM `IDBVersionChangeEvent` UA-fire seam
+    /// ([`fire_version_change_event`]).  Fires only — per the spec (and boa
+    /// parity), closing the connection is the page's `versionchange`
+    /// handler's job, never automatic.  A no-op when no open connection to
+    /// `db_name` exists, or when the VM is not bound to a browsing context
+    /// (mirroring `deliver_history_step_events`' defensive gate — listener
+    /// bodies may touch the DOM).
+    pub(crate) fn deliver_idb_versionchange(
+        &mut self,
+        db_name: &str,
+        old_version: u64,
+        new_version: Option<u64>,
+    ) {
+        if !self.host_data.as_deref().is_some_and(HostData::is_bound) {
+            return;
+        }
+        let targets: Vec<ObjectId> = self
+            .idb_database_states
+            .iter()
+            .filter(|(_, s)| s.db_name == db_name && !s.closed)
+            .map(|(id, _)| *id)
+            .collect();
+        if targets.is_empty() {
+            return;
+        }
+        let versionchange_sid = self.well_known.versionchange;
+        let mut ctx = NativeContext::new_call(self);
+        for db_id in targets {
+            // A throwing handler is contained by the dispatch core
+            // (report-an-exception); the remaining connections still hear
+            // their event.
+            let _ = fire_version_change_event(
+                &mut ctx,
+                db_id,
+                versionchange_sid,
+                old_version,
+                new_version,
+            );
+        }
+    }
 }
 
 /// Shared UA-fire seam.  `proto_override` reparents the event to a subclass

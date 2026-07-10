@@ -218,6 +218,56 @@ fn backend_for(vm: &mut VmInner, is_local: bool) -> StorageBackend<'_> {
 }
 
 // ---------------------------------------------------------------------------
+// Cross-context broadcast enqueue (S5-6a, B3)
+// ---------------------------------------------------------------------------
+
+/// Enqueue the WHATWG HTML §12.2.1 "Broadcast this…" intent for a
+/// `localStorage` mutation that actually changed the map (`setItem` step 7 /
+/// `removeItem` step 5 / `clear` step 3).  The shell drains the queue via
+/// `HostDriver::take_pending_storage_changes` and fans out `storage` events
+/// to the OTHER same-origin contexts (*broadcast a Storage object* step 3
+/// excludes the originating storage, so this document never hears its own
+/// write).
+///
+/// Callers apply the §12.2.1 change gates FIRST — `setItem` step 3.2 ("If
+/// oldValue is value, then return"), `removeItem` step 1 (absent key), and
+/// `clear` step 1 (empty map) broadcast nothing.  Changed-ness and
+/// `old_value` derive from the engine-independent backend's return values
+/// (`WebStorageManager::local_set` / `local_remove` return the previous
+/// value — the host side is compare + enqueue-marshalling only, per the
+/// Layering mandate).
+///
+/// `sessionStorage` mutations never reach here: elidex has no second
+/// same-session browsing context pre-S5-8, and the cross-context drain is
+/// localStorage-only (boa parity — the S5-8 browsing-context model owns the
+/// sessionStorage half).
+fn enqueue_local_storage_change(
+    vm: &mut VmInner,
+    key: Option<&str>,
+    old_value: Option<String>,
+    new_value: Option<&str>,
+) {
+    // §12.2.1 *broadcast a Storage object* step 2: the url member is the
+    // serialization of the originating document's URL.
+    let url = vm.navigation.current_url.as_str().to_string();
+    // The broadcast-targeting key is the storage BUCKET origin ([`current_origin`]
+    // — the same key the mutation itself just wrote under), carrying the
+    // per-VM opaque-origin sentinel for opaque documents; see
+    // `StorageChange::origin` for why a serialized origin would alias
+    // unrelated sandboxed iframes.
+    let origin = current_origin(vm);
+    if let Some(host) = vm.host_data.as_deref_mut() {
+        host.enqueue_storage_change(elidex_script_session::StorageChange {
+            origin,
+            key: key.map(str::to_owned),
+            old_value,
+            new_value: new_value.map(str::to_owned),
+            url,
+        });
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Prototype install + cached instance allocation
 // ---------------------------------------------------------------------------
 
@@ -492,7 +542,14 @@ fn native_storage_set_item(
     let result = backend.set(&key_str, &value_str);
     drop(backend);
     match result {
-        Ok(_) => Ok(JsValue::Undefined),
+        Ok(old_value) => {
+            // §12.2.1 setItem step 3.2: if oldValue is value, then return
+            // (no broadcast); step 7: broadcast with key, oldValue, value.
+            if is_local && old_value.as_deref() != Some(value_str.as_str()) {
+                enqueue_local_storage_change(ctx.vm, Some(&key_str), old_value, Some(&value_str));
+            }
+            Ok(JsValue::Undefined)
+        }
         Err(err) => Err(map_storage_error(ctx.vm, err)),
     }
 }
@@ -516,7 +573,13 @@ fn native_storage_remove_item(
     let key_sid = super::super::coerce::to_string(ctx.vm, key_val)?;
     let key_str = ctx.vm.strings.get_utf8(key_sid);
     let mut backend = backend_for(ctx.vm, is_local);
-    backend.remove(&key_str);
+    let removed = backend.remove(&key_str);
+    drop(backend);
+    // §12.2.1 removeItem step 1: absent key → return (no broadcast);
+    // step 5: broadcast with key, oldValue, null.
+    if is_local && removed.is_some() {
+        enqueue_local_storage_change(ctx.vm, Some(&key_str), removed, None);
+    }
     Ok(JsValue::Undefined)
 }
 
@@ -530,7 +593,14 @@ fn native_storage_clear(
         return Ok(JsValue::Undefined);
     }
     let mut backend = backend_for(ctx.vm, is_local);
+    // §12.2.1 clear step 1: empty map → return (no broadcast); step 3:
+    // broadcast with null, null, null.
+    let was_empty = backend.len() == 0;
     backend.clear();
+    drop(backend);
+    if is_local && !was_empty {
+        enqueue_local_storage_change(ctx.vm, None, None, None);
+    }
     Ok(JsValue::Undefined)
 }
 
@@ -639,7 +709,15 @@ pub(crate) fn try_set(
     let result = backend.set(&key_str, &value_str);
     drop(backend);
     match result {
-        Ok(_) => Some(Ok(())),
+        Ok(old_value) => {
+            // WebIDL named setter = the §12.2.1 setItem method steps, so the
+            // same step-3.2 change gate + step-7 broadcast apply (see
+            // `native_storage_set_item`).
+            if is_local && old_value.as_deref() != Some(value_str.as_str()) {
+                enqueue_local_storage_change(vm, Some(&key_str), old_value, Some(&value_str));
+            }
+            Some(Ok(()))
+        }
         Err(err) => Some(Err(map_storage_error(vm, err))),
     }
 }
@@ -663,7 +741,14 @@ pub(crate) fn try_delete(
     }
     let key_str = vm.strings.get_utf8(key_sid);
     let mut backend = backend_for(vm, is_local);
-    backend.remove(&key_str);
+    let removed = backend.remove(&key_str);
+    drop(backend);
+    // WebIDL named deleter = the §12.2.1 removeItem method steps, so the same
+    // step-1 absent-key gate + step-5 broadcast apply (see
+    // `native_storage_remove_item`).
+    if is_local && removed.is_some() {
+        enqueue_local_storage_change(vm, Some(&key_str), removed, None);
+    }
     Some(Ok(true))
 }
 

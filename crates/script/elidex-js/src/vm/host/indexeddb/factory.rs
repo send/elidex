@@ -112,6 +112,23 @@ pub(crate) fn native_idb_open(
             old_version,
             new_version,
         }) => {
+            // S5-6a B6: an open that needs an upgrade must fire
+            // `versionchange` at OTHER contexts' open connections to this
+            // database (IndexedDB-3 §4.2 Event interfaces, dfn *fire a
+            // version change event*).  This VM cannot reach them — stage the
+            // cross-context request on the `HostData` FIFO; the shell drains
+            // it (`HostDriver::take_pending_idb_versionchange_requests`),
+            // broadcasts, and each receiving engine fires via
+            // `deliver_idb_versionchange` (the receive half of the wire).
+            if let Some(host) = ctx.vm.host_data.as_deref_mut() {
+                host.enqueue_idb_versionchange_request(
+                    elidex_script_session::IdbVersionChangeRequest {
+                        db_name: name.clone(),
+                        old_version,
+                        new_version: Some(new_version),
+                    },
+                );
+            }
             let db = database::create_database_wrapper(ctx.vm, handle.name(), handle.version());
             match elidex_indexeddb::IdbTransaction::begin(
                 backend.conn(),
@@ -202,7 +219,26 @@ pub(crate) fn native_idb_delete_database(
     let backend = ctx.vm.require_idb_backend()?;
     let req = request::create_request(ctx.vm, None, None, true);
     match elidex_indexeddb::database::delete_database(&backend, &name) {
-        Ok(_old_version) => {
+        Ok(old_version) => {
+            // S5-6a B6 (second fire site, the open-upgrade branch's twin): a
+            // deletion must fire `versionchange` (newVersion = null) at OTHER
+            // contexts' open connections (IndexedDB-3 §5.3 *delete a
+            // database* step 6) — stage the cross-context request for the
+            // shell to broadcast.  Gated on existence: step 4 returns 0 for
+            // a nonexistent database BEFORE the step-6 fire, so deleting
+            // nothing broadcasts nothing (`old_version == 0` ⇔ absent —
+            // spec-correct where boa enqueued unconditionally).
+            if old_version > 0 {
+                if let Some(host) = ctx.vm.host_data.as_deref_mut() {
+                    host.enqueue_idb_versionchange_request(
+                        elidex_script_session::IdbVersionChangeRequest {
+                            db_name: name.clone(),
+                            old_version,
+                            new_version: None,
+                        },
+                    );
+                }
+            }
             request::async_execute(
                 ctx.vm,
                 None,

@@ -501,6 +501,50 @@ pub(super) fn native_window_post_message(
     //    for "not all items are transferable" (§9.4.3 step 5).
     validate_transfer(ctx, transfer_val)?;
 
+    // 3b. iframe→parent routing (S5-6a, B16 — WHATWG HTML §9.3.3 Posting
+    //     messages, `#dom-window-postmessage-options`).  In an iframe
+    //     document's VM, `parent` / `top` resolve to `globalThis`
+    //     (single-window stubs, `window.rs`), so a `postMessage` here is
+    //     parent-DIRECTED: enqueue onto the `HostData` parent-message FIFO
+    //     for the shell to forward to the parent document, instead of
+    //     self-delivering.  The §9.3.3 origin gate is NOT applied here — it
+    //     compares against the TARGET (parent) window's origin, which this
+    //     VM cannot know, so `targetOrigin` rides the payload verbatim
+    //     (syntax-validated below per the spec's sender-side parse step) and
+    //     the receiving side gates.  boa-parity interim: the routing-by-depth
+    //     mirrors boa's context-routed single queue (top-level → self,
+    //     iframe → parent), including its `ToString`-serialized `data` wire
+    //     format; the real WindowProxy browsing-context targeting replaces
+    //     this wholesale at S5-8/B1.
+    let iframe_depth = ctx
+        .vm
+        .host_data
+        .as_deref()
+        .map_or(0, super::super::host_data::HostData::iframe_depth);
+    if iframe_depth > 0 {
+        let target_origin_str = ctx.vm.strings.get_utf8(target_origin);
+        if target_origin_str != "*"
+            && target_origin_str != "/"
+            && url::Url::parse(&target_origin_str).is_err()
+        {
+            return Err(VmError::dom_exception(
+                ctx.vm.well_known.dom_exc_syntax_error,
+                format!(
+                    "Failed to execute 'postMessage' on 'Window': Invalid target origin '{target_origin_str}'.",
+                ),
+            ));
+        }
+        let data_sid = coerce::to_string(ctx.vm, message)?;
+        let data = ctx.vm.strings.get_utf8(data_sid);
+        if let Some(host) = ctx.vm.host_data.as_deref_mut() {
+            host.enqueue_parent_message(elidex_script_session::ParentMessage {
+                data,
+                target_origin: target_origin_str,
+            });
+        }
+        return Ok(JsValue::Undefined);
+    }
+
     // 4. Structured serialize `message`.  Clone throws surface
     //    synchronously; origin mismatch is a silent return (checked
     //    after, step 6).  Matches spec order: step 5 (serialize)

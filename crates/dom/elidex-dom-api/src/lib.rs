@@ -64,10 +64,10 @@ pub use class_list::{
 pub use computed_style::GetComputedStyle;
 pub use css_namespace::{CssEscape, CssSupports};
 pub use cssom_sheet::{
-    collect_stylesheet_owners, count_stylesheet_owners, link_has_loaded_sheet, link_sheet_href,
-    CssRulesItemId, CssRulesLength, DeleteRule, InsertRule, RuleCssText, RuleSelectorText,
-    RuleStyleCssText, RuleStyleGetPropertyPriority, RuleStyleGetPropertyValue, RuleStyleItem,
-    RuleStyleLength,
+    collect_document_stylesheets, collect_stylesheet_owners, count_stylesheet_owners,
+    link_has_loaded_sheet, link_sheet_href, CollectedStylesheet, CssRulesItemId, CssRulesLength,
+    DeleteRule, InsertRule, RuleCssText, RuleSelectorText, RuleStyleCssText,
+    RuleStyleGetPropertyPriority, RuleStyleGetPropertyValue, RuleStyleItem, RuleStyleLength,
 };
 pub use dialog::close_the_dialog;
 pub use document::{
