@@ -362,4 +362,44 @@ impl super::super::VmInner {
             tuple => tuple,
         }
     }
+
+    /// The origin STRING that partitions origin-scoped storage (WHATWG
+    /// "obtain a storage key"), derived from the canonical [`Self::document_origin`]
+    /// resolver — **not** `current_url.origin()` (S1b §5): a sandboxed iframe has a
+    /// real `current_url` but an *opaque* document origin and must not share the
+    /// real origin's bucket.
+    ///
+    /// - Tuple origins serialize via `SecurityOrigin::serialize` (the §7.1.1 ascii
+    ///   serialization).
+    /// - Opaque origins (sandboxed / `about:blank` / `data:` / `javascript:`) fall
+    ///   back to the per-VM [`HostData::opaque_origin_sentinel`] — an
+    ///   IDENTITY-PRESERVING key, **not** the serialized `"null"` (which collapses
+    ///   every distinct opaque origin to one string), so two unrelated opaque
+    ///   documents never alias into the same bucket or cross-broadcast into each
+    ///   other. `"null"` only when no `HostData` is installed (bootstrap).
+    ///
+    /// The single origin-key derivation shared by every origin-partitioned
+    /// surface: the `localStorage` mutation-broadcast key (`storage.rs`) and the
+    /// IndexedDB cross-context `versionchange` broadcast key
+    /// (`indexeddb/factory.rs`) — the browser fan-out matches this string against
+    /// each tab's origin, so a lossy `"null"` here would broadcast across
+    /// unrelated opaque contexts.
+    ///
+    /// Known spec deviation (→ slot `#11-storage-opaque-origin-securityerror`):
+    /// the Storage standard's "obtain a storage key" returns failure for an opaque
+    /// origin, so the storage getters should throw `SecurityError` rather than
+    /// partition into a sentinel bucket; the per-VM sentinel is a pre-existing
+    /// pragmatic fallback (lets bootstrap / `about:blank` / `data:` documents
+    /// function) and enforcing the throw is deferred (it spans both getters and
+    /// couples to `about:blank` origin inheritance the VM does not yet model).
+    pub(crate) fn storage_origin_key(&self) -> String {
+        let origin = self.document_origin();
+        if let elidex_plugin::SecurityOrigin::Tuple { .. } = &origin {
+            return origin.serialize();
+        }
+        self.host_data.as_deref().map_or_else(
+            || "null".to_string(),
+            |hd| hd.opaque_origin_sentinel().to_string(),
+        )
+    }
 }

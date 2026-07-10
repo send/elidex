@@ -69,11 +69,15 @@ fn enqueue_versionchange(
     old_version: u64,
     new_version: Option<u64>,
 ) {
-    // The owning origin, captured HERE at enqueue (IndexedDB is
+    // The owning storage-key origin, captured HERE at enqueue (IndexedDB is
     // origin-partitioned; the shell routes `versionchange` to same-origin
-    // contexts only). Inferring it at drain would mislocate it across a
-    // navigation or a sandbox/opaque override.
-    let origin = vm.document_origin().serialize();
+    // contexts only). Uses the shared `storage_origin_key` derivation (the same
+    // key localStorage broadcasts under) — an opaque document keeps its
+    // identity-preserving per-VM sentinel, NOT a lossy `"null"` that would
+    // collapse distinct opaque origins and cross-broadcast between unrelated
+    // sandboxed/`data:` contexts. Inferring the origin at drain would also
+    // mislocate it across a navigation or a sandbox/opaque override.
+    let origin = vm.storage_origin_key();
     if let Some(host) = vm.host_data.as_deref_mut() {
         host.enqueue_idb_versionchange_request(elidex_script_session::IdbVersionChangeRequest {
             origin,

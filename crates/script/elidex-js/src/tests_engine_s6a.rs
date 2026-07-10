@@ -351,6 +351,36 @@ fn delete_database_enqueues_versionchange_request_with_null_new_version() {
     assert_eq!(reqs[0].origin, "https://example.com");
 }
 
+/// Regression (Codex PR#453 R5): an opaque-origin document's IDB versionchange
+/// request must carry the IDENTITY-PRESERVING storage key (the per-VM opaque
+/// sentinel), NOT `SecurityOrigin::serialize()`'s lossy `"null"`. A `"null"`
+/// key collapses every distinct opaque origin to one string, so the
+/// origin-keyed shell broadcast would fan a versionchange out to unrelated
+/// sandboxed / `data:` contexts. `storage_origin_key` (shared with localStorage)
+/// keeps the sentinel; the earlier `document_origin().serialize()` did not.
+#[test]
+fn opaque_origin_idb_versionchange_request_carries_identity_key_not_null() {
+    // No `set_current_url` → the document origin is opaque.
+    let (mut engine, mut session, mut dom, doc) = fresh_unbound();
+    let mut ctx = ScriptContext::new(&mut session, &mut dom, doc);
+    bind_engine(&mut engine, &mut ctx);
+    let r = ScriptEngine::eval(&mut engine, "indexedDB.open('odb', 1);", &mut ctx);
+    assert!(r.success, "{:?}", r.error);
+    engine.unbind();
+
+    let reqs = engine.take_pending_idb_versionchange_requests();
+    assert_eq!(reqs.len(), 1, "{reqs:?}");
+    assert!(
+        reqs[0].origin.starts_with("opaque-origin:"),
+        "opaque IDB origin must be the identity-preserving sentinel, got {:?}",
+        reqs[0].origin
+    );
+    assert_ne!(
+        reqs[0].origin, "null",
+        "a lossy \"null\" key would cross-broadcast between unrelated opaque origins"
+    );
+}
+
 #[test]
 fn delete_nonexistent_database_enqueues_nothing() {
     // §5.3 step 4 returns 0 for a nonexistent database BEFORE the step-6
@@ -460,6 +490,28 @@ fn iframe_post_message_target_origin_normalized_to_origin() {
     assert_eq!(msgs[0].target_origin, "https://parent.example:8443");
     // Sender origin captured at enqueue (→ MessageEvent.origin).
     assert_eq!(msgs[0].origin, "https://iframe.example");
+}
+
+/// An opaque (sandboxed) sender's `MessageEvent.origin` is `"null"` (§9.3.3
+/// serializes the sender origin; an opaque origin serializes to `"null"`, and
+/// opaque senders are deliberately indistinguishable to the receiver). This is
+/// the DISPLAYED-origin case — deliberately NOT the identity-preserving sentinel
+/// used for the storage-partition KEY (`IdbVersionChangeRequest.origin`), so the
+/// two must not be unified onto one derivation.
+#[test]
+fn iframe_post_message_opaque_sender_origin_is_null() {
+    // No `set_current_url` → opaque sender origin.
+    let (mut engine, mut session, mut dom, doc) = fresh_unbound();
+    engine.set_iframe_depth(1);
+    let mut ctx = ScriptContext::new(&mut session, &mut dom, doc);
+    bind_engine(&mut engine, &mut ctx);
+    let r = ScriptEngine::eval(&mut engine, "window.postMessage('m', '*');", &mut ctx);
+    assert!(r.success, "{:?}", r.error);
+    engine.unbind();
+
+    let msgs = engine.take_pending_parent_messages();
+    assert_eq!(msgs.len(), 1, "{msgs:?}");
+    assert_eq!(msgs[0].origin, "null");
 }
 
 #[test]
