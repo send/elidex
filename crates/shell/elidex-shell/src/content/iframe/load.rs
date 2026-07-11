@@ -171,7 +171,13 @@ fn load_iframe_from_url(
                     ctx.parent_url,
                     ctx.parent_origin,
                     &doc_origin,
-                );
+                )
+                // Parse the referrer to `url::Url` at the construction source so
+                // `PreEvalFrameState.referrer` is already typed for the pre-eval
+                // seam (`set_navigation_referrer`). `compute_referrer` emits a
+                // serialized absolute URL (stripped source URL or origin-as-URL),
+                // so this parse never fails in practice.
+                .and_then(|s| url::Url::parse(&s).ok());
                 return make_out_of_process_entry(loaded, state, ctx.device_facts);
             }
 
@@ -401,12 +407,15 @@ fn pre_eval_state(
         credentialless,
         // Same-origin path: srcdoc / about:blank / same-origin URL loads inherit
         // the parent origin, so the request origin IS the parent origin.
+        // Parsed to `url::Url` at the construction source (see the OOP arm) so the
+        // `PreEvalFrameState.referrer` field is already typed for the pre-eval seam.
         referrer: compute_referrer(
             referrer_policy,
             ctx.parent_url,
             ctx.parent_origin,
             ctx.parent_origin,
-        ),
+        )
+        .and_then(|s| url::Url::parse(&s).ok()),
     }
 }
 

@@ -19,6 +19,7 @@ use std::time::{Duration, Instant};
 
 use elidex_ecs::Entity;
 use elidex_navigation::NavigationController;
+use elidex_script_session::HostDriver;
 
 use crate::ipc::{BrowserToContent, ContentToBrowser, LocalChannel};
 use crate::PipelineResult;
@@ -221,9 +222,11 @@ impl ContentState {
             .insert_one(self.pipeline.document, self.viewport_scroll.clone());
         // Sync scroll offset to the script bridge so scrollX/scrollY reflect
         // current state.
-        self.pipeline.runtime.bridge().set_scroll_offset(
-            self.viewport_scroll.scroll_offset.x,
-            self.viewport_scroll.scroll_offset.y,
+        // The `HostDriver` scroll surface is f64 (DOM coordinates); the shell's
+        // `viewport_scroll` is f32 (render space) — widen at the seam.
+        self.pipeline.runtime.set_scroll_offset(
+            self.viewport_scroll.scroll_offset.x.into(),
+            self.viewport_scroll.scroll_offset.y.into(),
         );
     }
 
@@ -252,9 +255,10 @@ impl ContentState {
         // content then `scrollTo` its bottom — must clamp against the NEW content
         // size, not the stale pre-layout one (Codex R6 "clamp script scrolls
         // after layout is refreshed").
-        let pending_scroll = self.pipeline.runtime.bridge().take_pending_scroll();
+        let pending_scroll = self.pipeline.runtime.take_pending_scroll();
         if let Some((x, y)) = pending_scroll {
-            self.viewport_scroll.scroll_offset = elidex_plugin::Vector::new(x, y);
+            // f64 (DOM coordinates) → f32 (render-space `Vector`) at the seam.
+            self.viewport_scroll.scroll_offset = elidex_plugin::Vector::new(x as f32, y as f32);
         }
 
         // Sync viewport scroll offset to pipeline for display list building.

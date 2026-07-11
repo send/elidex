@@ -20,7 +20,6 @@ use elidex_script_session::event_dispatch::{script_dispatch_event, DispatchEvent
 use elidex_script_session::{ScriptContext, SessionCore};
 
 use crate::engine::ElidexJsEngine;
-use crate::vm::host_data::HostData;
 use crate::vm::value::JsValue;
 
 /// Construct an unbound engine + session + dom with a fresh
@@ -28,7 +27,6 @@ use crate::vm::value::JsValue;
 /// `bind_after_dom` to start the VM's host-pointer lifecycle.
 fn fresh_unbound() -> (ElidexJsEngine, SessionCore, EcsDom, Entity) {
     let mut engine = ElidexJsEngine::new();
-    engine.vm().install_host_data(HostData::new());
     let session = SessionCore::new();
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
@@ -306,7 +304,6 @@ fn bound_dispatch_listener_dom_mutation_is_sound_and_visible() {
     use elidex_script_session::HostDriver;
 
     let mut engine = ElidexJsEngine::new();
-    engine.vm().install_host_data(HostData::new());
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
@@ -384,7 +381,6 @@ fn bound_dispatch_routing_is_stacked_borrows_clean() {
     use elidex_script_session::HostDriver;
 
     let mut engine = ElidexJsEngine::new();
-    engine.vm().install_host_data(HostData::new());
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();

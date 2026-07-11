@@ -3,7 +3,7 @@
 use std::rc::Rc;
 use std::sync::Arc;
 
-use elidex_script_session::{HistoryStepEvents, NavigationType};
+use elidex_script_session::{HistoryStepEvents, HostDriver, NavigationType};
 
 use crate::app::navigation::resolve_nav_url;
 use crate::ipc::ContentToBrowser;
@@ -113,7 +113,7 @@ pub(super) fn handle_navigate(
     // service worker. A fragment nav early-returned above; the other skip cases
     // (embed/object destination — §1; shift+reload) are handled by the browser
     // thread for subresource requests.
-    if let Some(sw_scope) = state.pipeline.runtime.bridge().sw_controller_scope() {
+    if let Some(sw_scope) = state.pipeline.runtime.sw_controller_scope() {
         if elidex_api_sw::matches_scope(&sw_scope, url) {
             // Send FetchEvent relay request to browser thread.
             static FETCH_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);

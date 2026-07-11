@@ -15,14 +15,12 @@ use elidex_script_session::{HostDriver, ScriptContext, ScriptEngine, SessionCore
 use url::Url;
 
 use crate::engine::ElidexJsEngine;
-use crate::vm::host_data::HostData;
 use crate::vm::value::JsValue;
 
 /// Construct an unbound engine + session + dom with a fresh `document_root`
 /// (mirrors `tests_engine_s1a::fresh_unbound`).
 fn fresh_unbound() -> (ElidexJsEngine, SessionCore, EcsDom, Entity) {
     let mut engine = ElidexJsEngine::new();
-    engine.vm().install_host_data(HostData::new());
     let session = SessionCore::new();
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
@@ -134,17 +132,19 @@ fn document_origin_opaque_fallback_is_identity_stable() {
 }
 
 #[test]
-fn document_origin_resolves_without_host_data() {
-    // A bare engine (no HostData installed) still resolves — falls back to
-    // `current_url` (default about:blank → opaque "null"), never panics.
+fn document_origin_resolves_and_reflects_override() {
+    // A fresh engine (HostData installed by construction) resolves without
+    // panicking — the default about:blank `current_url` yields an opaque "null".
     let mut engine = ElidexJsEngine::new();
     assert_eq!(engine.origin().serialize(), "null");
-    // set_origin is a no-op without HostData (cannot store the override);
-    // the resolver keeps deriving from current_url.
+    // With HostData installed by the engine ctor, `set_origin` stores the
+    // override and the resolver returns it. (The pre-flip "no HostData → no-op"
+    // path is now unreachable at the engine level: `ElidexJsEngine::new` always
+    // installs a default `HostData`; only a bare `Vm::new()` lacks one.)
     engine.set_origin(SecurityOrigin::from_url(
         &Url::parse("https://x.example").unwrap(),
     ));
-    assert_eq!(engine.origin().serialize(), "null");
+    assert_eq!(engine.origin().serialize(), "https://x.example");
 }
 
 // ---------------------------------------------------------------------------
@@ -185,9 +185,10 @@ fn sandbox_capability_accessors_track_flags() {
 }
 
 #[test]
-fn sandbox_accessors_default_open_without_host_data() {
-    // Mirror S1a `scripts_allowed`: an un-`HostData`-installed VM defaults to
-    // permissive (so the absence of a security context never silently denies).
+fn sandbox_accessors_default_open() {
+    // A fresh engine's default `HostData` is unsandboxed, so the sandbox
+    // accessors default permissive (the absence of an installed security
+    // context never silently denies).
     // (The read accessors are `&self`, so no `mut` binding is needed here.)
     let engine = ElidexJsEngine::new();
     assert!(engine.forms_allowed());

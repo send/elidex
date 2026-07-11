@@ -1,5 +1,7 @@
 //! Iframe rendering: display list management for parent compositing.
 
+use elidex_script_session::HostDriver;
+
 use super::types::IframeHandle;
 
 /// Set the `IframeDisplayList` component on an entity in the parent DOM.

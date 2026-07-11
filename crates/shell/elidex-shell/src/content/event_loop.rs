@@ -6,6 +6,8 @@ use std::time::{Duration, Instant};
 
 use crossbeam_channel::RecvTimeoutError;
 
+use elidex_script_session::HostDriver;
+
 use crate::ipc::{BrowserToContent, ContentToBrowser};
 
 use super::{
@@ -93,7 +95,7 @@ pub(super) fn run_event_loop(state: &mut ContentState) {
             needs_render = true;
         }
 
-        for change in state.pipeline.runtime.bridge().drain_storage_changes() {
+        for change in state.pipeline.runtime.take_pending_storage_changes() {
             let _ = state.channel.send(ContentToBrowser::StorageChanged {
                 origin: change.origin,
                 key: change.key,
@@ -121,7 +123,7 @@ pub(super) fn run_event_loop(state: &mut ContentState) {
         }
 
         for req in state.pipeline.runtime.bridge().drain_sw_register_requests() {
-            if let Some(ref current_url) = state.pipeline.runtime.bridge().current_url() {
+            if let Some(ref current_url) = state.pipeline.runtime.current_url() {
                 let origin = current_url.origin().unicode_serialization();
                 let Ok(script_url) = current_url.join(&req.script_url) else {
                     continue;
@@ -154,7 +156,7 @@ pub(super) fn run_event_loop(state: &mut ContentState) {
         let window_opens = state.pipeline.runtime.take_pending_window_opens();
         needs_render |= super::navigation::route_window_opens(state, window_opens).navigated_iframe;
 
-        if state.pipeline.runtime.bridge().take_pending_focus() {
+        if state.pipeline.runtime.take_pending_focus() {
             state.notify_browser(ContentToBrowser::FocusWindow);
         }
 
@@ -482,7 +484,7 @@ fn handle_message(msg: BrowserToContent, state: &mut ContentState) -> bool {
             );
             event.bubbles = false;
             event.cancelable = false;
-            state.pipeline.runtime.bridge().set_visibility(visible);
+            state.pipeline.runtime.set_visibility(visible);
             state.pipeline.dispatch_event(&mut event);
             state.re_render();
             state.send_display_list();

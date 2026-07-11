@@ -4,7 +4,7 @@ use elidex_ecs::ElementState as DomElementState;
 use elidex_ecs::Entity;
 use elidex_form::{FormControlKind, FormControlState};
 use elidex_plugin::{EventPayload, MouseEventInit};
-use elidex_script_session::DispatchEvent;
+use elidex_script_session::{DispatchEvent, HostDriver};
 
 use crate::app::hover::update_element_state;
 
@@ -126,7 +126,7 @@ pub(super) fn dispatch_input_event_typed(
 pub(super) fn handle_form_submit(state: &mut ContentState, target: Entity) {
     // Sandbox allow-forms check: block form submission in sandboxed iframes
     // that do not have the allow-forms flag.
-    if !state.pipeline.runtime.bridge().forms_allowed() {
+    if !state.pipeline.runtime.forms_allowed() {
         return;
     }
     let Some(form_entity) = elidex_form::find_form_ancestor(&state.pipeline.dom, target) else {

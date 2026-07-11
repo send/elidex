@@ -32,7 +32,6 @@ use elidex_plugin::{EngineMode, WebApiSpecLevel};
 use elidex_script_session::{ScriptContext, ScriptEngine, SessionCore};
 
 use crate::engine::ElidexJsEngine;
-use crate::vm::host_data::HostData;
 use crate::vm::test_helpers::bind_vm;
 use crate::vm::value::JsValue;
 use crate::vm::Vm;
@@ -73,7 +72,6 @@ fn vm_stores_mode_derived_policy() {
 
 fn fresh(engine_mode: EngineMode) -> (ElidexJsEngine, SessionCore, EcsDom, Entity) {
     let mut engine = ElidexJsEngine::new_with_mode(engine_mode);
-    engine.vm().install_host_data(HostData::new());
     let session = SessionCore::new();
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();

@@ -1,6 +1,6 @@
 //! URL navigation, history actions, and chrome action handling.
 
-use elidex_script_session::{HistoryStepEvents, NavigationType};
+use elidex_script_session::{HistoryStepEvents, HostDriver, NavigationType};
 
 use super::App;
 use super::InteractiveState;

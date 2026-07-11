@@ -71,8 +71,11 @@ pub struct PreEvalFrameState {
     /// The document's referrer — the parent document URL for an iframe (WHATWG
     /// HTML §4.8.5). Installed at the same pre-eval chokepoint as origin/flags
     /// so the initial scripts read a populated `document.referrer` instead of
-    /// `""`. `None` = no referrer (top-level, or parent has no URL).
-    pub referrer: Option<String>,
+    /// `""`. `None` = no referrer (top-level, or parent has no URL). Already a
+    /// parsed `url::Url` (the `compute_referrer` output is parsed once at the
+    /// construction site) so the pre-eval seam hands it to the engine's
+    /// `set_navigation_referrer(Option<url::Url>)` without re-parsing.
+    pub referrer: Option<url::Url>,
 }
 
 /// Deferred inputs for deriving a (sub-)frame's [`PreEvalFrameState`] **after** the
@@ -89,7 +92,7 @@ pub struct PreEvalFrameInputs {
     /// Iframe nesting depth.
     pub iframe_depth: usize,
     /// Referrer URL (parent document URL); carried across the rebuild unchanged.
-    pub referrer: Option<String>,
+    pub referrer: Option<url::Url>,
 }
 
 // `PreEvalFrameInputs::into_pre_eval_state` (the post-redirect origin
@@ -230,18 +233,11 @@ pub(super) fn run_scripts_and_finalize(
         // the empty default — previously a post-build `set_referrer` landed it
         // only after the initial scripts had already run (and never on the OOP
         // path).
-        // B23: `.bridge().set_referrer` → trait `set_navigation_referrer`. The VM
-        // takes `Option<url::Url>`; boa took `Option<String>`.
-        // TODO(S5-6b stage2 — referrer type mismatch): `state.referrer:
-        // Option<String>` must parse to `Option<url::Url>` for
-        // `set_navigation_referrer`. Left as a parse-adapter for stage 2 (the
-        // referrer is already fragment/credential-stripped per the trait doc).
-        runtime.set_navigation_referrer(
-            state
-                .referrer
-                .as_deref()
-                .and_then(|s| url::Url::parse(s).ok()),
-        );
+        // B23: `.bridge().set_referrer` → trait `set_navigation_referrer`. Both
+        // take `Option<url::Url>` (`PreEvalFrameState.referrer` is parsed once at
+        // its `compute_referrer` construction site), so the seam is a plain move —
+        // no parse-adapter. The engine sanitises (fragment/userinfo strip) on store.
+        runtime.set_navigation_referrer(state.referrer.clone());
     }
 
     // Seed the JS bridge viewport + device facts BEFORE running scripts so initial

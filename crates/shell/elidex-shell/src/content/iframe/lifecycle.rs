@@ -1,6 +1,7 @@
 //! Iframe lifecycle: mutation detection, lazy loading, unloading, DOM scanning.
 
 use elidex_ecs::Entity;
+use elidex_script_session::HostDriver;
 
 use super::load::load_iframe;
 use super::render::set_iframe_display_list;
@@ -172,7 +173,7 @@ pub(in crate::content) fn try_load_iframe_entity(
         return;
     }
 
-    let parent_origin = state.pipeline.runtime.bridge().origin();
+    let parent_origin = state.pipeline.runtime.origin();
     let ctx = build_load_context(state, entity, &parent_origin);
     let entry = load_iframe(&data, &ctx);
     register_iframe_entry(state, entity, entry);
@@ -254,7 +255,7 @@ pub(in crate::content) fn check_lazy_iframes(state: &mut crate::content::Content
             .ok()
             .map(|d| (*d).clone());
         if let Some(data) = iframe_data {
-            let parent_origin = state.pipeline.runtime.bridge().origin();
+            let parent_origin = state.pipeline.runtime.origin();
             let ctx = build_load_context(state, entity, &parent_origin);
             let entry = load_iframe(&data, &ctx);
             register_iframe_entry(state, entity, entry);
@@ -346,8 +347,11 @@ fn build_load_context<'a>(
     _entity: Entity,
     parent_origin: &'a elidex_plugin::SecurityOrigin,
 ) -> IframeLoadContext<'a> {
+    // `iframe_depth` converges to the engine-agnostic `HostDriver` trait; the
+    // `bridge` alias below survives only for `cookie_jar_clone` (still boa-bound
+    // until a later flip stage converges the cookie-jar surface).
+    let parent_depth = state.pipeline.runtime.iframe_depth();
     let bridge = state.pipeline.runtime.bridge();
-    let parent_depth = bridge.iframe_depth();
     IframeLoadContext {
         parent_origin,
         parent_url: state.pipeline.url.as_ref(),

@@ -1,6 +1,7 @@
 //! Cross-origin iframe thread event loop.
 
 use elidex_plugin::Size;
+use elidex_script_session::HostDriver;
 
 use super::types::{BrowserToIframe, IframeToBrowser};
 

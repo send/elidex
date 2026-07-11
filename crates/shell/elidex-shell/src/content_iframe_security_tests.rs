@@ -580,7 +580,7 @@ fn oop_cross_origin_iframe_initial_script_observes_parent_origin_referrer() {
             credentialless: false,
             // The cross-origin default: parent ORIGIN-as-URL (trailing slash,
             // R3-F1), not the full parent URL.
-            referrer: Some("https://parent.example/".to_string()),
+            referrer: Some(url::Url::parse("https://parent.example/").unwrap()),
         },
         crate::ipc::DeviceFacts::default(),
     );
@@ -616,7 +616,7 @@ fn navigate_inputs_derive_origin_from_loaded_url() {
         sandbox_flags: None,
         credentialless: false,
         iframe_depth: 2,
-        referrer: Some("https://parent.example/".to_string()),
+        referrer: Some(url::Url::parse("https://parent.example/").unwrap()),
     };
     let loaded = url::Url::parse("https://final.example/page").unwrap();
     let state = inputs.into_pre_eval_state(&loaded);

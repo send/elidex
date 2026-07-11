@@ -40,10 +40,9 @@ impl ElidexJsEngine {
     ///
     /// [`EngineMode::BrowserCompat`]: elidex_plugin::EngineMode::BrowserCompat
     pub fn new() -> Self {
-        Self {
-            vm: Vm::new(),
-            bound: false,
-        }
+        let mut vm = Vm::new();
+        vm.install_host_data(HostData::new());
+        Self { vm, bound: false }
     }
 
     /// Create a new engine with a fresh VM under an explicit
@@ -59,10 +58,9 @@ impl ElidexJsEngine {
     #[cfg(test)]
     #[must_use]
     pub fn new_with_mode(engine_mode: elidex_plugin::EngineMode) -> Self {
-        Self {
-            vm: Vm::new_with_mode(engine_mode),
-            bound: false,
-        }
+        let mut vm = Vm::new_with_mode(engine_mode);
+        vm.install_host_data(HostData::new());
+        Self { vm, bound: false }
     }
 
     /// Access the underlying VM (e.g., for setting globals from host).
