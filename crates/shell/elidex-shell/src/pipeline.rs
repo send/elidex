@@ -97,12 +97,16 @@ pub struct PreEvalFrameInputs {
 // builder below (`build_pipeline_from_url`) invokes the resolver by method
 // dispatch rather than reaching up into the sandbox-origin policy.
 
-/// Flush pending DOM mutations and drain custom element reactions.
+/// Flush pending DOM mutations, then deliver the resulting records to the
+/// engine (record→CE enqueue + `MutationObserver` delivery) and drain the CE
+/// reactions — S5-6b §4.3.1 CE-loop dissolve.
 ///
-/// This helper combines the three steps that must always run together:
-/// 1. `session.flush(dom)` — apply buffered mutations
-/// 2. `enqueue_ce_reactions_from_mutations()` — scan for CE lifecycle triggers
-/// 3. `drain_custom_element_reactions_public()` — invoke CE callbacks
+/// `session.flush` runs OUTSIDE any batch bracket (it takes `&mut dom`, which
+/// the bound `*mut dom` aliasing contract forbids overlapping). Only when it
+/// yields records — under the VM the common VM-native case is EMPTY (see
+/// [`re_render`](crate::re_render)) — is a single bracket opened for the
+/// assume-bound `deliver_mutation_records` + `drain_reactions`.
+#[allow(unsafe_code)]
 fn flush_with_ce_reactions(
     runtime: &mut ElidexJsEngine,
     session: &mut SessionCore,
@@ -110,8 +114,20 @@ fn flush_with_ce_reactions(
     document: Entity,
 ) {
     let records: Vec<_> = session.flush(dom);
-    runtime.enqueue_ce_reactions_from_mutations(&records, dom);
-    runtime.drain_custom_element_reactions_public(session, dom, document);
+    if records.is_empty() {
+        return;
+    }
+    let mut ctx = ScriptContext::new(session, dom, document);
+    // SAFETY: `ctx` outlives the bracket and neither the caller nor the trait
+    // methods touch `ctx.session` / `ctx.dom` through a `&mut` while bound (they
+    // use the bound pointers). `records` is owned outside and does not alias
+    // `ctx`. Same `with_bound` contract as the `PipelineResult` chokepoints.
+    unsafe {
+        runtime.with_bound(&mut ctx, |engine, ctx| {
+            engine.deliver_mutation_records(&records);
+            engine.drain_reactions(ctx);
+        });
+    }
 }
 
 /// Common script execution and finalization phase shared by pipeline builders.

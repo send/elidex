@@ -301,6 +301,30 @@ impl PipelineResult {
         }
     }
 
+    /// Deliver a batch of flushed `MutationRecord`s to the engine and drain
+    /// the resulting custom-element reactions, in ONE batch bracket (§4.1 +
+    /// §4.3.1).
+    ///
+    /// `deliver_mutation_records` runs the record→CE enqueue (S5-6b §4.3.1,
+    /// the single `elidex_custom_elements` classification) followed by
+    /// `MutationObserver` delivery; `drain_reactions` then drains the CE queue
+    /// (callbacks the enqueue produced). Both are assume-bound, so they run
+    /// inside the `with_bound` bracket. `records` is external data (the flush
+    /// output) — the driving-order invariant only forbids touching
+    /// `ctx.session` / `ctx.dom` while bound, which neither method does.
+    #[allow(unsafe_code)]
+    fn deliver_records_and_drain(&mut self, records: &[elidex_script_session::MutationRecord]) {
+        let mut ctx = ScriptContext::new(&mut self.session, &mut self.dom, self.document);
+        // SAFETY: see `dispatch_event` — the `with_bound` unaliased contract.
+        // `records` is owned outside the bracket and does not alias `ctx`.
+        unsafe {
+            self.runtime.with_bound(&mut ctx, |engine, ctx| {
+                engine.deliver_mutation_records(records);
+                engine.drain_reactions(ctx);
+            });
+        }
+    }
+
     /// Remove animation/transition state for entities that no longer exist in the DOM.
     pub(crate) fn prune_dead_animation_entities(&mut self) {
         self.animation_engine.prune_dead_entities(&|entity_id| {
@@ -317,42 +341,39 @@ impl PipelineResult {
 /// transitions, feeds them to the `AnimationEngine`, and applies animated
 /// values to `ComputedStyle` before layout.
 ///
-/// Returns the mutation records from the flush, for observer dispatch.
+/// Returns the mutation records from the flush, for the shell's own record
+/// consumers (focusable-cache invalidation, iframe add/remove detection). The
+/// observer + CE delivery for these records is now internal (see below).
 pub(crate) fn re_render(result: &mut PipelineResult) -> Vec<elidex_script_session::MutationRecord> {
-    // Flush applies buffered mutations to the DOM and enqueue CE reactions.
-    // `flush` returns a flat record stream (a childList move yields two records).
+    // Flush applies buffered mutations to the DOM. `flush` runs OUTSIDE any
+    // batch bracket — it takes `&mut dom`, which the bound `*mut dom` aliasing
+    // contract forbids overlapping (§4.1). It returns a flat record stream (a
+    // childList move yields two records).
+    //
+    // S5-6b §4.3.1 CE-loop dissolve: under the VM, `session.flush` is usually
+    // EMPTY — VM-native mutations write the `EcsDom` immediately via `apply_*`,
+    // settle CE inside the VM's own checkpoints (the bind-installed dispatcher +
+    // `flush_ce_reactions`), and queue their observer records internally, so
+    // they never enter `SessionCore::pending`. The flushed records are the
+    // EXTERNAL (shell-buffered / layout-derived) case; each bracketed
+    // `deliver_mutation_records` runs the record→CE enqueue (the single
+    // `elidex_custom_elements` classification) + `MutationObserver` delivery,
+    // and `drain_reactions` drains the CE reactions those callbacks produce. CE
+    // callbacks may record further mutations, so re-flush (unbound) → bracket
+    // until stable, bounded.
     let mut mutation_records: Vec<elidex_script_session::MutationRecord> =
         result.session.flush(&mut result.dom);
 
-    // Enqueue and drain CE reactions for any custom elements affected by mutations.
-    // CE callbacks may trigger additional mutations, so loop until stable (bounded).
     if !mutation_records.is_empty() {
-        result
-            .runtime
-            .enqueue_ce_reactions_from_mutations(&mutation_records, &result.dom);
-        result.runtime.drain_custom_element_reactions_public(
-            &mut result.session,
-            &mut result.dom,
-            result.document,
-        );
+        result.deliver_records_and_drain(&mutation_records);
 
-        // Re-flush: CE callbacks may have recorded new mutations.
-        // Bounded to prevent infinite loops from mutually-triggering callbacks.
         for round in 0..MAX_CE_STABILIZATION_ROUNDS {
             let follow_up: Vec<_> = result.session.flush(&mut result.dom);
             if follow_up.is_empty() {
                 break;
             }
-            // Only process NEW records (not previously-handled ones).
-            result
-                .runtime
-                .enqueue_ce_reactions_from_mutations(&follow_up, &result.dom);
+            result.deliver_records_and_drain(&follow_up);
             mutation_records.extend(follow_up);
-            result.runtime.drain_custom_element_reactions_public(
-                &mut result.session,
-                &mut result.dom,
-                result.document,
-            );
             if round == MAX_CE_STABILIZATION_ROUNDS - 1 {
                 eprintln!(
                     "[CE] stabilization loop hit max rounds ({MAX_CE_STABILIZATION_ROUNDS}); \

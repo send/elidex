@@ -1020,3 +1020,111 @@ fn html_element_call_mode_throws() {
         "expected call-without-new TypeError, got: {err}"
     );
 }
+
+// ── S5-6b §4.3.1: no-double-fire pin (§7.2) ───────────────────────────
+//
+// The mutation stream is partitioned into two disjoint custody chains by
+// construction:
+//   - VM-native mutations (via `apply_*` → the bind-installed dispatcher)
+//     enqueue CE reactions + queue observer records INTERNALLY, and never
+//     enter `SessionCore::pending` (so `flush` returns them EMPTY);
+//   - external records reach CE + observers ONLY through
+//     `deliver_mutation_records` (record→CE via the single classification +
+//     observer delivery), which the shell runs on the flush output.
+// This test drives BOTH in one turn and asserts each mutation produces
+// exactly ONE observer record + (for the custom element) one CE reaction —
+// no path double-hears the other's mutation.
+
+/// Read a JS expression that must evaluate to a string.
+fn eval_string(vm: &mut Vm, expr: &str) -> String {
+    match vm.eval(expr).expect("eval failed") {
+        JsValue::String(sid) => vm.inner.strings.get_utf8(sid),
+        other => panic!("expected string from `{expr}`, got {other:?}"),
+    }
+}
+
+#[test]
+fn no_double_fire_vm_native_and_external_record_same_turn() {
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    // Build the tree by hand so `body`'s entity is captured pre-bind for the
+    // synthetic external record below.
+    let doc = dom.create_document_root();
+    let html = dom.create_element("html", elidex_ecs::Attributes::default());
+    let body = dom.create_element("body", elidex_ecs::Attributes::default());
+    assert!(dom.append_child(doc, html));
+    assert!(dom.append_child(html, body));
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+
+    vm.eval(
+        "globalThis.moLog = []; \
+         globalThis.ceLog = []; \
+         class XEl extends HTMLElement { \
+             static get observedAttributes() { return ['data-x']; } \
+             attributeChangedCallback(n, o, v) { globalThis.ceLog.push(n + '=' + v); } \
+         } \
+         customElements.define('x-el', XEl); \
+         globalThis.el = document.createElement('x-el'); \
+         document.body.appendChild(globalThis.el); \
+         globalThis.mo = new MutationObserver(function (recs) { \
+             for (const r of recs) { globalThis.moLog.push(r.type + ':' + (r.attributeName || '')); } \
+         }); \
+         globalThis.mo.observe(document.body, { subtree: true, attributes: true });",
+    )
+    .expect("setup failed");
+    // Drop the setup's connectedCallback / any records so the two mutations
+    // below are isolated.
+    vm.eval("globalThis.moLog = []; globalThis.ceLog = [];")
+        .expect("reset failed");
+
+    // (1) VM-native mutation on the custom element: rides the dispatcher (CE)
+    //     + the VM's internal observer queue — settles at this eval's tail.
+    vm.eval("globalThis.el.setAttribute('data-x', 'native');")
+        .expect("native mutate failed");
+
+    // (2) External record for `body` (a synthetic layout/shell-buffered
+    //     record) delivered via the embedder entry — record→CE (no CE here,
+    //     body is not custom) + observer delivery.
+    let external = elidex_script_session::MutationRecord {
+        kind: elidex_script_session::MutationKind::Attribute,
+        target: body,
+        added_nodes: Vec::new(),
+        removed_nodes: Vec::new(),
+        previous_sibling: None,
+        next_sibling: None,
+        attribute_name: Some("data-ext".to_string()),
+        old_value: None,
+    };
+    vm.deliver_mutation_records(&[external]);
+
+    // Exactly one observer record per mutation — no duplication from either
+    // custody chain double-hearing the other's mutation.
+    let mo_log = eval_string(&mut vm, "globalThis.moLog.join('|')");
+    assert_eq!(
+        mo_log, "attributes:data-x|attributes:data-ext",
+        "each mutation must deliver exactly one observer record (got: {mo_log})"
+    );
+    // The custom element's observed-attribute change fired exactly one CE
+    // reaction (via the dispatcher); the external body record produced none.
+    let ce_log = eval_string(&mut vm, "globalThis.ceLog.join('|')");
+    assert_eq!(
+        ce_log, "data-x=native",
+        "the VM-native custom-element mutation must fire exactly one CE reaction (got: {ce_log})"
+    );
+
+    // The VM-native mutation never entered `SessionCore::pending`, so a shell
+    // `flush` sees nothing to re-deliver through `deliver_mutation_records` —
+    // the structural guarantee that the record leg cannot double-hear it.
+    vm.unbind();
+    let residual = session.flush(&mut dom);
+    assert!(
+        residual.is_empty(),
+        "VM-native mutations must not buffer in SessionCore::pending (got {} records)",
+        residual.len()
+    );
+}

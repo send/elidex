@@ -437,6 +437,13 @@ impl VmInner {
         {
             return;
         }
+        // S5-6b §4.3.1: the external-records entry OWNS the record→CE
+        // conversion. Enqueue CE reactions for these records BEFORE the
+        // observer delivery below (marshalling + call-through only — the
+        // classification lives in `elidex_custom_elements`, reached via
+        // `enqueue_ce_reactions_from_records`). Enqueue only: the shell's
+        // post-deliver `drain_reactions` drains the CE queue.
+        self.enqueue_ce_reactions_from_records(records);
         for record in records {
             self.notify_one(record);
         }

@@ -15,7 +15,10 @@ mod upgrade;
 mod validation;
 
 pub use construction_stack::ConstructionStackEntry;
-pub use consumer::CustomElementReactionConsumer;
+pub use consumer::{
+    classify_attribute_change, classify_connected_subtree, classify_disconnected_subtree,
+    CustomElementReactionConsumer,
+};
 pub use created_element::{derive_created_element_components, CreatedElementComponents};
 pub use entity_spawn::spawn_custom_element_entity;
 pub use reaction::{scrub_entity_reactions, CustomElementReaction};

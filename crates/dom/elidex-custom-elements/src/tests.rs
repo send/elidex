@@ -283,3 +283,131 @@ fn spawn_custom_element_entity_disconnected_by_default() {
     let e = spawn_custom_element_entity(&mut dom, "my-el", "my-el", None);
     assert!(!dom.is_connected(e));
 }
+
+// ── S5-6b §4.3.1: single-homed record→CE classification (pin H1) ──────
+//
+// The `classify_*` functions are the ONE classification shared by the
+// mutation-event leg (`CustomElementReactionConsumer`) and the record
+// leg (`Vm::deliver_mutation_records`). These tests pin that (a) each
+// classification yields exactly ONE reaction per mutation (no
+// duplication → no double-enqueue), and (b) the two legs produce the
+// SAME reaction (single-homing, no parallel re-implementation).
+
+/// A connected Custom `x-el` element + a registry defining it with
+/// `data-x` observed.
+fn setup_custom_el() -> (EcsDom, elidex_ecs::Entity, CustomElementRegistry) {
+    let mut dom = EcsDom::new();
+    let doc = dom.create_document_root();
+    let el = dom.create_element("x-el", elidex_ecs::Attributes::default());
+    assert!(dom.append_child(doc, el));
+    dom.world_mut()
+        .insert_one(el, CustomElementState::custom("x-el"))
+        .unwrap();
+    assert!(dom.is_connected(el));
+    let mut registry = CustomElementRegistry::new();
+    registry
+        .define(CustomElementDefinition::new(
+            "x-el".to_string(),
+            1,
+            vec!["data-x".to_string()],
+            None,
+        ))
+        .unwrap();
+    (dom, el, registry)
+}
+
+#[test]
+fn classify_attribute_change_one_reaction_observed_none_unobserved() {
+    let (dom, el, registry) = setup_custom_el();
+    // Observed attribute on a Custom element → exactly one AttributeChanged.
+    match classify_attribute_change(el, "data-x", Some("old"), Some("new"), &dom, &registry) {
+        Some(CustomElementReaction::AttributeChanged {
+            entity,
+            name,
+            old_value,
+            new_value,
+        }) => {
+            assert_eq!(entity, el);
+            assert_eq!(name, "data-x");
+            assert_eq!(old_value.as_deref(), Some("old"));
+            assert_eq!(new_value.as_deref(), Some("new"));
+        }
+        other => panic!("expected one AttributeChanged, got {other:?}"),
+    }
+    // Unobserved attribute → no reaction (observedAttributes gate).
+    assert!(classify_attribute_change(el, "data-y", None, Some("v"), &dom, &registry).is_none());
+}
+
+#[test]
+fn classify_connected_and_disconnected_subtree_one_reaction_each() {
+    let (dom, el, registry) = setup_custom_el();
+    let connected = classify_connected_subtree(el, &dom, &registry);
+    assert_eq!(connected.len(), 1, "one Connected per custom element");
+    assert!(matches!(connected[0], CustomElementReaction::Connected(e) if e == el));
+
+    let disconnected = classify_disconnected_subtree(el, &dom);
+    assert_eq!(disconnected.len(), 1, "one Disconnected per custom element");
+    assert!(matches!(disconnected[0], CustomElementReaction::Disconnected(e) if e == el));
+}
+
+#[test]
+fn event_leg_and_record_leg_share_one_classification() {
+    // Single-homing pin (H1): the mutation-event consumer and the
+    // record-leg `classify_attribute_change` produce the SAME reaction
+    // for the same attribute change — one classification, no divergence.
+    use std::collections::VecDeque;
+    use std::sync::{Arc, Mutex};
+
+    let (mut dom, el, registry) = setup_custom_el();
+    let registry = Arc::new(Mutex::new(registry));
+    let queue: Arc<Mutex<VecDeque<CustomElementReaction>>> = Arc::new(Mutex::new(VecDeque::new()));
+    let mut consumer =
+        CustomElementReactionConsumer::new(Arc::clone(&registry), Arc::clone(&queue));
+
+    // Mutation-event leg: drive the consumer.
+    consumer.handle(
+        &elidex_ecs::MutationEvent::AttributeChange {
+            node: el,
+            name: "data-x",
+            old_value: Some("old"),
+            new_value: Some("new"),
+        },
+        &mut dom,
+    );
+    let event_leg: Vec<_> = queue.lock().unwrap().drain(..).collect();
+
+    // Record leg: the shared classification function directly.
+    let record_leg = {
+        let reg = registry.lock().unwrap();
+        classify_attribute_change(el, "data-x", Some("old"), Some("new"), &dom, &reg)
+    };
+
+    assert_eq!(
+        event_leg.len(),
+        1,
+        "event leg enqueues exactly one reaction"
+    );
+    let record_leg = record_leg.expect("record leg produces exactly one reaction");
+    match (&event_leg[0], &record_leg) {
+        (
+            CustomElementReaction::AttributeChanged {
+                entity: e1,
+                name: n1,
+                old_value: o1,
+                new_value: v1,
+            },
+            CustomElementReaction::AttributeChanged {
+                entity: e2,
+                name: n2,
+                old_value: o2,
+                new_value: v2,
+            },
+        ) => {
+            assert_eq!(e1, e2);
+            assert_eq!(n1, n2);
+            assert_eq!(o1, o2);
+            assert_eq!(v1, v2);
+        }
+        other => panic!("legs diverged: {other:?}"),
+    }
+}
