@@ -263,6 +263,10 @@ pub struct App {
     sw_coordinator: sw_coordinator::SwCoordinator,
     /// Browser-owned centralized database (cookies, history, bookmarks, etc.).
     browser_db: Option<elidex_storage_core::BrowserDb>,
+    /// Per-origin storage manager (Cache API / IDB connections), owned by the
+    /// App at least authority. `Some` only in the threaded path (built in
+    /// [`Self::init_browser_db`]); inline/legacy modes have no SW → `None`.
+    origin_storage: Option<elidex_storage_core::OriginStorageManager>,
     /// Last-synced CookieJar generation (for dirty-check persistence).
     cookie_gen: u64,
     /// Proxy to wake the winit event loop for content-initiated repaints.
@@ -321,6 +325,7 @@ impl App {
             network_process: Some(np),
             sw_coordinator: sw_coordinator::SwCoordinator::new(),
             browser_db: None,
+            origin_storage: None,
             cookie_gen: 0,
             wake_proxy: Some(wake_proxy),
             viewport: viewport::ViewportProducer::new(
@@ -341,6 +346,12 @@ impl App {
         // A proper profile selection UI will be added when the shell supports
         // multiple user profiles.
         let profile_dir = dirs_next_data_dir().join("elidex");
+        // Per-origin storage manager for SW Cache API connections (least-authority
+        // §6.5). `OriginStorageManager::new` does no I/O — connections open lazily
+        // per origin — so this is independent of the `BrowserDb::open` result.
+        self.origin_storage = Some(elidex_storage_core::OriginStorageManager::new(
+            profile_dir.clone(),
+        ));
         match elidex_storage_core::BrowserDb::open(&profile_dir) {
             Ok(db) => {
                 // Load persisted cookies into the shared CookieJar.
@@ -452,6 +463,7 @@ impl App {
             network_process: None, // Legacy mode — no broker.
             sw_coordinator: sw_coordinator::SwCoordinator::new(),
             browser_db: None,
+            origin_storage: None, // Inline/legacy mode — no SW, no per-origin storage.
             cookie_gen: 0,
             wake_proxy: None, // Inline mode is synchronous — nothing to wake.
             viewport: viewport::ViewportProducer::new(
@@ -492,6 +504,7 @@ impl App {
             network_process: None, // Legacy mode — no broker.
             sw_coordinator: sw_coordinator::SwCoordinator::new(),
             browser_db: None,
+            origin_storage: None, // Inline/legacy mode — no SW, no per-origin storage.
             cookie_gen: 0,
             wake_proxy: None, // Inline mode is synchronous — nothing to wake.
             viewport: viewport::ViewportProducer::new(

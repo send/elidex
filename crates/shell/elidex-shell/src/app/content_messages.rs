@@ -125,13 +125,44 @@ impl App {
                         page_url,
                     } => {
                         if let Some(ref np) = self.network_process {
-                            self.sw_coordinator.register(
-                                &script_url,
-                                &scope,
-                                &page_url,
-                                np,
-                                &tab.channel,
-                            );
+                            // Acquire the per-origin Cache API connection (owned
+                            // Arc) up front, releasing the `origin_storage` borrow
+                            // immediately so `register` can take `&mut self.…`.
+                            let cache_conn = self.origin_storage.as_ref().and_then(|osm| {
+                                elidex_storage_core::OriginKey::from_url(&scope)
+                                    .and_then(|key| osm.cache_connection(&key).ok())
+                            });
+                            match cache_conn {
+                                Some(cache_conn) => {
+                                    self.sw_coordinator.register(
+                                        &script_url,
+                                        &scope,
+                                        &page_url,
+                                        cache_conn,
+                                        np,
+                                        &tab.channel,
+                                    );
+                                }
+                                None => {
+                                    // A SW with no Cache API connection is
+                                    // non-functional; skip the spawn, but the
+                                    // register() promise must STILL settle (never
+                                    // hang) — reply failure (§4 Part 1 hung-promise
+                                    // invariant).
+                                    let _ = tab.channel.send(
+                                        crate::ipc::BrowserToContent::SwRegistered(Box::new(
+                                            crate::ipc::SwRegisteredData {
+                                                scope: scope.clone(),
+                                                success: false,
+                                                error: Some(
+                                                    "service worker cache storage unavailable"
+                                                        .to_owned(),
+                                                ),
+                                            },
+                                        )),
+                                    );
+                                }
+                            }
                         }
                     }
                     ContentToBrowser::ManifestDiscovered { url } => {

@@ -4,6 +4,9 @@
 //! Runs on the browser thread and communicates with content threads via IPC.
 
 use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
+
+use elidex_storage_core::SqliteConnection;
 
 use elidex_api_sw::{
     SwHandle, SwPersistence, SwRegistration, SwRegistrationStore, SwState, SyncManager,
@@ -147,6 +150,7 @@ impl SwCoordinator {
         script_url: &url::Url,
         scope: &url::Url,
         page_url: &url::Url,
+        cache_conn: Arc<Mutex<SqliteConnection>>,
         network_process: &elidex_net::broker::NetworkProcessHandle,
         reply_channel: &elidex_plugin::LocalChannel<
             crate::ipc::BrowserToContent,
@@ -183,13 +187,37 @@ impl SwCoordinator {
             let _ = persistence.save(&reg);
         }
 
+        // Marshal the initial client set for the SW realm's `clients.matchAll()`
+        // (WHATWG SW §4.2), filtered to clients whose origin matches the SW's
+        // scope origin. `client_states` is empty today (no `register_client`
+        // caller yet, §6.1), so this yields `[]` = boa parity; it is written
+        // correctly regardless.
+        let scope_origin = scope.origin();
+        let initial_clients: Vec<elidex_api_sw::ClientSnapshot> = self
+            .client_states
+            .values()
+            .filter(|c| {
+                url::Url::parse(&c.url)
+                    .map(|u| u.origin() == scope_origin)
+                    .unwrap_or(false)
+            })
+            .map(client_state_to_snapshot)
+            .collect();
+
         // Spawn SW thread.
         let nh = network_process.create_renderer_handle();
         let (browser_ch, sw_ch) = elidex_plugin::channel_pair();
         let sw_script_url = script_url.clone();
         let sw_scope = scope.clone();
         let thread = std::thread::spawn(move || {
-            elidex_js_boa::sw_thread::sw_thread_main(sw_script_url, sw_scope, sw_ch, nh);
+            elidex_js::vm::sw_thread::sw_thread_main(
+                sw_script_url,
+                sw_scope,
+                sw_ch,
+                nh,
+                cache_conn,
+                initial_clients,
+            );
         });
 
         let mut handle = SwHandle::new(scope.clone(), script_url.clone(), browser_ch, thread);
@@ -437,6 +465,33 @@ impl SwCoordinator {
     }
 }
 
+/// Marshal a browser-thread [`ClientState`] into the engine-independent,
+/// `Send` [`elidex_api_sw::ClientSnapshot`] pushed to the SW thread (WHATWG
+/// SW §4.2 `Client`). Pure enum-family + field copy; the local and api enums
+/// are variant-for-variant identical.
+fn client_state_to_snapshot(c: &ClientState) -> elidex_api_sw::ClientSnapshot {
+    elidex_api_sw::ClientSnapshot {
+        id: c.id.clone(),
+        url: c.url.clone(),
+        client_type: match c.client_type {
+            ClientType::Window => elidex_api_sw::ClientType::Window,
+            ClientType::Worker => elidex_api_sw::ClientType::Worker,
+            ClientType::SharedWorker => elidex_api_sw::ClientType::SharedWorker,
+        },
+        frame_type: match c.frame_type {
+            FrameType::TopLevel => elidex_api_sw::FrameType::TopLevel,
+            FrameType::Nested => elidex_api_sw::FrameType::Nested,
+            FrameType::Auxiliary => elidex_api_sw::FrameType::Auxiliary,
+            FrameType::None => elidex_api_sw::FrameType::None,
+        },
+        visibility: match c.visibility {
+            VisibilityState::Visible => elidex_api_sw::VisibilityState::Visible,
+            VisibilityState::Hidden => elidex_api_sw::VisibilityState::Hidden,
+        },
+        focused: c.focused,
+    }
+}
+
 impl Default for SwCoordinator {
     fn default() -> Self {
         Self::new()
@@ -449,5 +504,75 @@ impl std::fmt::Debug for SwCoordinator {
             .field("registrations", &self.store.all().len())
             .field("active_handles", &self.handles.len())
             .finish_non_exhaustive()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn client_state_to_snapshot_converts_all_enum_variants() {
+        let cases = [
+            (
+                ClientType::Window,
+                FrameType::TopLevel,
+                VisibilityState::Visible,
+                true,
+            ),
+            (
+                ClientType::Worker,
+                FrameType::Nested,
+                VisibilityState::Hidden,
+                false,
+            ),
+            (
+                ClientType::SharedWorker,
+                FrameType::Auxiliary,
+                VisibilityState::Visible,
+                true,
+            ),
+            (
+                ClientType::Window,
+                FrameType::None,
+                VisibilityState::Hidden,
+                false,
+            ),
+        ];
+
+        for (client_type, frame_type, visibility, focused) in cases {
+            let state = ClientState {
+                id: "client-id".to_owned(),
+                url: "https://example.com/page".to_owned(),
+                client_type,
+                frame_type,
+                visibility,
+                focused,
+            };
+            let snap = client_state_to_snapshot(&state);
+
+            assert_eq!(snap.id, state.id);
+            assert_eq!(snap.url, state.url);
+            assert_eq!(snap.focused, focused);
+
+            let expected_type = match client_type {
+                ClientType::Window => elidex_api_sw::ClientType::Window,
+                ClientType::Worker => elidex_api_sw::ClientType::Worker,
+                ClientType::SharedWorker => elidex_api_sw::ClientType::SharedWorker,
+            };
+            let expected_frame = match frame_type {
+                FrameType::TopLevel => elidex_api_sw::FrameType::TopLevel,
+                FrameType::Nested => elidex_api_sw::FrameType::Nested,
+                FrameType::Auxiliary => elidex_api_sw::FrameType::Auxiliary,
+                FrameType::None => elidex_api_sw::FrameType::None,
+            };
+            let expected_vis = match visibility {
+                VisibilityState::Visible => elidex_api_sw::VisibilityState::Visible,
+                VisibilityState::Hidden => elidex_api_sw::VisibilityState::Hidden,
+            };
+            assert_eq!(snap.client_type, expected_type);
+            assert_eq!(snap.frame_type, expected_frame);
+            assert_eq!(snap.visibility, expected_vis);
+        }
     }
 }
