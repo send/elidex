@@ -379,6 +379,15 @@ impl NavigationController {
         self.entries.is_empty()
     }
 
+    /// The current entry's 0-based session-history index (0 when no page is
+    /// loaded — a length-0 history, so the index is a harmless base for the
+    /// `pushState` `index + 1` update). Pairs with [`len`](Self::len) for
+    /// `ScriptEngine::set_session_history`.
+    #[must_use]
+    pub fn current_index(&self) -> usize {
+        self.index.unwrap_or(0)
+    }
+
     /// Update the title of the current entry.
     pub fn set_current_title(&mut self, title: String) {
         if let Some(idx) = self.index {

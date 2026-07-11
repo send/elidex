@@ -166,10 +166,10 @@ impl App {
                 }
             }
         }
-        interactive
-            .pipeline
-            .runtime
-            .set_history_length(interactive.nav_controller.len());
+        interactive.pipeline.runtime.set_session_history(
+            interactive.nav_controller.current_index(),
+            interactive.nav_controller.len(),
+        );
         if let Some(state) = &self.render_state {
             state.window.set_title(&interactive.window_title);
         }
@@ -250,10 +250,10 @@ impl App {
                 interactive.nav_controller.commit_index(*target_index);
             }
         }
-        interactive
-            .pipeline
-            .runtime
-            .set_history_length(interactive.nav_controller.len());
+        interactive.pipeline.runtime.set_session_history(
+            interactive.nav_controller.current_index(),
+            interactive.nav_controller.len(),
+        );
         interactive.window_title = format!("elidex \u{2014} {target}");
         interactive.chrome.set_url(target);
         // Resolve the scroll offset against the current (pre-step) layout, BEFORE
@@ -333,10 +333,10 @@ impl App {
         let Some(interactive) = self.interactive.as_mut() else {
             return false;
         };
-        interactive
-            .pipeline
-            .runtime
-            .set_history_length(interactive.nav_controller.len());
+        interactive.pipeline.runtime.set_session_history(
+            interactive.nav_controller.current_index(),
+            interactive.nav_controller.len(),
+        );
         if let Some(state) = &self.render_state {
             state.window.set_title(&interactive.window_title);
         }
@@ -687,10 +687,10 @@ fn apply_state_change(
         .pipeline
         .runtime
         .set_current_url(Some(url.clone()));
-    interactive
-        .pipeline
-        .runtime
-        .set_history_length(interactive.nav_controller.len());
+    interactive.pipeline.runtime.set_session_history(
+        interactive.nav_controller.current_index(),
+        interactive.nav_controller.len(),
+    );
 }
 
 /// URL schemes that must not be navigated to.

@@ -304,10 +304,10 @@ pub(super) fn handle_navigate(
                 HistoryCursorOp::Keep => state.nav_controller.restamp_current_document(),
             }
             state.pipeline.runtime.set_current_url(Some(url.clone()));
-            state
-                .pipeline
-                .runtime
-                .set_history_length(state.nav_controller.len());
+            state.pipeline.runtime.set_session_history(
+                state.nav_controller.current_index(),
+                state.nav_controller.len(),
+            );
             // Restore the persisted scroll onto the freshly-laid-out document, then
             // `re_render` clamps it against the rebuilt content size + echoes
             // `scrollX`/`scrollY`, so the display list `notify_navigation` ships is
@@ -409,10 +409,10 @@ fn same_document_step(
             state.nav_controller.commit_index(*target_index);
         }
     }
-    state
-        .pipeline
-        .runtime
-        .set_history_length(state.nav_controller.len());
+    state.pipeline.runtime.set_session_history(
+        state.nav_controller.current_index(),
+        state.nav_controller.len(),
+    );
     // Resolve the scroll offset BEFORE firing popstate (below) so it reads live
     // geometry unaffected by a popstate handler; the existing document's layout is
     // current (no rebuild). Applied AFTER popstate via the post-layout `re_render`
@@ -859,10 +859,10 @@ fn apply_push_replace_state(
             .pipeline
             .runtime
             .set_current_url(state.pipeline.url.clone());
-        state
-            .pipeline
-            .runtime
-            .set_history_length(state.nav_controller.len());
+        state.pipeline.runtime.set_session_history(
+            state.nav_controller.current_index(),
+            state.nav_controller.len(),
+        );
 
         let title = format!("elidex \u{2014} {resolved_url}");
         state.send_title(title);
@@ -878,10 +878,10 @@ fn apply_push_replace_state(
         }
         state.push_or_replace(current, replace);
         state.nav_controller.set_current_state(serialized_state);
-        state
-            .pipeline
-            .runtime
-            .set_history_length(state.nav_controller.len());
+        state.pipeline.runtime.set_session_history(
+            state.nav_controller.current_index(),
+            state.nav_controller.len(),
+        );
         state.send_navigation_state();
     }
 }
