@@ -98,6 +98,24 @@ pub trait ScriptEngine {
 
     /// Drain and execute all ready timers.
     fn drain_timers(&mut self, ctx: &mut ScriptContext<'_>) -> Vec<EvalResult>;
+
+    /// `Some(&mut EcsDom)` when a batch-bind bracket is active — dispatch and
+    /// other bound-path code MUST route dom access through this (the single
+    /// derivation chain), never a fresh `ctx.dom` reborrow, to avoid aliasing
+    /// the engine's bound `*mut dom` (Stacked-Borrows). `None` = unbound
+    /// (self-binding engines / no bracket) → callers use `ctx.dom`.
+    ///
+    /// The default returns `None`, so an engine that never holds a raw
+    /// pointer to the DOM (boa, whose shell path passes `ctx.dom` through) gets
+    /// the correct behavior with zero code — dispatch falls back to `ctx.dom`.
+    /// A bound engine (elidex-js under a `HostDriver` bracket) overrides this
+    /// to hand out its bound dom so dispatch does not reborrow `ctx.dom`.
+    ///
+    /// Interim during the S5-6 flip: the `None` branch keeps boa's unbound
+    /// dispatch path compiling and correct; it dies when boa is deleted.
+    fn bound_dom_mut(&mut self) -> Option<&mut EcsDom> {
+        None
+    }
 }
 
 /// The shell↔engine host-drive contract — how the main-thread shell pipeline

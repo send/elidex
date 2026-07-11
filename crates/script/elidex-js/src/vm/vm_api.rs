@@ -146,6 +146,23 @@ impl Vm {
         self.inner.host_data.as_deref_mut()
     }
 
+    /// The bound DOM (`Some` only while a batch bracket holds the host
+    /// pointers), reconstructed from the installed `HostData`'s `dom_ptr`.
+    ///
+    /// The engine exposes this via [`ScriptEngine::bound_dom_mut`] so the
+    /// shared event-dispatch loop resolves its dom through the single
+    /// `dom_ptr` derivation chain (slot `#11-bound-safe-dispatch-dom-aliasing`)
+    /// — see [`HostData::bound_dom_mut`].
+    ///
+    /// [`ScriptEngine::bound_dom_mut`]: elidex_script_session::ScriptEngine::bound_dom_mut
+    #[cfg(feature = "engine")]
+    pub fn bound_dom_mut(&mut self) -> Option<&mut elidex_ecs::EcsDom> {
+        self.inner
+            .host_data
+            .as_deref_mut()
+            .and_then(host_data::HostData::bound_dom_mut)
+    }
+
     /// Set the URL surfaced by `document.referrer` (WHATWG HTML §3.1.4).
     /// Pass `None` to clear the slot back to the empty-string default.
     /// The shell calls this once before each post-navigation `bind`

@@ -300,6 +300,22 @@ impl ScriptEngine for ElidexJsEngine {
             })
             .collect()
     }
+
+    fn bound_dom_mut(&mut self) -> Option<&mut elidex_ecs::EcsDom> {
+        // The single-derivation-chain source for bound-path dispatch: when a
+        // batch bracket has the VM bound (`self.bound` && HostData `dom_ptr`
+        // non-null), hand out the bound `EcsDom` reconstructed from `dom_ptr`
+        // so the shared dispatch loop routes dom access through the same raw
+        // pointer the VM's natives hold — never a fresh `ctx.dom` reborrow that
+        // would invalidate `dom_ptr` under Stacked Borrows
+        // (`#11-bound-safe-dispatch-dom-aliasing`). `None` when unbound (no
+        // bracket) → the caller falls back to `ctx.dom`.
+        if self.bound {
+            self.vm.bound_dom_mut()
+        } else {
+            None
+        }
+    }
 }
 
 impl HostDriver for ElidexJsEngine {
