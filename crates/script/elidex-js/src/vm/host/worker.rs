@@ -199,7 +199,7 @@ impl VmInner {
 
     /// Terminate every registered dedicated worker and uncache its `Worker`
     /// wrapper (the document-teardown half of WHATWG HTML §10.2.4 "terminate a
-    /// worker", driven from [`Vm::unbind`](crate::vm::Vm::unbind)). Uncaching
+    /// worker", driven from [`Vm::teardown_document`](crate::vm::Vm::teardown_document)). Uncaching
     /// runs **while still bound** — mirroring the in-session `terminate()` /
     /// close-drain cleanup — because the post-unbind drain early-returns on the
     /// now-empty registry and would otherwise leave the wrappers GC-rooted.

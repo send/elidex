@@ -1857,7 +1857,7 @@ mod engine_feature {
 
         /// Drain the WebSocket / EventSource side-tables and
         /// produce the broker `conn_id` lists that
-        /// `Vm::unbind` must close BEFORE clearing state, per
+        /// `Vm::teardown_document` must close BEFORE clearing state, per
         /// CRIT-A.  Returns `(ws_conn_ids, sse_conn_ids)`; the
         /// caller emits `WebSocketClose` / `EventSourceClose` per
         /// id and then this method's *post-drain* state is the
