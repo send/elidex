@@ -138,7 +138,7 @@ pub(super) fn handle_navigate(
                 keepalive: false,
             };
 
-            let client_id = state.pipeline.runtime.bridge().client_id();
+            let client_id = state.client_id.clone();
             let _ = state
                 .channel
                 .send(crate::ipc::ContentToBrowser::SwFetchRequest {

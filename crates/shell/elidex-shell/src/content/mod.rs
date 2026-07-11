@@ -44,6 +44,13 @@ static SCRIPT_ANIM_COUNTER: AtomicU64 = AtomicU64::new(0);
 /// (the depth limit enforced by [`collect_hover_chain`](crate::app::hover::collect_hover_chain)).
 struct ContentState {
     pipeline: PipelineResult,
+    /// This page/browsing-context's Service Worker client id (WHATWG SW §4.2
+    /// `Client.id`). The shell is the SOLE minter (the VM has no window-side
+    /// client id); minted once per `ContentState` at construction and fed to
+    /// `SwFetchRequest.client_id` (→ `FetchEvent.clientId`, SW §4.6.3) and, when
+    /// the PostMessage arm lands (2e-b), `ContentToSw::PostMessage.client_id` —
+    /// the ONE generator so all SW client-id reads agree (§6.4).
+    client_id: String,
     channel: LocalChannel<ContentToBrowser, BrowserToContent>,
     nav_controller: NavigationController,
     hover_chain: Vec<Entity>,
@@ -200,6 +207,7 @@ impl ContentState {
             focusable_cache: None,
             viewport_scroll: elidex_ecs::ScrollState::default(),
             pipeline,
+            client_id: uuid::Uuid::new_v4().to_string(),
             iframes: iframe::IframeRegistry::new(),
             focused_iframe: None,
             wake,
