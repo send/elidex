@@ -242,10 +242,7 @@ impl ContentState {
     /// Invalidates `focusable_cache` when mutations affect DOM structure or
     /// focusability-related attributes (childList, tabindex, disabled, etc.).
     fn re_render(&mut self) {
-        self.pipeline
-            .runtime
-            .bridge()
-            .sync_dirty_canvases(&mut self.pipeline.dom);
+        self.pipeline.sync_dirty_canvases();
         self.pipeline.caret_visible = self.caret_visible;
 
         // Drain any pending JS scroll (scrollTo/scrollBy) and apply the requested
@@ -333,34 +330,15 @@ impl ContentState {
         // GC itself shares the one `crate::re_render` chokepoint — see there.)
         event_handlers::reconcile_focused_iframe(self);
 
-        // Deliver observer callbacks after layout is complete.
-        if !mutation_records.is_empty() {
-            self.pipeline.runtime.deliver_mutation_records(
-                &mutation_records,
-                &mut self.pipeline.session,
-                &mut self.pipeline.dom,
-                self.pipeline.document,
-            );
-        }
+        // `MutationObserver` + CE delivery for the flushed records is now internal
+        // to `crate::re_render` (via `deliver_records_and_drain`); re-delivering
+        // here would DOUBLE-FIRE observers, so this stage no longer delivers the
+        // records after layout — only the layout-derived observers below.
 
-        self.pipeline.runtime.deliver_resize_observations(
-            &mut self.pipeline.session,
-            &mut self.pipeline.dom,
-            self.pipeline.document,
-        );
-
-        let viewport = elidex_plugin::Rect::new(
-            0.0,
-            0.0,
-            self.pipeline.viewport.width,
-            self.pipeline.viewport.height,
-        );
-        self.pipeline.runtime.deliver_intersection_observations(
-            &mut self.pipeline.session,
-            &mut self.pipeline.dom,
-            self.pipeline.document,
-            viewport,
-        );
+        // Deliver the queued ResizeObserver + IntersectionObserver callbacks
+        // (spec order: resize before intersection) after layout is complete. The
+        // VM reads the viewport from bound state, so no `Rect` is passed.
+        self.pipeline.deliver_layout_observations();
 
         // Detect iframe additions/removals from mutation records.
         // Added <iframe> entities trigger loading; removed ones trigger unloading.

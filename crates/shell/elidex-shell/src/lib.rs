@@ -325,6 +325,104 @@ impl PipelineResult {
         }
     }
 
+    /// Flush every dirty `<canvas>` into its display-list source (HTML §4.12.5),
+    /// in ONE batch bracket (§4.1). Bracketed because `sync_dirty_canvases` is
+    /// assume-bound (it reads the bound `EcsDom` to reach each canvas's backing
+    /// store). `drain_reactions` follows the bracket contract — a canvas sync
+    /// fires no JS itself, so the checkpoint is a no-op on an empty queue, but it
+    /// keeps the post-deliver microtask/CE-reaction drain uniform with
+    /// `dispatch_event` / `deliver_records_and_drain`.
+    #[allow(unsafe_code)]
+    pub fn sync_dirty_canvases(&mut self) {
+        let mut ctx = ScriptContext::new(&mut self.session, &mut self.dom, self.document);
+        // SAFETY: see `dispatch_event` — the `with_bound` unaliased contract.
+        unsafe {
+            self.runtime.with_bound(&mut ctx, |engine, ctx| {
+                engine.sync_dirty_canvases();
+                engine.drain_reactions(ctx);
+            });
+        }
+    }
+
+    /// Deliver the queued `ResizeObserver` + `IntersectionObserver` callbacks in
+    /// ONE batch bracket (§4.1 "no per-channel brackets" for the contiguous
+    /// pair). Both are assume-bound (they read the bound state — intersection
+    /// reads the viewport from it, no longer a passed `Rect`) and fire in this
+    /// spec order (resize before intersection). `drain_reactions` follows the
+    /// bracket contract, draining the microtask + CE reactions the observer
+    /// callbacks produced.
+    #[allow(unsafe_code)]
+    pub fn deliver_layout_observations(&mut self) {
+        let mut ctx = ScriptContext::new(&mut self.session, &mut self.dom, self.document);
+        // SAFETY: see `dispatch_event` — the `with_bound` unaliased contract.
+        unsafe {
+            self.runtime.with_bound(&mut ctx, |engine, ctx| {
+                engine.deliver_resize_observations();
+                engine.deliver_intersection_observations();
+                engine.drain_reactions(ctx);
+            });
+        }
+    }
+
+    /// Fire `versionchange` at this engine's open IndexedDB connections to
+    /// `db_name` (IndexedDB-3 §4.2), in ONE batch bracket (§4.1). Assume-bound
+    /// (it reaches the bound VM's open connections); `drain_reactions` follows
+    /// the bracket contract, draining the microtask + CE reactions the
+    /// `versionchange` handler produced.
+    #[allow(unsafe_code)]
+    pub fn deliver_idb_versionchange(
+        &mut self,
+        db_name: &str,
+        old_version: u64,
+        new_version: Option<u64>,
+    ) {
+        let mut ctx = ScriptContext::new(&mut self.session, &mut self.dom, self.document);
+        // SAFETY: see `dispatch_event` — the `with_bound` unaliased contract.
+        // `db_name` is borrowed external data and does not alias `ctx`.
+        unsafe {
+            self.runtime.with_bound(&mut ctx, |engine, ctx| {
+                engine.deliver_idb_versionchange(db_name, old_version, new_version);
+                engine.drain_reactions(ctx);
+            });
+        }
+    }
+
+    /// Deliver any parent-side dedicated/shared worker `postMessage`s that
+    /// arrived since the last turn, in ONE batch bracket (§4.1). Assume-bound
+    /// (it dispatches at the bound VM's `Worker` objects); `drain_reactions`
+    /// follows the bracket contract, draining the microtask + CE reactions the
+    /// `message` handlers produced.
+    #[allow(unsafe_code)]
+    pub fn drain_worker_messages(&mut self) {
+        let mut ctx = ScriptContext::new(&mut self.session, &mut self.dom, self.document);
+        // SAFETY: see `dispatch_event` — the `with_bound` unaliased contract.
+        unsafe {
+            self.runtime.with_bound(&mut ctx, |engine, ctx| {
+                engine.drain_worker_messages();
+                engine.drain_reactions(ctx);
+            });
+        }
+    }
+
+    /// Deliver the popstate / hashchange of a same-document history-step
+    /// application (WHATWG HTML §7.4.6.2), in ONE batch bracket (§4.1).
+    /// Assume-bound (it fires at the bound VM's `Window` and reconstructs
+    /// `history.state`); it was previously called UNBRACKETED and so was a
+    /// silent no-op. `drain_reactions` follows the bracket contract, draining
+    /// the microtask + CE reactions the popstate/hashchange handlers produced.
+    #[allow(unsafe_code)]
+    pub fn deliver_history_step_events(&mut self, ev: elidex_script_session::HistoryStepEvents) {
+        let mut ctx = ScriptContext::new(&mut self.session, &mut self.dom, self.document);
+        // SAFETY: see `dispatch_event` — the `with_bound` unaliased contract.
+        // `ev` is owned external data and does not alias `ctx`.
+        unsafe {
+            self.runtime.with_bound(&mut ctx, |engine, ctx| {
+                engine.deliver_history_step_events(ev);
+                engine.drain_reactions(ctx);
+            });
+        }
+    }
+
     /// Remove animation/transition state for entities that no longer exist in the DOM.
     pub(crate) fn prune_dead_animation_entities(&mut self) {
         self.animation_engine.prune_dead_entities(&|entity_id| {

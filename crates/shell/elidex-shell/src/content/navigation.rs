@@ -447,7 +447,6 @@ fn same_document_step(
     };
     state
         .pipeline
-        .runtime
         .deliver_history_step_events(HistoryStepEvents {
             popstate_state: Some(popstate_state),
             hashchange: None,
@@ -474,7 +473,6 @@ fn same_document_step(
     {
         state
             .pipeline
-            .runtime
             .deliver_history_step_events(HistoryStepEvents {
                 popstate_state: None,
                 hashchange: Some(hashchange),

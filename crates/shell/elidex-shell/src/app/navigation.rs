@@ -293,7 +293,6 @@ impl App {
         };
         interactive
             .pipeline
-            .runtime
             .deliver_history_step_events(HistoryStepEvents {
                 popstate_state: Some(popstate_state),
                 hashchange: None,
@@ -312,7 +311,6 @@ impl App {
         {
             interactive
                 .pipeline
-                .runtime
                 .deliver_history_step_events(HistoryStepEvents {
                     popstate_state: None,
                     hashchange: Some(hashchange),

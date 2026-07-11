@@ -108,8 +108,7 @@ pub(super) fn run_event_loop(state: &mut ContentState) {
         for req in state
             .pipeline
             .runtime
-            .bridge()
-            .drain_idb_versionchange_requests()
+            .take_pending_idb_versionchange_requests()
         {
             let _ = state
                 .channel
@@ -180,11 +179,8 @@ pub(super) fn run_event_loop(state: &mut ContentState) {
             }
         }
 
-        needs_render |= state.pipeline.runtime.drain_and_dispatch_worker_events(
-            &mut state.pipeline.session,
-            &mut state.pipeline.dom,
-            state.pipeline.document,
-        );
+        // §4.3.8: worker-drive needs_render now comes from the version-delta (stage 2d-2).
+        state.pipeline.drain_worker_messages();
 
         iframe::tick_iframe_timers(state);
 
@@ -548,14 +544,9 @@ fn handle_message(msg: BrowserToContent, state: &mut ContentState) -> bool {
             old_version,
             new_version,
         } => {
-            state.pipeline.runtime.dispatch_idb_versionchange(
-                &db_name,
-                old_version,
-                new_version,
-                &mut state.pipeline.session,
-                &mut state.pipeline.dom,
-                state.pipeline.document,
-            );
+            state
+                .pipeline
+                .deliver_idb_versionchange(&db_name, old_version, new_version);
             let _ = state.channel.send(ContentToBrowser::IdbConnectionsClosed {
                 request_id,
                 db_name,
