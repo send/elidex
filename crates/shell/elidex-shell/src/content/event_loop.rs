@@ -12,8 +12,8 @@ use elidex_script_session::HostDriver;
 use crate::ipc::{BrowserToContent, ContentToBrowser};
 
 use super::{
-    animation, apply_script_animations, dispatch_message_event, dispatch_storage_event, iframe,
-    navigation, scroll, ContentState, DEFAULT_POLL_INTERVAL, FRAME_INTERVAL,
+    animation, dispatch_message_event, dispatch_storage_event, iframe, navigation, scroll,
+    ContentState, DEFAULT_POLL_INTERVAL, FRAME_INTERVAL,
 };
 use super::{event_handlers, ime};
 
@@ -60,8 +60,6 @@ pub(super) fn run_event_loop(state: &mut ContentState) {
         let now = Instant::now();
         let dt = now.duration_since(last_frame);
         let mut needs_render = false;
-
-        apply_script_animations(state);
 
         if state.pipeline.animation_engine.has_active() && dt > Duration::ZERO {
             let dt_secs = dt.min(FRAME_INTERVAL * 2).as_secs_f64();
