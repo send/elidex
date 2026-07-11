@@ -150,6 +150,7 @@ impl SwCoordinator {
         script_url: &url::Url,
         scope: &url::Url,
         page_url: &url::Url,
+        update_via_cache: UpdateViaCache,
         cache_conn: Arc<Mutex<SqliteConnection>>,
         network_process: &elidex_net::broker::NetworkProcessHandle,
         reply_channel: &elidex_plugin::LocalChannel<
@@ -166,7 +167,9 @@ impl SwCoordinator {
                 crate::ipc::SwRegisteredData {
                     scope: scope.clone(),
                     success: false,
-                    error: Some(err.message().to_owned()),
+                    error: Some(err),
+                    worker: None,
+                    update_via_cache,
                 },
             )));
             return;
@@ -178,7 +181,7 @@ impl SwCoordinator {
             state: SwState::Installing,
             script_hash: None,
             last_update_check: None,
-            update_via_cache: UpdateViaCache::default(),
+            update_via_cache,
         };
 
         self.store.register(reg.clone());
@@ -236,6 +239,11 @@ impl SwCoordinator {
                 scope: scope.clone(),
                 success: true,
                 error: None,
+                worker: Some(elidex_api_sw::SwWorkerSnapshot {
+                    script_url: script_url.to_string(),
+                    state: elidex_api_sw::SwState::Installing,
+                }),
+                update_via_cache,
             },
         )));
 
@@ -403,6 +411,97 @@ impl SwCoordinator {
             }
         }
         removed
+    }
+
+    /// Handle a `ServiceWorkerRegistration.update()` request (WHATWG SW §3.2.8).
+    ///
+    /// Minimal-settle form: this does NOT re-fetch or re-install the SW script
+    /// (the full update algorithm — byte comparison, install, skipWaiting — is
+    /// carved to `#11-sw-update-full-algorithm`). It records the update check
+    /// and settles the update() promise with the registration's current worker,
+    /// which shares the `SwRegistered` deliver path with `register()`.
+    pub fn update(
+        &mut self,
+        scope: &url::Url,
+        reply_channel: &elidex_plugin::LocalChannel<
+            crate::ipc::BrowserToContent,
+            crate::ipc::ContentToBrowser,
+        >,
+    ) {
+        // Clone the needed fields out of the `&SwRegistration` before taking
+        // `&mut self` for `record_update_check` / building the reply.
+        let found = self
+            .store
+            .get_by_scope(scope)
+            .map(|reg| (reg.script_url.clone(), reg.state, reg.update_via_cache));
+        match found {
+            Some((script_url, state, update_via_cache)) => {
+                self.record_update_check(&script_url);
+                let _ = reply_channel.send(crate::ipc::BrowserToContent::SwRegistered(Box::new(
+                    crate::ipc::SwRegisteredData {
+                        scope: scope.clone(),
+                        success: true,
+                        error: None,
+                        worker: Some(elidex_api_sw::SwWorkerSnapshot {
+                            script_url: script_url.to_string(),
+                            state,
+                        }),
+                        update_via_cache,
+                    },
+                )));
+            }
+            None => {
+                let _ = reply_channel.send(crate::ipc::BrowserToContent::SwRegistered(Box::new(
+                    crate::ipc::SwRegisteredData {
+                        scope: scope.clone(),
+                        success: false,
+                        error: Some(elidex_api_sw::SwRegisterError::TypeError(
+                            "no registration to update".into(),
+                        )),
+                        worker: None,
+                        update_via_cache: UpdateViaCache::default(),
+                    },
+                )));
+            }
+        }
+    }
+
+    /// Handle a `ServiceWorkerRegistration.unregister()` request (WHATWG SW
+    /// §3.2.9) and settle its promise. Per §6.6 there is no teardown ack:
+    /// `unregister()` resolves on REMOVAL, and the synchronous handle drop +
+    /// immediate reply is spec-aligned.
+    pub fn unregister_and_reply(
+        &mut self,
+        scope: &url::Url,
+        reply_channel: &elidex_plugin::LocalChannel<
+            crate::ipc::BrowserToContent,
+            crate::ipc::ContentToBrowser,
+        >,
+    ) {
+        let success = self.unregister(scope);
+        let _ = reply_channel.send(crate::ipc::BrowserToContent::SwUnregistered {
+            scope: scope.clone(),
+            success,
+        });
+    }
+
+    /// Deliver a `ServiceWorker.postMessage()` (WHATWG SW §3.1.4) to the worker
+    /// at `scope`. Fire-and-forget: no reply. `origin`/`client_id` are the
+    /// sender's, captured on the content thread at enqueue.
+    pub fn post_message_to_worker(
+        &self,
+        scope: &url::Url,
+        data: String,
+        origin: String,
+        client_id: String,
+    ) {
+        if let Some(handle) = self.handles.get(scope.as_str()) {
+            handle.send(elidex_api_sw::ContentToSw::PostMessage {
+                data,
+                origin,
+                client_id,
+            });
+        }
     }
 
     /// Get quota estimate for an origin (for navigator.storage.estimate()).
@@ -574,5 +673,173 @@ mod tests {
             assert_eq!(snap.frame_type, expected_frame);
             assert_eq!(snap.visibility, expected_vis);
         }
+    }
+
+    // --- 2e-b settle-deliver round-trips ---
+    //
+    // These exercise the browser→content half of the SW client-request cutover:
+    // the `SwCoordinator` handlers 2e-b adds (`update` / `unregister_and_reply`
+    // / `post_message_to_worker`) must emit the `BrowserToContent` reply that the
+    // content-thread `deliver_sw_client_update` bracket settles the client
+    // promise from. The content/VM half (promise resolution + event firing) is
+    // covered by `elidex-js` `tests_service_worker_client` (register/unregister
+    // resolve, worker identity). NOTE: the shell lib does not yet compile during
+    // the in-progress S5-6b flip (20 stage-2f errors), so these do not run until
+    // stage 3 — they are written to pass then.
+
+    /// A `BrowserToContent` reply channel end (what a coordinator handler sends
+    /// on) plus the content-side end that reads it back.
+    fn reply_pair() -> (
+        elidex_plugin::LocalChannel<crate::ipc::BrowserToContent, crate::ipc::ContentToBrowser>,
+        elidex_plugin::LocalChannel<crate::ipc::ContentToBrowser, crate::ipc::BrowserToContent>,
+    ) {
+        elidex_plugin::channel_pair::<crate::ipc::BrowserToContent, crate::ipc::ContentToBrowser>()
+    }
+
+    fn reg_at(scope: &str, script: &str, state: SwState, uvc: UpdateViaCache) -> SwRegistration {
+        SwRegistration {
+            scope: url::Url::parse(scope).unwrap(),
+            script_url: url::Url::parse(script).unwrap(),
+            state,
+            script_hash: None,
+            last_update_check: None,
+            update_via_cache: uvc,
+        }
+    }
+
+    #[test]
+    fn update_existing_registration_settles_with_worker_and_cache() {
+        let mut coord = SwCoordinator::new();
+        let scope = url::Url::parse("https://example.com/app/").unwrap();
+        coord.store.register(reg_at(
+            "https://example.com/app/",
+            "https://example.com/sw.js",
+            SwState::Activated,
+            UpdateViaCache::None,
+        ));
+
+        let (browser_end, content_end) = reply_pair();
+        coord.update(&scope, &browser_end);
+
+        match content_end.try_recv() {
+            Ok(crate::ipc::BrowserToContent::SwRegistered(data)) => {
+                assert_eq!(data.scope, scope);
+                assert!(data.success);
+                assert!(data.error.is_none());
+                let worker = data.worker.expect("worker snapshot on success");
+                assert_eq!(worker.script_url, "https://example.com/sw.js");
+                assert_eq!(worker.state, SwState::Activated);
+                assert_eq!(data.update_via_cache, UpdateViaCache::None);
+            }
+            other => panic!("expected SwRegistered, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn update_missing_registration_replies_typeerror() {
+        let mut coord = SwCoordinator::new();
+        let scope = url::Url::parse("https://example.com/nope/").unwrap();
+
+        let (browser_end, content_end) = reply_pair();
+        coord.update(&scope, &browser_end);
+
+        match content_end.try_recv() {
+            Ok(crate::ipc::BrowserToContent::SwRegistered(data)) => {
+                assert!(!data.success);
+                assert!(data.worker.is_none());
+                assert!(matches!(
+                    data.error,
+                    Some(elidex_api_sw::SwRegisterError::TypeError(_))
+                ));
+            }
+            other => panic!("expected SwRegistered failure, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn unregister_and_reply_removes_and_settles_true() {
+        let mut coord = SwCoordinator::new();
+        let scope = url::Url::parse("https://example.com/app/").unwrap();
+        coord.store.register(reg_at(
+            "https://example.com/app/",
+            "https://example.com/sw.js",
+            SwState::Activated,
+            UpdateViaCache::default(),
+        ));
+        assert!(coord.store.get_by_scope(&scope).is_some());
+
+        let (browser_end, content_end) = reply_pair();
+        coord.unregister_and_reply(&scope, &browser_end);
+
+        match content_end.try_recv() {
+            Ok(crate::ipc::BrowserToContent::SwUnregistered { scope: s, success }) => {
+                assert_eq!(s, scope);
+                assert!(success);
+            }
+            other => panic!("expected SwUnregistered, got {other:?}"),
+        }
+        assert!(coord.store.get_by_scope(&scope).is_none());
+    }
+
+    #[test]
+    fn unregister_and_reply_missing_settles_false() {
+        let mut coord = SwCoordinator::new();
+        let scope = url::Url::parse("https://example.com/nope/").unwrap();
+
+        let (browser_end, content_end) = reply_pair();
+        coord.unregister_and_reply(&scope, &browser_end);
+
+        match content_end.try_recv() {
+            Ok(crate::ipc::BrowserToContent::SwUnregistered { success, .. }) => {
+                assert!(!success);
+            }
+            other => panic!("expected SwUnregistered, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn post_message_to_worker_reaches_sw_channel() {
+        let mut coord = SwCoordinator::new();
+        let scope = url::Url::parse("https://example.com/app/").unwrap();
+        let script = url::Url::parse("https://example.com/sw.js").unwrap();
+
+        // Install a handle whose worker end we can read back.
+        let (parent_ch, worker_ch) =
+            elidex_plugin::channel_pair::<elidex_api_sw::ContentToSw, elidex_api_sw::SwToContent>();
+        let handle = SwHandle::new(scope.clone(), script, parent_ch, std::thread::spawn(|| {}));
+        coord.handles.insert(scope.to_string(), handle);
+
+        coord.post_message_to_worker(
+            &scope,
+            "payload".to_owned(),
+            "https://example.com".to_owned(),
+            "client-42".to_owned(),
+        );
+
+        match worker_ch.try_recv() {
+            Ok(elidex_api_sw::ContentToSw::PostMessage {
+                data,
+                origin,
+                client_id,
+            }) => {
+                assert_eq!(data, "payload");
+                assert_eq!(origin, "https://example.com");
+                assert_eq!(client_id, "client-42");
+            }
+            other => panic!("expected ContentToSw::PostMessage, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn post_message_to_worker_no_handle_is_noop() {
+        let coord = SwCoordinator::new();
+        let scope = url::Url::parse("https://example.com/gone/").unwrap();
+        // No handle registered — must not panic (fire-and-forget).
+        coord.post_message_to_worker(
+            &scope,
+            "x".to_owned(),
+            "https://example.com".to_owned(),
+            "c".to_owned(),
+        );
     }
 }

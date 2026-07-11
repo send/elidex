@@ -6,6 +6,7 @@ use std::time::{Duration, Instant};
 
 use crossbeam_channel::RecvTimeoutError;
 
+use elidex_api_sw::SwClientUpdate;
 use elidex_script_session::HostDriver;
 
 use crate::ipc::{BrowserToContent, ContentToBrowser};
@@ -120,23 +121,61 @@ pub(super) fn run_event_loop(state: &mut ContentState) {
                 });
         }
 
-        for req in state.pipeline.runtime.bridge().drain_sw_register_requests() {
-            if let Some(ref current_url) = state.pipeline.runtime.current_url() {
-                let origin = current_url.origin().unicode_serialization();
-                let Ok(script_url) = current_url.join(&req.script_url) else {
-                    continue;
-                };
-                let scope = req
-                    .scope
-                    .as_deref()
-                    .and_then(|s| current_url.join(s).ok())
-                    .unwrap_or_else(|| elidex_api_sw::default_scope(&script_url));
-                let _ = state.channel.send(ContentToBrowser::SwRegister {
-                    script_url,
-                    scope,
-                    origin,
-                    page_url: current_url.clone(),
-                });
+        // Drain all four `ServiceWorkerContainer`/`ServiceWorkerRegistration`/
+        // `ServiceWorker` client requests and route each onto its browser IPC.
+        // The VM queues all four arms and settles their promises via
+        // `deliver_sw_client_update`, so dropping any arm would HANG its
+        // promise (§8). A page with no current_url cannot own SW requests.
+        if let Some(current_url) = state.pipeline.runtime.current_url() {
+            for req in state.pipeline.runtime.drain_sw_client_requests() {
+                match req {
+                    elidex_api_sw::SwClientRequest::Register {
+                        script_url,
+                        scope,
+                        update_via_cache,
+                    } => {
+                        // URLs are already resolved against the doc base
+                        // (canonical) — parse verbatim, no join/default_scope.
+                        let (Ok(script_url), Ok(scope)) =
+                            (url::Url::parse(&script_url), url::Url::parse(&scope))
+                        else {
+                            continue;
+                        };
+                        let origin = current_url.origin().unicode_serialization();
+                        let _ = state.channel.send(ContentToBrowser::SwRegister {
+                            script_url,
+                            scope,
+                            origin,
+                            page_url: current_url.clone(),
+                            update_via_cache,
+                        });
+                    }
+                    elidex_api_sw::SwClientRequest::Update { scope } => {
+                        let Ok(scope) = url::Url::parse(&scope) else {
+                            continue;
+                        };
+                        let _ = state.channel.send(ContentToBrowser::SwUpdate { scope });
+                    }
+                    elidex_api_sw::SwClientRequest::Unregister { scope } => {
+                        let Ok(scope) = url::Url::parse(&scope) else {
+                            continue;
+                        };
+                        let _ = state.channel.send(ContentToBrowser::SwUnregister { scope });
+                    }
+                    elidex_api_sw::SwClientRequest::PostMessage { scope, data } => {
+                        let Ok(scope) = url::Url::parse(&scope) else {
+                            continue;
+                        };
+                        let origin = current_url.origin().unicode_serialization();
+                        let client_id = state.client_id.clone();
+                        let _ = state.channel.send(ContentToBrowser::SwPostMessage {
+                            scope,
+                            data,
+                            origin,
+                            client_id,
+                        });
+                    }
+                }
             }
         }
 
@@ -567,14 +606,46 @@ fn handle_message(msg: BrowserToContent, state: &mut ContentState) -> bool {
             });
         }
 
+        // Settle SW client promises / fire client events via ONE self-bracketed
+        // deliver (§6.2 — `handle_message` is NOT inside an open bracket).
+        BrowserToContent::SwRegistered(data) => {
+            state
+                .pipeline
+                .deliver_sw_client_update(SwClientUpdate::Registered {
+                    scope: data.scope,
+                    success: data.success,
+                    error: data.error,
+                    worker: data.worker,
+                    update_via_cache: data.update_via_cache,
+                });
+        }
+        BrowserToContent::SwUnregistered { scope, success } => {
+            state
+                .pipeline
+                .deliver_sw_client_update(SwClientUpdate::Unregistered { scope, success });
+        }
+        BrowserToContent::SwStateChanged {
+            scope,
+            state: sw_state,
+        } => {
+            state
+                .pipeline
+                .deliver_sw_client_update(SwClientUpdate::StateChanged {
+                    scope,
+                    state: sw_state,
+                });
+        }
+        BrowserToContent::SwControllerSet { scope } => {
+            state
+                .pipeline
+                .deliver_sw_client_update(SwClientUpdate::ControllerSet { scope: Some(scope) });
+        }
+
         BrowserToContent::IdbUpgradeReady { .. }
         | BrowserToContent::IdbBlocked { .. }
         | BrowserToContent::StorageEstimateResult { .. }
         | BrowserToContent::StoragePersistResult { .. }
         | BrowserToContent::StoragePersistedResult { .. }
-        | BrowserToContent::SwRegistered(_)
-        | BrowserToContent::SwControllerSet { .. }
-        | BrowserToContent::SwStateChanged { .. }
         | BrowserToContent::ManifestParsed(_)
         | BrowserToContent::SwFetchResponse { .. } => {}
     }

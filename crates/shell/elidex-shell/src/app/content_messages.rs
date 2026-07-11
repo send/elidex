@@ -123,6 +123,7 @@ impl App {
                         scope,
                         origin: _,
                         page_url,
+                        update_via_cache,
                     } => {
                         if let Some(ref np) = self.network_process {
                             // Acquire the per-origin Cache API connection (owned
@@ -138,6 +139,7 @@ impl App {
                                         &script_url,
                                         &scope,
                                         &page_url,
+                                        update_via_cache,
                                         cache_conn,
                                         np,
                                         &tab.channel,
@@ -149,21 +151,41 @@ impl App {
                                     // register() promise must STILL settle (never
                                     // hang) — reply failure (§4 Part 1 hung-promise
                                     // invariant).
-                                    let _ = tab.channel.send(
-                                        crate::ipc::BrowserToContent::SwRegistered(Box::new(
-                                            crate::ipc::SwRegisteredData {
+                                    let _ =
+                                        tab.channel
+                                            .send(crate::ipc::BrowserToContent::SwRegistered(
+                                            Box::new(crate::ipc::SwRegisteredData {
                                                 scope: scope.clone(),
                                                 success: false,
                                                 error: Some(
-                                                    "service worker cache storage unavailable"
-                                                        .to_owned(),
+                                                    elidex_api_sw::SwRegisterError::TypeError(
+                                                        "service worker cache storage unavailable"
+                                                            .to_owned(),
+                                                    ),
                                                 ),
-                                            },
-                                        )),
-                                    );
+                                                worker: None,
+                                                update_via_cache,
+                                            }),
+                                        ));
                                 }
                             }
                         }
+                    }
+                    ContentToBrowser::SwUpdate { scope } => {
+                        self.sw_coordinator.update(&scope, &tab.channel);
+                    }
+                    ContentToBrowser::SwUnregister { scope } => {
+                        self.sw_coordinator
+                            .unregister_and_reply(&scope, &tab.channel);
+                    }
+                    ContentToBrowser::SwPostMessage {
+                        scope,
+                        data,
+                        origin,
+                        client_id,
+                    } => {
+                        self.sw_coordinator
+                            .post_message_to_worker(&scope, data, origin, client_id);
                     }
                     ContentToBrowser::ManifestDiscovered { url } => {
                         tracing::debug!(manifest_url = %url, "manifest discovered");

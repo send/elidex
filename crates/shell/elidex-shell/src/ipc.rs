@@ -241,8 +241,15 @@ pub struct SwRegisteredData {
     pub scope: url::Url,
     /// Whether registration succeeded.
     pub success: bool,
-    /// Error message if failed.
-    pub error: Option<String>,
+    /// The typed rejection reason if registration failed (mapped 1:1 to a
+    /// `DOMException` by the VM), preserving `TypeError`/`SecurityError`.
+    pub error: Option<elidex_api_sw::SwRegisterError>,
+    /// The registration's current worker on success — seeds
+    /// `.installing`/`.waiting`/`.active` at promise resolve (SW §3.2).
+    pub worker: Option<elidex_api_sw::SwWorkerSnapshot>,
+    /// The registration's `updateViaCache` (SW §3.2.7); seeds the
+    /// `ServiceWorkerRegistration.updateViaCache` getter.
+    pub update_via_cache: elidex_api_sw::UpdateViaCache,
 }
 
 /// Messages sent from the browser thread to the content thread.
@@ -463,6 +470,15 @@ pub enum BrowserToContent {
         /// The worker's new state.
         state: elidex_api_sw::SwState,
     },
+    /// A `ServiceWorkerRegistration.unregister()` job settled (SW §3.2.9) —
+    /// resolves the unregister() promise with `success` (true = a registration
+    /// was removed).
+    SwUnregistered {
+        /// Scope URL of the registration that was (or was not) removed.
+        scope: url::Url,
+        /// Whether a registration was actually removed.
+        success: bool,
+    },
     /// Parsed Web App Manifest from browser thread.
     ManifestParsed(Box<elidex_api_sw::WebAppManifest>),
     /// Service Worker FetchEvent response from browser thread.
@@ -582,6 +598,34 @@ pub enum ContentToBrowser {
         origin: String,
         /// URL of the registering page (for security validation).
         page_url: url::Url,
+        /// The requested `updateViaCache` (SW §3.2.7); stored on the
+        /// registration and echoed back on resolve.
+        update_via_cache: elidex_api_sw::UpdateViaCache,
+    },
+    /// Request a `ServiceWorkerRegistration.update()` (SW §3.2.8) for the
+    /// registration at `scope`.
+    SwUpdate {
+        /// Scope of the registration to update.
+        scope: url::Url,
+    },
+    /// Request a `ServiceWorkerRegistration.unregister()` (SW §3.2.9) for the
+    /// registration at `scope`.
+    SwUnregister {
+        /// Scope of the registration to remove.
+        scope: url::Url,
+    },
+    /// Request delivery of a `ServiceWorker.postMessage()` (SW §3.1.4) to the
+    /// worker at `scope`. `origin`/`client_id` are the SENDER's, captured on
+    /// the content thread at enqueue.
+    SwPostMessage {
+        /// Scope of the target worker.
+        scope: url::Url,
+        /// The serialized message payload.
+        data: String,
+        /// The sender's origin.
+        origin: String,
+        /// The sender's client id.
+        client_id: String,
     },
     /// A `<link rel="manifest">` was discovered during page load.
     ManifestDiscovered {

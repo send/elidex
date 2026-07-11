@@ -387,6 +387,24 @@ impl PipelineResult {
         }
     }
 
+    /// Deliver a Service Worker client update from the shell coordinator to the
+    /// window-realm `navigator.serviceWorker` client (the browser→content
+    /// direction of the DR-B back-channel, WHATWG SW §3.1/§3.4). Settles
+    /// `register()`/`update()`/`unregister()` promises and fires
+    /// `statechange`/`updatefound`/`controllerchange`/`message`, in ONE bracket.
+    #[allow(unsafe_code)]
+    pub fn deliver_sw_client_update(&mut self, update: elidex_api_sw::SwClientUpdate) {
+        let mut ctx = ScriptContext::new(&mut self.session, &mut self.dom, self.document);
+        // SAFETY: see `dispatch_event` — the `with_bound` unaliased contract.
+        // `update` is owned external data and does not alias `ctx`.
+        unsafe {
+            self.runtime.with_bound(&mut ctx, |engine, ctx| {
+                engine.deliver_sw_client_update(update);
+                engine.drain_reactions(ctx);
+            });
+        }
+    }
+
     /// Deliver any parent-side dedicated/shared worker `postMessage`s that
     /// arrived since the last turn, in ONE batch bracket (§4.1). Assume-bound
     /// (it dispatches at the bound VM's `Worker` objects); `drain_reactions`
