@@ -196,7 +196,7 @@ pub(super) fn handle_navigate(
             // Shut down WebSocket/SSE connections before replacing the pipeline.
             state.pipeline.runtime.bridge().shutdown_all_realtime();
             // Preserve cookie jar across navigations.
-            let cookie_jar = state.pipeline.runtime.bridge().cookie_jar_clone();
+            let cookie_jar = state.pipeline.cookie_jar.clone();
             // Rebuild at the tab's CURRENT viewport + device facts (not `DEFAULT`) so
             // the new document's initial scripts + layout see the real
             // `innerWidth`/`@media`/`devicePixelRatio` (C1/C3; the new runtime's JS

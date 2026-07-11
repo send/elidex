@@ -216,6 +216,12 @@ pub struct PipelineResult {
     /// Network handle for communicating with the Network Process broker.
     /// `disconnected()` when no broker is available (standalone tests).
     pub network_handle: Rc<elidex_net::broker::NetworkHandle>,
+    /// The document's cookie jar (a shared cross-cutting session resource,
+    /// CLAUDE.md side-store exception (b)) — retained shell-side so navigation /
+    /// iframe builds thread it into the next pipeline WITHOUT reading it back
+    /// through the engine (the `HostDriver` trait has `install_cookie_jar` but
+    /// deliberately no getter). B18.
+    pub cookie_jar: Option<Arc<elidex_net::CookieJar>>,
     /// Keeps the broker thread alive for standalone pipelines.
     /// `None` when the App owns the broker (normal tab mode).
     #[allow(dead_code)]

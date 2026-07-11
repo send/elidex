@@ -355,7 +355,7 @@ impl App {
         let font_db = std::sync::Arc::clone(&interactive.pipeline.font_db);
         match elidex_navigation::load_document(url, &network_handle, None) {
             Ok(loaded) => {
-                let cookie_jar = interactive.pipeline.runtime.bridge().cookie_jar_clone();
+                let cookie_jar = interactive.pipeline.cookie_jar.clone();
                 // Rebuild at the current viewport + device facts, not `DEFAULT`
                 // (C1/C3 — same as the content-thread navigation path). The fresh
                 // document's bridge would default to 1×/Light, so carry the current

@@ -370,16 +370,16 @@ fn build_load_context<'a>(
     parent_origin: &'a elidex_plugin::SecurityOrigin,
 ) -> IframeLoadContext<'a> {
     // `iframe_depth` converges to the engine-agnostic `HostDriver` trait; the
-    // `bridge` alias below survives only for `cookie_jar_clone` (still boa-bound
-    // until a later flip stage converges the cookie-jar surface).
+    // cookie jar is threaded from the shell-owned `PipelineResult::cookie_jar`
+    // field (B18 — the `HostDriver` trait installs the jar but has no getter,
+    // so the shell retains its own copy rather than reading it back).
     let parent_depth = state.pipeline.runtime.iframe_depth();
-    let bridge = state.pipeline.runtime.bridge();
     IframeLoadContext {
         parent_origin,
         parent_url: state.pipeline.url.as_ref(),
         font_db: &state.pipeline.font_db,
         network_handle: &state.pipeline.network_handle,
-        cookie_jar: bridge.cookie_jar_clone(),
+        cookie_jar: state.pipeline.cookie_jar.clone(),
         depth: parent_depth + 1,
         registry: &state.pipeline.registry,
         // Inherit the parent's live device facts — window/display facts the sub-frame
