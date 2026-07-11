@@ -11,11 +11,16 @@ use elidex_dom_compat::parse_compat_stylesheet_with_registry;
 use elidex_ecs::EcsDom;
 use elidex_ecs::Entity;
 use elidex_html_parser::parse_progressive_str;
+// boa `JsRuntime` kept during the S5-6b flip dev window for the CSSOM
+// shadow-sync (`sync_stylesheets_to_bridge`, B1) still threaded through the
+// builders; deleted with the crate at the end of the flip.
+use elidex_js::ElidexJsEngine;
+#[allow(unused_imports)]
 use elidex_js_boa::JsRuntime;
 use elidex_layout::layout_tree;
 use elidex_navigation::extract_inline_scripts;
 use elidex_render::build_display_list;
-use elidex_script_session::{DispatchEvent, ScriptContext, SessionCore};
+use elidex_script_session::{DispatchEvent, HostDriver, ScriptContext, ScriptEngine, SessionCore};
 use elidex_text::FontDatabase;
 
 use elidex_plugin::ViewportOverflow;
@@ -101,7 +106,7 @@ pub struct PreEvalFrameInputs {
 /// 2. `enqueue_ce_reactions_from_mutations()` — scan for CE lifecycle triggers
 /// 3. `drain_custom_element_reactions_public()` — invoke CE callbacks
 fn flush_with_ce_reactions(
-    runtime: &mut JsRuntime,
+    runtime: &mut ElidexJsEngine,
     session: &mut SessionCore,
     dom: &mut EcsDom,
     document: Entity,
@@ -126,8 +131,8 @@ fn flush_with_ce_reactions(
 /// installed on the bridge **before** step 2 — see [`PreEvalFrameState`] for the
 /// ordering invariant.
 ///
-/// Returns `(SessionCore, JsRuntime, ViewportOverflow)` for the caller to include in `PipelineResult`.
-#[allow(clippy::too_many_arguments)]
+/// Returns `(SessionCore, ElidexJsEngine, ViewportOverflow)` for the caller to include in `PipelineResult`.
+#[allow(clippy::too_many_arguments, unsafe_code)]
 pub(super) fn run_scripts_and_finalize(
     dom: &mut EcsDom,
     document: Entity,
@@ -143,7 +148,7 @@ pub(super) fn run_scripts_and_finalize(
     engine_mode: EngineMode,
     pre_eval_state: Option<PreEvalFrameState>,
     history_state: Option<Vec<u8>>,
-) -> (SessionCore, JsRuntime, ViewportOverflow) {
+) -> (SessionCore, ElidexJsEngine, ViewportOverflow) {
     let stylesheet_refs: Vec<&Stylesheet> = stylesheets.iter().collect();
 
     // Initial style resolution (with compat layer) at the real content-area
@@ -159,20 +164,42 @@ pub(super) fn run_scripts_and_finalize(
 
     // Script execution phase.
     let mut session = SessionCore::new();
-    let mut runtime = JsRuntime::with_network(network_handle);
+    // S5-6b construction chokepoint (§3.1 / §5 item 2): boa
+    // `JsRuntime::with_network` → VM `ElidexJsEngine::new()` + trait installs.
+    //
+    // TODO(S5-6b stage2 / DESIGN FORK — HostData install): `ElidexJsEngine::new()`
+    // does NOT install a `HostData` context, and the cookie-jar / origin / sandbox
+    // / web-storage installs below all NO-OP without one (each `if let Some(hd) =
+    // host_data()`), and `bind`/`unbind` no-op without one. The only path today is
+    // `engine.vm().install_host_data(HostData::new())`, but `HostData` is
+    // crate-private to `elidex-js` (not re-exported), so the shell cannot construct
+    // it. Needs a design decision: either `ElidexJsEngine::new()` installs a
+    // `HostData` by construction (matches `install_host_data`'s own doc: "Call
+    // once, typically at ElidexJsEngine construction"), or a new public
+    // constructor (`ElidexJsEngine::with_host_data()` / `new()` installs it).
+    // Until resolved, every pre-eval install here is inert.
+    let mut runtime = ElidexJsEngine::new();
+    if let Some(handle) = network_handle {
+        runtime.install_network_handle(handle);
+    }
+    // TODO(S5-6b stage2 — B4/§4.3.3 web-storage install): the shell must own ONE
+    // process-wide `WebStorageManager` and `runtime.install_web_storage(manager)`
+    // here (else localStorage falls back to per-VM in-memory = persistence loss at
+    // flip). Not threaded into this function yet.
     // Set cookie jar BEFORE script execution so document.cookie works during page load.
     if let Some(jar) = cookie_jar {
-        runtime.bridge().set_cookie_jar(jar);
+        // B23: boa `.bridge().set_cookie_jar` → trait `install_cookie_jar`.
+        runtime.install_cookie_jar(jar);
     }
 
     if let Some(url) = current_url {
+        // B23b: `set_current_url` is trait-identical (does not require HostData).
         runtime.set_current_url(Some(url.clone()));
         // Top-level document (`pre_eval_state: None`): unsandboxed, origin
         // derived from the URL.
         if pre_eval_state.is_none() {
-            runtime
-                .bridge()
-                .set_origin(elidex_plugin::SecurityOrigin::from_url(url));
+            // B23: `.bridge().set_origin` → trait `set_origin`.
+            runtime.set_origin(elidex_plugin::SecurityOrigin::from_url(url));
         }
     }
 
@@ -189,16 +216,32 @@ pub(super) fn run_scripts_and_finalize(
     // `Some` too — no post-build install sequence anywhere. Closes
     // `#11-iframe-origin-before-initial-scripts`.
     if let Some(state) = pre_eval_state {
-        runtime.bridge().set_sandbox_flags(state.sandbox_flags);
-        runtime.bridge().set_origin(state.origin);
-        runtime.bridge().set_iframe_depth(state.iframe_depth);
-        runtime.bridge().set_credentialless(state.credentialless);
+        // B23: `.bridge().set_*` → trait methods (1:1 name/signature).
+        runtime.set_sandbox_flags(state.sandbox_flags);
+        runtime.set_origin(state.origin);
+        runtime.set_iframe_depth(state.iframe_depth);
+        // TODO(S5-6b stage2 — B19/§4.5 credentialless is shell-owned): the VM has
+        // no `set_credentialless` (its behavior derives from `set_origin`, S5-4b);
+        // `credentialless` moves to the shell's `PreEvalFrameState` SoT. Dropped
+        // here (was `runtime.bridge().set_credentialless(state.credentialless)`).
+        let _ = state.credentialless;
         // Referrer rides the same pre-eval install so the initial scripts read a
         // populated `document.referrer` (the parent document URL, §4.8.5), not
         // the empty default — previously a post-build `set_referrer` landed it
         // only after the initial scripts had already run (and never on the OOP
         // path).
-        runtime.bridge().set_referrer(state.referrer);
+        // B23: `.bridge().set_referrer` → trait `set_navigation_referrer`. The VM
+        // takes `Option<url::Url>`; boa took `Option<String>`.
+        // TODO(S5-6b stage2 — referrer type mismatch): `state.referrer:
+        // Option<String>` must parse to `Option<url::Url>` for
+        // `set_navigation_referrer`. Left as a parse-adapter for stage 2 (the
+        // referrer is already fragment/credential-stripped per the trait doc).
+        runtime.set_navigation_referrer(
+            state
+                .referrer
+                .as_deref()
+                .and_then(|s| url::Url::parse(s).ok()),
+        );
     }
 
     // Seed the JS bridge viewport + device facts BEFORE running scripts so initial
@@ -210,11 +253,16 @@ pub(super) fn run_scripts_and_finalize(
     // the same construction seam as the size (C3) so a tab on a HiDPI / dark display
     // is born with the right `devicePixelRatio` + `prefers-color-scheme`, not 1×/Light
     // raced-in after the first script.
-    runtime
-        .bridge()
-        .set_viewport(viewport.width, viewport.height);
-    runtime.bridge().set_device_pixel_ratio(device_facts.dppx);
-    runtime.bridge().set_color_scheme(device_facts.color_scheme);
+    // TODO(S5-6b stage2 — B20/§4.3.5 media-environment seed): boa seeded the
+    // bridge with three separate setters (`set_viewport` / `set_device_pixel_ratio`
+    // / `set_color_scheme`). The VM model INVERTS this into ONE fused push
+    // `set_media_environment(vw, vh, dppx, ColorScheme, ReducedMotion)` (trait,
+    // §4.3.5 "initial seed" F4) + `set_screen_dimensions`. Needs the
+    // `ReducedMotion` source (`device_facts` has no reduced-motion field yet) and
+    // the screen (monitor) dims. Left unseeded for stage 2 — until then the first
+    // paint's `matchMedia`/`devicePixelRatio` reads the VM default environment
+    // (a C3 regression the stage-2 seed closes).
+    let _ = (&viewport, &device_facts);
 
     // Seed `history.state` from the session-history entry BEFORE the initial
     // scripts run (WHATWG HTML §7.4.6.2 step 6.3 "restore the history object
@@ -226,16 +274,39 @@ pub(super) fn run_scripts_and_finalize(
     // load / fresh nav) → `null`. Flip-inert value: the live boa `set_history_state`
     // is a no-op stub (boa passes `None` on every pushState, so the seed is `None`
     // anyway); the VM's `HostDriver::set_history_state` lights this up at S5-6.
-    runtime.bridge().set_history_state(history_state);
+    // B23: `.bridge().set_history_state` → trait `set_history_state`.
+    runtime.set_history_state(history_state);
 
-    for source in script_sources {
-        let mut ctx = ScriptContext::new(&mut session, dom, document);
-        elidex_script_session::ScriptEngine::eval(&mut runtime, source, &mut ctx);
-    }
+    // S5-6b batch-bind bracket (§4.1 "`<script>` eval loop"): ONE bracket around
+    // the per-script eval loop + timer drain — NOT per-script (cross-script
+    // wrapper identity; `unbind` is a heavy browsing-context-cycle op). The
+    // per-script `ScriptContext::new` is HOISTED OUT of the loop and reused
+    // through the bound `ctx` (driving-order invariant: a fresh `&mut dom`
+    // mid-bracket would invalidate the bound `*mut dom`). Scoped so `ctx` drops
+    // (releasing the `&mut dom` reborrow) BEFORE the unbound `flush` below (§4.1
+    // F11: flush takes `&mut dom`, forbidden while a bracket is open).
     {
         let mut ctx = ScriptContext::new(&mut session, dom, document);
-        elidex_script_session::ScriptEngine::drain_timers(&mut runtime, &mut ctx);
+        // SAFETY: `ctx` outlives the bracket; the loop body only drives the
+        // assume-bound trait methods (eval / drain_timers), never touching
+        // `ctx.session` / `ctx.dom` directly — the `with_bound` contract.
+        unsafe {
+            runtime.with_bound(&mut ctx, |engine, ctx| {
+                for source in script_sources {
+                    engine.eval(source, ctx);
+                }
+                engine.drain_timers(ctx);
+            });
+        }
     }
+    // TODO(S5-6b stage2 — B2/§4.3.1 CE-reaction dissolve + §4.1 bracket): under the
+    // VM, VM-native mutations settle CE inside the VM's own checkpoints, so this
+    // boa 2-call `flush_with_ce_reactions` LOOP dissolves to the external-record
+    // case; `enqueue_ce_reactions_from_mutations` / `drain_custom_element_reactions_public`
+    // die with the crate. The lifecycle dispatch must ALSO be bracketed (it
+    // reconstructs `ScriptContext::new` per event today — violates the
+    // driving-order invariant). Left calling the boa helpers (will not compile
+    // under `ElidexJsEngine`) as the stage-2 worklist marker.
     flush_with_ce_reactions(&mut runtime, &mut session, dom, document);
 
     // Dispatch lifecycle events.
@@ -298,7 +369,7 @@ pub(super) fn build_paged_pipeline(
 /// 3. `readystatechange` (Complete) — document transitions to "complete"
 /// 4. `load` — all sub-resources have loaded
 fn dispatch_lifecycle_events(
-    runtime: &mut JsRuntime,
+    runtime: &mut ElidexJsEngine,
     session: &mut SessionCore,
     dom: &mut EcsDom,
     document: Entity,
@@ -354,7 +425,7 @@ fn dispatch_lifecycle_events(
 /// Per HTML spec §3.1.5: The `readystatechange` event fires on the Document
 /// object each time the readyState attribute's value changes.
 fn transition_ready_state(
-    runtime: &mut JsRuntime,
+    runtime: &mut ElidexJsEngine,
     session: &mut SessionCore,
     dom: &mut EcsDom,
     document: Entity,
@@ -379,7 +450,7 @@ fn transition_ready_state(
 ///
 /// Returns `true` if navigation should proceed (beforeunload not cancelled).
 pub(crate) fn dispatch_unload_events(
-    runtime: &mut JsRuntime,
+    runtime: &mut ElidexJsEngine,
     session: &mut SessionCore,
     dom: &mut EcsDom,
     document: Entity,

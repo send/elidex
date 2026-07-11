@@ -2500,6 +2500,7 @@ dependencies = [
  "elidex-ecs",
  "elidex-form",
  "elidex-html-parser",
+ "elidex-js",
  "elidex-js-boa",
  "elidex-layout",
  "elidex-navigation",

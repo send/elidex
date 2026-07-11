@@ -43,11 +43,16 @@ use elidex_css_anim::engine::AnimationEngine;
 use elidex_dom_compat::{get_presentational_hints, legacy_ua_stylesheet};
 use elidex_ecs::EcsDom;
 use elidex_ecs::Entity;
+// boa import kept during the S5-6b flip dev window: `stylesheets_to_cssom` /
+// `sync_stylesheets_to_bridge` / `apply_cssom_mutations` (CSSOM shadow, B1) and
+// the `re_render` CE-reaction loop (B2) still reference it. Deleted with the
+// crate at the end of the flip (§5 item 12).
+use elidex_js::ElidexJsEngine;
 use elidex_js_boa::JsRuntime;
 use elidex_layout::layout_tree;
 use elidex_plugin::{EngineMode, Size, Vector, ViewportOverflow};
 use elidex_render::{build_display_list_with_scroll, DisplayList};
-use elidex_script_session::{ScriptContext, SessionCore};
+use elidex_script_session::{HostDriver, ScriptContext, ScriptEngine, SessionCore};
 use elidex_style::resolve_styles_with_compat;
 use elidex_text::FontDatabase;
 use winit::event_loop::EventLoop;
@@ -436,8 +441,8 @@ pub struct PipelineResult {
     pub document: Entity,
     /// The script session state.
     pub session: SessionCore,
-    /// The JavaScript runtime.
-    pub runtime: JsRuntime,
+    /// The JavaScript runtime (S5-6b flip: boa `JsRuntime` → VM `ElidexJsEngine`).
+    pub runtime: ElidexJsEngine,
     /// All parsed CSS stylesheets.
     pub stylesheets: Vec<Stylesheet>,
     /// The font database (shared across navigations to avoid re-scanning).
@@ -485,21 +490,51 @@ impl PipelineResult {
     /// Dispatch a DOM event through the propagation path.
     ///
     /// Returns `true` if `preventDefault()` was called.
+    ///
+    /// S5-6b batch-bind bracket (§4.1 "UA / lifecycle event dispatch"): build
+    /// `ScriptContext` ONCE, bind through it, drive `script_dispatch_event` +
+    /// `drain_reactions` under the SAME `&mut ctx`, unbind. `with_bound`'s RAII
+    /// guard makes the bracket panic-safe and unpaired-form-unrepresentable. The
+    /// driving-order invariant (never reconstruct `ScriptContext::new(&mut dom,…)`
+    /// mid-bracket — a fresh `&mut dom` invalidates the bound `*mut dom`) is held
+    /// by threading the single `ctx` the closure receives.
+    #[allow(unsafe_code)]
     pub fn dispatch_event(&mut self, event: &mut elidex_script_session::DispatchEvent) -> bool {
         let mut ctx = ScriptContext::new(&mut self.session, &mut self.dom, self.document);
-        elidex_script_session::script_dispatch_event(&mut self.runtime, event, &mut ctx)
+        // SAFETY: `ctx` outlives the bracket and neither this method nor the
+        // trait methods touch `ctx.session` / `ctx.dom` through a `&mut` while
+        // bound (they use the bound pointers) — the `with_bound` contract.
+        unsafe {
+            self.runtime.with_bound(&mut ctx, |engine, ctx| {
+                let prevented = elidex_script_session::script_dispatch_event(engine, event, ctx);
+                // Post-dispatch microtask + CE-reaction checkpoint (HTML §8.1.4.4
+                // *clean up after running script*), per the bracket contract.
+                engine.drain_reactions(ctx);
+                prevented
+            })
+        }
     }
 
-    /// Evaluate a JavaScript source string.
+    /// Evaluate a JavaScript source string (bracketed, §4.1).
+    #[allow(unsafe_code)]
     pub fn eval_script(&mut self, source: &str) -> elidex_script_session::EvalResult {
         let mut ctx = ScriptContext::new(&mut self.session, &mut self.dom, self.document);
-        elidex_script_session::ScriptEngine::eval(&mut self.runtime, source, &mut ctx)
+        // SAFETY: see `dispatch_event` — the `with_bound` unaliased contract.
+        unsafe {
+            self.runtime
+                .with_bound(&mut ctx, |engine, ctx| engine.eval(source, ctx))
+        }
     }
 
-    /// Drain and execute all ready timers.
+    /// Drain and execute all ready timers (bracketed, §4.1).
+    #[allow(unsafe_code)]
     pub fn drain_timers(&mut self) -> Vec<elidex_script_session::EvalResult> {
         let mut ctx = ScriptContext::new(&mut self.session, &mut self.dom, self.document);
-        elidex_script_session::ScriptEngine::drain_timers(&mut self.runtime, &mut ctx)
+        // SAFETY: see `dispatch_event` — the `with_bound` unaliased contract.
+        unsafe {
+            self.runtime
+                .with_bound(&mut ctx, |engine, ctx| engine.drain_timers(ctx))
+        }
     }
 
     /// Remove animation/transition state for entities that no longer exist in the DOM.
