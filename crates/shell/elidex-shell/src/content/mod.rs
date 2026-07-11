@@ -95,6 +95,10 @@ struct ContentState {
     /// `re_render` — the §4.3.8 version-delta baseline replacing the boa
     /// flush-record stream + `needs_render` bool.
     last_render_dom_version: u64,
+    /// The window's current device facts (dppx / color-scheme / reduced-motion) —
+    /// the shell-owned SoT the VM's getterless media surface replaced (B20); pushed
+    /// to the VM via `set_media_environment` and inherited by child iframes.
+    device_facts: crate::ipc::DeviceFacts,
 }
 
 impl ContentState {
@@ -184,6 +188,7 @@ impl ContentState {
         viewport_cell: std::sync::Arc<crate::ipc::ViewportCell>,
         applied_viewport_seq: u64,
         applied_facts_seq: u64,
+        device_facts: crate::ipc::DeviceFacts,
     ) -> Self {
         Self {
             channel,
@@ -205,6 +210,7 @@ impl ContentState {
             // invalidates the fresh (`None`) focusable cache + walks iframes
             // (`scan_initial_iframes` still owns the initial load).
             last_render_dom_version: 0,
+            device_facts,
         }
     }
 
@@ -539,6 +545,7 @@ fn content_thread_main(
         viewport_cell,
         build_seq,
         build_facts_seq,
+        snapshot.facts,
     );
     scroll::update_viewport_scroll_dimensions(&mut state);
     // Scan for <iframe> elements present in the initial parsed DOM.
@@ -612,6 +619,7 @@ fn content_thread_main_url(
         viewport_cell,
         build_seq,
         build_facts_seq,
+        snapshot.facts,
     );
     scroll::update_viewport_scroll_dimensions(&mut state);
 
@@ -630,19 +638,6 @@ fn content_thread_main_url(
 }
 
 // run_event_loop + handle_message are in event_loop.rs.
-
-/// Dispatch "change" events to `MediaQueryList` listeners whose result changed.
-///
-/// Creates a `MediaQueryListEvent`-like object with `matches` and `media` properties
-/// and invokes each registered listener callback via `JsRuntime`.
-fn dispatch_media_query_changes(changed: &[(u64, bool)], state: &mut ContentState) {
-    state.pipeline.runtime.deliver_media_query_changes(
-        changed,
-        &mut state.pipeline.session,
-        &mut state.pipeline.dom,
-        state.pipeline.document,
-    );
-}
 
 /// Dispatch a `storage` event on window (WHATWG HTML §11.2.1).
 ///

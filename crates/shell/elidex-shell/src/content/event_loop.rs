@@ -11,9 +11,8 @@ use elidex_script_session::HostDriver;
 use crate::ipc::{BrowserToContent, ContentToBrowser};
 
 use super::{
-    animation, apply_script_animations, dispatch_media_query_changes, dispatch_message_event,
-    dispatch_storage_event, iframe, navigation, scroll, ContentState, DEFAULT_POLL_INTERVAL,
-    FRAME_INTERVAL,
+    animation, apply_script_animations, dispatch_message_event, dispatch_storage_event, iframe,
+    navigation, scroll, ContentState, DEFAULT_POLL_INTERVAL, FRAME_INTERVAL,
 };
 use super::{event_handlers, ime};
 
@@ -250,10 +249,13 @@ fn apply_device_facts(
         return false;
     }
     state.applied_facts_seq = facts_seq;
-    let bridge = state.pipeline.runtime.bridge();
-    if dppx != bridge.device_pixel_ratio() || color_scheme != bridge.color_scheme() {
-        bridge.set_device_pixel_ratio(dppx);
-        bridge.set_color_scheme(color_scheme);
+    // Value-guard against the shell-owned facts SoT (B20 — the getterless VM can no
+    // longer answer). On a real change, fold the new values into `state.device_facts`
+    // so the caller's `set_media_environment` push reads them; the actual VM push +
+    // MQL re-eval happen in the arms, not here.
+    if dppx != state.device_facts.dppx || color_scheme != state.device_facts.color_scheme {
+        state.device_facts.dppx = dppx;
+        state.device_facts.color_scheme = color_scheme;
         true
     } else {
         false
@@ -415,27 +417,30 @@ fn handle_message(msg: BrowserToContent, state: &mut ContentState) -> bool {
                 return true;
             }
 
-            let bridge = state.pipeline.runtime.bridge().clone();
             if size_changed {
                 state.pipeline.viewport = elidex_plugin::Size::new(width, height);
-                bridge.set_viewport(width, height);
             }
 
-            // Refresh each `MediaQueryList`'s cached `matches` to the new viewport **and**
-            // the facts applied in (iii) **before** dispatching any event (CSSOM View §4.2
-            // — the `matches` getter must read the post-change value in a `change`
-            // listener). One re-eval covers both inputs (atomic — C3 R2); it only refreshes
-            // state + collects the changed set, the `change` *events* fire after `resize`.
-            let changed = bridge.re_evaluate_media_queries(
-                state.pipeline.viewport.width,
-                state.pipeline.viewport.height,
+            // Push the new size + the facts `apply_device_facts` already folded into
+            // `state.device_facts` to the engine (B20 model inversion — the shell owns
+            // the facts SoT, the VM evaluates). Setter form: survives unbind, called
+            // OUTSIDE any bracket. `matchMedia().matches` DERIVES live from this stored
+            // environment on every get, so right after this push a `resize` listener
+            // reads the post-change `matches` with no cache to refresh (C3 R2 atomicity
+            // is preserved by pushing size + facts in one call before any event fires).
+            state.pipeline.runtime.set_media_environment(
+                f64::from(state.pipeline.viewport.width),
+                f64::from(state.pipeline.viewport.height),
+                state.device_facts.dppx,
+                state.device_facts.color_scheme,
+                state.device_facts.reduced_motion,
             );
 
             // HTML "update the rendering" (§8.1.7.3 Processing model): step 8 "run the
             // resize steps" runs **before** step 10 "evaluate media queries and report
-            // changes". Fire `resize` first (iff the size changed), then the MQL `change`
-            // events — spec-correct order, with the cache a `resize` listener reads already
-            // current (refreshed above).
+            // changes". Fire `resize` first (iff the size changed) — its listener reads
+            // the current (already-pushed) `matchMedia` — then report the MQL `change`
+            // flips (CSSOM View §4.2) in one batch bracket.
             if size_changed {
                 let mut resize_event = elidex_script_session::DispatchEvent::new_composed(
                     "resize",
@@ -446,9 +451,7 @@ fn handle_message(msg: BrowserToContent, state: &mut ContentState) -> bool {
                 state.pipeline.dispatch_event(&mut resize_event);
             }
 
-            if !changed.is_empty() {
-                dispatch_media_query_changes(&changed, state);
-            }
+            state.pipeline.deliver_media_query_changes();
 
             state.re_render();
             state.send_display_list();
@@ -467,18 +470,18 @@ fn handle_message(msg: BrowserToContent, state: &mut ContentState) -> bool {
             // value guards live in the shared `apply_device_facts`; a real change needs
             // one re-eval + repaint (no `resize` — the size is unchanged).
             if apply_device_facts(state, color_scheme, dppx, facts_seq) {
-                let bridge = state.pipeline.runtime.bridge().clone();
-                // Refresh each `MediaQueryList`'s cached `matches` to the new facts BEFORE
-                // firing any event (CSSOM View §4.2 — the `matches` getter must read the
-                // post-change value in a `change` listener); the viewport is unchanged, so
-                // pass the current cached size. Then fire the MQL `change` events + repaint.
-                let changed_mqls = bridge.re_evaluate_media_queries(
-                    state.pipeline.viewport.width,
-                    state.pipeline.viewport.height,
+                // Push the settled facts (viewport unchanged — carry the current size)
+                // to the engine, then report MQL `change` flips (CSSOM View §4.2) in one
+                // batch bracket. No `resize` — the size did not change. `matchMedia`
+                // derives live from the pushed environment (B20).
+                state.pipeline.runtime.set_media_environment(
+                    f64::from(state.pipeline.viewport.width),
+                    f64::from(state.pipeline.viewport.height),
+                    state.device_facts.dppx,
+                    state.device_facts.color_scheme,
+                    state.device_facts.reduced_motion,
                 );
-                if !changed_mqls.is_empty() {
-                    dispatch_media_query_changes(&changed_mqls, state);
-                }
+                state.pipeline.deliver_media_query_changes();
                 state.re_render();
                 state.send_display_list();
             }

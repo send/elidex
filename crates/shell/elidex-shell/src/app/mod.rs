@@ -221,6 +221,11 @@ pub(super) struct InteractiveState {
     pub(super) nav_controller: NavigationController,
     pub(super) window_title: String,
     pub(super) chrome: crate::chrome::ChromeState,
+    /// The window's current device facts (dppx / color-scheme / reduced-motion) —
+    /// the shell-owned SoT the VM's getterless media surface replaced (B20). Inline
+    /// mode has no dynamic device-facts writer, so this is seed-at-construction +
+    /// read-at-rebuild only (parity: facts were static-after-construction under boa).
+    pub(super) device_facts: crate::ipc::DeviceFacts,
 }
 
 /// The initial content-thread spawn, **deferred** from `new_threaded*` until the
@@ -439,6 +444,9 @@ impl App {
                 modifiers: Modifiers::default(),
                 nav_controller: NavigationController::new(),
                 window_title: "elidex".to_string(),
+                // Inline pipelines are built with default facts (1× / Light); no
+                // window → no dynamic writer, so this static seed IS parity (B20).
+                device_facts: crate::ipc::DeviceFacts::default(),
             }),
             pending_focus: false,
             network_process: None, // Legacy mode — no broker.
@@ -476,6 +484,9 @@ impl App {
                 modifiers: Modifiers::default(),
                 nav_controller,
                 window_title: title,
+                // Inline pipelines are built with default facts (1× / Light); no
+                // window → no dynamic writer, so this static seed IS parity (B20).
+                device_facts: crate::ipc::DeviceFacts::default(),
             }),
             pending_focus: false,
             network_process: None, // Legacy mode — no broker.

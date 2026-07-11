@@ -30,6 +30,10 @@ pub struct DeviceFacts {
     /// `prefers-color-scheme` preference (from the window theme; `Light` on the
     /// platforms winit reports no theme — X11/Wayland).
     pub color_scheme: ColorScheme,
+    /// `prefers-reduced-motion` preference (Media Queries L5 §12.1). No portable
+    /// winit producer exists, so this is always `NoPreference` today; a real
+    /// producer is deferred to slot `#11-screen-monitor-dimensions-producer`.
+    pub reduced_motion: elidex_css::media::ReducedMotion,
 }
 
 impl Default for DeviceFacts {
@@ -41,6 +45,7 @@ impl Default for DeviceFacts {
         Self {
             dppx: 1.0,
             color_scheme: ColorScheme::Light,
+            reduced_motion: elidex_css::media::ReducedMotion::default(),
         }
     }
 }

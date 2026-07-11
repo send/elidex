@@ -383,12 +383,10 @@ fn build_load_context<'a>(
         depth: parent_depth + 1,
         registry: &state.pipeline.registry,
         // Inherit the parent's live device facts — window/display facts the sub-frame
-        // shares (C3). The parent bridge holds the dppx/color-scheme delivered by the
-        // shell `SetDeviceFacts` arm, so this is available by construction at build time.
-        device_facts: crate::ipc::DeviceFacts {
-            dppx: bridge.device_pixel_ratio(),
-            color_scheme: bridge.color_scheme(),
-        },
+        // shares (C3). Read from the shell-owned `ContentState` SoT (B20 — the parent's
+        // `SetDeviceFacts`/`SetViewport` arms fold every dppx/color-scheme change into
+        // `state.device_facts`, so it is current by construction at build time).
+        device_facts: state.device_facts,
     }
 }
 

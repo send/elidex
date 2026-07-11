@@ -260,16 +260,23 @@ pub(super) fn run_scripts_and_finalize(
     // the same construction seam as the size (C3) so a tab on a HiDPI / dark display
     // is born with the right `devicePixelRatio` + `prefers-color-scheme`, not 1×/Light
     // raced-in after the first script.
-    // TODO(S5-6b stage2 — B20/§4.3.5 media-environment seed): boa seeded the
-    // bridge with three separate setters (`set_viewport` / `set_device_pixel_ratio`
-    // / `set_color_scheme`). The VM model INVERTS this into ONE fused push
-    // `set_media_environment(vw, vh, dppx, ColorScheme, ReducedMotion)` (trait,
-    // §4.3.5 "initial seed" F4) + `set_screen_dimensions`. Needs the
-    // `ReducedMotion` source (`device_facts` has no reduced-motion field yet) and
-    // the screen (monitor) dims. Left unseeded for stage 2 — until then the first
-    // paint's `matchMedia`/`devicePixelRatio` reads the VM default environment
-    // (a C3 regression the stage-2 seed closes).
-    let _ = (&viewport, &device_facts);
+    // B20/§4.3.5 media-environment seed (F4): boa seeded the bridge with three
+    // separate setters (`set_viewport` / `set_device_pixel_ratio` /
+    // `set_color_scheme`). The VM model INVERTS this into ONE fused push, so the
+    // first paint's `matchMedia`/`devicePixelRatio`/`innerWidth` read the real facts
+    // (not the VM default environment — the C3 regression this closes).
+    // `set_screen_dimensions` (monitor dims) + the `VisualViewport` producer stay
+    // DEFERRED to slot `#11-screen-monitor-dimensions-producer`: no monitor-dimension
+    // source is plumbed (winit's `current_monitor` is not wired), boa never had a
+    // screen setter either, and the flip-gate §A parity audit closed `window.screen`
+    // — so `window.screen` reading the VM default IS boa parity.
+    runtime.set_media_environment(
+        f64::from(viewport.width),
+        f64::from(viewport.height),
+        device_facts.dppx,
+        device_facts.color_scheme,
+        device_facts.reduced_motion,
+    );
 
     // Seed `history.state` from the session-history entry BEFORE the initial
     // scripts run (WHATWG HTML §7.4.6.2 step 6.3 "restore the history object

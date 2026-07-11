@@ -362,10 +362,10 @@ impl App {
                 // facts forward like the cookie jar (legacy inline mode has no
                 // viewport-cell; the bridge is the SoT here).
                 let viewport = interactive.pipeline.viewport;
-                let device_facts = crate::ipc::DeviceFacts {
-                    dppx: interactive.pipeline.runtime.bridge().device_pixel_ratio(),
-                    color_scheme: interactive.pipeline.runtime.bridge().color_scheme(),
-                };
+                // Carry the current facts forward from the shell-owned SoT (B20 — the
+                // getterless VM can no longer answer; inline mode's facts are static
+                // after construction, so the SoT is the seed the pipeline was built with).
+                let device_facts = interactive.device_facts;
                 let new_pipeline = crate::build_pipeline_from_loaded(
                     loaded,
                     network_handle,

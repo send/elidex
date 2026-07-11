@@ -223,6 +223,9 @@ impl App {
         crate::ipc::DeviceFacts {
             dppx: placement.scale_factor,
             color_scheme: theme_color_scheme(window),
+            // No portable winit `prefers-reduced-motion` source; the reduced-motion
+            // producer is deferred to slot `#11-screen-monitor-dimensions-producer`.
+            reduced_motion: elidex_css::media::ReducedMotion::NoPreference,
         }
     }
 

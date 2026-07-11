@@ -782,6 +782,7 @@ fn publish_device_state_facts_are_seq_orthogonal() {
         crate::ipc::DeviceFacts {
             dppx: 2.0,
             color_scheme: ColorScheme::Light,
+            reduced_motion: elidex_css::media::ReducedMotion::NoPreference,
         },
     );
     assert!(!delta.size_changed, "preserved size must not bump seq");
@@ -799,6 +800,7 @@ fn publish_device_state_facts_are_seq_orthogonal() {
         crate::ipc::DeviceFacts {
             dppx: 2.0,
             color_scheme: ColorScheme::Dark,
+            reduced_motion: elidex_css::media::ReducedMotion::NoPreference,
         },
     );
     assert!(!delta.size_changed);
@@ -812,6 +814,7 @@ fn publish_device_state_facts_are_seq_orthogonal() {
         crate::ipc::DeviceFacts {
             dppx: 2.0,
             color_scheme: ColorScheme::Dark,
+            reduced_motion: elidex_css::media::ReducedMotion::NoPreference,
         },
     );
     assert!(!delta.size_changed);
@@ -823,6 +826,7 @@ fn publish_device_state_facts_are_seq_orthogonal() {
         crate::ipc::DeviceFacts {
             dppx: 2.0,
             color_scheme: ColorScheme::Dark,
+            reduced_motion: elidex_css::media::ReducedMotion::NoPreference,
         },
     );
     assert!(delta.size_changed);

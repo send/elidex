@@ -423,6 +423,26 @@ impl PipelineResult {
         }
     }
 
+    /// Run the CSSOM-View §4.2 "evaluate media queries and report changes" pass and
+    /// fire `change` at flipped `MediaQueryList`s, in ONE batch bracket (§4.1). The
+    /// media sibling of [`deliver_layout_observations`](Self::deliver_layout_observations):
+    /// the shell pushes the environment via `set_media_environment` (outside any
+    /// bracket), then calls this once per update-the-rendering step to report flips.
+    /// Assume-bound (it re-evaluates the bound VM's live `MediaQueryList`s);
+    /// `drain_reactions` follows the bracket contract, draining the microtask + CE
+    /// reactions the `change` handlers produced.
+    #[allow(unsafe_code)]
+    pub fn deliver_media_query_changes(&mut self) {
+        let mut ctx = ScriptContext::new(&mut self.session, &mut self.dom, self.document);
+        // SAFETY: see `dispatch_event` — the `with_bound` unaliased contract.
+        unsafe {
+            self.runtime.with_bound(&mut ctx, |engine, ctx| {
+                engine.deliver_media_query_changes();
+                engine.drain_reactions(ctx);
+            });
+        }
+    }
+
     /// Remove animation/transition state for entities that no longer exist in the DOM.
     pub(crate) fn prune_dead_animation_entities(&mut self) {
         self.animation_engine.prune_dead_entities(&|entity_id| {
