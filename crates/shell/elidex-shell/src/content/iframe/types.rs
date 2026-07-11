@@ -115,6 +115,16 @@ pub enum IframeHandle {
 pub struct IframeEntry {
     /// Handle to the iframe's pipeline (in-process or out-of-process).
     pub handle: IframeHandle,
+    /// The `src` of the `IframeData` this entry was loaded from — the baseline the
+    /// §4.3.8 `rescan_iframes_by_diff` full-document walk compares the live
+    /// `IframeData.src` against to detect a re-navigation ("process the iframe
+    /// attributes"). Stamped at registration (`register_iframe_entry`) from the
+    /// exact `IframeData` used to load, replacing the record-driven
+    /// `MutationKind::Attribute` `src`/`srcdoc` detection that starves under the VM.
+    pub loaded_src: Option<String>,
+    /// The `srcdoc` of the `IframeData` this entry was loaded from — the srcdoc
+    /// analog of [`Self::loaded_src`] (both `src` and `srcdoc` trigger a re-nav).
+    pub loaded_srcdoc: Option<String>,
 }
 
 /// A postMessage received from an out-of-process iframe.

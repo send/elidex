@@ -91,6 +91,10 @@ struct ContentState {
     /// (`crate::WakeHandle = Box<dyn Fn() + Send>`) so the content thread stays
     /// winit-free.
     wake: crate::WakeHandle,
+    /// The document-root `inclusive_descendants_version` as of the last completed
+    /// `re_render` — the §4.3.8 version-delta baseline replacing the boa
+    /// flush-record stream + `needs_render` bool.
+    last_render_dom_version: u64,
 }
 
 impl ContentState {
@@ -197,6 +201,10 @@ impl ContentState {
             viewport_cell,
             applied_viewport_seq,
             applied_facts_seq,
+            // §4.3.8: 0 → the first `re_render` sees a delta and harmlessly
+            // invalidates the fresh (`None`) focusable cache + walks iframes
+            // (`scan_initial_iframes` still owns the initial load).
+            last_render_dom_version: 0,
         }
     }
 
@@ -282,7 +290,22 @@ impl ContentState {
         // lists are up-to-date when the parent composites them.
         iframe::re_render_all_iframes(self);
 
-        let mutation_records = crate::re_render(&mut self.pipeline);
+        crate::re_render(&mut self.pipeline);
+
+        // §4.3.8 version-delta — the ONE "did the DOM tree change this turn?"
+        // signal replacing the boa flush-record stream. Snapshot AFTER
+        // `crate::re_render` so any external-record flush mutations are folded in.
+        // Every DOM-mutation class (childList / attribute / characterData) bumps
+        // the document root's `inclusive_descendants_version` via `rev_version`'s
+        // ancestor propagation; a detached-subtree mutation does NOT move the root
+        // version, which is correct — rendering / in-document iframes / focusables
+        // are document-tree facts.
+        let current_dom_version = self
+            .pipeline
+            .dom
+            .inclusive_descendants_version(self.pipeline.document);
+        let dom_changed = current_dom_version != self.last_render_dom_version;
+        self.last_render_dom_version = current_dom_version;
 
         // Now that layout boxes reflect this turn's mutations, refresh the
         // viewport scroll dimensions and clamp the offset against the fresh
@@ -310,8 +333,13 @@ impl ContentState {
             self.echo_viewport_scroll();
         }
 
-        // Invalidate focusable cache when DOM structure or focusability changes.
-        if should_invalidate_focusable_cache(&mutation_records) {
+        // Invalidate the focusable cache on any document-tree change. The
+        // §4.3.8 version-delta replaces the record-fed
+        // `should_invalidate_focusable_cache`: under the VM flip the flush record
+        // stream starves, so the coarser "tree changed at all" signal is used —
+        // a superset of the old childList/focusability-attribute triggers (a
+        // stale Tab order is never worse than an occasional harmless rebuild).
+        if dom_changed {
             self.focusable_cache = None;
         }
 
@@ -340,9 +368,16 @@ impl ContentState {
         // VM reads the viewport from bound state, so no `Rect` is passed.
         self.pipeline.deliver_layout_observations();
 
-        // Detect iframe additions/removals from mutation records.
-        // Added <iframe> entities trigger loading; removed ones trigger unloading.
-        let iframes_changed = iframe::detect_iframe_mutations(&mutation_records, self);
+        // Detect iframe additions/removals/re-navigations via the §4.3.8
+        // version-delta: when the document tree changed this turn, a full-document
+        // diff-scan reconciles the registry (the record-fed `detect_iframe_mutations`
+        // starved under the VM flush). Gated on `dom_changed` so the full walk runs
+        // only when something actually moved.
+        let iframes_changed = if dom_changed {
+            iframe::rescan_iframes_by_diff(self)
+        } else {
+            false
+        };
 
         // Check lazy iframes: load those that have entered the viewport.
         let lazy_loaded = iframe::check_lazy_iframes(self);
@@ -607,43 +642,6 @@ fn dispatch_media_query_changes(changed: &[(u64, bool)], state: &mut ContentStat
         &mut state.pipeline.dom,
         state.pipeline.document,
     );
-}
-
-/// Focusability-relevant attribute names.
-///
-/// Changes to these attributes affect whether an element is focusable or its
-/// position in the sequential focus navigation order (HTML §6.6.3), so a
-/// mutation to any of them invalidates the shell's Tab-order `focusable_cache`.
-/// The complete set that `elidex_dom_api::focus::is_focusable` reads: `tabindex`
-/// (criterion 1 + order), `disabled` (criterion 3), `contenteditable` (editing
-/// host, criterion 1), `hidden` (criterion 5 subtree), `href` (the `<a>`/`<area>`
-/// link default), and `type` (an `<input>`'s `type=hidden` is never focusable).
-/// Missing `href`/`type` here previously left a stale Tab order after a script
-/// added/removed a link's `href` or flipped an input's `type` (Codex S2).
-const FOCUSABLE_ATTRIBUTES: &[&str] = &[
-    "tabindex",
-    "disabled",
-    "contenteditable",
-    "hidden",
-    "href",
-    "type",
-];
-
-/// Check whether any mutation record requires invalidating the focusable cache.
-///
-/// Returns `true` for `ChildList` mutations (elements added/removed) and
-/// `Attribute` mutations on focusability-relevant attributes.
-fn should_invalidate_focusable_cache(records: &[elidex_script_session::MutationRecord]) -> bool {
-    use elidex_script_session::MutationKind;
-
-    records.iter().any(|r| match r.kind {
-        MutationKind::ChildList => true,
-        MutationKind::Attribute => r
-            .attribute_name
-            .as_deref()
-            .is_some_and(|name| FOCUSABLE_ATTRIBUTES.contains(&name)),
-        _ => false,
-    })
 }
 
 /// Dispatch a `storage` event on window (WHATWG HTML §11.2.1).

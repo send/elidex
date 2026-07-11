@@ -439,10 +439,14 @@ impl PipelineResult {
 /// transitions, feeds them to the `AnimationEngine`, and applies animated
 /// values to `ComputedStyle` before layout.
 ///
-/// Returns the mutation records from the flush, for the shell's own record
-/// consumers (focusable-cache invalidation, iframe add/remove detection). The
-/// observer + CE delivery for these records is now internal (see below).
-pub(crate) fn re_render(result: &mut PipelineResult) -> Vec<elidex_script_session::MutationRecord> {
+/// The flush record stream is delivered + consumed INTERNALLY (observers + CE via
+/// `deliver_records_and_drain`, ancestor-cache invalidation, focus reconciliation);
+/// it is no longer returned. The shell's former record consumers (focusable-cache
+/// invalidation, iframe add/remove detection) moved to the §4.3.8 version-delta
+/// (`ContentState::last_render_dom_version`), because under the VM flip this flush
+/// is usually EMPTY — VM-native mutations write the `EcsDom` directly and never
+/// enter `SessionCore::pending`, so a record stream would starve those consumers.
+pub(crate) fn re_render(result: &mut PipelineResult) {
     // Flush applies buffered mutations to the DOM. `flush` runs OUTSIDE any
     // batch bracket — it takes `&mut dom`, which the bound `*mut dom` aliasing
     // contract forbids overlapping (§4.1). It returns a flat record stream (a
@@ -571,8 +575,6 @@ pub(crate) fn re_render(result: &mut PipelineResult) -> Vec<elidex_script_sessio
         result.caret_visible,
         result.scroll_offset,
     );
-
-    mutation_records
 }
 
 /// Run the browser from a URL string, opening a window.

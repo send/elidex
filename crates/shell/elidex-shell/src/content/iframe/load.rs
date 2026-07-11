@@ -276,6 +276,10 @@ pub(super) fn make_in_process_entry(pipeline: crate::PipelineResult) -> IframeEn
             needs_render: false,
             cached_display_list: None,
         })),
+        // Stamped from the loaded `IframeData` at `register_iframe_entry` (the
+        // single registry chokepoint); `None` until then.
+        loaded_src: None,
+        loaded_srcdoc: None,
     }
 }
 
@@ -344,6 +348,10 @@ pub(in crate::content) fn make_out_of_process_entry(
             display_list: elidex_render::DisplayList::default(),
             thread: Some(thread),
         }),
+        // Stamped from the loaded `IframeData` at `register_iframe_entry` (the
+        // single registry chokepoint); `None` until then.
+        loaded_src: None,
+        loaded_srcdoc: None,
     }
 }
 

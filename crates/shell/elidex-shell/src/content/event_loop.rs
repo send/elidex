@@ -188,6 +188,17 @@ pub(super) fn run_event_loop(state: &mut ContentState) {
             needs_render = true;
         }
 
+        // §4.3.8: any DOM-tree mutation this turn (worker/timer/dispatch-driven) moved the
+        // document-root version — restore the needs_render signal the boa per-drain bools carried.
+        if state
+            .pipeline
+            .dom
+            .inclusive_descendants_version(state.pipeline.document)
+            != state.last_render_dom_version
+        {
+            needs_render = true;
+        }
+
         if needs_render {
             state.re_render();
             state.send_display_list();

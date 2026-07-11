@@ -7,100 +7,121 @@ use super::load::load_iframe;
 use super::render::set_iframe_display_list;
 use super::types::{BrowserToIframe, IframeEntry, IframeHandle, IframeLoadContext};
 
-/// Detect iframe additions/removals from mutation records.
+/// Reconcile the iframe registry against the live document tree (§4.3.8).
 ///
-/// Scans `MutationRecord` added/removed nodes for entities with `IframeData`
-/// components, and triggers iframe loading/unloading accordingly.
+/// Replaces the record-driven `detect_iframe_mutations`, which STARVES under the
+/// VM flip: VM-native DOM mutations write the `EcsDom` immediately and never enter
+/// `SessionCore::pending`, so `crate::re_render`'s flush produces an empty record
+/// stream and the record-fed add/remove/re-nav detection never fires. Instead the
+/// shell's version-delta (`ContentState::last_render_dom_version`) gates ONE full
+/// document walk that diffs the connected `<iframe>` set against the registry,
+/// idempotently reproducing all three behaviors of the old record scan:
 ///
-/// Also detects `src` attribute changes on existing `<iframe>` elements
-/// to trigger re-navigation.
-pub(in crate::content) fn detect_iframe_mutations(
-    records: &[elidex_script_session::MutationRecord],
-    state: &mut crate::content::ContentState,
-) -> bool {
-    use elidex_script_session::MutationKind;
+/// - **ADD**: a connected `<iframe>` not yet registered → `try_load` (respecting
+///   `loading="lazy"` — a lazy iframe defers to the pending queue rather than
+///   force-loading, same as `scan_initial_iframes`).
+/// - **REMOVE**: a registered (or lazy-pending) entity no longer reachable from
+///   the document root (detached / removed) → unload + drop from the lazy queue.
+/// - **CHANGE**: a registered iframe whose live `IframeData` `src` OR `srcdoc`
+///   differs from what it was loaded with → re-navigate (HTML "process the iframe
+///   attributes"; both `src` and `srcdoc` trigger, `srcdoc` taking precedence in
+///   `load_iframe`).
+///
+/// Returns `true` iff a load/unload/re-nav happened (a parent display-list rebuild
+/// is needed). Only runs when the caller has already observed a document-tree
+/// change this turn, so a full walk is acceptable. `collect_iframe_entities` walks
+/// from the document root, so it yields exactly the CONNECTED iframe entities —
+/// connectedness (the old `is_connected` gate) is structural here: a detached
+/// iframe simply is not in the set, so it neither loads (ADD) nor survives
+/// (REMOVE), matching HTML §4.8.5 "content navigable on connection".
+pub(in crate::content) fn rescan_iframes_by_diff(state: &mut crate::content::ContentState) -> bool {
+    // 1. Walk the document for the current CONNECTED <iframe> entity set.
+    let mut current = Vec::new();
+    collect_iframe_entities(
+        &state.pipeline.dom,
+        state.pipeline.document,
+        &mut current,
+        0,
+    );
+    let current_set: std::collections::HashSet<Entity> = current.iter().copied().collect();
     let mut changed = false;
 
-    for record in records {
-        match record.kind {
-            MutationKind::ChildList => {
-                // Check added nodes (and their subtrees) for <iframe> elements.
-                for &entity in &record.added_nodes {
-                    let mut nested = Vec::new();
-                    collect_iframe_entities(&state.pipeline.dom, entity, &mut nested, 0);
-                    for iframe_entity in nested {
-                        if state.iframes.get(iframe_entity).is_some() {
-                            continue;
-                        }
-                        // HTML §4.8.5: an iframe gets a content navigable (and
-                        // loads) only once connected to a document. A node added
-                        // under a *detached* parent still produces a ChildList
-                        // record, but its iframes must not load until they are
-                        // actually inserted (the later insertion fires its own
-                        // ChildList record, by which point `is_connected` holds).
-                        if !state.pipeline.dom.is_connected(iframe_entity) {
-                            continue;
-                        }
-                        try_load_iframe_entity(state, iframe_entity, false);
-                        changed = true;
-                    }
+    // 2. REMOVE: registered entities no longer in the connected set (detached or
+    //    removed → the walk can't reach them). Unload + drop any lazy-pending.
+    let gone: Vec<Entity> = state
+        .iframes
+        .iter()
+        .map(|(e, _)| *e)
+        .filter(|e| !current_set.contains(e))
+        .collect();
+    for entity in gone {
+        if let Some(entry) = state.iframes.remove(entity) {
+            unload_iframe_entry(state, entity, entry);
+        }
+        state.iframes.remove_lazy_pending(entity);
+        changed = true;
+    }
+    // Prune lazy-pending entities that vanished without ever registering (a lazy
+    // iframe detached before it scrolled into view).
+    let vanished_lazy: Vec<Entity> = state
+        .iframes
+        .lazy_pending_iter()
+        .copied()
+        .filter(|e| !current_set.contains(e))
+        .collect();
+    if !vanished_lazy.is_empty() {
+        state.iframes.remove_lazy_pending_list(&vanished_lazy);
+        changed = true;
+    }
+
+    // 3. For each current iframe: ADD (new) or CHANGE (src/srcdoc differs).
+    for &entity in &current {
+        let current_data = state
+            .pipeline
+            .dom
+            .world()
+            .get::<&elidex_ecs::IframeData>(entity)
+            .ok()
+            .map(|d| (*d).clone());
+        let Some(current_data) = current_data else {
+            continue;
+        };
+        match state.iframes.get(entity) {
+            None => {
+                // Not registered. Skip if already lazy-pending (avoid re-thrash):
+                // its `IframeData` was re-derived at the attribute write, so a
+                // later `check_lazy_iframes` load reads the fresh src/srcdoc.
+                if state.iframes.is_lazy_pending(entity) {
+                    continue;
                 }
-                // Check removed nodes (and their subtrees) for <iframe> elements.
-                let mut removed_set = std::collections::HashSet::new();
-                for &entity in &record.removed_nodes {
-                    let mut nested = Vec::new();
-                    collect_iframe_entities(&state.pipeline.dom, entity, &mut nested, 0);
-                    for iframe_entity in nested {
-                        if let Some(removed_entry) = state.iframes.remove(iframe_entity) {
-                            unload_iframe_entry(state, iframe_entity, removed_entry);
-                        }
-                        removed_set.insert(iframe_entity);
-                    }
-                }
-                if !removed_set.is_empty() {
-                    state.iframes.remove_lazy_pending_batch(&removed_set);
+                // force=false: a `loading="lazy"` iframe defers to the pending
+                // queue rather than force-loading (same as `scan_initial_iframes`
+                // / the old ChildList path); a non-lazy iframe loads immediately.
+                try_load_iframe_entity(state, entity, false);
+                // Only a REAL load (not a lazy defer) rebuilds the display list.
+                if state.iframes.get(entity).is_some() {
                     changed = true;
                 }
             }
-            MutationKind::Attribute
-                if record
-                    .attribute_name
-                    .as_deref()
-                    .is_some_and(|name| name == "src" || name == "srcdoc") =>
-            {
-                // `src` OR `srcdoc` attribute change on <iframe> → re-navigate.
-                // Per HTML "process the iframe attributes", both trigger
-                // navigation (with `srcdoc` taking precedence over `src`); the
-                // shell previously re-navigated only on `src`, so a `srcdoc`
-                // mutation was silently ignored even though `load_iframe`
-                // fully supports the srcdoc resource.
-                let target = record.target;
-                // HTML §4.8.5: "process the iframe attributes" reprocesses
-                // src/srcdoc only for an iframe with a non-null content
-                // navigable — i.e. a *connected* iframe. A detached iframe
-                // (e.g. `createElement('iframe'); f.srcdoc = …` before
-                // insertion) keeps its reconciled `IframeData` fresh and loads
-                // on insertion, not on the attribute change.
-                if !state.pipeline.dom.is_connected(target) {
-                    continue;
+            Some(entry) => {
+                // Registered → re-navigate iff live src OR srcdoc drifted from
+                // what it loaded with (HTML "process the iframe attributes";
+                // matches the old `name == "src" || "srcdoc"` Attribute arm).
+                if entry.loaded_src != current_data.src
+                    || entry.loaded_srcdoc != current_data.srcdoc
+                {
+                    state.iframes.remove_lazy_pending(entity);
+                    if let Some(old) = state.iframes.remove(entity) {
+                        unload_iframe_entry(state, entity, old);
+                    }
+                    // `IframeData` is already re-derived from the new src/srcdoc
+                    // by the `set_attribute` / flush reconcile seam, so `try_load`
+                    // reads it fresh (srcdoc-over-src precedence in `load_iframe`).
+                    // force=false: a lazy iframe re-defers rather than force-loads.
+                    try_load_iframe_entity(state, entity, false);
+                    changed = true;
                 }
-                if let Some(removed_entry) = state.iframes.remove(target) {
-                    unload_iframe_entry(state, target, removed_entry);
-                }
-                // `IframeData` is already re-derived from the new `src`/`srcdoc`
-                // by the `EcsDom::set_attribute` / mutation-flush reconcile seam,
-                // so no manual sync is needed here — `try_load` reads the fresh
-                // `IframeData` (srcdoc-over-src precedence in `load_iframe`).
-                state.iframes.remove_lazy_pending(target);
-                // force=false: run the will-lazy-load check — a `loading="lazy"`
-                // iframe whose src/srcdoc changes re-defers (loads when scrolled
-                // into view) rather than force-loading, consistent with every
-                // other load path (`scan_initial_iframes` / ChildList). A
-                // non-lazy iframe still loads immediately.
-                try_load_iframe_entity(state, target, false);
-                changed = true;
             }
-            _ => {}
         }
     }
     changed
@@ -176,7 +197,7 @@ pub(in crate::content) fn try_load_iframe_entity(
     let parent_origin = state.pipeline.runtime.origin();
     let ctx = build_load_context(state, entity, &parent_origin);
     let entry = load_iframe(&data, &ctx);
-    register_iframe_entry(state, entity, entry);
+    register_iframe_entry(state, entity, &data, entry);
 }
 
 /// Walk the DOM tree and load any `<iframe>` elements found during initial parse.
@@ -258,7 +279,7 @@ pub(in crate::content) fn check_lazy_iframes(state: &mut crate::content::Content
             let parent_origin = state.pipeline.runtime.origin();
             let ctx = build_load_context(state, entity, &parent_origin);
             let entry = load_iframe(&data, &ctx);
-            register_iframe_entry(state, entity, entry);
+            register_iframe_entry(state, entity, &data, entry);
         }
     }
     true
@@ -307,13 +328,14 @@ pub(in crate::content) fn navigate_iframe(
             );
         }
     }
-    // Update `Attributes` directly (no mutation record). Recording a mutation
-    // would cause `detect_iframe_mutations` to re-trigger loading → double
-    // load. `IframeData` is then re-derived from the just-written attributes
-    // via the canonical reconcile seam — which does NOT dispatch a
-    // `MutationEvent` (only `set_attribute` does), so the double-load
-    // avoidance holds while the whole component (not just `.src`) stays
-    // consistent with its attributes.
+    // Update `Attributes` directly, then re-derive `IframeData` from the
+    // just-written attributes via the canonical reconcile seam. This
+    // `navigate_iframe` path force-loads the new `src` itself (below), and
+    // `register_iframe_entry` stamps `loaded_src`/`loaded_srcdoc` from that same
+    // `IframeData` — so the next `rescan_iframes_by_diff` sees the registered
+    // entry already matching the live src/srcdoc and does NOT re-navigate (no
+    // double load), while the whole component (not just `.src`) stays consistent
+    // with its attributes.
     let url_str = url.to_string();
     if let Ok(mut attrs) = state
         .pipeline
@@ -371,11 +393,18 @@ fn build_load_context<'a>(
 }
 
 /// Register a loaded iframe: store display list, insert into registry, fire load event.
+///
+/// Stamps `loaded_src`/`loaded_srcdoc` from the exact `IframeData` used to load —
+/// the single registry chokepoint, so the §4.3.8 `rescan_iframes_by_diff` re-nav
+/// diff always compares against what was really loaded.
 fn register_iframe_entry(
     state: &mut crate::content::ContentState,
     entity: Entity,
+    data: &elidex_ecs::IframeData,
     mut entry: IframeEntry,
 ) {
+    entry.loaded_src = data.src.clone();
+    entry.loaded_srcdoc = data.srcdoc.clone();
     if let IframeHandle::InProcess(ref mut ip) = entry.handle {
         let arc_dl = std::sync::Arc::new(ip.pipeline.display_list.clone());
         ip.cached_display_list = Some(std::sync::Arc::clone(&arc_dl));

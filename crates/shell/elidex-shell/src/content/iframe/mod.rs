@@ -24,7 +24,7 @@ use std::collections::HashMap;
 use elidex_ecs::Entity;
 
 pub(super) use lifecycle::{
-    check_lazy_iframes, detect_iframe_mutations, find_iframe_by_name, navigate_iframe,
+    check_lazy_iframes, find_iframe_by_name, navigate_iframe, rescan_iframes_by_diff,
     scan_initial_iframes,
 };
 // Exposed within `content` for the OOP-path ordering tests
@@ -171,6 +171,13 @@ impl IframeRegistry {
         !self.lazy_pending.is_empty()
     }
 
+    /// Whether `entity` is currently queued for lazy load — used by
+    /// `rescan_iframes_by_diff` to skip re-thrashing an iframe already deferred.
+    #[must_use]
+    pub fn is_lazy_pending(&self, entity: Entity) -> bool {
+        self.lazy_pending.contains(&entity)
+    }
+
     /// Iterate over lazy-pending entities.
     pub fn lazy_pending_iter(&self) -> std::slice::Iter<'_, Entity> {
         self.lazy_pending.iter()
@@ -197,7 +204,14 @@ mod tests {
             needs_render: false,
             cached_display_list: None,
         }));
-        (entity, IframeEntry { handle })
+        (
+            entity,
+            IframeEntry {
+                handle,
+                loaded_src: None,
+                loaded_srcdoc: None,
+            },
+        )
     }
 
     #[test]
