@@ -11,8 +11,9 @@ use elidex_dom_compat::parse_compat_stylesheet_with_registry;
 use elidex_ecs::EcsDom;
 use elidex_ecs::Entity;
 use elidex_html_parser::parse_progressive_str;
-use elidex_js_boa::{extract_scripts, JsRuntime};
+use elidex_js_boa::JsRuntime;
 use elidex_layout::layout_tree;
+use elidex_navigation::extract_inline_scripts;
 use elidex_render::build_display_list;
 use elidex_script_session::{DispatchEvent, ScriptContext, SessionCore};
 use elidex_text::FontDatabase;
@@ -441,7 +442,7 @@ pub fn build_pipeline_interactive(html: &str, css: &str) -> PipelineResult {
     )];
     let font_db = Arc::new(FontDatabase::new());
 
-    let scripts = extract_scripts(&dom, document);
+    let scripts = extract_inline_scripts(&dom, document);
     let script_sources: Vec<&str> = scripts.iter().map(|s| s.source.as_str()).collect();
 
     let (session, runtime, viewport_overflow) = run_scripts_and_finalize(
@@ -525,7 +526,7 @@ pub(crate) fn build_pipeline_interactive_with_network(
         Some(&registry),
     )];
     let font_db = Arc::new(FontDatabase::new());
-    let scripts = extract_scripts(&dom, document);
+    let scripts = extract_inline_scripts(&dom, document);
     let script_sources: Vec<&str> = scripts.iter().map(|s| s.source.as_str()).collect();
 
     let (session, runtime, viewport_overflow) = run_scripts_and_finalize(
@@ -611,7 +612,7 @@ pub(crate) fn build_pipeline_interactive_shared(
         Some(&registry),
     )];
 
-    let scripts = extract_scripts(&dom, document);
+    let scripts = extract_inline_scripts(&dom, document);
     let script_sources: Vec<&str> = scripts.iter().map(|s| s.source.as_str()).collect();
 
     let (session, runtime, viewport_overflow) = run_scripts_and_finalize(

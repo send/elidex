@@ -11,6 +11,18 @@ readme = "README.md"
 keywords = ["browser-engine", "script", "dom"]
 categories = ["web-programming"]
 
+[features]
+# Gates `HostDriver::install_web_storage` (whose signature names
+# `elidex_storage_core::WebStorageManager`).  Feature-gated — unlike the
+# unconditional `elidex-net` / `elidex-indexeddb` install deps — because the
+# Web Storage backend carries the A2 absence guarantee: an `elidex-app`-profile
+# build (`elidex-js` with `engine` but not `compat-webapi`) must not compile
+# `WebStorageManager` into the graph at all (see
+# `elidex-storage-core/Cargo.toml`).  `elidex-js`'s `compat-webapi` feature
+# turns this on, so the trait method and its `ElidexJsEngine` impl always
+# appear together.
+web-storage = ["dep:elidex-storage-core", "elidex-storage-core/web-storage"]
+
 [dependencies]
 elidex-plugin = { workspace = true }
 elidex-css = { workspace = true }
@@ -25,6 +37,9 @@ elidex-html-parser = { workspace = true }
 elidex-api-sw = { workspace = true }
 elidex-net = { workspace = true }
 elidex-indexeddb = { workspace = true }
+# `install_web_storage` only — optional behind the `web-storage` feature (the
+# A2 absence guarantee; see the [features] comment above).
+elidex-storage-core = { workspace = true, optional = true }
 hecs = { workspace = true }
 url = { workspace = true }
 

@@ -48,6 +48,29 @@ pub struct ResolvedScript {
     pub entity: Entity,
 }
 
+/// Extract the **inline** classic scripts from an already-parsed DOM in
+/// document order (HTML §4.12.1 The script element): `<script>` elements
+/// with inline text content and either no `type` or a classic-JavaScript
+/// `type`, skipping non-JS types and external `src` scripts (the latter
+/// belong to the fetch pipeline — [`load_document`] step 5 resolves them).
+///
+/// This is the network-free subset of the loader's script resolution,
+/// sharing the same [`extract_script_sources`] walker — the single
+/// script-extraction seam (it replaced the boa-side `extract_scripts`
+/// twin, S5-6 §4.3.7). Callers with a DOM but no fetch (standalone
+/// pipelines, `document.write`-less test builds) get the same
+/// classification the loader applies.
+#[must_use]
+pub fn extract_inline_scripts(dom: &EcsDom, document: Entity) -> Vec<ResolvedScript> {
+    extract_script_sources(dom, document)
+        .into_iter()
+        .filter_map(|source| match source {
+            ScriptSource::Inline { source, entity } => Some(ResolvedScript { source, entity }),
+            ScriptSource::External { .. } => None,
+        })
+        .collect()
+}
+
 /// Error returned by [`load_document`].
 #[derive(Debug)]
 pub enum LoadError {
@@ -479,6 +502,40 @@ pub fn fetch_background_images<S: std::hash::BuildHasher>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use elidex_ecs::Attributes;
+
+    #[test]
+    fn extract_inline_scripts_filters_to_inline_classic_js() {
+        let mut dom = EcsDom::new();
+        let doc = dom.create_document_root();
+        let body = dom.create_element("body", Attributes::default());
+        let _ = dom.append_child(doc, body);
+
+        // Inline classic script — extracted.
+        let inline = dom.create_element("script", Attributes::default());
+        let text = dom.create_text("var a = 1;");
+        let _ = dom.append_child(inline, text);
+        let _ = dom.append_child(body, inline);
+
+        // External script — the loader's fetch path, not this entry.
+        let mut ext_attrs = Attributes::default();
+        ext_attrs.set("src", "app.js");
+        let external = dom.create_element("script", ext_attrs);
+        let _ = dom.append_child(body, external);
+
+        // Non-JS type — skipped (HTML §4.12.1 script type classification).
+        let mut tmpl_attrs = Attributes::default();
+        tmpl_attrs.set("type", "text/template");
+        let template = dom.create_element("script", tmpl_attrs);
+        let tmpl_text = dom.create_text("not js");
+        let _ = dom.append_child(template, tmpl_text);
+        let _ = dom.append_child(body, template);
+
+        let scripts = extract_inline_scripts(&dom, doc);
+        assert_eq!(scripts.len(), 1);
+        assert_eq!(scripts[0].source, "var a = 1;");
+        assert_eq!(scripts[0].entity, inline);
+    }
 
     #[test]
     fn extract_charset_basic() {

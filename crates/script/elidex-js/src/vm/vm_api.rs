@@ -109,6 +109,23 @@ impl Vm {
         self.inner.alloc_upvalue(uv)
     }
 
+    /// Captured console output as `(level, message)` pairs in emission
+    /// order — the retrievable oracle over the bounded per-VM buffer the
+    /// console print natives tee into (the tee mirrors WHATWG Console §2.3 Printer; the S5-6 B26
+    /// test-oracle accessor, replacing the boa runtime's
+    /// `ConsoleOutput::messages()`). Marshal-scale surface: read by
+    /// embedder tests, not by page script.
+    #[must_use]
+    pub fn console_messages(&self) -> Vec<(String, String)> {
+        // The buffer stores the level as the natives' `&'static str` literal;
+        // owned pairs are built only here, at the test-oracle read.
+        self.inner
+            .console_capture
+            .iter()
+            .map(|(level, message)| ((*level).to_string(), message.clone()))
+            .collect()
+    }
+
     /// Install a `HostData` instance for browser shell integration.
     /// Call once, typically at `ElidexJsEngine` construction.
     ///

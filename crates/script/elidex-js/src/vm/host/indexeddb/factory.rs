@@ -55,6 +55,44 @@ fn arg_name(
     Ok(ctx.get_utf8(sid))
 }
 
+/// Stage a cross-context version-change request on the `HostData` FIFO
+/// (S5-6a B6 — IndexedDB-3 §4.2, dfn *fire a version change event*): this
+/// VM cannot reach other contexts' open connections, so the shell drains
+/// the queue (`HostDriver::take_pending_idb_versionchange_requests`),
+/// broadcasts, and each receiving engine fires via
+/// `deliver_idb_versionchange` (the receive half of the wire).  The two
+/// callers are the spec's two fire sites: an open needing an upgrade
+/// (`new_version = Some`) and `deleteDatabase` (`new_version = None`).
+fn enqueue_versionchange(
+    vm: &mut VmInner,
+    request_id: ObjectId,
+    db_name: &str,
+    old_version: u64,
+    new_version: Option<u64>,
+) {
+    // The owning storage-key origin, captured HERE at enqueue (IndexedDB is
+    // origin-partitioned; the shell routes `versionchange` to same-origin
+    // contexts only). Uses the shared `storage_origin_key` derivation (the same
+    // key localStorage broadcasts under) — an opaque document keeps its
+    // identity-preserving per-VM sentinel, NOT a lossy `"null"` that would
+    // collapse distinct opaque origins and cross-broadcast between unrelated
+    // sandboxed/`data:` contexts. Inferring the origin at drain would also
+    // mislocate it across a navigation or a sandbox/opaque override.
+    let origin = vm.storage_origin_key();
+    if let Some(host) = vm.host_data.as_deref_mut() {
+        host.enqueue_idb_versionchange_request(elidex_script_session::IdbVersionChangeRequest {
+            origin,
+            // The request's `ObjectId` value = the shell IPC correlation key
+            // (echoed back to unblock the opener). Minted here; the identity is
+            // gone by drain time.
+            request_id: u64::from(request_id.0),
+            db_name: db_name.to_string(),
+            old_version,
+            new_version,
+        });
+    }
+}
+
 /// `indexedDB.open(name, version?)` → `IDBOpenDBRequest` (W3C IDB §4.3 /
 /// §5.1).  Synchronous backend probe; result (or upgrade) delivered async.
 #[allow(clippy::too_many_lines)] // the §5.1 Success/UpgradeNeeded/Error branch set is one coherent algorithm
@@ -120,6 +158,14 @@ pub(crate) fn native_idb_open(
                 elidex_indexeddb::IdbTransactionMode::VersionChange,
             ) {
                 Ok(vtxn) => {
+                    // First fire site: an open that needs an upgrade must
+                    // fire `versionchange` at OTHER contexts' open
+                    // connections (see [`enqueue_versionchange`]).  Enqueued
+                    // only AFTER the upgrade transaction actually began — a
+                    // failed begin rolls the upgrade back (`abort_upgrade`,
+                    // the Err arm), and a broadcast for an upgrade that
+                    // never happened must not stay queued.
+                    enqueue_versionchange(ctx.vm, req, &name, old_version, Some(new_version));
                     let txn_id = create_upgrade_transaction(
                         ctx.vm,
                         db,
@@ -202,7 +248,16 @@ pub(crate) fn native_idb_delete_database(
     let backend = ctx.vm.require_idb_backend()?;
     let req = request::create_request(ctx.vm, None, None, true);
     match elidex_indexeddb::database::delete_database(&backend, &name) {
-        Ok(_old_version) => {
+        Ok(old_version) => {
+            // Second fire site (the open-upgrade branch's twin): a deletion
+            // fires `versionchange` with newVersion = null (IndexedDB-3 §5.3
+            // *delete a database* step 6).  Existence-gated: step 4 returns
+            // 0 for a nonexistent database BEFORE the step-6 fire, so
+            // deleting nothing broadcasts nothing (`old_version == 0` ⇔
+            // absent — spec-correct where boa enqueued unconditionally).
+            if old_version > 0 {
+                enqueue_versionchange(ctx.vm, req, &name, old_version, None);
+            }
             request::async_execute(
                 ctx.vm,
                 None,

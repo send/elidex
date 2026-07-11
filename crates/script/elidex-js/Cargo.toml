@@ -28,7 +28,14 @@ default = []
 # when `engine` already pulled `elidex-storage-core` in (additive — `compat-webapi`
 # alone never pulls the dep, so an `App` build selecting `engine` alone drops the
 # Web Storage backend *and* glue while Cache API / SW keep `elidex-storage-core`).
-compat-webapi = ["elidex-storage-core?/web-storage"]
+# `elidex-script-session?/web-storage` (same weak-dep shape) surfaces the
+# `HostDriver::install_web_storage` trait method — gated on the session crate
+# so the method and the `ElidexJsEngine` impl (compat-webapi-gated in
+# `src/engine.rs`) always appear together.
+compat-webapi = [
+    "elidex-storage-core?/web-storage",
+    "elidex-script-session?/web-storage",
+]
 engine = [
     "elidex-script-session",
     "elidex-ecs",

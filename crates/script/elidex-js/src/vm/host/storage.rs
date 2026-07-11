@@ -70,45 +70,16 @@ use super::named_property_exotic::{coerce_key_or_none, is_bound, key_on_prototyp
 // Origin derivation
 // ---------------------------------------------------------------------------
 
-/// Derive the origin string used for `localStorage` keying (WHATWG HTML
-/// §12.2.3 — localStorage is partitioned by the document origin).
-///
-/// Decides tuple-vs-opaque from the canonical [`VmInner::document_origin`]
-/// resolver, **not** `current_url.origin()` (S1b §5): a sandboxed iframe has
-/// a real `current_url` but an *opaque* document origin, and it must NOT
-/// share the real origin's storage.  Tuple origins serialise via
-/// `SecurityOrigin::serialize` (= the §7.1.1 ascii serialisation); opaque
-/// origins (sandboxed / `about:blank` / `data:` / `javascript:`) fall back to
-/// the per-VM `HostData::opaque_origin_sentinel` so they do not alias across
-/// VMs in the same process.
-///
-/// Known spec deviation (→ slot `#11-storage-opaque-origin-securityerror`):
-/// the Storage standard's "obtain a storage key" step 2 returns failure for an
-/// opaque origin, so the localStorage / sessionStorage getters must throw a
-/// `SecurityError` (HTML §12.2.3 / §12.2.2 step 3) rather than partition into a
-/// bucket. The per-VM sentinel bucket is a pre-existing pragmatic fallback (it
-/// lets bootstrap / `about:blank` / `data:` documents function); enforcing the
-/// throw is deferred because it spans both getters, removes this sentinel, and
-/// couples to `about:blank` origin inheritance (which the VM does not yet model
-/// — naive opaque would over-throw on documents that should inherit an origin).
-/// S1b only narrows *which* documents are opaque (sandboxed iframes no longer
-/// leak the real origin's bucket); it does not regress the throw behaviour.
-///
-/// Invariant: isolation keys off the document origin **override**, not
-/// `sandbox_flags` — the embedder must install the opaque origin
-/// (`set_origin`) alongside `set_sandbox_flags` (the shell does, in
-/// `iframe/load.rs`); a sandbox flag without the paired opaque origin would
-/// fall through to the `current_url` tuple origin and leak storage.
-fn current_origin(vm: &VmInner) -> String {
-    let origin = vm.document_origin();
-    if let elidex_plugin::SecurityOrigin::Tuple { .. } = &origin {
-        return origin.serialize();
-    }
-    vm.host_data.as_deref().map_or_else(
-        || "null".to_string(),
-        |hd| hd.opaque_origin_sentinel().to_string(),
-    )
-}
+// The `localStorage` bucket key is derived by the shared
+// [`VmInner::storage_origin_key`] (the single origin-partition key, also used by
+// the IndexedDB versionchange broadcast) — tuple → serialize, opaque → the
+// per-VM identity-preserving sentinel (never a lossy `"null"`).
+//
+// Invariant: isolation keys off the document origin **override**, not
+// `sandbox_flags` — the embedder must install the opaque origin (`set_origin`)
+// alongside `set_sandbox_flags` (the shell does, in `iframe/load.rs`); a sandbox
+// flag without the paired opaque origin would fall through to the `current_url`
+// tuple origin and leak storage.
 
 // ---------------------------------------------------------------------------
 // Backend dispatch
@@ -161,7 +132,10 @@ impl StorageBackend<'_> {
         }
     }
 
-    fn clear(&mut self) {
+    /// Clear the area, returning whether anything was removed — the
+    /// backend decides the §12.2.1 clear step-1 emptiness verdict
+    /// atomically with the clear (one lock on the shared manager).
+    fn clear(&mut self) -> bool {
         match self {
             Self::Local { manager, origin } => manager.local_clear(origin),
             Self::InMemory { state } => state.clear(),
@@ -196,7 +170,7 @@ impl StorageBackend<'_> {
 /// receiver's `ObjectKind::Storage` payload via [`require_receiver`].
 fn backend_for(vm: &mut VmInner, is_local: bool) -> StorageBackend<'_> {
     if is_local {
-        let origin = current_origin(vm);
+        let origin = vm.storage_origin_key();
         let host = vm
             .host_data
             .as_deref_mut()
@@ -214,6 +188,96 @@ fn backend_for(vm: &mut VmInner, is_local: bool) -> StorageBackend<'_> {
         .expect("backend_for: HostData required (caller checks bound)");
     StorageBackend::InMemory {
         state: &mut host.session_storage,
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Cross-context broadcast enqueue (S5-6a, B3)
+// ---------------------------------------------------------------------------
+
+/// Enqueue the WHATWG HTML §12.2.1 "Broadcast this…" intent for a
+/// `localStorage` mutation that actually changed the map (`setItem` step 7 /
+/// `removeItem` step 5 / `clear` step 3).  The shell drains the queue via
+/// `HostDriver::take_pending_storage_changes` and fans out `storage` events
+/// to the OTHER same-origin contexts (*broadcast a Storage object* step 3
+/// excludes the originating storage, so this document never hears its own
+/// write).
+///
+/// Callers apply the §12.2.1 change gates FIRST — `setItem` step 3.2 ("If
+/// oldValue is value, then return"), `removeItem` step 1 (absent key), and
+/// `clear` step 1 (empty map) broadcast nothing.  Changed-ness and
+/// `old_value` derive from the engine-independent backend's return values
+/// (`WebStorageManager::local_set` / `local_remove` return the previous
+/// value — the host side is compare + enqueue-marshalling only, per the
+/// Layering mandate).
+///
+/// `sessionStorage` mutations never reach here: elidex has no second
+/// same-session browsing context pre-S5-8, and the cross-context drain is
+/// localStorage-only (boa parity — the S5-8 browsing-context model owns the
+/// sessionStorage half).
+fn enqueue_local_storage_change(
+    vm: &mut VmInner,
+    key: Option<&str>,
+    old_value: Option<String>,
+    new_value: Option<&str>,
+) {
+    // No host context ⇒ nowhere to queue — skip before materialising the
+    // url/origin strings.
+    if vm.host_data.is_none() {
+        return;
+    }
+    // §12.2.1 *broadcast a Storage object* step 2: the url member is the
+    // serialization of the originating document's URL.
+    let url = vm.navigation.current_url.as_str().to_string();
+    // The broadcast-targeting key is the storage BUCKET origin ([`VmInner::storage_origin_key`]
+    // — the same key the mutation itself just wrote under), carrying the
+    // per-VM opaque-origin sentinel for opaque documents; see
+    // `StorageChange::origin` for why a serialized origin would alias
+    // unrelated sandboxed iframes.
+    let origin = vm.storage_origin_key();
+    if let Some(host) = vm.host_data.as_deref_mut() {
+        host.enqueue_storage_change(elidex_script_session::StorageChange {
+            origin,
+            key: key.map(str::to_owned),
+            old_value,
+            new_value: new_value.map(str::to_owned),
+            url,
+        });
+    }
+}
+
+/// The §12.2.1 `setItem` method steps over the resolved backend: step 3.2
+/// (same-value early return → no broadcast — decided by the backend's
+/// returned previous value), step 4 (quota error, returned for the caller
+/// to map), steps 5+7 (set + broadcast).  ONE implementation of the method
+/// steps with two entry points — the `setItem` native and the WebIDL named
+/// setter ([`try_set`]) run the same algorithm by construction.
+fn set_item_steps(
+    vm: &mut VmInner,
+    is_local: bool,
+    key: &str,
+    value: &str,
+) -> Result<(), StorageError> {
+    let mut backend = backend_for(vm, is_local);
+    let result = backend.set(key, value);
+    drop(backend);
+    let old_value = result?;
+    if is_local && old_value.as_deref() != Some(value) {
+        enqueue_local_storage_change(vm, Some(key), old_value, Some(value));
+    }
+    Ok(())
+}
+
+/// The §12.2.1 `removeItem` method steps over the resolved backend: step 1
+/// (absent key → no broadcast — decided by the backend's returned removed
+/// value), step 5 (broadcast with key, oldValue, null).  Shared by the
+/// `removeItem` native and the WebIDL named deleter ([`try_delete`]).
+fn remove_item_steps(vm: &mut VmInner, is_local: bool, key: &str) {
+    let mut backend = backend_for(vm, is_local);
+    let removed = backend.remove(key);
+    drop(backend);
+    if is_local && removed.is_some() {
+        enqueue_local_storage_change(vm, Some(key), removed, None);
     }
 }
 
@@ -488,11 +552,8 @@ fn native_storage_set_item(
     let value_sid = super::super::coerce::to_string(ctx.vm, value_val)?;
     let key_str = ctx.vm.strings.get_utf8(key_sid);
     let value_str = ctx.vm.strings.get_utf8(value_sid);
-    let mut backend = backend_for(ctx.vm, is_local);
-    let result = backend.set(&key_str, &value_str);
-    drop(backend);
-    match result {
-        Ok(_) => Ok(JsValue::Undefined),
+    match set_item_steps(ctx.vm, is_local, &key_str, &value_str) {
+        Ok(()) => Ok(JsValue::Undefined),
         Err(err) => Err(map_storage_error(ctx.vm, err)),
     }
 }
@@ -515,8 +576,7 @@ fn native_storage_remove_item(
     let key_val = args.first().copied().unwrap_or(JsValue::Undefined);
     let key_sid = super::super::coerce::to_string(ctx.vm, key_val)?;
     let key_str = ctx.vm.strings.get_utf8(key_sid);
-    let mut backend = backend_for(ctx.vm, is_local);
-    backend.remove(&key_str);
+    remove_item_steps(ctx.vm, is_local, &key_str);
     Ok(JsValue::Undefined)
 }
 
@@ -530,7 +590,16 @@ fn native_storage_clear(
         return Ok(JsValue::Undefined);
     }
     let mut backend = backend_for(ctx.vm, is_local);
-    backend.clear();
+    // §12.2.1 clear step 1 (empty map → no broadcast) + step 3 (broadcast
+    // with null, null, null).  The emptiness verdict comes back from the
+    // backend's clear itself — atomic under ONE lock on the shared
+    // cross-context manager (a separate `len()` probe would race a
+    // concurrent tab's writer into a false fire / false no-fire).
+    let removed_any = backend.clear();
+    drop(backend);
+    if is_local && removed_any {
+        enqueue_local_storage_change(ctx.vm, None, None, None);
+    }
     Ok(JsValue::Undefined)
 }
 
@@ -635,11 +704,10 @@ pub(crate) fn try_set(
     }
     let key_str = vm.strings.get_utf8(key_sid);
     let value_str = vm.strings.get_utf8(val_sid);
-    let mut backend = backend_for(vm, is_local);
-    let result = backend.set(&key_str, &value_str);
-    drop(backend);
-    match result {
-        Ok(_) => Some(Ok(())),
+    // WebIDL named setter = the §12.2.1 setItem method steps — the shared
+    // [`set_item_steps`] (change gate + broadcast included).
+    match set_item_steps(vm, is_local, &key_str, &value_str) {
+        Ok(()) => Some(Ok(())),
         Err(err) => Some(Err(map_storage_error(vm, err))),
     }
 }
@@ -662,8 +730,9 @@ pub(crate) fn try_delete(
         return Some(Ok(true));
     }
     let key_str = vm.strings.get_utf8(key_sid);
-    let mut backend = backend_for(vm, is_local);
-    backend.remove(&key_str);
+    // WebIDL named deleter = the §12.2.1 removeItem method steps — the
+    // shared [`remove_item_steps`] (absent-key gate + broadcast included).
+    remove_item_steps(vm, is_local, &key_str);
     Some(Ok(true))
 }
 

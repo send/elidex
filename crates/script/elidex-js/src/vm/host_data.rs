@@ -25,28 +25,24 @@ mod engine_feature {
     #[cfg(feature = "compat-webapi")]
     use elidex_storage_core::{SessionStorageState, WebStorageManager};
     use std::collections::{HashMap, HashSet};
-    // Used only by the (compat-webapi-gated) opaque-origin counter.
-    #[cfg(feature = "compat-webapi")]
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::sync::Arc;
 
     /// Per-process counter for opaque-origin sentinels (e.g. `about:blank`,
     /// `data:` URLs).  Each `HostData` claims one ID at construction time
-    /// and uses it to scope `localStorage` entries so two opaque-origin
-    /// VMs do not see each other's data through the manager's
-    /// origin-keyed registry.  Resets on process restart.
-    /// A2: used only for `localStorage` scoping — `compat-webapi`-gated.
-    #[cfg(feature = "compat-webapi")]
+    /// and uses it as the identity-preserving storage-partition key for
+    /// origin-scoped surfaces (`localStorage` AND IndexedDB versionchange —
+    /// see `VmInner::storage_origin_key`) so two opaque-origin VMs do not
+    /// alias.  Resets on process restart.  NOT `compat-webapi`-gated: the
+    /// IndexedDB broadcast key needs it in `engine`-only builds too.
     static OPAQUE_ORIGIN_COUNTER: AtomicU64 = AtomicU64::new(0);
 
     /// Prefix on per-VM opaque-origin sentinel strings.  Distinct
     /// from any `url::Origin::ascii_serialization()` output (which is
     /// always `scheme://host[:port]`) so the sentinel cannot collide
     /// with a real origin.
-    #[cfg(feature = "compat-webapi")]
     const OPAQUE_ORIGIN_PREFIX: &str = "opaque-origin:";
 
-    #[cfg(feature = "compat-webapi")]
     fn next_opaque_origin_id() -> String {
         let n = OPAQUE_ORIGIN_COUNTER.fetch_add(1, Ordering::Relaxed);
         format!("{OPAQUE_ORIGIN_PREFIX}{n}")
@@ -247,6 +243,37 @@ mod engine_feature {
         /// nesting.  Per-context interim; its B1 ECS grain follows the
         /// decision's grain rule (PR #434 §5 req 5), not asserted here.
         iframe_depth: usize,
+        // -------------------------------------------------------------
+        // S5-6a: cross-context effect queues — transient FIFO intents the
+        // shell drains per turn via the `HostDriver` drain group (the
+        // `pending_history` / `pending_window_open` event-queue standing;
+        // B1-neutral).  NOT cleared on `Vm::unbind`: like the navigation
+        // back-channel, the shell drains these after the batch bracket
+        // closes, so they must survive it.
+        // -------------------------------------------------------------
+        /// Pending `localStorage` mutation broadcasts (WHATWG HTML §12.2.1
+        /// "Broadcast this…"), enqueued change-gated by the
+        /// `vm/host/storage.rs` mutation paths and drained via
+        /// [`Self::take_pending_storage_changes`].
+        /// A2: Web Storage glue — `compat-webapi`-gated with the rest of the
+        /// family.
+        #[cfg(feature = "compat-webapi")]
+        pending_storage_changes: Vec<elidex_script_session::StorageChange>,
+        /// Pending cross-context IndexedDB version-change requests
+        /// (IndexedDB-3 §4.2, dfn *fire a version change event*), enqueued by
+        /// the `indexedDB.open()` upgrade branch and drained via
+        /// [`Self::take_pending_idb_versionchange_requests`].
+        pending_idb_versionchange: Vec<elidex_script_session::IdbVersionChangeRequest>,
+        /// Pending `window.focus()` request flag (WHATWG HTML §6.6.6,
+        /// `#dom-window-focus`) — set by the `window.focus()` native, drained
+        /// (returns `true` at most once) via [`Self::take_pending_focus`].
+        pending_focus: bool,
+        /// Pending iframe→parent `postMessage` intents (WHATWG HTML §9.3.3),
+        /// enqueued by the `postMessage` native when `iframe_depth > 0`
+        /// (boa-parity context routing — see
+        /// [`elidex_script_session::ParentMessage`]) and drained via
+        /// [`Self::take_pending_parent_messages`].
+        pending_parent_messages: Vec<elidex_script_session::ParentMessage>,
         /// `MutationObserver` registry (WHATWG DOM §4.3.1) — owns the
         /// per-observer pending-record queues. The observation targets +
         /// options live as `MutationObservedBy` components on the
@@ -362,9 +389,9 @@ mod engine_feature {
         /// opaque origin (`about:blank`, `data:`, …).  Generated at
         /// `HostData::new` via [`OPAQUE_ORIGIN_COUNTER`] so two such
         /// VMs in the same process do not alias on the manager's
-        /// origin-keyed registry.
-        /// A2: only `localStorage` scoping reads it — `compat-webapi`-gated.
-        #[cfg(feature = "compat-webapi")]
+        /// origin-keyed registry.  Read by both `localStorage` scoping and
+        /// the IndexedDB versionchange broadcast key (via
+        /// `VmInner::storage_origin_key`), so NOT `compat-webapi`-gated.
         opaque_origin_sentinel: String,
         /// Fallback in-memory `localStorage` used when no
         /// `WebStorageManager` is installed.  Same `IndexMap` shape
@@ -829,6 +856,11 @@ mod engine_feature {
                 document_origin_override: None,
                 fallback_opaque_origin: elidex_plugin::SecurityOrigin::opaque(),
                 iframe_depth: 0,
+                #[cfg(feature = "compat-webapi")]
+                pending_storage_changes: Vec::new(),
+                pending_idb_versionchange: Vec::new(),
+                pending_focus: false,
+                pending_parent_messages: Vec::new(),
                 mutation_observers: elidex_api_observers::mutation::MutationObserverRegistry::new(),
                 mutation_observer_bindings: HashMap::new(),
                 resize_observers: elidex_api_observers::resize::ResizeObserverRegistry::new(),
@@ -841,7 +873,6 @@ mod engine_feature {
                 cache_backend: None,
                 #[cfg(feature = "compat-webapi")]
                 session_storage: SessionStorageState::new(),
-                #[cfg(feature = "compat-webapi")]
                 opaque_origin_sentinel: next_opaque_origin_id(),
                 #[cfg(feature = "compat-webapi")]
                 fallback_local_storage: SessionStorageState::new(),
@@ -1028,9 +1059,9 @@ mod engine_feature {
         }
 
         /// Stable per-VM opaque-origin string (e.g. `"opaque-origin:7"`).
-        /// Used by `vm/host/storage.rs` for `localStorage` scoping when
-        /// the current navigation URL's origin is opaque.
-        #[cfg(feature = "compat-webapi")]
+        /// The identity-preserving storage-partition key for an opaque document,
+        /// shared by `localStorage` scoping and the IndexedDB versionchange
+        /// broadcast key (`VmInner::storage_origin_key`).
         pub(crate) fn opaque_origin_sentinel(&self) -> &str {
             &self.opaque_origin_sentinel
         }
@@ -1148,6 +1179,83 @@ mod engine_feature {
         /// (WHATWG HTML §6.2) — backs `document.hidden`.
         pub(crate) fn is_tab_hidden(&self) -> bool {
             self.tab_hidden
+        }
+
+        // -------------------------------------------------------------
+        // S5-6a: cross-context effect queues — enqueue (VM natives) +
+        // take (the `HostDriver` drain group).  All FIFO, drain-once.
+        // -------------------------------------------------------------
+
+        /// Enqueue a `localStorage` mutation broadcast (WHATWG HTML §12.2.1
+        /// "Broadcast this…").  The caller (the `vm/host/storage.rs`
+        /// mutation paths) has already applied the §12.2.1 change gates —
+        /// same-value `setItem`, absent-key `removeItem`, and empty-map
+        /// `clear` never reach here.
+        #[cfg(feature = "compat-webapi")]
+        pub(crate) fn enqueue_storage_change(
+            &mut self,
+            change: elidex_script_session::StorageChange,
+        ) {
+            self.pending_storage_changes.push(change);
+        }
+
+        /// Drain the pending `localStorage` broadcasts in mutation order
+        /// (the `HostDriver::take_pending_storage_changes` body).
+        #[cfg(feature = "compat-webapi")]
+        pub fn take_pending_storage_changes(
+            &mut self,
+        ) -> Vec<elidex_script_session::StorageChange> {
+            std::mem::take(&mut self.pending_storage_changes)
+        }
+
+        /// Enqueue a cross-context IndexedDB version-change request
+        /// (IndexedDB-3 §4.2, dfn *fire a version change event*) — called by
+        /// the `indexedDB.open()` upgrade branch.
+        pub(crate) fn enqueue_idb_versionchange_request(
+            &mut self,
+            request: elidex_script_session::IdbVersionChangeRequest,
+        ) {
+            self.pending_idb_versionchange.push(request);
+        }
+
+        /// Drain the pending IndexedDB version-change requests in request
+        /// order (the `HostDriver::take_pending_idb_versionchange_requests`
+        /// body).
+        pub fn take_pending_idb_versionchange_requests(
+            &mut self,
+        ) -> Vec<elidex_script_session::IdbVersionChangeRequest> {
+            std::mem::take(&mut self.pending_idb_versionchange)
+        }
+
+        /// Stage a `window.focus()` request (WHATWG HTML §6.6.6,
+        /// `#dom-window-focus`) — called by the `window.focus()` native.
+        pub(crate) fn request_window_focus(&mut self) {
+            self.pending_focus = true;
+        }
+
+        /// Take (and clear) the pending `window.focus()` request — `true` at
+        /// most once per staged request (the `HostDriver::take_pending_focus`
+        /// body).
+        pub fn take_pending_focus(&mut self) -> bool {
+            std::mem::take(&mut self.pending_focus)
+        }
+
+        /// Enqueue an iframe→parent `postMessage` intent (WHATWG HTML
+        /// §9.3.3) — called by the `postMessage` native when
+        /// `iframe_depth > 0`.
+        pub(crate) fn enqueue_parent_message(
+            &mut self,
+            message: elidex_script_session::ParentMessage,
+        ) {
+            self.pending_parent_messages.push(message);
+        }
+
+        /// Drain the pending iframe→parent messages in call order (the
+        /// `HostDriver::take_pending_parent_messages` body).
+        pub fn take_pending_parent_messages(
+            &mut self,
+        ) -> Vec<elidex_script_session::ParentMessage> {
+            std::mem::take(&mut self.pending_parent_messages)
         }
 
         /// # Panics

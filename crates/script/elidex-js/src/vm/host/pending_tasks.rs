@@ -1,5 +1,5 @@
 //! Same-window task queue + `window.postMessage` (WHATWG HTML
-//! §9.4.3).
+//! §9.3.3).
 //!
 //! The HTML event loop's *task queue* (§8.1.7.1 "Task"), restricted to
 //! the single JavaScript realm that Phase 2 supports.  The only
@@ -68,7 +68,7 @@ pub(crate) enum PendingTask {
     /// Produced by `window.postMessage(message, targetOrigin)` after
     /// the origin has been matched.  The stored `data` is the
     /// already-`structuredClone`d payload; `origin` is the source
-    /// window's origin (WHATWG HTML §9.4.3 step 12 "origin of the
+    /// window's origin (WHATWG HTML §9.3.3 step 12 "origin of the
     /// source's relevant settings").
     PostMessage {
         target_window_id: ObjectId,
@@ -323,7 +323,7 @@ fn dispatch_file_read(
 /// Build a MessageEvent and dispatch it at `target_window_id`'s
 /// backing entity through the shared `dispatch_script_event` walker.
 ///
-/// Matches WHATWG HTML §9.4.3 step 14 + §2.9 "fire a trusted event
+/// Matches WHATWG HTML §9.3.3 step 14 + §2.9 "fire a trusted event
 /// with name `message` at a Window".  Routing through
 /// `dispatch_script_event` gives correct per-listener `{once}` /
 /// `{signal}` / `{passive}` handling for free — the manual walk
@@ -339,7 +339,7 @@ fn dispatch_post_message(
 ) {
     // Resolve the target window's backing entity.  If the VM lost
     // its HostData between enqueue and drain (vm.unbind()), silently
-    // drop — matching WHATWG §9.4.3 step 11 "if the target's
+    // drop — matching WHATWG §9.3.3 step 11 "if the target's
     // associated Document is not fully active, then abort".
     let Some(host) = vm.host_data.as_deref() else {
         return;
@@ -424,7 +424,7 @@ fn dispatch_post_message(
         .message;
     let timestamp_ms = g.start_instant.elapsed().as_secs_f64() * 1000.0;
     // `source` is `null` when the producer did not identify a
-    // window (WHATWG HTML §9.4.3 step 8).  `ports` is a fresh empty
+    // window (WHATWG HTML §9.3.3 step 8).  `ports` is a fresh empty
     // Array until MessagePort lands (plan §Deferred #16);
     // allocating per dispatch keeps identity fresh per event,
     // matching browser behaviour.  Allocate the Array BEFORE
@@ -464,7 +464,7 @@ fn dispatch_post_message(
     // swallowed here — the dispatch has already advanced through
     // as many listeners as possible, and postMessage has no
     // observable error channel to the enqueuing caller (the task
-    // is an async point, §9.4.3 step 13).
+    // is an async point, §9.3.3 step 13).
     let _ = dispatch_result;
 }
 
@@ -473,7 +473,7 @@ fn dispatch_post_message(
 // ---------------------------------------------------------------------------
 
 /// `window.postMessage(message, targetOrigin, transfer?)` — WHATWG
-/// HTML §9.4.3.  Also accepts the dictionary signature
+/// HTML §9.3.3.  Also accepts the dictionary signature
 /// `postMessage(message, options)` where `options` is
 /// `{targetOrigin?, transfer?}`.
 #[allow(clippy::similar_names)] // arg1 mirrors WebIDL parameter indexing
@@ -483,7 +483,7 @@ pub(super) fn native_window_post_message(
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     // 1. Binding-level arg count check (WebIDL "not enough
-    //    arguments" — sync TypeError before §9.4.3 proper).
+    //    arguments" — sync TypeError before §9.3.3 proper).
     let Some(&message) = args.first() else {
         return Err(VmError::type_error(
             "Failed to execute 'postMessage' on 'Window': 1 argument required, but only 0 present.",
@@ -495,34 +495,117 @@ pub(super) fn native_window_post_message(
     let arg1 = args.get(1).copied().unwrap_or(JsValue::Undefined);
     let (target_origin, transfer_val) = extract_signature(ctx, arg1, args.get(2).copied())?;
 
-    // 3. transfer validation — Phase 2 accepts only `undefined` /
-    //    `null` / `[]`.  Non-empty list → DataCloneError (transfer
-    //    semantics not yet wired).  Spec prescribes DataCloneError
-    //    for "not all items are transferable" (§9.4.3 step 5).
+    // 3. targetOrigin parse + validate FIRST.  The window-post-message steps
+    //    (WHATWG HTML §9.3.3) order the targetOrigin parse (steps 4–5, the
+    //    SyntaxError source) BEFORE StructuredSerializeWithTransfer (step 7,
+    //    the DataCloneError source covering BOTH the transfer list AND the
+    //    message clone).  So an invalid `targetOrigin` combined with a
+    //    non-empty transfer list — or an uncloneable message — must surface
+    //    SyntaxError, never DataCloneError.  One parse, shared by both routing
+    //    paths below (one spec order, two contexts): `validate_target_origin`
+    //    returns the parsed URL, or `None` for the `"*"` / `"/"` keywords.
+    let target_origin_str = ctx.vm.strings.get_utf8(target_origin);
+    let parsed_target = validate_target_origin(ctx.vm, &target_origin_str)?;
+
+    // 4. transfer validation — Phase 2 accepts only `undefined` / `null` /
+    //    `[]`.  Non-empty list → DataCloneError (transfer semantics not yet
+    //    wired).  This is the spec's "not all items are transferable" case,
+    //    raised inside StructuredSerializeWithTransfer (§9.3.3 step 7) — hence
+    //    AFTER the targetOrigin parse above, never before it.
     validate_transfer(ctx, transfer_val)?;
 
-    // 4. Structured serialize `message`.  Clone throws surface
-    //    synchronously; origin mismatch is a silent return (checked
-    //    after, step 6).  Matches spec order: step 5 (serialize)
-    //    runs before step 7 (origin match).
+    // 4b. iframe→parent routing (S5-6a, B16 — WHATWG HTML §9.3.3 Posting
+    //     messages, `#dom-window-postmessage-options`).  In an iframe
+    //     document's VM, `parent` / `top` resolve to `globalThis`
+    //     (single-window stubs, `window.rs`), so a `postMessage` here is
+    //     parent-DIRECTED: enqueue onto the `HostData` parent-message FIFO
+    //     for the shell to forward to the parent document, instead of
+    //     self-delivering.  The §9.3.3 origin gate is NOT applied here — it
+    //     compares against the TARGET (parent) window's origin, which this
+    //     VM cannot know, so the resolved `targetOrigin` rides the payload and
+    //     the receiving side gates.  boa-parity interim: the routing-by-depth
+    //     mirrors boa's context-routed single queue (top-level → self,
+    //     iframe → parent), including its `ToString`-serialized `data` wire
+    //     format; the real WindowProxy browsing-context targeting replaces
+    //     this wholesale at S5-8/B1.
+    let iframe_depth = ctx
+        .vm
+        .host_data
+        .as_deref()
+        .map_or(0, super::super::host_data::HostData::iframe_depth);
+    if iframe_depth > 0 {
+        // Serialize the message FIRST (§9.3.3 step 7 — StructuredSerialize,
+        // here the boa-parity `ToString` wire form — precedes the origin-gate
+        // return at step 8.1): the conversion's side effects and throws (e.g. a
+        // throwing `toString`) must surface even when the message is ultimately
+        // undeliverable / dropped.  Matches the top-level path (clone before
+        // match) below.
+        let data_sid = coerce::to_string(ctx.vm, message)?;
+        let data = ctx.vm.strings.get_utf8(data_sid);
+        // §9.3.3 RESOLVES `targetOrigin` at send time; the payload carries an
+        // IDENTITY-PRESERVING origin key so the receiving-side gate can compare
+        // origin-to-origin WITHOUT aliasing distinct opaque origins (a display
+        // `"null"` would let any opaque parent match any opaque target):
+        //   - step 5.3: a URL target → its parsed URL's ORIGIN. A TUPLE origin
+        //     serializes (`ascii_serialization()` matches `match_target_origin`'s
+        //     target-side form); an OPAQUE URL origin (e.g. `data:`) is a FRESH
+        //     opaque that can never be same-origin with the parent, so the
+        //     message is undeliverable — FAIL CLOSED (drop, don't enqueue, AFTER
+        //     the serialization above) rather than emit a lossy `"null"` for the
+        //     future gate to alias.
+        //   - step 4: "/" → the SENDER's origin as its identity-preserving
+        //     `storage_origin_key` (opaque sender → the per-VM sentinel, NOT
+        //     `"null"`; a tuple sender → its serialization).  Resolved HERE —
+        //     carried verbatim the receiver gate (which compares against the
+        //     PARENT's origin) would read "/" as its own origin and always pass.
+        //   - "*" (parse → `None`, not "/") rides verbatim: any origin.
+        let target_origin = match &parsed_target {
+            Some(parsed) => {
+                let parsed_origin = parsed.origin();
+                if parsed_origin.is_tuple() {
+                    parsed_origin.ascii_serialization()
+                } else {
+                    // Opaque URL target: undeliverable → fail closed.
+                    return Ok(JsValue::Undefined);
+                }
+            }
+            None if target_origin_str == "/" => ctx.vm.storage_origin_key(),
+            None => target_origin_str,
+        };
+        // Sender origin (→ parent-side `MessageEvent.origin`, §9.3.3),
+        // captured HERE where incumbentSettings's origin is authoritative —
+        // opaque/sandbox senders serialize to `"null"`, the correct value.
+        let origin = ctx.vm.document_origin().serialize();
+        if let Some(host) = ctx.vm.host_data.as_deref_mut() {
+            host.enqueue_parent_message(elidex_script_session::ParentMessage {
+                data,
+                origin,
+                target_origin,
+            });
+        }
+        return Ok(JsValue::Undefined);
+    }
+
+    // 5. Structured serialize `message` (the spec's serialize step;
+    //    rethrow).  Clone throws surface synchronously; origin mismatch
+    //    is a silent return (checked after, step 6).
     let cloned = clone_value(ctx.vm, message)?;
 
-    // 5. Resolve target origin match vs own origin.
+    // 6. Resolve target origin match vs own origin.
     let own_origin_sid = compute_own_origin_sid(ctx.vm);
-    let origin_match = match_target_origin(ctx, target_origin, own_origin_sid)?;
-    if !origin_match {
-        // Silent return (spec §9.4.3 step 9 "if the origin of
+    if !match_target_origin(ctx, parsed_target.as_ref(), own_origin_sid) {
+        // Silent return (spec §9.3.3 step 9 "if the origin of
         // targetWindow is not … then return").
         return Ok(JsValue::Undefined);
     }
 
-    // 6. Determine target & source windows.  Phase 2 same-window
+    // 7. Determine target & source windows.  Phase 2 same-window
     //    only — target is the caller's globalThis, source is the
     //    same window (round-trip postMessage is observable).
     let target_window_id = ctx.vm.global_object;
     let source_window_id = Some(ctx.vm.global_object);
 
-    // 7. Queue the task.  Drain runs at the end of the current
+    // 8. Queue the task.  Drain runs at the end of the current
     //    `eval` (after microtasks); until then `message` listeners
     //    observe nothing.
     ctx.vm.queue_task(PendingTask::PostMessage {
@@ -605,39 +688,52 @@ fn compute_own_origin_sid(vm: &mut VmInner) -> StringId {
     vm.strings.intern(&origin_str)
 }
 
-/// Match `targetOrigin` against own origin.
-///
-/// - `"*"` → always match.
-/// - `"/"` → spec: "restrict the message to the same origin as the
-///   source".  Phase 2 is same-window only (source and target
-///   share the settings object), so the comparison is trivially
-///   satisfied and we short-circuit to `true`.  Cross-window
-///   postMessage (PR5d) adds the actual own-vs-target comparison.
-/// - otherwise → parse as URL; `SyntaxError` on failure, then
-///   compare the parsed URL's origin to own origin.
-fn match_target_origin(
-    ctx: &mut NativeContext<'_>,
-    target_origin: StringId,
-    own_origin_sid: StringId,
-) -> Result<bool, VmError> {
-    let target_origin_str = ctx.vm.strings.get_utf8(target_origin);
-    if target_origin_str == "*" {
-        return Ok(true);
+/// Syntax-validate a `targetOrigin` string (WHATWG HTML §9.3.3's
+/// sender-side parse step): `"*"` and `"/"` are keywords (no parse,
+/// returns `None`); anything else must parse as a URL — `SyntaxError`
+/// otherwise — and returns the parsed URL for the caller's origin
+/// compare.  Shared by [`match_target_origin`] (the same-window gate) and
+/// the iframe→parent enqueue branch (which validates syntax but defers
+/// the origin gate to the receiving side).
+fn validate_target_origin(
+    vm: &VmInner,
+    target_origin_str: &str,
+) -> Result<Option<url::Url>, VmError> {
+    if target_origin_str == "*" || target_origin_str == "/" {
+        return Ok(None);
     }
-    if target_origin_str == "/" {
-        return Ok(true); // same window ⇒ always own origin
-    }
-    match url::Url::parse(&target_origin_str) {
-        Ok(u) => {
-            let target_origin_serialized = u.origin().ascii_serialization();
-            let own_origin_str = ctx.vm.strings.get_utf8(own_origin_sid);
-            Ok(target_origin_serialized == own_origin_str)
-        }
+    match url::Url::parse(target_origin_str) {
+        Ok(u) => Ok(Some(u)),
         Err(_) => Err(VmError::dom_exception(
-            ctx.vm.well_known.dom_exc_syntax_error,
+            vm.well_known.dom_exc_syntax_error,
             format!(
                 "Failed to execute 'postMessage' on 'Window': Invalid target origin '{target_origin_str}'.",
             ),
         )),
+    }
+}
+
+/// Match a pre-parsed `targetOrigin` (the [`validate_target_origin`]
+/// output — parsed by the caller BEFORE serialize, per the spec's step
+/// order) against own origin.
+///
+/// - `"*"` / `"/"` (`None`) → match: `"*"` always matches; `"/"` means
+///   "restrict the message to the same origin as the source", and Phase 2
+///   is same-window only (source and target share the settings object),
+///   so the comparison is trivially satisfied.  Cross-window postMessage
+///   (PR5d) adds the actual own-vs-target comparison.
+/// - a parsed URL → compare its origin to own origin.
+fn match_target_origin(
+    ctx: &mut NativeContext<'_>,
+    parsed_target: Option<&url::Url>,
+    own_origin_sid: StringId,
+) -> bool {
+    match parsed_target {
+        None => true,
+        Some(u) => {
+            let target_origin_serialized = u.origin().ascii_serialization();
+            let own_origin_str = ctx.vm.strings.get_utf8(own_origin_sid);
+            target_origin_serialized == own_origin_str
+        }
     }
 }
