@@ -832,50 +832,23 @@ fn animation_event_dispatched_to_js_listener() {
     );
 }
 
-#[test]
-fn boa_insert_rule_skips_media_conditioned_rule() {
-    // R1-3: a boa CSSOM `insertRule("@media …")` must NOT land a conditioned
-    // rule in the real stylesheet — it would be filtered out of `cssRules` yet
-    // still affect rendering and resist `deleteRule` (an un-addressable
-    // mutation). The applier skips conditioned inserts (CSSMediaRule deferred,
-    // `#11-css-media-rule`); plain rules still insert.
-    let registry = create_css_property_registry();
-    let mut sheets = vec![elidex_css::parse_stylesheet(
-        "div { color: red }",
-        elidex_css::Origin::Author,
-    )];
-    let before = sheets[0].rules.len();
-
-    apply_cssom_mutations(
-        &mut sheets,
-        &[elidex_js_boa::bridge::CssomMutation::InsertRule {
-            sheet_index: 0,
-            rule_index: 0,
-            rule_text: "@media screen { p { color: blue } }".to_string(),
-        }],
-        &registry,
-    );
-    assert_eq!(
-        sheets[0].rules.len(),
-        before,
-        "@media insert must be skipped (no conditioned rule lands)"
-    );
-
-    apply_cssom_mutations(
-        &mut sheets,
-        &[elidex_js_boa::bridge::CssomMutation::InsertRule {
-            sheet_index: 0,
-            rule_index: 0,
-            rule_text: "span { color: green }".to_string(),
-        }],
-        &registry,
-    );
-    assert_eq!(
-        sheets[0].rules.len(),
-        before + 1,
-        "a plain qualified rule still inserts"
-    );
-}
+// TODO(S5-6b stage3 oracle migration): rendered-outcome insertRule oracle.
+// The boa `apply_cssom_mutations` shadow-struct oracle
+// (`boa_insert_rule_skips_media_conditioned_rule`) was deleted with the CSSOM
+// shadow-sync (§3.3/§4.2, this stage): it asserted equality on the boa
+// `CssomSheet` shadow copy, which no longer exists — the VM writes `insertRule`
+// back to the DOM owner source and `re_render`'s DOM→cascade re-collection
+// (`elidex_dom_api::collect_document_stylesheets`) picks it up. The replacement
+// is a rendered-outcome pipeline test: drive `insertRule("@media …")` /
+// `insertRule("span …")` via script and assert the re-resolved style /
+// display-list effect (the observable the struct-equality oracle was a proxy
+// for). Deferred to stage 3 because the pipeline does not compile until the
+// remaining B-row call-site convergence lands. The `@media`-skip + plain-insert
+// invariant it guarded stays covered engine-independently by the dom-api
+// `cssom_sheet::tests` (`actual_index_skips_media_rules`,
+// `insert_position_maps_visible_to_actual`) and the re-collection unit oracles
+// in `elidex_dom_api::cssom_collect::tests` (written-back `<style>`/`<link>`
+// pickup, changed-owner-only re-parse, idle zero-reparse).
 
 // --- E0 (F6): engine-mode-gated style compat ---
 

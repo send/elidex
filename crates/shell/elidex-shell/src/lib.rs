@@ -40,15 +40,12 @@ use std::sync::Arc;
 
 use elidex_css::Stylesheet;
 use elidex_css_anim::engine::AnimationEngine;
-use elidex_dom_compat::{get_presentational_hints, legacy_ua_stylesheet};
+use elidex_dom_compat::{
+    get_presentational_hints, legacy_ua_stylesheet, parse_compat_stylesheet_with_registry,
+};
 use elidex_ecs::EcsDom;
 use elidex_ecs::Entity;
-// boa import kept during the S5-6b flip dev window: `stylesheets_to_cssom` /
-// `sync_stylesheets_to_bridge` / `apply_cssom_mutations` (CSSOM shadow, B1) and
-// the `re_render` CE-reaction loop (B2) still reference it. Deleted with the
-// crate at the end of the flip (§5 item 12).
 use elidex_js::ElidexJsEngine;
-use elidex_js_boa::JsRuntime;
 use elidex_layout::layout_tree;
 use elidex_plugin::{EngineMode, Size, Vector, ViewportOverflow};
 use elidex_render::{build_display_list_with_scroll, DisplayList};
@@ -87,239 +84,6 @@ pub enum WakeEvent {
 /// `EventLoopProxy`. Each content thread owns its own boxed closure (built from a
 /// cloned `EventLoopProxy<WakeEvent>` in the browser half), so `Send` suffices.
 pub type WakeHandle = Box<dyn Fn() + Send>;
-
-/// Convert parsed `Stylesheet`s into lightweight `CssomSheet` representations
-/// suitable for the JS bridge.
-///
-/// Each CSS rule's selectors and declarations are serialized to strings so the
-/// CSSOM JS layer can expose them without depending on the CSS parser.
-fn stylesheets_to_cssom(sheets: &[Stylesheet]) -> Vec<elidex_js_boa::bridge::CssomSheet> {
-    sheets
-        .iter()
-        .map(|sheet| {
-            let rules = sheet
-                .rules
-                .iter()
-                // Flattened `@media` rules (non-empty `media_conditions`) are not
-                // surfaced as top-level CSSOM rules until `CSSMediaRule` lands
-                // (`#11-css-media-rule`) — they must not leak in as bogus
-                // unwrapped rules. Matches the dom-api `cssom_sheet` view.
-                .filter(|rule| rule.media_conditions.is_empty())
-                .map(|rule| {
-                    let selector_text = rule
-                        .selectors
-                        .iter()
-                        .map(selector_to_css_string)
-                        .collect::<Vec<_>>()
-                        .join(", ");
-                    let declarations = rule
-                        .declarations
-                        .iter()
-                        .map(|d| (d.property.clone(), d.value.to_css_string()))
-                        .collect();
-                    elidex_js_boa::bridge::CssomRule {
-                        selector_text,
-                        declarations,
-                    }
-                })
-                .collect();
-            elidex_js_boa::bridge::CssomSheet { rules }
-        })
-        .collect()
-}
-
-/// Serialize a `Selector` to its CSS text representation.
-fn selector_to_css_string(selector: &elidex_css::Selector) -> String {
-    use elidex_css::SelectorComponent;
-
-    // Selectors are stored right-to-left for matching; serialize left-to-right.
-    let components: Vec<&SelectorComponent> = selector.components.iter().rev().collect();
-    let mut parts = Vec::new();
-
-    for comp in &components {
-        match comp {
-            SelectorComponent::Universal => parts.push("*".to_string()),
-            SelectorComponent::Tag(tag) => parts.push(tag.clone()),
-            SelectorComponent::Class(cls) => parts.push(format!(".{cls}")),
-            SelectorComponent::Id(id) => parts.push(format!("#{id}")),
-            SelectorComponent::Descendant => parts.push(" ".to_string()),
-            SelectorComponent::Child => parts.push(" > ".to_string()),
-            SelectorComponent::AdjacentSibling => parts.push(" + ".to_string()),
-            SelectorComponent::GeneralSibling => parts.push(" ~ ".to_string()),
-            SelectorComponent::PseudoClass(name) => parts.push(format!(":{name}")),
-            SelectorComponent::Attribute { name, matcher } => {
-                parts.push(format_attribute_selector(name, matcher.as_ref()));
-            }
-            SelectorComponent::Not(inner) => {
-                let inner_str = inner
-                    .iter()
-                    .rev()
-                    .map(selector_component_to_string)
-                    .collect::<String>();
-                parts.push(format!(":not({inner_str})"));
-            }
-            _ => {
-                // Future selector components — serialize as empty to avoid panics.
-            }
-        }
-    }
-
-    if let Some(pseudo) = &selector.pseudo_element {
-        match pseudo {
-            elidex_css::PseudoElement::Before => parts.push("::before".to_string()),
-            elidex_css::PseudoElement::After => parts.push("::after".to_string()),
-        }
-    }
-
-    parts.join("")
-}
-
-/// Serialize a single `SelectorComponent` to a CSS string fragment.
-fn selector_component_to_string(comp: &elidex_css::SelectorComponent) -> String {
-    use elidex_css::SelectorComponent;
-    match comp {
-        SelectorComponent::Universal => "*".to_string(),
-        SelectorComponent::Tag(tag) => tag.clone(),
-        SelectorComponent::Class(cls) => format!(".{cls}"),
-        SelectorComponent::Id(id) => format!("#{id}"),
-        SelectorComponent::PseudoClass(name) => format!(":{name}"),
-        SelectorComponent::Attribute { name, matcher } => {
-            format_attribute_selector(name, matcher.as_ref())
-        }
-        _ => String::new(),
-    }
-}
-
-/// Serialize an attribute selector to CSS text.
-fn format_attribute_selector(name: &str, matcher: Option<&elidex_css::AttributeMatcher>) -> String {
-    use elidex_css::AttributeMatcher;
-    match matcher {
-        None => format!("[{name}]"),
-        Some(m) => {
-            let (op, val) = match m {
-                AttributeMatcher::Exact(v) => ("=", v.as_str()),
-                AttributeMatcher::Includes(v) => ("~=", v.as_str()),
-                AttributeMatcher::DashMatch(v) => ("|=", v.as_str()),
-                AttributeMatcher::Prefix(v) => ("^=", v.as_str()),
-                AttributeMatcher::Suffix(v) => ("$=", v.as_str()),
-                AttributeMatcher::Substring(v) => ("*=", v.as_str()),
-            };
-            let escaped = elidex_plugin::escape_css_string(val);
-            format!("[{name}{op}\"{escaped}\"]")
-        }
-    }
-}
-
-/// Sync stylesheet data to the JS bridge for CSSOM access.
-///
-/// Call this after pipeline initialization and after any stylesheet mutation
-/// so that `document.styleSheets` reflects the current state.
-fn sync_stylesheets_to_bridge(runtime: &JsRuntime, stylesheets: &[Stylesheet]) {
-    let cssom_sheets = stylesheets_to_cssom(stylesheets);
-    runtime.bridge().set_stylesheets(cssom_sheets);
-}
-
-/// Map a CSSOM `cssRules` index (visible/unconditional rules only — flattened
-/// `@media` rules are not surfaced until `CSSMediaRule` lands,
-/// `#11-css-media-rule`) to the actual index into `Stylesheet::rules`. Returns
-/// `rules.len()` for an append (`cssom_index == visible count`). Mirrors the
-/// dom-api `cssom_sheet` view + `stylesheets_to_cssom`'s filter, so the boa
-/// CSSOM index space and the underlying rule list stay aligned when `@media`
-/// rules are interleaved. (Dies with the boa path at the S5 cutover.)
-fn cssom_actual_rule_index(rules: &[elidex_css::CssRule], cssom_index: usize) -> usize {
-    rules
-        .iter()
-        .enumerate()
-        .filter(|(_, r)| r.media_conditions.is_empty())
-        .nth(cssom_index)
-        .map_or(rules.len(), |(actual, _)| actual)
-}
-
-/// Count of CSSOM-visible (unconditional) rules — the bounds for boa
-/// `insertRule`/`deleteRule` indices (flattened `@media` rules are excluded; see
-/// [`cssom_actual_rule_index`]).
-fn cssom_visible_count(rules: &[elidex_css::CssRule]) -> usize {
-    rules
-        .iter()
-        .filter(|r| r.media_conditions.is_empty())
-        .count()
-}
-
-/// Apply CSSOM mutations (insertRule/deleteRule) to real `Stylesheet` objects.
-///
-/// Parses rule text using the CSS parser and inserts/deletes rules at the
-/// specified positions. Invalid indices or unparseable rules are silently
-/// skipped (matching browser behavior for error recovery). Indices are in the
-/// CSSOM-visible space (excludes flattened `@media` rules) — see
-/// [`cssom_actual_rule_index`].
-fn apply_cssom_mutations(
-    stylesheets: &mut [Stylesheet],
-    mutations: &[elidex_js_boa::bridge::CssomMutation],
-    registry: &elidex_plugin::CssPropertyRegistry,
-) {
-    // Track which sheets were modified for batched source_order recomputation.
-    let mut dirty_sheets = std::collections::HashSet::new();
-
-    for mutation in mutations {
-        match mutation {
-            elidex_js_boa::bridge::CssomMutation::InsertRule {
-                sheet_index,
-                rule_index,
-                rule_text,
-            } => {
-                let Some(sheet) = stylesheets.get_mut(*sheet_index) else {
-                    continue;
-                };
-                if *rule_index > cssom_visible_count(&sheet.rules) {
-                    continue;
-                }
-                let parsed = elidex_css::parse_stylesheet_with_registry(
-                    rule_text,
-                    sheet.origin,
-                    Some(registry),
-                );
-                if let Some(mut rule) = parsed.rules.into_iter().next() {
-                    // Reject an `@media`-conditioned insert (the parsed rule
-                    // carries a non-empty `media_conditions` chain), matching the
-                    // dom-api path's `parse_single_rule` rejection — a
-                    // `CSSMediaRule` insert is deferred (`#11-css-media-rule`).
-                    // Without this, the rule would be filtered out of `cssRules`
-                    // yet still affect rendering and resist `deleteRule` — an
-                    // inconsistent, un-addressable mutation. Skipping restores the
-                    // pre-`@media`-retention no-op for `insertRule("@media …")`.
-                    if rule.media_conditions.is_empty() {
-                        rule.source_order = 0;
-                        let actual = cssom_actual_rule_index(&sheet.rules, *rule_index);
-                        sheet.rules.insert(actual, rule);
-                        dirty_sheets.insert(*sheet_index);
-                    }
-                }
-            }
-            elidex_js_boa::bridge::CssomMutation::DeleteRule {
-                sheet_index,
-                rule_index,
-            } => {
-                let Some(sheet) = stylesheets.get_mut(*sheet_index) else {
-                    continue;
-                };
-                if *rule_index < cssom_visible_count(&sheet.rules) {
-                    let actual = cssom_actual_rule_index(&sheet.rules, *rule_index);
-                    sheet.rules.remove(actual);
-                    dirty_sheets.insert(*sheet_index);
-                }
-            }
-        }
-    }
-
-    // Batch recompute source_order for modified sheets (O(n) per sheet, not per mutation).
-    for &idx in &dirty_sheets {
-        if let Some(sheet) = stylesheets.get_mut(idx) {
-            for (i, r) in sheet.rules.iter_mut().enumerate() {
-                r.source_order = u32::try_from(i).unwrap_or(u32::MAX);
-            }
-        }
-    }
-}
 
 /// Build the CSS property registry with all standard property handlers.
 ///
@@ -555,14 +319,6 @@ impl PipelineResult {
 ///
 /// Returns the mutation records from the flush, for observer dispatch.
 pub(crate) fn re_render(result: &mut PipelineResult) -> Vec<elidex_script_session::MutationRecord> {
-    // Apply pending CSSOM mutations (insertRule/deleteRule) to real stylesheets.
-    let cssom_mutations = result.runtime.bridge().take_cssom_mutations();
-    if !cssom_mutations.is_empty() {
-        apply_cssom_mutations(&mut result.stylesheets, &cssom_mutations, &result.registry);
-        // Re-sync the bridge representation after applying mutations.
-        sync_stylesheets_to_bridge(&result.runtime, &result.stylesheets);
-    }
-
     // Flush applies buffered mutations to the DOM and enqueue CE reactions.
     // `flush` returns a flat record stream (a childList move yields two records).
     let mut mutation_records: Vec<elidex_script_session::MutationRecord> =
@@ -646,7 +402,27 @@ pub(crate) fn re_render(result: &mut PipelineResult) -> Vec<elidex_script_sessio
     let old_computed_no_anim = collect_computed_without_anim(&result.dom);
 
     // Phase 2: Re-resolve styles.
-    let stylesheet_refs: Vec<&Stylesheet> = result.stylesheets.iter().collect();
+    //
+    // DOM-as-truth CSSOM (S5-6 §4.2): re-collect the cascade-input stylesheets
+    // from the live DOM's `<style>` / loaded `<link rel="stylesheet">` owners
+    // every frame instead of reading a shell-side shadow copy. The VM's
+    // `insertRule` / `deleteRule` write back to those owner sources
+    // (`elidex-dom-api::cssom_sheet`), and this re-collection picks the changed
+    // owners up (version-compared, re-parsing only what diverged) — the
+    // replacement for the deleted boa CSSOM shadow-sync. The compat/registry
+    // parser is dependency-injected (F3) so vendor-prefix normalisation +
+    // `transition-*`/`animation-*` handler dispatch survive a script re-parse,
+    // matching the build-time cascade's `parse_compat_stylesheet_with_registry`.
+    let registry = &result.registry;
+    let collected =
+        elidex_dom_api::collect_document_stylesheets(result.document, &mut result.dom, |css| {
+            std::sync::Arc::new(parse_compat_stylesheet_with_registry(
+                css,
+                elidex_css::Origin::Author,
+                Some(registry),
+            ))
+        });
+    let stylesheet_refs: Vec<&Stylesheet> = collected.iter().map(|s| s.as_ref()).collect();
     result.viewport_overflow = resolve_with_mode(
         &mut result.dom,
         &stylesheet_refs,

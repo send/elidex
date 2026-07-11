@@ -16,7 +16,7 @@ use std::sync::Arc;
 use elidex_css::Stylesheet;
 use elidex_ecs::{EcsDom, Entity};
 
-use crate::cssom_sheet::{collect_stylesheet_owners, parse_owner_source, sheet_version};
+use crate::cssom_sheet::{collect_stylesheet_owners, sheet_version, with_owner_source};
 
 /// Per-owner parsed-stylesheet cache backing
 /// [`collect_document_stylesheets`] — derived data stamped on the owner
@@ -49,9 +49,17 @@ pub struct CollectedStylesheet {
 /// (S5-6 §4.2): a document-order, connectedness-filtered tree walk from
 /// `document` enumerating every stylesheet owner (`<style>` + loaded
 /// `<link rel="stylesheet">` — the same CSSOM §6.8 owner set as
-/// `document.styleSheets`), re-parsing via [`elidex_css::parse_stylesheet`]
+/// `document.styleSheets`), re-parsing via the caller-supplied `parse_fn`
 /// ONLY the owners whose `sheet_version` diverged from their
 /// [`CollectedStylesheet`] stamp.
+///
+/// `parse_fn` is a **dependency-injected** parser (S5-6 §4.2 F3): the shell
+/// passes its compat/registry parser so vendor-prefix normalisation +
+/// `transition-*`/`animation-*` handler dispatch survive a script CSSOM
+/// re-parse, while this crate stays engine/compat-agnostic (no
+/// `elidex-dom-compat` dependency). It returns an `Arc<Stylesheet>` so a
+/// cache miss shares the parsed sheet between the cascade-input `Vec` and the
+/// per-owner stamp with a single allocation.
 ///
 /// Designed to be called every frame: the no-change path is O(#owners)
 /// version compares plus `Arc` bumps plus the walk — the returned sheets
@@ -63,7 +71,11 @@ pub struct CollectedStylesheet {
 /// caller is document teardown), so it simply stops being reachable from
 /// `document` and drops out of the walk while remaining a live entity.
 #[must_use]
-pub fn collect_document_stylesheets(document: Entity, dom: &mut EcsDom) -> Vec<Arc<Stylesheet>> {
+pub fn collect_document_stylesheets(
+    document: Entity,
+    dom: &mut EcsDom,
+    parse_fn: impl Fn(&str) -> Arc<Stylesheet>,
+) -> Vec<Arc<Stylesheet>> {
     let owners = collect_stylesheet_owners(document, dom);
     let mut sheets = Vec::with_capacity(owners.len());
     for owner in owners {
@@ -78,9 +90,10 @@ pub fn collect_document_stylesheets(document: Entity, dom: &mut EcsDom) -> Vec<A
             sheets.push(parsed);
             continue;
         }
-        // Miss: one parse (the shared owner-source branch), then two `Arc`
-        // bumps — one for the cascade input, one for the stamp.
-        let parsed = Arc::new(parse_owner_source(owner, dom));
+        // Miss: one injected parse over the shared owner-source branch
+        // (`parse_fn` already yields an `Arc`), then one `Arc` bump — one
+        // reference for the cascade input, one for the stamp.
+        let parsed = with_owner_source(owner, dom, &parse_fn);
         sheets.push(Arc::clone(&parsed));
         // Raw non-instrumented stamp write (see [`CollectedStylesheet`]):
         // routing this through an instrumented mutation path would bump the
@@ -104,6 +117,14 @@ mod tests {
 
     use super::{collect_document_stylesheets, CollectedStylesheet};
     use crate::cssom_sheet::{flush_sheet_mutation, sheet_version, sync_and_get_state};
+
+    /// The injected parser the tests use: the bare `elidex_css` author parser
+    /// wrapped in the `Arc` `collect_document_stylesheets` returns. Production
+    /// injects the shell's compat/registry parser instead (S5-6 §4.2 F3); the
+    /// re-collection logic under test is parser-agnostic.
+    fn parse_author(css: &str) -> Arc<Stylesheet> {
+        Arc::new(parse_stylesheet(css, Origin::Author))
+    }
 
     fn dom_with_root() -> (EcsDom, Entity) {
         let mut dom = EcsDom::new();
@@ -171,7 +192,7 @@ mod tests {
         let style = append_style(&mut dom, root, "div { color: red }");
         let mut session = SessionCore::new();
 
-        let sheets = collect_document_stylesheets(root, &mut dom);
+        let sheets = collect_document_stylesheets(root, &mut dom, parse_author);
         assert_eq!(sheets.len(), 1);
         assert_eq!(sheets[0].rules.len(), 1);
 
@@ -181,7 +202,7 @@ mod tests {
             &mut session,
             &mut dom,
         );
-        let sheets = collect_document_stylesheets(root, &mut dom);
+        let sheets = collect_document_stylesheets(root, &mut dom, parse_author);
         assert_eq!(sheets.len(), 1);
         assert_eq!(
             sheets[0].rules.len(),
@@ -196,7 +217,7 @@ mod tests {
         let link = append_loaded_link(&mut dom, root, "div { color: red }");
         let mut session = SessionCore::new();
 
-        let sheets = collect_document_stylesheets(root, &mut dom);
+        let sheets = collect_document_stylesheets(root, &mut dom, parse_author);
         assert_eq!(sheets.len(), 1);
         assert_eq!(sheets[0].rules.len(), 1);
 
@@ -206,7 +227,7 @@ mod tests {
             &mut session,
             &mut dom,
         );
-        let sheets = collect_document_stylesheets(root, &mut dom);
+        let sheets = collect_document_stylesheets(root, &mut dom, parse_author);
         assert_eq!(sheets.len(), 1);
         assert_eq!(
             sheets[0].rules.len(),
@@ -226,7 +247,7 @@ mod tests {
         let s2 = append_loaded_link(&mut dom, root, "p { color: blue }");
 
         let root_before = dom.inclusive_descendants_version(root);
-        let first = collect_document_stylesheets(root, &mut dom);
+        let first = collect_document_stylesheets(root, &mut dom, parse_author);
         assert_eq!(first.len(), 2);
         assert_eq!(
             dom.inclusive_descendants_version(root),
@@ -235,7 +256,7 @@ mod tests {
         );
 
         sentinel_swap_cached(&mut dom, &[s1, s2]);
-        let idle = collect_document_stylesheets(root, &mut dom);
+        let idle = collect_document_stylesheets(root, &mut dom, parse_author);
         assert_eq!(idle.len(), 2);
         assert!(
             idle.iter().all(|s| s.rules.is_empty()),
@@ -260,7 +281,7 @@ mod tests {
         let changed = append_style(&mut dom, root, "div { color: red }");
         let untouched = append_style(&mut dom, root, "p { color: blue }");
 
-        let _ = collect_document_stylesheets(root, &mut dom);
+        let _ = collect_document_stylesheets(root, &mut dom, parse_author);
         // Sentinel-swap both caches so a re-parse is observable per owner.
         sentinel_swap_cached(&mut dom, &[changed, untouched]);
 
@@ -270,7 +291,7 @@ mod tests {
         let text = dom.create_text("div { color: green } span { color: red }");
         assert!(dom.append_child(changed, text));
 
-        let sheets = collect_document_stylesheets(root, &mut dom);
+        let sheets = collect_document_stylesheets(root, &mut dom, parse_author);
         assert_eq!(sheets.len(), 2);
         assert!(
             !sheets[0].rules.is_empty(),
@@ -292,10 +313,13 @@ mod tests {
         let removed = append_style(&mut dom, root, "div { color: red }");
         let _kept = append_style(&mut dom, root, "p { color: blue } em { color: blue }");
 
-        assert_eq!(collect_document_stylesheets(root, &mut dom).len(), 2);
+        assert_eq!(
+            collect_document_stylesheets(root, &mut dom, parse_author).len(),
+            2
+        );
 
         assert!(dom.remove_child(root, removed));
-        let sheets = collect_document_stylesheets(root, &mut dom);
+        let sheets = collect_document_stylesheets(root, &mut dom, parse_author);
         assert_eq!(sheets.len(), 1, "the detached owner drops out");
         // The survivor is `_kept`'s two-rule sheet, not the removed one-rule one.
         assert_eq!(sheets[0].rules.len(), 2);
@@ -316,7 +340,7 @@ mod tests {
         let link = append_loaded_link(&mut dom, root, "div { color: red }");
         let mut session = SessionCore::new();
 
-        let _ = collect_document_stylesheets(root, &mut dom);
+        let _ = collect_document_stylesheets(root, &mut dom, parse_author);
         let key_before = sheet_version(link, &dom);
         let root_before = dom.inclusive_descendants_version(root);
 

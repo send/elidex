@@ -77,17 +77,36 @@ pub(crate) fn sheet_version(sheet_entity: Entity, dom: &EcsDom) -> u64 {
         )
 }
 
-/// Parse `owner`'s stylesheet source: `<link>` parses its `LinkStylesheet`
-/// component text in place (no clone — the component can be a large
-/// external sheet); `<style>` collects its child text content (CSSOM §6.3
+/// Apply `parse` to `owner`'s raw stylesheet source: `<link>` lends its
+/// `LinkStylesheet` component text in place (no clone — the component can be a
+/// large external sheet); `<style>` collects its child text content (CSSOM §6.3
 /// associated style sheet vs `<style>` text node). The single owner-source
-/// parse branch, shared by the CSSOM session cache ([`sync_and_get_state`])
-/// and the cascade re-collection ([`collect_document_stylesheets`]).
-pub(crate) fn parse_owner_source(owner: Entity, dom: &EcsDom) -> Stylesheet {
+/// branch, shared by the CSSOM session cache ([`sync_and_get_state`], via
+/// [`parse_owner_source`]) and the cascade re-collection
+/// ([`collect_document_stylesheets`](crate::collect_document_stylesheets)).
+///
+/// The re-collection injects the shell's compat/registry parser through this
+/// seam (S5-6 §4.2 dependency-injection ruling) so vendor-prefix normalisation
+/// and the `transition-*`/`animation-*` handler dispatch are not dropped on a
+/// script CSSOM re-parse — `elidex-dom-api` stays engine/compat-agnostic (no
+/// `elidex-dom-compat` dependency); the parser is a caller-supplied closure.
+pub(crate) fn with_owner_source<R>(
+    owner: Entity,
+    dom: &EcsDom,
+    parse: impl FnOnce(&str) -> R,
+) -> R {
     match dom.world().get::<&LinkStylesheet>(owner) {
-        Ok(link) => parse_stylesheet(&link.source, Origin::Author),
-        Err(_) => parse_stylesheet(&collect_text_content(owner, dom), Origin::Author),
+        Ok(link) => parse(&link.source),
+        Err(_) => parse(&collect_text_content(owner, dom)),
     }
+}
+
+/// Parse `owner`'s stylesheet source with the bare `elidex_css` parser
+/// (`Origin::Author`) — the CSSOM session-cache path
+/// ([`sync_and_get_state`]). The cascade re-collection uses
+/// [`with_owner_source`] directly with an injected compat parser instead.
+pub(crate) fn parse_owner_source(owner: Entity, dom: &EcsDom) -> Stylesheet {
+    with_owner_source(owner, dom, |css| parse_stylesheet(css, Origin::Author))
 }
 
 /// Sync the cached `Stylesheet` against the current owner source and

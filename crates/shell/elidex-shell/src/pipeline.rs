@@ -11,12 +11,7 @@ use elidex_dom_compat::parse_compat_stylesheet_with_registry;
 use elidex_ecs::EcsDom;
 use elidex_ecs::Entity;
 use elidex_html_parser::parse_progressive_str;
-// boa `JsRuntime` kept during the S5-6b flip dev window for the CSSOM
-// shadow-sync (`sync_stylesheets_to_bridge`, B1) still threaded through the
-// builders; deleted with the crate at the end of the flip.
 use elidex_js::ElidexJsEngine;
-#[allow(unused_imports)]
-use elidex_js_boa::JsRuntime;
 use elidex_layout::layout_tree;
 use elidex_navigation::extract_inline_scripts;
 use elidex_render::build_display_list;
@@ -29,8 +24,8 @@ use elidex_plugin::{EngineMode, Size, Vector};
 
 use crate::animation::{create_animation_engine, sync_css_animations};
 use crate::{
-    create_css_property_registry, resolve_with_mode, sync_stylesheets_to_bridge, PipelineResult,
-    DEFAULT_VIEWPORT_HEIGHT, DEFAULT_VIEWPORT_WIDTH,
+    create_css_property_registry, resolve_with_mode, PipelineResult, DEFAULT_VIEWPORT_HEIGHT,
+    DEFAULT_VIEWPORT_WIDTH,
 };
 
 /// Frame state installed on the JS bridge **before the first eval**. It bundles
@@ -562,9 +557,6 @@ pub fn build_pipeline_interactive(html: &str, css: &str) -> PipelineResult {
     // Start CSS animations declared in initial styles.
     sync_css_animations(&mut result, &[]);
 
-    // Sync stylesheet data to the JS bridge for CSSOM access.
-    sync_stylesheets_to_bridge(&result.runtime, &result.stylesheets);
-
     result
 }
 
@@ -640,7 +632,6 @@ pub(crate) fn build_pipeline_interactive_with_network(
     };
 
     sync_css_animations(&mut result, &[]);
-    sync_stylesheets_to_bridge(&result.runtime, &result.stylesheets);
 
     result
 }
@@ -726,7 +717,6 @@ pub(crate) fn build_pipeline_interactive_shared(
     };
 
     sync_css_animations(&mut result, &[]);
-    sync_stylesheets_to_bridge(&result.runtime, &result.stylesheets);
 
     result
 }
@@ -817,9 +807,6 @@ pub fn build_pipeline_from_loaded(
 
     // Start CSS animations declared in initial styles.
     sync_css_animations(&mut result, &[]);
-
-    // Sync stylesheet data to the JS bridge for CSSOM access.
-    sync_stylesheets_to_bridge(&result.runtime, &result.stylesheets);
 
     result
 }
