@@ -1,11 +1,9 @@
 //! `DOMParser` (HTML §8.5.1) + `XMLSerializer` (HTML §8.5.8)
 //! tests.
 //!
-//! Scenario baseline = the 7 boa tests
-//! (`elidex-js-boa/.../web_apis/dom_parser.rs`), but the assertions are
-//! written against the **real-Document** VM design (S5-1, D1): where the
-//! real Document diverges from boa's closure-object stub — e.g.
-//! `documentElement` is now a real `<html>` element — the spec-correct
+//! The assertions are written against the **real-Document** VM design
+//! (S5-1, D1): the real Document exposes real nodes — e.g.
+//! `documentElement` is a real `<html>` element — so the spec-correct
 //! value is asserted, noted inline.
 
 #![cfg(feature = "engine")]

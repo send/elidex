@@ -1,8 +1,3 @@
-// boa skip: VM-only surface; the legacy boa runtime
-// (`crates/script/elidex-js-boa/`) is on the deletion path per
-// `m4-12-platform-gap-roadmap.md` §E-2 Round 20 PR7.  See
-// `memory/project_boa_runtime_deletion.md`.
-
 //! `EventSource` interface (WHATWG HTML §9.2) — VM thin binding to
 //! the renderer-side `NetworkHandle` broker.
 //!

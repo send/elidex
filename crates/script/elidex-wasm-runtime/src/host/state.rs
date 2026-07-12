@@ -1,6 +1,6 @@
 //! Host state stored in the wasmtime `Store`.
 //!
-//! Uses the same bind/unbind raw pointer pattern as `HostBridge` in elidex-js-boa.
+//! Uses the same bind/unbind raw pointer pattern as `HostData` in elidex-js.
 //! Pointers are valid only during `WasmInstance::call_export()`.
 
 use std::sync::Arc;

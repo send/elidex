@@ -28,8 +28,7 @@ use super::super::super::VmInner;
 /// drain the queue once, invoke each reaction's callback, drain again
 /// if those callbacks enqueued more reactions. Bounded so a pathological
 /// cycle (`connectedCallback() { newCe.appendChild(otherCe) }` infinite
-/// nesting) cannot hot-loop the VM. Matches boa's `MAX_CE_DRAIN_ITERATIONS`
-/// (see `crates/script/elidex-js-boa/src/runtime/ce.rs`). Realistic
+/// nesting) cannot hot-loop the VM. Realistic
 /// pages drain in 1-3 waves; sites that exceed this cap get a stderr
 /// warning and their tail reactions defer to the next checkpoint.
 const MAX_CE_DRAIN_ITERATIONS: usize = 16;
