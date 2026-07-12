@@ -161,11 +161,28 @@ than the WebSocket-mixed-content proxy. Flip WebSocket / origin-wiring question.
 - The migration (T1 `d740a5ea` + T2 `71968b70`) is **mechanically complete** (build-green) and did
   its job: it surfaced these 17. They are **out of the test-migration's scope** (5 other subsystems)
   but **in scope for "get the flip CI-green before Stage 3"**.
-- **✅ Category A fixed** (`9ff26165`, 17→12, 229 pass). Remaining **12** = B(7) + C(2) + D(2) + E(1).
-- **Remaining priority order**: B (pump/re-cascade, 7 tests — biggest cluster, deeper subsystem) →
-  C (animations) → E (wheel) → D (test-JS re-author + uncertain WebSocket wiring).
-- B is a content-thread viewport/facts pump gap (re-cascade + MQL deliver), C/E are re-render /
-  scroll subsystem behaviours, D is a test-JS boa-ism + an uncertain VM-WebSocket-origin wiring
-  question. Each is a focused per-subsystem fix, NOT a bundled tail-end sweep. Recommend B next
-  (read `event_loop.rs:398+` SetViewport/SetDeviceFacts arms + `re_render` + `set_media_environment`
-  ordering).
+- **✅ Category A fixed** (`9ff26165`, 17→12): lifecycle/unload unbound dispatch.
+- **✅ Category B-cascade + Category C fixed** (`9728ccd0`, 12→6, 235 pass): the REAL root cause of
+  the `has_red`/`@media` B tests AND both C animation tests was NOT a pump gap — it was that the
+  css-arg test builders (`build_pipeline_interactive{,_with_network}`) took author CSS **out-of-band**
+  (parsed `stylesheets` vec, never in the DOM), and S5-6a made `re_render` re-collect author CSS from
+  the DOM's `<style>`/`<link>` owners (`collect_document_stylesheets`, DOM-as-truth) — so the css-arg
+  **vanished on the first re-render** (dropping `@media` re-matches AND `@keyframes` animations). Fix:
+  `html_with_author_style` embeds the css-arg as a `<style>` DOM owner (matches production, whose CSS
+  is already DOM-owned). This dissolved the "B pump gap" and "C animation" hypotheses — the pump
+  (`event_loop.rs:398+`) is actually correct.
+- **Remaining 6** = **4 B (matchMedia/window-listener)** + **2 D (WebSocket)**:
+  - **B-matchMedia** (`content_thread_resize_listener_sees_fresh_matchmedia` :227,
+    `atomic_size_and_facts_delivery…` :1099, `content_thread_drops_stale_seq_viewport` :515,
+    `content_thread_same_size_setviewport_is_idempotent` :340): the assertion is "listener did not
+    run" (box stays blue, neither red nor lime). Root cause (to investigate): the SetViewport arm
+    dispatches `resize` on `state.pipeline.document` (`event_loop.rs:479`
+    `DispatchEvent::new_composed("resize", document)`), but the tests register
+    `window.addEventListener('resize', …)` / a `matchMedia` MQL listener — under the VM a
+    **window-target** listener is (apparently) not invoked by a **document-target** dispatch, so the
+    resize/MQL-change callbacks never fire. A **VM window-vs-document event-target routing** question
+    (distinct from the cascade fix), affecting `resize` dispatch + `deliver_media_query_changes`.
+    Next: check how `window.addEventListener` targets vs the `document`-targeted dispatch (are window
+    listeners on a separate object the document dispatch misses?).
+  - **D (2)**: unchanged — test-JS `WebSocket()` without `new` boa-ism + uncertain VM-WS-origin wiring
+    (see Category D above).
