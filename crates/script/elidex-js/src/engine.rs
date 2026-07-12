@@ -45,6 +45,44 @@ impl ElidexJsEngine {
         Self { vm, bound: false }
     }
 
+    /// Evaluate `src` in the VM's global scope and marshal the completion value
+    /// to a Rust `String` — an **embedder-test read-back oracle** (marshal-scale
+    /// surface: read by shell/embedder tests, never by page script), mirroring
+    /// the [`Vm::console_messages`] precedent. It is the cross-crate value-return
+    /// path over the `pub` [`Self::vm`] + [`Vm::eval`] the elidex-js-internal
+    /// `eval_string` test helper uses in-crate. Panics if eval fails or the
+    /// completion is not a string, so a mis-authored oracle expression fails
+    /// loudly rather than silently asserting nothing.
+    ///
+    /// [`Vm::console_messages`]: crate::vm::Vm::console_messages
+    /// [`Vm::eval`]: crate::vm::Vm::eval
+    #[must_use]
+    pub fn eval_string(&mut self, src: &str) -> String {
+        match self
+            .vm()
+            .eval(src)
+            .expect("embedder-test eval_string succeeds")
+        {
+            JsValue::String(sid) => self.vm().inner.strings.get_utf8(sid),
+            other => panic!("eval_string expected a String completion, got {other:?}"),
+        }
+    }
+
+    /// Evaluate `src` in the VM's global scope and marshal the completion value
+    /// to `f64` — the numeric sibling of [`Self::eval_string`] (embedder-test
+    /// oracle). Panics if eval fails or the completion is not a number.
+    #[must_use]
+    pub fn eval_f64(&mut self, src: &str) -> f64 {
+        match self
+            .vm()
+            .eval(src)
+            .expect("embedder-test eval_f64 succeeds")
+        {
+            JsValue::Number(n) => n,
+            other => panic!("eval_f64 expected a Number completion, got {other:?}"),
+        }
+    }
+
     /// Create a new engine with a fresh VM under an explicit
     /// [`EngineMode`](elidex_plugin::EngineMode).
     ///
