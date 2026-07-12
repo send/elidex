@@ -241,6 +241,32 @@ the document's.
 > `retained_sw_registration_wrapper_survives_per_turn_unbind`. (Cross-batch registration wrapper *identity*
 > / SameObject across a `wrapper_store` drop = the deferred `#11-cross-batch-wrapper-identity`, unchanged.)
 
+> **⚠ AS-BUILT (Codex #459 R3 — the wrapper is part of the identity unit, at BOTH ends)** — R3 surfaced the
+> two remaining faces of the same root, both real (P2 → IMPORTANT), both a coherent completion (NOT a new
+> mechanism; the ≥2-round self-root-check held — see the resume-state memo):
+> - **R3-1 (CE registry WRAPPER survives)** — `custom_element_registry_instance` was initially classified a
+>   per-turn STAY ("re-minted on next bind"). That is **WRONG for the same reason R2's SW wrapper was**:
+>   `globalThis.customElements` is an eager data property installed ONCE (`register_globals` at `Vm::new`,
+>   never re-run per bind), so after the surviving registry data + a dropped wrapper slot, the next access
+>   mints a SECOND wrapper and `convert_custom_element_registry_member` classifies the page's own
+>   `customElements` as `Foreign` (`createElement(x, { customElementRegistry: customElements })` throws
+>   NotSupportedError). Reclassified **MOVE (survive per-turn, cleared at `teardown_document`)**, in lockstep
+>   with the CE data. Cross-DOM-safe by construction (same-DOM rebind only). Pinned by
+>   `custom_element_registry_wrapper_identity_survives_per_turn_unbind`.
+> - **R3-2 (teardown DROPS the surviving SW wrappers)** — R2 made `unbind` RETAIN the Scope-keyed
+>   `ServiceWorkerRegistration` / `ServiceWorker` `wrapper_store` entries but `teardown_document` cleared only
+>   the data + brand rows, leaving stale wrapper entries. A later same-`Vm` re-`register()` of the same scope
+>   would hit `intern_wrapper`'s cached `ObjectId`, SKIP the alloc closure that repopulates
+>   `sw_registration_states` / `service_worker_states`, and return a dead-brand receiver. Teardown now
+>   `remove_wrapper_keyed`s the surviving Registration/Worker entries in lockstep with the data/brand clear.
+>   Pinned by `teardown_document_drops_sw_registration_wrapper_so_reregister_is_valid`.
+>
+> Net invariant: a **document-lifetime wrapped identity = {data, brand, wrapper}** — `unbind` RETAINS all
+> three, `teardown_document` CLEARS all three, uniformly for the SW registration/worker unit AND the CE
+> registry. The by-construction form (per-document-root component, despawn auto-clears the unit) stays
+> deferred to agent-scoped `EcsDom` (B1, §5 req5+req7) — genuinely unavailable now, so uniform manual
+> completion is the correct interim, self-contained per §6.1.
+
 ### STAYS (per-turn or genuine cross-DOM scrub — this slice does NOT touch)
 
 | Field(s) | Site | Why STAY |

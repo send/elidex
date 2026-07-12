@@ -860,12 +860,23 @@ impl Vm {
             // ⚠ SUPERSEDED 2026-06-30: nav-scrub-as-S5-6-hard-gate is RETRACTED
             // (the flip is cross-DOM-neutral) — PR #434
             // docs/plans/2026-06-agent-scoped-ecsdom-world.md §6.2.
-            // D-17 `#11-custom-elements-vm` — drop the cached
-            // `customElements` singleton wrapper so it can be re-
-            // allocated lazily on the next bind. The registry state
-            // itself (registered constructors, reaction queue) is
-            // scrubbed alongside the observer registries above.
-            self.inner.custom_element_registry_instance = None;
+            // D-17 `#11-custom-elements-vm` — the cached `customElements`
+            // singleton wrapper SURVIVES the per-turn unbind (Codex #459
+            // R3-1), in lockstep with the registry data (`ce_registry` etc.)
+            // the block above now keeps to `teardown_document`. `globalThis.
+            // customElements` is installed ONCE as an eager data property
+            // (`register_globals` at `Vm::new`, never re-run per bind), so it
+            // still points at the original wrapper across a rebind; dropping
+            // the `custom_element_registry_instance` slot here would let
+            // `alloc_or_cached_custom_element_registry` mint a SECOND wrapper,
+            // and `convert_custom_element_registry_member` would then classify
+            // the page's own `customElements` as `Foreign` and reject it
+            // (`createElement(x, { customElementRegistry: customElements })`
+            // throwing NotSupportedError). Cross-DOM-safe by construction: a
+            // live `Vm` only ever rebinds the SAME `EcsDom` (same argument as
+            // the CE data + SW registration/worker wrappers above), so the
+            // per-VM wrapper `ObjectId` rides the heap validly across a
+            // same-DOM turn. Released at `teardown_document` with the data.
             // sessionStorage is per-VM and per-browsing-context.  An
             // unbind boundary expresses the browsing-context
             // teardown — drop entries so a rebind cannot observe
@@ -997,7 +1008,12 @@ impl Vm {
         // `ce_reaction_queue` + the SW worker-side per-dispatch state.  The SW
         // wrapper-brand maps (`sw_registration_states` / `service_worker_states`)
         // ARE released here (they are document-lifetime + GC-sweep-pruned, so a
-        // retained wrapper stays a valid receiver across batches).
+        // retained wrapper stays a valid receiver across batches).  The
+        // document-lifetime WRAPPERS that `unbind` retains — the CE registry
+        // singleton (`custom_element_registry_instance`) and the Scope-keyed
+        // `ServiceWorkerRegistration` / `ServiceWorker` `wrapper_store` entries
+        // — are dropped here too, in lockstep with their data + brand rows
+        // (Codex #459 R3-1 / R3-2), so the whole identity unit clears together.
         if let Some(hd) = self.inner.host_data.as_deref_mut() {
             hd.ce_registry
                 .lock()
@@ -1008,9 +1024,43 @@ impl Vm {
             hd.ce_when_defined_promises.clear();
             hd.ce_next_constructor_id = 0;
         }
+        // Release the CE registry WRAPPER together with its data (Codex #459
+        // R3-1). It survives the per-turn `unbind` (see the comment there),
+        // so it is the document-lifetime wrapper's turn to be dropped here —
+        // otherwise a fresh bind after teardown keeps serving the destroyed
+        // document's registry object.
+        self.inner.custom_element_registry_instance = None;
         self.inner.pending_registration_promises.clear();
         self.inner.pending_unregister_promises.clear();
         self.inner.sw_ready_promise = None;
+        // Drop the surviving SW registration/worker WRAPPERS in lockstep with
+        // their data + brand rows (Codex #459 R3-2). The per-turn `unbind`
+        // RETAINS `WrapperKind::ServiceWorkerRegistration`/`ServiceWorker`
+        // (document-lifetime, so a page's `reg === getRegistration()` holds
+        // across batches); at document destruction the whole unit clears
+        // together. Leaving the Scope-keyed `wrapper_store` entries behind
+        // would let a later same-`Vm` re-`register()` of the same scope hit
+        // `intern_wrapper`'s cached `ObjectId`, skip the allocation closure
+        // that repopulates `sw_registration_states`/`service_worker_states`,
+        // and return a registration that fails its own brand check.
+        {
+            use super::wrapper_intern::{WrapperKey, WrapperKind};
+            let scope_sids: Vec<_> = self
+                .inner
+                .sw_registrations
+                .values()
+                .map(|entry| entry.scope_sid)
+                .collect();
+            for scope_sid in scope_sids {
+                let _ = self.inner.remove_wrapper_keyed(WrapperKey::scope(
+                    scope_sid,
+                    WrapperKind::ServiceWorkerRegistration,
+                ));
+                let _ = self
+                    .inner
+                    .remove_wrapper_keyed(WrapperKey::scope(scope_sid, WrapperKind::ServiceWorker));
+            }
+        }
         self.inner.sw_registrations.clear();
         self.inner.sw_registration_states.clear();
         self.inner.service_worker_states.clear();

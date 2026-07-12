@@ -760,7 +760,10 @@ pub(crate) struct VmInner {
     /// Cached `CustomElementRegistry` singleton wrapper exposed as
     /// `window.customElements` (per-VM identity per HTML §4.13.4).
     /// Eager-initialised at `register_custom_element_registry_global()`.
-    /// Cleared on `Vm::unbind`.
+    /// Document-lifetime: survives the per-turn `Vm::unbind` (identity is
+    /// stable across BATCH-BIND batches, in lockstep with the registry
+    /// data) and is cleared only at `Vm::teardown_document` (Codex #459
+    /// R3-1).
     #[cfg(feature = "engine")]
     pub(crate) custom_element_registry_instance: Option<ObjectId>,
     /// `HTMLIFrameElement.prototype` — tag-specific intermediate

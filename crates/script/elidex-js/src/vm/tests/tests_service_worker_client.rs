@@ -771,3 +771,66 @@ fn retained_sw_registration_wrapper_survives_per_turn_unbind() {
         "reg === getRegistration() must hold across per-turn unbinds (no duplicate wrapper)"
     );
 }
+
+// Codex #459 R3-2: the Scope-owned registration/worker WRAPPERS that survive a
+// per-turn `unbind` must be DROPPED at `teardown_document`, in lockstep with
+// their data + brand rows. Otherwise a later same-`Vm` re-`register()` of the
+// same scope hits `intern_wrapper`'s cached `ObjectId`, SKIPS the allocation
+// closure that repopulates `sw_registration_states` / `service_worker_states`,
+// and returns a registration that immediately fails its own brand check.
+#[test]
+fn teardown_document_drops_sw_registration_wrapper_so_reregister_is_valid() {
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = build_min_fixture(&mut dom);
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    vm.inner.navigation.current_url = url(BASE);
+
+    // First document: register the scope so its registration/worker wrappers are
+    // interned into `wrapper_store` (+ their brand rows).
+    vm.eval("navigator.serviceWorker.register('sw.js').then(r => { globalThis.reg = r; });")
+        .unwrap();
+    vm.drain_sw_client_requests();
+    deliver_registered(&mut vm, SwState::Activated);
+    assert!(!vm.inner.sw_registration_states.is_empty());
+
+    // Document destruction drops the whole identity unit — data, brand, AND the
+    // Scope-keyed `wrapper_store` entries.
+    vm.teardown_document();
+    assert!(vm.inner.sw_registrations.is_empty());
+    assert!(vm.inner.sw_registration_states.is_empty());
+    assert!(vm.inner.service_worker_states.is_empty());
+
+    // Fresh document on the SAME `Vm`: re-register the SAME scope. The wrapper
+    // must be a freshly-allocated valid receiver (brand rows repopulated by the
+    // alloc closure), NOT the stale cached `ObjectId` whose closure was skipped.
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    vm.inner.navigation.current_url = url(BASE);
+    vm.eval("navigator.serviceWorker.register('sw.js').then(r => { globalThis.reg2 = r; });")
+        .unwrap();
+    vm.drain_sw_client_requests();
+    deliver_registered(&mut vm, SwState::Activated);
+    assert!(
+        !vm.inner.sw_registration_states.is_empty(),
+        "re-register after teardown must repopulate the wrapper-brand rows (alloc closure ran)",
+    );
+    vm.eval(
+        "globalThis.__ok = false; \
+         try { globalThis.__ok = typeof globalThis.reg2.scope === 'string' \
+               && globalThis.reg2.scope.length > 0; } catch (e) {}",
+    )
+    .unwrap();
+    assert!(
+        eval_bool(&mut vm, "globalThis.__ok"),
+        "a re-registered ServiceWorkerRegistration after teardown must be a valid receiver \
+         (teardown dropped the stale wrapper_store entry)",
+    );
+    vm.unbind();
+}

@@ -79,6 +79,49 @@ fn custom_element_definition_survives_per_turn_unbind() {
     vm.unbind();
 }
 
+/// The `CustomElementRegistry` WRAPPER identity is document-lifetime too
+/// (Codex #459 R3-1). `globalThis.customElements` is installed ONCE as an
+/// eager data property (`register_globals` at `Vm::new`, never re-run per
+/// bind), so if the per-turn `unbind` dropped `custom_element_registry_
+/// instance` a fresh access would mint a SECOND wrapper — and the page's own
+/// `customElements` would then be classified `Foreign`, making
+/// `createElement(x, { customElementRegistry: customElements })` throw
+/// NotSupportedError instead of the document no-op. The wrapper must survive
+/// the per-turn unbind in lockstep with the surviving registry data.
+#[test]
+fn custom_element_registry_wrapper_identity_survives_per_turn_unbind() {
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = build_doc(&mut dom);
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+
+    // Batch A ends with a per-turn unbind (the CE registry wrapper must survive).
+    vm.unbind();
+
+    // Batch B: passing the page's own `customElements` as the creation-options
+    // registry must be the document no-op, NOT a Foreign rejection.
+    rebind(&mut vm, &mut session, &mut dom, doc);
+    let JsValue::String(sid) = vm
+        .eval(
+            "try { document.createElement('div', { customElementRegistry: customElements }); \
+                   'ok'; } catch (e) { e.name; }",
+        )
+        .expect("createElement probe failed")
+    else {
+        panic!("expected string from createElement probe")
+    };
+    assert_eq!(
+        vm.inner.strings.get_utf8(sid),
+        "ok",
+        "the page's own customElements must stay the document registry across a per-turn unbind",
+    );
+    vm.unbind();
+}
+
 /// Document teardown (navigation / engine drop) releases the CE registry.
 #[test]
 fn custom_element_registry_cleared_on_teardown_document() {

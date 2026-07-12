@@ -138,8 +138,11 @@ impl VmInner {
     }
 
     /// Return the per-VM `CustomElementRegistry` singleton wrapper,
-    /// allocating it on the first call. Re-allocates after
-    /// `Vm::unbind` clears the slot.
+    /// allocating it on the first call. The slot is document-lifetime —
+    /// it survives a per-turn `Vm::unbind` (so `globalThis.customElements`
+    /// identity is stable across batches) and is cleared only at
+    /// `Vm::teardown_document` (Codex #459 R3-1), after which the next
+    /// bind re-allocates lazily.
     pub(in crate::vm) fn alloc_or_cached_custom_element_registry(&mut self) -> ObjectId {
         if let Some(id) = self.custom_element_registry_instance {
             return id;
@@ -198,9 +201,13 @@ pub(super) enum RegistryMember {
     /// (`globalThis.customElements`).
     Document,
     /// A genuine `CustomElementRegistry` object that is NOT the
-    /// document's singleton. Only reachable via a wrapper retained
-    /// across a `Vm::unbind`/rebind cycle today — the interface has no
-    /// exposed constructor, so a second live registry cannot be minted.
+    /// document's singleton. Effectively unreachable today — the
+    /// interface has no exposed constructor, so a second live registry
+    /// cannot be minted, and the document's singleton wrapper now
+    /// survives a `Vm::unbind`/rebind cycle (`custom_element_registry_
+    /// instance` is document-lifetime, Codex #459 R3-1), so a retained
+    /// `customElements` reference always re-classifies as `Document`.
+    /// Kept for spec-completeness of the `CustomElementRegistry?` member.
     Foreign,
 }
 
