@@ -534,8 +534,10 @@ mod engine_feature {
         // (WHATWG HTML §4.13)
         // -------------------------------------------------------------
         /// Per-realm custom element registry (HTML §4.13.4) — owns the
-        /// `name → CustomElementDefinition` map + the per-name pending-
-        /// upgrade entity queue. Shared via `Arc<Mutex<>>` with
+        /// `name → CustomElementDefinition` map (+ the `constructor_id →
+        /// name` reverse index); it holds NO `Entity` (awaiting-upgrade
+        /// state is the per-entity `CustomElementState` component, which
+        /// dies with the world). Shared via `Arc<Mutex<>>` with
         /// [`elidex_custom_elements::CustomElementReactionConsumer`]
         /// (which only reads `observed_attributes`).
         ///
@@ -1797,8 +1799,13 @@ mod engine_feature {
                 // constructor + cached whenDefined Promise must stay
                 // GC-rooted for the registry's lifetime — otherwise an
                 // upgrade after a major GC cycle would dereference a
-                // freed `ObjectId`. Both maps are cleared on
-                // `Vm::unbind` so the roots release on rebind.
+                // freed `ObjectId`. Both maps are document-lifetime:
+                // they SURVIVE a per-turn `Vm::unbind` (so these roots
+                // persist across batches — which is exactly why the
+                // constructor/promise `ObjectId`s stay valid for a
+                // cross-batch upgrade / `whenDefined` resolution) and
+                // release only at `Vm::teardown_document`
+                // (`#11-per-batch-unbind-document-lifetime-state`).
                 .chain(self.ce_constructors.values().copied())
                 .chain(self.ce_when_defined_promises.values().copied())
         }

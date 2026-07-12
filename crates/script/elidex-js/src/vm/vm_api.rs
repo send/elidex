@@ -630,22 +630,33 @@ impl Vm {
             self.inner.client_states.clear();
             self.inner.sw_clients.clear();
             self.inner.sw_outgoing.clear();
-            // `navigator.serviceWorker` CLIENT state (registrations, the
-            // ready / register / unregister promises, controller scope, the
-            // inbound message buffer, and the `sw_client_outgoing` outbound
-            // queue) is document-lifetime (SW §3.4 ServiceWorkerContainer) and
-            // is cleared in `teardown_document`, NOT here — so a `register()`
-            // staged inside a script batch SURVIVES the per-batch unbind and
-            // reaches the out-of-bracket event-loop drain
-            // (`drain_sw_client_requests`), and the client registry a page
-            // reads across batches stays stable.  Survival is cross-DOM-safe:
-            // the client maps key on per-VM `ObjectId` / `String` (ride the
-            // heap) and a live `Vm` only ever rebinds the SAME `EcsDom`.
-            // (`#11-per-batch-unbind-document-lifetime-state`.)  The SW
-            // WORKER-side per-dispatch event state above (`fetch_event_states`
-            // / `client_states` / `sw_clients` / `sw_outgoing`) stays a
-            // per-turn scrub — it is transient and must not let a retained
-            // `Client` wrapper read a prior dispatch's snapshot.
+            // The `ServiceWorkerRegistration` / `ServiceWorker` wrapper-brand
+            // maps (`ObjectId → scope`) clear per-turn IN LOCKSTEP with the
+            // `wrapper_store.retain(kind == Node)` drop below: those wrappers
+            // are `WrapperKind::ServiceWorkerRegistration` / `ServiceWorker`
+            // (non-Node, interned via `WrapperKey::scope`), so they are dropped
+            // every unbind and re-minted next batch from the surviving
+            // `sw_registrations` data.  Keeping the brand maps alive past their
+            // wrappers would leave stale `ObjectId → scope` entries that
+            // mis-brand a recycled `ObjectId` — so they must NOT survive.
+            self.inner.sw_registration_states.clear();
+            self.inner.service_worker_states.clear();
+            // The rest of the `navigator.serviceWorker` CLIENT state — the
+            // `sw_registrations` DATA, the ready / register / unregister
+            // promises (GC-force-marked), `sw_controller_scope`, the inbound
+            // message buffer, and the `sw_client_outgoing` outbound queue — is
+            // document-lifetime (SW §3.4 ServiceWorkerContainer) and is cleared
+            // in `teardown_document`, NOT here — so a `register()` staged inside
+            // a script batch SURVIVES the per-batch unbind and reaches the
+            // out-of-bracket event-loop drain (`drain_sw_client_requests`), and
+            // the client registry a page reads across batches stays stable.
+            // Survival is cross-DOM-safe: those keys are per-VM `ObjectId`
+            // (GC-rooted) / `String` and a live `Vm` only ever rebinds the SAME
+            // `EcsDom`. (`#11-per-batch-unbind-document-lifetime-state`.)  The
+            // SW WORKER-side per-dispatch event state above (`fetch_event_states`
+            // / `client_states` / `sw_clients` / `sw_outgoing`) also stays a
+            // per-turn scrub — transient, must not let a retained `Client`
+            // wrapper read a prior dispatch's snapshot.
             // NB: the container singleton + the three interface prototypes are
             // NOT cleared — like `navigator` / `clients_prototype` they are
             // realm-structural and persist across a rebind (so a post-rebind
@@ -960,9 +971,12 @@ impl Vm {
         // the BATCH-BIND unbind between script batches
         // (`#11-per-batch-unbind-document-lifetime-state`).  Pure map clears
         // with no emit side-effect, so a double-fire (explicit call then the
-        // engine-Drop backstop) is a trivial no-op.  `ce_reaction_queue` +
-        // the SW worker-side per-dispatch state are NOT cleared here — they
-        // stay on the per-turn scrub in `unbind` (called last, below).
+        // engine-Drop backstop) is a trivial no-op.  NOT cleared here (they
+        // stay on the per-turn scrub in `unbind`, called last below):
+        // `ce_reaction_queue`, the SW worker-side per-dispatch state, and the
+        // SW `ServiceWorkerRegistration`/`ServiceWorker` wrapper-brand maps
+        // (`sw_registration_states` / `service_worker_states` — per-turn, in
+        // lockstep with the `wrapper_store` non-Node drop).
         if let Some(hd) = self.inner.host_data.as_deref_mut() {
             hd.ce_registry
                 .lock()
@@ -977,8 +991,6 @@ impl Vm {
         self.inner.pending_unregister_promises.clear();
         self.inner.sw_ready_promise = None;
         self.inner.sw_registrations.clear();
-        self.inner.sw_registration_states.clear();
-        self.inner.service_worker_states.clear();
         self.inner.sw_controller_scope = None;
         self.inner.sw_messages_enabled = false;
         self.inner.sw_message_buffer.clear();

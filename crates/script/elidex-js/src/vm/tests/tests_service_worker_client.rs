@@ -704,3 +704,42 @@ fn teardown_document_clears_sw_client_state() {
     assert!(vm.inner.sw_ready_promise.is_none());
     assert!(vm.inner.sw_controller_scope.is_none());
 }
+
+// The `ServiceWorkerRegistration` wrapper-brand map clears per-turn IN LOCKSTEP
+// with the `wrapper_store.retain(kind == Node)` drop — the survivor-set fix
+// must NOT let it outlive its wrapper (a stale `ObjectId → scope` brand entry
+// would mis-brand a recycled `ObjectId`). Guards against re-promoting it.
+#[test]
+fn sw_registration_wrapper_brand_clears_per_turn() {
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = build_min_fixture(&mut dom);
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    vm.inner.navigation.current_url = url(BASE);
+
+    // Resolve a registration so its wrapper is minted (+ a brand entry).
+    vm.eval("navigator.serviceWorker.register('sw.js').then(r => { globalThis.__reg = r; });")
+        .unwrap();
+    vm.drain_sw_client_requests();
+    deliver_registered(&mut vm, SwState::Installing);
+    assert!(
+        !vm.inner.sw_registration_states.is_empty(),
+        "resolving register() should mint the registration wrapper + its brand entry"
+    );
+
+    // Per-turn unbind drops the (non-Node) wrapper — the brand map must clear
+    // in lockstep, while the registration DATA survives (document-lifetime).
+    vm.unbind();
+    assert!(
+        vm.inner.sw_registration_states.is_empty(),
+        "wrapper-brand map must clear per-turn (coupled to the wrapper_store drop)"
+    );
+    assert!(
+        !vm.inner.sw_registrations.is_empty(),
+        "the registration DATA survives the per-turn unbind"
+    );
+}

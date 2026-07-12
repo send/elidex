@@ -2419,8 +2419,13 @@ pub(crate) struct VmInner {
     /// `contains_key` is the brand-check; the value indexes `sw_registrations`.
     ///
     /// GC contract: payload-free (a `String`); sweep prunes dead keys.
-    /// Document-lifetime: cleared at [`Vm::teardown_document`] (survives a
-    /// per-turn unbind — `#11-per-batch-unbind-document-lifetime-state`).
+    /// **Cleared per-turn on [`Vm::unbind`]** — this is a wrapper-brand map
+    /// keyed by the `ServiceWorkerRegistration` wrapper `ObjectId`, and that
+    /// wrapper (`WrapperKind::ServiceWorkerRegistration`, non-Node) is dropped
+    /// from `wrapper_store` every unbind, so the brand must clear in lockstep;
+    /// it is re-minted next batch from the surviving `sw_registrations` data.
+    /// (Surviving it past its wrapper would mis-brand a recycled `ObjectId` —
+    /// `#11-per-batch-unbind-document-lifetime-state`.)
     #[cfg(feature = "engine")]
     pub(crate) sw_registration_states: HashMap<ObjectId, String>,
     /// Brand + scope-recovery side-store for `ServiceWorker` objects (SW
@@ -2463,7 +2468,10 @@ pub(crate) struct VmInner {
     /// target for `controllerchange` / `message`.
     ///
     /// GC contract: reachable via `navigator.serviceWorker` (a global), so no
-    /// force-mark; cleared on [`Vm::unbind`].
+    /// force-mark.  Realm-structural — NOT cleared on `Vm::unbind` (persists
+    /// across a rebind so a post-rebind `ControllerSet`/`Message` deliver still
+    /// finds the container; see the `unbind` "container singleton … NOT
+    /// cleared" note), like `navigator` / `clients_prototype`.
     #[cfg(feature = "engine")]
     pub(crate) sw_container: Option<ObjectId>,
     /// The page's controller scope (SW §3.4.1) — the canonical scope of the
