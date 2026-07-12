@@ -276,12 +276,19 @@ impl PipelineResult {
     /// Returns `true` if `preventDefault()` was called.
     ///
     /// S5-6b batch-bind bracket (§4.1 "UA / lifecycle event dispatch"): build
-    /// `ScriptContext` ONCE, bind through it, drive `script_dispatch_event` +
-    /// `drain_reactions` under the SAME `&mut ctx`, unbind. `with_bound`'s RAII
-    /// guard makes the bracket panic-safe and unpaired-form-unrepresentable. The
-    /// driving-order invariant (never reconstruct `ScriptContext::new(&mut dom,…)`
-    /// mid-bracket — a fresh `&mut dom` invalidates the bound `*mut dom`) is held
-    /// by threading the single `ctx` the closure receives.
+    /// `ScriptContext` ONCE, bind through it, drive `script_dispatch_event`
+    /// under the SAME `&mut ctx`, unbind. `with_bound`'s RAII guard makes the
+    /// bracket panic-safe and unpaired-form-unrepresentable. The driving-order
+    /// invariant (never reconstruct `ScriptContext::new(&mut dom,…)` mid-bracket
+    /// — a fresh `&mut dom` invalidates the bound `*mut dom`) is held by
+    /// threading the single `ctx` the closure receives.
+    ///
+    /// The post-dispatch microtask + CE-reaction checkpoint (HTML §8.1.4.4
+    /// *clean up after running script*) is owned by `script_dispatch_event`
+    /// itself (it calls `drain_reactions` after the 3-phase listener walk), so
+    /// this method must NOT drain again — a second checkpoint would run tasks a
+    /// reaction queued (e.g. a `postMessage`) in THIS dispatch turn instead of
+    /// the next one, perturbing observable ordering.
     #[allow(unsafe_code)]
     pub fn dispatch_event(&mut self, event: &mut elidex_script_session::DispatchEvent) -> bool {
         let mut ctx = ScriptContext::new(&mut self.session, &mut self.dom, self.document);
@@ -290,11 +297,7 @@ impl PipelineResult {
         // bound (they use the bound pointers) — the `with_bound` contract.
         unsafe {
             self.runtime.with_bound(&mut ctx, |engine, ctx| {
-                let prevented = elidex_script_session::script_dispatch_event(engine, event, ctx);
-                // Post-dispatch microtask + CE-reaction checkpoint (HTML §8.1.4.4
-                // *clean up after running script*), per the bracket contract.
-                engine.drain_reactions(ctx);
-                prevented
+                elidex_script_session::script_dispatch_event(engine, event, ctx)
             })
         }
     }

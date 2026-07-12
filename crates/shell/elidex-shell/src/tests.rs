@@ -359,11 +359,14 @@ fn domcontentloaded_fires() {
 
 #[test]
 fn load_event_fires() {
-    // load listener should fire during pipeline build.
+    // load listener should fire during pipeline build. The document `load` event
+    // fires at the Window ("the end" processing model), so it registers via
+    // `window.addEventListener('load', …)` on the VM's Window entity — a
+    // document-targeted listener would not catch the page load.
     let result = build_pipeline_interactive(
         "<div id=\"target\">Before</div>\
          <script>\
-           document.addEventListener('load', function() {\
+           window.addEventListener('load', function() {\
              document.getElementById('target').textContent = 'loaded';\
            });\
          </script>",
@@ -380,14 +383,16 @@ fn domcontentloaded_fires_before_load() {
     // Capture the firing order in the DOM (each handler appends to `#order`),
     // read back via `get_text_content` — the same VM-robust pattern the sibling
     // `domcontentloaded_fires` / `load_event_fires` use (no reliance on a
-    // cross-eval `var` global).
+    // cross-eval `var` global). `DOMContentLoaded` is a Document event
+    // (`document.addEventListener`), while `load` fires at the Window
+    // (`window.addEventListener`) — each registered on its spec-correct target.
     let result = build_pipeline_interactive(
         "<div id=\"order\"></div>\
          <script>\
            document.addEventListener('DOMContentLoaded', function() {\
              document.getElementById('order').textContent += 'dcl,';\
            });\
-           document.addEventListener('load', function() {\
+           window.addEventListener('load', function() {\
              document.getElementById('order').textContent += 'load,';\
            });\
          </script>",

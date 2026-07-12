@@ -686,8 +686,16 @@ fn dispatch_storage_event(
     new_value: Option<String>,
     url: String,
 ) {
-    let mut event =
-        elidex_script_session::DispatchEvent::new_composed("storage", state.pipeline.document);
+    // `storage` is a Window event (`WindowEventHandlers` onstorage) — after the
+    // VM flip `window.addEventListener('storage', …)` / `window.onstorage`
+    // record against the dedicated Window entity, so target it (falling back to
+    // `document` pre-bind), the same routing as `message`/`resize`.
+    let window_target = state
+        .pipeline
+        .runtime
+        .window_entity()
+        .unwrap_or(state.pipeline.document);
+    let mut event = elidex_script_session::DispatchEvent::new_composed("storage", window_target);
     event.bubbles = false;
     event.cancelable = false;
     event.payload = elidex_plugin::EventPayload::Storage {

@@ -92,15 +92,23 @@ impl VmInner {
                 // false` ChildList record enqueues nothing (falls to `_` below).
                 // The subtree classification itself is shared (H1); only this
                 // connectivity gate lives here.
+                //
+                // Order: `disconnectedCallback` (removed) BEFORE `connectedCallback`
+                // (added). A coalesced record carrying both (`innerHTML` /
+                // `replaceChild` / `replaceChildren`) mirrors §4.2.3 "replace",
+                // which removes the old children (step 11 → disconnected) BEFORE
+                // inserting the new ones (step 13 → connected); a page must not
+                // observe the replacement connected before the replaced element is
+                // disconnected.
                 MutationKind::ChildList if record.parent_was_connected => {
-                    for &added in &record.added_nodes {
-                        reactions.extend(elidex_custom_elements::classify_connected_subtree(
-                            added, dom, &registry,
-                        ));
-                    }
                     for &removed in &record.removed_nodes {
                         reactions.extend(elidex_custom_elements::classify_disconnected_subtree(
                             removed, dom,
+                        ));
+                    }
+                    for &added in &record.added_nodes {
+                        reactions.extend(elidex_custom_elements::classify_connected_subtree(
+                            added, dom, &registry,
                         ));
                     }
                 }

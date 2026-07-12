@@ -105,10 +105,14 @@ pub struct PreEvalFrameInputs {
 /// `ensure_event_handler_current` reads `HostData::dom`, which requires the VM
 /// BOUND; a bare (unbracketed) dispatch panics "HostData accessed while unbound".
 /// So every dispatch is bracketed exactly like `dispatch_event`: build
-/// `ScriptContext` ONCE, bind, drive `script_dispatch_event` + `drain_reactions`
-/// under the SAME `&mut ctx`, unbind (RAII-guarded, panic-safe). Sequential
-/// brackets (this + a following `flush_with_ce_reactions`) never overlap, so the
-/// bound `*mut dom` aliasing contract holds.
+/// `ScriptContext` ONCE, bind, drive `script_dispatch_event` under the SAME
+/// `&mut ctx`, unbind (RAII-guarded, panic-safe). The post-dispatch
+/// microtask/CE-reaction checkpoint is owned by `script_dispatch_event` (it
+/// drains after the listener walk), so this fn must NOT drain again — a second
+/// checkpoint would run a reaction-queued task (e.g. `postMessage`) in THIS
+/// dispatch turn instead of the next. Sequential brackets (this + a following
+/// `flush_with_ce_reactions`) never overlap, so the bound `*mut dom` aliasing
+/// contract holds.
 #[allow(unsafe_code)]
 /// Returns `true` if a listener called `preventDefault()` (for the cancelable
 /// `beforeunload` gate; the non-cancelable UA/lifecycle callers ignore it).
@@ -125,9 +129,7 @@ fn dispatch_event_bracketed(
     // `ctx.dom` through a `&mut` while bound (they use the bound pointers).
     unsafe {
         runtime.with_bound(&mut ctx, |engine, ctx| {
-            let prevented = elidex_script_session::script_dispatch_event(engine, event, ctx);
-            engine.drain_reactions(ctx);
-            prevented
+            elidex_script_session::script_dispatch_event(engine, event, ctx)
         })
     }
 }
@@ -457,13 +459,14 @@ fn dispatch_lifecycle_events(
 
     // 4. load: does NOT bubble (spec), not cancelable.
     //
-    // Per HTML spec §8.2.6, the `load` event fires on the Window object.
-    // In our architecture, there is no separate Window entity — the document
-    // entity serves as the event target. This is correct because:
-    // - `window.onload` is aliased to document-level in our model
-    // - `addEventListener('load', ...)` on document still fires
-    // - The event does not bubble, so dispatching on document is equivalent
-    let mut load_event = DispatchEvent::new("load", document);
+    // Per HTML "the end" processing model, the document `load` event fires at
+    // the **Window**. After the VM flip `window.onload` /
+    // `window.addEventListener('load', …)` register on the dedicated Window
+    // entity, and `load` does not bubble, so a document-targeted dispatch would
+    // skip them — target the Window entity (falling back to `document` pre-bind),
+    // exactly like `beforeunload`/`unload` above. Binding document unchanged.
+    let window_target = runtime.window_entity().unwrap_or(document);
+    let mut load_event = DispatchEvent::new("load", window_target);
     load_event.bubbles = false;
     load_event.cancelable = false;
     dispatch_event_bracketed(runtime, session, dom, document, &mut load_event);
