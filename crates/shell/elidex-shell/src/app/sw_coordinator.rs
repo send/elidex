@@ -145,6 +145,8 @@ impl SwCoordinator {
     ///
     /// Registers the SW, spawns a SW thread, and sends Install event.
     /// Sends `SwRegistered(success: false)` back on validation failure.
+    // cohesive sw-coordination signature; a params struct is a separate refactor
+    #[allow(clippy::too_many_arguments)]
     pub fn register(
         &mut self,
         script_url: &url::Url,
@@ -199,11 +201,7 @@ impl SwCoordinator {
         let initial_clients: Vec<elidex_api_sw::ClientSnapshot> = self
             .client_states
             .values()
-            .filter(|c| {
-                url::Url::parse(&c.url)
-                    .map(|u| u.origin() == scope_origin)
-                    .unwrap_or(false)
-            })
+            .filter(|c| url::Url::parse(&c.url).is_ok_and(|u| u.origin() == scope_origin))
             .map(client_state_to_snapshot)
             .collect();
 

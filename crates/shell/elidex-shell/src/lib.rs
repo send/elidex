@@ -317,7 +317,7 @@ impl PipelineResult {
         // SAFETY: see `dispatch_event` — the `with_bound` unaliased contract.
         unsafe {
             self.runtime
-                .with_bound(&mut ctx, |engine, ctx| engine.drain_timers(ctx))
+                .with_bound(&mut ctx, elidex_script_session::ScriptEngine::drain_timers)
         }
     }
 
@@ -638,7 +638,8 @@ pub(crate) fn re_render(result: &mut PipelineResult) {
                 Some(registry),
             ))
         });
-    let stylesheet_refs: Vec<&Stylesheet> = collected.iter().map(|s| s.as_ref()).collect();
+    let stylesheet_refs: Vec<&Stylesheet> =
+        collected.iter().map(std::convert::AsRef::as_ref).collect();
     result.viewport_overflow = resolve_with_mode(
         &mut result.dom,
         &stylesheet_refs,

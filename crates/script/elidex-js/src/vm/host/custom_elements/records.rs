@@ -72,27 +72,25 @@ impl VmInner {
         let mut reactions = Vec::new();
         for record in records {
             match record.kind {
-                MutationKind::ChildList => {
-                    // Connectivity is derived from the record's target
-                    // (the mutation parent) post-mutation: added nodes are
-                    // its children (share its connectivity), and a still-
-                    // connected target means a removed child WAS connected
-                    // before removal. Records carry no per-node
-                    // connectivity, so this is the record leg's local gate
-                    // (the mutation-event leg uses the event's
-                    // `was_connected`); the subtree classification itself
-                    // is shared.
-                    if dom.is_connected(record.target) {
-                        for &added in &record.added_nodes {
-                            reactions.extend(elidex_custom_elements::classify_connected_subtree(
-                                added, dom, &registry,
-                            ));
-                        }
-                        for &removed in &record.removed_nodes {
-                            reactions.extend(
-                                elidex_custom_elements::classify_disconnected_subtree(removed, dom),
-                            );
-                        }
+                // Connectivity is derived from the record's target
+                // (the mutation parent) post-mutation: added nodes are
+                // its children (share its connectivity), and a still-
+                // connected target means a removed child WAS connected
+                // before removal. Records carry no per-node
+                // connectivity, so this is the record leg's local gate
+                // (the mutation-event leg uses the event's
+                // `was_connected`); the subtree classification itself
+                // is shared.
+                MutationKind::ChildList if dom.is_connected(record.target) => {
+                    for &added in &record.added_nodes {
+                        reactions.extend(elidex_custom_elements::classify_connected_subtree(
+                            added, dom, &registry,
+                        ));
+                    }
+                    for &removed in &record.removed_nodes {
+                        reactions.extend(elidex_custom_elements::classify_disconnected_subtree(
+                            removed, dom,
+                        ));
                     }
                 }
                 MutationKind::Attribute => {

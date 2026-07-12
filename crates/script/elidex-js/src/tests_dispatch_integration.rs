@@ -26,7 +26,7 @@ use crate::vm::value::JsValue;
 /// `document_root`.  Callers create their DOM tree, then call
 /// `bind_after_dom` to start the VM's host-pointer lifecycle.
 fn fresh_unbound() -> (ElidexJsEngine, SessionCore, EcsDom, Entity) {
-    let mut engine = ElidexJsEngine::new();
+    let engine = ElidexJsEngine::new();
     let session = SessionCore::new();
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
@@ -342,7 +342,7 @@ fn bound_dispatch_listener_dom_mutation_is_sound_and_visible() {
     );
 
     HostDriver::unbind(&mut engine);
-    drop(ctx);
+    let _ = ctx;
 
     // Read the mutations back through the same `EcsDom` `ctx.dom` aliased: if the
     // single-derivation-chain routing held, the engine's bound-pointer mutations
@@ -424,7 +424,7 @@ fn bound_dispatch_routing_is_stacked_borrows_clean() {
     );
 
     HostDriver::unbind(&mut engine);
-    drop(ctx);
+    let _ = ctx;
 }
 
 #[test]

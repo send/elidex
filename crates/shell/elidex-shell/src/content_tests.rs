@@ -665,7 +665,7 @@ fn lazy_iframe_srcdoc_change_while_offscreen_re_defers() {
     // test in control of when those run). Then assert the iframe really is laid
     // out below the viewport + lazy margin — the precondition `check_lazy_iframes`
     // keys on — so the "offscreen" assertions below are not vacuous.
-    let _ = crate::re_render(&mut state.pipeline);
+    crate::re_render(&mut state.pipeline);
     let frame_top = state
         .pipeline
         .dom

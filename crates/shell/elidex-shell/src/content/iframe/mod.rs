@@ -171,13 +171,6 @@ impl IframeRegistry {
         self.lazy_pending.retain(|&e| e != entity);
     }
 
-    /// Remove a batch of entities from the lazy-pending list.
-    pub fn remove_lazy_pending_batch(&mut self, entities: &std::collections::HashSet<Entity>) {
-        if !entities.is_empty() {
-            self.lazy_pending.retain(|e| !entities.contains(e));
-        }
-    }
-
     /// Remove entities from the lazy-pending list by a provided list.
     pub fn remove_lazy_pending_list(&mut self, entities: &[Entity]) {
         self.lazy_pending.retain(|e| !entities.contains(e));

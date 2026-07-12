@@ -20,7 +20,7 @@ use crate::vm::value::JsValue;
 /// Construct an unbound engine + session + dom with a fresh `document_root`
 /// (mirrors `tests_engine_s1a::fresh_unbound`).
 fn fresh_unbound() -> (ElidexJsEngine, SessionCore, EcsDom, Entity) {
-    let mut engine = ElidexJsEngine::new();
+    let engine = ElidexJsEngine::new();
     let session = SessionCore::new();
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();

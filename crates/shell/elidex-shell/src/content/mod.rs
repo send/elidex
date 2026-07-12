@@ -181,6 +181,8 @@ impl ContentState {
     /// would satisfy the staleness guard and apply a pre-build intermediate (the
     /// backward flash the seq exists to prevent). `applied_facts_seq` is the same
     /// contract for the device-facts generation (`ViewportSnapshot::facts_seq`).
+    // cohesive content-pipeline signature; a params struct is a separate refactor
+    #[allow(clippy::too_many_arguments)]
     fn new(
         channel: LocalChannel<ContentToBrowser, BrowserToContent>,
         nav_controller: NavigationController,
@@ -271,7 +273,10 @@ impl ContentState {
         let pending_scroll = self.pipeline.runtime.take_pending_scroll();
         if let Some((x, y)) = pending_scroll {
             // f64 (DOM coordinates) → f32 (render-space `Vector`) at the seam.
-            self.viewport_scroll.scroll_offset = elidex_plugin::Vector::new(x as f32, y as f32);
+            #[allow(clippy::cast_possible_truncation)]
+            // render coords are f32; the f64→f32 narrowing is intentional
+            let offset = elidex_plugin::Vector::new(x as f32, y as f32);
+            self.viewport_scroll.scroll_offset = offset;
         }
 
         // Sync viewport scroll offset to pipeline for display list building.

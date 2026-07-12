@@ -401,8 +401,8 @@ fn register_iframe_entry(
     data: &elidex_ecs::IframeData,
     mut entry: IframeEntry,
 ) {
-    entry.loaded_src = data.src.clone();
-    entry.loaded_srcdoc = data.srcdoc.clone();
+    entry.loaded_src.clone_from(&data.src);
+    entry.loaded_srcdoc.clone_from(&data.srcdoc);
     if let IframeHandle::InProcess(ref mut ip) = entry.handle {
         let arc_dl = std::sync::Arc::new(ip.pipeline.display_list.clone());
         ip.cached_display_list = Some(std::sync::Arc::clone(&arc_dl));

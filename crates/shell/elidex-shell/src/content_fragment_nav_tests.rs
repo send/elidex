@@ -178,8 +178,11 @@ fn fragment_nav_scrolls_to_id_and_echoes_offset() {
         (state.pipeline.scroll_offset.y - top).abs() < f32::EPSILON,
         "the resolved offset reaches the pipeline display-list scroll offset"
     );
+    #[allow(clippy::cast_possible_truncation)]
+    // test compares an f32-rendered coord; the f64→f32 narrowing is intended
+    let scroll_y = state.pipeline.runtime.eval_f64("window.scrollY") as f32;
     assert!(
-        (state.pipeline.runtime.eval_f64("window.scrollY") as f32 - top).abs() < f32::EPSILON,
+        (scroll_y - top).abs() < f32::EPSILON,
         "the resolved offset is echoed to window.scrollY (not shipped un-applied)"
     );
 }

@@ -71,7 +71,7 @@ fn vm_stores_mode_derived_policy() {
 }
 
 fn fresh(engine_mode: EngineMode) -> (ElidexJsEngine, SessionCore, EcsDom, Entity) {
-    let mut engine = ElidexJsEngine::new_with_mode(engine_mode);
+    let engine = ElidexJsEngine::new_with_mode(engine_mode);
     let session = SessionCore::new();
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
