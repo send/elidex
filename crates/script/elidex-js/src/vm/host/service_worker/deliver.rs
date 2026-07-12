@@ -92,7 +92,8 @@ fn deliver_registered(
     // Seed the registry authoritatively (F1) — the write-path `.installing` /
     // `.waiting` / `.active` read from at resolve.
     let scope_sid = ctx.vm.strings.intern(&canonical);
-    let prev_state = {
+    let incoming_script_url = worker.as_ref().map(|w| w.script_url.clone());
+    let (prev_state, script_url_changed) = {
         let entry = ctx
             .vm
             .sw_registrations
@@ -105,11 +106,37 @@ fn deliver_registered(
         // A re-register / update may change updateViaCache (SW §3.2.7).
         entry.update_via_cache = update_via_cache;
         let prev = entry.worker.as_ref().map(|w| w.state);
+        // Per SW §3.1.1 "get the service worker object", the service worker
+        // object map keys by the WORKER — a NEW script is a NEW `ServiceWorker`
+        // object with its own immutable `scriptURL` (§3.1.2).  elidex collapses
+        // to one Scope-keyed `ServiceWorker` wrapper per scope, and R2 now
+        // RETAINS that wrapper across the per-turn unbind — so a cross-batch
+        // update to a different script would otherwise return the CACHED wrapper
+        // and skip `worker_object`'s alloc closure that freezes `scriptURL`,
+        // leaving `reg.active.scriptURL` stale (Codex #459 R5-#1).  Detect the
+        // script-URL change here and evict the stale wrapper below so the next
+        // `worker_object` re-mints it from the new snapshot.  Gate strictly on
+        // the URL changing — a bare STATE transition keeps the same worker
+        // object (`worker_identity_survives_state_transition`), so it must NOT
+        // evict.
+        let changed = matches!(
+            (entry.worker.as_ref().map(|w| &w.script_url), &incoming_script_url),
+            (Some(prev_url), Some(new_url)) if prev_url != new_url
+        );
         if let Some(w) = worker {
             entry.worker = Some(w);
         }
-        prev
+        (prev, changed)
     };
+    if script_url_changed {
+        // Evict-then-remint (the existing `deliver_unregistered` precedent):
+        // drop only the Scope-keyed wrapper — a JS-held reference to the OLD
+        // worker correctly keeps its frozen old `scriptURL`
+        // (`worker_script_url_is_immutable_across_unregister`).
+        let _ = ctx
+            .vm
+            .remove_wrapper_keyed(WrapperKey::scope(scope_sid, WrapperKind::ServiceWorker));
+    }
 
     // Intern the registration (+ worker) BEFORE settling (NG-3).
     let reg = registration_object(ctx.vm, &canonical, scope_sid);
@@ -128,6 +155,15 @@ fn deliver_registered(
     // pending promise, which must wait for its own round-trip rather than being
     // settled by this deliver.  (settle_promise queues the `.then` as a
     // microtask, so the handler below still runs before register() resolves.)
+    //
+    // ⚠ KNOWN LIMITATION (`#11-sw-client-request-correlation`, Codex #459 R5-#2):
+    // the list is Scope-keyed and this drains the WHOLE Vec on the first
+    // `Registered`.  Now that `pending_registration_promises` is document-
+    // lifetime (survives the per-turn unbind), two CROSS-batch same-scope
+    // `register`/`update` jobs can coalesce onto one round-trip and settle the
+    // 2nd job's promise with the 1st job's worker/updateViaCache.  The correct
+    // fix is a per-request job-id carried through the coordinator round-trip
+    // (edge-dense protocol change → deferred to a plan-reviewed follow-up).
     let waiters = ctx
         .vm
         .pending_registration_promises
@@ -292,6 +328,12 @@ fn deliver_unregistered(ctx: &mut NativeContext<'_>, scope: &Url, success: bool)
             .vm
             .remove_wrapper_keyed(WrapperKey::scope(scope_sid, WrapperKind::ServiceWorker));
     }
+    // ⚠ KNOWN LIMITATION (`#11-sw-client-request-correlation`, Codex #459 R5-#3,
+    // the unregister sibling of R5-#2): Scope-keyed whole-Vec drain — two
+    // cross-batch `unregister()`s on one scope both settle with THIS deliver's
+    // `success`, so the 2nd (which should resolve `false`, SW §3.2.9 "nothing to
+    // remove") wrongly resolves `true`. Fixed by the same per-request job-id
+    // correlation deferred to the plan-reviewed follow-up.
     let waiters = ctx
         .vm
         .pending_unregister_promises

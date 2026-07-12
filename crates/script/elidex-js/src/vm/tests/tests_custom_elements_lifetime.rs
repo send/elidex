@@ -123,6 +123,51 @@ fn custom_element_registry_wrapper_identity_survives_per_turn_unbind() {
     vm.unbind();
 }
 
+/// A `whenDefined(name)` promise minted in one batch must SURVIVE the per-turn
+/// unbind and be resolved by a `define(name)` in a LATER batch (HTML §4.13.4
+/// whenDefined + define step 19 "resolve promise / remove map entry"). The
+/// `ce_when_defined_promises` map is document-lifetime; pre-survivor-set the
+/// per-turn unbind cleared it, orphaning the pending promise so it hung forever
+/// — surviving is the spec-correct fix (Codex #459 R5 CE-audit coverage gap).
+#[test]
+fn when_defined_promise_survives_unbind_and_resolves_on_later_define() {
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = build_doc(&mut dom);
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+
+    // Batch A: request whenDefined for a not-yet-defined name (promise pending).
+    vm.eval(
+        "globalThis.__wd = 'pending'; \
+         customElements.whenDefined('my-el').then(() => { globalThis.__wd = 'resolved'; });",
+    )
+    .expect("whenDefined failed");
+    let JsValue::String(sid) = vm.eval("globalThis.__wd").expect("read") else {
+        panic!("expected string")
+    };
+    assert_eq!(vm.inner.strings.get_utf8(sid), "pending", "not defined yet");
+    vm.unbind();
+
+    // Batch B: define in a later batch resolves the SURVIVING promise (its
+    // `.then` runs on the eval-tail microtask drain).
+    rebind(&mut vm, &mut session, &mut dom, doc);
+    vm.eval("customElements.define('my-el', class extends HTMLElement {});")
+        .expect("define failed");
+    let JsValue::String(sid) = vm.eval("globalThis.__wd").expect("read") else {
+        panic!("expected string")
+    };
+    assert_eq!(
+        vm.inner.strings.get_utf8(sid),
+        "resolved",
+        "whenDefined promise minted before the unbind must resolve on a later-batch define",
+    );
+    vm.unbind();
+}
+
 /// Document teardown (navigation / engine drop) releases the CE registry.
 #[test]
 fn custom_element_registry_cleared_on_teardown_document() {

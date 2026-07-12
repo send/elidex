@@ -294,6 +294,40 @@ the document's.
 > a one-line removal available now), it makes the unbind-vs-teardown distinction for class-1/class-2 wrappers
 > **vanish** (one World-lifetime), which is the real endpoint that removes the manual per-field taxonomy tax.
 
+> **⚠ AS-BUILT (Codex #459 R5 — survivor-set CONSUMER-audit: the moved lifetime hit un-audited consumers)** —
+> R5 surfaced 2 IMP (R5-#1 SW `scriptURL` stale on cross-batch update; R5-#2 `pending_registration_promises`
+> whole-Vec cross-batch drain) + 1 P3 (1000-line split). Both IMP = the survivor-set MOVEd a field's lifetime
+> but the CONSUMER still assumed the old per-batch clear (R4 was the same shape). Hit the R5 PAUSE. **Executed
+> a COMPREHENSIVE consumer-audit (option A, 2 independent adversarial agents) of EVERY survivor-set-moved field
+> × all consumers** — this is the "step back & collapse" that closes the class instead of one-by-one patching:
+> - **SW: 3 REAL / 7 FP.** REAL = #1 (scriptURL), #2 (register whole-Vec drain), **#3 (unregister whole-Vec
+>   drain — a Codex-UNFILED sibling of #2, clearer: 2nd unregister must resolve `false` per SW §3.2.9 but the
+>   whole-Vec-drain resolves both `true`; found only because the audit was exhaustive)**. FP = brand maps /
+>   registration wrapper / ready / controller / messages_enabled / message_buffer / client_outgoing (each
+>   blessed by an existing test or required for cross-batch correctness).
+> - **CE: 0 REAL / 11 FP** — the survivor-set is spec-corrective for CE (registry state is per-Document by
+>   §4.13.4/§4.13.5); the SW bug shapes (cached wrapper split from a separately-keyed brand row; wholesale Vec
+>   drain) have NO CE analog (CE brand is intrinsic `ObjectKind`; `ce_when_defined_promises` is a per-name map
+>   with per-name `.remove()`). Two non-behavioral MINOR fixed this PR (stale `alloc_or_cached` doc from R4;
+>   `when_defined_promise_survives_unbind_and_resolves_on_later_define` coverage gap).
+>
+> **Disposition (user-approved A′ at the R5 PAUSE):**
+> - **#1 (scriptURL) → FIXED this PR** (bounded, VM-local): `deliver_registered` evicts the Scope-keyed
+>   `ServiceWorker` wrapper when the incoming snapshot's `script_url` differs from the stored one (the existing
+>   `deliver_unregistered` evict-then-remint precedent), gated strictly on URL change so a bare state
+>   transition keeps identity. Pinned by `cross_batch_script_update_refreshes_worker_script_url` (neg-checked).
+> - **#2 + #3 (pending register/unregister promise correlation) → DEFERRED to a plan-reviewed follow-up**, slot
+>   **`#11-sw-client-request-correlation`**. Rationale: the correct fix is a **cross-component request-id
+>   correlation protocol** (add a job/request id to `SwClientRequest` + `SwClientUpdate` in `elidex-api-sw`,
+>   thread it through the content-thread coordinator round-trip, key the pending-promise Vecs by job id) whose
+>   correlation semantics DIFFER per op (register coalesces per SW job-coalescing; unregister is per-job with
+>   its own boolean) — **edge-dense ⇒ CLAUDE.md "edge-dense work = 単一 PR に束ねない + 実装前 plan-review 必須"**,
+>   NOT a converge-round patch. And it does not regress a working path: pre-survivor-set the same cross-batch
+>   multi-register/unregister case was already broken *differently* (the pending promise was cleared at unbind
+>   → hung forever); this PR changes the failure mode of an already-broken edge, it does not break a
+>   previously-working flow. The scope-only whole-Vec-drain in `deliver.rs` carries an in-code note pointing at
+>   the slot.
+
 ### STAYS (per-turn or genuine cross-DOM scrub — this slice does NOT touch)
 
 | Field(s) | Site | Why STAY |

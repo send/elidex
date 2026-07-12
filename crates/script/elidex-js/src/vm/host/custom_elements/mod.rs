@@ -138,11 +138,15 @@ impl VmInner {
     }
 
     /// Return the per-VM `CustomElementRegistry` singleton wrapper,
-    /// allocating it on the first call. The slot is document-lifetime —
-    /// it survives a per-turn `Vm::unbind` (so `globalThis.customElements`
-    /// identity is stable across batches) and is cleared only at
-    /// `Vm::teardown_document` (Codex #459 R3-1), after which the next
-    /// bind re-allocates lazily.
+    /// allocating it on the first call. The slot is **realm-structural**
+    /// (Codex #459 R3-1 + R4): once minted it is NEVER cleared — not on a
+    /// per-turn `Vm::unbind` NOR at `Vm::teardown_document` — because
+    /// `globalThis.customElements` is an install-once data property that keeps
+    /// it rooted, and clearing the slot would let a rebind re-mint a duplicate
+    /// and misclassify the page's own registry as `Foreign`. Only the backing
+    /// `ce_registry` DATA is document-lifetime; after teardown the surviving
+    /// wrapper reads an empty registry. Re-allocated lazily only on the first
+    /// access of a freshly-constructed `Vm`.
     pub(in crate::vm) fn alloc_or_cached_custom_element_registry(&mut self) -> ObjectId {
         if let Some(id) = self.custom_element_registry_instance {
             return id;

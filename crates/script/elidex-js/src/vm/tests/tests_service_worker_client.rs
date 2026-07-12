@@ -263,6 +263,61 @@ fn registration_and_worker_identity() {
     });
 }
 
+// Codex #459 R5-#1: a cross-batch update to a DIFFERENT script must refresh the
+// Scope-keyed `ServiceWorker` wrapper so `reg.active.scriptURL` reflects the new
+// script (SW §3.1.1 — a new script is a new worker object with its own immutable
+// scriptURL). R2 retains the wrapper across the per-turn unbind, so without the
+// script-URL-change evict in `deliver_registered`, `worker_object` returns the
+// cached wrapper and the frozen `scriptURL` own-prop stays stale.
+#[test]
+fn cross_batch_script_update_refreshes_worker_script_url() {
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = build_min_fixture(&mut dom);
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    vm.inner.navigation.current_url = url(BASE);
+
+    // Batch 1: register + activate with the standard script (SCRIPT = sw.js).
+    vm.eval("navigator.serviceWorker.register('sw.js').then(r => { globalThis.reg = r; });")
+        .unwrap();
+    vm.drain_sw_client_requests();
+    deliver_registered(&mut vm, SwState::Activated);
+    assert_eq!(
+        eval_string(&mut vm, "globalThis.reg.active.scriptURL"),
+        SCRIPT
+    );
+
+    // Cross-batch: end the batch, rebind, deliver an update carrying a DIFFERENT
+    // script for the SAME scope.
+    vm.unbind();
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    vm.inner.navigation.current_url = url(BASE);
+    let new_script = "https://example.com/app/sw-v2.js";
+    vm.deliver_sw_client_update(SwClientUpdate::Registered {
+        scope: url(SCOPE),
+        success: true,
+        error: None,
+        worker: Some(SwWorkerSnapshot {
+            script_url: new_script.to_owned(),
+            state: SwState::Activated,
+        }),
+        update_via_cache: UpdateViaCache::default(),
+    });
+    assert_eq!(
+        eval_string(&mut vm, "globalThis.reg.active.scriptURL"),
+        new_script,
+        "a cross-batch script update must refresh reg.active.scriptURL (wrapper re-minted)",
+    );
+    vm.unbind();
+}
+
 #[test]
 fn worker_identity_survives_state_transition() {
     with_vm(|vm| {
