@@ -1330,6 +1330,15 @@ fn get_defined(vm: &mut Vm, name: &str) -> String {
     vm.inner.strings.get_utf8(sid)
 }
 
+/// Re-bind the VM to the same fixture — the start of a fresh BATCH-BIND
+/// bracket (centralizes the `unsafe` for the multi-batch survival tests).
+fn rebind(vm: &mut Vm, session: &mut SessionCore, dom: &mut EcsDom, doc: elidex_ecs::Entity) {
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(vm, session, dom, doc);
+    }
+}
+
 /// A `customElements.define()` in one script batch must survive the batch's
 /// per-turn (BATCH-BIND) `unbind` and be visible to a later batch — the
 /// authoritative registry is document-lifetime, cleared only at
@@ -1351,10 +1360,7 @@ fn custom_element_definition_survives_per_turn_unbind() {
     vm.unbind();
 
     // Batch B: a fresh bracket — the definition must still be present.
-    #[allow(unsafe_code)]
-    unsafe {
-        bind_vm(&mut vm, &mut session, &mut dom, doc);
-    }
+    rebind(&mut vm, &mut session, &mut dom, doc);
     assert_eq!(
         get_defined(&mut vm, "my-el"),
         "defined",
@@ -1363,10 +1369,7 @@ fn custom_element_definition_survives_per_turn_unbind() {
 
     // A second per-turn unbind + rebind still preserves it (≥2 turns).
     vm.unbind();
-    #[allow(unsafe_code)]
-    unsafe {
-        bind_vm(&mut vm, &mut session, &mut dom, doc);
-    }
+    rebind(&mut vm, &mut session, &mut dom, doc);
     assert_eq!(
         get_defined(&mut vm, "my-el"),
         "defined",
@@ -1393,10 +1396,7 @@ fn custom_element_registry_cleared_on_teardown_document() {
     vm.teardown_document();
 
     // A fresh bind sees an empty registry.
-    #[allow(unsafe_code)]
-    unsafe {
-        bind_vm(&mut vm, &mut session, &mut dom, doc);
-    }
+    rebind(&mut vm, &mut session, &mut dom, doc);
     assert_eq!(
         get_defined(&mut vm, "my-el"),
         "gone",
