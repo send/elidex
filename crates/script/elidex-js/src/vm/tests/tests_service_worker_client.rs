@@ -756,4 +756,18 @@ fn retained_sw_registration_wrapper_survives_per_turn_unbind() {
     );
     // ...and its backing data survived too.
     assert!(!vm.inner.sw_registrations.is_empty());
+
+    // Codex #459 R2: `reg === getRegistration()` must ALSO hold across the
+    // unbinds — the Scope-owned wrapper survived the `wrapper_store.retain`, so
+    // no SECOND object is minted for the same scope (SW §3.2 object map).
+    vm.eval(
+        "globalThis.__same = false; \
+         navigator.serviceWorker.getRegistration().then(r => { \
+             globalThis.__same = (r === globalThis.reg); });",
+    )
+    .unwrap();
+    assert!(
+        eval_bool(&mut vm, "globalThis.__same"),
+        "reg === getRegistration() must hold across per-turn unbinds (no duplicate wrapper)"
+    );
 }

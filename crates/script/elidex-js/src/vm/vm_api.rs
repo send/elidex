@@ -563,6 +563,19 @@ impl Vm {
             // bind→unbind→bind; the `bind_epoch` mechanism invalidates
             // stale retained node wrappers instead of dropping them.
             //
+            // The Scope-owned `ServiceWorkerRegistration` / `ServiceWorker`
+            // wrappers are ALSO retained (`#11-per-batch-unbind-document-
+            // lifetime-state`; Codex #459 R2): they are document-lifetime
+            // (their `sw_registrations` backing state + brand maps survive
+            // per-turn), so a page's retained registration must stay
+            // `reg === getRegistration()` across a per-turn unbind (SW §3.2
+            // service-worker object map, `host/service_worker/mod.rs`). Unlike
+            // the Entity-keyed getter wrappers dropped below, these are
+            // `WrapperKey::scope` (String-keyed) → NO cross-DOM aliasing risk,
+            // so retaining them is safe without world_id / agent-scoped EcsDom.
+            // Released at `teardown_document` (the whole registration unit —
+            // data + brand + wrapper — clears together at document destruction).
+            //
             // This one retain also covers caches the prior per-field
             // clears OMITTED — `validity_state` / `options_collection` /
             // `form_controls_collection` (Entity-keyed) and the FileList
@@ -571,8 +584,15 @@ impl Vm {
             // them in is a net cross-DOM-safety improvement, not a
             // behaviour regression.
             if let Some(hd) = self.inner.host_data.as_deref_mut() {
-                hd.wrapper_store
-                    .retain(|key, _| key.kind == super::wrapper_intern::WrapperKind::Node);
+                use super::wrapper_intern::WrapperKind;
+                hd.wrapper_store.retain(|key, _| {
+                    matches!(
+                        key.kind,
+                        WrapperKind::Node
+                            | WrapperKind::ServiceWorkerRegistration
+                            | WrapperKind::ServiceWorker
+                    )
+                });
             }
             // D-9 events-modern-input (slot
             // `#11-events-modern-input`).  Three state tables hold
@@ -642,15 +662,17 @@ impl Vm {
             // live `Vm` only ever rebinds the SAME `EcsDom`.
             //
             // The wrapper-brand maps `sw_registration_states` /
-            // `service_worker_states` (`ObjectId → scope`) SURVIVE too — they
-            // are NOT force-marked, but the GC sweep prunes an entry when its
-            // wrapper `ObjectId` is collected (`gc/collect.rs` — the
-            // `sw_registrations` registry-walk keeps live ones marked).  So a
-            // JS-retained wrapper keeps its brand (stays a valid receiver for
-            // `require_registration_scope`), while a wrapper dropped from
-            // `wrapper_store` (non-Node `retain`, below) and then collected
-            // leaves NO stale entry.  Clearing them per-turn would instead break
-            // a retained wrapper (illegal receiver after the first unbind).
+            // `service_worker_states` (`ObjectId → scope`) SURVIVE too, in
+            // lockstep with the `ServiceWorkerRegistration` / `ServiceWorker`
+            // WRAPPERS the `wrapper_store.retain` below now keeps (the whole
+            // registration unit — data + brand + wrapper — is document-lifetime,
+            // released together at `teardown_document`).  So a JS-retained
+            // registration stays a valid receiver (`require_registration_scope`)
+            // AND `reg === getRegistration()` across batches; clearing the brand
+            // per-turn would instead break a retained wrapper (illegal receiver).
+            // The GC sweep still prunes a brand entry if its wrapper `ObjectId`
+            // is ever collected (`gc/collect.rs`), a harmless backstop now that
+            // the wrapper is retained.
             //
             // The SW WORKER-side per-dispatch event state above
             // (`fetch_event_states` / `client_states` / `sw_clients` /

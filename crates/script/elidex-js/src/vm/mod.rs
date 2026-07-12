@@ -2419,14 +2419,14 @@ pub(crate) struct VmInner {
     /// `contains_key` is the brand-check; the value indexes `sw_registrations`.
     ///
     /// GC contract: payload-free (a `String`); the sweep prunes a key when its
-    /// wrapper `ObjectId` is collected (`gc/collect.rs` `.retain(marked)`).
+    /// wrapper `ObjectId` is collected (`gc/collect.rs` `.retain(marked)` — a
+    /// harmless backstop, since the wrapper is now retained across unbind).
     /// **Document-lifetime**: SURVIVES a per-turn [`Vm::unbind`] (cleared at
-    /// [`Vm::teardown_document`]) so a JS-retained `ServiceWorkerRegistration`
-    /// wrapper stays a valid receiver for `require_registration_scope` across
-    /// batches; the GC-sweep prune (not a per-turn clear) removes the entry of a
-    /// wrapper dropped from `wrapper_store` + collected, so no stale
-    /// `ObjectId → scope` mis-brands a recycled id
-    /// (`#11-per-batch-unbind-document-lifetime-state`).
+    /// [`Vm::teardown_document`]) in lockstep with the `ServiceWorkerRegistration`
+    /// wrapper (`Vm::unbind`'s `wrapper_store.retain` keeps the Scope-owned SW
+    /// wrappers) — so a JS-retained registration stays a valid receiver for
+    /// `require_registration_scope` AND `reg === getRegistration()` across
+    /// batches (`#11-per-batch-unbind-document-lifetime-state`; Codex #459 R2).
     #[cfg(feature = "engine")]
     pub(crate) sw_registration_states: HashMap<ObjectId, String>,
     /// Brand + scope-recovery side-store for `ServiceWorker` objects (SW
