@@ -181,21 +181,21 @@ fn sandboxed_iframe_initial_script_observes_opaque_origin() {
         // installed origin's trustworthiness (opaque sandbox → exempt, https
         // tuple → blocked) — the oracle for which origin the initial script saw.
         r#"<iframe sandbox="allow-scripts"
-            srcdoc='<div id="p"></div><script>let r;try{new WebSocket("ws://wsoracle.invalid/");r="constructed";}catch(e){r=String(e.message||e);}document.getElementById("p").setAttribute("data-ws",r);</script>'>
+            srcdoc='<div id="p"></div><script>let r;try{new WebSocket("ws://wsoracle.invalid/");r="constructed";}catch(e){r=e.name||String(e);}document.getElementById("p").setAttribute("data-ws",r);</script>'>
            </iframe>"#,
         url::Url::parse("https://parent.example/").unwrap(),
     );
     let ip = in_process_entry(&state);
     let observed = probe_attr(&ip.pipeline, "p", "data-ws")
         .expect("the sandboxed (allow-scripts) initial script should have run");
-    assert!(
-        !observed.contains("insecure WebSocket"),
-        "initial script observed the URL tuple origin (mixed-content gate fired) \
-         instead of the opaque sandbox origin: {observed}"
+    assert_ne!(
+        observed, "SecurityError",
+        "the opaque origin must be exempt from the mixed-content gate (initial \
+         script must NOT observe the URL tuple origin): {observed}"
     );
     // Not vacuous: the opaque-origin path gets PAST the mixed-content gate, so
     // `new WebSocket(…)` returns and the script records `"constructed"` — vs the
-    // tuple path (unsandboxed sibling) which records the SecurityError message.
+    // tuple path (unsandboxed sibling) which records the `"SecurityError"` name.
     assert_eq!(
         observed, "constructed",
         "the opaque origin must be exempt from the mixed-content gate, so the \
@@ -212,10 +212,10 @@ fn sandboxed_iframe_initial_script_observes_opaque_origin() {
 
 /// Unsandboxed control under the same `https:` parent (regression pin): the
 /// initial script runs and observes the inherited **tuple** origin — the
-/// mixed-content gate fires for `ws://` (the VM `SecurityError`: "An insecure
-/// WebSocket connection may not be initiated from a page loaded over HTTPS").
-/// Also proves the origin oracle above discriminates (the gate DOES fire when
-/// the origin really is the trustworthy tuple).
+/// mixed-content gate fires for `ws://`, throwing the VM `SecurityError`
+/// DOMException. The oracle asserts the spec-stable `e.name === "SecurityError"`
+/// (not the UA-prose message). Also proves the origin oracle above discriminates
+/// (the gate DOES fire when the origin really is the trustworthy tuple).
 #[test]
 fn unsandboxed_iframe_initial_script_observes_tuple_origin() {
     let (state, _browser) = build_test_content_state_with_url(
@@ -223,17 +223,17 @@ fn unsandboxed_iframe_initial_script_observes_tuple_origin() {
         // installed origin's trustworthiness (opaque sandbox → exempt, https
         // tuple → blocked) — the oracle for which origin the initial script saw.
         r#"<iframe
-            srcdoc='<div id="p"></div><script>let r;try{new WebSocket("ws://wsoracle.invalid/");r="constructed";}catch(e){r=String(e.message||e);}document.getElementById("p").setAttribute("data-ws",r);</script>'>
+            srcdoc='<div id="p"></div><script>let r;try{new WebSocket("ws://wsoracle.invalid/");r="constructed";}catch(e){r=e.name||String(e);}document.getElementById("p").setAttribute("data-ws",r);</script>'>
            </iframe>"#,
         url::Url::parse("https://parent.example/").unwrap(),
     );
     let ip = in_process_entry(&state);
     let observed = probe_attr(&ip.pipeline, "p", "data-ws")
         .expect("an unsandboxed iframe's initial script should have run");
-    assert!(
-        observed.contains("insecure WebSocket"),
+    assert_eq!(
+        observed, "SecurityError",
         "an unsandboxed iframe inherits the parent https tuple origin, so the \
-         ws:// mixed-content gate must fire: {observed}"
+         ws:// mixed-content gate must fire (SecurityError): {observed}"
     );
     assert!(
         matches!(

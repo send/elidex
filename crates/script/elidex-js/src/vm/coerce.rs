@@ -727,25 +727,9 @@ pub(super) fn to_object(vm: &mut VmInner, val: JsValue) -> Result<ObjectId, VmEr
         JsValue::Null | JsValue::Undefined => Err(VmError::type_error(
             "Cannot convert undefined or null to object",
         )),
-        JsValue::Number(n) => {
-            let wrapper = vm.alloc_object(Object {
-                kind: ObjectKind::NumberWrapper(n),
-                storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
-                prototype: vm.number_prototype,
-                extensible: true,
-            });
-            Ok(wrapper)
-        }
+        JsValue::Number(n) => Ok(vm.create_number_wrapper(n)),
         JsValue::String(s) => Ok(vm.create_string_wrapper(s)),
-        JsValue::Boolean(b) => {
-            let wrapper = vm.alloc_object(Object {
-                kind: ObjectKind::BooleanWrapper(b),
-                storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
-                prototype: vm.boolean_prototype,
-                extensible: true,
-            });
-            Ok(wrapper)
-        }
+        JsValue::Boolean(b) => Ok(vm.create_boolean_wrapper(b)),
         JsValue::BigInt(id) => {
             let wrapper = vm.alloc_object(Object {
                 kind: ObjectKind::BigIntWrapper(id),

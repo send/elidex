@@ -1034,6 +1034,36 @@ impl VmInner {
         obj_id
     }
 
+    /// Wire an already-created constructor object into the global namespace:
+    /// sets `Ctor.prototype = proto` (BUILTIN), `proto.constructor = Ctor`
+    /// (METHOD), and installs `Ctor` as the `name` global. This is the shared
+    /// wiring for the constructable primitive globals (String, Number, Boolean);
+    /// the caller owns ctor creation (constructable vs plain) plus any
+    /// statics/constants.
+    pub(super) fn wire_constructor_global(
+        &mut self,
+        name: &str,
+        ctor_id: super::value::ObjectId,
+        proto_id: super::value::ObjectId,
+    ) {
+        let proto_key = PropertyKey::String(self.well_known.prototype);
+        self.define_shaped_property(
+            ctor_id,
+            proto_key,
+            PropertyValue::Data(JsValue::Object(proto_id)),
+            PropertyAttrs::BUILTIN,
+        );
+        let ctor_key = PropertyKey::String(self.well_known.constructor);
+        self.define_shaped_property(
+            proto_id,
+            ctor_key,
+            PropertyValue::Data(JsValue::Object(ctor_id)),
+            PropertyAttrs::METHOD,
+        );
+        let name_id = self.strings.intern(name);
+        self.globals.insert(name_id, JsValue::Object(ctor_id));
+    }
+
     /// Install each `(name, native)` as a `DATA`/`METHOD`-attributed
     /// property on `obj_id`.  Shared by `create_object_with_methods`,
     /// the Window prototype registration (`host/window.rs`), and the
