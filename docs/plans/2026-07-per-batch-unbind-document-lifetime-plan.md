@@ -216,14 +216,28 @@ STAYS.
 | `ce_next_constructor_id` | `u64` | **MOVE** (do NOT reset to 0 per-turn) | a per-turn reset to 0 recycles ctor ids against surviving `ce_constructors` entries — the id-collision class the `bind_epoch` `next_id` comment guards (`vm_api.rs:265-273`) |
 | `ce_reaction_queue` | `Arc<Mutex<VecDeque<CustomElementReaction>>>` | **STAY** (per-turn) | NOT document-lifetime state: a transient queue drained each checkpoint by `flush_ce_reactions` (empty at bracket-end in the well-behaved case) + the **one `Entity`-holder** in the CE block; leave it on the per-turn Entity-scrub (like `mutation_observers.clear_pending_records()`) — behaviour-unchanged, no-op when empty (§2 axis 4, §6.3) |
 
-### SW `navigator.serviceWorker` **client** block (`vm_api.rs:639-648`) — MOVE
+### SW `navigator.serviceWorker` **client** block (`vm_api.rs:639-648`) — MOVE (data/promises) + STAY (wrapper-brand)
 
-`pending_registration_promises` / `pending_unregister_promises` (`HashMap<String,Vec<ObjectId>>`) ·
-`sw_ready_promise` (`Option<ObjectId>`) · `sw_registrations` (`HashMap<String,SwRegistrationEntry>`) ·
-`sw_registration_states` / `service_worker_states` (`HashMap<ObjectId,String>`) · `sw_controller_scope`
-(`Option<String>`) · `sw_messages_enabled` (`bool`) · `sw_message_buffer` (`Vec<(String,String)>`) ·
-`sw_client_outgoing` (`Vec<SwClientRequest>`). **All MOVE** — the §3.4 `ServiceWorkerContainer` client
-state is the document's; `sw_client_outgoing` is the R4-#5 queue the event loop drains a bracket later.
+**MOVE** (document-lifetime, survive per-turn unbind): `pending_registration_promises` /
+`pending_unregister_promises` (`HashMap<String,Vec<ObjectId>>`, GC-force-marked) · `sw_ready_promise`
+(`Option<ObjectId>`, GC-force-marked) · `sw_registrations` (`HashMap<String,SwRegistrationEntry>`, pure
+data) · `sw_controller_scope` (`Option<String>`) · `sw_messages_enabled` (`bool`) · `sw_message_buffer`
+(`Vec<(String,String)>`) · `sw_client_outgoing` (`Vec<SwClientRequest>`, plain IPC data — the R4-#5 queue
+the event loop drains a bracket later). The §3.4 `ServiceWorkerContainer` client state is the document's.
+
+> **⚠ AS-BUILT DEVIATION (`/code-review` high, finding [1])** — `sw_registration_states` /
+> `service_worker_states` (`HashMap<ObjectId,String>`) were planned MOVE but ship **STAY** (per-turn). They
+> are **wrapper-brand maps** keyed by the `ServiceWorkerRegistration` / `ServiceWorker` wrapper `ObjectId`,
+> and those wrappers are `WrapperKind::ServiceWorkerRegistration` / `ServiceWorker` (**non-Node**, interned
+> via `WrapperKey::scope`) — dropped every unbind by `wrapper_store.retain(kind == Node)` (`vm_api.rs:574`).
+> Surviving the brand map past its wrapper leaves a stale `ObjectId → scope` entry that mis-brands a
+> recycled `ObjectId`. So they clear per-turn **in lockstep with the wrapper drop** and are re-minted next
+> batch from the surviving `sw_registrations` data. This is the SW analog of the CE
+> registry-content-survives / `custom_element_registry_instance` wrapper-slot-clears split (§4 CE table).
+> The CE `ObjectId` maps do NOT hit this because their `ObjectId`s are a user constructor / a standalone
+> promise (GC-rooted via `gc_root_object_ids`, NOT `wrapper_store`-interned platform wrappers). Pinned by
+> `sw_registration_wrapper_brand_clears_per_turn`. (Cross-batch registration wrapper *identity* / SameObject
+> = the deferred `#11-cross-batch-wrapper-identity`, unchanged.)
 
 ### STAYS (per-turn or genuine cross-DOM scrub — this slice does NOT touch)
 
