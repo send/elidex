@@ -2415,6 +2415,11 @@ pub(crate) struct VmInner {
     /// keying so a back-channel deliver finds its registry entry + waiters).
     /// The container accessors read it; the GC registry-walk mark loop walks
     /// it to keep live interned wrappers alive.
+    ///
+    /// **Document-lifetime**: SURVIVES a per-turn [`Vm::unbind`], cleared at
+    /// [`Vm::teardown_document`] (which also drops its Scope-keyed
+    /// registration/worker `wrapper_store` entries in lockstep — Codex #459 R3-2)
+    /// (`#11-per-batch-unbind-document-lifetime-state`).
     #[cfg(feature = "engine")]
     pub(crate) sw_registrations: HashMap<String, host::service_worker::SwRegistrationEntry>,
     /// Brand + scope-recovery side-store for `ServiceWorkerRegistration`
@@ -2434,7 +2439,9 @@ pub(crate) struct VmInner {
     pub(crate) sw_registration_states: HashMap<ObjectId, String>,
     /// Brand + scope-recovery side-store for `ServiceWorker` objects (SW
     /// §3.1): wrapper `ObjectId` → its canonical scope string.  Mirror of
-    /// [`Self::sw_registration_states`] for the worker brand.
+    /// [`Self::sw_registration_states`] for the worker brand — same GC contract
+    /// and same **document-lifetime** (survives per-turn [`Vm::unbind`], cleared
+    /// at [`Vm::teardown_document`]).
     #[cfg(feature = "engine")]
     pub(crate) service_worker_states: HashMap<ObjectId, String>,
     /// Pending `register()` / `update()` promises awaiting a `Registered`
@@ -2481,22 +2488,32 @@ pub(crate) struct VmInner {
     /// The page's controller scope (SW §3.4.1) — the canonical scope of the
     /// active registration controlling this client, or `None`.  Seeded at VM
     /// construction (a page controlled at navigation) + updated by
-    /// `ControllerSet` delivers.
+    /// `ControllerSet` delivers.  **Document-lifetime** (survives per-turn
+    /// [`Vm::unbind`], cleared at [`Vm::teardown_document`]).
     #[cfg(feature = "engine")]
     pub(crate) sw_controller_scope: Option<String>,
     /// Whether the `navigator.serviceWorker` client message queue is enabled
     /// (SW §3.4.6) — flipped by `startMessages()` / an `onmessage` listener.
     /// Until then `Message` delivers buffer into [`Self::sw_message_buffer`].
+    /// **Document-lifetime** (survives per-turn [`Vm::unbind`], cleared at
+    /// [`Vm::teardown_document`]).
     #[cfg(feature = "engine")]
     pub(crate) sw_messages_enabled: bool,
     /// `message` events buffered until the client message queue is enabled
     /// (SW §3.4.6): `(serialized data, source registration scope)`.
+    /// **Document-lifetime** (survives per-turn [`Vm::unbind`], cleared at
+    /// [`Vm::teardown_document`]).
     #[cfg(feature = "engine")]
     pub(crate) sw_message_buffer: Vec<(String, String)>,
     /// Outbound SW client requests staged by the container/registration/worker
     /// natives (`register`/`update`/`unregister`/`postMessage`) for the content
     /// event loop to forward (D-26) — the engine-indep twin of boa's
     /// `bridge.queue_sw_register`.  Drained via [`Self::drain_sw_client_requests`].
+    ///
+    /// **Document-lifetime** (survives per-turn [`Vm::unbind`], cleared at
+    /// [`Vm::teardown_document`]) — load-bearing: a `register()` staged inside a
+    /// script batch must reach the OUT-OF-BRACKET event-loop drain after the
+    /// per-batch unbind (`#11-per-batch-unbind-document-lifetime-state`, R4-#5).
     #[cfg(feature = "engine")]
     pub(crate) sw_client_outgoing: Vec<elidex_api_sw::SwClientRequest>,
     /// `ServiceWorkerRegistration.prototype` (SW §3.2) — the prototype each

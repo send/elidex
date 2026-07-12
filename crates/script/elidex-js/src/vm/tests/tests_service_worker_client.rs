@@ -239,7 +239,7 @@ fn registration_and_worker_identity() {
         vm.drain_sw_client_requests();
         deliver_registered(vm, SwState::Activated);
 
-        // reg === getRegistration() (D1 — the §3.2 registration object map).
+        // reg === getRegistration() (D1 — the §3.2.1 service worker registration object map).
         vm.eval(
             "globalThis.__sameReg = false; \
              navigator.serviceWorker.getRegistration('page.html').then(r => { \
@@ -759,7 +759,8 @@ fn retained_sw_registration_wrapper_survives_per_turn_unbind() {
 
     // Codex #459 R2: `reg === getRegistration()` must ALSO hold across the
     // unbinds — the Scope-owned wrapper survived the `wrapper_store.retain`, so
-    // no SECOND object is minted for the same scope (SW §3.2 object map).
+    // no SECOND object is minted for the same scope (SW §3.2.1 service worker
+    // registration object map).
     vm.eval(
         "globalThis.__same = false; \
          navigator.serviceWorker.getRegistration().then(r => { \

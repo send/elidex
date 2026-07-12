@@ -567,6 +567,11 @@ mod engine_feature {
         >,
         /// VM-monotonic constructor ID counter — assigned in `define()`
         /// and stored on the `CustomElementDefinition::constructor_id`.
+        /// **Document-lifetime**: reset to 0 ONLY at `Vm::teardown_document`,
+        /// NEVER on a per-turn `Vm::unbind` — resetting per-turn would recycle
+        /// ids against the surviving `ce_constructors` entries and mis-map a
+        /// later `new.target` to a stale definition
+        /// (`#11-per-batch-unbind-document-lifetime-state`).
         pub(crate) ce_next_constructor_id: u64,
         /// `constructor_id → constructor ObjectId` map. The constructor
         /// `ObjectId` is per-VM identity (HostData exception (a) — see
@@ -592,6 +597,9 @@ mod engine_feature {
         /// the same Promise for repeated calls with the same name (per
         /// WHATWG §4.13.4 step 3 — "Set promise to a new promise" runs
         /// once; later calls return the previously stored promise).
+        /// **Document-lifetime**: cleared at `Vm::teardown_document`
+        /// (survives a per-turn unbind, in lockstep with `ce_registry` —
+        /// `#11-per-batch-unbind-document-lifetime-state`).
         pub(crate) ce_when_defined_promises: HashMap<String, ObjectId>,
     }
 

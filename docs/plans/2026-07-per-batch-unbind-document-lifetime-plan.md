@@ -115,12 +115,18 @@ per-realm `ce_*` handles + `VmInner` SW client side-tables at the correct `bind`
 engine-independent DOM/form/selector/CSSOM algorithm is moved or added, so the crate-mapping table is N/A
 (same as 2f, which was VM-lifecycle + marshalling).
 
-**Touch-time-split note (CLAUDE.md 1000-line debt).** `vm_api.rs` (≈1273 L) and `host_data/mod.rs`
-(≈1997 L) are both >1000. The discipline is *considered* and does **not fire**: this touch is
-**net-negative** — Part A is a verbatim MOVE of two clear-blocks within `vm_api.rs` (no new algorithm) and
-Part B is removal-of-clears. No substantive >50 LoC growth (the Axis-5 review backstop trigger). The
-standing `host_data/mod.rs` decomposition debt is tracked by `#11-host-data-full-decomposition`; this slice
-does not enlarge it.
+**Touch-time-split note (CLAUDE.md 1000-line debt).** `vm_api.rs` (1386 L) and `host_data/mod.rs`
+(2023 L) are both >1000. ⚠ **AS-BUILT CORRECTION (Codex #459 R3 fix-delta re-gate, Axis 5):** the plan's
+first-draft claim that this touch is "net-negative / no substantive >50 LoC growth" is **wrong** — as-built,
+`vm_api.rs` is **net +113** (+165/−52; the survivor-set was NOT a verbatim MOVE — R1/R2/R3 added the
+`wrapper_store.retain` extension, the `teardown_document` wrapper-removal loop, and the load-bearing
+lifetime-rationale comments) and `host_data/mod.rs` is net +18. So the **Axis-5 1000-line backstop DOES
+fire** for `vm_api.rs`. The split itself is a **judgment**, not a gate (`axes.md` Axis 5): the real cohesion
+seam is the `Vm::unbind` / `Vm::teardown_document` lifecycle pair (a `vm/lifecycle.rs` carve-out) vs the
+`bind` / `eval` / API surface — a genuine seam, so a **standalone prereq split is warranted but deferred**
+(NOT bundled into this converge PR, per the split-on-touch discipline: "split = 単独 PR / 単独 commit"). It
+folds into the tracked `#11-host-data-full-decomposition` sibling debt as the `vm_api.rs` lifecycle-module
+carve. This slice does not enlarge that debt beyond the +113 it acknowledges here.
 
 ---
 

@@ -568,8 +568,8 @@ impl Vm {
             // lifetime-state`; Codex #459 R2): they are document-lifetime
             // (their `sw_registrations` backing state + brand maps survive
             // per-turn), so a page's retained registration must stay
-            // `reg === getRegistration()` across a per-turn unbind (SW §3.2
-            // service-worker object map, `host/service_worker/mod.rs`). Unlike
+            // `reg === getRegistration()` across a per-turn unbind (SW §3.2.1
+            // service worker registration object map, `host/service_worker/mod.rs`). Unlike
             // the Entity-keyed getter wrappers dropped below, these are
             // `WrapperKey::scope` (String-keyed) → NO cross-DOM aliasing risk,
             // so retaining them is safe without world_id / agent-scoped EcsDom.
