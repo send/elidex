@@ -195,25 +195,12 @@ pub(super) fn run_event_loop(state: &mut ContentState) {
             state.notify_browser(ContentToBrowser::FocusWindow);
         }
 
-        {
-            let (ws_events, sse_events) = state.pipeline.runtime.bridge().drain_realtime_events();
-            let has_js_events = ws_events
-                .iter()
-                .any(|(_, e)| !matches!(e, elidex_net::ws::WsEvent::BytesSent(_)))
-                || !sse_events.is_empty();
-            if !ws_events.is_empty() || !sse_events.is_empty() {
-                state.pipeline.runtime.dispatch_realtime_events(
-                    ws_events,
-                    sse_events,
-                    &mut state.pipeline.session,
-                    &mut state.pipeline.dom,
-                    state.pipeline.document,
-                );
-                if has_js_events {
-                    needs_render = true;
-                }
-            }
-        }
+        // §4.3.8: the VM-native network turn — settle fetch(), dispatch WS/SSE,
+        // run the microtask checkpoint. `needs_render` for any realtime/fetch-
+        // driven DOM mutation is restored by the inclusive-descendants version-
+        // delta below (stage 2d-2), which subsumed the boa per-drain `has_js_events`
+        // bool this block used to carry.
+        state.pipeline.tick_network();
 
         // §4.3.8: worker-drive needs_render now comes from the version-delta (stage 2d-2).
         state.pipeline.drain_worker_messages();

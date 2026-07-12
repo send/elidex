@@ -445,6 +445,24 @@ impl PipelineResult {
         }
     }
 
+    /// Advance the network/event-loop turn for THIS document, in ONE batch
+    /// bracket (§4.1): settle resolved `fetch()` promises, dispatch
+    /// `WebSocket` / `EventSource` messages, and run a microtask checkpoint —
+    /// the engine-native fused step. Assume-bound (it dispatches at the bound
+    /// VM's realtime wrappers); `drain_reactions` follows the bracket contract,
+    /// draining the microtask + CE reactions the message handlers produced.
+    #[allow(unsafe_code)]
+    pub fn tick_network(&mut self) {
+        let mut ctx = ScriptContext::new(&mut self.session, &mut self.dom, self.document);
+        // SAFETY: see `dispatch_event` — the `with_bound` unaliased contract.
+        unsafe {
+            self.runtime.with_bound(&mut ctx, |engine, ctx| {
+                engine.tick_network();
+                engine.drain_reactions(ctx);
+            });
+        }
+    }
+
     /// Deliver the popstate / hashchange of a same-document history-step
     /// application (WHATWG HTML §7.4.6.2), in ONE batch bracket (§4.1).
     /// Assume-bound (it fires at the bound VM's `Window` and reconstructs
