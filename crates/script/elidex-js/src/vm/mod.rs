@@ -2418,8 +2418,9 @@ pub(crate) struct VmInner {
     /// objects (SW §3.2): wrapper `ObjectId` → its canonical scope string.
     /// `contains_key` is the brand-check; the value indexes `sw_registrations`.
     ///
-    /// GC contract: payload-free (a `String`); sweep prunes dead keys; cleared
-    /// on [`Vm::unbind`].
+    /// GC contract: payload-free (a `String`); sweep prunes dead keys.
+    /// Document-lifetime: cleared at [`Vm::teardown_document`] (survives a
+    /// per-turn unbind — `#11-per-batch-unbind-document-lifetime-state`).
     #[cfg(feature = "engine")]
     pub(crate) sw_registration_states: HashMap<ObjectId, String>,
     /// Brand + scope-recovery side-store for `ServiceWorker` objects (SW
@@ -2435,7 +2436,10 @@ pub(crate) struct VmInner {
     ///
     /// GC contract: **force-marked** as roots in the `gc/collect.rs` mark phase
     /// (a pending register promise may have no JS reference); never
-    /// value-swept (drained on settle); cleared on [`Vm::unbind`].
+    /// value-swept (drained on settle).  Document-lifetime: cleared at
+    /// [`Vm::teardown_document`] (survives a per-turn unbind, so a `register()`
+    /// staged in a script batch reaches the event-loop drain —
+    /// `#11-per-batch-unbind-document-lifetime-state`).
     #[cfg(feature = "engine")]
     pub(crate) pending_registration_promises: HashMap<String, Vec<ObjectId>>,
     /// Pending `unregister()` promises awaiting an `Unregistered` deliver,
@@ -2448,7 +2452,9 @@ pub(crate) struct VmInner {
     /// lazily, resolved once on the first active worker, never rejected.
     ///
     /// GC contract: **force-marked** while pending (it can be pending
-    /// indefinitely with no JS ref); cleared on [`Vm::unbind`].
+    /// indefinitely with no JS ref).  Document-lifetime: cleared at
+    /// [`Vm::teardown_document`] (survives a per-turn unbind —
+    /// `#11-per-batch-unbind-document-lifetime-state`).
     #[cfg(feature = "engine")]
     pub(crate) sw_ready_promise: Option<ObjectId>,
     /// The `navigator.serviceWorker` container singleton (SW §3.4) — eagerly

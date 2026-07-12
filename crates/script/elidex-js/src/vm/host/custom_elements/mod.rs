@@ -19,9 +19,14 @@
 //!
 //! Per-realm registry + reaction queue + `whenDefined` resolvers all
 //! live on [`super::super::host_data::HostData`] (the binding-crate
-//! exception (a) — per-VM identity handles) and are scrubbed on
-//! `Vm::unbind`. See [`super::super::host_data::HostData::ce_registry`]
-//! and siblings for the field-level rationale.
+//! exception (a) — per-VM identity handles). The **registry +
+//! `whenDefined` resolvers + constructor maps are document-lifetime**:
+//! cleared at `Vm::teardown_document`, so they SURVIVE a per-turn
+//! (BATCH-BIND) `Vm::unbind` (`#11-per-batch-unbind-document-lifetime-state`).
+//! The **reaction queue stays a per-turn scrub** (`Vm::unbind`) — it is a
+//! transient checkpoint-drained queue holding `Entity` refs. See
+//! [`super::super::host_data::HostData::ce_registry`] and siblings for the
+//! field-level rationale.
 //!
 //! The `CustomElementReactionConsumer` reads the same `ce_registry` +
 //! `ce_reaction_queue` via cloned `Arc<Mutex<>>` handles plumbed in

@@ -537,11 +537,20 @@ mod engine_feature {
         /// `name → CustomElementDefinition` map + the per-name pending-
         /// upgrade entity queue. Shared via `Arc<Mutex<>>` with
         /// [`elidex_custom_elements::CustomElementReactionConsumer`]
-        /// (which only reads `observed_attributes`). Cleared on
-        /// `Vm::unbind` because each `CustomElementDefinition`
-        /// references its constructor by a `u64` ID that aliases the
-        /// per-VM `custom_element_constructors` map below — neither
-        /// survives an unbind crossing.
+        /// (which only reads `observed_attributes`).
+        ///
+        /// Document-lifetime authoritative registry: it **survives** a
+        /// per-turn (BATCH-BIND) `Vm::unbind` — cleared only at
+        /// `Vm::teardown_document` (document destruction) — so a
+        /// `customElements.define()` in one script batch is visible to a
+        /// later batch's upgrade / `whenDefined` (HTML §4.13.4/§4.13.5).
+        /// Survival is cross-DOM-safe by construction: a live `Vm` only
+        /// ever rebinds the SAME `EcsDom` (navigation allocates a new
+        /// `Vm`), so the per-VM constructor `ObjectId`s in
+        /// `ce_constructors` below ride the object heap validly across a
+        /// same-DOM turn (`#11-per-batch-unbind-document-lifetime-state`;
+        /// the grain migration to a per-realm component rides agent-scoped
+        /// EcsDom, docs/plans/2026-06-agent-scoped-ecsdom-world.md §5).
         pub(crate) ce_registry:
             std::sync::Arc<std::sync::Mutex<elidex_custom_elements::CustomElementRegistry>>,
         /// Per-VM reaction queue (HTML §4.13.6) — pushed to by the
@@ -560,7 +569,9 @@ mod engine_feature {
         /// `constructor_id → constructor ObjectId` map. The constructor
         /// `ObjectId` is per-VM identity (HostData exception (a) — see
         /// `feedback_boa-hostbridge-port-is-not-a-registry.md`), so this
-        /// stays on HostData not as an ECS component. Cleared on unbind.
+        /// stays on HostData not as an ECS component. Document-lifetime:
+        /// cleared at `Vm::teardown_document` (survives a per-turn unbind,
+        /// in lockstep with `ce_registry` above).
         pub(crate) ce_constructors: HashMap<u64, ObjectId>,
         /// Reverse of [`Self::ce_constructors`]: `constructor ObjectId →
         /// constructor_id`. Populated + cleared in lockstep with the
