@@ -2490,6 +2490,7 @@ dependencies = [
  "egui-wgpu",
  "egui-winit",
  "elidex-a11y",
+ "elidex-api-canvas",
  "elidex-api-sw",
  "elidex-api-workers",
  "elidex-css",

@@ -148,6 +148,18 @@ pub fn sync_dirty_canvases(dom: &mut EcsDom) {
     }
 }
 
+/// Non-consuming peek at whether any canvas is dirty — i.e. a [`CanvasDirty`]
+/// marker exists — WITHOUT flushing. The shell event loop uses this to schedule
+/// the render pass (whose drain is [`sync_dirty_canvases`]) on a turn whose only
+/// visible effect is a canvas draw: `mark_dirty` inserts the marker but bumps no
+/// DOM-tree version, so the tree-delta render-dirty signal would otherwise miss
+/// it and the draw would stall until a later render. Mirrors the query
+/// `sync_dirty_canvases` runs, but stops at the first hit.
+#[must_use]
+pub fn has_dirty_canvas(dom: &EcsDom) -> bool {
+    dom.world().query::<&CanvasDirty>().iter().next().is_some()
+}
+
 /// Parse a canvas `width`/`height` content attribute per the HTML "rules for
 /// parsing non-negative integers" (§2.4.4.2) as applied by the reflected
 /// `unsigned long`: skip leading ASCII whitespace + an optional `+`, take the

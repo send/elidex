@@ -182,13 +182,6 @@ impl IframeRegistry {
         !self.lazy_pending.is_empty()
     }
 
-    /// Whether `entity` is currently queued for lazy load — used by
-    /// `rescan_iframes_by_diff` to skip re-thrashing an iframe already deferred.
-    #[must_use]
-    pub fn is_lazy_pending(&self, entity: Entity) -> bool {
-        self.lazy_pending.contains(&entity)
-    }
-
     /// Iterate over lazy-pending entities.
     pub fn lazy_pending_iter(&self) -> std::slice::Iter<'_, Entity> {
         self.lazy_pending.iter()

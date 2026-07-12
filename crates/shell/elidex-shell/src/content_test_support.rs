@@ -6,6 +6,19 @@
 use super::{spawn_content_thread, ContentState};
 use crate::ipc::{BrowserToContent, ContentToBrowser, LocalChannel};
 
+/// A throwaway disk-backed [`WebStorageManager`] rooted at a unique temp dir, so
+/// content-thread tests exercise the real construction-seam install path without
+/// polluting (or reading) the shared platform profile. Tests that do not touch
+/// `localStorage` simply never write to it.
+pub(super) fn test_web_storage() -> std::sync::Arc<elidex_storage_core::WebStorageManager> {
+    let dir = std::env::temp_dir().join(format!(
+        "elidex-test-webstorage-{}-{}",
+        std::process::id(),
+        uuid::Uuid::new_v4()
+    ));
+    std::sync::Arc::new(elidex_storage_core::WebStorageManager::new(dir))
+}
+
 /// Create a `NetworkHandle` + `CookieJar` backed by a test broker.
 /// Returns the `NetworkProcessHandle` so the caller keeps the broker alive.
 pub(super) fn test_network() -> (
@@ -59,7 +72,16 @@ pub(super) fn spawn_test_content_sized(
     // later sends a real `SetViewport` must tag it `seq ≥ 1` to clear the build's
     // high-water mark. See [`crate::ipc::ViewportCell`].
     let viewport_cell = crate::ipc::ViewportCell::new(viewport);
-    spawn_content_thread(content, nh, jar, html, css, viewport_cell, Box::new(|| {}))
+    spawn_content_thread(
+        content,
+        nh,
+        jar,
+        test_web_storage(),
+        html,
+        css,
+        viewport_cell,
+        Box::new(|| {}),
+    )
 }
 
 /// Shared setup **head** of the two `build_test_content_state*` builders: a
@@ -103,6 +125,7 @@ pub(super) fn build_test_content_state(
         css,
         nh,
         jar,
+        test_web_storage(),
         viewport,
         crate::ipc::DeviceFacts::default(),
     );
@@ -133,6 +156,7 @@ pub(super) fn build_test_content_state_with_url(
         nh,
         std::sync::Arc::new(crate::create_css_property_registry()),
         None,
+        Some(test_web_storage()),
         viewport,
         crate::ipc::DeviceFacts::default(),
         // Top-level document: no frame security (origin derives from `url`).
@@ -162,6 +186,7 @@ fn finalize_test_content_state(
         content,
         elidex_navigation::NavigationController::new(),
         pipeline,
+        test_web_storage(),
         Box::new(|| {}),
         viewport_cell,
         0,

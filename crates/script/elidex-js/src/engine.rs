@@ -110,6 +110,23 @@ impl ElidexJsEngine {
         &mut self.vm
     }
 
+    /// Whether a shared [`WebStorageManager`](elidex_storage_core::WebStorageManager)
+    /// backend is installed on the bound host context.
+    ///
+    /// `true` only after
+    /// [`install_web_storage`](HostDriver::install_web_storage)
+    /// landed on an installed `HostData` — so a construction seam can
+    /// `debug_assert!` its production `localStorage` is manager-backed
+    /// (disk-persisted + same-origin shared) rather than the per-VM in-memory
+    /// `fallback_local_storage` (the F14 no-silent-regression invariant).
+    #[cfg(feature = "compat-webapi")]
+    #[must_use]
+    pub fn web_storage_installed(&mut self) -> bool {
+        self.vm
+            .host_data()
+            .is_some_and(|hd| hd.web_storage().is_some())
+    }
+
     /// Whether scripting is enabled for the bound browsing context
     /// (WHATWG HTML §8.1.3.4 "scripting is disabled"; the gate consulted by
     /// [`run a classic script`](https://html.spec.whatwg.org/#run-a-classic-script)
@@ -687,6 +704,10 @@ impl HostDriver for ElidexJsEngine {
 
     fn take_pending_scroll(&mut self) -> Option<(f64, f64)> {
         self.vm.take_pending_scroll()
+    }
+
+    fn has_pending_scroll(&self) -> bool {
+        self.vm.has_pending_scroll()
     }
 
     fn set_scroll_offset(&mut self, x: f64, y: f64) {

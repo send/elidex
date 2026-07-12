@@ -35,6 +35,7 @@ fn app_at(html: &str, url: url::Url) -> App {
         std::rc::Rc::new(elidex_net::broker::NetworkHandle::disconnected()),
         std::sync::Arc::new(crate::create_css_property_registry()),
         None,
+        None, // No WebStorageManager (fragment-nav test → in-memory fallback).
         elidex_plugin::Size::new(1024.0, 768.0),
         crate::ipc::DeviceFacts::default(),
         None,

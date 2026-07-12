@@ -99,5 +99,6 @@ pub(super) fn child_list_added(target: Entity, added: Entity) -> SessionRecord {
         next_sibling: None,
         attribute_name: None,
         old_value: None,
+        parent_was_connected: false,
     }
 }

@@ -264,6 +264,7 @@ impl App {
             .expect("threaded-mode initial spawn requires a network process");
         let nh = np.create_renderer_handle();
         let jar = Arc::clone(np.cookie_jar());
+        let web_storage = Arc::clone(&self.web_storage);
         let wake = Self::wake_or_noop(self.wake_proxy.as_ref());
         let (browser_ch, content_ch) =
             crate::ipc::channel_pair::<BrowserToContent, ContentToBrowser>();
@@ -274,6 +275,7 @@ impl App {
                     content_ch,
                     nh,
                     jar,
+                    web_storage,
                     html,
                     css,
                     viewport_cell,
@@ -289,6 +291,7 @@ impl App {
                     content_ch,
                     nh,
                     jar,
+                    web_storage,
                     url,
                     viewport_cell,
                     wake,

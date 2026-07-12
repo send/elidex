@@ -529,6 +529,17 @@ pub trait HostDriver {
     #[must_use]
     fn take_pending_scroll(&mut self) -> Option<(f64, f64)>;
 
+    /// Non-consuming peek at whether a script requested a scroll via
+    /// `window.scrollTo` / `scrollBy` (CSSOM View §4) this turn, WITHOUT draining
+    /// it. The event loop uses this to schedule the render pass (whose drain is
+    /// [`take_pending_scroll`](Self::take_pending_scroll)) on a turn whose only
+    /// visible effect is a scroll: a `scrollTo` moves no DOM-tree version, so the
+    /// tree-delta render-dirty signal would otherwise miss it and the scroll would
+    /// stall until a later render. Peek, don't consume — the render pass remains
+    /// the single drain point.
+    #[must_use]
+    fn has_pending_scroll(&self) -> bool;
+
     /// Push the viewport's current scroll offset into the engine (CSSOM View §4)
     /// so `window.scrollX` / `scrollY` read the live value after a user
     /// (wheel/keyboard) scroll the shell applied.

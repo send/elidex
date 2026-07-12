@@ -72,25 +72,36 @@ impl VmInner {
         let mut reactions = Vec::new();
         for record in records {
             match record.kind {
-                // Connectivity is derived from the record's target
-                // (the mutation parent) post-mutation: added nodes are
-                // its children (share its connectivity), and a still-
-                // connected target means a removed child WAS connected
-                // before removal. Records carry no per-node
-                // connectivity, so this is the record leg's local gate
-                // (the mutation-event leg uses the event's
-                // `was_connected`); the subtree classification itself
-                // is shared.
-                MutationKind::ChildList if dom.is_connected(record.target) => {
-                    for &added in &record.added_nodes {
-                        reactions.extend(elidex_custom_elements::classify_connected_subtree(
-                            added, dom, &registry,
-                        ));
+                // The two directions gate on DIFFERENT connectivity bases,
+                // matching WHATWG DOM's insert vs remove steps:
+                //
+                // - added_nodes → connectedCallback: the correct basis is the
+                //   target's POST-insert connectivity (§4.2.3 insertion steps
+                //   "if parent is connected"), so keep `is_connected(target)`.
+                // - removed_nodes → disconnectedCallback: the correct basis is
+                //   `#concept-node-remove` step 12 `isParentConnected` —
+                //   captured SYNCHRONOUSLY at removal time, NOT re-derived at
+                //   delivery. `record.parent_was_connected` carries that
+                //   captured value, so a later same-batch record detaching
+                //   `target` no longer wrongly suppresses the reaction (the
+                //   bug a shared batch-final `is_connected(target)` gate had).
+                //
+                // The subtree classification itself is shared (H1); only the
+                // per-direction connectivity gate lives here.
+                MutationKind::ChildList => {
+                    if dom.is_connected(record.target) {
+                        for &added in &record.added_nodes {
+                            reactions.extend(elidex_custom_elements::classify_connected_subtree(
+                                added, dom, &registry,
+                            ));
+                        }
                     }
-                    for &removed in &record.removed_nodes {
-                        reactions.extend(elidex_custom_elements::classify_disconnected_subtree(
-                            removed, dom,
-                        ));
+                    if record.parent_was_connected {
+                        for &removed in &record.removed_nodes {
+                            reactions.extend(
+                                elidex_custom_elements::classify_disconnected_subtree(removed, dom),
+                            );
+                        }
                     }
                 }
                 MutationKind::Attribute => {

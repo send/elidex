@@ -12,8 +12,14 @@ use elidex_script_session::DispatchEvent;
 use crate::PipelineResult;
 
 /// Register `@keyframes` rules from parsed stylesheets into the animation engine.
-pub(crate) fn register_keyframes_from_stylesheets(
-    stylesheets: &[Stylesheet],
+///
+/// Generic over any `&Stylesheet` iterable so both the construction-time build
+/// (`&[Stylesheet]`) and the `re_render` re-collection (`Vec<&Stylesheet>` via
+/// `.iter().copied()`) share the single canonical registration path.
+/// `register_keyframes` is a name-keyed `HashMap::insert`, so re-adding an
+/// already-registered rule is idempotent and a redefinition overwrites in place.
+pub(crate) fn register_keyframes_from_stylesheets<'a>(
+    stylesheets: impl IntoIterator<Item = &'a Stylesheet>,
     engine: &mut AnimationEngine,
 ) {
     for ss in stylesheets {

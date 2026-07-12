@@ -88,18 +88,26 @@ pub(in crate::content) fn rescan_iframes_by_diff(state: &mut crate::content::Con
         };
         match state.iframes.get(entity) {
             None => {
-                // Not registered. Skip if already lazy-pending (avoid re-thrash):
-                // its `IframeData` was re-derived at the attribute write, so a
-                // later `check_lazy_iframes` load reads the fresh src/srcdoc.
-                if state.iframes.is_lazy_pending(entity) {
-                    continue;
-                }
-                // force=false: a `loading="lazy"` iframe defers to the pending
-                // queue rather than force-loading (same as `scan_initial_iframes`
-                // / the old ChildList path); a non-lazy iframe loads immediately.
+                // Not registered → an ADD, OR a lazy-pending entity being
+                // re-checked. ALWAYS re-run `try_load` (never early-continue on
+                // lazy-pending): `try_load` reads the FRESH `IframeData`, so a
+                // still-`loading="lazy"` iframe re-defers as an idempotent no-op
+                // (`add_lazy_pending` dedups via its `contains` guard), while an
+                // iframe whose `loading` flipped lazy→eager this turn (with a
+                // src/srcdoc change) loads NOW — instead of being stranded in the
+                // lazy queue until it happens to scroll near the viewport
+                // (`check_lazy_iframes` only re-tests the viewport margin, never
+                // the loading mode). Mirrors the pre-flip Attribute-record path,
+                // which called `remove_lazy_pending` + `try_load(force=false)` on
+                // any src/srcdoc change.
+                // force=false so a genuinely-lazy iframe still defers.
                 try_load_iframe_entity(state, entity, false);
-                // Only a REAL load (not a lazy defer) rebuilds the display list.
+                // A REAL load (not a lazy defer) rebuilds the display list AND
+                // clears the now-stale lazy-pending entry (a still-lazy iframe
+                // re-defers as a no-op and correctly stays queued). Mirrors the
+                // pre-flip Attribute path's `remove_lazy_pending` on load.
                 if state.iframes.get(entity).is_some() {
+                    state.iframes.remove_lazy_pending(entity);
                     changed = true;
                 }
             }
@@ -157,6 +165,16 @@ pub(super) fn unload_iframe_handle(handle: IframeHandle) {
                 &mut ip.pipeline.dom,
                 ip.pipeline.document,
             );
+            // Document-destruction boundary: force-close this iframe's live
+            // WS/SSE connections + terminate its workers, then unbind (WHATWG
+            // HTML §7.1 "destroy a document"). The per-turn `unbind` deliberately
+            // KEEPS realtime connections alive across bracket storms, and the
+            // engine-`Drop` backstop runs unbound (its close is `is_bound()`-gated
+            // and skipped), so a plain drop of `ip` here would LEAK the broker
+            // connection. This is the single iframe document-destruction
+            // chokepoint (both the rescan REMOVE path via `unload_iframe_entry`
+            // and `navigate_iframe` route through here).
+            ip.pipeline.teardown_document();
         }
         IframeHandle::OutOfProcess(mut oop) => {
             let _ = oop.channel.send(BrowserToIframe::Shutdown);
@@ -317,16 +335,12 @@ pub(in crate::content) fn navigate_iframe(
     iframe_entity: Entity,
     url: &url::Url,
 ) {
-    // Dispatch unload on old iframe (WHATWG HTML §7.1.3).
-    if let Some(mut removed_entry) = state.iframes.remove(iframe_entity) {
-        if let IframeHandle::InProcess(ref mut ip) = removed_entry.handle {
-            crate::pipeline::dispatch_unload_events(
-                &mut ip.pipeline.runtime,
-                &mut ip.pipeline.session,
-                &mut ip.pipeline.dom,
-                ip.pipeline.document,
-            );
-        }
+    // Dispatch unload on the old iframe + tear its document down (WHATWG HTML
+    // §7.1.3). Route through the single `unload_iframe_handle` chokepoint so the
+    // old document's WS/SSE connections + workers are released (rather than
+    // leaked by a bare drop) — One-issue-one-way with the rescan REMOVE path.
+    if let Some(removed_entry) = state.iframes.remove(iframe_entity) {
+        unload_iframe_handle(removed_entry.handle);
     }
     // Update `Attributes` directly, then re-derive `IframeData` from the
     // just-written attributes via the canonical reconcile seam. This
@@ -380,6 +394,7 @@ fn build_load_context<'a>(
         font_db: &state.pipeline.font_db,
         network_handle: &state.pipeline.network_handle,
         cookie_jar: state.pipeline.cookie_jar.clone(),
+        web_storage: Some(std::sync::Arc::clone(&state.web_storage)),
         depth: parent_depth + 1,
         registry: &state.pipeline.registry,
         // Inherit the parent's live device facts — window/display facts the sub-frame
@@ -437,5 +452,224 @@ fn collect_iframe_entities(
     while let Some(c) = child {
         collect_iframe_entities(dom, c, result, walk_depth + 1);
         child = dom.get_next_sibling(c);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::content::test_support::build_test_content_state;
+    use crate::content::ContentState;
+    use elidex_script_session::ScriptEngine;
+
+    /// The single `<iframe>` entity in the parent DOM.
+    fn single_iframe_entity(state: &ContentState) -> Entity {
+        (&mut state
+            .pipeline
+            .dom
+            .world()
+            .query::<(Entity, &elidex_ecs::IframeData)>())
+            .into_iter()
+            .next()
+            .map(|(e, _)| e)
+            .expect("an <iframe> entity carrying IframeData should exist")
+    }
+
+    fn is_lazy_queued(state: &ContentState, entity: Entity) -> bool {
+        state.iframes.lazy_pending_iter().any(|&e| e == entity)
+    }
+
+    /// Finding #5 regression: a `loading="lazy"` iframe defers to the lazy queue
+    /// on initial scan (unregistered). When a later turn flips `loading` lazy→eager
+    /// (with a src/srcdoc change), `rescan_iframes_by_diff` must load it
+    /// IMMEDIATELY — NOT strand it in the lazy queue until it happens to scroll
+    /// near the viewport (`check_lazy_iframes` only re-tests the viewport margin,
+    /// never the loading mode). Pre-fix, the `None` (unregistered) arm did an
+    /// unconditional `continue` on `is_lazy_pending`, so the now-eager iframe stayed
+    /// unloaded. No scroll / no `check_lazy_iframes` is driven here.
+    #[test]
+    fn lazy_to_eager_flip_loads_immediately_on_rescan_without_scroll() {
+        let (mut state, _guard) = build_test_content_state(
+            r#"<iframe loading="lazy" srcdoc="<p>lazy</p>"></iframe>"#,
+            "",
+        );
+        let entity = single_iframe_entity(&state);
+
+        // Initial scan deferred it: not registered, sitting in the lazy queue.
+        assert!(
+            state.iframes.get(entity).is_none(),
+            "a loading=lazy iframe must defer (not load) on initial scan"
+        );
+        assert!(
+            is_lazy_queued(&state, entity),
+            "the deferred iframe must be queued lazy-pending"
+        );
+
+        // A later turn changes srcdoc AND flips loading lazy→eager. Write the
+        // attributes and re-derive `IframeData` through the canonical reconcile
+        // seam (mirrors the flush reconcile a VM attribute write triggers).
+        {
+            let mut attrs = state
+                .pipeline
+                .dom
+                .world_mut()
+                .get::<&mut elidex_ecs::Attributes>(entity)
+                .expect("the iframe carries an Attributes component");
+            attrs.set("srcdoc", "<p>eager now</p>");
+            attrs.remove("loading"); // absent ⇒ LoadingAttribute::Eager
+        }
+        // One reconcile re-derives the WHOLE IframeData (loading + srcdoc) from the
+        // post-write attributes.
+        state
+            .pipeline
+            .dom
+            .reconcile_attribute_derived_components(entity, "loading");
+
+        // The §4.3.8 version-delta walk — NO scroll, NO check_lazy_iframes.
+        let changed = rescan_iframes_by_diff(&mut state);
+
+        assert!(
+            changed,
+            "flipping lazy→eager must produce a real load (parent display-list rebuild)"
+        );
+        assert!(
+            state.iframes.get(entity).is_some(),
+            "the now-eager iframe must load immediately on rescan, not stay \
+             stranded in the lazy queue"
+        );
+        assert!(
+            !is_lazy_queued(&state, entity),
+            "the loaded iframe must be dropped from the lazy queue"
+        );
+    }
+
+    /// Finding #5 (non-regression pin): a still-`loading="lazy"` iframe that is
+    /// merely re-walked (no eager flip) must RE-DEFER as an idempotent no-op —
+    /// dropping the old `is_lazy_pending` early-continue must not cause a
+    /// still-lazy iframe to force-load. It stays unregistered + queued exactly
+    /// once (`add_lazy_pending` dedups).
+    #[test]
+    fn still_lazy_iframe_redefers_idempotently_on_rescan() {
+        let (mut state, _guard) = build_test_content_state(
+            r#"<iframe loading="lazy" srcdoc="<p>lazy</p>"></iframe>"#,
+            "",
+        );
+        let entity = single_iframe_entity(&state);
+        assert!(state.iframes.get(entity).is_none());
+        assert!(is_lazy_queued(&state, entity));
+
+        let changed = rescan_iframes_by_diff(&mut state);
+
+        assert!(
+            !changed,
+            "a re-walked still-lazy iframe must not load (no display-list rebuild)"
+        );
+        assert!(
+            state.iframes.get(entity).is_none(),
+            "a still-lazy iframe must stay deferred, not force-load"
+        );
+        assert_eq!(
+            state
+                .iframes
+                .lazy_pending_iter()
+                .filter(|&&e| e == entity)
+                .count(),
+            1,
+            "re-defer is idempotent — the entity must be queued exactly once"
+        );
+    }
+
+    /// Finding #6 regression (iframe-unload chokepoint): detaching a registered
+    /// in-process iframe and rescanning routes the REMOVE through
+    /// `unload_iframe_entry` → `unload_iframe_handle`, which now calls
+    /// `teardown_document()` on the outgoing pipeline (force-close WS/SSE +
+    /// terminate workers, then unbind) instead of a bare drop that leaks the
+    /// broker connection. This drives that teardown on a real bound in-process
+    /// pipeline and asserts it completes cleanly + the entry/focus are cleared.
+    #[test]
+    fn rescan_remove_unloads_registered_iframe_through_teardown_chokepoint() {
+        let (mut state, _guard) =
+            build_test_content_state(r#"<iframe srcdoc="<p>hi</p>"></iframe>"#, "");
+        let entity = single_iframe_entity(&state);
+        assert!(
+            state.iframes.get(entity).is_some(),
+            "an eager same-origin srcdoc iframe must load in-process on scan"
+        );
+        // Pin focus onto the iframe so we can observe the unload clearing it.
+        state.focused_iframe = Some(entity);
+
+        // Detach the iframe from the tree → the connected-set walk can no longer
+        // reach it → REMOVE.
+        let parent = state
+            .pipeline
+            .dom
+            .get_parent(entity)
+            .expect("the iframe has a parent in the document tree");
+        assert!(
+            state.pipeline.dom.remove_child(parent, entity),
+            "detaching the iframe from its parent should succeed"
+        );
+
+        let changed = rescan_iframes_by_diff(&mut state);
+
+        assert!(
+            changed,
+            "removing a loaded iframe rebuilds the parent display list"
+        );
+        assert!(
+            state.iframes.get(entity).is_none(),
+            "the detached iframe's entry must be unloaded + dropped from the registry"
+        );
+        assert_eq!(
+            state.focused_iframe, None,
+            "unloading the focused iframe must clear focus tracking"
+        );
+    }
+
+    /// Finding #6 regression (navigate_iframe routing): `navigate_iframe` now
+    /// routes the OLD entry through the same `unload_iframe_handle` teardown
+    /// chokepoint (rather than an inline dispatch-then-drop that leaked the old
+    /// document's WS/SSE + workers). This drives a re-navigation of a registered
+    /// in-process iframe and asserts the old entry was torn down + a fresh entry
+    /// took its place, exercising the chokepoint on a real pipeline.
+    #[test]
+    fn navigate_iframe_routes_old_entry_through_teardown_chokepoint() {
+        let (mut state, _guard) =
+            build_test_content_state(r#"<iframe srcdoc="<p>hi</p>"></iframe>"#, "");
+        let entity = single_iframe_entity(&state);
+        assert!(
+            state.iframes.get(entity).is_some(),
+            "the srcdoc iframe must be registered in-process before re-navigation"
+        );
+
+        let url = url::Url::parse("https://example.invalid/next").unwrap();
+        navigate_iframe(&mut state, entity, &url);
+
+        // Over the disconnected test network the fetch fails and `navigate_iframe`
+        // force-loads a blank in-process fallback — the point is a FRESH entry
+        // replaced the torn-down old one (the teardown chokepoint ran cleanly).
+        let entry = state
+            .iframes
+            .get(entity)
+            .expect("re-navigation must register a fresh entry for the iframe");
+        assert!(
+            matches!(entry.handle, IframeHandle::InProcess(_)),
+            "the re-navigated (blank fallback) entry is in-process"
+        );
+    }
+
+    /// Finding #6 (method-contract pin): `teardown_document` is idempotent — the
+    /// chokepoints call it exactly once, but the engine-`Drop` backstop may follow,
+    /// so a second call must be a harmless no-op. Also leaves the runtime unbound.
+    #[test]
+    fn teardown_document_is_idempotent() {
+        let mut pipeline = crate::build_pipeline_interactive("<p>x</p>", "");
+        pipeline.teardown_document();
+        // A second call (explicit-then-Drop backstop shape) must not panic.
+        pipeline.teardown_document();
+        assert!(
+            pipeline.runtime.bound_dom_mut().is_none(),
+            "teardown_document unbinds the engine as its final step"
+        );
     }
 }

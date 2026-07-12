@@ -56,7 +56,7 @@ use winit::event_loop::EventLoop;
 
 use animation::{
     apply_active_animations, collect_computed_without_anim, collect_old_anim_styles,
-    detect_and_start_transitions, sync_css_animations,
+    detect_and_start_transitions, register_keyframes_from_stylesheets, sync_css_animations,
 };
 
 use app::App;
@@ -364,6 +364,20 @@ impl PipelineResult {
         }
     }
 
+    /// Non-consuming peek at whether any `<canvas>` is dirty — the render-dirty
+    /// signal for a turn whose only visible effect is a canvas draw. A draw
+    /// inserts a `CanvasDirty` marker (HTML §4.12.5) but bumps no DOM-tree
+    /// version, so the event loop's tree-delta render-dirty check would miss it;
+    /// the loop peeks this to schedule `re_render` (whose drain is
+    /// [`sync_dirty_canvases`](Self::sync_dirty_canvases)). Peek, don't consume —
+    /// `re_render` stays the single drain point. Reads the pipeline's own `dom`
+    /// directly (not through a `with_bound` bracket): the marker is a plain
+    /// component read, no JS runs.
+    #[must_use]
+    pub fn has_dirty_canvas(&self) -> bool {
+        elidex_api_canvas::has_dirty_canvas(&self.dom)
+    }
+
     /// Deliver the queued `ResizeObserver` + `IntersectionObserver` callbacks in
     /// ONE batch bracket (§4.1 "no per-channel brackets" for the contiguous
     /// pair). Both are assume-bound (they read the bound state — intersection
@@ -604,9 +618,14 @@ pub(crate) fn re_render(result: &mut PipelineResult) {
     // reflected in `:focus` styling, form-control caret state and the display
     // list this same frame — otherwise the render builder (which reads
     // `ElementState::FOCUS`) would paint stale `:focus` for a frame after
-    // `activeElement` was already cleared, with nothing scheduling a repair. Also
-    // before observer delivery, so a `MutationObserver` callback sees the
-    // reconciled `activeElement`.
+    // `activeElement` was already cleared, with nothing scheduling a repair. This
+    // is the asynchronous "update the rendering" step-17 focus fixup, so it runs
+    // AFTER observer delivery (this frame's `deliver_records_and_drain` above):
+    // a `MutationObserver` callback — delivered at the earlier microtask
+    // checkpoint (VM-native records) or via that preceding
+    // `deliver_records_and_drain` (external records) — legitimately observes the
+    // pre-fixup holder as `activeElement`, matching `elidex_dom_api::focus` SoT
+    // (`focus/sot.rs`) and HTML "update the rendering" step 17.
     if !mutation_records.is_empty() {
         elidex_dom_api::focus::reconcile_focus(&mut result.dom, result.document);
     }
@@ -640,6 +659,22 @@ pub(crate) fn re_render(result: &mut PipelineResult) {
         });
     let stylesheet_refs: Vec<&Stylesheet> =
         collected.iter().map(std::convert::AsRef::as_ref).collect();
+
+    // Re-register `@keyframes` from the re-collected sheets into the engine.
+    // `result.animation_engine` was seeded with the construction-time keyframe
+    // set; a stylesheet mutation this frame (script `insertRule`, an injected
+    // `<style>`, a newly-loaded `<link>`) can define an `@keyframes` the engine
+    // has never seen. Without this, `sync_css_animations` (below) would see the
+    // new `animation-name` on an element but skip it because
+    // `get_keyframes(name).is_none()`, so a `@keyframes foo` + `animation-name:
+    // foo` added in the same turn would never start. `prune_unused_keyframes`
+    // ran earlier this frame; re-adding every currently-collected rule via the
+    // idempotent, name-keyed registration path restores the live set.
+    register_keyframes_from_stylesheets(
+        stylesheet_refs.iter().copied(),
+        &mut result.animation_engine,
+    );
+
     result.viewport_overflow = resolve_with_mode(
         &mut result.dom,
         &stylesheet_refs,

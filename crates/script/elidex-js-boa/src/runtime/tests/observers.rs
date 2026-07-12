@@ -105,6 +105,7 @@ fn mutation_observer_callback_delivery() {
         next_sibling: None,
         attribute_name: None,
         old_value: None,
+        parent_was_connected: false,
     };
 
     runtime.deliver_mutation_records(&[record], &mut session, &mut dom, doc);

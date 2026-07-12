@@ -38,6 +38,13 @@ const CARET_BLINK_INTERVAL: Duration = Duration::from_millis(500);
 /// (the depth limit enforced by [`collect_hover_chain`](crate::app::hover::collect_hover_chain)).
 struct ContentState {
     pipeline: PipelineResult,
+    /// This content thread's clone of the process-wide `localStorage` backend
+    /// (WHATWG HTML §11.2). Threaded from the browser process at spawn so every
+    /// same-origin tab shares ONE registry + disk tree. Held here so (a) the
+    /// per-turn `flush_dirty` in the content event loop persists dirty origins,
+    /// and (b) in-thread navigation / iframe rebuilds re-install the SAME manager
+    /// into the fresh pipeline (F14 / §4.3.3).
+    web_storage: std::sync::Arc<elidex_storage_core::WebStorageManager>,
     /// This page/browsing-context's Service Worker client id (WHATWG SW §4.2
     /// `Client.id`). The shell is the SOLE minter (the VM has no window-side
     /// client id); minted once per `ContentState` at construction and fed to
@@ -187,6 +194,7 @@ impl ContentState {
         channel: LocalChannel<ContentToBrowser, BrowserToContent>,
         nav_controller: NavigationController,
         pipeline: PipelineResult,
+        web_storage: std::sync::Arc<elidex_storage_core::WebStorageManager>,
         wake: crate::WakeHandle,
         viewport_cell: std::sync::Arc<crate::ipc::ViewportCell>,
         applied_viewport_seq: u64,
@@ -195,6 +203,7 @@ impl ContentState {
     ) -> Self {
         Self {
             channel,
+            web_storage,
             nav_controller,
             hover_chain: Vec::new(),
             active_chain: Vec::new(),
@@ -444,10 +453,17 @@ impl ContentState {
 ///
 /// Returns a `JoinHandle` for the thread. The thread will run until it
 /// receives `Shutdown` or the channel disconnects.
+// Cohesive spawn entry: the content thread inherently needs its channel plus
+// the browser-broker handles (network / cookies / web-storage), initial
+// HTML/CSS, viewport cell, and wake handle — grouping them behind a struct
+// would only relocate the same fields (matches the crate's other spawn/thread
+// entry points).
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn spawn_content_thread(
     channel: LocalChannel<ContentToBrowser, BrowserToContent>,
     network_handle: elidex_net::broker::NetworkHandle,
     cookie_jar: std::sync::Arc<elidex_net::CookieJar>,
+    web_storage: std::sync::Arc<elidex_storage_core::WebStorageManager>,
     html: String,
     css: String,
     viewport_cell: std::sync::Arc<crate::ipc::ViewportCell>,
@@ -458,6 +474,7 @@ pub(crate) fn spawn_content_thread(
             channel,
             network_handle,
             cookie_jar,
+            web_storage,
             &html,
             &css,
             viewport_cell,
@@ -473,6 +490,7 @@ pub(crate) fn spawn_content_thread_url(
     channel: LocalChannel<ContentToBrowser, BrowserToContent>,
     network_handle: elidex_net::broker::NetworkHandle,
     cookie_jar: std::sync::Arc<elidex_net::CookieJar>,
+    web_storage: std::sync::Arc<elidex_storage_core::WebStorageManager>,
     url: url::Url,
     viewport_cell: std::sync::Arc<crate::ipc::ViewportCell>,
     wake: crate::WakeHandle,
@@ -482,6 +500,7 @@ pub(crate) fn spawn_content_thread_url(
             channel,
             network_handle,
             cookie_jar,
+            web_storage,
             &url,
             viewport_cell,
             wake,
@@ -496,6 +515,7 @@ pub(crate) fn spawn_content_thread_blank(
     channel: LocalChannel<ContentToBrowser, BrowserToContent>,
     network_handle: elidex_net::broker::NetworkHandle,
     cookie_jar: std::sync::Arc<elidex_net::CookieJar>,
+    web_storage: std::sync::Arc<elidex_storage_core::WebStorageManager>,
     viewport_cell: std::sync::Arc<crate::ipc::ViewportCell>,
     wake: crate::WakeHandle,
 ) -> JoinHandle<()> {
@@ -504,6 +524,7 @@ pub(crate) fn spawn_content_thread_blank(
             channel,
             network_handle,
             cookie_jar,
+            web_storage,
             crate::BLANK_TAB_HTML,
             crate::BLANK_TAB_CSS,
             viewport_cell,
@@ -512,10 +533,12 @@ pub(crate) fn spawn_content_thread_blank(
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 fn content_thread_main(
     channel: LocalChannel<ContentToBrowser, BrowserToContent>,
     network_handle: elidex_net::broker::NetworkHandle,
     cookie_jar: std::sync::Arc<elidex_net::CookieJar>,
+    web_storage: std::sync::Arc<elidex_storage_core::WebStorageManager>,
     html: &str,
     css: &str,
     viewport_cell: std::sync::Arc<crate::ipc::ViewportCell>,
@@ -541,6 +564,7 @@ fn content_thread_main(
         css,
         nh,
         cookie_jar,
+        std::sync::Arc::clone(&web_storage),
         viewport,
         snapshot.facts,
     );
@@ -548,6 +572,7 @@ fn content_thread_main(
         channel,
         NavigationController::new(),
         pipeline,
+        web_storage,
         wake,
         viewport_cell,
         build_seq,
@@ -570,6 +595,7 @@ fn content_thread_main_url(
     channel: LocalChannel<ContentToBrowser, BrowserToContent>,
     network_handle: elidex_net::broker::NetworkHandle,
     cookie_jar: std::sync::Arc<elidex_net::CookieJar>,
+    web_storage: std::sync::Arc<elidex_storage_core::WebStorageManager>,
     url: &url::Url,
     viewport_cell: std::sync::Arc<crate::ipc::ViewportCell>,
     wake: crate::WakeHandle,
@@ -607,6 +633,7 @@ fn content_thread_main_url(
         nh,
         font_db,
         Some(cookie_jar),
+        Some(std::sync::Arc::clone(&web_storage)),
         viewport,
         snapshot.facts,
         // Top-level document: no frame security (URL-derived origin).
@@ -622,6 +649,7 @@ fn content_thread_main_url(
         channel,
         nav_controller,
         pipeline,
+        web_storage,
         wake,
         viewport_cell,
         build_seq,

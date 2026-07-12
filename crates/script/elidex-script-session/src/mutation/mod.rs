@@ -149,6 +149,19 @@ pub struct MutationRecord {
     pub attribute_name: Option<String>,
     /// The old value (for `Attribute` or `CharacterData` mutations when requested).
     pub old_value: Option<String>,
+    /// WHATWG DOM "remove" (`#concept-node-remove`) step 12 `isParentConnected`:
+    /// whether the record's `target` (the mutation parent) was connected at
+    /// **mutation time**, captured BEFORE the removal — the same pre-detach
+    /// seam as `EcsDom::remove_child`'s `was_connected` on the mutation-event
+    /// leg. This drives the record leg's custom-element `disconnectedCallback`
+    /// gate for `removed_nodes`: step 13 enqueues the reaction on the captured
+    /// value, NOT on connectivity re-derived at delivery, so it survives a
+    /// **later record in the same batch detaching `target`** (the bug a
+    /// batch-final `is_connected(target)` gate causes). Meaningful only for
+    /// records carrying `removed_nodes`; `false` for added-only records (whose
+    /// `connectedCallback` gate is the correct post-insert `is_connected` of
+    /// the added nodes, not this field).
+    pub parent_was_connected: bool,
 }
 
 /// Apply a single [`Mutation`] to the ECS DOM.
@@ -264,6 +277,7 @@ pub(super) fn empty_record(kind: MutationKind, target: Entity) -> MutationRecord
         next_sibling: None,
         attribute_name: None,
         old_value: None,
+        parent_was_connected: false,
     }
 }
 
@@ -271,18 +285,24 @@ pub(super) fn empty_record(kind: MutationKind, target: Entity) -> MutationRecord
 /// parent + exposed siblings, captured **before** the relink (which destroys
 /// them), or `None` if the node was unparented (a fresh insert). This is the
 /// move-vs-fresh source of truth for `appendChild` / `insertBefore`; `replace`
-/// needs the `old_child` step-over and captures its own.
-type MoveSource = Option<(Entity, Option<Entity>, Option<Entity>)>;
+/// needs the `old_child` step-over and captures its own. The trailing `bool` is
+/// the old parent's connectedness (DOM "remove" step-12 `isParentConnected`),
+/// captured pre-relink for the source-removal record's `disconnectedCallback`
+/// gate.
+type MoveSource = Option<(Entity, Option<Entity>, Option<Entity>, bool)>;
 
 /// Capture the [`MoveSource`] for `node` (append/insert): old parent + `node`'s
-/// exposed prev/next. The exposed-sibling helpers skip internal `ShadowRoot`
-/// entities (§4.8 encapsulation). Must run before the `EcsDom` relink.
+/// exposed prev/next + the old parent's connectedness. The exposed-sibling
+/// helpers skip internal `ShadowRoot` entities (§4.8 encapsulation). Must run
+/// before the `EcsDom` relink (both the siblings and — for step-12
+/// `isParentConnected` — the connectedness are pre-removal state).
 fn capture_move_source(dom: &EcsDom, node: Entity) -> MoveSource {
     dom.get_parent(node).map(|old_parent| {
         (
             old_parent,
             dom.prev_exposed_sibling(node),
             dom.next_exposed_sibling(node),
+            dom.is_connected(old_parent),
         )
     })
 }
@@ -296,11 +316,13 @@ fn source_removal_record_from(
     node: Entity,
     previous_sibling: Option<Entity>,
     next_sibling: Option<Entity>,
+    parent_was_connected: bool,
 ) -> MutationRecord {
     MutationRecord {
         removed_nodes: vec![node],
         previous_sibling,
         next_sibling,
+        parent_was_connected,
         ..empty_record(MutationKind::ChildList, old_parent)
     }
 }
@@ -318,6 +340,7 @@ fn source_removal_record(dom: &EcsDom, node: Entity) -> Option<MutationRecord> {
             node,
             dom.prev_exposed_sibling(node),
             dom.next_exposed_sibling(node),
+            dom.is_connected(old_parent),
         )
     })
 }
@@ -332,9 +355,15 @@ fn move_record_list(
     primary: MutationRecord,
 ) -> Vec<MutationRecord> {
     match source {
-        Some((old_parent, previous_sibling, next_sibling)) => {
+        Some((old_parent, previous_sibling, next_sibling, parent_was_connected)) => {
             vec![
-                source_removal_record_from(old_parent, node, previous_sibling, next_sibling),
+                source_removal_record_from(
+                    old_parent,
+                    node,
+                    previous_sibling,
+                    next_sibling,
+                    parent_was_connected,
+                ),
                 primary,
             ]
         }
@@ -593,6 +622,12 @@ pub fn apply_remove_child(
 ) -> Option<MutationRecord> {
     let prev_sibling = dom.prev_exposed_sibling(child);
     let next_sibling = dom.next_exposed_sibling(child);
+    // DOM "remove" step 12 `isParentConnected`: capture the parent's
+    // connectedness BEFORE the removal. Removing a child does not change the
+    // parent's own connectedness, but capturing here (not at record delivery)
+    // is what makes the record leg's disconnectedCallback gate survive a later
+    // same-batch record detaching `parent`.
+    let parent_was_connected = dom.is_connected(parent);
     if !dom.remove_child(parent, child) {
         return None;
     }
@@ -600,6 +635,7 @@ pub fn apply_remove_child(
         removed_nodes: vec![child],
         previous_sibling: prev_sibling,
         next_sibling,
+        parent_was_connected,
         ..empty_record(MutationKind::ChildList, parent)
     })
 }
@@ -628,6 +664,11 @@ pub fn apply_replace_child(
     if rejects_shadow_root_insertion(dom, new_child) {
         return Vec::new();
     }
+    // DOM "remove" step 12 `isParentConnected` for the coalesced record's
+    // `removedNodes = «old_child»` disconnected gate: `parent`'s connectedness
+    // is unchanged by replacing its children, so capture once up front (before
+    // any mutation) and reuse in both the fragment and non-fragment arms.
+    let parent_was_connected = dom.is_connected(parent);
     if dom.is_document_fragment(new_child) {
         // DocumentFragment newChild — §4.2.3 "replace" steps 7-14 with expansion.
         // §4.2.3 replace step 2 (atomic, before removing oldChild): a fragment that
@@ -671,6 +712,7 @@ pub fn apply_replace_child(
             removed_nodes: vec![old_child],
             previous_sibling,
             next_sibling: reference_child,
+            parent_was_connected,
             ..empty_record(MutationKind::ChildList, parent)
         };
         return match frag_and_nodes {
@@ -713,7 +755,9 @@ pub fn apply_replace_child(
             Some(s) if s == old_child => dom.next_exposed_sibling(old_child),
             other => other,
         };
-        (old_parent, prev, next)
+        // step-12 `isParentConnected` of new_child's OLD parent (the source of
+        // the adopt→remove) — pre-relink, so read here.
+        (old_parent, prev, next, dom.is_connected(old_parent))
     });
     if !dom.replace_child(parent, new_child, old_child) {
         return Vec::new();
@@ -723,6 +767,7 @@ pub fn apply_replace_child(
         removed_nodes: vec![old_child],
         previous_sibling: coalesced_prev,
         next_sibling: coalesced_next,
+        parent_was_connected,
         ..empty_record(MutationKind::ChildList, parent)
     };
     // Order: source-removal (from step 13's adopt) THEN coalesced (step 14).
@@ -763,6 +808,10 @@ pub fn apply_replace_all(
     // `children`/`children_iter`, which truncate at MAX_ANCESTOR_DEPTH) so a >cap
     // parent does not silently drop its removedNodes tail (the #387 discipline).
     let removed_nodes: Vec<Entity> = dom.child_list_uncapped(parent);
+    // step-12 `isParentConnected` for the combined record's `removedNodes`
+    // disconnected gate: `parent`'s connectedness is unchanged by clearing its
+    // children, captured before the remove-all.
+    let parent_was_connected = dom.is_connected(parent);
     // step 5: remove all children, in tree order, suppressObservers (no per-child
     // record). `removed_nodes` is a static snapshot, so removing as we go is safe.
     for &child in &removed_nodes {
@@ -807,6 +856,7 @@ pub fn apply_replace_all(
         records.push(MutationRecord {
             added_nodes,
             removed_nodes,
+            parent_was_connected,
             ..empty_record(MutationKind::ChildList, parent)
         });
     }

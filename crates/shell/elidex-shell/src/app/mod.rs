@@ -267,6 +267,15 @@ pub struct App {
     /// App at least authority. `Some` only in the threaded path (built in
     /// [`Self::init_browser_db`]); inline/legacy modes have no SW → `None`.
     origin_storage: Option<elidex_storage_core::OriginStorageManager>,
+    /// Process-wide `localStorage` backend (WHATWG HTML §11.2), disk-backed +
+    /// origin-scoped. Owned once at the browser-process level (mirroring the
+    /// shared `CookieJar` on the `NetworkProcessHandle`) and cloned to every
+    /// spawned content thread so same-origin tabs share ONE in-memory registry
+    /// and one on-disk JSON tree. Threaded into the pipeline construction seam
+    /// (`build_pipeline_*` → `run_scripts_and_finalize` → `install_web_storage`)
+    /// and to the per-turn `flush_dirty` in the content event loop (F14 /
+    /// §4.3.3).
+    web_storage: std::sync::Arc<elidex_storage_core::WebStorageManager>,
     /// Last-synced CookieJar generation (for dirty-check persistence).
     cookie_gen: u64,
     /// Proxy to wake the winit event loop for content-initiated repaints.
@@ -326,6 +335,12 @@ impl App {
             sw_coordinator: sw_coordinator::SwCoordinator::new(),
             browser_db: None,
             origin_storage: None,
+            // ONE process-wide manager, cloned to each content thread at spawn so
+            // same-origin tabs share the live registry (mirrors the shared cookie
+            // jar). Disk root = platform data_dir/elidex/localStorage (F14).
+            web_storage: std::sync::Arc::new(
+                elidex_storage_core::WebStorageManager::with_default_profile(),
+            ),
             cookie_gen: 0,
             wake_proxy: Some(wake_proxy),
             viewport: viewport::ViewportProducer::new(
@@ -464,6 +479,12 @@ impl App {
             sw_coordinator: sw_coordinator::SwCoordinator::new(),
             browser_db: None,
             origin_storage: None, // Inline/legacy mode — no SW, no per-origin storage.
+            // Inline/legacy mode has no content thread, but its in-app navigation
+            // rebuild (`load_url_into_pipeline`) still constructs pipelines that
+            // must persist `localStorage` — own one disk-backed manager here too.
+            web_storage: std::sync::Arc::new(
+                elidex_storage_core::WebStorageManager::with_default_profile(),
+            ),
             cookie_gen: 0,
             wake_proxy: None, // Inline mode is synchronous — nothing to wake.
             viewport: viewport::ViewportProducer::new(
@@ -505,6 +526,12 @@ impl App {
             sw_coordinator: sw_coordinator::SwCoordinator::new(),
             browser_db: None,
             origin_storage: None, // Inline/legacy mode — no SW, no per-origin storage.
+            // Inline/legacy mode has no content thread, but its in-app navigation
+            // rebuild (`load_url_into_pipeline`) still constructs pipelines that
+            // must persist `localStorage` — own one disk-backed manager here too.
+            web_storage: std::sync::Arc::new(
+                elidex_storage_core::WebStorageManager::with_default_profile(),
+            ),
             cookie_gen: 0,
             wake_proxy: None, // Inline mode is synchronous — nothing to wake.
             viewport: viewport::ViewportProducer::new(

@@ -376,6 +376,7 @@ impl App {
             if let Some(np) = &self.network_process {
                 let nh = np.create_renderer_handle();
                 let jar = Arc::clone(np.cookie_jar());
+                let web_storage = Arc::clone(&self.web_storage);
                 // Mint via the disjoint `wake_proxy` field (an associated fn, not
                 // `&self`) so it coexists with the active `&mut mgr` borrow.
                 let wake = Self::wake_or_noop(self.wake_proxy.as_ref());
@@ -383,6 +384,7 @@ impl App {
                     content_chan,
                     nh,
                     jar,
+                    web_storage,
                     url,
                     Arc::clone(&self.viewport.viewport_cell),
                     wake,

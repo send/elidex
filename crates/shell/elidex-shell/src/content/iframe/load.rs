@@ -200,6 +200,14 @@ fn load_iframe_from_url(
             } else {
                 ctx.cookie_jar.clone()
             };
+            // localStorage backend follows the same isolation as cookies: shared
+            // (persistent) for same-origin frames, `None` (per-VM in-memory) for
+            // credentialless ones (F14).
+            let iframe_web_storage = if iframe_data.credentialless {
+                None
+            } else {
+                ctx.web_storage.clone()
+            };
             // iframe initial build: the sub-browsing-context box is not yet known
             // (the parent lays out the <iframe> element + delivers it via
             // SetViewport later), so build at DEFAULT *size*. NOTE C1's
@@ -215,6 +223,7 @@ fn load_iframe_from_url(
                 pipeline_handle,
                 ctx.font_db.clone(),
                 iframe_cookies,
+                iframe_web_storage,
                 elidex_plugin::Size::new(
                     crate::DEFAULT_VIEWPORT_WIDTH,
                     crate::DEFAULT_VIEWPORT_HEIGHT,
@@ -319,6 +328,12 @@ pub(in crate::content) fn make_out_of_process_entry(
             loaded,
             network_handle,
             font_db,
+            None,
+            // OOP (cross-origin) iframe runs on its own thread with no handle to
+            // the process-wide manager; its localStorage falls back to per-VM
+            // in-memory, mirroring the `None` cookie jar isolation on this path.
+            // Cross-tab-shared persistence for OOP frames is a separate concern
+            // (not the flagged top-level regression).
             None,
             elidex_plugin::Size::new(
                 crate::DEFAULT_VIEWPORT_WIDTH,
@@ -458,6 +473,9 @@ fn build_iframe_pipeline(
         ctx.network_handle.clone(),
         ctx.registry.clone(),
         ctx.cookie_jar.clone(),
+        // Same-origin srcdoc/HTML iframe inherits the parent's persistent backend
+        // (credentialless isolation already reflected in `ctx.web_storage`).
+        ctx.web_storage.clone(),
         // iframe build at DEFAULT *size* — box not yet known (slot #11-iframe-build-viewport).
         elidex_plugin::Size::new(
             crate::DEFAULT_VIEWPORT_WIDTH,

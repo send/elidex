@@ -666,6 +666,71 @@ fn re_render_preserves_running_animations() {
 }
 
 #[test]
+fn re_render_registers_dynamically_added_keyframes() {
+    // Regression: a `@keyframes foo` defined *after* the pipeline is built
+    // (here via a `<style>` injected into the live DOM) plus an element that
+    // gains `animation-name: foo` in the same turn must start the animation.
+    // Before the fix, `re_render` re-collected the new stylesheet for style
+    // resolution but left `result.animation_engine` with only the
+    // construction-time keyframe set, so `sync_css_animations` skipped the new
+    // name (`get_keyframes("foo").is_none()`). This drives the lowest layer that
+    // exercises the `re_render` re-registration path: a direct DOM `<style>`
+    // append followed by `re_render`.
+    let html = r#"<div id="box">Hello</div>"#;
+    let mut result = build_pipeline_interactive(html, "div { color: black; }");
+
+    let entity = find_by_id(&result, "div", "box").expect("should find div#box");
+    let entity_bits = entity.to_bits().get();
+
+    // Precondition: the construction-time engine has never seen `foo`, and no
+    // animation is running.
+    assert!(
+        result.animation_engine.get_keyframes("foo").is_none(),
+        "foo keyframes must not exist before the dynamic <style> is added"
+    );
+    assert_eq!(
+        result.animation_engine.active_animations(entity_bits).len(),
+        0,
+        "no animation should run before the dynamic <style> is added"
+    );
+
+    // Inject a connected `<style>` defining both the `@keyframes` and the rule
+    // that puts `animation-name: foo` on the element — the same turn.
+    let parent = result
+        .dom
+        .query_by_tag("body")
+        .into_iter()
+        .next()
+        .unwrap_or(result.document);
+    let style = result
+        .dom
+        .create_element("style", elidex_ecs::Attributes::default());
+    let text = result.dom.create_text(
+        "@keyframes foo { from { opacity: 0; } to { opacity: 1; } } \
+         #box { animation-name: foo; animation-duration: 1s; }",
+    );
+    assert!(result.dom.append_child(style, text));
+    assert!(result.dom.append_child(parent, style));
+
+    re_render(&mut result);
+
+    // The re-collected sheet's keyframes are now in the engine, and the
+    // animation started this frame.
+    assert!(
+        result.animation_engine.get_keyframes("foo").is_some(),
+        "foo keyframes should be re-registered from the re-collected stylesheet"
+    );
+    let active = result.animation_engine.active_animations(entity_bits);
+    assert_eq!(
+        active.len(),
+        1,
+        "the dynamically-added animation should have started, got {}",
+        active.len()
+    );
+    assert_eq!(active[0].name(), "foo");
+}
+
+#[test]
 fn re_render_does_not_duplicate_animations() {
     // Verify that re_render with unchanged CSS doesn't duplicate animations.
     // sync_css_animations should skip already-running names.
@@ -941,5 +1006,72 @@ fn engine_mode_core_keeps_standard_ua_rendering() {
         700,
         "BrowserCore must keep standard <strong> UA rendering — dropping the compat \
          legacy sheet must not strip §15.3 rendering (Codex #406 P2-1)"
+    );
+}
+
+/// F14 (§4.3.3 / Slice-7): the pipeline construction seam MUST route
+/// `localStorage` through the shell-owned [`WebStorageManager`], so a page-load
+/// `setItem` persists + is same-origin shared — NOT the per-VM in-memory
+/// `fallback_local_storage` (the pre-flip regression this closes). Drives the
+/// lowest builder that installs a manager and carries a real tuple origin, then
+/// asserts the write is visible THROUGH the manager (keyed by the document's
+/// serialized origin), and that an un-installed (hermetic) build never reaches it.
+#[test]
+fn pipeline_construction_installs_web_storage_manager() {
+    fn temp_manager(tag: &str) -> std::sync::Arc<elidex_storage_core::WebStorageManager> {
+        let dir = std::env::temp_dir().join(format!(
+            "elidex-f14-{tag}-{}-{}",
+            std::process::id(),
+            uuid::Uuid::new_v4()
+        ));
+        std::sync::Arc::new(elidex_storage_core::WebStorageManager::new(dir))
+    }
+
+    let manager = temp_manager("installed");
+    let url = url::Url::parse("http://example.com/").unwrap();
+    let origin = elidex_plugin::SecurityOrigin::from_url(&url).serialize();
+
+    // A page-load script writes localStorage DURING construction (the scripts run
+    // inside `run_scripts_and_finalize`, after the pre-eval install seam).
+    let installed = build_pipeline_interactive_shared(
+        "<script>localStorage.setItem('k', 'v');</script>",
+        Some(url.clone()),
+        std::sync::Arc::new(elidex_text::FontDatabase::new()),
+        std::rc::Rc::new(elidex_net::broker::NetworkHandle::disconnected()),
+        std::sync::Arc::new(crate::create_css_property_registry()),
+        None, // cookie jar
+        Some(std::sync::Arc::clone(&manager)),
+        elidex_plugin::Size::new(DEFAULT_VIEWPORT_WIDTH, DEFAULT_VIEWPORT_HEIGHT),
+        crate::ipc::DeviceFacts::default(),
+        None, // top-level: origin derives from `url`
+    );
+    drop(installed);
+
+    // The write landed in the installed manager (persisted + cross-tab visible),
+    // proving `install_web_storage` was wired at the construction seam.
+    assert_eq!(
+        manager.local_get(&origin, "k").as_deref(),
+        Some("v"),
+        "construction-seam install must route localStorage through the manager (F14)"
+    );
+
+    // A build WITHOUT a manager (the hermetic `build_pipeline_interactive` path)
+    // falls back to the per-VM in-memory store — a fresh bystander manager never
+    // observes the write, and the real manager is untouched by it.
+    let uninstalled = build_pipeline_interactive(
+        "<script>localStorage.setItem('k', 'bystander');</script>",
+        "",
+    );
+    drop(uninstalled);
+    let bystander = temp_manager("bystander");
+    assert_eq!(
+        bystander.local_get(&origin, "k"),
+        None,
+        "an un-installed build must not reach any WebStorageManager (fallback path)"
+    );
+    assert_eq!(
+        manager.local_get(&origin, "k").as_deref(),
+        Some("v"),
+        "the un-installed build must not have mutated the real manager"
     );
 }

@@ -189,6 +189,7 @@ pub(super) fn run_scripts_and_finalize(
     script_sources: &[&str],
     network_handle: Option<Rc<elidex_net::broker::NetworkHandle>>,
     cookie_jar: Option<std::sync::Arc<elidex_net::CookieJar>>,
+    web_storage: Option<Arc<elidex_storage_core::WebStorageManager>>,
     font_db: &Arc<elidex_text::FontDatabase>,
     current_url: Option<&url::Url>,
     registry: &elidex_plugin::CssPropertyRegistry,
@@ -215,26 +216,33 @@ pub(super) fn run_scripts_and_finalize(
     let mut session = SessionCore::new();
     // S5-6b construction chokepoint (§3.1 / §5 item 2): boa
     // `JsRuntime::with_network` → VM `ElidexJsEngine::new()` + trait installs.
-    //
-    // TODO(S5-6b stage2 / DESIGN FORK — HostData install): `ElidexJsEngine::new()`
-    // does NOT install a `HostData` context, and the cookie-jar / origin / sandbox
-    // / web-storage installs below all NO-OP without one (each `if let Some(hd) =
-    // host_data()`), and `bind`/`unbind` no-op without one. The only path today is
-    // `engine.vm().install_host_data(HostData::new())`, but `HostData` is
-    // crate-private to `elidex-js` (not re-exported), so the shell cannot construct
-    // it. Needs a design decision: either `ElidexJsEngine::new()` installs a
-    // `HostData` by construction (matches `install_host_data`'s own doc: "Call
-    // once, typically at ElidexJsEngine construction"), or a new public
-    // constructor (`ElidexJsEngine::with_host_data()` / `new()` installs it).
-    // Until resolved, every pre-eval install here is inert.
+    // `ElidexJsEngine::new()` installs a `HostData` by construction
+    // (`engine.rs`), so the cookie-jar / origin / sandbox / web-storage installs
+    // below all land on a live host context (they are NOT inert).
     let mut runtime = ElidexJsEngine::new();
     if let Some(handle) = network_handle {
         runtime.install_network_handle(handle);
     }
-    // TODO(S5-6b stage2 — B4/§4.3.3 web-storage install): the shell must own ONE
-    // process-wide `WebStorageManager` and `runtime.install_web_storage(manager)`
-    // here (else localStorage falls back to per-VM in-memory = persistence loss at
-    // flip). Not threaded into this function yet.
+    // B4/§4.3.3 web-storage install: route `localStorage` through the shell-owned
+    // process-wide `WebStorageManager` (disk-backed, origin-scoped, shared across
+    // same-origin browsing contexts) BEFORE the first eval, so page-load scripts
+    // observe persisted + cross-tab-shared storage. Without an installed manager
+    // (`None` — the hermetic test / standalone-unconfigured path) the Storage
+    // natives fall back to the per-VM in-memory `fallback_local_storage`, cleared
+    // on `Vm::unbind`. The production shell path always passes `Some` (F14).
+    if let Some(manager) = web_storage {
+        runtime.install_web_storage(manager);
+        // F14 no-silent-regression pin: the install must have landed on a live
+        // host context (a future construction site cannot pass a manager yet
+        // silently regress to the in-memory fallback). Cheap read of the backing
+        // `HostData`; only compiled in debug builds.
+        debug_assert!(
+            runtime.web_storage_installed(),
+            "web-storage install did not reach an installed HostData at the \
+             pipeline construction seam — localStorage would silently regress to \
+             the per-VM in-memory fallback (F14)"
+        );
+    }
     // Set cookie jar BEFORE script execution so document.cookie works during page load.
     if let Some(jar) = cookie_jar {
         // B23: boa `.bridge().set_cookie_jar` → trait `install_cookie_jar`.
@@ -570,6 +578,7 @@ pub fn build_pipeline_interactive(html: &str, css: &str) -> PipelineResult {
         &script_sources,
         None, // No NetworkHandle in standalone mode.
         None, // No CookieJar.
+        None, // No WebStorageManager (hermetic test build → in-memory fallback).
         &font_db,
         None,
         &registry,
@@ -625,6 +634,7 @@ pub(crate) fn build_pipeline_interactive_with_network(
     css: &str,
     network_handle: Rc<elidex_net::broker::NetworkHandle>,
     cookie_jar: Arc<elidex_net::CookieJar>,
+    web_storage: Arc<elidex_storage_core::WebStorageManager>,
     viewport: Size,
     device_facts: crate::ipc::DeviceFacts,
 ) -> PipelineResult {
@@ -655,6 +665,7 @@ pub(crate) fn build_pipeline_interactive_with_network(
         &script_sources,
         Some(Rc::clone(&network_handle)),
         Some(Arc::clone(&cookie_jar)),
+        Some(web_storage),
         &font_db,
         None,
         &registry,
@@ -714,6 +725,7 @@ pub(crate) fn build_pipeline_interactive_shared(
     network_handle: Rc<elidex_net::broker::NetworkHandle>,
     registry: Arc<elidex_plugin::CssPropertyRegistry>,
     cookie_jar: Option<Arc<elidex_net::CookieJar>>,
+    web_storage: Option<Arc<elidex_storage_core::WebStorageManager>>,
     viewport: Size,
     device_facts: crate::ipc::DeviceFacts,
     pre_eval_state: Option<PreEvalFrameState>,
@@ -749,6 +761,7 @@ pub(crate) fn build_pipeline_interactive_shared(
         &script_sources,
         Some(Rc::clone(&network_handle)),
         cookie_jar.clone(),
+        web_storage,
         &font_db,
         url.as_ref(),
         &registry,
@@ -814,6 +827,7 @@ pub fn build_pipeline_from_loaded(
     network_handle: Rc<elidex_net::broker::NetworkHandle>,
     font_db: Arc<FontDatabase>,
     cookie_jar: Option<Arc<elidex_net::CookieJar>>,
+    web_storage: Option<Arc<elidex_storage_core::WebStorageManager>>,
     viewport: Size,
     device_facts: crate::ipc::DeviceFacts,
     pre_eval_state: Option<PreEvalFrameState>,
@@ -848,6 +862,7 @@ pub fn build_pipeline_from_loaded(
         &script_sources,
         Some(Rc::clone(&network_handle)),
         cookie_jar.clone(),
+        web_storage,
         &font_db,
         Some(&url),
         &registry,
@@ -924,11 +939,16 @@ pub fn build_pipeline_from_url(
     let pre_eval_state = pre_eval_state.map(|inputs| inputs.into_pre_eval_state(&loaded.url));
     let font_db = Arc::new(FontDatabase::new());
     let cookie_jar = Arc::clone(np.cookie_jar());
+    // Standalone mode is still a real browser window: persist `localStorage` to
+    // the default on-disk profile (origin-scoped) rather than the per-VM in-memory
+    // fallback (F14 / §4.3.3).
+    let web_storage = Arc::new(elidex_storage_core::WebStorageManager::with_default_profile());
     let mut result = build_pipeline_from_loaded(
         loaded,
         network_handle,
         font_db,
         Some(cookie_jar),
+        Some(web_storage),
         viewport,
         // Standalone (no window) → default device facts (1× / Light).
         crate::ipc::DeviceFacts::default(),

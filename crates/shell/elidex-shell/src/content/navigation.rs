@@ -256,6 +256,10 @@ pub(super) fn handle_navigate(
                 network_handle,
                 font_db,
                 cookie_jar,
+                // Re-install the SAME process-wide manager into the rebuilt
+                // document so a cross-document nav keeps same-origin localStorage
+                // persistent + shared (F14).
+                Some(std::sync::Arc::clone(&state.web_storage)),
                 viewport,
                 snapshot.facts,
                 // Top-level document: no frame security (URL-derived origin).

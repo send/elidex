@@ -74,6 +74,7 @@ fn observe_on_transient_only_node_keeps_other_transients() {
 /// A `ChildList` mutation record on `target` adding `added`.
 fn child_list_added(target: Entity, added: Vec<Entity>) -> SessionRecord {
     SessionRecord {
+        parent_was_connected: false,
         kind: MutationKind::ChildList,
         target,
         added_nodes: added,
@@ -435,6 +436,7 @@ fn notify_collapse_old_value_union_is_order_independent() {
     );
 
     let record = SessionRecord {
+        parent_was_connected: false,
         kind: MutationKind::Attribute,
         target: child,
         added_nodes: vec![],

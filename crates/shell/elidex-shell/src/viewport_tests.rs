@@ -104,6 +104,7 @@ fn content_thread_first_frame_at_spawn_viewport() {
         content,
         nh,
         jar,
+        super::test_support::test_web_storage(),
         "<div id=\"box\">Box</div>".to_string(),
         "div { display: block; width: 100px; height: 100px; background-color: blue; }\
          @media (max-width: 900px) { div { background-color: red; } }"
@@ -373,6 +374,7 @@ fn content_thread_builds_at_latest_published_cell_size() {
         content,
         nh,
         jar,
+        super::test_support::test_web_storage(),
         "<div id=\"box\">Box</div>".to_string(),
         "div { display: block; width: 100px; height: 100px; background-color: blue; }\
          @media (max-width: 900px) { div { background-color: red; } }"
@@ -435,6 +437,7 @@ fn content_thread_drops_stale_seq_viewport() {
         content,
         nh,
         jar,
+        super::test_support::test_web_storage(),
         "<div id=\"box\">Box</div>\
          <script>\
            window.addEventListener('resize', function() {\

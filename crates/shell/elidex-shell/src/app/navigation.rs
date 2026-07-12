@@ -348,6 +348,10 @@ impl App {
     /// Shared by `navigate` and `navigate_to_history_url`.
     /// Returns `true` on success, `false` on error.
     fn load_url_into_pipeline(&mut self, url: &url::Url) -> bool {
+        // Clone the process-wide manager before the `&mut self.interactive` borrow
+        // so the rebuilt (legacy inline) pipeline re-installs the SAME localStorage
+        // backend (F14).
+        let web_storage = std::sync::Arc::clone(&self.web_storage);
         let Some(interactive) = &mut self.interactive else {
             return false;
         };
@@ -371,6 +375,7 @@ impl App {
                     network_handle,
                     font_db,
                     cookie_jar,
+                    Some(web_storage),
                     viewport,
                     device_facts,
                     // Top-level document: no frame security (URL-derived origin).
@@ -382,6 +387,14 @@ impl App {
                     // traversals still restore + fire in place (`handle_history_action`).
                     None,
                 );
+                // Document-destruction boundary (WHATWG HTML §7.1 "destroy a
+                // document"): tear the OUTGOING document down BEFORE the pipeline
+                // is replaced — force-close its live WS/SSE connections + terminate
+                // its workers, then unbind. The per-turn `unbind` keeps realtime
+                // connections alive and the engine-`Drop` backstop skips the close
+                // (it runs unbound, `is_bound()`-gated), so a bare replacement would
+                // LEAK the broker connection. Mirrors `content/navigation.rs:201`.
+                interactive.pipeline.teardown_document();
                 interactive.pipeline = new_pipeline;
                 interactive
                     .pipeline

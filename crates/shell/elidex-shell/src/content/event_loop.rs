@@ -184,7 +184,13 @@ pub(super) fn run_event_loop(state: &mut ContentState) {
             }
         }
 
-        elidex_js_boa::bridge::local_storage::flush_dirty_stores();
+        // Persist any `localStorage` origins this turn's scripts dirtied to disk.
+        // The VM-native Storage natives write through the shell-owned
+        // `WebStorageManager` (installed at the pipeline construction seam); this
+        // per-turn flush is the disk-persistence half (F14 / §4.3.3). Replaces the
+        // orphaned pre-flip `elidex_js_boa::bridge::local_storage::flush_dirty_stores()`
+        // (which flushed the boa registry the VM never writes to).
+        state.web_storage.flush_dirty();
 
         // window.open — route the ordered tab-creation / named-navigation
         // queue (a user-visible chrome action, so we wake: a pure-async
@@ -226,6 +232,18 @@ pub(super) fn run_event_loop(state: &mut ContentState) {
             .inclusive_descendants_version(state.pipeline.document)
             != state.last_render_dom_version
         {
+            needs_render = true;
+        }
+
+        // §4.3.8: two render effects bump NO DOM-tree version, so the delta above
+        // misses a turn whose ONLY visible effect is one of them — restore the
+        // explicit render-dirty signal the pre-flip loop carried. Both drain
+        // INSIDE `re_render` (scroll via `take_pending_scroll`, canvas via
+        // `sync_dirty_canvases`), so a pure-async handler (WS/SSE/worker/
+        // postMessage) that only `scrollTo`s or draws a canvas would otherwise
+        // leave `needs_render` false and stall until a later render/interaction.
+        // PEEK, don't consume — `re_render` stays the single drain point.
+        if state.pipeline.runtime.has_pending_scroll() || state.pipeline.has_dirty_canvas() {
             needs_render = true;
         }
 
@@ -701,4 +719,94 @@ fn chrome_traverse(state: &mut ContentState, direction: ChromeTraversal) {
         navigation::HistoryCursorOp::Commit(target_index),
         None,
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use elidex_script_session::HostDriver;
+
+    use crate::build_pipeline_interactive;
+
+    /// Regression (S5-6b flip): a turn whose ONLY visible effect is a
+    /// `window.scrollTo` moves NO DOM-tree version, so the event loop's
+    /// inclusive-descendants version-delta render-dirty check (event_loop.rs
+    /// `if needs_render` gate) would miss it and the scroll would stall. The
+    /// scroll drains INSIDE `re_render` (`take_pending_scroll`), so the loop must
+    /// peek `has_pending_scroll()` to schedule that render. Proves the peek fires
+    /// while the DOM version is unchanged, and that peeking does NOT consume.
+    #[test]
+    fn scroll_only_turn_flags_render_without_dom_version_bump() {
+        let mut pipeline = build_pipeline_interactive(
+            "<body><div id='a'>hi</div><script>window.scrollTo(0, 100);</script></body>",
+            "",
+        );
+        let doc = pipeline.document;
+        // The scrollTo ran during build; its request is pending (undrained — the
+        // build path never calls take_pending_scroll).
+        let version_after_scroll = pipeline.dom.inclusive_descendants_version(doc);
+
+        // The event-loop render-dirty peek picks it up...
+        assert!(
+            pipeline.runtime.has_pending_scroll(),
+            "scrollTo must leave a pending scroll the render-dirty gate can see"
+        );
+        // ...and the peek is NON-consuming (unlike take_pending_scroll).
+        assert!(
+            pipeline.runtime.has_pending_scroll(),
+            "has_pending_scroll must not consume the pending scroll"
+        );
+        // The version-delta signal alone would MISS this turn: the peek did not
+        // move the DOM-tree version.
+        assert_eq!(
+            version_after_scroll,
+            pipeline.dom.inclusive_descendants_version(doc),
+            "a scroll-only turn bumps no DOM-tree version"
+        );
+
+        // The gate expression the event loop evaluates fires.
+        let needs_render = pipeline.runtime.has_pending_scroll() || pipeline.has_dirty_canvas();
+        assert!(needs_render, "scroll-only turn must schedule re_render");
+
+        // re_render's drain (take_pending_scroll) clears the signal.
+        assert_eq!(pipeline.runtime.take_pending_scroll(), Some((0.0, 100.0)));
+        assert!(!pipeline.runtime.has_pending_scroll());
+    }
+
+    /// Regression (S5-6b flip): a turn whose ONLY visible effect is a canvas draw
+    /// inserts a `CanvasDirty` marker but bumps NO DOM-tree version, so the
+    /// version-delta gate would miss it and the draw would stall until a later
+    /// render. The pixels flush INSIDE `re_render` (`sync_dirty_canvases`), so the
+    /// loop must peek `has_dirty_canvas()`. Proves the peek fires while the DOM
+    /// version is unchanged.
+    #[test]
+    fn canvas_only_turn_flags_render_without_dom_version_bump() {
+        let mut pipeline = build_pipeline_interactive("<body><canvas id='c'></canvas></body>", "");
+        let doc = pipeline.document;
+        let canvas = pipeline.dom.query_by_tag("canvas")[0];
+
+        let version_before = pipeline.dom.inclusive_descendants_version(doc);
+        assert!(
+            !pipeline.has_dirty_canvas(),
+            "no canvas is dirty before the draw"
+        );
+
+        // A draw marks the canvas dirty (HTML §4.12.5) without touching the DOM
+        // tree — set the marker directly (the raster op path is exercised by the
+        // canvas crate's own tests).
+        elidex_api_canvas::mark_dirty(&mut pipeline.dom, canvas);
+
+        assert_eq!(
+            version_before,
+            pipeline.dom.inclusive_descendants_version(doc),
+            "marking a canvas dirty bumps no DOM-tree version"
+        );
+
+        // The event-loop render-dirty gate now picks it up where the version-delta
+        // signal alone would not.
+        let needs_render = pipeline.runtime.has_pending_scroll() || pipeline.has_dirty_canvas();
+        assert!(
+            needs_render,
+            "canvas-only turn must schedule re_render via has_dirty_canvas()"
+        );
+    }
 }

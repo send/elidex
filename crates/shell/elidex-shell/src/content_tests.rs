@@ -24,6 +24,7 @@ fn content_thread_wake_fires_on_display_list() {
         content,
         nh,
         jar,
+        super::test_support::test_web_storage(),
         "<div>Hi</div>".to_string(),
         "div { display: block; }".to_string(),
         crate::ipc::ViewportCell::new(elidex_plugin::Size::new(
@@ -868,6 +869,7 @@ fn initial_scripts_observe_real_viewport() {
         "",
         nh,
         jar,
+        super::test_support::test_web_storage(),
         elidex_plugin::Size::new(640.0, 480.0),
         crate::ipc::DeviceFacts::default(),
     );
@@ -902,6 +904,7 @@ fn default_viewport_unifies_bridge_and_cascade() {
         "",
         nh,
         jar,
+        super::test_support::test_web_storage(),
         elidex_plugin::Size::new(
             crate::DEFAULT_VIEWPORT_WIDTH,
             crate::DEFAULT_VIEWPORT_HEIGHT,

@@ -147,6 +147,11 @@ pub struct IframeLoadContext<'a> {
     pub network_handle: &'a std::rc::Rc<elidex_net::broker::NetworkHandle>,
     /// Parent's cookie jar (for same-origin iframe `document.cookie`).
     pub cookie_jar: Option<std::sync::Arc<elidex_net::CookieJar>>,
+    /// Process-wide `localStorage` backend, inherited by same-origin (non-
+    /// credentialless) in-process iframes so they share the parent's persisted +
+    /// live registry (F14 / §4.3.3). Credentialless frames get `None` (isolated,
+    /// per-VM in-memory), mirroring the cookie-jar isolation.
+    pub web_storage: Option<std::sync::Arc<elidex_storage_core::WebStorageManager>>,
     /// Iframe nesting depth (for `MAX_IFRAME_DEPTH` enforcement).
     pub depth: usize,
     /// Shared CSS property registry.

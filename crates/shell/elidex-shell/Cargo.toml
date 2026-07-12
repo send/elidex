@@ -37,6 +37,7 @@ elidex-a11y.workspace = true
 elidex-form.workspace = true
 elidex-custom-elements.workspace = true
 elidex-api-workers.workspace = true
+elidex-api-canvas.workspace = true
 accesskit.workspace = true
 accesskit_winit.workspace = true
 crossbeam-channel.workspace = true

@@ -72,6 +72,17 @@ ignore = [
     # release past ^0.39/^0.40 — re-check on the next Dependabot cycle.
     "RUSTSEC-2026-0194",
     "RUSTSEC-2026-0195",
+    # RUSTSEC-2026-0206 — rustybuzz 0.20.1 is unmaintained (advisory-only, no
+    # known vulnerability).  rustybuzz is a DIRECT dependency of elidex-shaping
+    # (workspace-pinned `rustybuzz = "0.20"`) for HarfBuzz-parity text shaping.
+    # No safe upgrade: 0.20.1 is the last published rustybuzz release and the
+    # project has been renamed/succeeded by `harfrust`, which is a source-level
+    # port (not a drop-in semver bump).  Exposure: text-shaping runs on
+    # font-file glyph tables, not attacker-controlled bytes over a parser seam;
+    # "unmaintained" carries no active CVE.  REMOVAL TRIGGER: the harfrust
+    # migration lands (tracked as its own slot) — at which point this ignore and
+    # the workspace rustybuzz pin are both deleted together.
+    "RUSTSEC-2026-0206",
 ]
 
 [licenses]

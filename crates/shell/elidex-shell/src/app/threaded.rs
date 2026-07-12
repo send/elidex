@@ -654,6 +654,7 @@ impl App {
         };
         let nh = np.create_renderer_handle();
         let jar = std::sync::Arc::clone(np.cookie_jar());
+        let web_storage = std::sync::Arc::clone(&self.web_storage);
         let (browser_ch, content_ch) =
             crate::ipc::channel_pair::<BrowserToContent, ContentToBrowser>();
         // Mint via the disjoint `wake_proxy` field (an associated fn, not `&self`)
@@ -668,8 +669,14 @@ impl App {
         // non-`Top` position would make the active tab's content size differ from this
         // new (default-chrome) tab's → slot #11-window-level-tab-bar-position.
         let viewport_cell = std::sync::Arc::clone(&self.viewport.viewport_cell);
-        let thread =
-            crate::content::spawn_content_thread_blank(content_ch, nh, jar, viewport_cell, wake);
+        let thread = crate::content::spawn_content_thread_blank(
+            content_ch,
+            nh,
+            jar,
+            web_storage,
+            viewport_cell,
+            wake,
+        );
         mgr.create_tab(
             browser_ch,
             thread,

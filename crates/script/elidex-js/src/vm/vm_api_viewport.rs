@@ -20,6 +20,18 @@ impl Vm {
         self.inner.viewport.pending_scroll.take()
     }
 
+    /// Non-consuming peek at whether a script-requested scroll (CSSOM View §4,
+    /// `window.scrollTo` / `scrollBy`) is pending, WITHOUT draining it. The
+    /// event loop uses this to schedule `re_render` (the sole drain point, which
+    /// consumes via [`Self::take_pending_scroll`]) on a turn whose only visible
+    /// effect is a scroll — a `scrollTo` bumps no DOM version, so the tree-delta
+    /// render-dirty signal would otherwise miss it. Backs
+    /// [`HostDriver::has_pending_scroll`](elidex_script_session::HostDriver::has_pending_scroll).
+    #[must_use]
+    pub fn has_pending_scroll(&self) -> bool {
+        self.inner.viewport.pending_scroll.is_some()
+    }
+
     /// Push the viewport's current scroll offset into the engine (CSSOM View
     /// §4) so `window.scrollX` / `scrollY` read the live value after a user
     /// (wheel/keyboard) scroll the shell applied. Backs
