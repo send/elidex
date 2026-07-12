@@ -18,12 +18,16 @@
 //!   sandboxed scripts flag). Pre-fix, the flags were installed only after
 //!   the build already ran the scripts, so the gate never fired for them.
 //! - **Origin ordering** is observed through the WebSocket **mixed-content
-//!   gate** (`elidex-js-boa` `globals/websocket.rs` reads `bridge.origin()`
-//!   at construction): under an `https:` parent, a tuple-origin document gets
-//!   a synchronous "mixed content blocked" throw for `ws://`, while an
-//!   opaque-origin (sandboxed, no `allow-same-origin`) document skips that
-//!   gate and fails later on the disconnected test network instead. The two
-//!   error messages discriminate which origin the initial script observed.
+//!   gate** (`elidex-js` `vm/host/websocket.rs` reads
+//!   `is_mixed_content(&document_origin(), …)` at construction — the client's
+//!   installed-origin *trustworthiness*, not the URL scheme): under an `https:`
+//!   parent, a potentially-trustworthy tuple-origin document (a secure context)
+//!   gets a synchronous `SecurityError` throw for `ws://`, while an opaque-origin
+//!   (sandboxed, no `allow-same-origin`) document is never a secure context, is
+//!   exempt from the gate, and `new WebSocket(…)` returns (`"constructed"`; the
+//!   socket stays `CONNECTING` against the disconnected test handle — the VM
+//!   does not synchronously fail a connect). The two outcomes (`SecurityError`
+//!   vs `"constructed"`) discriminate which origin the initial script observed.
 //!   The plan-memo's storage-bucket sentinel (`elidex-js`
 //!   `vm/host/storage.rs` routing through `document_origin()`) is a
 //!   VM-surface oracle. Boa now keys localStorage off the installed origin too
@@ -159,20 +163,25 @@ fn sandboxed_iframe_with_allow_scripts_still_runs_initial_scripts() {
 
 /// Sandboxed (no `allow-same-origin`) srcdoc iframe under an `https:` parent:
 /// the initial script observes the **opaque** origin, not the parent/URL
-/// tuple origin. Observed through the WebSocket mixed-content gate (reads
-/// `bridge.origin()` synchronously at construction): a tuple `https` origin
-/// throws "mixed content blocked" for `ws://`; the opaque origin skips that
-/// gate and fails on the disconnected test network instead. Pre-S5-4b this
-/// failed with the mixed-content message — the initial script saw the
-/// URL-derived tuple origin (`run_scripts_and_finalize` installed
-/// `SecurityOrigin::from_url` and the opaque override only landed after the
-/// scripts had run).
+/// tuple origin. Observed through the WebSocket mixed-content gate, which reads
+/// the document's installed origin trustworthiness at construction
+/// (`is_mixed_content(&document_origin(), …)`): a potentially-trustworthy tuple
+/// `https` origin (a secure context) throws a `SecurityError` for `ws://`, while
+/// the opaque origin (never a secure context) is exempt and the `new
+/// WebSocket(…)` **returns** — the socket stays `CONNECTING` against the
+/// disconnected test handle (the VM does not synchronously fail a connect), so
+/// the initial script records `"constructed"`. Pre-S5-4b this recorded the
+/// SecurityError instead — the initial script saw the URL-derived tuple origin
+/// (`run_scripts_and_finalize` installed `SecurityOrigin::from_url` and the
+/// opaque override only landed after the scripts had run).
 #[test]
 fn sandboxed_iframe_initial_script_observes_opaque_origin() {
     let (state, _browser) = build_test_content_state_with_url(
-        // boa registers `WebSocket` as a plain callable — invoke without `new`.
+        // The VM (spec-correct) requires `new`; the mixed-content gate reads the
+        // installed origin's trustworthiness (opaque sandbox → exempt, https
+        // tuple → blocked) — the oracle for which origin the initial script saw.
         r#"<iframe sandbox="allow-scripts"
-            srcdoc='<div id="p"></div><script>let r;try{WebSocket("ws://wsoracle.invalid/");r="constructed";}catch(e){r=String(e.message||e);}document.getElementById("p").setAttribute("data-ws",r);</script>'>
+            srcdoc='<div id="p"></div><script>let r;try{new WebSocket("ws://wsoracle.invalid/");r="constructed";}catch(e){r=String(e.message||e);}document.getElementById("p").setAttribute("data-ws",r);</script>'>
            </iframe>"#,
         url::Url::parse("https://parent.example/").unwrap(),
     );
@@ -180,16 +189,17 @@ fn sandboxed_iframe_initial_script_observes_opaque_origin() {
     let observed = probe_attr(&ip.pipeline, "p", "data-ws")
         .expect("the sandboxed (allow-scripts) initial script should have run");
     assert!(
-        !observed.contains("mixed content"),
+        !observed.contains("insecure WebSocket"),
         "initial script observed the URL tuple origin (mixed-content gate fired) \
          instead of the opaque sandbox origin: {observed}"
     );
-    // Not vacuous: the opaque-origin path gets PAST the mixed-content gate and
-    // fails on the disconnected test network instead.
-    assert!(
-        observed.contains("network"),
-        "expected the disconnected-network failure past the mixed-content gate, \
-         got: {observed}"
+    // Not vacuous: the opaque-origin path gets PAST the mixed-content gate, so
+    // `new WebSocket(…)` returns and the script records `"constructed"` — vs the
+    // tuple path (unsandboxed sibling) which records the SecurityError message.
+    assert_eq!(
+        observed, "constructed",
+        "the opaque origin must be exempt from the mixed-content gate, so the \
+         constructor returns instead of throwing: {observed}"
     );
     assert!(
         matches!(
@@ -202,14 +212,18 @@ fn sandboxed_iframe_initial_script_observes_opaque_origin() {
 
 /// Unsandboxed control under the same `https:` parent (regression pin): the
 /// initial script runs and observes the inherited **tuple** origin — the
-/// mixed-content gate fires for `ws://`. Also proves the origin oracle above
-/// discriminates (the gate DOES fire when the origin really is the tuple).
+/// mixed-content gate fires for `ws://` (the VM `SecurityError`: "An insecure
+/// WebSocket connection may not be initiated from a page loaded over HTTPS").
+/// Also proves the origin oracle above discriminates (the gate DOES fire when
+/// the origin really is the trustworthy tuple).
 #[test]
 fn unsandboxed_iframe_initial_script_observes_tuple_origin() {
     let (state, _browser) = build_test_content_state_with_url(
-        // boa registers `WebSocket` as a plain callable — invoke without `new`.
+        // The VM (spec-correct) requires `new`; the mixed-content gate reads the
+        // installed origin's trustworthiness (opaque sandbox → exempt, https
+        // tuple → blocked) — the oracle for which origin the initial script saw.
         r#"<iframe
-            srcdoc='<div id="p"></div><script>let r;try{WebSocket("ws://wsoracle.invalid/");r="constructed";}catch(e){r=String(e.message||e);}document.getElementById("p").setAttribute("data-ws",r);</script>'>
+            srcdoc='<div id="p"></div><script>let r;try{new WebSocket("ws://wsoracle.invalid/");r="constructed";}catch(e){r=String(e.message||e);}document.getElementById("p").setAttribute("data-ws",r);</script>'>
            </iframe>"#,
         url::Url::parse("https://parent.example/").unwrap(),
     );
@@ -217,7 +231,7 @@ fn unsandboxed_iframe_initial_script_observes_tuple_origin() {
     let observed = probe_attr(&ip.pipeline, "p", "data-ws")
         .expect("an unsandboxed iframe's initial script should have run");
     assert!(
-        observed.contains("mixed content"),
+        observed.contains("insecure WebSocket"),
         "an unsandboxed iframe inherits the parent https tuple origin, so the \
          ws:// mixed-content gate must fire: {observed}"
     );

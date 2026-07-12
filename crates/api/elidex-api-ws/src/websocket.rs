@@ -112,12 +112,17 @@ pub fn validate_ws_url(url: &url::Url) -> Result<(), String> {
     Ok(())
 }
 
-/// Check for mixed content: secure origin trying to use insecure ws://.
-///
-/// Returns `true` if the connection should be blocked.
+/// Whether a `ws://` connection is **mixed content** that must be blocked
+/// (W3C Mixed Content §5): true iff the client is a **secure context** — i.e.
+/// its origin is *potentially trustworthy* (Secure Contexts §3.1) — AND the
+/// target is the insecure `ws:` scheme (`wss:` is never mixed content). Gating
+/// on origin trustworthiness rather than the raw page-URL scheme is what makes
+/// an **opaque-origin** document (a sandboxed iframe, `data:`/`file:` doc) —
+/// which is never a secure context — correctly *exempt* from the block, while a
+/// same-`https`-URL **tuple** origin is still blocked.
 #[must_use]
-pub fn is_mixed_content(origin_scheme: &str, ws_url: &url::Url) -> bool {
-    origin_scheme == "https" && ws_url.scheme() == "ws"
+pub fn is_mixed_content(client_origin: &elidex_plugin::SecurityOrigin, ws_url: &url::Url) -> bool {
+    client_origin.is_potentially_trustworthy() && ws_url.scheme() == "ws"
 }
 
 /// The spec-faithful WebSocket **GC keepalive** rule (WHATWG WebSockets §7
@@ -262,11 +267,20 @@ mod tests {
 
     #[test]
     fn mixed_content_detection() {
+        use elidex_plugin::SecurityOrigin;
         let ws = url::Url::parse("ws://example.com").unwrap();
         let wss = url::Url::parse("wss://example.com").unwrap();
-        assert!(is_mixed_content("https", &ws));
-        assert!(!is_mixed_content("https", &wss));
-        assert!(!is_mixed_content("http", &ws));
+        let secure = SecurityOrigin::from_url(&url::Url::parse("https://page.example/").unwrap());
+        let insecure = SecurityOrigin::from_url(&url::Url::parse("http://page.example/").unwrap());
+        let opaque = SecurityOrigin::opaque();
+        // Secure (https tuple) client + ws:// → blocked; wss:// → allowed.
+        assert!(is_mixed_content(&secure, &ws));
+        assert!(!is_mixed_content(&secure, &wss));
+        // Insecure (public http) client is not a secure context → not mixed.
+        assert!(!is_mixed_content(&insecure, &ws));
+        // Opaque (sandboxed) origin is never a secure context → not mixed
+        // (the S5-6b flip-parity regression this fix closes).
+        assert!(!is_mixed_content(&opaque, &ws));
     }
 
     #[test]

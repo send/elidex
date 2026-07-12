@@ -90,16 +90,12 @@ fn ws_constructor(args: &[JsValue], bridge: &HostBridge, ctx: &mut Context) -> J
             .into());
     }
 
-    // 4. Mixed content check: https origin + ws:// URL.
+    // 4. Mixed content check: secure-context (trustworthy) origin + ws:// URL.
     let origin = bridge.origin();
-    if let elidex_plugin::SecurityOrigin::Tuple { ref scheme, .. } = origin {
-        if elidex_api_ws::is_mixed_content(scheme, &url) {
-            return Err(JsNativeError::error()
-                .with_message(
-                    "WebSocket: mixed content blocked (secure page cannot connect via ws://)",
-                )
-                .into());
-        }
+    if elidex_api_ws::is_mixed_content(&origin, &url) {
+        return Err(JsNativeError::error()
+            .with_message("WebSocket: mixed content blocked (secure page cannot connect via ws://)")
+            .into());
     }
 
     // 5. Parse protocols.

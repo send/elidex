@@ -177,6 +177,32 @@ than the WebSocket-mixed-content proxy. Flip WebSocket / origin-wiring question.
   but the SetViewport arm dispatched `resize` on `state.pipeline.document`, missing it (worked under
   boa's window==document aliasing). Fix: expose `HostDriver::window_entity()` (→ `HostData::
   window_entity`) and target the resize `DispatchEvent` at it (fallback: document pre-bind).
+- **✅ Category B-MQL fixed** (`392aaea0`, 3→2, 239 pass): the `atomic` failure was NOT MQL delivery
+  — it was that the global **`Number` constructor was non-callable** (`typeof Number === "object"`),
+  so the `change` listener's `Number(probe.getAttribute(…))` threw `TypeError: not a function`, aborting
+  the `setAttribute` (`data-fires` stuck at `"0"`). `Number`/`Boolean` were registered via
+  `register_constructor_global` as plain `Ordinary` objects (no `[[Call]]`) — a core ES2020 gap
+  (§21.1.1/§20.3.1) invisible pre-flip (boa supplied a callable `Number`; the shell suite did not
+  compile on-branch). Fix mirrors the `String` ctor: `create_constructable_function` + the two
+  `native_*_constructor` bodies + `promote_to_{number,boolean}_wrapper` + delete dead
+  `register_constructor_global`. Full detail in the Category B-MQL block above. elidex-js 6321/0.
+- **✅ Category D fixed** (WebSocket, 2→0, 241 pass — CI-GREEN): two parts. (1) The test JS used the
+  boa-ism `WebSocket("ws://…")` **without `new`** → `new WebSocket(…)`. (2) The REAL defect: the VM
+  WebSocket mixed-content gate read `navigation.current_url.scheme()` (raw URL scheme) instead of the
+  document's **installed origin trustworthiness** — so an opaque-origin sandboxed iframe (whose doc URL
+  is still `https://parent/`) was wrongly treated as a secure context and its `ws://` wrongly blocked.
+  Spec-correct fix (W3C Mixed Content §5 + Secure Contexts §3.1): `is_mixed_content` now takes the
+  client `&SecurityOrigin` and gates on `is_potentially_trustworthy()` (opaque → exempt, `https` tuple
+  → blocked), aligning the gate onto the same `document_origin()` source the sent origin already used
+  (S1b); boa's now-redundant `if let Tuple` wrapper collapsed onto the shared fn. The two test oracles
+  were re-homed off boa-specific runtime facts onto VM-accurate observables (tuple → `SecurityError`
+  "insecure WebSocket"; opaque → `new WebSocket(…)` returns `"constructed"` — the VM does not
+  synchronously fail a disconnected connect, so the boa-era `"network"` throw is gone). The
+  origin-before-initial-scripts invariant + its opaque-vs-tuple discrimination are unchanged. **All
+  17 surfaced failures resolved; elidex-shell 241/0.**
+
+<details><summary>Original "remaining 3" analysis (retained for the record)</summary>
+
 - **Remaining 3** = **1 B-MQL-change** + **2 D-WebSocket** — both deeper VM investigations (14/17 fixed):
   - **`atomic_size_and_facts_delivery_fires_no_intermediate_mql_change`** (:1099): **ROOT CAUSE
     FOUND (2026-07-12) — it is NOT an MQL-delivery gap.** Traced by instrumenting
@@ -219,3 +245,7 @@ than the WebSocket-mixed-content proxy. Flip WebSocket / origin-wiring question.
     document's installed origin for mixed-content, or (ii) re-author the initial-script oracle onto a
     direct origin read (e.g. `location.origin` → probe attr) instead of the WebSocket proxy. The
     `new WebSocket` edit was applied+reverted this session (it exposes (b) but does not close it).
+    **Resolved (WebSocket commit): option (i) — the spec-correct fix (gate on the installed origin's
+    trustworthiness, not the URL scheme). See the ✅ Category D disposition entry.**
+
+</details>
