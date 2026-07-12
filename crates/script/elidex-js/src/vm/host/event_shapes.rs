@@ -40,17 +40,6 @@
 //! but adding a new variant now touches one arm in one file instead
 //! of two arms across two files, which is what the SSOT unification
 //! was after.
-//!
-//! ## Boa parallel writer is intentionally NOT mirrored
-//!
-//! `elidex-js-boa::globals::events::set_payload_properties` carries a
-//! parallel UA payload writer with the same family-by-family slot
-//! layout.  Per master roadmap §E-2 Round 20 PR7, the boa runtime
-//! crate is scheduled for full deletion (~-15,000 LoC).  Shape
-//! changes in this file are NOT mirrored to boa deliberately — the
-//! work would be throwaway.  When `/external-review` flags the
-//! parallel for not being updated, resolve-with-cite this paragraph +
-//! `memory/project_boa_runtime_deletion.md`.
 
 #![cfg(feature = "engine")]
 

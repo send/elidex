@@ -187,9 +187,9 @@ pub(super) fn run_event_loop(state: &mut ContentState) {
         // Persist any `localStorage` origins this turn's scripts dirtied to disk.
         // The VM-native Storage natives write through the shell-owned
         // `WebStorageManager` (installed at the pipeline construction seam); this
-        // per-turn flush is the disk-persistence half (F14 / §4.3.3). Replaces the
-        // orphaned pre-flip `elidex_js_boa::bridge::local_storage::flush_dirty_stores()`
-        // (which flushed the boa registry the VM never writes to).
+        // per-turn flush is the disk-persistence half (F14 / §4.3.3). Replaced the
+        // pre-flip boa `flush_dirty_stores()` (which flushed the boa registry the VM
+        // never writes to); the boa bridge was removed in D-26 PR7.
         state.web_storage.flush_dirty();
 
         // window.open — route the ordered tab-creation / named-navigation

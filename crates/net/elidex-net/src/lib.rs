@@ -142,9 +142,9 @@ pub enum RequestMode {
 
 /// An outgoing HTTP request (internal type with body).
 ///
-/// Constructed by JS-facing fetch paths (`elidex-js` /
-/// `elidex-js-boa`) and by shell navigation / form-submit
-/// paths.  Threaded through [`NetClient::send`] which honours
+/// Constructed by JS-facing fetch paths (`elidex-js`) and by
+/// shell navigation / form-submit paths.  Threaded through
+/// [`NetClient::send`] which honours
 /// the [`Request::redirect`] / [`Request::credentials`] modes
 /// during the broker dispatch loop.
 #[derive(Clone, Debug)]

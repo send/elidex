@@ -9,10 +9,10 @@
 //! (`crate::PreEvalFrameState`), so an order-proof against that block covers all
 //! three setters at once.
 //!
-//! Oracle notes (boa is the live shell engine until the S5-6 flip):
+//! Oracle notes:
 //!
 //! - **Flags ordering** is observed through the eval gate itself
-//!   (`elidex-js-boa` `JsRuntime::eval` skips evaluation when
+//!   (the VM engine skips evaluation when
 //!   `scripts_allowed()` is false): a sandboxed iframe without
 //!   `allow-scripts` must NOT run its initial scripts (WHATWG HTML §7.1.5
 //!   sandboxed scripts flag). Pre-fix, the flags were installed only after

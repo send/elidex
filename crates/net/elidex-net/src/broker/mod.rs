@@ -162,7 +162,7 @@ pub enum NetworkToRenderer {
 /// of the broker module — `NetworkHandle`, `NetworkProcessHandle`,
 /// `spawn_network_process`, and the data message types
 /// `RendererToNetwork` / `NetworkToRenderer` (the latter two ARE
-/// observed in `elidex-js` / `elidex-js-boa` realtime bridges) —
+/// observed in `elidex-js` realtime bridges) —
 /// stays `pub` and unchanged.  No external embedder constructs
 /// or matches this enum: control messages flow only via the
 /// `pub(super)`-fielded `NetworkProcessHandle::control_tx` /

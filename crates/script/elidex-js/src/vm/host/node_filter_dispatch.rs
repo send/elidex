@@ -1,8 +1,3 @@
-// boa skip: VM-only surface; the legacy boa runtime
-// (`crates/script/elidex-js-boa/`) is on the deletion path per
-// `m4-12-platform-gap-roadmap.md` §E-2 Round 20 PR7.  See
-// `memory/project_boa_runtime_deletion.md`.
-
 //! Shared NodeFilter callback dispatch — converts an opaque
 //! `ObjectId` bits handle to a typed callback, invokes it with the
 //! current node wrapper, applies WebIDL `ToUint16` coercion to the

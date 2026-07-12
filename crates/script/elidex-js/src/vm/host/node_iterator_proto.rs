@@ -1,8 +1,3 @@
-// boa skip: VM-only surface; the legacy boa runtime
-// (`crates/script/elidex-js-boa/`) is on the deletion path per
-// `m4-12-platform-gap-roadmap.md` §E-2 Round 20 PR7.  See
-// `memory/project_boa_runtime_deletion.md`.
-
 //! `NodeIterator` interface (WHATWG DOM §6.1) — VM thin binding to
 //! [`elidex_dom_api::traversal::step_with_filter_node_iterator_*`].
 //!

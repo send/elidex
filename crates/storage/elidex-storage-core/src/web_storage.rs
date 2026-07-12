@@ -1,10 +1,9 @@
 //! WHATWG HTML §11.2 Web Storage backend (`localStorage` + `sessionStorage`).
 //!
 //! Engine-independent algorithm + persistence. JS bindings live in the
-//! engine crates (`elidex-js-boa::globals::storage`,
-//! `elidex-js::vm::host::storage`); both delegate here so quota math,
-//! origin scoping, and JSON-on-disk layout stay in a single place per
-//! the CLAUDE.md Layering mandate.
+//! engine crate (`elidex-js::vm::host::storage`), which delegates here so
+//! quota math, origin scoping, and JSON-on-disk layout stay in a single
+//! place per the CLAUDE.md Layering mandate.
 //!
 //! ## Persistence
 //!

@@ -5,10 +5,9 @@
 //! every shell uses), and observe both the return value (`prevented`)
 //! and side-effects via JS-side global sentinels.
 //!
-//! These tests mirror the most-load-bearing scenarios from
-//! `crates/script/elidex-js-boa/src/runtime/tests/events.rs` —
-//! bubble / capture / stop / once / passive — translated to use the
-//! VM engine.  The point is to confirm that PR3's per-commit unit
+//! These tests cover the most-load-bearing dispatch scenarios —
+//! bubble / capture / stop / once / passive — on the VM engine.
+//! The point is to confirm that PR3's per-commit unit
 //! tests compose into spec-conforming dispatch when the shared
 //! 3-phase machinery in `elidex-script-session` plays the lead.
 

@@ -182,8 +182,7 @@ pub(crate) fn wasm_error_to_js_value(ctx: &mut NativeContext<'_>, err: &WasmErro
     // proposal kind (Exception Handling `WasmException` etc.) is a
     // compile-time review prompt — the wildcard arm is reserved for
     // the truly-unmatchable case and triggers `debug_assert!` so
-    // dev/test builds catch silent JS-class drift.  Boa parity at
-    // `elidex-js-boa/src/globals/wasm.rs::wasm_error_to_js`.
+    // dev/test builds catch silent JS-class drift.
     let proto = match err.kind() {
         WasmErrorKind::Compile => ctx.vm.wasm_compile_error_prototype,
         WasmErrorKind::Link => ctx.vm.wasm_link_error_prototype,

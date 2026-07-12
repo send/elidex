@@ -2,9 +2,7 @@
 //! §4; slot `#11-service-workers-vm` / D-19 PR-2).
 //!
 //! Runs **on the SW thread** as the body the shell coordinator spawns
-//! ([`sw_thread_main`] — the VM twin of `elidex_js_boa::sw_thread::sw_thread_main`;
-//! the D-26 PR7 cutover swaps the coordinator's `std::thread::spawn` from boa
-//! to this fn).  It fetches + validates the SW script, builds a
+//! ([`sw_thread_main`]).  It fetches + validates the SW script, builds a
 //! `ServiceWorkerGlobalScope` VM bound to an empty [`EcsDom`], installs the
 //! **shared** origin cache backend (DR-A) + a `Send` `NetworkHandle`, seeds
 //! the client snapshot, evaluates the script, then drives the per-SW event
@@ -66,8 +64,8 @@ const POLL_INTERVAL: Duration = Duration::from_millis(2);
 
 type SwChannel = LocalChannel<SwToContent, ContentToSw>;
 
-/// Service Worker thread entry (the D-26 cutover target — VM twin of
-/// `elidex_js_boa::sw_thread::sw_thread_main`).
+/// Service Worker thread entry — the VM SW-thread body the shell coordinator
+/// spawns.
 ///
 /// Fetches the SW script through the `Send` `network_handle` (non-`Option`:
 /// a missing handle is a hard error here, *not* a silent in-loop fetch
