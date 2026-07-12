@@ -705,12 +705,15 @@ fn teardown_document_clears_sw_client_state() {
     assert!(vm.inner.sw_controller_scope.is_none());
 }
 
-// The `ServiceWorkerRegistration` wrapper-brand map clears per-turn IN LOCKSTEP
-// with the `wrapper_store.retain(kind == Node)` drop — the survivor-set fix
-// must NOT let it outlive its wrapper (a stale `ObjectId → scope` brand entry
-// would mis-brand a recycled `ObjectId`). Guards against re-promoting it.
+// `#11-per-batch-unbind-document-lifetime-state` / Codex R1 P1: a JS-retained
+// `ServiceWorkerRegistration` wrapper must stay a VALID RECEIVER across per-turn
+// unbinds. Its wrapper-brand entry (`sw_registration_states`) is document-
+// lifetime (survives unbind, cleared at `teardown_document`); the GC sweep
+// prunes only a COLLECTED wrapper's entry, so a retained wrapper keeps its
+// brand. Clearing the brand per-turn would make `reg.scope` / `reg.unregister()`
+// an illegal receiver after the first unbind.
 #[test]
-fn sw_registration_wrapper_brand_clears_per_turn() {
+fn retained_sw_registration_wrapper_survives_per_turn_unbind() {
     let mut vm = Vm::new();
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
@@ -721,8 +724,8 @@ fn sw_registration_wrapper_brand_clears_per_turn() {
     }
     vm.inner.navigation.current_url = url(BASE);
 
-    // Resolve a registration so its wrapper is minted (+ a brand entry).
-    vm.eval("navigator.serviceWorker.register('sw.js').then(r => { globalThis.__reg = r; });")
+    // Retain the registration wrapper in JS across batches.
+    vm.eval("navigator.serviceWorker.register('sw.js').then(r => { globalThis.reg = r; });")
         .unwrap();
     vm.drain_sw_client_requests();
     deliver_registered(&mut vm, SwState::Installing);
@@ -731,15 +734,26 @@ fn sw_registration_wrapper_brand_clears_per_turn() {
         "resolving register() should mint the registration wrapper + its brand entry"
     );
 
-    // Per-turn unbind drops the (non-Node) wrapper — the brand map must clear
-    // in lockstep, while the registration DATA survives (document-lifetime).
-    vm.unbind();
+    // ≥2 per-turn unbinds (rebind between). The retained wrapper's brand must
+    // survive so it stays a valid receiver (the brand-check in
+    // `require_registration_scope`).
+    for _ in 0..2 {
+        vm.unbind();
+        #[allow(unsafe_code)]
+        unsafe {
+            bind_vm(&mut vm, &mut session, &mut dom, doc);
+        }
+    }
+    vm.eval(
+        "globalThis.__ok = false; \
+         try { globalThis.__ok = typeof globalThis.reg.scope === 'string' \
+               && globalThis.reg.scope.length > 0; } catch (e) {}",
+    )
+    .unwrap();
     assert!(
-        vm.inner.sw_registration_states.is_empty(),
-        "wrapper-brand map must clear per-turn (coupled to the wrapper_store drop)"
+        eval_bool(&mut vm, "globalThis.__ok"),
+        "a retained ServiceWorkerRegistration must stay a valid receiver across per-turn unbinds"
     );
-    assert!(
-        !vm.inner.sw_registrations.is_empty(),
-        "the registration DATA survives the per-turn unbind"
-    );
+    // ...and its backing data survived too.
+    assert!(!vm.inner.sw_registrations.is_empty());
 }

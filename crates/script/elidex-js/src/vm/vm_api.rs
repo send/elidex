@@ -630,33 +630,32 @@ impl Vm {
             self.inner.client_states.clear();
             self.inner.sw_clients.clear();
             self.inner.sw_outgoing.clear();
-            // The `ServiceWorkerRegistration` / `ServiceWorker` wrapper-brand
-            // maps (`ObjectId → scope`) clear per-turn IN LOCKSTEP with the
-            // `wrapper_store.retain(kind == Node)` drop below: those wrappers
-            // are `WrapperKind::ServiceWorkerRegistration` / `ServiceWorker`
-            // (non-Node, interned via `WrapperKey::scope`), so they are dropped
-            // every unbind and re-minted next batch from the surviving
-            // `sw_registrations` data.  Keeping the brand maps alive past their
-            // wrappers would leave stale `ObjectId → scope` entries that
-            // mis-brand a recycled `ObjectId` — so they must NOT survive.
-            self.inner.sw_registration_states.clear();
-            self.inner.service_worker_states.clear();
-            // The rest of the `navigator.serviceWorker` CLIENT state — the
-            // `sw_registrations` DATA, the ready / register / unregister
-            // promises (GC-force-marked), `sw_controller_scope`, the inbound
-            // message buffer, and the `sw_client_outgoing` outbound queue — is
-            // document-lifetime (SW §3.4 ServiceWorkerContainer) and is cleared
-            // in `teardown_document`, NOT here — so a `register()` staged inside
-            // a script batch SURVIVES the per-batch unbind and reaches the
+            // The `navigator.serviceWorker` CLIENT state is document-lifetime
+            // (SW §3.4 ServiceWorkerContainer) and is cleared in
+            // `teardown_document`, NOT here — so a `register()` staged inside a
+            // script batch SURVIVES the per-batch unbind and reaches the
             // out-of-bracket event-loop drain (`drain_sw_client_requests`), and
-            // the client registry a page reads across batches stays stable.
-            // Survival is cross-DOM-safe: those keys are per-VM `ObjectId`
-            // (GC-rooted) / `String` and a live `Vm` only ever rebinds the SAME
-            // `EcsDom`. (`#11-per-batch-unbind-document-lifetime-state`.)  The
-            // SW WORKER-side per-dispatch event state above (`fetch_event_states`
-            // / `client_states` / `sw_clients` / `sw_outgoing`) also stays a
-            // per-turn scrub — transient, must not let a retained `Client`
-            // wrapper read a prior dispatch's snapshot.
+            // a page's retained `ServiceWorkerRegistration` / `ServiceWorker`
+            // wrapper stays a valid receiver across batches
+            // (`#11-per-batch-unbind-document-lifetime-state`).  Survival is
+            // cross-DOM-safe: the keys are per-VM `ObjectId` / `String` and a
+            // live `Vm` only ever rebinds the SAME `EcsDom`.
+            //
+            // The wrapper-brand maps `sw_registration_states` /
+            // `service_worker_states` (`ObjectId → scope`) SURVIVE too — they
+            // are NOT force-marked, but the GC sweep prunes an entry when its
+            // wrapper `ObjectId` is collected (`gc/collect.rs` — the
+            // `sw_registrations` registry-walk keeps live ones marked).  So a
+            // JS-retained wrapper keeps its brand (stays a valid receiver for
+            // `require_registration_scope`), while a wrapper dropped from
+            // `wrapper_store` (non-Node `retain`, below) and then collected
+            // leaves NO stale entry.  Clearing them per-turn would instead break
+            // a retained wrapper (illegal receiver after the first unbind).
+            //
+            // The SW WORKER-side per-dispatch event state above
+            // (`fetch_event_states` / `client_states` / `sw_clients` /
+            // `sw_outgoing`) DOES stay a per-turn scrub — transient, must not
+            // let a retained `Client` wrapper read a prior dispatch's snapshot.
             // NB: the container singleton + the three interface prototypes are
             // NOT cleared — like `navigator` / `clients_prototype` they are
             // realm-structural and persist across a rebind (so a post-rebind
@@ -973,10 +972,10 @@ impl Vm {
         // with no emit side-effect, so a double-fire (explicit call then the
         // engine-Drop backstop) is a trivial no-op.  NOT cleared here (they
         // stay on the per-turn scrub in `unbind`, called last below):
-        // `ce_reaction_queue`, the SW worker-side per-dispatch state, and the
-        // SW `ServiceWorkerRegistration`/`ServiceWorker` wrapper-brand maps
-        // (`sw_registration_states` / `service_worker_states` — per-turn, in
-        // lockstep with the `wrapper_store` non-Node drop).
+        // `ce_reaction_queue` + the SW worker-side per-dispatch state.  The SW
+        // wrapper-brand maps (`sw_registration_states` / `service_worker_states`)
+        // ARE released here (they are document-lifetime + GC-sweep-pruned, so a
+        // retained wrapper stays a valid receiver across batches).
         if let Some(hd) = self.inner.host_data.as_deref_mut() {
             hd.ce_registry
                 .lock()
@@ -991,6 +990,8 @@ impl Vm {
         self.inner.pending_unregister_promises.clear();
         self.inner.sw_ready_promise = None;
         self.inner.sw_registrations.clear();
+        self.inner.sw_registration_states.clear();
+        self.inner.service_worker_states.clear();
         self.inner.sw_controller_scope = None;
         self.inner.sw_messages_enabled = false;
         self.inner.sw_message_buffer.clear();

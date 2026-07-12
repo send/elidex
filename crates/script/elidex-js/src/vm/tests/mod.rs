@@ -40,6 +40,7 @@ mod tests_crypto;
 mod tests_css_style_declaration;
 mod tests_cssom_sheet;
 mod tests_custom_elements;
+mod tests_custom_elements_lifetime;
 mod tests_data_view;
 mod tests_dataset;
 mod tests_destructuring_param;
