@@ -394,7 +394,9 @@ fn native_websocket_constructor(
     // - `ws_origin_sid` — SERVER origin (from `url`), pre-interned so per-message
     //   `MessageEvent.origin` reads a `StringId` without re-parsing (WebSockets
     //   §4 "Feedback from the protocol"). Distinct fact, unchanged by S1b.
-    let page_origin_str = ctx.vm.document_origin().serialize();
+    // `client_origin` is the same installed `document_origin()` the mixed-content
+    // gate above already read — reuse it rather than re-deriving.
+    let page_origin_str = client_origin.serialize();
     let ws_origin_string = url.origin().ascii_serialization();
     let ws_origin_sid = ctx.vm.strings.intern(&ws_origin_string);
     let url_serialized = url.as_str().to_owned();

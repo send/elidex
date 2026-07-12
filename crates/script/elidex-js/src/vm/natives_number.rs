@@ -21,6 +21,13 @@ fn this_number_value(ctx: &NativeContext<'_>, this: JsValue) -> Result<f64, VmEr
 
 /// ECMA-262 §21.1.1.1 `Number([value])`. Call form returns the Number
 /// primitive (`Number()` → `+0`); construct form boxes it in a `NumberWrapper`.
+///
+/// Uses `ToNumber` (`ctx.to_number`), not §21.1.1.1's `ToNumeric` — so a
+/// `BigInt` argument throws a `TypeError` here rather than narrowing to its
+/// numeric value (`Number(10n)` → `10`). This tracks the VM's whole-surface
+/// `BigInt`→`Number` limitation (`coerce.rs::to_number` rejects `BigInt`), not a
+/// gap this constructor introduces; the `ToNumeric` leg lands with broader
+/// `BigInt` coercion support.
 pub(crate) fn native_number_constructor(
     ctx: &mut NativeContext<'_>,
     this: JsValue,

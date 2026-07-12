@@ -113,13 +113,15 @@ pub fn validate_ws_url(url: &url::Url) -> Result<(), String> {
 }
 
 /// Whether a `ws://` connection is **mixed content** that must be blocked
-/// (W3C Mixed Content §5): true iff the client is a **secure context** — i.e.
-/// its origin is *potentially trustworthy* (Secure Contexts §3.1) — AND the
-/// target is the insecure `ws:` scheme (`wss:` is never mixed content). Gating
-/// on origin trustworthiness rather than the raw page-URL scheme is what makes
-/// an **opaque-origin** document (a sandboxed iframe, `data:`/`file:` doc) —
-/// which is never a secure context — correctly *exempt* from the block, while a
-/// same-`https`-URL **tuple** origin is still blocked.
+/// (W3C Mixed Content §4.4 "Should fetching request be blocked as mixed
+/// content?", via §4.3 "Does settings prohibit mixed security contexts?"): true
+/// iff the client is a **secure context** — i.e. its origin is *potentially
+/// trustworthy* (Secure Contexts §3.1 "Is origin potentially trustworthy?") —
+/// AND the target is the insecure `ws:` scheme (`wss:` is never mixed content).
+/// Gating on origin trustworthiness rather than the raw page-URL scheme is what
+/// makes an **opaque-origin** document (a sandboxed iframe, `data:`/`file:` doc)
+/// — which is never a secure context — correctly *exempt* from the block, while
+/// a same-`https`-URL **tuple** origin is still blocked.
 #[must_use]
 pub fn is_mixed_content(client_origin: &elidex_plugin::SecurityOrigin, ws_url: &url::Url) -> bool {
     client_origin.is_potentially_trustworthy() && ws_url.scheme() == "ws"

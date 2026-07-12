@@ -200,7 +200,7 @@ elidex-shell) — all mechanical/standard dispositions, none introduced by the f
   WebSocket mixed-content gate read `navigation.current_url.scheme()` (raw URL scheme) instead of the
   document's **installed origin trustworthiness** — so an opaque-origin sandboxed iframe (whose doc URL
   is still `https://parent/`) was wrongly treated as a secure context and its `ws://` wrongly blocked.
-  Spec-correct fix (W3C Mixed Content §5 + Secure Contexts §3.1): `is_mixed_content` now takes the
+  Spec-correct fix (W3C Mixed Content §4.4 + Secure Contexts §3.1): `is_mixed_content` now takes the
   client `&SecurityOrigin` and gates on `is_potentially_trustworthy()` (opaque → exempt, `https` tuple
   → blocked), aligning the gate onto the same `document_origin()` source the sent origin already used
   (S1b); boa's now-redundant `if let Tuple` wrapper collapsed onto the shared fn. The two test oracles
