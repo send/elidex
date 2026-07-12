@@ -19,6 +19,31 @@ fn this_number_value(ctx: &NativeContext<'_>, this: JsValue) -> Result<f64, VmEr
     }
 }
 
+/// ECMA-262 §21.1.1.1 `Number([value])`. Call form returns the Number
+/// primitive (`Number()` → `+0`); construct form boxes it in a `NumberWrapper`.
+pub(crate) fn native_number_constructor(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let n = if args.is_empty() {
+        0.0
+    } else {
+        ctx.to_number(args[0])?
+    };
+    if ctx.is_construct() {
+        let JsValue::Object(instance_id) = this else {
+            // Defensive: do_new always passes an Object receiver.
+            let wrapper = ctx.vm.create_number_wrapper(n);
+            return Ok(JsValue::Object(wrapper));
+        };
+        ctx.vm.promote_to_number_wrapper(instance_id, n);
+        Ok(JsValue::Object(instance_id))
+    } else {
+        Ok(JsValue::Number(n))
+    }
+}
+
 pub(super) fn native_number_to_string(
     ctx: &mut NativeContext<'_>,
     this: JsValue,

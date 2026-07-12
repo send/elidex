@@ -209,6 +209,36 @@ impl VmInner {
         self.install_string_wrapper_length(obj_id, len);
     }
 
+    /// Allocate a `NumberWrapper` (`new Number(n)`) with `Number.prototype`.
+    pub(crate) fn create_number_wrapper(&mut self, n: f64) -> ObjectId {
+        self.alloc_object(Object {
+            kind: ObjectKind::NumberWrapper(n),
+            storage: value::PropertyStorage::shaped(shape::ROOT_SHAPE),
+            prototype: self.number_prototype,
+            extensible: true,
+        })
+    }
+
+    /// Promote a `do_new`-preallocated Ordinary instance into a `NumberWrapper` in place.
+    pub(crate) fn promote_to_number_wrapper(&mut self, obj_id: ObjectId, n: f64) {
+        self.get_object_mut(obj_id).kind = ObjectKind::NumberWrapper(n);
+    }
+
+    /// Allocate a `BooleanWrapper` (`new Boolean(b)`) with `Boolean.prototype`.
+    pub(crate) fn create_boolean_wrapper(&mut self, b: bool) -> ObjectId {
+        self.alloc_object(Object {
+            kind: ObjectKind::BooleanWrapper(b),
+            storage: value::PropertyStorage::shaped(shape::ROOT_SHAPE),
+            prototype: self.boolean_prototype,
+            extensible: true,
+        })
+    }
+
+    /// Promote a `do_new`-preallocated Ordinary instance into a `BooleanWrapper` in place.
+    pub(crate) fn promote_to_boolean_wrapper(&mut self, obj_id: ObjectId, b: bool) {
+        self.get_object_mut(obj_id).kind = ObjectKind::BooleanWrapper(b);
+    }
+
     /// Promote an existing Ordinary instance into an Array in place.  Same
     /// motivation as `promote_to_string_wrapper`: reuse the object slot
     /// pre-allocated by `do_new` instead of allocating a fresh array.

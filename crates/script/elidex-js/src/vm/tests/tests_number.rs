@@ -227,3 +227,71 @@ fn number_to_exponential_range_error_before_non_finite() {
     use super::eval_throws;
     eval_throws("(NaN).toExponential(101);");
 }
+
+// -- Number / Boolean constructor CALL & CONSTRUCT forms ----------------------
+// ECMA-262 §21.1.1 (Number) / §20.3.1 (Boolean). Regression guard for the S5-6b
+// flip-parity gap where both globals were registered as non-callable Ordinary
+// objects (`typeof === "object"`, `Number(x)` → "not a function"); boa supplied a
+// callable ctor, so a VM-backed page hitting `Number(x)` threw until this fix.
+
+#[test]
+fn number_and_boolean_globals_are_callable_functions() {
+    assert_eq!(eval_string("typeof Number;"), "function");
+    assert_eq!(eval_string("typeof Boolean;"), "function");
+}
+
+#[test]
+fn number_call_form_coerces_to_primitive() {
+    // §21.1.1.1: call form (no `new`) returns the Number primitive.
+    assert_eq!(eval_number("Number('42');"), 42.0);
+    assert_eq!(eval_number("Number(3.5);"), 3.5);
+    assert_eq!(eval_number("Number(true);"), 1.0);
+    assert_eq!(eval_number("Number(false);"), 0.0);
+    assert_eq!(eval_number("Number(null);"), 0.0);
+    assert_eq!(eval_number("Number();"), 0.0); // no arg → +0
+    assert!(eval_bool("Number('nope') !== Number('nope');")); // NaN self-inequality
+    assert_eq!(eval_string("typeof Number('42');"), "number");
+}
+
+#[test]
+fn number_construct_form_boxes_a_wrapper_object() {
+    // §21.1.1.1: construct form returns a Number object (typeof "object")
+    // whose [[NumberData]] is readable via valueOf/prototype chain.
+    assert_eq!(eval_string("typeof new Number(5);"), "object");
+    assert_eq!(eval_number("new Number(5).valueOf();"), 5.0);
+    assert!(eval_bool("new Number(5) instanceof Number;"));
+    assert_eq!(eval_string("new Number(5).toString();"), "5");
+    // A wrapper is a fresh object, not primitive-equal by `===`.
+    assert!(eval_bool("new Number(5) !== 5;"));
+}
+
+#[test]
+fn boolean_call_form_coerces_to_primitive() {
+    // §20.3.1.1: call form returns the Boolean primitive (ToBoolean).
+    assert!(eval_bool("Boolean(1);"));
+    assert!(eval_bool("Boolean('x');"));
+    assert!(eval_bool("Boolean({});"));
+    assert!(!eval_bool("Boolean(0);"));
+    assert!(!eval_bool("Boolean('');"));
+    assert!(!eval_bool("Boolean(null);"));
+    assert!(!eval_bool("Boolean(undefined);"));
+    assert!(!eval_bool("Boolean();")); // no arg → false
+    assert_eq!(eval_string("typeof Boolean(1);"), "boolean");
+}
+
+#[test]
+fn boolean_construct_form_boxes_a_wrapper_object() {
+    assert_eq!(eval_string("typeof new Boolean(true);"), "object");
+    assert!(eval_bool("new Boolean(true).valueOf();"));
+    assert!(eval_bool("new Boolean(true) instanceof Boolean;"));
+    // §20.3.3.3: even `new Boolean(false)` is a truthy object.
+    assert!(eval_bool("new Boolean(false) ? true : false;"));
+}
+
+#[test]
+fn number_boolean_prototype_constructor_backlinks() {
+    assert!(eval_bool("Number.prototype.constructor === Number;"));
+    assert!(eval_bool("Boolean.prototype.constructor === Boolean;"));
+    assert!(eval_bool("(5).constructor === Number;"));
+    assert!(eval_bool("(true).constructor === Boolean;"));
+}

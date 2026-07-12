@@ -133,13 +133,29 @@ impl VmInner {
             ("toPrecision", native_number_to_precision),
         ]);
         self.number_prototype = Some(proto_id);
-        self.register_constructor_global("Number", proto_id);
 
-        // Add static methods and constants to the Number constructor object.
+        // Number constructor — a constructable NativeFunction so both `Number(x)`
+        // (§21.1.1.1 call form) and `new Number(x)` (construct form) work.
+        let ctor_id = self.create_constructable_function(
+            "Number",
+            super::natives_number::native_number_constructor,
+        );
+        let proto_key = PropertyKey::String(self.well_known.prototype);
+        self.define_shaped_property(
+            ctor_id,
+            proto_key,
+            PropertyValue::Data(JsValue::Object(proto_id)),
+            PropertyAttrs::BUILTIN,
+        );
+        let ctor_key = PropertyKey::String(self.well_known.constructor);
+        self.define_shaped_property(
+            proto_id,
+            ctor_key,
+            PropertyValue::Data(JsValue::Object(ctor_id)),
+            PropertyAttrs::METHOD,
+        );
         let ctor_name = self.strings.intern("Number");
-        let Some(&JsValue::Object(ctor_id)) = self.globals.get(&ctor_name) else {
-            return;
-        };
+        self.globals.insert(ctor_name, JsValue::Object(ctor_id));
 
         // Static methods
         let statics: &[(&str, NativeFn)] = &[
@@ -195,7 +211,29 @@ impl VmInner {
             ("valueOf", native_boolean_value_of),
         ]);
         self.boolean_prototype = Some(proto_id);
-        self.register_constructor_global("Boolean", proto_id);
+
+        // Boolean constructor — a constructable NativeFunction so both `Boolean(x)`
+        // (§20.3.1.1 call form) and `new Boolean(x)` (construct form) work.
+        let ctor_id = self.create_constructable_function(
+            "Boolean",
+            super::natives_boolean::native_boolean_constructor,
+        );
+        let proto_key = PropertyKey::String(self.well_known.prototype);
+        self.define_shaped_property(
+            ctor_id,
+            proto_key,
+            PropertyValue::Data(JsValue::Object(proto_id)),
+            PropertyAttrs::BUILTIN,
+        );
+        let ctor_key = PropertyKey::String(self.well_known.constructor);
+        self.define_shaped_property(
+            proto_id,
+            ctor_key,
+            PropertyValue::Data(JsValue::Object(ctor_id)),
+            PropertyAttrs::METHOD,
+        );
+        let ctor_name = self.strings.intern("Boolean");
+        self.globals.insert(ctor_name, JsValue::Object(ctor_id));
     }
 
     pub(super) fn register_regexp_prototype(&mut self) {

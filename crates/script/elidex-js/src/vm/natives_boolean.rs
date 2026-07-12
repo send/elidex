@@ -22,6 +22,26 @@ fn this_boolean_value(ctx: &NativeContext<'_>, this: JsValue) -> Result<bool, Vm
     }
 }
 
+/// ECMA-262 §20.3.1.1 `Boolean([value])`. Call form returns the Boolean
+/// primitive (`Boolean()` → `false`); construct form boxes it in a `BooleanWrapper`.
+pub(crate) fn native_boolean_constructor(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let b = !args.is_empty() && ctx.to_boolean(args[0]);
+    if ctx.is_construct() {
+        let JsValue::Object(instance_id) = this else {
+            let wrapper = ctx.vm.create_boolean_wrapper(b);
+            return Ok(JsValue::Object(wrapper));
+        };
+        ctx.vm.promote_to_boolean_wrapper(instance_id, b);
+        Ok(JsValue::Object(instance_id))
+    } else {
+        Ok(JsValue::Boolean(b))
+    }
+}
+
 pub(super) fn native_boolean_to_string(
     ctx: &mut NativeContext<'_>,
     this: JsValue,

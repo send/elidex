@@ -1019,29 +1019,6 @@ impl VmInner {
         self.globals.insert(name_id, JsValue::Object(fn_id));
     }
 
-    /// Helper: register a constructor-like global object with a `.prototype` property.
-    pub(super) fn register_constructor_global(
-        &mut self,
-        name: &str,
-        proto_id: super::value::ObjectId,
-    ) {
-        let ctor_id = self.alloc_object(Object {
-            kind: ObjectKind::Ordinary,
-            storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
-            prototype: self.object_prototype,
-            extensible: true,
-        });
-        let proto_key = PropertyKey::String(self.well_known.prototype);
-        self.define_shaped_property(
-            ctor_id,
-            proto_key,
-            PropertyValue::Data(JsValue::Object(proto_id)),
-            PropertyAttrs::BUILTIN,
-        );
-        let name_id = self.strings.intern(name);
-        self.globals.insert(name_id, JsValue::Object(ctor_id));
-    }
-
     /// Helper: create a global object with named native methods.
     pub(super) fn create_object_with_methods(
         &mut self,

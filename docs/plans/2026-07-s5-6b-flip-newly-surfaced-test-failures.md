@@ -178,15 +178,32 @@ than the WebSocket-mixed-content proxy. Flip WebSocket / origin-wiring question.
   boa's window==document aliasing). Fix: expose `HostDriver::window_entity()` (→ `HostData::
   window_entity`) and target the resize `DispatchEvent` at it (fallback: document pre-bind).
 - **Remaining 3** = **1 B-MQL-change** + **2 D-WebSocket** — both deeper VM investigations (14/17 fixed):
-  - **`atomic_size_and_facts_delivery_fires_no_intermediate_mql_change`** (:1099): the phase-2
-    `SetDeviceFacts{Light}` must flip `matchMedia('(min-width:1200px) and (prefers-color-scheme:
-    light)')` false→true and fire its `mql.addEventListener('change', …)` **once**, but it fires
-    **0** times. NOT an unbound issue — `PipelineResult::deliver_media_query_changes` (`lib.rs:508`)
-    DOES bracket (`with_bound`), so the VM `is_bound` gate (`media_query.rs:413`) passes. Root cause
-    (to investigate): the `MediaQueryList` registry flip-detection / `deliverable_to(current_document)`
-    / listener-dispatch inside `deliver_media_query_changes` (`media_query.rs:412+`) — the change
-    event is not reaching the MQL's `change` listener. Needs VM MQL-delivery debugging (registry state
-    at delivery, `entry.document` identity vs bound document, the phase-B EventTarget fire).
+  - **`atomic_size_and_facts_delivery_fires_no_intermediate_mql_change`** (:1099): **ROOT CAUSE
+    FOUND (2026-07-12) — it is NOT an MQL-delivery gap.** Traced by instrumenting
+    `deliver_media_query_changes` end-to-end: the phase-2 flip **IS** correctly detected (`env_w=1400`,
+    `last_matches=false → now=true`, `deliverable=true`), the `change` listener **IS** gated-in
+    (`has_listener=true`) and `fire_vm_event` **IS** invoked — but the listener body throws
+    `TypeError: not a function` (`outcome.threw=true`), so its `probe.setAttribute('data-fires', …)`
+    never runs (`data-fires` stays `"0"`). Narrowed inside the listener via `typeof` probes:
+    **`typeof Number === "object"`** (not `"function"`) — the global **`Number` constructor is
+    NON-CALLABLE**, so `Number(probe.getAttribute('data-fires'))` throws. (`typeof String`/`getAttribute`
+    /`setAttribute` all `"function"` — only `Number` is broken.) `Boolean` shares the bug.
+    **Why**: `register_number_prototype`/`register_boolean_prototype` (`globals_primitives.rs:136,198`)
+    register the ctor via `register_constructor_global` (`globals.rs:1023`), which allocates a plain
+    `ObjectKind::Ordinary` object with **no `[[Call]]`** — vs `String`, built via
+    `create_constructable_function` (a real callable `NativeFunction`). So `Number(x)` / `new Number(x)`
+    / `Boolean(x)` / `new Boolean(x)` — core ES2020 baseline (§21.1.1 / §20.3.1) — have NEVER worked on
+    the VM. Invisible pre-flip: boa supplied a callable `Number`, and the shell test suite did not
+    compile on this branch, so no VM-backed page ever exercised `Number(x)`. **A genuine flip-parity
+    core gap, mis-classified as "MQL delivery" from the surface symptom.** The `NumberWrapper` /
+    `BooleanWrapper` `ObjectKind`s + unwrap paths (`natives_number.rs:11`, `natives_json.rs:85`) +
+    `to_number`/`to_boolean` coercers + `create_constructable_function` ALL already exist — the only
+    missing pieces are the two `native_*_constructor` bodies + `promote_to_{number,boolean}_wrapper`
+    (mirror `promote_to_string_wrapper`) + swapping the two ctor registrations to
+    `create_constructable_function` (then deleting the now-dead `register_constructor_global`). Fix is
+    a bounded terminal slice (canonical §21.1.1/§20.3.1 algorithm, exact String-ctor mirror — not
+    edge-dense, no plan-review gate). **Full-suite verify required** (VM-core global change,
+    crate-global blast radius; but purely additive — `Number`/`Boolean` only ever threw before).
   - **D (2)** `sandboxed_iframe_initial_script_observes_opaque_origin` (:189) /
     `unsandboxed_…_tuple_origin` (:219): TWO issues. (a) The test JS uses the boa-ism `WebSocket("ws://
     …")` **without `new`** (this file's header §"Origin ordering" documents the boa oracle) — the
