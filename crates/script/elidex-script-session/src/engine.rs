@@ -500,6 +500,17 @@ pub trait HostDriver {
     /// Set the iframe nesting depth (the embedder's iframe load path drives it).
     fn set_iframe_depth(&mut self, depth: usize);
 
+    /// The ECS entity backing `globalThis` / `window` (WHATWG HTML §7.2), or
+    /// `None` before the engine has ever bound (the entity is created on first
+    /// bind). Distinct from the Document entity: `window.addEventListener('resize'
+    /// | 'load' | …)` records the listener against THIS entity, so the shell must
+    /// dispatch Window-targeted UA events (e.g. `resize`, CSSOM-View §13.1) at it
+    /// — a `document`-targeted dispatch would miss every `window`-registered
+    /// listener. Falls back to the document entity at the shell dispatch site when
+    /// `None` (pre-bind).
+    #[must_use]
+    fn window_entity(&self) -> Option<Entity>;
+
     // ── page visibility / scroll transport (per-window; S2) ────────────────
     //
     // Visibility is a per-browsing-context UA fact; scroll is per-window

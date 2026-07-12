@@ -666,6 +666,14 @@ impl HostDriver for ElidexJsEngine {
         }
     }
 
+    fn window_entity(&self) -> Option<Entity> {
+        self.vm
+            .inner
+            .host_data
+            .as_deref()
+            .and_then(HostData::window_entity)
+    }
+
     // ── page visibility / scroll transport (per-window; S2) ───────────────
 
     fn set_visibility(&mut self, visible: bool) {

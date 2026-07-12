@@ -476,10 +476,18 @@ fn handle_message(msg: BrowserToContent, state: &mut ContentState) -> bool {
             // the current (already-pushed) `matchMedia` — then report the MQL `change`
             // flips (CSSOM View §4.2) in one batch bracket.
             if size_changed {
-                let mut resize_event = elidex_script_session::DispatchEvent::new_composed(
-                    "resize",
-                    state.pipeline.document,
-                );
+                // `resize` fires on Window (CSSOM-View §13.1) — target the VM's
+                // dedicated Window entity, NOT the Document: `window.addEventListener
+                // ('resize', …)` records its listener against the Window entity
+                // (window.rs), so a document-targeted dispatch misses it. Falls back
+                // to the document entity pre-bind (window_entity == None).
+                let window_target = state
+                    .pipeline
+                    .runtime
+                    .window_entity()
+                    .unwrap_or(state.pipeline.document);
+                let mut resize_event =
+                    elidex_script_session::DispatchEvent::new_composed("resize", window_target);
                 resize_event.bubbles = false;
                 resize_event.cancelable = false;
                 state.pipeline.dispatch_event(&mut resize_event);
