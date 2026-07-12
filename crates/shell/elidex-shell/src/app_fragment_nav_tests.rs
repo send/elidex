@@ -12,7 +12,7 @@
 //! via the scroll side effect: a `Replace('#x')` fragment-skips (and scrolls to
 //! `#x`), a `Reload` rebuilds (no fragment-skip scroll).
 
-use elidex_script_session::{NavigationRequest, NavigationType};
+use elidex_script_session::NavigationType;
 
 use super::App;
 
@@ -90,16 +90,14 @@ fn app_js_reload_of_fragment_url_no_history_growth() {
     assert_eq!(history_len(&app), 1);
 
     // location.reload() → a Reload navigation to the current URL.
-    app.interactive
-        .as_ref()
+    let _ = app
+        .interactive
+        .as_mut()
         .unwrap()
         .pipeline
         .runtime
-        .bridge()
-        .set_pending_navigation(NavigationRequest {
-            url: "https://example.com/a#x".to_string(),
-            nav_type: NavigationType::Reload,
-        });
+        .vm()
+        .eval("location.reload();");
     app.process_pending_navigation();
 
     assert_eq!(

@@ -814,7 +814,10 @@ fn iframe_inherits_parent_device_facts_at_build() {
         },
         &mut state,
     );
-    assert_eq!(state.pipeline.runtime.bridge().device_pixel_ratio(), 2.0);
+    assert_eq!(
+        state.pipeline.runtime.eval_f64("window.devicePixelRatio"),
+        2.0
+    );
 
     // Create + append an iframe, then load it (same path as `connected_iframe_append_loads`).
     let r = state.pipeline.eval_script(
@@ -828,19 +831,20 @@ fn iframe_inherits_parent_device_facts_at_build() {
     assert!(changed, "the iframe must load on insertion");
 
     // The loaded in-process iframe's bridge reports the parent's facts, not 1×/Light.
-    let entry = state.iframes.get(f).expect("iframe must be loaded");
-    let iframe::IframeHandle::InProcess(ip) = &entry.handle else {
+    let entry = state.iframes.get_mut(f).expect("iframe must be loaded");
+    let iframe::IframeHandle::InProcess(ip) = &mut entry.handle else {
         panic!("a same-origin srcdoc iframe loads in-process");
     };
-    let iframe_bridge = ip.pipeline.runtime.bridge();
+    let iframe_runtime = &mut ip.pipeline.runtime;
     assert_eq!(
-        iframe_bridge.device_pixel_ratio(),
+        iframe_runtime.eval_f64("window.devicePixelRatio"),
         2.0,
         "iframe must inherit the parent's dppx (was stuck at 1.0 — Codex C3 R1)"
     );
     assert_eq!(
-        iframe_bridge.color_scheme(),
-        ColorScheme::Dark,
+        iframe_runtime
+            .eval_string("matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'"),
+        "dark",
         "iframe must inherit the parent's prefers-color-scheme"
     );
 }
@@ -871,8 +875,8 @@ fn initial_scripts_observe_real_viewport() {
     // Construction input reached the cascade/layout SoT.
     assert_eq!(pipeline.viewport, elidex_plugin::Size::new(640.0, 480.0));
     // ...and the JS bridge SoT that `innerWidth`/`matchMedia` read.
-    assert_eq!(pipeline.runtime.bridge().viewport_width(), 640.0);
-    assert_eq!(pipeline.runtime.bridge().viewport_height(), 480.0);
+    assert_eq!(pipeline.viewport.width, 640.0);
+    assert_eq!(pipeline.viewport.height, 480.0);
     // The initial script OBSERVED the real size — proves the bridge was seeded
     // BEFORE the script-eval loop (the F1 ordering, not merely set post-build).
     assert_eq!(
@@ -903,10 +907,6 @@ fn default_viewport_unifies_bridge_and_cascade() {
             crate::DEFAULT_VIEWPORT_HEIGHT,
         ),
         crate::ipc::DeviceFacts::default(),
-    );
-    assert_eq!(
-        pipeline.runtime.bridge().viewport_width(),
-        crate::DEFAULT_VIEWPORT_WIDTH
     );
     assert_eq!(pipeline.viewport.width, crate::DEFAULT_VIEWPORT_WIDTH);
 }

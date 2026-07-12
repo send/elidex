@@ -166,6 +166,7 @@ fn finalize_test_content_state(
         viewport_cell,
         0,
         0,
+        crate::ipc::DeviceFacts::default(),
     );
     super::scroll::update_viewport_scroll_dimensions(&mut state);
     super::iframe::scan_initial_iframes(&mut state);

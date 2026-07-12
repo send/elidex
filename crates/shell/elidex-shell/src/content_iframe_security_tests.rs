@@ -73,6 +73,7 @@ use super::test_support::{
     build_test_content_state, build_test_content_state_with_url, probe_attr,
 };
 use super::ContentState;
+use elidex_script_session::HostDriver;
 
 /// The single `<iframe>` entity in the parent DOM.
 fn iframe_entity(state: &ContentState) -> elidex_ecs::Entity {
@@ -124,7 +125,7 @@ fn sandboxed_iframe_flags_installed_before_initial_scripts() {
     );
     // The flags themselves are installed on the entry's bridge.
     assert_eq!(
-        ip.pipeline.runtime.bridge().sandbox_flags(),
+        ip.pipeline.runtime.sandbox_flags(),
         Some(elidex_plugin::IframeSandboxFlags::ALLOW_SAME_ORIGIN),
         "parsed sandbox flags must be installed on the iframe bridge"
     );
@@ -149,7 +150,7 @@ fn sandboxed_iframe_with_allow_scripts_still_runs_initial_scripts() {
     );
     assert!(
         matches!(
-            ip.pipeline.runtime.bridge().origin(),
+            ip.pipeline.runtime.origin(),
             elidex_plugin::SecurityOrigin::Opaque(_)
         ),
         "sandbox without allow-same-origin must yield an opaque origin"
@@ -192,7 +193,7 @@ fn sandboxed_iframe_initial_script_observes_opaque_origin() {
     );
     assert!(
         matches!(
-            ip.pipeline.runtime.bridge().origin(),
+            ip.pipeline.runtime.origin(),
             elidex_plugin::SecurityOrigin::Opaque(_)
         ),
         "the entry must carry the opaque origin"
@@ -222,12 +223,12 @@ fn unsandboxed_iframe_initial_script_observes_tuple_origin() {
     );
     assert!(
         matches!(
-            ip.pipeline.runtime.bridge().origin(),
+            ip.pipeline.runtime.origin(),
             elidex_plugin::SecurityOrigin::Tuple { .. }
         ),
         "the unsandboxed entry must keep the inherited tuple origin"
     );
-    assert_eq!(ip.pipeline.runtime.bridge().sandbox_flags(), None);
+    assert_eq!(ip.pipeline.runtime.sandbox_flags(), None);
 }
 
 /// `src="about:blank"` arm: the reordered plumbing still installs the
@@ -242,11 +243,11 @@ fn about_blank_iframe_installs_sandbox_state() {
     );
     let ip = in_process_entry(&state);
     assert_eq!(
-        ip.pipeline.runtime.bridge().sandbox_flags(),
+        ip.pipeline.runtime.sandbox_flags(),
         Some(elidex_plugin::IframeSandboxFlags::ALLOW_SCRIPTS)
     );
     assert!(matches!(
-        ip.pipeline.runtime.bridge().origin(),
+        ip.pipeline.runtime.origin(),
         elidex_plugin::SecurityOrigin::Opaque(_)
     ));
 }
@@ -258,11 +259,11 @@ fn no_src_iframe_installs_sandbox_state() {
         build_test_content_state(r#"<iframe sandbox="allow-scripts"></iframe>"#, "");
     let ip = in_process_entry(&state);
     assert_eq!(
-        ip.pipeline.runtime.bridge().sandbox_flags(),
+        ip.pipeline.runtime.sandbox_flags(),
         Some(elidex_plugin::IframeSandboxFlags::ALLOW_SCRIPTS)
     );
     assert!(matches!(
-        ip.pipeline.runtime.bridge().origin(),
+        ip.pipeline.runtime.origin(),
         elidex_plugin::SecurityOrigin::Opaque(_)
     ));
 }
@@ -278,13 +279,13 @@ fn blank_entry_fallback_installs_sandbox_state() {
     );
     let ip = in_process_entry(&state);
     assert_eq!(
-        ip.pipeline.runtime.bridge().sandbox_flags(),
+        ip.pipeline.runtime.sandbox_flags(),
         Some(elidex_plugin::IframeSandboxFlags::empty()),
         "sandbox=\"\" must install maximally-restrictive (empty) flags"
     );
     assert!(
         matches!(
-            ip.pipeline.runtime.bridge().origin(),
+            ip.pipeline.runtime.origin(),
             elidex_plugin::SecurityOrigin::Opaque(_)
         ),
         "sandbox without allow-same-origin must yield an opaque origin on the \
@@ -373,12 +374,12 @@ fn credentialless_iframe_persists_flag_and_opaque_origin() {
     );
     let ip = in_process_entry(&state);
     assert!(
-        ip.pipeline.runtime.bridge().credentialless(),
+        ip.pipeline.credentialless,
         "a credentialless iframe must persist the flag on its bridge"
     );
     assert!(
         matches!(
-            ip.pipeline.runtime.bridge().origin(),
+            ip.pipeline.runtime.origin(),
             elidex_plugin::SecurityOrigin::Opaque(_)
         ),
         "credentialless yields an opaque origin"
@@ -428,7 +429,7 @@ fn run_oop_and_collect_posts(entry: IframeEntry) -> Vec<(String, String)> {
             .recv_timeout(std::time::Duration::from_millis(100))
         {
             Ok(IframeToBrowser::DisplayListReady(_)) => frames += 1,
-            Ok(IframeToBrowser::PostMessage { data, origin }) => posts.push((data, origin)),
+            Ok(IframeToBrowser::PostMessage { data, origin, .. }) => posts.push((data, origin)),
             Err(crossbeam_channel::RecvTimeoutError::Timeout) => {}
             Err(crossbeam_channel::RecvTimeoutError::Disconnected) => break,
         }
@@ -626,7 +627,10 @@ fn navigate_inputs_derive_origin_from_loaded_url() {
         "origin must be derived from the post-redirect loaded URL, not the requested one"
     );
     // The persisted frame facts ride through the rebuild unchanged.
-    assert_eq!(state.referrer.as_deref(), Some("https://parent.example/"));
+    assert_eq!(
+        state.referrer.as_ref().map(url::Url::as_str),
+        Some("https://parent.example/")
+    );
     assert_eq!(state.iframe_depth, 2);
     assert!(!state.credentialless);
 }

@@ -845,10 +845,16 @@ fn set_device_facts_activates_device_pixel_ratio_and_color_scheme() {
     let (mut state, _browser) = build_test_content_state("<body></body>", "");
 
     // Construction defaults (the bridge's `device_pixel_ratio: 1.0` / `Light`).
-    assert_eq!(state.pipeline.runtime.bridge().device_pixel_ratio(), 1.0);
     assert_eq!(
-        state.pipeline.runtime.bridge().color_scheme(),
-        ColorScheme::Light
+        state.pipeline.runtime.eval_f64("window.devicePixelRatio"),
+        1.0
+    );
+    assert_eq!(
+        state
+            .pipeline
+            .runtime
+            .eval_string("matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'"),
+        "light"
     );
 
     super::event_loop::handle_message_public(
@@ -862,13 +868,16 @@ fn set_device_facts_activates_device_pixel_ratio_and_color_scheme() {
     );
 
     assert_eq!(
-        state.pipeline.runtime.bridge().device_pixel_ratio(),
+        state.pipeline.runtime.eval_f64("window.devicePixelRatio"),
         2.0,
         "SetDeviceFacts must activate window.devicePixelRatio (was stuck at 1.0)"
     );
     assert_eq!(
-        state.pipeline.runtime.bridge().color_scheme(),
-        ColorScheme::Dark
+        state
+            .pipeline
+            .runtime
+            .eval_string("matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'"),
+        "dark"
     );
 }
 
@@ -946,10 +955,16 @@ fn stale_device_facts_delivery_is_dropped() {
         },
         &mut state,
     );
-    assert_eq!(state.pipeline.runtime.bridge().device_pixel_ratio(), 2.0);
     assert_eq!(
-        state.pipeline.runtime.bridge().color_scheme(),
-        ColorScheme::Dark
+        state.pipeline.runtime.eval_f64("window.devicePixelRatio"),
+        2.0
+    );
+    assert_eq!(
+        state
+            .pipeline
+            .runtime
+            .eval_string("matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'"),
+        "dark"
     );
 
     // A STALE delivery (older generation 1) with *different* facts (1×/Light) arrives
@@ -963,13 +978,16 @@ fn stale_device_facts_delivery_is_dropped() {
         &mut state,
     );
     assert_eq!(
-        state.pipeline.runtime.bridge().device_pixel_ratio(),
+        state.pipeline.runtime.eval_f64("window.devicePixelRatio"),
         2.0,
         "a stale (older facts_seq) delivery must not replay the bridge backward to 1.0"
     );
     assert_eq!(
-        state.pipeline.runtime.bridge().color_scheme(),
-        ColorScheme::Dark,
+        state
+            .pipeline
+            .runtime
+            .eval_string("matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'"),
+        "dark",
         "a stale (older facts_seq) delivery must not replay the color scheme backward"
     );
 
@@ -984,13 +1002,16 @@ fn stale_device_facts_delivery_is_dropped() {
         &mut state,
     );
     assert_eq!(
-        state.pipeline.runtime.bridge().device_pixel_ratio(),
+        state.pipeline.runtime.eval_f64("window.devicePixelRatio"),
         1.0,
         "a fresh (newer facts_seq) delivery must apply"
     );
     assert_eq!(
-        state.pipeline.runtime.bridge().color_scheme(),
-        ColorScheme::Light
+        state
+            .pipeline
+            .runtime
+            .eval_string("matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'"),
+        "light"
     );
 }
 
@@ -1046,13 +1067,16 @@ fn atomic_size_and_facts_delivery_fires_no_intermediate_mql_change() {
     );
     // Both inputs WERE applied atomically (facts: dppx/scheme; size: relayout) ...
     assert_eq!(
-        state.pipeline.runtime.bridge().device_pixel_ratio(),
+        state.pipeline.runtime.eval_f64("window.devicePixelRatio"),
         2.0,
         "the facts carried by SetViewport must be applied (proves atomic co-delivery)"
     );
     assert_eq!(
-        state.pipeline.runtime.bridge().color_scheme(),
-        ColorScheme::Dark
+        state
+            .pipeline
+            .runtime
+            .eval_string("matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'"),
+        "dark"
     );
     // ... yet the combined query fired ZERO `change` events (no spurious intermediate).
     assert_eq!(
@@ -1124,7 +1148,7 @@ fn fractional_dppx_is_lossless_to_devicepixelratio_and_media() {
 
     // The bridge holds the exact f64 1.2 (an f32 field would hold 1.2000000476837158).
     assert_eq!(
-        state.pipeline.runtime.bridge().device_pixel_ratio(),
+        state.pipeline.runtime.eval_f64("window.devicePixelRatio"),
         1.2,
         "dppx must reach the bridge as exact f64 1.2, not f32-rounded"
     );

@@ -23,7 +23,7 @@
 //! `ContentToBrowser` channel (drain wiring) + the iframe `src` attribute
 //! (HIT navigate) — the same seams the S5-4b ordering tests observe.
 
-use elidex_script_session::{NamedFrameNavigation, OpenTabRequest, WindowOpenIntent};
+use elidex_script_session::{HostDriver, NamedFrameNavigation, OpenTabRequest, WindowOpenIntent};
 
 use super::navigation::{process_pending_actions, route_window_opens};
 use super::test_support::{build_test_content_state, build_test_content_state_with_url};
@@ -105,17 +105,12 @@ fn sandboxed_window_open_blank_surfaces_no_open_new_tab() {
     state
         .pipeline
         .runtime
-        .bridge()
         .set_sandbox_flags(Some(elidex_plugin::IframeSandboxFlags::ALLOW_SCRIPTS));
-    {
-        let p = &mut state.pipeline;
-        p.runtime.eval(
-            "window.open('https://example.com/', '_blank');",
-            &mut p.session,
-            &mut p.dom,
-            p.document,
-        );
-    }
+    let _ = state
+        .pipeline
+        .runtime
+        .vm()
+        .eval("window.open('https://example.com/', '_blank');");
     let processed = process_pending_actions(&mut state);
     assert!(
         !processed,
@@ -214,10 +209,11 @@ fn async_pump_drains_named_window_open_channel() {
     // Enqueue a named open on the runtime back-channel (what a timer-driven
     // `window.open('/x', 'child')` produces), then run ONLY the async pump's
     // drain — no `process_pending_actions` (the input-driven path).
-    state.pipeline.runtime.bridge().set_pending_navigate_iframe(
-        "child".to_string(),
-        url::Url::parse("https://navigated.example/").unwrap(),
-    );
+    let _ = state
+        .pipeline
+        .runtime
+        .vm()
+        .eval("window.open('https://navigated.example/', 'child');");
     let intents = state.pipeline.runtime.take_pending_window_opens();
     let outcome = route_window_opens(&mut state, intents);
     assert!(
@@ -292,12 +288,10 @@ fn route_window_opens_blocks_javascript_scheme_popup() {
 #[test]
 fn window_open_popup_survives_same_turn_self_navigation() {
     let (mut state, browser) = build_test_content_state("<div>doc</div>", "");
-    let bridge = state.pipeline.runtime.bridge();
-    bridge.queue_open_tab(url::Url::parse("https://popup.example/").unwrap());
-    bridge.set_pending_navigation(elidex_script_session::NavigationRequest {
-        url: "data:text/html,<p>next</p>".to_string(),
-        nav_type: elidex_script_session::NavigationType::Push,
-    });
+    let _ = state.pipeline.runtime.vm().eval(
+        "window.open('https://popup.example/', '_blank'); \
+         location.assign('data:text/html,<p>next</p>');",
+    );
     let acted = process_pending_actions(&mut state);
     assert!(
         acted,

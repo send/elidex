@@ -404,7 +404,7 @@ fn domcontentloaded_fires_before_load() {
             &mut ctx,
         );
     }
-    let messages = runtime.console_output().messages();
+    let messages = runtime.vm().console_messages();
     assert!(
         messages.iter().any(|m| m.1.contains("order=dcl,load")),
         "Expected DOMContentLoaded before load, got: {messages:?}"
@@ -414,7 +414,7 @@ fn domcontentloaded_fires_before_load() {
 #[test]
 fn lifecycle_events_not_cancelable() {
     // preventDefault() on lifecycle events should not prevent them.
-    let result = build_pipeline_interactive(
+    let mut result = build_pipeline_interactive(
         "<script>\
            var prevented = false;\
            document.addEventListener('DOMContentLoaded', function(e) {\
@@ -425,7 +425,7 @@ fn lifecycle_events_not_cancelable() {
          </script>",
         "",
     );
-    let messages = result.runtime.console_output().messages();
+    let messages = result.runtime.vm().console_messages();
     // DOMContentLoaded is not cancelable, so preventDefault should have no effect.
     // The `defaultPrevented` property should remain false.
     assert!(
@@ -794,7 +794,7 @@ fn transition_event_dispatched_to_js_listener() {
     });
     result.dispatch_event(&mut event);
 
-    let messages = result.runtime.console_output().messages();
+    let messages = result.runtime.vm().console_messages();
     assert!(
         messages.iter().any(|m| m.1.starts_with("te:opacity:0.3")),
         "Expected transitionend with propertyName=opacity, got: {messages:?}"
@@ -825,7 +825,7 @@ fn animation_event_dispatched_to_js_listener() {
     });
     result.dispatch_event(&mut event);
 
-    let messages = result.runtime.console_output().messages();
+    let messages = result.runtime.vm().console_messages();
     assert!(
         messages.iter().any(|m| m.1.starts_with("ae:fadeIn:1:")),
         "Expected animationend with animationName=fadeIn, got: {messages:?}"
