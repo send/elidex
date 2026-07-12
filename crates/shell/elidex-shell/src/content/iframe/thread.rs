@@ -110,9 +110,14 @@ pub(super) fn iframe_thread_main(
             ));
         }
 
-        // Forward postMessage from iframe JS to parent.
-        for (data, origin) in pipeline.runtime.bridge().drain_post_messages() {
-            let _ = channel.send(IframeToBrowser::PostMessage { data, origin });
+        // Forward iframe→parent postMessage intents to the parent, carrying the
+        // resolved §9.3.3 `targetOrigin` key so the parent gate can compare it.
+        for msg in pipeline.runtime.take_pending_parent_messages() {
+            let _ = channel.send(IframeToBrowser::PostMessage {
+                data: msg.data,
+                origin: msg.origin,
+                target_origin: msg.target_origin,
+            });
         }
     }
 }

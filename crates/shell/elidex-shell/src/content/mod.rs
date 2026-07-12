@@ -666,7 +666,7 @@ fn dispatch_storage_event(
     state.pipeline.dispatch_event(&mut event);
 }
 
-/// Dispatch a `MessageEvent` on the parent document (WHATWG HTML §9.4.3).
+/// Dispatch a `MessageEvent` on the parent document (WHATWG HTML §9.3.3 step 8.7).
 fn dispatch_message_event(state: &mut ContentState, data: &str, origin: &str) {
     let mut event =
         elidex_script_session::DispatchEvent::new_composed("message", state.pipeline.document);
@@ -687,9 +687,6 @@ fn dispatch_message_event(state: &mut ContentState, data: &str, origin: &str) {
 /// never alias — there is NO lossy `"null"` special case (the send side
 /// fail-closes on opaque URL targets and uses the sentinel for `/`). Fail-closed:
 /// any `target_origin` that is neither `"*"` nor an exact key match is dropped.
-// `#[allow(dead_code)]` is transient: the gated dispatch loop that consumes this
-// lands in sub-commit 2f4-c, which removes this attribute.
-#[allow(dead_code)]
 fn parent_message_allowed(parent_key: &str, target_origin: &str) -> bool {
     target_origin == "*" || parent_key == target_origin
 }

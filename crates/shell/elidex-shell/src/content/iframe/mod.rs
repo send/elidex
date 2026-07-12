@@ -22,6 +22,7 @@ mod types;
 use std::collections::HashMap;
 
 use elidex_ecs::Entity;
+use elidex_script_session::ParentMessage;
 
 pub(super) use lifecycle::{
     check_lazy_iframes, find_iframe_by_name, navigate_iframe, rescan_iframes_by_diff,
@@ -105,31 +106,40 @@ impl IframeRegistry {
         self.entries.is_empty()
     }
 
-    /// Drain incoming messages from all out-of-process iframes.
+    /// Drain iframe→parent `postMessage`s, normalising both transports onto
+    /// `Vec<ParentMessage>` so the parent's single §9.3.3 gate
+    /// (`parent_message_allowed`) sees one input shape (One-issue-one-way). The
+    /// OOP display-list update is a side effect of the same channel drain.
     ///
-    /// Processes `DisplayListReady` messages by updating the cached display list.
-    /// Returns any `PostMessage` messages that need to be delivered to the parent.
-    pub fn drain_oop_messages(&mut self) -> Vec<OopPostMessage> {
-        let mut post_messages = Vec::new();
-        for (entity, entry) in &mut self.entries {
+    /// OOP half only here; the in-process half (`take_pending_parent_messages`
+    /// for `InProcess` entries — closing the pre-existing in-process gap) lands
+    /// in 2f4-d. Returns an owned `Vec` so the `self.entries` borrow is released
+    /// before the parent dispatches (borrow-discipline).
+    pub fn drain_parent_messages(&mut self) -> Vec<ParentMessage> {
+        let mut parent_messages = Vec::new();
+        for entry in self.entries.values_mut() {
             if let IframeHandle::OutOfProcess(oop) = &mut entry.handle {
                 while let Ok(msg) = oop.channel.try_recv() {
                     match msg {
                         IframeToBrowser::DisplayListReady(dl) => {
                             oop.display_list = dl;
                         }
-                        IframeToBrowser::PostMessage { data, origin } => {
-                            post_messages.push(OopPostMessage {
-                                entity: *entity,
+                        IframeToBrowser::PostMessage {
+                            data,
+                            origin,
+                            target_origin,
+                        } => {
+                            parent_messages.push(ParentMessage {
                                 data,
                                 origin,
+                                target_origin,
                             });
                         }
                     }
                 }
             }
         }
-        post_messages
+        parent_messages
     }
 
     /// Shut down all iframes gracefully (WHATWG HTML §7.1.3).
@@ -233,7 +243,7 @@ mod tests {
     #[test]
     fn iframe_registry_drain_empty() {
         let mut registry = IframeRegistry::new();
-        let messages = registry.drain_oop_messages();
+        let messages = registry.drain_parent_messages();
         assert!(messages.is_empty());
     }
 

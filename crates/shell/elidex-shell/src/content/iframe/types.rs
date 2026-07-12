@@ -2,7 +2,7 @@
 
 use std::thread::JoinHandle;
 
-use elidex_ecs::{Entity, ScrollState};
+use elidex_ecs::ScrollState;
 use elidex_navigation::NavigationController;
 use elidex_plugin::SecurityOrigin;
 use elidex_render::DisplayList;
@@ -58,12 +58,16 @@ pub enum BrowserToIframe {
 pub enum IframeToBrowser {
     /// A new display list is ready for compositing into the parent.
     DisplayListReady(DisplayList),
-    /// Cross-document postMessage from iframe to parent (WHATWG HTML §9.4.3).
+    /// Cross-document postMessage from iframe to parent (WHATWG HTML §9.3.3).
     PostMessage {
         /// JSON-serialized message data.
         data: String,
-        /// Sender's serialized origin.
+        /// Sender's serialized origin (→ parent-side `MessageEvent.origin`).
         origin: String,
+        /// The §9.3.3 `targetOrigin` gate input, resolved to an identity-
+        /// preserving `storage_origin_key` at send time (steps 4-5). The parent
+        /// gate (`parent_message_allowed`) compares it against the parent's key.
+        target_origin: String,
     },
 }
 
@@ -125,17 +129,6 @@ pub struct IframeEntry {
     /// The `srcdoc` of the `IframeData` this entry was loaded from — the srcdoc
     /// analog of [`Self::loaded_src`] (both `src` and `srcdoc` trigger a re-nav).
     pub loaded_srcdoc: Option<String>,
-}
-
-/// A postMessage received from an out-of-process iframe.
-#[allow(dead_code)] // Fields read by message dispatch in content event loop.
-pub struct OopPostMessage {
-    /// The `<iframe>` entity that sent the message.
-    pub entity: Entity,
-    /// JSON-serialized message data.
-    pub data: String,
-    /// Sender's serialized origin.
-    pub origin: String,
 }
 
 // ---------------------------------------------------------------------------

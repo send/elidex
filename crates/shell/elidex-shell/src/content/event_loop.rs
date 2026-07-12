@@ -12,8 +12,8 @@ use elidex_script_session::HostDriver;
 use crate::ipc::{BrowserToContent, ContentToBrowser};
 
 use super::{
-    animation, dispatch_message_event, dispatch_storage_event, iframe, navigation, scroll,
-    ContentState, DEFAULT_POLL_INTERVAL, FRAME_INTERVAL,
+    animation, dispatch_message_event, dispatch_storage_event, iframe, navigation,
+    parent_message_allowed, scroll, ContentState, DEFAULT_POLL_INTERVAL, FRAME_INTERVAL,
 };
 use super::{event_handlers, ime};
 
@@ -86,9 +86,18 @@ pub(super) fn run_event_loop(state: &mut ContentState) {
         // messages are drained/gated below (2f4-c). Message-handler DOM mutations
         // that need a re-render ride the §4.3.8 inclusive-descendants version-delta
         // (below), the same signal the realtime/worker drains use.
-        let post_messages = state.iframes.drain_oop_messages();
-        for msg in &post_messages {
-            dispatch_message_event(state, &msg.data, &msg.origin);
+        // §9.3.3 step 8.1: gate every iframe→parent message against the parent
+        // window's origin key at THIS single chokepoint (fail-closed — a message
+        // whose resolved `targetOrigin` is neither `*` nor the parent key is
+        // dropped). Both transports (OOP IPC + in-process) are normalised onto
+        // one `Vec<ParentMessage>` by `drain_parent_messages`, so the gate sees
+        // one input shape. `parent_key` is the parent's `storage_origin_key`
+        // (byte-identical to the send-side resolution).
+        let parent_key = state.pipeline.runtime.storage_origin_key();
+        for msg in state.iframes.drain_parent_messages() {
+            if parent_message_allowed(&parent_key, &msg.target_origin) {
+                dispatch_message_event(state, &msg.data, &msg.origin);
+            }
         }
 
         for change in state.pipeline.runtime.take_pending_storage_changes() {
