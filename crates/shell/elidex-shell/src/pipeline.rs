@@ -567,6 +567,8 @@ pub fn build_pipeline_interactive(html: &str, css: &str) -> PipelineResult {
         url: None,
         network_handle: Rc::new(elidex_net::broker::NetworkHandle::disconnected()),
         cookie_jar: None,
+        credentialless: false,
+        referrer: None,
         registry,
         animation_engine,
         viewport: Size::new(DEFAULT_VIEWPORT_WIDTH, DEFAULT_VIEWPORT_HEIGHT),
@@ -645,6 +647,8 @@ pub(crate) fn build_pipeline_interactive_with_network(
         url: None,
         network_handle,
         cookie_jar: Some(cookie_jar),
+        credentialless: false,
+        referrer: None,
         registry,
         animation_engine,
         viewport,
@@ -698,6 +702,12 @@ pub(crate) fn build_pipeline_interactive_shared(
     let scripts = extract_inline_scripts(&dom, document);
     let script_sources: Vec<&str> = scripts.iter().map(|s| s.source.as_str()).collect();
 
+    // Shell-owned frame config (no VM getter — B19): capture off `pre_eval_state`
+    // before it is moved into the builder, to seed the `PipelineResult` fields the
+    // OOP `Navigate` rebuild reads back.
+    let (credentialless, referrer) = pre_eval_state
+        .as_ref()
+        .map_or((false, None), |s| (s.credentialless, s.referrer.clone()));
     let (session, runtime, viewport_overflow) = run_scripts_and_finalize(
         &mut dom,
         document,
@@ -731,6 +741,8 @@ pub(crate) fn build_pipeline_interactive_shared(
         url,
         network_handle,
         cookie_jar,
+        credentialless,
+        referrer,
         registry,
         animation_engine,
         viewport,
@@ -789,6 +801,12 @@ pub fn build_pipeline_from_loaded(
 
     let registry = Arc::new(create_css_property_registry());
 
+    // Shell-owned frame config (no VM getter — B19): capture off `pre_eval_state`
+    // before it is moved into the builder, to seed the `PipelineResult` fields the
+    // OOP `Navigate` rebuild reads back.
+    let (credentialless, referrer) = pre_eval_state
+        .as_ref()
+        .map_or((false, None), |s| (s.credentialless, s.referrer.clone()));
     let (session, runtime, viewport_overflow) = run_scripts_and_finalize(
         &mut dom,
         document,
@@ -821,6 +839,8 @@ pub fn build_pipeline_from_loaded(
         url: Some(url),
         network_handle,
         cookie_jar,
+        credentialless,
+        referrer,
         registry,
         animation_engine,
         viewport,

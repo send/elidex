@@ -222,6 +222,20 @@ pub struct PipelineResult {
     /// through the engine (the `HostDriver` trait has `install_cookie_jar` but
     /// deliberately no getter). B18.
     pub cookie_jar: Option<Arc<elidex_net::CookieJar>>,
+    /// Whether this frame is a `credentialless` iframe — a browsing-context
+    /// config (CLAUDE.md side-store exception (b)), NOT a VM-observable fact: the
+    /// VM has no `credentialless()` getter (its opaque-origin behaviour derives
+    /// from `set_origin`, S5-4b). Retained shell-side (the B18 cookie_jar
+    /// precedent) to feed the OOP `Navigate` rebuild's `PreEvalFrameInputs`.
+    /// `false` on a top-level document. (B19)
+    pub credentialless: bool,
+    /// The document's navigation referrer (an iframe's parent document URL,
+    /// §7.4.2). The `HostDriver` trait has a `set_navigation_referrer` setter but
+    /// deliberately NO getter (the shell-owned-config pattern: B18 cookie_jar /
+    /// B20 device-facts), so the shell retains the value here to feed the OOP
+    /// `Navigate` rebuild rather than reading it back. `None` on a top-level
+    /// document / no referrer.
+    pub referrer: Option<url::Url>,
     /// Keeps the broker thread alive for standalone pipelines.
     /// `None` when the App owns the broker (normal tab mode).
     #[allow(dead_code)]

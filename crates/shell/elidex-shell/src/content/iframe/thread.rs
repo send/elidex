@@ -223,12 +223,11 @@ fn handle_navigate(
     // document's *initial* scripts already observe the final origin — where
     // previously this re-build precomputed the origin from the *requested* URL
     // (mis-attributing redirected loads) and installed after the scripts ran.
-    let bridge = pipeline.runtime.bridge();
     let inputs = crate::PreEvalFrameInputs {
-        sandbox_flags: bridge.sandbox_flags(),
-        credentialless: bridge.credentialless(),
-        iframe_depth: bridge.iframe_depth(),
-        referrer: bridge.referrer(),
+        sandbox_flags: pipeline.runtime.sandbox_flags(),
+        credentialless: pipeline.credentialless,
+        iframe_depth: pipeline.runtime.iframe_depth(),
+        referrer: pipeline.referrer.clone(),
     };
     // KNOWN-INCOMPLETE (slot #11-oop-iframe-navigate-completeness — a new carve;
     // ledger registration is a landing deliverable). This `Navigate` path has NO
