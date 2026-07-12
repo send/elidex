@@ -16,6 +16,20 @@ git-diff audit of the touched hunks (`git diff 71968b70~1 71968b70`).
 
 ---
 
+## ✅ Category A — RESOLVED (commit `9ff26165`, 2026-07-12): lifecycle/unload dispatch ran the VM UNBOUND (5 tests)
+
+**Fix landed**: added `dispatch_event_bracketed` (pipeline.rs — the free-function analog of
+`PipelineResult::dispatch_event`'s §4.1 batch-bind bracket) and routed all five dispatches
+(`readystatechange`/`DOMContentLoaded`/`load` in `dispatch_lifecycle_events`,
+`beforeunload`/`unload` in `dispatch_unload_events`) through it. Also rewrote
+`domcontentloaded_fires_before_load` to capture firing order via DOM mutation (the VM-robust sibling
+pattern) instead of a cross-eval `var`-global read (which surfaced as a secondary failure once the
+panic was gone — the follow-up `eval_script` reading a top-level `var order` returned empty; whether
+top-level `var` should persist as a global across `Vm::eval` calls is a separate VM-semantics
+question, NOT chased here). Suite: **17 → 12 failures** (229 pass). The 12 below remain (B/C/D/E).
+
+The original analysis is retained for the record:
+
 ## Category A — lifecycle/unload event dispatch runs the VM UNBOUND (5 tests) — SEVEREST
 
 **Tests**: `tests::domcontentloaded_fires`, `domcontentloaded_fires_before_load`,
@@ -61,15 +75,24 @@ plausibly warranting the same care as 2d.
 `content_thread_drops_stale_seq_viewport` (:515),
 `atomic_size_and_facts_delivery_fires_no_intermediate_mql_change` (:1099).
 
-**Symptom**: probe-attribute assertions on MQL `change`-firing count / `matchMedia().matches`
-freshness fail (e.g. `:1099` `left Some("0") right Some("1")` — "facts-only delivery flips the live
-query exactly once" but it flipped 0 times).
+**Symptom**: TWO sub-symptoms on the content-thread viewport/facts pump —
+(a) **style re-cascade** on `SetViewport`: e.g. `content_thread_setviewport_flips_width_media_query`
+(:83) sends `SetViewport{width:800}`, receives `DisplayListReady`, and asserts `has_red(&resized)`
+(the 800px viewport should match `@media (max-width:900px)` → red div). It does NOT use JS MQL
+listeners — it asserts the layout **re-cascaded** at the new viewport. Failing = the resized display
+list did not reflect the new-viewport media match.
+(b) **JS MQL `change`-firing count** / `matchMedia().matches` freshness: e.g. `:1099`
+`left Some("0") right Some("1")` — "facts-only delivery flips the live query exactly once" but it
+flipped 0 times.
 
-**Root cause (to investigate)**: the content-thread viewport/device-facts pump
-(`SetViewport`/`SetDeviceFacts` → `set_media_environment` → `deliver_media_query_changes`) does not
-fire the live `MediaQueryList` `change` events / refresh `matchMedia().matches` under the VM. A
-flip pump-wiring gap (the CSSOM-View §4.2 "evaluate media queries and report changes" deliver step
-is likely not called, or not on the content-thread path).
+**Root cause (to investigate)**: the content-thread `SetViewport`/`SetDeviceFacts` handler
+(`event_loop.rs:398+`, the arms that call `set_media_environment`) does not, under the VM, (a)
+re-evaluate media queries + re-cascade + rebuild the display list for the new viewport, and/or (b)
+call `deliver_media_query_changes` to fire the live `MediaQueryList` `change` events (CSSOM-View
+§4.2). This is a **deeper pump/re-render wiring gap, NOT another unbound-dispatch** (the failures are
+assertion mismatches / stale display lists, not `HostData`-unbound panics). Needs a focused look at
+the content-thread viewport arm + `re_render` + `set_media_environment` ordering — its own fix, not a
+tail-end sweep.
 
 **Migration-causation**: NONE. 6 of the 7 (`:83`–`:515`) were NOT touched by the migration (all
 migration hunks in `viewport_tests.rs` are ≥ line 845). The 1 touched (`atomic`, migration added a
@@ -135,11 +158,14 @@ than the WebSocket-mixed-content proxy. Flip WebSocket / origin-wiring question.
 
 ## Disposition
 
-- The migration (T1 `d740a5ea` + T2 `71968b70`) is **mechanically complete** (build-green, 224
-  pass) and did its job: it surfaced these 17. They are **out of the test-migration's scope** (5
-  other subsystems) but **in scope for "get the flip CI-green before Stage 3"**.
-- **Priority order**: A (production-path panic, severest) → B (pump, 7 tests) → C (animations) → E
-  (wheel) → D (test-JS re-author + uncertain WebSocket wiring).
-- A and B are edge-dense enough (A = bind-bracket × CE-aliasing; B = pump delivery) to warrant
-  careful per-stage treatment, not a bundled tail-end sweep. Recommend addressing A first as its
-  own focused fix (with the 2d/2f-k `with_bound` aliasing discipline), then B.
+- The migration (T1 `d740a5ea` + T2 `71968b70`) is **mechanically complete** (build-green) and did
+  its job: it surfaced these 17. They are **out of the test-migration's scope** (5 other subsystems)
+  but **in scope for "get the flip CI-green before Stage 3"**.
+- **✅ Category A fixed** (`9ff26165`, 17→12, 229 pass). Remaining **12** = B(7) + C(2) + D(2) + E(1).
+- **Remaining priority order**: B (pump/re-cascade, 7 tests — biggest cluster, deeper subsystem) →
+  C (animations) → E (wheel) → D (test-JS re-author + uncertain WebSocket wiring).
+- B is a content-thread viewport/facts pump gap (re-cascade + MQL deliver), C/E are re-render /
+  scroll subsystem behaviours, D is a test-JS boa-ism + an uncertain VM-WebSocket-origin wiring
+  question. Each is a focused per-subsystem fix, NOT a bundled tail-end sweep. Recommend B next
+  (read `event_loop.rs:398+` SetViewport/SetDeviceFacts arms + `re_render` + `set_media_environment`
+  ordering).
