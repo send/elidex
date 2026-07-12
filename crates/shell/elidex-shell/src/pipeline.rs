@@ -517,6 +517,23 @@ pub(crate) fn dispatch_unload_events(
 // Pipeline builders (moved from lib.rs — touch-time 1000-line split, S5-4b F-f)
 // ---------------------------------------------------------------------------
 
+/// Embed an out-of-band `css` argument as a DOM `<style>` owner so `re_render`'s
+/// DOM-as-truth stylesheet re-collection (`collect_document_stylesheets`, S5-6a)
+/// finds it. The build cascade uses the parsed `stylesheets` vec directly, but
+/// `re_render` re-collects author CSS from the live DOM's `<style>`/`<link>`
+/// owners every frame — so a css-arg that never entered the DOM would VANISH on
+/// the first re-render (dropping author styles, `@media` matches, `@keyframes`
+/// animations). Test/standalone builders take css out-of-band; production
+/// (`build_pipeline_from_loaded`) already has its CSS as `<style>`/`<link>` DOM
+/// owners, so this only affects the css-arg builders below.
+fn html_with_author_style<'a>(html: &'a str, css: &str) -> std::borrow::Cow<'a, str> {
+    if css.is_empty() {
+        std::borrow::Cow::Borrowed(html)
+    } else {
+        std::borrow::Cow::Owned(format!("<style>{css}</style>{html}"))
+    }
+}
+
 /// Execute the rendering pipeline and return all state for interactive use.
 ///
 /// Like `build_pipeline`, but returns the full `PipelineResult` instead
@@ -524,7 +541,8 @@ pub(crate) fn dispatch_unload_events(
 /// dispatch DOM events, and re-render.
 #[must_use]
 pub fn build_pipeline_interactive(html: &str, css: &str) -> PipelineResult {
-    let parse_result = parse_progressive_str(html);
+    let html = html_with_author_style(html, css);
+    let parse_result = parse_progressive_str(html.as_ref());
     for err in &parse_result.errors {
         eprintln!("HTML parse warning: {err}");
     }
@@ -610,7 +628,8 @@ pub(crate) fn build_pipeline_interactive_with_network(
     viewport: Size,
     device_facts: crate::ipc::DeviceFacts,
 ) -> PipelineResult {
-    let parse_result = parse_progressive_str(html);
+    let html = html_with_author_style(html, css);
+    let parse_result = parse_progressive_str(html.as_ref());
     for err in &parse_result.errors {
         eprintln!("HTML parse warning: {err}");
     }
