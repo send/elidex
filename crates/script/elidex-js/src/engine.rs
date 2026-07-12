@@ -577,6 +577,13 @@ impl HostDriver for ElidexJsEngine {
         self.vm.inner.document_origin()
     }
 
+    fn storage_origin_key(&self) -> String {
+        // Delegate to the same VM serialization the send side uses
+        // (`pending_tasks.rs` resolves `targetOrigin == "/"` via this), so the
+        // receive-side gate key is byte-identical to `ParentMessage.target_origin`.
+        self.vm.inner.storage_origin_key()
+    }
+
     fn set_sandbox_flags(&mut self, flags: Option<elidex_plugin::IframeSandboxFlags>) {
         if let Some(hd) = self.vm.host_data() {
             hd.set_sandbox_flags(flags);

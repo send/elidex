@@ -384,6 +384,34 @@ fn opaque_origin_idb_versionchange_request_carries_identity_key_not_null() {
     assert_ne!(reqs[0].request_id, 0);
 }
 
+/// The `HostDriver::storage_origin_key` accessor (the receive-side parent-message
+/// gate reads this for the PARENT key) must return the SAME identity-preserving
+/// serialization the send side resolves `targetOrigin` to: a tuple origin's
+/// serialization, an opaque origin's per-VM sentinel (never the lossy `"null"`).
+#[test]
+fn storage_origin_key_trait_accessor_tuple_and_opaque() {
+    const DOC_URL: &str = "https://example.com/page";
+
+    // Opaque (no current_url / no origin override) → per-VM sentinel, not "null".
+    let (engine, _session, _dom, _doc) = fresh_unbound();
+    let opaque_key = HostDriver::storage_origin_key(&engine);
+    assert!(
+        opaque_key.starts_with("opaque-origin:"),
+        "opaque origin must serialize to the identity-preserving sentinel, got {opaque_key:?}"
+    );
+    assert_ne!(opaque_key, "null");
+
+    // Tuple origin override → its serialization.
+    let (mut engine2, _s2, _d2, _doc2) = fresh_unbound();
+    let tuple = elidex_plugin::SecurityOrigin::from_url(&url(DOC_URL));
+    HostDriver::set_origin(&mut engine2, tuple.clone());
+    assert_eq!(
+        HostDriver::storage_origin_key(&engine2),
+        tuple.serialize(),
+        "tuple origin key must equal SecurityOrigin::serialize()"
+    );
+}
+
 #[test]
 fn delete_nonexistent_database_enqueues_nothing() {
     // §5.3 step 4 returns 0 for a nonexistent database BEFORE the step-6

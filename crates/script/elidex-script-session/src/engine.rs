@@ -449,6 +449,18 @@ pub trait HostDriver {
     #[must_use]
     fn origin(&self) -> elidex_plugin::SecurityOrigin;
 
+    /// The document's origin as its identity-preserving `storage_origin_key`
+    /// (WHATWG HTML §9.3.3 "Posting messages" gate input): a tuple origin's
+    /// serialization, or the per-VM opaque **sentinel** for an opaque origin
+    /// (never the lossy `"null"`, so distinct opaque origins never alias). This
+    /// is the SAME serialization the send side resolves `targetOrigin` to
+    /// (`ParentMessage.target_origin`, §9.3.3 steps 4-5), so the receive-side
+    /// parent-message gate compares like-for-like by construction. Distinct from
+    /// [`Self::origin`] (a `SecurityOrigin`) and from the DISPLAYED
+    /// `MessageEvent.origin` (where an opaque origin IS `"null"`, §7.1.1).
+    #[must_use]
+    fn storage_origin_key(&self) -> String;
+
     /// Install the sandbox flags for this document's browsing context (the
     /// embedder parses `sandbox=""` → `IframeSandboxFlags`).
     fn set_sandbox_flags(&mut self, flags: Option<elidex_plugin::IframeSandboxFlags>);

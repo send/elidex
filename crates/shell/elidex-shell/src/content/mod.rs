@@ -680,6 +680,20 @@ fn dispatch_message_event(state: &mut ContentState, data: &str, origin: &str) {
     state.pipeline.dispatch_event(&mut event);
 }
 
+/// WHATWG HTML §9.3.3 "Posting messages" step 8.1: an iframe→parent message is
+/// delivered iff the sender's resolved `targetOrigin` is `*` (any origin) or it
+/// equals the parent window's origin key. Both keys are identity-preserving
+/// `storage_origin_key`s (opaque → per-VM sentinel), so distinct opaque origins
+/// never alias — there is NO lossy `"null"` special case (the send side
+/// fail-closes on opaque URL targets and uses the sentinel for `/`). Fail-closed:
+/// any `target_origin` that is neither `"*"` nor an exact key match is dropped.
+// `#[allow(dead_code)]` is transient: the gated dispatch loop that consumes this
+// lands in sub-commit 2f4-c, which removes this attribute.
+#[allow(dead_code)]
+fn parent_message_allowed(parent_key: &str, target_origin: &str) -> bool {
+    target_origin == "*" || parent_key == target_origin
+}
+
 #[cfg(test)]
 #[path = "../content_test_support.rs"]
 mod test_support;
@@ -707,3 +721,40 @@ mod fragment_nav_tests;
 #[cfg(test)]
 #[path = "../viewport_tests.rs"]
 mod viewport_tests;
+
+#[cfg(test)]
+mod parent_message_gate_tests {
+    use super::parent_message_allowed;
+
+    #[test]
+    fn wildcard_target_allows_any_origin() {
+        assert!(parent_message_allowed("https://parent.example", "*"));
+        assert!(parent_message_allowed("opaque-origin:7", "*"));
+    }
+
+    #[test]
+    fn equal_keys_allow() {
+        assert!(parent_message_allowed(
+            "https://parent.example",
+            "https://parent.example"
+        ));
+    }
+
+    #[test]
+    fn distinct_keys_drop() {
+        assert!(!parent_message_allowed(
+            "https://parent.example",
+            "https://evil.example"
+        ));
+    }
+
+    #[test]
+    fn distinct_opaque_sentinels_drop() {
+        // Two DIFFERENT per-VM opaque sentinels must NOT alias — the whole point
+        // of keying on the sentinel rather than the lossy `"null"`.
+        assert!(!parent_message_allowed(
+            "opaque-origin:1",
+            "opaque-origin:2"
+        ));
+    }
+}
