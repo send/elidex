@@ -370,6 +370,21 @@ impl App {
                 // getterless VM can no longer answer; inline mode's facts are static
                 // after construction, so the SoT is the seed the pipeline was built with).
                 let device_facts = interactive.device_facts;
+                // Document-destruction boundary (WHATWG HTML §7.1 "destroy a
+                // document"): tear the OUTGOING document down BEFORE constructing +
+                // running the replacement — force-close its live WS/SSE connections
+                // + terminate its workers, then unbind. The per-turn `unbind` keeps
+                // realtime connections alive and the engine-`Drop` backstop skips
+                // the close (it runs unbound, `is_bound()`-gated), so a bare
+                // replacement would LEAK the broker connection. Tearing down BEFORE
+                // the build (not after) means the outgoing document's workers /
+                // sockets never run concurrently with the new document's initial
+                // scripts — mirroring the content-thread path, which unloads the old
+                // document before creating the replacement pipeline. All inputs the
+                // build needs (`network_handle` / `font_db` / `cookie_jar` /
+                // `viewport` / `device_facts`) were cloned out above, so teardown
+                // does not invalidate them.
+                interactive.pipeline.teardown_document();
                 let new_pipeline = crate::build_pipeline_from_loaded(
                     loaded,
                     network_handle,
@@ -387,14 +402,6 @@ impl App {
                     // traversals still restore + fire in place (`handle_history_action`).
                     None,
                 );
-                // Document-destruction boundary (WHATWG HTML §7.1 "destroy a
-                // document"): tear the OUTGOING document down BEFORE the pipeline
-                // is replaced — force-close its live WS/SSE connections + terminate
-                // its workers, then unbind. The per-turn `unbind` keeps realtime
-                // connections alive and the engine-`Drop` backstop skips the close
-                // (it runs unbound, `is_bound()`-gated), so a bare replacement would
-                // LEAK the broker connection. Mirrors `content/navigation.rs:201`.
-                interactive.pipeline.teardown_document();
                 interactive.pipeline = new_pipeline;
                 interactive
                     .pipeline
