@@ -1300,6 +1300,25 @@ mod engine_feature {
             unsafe { &mut *self.dom_ptr }
         }
 
+        /// The bound DOM as `Some(&mut EcsDom)` while a batch bracket holds
+        /// the host pointers, else `None` — the Option-returning sibling of
+        /// [`Self::dom`] (which asserts bound).
+        ///
+        /// This is the single-derivation-chain source for the bound-safe
+        /// dispatch path (slot `#11-bound-safe-dispatch-dom-aliasing`): the
+        /// shared `script_dispatch_event_core` routes ALL its dom access
+        /// through the engine's bound `dom_ptr` via here, never a fresh
+        /// `ctx.dom` reborrow, so no `&mut EcsDom` derived off `ctx` can
+        /// invalidate the engine's raw `dom_ptr` under Stacked Borrows.
+        #[allow(unsafe_code)]
+        pub fn bound_dom_mut(&mut self) -> Option<&mut elidex_ecs::EcsDom> {
+            // SAFETY: `is_bound()` guarantees `dom_ptr` is non-null and
+            // references the `EcsDom` from the most recent `bind()`, kept
+            // valid + unaliased by the caller's `bind` contract until
+            // `unbind`.  Same aliasing contract as [`Self::dom`].
+            self.is_bound().then(|| unsafe { &mut *self.dom_ptr })
+        }
+
         /// Borrow the bound `SessionCore` and `EcsDom` simultaneously.
         ///
         /// Required by the `DomApiHandler::invoke()` dispatch path
@@ -1838,7 +1857,7 @@ mod engine_feature {
 
         /// Drain the WebSocket / EventSource side-tables and
         /// produce the broker `conn_id` lists that
-        /// `Vm::unbind` must close BEFORE clearing state, per
+        /// `Vm::teardown_document` must close BEFORE clearing state, per
         /// CRIT-A.  Returns `(ws_conn_ids, sse_conn_ids)`; the
         /// caller emits `WebSocketClose` / `EventSourceClose` per
         /// id and then this method's *post-drain* state is the

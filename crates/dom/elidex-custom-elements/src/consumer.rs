@@ -109,32 +109,13 @@ impl CustomElementReactionConsumer {
         if !dom.is_connected(node) {
             return;
         }
-        // Snapshot the defined-name set ONCE before the per-descendant
-        // walk so the closure can do O(1) HashSet::contains instead of
-        // re-locking `ce_registry` per visited entity. For large
-        // inserted subtrees this drops O(N) lock/unlock pairs to 1.
-        let defined: std::collections::HashSet<String> = {
+        // Single-homed classification (H1): both this mutation-event leg
+        // and the VM record leg (`deliver_mutation_records`) route through
+        // [`classify_connected_subtree`].
+        let enqueued = {
             let registry = self.registry.lock().expect("CE registry mutex poisoned");
-            registry.names().map(str::to_owned).collect()
+            classify_connected_subtree(node, dom, &registry)
         };
-        let mut enqueued = Vec::new();
-        dom.for_each_shadow_inclusive_descendant(node, &mut |entity| {
-            match try_to_upgrade_target(entity, &defined, dom) {
-                UpgradeTarget::Connected => {
-                    enqueued.push(CustomElementReaction::Connected(entity));
-                }
-                UpgradeTarget::Upgrade => {
-                    // Per WHATWG DOM §4.2.3 insertion-steps + HTML
-                    // §4.13.5 "try to upgrade element": an Undefined
-                    // element with a registered definition gets
-                    // `try to upgrade` on insertion. The Upgrade
-                    // reaction's invoke_upgrade itself enqueues
-                    // Connected once the constructor returns.
-                    enqueued.push(CustomElementReaction::Upgrade(entity));
-                }
-                UpgradeTarget::None => {}
-            }
-        });
         if !enqueued.is_empty() {
             let mut queue = self.queue.lock().expect("CE reaction queue mutex poisoned");
             queue.extend(enqueued);
@@ -146,12 +127,8 @@ impl CustomElementReactionConsumer {
         if !was_connected {
             return;
         }
-        let mut enqueued = Vec::new();
-        dom.for_each_shadow_inclusive_descendant(node, &mut |entity| {
-            if is_custom(entity, dom) {
-                enqueued.push(CustomElementReaction::Disconnected(entity));
-            }
-        });
+        // Single-homed classification (H1): shared with the record leg.
+        let enqueued = classify_disconnected_subtree(node, dom);
         if !enqueued.is_empty() {
             let mut queue = self.queue.lock().expect("CE reaction queue mutex poisoned");
             queue.extend(enqueued);
@@ -166,34 +143,125 @@ impl CustomElementReactionConsumer {
         new_value: Option<&str>,
         dom: &EcsDom,
     ) {
-        // Only Custom-state elements receive `attributeChangedCallback`.
-        let Some(def_name) = custom_definition_name(node, dom) else {
-            return;
+        // Single-homed classification (H1): shared with the record leg.
+        // Scope the registry guard so it drops before the queue guard is
+        // acquired (lock-disjoint, sibling-consumer convention).
+        let reaction = {
+            let registry = self.registry.lock().expect("CE registry mutex poisoned");
+            classify_attribute_change(node, name, old_value, new_value, dom, &registry)
         };
-        let registry = self.registry.lock().expect("CE registry mutex poisoned");
-        let Some(def) = registry.get(&def_name) else {
-            return;
-        };
-        // observed_attributes filter — HTML §4.13.6 "attribute change
-        // steps". O(1) via the definition's parallel `observed_set`
-        // (mutation hot path runs this on every setAttribute).
-        if !def.observes(name) {
-            return;
+        if let Some(reaction) = reaction {
+            self.queue
+                .lock()
+                .expect("CE reaction queue mutex poisoned")
+                .push_back(reaction);
         }
-        // Drop the registry guard before acquiring the queue guard
-        // (lock-disjoint scope, sibling-consumer convention).
-        drop(registry);
-        let reaction = CustomElementReaction::AttributeChanged {
-            entity: node,
-            name: name.to_string(),
-            old_value: old_value.map(str::to_owned),
-            new_value: new_value.map(str::to_owned),
-        };
-        self.queue
-            .lock()
-            .expect("CE reaction queue mutex poisoned")
-            .push_back(reaction);
     }
+}
+
+// ---------------------------------------------------------------------------
+// Single-homed record→CE classification (S5-6b §4.3.1, single-homing pin H1)
+// ---------------------------------------------------------------------------
+//
+// The following three free functions are the ONE classification
+// implementation shared by the two legs that turn a DOM mutation into
+// custom element lifecycle reactions:
+//
+// - the [`CustomElementReactionConsumer`] mutation-event leg above
+//   (`MutationEvent` from the bind-installed dispatcher), and
+// - the VM's record leg
+//   (`Vm::deliver_mutation_records` → `enqueue_ce_reactions_from_records`)
+//   which marshals `elidex_script_session::MutationRecord`s into these
+//   calls.
+//
+// Neither leg re-implements the per-entity classification: connectivity
+// gating (the input each leg derives from its own source — an event's
+// `was_connected` flag vs a record's post-mutation target connectivity)
+// stays at the call site, but the subtree walk + `observed_attributes`
+// gating live here once.
+
+/// Classify the shadow-inclusive subtree rooted at `inserted_root` into
+/// `Connected` / `Upgrade` reactions (HTML §4.13.6 + WHATWG DOM §4.2.3
+/// insertion steps). The caller has already verified the post-insert
+/// position is connected.
+///
+/// Snapshots the registry's defined-name set ONCE before the walk so
+/// each descendant is an O(1) `HashSet::contains` classification rather
+/// than a per-entity registry lock (large inserted subtrees drop O(N)
+/// lock/unlock pairs to 1).
+#[must_use]
+pub fn classify_connected_subtree(
+    inserted_root: Entity,
+    dom: &EcsDom,
+    registry: &CustomElementRegistry,
+) -> Vec<CustomElementReaction> {
+    let defined: std::collections::HashSet<String> = registry.names().map(str::to_owned).collect();
+    let mut enqueued = Vec::new();
+    dom.for_each_shadow_inclusive_descendant(inserted_root, &mut |entity| {
+        match try_to_upgrade_target(entity, &defined, dom) {
+            UpgradeTarget::Connected => {
+                enqueued.push(CustomElementReaction::Connected(entity));
+            }
+            UpgradeTarget::Upgrade => {
+                // Per WHATWG DOM §4.2.3 insertion-steps + HTML §4.13.5
+                // "try to upgrade element": an Undefined element with a
+                // registered definition gets `try to upgrade` on
+                // insertion. The Upgrade reaction's `invoke_upgrade`
+                // itself enqueues Connected once the constructor returns.
+                enqueued.push(CustomElementReaction::Upgrade(entity));
+            }
+            UpgradeTarget::None => {}
+        }
+    });
+    enqueued
+}
+
+/// Classify the shadow-inclusive subtree rooted at `removed_root` into
+/// `Disconnected` reactions (one per Custom element). The caller has
+/// verified the pre-removal position was connected — `Disconnected`
+/// fires only on the connected → disconnected transition.
+#[must_use]
+pub fn classify_disconnected_subtree(
+    removed_root: Entity,
+    dom: &EcsDom,
+) -> Vec<CustomElementReaction> {
+    let mut enqueued = Vec::new();
+    dom.for_each_shadow_inclusive_descendant(removed_root, &mut |entity| {
+        if is_custom(entity, dom) {
+            enqueued.push(CustomElementReaction::Disconnected(entity));
+        }
+    });
+    enqueued
+}
+
+/// Classify an attribute change into an `AttributeChanged` reaction,
+/// gated on `CEState::Custom` + the definition's `observed_attributes`
+/// (HTML §4.13.6 "attribute change steps" — "for each attribute … that
+/// is in observedAttributes"). Returns `None` when the target is not a
+/// Custom element or the attribute is not observed.
+#[must_use]
+pub fn classify_attribute_change(
+    entity: Entity,
+    name: &str,
+    old_value: Option<&str>,
+    new_value: Option<&str>,
+    dom: &EcsDom,
+    registry: &CustomElementRegistry,
+) -> Option<CustomElementReaction> {
+    // Only Custom-state elements receive `attributeChangedCallback`.
+    let def_name = custom_definition_name(entity, dom)?;
+    let def = registry.get(&def_name)?;
+    // observed_attributes filter — O(1) via the definition's parallel
+    // `observed_set` (mutation hot path runs this on every setAttribute).
+    if !def.observes(name) {
+        return None;
+    }
+    Some(CustomElementReaction::AttributeChanged {
+        entity,
+        name: name.to_string(),
+        old_value: old_value.map(str::to_owned),
+        new_value: new_value.map(str::to_owned),
+    })
 }
 
 /// Returns `true` iff `entity` is a Custom element ready for lifecycle

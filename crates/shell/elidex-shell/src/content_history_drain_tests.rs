@@ -20,7 +20,7 @@
 //! (`for action in &pending_history`) relies on is pinned here at the
 //! `handle_history_action` seam.
 
-use elidex_script_session::{HistoryAction, NavigationRequest, NavigationType};
+use elidex_script_session::HistoryAction;
 
 use super::navigation::{
     handle_history_action, handle_navigate, process_pending_actions, HistoryCursorOp,
@@ -46,13 +46,6 @@ fn replace_state(path: &str) -> HistoryAction {
         url: Some(path.to_string()),
         title: String::new(),
         serialized_state: None,
-    }
-}
-
-fn nav_to(url: &str) -> NavigationRequest {
-    NavigationRequest {
-        url: url.to_string(),
-        nav_type: NavigationType::Push,
     }
 }
 
@@ -93,9 +86,11 @@ fn count_navigation_states(browser: &LocalChannel<BrowserToContent, ContentToBro
 #[test]
 fn history_drains_before_navigation() {
     let (mut state, browser) = build_test_content_state_with_url("<p>doc</p>", base());
-    let bridge = state.pipeline.runtime.bridge();
-    bridge.set_pending_history(push_state("/a"));
-    bridge.set_pending_navigation(nav_to("/b"));
+    let _ = state
+        .pipeline
+        .runtime
+        .vm()
+        .eval("history.pushState(null, '', '/a'); location.assign('/b');");
     drain_browser(&browser);
 
     let processed = process_pending_actions(&mut state);
@@ -163,9 +158,11 @@ fn replacestate_then_navigation_ordering() {
     // PLACE rather than acting as a push.
     state.nav_controller.push(base());
 
-    let bridge = state.pipeline.runtime.bridge();
-    bridge.set_pending_history(replace_state("/a"));
-    bridge.set_pending_navigation(nav_to("/b"));
+    let _ = state
+        .pipeline
+        .runtime
+        .vm()
+        .eval("history.replaceState(null, '', '/a'); location.assign('/b');");
     drain_browser(&browser);
 
     let processed = process_pending_actions(&mut state);
@@ -192,11 +189,11 @@ fn replacestate_then_navigation_ordering() {
 #[test]
 fn pure_navigation_turn_unchanged() {
     let (mut state, browser) = build_test_content_state_with_url("<p>doc</p>", base());
-    state
+    let _ = state
         .pipeline
         .runtime
-        .bridge()
-        .set_pending_navigation(nav_to("/next"));
+        .vm()
+        .eval("location.assign('/next');");
     drain_browser(&browser);
 
     let processed = process_pending_actions(&mut state);
@@ -221,11 +218,11 @@ fn pure_navigation_turn_unchanged() {
 #[test]
 fn pure_pushstate_turn_unchanged() {
     let (mut state, browser) = build_test_content_state_with_url("<p>doc</p>", base());
-    state
+    let _ = state
         .pipeline
         .runtime
-        .bridge()
-        .set_pending_history(push_state("/a"));
+        .vm()
+        .eval("history.pushState(null, '', '/a');");
     drain_browser(&browser);
 
     let processed = process_pending_actions(&mut state);
@@ -454,9 +451,11 @@ fn failed_traversal_does_not_block_same_turn_navigation_drain() {
         .nav_controller
         .push(url::Url::parse("https://example.com/a").unwrap());
     // index=1 on /a; a same-turn Back (fails to load → no supersede) + a nav.
-    let bridge = state.pipeline.runtime.bridge();
-    bridge.set_pending_history(HistoryAction::Back);
-    bridge.set_pending_navigation(nav_to("/b"));
+    let _ = state
+        .pipeline
+        .runtime
+        .vm()
+        .eval("history.back(); location.assign('/b');");
     drain_browser(&browser);
 
     let processed = process_pending_actions(&mut state);

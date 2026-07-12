@@ -11,11 +11,11 @@ use elidex_dom_compat::parse_compat_stylesheet_with_registry;
 use elidex_ecs::EcsDom;
 use elidex_ecs::Entity;
 use elidex_html_parser::parse_progressive_str;
-use elidex_js_boa::JsRuntime;
+use elidex_js::ElidexJsEngine;
 use elidex_layout::layout_tree;
 use elidex_navigation::extract_inline_scripts;
 use elidex_render::build_display_list;
-use elidex_script_session::{DispatchEvent, ScriptContext, SessionCore};
+use elidex_script_session::{DispatchEvent, HostDriver, ScriptContext, ScriptEngine, SessionCore};
 use elidex_text::FontDatabase;
 
 use elidex_plugin::ViewportOverflow;
@@ -24,8 +24,8 @@ use elidex_plugin::{EngineMode, Size, Vector};
 
 use crate::animation::{create_animation_engine, sync_css_animations};
 use crate::{
-    create_css_property_registry, resolve_with_mode, sync_stylesheets_to_bridge, PipelineResult,
-    DEFAULT_VIEWPORT_HEIGHT, DEFAULT_VIEWPORT_WIDTH,
+    create_css_property_registry, resolve_with_mode, PipelineResult, DEFAULT_VIEWPORT_HEIGHT,
+    DEFAULT_VIEWPORT_WIDTH,
 };
 
 /// Frame state installed on the JS bridge **before the first eval**. It bundles
@@ -66,8 +66,11 @@ pub struct PreEvalFrameState {
     /// The document's referrer — the parent document URL for an iframe (WHATWG
     /// HTML §4.8.5). Installed at the same pre-eval chokepoint as origin/flags
     /// so the initial scripts read a populated `document.referrer` instead of
-    /// `""`. `None` = no referrer (top-level, or parent has no URL).
-    pub referrer: Option<String>,
+    /// `""`. `None` = no referrer (top-level, or parent has no URL). Already a
+    /// parsed `url::Url` (the `compute_referrer` output is parsed once at the
+    /// construction site) so the pre-eval seam hands it to the engine's
+    /// `set_navigation_referrer(Option<url::Url>)` without re-parsing.
+    pub referrer: Option<url::Url>,
 }
 
 /// Deferred inputs for deriving a (sub-)frame's [`PreEvalFrameState`] **after** the
@@ -84,7 +87,7 @@ pub struct PreEvalFrameInputs {
     /// Iframe nesting depth.
     pub iframe_depth: usize,
     /// Referrer URL (parent document URL); carried across the rebuild unchanged.
-    pub referrer: Option<String>,
+    pub referrer: Option<url::Url>,
 }
 
 // `PreEvalFrameInputs::into_pre_eval_state` (the post-redirect origin
@@ -94,21 +97,74 @@ pub struct PreEvalFrameInputs {
 // builder below (`build_pipeline_from_url`) invokes the resolver by method
 // dispatch rather than reaching up into the sandbox-origin policy.
 
-/// Flush pending DOM mutations and drain custom element reactions.
+/// Dispatch one UA/lifecycle event through the §4.1 batch-bind bracket — the
+/// free-function analog of [`PipelineResult::dispatch_event`] for the pipeline
+/// builders (`transition_ready_state` / `dispatch_lifecycle_events`), which hold
+/// `session`/`dom`/`document` as separate `&mut` params rather than as a
+/// `PipelineResult`. Under the VM, `script_dispatch_event` → `call_listener` →
+/// `ensure_event_handler_current` reads `HostData::dom`, which requires the VM
+/// BOUND; a bare (unbracketed) dispatch panics "HostData accessed while unbound".
+/// So every dispatch is bracketed exactly like `dispatch_event`: build
+/// `ScriptContext` ONCE, bind, drive `script_dispatch_event` under the SAME
+/// `&mut ctx`, unbind (RAII-guarded, panic-safe). The post-dispatch
+/// microtask/CE-reaction checkpoint is owned by `script_dispatch_event` (it
+/// drains after the listener walk), so this fn must NOT drain again — a second
+/// checkpoint would run a reaction-queued task (e.g. `postMessage`) in THIS
+/// dispatch turn instead of the next. Sequential brackets (this + a following
+/// `flush_with_ce_reactions`) never overlap, so the bound `*mut dom` aliasing
+/// contract holds.
+#[allow(unsafe_code)]
+/// Returns `true` if a listener called `preventDefault()` (for the cancelable
+/// `beforeunload` gate; the non-cancelable UA/lifecycle callers ignore it).
+fn dispatch_event_bracketed(
+    runtime: &mut ElidexJsEngine,
+    session: &mut SessionCore,
+    dom: &mut EcsDom,
+    document: Entity,
+    event: &mut DispatchEvent,
+) -> bool {
+    let mut ctx = ScriptContext::new(session, dom, document);
+    // SAFETY: mirrors `PipelineResult::dispatch_event` — `ctx` outlives the
+    // bracket and neither this fn nor the trait methods touch `ctx.session` /
+    // `ctx.dom` through a `&mut` while bound (they use the bound pointers).
+    unsafe {
+        runtime.with_bound(&mut ctx, |engine, ctx| {
+            elidex_script_session::script_dispatch_event(engine, event, ctx)
+        })
+    }
+}
+
+/// Flush pending DOM mutations, then deliver the resulting records to the
+/// engine (record→CE enqueue + `MutationObserver` delivery) and drain the CE
+/// reactions — S5-6b §4.3.1 CE-loop dissolve.
 ///
-/// This helper combines the three steps that must always run together:
-/// 1. `session.flush(dom)` — apply buffered mutations
-/// 2. `enqueue_ce_reactions_from_mutations()` — scan for CE lifecycle triggers
-/// 3. `drain_custom_element_reactions_public()` — invoke CE callbacks
+/// `session.flush` runs OUTSIDE any batch bracket (it takes `&mut dom`, which
+/// the bound `*mut dom` aliasing contract forbids overlapping). Only when it
+/// yields records — under the VM the common VM-native case is EMPTY (see
+/// [`re_render`](crate::re_render)) — is a single bracket opened for the
+/// assume-bound `deliver_mutation_records` + `drain_reactions`.
+#[allow(unsafe_code)]
 fn flush_with_ce_reactions(
-    runtime: &mut JsRuntime,
+    runtime: &mut ElidexJsEngine,
     session: &mut SessionCore,
     dom: &mut EcsDom,
     document: Entity,
 ) {
     let records: Vec<_> = session.flush(dom);
-    runtime.enqueue_ce_reactions_from_mutations(&records, dom);
-    runtime.drain_custom_element_reactions_public(session, dom, document);
+    if records.is_empty() {
+        return;
+    }
+    let mut ctx = ScriptContext::new(session, dom, document);
+    // SAFETY: `ctx` outlives the bracket and neither the caller nor the trait
+    // methods touch `ctx.session` / `ctx.dom` through a `&mut` while bound (they
+    // use the bound pointers). `records` is owned outside and does not alias
+    // `ctx`. Same `with_bound` contract as the `PipelineResult` chokepoints.
+    unsafe {
+        runtime.with_bound(&mut ctx, |engine, ctx| {
+            engine.deliver_mutation_records(&records);
+            engine.drain_reactions(ctx);
+        });
+    }
 }
 
 /// Common script execution and finalization phase shared by pipeline builders.
@@ -126,8 +182,8 @@ fn flush_with_ce_reactions(
 /// installed on the bridge **before** step 2 — see [`PreEvalFrameState`] for the
 /// ordering invariant.
 ///
-/// Returns `(SessionCore, JsRuntime, ViewportOverflow)` for the caller to include in `PipelineResult`.
-#[allow(clippy::too_many_arguments)]
+/// Returns `(SessionCore, ElidexJsEngine, ViewportOverflow)` for the caller to include in `PipelineResult`.
+#[allow(clippy::too_many_arguments, unsafe_code)]
 pub(super) fn run_scripts_and_finalize(
     dom: &mut EcsDom,
     document: Entity,
@@ -135,6 +191,7 @@ pub(super) fn run_scripts_and_finalize(
     script_sources: &[&str],
     network_handle: Option<Rc<elidex_net::broker::NetworkHandle>>,
     cookie_jar: Option<std::sync::Arc<elidex_net::CookieJar>>,
+    web_storage: Option<Arc<elidex_storage_core::WebStorageManager>>,
     font_db: &Arc<elidex_text::FontDatabase>,
     current_url: Option<&url::Url>,
     registry: &elidex_plugin::CssPropertyRegistry,
@@ -143,7 +200,7 @@ pub(super) fn run_scripts_and_finalize(
     engine_mode: EngineMode,
     pre_eval_state: Option<PreEvalFrameState>,
     history_state: Option<Vec<u8>>,
-) -> (SessionCore, JsRuntime, ViewportOverflow) {
+) -> (SessionCore, ElidexJsEngine, ViewportOverflow) {
     let stylesheet_refs: Vec<&Stylesheet> = stylesheets.iter().collect();
 
     // Initial style resolution (with compat layer) at the real content-area
@@ -159,20 +216,49 @@ pub(super) fn run_scripts_and_finalize(
 
     // Script execution phase.
     let mut session = SessionCore::new();
-    let mut runtime = JsRuntime::with_network(network_handle);
+    // S5-6b construction chokepoint (§3.1 / §5 item 2): boa
+    // `JsRuntime::with_network` → VM `ElidexJsEngine::new()` + trait installs.
+    // `ElidexJsEngine::new()` installs a `HostData` by construction
+    // (`engine.rs`), so the cookie-jar / origin / sandbox / web-storage installs
+    // below all land on a live host context (they are NOT inert).
+    let mut runtime = ElidexJsEngine::new();
+    if let Some(handle) = network_handle {
+        runtime.install_network_handle(handle);
+    }
+    // B4/§4.3.3 web-storage install: route `localStorage` through the shell-owned
+    // process-wide `WebStorageManager` (disk-backed, origin-scoped, shared across
+    // same-origin browsing contexts) BEFORE the first eval, so page-load scripts
+    // observe persisted + cross-tab-shared storage. Without an installed manager
+    // (`None` — the hermetic test / standalone-unconfigured path) the Storage
+    // natives fall back to the per-VM in-memory `fallback_local_storage`, cleared
+    // on `Vm::unbind`. The production shell path always passes `Some` (F14).
+    if let Some(manager) = web_storage {
+        runtime.install_web_storage(manager);
+        // F14 no-silent-regression pin: the install must have landed on a live
+        // host context (a future construction site cannot pass a manager yet
+        // silently regress to the in-memory fallback). Cheap read of the backing
+        // `HostData`; only compiled in debug builds.
+        debug_assert!(
+            runtime.web_storage_installed(),
+            "web-storage install did not reach an installed HostData at the \
+             pipeline construction seam — localStorage would silently regress to \
+             the per-VM in-memory fallback (F14)"
+        );
+    }
     // Set cookie jar BEFORE script execution so document.cookie works during page load.
     if let Some(jar) = cookie_jar {
-        runtime.bridge().set_cookie_jar(jar);
+        // B23: boa `.bridge().set_cookie_jar` → trait `install_cookie_jar`.
+        runtime.install_cookie_jar(jar);
     }
 
     if let Some(url) = current_url {
+        // B23b: `set_current_url` is trait-identical (does not require HostData).
         runtime.set_current_url(Some(url.clone()));
         // Top-level document (`pre_eval_state: None`): unsandboxed, origin
         // derived from the URL.
         if pre_eval_state.is_none() {
-            runtime
-                .bridge()
-                .set_origin(elidex_plugin::SecurityOrigin::from_url(url));
+            // B23: `.bridge().set_origin` → trait `set_origin`.
+            runtime.set_origin(elidex_plugin::SecurityOrigin::from_url(url));
         }
     }
 
@@ -189,16 +275,25 @@ pub(super) fn run_scripts_and_finalize(
     // `Some` too — no post-build install sequence anywhere. Closes
     // `#11-iframe-origin-before-initial-scripts`.
     if let Some(state) = pre_eval_state {
-        runtime.bridge().set_sandbox_flags(state.sandbox_flags);
-        runtime.bridge().set_origin(state.origin);
-        runtime.bridge().set_iframe_depth(state.iframe_depth);
-        runtime.bridge().set_credentialless(state.credentialless);
+        // B23: `.bridge().set_*` → trait methods (1:1 name/signature).
+        runtime.set_sandbox_flags(state.sandbox_flags);
+        runtime.set_origin(state.origin);
+        runtime.set_iframe_depth(state.iframe_depth);
+        // TODO(S5-6b stage2 — B19/§4.5 credentialless is shell-owned): the VM has
+        // no `set_credentialless` (its behavior derives from `set_origin`, S5-4b);
+        // `credentialless` moves to the shell's `PreEvalFrameState` SoT. Dropped
+        // here (was `runtime.bridge().set_credentialless(state.credentialless)`).
+        let _ = state.credentialless;
         // Referrer rides the same pre-eval install so the initial scripts read a
         // populated `document.referrer` (the parent document URL, §4.8.5), not
         // the empty default — previously a post-build `set_referrer` landed it
         // only after the initial scripts had already run (and never on the OOP
         // path).
-        runtime.bridge().set_referrer(state.referrer);
+        // B23: `.bridge().set_referrer` → trait `set_navigation_referrer`. Both
+        // take `Option<url::Url>` (`PreEvalFrameState.referrer` is parsed once at
+        // its `compute_referrer` construction site), so the seam is a plain move —
+        // no parse-adapter. The engine sanitises (fragment/userinfo strip) on store.
+        runtime.set_navigation_referrer(state.referrer.clone());
     }
 
     // Seed the JS bridge viewport + device facts BEFORE running scripts so initial
@@ -210,11 +305,23 @@ pub(super) fn run_scripts_and_finalize(
     // the same construction seam as the size (C3) so a tab on a HiDPI / dark display
     // is born with the right `devicePixelRatio` + `prefers-color-scheme`, not 1×/Light
     // raced-in after the first script.
-    runtime
-        .bridge()
-        .set_viewport(viewport.width, viewport.height);
-    runtime.bridge().set_device_pixel_ratio(device_facts.dppx);
-    runtime.bridge().set_color_scheme(device_facts.color_scheme);
+    // B20/§4.3.5 media-environment seed (F4): boa seeded the bridge with three
+    // separate setters (`set_viewport` / `set_device_pixel_ratio` /
+    // `set_color_scheme`). The VM model INVERTS this into ONE fused push, so the
+    // first paint's `matchMedia`/`devicePixelRatio`/`innerWidth` read the real facts
+    // (not the VM default environment — the C3 regression this closes).
+    // `set_screen_dimensions` (monitor dims) + the `VisualViewport` producer stay
+    // DEFERRED to slot `#11-screen-monitor-dimensions-producer`: no monitor-dimension
+    // source is plumbed (winit's `current_monitor` is not wired), boa never had a
+    // screen setter either, and the flip-gate §A parity audit closed `window.screen`
+    // — so `window.screen` reading the VM default IS boa parity.
+    runtime.set_media_environment(
+        f64::from(viewport.width),
+        f64::from(viewport.height),
+        device_facts.dppx,
+        device_facts.color_scheme,
+        device_facts.reduced_motion,
+    );
 
     // Seed `history.state` from the session-history entry BEFORE the initial
     // scripts run (WHATWG HTML §7.4.6.2 step 6.3 "restore the history object
@@ -226,16 +333,39 @@ pub(super) fn run_scripts_and_finalize(
     // load / fresh nav) → `null`. Flip-inert value: the live boa `set_history_state`
     // is a no-op stub (boa passes `None` on every pushState, so the seed is `None`
     // anyway); the VM's `HostDriver::set_history_state` lights this up at S5-6.
-    runtime.bridge().set_history_state(history_state);
+    // B23: `.bridge().set_history_state` → trait `set_history_state`.
+    runtime.set_history_state(history_state);
 
-    for source in script_sources {
-        let mut ctx = ScriptContext::new(&mut session, dom, document);
-        elidex_script_session::ScriptEngine::eval(&mut runtime, source, &mut ctx);
-    }
+    // S5-6b batch-bind bracket (§4.1 "`<script>` eval loop"): ONE bracket around
+    // the per-script eval loop + timer drain — NOT per-script (cross-script
+    // wrapper identity; `unbind` is a heavy browsing-context-cycle op). The
+    // per-script `ScriptContext::new` is HOISTED OUT of the loop and reused
+    // through the bound `ctx` (driving-order invariant: a fresh `&mut dom`
+    // mid-bracket would invalidate the bound `*mut dom`). Scoped so `ctx` drops
+    // (releasing the `&mut dom` reborrow) BEFORE the unbound `flush` below (§4.1
+    // F11: flush takes `&mut dom`, forbidden while a bracket is open).
     {
         let mut ctx = ScriptContext::new(&mut session, dom, document);
-        elidex_script_session::ScriptEngine::drain_timers(&mut runtime, &mut ctx);
+        // SAFETY: `ctx` outlives the bracket; the loop body only drives the
+        // assume-bound trait methods (eval / drain_timers), never touching
+        // `ctx.session` / `ctx.dom` directly — the `with_bound` contract.
+        unsafe {
+            runtime.with_bound(&mut ctx, |engine, ctx| {
+                for source in script_sources {
+                    engine.eval(source, ctx);
+                }
+                engine.drain_timers(ctx);
+            });
+        }
     }
+    // TODO(S5-6b stage2 — B2/§4.3.1 CE-reaction dissolve + §4.1 bracket): under the
+    // VM, VM-native mutations settle CE inside the VM's own checkpoints, so this
+    // boa 2-call `flush_with_ce_reactions` LOOP dissolves to the external-record
+    // case; `enqueue_ce_reactions_from_mutations` / `drain_custom_element_reactions_public`
+    // die with the crate. The lifecycle dispatch must ALSO be bracketed (it
+    // reconstructs `ScriptContext::new` per event today — violates the
+    // driving-order invariant). Left calling the boa helpers (will not compile
+    // under `ElidexJsEngine`) as the stage-2 worklist marker.
     flush_with_ce_reactions(&mut runtime, &mut session, dom, document);
 
     // Dispatch lifecycle events.
@@ -298,7 +428,7 @@ pub(super) fn build_paged_pipeline(
 /// 3. `readystatechange` (Complete) — document transitions to "complete"
 /// 4. `load` — all sub-resources have loaded
 fn dispatch_lifecycle_events(
-    runtime: &mut JsRuntime,
+    runtime: &mut ElidexJsEngine,
     session: &mut SessionCore,
     dom: &mut EcsDom,
     document: Entity,
@@ -315,11 +445,7 @@ fn dispatch_lifecycle_events(
     // 2. DOMContentLoaded: bubbles, not cancelable.
     let mut dcl_event = DispatchEvent::new("DOMContentLoaded", document);
     dcl_event.cancelable = false;
-    elidex_script_session::script_dispatch_event(
-        runtime,
-        &mut dcl_event,
-        &mut ScriptContext::new(session, dom, document),
-    );
+    dispatch_event_bracketed(runtime, session, dom, document, &mut dcl_event);
     flush_with_ce_reactions(runtime, session, dom, document);
 
     // 3. Transition to "complete" and fire readystatechange.
@@ -333,20 +459,17 @@ fn dispatch_lifecycle_events(
 
     // 4. load: does NOT bubble (spec), not cancelable.
     //
-    // Per HTML spec §8.2.6, the `load` event fires on the Window object.
-    // In our architecture, there is no separate Window entity — the document
-    // entity serves as the event target. This is correct because:
-    // - `window.onload` is aliased to document-level in our model
-    // - `addEventListener('load', ...)` on document still fires
-    // - The event does not bubble, so dispatching on document is equivalent
-    let mut load_event = DispatchEvent::new("load", document);
+    // Per HTML "the end" processing model, the document `load` event fires at
+    // the **Window**. After the VM flip `window.onload` /
+    // `window.addEventListener('load', …)` register on the dedicated Window
+    // entity, and `load` does not bubble, so a document-targeted dispatch would
+    // skip them — target the Window entity (falling back to `document` pre-bind),
+    // exactly like `beforeunload`/`unload` above. Binding document unchanged.
+    let window_target = runtime.window_entity().unwrap_or(document);
+    let mut load_event = DispatchEvent::new("load", window_target);
     load_event.bubbles = false;
     load_event.cancelable = false;
-    elidex_script_session::script_dispatch_event(
-        runtime,
-        &mut load_event,
-        &mut ScriptContext::new(session, dom, document),
-    );
+    dispatch_event_bracketed(runtime, session, dom, document, &mut load_event);
 }
 
 /// Transition `document.readyState` and dispatch `readystatechange`.
@@ -354,7 +477,7 @@ fn dispatch_lifecycle_events(
 /// Per HTML spec §3.1.5: The `readystatechange` event fires on the Document
 /// object each time the readyState attribute's value changes.
 fn transition_ready_state(
-    runtime: &mut JsRuntime,
+    runtime: &mut ElidexJsEngine,
     session: &mut SessionCore,
     dom: &mut EcsDom,
     document: Entity,
@@ -364,35 +487,36 @@ fn transition_ready_state(
     let mut event = DispatchEvent::new("readystatechange", document);
     event.bubbles = false;
     event.cancelable = false;
-    elidex_script_session::script_dispatch_event(
-        runtime,
-        &mut event,
-        &mut ScriptContext::new(session, dom, document),
-    );
+    dispatch_event_bracketed(runtime, session, dom, document, &mut event);
     flush_with_ce_reactions(runtime, session, dom, document);
 }
 
 /// Dispatch `beforeunload` and `unload` events before navigation or shutdown.
 ///
 /// Per HTML spec §7.1.8: `beforeunload` is cancelable (can prevent navigation),
-/// `unload` is not cancelable. Both fire on the Window (document target).
+/// `unload` is not cancelable. Both fire on the **Window** — after the VM flip
+/// `window.addEventListener('beforeunload'|'unload', …)` / `window.onbeforeunload`
+/// record their listeners against the dedicated Window entity (window.rs), so a
+/// document-targeted dispatch would silently miss them (the same window-vs-
+/// document routing the `resize` dispatch fixed). Target the VM's Window entity,
+/// falling back to `document` pre-bind (`window_entity() == None`).
 ///
 /// Returns `true` if navigation should proceed (beforeunload not cancelled).
 pub(crate) fn dispatch_unload_events(
-    runtime: &mut JsRuntime,
+    runtime: &mut ElidexJsEngine,
     session: &mut SessionCore,
     dom: &mut EcsDom,
     document: Entity,
 ) -> bool {
+    // Event TARGET = the VM Window entity (so window-registered listeners fire);
+    // the ScriptContext still binds to `document` (the active document), exactly
+    // like the `resize` dispatch (event target Window, binding document).
+    let window_target = runtime.window_entity().unwrap_or(document);
     // beforeunload: cancelable (returnValue or preventDefault can block navigation).
-    let mut beforeunload = DispatchEvent::new("beforeunload", document);
+    let mut beforeunload = DispatchEvent::new("beforeunload", window_target);
     beforeunload.cancelable = true;
     beforeunload.bubbles = false;
-    let prevented = elidex_script_session::script_dispatch_event(
-        runtime,
-        &mut beforeunload,
-        &mut ScriptContext::new(session, dom, document),
-    );
+    let prevented = dispatch_event_bracketed(runtime, session, dom, document, &mut beforeunload);
     // Always flush mutations from beforeunload handlers, regardless of
     // whether the event was prevented, so the page state remains consistent.
     flush_with_ce_reactions(runtime, session, dom, document);
@@ -401,14 +525,10 @@ pub(crate) fn dispatch_unload_events(
     }
 
     // unload: not cancelable, not bubble.
-    let mut unload = DispatchEvent::new("unload", document);
+    let mut unload = DispatchEvent::new("unload", window_target);
     unload.bubbles = false;
     unload.cancelable = false;
-    elidex_script_session::script_dispatch_event(
-        runtime,
-        &mut unload,
-        &mut ScriptContext::new(session, dom, document),
-    );
+    dispatch_event_bracketed(runtime, session, dom, document, &mut unload);
     flush_with_ce_reactions(runtime, session, dom, document);
     true
 }
@@ -417,6 +537,23 @@ pub(crate) fn dispatch_unload_events(
 // Pipeline builders (moved from lib.rs — touch-time 1000-line split, S5-4b F-f)
 // ---------------------------------------------------------------------------
 
+/// Embed an out-of-band `css` argument as a DOM `<style>` owner so `re_render`'s
+/// DOM-as-truth stylesheet re-collection (`collect_document_stylesheets`, S5-6a)
+/// finds it. The build cascade uses the parsed `stylesheets` vec directly, but
+/// `re_render` re-collects author CSS from the live DOM's `<style>`/`<link>`
+/// owners every frame — so a css-arg that never entered the DOM would VANISH on
+/// the first re-render (dropping author styles, `@media` matches, `@keyframes`
+/// animations). Test/standalone builders take css out-of-band; production
+/// (`build_pipeline_from_loaded`) already has its CSS as `<style>`/`<link>` DOM
+/// owners, so this only affects the css-arg builders below.
+fn html_with_author_style<'a>(html: &'a str, css: &str) -> std::borrow::Cow<'a, str> {
+    if css.is_empty() {
+        std::borrow::Cow::Borrowed(html)
+    } else {
+        std::borrow::Cow::Owned(format!("<style>{css}</style>{html}"))
+    }
+}
+
 /// Execute the rendering pipeline and return all state for interactive use.
 ///
 /// Like `build_pipeline`, but returns the full `PipelineResult` instead
@@ -424,7 +561,8 @@ pub(crate) fn dispatch_unload_events(
 /// dispatch DOM events, and re-render.
 #[must_use]
 pub fn build_pipeline_interactive(html: &str, css: &str) -> PipelineResult {
-    let parse_result = parse_progressive_str(html);
+    let html = html_with_author_style(html, css);
+    let parse_result = parse_progressive_str(html.as_ref());
     for err in &parse_result.errors {
         eprintln!("HTML parse warning: {err}");
     }
@@ -452,6 +590,7 @@ pub fn build_pipeline_interactive(html: &str, css: &str) -> PipelineResult {
         &script_sources,
         None, // No NetworkHandle in standalone mode.
         None, // No CookieJar.
+        None, // No WebStorageManager (hermetic test build → in-memory fallback).
         &font_db,
         None,
         &registry,
@@ -481,6 +620,9 @@ pub fn build_pipeline_interactive(html: &str, css: &str) -> PipelineResult {
         font_db,
         url: None,
         network_handle: Rc::new(elidex_net::broker::NetworkHandle::disconnected()),
+        cookie_jar: None,
+        credentialless: false,
+        referrer: None,
         registry,
         animation_engine,
         viewport: Size::new(DEFAULT_VIEWPORT_WIDTH, DEFAULT_VIEWPORT_HEIGHT),
@@ -495,9 +637,6 @@ pub fn build_pipeline_interactive(html: &str, css: &str) -> PipelineResult {
     // Start CSS animations declared in initial styles.
     sync_css_animations(&mut result, &[]);
 
-    // Sync stylesheet data to the JS bridge for CSSOM access.
-    sync_stylesheets_to_bridge(&result.runtime, &result.stylesheets);
-
     result
 }
 
@@ -507,10 +646,12 @@ pub(crate) fn build_pipeline_interactive_with_network(
     css: &str,
     network_handle: Rc<elidex_net::broker::NetworkHandle>,
     cookie_jar: Arc<elidex_net::CookieJar>,
+    web_storage: Arc<elidex_storage_core::WebStorageManager>,
     viewport: Size,
     device_facts: crate::ipc::DeviceFacts,
 ) -> PipelineResult {
-    let parse_result = parse_progressive_str(html);
+    let html = html_with_author_style(html, css);
+    let parse_result = parse_progressive_str(html.as_ref());
     for err in &parse_result.errors {
         eprintln!("HTML parse warning: {err}");
     }
@@ -535,7 +676,8 @@ pub(crate) fn build_pipeline_interactive_with_network(
         &stylesheets,
         &script_sources,
         Some(Rc::clone(&network_handle)),
-        Some(cookie_jar),
+        Some(Arc::clone(&cookie_jar)),
+        Some(web_storage),
         &font_db,
         None,
         &registry,
@@ -561,6 +703,9 @@ pub(crate) fn build_pipeline_interactive_with_network(
         font_db,
         url: None,
         network_handle,
+        cookie_jar: Some(cookie_jar),
+        credentialless: false,
+        referrer: None,
         registry,
         animation_engine,
         viewport,
@@ -573,7 +718,6 @@ pub(crate) fn build_pipeline_interactive_with_network(
     };
 
     sync_css_animations(&mut result, &[]);
-    sync_stylesheets_to_bridge(&result.runtime, &result.stylesheets);
 
     result
 }
@@ -593,6 +737,7 @@ pub(crate) fn build_pipeline_interactive_shared(
     network_handle: Rc<elidex_net::broker::NetworkHandle>,
     registry: Arc<elidex_plugin::CssPropertyRegistry>,
     cookie_jar: Option<Arc<elidex_net::CookieJar>>,
+    web_storage: Option<Arc<elidex_storage_core::WebStorageManager>>,
     viewport: Size,
     device_facts: crate::ipc::DeviceFacts,
     pre_eval_state: Option<PreEvalFrameState>,
@@ -615,13 +760,20 @@ pub(crate) fn build_pipeline_interactive_shared(
     let scripts = extract_inline_scripts(&dom, document);
     let script_sources: Vec<&str> = scripts.iter().map(|s| s.source.as_str()).collect();
 
+    // Shell-owned frame config (no VM getter — B19): capture off `pre_eval_state`
+    // before it is moved into the builder, to seed the `PipelineResult` fields the
+    // OOP `Navigate` rebuild reads back.
+    let (credentialless, referrer) = pre_eval_state
+        .as_ref()
+        .map_or((false, None), |s| (s.credentialless, s.referrer.clone()));
     let (session, runtime, viewport_overflow) = run_scripts_and_finalize(
         &mut dom,
         document,
         &stylesheets,
         &script_sources,
         Some(Rc::clone(&network_handle)),
-        cookie_jar,
+        cookie_jar.clone(),
+        web_storage,
         &font_db,
         url.as_ref(),
         &registry,
@@ -647,6 +799,9 @@ pub(crate) fn build_pipeline_interactive_shared(
         font_db,
         url,
         network_handle,
+        cookie_jar,
+        credentialless,
+        referrer,
         registry,
         animation_engine,
         viewport,
@@ -659,7 +814,6 @@ pub(crate) fn build_pipeline_interactive_shared(
     };
 
     sync_css_animations(&mut result, &[]);
-    sync_stylesheets_to_bridge(&result.runtime, &result.stylesheets);
 
     result
 }
@@ -685,6 +839,7 @@ pub fn build_pipeline_from_loaded(
     network_handle: Rc<elidex_net::broker::NetworkHandle>,
     font_db: Arc<FontDatabase>,
     cookie_jar: Option<Arc<elidex_net::CookieJar>>,
+    web_storage: Option<Arc<elidex_storage_core::WebStorageManager>>,
     viewport: Size,
     device_facts: crate::ipc::DeviceFacts,
     pre_eval_state: Option<PreEvalFrameState>,
@@ -706,13 +861,20 @@ pub fn build_pipeline_from_loaded(
 
     let registry = Arc::new(create_css_property_registry());
 
+    // Shell-owned frame config (no VM getter — B19): capture off `pre_eval_state`
+    // before it is moved into the builder, to seed the `PipelineResult` fields the
+    // OOP `Navigate` rebuild reads back.
+    let (credentialless, referrer) = pre_eval_state
+        .as_ref()
+        .map_or((false, None), |s| (s.credentialless, s.referrer.clone()));
     let (session, runtime, viewport_overflow) = run_scripts_and_finalize(
         &mut dom,
         document,
         &stylesheets,
         &script_sources,
         Some(Rc::clone(&network_handle)),
-        cookie_jar,
+        cookie_jar.clone(),
+        web_storage,
         &font_db,
         Some(&url),
         &registry,
@@ -737,6 +899,9 @@ pub fn build_pipeline_from_loaded(
         font_db,
         url: Some(url),
         network_handle,
+        cookie_jar,
+        credentialless,
+        referrer,
         registry,
         animation_engine,
         viewport,
@@ -750,9 +915,6 @@ pub fn build_pipeline_from_loaded(
 
     // Start CSS animations declared in initial styles.
     sync_css_animations(&mut result, &[]);
-
-    // Sync stylesheet data to the JS bridge for CSSOM access.
-    sync_stylesheets_to_bridge(&result.runtime, &result.stylesheets);
 
     result
 }
@@ -789,11 +951,16 @@ pub fn build_pipeline_from_url(
     let pre_eval_state = pre_eval_state.map(|inputs| inputs.into_pre_eval_state(&loaded.url));
     let font_db = Arc::new(FontDatabase::new());
     let cookie_jar = Arc::clone(np.cookie_jar());
+    // Standalone mode is still a real browser window: persist `localStorage` to
+    // the default on-disk profile (origin-scoped) rather than the per-VM in-memory
+    // fallback (F14 / §4.3.3).
+    let web_storage = Arc::new(elidex_storage_core::WebStorageManager::with_default_profile());
     let mut result = build_pipeline_from_loaded(
         loaded,
         network_handle,
         font_db,
         Some(cookie_jar),
+        Some(web_storage),
         viewport,
         // Standalone (no window) → default device facts (1× / Light).
         crate::ipc::DeviceFacts::default(),

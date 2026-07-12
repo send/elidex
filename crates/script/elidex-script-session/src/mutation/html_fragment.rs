@@ -91,6 +91,9 @@ pub fn apply_set_inner_html(
     // template element's (always-empty) light children. Non-templates and
     // shadow roots have no content fragment, so the target stays `entity`.
     let placement_target = dom.template_contents_fragment(entity).unwrap_or(entity);
+    // DOM "remove" step-12 `isParentConnected` for the removed old children's
+    // disconnectedCallback gate, captured before the clear (unchanged by it).
+    let parent_was_connected = dom.is_connected(placement_target);
     let removed: Vec<Entity> = dom.children(placement_target);
     for &child in &removed {
         let _ = dom.remove_child(placement_target, child);
@@ -102,6 +105,7 @@ pub fn apply_set_inner_html(
     Some(MutationRecord {
         added_nodes: added,
         removed_nodes: removed,
+        parent_was_connected,
         ..empty_record(MutationKind::ChildList, placement_target)
     })
 }
@@ -156,6 +160,10 @@ pub fn apply_set_outer_html(
     // never leak a closed shadow across the §4.8 encapsulation boundary.
     let prev_sibling = dom.prev_exposed_sibling(entity);
     let next_sibling = dom.next_exposed_sibling(entity);
+    // DOM "remove" step-12 `isParentConnected` for `entity`'s
+    // disconnectedCallback gate, captured before the replace (parent's own
+    // connectedness is unchanged by it).
+    let parent_was_connected = dom.is_connected(parent);
     let parse_opts = elidex_html_parser::ParseFragmentOptions::default();
     let added = elidex_html_parser::parse_fragment_progressive(html, parent, dom, parse_opts);
     // The parsed roots come back detached; insert them in order before
@@ -169,6 +177,7 @@ pub fn apply_set_outer_html(
         removed_nodes: vec![entity],
         previous_sibling: prev_sibling,
         next_sibling,
+        parent_was_connected,
         ..empty_record(MutationKind::ChildList, parent)
     })
 }

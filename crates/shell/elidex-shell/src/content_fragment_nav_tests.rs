@@ -17,7 +17,7 @@
 //! (→ `true`, no `NavigationFailed`, `pipeline.url` updated in place). So
 //! "rebuilds vs no-rebuild" reads off `handle_navigate`'s bool + the channel.
 
-use elidex_script_session::{NavigationRequest, NavigationType};
+use elidex_script_session::HostDriver;
 
 use super::navigation::{handle_navigate, process_pending_actions, HistoryCursorOp};
 use super::test_support::build_test_content_state_with_url;
@@ -101,7 +101,6 @@ fn fragment_nav_no_refetch_pushes_one_entry() {
         state
             .pipeline
             .runtime
-            .bridge()
             .current_url()
             .as_ref()
             .map(url::Url::as_str),
@@ -179,8 +178,11 @@ fn fragment_nav_scrolls_to_id_and_echoes_offset() {
         (state.pipeline.scroll_offset.y - top).abs() < f32::EPSILON,
         "the resolved offset reaches the pipeline display-list scroll offset"
     );
+    #[allow(clippy::cast_possible_truncation)]
+    // test compares an f32-rendered coord; the f64→f32 narrowing is intended
+    let scroll_y = state.pipeline.runtime.eval_f64("window.scrollY") as f32;
     assert!(
-        (state.pipeline.runtime.bridge().scroll_y() - top).abs() < f32::EPSILON,
+        (scroll_y - top).abs() < f32::EPSILON,
         "the resolved offset is echoed to window.scrollY (not shipped un-applied)"
     );
 }
@@ -252,7 +254,7 @@ fn fragment_nav_top_level_origin_unchanged() {
     let (mut state, browser) = build_test_content_state_with_url("<p>doc</p>", base());
     // Install the tuple origin the real load computes.
     let tuple = elidex_plugin::SecurityOrigin::from_url(&base());
-    state.pipeline.runtime.bridge().set_origin(tuple.clone());
+    state.pipeline.runtime.set_origin(tuple.clone());
     drain_browser(&browser);
 
     let target = url("https://example.com/#sec");
@@ -264,7 +266,7 @@ fn fragment_nav_top_level_origin_unchanged() {
     ));
 
     assert_eq!(
-        state.pipeline.runtime.bridge().origin(),
+        state.pipeline.runtime.origin(),
         tuple,
         "the tuple origin is unchanged across the fragment nav"
     );
@@ -279,7 +281,7 @@ fn fragment_nav_sandboxed_opaque_origin_unchanged() {
     let (mut state, browser) = build_test_content_state_with_url("<p>doc</p>", base());
     // A sandboxed iframe installs a unique opaque origin over the URL tuple.
     let opaque = elidex_plugin::SecurityOrigin::opaque();
-    state.pipeline.runtime.bridge().set_origin(opaque.clone());
+    state.pipeline.runtime.set_origin(opaque.clone());
     drain_browser(&browser);
 
     let target = url("https://example.com/#sec");
@@ -290,7 +292,7 @@ fn fragment_nav_sandboxed_opaque_origin_unchanged() {
         None
     ));
 
-    let after = state.pipeline.runtime.bridge().origin();
+    let after = state.pipeline.runtime.origin();
     assert!(
         matches!(after, elidex_plugin::SecurityOrigin::Opaque(_)),
         "the origin stays opaque"
@@ -340,14 +342,7 @@ fn reload_of_fragment_url_rebuilds_without_history_growth() {
     state.nav_controller.push(url("https://example.com/a#x")); // seed the entry (len 1)
 
     // JS `location.reload()` enqueues a Reload navigation to the current URL.
-    state
-        .pipeline
-        .runtime
-        .bridge()
-        .set_pending_navigation(NavigationRequest {
-            url: "https://example.com/a#x".to_string(),
-            nav_type: NavigationType::Reload,
-        });
+    let _ = state.pipeline.runtime.vm().eval("location.reload();");
     drain_browser(&browser);
 
     assert!(process_pending_actions(&mut state));
@@ -395,7 +390,10 @@ fn body_bearing_same_page_fragment_is_cross_document() {
 /// the fragment nav PROCEEDS (the unload-gating IMP, §6.3 caller-audit).
 #[test]
 fn addressbar_fragment_nav_skips_unload_and_does_not_rebuild() {
-    let html = r"<div>doc</div><script>document.addEventListener('beforeunload', function(e) { e.preventDefault(); });</script>";
+    // `beforeunload` registers on the Window (spec `for=Window`) via
+    // `window.addEventListener`; the fragment nav never fires it regardless, so
+    // this cancelling handler is never consulted (the point of the test).
+    let html = r"<div>doc</div><script>window.addEventListener('beforeunload', function(e) { e.preventDefault(); });</script>";
     let (mut state, browser) = build_test_content_state_with_url(html, base());
     drain_browser(&browser);
 
@@ -427,7 +425,12 @@ fn addressbar_fragment_nav_skips_unload_and_does_not_rebuild() {
 /// proves the fragment path above genuinely skipped unload.
 #[test]
 fn addressbar_cross_document_nav_fires_unload() {
-    let html = r"<div>doc</div><script>document.addEventListener('beforeunload', function(e) { e.preventDefault(); });</script>";
+    // `beforeunload` is a Window event (HTML: `for=Window`; `WindowEventHandlers`
+    // `onbeforeunload`), dispatched on — and its listeners registered on — the
+    // Window, NOT the Document. `window.addEventListener` is the spec-correct
+    // surface; it records against the VM's dedicated Window entity, which
+    // `dispatch_unload_events` targets. A cancelling handler here blocks the nav.
+    let html = r"<div>doc</div><script>window.addEventListener('beforeunload', function(e) { e.preventDefault(); });</script>";
     let (mut state, browser) = build_test_content_state_with_url(html, base());
     drain_browser(&browser);
 

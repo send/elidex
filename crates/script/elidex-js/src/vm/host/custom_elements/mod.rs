@@ -44,6 +44,7 @@ pub(super) mod define;
 pub(super) mod flush;
 pub(super) mod html_element;
 pub(super) mod lookup;
+pub(super) mod records;
 pub(super) mod upgrade;
 
 use super::super::shape::{self, PropertyAttrs};

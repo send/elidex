@@ -13,12 +13,12 @@ mod ime;
 mod navigation;
 pub(crate) mod scroll;
 
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use elidex_ecs::Entity;
 use elidex_navigation::NavigationController;
+use elidex_script_session::HostDriver;
 
 use crate::ipc::{BrowserToContent, ContentToBrowser, LocalChannel};
 use crate::PipelineResult;
@@ -32,17 +32,26 @@ const FRAME_INTERVAL: Duration = Duration::from_millis(16);
 /// Caret blink interval (500ms per HTML spec recommendation).
 const CARET_BLINK_INTERVAL: Duration = Duration::from_millis(500);
 
-/// Monotonic counter for script-created animation keyframes names.
-/// Ensures multiple `element.animate()` calls on the same element
-/// produce distinct keyframes without overwriting previous ones.
-static SCRIPT_ANIM_COUNTER: AtomicU64 = AtomicU64::new(0);
-
 /// State owned by the content thread.
 ///
 /// `hover_chain` and `active_chain` are bounded by [`elidex_ecs::MAX_ANCESTOR_DEPTH`]
 /// (the depth limit enforced by [`collect_hover_chain`](crate::app::hover::collect_hover_chain)).
 struct ContentState {
     pipeline: PipelineResult,
+    /// This content thread's clone of the process-wide `localStorage` backend
+    /// (WHATWG HTML §11.2). Threaded from the browser process at spawn so every
+    /// same-origin tab shares ONE registry + disk tree. Held here so (a) the
+    /// per-turn `flush_dirty` in the content event loop persists dirty origins,
+    /// and (b) in-thread navigation / iframe rebuilds re-install the SAME manager
+    /// into the fresh pipeline (F14 / §4.3.3).
+    web_storage: std::sync::Arc<elidex_storage_core::WebStorageManager>,
+    /// This page/browsing-context's Service Worker client id (WHATWG SW §4.2
+    /// `Client.id`). The shell is the SOLE minter (the VM has no window-side
+    /// client id); minted once per `ContentState` at construction and fed to
+    /// `SwFetchRequest.client_id` (→ `FetchEvent.clientId`, SW §4.6.3) and, when
+    /// the PostMessage arm lands (2e-b), `ContentToSw::PostMessage.client_id` —
+    /// the ONE generator so all SW client-id reads agree (§6.4).
+    client_id: String,
     channel: LocalChannel<ContentToBrowser, BrowserToContent>,
     nav_controller: NavigationController,
     hover_chain: Vec<Entity>,
@@ -90,6 +99,14 @@ struct ContentState {
     /// (`crate::WakeHandle = Box<dyn Fn() + Send>`) so the content thread stays
     /// winit-free.
     wake: crate::WakeHandle,
+    /// The document-root `inclusive_descendants_version` as of the last completed
+    /// `re_render` — the §4.3.8 version-delta baseline replacing the boa
+    /// flush-record stream + `needs_render` bool.
+    last_render_dom_version: u64,
+    /// The window's current device facts (dppx / color-scheme / reduced-motion) —
+    /// the shell-owned SoT the VM's getterless media surface replaced (B20); pushed
+    /// to the VM via `set_media_environment` and inherited by child iframes.
+    device_facts: crate::ipc::DeviceFacts,
 }
 
 impl ContentState {
@@ -171,17 +188,22 @@ impl ContentState {
     /// would satisfy the staleness guard and apply a pre-build intermediate (the
     /// backward flash the seq exists to prevent). `applied_facts_seq` is the same
     /// contract for the device-facts generation (`ViewportSnapshot::facts_seq`).
+    // cohesive content-pipeline signature; a params struct is a separate refactor
+    #[allow(clippy::too_many_arguments)]
     fn new(
         channel: LocalChannel<ContentToBrowser, BrowserToContent>,
         nav_controller: NavigationController,
         pipeline: PipelineResult,
+        web_storage: std::sync::Arc<elidex_storage_core::WebStorageManager>,
         wake: crate::WakeHandle,
         viewport_cell: std::sync::Arc<crate::ipc::ViewportCell>,
         applied_viewport_seq: u64,
         applied_facts_seq: u64,
+        device_facts: crate::ipc::DeviceFacts,
     ) -> Self {
         Self {
             channel,
+            web_storage,
             nav_controller,
             hover_chain: Vec::new(),
             active_chain: Vec::new(),
@@ -190,12 +212,18 @@ impl ContentState {
             focusable_cache: None,
             viewport_scroll: elidex_ecs::ScrollState::default(),
             pipeline,
+            client_id: uuid::Uuid::new_v4().to_string(),
             iframes: iframe::IframeRegistry::new(),
             focused_iframe: None,
             wake,
             viewport_cell,
             applied_viewport_seq,
             applied_facts_seq,
+            // §4.3.8: 0 → the first `re_render` sees a delta and harmlessly
+            // invalidates the fresh (`None`) focusable cache + walks iframes
+            // (`scan_initial_iframes` still owns the initial load).
+            last_render_dom_version: 0,
+            device_facts,
         }
     }
 
@@ -221,9 +249,11 @@ impl ContentState {
             .insert_one(self.pipeline.document, self.viewport_scroll.clone());
         // Sync scroll offset to the script bridge so scrollX/scrollY reflect
         // current state.
-        self.pipeline.runtime.bridge().set_scroll_offset(
-            self.viewport_scroll.scroll_offset.x,
-            self.viewport_scroll.scroll_offset.y,
+        // The `HostDriver` scroll surface is f64 (DOM coordinates); the shell's
+        // `viewport_scroll` is f32 (render space) — widen at the seam.
+        self.pipeline.runtime.set_scroll_offset(
+            self.viewport_scroll.scroll_offset.x.into(),
+            self.viewport_scroll.scroll_offset.y.into(),
         );
     }
 
@@ -239,10 +269,7 @@ impl ContentState {
     /// Invalidates `focusable_cache` when mutations affect DOM structure or
     /// focusability-related attributes (childList, tabindex, disabled, etc.).
     fn re_render(&mut self) {
-        self.pipeline
-            .runtime
-            .bridge()
-            .sync_dirty_canvases(&mut self.pipeline.dom);
+        self.pipeline.sync_dirty_canvases();
         self.pipeline.caret_visible = self.caret_visible;
 
         // Drain any pending JS scroll (scrollTo/scrollBy) and apply the requested
@@ -252,9 +279,13 @@ impl ContentState {
         // content then `scrollTo` its bottom — must clamp against the NEW content
         // size, not the stale pre-layout one (Codex R6 "clamp script scrolls
         // after layout is refreshed").
-        let pending_scroll = self.pipeline.runtime.bridge().take_pending_scroll();
+        let pending_scroll = self.pipeline.runtime.take_pending_scroll();
         if let Some((x, y)) = pending_scroll {
-            self.viewport_scroll.scroll_offset = elidex_plugin::Vector::new(x, y);
+            // f64 (DOM coordinates) → f32 (render-space `Vector`) at the seam.
+            #[allow(clippy::cast_possible_truncation)]
+            // render coords are f32; the f64→f32 narrowing is intentional
+            let offset = elidex_plugin::Vector::new(x as f32, y as f32);
+            self.viewport_scroll.scroll_offset = offset;
         }
 
         // Sync viewport scroll offset to pipeline for display list building.
@@ -281,7 +312,22 @@ impl ContentState {
         // lists are up-to-date when the parent composites them.
         iframe::re_render_all_iframes(self);
 
-        let mutation_records = crate::re_render(&mut self.pipeline);
+        crate::re_render(&mut self.pipeline);
+
+        // §4.3.8 version-delta — the ONE "did the DOM tree change this turn?"
+        // signal replacing the boa flush-record stream. Snapshot AFTER
+        // `crate::re_render` so any external-record flush mutations are folded in.
+        // Every DOM-mutation class (childList / attribute / characterData) bumps
+        // the document root's `inclusive_descendants_version` via `rev_version`'s
+        // ancestor propagation; a detached-subtree mutation does NOT move the root
+        // version, which is correct — rendering / in-document iframes / focusables
+        // are document-tree facts.
+        let current_dom_version = self
+            .pipeline
+            .dom
+            .inclusive_descendants_version(self.pipeline.document);
+        let dom_changed = current_dom_version != self.last_render_dom_version;
+        self.last_render_dom_version = current_dom_version;
 
         // Now that layout boxes reflect this turn's mutations, refresh the
         // viewport scroll dimensions and clamp the offset against the fresh
@@ -309,8 +355,13 @@ impl ContentState {
             self.echo_viewport_scroll();
         }
 
-        // Invalidate focusable cache when DOM structure or focusability changes.
-        if should_invalidate_focusable_cache(&mutation_records) {
+        // Invalidate the focusable cache on any document-tree change. The
+        // §4.3.8 version-delta replaces the record-fed
+        // `should_invalidate_focusable_cache`: under the VM flip the flush record
+        // stream starves, so the coarser "tree changed at all" signal is used —
+        // a superset of the old childList/focusability-attribute triggers (a
+        // stale Tab order is never worse than an occasional harmless rebuild).
+        if dom_changed {
             self.focusable_cache = None;
         }
 
@@ -329,38 +380,26 @@ impl ContentState {
         // GC itself shares the one `crate::re_render` chokepoint — see there.)
         event_handlers::reconcile_focused_iframe(self);
 
-        // Deliver observer callbacks after layout is complete.
-        if !mutation_records.is_empty() {
-            self.pipeline.runtime.deliver_mutation_records(
-                &mutation_records,
-                &mut self.pipeline.session,
-                &mut self.pipeline.dom,
-                self.pipeline.document,
-            );
-        }
+        // `MutationObserver` + CE delivery for the flushed records is now internal
+        // to `crate::re_render` (via `deliver_records_and_drain`); re-delivering
+        // here would DOUBLE-FIRE observers, so this stage no longer delivers the
+        // records after layout — only the layout-derived observers below.
 
-        self.pipeline.runtime.deliver_resize_observations(
-            &mut self.pipeline.session,
-            &mut self.pipeline.dom,
-            self.pipeline.document,
-        );
+        // Deliver the queued ResizeObserver + IntersectionObserver callbacks
+        // (spec order: resize before intersection) after layout is complete. The
+        // VM reads the viewport from bound state, so no `Rect` is passed.
+        self.pipeline.deliver_layout_observations();
 
-        let viewport = elidex_plugin::Rect::new(
-            0.0,
-            0.0,
-            self.pipeline.viewport.width,
-            self.pipeline.viewport.height,
-        );
-        self.pipeline.runtime.deliver_intersection_observations(
-            &mut self.pipeline.session,
-            &mut self.pipeline.dom,
-            self.pipeline.document,
-            viewport,
-        );
-
-        // Detect iframe additions/removals from mutation records.
-        // Added <iframe> entities trigger loading; removed ones trigger unloading.
-        let iframes_changed = iframe::detect_iframe_mutations(&mutation_records, self);
+        // Detect iframe additions/removals/re-navigations via the §4.3.8
+        // version-delta: when the document tree changed this turn, a full-document
+        // diff-scan reconciles the registry (the record-fed `detect_iframe_mutations`
+        // starved under the VM flush). Gated on `dom_changed` so the full walk runs
+        // only when something actually moved.
+        let iframes_changed = if dom_changed {
+            iframe::rescan_iframes_by_diff(self)
+        } else {
+            false
+        };
 
         // Check lazy iframes: load those that have entered the viewport.
         let lazy_loaded = iframe::check_lazy_iframes(self);
@@ -414,10 +453,17 @@ impl ContentState {
 ///
 /// Returns a `JoinHandle` for the thread. The thread will run until it
 /// receives `Shutdown` or the channel disconnects.
+// Cohesive spawn entry: the content thread inherently needs its channel plus
+// the browser-broker handles (network / cookies / web-storage), initial
+// HTML/CSS, viewport cell, and wake handle — grouping them behind a struct
+// would only relocate the same fields (matches the crate's other spawn/thread
+// entry points).
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn spawn_content_thread(
     channel: LocalChannel<ContentToBrowser, BrowserToContent>,
     network_handle: elidex_net::broker::NetworkHandle,
     cookie_jar: std::sync::Arc<elidex_net::CookieJar>,
+    web_storage: std::sync::Arc<elidex_storage_core::WebStorageManager>,
     html: String,
     css: String,
     viewport_cell: std::sync::Arc<crate::ipc::ViewportCell>,
@@ -428,6 +474,7 @@ pub(crate) fn spawn_content_thread(
             channel,
             network_handle,
             cookie_jar,
+            web_storage,
             &html,
             &css,
             viewport_cell,
@@ -443,6 +490,7 @@ pub(crate) fn spawn_content_thread_url(
     channel: LocalChannel<ContentToBrowser, BrowserToContent>,
     network_handle: elidex_net::broker::NetworkHandle,
     cookie_jar: std::sync::Arc<elidex_net::CookieJar>,
+    web_storage: std::sync::Arc<elidex_storage_core::WebStorageManager>,
     url: url::Url,
     viewport_cell: std::sync::Arc<crate::ipc::ViewportCell>,
     wake: crate::WakeHandle,
@@ -452,6 +500,7 @@ pub(crate) fn spawn_content_thread_url(
             channel,
             network_handle,
             cookie_jar,
+            web_storage,
             &url,
             viewport_cell,
             wake,
@@ -466,6 +515,7 @@ pub(crate) fn spawn_content_thread_blank(
     channel: LocalChannel<ContentToBrowser, BrowserToContent>,
     network_handle: elidex_net::broker::NetworkHandle,
     cookie_jar: std::sync::Arc<elidex_net::CookieJar>,
+    web_storage: std::sync::Arc<elidex_storage_core::WebStorageManager>,
     viewport_cell: std::sync::Arc<crate::ipc::ViewportCell>,
     wake: crate::WakeHandle,
 ) -> JoinHandle<()> {
@@ -474,6 +524,7 @@ pub(crate) fn spawn_content_thread_blank(
             channel,
             network_handle,
             cookie_jar,
+            web_storage,
             crate::BLANK_TAB_HTML,
             crate::BLANK_TAB_CSS,
             viewport_cell,
@@ -482,10 +533,12 @@ pub(crate) fn spawn_content_thread_blank(
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 fn content_thread_main(
     channel: LocalChannel<ContentToBrowser, BrowserToContent>,
     network_handle: elidex_net::broker::NetworkHandle,
     cookie_jar: std::sync::Arc<elidex_net::CookieJar>,
+    web_storage: std::sync::Arc<elidex_storage_core::WebStorageManager>,
     html: &str,
     css: &str,
     viewport_cell: std::sync::Arc<crate::ipc::ViewportCell>,
@@ -511,6 +564,7 @@ fn content_thread_main(
         css,
         nh,
         cookie_jar,
+        std::sync::Arc::clone(&web_storage),
         viewport,
         snapshot.facts,
     );
@@ -518,10 +572,12 @@ fn content_thread_main(
         channel,
         NavigationController::new(),
         pipeline,
+        web_storage,
         wake,
         viewport_cell,
         build_seq,
         build_facts_seq,
+        snapshot.facts,
     );
     scroll::update_viewport_scroll_dimensions(&mut state);
     // Scan for <iframe> elements present in the initial parsed DOM.
@@ -539,6 +595,7 @@ fn content_thread_main_url(
     channel: LocalChannel<ContentToBrowser, BrowserToContent>,
     network_handle: elidex_net::broker::NetworkHandle,
     cookie_jar: std::sync::Arc<elidex_net::CookieJar>,
+    web_storage: std::sync::Arc<elidex_storage_core::WebStorageManager>,
     url: &url::Url,
     viewport_cell: std::sync::Arc<crate::ipc::ViewportCell>,
     wake: crate::WakeHandle,
@@ -576,6 +633,7 @@ fn content_thread_main_url(
         nh,
         font_db,
         Some(cookie_jar),
+        Some(std::sync::Arc::clone(&web_storage)),
         viewport,
         snapshot.facts,
         // Top-level document: no frame security (URL-derived origin).
@@ -591,10 +649,12 @@ fn content_thread_main_url(
         channel,
         nav_controller,
         pipeline,
+        web_storage,
         wake,
         viewport_cell,
         build_seq,
         build_facts_seq,
+        snapshot.facts,
     );
     scroll::update_viewport_scroll_dimensions(&mut state);
 
@@ -614,56 +674,6 @@ fn content_thread_main_url(
 
 // run_event_loop + handle_message are in event_loop.rs.
 
-/// Dispatch "change" events to `MediaQueryList` listeners whose result changed.
-///
-/// Creates a `MediaQueryListEvent`-like object with `matches` and `media` properties
-/// and invokes each registered listener callback via `JsRuntime`.
-fn dispatch_media_query_changes(changed: &[(u64, bool)], state: &mut ContentState) {
-    state.pipeline.runtime.deliver_media_query_changes(
-        changed,
-        &mut state.pipeline.session,
-        &mut state.pipeline.dom,
-        state.pipeline.document,
-    );
-}
-
-/// Focusability-relevant attribute names.
-///
-/// Changes to these attributes affect whether an element is focusable or its
-/// position in the sequential focus navigation order (HTML §6.6.3), so a
-/// mutation to any of them invalidates the shell's Tab-order `focusable_cache`.
-/// The complete set that `elidex_dom_api::focus::is_focusable` reads: `tabindex`
-/// (criterion 1 + order), `disabled` (criterion 3), `contenteditable` (editing
-/// host, criterion 1), `hidden` (criterion 5 subtree), `href` (the `<a>`/`<area>`
-/// link default), and `type` (an `<input>`'s `type=hidden` is never focusable).
-/// Missing `href`/`type` here previously left a stale Tab order after a script
-/// added/removed a link's `href` or flipped an input's `type` (Codex S2).
-const FOCUSABLE_ATTRIBUTES: &[&str] = &[
-    "tabindex",
-    "disabled",
-    "contenteditable",
-    "hidden",
-    "href",
-    "type",
-];
-
-/// Check whether any mutation record requires invalidating the focusable cache.
-///
-/// Returns `true` for `ChildList` mutations (elements added/removed) and
-/// `Attribute` mutations on focusability-relevant attributes.
-fn should_invalidate_focusable_cache(records: &[elidex_script_session::MutationRecord]) -> bool {
-    use elidex_script_session::MutationKind;
-
-    records.iter().any(|r| match r.kind {
-        MutationKind::ChildList => true,
-        MutationKind::Attribute => r
-            .attribute_name
-            .as_deref()
-            .is_some_and(|name| FOCUSABLE_ATTRIBUTES.contains(&name)),
-        _ => false,
-    })
-}
-
 /// Dispatch a `storage` event on window (WHATWG HTML §11.2.1).
 ///
 /// Fired when another tab changes `localStorage` for the same origin.
@@ -676,8 +686,16 @@ fn dispatch_storage_event(
     new_value: Option<String>,
     url: String,
 ) {
-    let mut event =
-        elidex_script_session::DispatchEvent::new_composed("storage", state.pipeline.document);
+    // `storage` is a Window event (`WindowEventHandlers` onstorage) — after the
+    // VM flip `window.addEventListener('storage', …)` / `window.onstorage`
+    // record against the dedicated Window entity, so target it (falling back to
+    // `document` pre-bind), the same routing as `message`/`resize`.
+    let window_target = state
+        .pipeline
+        .runtime
+        .window_entity()
+        .unwrap_or(state.pipeline.document);
+    let mut event = elidex_script_session::DispatchEvent::new_composed("storage", window_target);
     event.bubbles = false;
     event.cancelable = false;
     event.payload = elidex_plugin::EventPayload::Storage {
@@ -689,10 +707,19 @@ fn dispatch_storage_event(
     state.pipeline.dispatch_event(&mut event);
 }
 
-/// Dispatch a `MessageEvent` on the parent document (WHATWG HTML §9.4.3).
+/// Dispatch a `MessageEvent` on the parent document (WHATWG HTML §9.3.3 step 8.7).
 fn dispatch_message_event(state: &mut ContentState, data: &str, origin: &str) {
-    let mut event =
-        elidex_script_session::DispatchEvent::new_composed("message", state.pipeline.document);
+    // `message` fires on the Window (HTML §9.3.3) — after the VM flip
+    // `window.addEventListener('message', …)` records against the dedicated
+    // Window entity, so target it (falling back to `document` pre-bind), the
+    // same window-vs-document routing as the `resize` dispatch. `dispatch_event`
+    // still binds the ScriptContext to the pipeline's document internally.
+    let window_target = state
+        .pipeline
+        .runtime
+        .window_entity()
+        .unwrap_or(state.pipeline.document);
+    let mut event = elidex_script_session::DispatchEvent::new_composed("message", window_target);
     event.bubbles = false;
     event.cancelable = false;
     event.payload = elidex_plugin::EventPayload::Message {
@@ -703,108 +730,15 @@ fn dispatch_message_event(state: &mut ContentState, data: &str, origin: &str) {
     state.pipeline.dispatch_event(&mut event);
 }
 
-/// Drain pending script-initiated animations from the bridge and apply them
-/// to the `AnimationEngine`. Converts `ScriptAnimation` options into
-/// `SingleAnimationSpec` + `KeyframesRule` and registers them.
-fn apply_script_animations(state: &mut ContentState) {
-    let bridge = state.pipeline.runtime.bridge();
-    let pending = bridge.drain_script_animations();
-    if pending.is_empty() {
-        return;
-    }
-
-    let current_time = state.pipeline.animation_engine.timeline().current_time();
-
-    for anim in pending {
-        // Convert parsed keyframes to KeyframesRule.
-        let mut keyframes = Vec::new();
-        let num_kf = anim.keyframes.len();
-        for (i, kf) in anim.keyframes.iter().enumerate() {
-            #[allow(clippy::cast_precision_loss)]
-            let offset = kf.offset.unwrap_or_else(|| {
-                if num_kf <= 1 {
-                    1.0
-                } else {
-                    i as f64 / (num_kf - 1) as f64
-                }
-            });
-            #[allow(clippy::cast_possible_truncation)]
-            let declarations: Vec<elidex_plugin::PropertyDeclaration> = kf
-                .declarations
-                .iter()
-                .map(|(prop, val)| elidex_plugin::PropertyDeclaration {
-                    property: prop.clone(),
-                    value: elidex_plugin::CssValue::Keyword(val.clone()),
-                })
-                .collect();
-            keyframes.push(elidex_css_anim::parse::Keyframe {
-                #[allow(clippy::cast_possible_truncation)]
-                offset: offset as f32,
-                declarations,
-                timing_function: None,
-            });
-        }
-
-        // Generate a unique name for this script animation.
-        // Use a monotonic counter to avoid name collisions when multiple
-        // animations are created on the same element without explicit ids.
-        let name = if anim.options.id.is_empty() {
-            let seq = SCRIPT_ANIM_COUNTER.fetch_add(1, Ordering::Relaxed);
-            format!("__script_anim_{}_{seq}", anim.entity_id)
-        } else {
-            anim.options.id.clone()
-        };
-
-        let rule = elidex_css_anim::parse::KeyframesRule {
-            name: name.clone(),
-            keyframes,
-        };
-        state.pipeline.animation_engine.register_keyframes(rule);
-
-        // Convert options to SingleAnimationSpec.
-        #[allow(clippy::cast_possible_truncation)]
-        let duration = (anim.options.duration / 1000.0) as f32; // ms → seconds
-        #[allow(clippy::cast_possible_truncation)]
-        let delay = (anim.options.delay / 1000.0) as f32;
-
-        let iteration_count = if anim.options.iterations.is_infinite() {
-            elidex_css_anim::style::IterationCount::Infinite
-        } else {
-            #[allow(clippy::cast_possible_truncation)]
-            elidex_css_anim::style::IterationCount::Number(anim.options.iterations as f32)
-        };
-
-        let direction = match anim.options.direction.as_str() {
-            "reverse" => elidex_css_anim::style::AnimationDirection::Reverse,
-            "alternate" => elidex_css_anim::style::AnimationDirection::Alternate,
-            "alternate-reverse" => elidex_css_anim::style::AnimationDirection::AlternateReverse,
-            _ => elidex_css_anim::style::AnimationDirection::Normal,
-        };
-
-        let fill_mode = match anim.options.fill.as_str() {
-            "forwards" => elidex_css_anim::style::AnimationFillMode::Forwards,
-            "backwards" => elidex_css_anim::style::AnimationFillMode::Backwards,
-            "both" => elidex_css_anim::style::AnimationFillMode::Both,
-            _ => elidex_css_anim::style::AnimationFillMode::None,
-        };
-
-        let spec = elidex_css_anim::SingleAnimationSpec {
-            name,
-            duration,
-            timing_function: elidex_css_anim::timing::TimingFunction::Linear,
-            delay,
-            iteration_count,
-            direction,
-            fill_mode,
-            play_state: elidex_css_anim::style::PlayState::Running,
-        };
-
-        let instance = elidex_css_anim::instance::AnimationInstance::new(&spec, current_time);
-        state
-            .pipeline
-            .animation_engine
-            .add_animation(anim.entity_id, instance);
-    }
+/// WHATWG HTML §9.3.3 "Posting messages" step 8.1: an iframe→parent message is
+/// delivered iff the sender's resolved `targetOrigin` is `*` (any origin) or it
+/// equals the parent window's origin key. Both keys are identity-preserving
+/// `storage_origin_key`s (opaque → per-VM sentinel), so distinct opaque origins
+/// never alias — there is NO lossy `"null"` special case (the send side
+/// fail-closes on opaque URL targets and uses the sentinel for `/`). Fail-closed:
+/// any `target_origin` that is neither `"*"` nor an exact key match is dropped.
+fn parent_message_allowed(parent_key: &str, target_origin: &str) -> bool {
+    target_origin == "*" || parent_key == target_origin
 }
 
 #[cfg(test)]
@@ -834,3 +768,40 @@ mod fragment_nav_tests;
 #[cfg(test)]
 #[path = "../viewport_tests.rs"]
 mod viewport_tests;
+
+#[cfg(test)]
+mod parent_message_gate_tests {
+    use super::parent_message_allowed;
+
+    #[test]
+    fn wildcard_target_allows_any_origin() {
+        assert!(parent_message_allowed("https://parent.example", "*"));
+        assert!(parent_message_allowed("opaque-origin:7", "*"));
+    }
+
+    #[test]
+    fn equal_keys_allow() {
+        assert!(parent_message_allowed(
+            "https://parent.example",
+            "https://parent.example"
+        ));
+    }
+
+    #[test]
+    fn distinct_keys_drop() {
+        assert!(!parent_message_allowed(
+            "https://parent.example",
+            "https://evil.example"
+        ));
+    }
+
+    #[test]
+    fn distinct_opaque_sentinels_drop() {
+        // Two DIFFERENT per-VM opaque sentinels must NOT alias — the whole point
+        // of keying on the sentinel rather than the lossy `"null"`.
+        assert!(!parent_message_allowed(
+            "opaque-origin:1",
+            "opaque-origin:2"
+        ));
+    }
+}

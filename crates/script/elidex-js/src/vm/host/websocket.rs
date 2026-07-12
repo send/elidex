@@ -311,7 +311,7 @@ pub(super) fn require_websocket_this(
 /// 4. Parse `protocols` arg (`DOMString | sequence<DOMString>`) and
 ///    validate each against RFC 7230 §3.2.6 `<token>` ABNF.  Empty /
 ///    non-token / duplicate → SyntaxError.
-/// 5. Mixed-content gate via `is_mixed_content(page_scheme, ws_url)`
+/// 5. Mixed-content gate via `is_mixed_content(document_origin(), ws_url)`
 ///    — secure page + `ws://` target → `SecurityError`.
 /// 6. Allocate `conn_id` via `HostData::alloc_ws_conn_id()`.
 /// 7. Promote `this` to `ObjectKind::WebSocket`; insert
@@ -360,11 +360,14 @@ fn native_websocket_constructor(
     let protocols_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
     let protocols = parse_protocols(ctx, protocols_arg)?;
 
-    // Step 5: mixed-content gate.  Page scheme comes from the active
-    // browsing-context URL; `is_mixed_content` returns true only when
-    // page is `https` AND ws URL is `ws://` (not `wss://`).
-    let page_scheme = ctx.vm.navigation.current_url.scheme().to_owned();
-    if elidex_api_ws::is_mixed_content(&page_scheme, &url) {
+    // Step 5: mixed-content gate.  Gated on the document's **installed origin**
+    // trustworthiness (a secure context = a potentially-trustworthy client
+    // origin), NOT the raw browsing-context URL scheme — so an opaque-origin
+    // sandboxed document (never a secure context, even under an `https:` parent
+    // URL) is correctly exempt. Same `document_origin()` source the sent origin
+    // below uses (S1b); `is_mixed_content` blocks only a secure client + `ws://`.
+    let client_origin = ctx.vm.document_origin();
+    if elidex_api_ws::is_mixed_content(&client_origin, &url) {
         return Err(VmError::dom_exception(
             ctx.vm.well_known.dom_exc_security_error,
             "Failed to construct 'WebSocket': An insecure WebSocket connection \
@@ -391,7 +394,9 @@ fn native_websocket_constructor(
     // - `ws_origin_sid` — SERVER origin (from `url`), pre-interned so per-message
     //   `MessageEvent.origin` reads a `StringId` without re-parsing (WebSockets
     //   §4 "Feedback from the protocol"). Distinct fact, unchanged by S1b.
-    let page_origin_str = ctx.vm.document_origin().serialize();
+    // `client_origin` is the same installed `document_origin()` the mixed-content
+    // gate above already read — reuse it rather than re-deriving.
+    let page_origin_str = client_origin.serialize();
     let ws_origin_string = url.origin().ascii_serialization();
     let ws_origin_sid = ctx.vm.strings.intern(&ws_origin_string);
     let url_serialized = url.as_str().to_owned();

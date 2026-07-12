@@ -43,6 +43,7 @@ fn mutation_observer_delivers_child_list_record() {
         next_sibling: None,
         attribute_name: None,
         old_value: None,
+        parent_was_connected: false,
     };
     vm.deliver_mutation_records(std::slice::from_ref(&record));
 
@@ -87,6 +88,7 @@ fn mutation_observer_delivers_attribute_record_with_old_value() {
         next_sibling: None,
         attribute_name: Some("class".to_string()),
         old_value: Some("old-class".to_string()),
+        parent_was_connected: false,
     };
     vm.deliver_mutation_records(std::slice::from_ref(&record));
 
@@ -133,6 +135,7 @@ fn mutation_observer_record_properties_are_readonly() {
         next_sibling: None,
         attribute_name: Some("class".to_string()),
         old_value: None,
+        parent_was_connected: false,
     };
     vm.deliver_mutation_records(std::slice::from_ref(&record));
 
@@ -185,6 +188,7 @@ fn mutation_observer_attribute_filter_excludes_unmatched() {
         next_sibling: None,
         attribute_name: Some("id".to_string()),
         old_value: None,
+        parent_was_connected: false,
     };
     vm.deliver_mutation_records(std::slice::from_ref(&id_record));
 
@@ -219,6 +223,7 @@ fn mutation_observer_subtree_observes_descendant() {
         next_sibling: None,
         attribute_name: Some("class".to_string()),
         old_value: None,
+        parent_was_connected: false,
     };
     vm.deliver_mutation_records(std::slice::from_ref(&record));
 
@@ -252,6 +257,7 @@ fn mutation_observer_subtree_off_skips_descendant() {
         next_sibling: None,
         attribute_name: Some("class".to_string()),
         old_value: None,
+        parent_was_connected: false,
     };
     vm.deliver_mutation_records(std::slice::from_ref(&record));
 
@@ -282,6 +288,7 @@ fn mutation_observer_take_records_drains_pending() {
         next_sibling: None,
         attribute_name: Some("class".to_string()),
         old_value: None,
+        parent_was_connected: false,
     };
     // Notify but do NOT drive the callback; instead use takeRecords()
     // from JS.  Mimic the no-callback branch by feeding the record
@@ -325,6 +332,7 @@ fn mutation_observer_disconnect_clears_pending() {
         next_sibling: None,
         attribute_name: None,
         old_value: None,
+        parent_was_connected: false,
     };
     // Notify but don't deliver yet; then disconnect.
     vm.inner
@@ -364,6 +372,7 @@ fn mutation_observer_added_nodes_are_element_wrappers() {
         next_sibling: None,
         attribute_name: None,
         old_value: None,
+        parent_was_connected: false,
     };
     vm.deliver_mutation_records(std::slice::from_ref(&record));
 
@@ -409,6 +418,7 @@ fn mutation_observer_delivers_character_data_record() {
         next_sibling: None,
         attribute_name: None,
         old_value: Some("hello".to_string()),
+        parent_was_connected: false,
     };
     vm.deliver_mutation_records(std::slice::from_ref(&record));
 
@@ -466,6 +476,7 @@ fn mutation_observer_records_array_survives_gc() {
         next_sibling: None,
         attribute_name: None,
         old_value: None,
+        parent_was_connected: false,
     };
     // Force GC immediately before delivery so the rooting path is the
     // only thing holding the just-allocated records array.
@@ -526,6 +537,7 @@ fn mutation_observer_callback_can_re_observe_other_target() {
         next_sibling: None,
         attribute_name: None,
         old_value: None,
+        parent_was_connected: false,
     };
     vm.deliver_mutation_records(std::slice::from_ref(&r1));
 
@@ -540,6 +552,7 @@ fn mutation_observer_callback_can_re_observe_other_target() {
         next_sibling: None,
         attribute_name: Some("class".to_string()),
         old_value: None,
+        parent_was_connected: false,
     };
     vm.deliver_mutation_records(std::slice::from_ref(&r2));
 
@@ -582,6 +595,7 @@ fn mutation_observer_two_observers_both_receive_record() {
         next_sibling: None,
         attribute_name: None,
         old_value: None,
+        parent_was_connected: false,
     };
     vm.deliver_mutation_records(std::slice::from_ref(&record));
 
@@ -620,6 +634,7 @@ fn mutation_observer_observe_replaces_existing_options_for_same_target() {
         next_sibling: None,
         attribute_name: None,
         old_value: None,
+        parent_was_connected: false,
     };
     vm.deliver_mutation_records(std::slice::from_ref(&r1));
     assert!(matches!(vm.eval("records").unwrap(), JsValue::Null));
@@ -634,6 +649,7 @@ fn mutation_observer_observe_replaces_existing_options_for_same_target() {
         next_sibling: None,
         attribute_name: Some("class".to_string()),
         old_value: None,
+        parent_was_connected: false,
     };
     vm.deliver_mutation_records(std::slice::from_ref(&r2));
     assert_eq!(
@@ -673,6 +689,7 @@ fn mutation_observer_observes_multiple_distinct_targets() {
         next_sibling: None,
         attribute_name: None,
         old_value: None,
+        parent_was_connected: false,
     }]);
     vm.deliver_mutation_records(&[SessionRecord {
         kind: MutationKind::Attribute,
@@ -683,6 +700,7 @@ fn mutation_observer_observes_multiple_distinct_targets() {
         next_sibling: None,
         attribute_name: Some("data-x".to_string()),
         old_value: None,
+        parent_was_connected: false,
     }]);
 
     assert_eq!(vm.eval("calls").unwrap(), JsValue::Number(2.0));
@@ -719,6 +737,7 @@ fn mutation_observer_callback_throw_does_not_block_sibling_observer() {
         next_sibling: None,
         attribute_name: None,
         old_value: None,
+        parent_was_connected: false,
     }]);
 
     assert_eq!(

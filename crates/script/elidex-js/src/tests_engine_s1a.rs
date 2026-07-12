@@ -12,14 +12,12 @@ use elidex_ecs::{EcsDom, Entity};
 use elidex_script_session::{HostDriver, ScriptContext, ScriptEngine, SessionCore};
 
 use crate::engine::ElidexJsEngine;
-use crate::vm::host_data::HostData;
 use crate::vm::value::JsValue;
 
 /// Construct an unbound engine + session + dom with a fresh `document_root`,
 /// matching `tests_dispatch_integration::fresh_unbound`.
 fn fresh_unbound() -> (ElidexJsEngine, SessionCore, EcsDom, Entity) {
-    let mut engine = ElidexJsEngine::new();
-    engine.vm().install_host_data(HostData::new());
+    let engine = ElidexJsEngine::new();
     let session = SessionCore::new();
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();

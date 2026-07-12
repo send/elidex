@@ -22,7 +22,6 @@ use elidex_script_session::event_dispatch::DispatchEvent;
 use elidex_script_session::{EventListeners, ListenerId, ScriptContext, ScriptEngine, SessionCore};
 
 use crate::engine::ElidexJsEngine;
-use crate::vm::host_data::HostData;
 use crate::vm::value::JsValue;
 
 /// Compile a JS function and stash it in `listener_store` under
@@ -42,7 +41,6 @@ fn register_listener_via_global(
     // globals and store it in HostData::listener_store.  The VM is
     // left bound on return; cleanup (`engine.vm().unbind()`) happens
     // at the call site after the listener invocation.
-    engine.vm().install_host_data(HostData::new());
     unsafe {
         engine.vm().bind(
             std::ptr::from_mut(session),
@@ -138,7 +136,6 @@ fn call_listener_lazy_compiles_inline_handler() {
         id
     };
 
-    engine.vm().install_host_data(HostData::new());
     unsafe {
         engine.vm().bind(
             std::ptr::from_mut(&mut session),
@@ -207,7 +204,6 @@ fn call_listener_skips_inline_handler_when_scripting_disabled() {
         id
     };
 
-    engine.vm().install_host_data(HostData::new());
     // Sandboxed WITHOUT `allow-scripts` → scripting is disabled for this context.
     engine
         .vm()
@@ -434,7 +430,6 @@ fn missing_listener_id_silently_no_ops() {
     // must not panic — the dispatch loop carries a stale ListenerId
     // and our impl returns early.
     let mut engine = ElidexJsEngine::new();
-    engine.vm().install_host_data(HostData::new());
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();

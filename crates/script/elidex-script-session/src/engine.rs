@@ -98,6 +98,24 @@ pub trait ScriptEngine {
 
     /// Drain and execute all ready timers.
     fn drain_timers(&mut self, ctx: &mut ScriptContext<'_>) -> Vec<EvalResult>;
+
+    /// `Some(&mut EcsDom)` when a batch-bind bracket is active — dispatch and
+    /// other bound-path code MUST route dom access through this (the single
+    /// derivation chain), never a fresh `ctx.dom` reborrow, to avoid aliasing
+    /// the engine's bound `*mut dom` (Stacked-Borrows). `None` = unbound
+    /// (self-binding engines / no bracket) → callers use `ctx.dom`.
+    ///
+    /// The default returns `None`, so an engine that never holds a raw
+    /// pointer to the DOM (boa, whose shell path passes `ctx.dom` through) gets
+    /// the correct behavior with zero code — dispatch falls back to `ctx.dom`.
+    /// A bound engine (elidex-js under a `HostDriver` bracket) overrides this
+    /// to hand out its bound dom so dispatch does not reborrow `ctx.dom`.
+    ///
+    /// Interim during the S5-6 flip: the `None` branch keeps boa's unbound
+    /// dispatch path compiling and correct; it dies when boa is deleted.
+    fn bound_dom_mut(&mut self) -> Option<&mut EcsDom> {
+        None
+    }
 }
 
 /// The shell↔engine host-drive contract — how the main-thread shell pipeline
@@ -161,6 +179,23 @@ pub trait HostDriver {
     /// bound, so it doubles as the panic-safe `Drop` hook in
     /// [`with_bound`](Self::with_bound).
     fn unbind(&mut self);
+
+    /// Release the document-scoped resources this engine holds — force-close
+    /// every live `WebSocket` / `EventSource` connection and terminate every
+    /// dedicated worker — at a **document-destruction boundary** (shutdown /
+    /// cross-document navigation / pipeline replacement), NOT a per-turn
+    /// [`unbind`](Self::unbind). Binds `ctx`, runs the teardown while bound (it
+    /// needs the live network handle + worker registry + wrappers), then unbinds
+    /// as its final step. Idempotent: a second call after the tables are drained
+    /// is a no-op, so an explicit call followed by the engine-`Drop` backstop is
+    /// safe.
+    ///
+    /// # Safety
+    ///
+    /// Same contract as [`bind`](Self::bind): `ctx.session` / `ctx.dom` must stay
+    /// valid + **unaliased** for the call (the engine binds raw pointers to them).
+    #[allow(unsafe_code)]
+    unsafe fn teardown_document(&mut self, ctx: &mut ScriptContext<'_>);
 
     /// RAII sugar over [`bind`](Self::bind)/[`unbind`](Self::unbind): binds, runs
     /// `f`, then unbinds **even if `f` panics**. `f` receives the bound engine
@@ -414,6 +449,18 @@ pub trait HostDriver {
     #[must_use]
     fn origin(&self) -> elidex_plugin::SecurityOrigin;
 
+    /// The document's origin as its identity-preserving `storage_origin_key`
+    /// (WHATWG HTML §9.3.3 "Posting messages" gate input): a tuple origin's
+    /// serialization, or the per-VM opaque **sentinel** for an opaque origin
+    /// (never the lossy `"null"`, so distinct opaque origins never alias). This
+    /// is the SAME serialization the send side resolves `targetOrigin` to
+    /// (`ParentMessage.target_origin`, §9.3.3 steps 4-5), so the receive-side
+    /// parent-message gate compares like-for-like by construction. Distinct from
+    /// [`Self::origin`] (a `SecurityOrigin`) and from the DISPLAYED
+    /// `MessageEvent.origin` (where an opaque origin IS `"null"`, §7.1.1).
+    #[must_use]
+    fn storage_origin_key(&self) -> String;
+
     /// Install the sandbox flags for this document's browsing context (the
     /// embedder parses `sandbox=""` → `IframeSandboxFlags`).
     fn set_sandbox_flags(&mut self, flags: Option<elidex_plugin::IframeSandboxFlags>);
@@ -453,6 +500,17 @@ pub trait HostDriver {
     /// Set the iframe nesting depth (the embedder's iframe load path drives it).
     fn set_iframe_depth(&mut self, depth: usize);
 
+    /// The ECS entity backing `globalThis` / `window` (WHATWG HTML §7.2), or
+    /// `None` before the engine has ever bound (the entity is created on first
+    /// bind). Distinct from the Document entity: `window.addEventListener('resize'
+    /// | 'load' | …)` records the listener against THIS entity, so the shell must
+    /// dispatch Window-targeted UA events (e.g. `resize`, CSSOM-View §13.1) at it
+    /// — a `document`-targeted dispatch would miss every `window`-registered
+    /// listener. Falls back to the document entity at the shell dispatch site when
+    /// `None` (pre-bind).
+    #[must_use]
+    fn window_entity(&self) -> Option<Entity>;
+
     // ── page visibility / scroll transport (per-window; S2) ────────────────
     //
     // Visibility is a per-browsing-context UA fact; scroll is per-window
@@ -470,6 +528,17 @@ pub trait HostDriver {
     /// `None` when no script scroll is pending.
     #[must_use]
     fn take_pending_scroll(&mut self) -> Option<(f64, f64)>;
+
+    /// Non-consuming peek at whether a script requested a scroll via
+    /// `window.scrollTo` / `scrollBy` (CSSOM View §4) this turn, WITHOUT draining
+    /// it. The event loop uses this to schedule the render pass (whose drain is
+    /// [`take_pending_scroll`](Self::take_pending_scroll)) on a turn whose only
+    /// visible effect is a scroll: a `scrollTo` moves no DOM-tree version, so the
+    /// tree-delta render-dirty signal would otherwise miss it and the scroll would
+    /// stall until a later render. Peek, don't consume — the render pass remains
+    /// the single drain point.
+    #[must_use]
+    fn has_pending_scroll(&self) -> bool;
 
     /// Push the viewport's current scroll offset into the engine (CSSOM View §4)
     /// so `window.scrollX` / `scrollY` read the live value after a user

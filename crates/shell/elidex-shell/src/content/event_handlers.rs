@@ -4,7 +4,7 @@ use elidex_ecs::ElementState as DomElementState;
 use elidex_form::{FormControlKind, FormControlState, KeyAction};
 use elidex_layout::{hit_test_with_scroll, HitTestQuery};
 use elidex_plugin::{EventPayload, KeyboardEventInit, MouseEventInit, Point};
-use elidex_script_session::DispatchEvent;
+use elidex_script_session::{DispatchEvent, HostDriver};
 
 use crate::app::hover::{apply_hover_diff, collect_hover_chain, update_element_state};
 use crate::app::navigation::resolve_nav_url;
@@ -187,7 +187,7 @@ pub(super) fn handle_click(state: &mut ContentState, click: &crate::ipc::MouseCl
                         // Sandbox allow-popups check (WHATWG HTML §4.8.5):
                         // block popup navigation from sandboxed iframes without
                         // the allow-popups flag.
-                        if !state.pipeline.runtime.bridge().popups_allowed() {
+                        if !state.pipeline.runtime.popups_allowed() {
                             state.send_display_list();
                             return;
                         }
@@ -198,7 +198,7 @@ pub(super) fn handle_click(state: &mut ContentState, click: &crate::ipc::MouseCl
                     }
                     Some("_top" | "_parent")
                         if !elidex_plugin::sandbox::top_navigation_allowed(
-                            state.pipeline.runtime.bridge().sandbox_flags(),
+                            state.pipeline.runtime.sandbox_flags(),
                             true,
                         ) =>
                     {

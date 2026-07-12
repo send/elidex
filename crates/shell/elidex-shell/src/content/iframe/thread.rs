@@ -1,6 +1,7 @@
 //! Cross-origin iframe thread event loop.
 
 use elidex_plugin::Size;
+use elidex_script_session::HostDriver;
 
 use super::types::{BrowserToIframe, IframeToBrowser};
 
@@ -109,9 +110,14 @@ pub(super) fn iframe_thread_main(
             ));
         }
 
-        // Forward postMessage from iframe JS to parent.
-        for (data, origin) in pipeline.runtime.bridge().drain_post_messages() {
-            let _ = channel.send(IframeToBrowser::PostMessage { data, origin });
+        // Forward iframe→parent postMessage intents to the parent, carrying the
+        // resolved §9.3.3 `targetOrigin` key so the parent gate can compare it.
+        for msg in pipeline.runtime.take_pending_parent_messages() {
+            let _ = channel.send(IframeToBrowser::PostMessage {
+                data: msg.data,
+                origin: msg.origin,
+                target_origin: msg.target_origin,
+            });
         }
     }
 }
@@ -217,12 +223,11 @@ fn handle_navigate(
     // document's *initial* scripts already observe the final origin — where
     // previously this re-build precomputed the origin from the *requested* URL
     // (mis-attributing redirected loads) and installed after the scripts ran.
-    let bridge = pipeline.runtime.bridge();
     let inputs = crate::PreEvalFrameInputs {
-        sandbox_flags: bridge.sandbox_flags(),
-        credentialless: bridge.credentialless(),
-        iframe_depth: bridge.iframe_depth(),
-        referrer: bridge.referrer(),
+        sandbox_flags: pipeline.runtime.sandbox_flags(),
+        credentialless: pipeline.credentialless,
+        iframe_depth: pipeline.runtime.iframe_depth(),
+        referrer: pipeline.referrer.clone(),
     };
     // KNOWN-INCOMPLETE (slot #11-oop-iframe-navigate-completeness — a new carve;
     // ledger registration is a landing deliverable). This `Navigate` path has NO

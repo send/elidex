@@ -3,7 +3,7 @@
 use std::rc::Rc;
 use std::sync::Arc;
 
-use elidex_script_session::{HistoryStepEvents, NavigationType};
+use elidex_script_session::{HistoryStepEvents, HostDriver, NavigationType};
 
 use crate::app::navigation::resolve_nav_url;
 use crate::ipc::ContentToBrowser;
@@ -113,7 +113,7 @@ pub(super) fn handle_navigate(
     // service worker. A fragment nav early-returned above; the other skip cases
     // (embed/object destination — §1; shift+reload) are handled by the browser
     // thread for subresource requests.
-    if let Some(sw_scope) = state.pipeline.runtime.bridge().sw_controller_scope() {
+    if let Some(sw_scope) = state.pipeline.runtime.sw_controller_scope() {
         if elidex_api_sw::matches_scope(&sw_scope, url) {
             // Send FetchEvent relay request to browser thread.
             static FETCH_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
@@ -138,7 +138,7 @@ pub(super) fn handle_navigate(
                 keepalive: false,
             };
 
-            let client_id = state.pipeline.runtime.bridge().client_id();
+            let client_id = state.client_id.clone();
             let _ = state
                 .channel
                 .send(crate::ipc::ContentToBrowser::SwFetchRequest {
@@ -193,10 +193,14 @@ pub(super) fn handle_navigate(
 
     match elidex_navigation::load_document(url, &network_handle, request) {
         Ok(loaded) => {
-            // Shut down WebSocket/SSE connections before replacing the pipeline.
-            state.pipeline.runtime.bridge().shutdown_all_realtime();
+            // Document teardown on the OUTGOING pipeline before it is replaced
+            // (cross-document navigation / history-traversal rebuild both funnel
+            // through this single `handle_navigate` chokepoint): force-close
+            // WS/SSE AND terminate dedicated workers (WHATWG HTML §10.2.4 — the
+            // former boa path only closed realtime, leaking workers across a nav).
+            state.pipeline.teardown_document();
             // Preserve cookie jar across navigations.
-            let cookie_jar = state.pipeline.runtime.bridge().cookie_jar_clone();
+            let cookie_jar = state.pipeline.cookie_jar.clone();
             // Rebuild at the tab's CURRENT viewport + device facts (not `DEFAULT`) so
             // the new document's initial scripts + layout see the real
             // `innerWidth`/`@media`/`devicePixelRatio` (C1/C3; the new runtime's JS
@@ -252,6 +256,10 @@ pub(super) fn handle_navigate(
                 network_handle,
                 font_db,
                 cookie_jar,
+                // Re-install the SAME process-wide manager into the rebuilt
+                // document so a cross-document nav keeps same-origin localStorage
+                // persistent + shared (F14).
+                Some(std::sync::Arc::clone(&state.web_storage)),
                 viewport,
                 snapshot.facts,
                 // Top-level document: no frame security (URL-derived origin).
@@ -273,6 +281,15 @@ pub(super) fn handle_navigate(
             // Unconditional — the new document consumed exactly `seq` / `facts_seq`.
             state.applied_viewport_seq = seq;
             state.applied_facts_seq = facts_seq;
+            // Re-base `device_facts` too: the rebuilt pipeline was SEEDED with
+            // `snapshot.facts`, and `applied_facts_seq` now marks that generation
+            // consumed — so an equal-`facts_seq` delivery queued during the
+            // blocking `load_document` is (correctly) dropped as already-applied.
+            // If `state.device_facts` kept the OLD document's value it would then
+            // seed later child-frame loads and be re-pushed to the VM media env by
+            // a subsequent `SetViewport` — stranding a real DPI / color-scheme
+            // change. Anchor it to the same snapshot the pipeline was built from.
+            state.device_facts = snapshot.facts;
             super::scroll::update_viewport_scroll_dimensions(state);
 
             // Move the session-history cursor BEFORE `notify_navigation` below,
@@ -304,10 +321,10 @@ pub(super) fn handle_navigate(
                 HistoryCursorOp::Keep => state.nav_controller.restamp_current_document(),
             }
             state.pipeline.runtime.set_current_url(Some(url.clone()));
-            state
-                .pipeline
-                .runtime
-                .set_history_length(state.nav_controller.len());
+            state.pipeline.runtime.set_session_history(
+                state.nav_controller.current_index(),
+                state.nav_controller.len(),
+            );
             // Restore the persisted scroll onto the freshly-laid-out document, then
             // `re_render` clamps it against the rebuilt content size + echoes
             // `scrollX`/`scrollY`, so the display list `notify_navigation` ships is
@@ -409,10 +426,10 @@ fn same_document_step(
             state.nav_controller.commit_index(*target_index);
         }
     }
-    state
-        .pipeline
-        .runtime
-        .set_history_length(state.nav_controller.len());
+    state.pipeline.runtime.set_session_history(
+        state.nav_controller.current_index(),
+        state.nav_controller.len(),
+    );
     // Resolve the scroll offset BEFORE firing popstate (below) so it reads live
     // geometry unaffected by a popstate handler; the existing document's layout is
     // current (no rebuild). Applied AFTER popstate via the post-layout `re_render`
@@ -447,7 +464,6 @@ fn same_document_step(
     };
     state
         .pipeline
-        .runtime
         .deliver_history_step_events(HistoryStepEvents {
             popstate_state: Some(popstate_state),
             hashchange: None,
@@ -474,7 +490,6 @@ fn same_document_step(
     {
         state
             .pipeline
-            .runtime
             .deliver_history_step_events(HistoryStepEvents {
                 popstate_state: None,
                 hashchange: Some(hashchange),
@@ -861,10 +876,10 @@ fn apply_push_replace_state(
             .pipeline
             .runtime
             .set_current_url(state.pipeline.url.clone());
-        state
-            .pipeline
-            .runtime
-            .set_history_length(state.nav_controller.len());
+        state.pipeline.runtime.set_session_history(
+            state.nav_controller.current_index(),
+            state.nav_controller.len(),
+        );
 
         let title = format!("elidex \u{2014} {resolved_url}");
         state.send_title(title);
@@ -880,10 +895,10 @@ fn apply_push_replace_state(
         }
         state.push_or_replace(current, replace);
         state.nav_controller.set_current_state(serialized_state);
-        state
-            .pipeline
-            .runtime
-            .set_history_length(state.nav_controller.len());
+        state.pipeline.runtime.set_session_history(
+            state.nav_controller.current_index(),
+            state.nav_controller.len(),
+        );
         state.send_navigation_state();
     }
 }

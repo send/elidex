@@ -1,6 +1,6 @@
 //! URL navigation, history actions, and chrome action handling.
 
-use elidex_script_session::{HistoryStepEvents, NavigationType};
+use elidex_script_session::{HistoryStepEvents, HostDriver, NavigationType};
 
 use super::App;
 use super::InteractiveState;
@@ -166,10 +166,10 @@ impl App {
                 }
             }
         }
-        interactive
-            .pipeline
-            .runtime
-            .set_history_length(interactive.nav_controller.len());
+        interactive.pipeline.runtime.set_session_history(
+            interactive.nav_controller.current_index(),
+            interactive.nav_controller.len(),
+        );
         if let Some(state) = &self.render_state {
             state.window.set_title(&interactive.window_title);
         }
@@ -250,10 +250,10 @@ impl App {
                 interactive.nav_controller.commit_index(*target_index);
             }
         }
-        interactive
-            .pipeline
-            .runtime
-            .set_history_length(interactive.nav_controller.len());
+        interactive.pipeline.runtime.set_session_history(
+            interactive.nav_controller.current_index(),
+            interactive.nav_controller.len(),
+        );
         interactive.window_title = format!("elidex \u{2014} {target}");
         interactive.chrome.set_url(target);
         // Resolve the scroll offset against the current (pre-step) layout, BEFORE
@@ -293,7 +293,6 @@ impl App {
         };
         interactive
             .pipeline
-            .runtime
             .deliver_history_step_events(HistoryStepEvents {
                 popstate_state: Some(popstate_state),
                 hashchange: None,
@@ -312,7 +311,6 @@ impl App {
         {
             interactive
                 .pipeline
-                .runtime
                 .deliver_history_step_events(HistoryStepEvents {
                     popstate_state: None,
                     hashchange: Some(hashchange),
@@ -335,10 +333,10 @@ impl App {
         let Some(interactive) = self.interactive.as_mut() else {
             return false;
         };
-        interactive
-            .pipeline
-            .runtime
-            .set_history_length(interactive.nav_controller.len());
+        interactive.pipeline.runtime.set_session_history(
+            interactive.nav_controller.current_index(),
+            interactive.nav_controller.len(),
+        );
         if let Some(state) = &self.render_state {
             state.window.set_title(&interactive.window_title);
         }
@@ -350,6 +348,10 @@ impl App {
     /// Shared by `navigate` and `navigate_to_history_url`.
     /// Returns `true` on success, `false` on error.
     fn load_url_into_pipeline(&mut self, url: &url::Url) -> bool {
+        // Clone the process-wide manager before the `&mut self.interactive` borrow
+        // so the rebuilt (legacy inline) pipeline re-installs the SAME localStorage
+        // backend (F14).
+        let web_storage = std::sync::Arc::clone(&self.web_storage);
         let Some(interactive) = &mut self.interactive else {
             return false;
         };
@@ -357,22 +359,38 @@ impl App {
         let font_db = std::sync::Arc::clone(&interactive.pipeline.font_db);
         match elidex_navigation::load_document(url, &network_handle, None) {
             Ok(loaded) => {
-                let cookie_jar = interactive.pipeline.runtime.bridge().cookie_jar_clone();
+                let cookie_jar = interactive.pipeline.cookie_jar.clone();
                 // Rebuild at the current viewport + device facts, not `DEFAULT`
                 // (C1/C3 — same as the content-thread navigation path). The fresh
                 // document's bridge would default to 1×/Light, so carry the current
                 // facts forward like the cookie jar (legacy inline mode has no
                 // viewport-cell; the bridge is the SoT here).
                 let viewport = interactive.pipeline.viewport;
-                let device_facts = crate::ipc::DeviceFacts {
-                    dppx: interactive.pipeline.runtime.bridge().device_pixel_ratio(),
-                    color_scheme: interactive.pipeline.runtime.bridge().color_scheme(),
-                };
+                // Carry the current facts forward from the shell-owned SoT (B20 — the
+                // getterless VM can no longer answer; inline mode's facts are static
+                // after construction, so the SoT is the seed the pipeline was built with).
+                let device_facts = interactive.device_facts;
+                // Document-destruction boundary (WHATWG HTML §7.1 "destroy a
+                // document"): tear the OUTGOING document down BEFORE constructing +
+                // running the replacement — force-close its live WS/SSE connections
+                // + terminate its workers, then unbind. The per-turn `unbind` keeps
+                // realtime connections alive and the engine-`Drop` backstop skips
+                // the close (it runs unbound, `is_bound()`-gated), so a bare
+                // replacement would LEAK the broker connection. Tearing down BEFORE
+                // the build (not after) means the outgoing document's workers /
+                // sockets never run concurrently with the new document's initial
+                // scripts — mirroring the content-thread path, which unloads the old
+                // document before creating the replacement pipeline. All inputs the
+                // build needs (`network_handle` / `font_db` / `cookie_jar` /
+                // `viewport` / `device_facts`) were cloned out above, so teardown
+                // does not invalidate them.
+                interactive.pipeline.teardown_document();
                 let new_pipeline = crate::build_pipeline_from_loaded(
                     loaded,
                     network_handle,
                     font_db,
                     cookie_jar,
+                    Some(web_storage),
                     viewport,
                     device_facts,
                     // Top-level document: no frame security (URL-derived origin).
@@ -689,10 +707,10 @@ fn apply_state_change(
         .pipeline
         .runtime
         .set_current_url(Some(url.clone()));
-    interactive
-        .pipeline
-        .runtime
-        .set_history_length(interactive.nav_controller.len());
+    interactive.pipeline.runtime.set_session_history(
+        interactive.nav_controller.current_index(),
+        interactive.nav_controller.len(),
+    );
 }
 
 /// URL schemes that must not be navigated to.

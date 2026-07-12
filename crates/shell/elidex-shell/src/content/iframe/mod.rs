@@ -22,9 +22,10 @@ mod types;
 use std::collections::HashMap;
 
 use elidex_ecs::Entity;
+use elidex_script_session::{HostDriver, ParentMessage};
 
 pub(super) use lifecycle::{
-    check_lazy_iframes, detect_iframe_mutations, find_iframe_by_name, navigate_iframe,
+    check_lazy_iframes, find_iframe_by_name, navigate_iframe, rescan_iframes_by_diff,
     scan_initial_iframes,
 };
 // Exposed within `content` for the OOP-path ordering tests
@@ -105,31 +106,48 @@ impl IframeRegistry {
         self.entries.is_empty()
     }
 
-    /// Drain incoming messages from all out-of-process iframes.
+    /// Drain iframe→parent `postMessage`s from ALL iframes, normalising both
+    /// transports onto `Vec<ParentMessage>` so the parent's single §9.3.3 gate
+    /// (`parent_message_allowed`) sees one input shape (One-issue-one-way):
+    /// - OOP: `try_recv` the iframe thread's `IframeToBrowser::PostMessage` (the
+    ///   display-list update is a side effect of the same channel drain);
+    /// - in-process: `take_pending_parent_messages()` off the child pipeline's
+    ///   VM FIFO (§6.1 gap-close — pre-VM this same-origin `parent.postMessage`
+    ///   path was never drained, so the message never reached the parent).
     ///
-    /// Processes `DisplayListReady` messages by updating the cached display list.
-    /// Returns any `PostMessage` messages that need to be delivered to the parent.
-    pub fn drain_oop_messages(&mut self) -> Vec<OopPostMessage> {
-        let mut post_messages = Vec::new();
-        for (entity, entry) in &mut self.entries {
-            if let IframeHandle::OutOfProcess(oop) = &mut entry.handle {
-                while let Ok(msg) = oop.channel.try_recv() {
-                    match msg {
-                        IframeToBrowser::DisplayListReady(dl) => {
-                            oop.display_list = dl;
-                        }
-                        IframeToBrowser::PostMessage { data, origin } => {
-                            post_messages.push(OopPostMessage {
-                                entity: *entity,
+    /// Both feed the same `Vec<ParentMessage>` → the same gate at the parent
+    /// event-loop chokepoint. Returns an owned `Vec` so the `self.entries`
+    /// borrow is released before the parent dispatches (borrow-discipline).
+    pub fn drain_parent_messages(&mut self) -> Vec<ParentMessage> {
+        let mut parent_messages = Vec::new();
+        for entry in self.entries.values_mut() {
+            match &mut entry.handle {
+                IframeHandle::OutOfProcess(oop) => {
+                    while let Ok(msg) = oop.channel.try_recv() {
+                        match msg {
+                            IframeToBrowser::DisplayListReady(dl) => {
+                                oop.display_list = dl;
+                            }
+                            IframeToBrowser::PostMessage {
                                 data,
                                 origin,
-                            });
+                                target_origin,
+                            } => {
+                                parent_messages.push(ParentMessage {
+                                    data,
+                                    origin,
+                                    target_origin,
+                                });
+                            }
                         }
                     }
                 }
+                IframeHandle::InProcess(ip) => {
+                    parent_messages.extend(ip.pipeline.runtime.take_pending_parent_messages());
+                }
             }
         }
-        post_messages
+        parent_messages
     }
 
     /// Shut down all iframes gracefully (WHATWG HTML §7.1.3).
@@ -151,13 +169,6 @@ impl IframeRegistry {
     /// Remove a single entity from the lazy-pending list.
     pub fn remove_lazy_pending(&mut self, entity: Entity) {
         self.lazy_pending.retain(|&e| e != entity);
-    }
-
-    /// Remove a batch of entities from the lazy-pending list.
-    pub fn remove_lazy_pending_batch(&mut self, entities: &std::collections::HashSet<Entity>) {
-        if !entities.is_empty() {
-            self.lazy_pending.retain(|e| !entities.contains(e));
-        }
     }
 
     /// Remove entities from the lazy-pending list by a provided list.
@@ -197,7 +208,14 @@ mod tests {
             needs_render: false,
             cached_display_list: None,
         }));
-        (entity, IframeEntry { handle })
+        (
+            entity,
+            IframeEntry {
+                handle,
+                loaded_src: None,
+                loaded_srcdoc: None,
+            },
+        )
     }
 
     #[test]
@@ -219,7 +237,7 @@ mod tests {
     #[test]
     fn iframe_registry_drain_empty() {
         let mut registry = IframeRegistry::new();
-        let messages = registry.drain_oop_messages();
+        let messages = registry.drain_parent_messages();
         assert!(messages.is_empty());
     }
 

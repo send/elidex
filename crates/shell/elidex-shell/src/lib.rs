@@ -40,21 +40,23 @@ use std::sync::Arc;
 
 use elidex_css::Stylesheet;
 use elidex_css_anim::engine::AnimationEngine;
-use elidex_dom_compat::{get_presentational_hints, legacy_ua_stylesheet};
+use elidex_dom_compat::{
+    get_presentational_hints, legacy_ua_stylesheet, parse_compat_stylesheet_with_registry,
+};
 use elidex_ecs::EcsDom;
 use elidex_ecs::Entity;
-use elidex_js_boa::JsRuntime;
+use elidex_js::ElidexJsEngine;
 use elidex_layout::layout_tree;
 use elidex_plugin::{EngineMode, Size, Vector, ViewportOverflow};
 use elidex_render::{build_display_list_with_scroll, DisplayList};
-use elidex_script_session::{ScriptContext, SessionCore};
+use elidex_script_session::{HostDriver, ScriptContext, ScriptEngine, SessionCore};
 use elidex_style::resolve_styles_with_compat;
 use elidex_text::FontDatabase;
 use winit::event_loop::EventLoop;
 
 use animation::{
     apply_active_animations, collect_computed_without_anim, collect_old_anim_styles,
-    detect_and_start_transitions, sync_css_animations,
+    detect_and_start_transitions, register_keyframes_from_stylesheets, sync_css_animations,
 };
 
 use app::App;
@@ -82,239 +84,6 @@ pub enum WakeEvent {
 /// `EventLoopProxy`. Each content thread owns its own boxed closure (built from a
 /// cloned `EventLoopProxy<WakeEvent>` in the browser half), so `Send` suffices.
 pub type WakeHandle = Box<dyn Fn() + Send>;
-
-/// Convert parsed `Stylesheet`s into lightweight `CssomSheet` representations
-/// suitable for the JS bridge.
-///
-/// Each CSS rule's selectors and declarations are serialized to strings so the
-/// CSSOM JS layer can expose them without depending on the CSS parser.
-fn stylesheets_to_cssom(sheets: &[Stylesheet]) -> Vec<elidex_js_boa::bridge::CssomSheet> {
-    sheets
-        .iter()
-        .map(|sheet| {
-            let rules = sheet
-                .rules
-                .iter()
-                // Flattened `@media` rules (non-empty `media_conditions`) are not
-                // surfaced as top-level CSSOM rules until `CSSMediaRule` lands
-                // (`#11-css-media-rule`) — they must not leak in as bogus
-                // unwrapped rules. Matches the dom-api `cssom_sheet` view.
-                .filter(|rule| rule.media_conditions.is_empty())
-                .map(|rule| {
-                    let selector_text = rule
-                        .selectors
-                        .iter()
-                        .map(selector_to_css_string)
-                        .collect::<Vec<_>>()
-                        .join(", ");
-                    let declarations = rule
-                        .declarations
-                        .iter()
-                        .map(|d| (d.property.clone(), d.value.to_css_string()))
-                        .collect();
-                    elidex_js_boa::bridge::CssomRule {
-                        selector_text,
-                        declarations,
-                    }
-                })
-                .collect();
-            elidex_js_boa::bridge::CssomSheet { rules }
-        })
-        .collect()
-}
-
-/// Serialize a `Selector` to its CSS text representation.
-fn selector_to_css_string(selector: &elidex_css::Selector) -> String {
-    use elidex_css::SelectorComponent;
-
-    // Selectors are stored right-to-left for matching; serialize left-to-right.
-    let components: Vec<&SelectorComponent> = selector.components.iter().rev().collect();
-    let mut parts = Vec::new();
-
-    for comp in &components {
-        match comp {
-            SelectorComponent::Universal => parts.push("*".to_string()),
-            SelectorComponent::Tag(tag) => parts.push(tag.clone()),
-            SelectorComponent::Class(cls) => parts.push(format!(".{cls}")),
-            SelectorComponent::Id(id) => parts.push(format!("#{id}")),
-            SelectorComponent::Descendant => parts.push(" ".to_string()),
-            SelectorComponent::Child => parts.push(" > ".to_string()),
-            SelectorComponent::AdjacentSibling => parts.push(" + ".to_string()),
-            SelectorComponent::GeneralSibling => parts.push(" ~ ".to_string()),
-            SelectorComponent::PseudoClass(name) => parts.push(format!(":{name}")),
-            SelectorComponent::Attribute { name, matcher } => {
-                parts.push(format_attribute_selector(name, matcher.as_ref()));
-            }
-            SelectorComponent::Not(inner) => {
-                let inner_str = inner
-                    .iter()
-                    .rev()
-                    .map(selector_component_to_string)
-                    .collect::<String>();
-                parts.push(format!(":not({inner_str})"));
-            }
-            _ => {
-                // Future selector components — serialize as empty to avoid panics.
-            }
-        }
-    }
-
-    if let Some(pseudo) = &selector.pseudo_element {
-        match pseudo {
-            elidex_css::PseudoElement::Before => parts.push("::before".to_string()),
-            elidex_css::PseudoElement::After => parts.push("::after".to_string()),
-        }
-    }
-
-    parts.join("")
-}
-
-/// Serialize a single `SelectorComponent` to a CSS string fragment.
-fn selector_component_to_string(comp: &elidex_css::SelectorComponent) -> String {
-    use elidex_css::SelectorComponent;
-    match comp {
-        SelectorComponent::Universal => "*".to_string(),
-        SelectorComponent::Tag(tag) => tag.clone(),
-        SelectorComponent::Class(cls) => format!(".{cls}"),
-        SelectorComponent::Id(id) => format!("#{id}"),
-        SelectorComponent::PseudoClass(name) => format!(":{name}"),
-        SelectorComponent::Attribute { name, matcher } => {
-            format_attribute_selector(name, matcher.as_ref())
-        }
-        _ => String::new(),
-    }
-}
-
-/// Serialize an attribute selector to CSS text.
-fn format_attribute_selector(name: &str, matcher: Option<&elidex_css::AttributeMatcher>) -> String {
-    use elidex_css::AttributeMatcher;
-    match matcher {
-        None => format!("[{name}]"),
-        Some(m) => {
-            let (op, val) = match m {
-                AttributeMatcher::Exact(v) => ("=", v.as_str()),
-                AttributeMatcher::Includes(v) => ("~=", v.as_str()),
-                AttributeMatcher::DashMatch(v) => ("|=", v.as_str()),
-                AttributeMatcher::Prefix(v) => ("^=", v.as_str()),
-                AttributeMatcher::Suffix(v) => ("$=", v.as_str()),
-                AttributeMatcher::Substring(v) => ("*=", v.as_str()),
-            };
-            let escaped = elidex_plugin::escape_css_string(val);
-            format!("[{name}{op}\"{escaped}\"]")
-        }
-    }
-}
-
-/// Sync stylesheet data to the JS bridge for CSSOM access.
-///
-/// Call this after pipeline initialization and after any stylesheet mutation
-/// so that `document.styleSheets` reflects the current state.
-fn sync_stylesheets_to_bridge(runtime: &JsRuntime, stylesheets: &[Stylesheet]) {
-    let cssom_sheets = stylesheets_to_cssom(stylesheets);
-    runtime.bridge().set_stylesheets(cssom_sheets);
-}
-
-/// Map a CSSOM `cssRules` index (visible/unconditional rules only — flattened
-/// `@media` rules are not surfaced until `CSSMediaRule` lands,
-/// `#11-css-media-rule`) to the actual index into `Stylesheet::rules`. Returns
-/// `rules.len()` for an append (`cssom_index == visible count`). Mirrors the
-/// dom-api `cssom_sheet` view + `stylesheets_to_cssom`'s filter, so the boa
-/// CSSOM index space and the underlying rule list stay aligned when `@media`
-/// rules are interleaved. (Dies with the boa path at the S5 cutover.)
-fn cssom_actual_rule_index(rules: &[elidex_css::CssRule], cssom_index: usize) -> usize {
-    rules
-        .iter()
-        .enumerate()
-        .filter(|(_, r)| r.media_conditions.is_empty())
-        .nth(cssom_index)
-        .map_or(rules.len(), |(actual, _)| actual)
-}
-
-/// Count of CSSOM-visible (unconditional) rules — the bounds for boa
-/// `insertRule`/`deleteRule` indices (flattened `@media` rules are excluded; see
-/// [`cssom_actual_rule_index`]).
-fn cssom_visible_count(rules: &[elidex_css::CssRule]) -> usize {
-    rules
-        .iter()
-        .filter(|r| r.media_conditions.is_empty())
-        .count()
-}
-
-/// Apply CSSOM mutations (insertRule/deleteRule) to real `Stylesheet` objects.
-///
-/// Parses rule text using the CSS parser and inserts/deletes rules at the
-/// specified positions. Invalid indices or unparseable rules are silently
-/// skipped (matching browser behavior for error recovery). Indices are in the
-/// CSSOM-visible space (excludes flattened `@media` rules) — see
-/// [`cssom_actual_rule_index`].
-fn apply_cssom_mutations(
-    stylesheets: &mut [Stylesheet],
-    mutations: &[elidex_js_boa::bridge::CssomMutation],
-    registry: &elidex_plugin::CssPropertyRegistry,
-) {
-    // Track which sheets were modified for batched source_order recomputation.
-    let mut dirty_sheets = std::collections::HashSet::new();
-
-    for mutation in mutations {
-        match mutation {
-            elidex_js_boa::bridge::CssomMutation::InsertRule {
-                sheet_index,
-                rule_index,
-                rule_text,
-            } => {
-                let Some(sheet) = stylesheets.get_mut(*sheet_index) else {
-                    continue;
-                };
-                if *rule_index > cssom_visible_count(&sheet.rules) {
-                    continue;
-                }
-                let parsed = elidex_css::parse_stylesheet_with_registry(
-                    rule_text,
-                    sheet.origin,
-                    Some(registry),
-                );
-                if let Some(mut rule) = parsed.rules.into_iter().next() {
-                    // Reject an `@media`-conditioned insert (the parsed rule
-                    // carries a non-empty `media_conditions` chain), matching the
-                    // dom-api path's `parse_single_rule` rejection — a
-                    // `CSSMediaRule` insert is deferred (`#11-css-media-rule`).
-                    // Without this, the rule would be filtered out of `cssRules`
-                    // yet still affect rendering and resist `deleteRule` — an
-                    // inconsistent, un-addressable mutation. Skipping restores the
-                    // pre-`@media`-retention no-op for `insertRule("@media …")`.
-                    if rule.media_conditions.is_empty() {
-                        rule.source_order = 0;
-                        let actual = cssom_actual_rule_index(&sheet.rules, *rule_index);
-                        sheet.rules.insert(actual, rule);
-                        dirty_sheets.insert(*sheet_index);
-                    }
-                }
-            }
-            elidex_js_boa::bridge::CssomMutation::DeleteRule {
-                sheet_index,
-                rule_index,
-            } => {
-                let Some(sheet) = stylesheets.get_mut(*sheet_index) else {
-                    continue;
-                };
-                if *rule_index < cssom_visible_count(&sheet.rules) {
-                    let actual = cssom_actual_rule_index(&sheet.rules, *rule_index);
-                    sheet.rules.remove(actual);
-                    dirty_sheets.insert(*sheet_index);
-                }
-            }
-        }
-    }
-
-    // Batch recompute source_order for modified sheets (O(n) per sheet, not per mutation).
-    for &idx in &dirty_sheets {
-        if let Some(sheet) = stylesheets.get_mut(idx) {
-            for (i, r) in sheet.rules.iter_mut().enumerate() {
-                r.source_order = u32::try_from(i).unwrap_or(u32::MAX);
-            }
-        }
-    }
-}
 
 /// Build the CSS property registry with all standard property handlers.
 ///
@@ -436,8 +205,8 @@ pub struct PipelineResult {
     pub document: Entity,
     /// The script session state.
     pub session: SessionCore,
-    /// The JavaScript runtime.
-    pub runtime: JsRuntime,
+    /// The JavaScript runtime (S5-6b flip: boa `JsRuntime` → VM `ElidexJsEngine`).
+    pub runtime: ElidexJsEngine,
     /// All parsed CSS stylesheets.
     pub stylesheets: Vec<Stylesheet>,
     /// The font database (shared across navigations to avoid re-scanning).
@@ -447,6 +216,26 @@ pub struct PipelineResult {
     /// Network handle for communicating with the Network Process broker.
     /// `disconnected()` when no broker is available (standalone tests).
     pub network_handle: Rc<elidex_net::broker::NetworkHandle>,
+    /// The document's cookie jar (a shared cross-cutting session resource,
+    /// CLAUDE.md side-store exception (b)) — retained shell-side so navigation /
+    /// iframe builds thread it into the next pipeline WITHOUT reading it back
+    /// through the engine (the `HostDriver` trait has `install_cookie_jar` but
+    /// deliberately no getter). B18.
+    pub cookie_jar: Option<Arc<elidex_net::CookieJar>>,
+    /// Whether this frame is a `credentialless` iframe — a browsing-context
+    /// config (CLAUDE.md side-store exception (b)), NOT a VM-observable fact: the
+    /// VM has no `credentialless()` getter (its opaque-origin behaviour derives
+    /// from `set_origin`, S5-4b). Retained shell-side (the B18 cookie_jar
+    /// precedent) to feed the OOP `Navigate` rebuild's `PreEvalFrameInputs`.
+    /// `false` on a top-level document. (B19)
+    pub credentialless: bool,
+    /// The document's navigation referrer (an iframe's parent document URL,
+    /// §7.4.2). The `HostDriver` trait has a `set_navigation_referrer` setter but
+    /// deliberately NO getter (the shell-owned-config pattern: B18 cookie_jar /
+    /// B20 device-facts), so the shell retains the value here to feed the OOP
+    /// `Navigate` rebuild rather than reading it back. `None` on a top-level
+    /// document / no referrer.
+    pub referrer: Option<url::Url>,
     /// Keeps the broker thread alive for standalone pipelines.
     /// `None` when the App owns the broker (normal tab mode).
     #[allow(dead_code)]
@@ -485,21 +274,263 @@ impl PipelineResult {
     /// Dispatch a DOM event through the propagation path.
     ///
     /// Returns `true` if `preventDefault()` was called.
+    ///
+    /// S5-6b batch-bind bracket (§4.1 "UA / lifecycle event dispatch"): build
+    /// `ScriptContext` ONCE, bind through it, drive `script_dispatch_event`
+    /// under the SAME `&mut ctx`, unbind. `with_bound`'s RAII guard makes the
+    /// bracket panic-safe and unpaired-form-unrepresentable. The driving-order
+    /// invariant (never reconstruct `ScriptContext::new(&mut dom,…)` mid-bracket
+    /// — a fresh `&mut dom` invalidates the bound `*mut dom`) is held by
+    /// threading the single `ctx` the closure receives.
+    ///
+    /// The post-dispatch microtask + CE-reaction checkpoint (HTML §8.1.4.4
+    /// *clean up after running script*) is owned by `script_dispatch_event`
+    /// itself (it calls `drain_reactions` after the 3-phase listener walk), so
+    /// this method must NOT drain again — a second checkpoint would run tasks a
+    /// reaction queued (e.g. a `postMessage`) in THIS dispatch turn instead of
+    /// the next one, perturbing observable ordering.
+    #[allow(unsafe_code)]
     pub fn dispatch_event(&mut self, event: &mut elidex_script_session::DispatchEvent) -> bool {
         let mut ctx = ScriptContext::new(&mut self.session, &mut self.dom, self.document);
-        elidex_script_session::script_dispatch_event(&mut self.runtime, event, &mut ctx)
+        // SAFETY: `ctx` outlives the bracket and neither this method nor the
+        // trait methods touch `ctx.session` / `ctx.dom` through a `&mut` while
+        // bound (they use the bound pointers) — the `with_bound` contract.
+        unsafe {
+            self.runtime.with_bound(&mut ctx, |engine, ctx| {
+                elidex_script_session::script_dispatch_event(engine, event, ctx)
+            })
+        }
     }
 
-    /// Evaluate a JavaScript source string.
+    /// Evaluate a JavaScript source string (bracketed, §4.1).
+    #[allow(unsafe_code)]
     pub fn eval_script(&mut self, source: &str) -> elidex_script_session::EvalResult {
         let mut ctx = ScriptContext::new(&mut self.session, &mut self.dom, self.document);
-        elidex_script_session::ScriptEngine::eval(&mut self.runtime, source, &mut ctx)
+        // SAFETY: see `dispatch_event` — the `with_bound` unaliased contract.
+        unsafe {
+            self.runtime
+                .with_bound(&mut ctx, |engine, ctx| engine.eval(source, ctx))
+        }
     }
 
-    /// Drain and execute all ready timers.
+    /// Drain and execute all ready timers (bracketed, §4.1).
+    #[allow(unsafe_code)]
     pub fn drain_timers(&mut self) -> Vec<elidex_script_session::EvalResult> {
         let mut ctx = ScriptContext::new(&mut self.session, &mut self.dom, self.document);
-        elidex_script_session::ScriptEngine::drain_timers(&mut self.runtime, &mut ctx)
+        // SAFETY: see `dispatch_event` — the `with_bound` unaliased contract.
+        unsafe {
+            self.runtime
+                .with_bound(&mut ctx, elidex_script_session::ScriptEngine::drain_timers)
+        }
+    }
+
+    /// Deliver a batch of flushed `MutationRecord`s to the engine and drain
+    /// the resulting custom-element reactions, in ONE batch bracket (§4.1 +
+    /// §4.3.1).
+    ///
+    /// `deliver_mutation_records` runs the record→CE enqueue (S5-6b §4.3.1,
+    /// the single `elidex_custom_elements` classification) followed by
+    /// `MutationObserver` delivery; `drain_reactions` then drains the CE queue
+    /// (callbacks the enqueue produced). Both are assume-bound, so they run
+    /// inside the `with_bound` bracket. `records` is external data (the flush
+    /// output) — the driving-order invariant only forbids touching
+    /// `ctx.session` / `ctx.dom` while bound, which neither method does.
+    #[allow(unsafe_code)]
+    fn deliver_records_and_drain(&mut self, records: &[elidex_script_session::MutationRecord]) {
+        let mut ctx = ScriptContext::new(&mut self.session, &mut self.dom, self.document);
+        // SAFETY: see `dispatch_event` — the `with_bound` unaliased contract.
+        // `records` is owned outside the bracket and does not alias `ctx`.
+        unsafe {
+            self.runtime.with_bound(&mut ctx, |engine, ctx| {
+                engine.deliver_mutation_records(records);
+                engine.drain_reactions(ctx);
+            });
+        }
+    }
+
+    /// Flush every dirty `<canvas>` into its display-list source (HTML §4.12.5),
+    /// in ONE batch bracket (§4.1). Bracketed because `sync_dirty_canvases` is
+    /// assume-bound (it reads the bound `EcsDom` to reach each canvas's backing
+    /// store). `drain_reactions` follows the bracket contract — a canvas sync
+    /// fires no JS itself, so the checkpoint is a no-op on an empty queue, but it
+    /// keeps the post-deliver microtask/CE-reaction drain uniform with
+    /// `dispatch_event` / `deliver_records_and_drain`.
+    #[allow(unsafe_code)]
+    pub fn sync_dirty_canvases(&mut self) {
+        let mut ctx = ScriptContext::new(&mut self.session, &mut self.dom, self.document);
+        // SAFETY: see `dispatch_event` — the `with_bound` unaliased contract.
+        unsafe {
+            self.runtime.with_bound(&mut ctx, |engine, ctx| {
+                engine.sync_dirty_canvases();
+                engine.drain_reactions(ctx);
+            });
+        }
+    }
+
+    /// Non-consuming peek at whether any `<canvas>` is dirty — the render-dirty
+    /// signal for a turn whose only visible effect is a canvas draw. A draw
+    /// inserts a `CanvasDirty` marker (HTML §4.12.5) but bumps no DOM-tree
+    /// version, so the event loop's tree-delta render-dirty check would miss it;
+    /// the loop peeks this to schedule `re_render` (whose drain is
+    /// [`sync_dirty_canvases`](Self::sync_dirty_canvases)). Peek, don't consume —
+    /// `re_render` stays the single drain point. Reads the pipeline's own `dom`
+    /// directly (not through a `with_bound` bracket): the marker is a plain
+    /// component read, no JS runs.
+    #[must_use]
+    pub fn has_dirty_canvas(&self) -> bool {
+        elidex_api_canvas::has_dirty_canvas(&self.dom)
+    }
+
+    /// Deliver the queued `ResizeObserver` + `IntersectionObserver` callbacks in
+    /// ONE batch bracket (§4.1 "no per-channel brackets" for the contiguous
+    /// pair). Both are assume-bound (they read the bound state — intersection
+    /// reads the viewport from it, no longer a passed `Rect`) and fire in this
+    /// spec order (resize before intersection). `drain_reactions` follows the
+    /// bracket contract, draining the microtask + CE reactions the observer
+    /// callbacks produced.
+    #[allow(unsafe_code)]
+    pub fn deliver_layout_observations(&mut self) {
+        let mut ctx = ScriptContext::new(&mut self.session, &mut self.dom, self.document);
+        // SAFETY: see `dispatch_event` — the `with_bound` unaliased contract.
+        unsafe {
+            self.runtime.with_bound(&mut ctx, |engine, ctx| {
+                engine.deliver_resize_observations();
+                engine.deliver_intersection_observations();
+                engine.drain_reactions(ctx);
+            });
+        }
+    }
+
+    /// Fire `versionchange` at this engine's open IndexedDB connections to
+    /// `db_name` (IndexedDB-3 §4.2), in ONE batch bracket (§4.1). Assume-bound
+    /// (it reaches the bound VM's open connections); `drain_reactions` follows
+    /// the bracket contract, draining the microtask + CE reactions the
+    /// `versionchange` handler produced.
+    #[allow(unsafe_code)]
+    pub fn deliver_idb_versionchange(
+        &mut self,
+        db_name: &str,
+        old_version: u64,
+        new_version: Option<u64>,
+    ) {
+        let mut ctx = ScriptContext::new(&mut self.session, &mut self.dom, self.document);
+        // SAFETY: see `dispatch_event` — the `with_bound` unaliased contract.
+        // `db_name` is borrowed external data and does not alias `ctx`.
+        unsafe {
+            self.runtime.with_bound(&mut ctx, |engine, ctx| {
+                engine.deliver_idb_versionchange(db_name, old_version, new_version);
+                engine.drain_reactions(ctx);
+            });
+        }
+    }
+
+    /// Deliver a Service Worker client update from the shell coordinator to the
+    /// window-realm `navigator.serviceWorker` client (the browser→content
+    /// direction of the DR-B back-channel, WHATWG SW §3.1/§3.4). Settles
+    /// `register()`/`update()`/`unregister()` promises and fires
+    /// `statechange`/`updatefound`/`controllerchange`/`message`, in ONE bracket.
+    #[allow(unsafe_code)]
+    pub fn deliver_sw_client_update(&mut self, update: elidex_api_sw::SwClientUpdate) {
+        let mut ctx = ScriptContext::new(&mut self.session, &mut self.dom, self.document);
+        // SAFETY: see `dispatch_event` — the `with_bound` unaliased contract.
+        // `update` is owned external data and does not alias `ctx`.
+        unsafe {
+            self.runtime.with_bound(&mut ctx, |engine, ctx| {
+                engine.deliver_sw_client_update(update);
+                engine.drain_reactions(ctx);
+            });
+        }
+    }
+
+    /// Deliver any parent-side dedicated/shared worker `postMessage`s that
+    /// arrived since the last turn, in ONE batch bracket (§4.1). Assume-bound
+    /// (it dispatches at the bound VM's `Worker` objects); `drain_reactions`
+    /// follows the bracket contract, draining the microtask + CE reactions the
+    /// `message` handlers produced.
+    #[allow(unsafe_code)]
+    pub fn drain_worker_messages(&mut self) {
+        let mut ctx = ScriptContext::new(&mut self.session, &mut self.dom, self.document);
+        // SAFETY: see `dispatch_event` — the `with_bound` unaliased contract.
+        unsafe {
+            self.runtime.with_bound(&mut ctx, |engine, ctx| {
+                engine.drain_worker_messages();
+                engine.drain_reactions(ctx);
+            });
+        }
+    }
+
+    /// Release this document's browsing-context-scoped resources (force-close
+    /// WS/SSE connections + terminate dedicated workers) at a document-
+    /// destruction boundary — shutdown / cross-document navigation / pipeline
+    /// replacement. Bracketless: `HostDriver::teardown_document` manages its own
+    /// bind/unbind (it is terminal, not a per-turn deliver helper). Idempotent.
+    #[allow(unsafe_code)]
+    pub fn teardown_document(&mut self) {
+        let mut ctx = ScriptContext::new(&mut self.session, &mut self.dom, self.document);
+        // SAFETY: `ctx` borrows `self.session` / `self.dom` exclusively for this
+        // call and nothing else accesses them meanwhile — the `with_bound`
+        // unaliased contract, upheld here because the call is synchronous and
+        // terminal.
+        unsafe {
+            self.runtime.teardown_document(&mut ctx);
+        }
+    }
+
+    /// Advance the network/event-loop turn for THIS document, in ONE batch
+    /// bracket (§4.1): settle resolved `fetch()` promises, dispatch
+    /// `WebSocket` / `EventSource` messages, and run a microtask checkpoint —
+    /// the engine-native fused step. Assume-bound (it dispatches at the bound
+    /// VM's realtime wrappers); `drain_reactions` follows the bracket contract,
+    /// draining the microtask + CE reactions the message handlers produced.
+    #[allow(unsafe_code)]
+    pub fn tick_network(&mut self) {
+        let mut ctx = ScriptContext::new(&mut self.session, &mut self.dom, self.document);
+        // SAFETY: see `dispatch_event` — the `with_bound` unaliased contract.
+        unsafe {
+            self.runtime.with_bound(&mut ctx, |engine, ctx| {
+                engine.tick_network();
+                engine.drain_reactions(ctx);
+            });
+        }
+    }
+
+    /// Deliver the popstate / hashchange of a same-document history-step
+    /// application (WHATWG HTML §7.4.6.2), in ONE batch bracket (§4.1).
+    /// Assume-bound (it fires at the bound VM's `Window` and reconstructs
+    /// `history.state`); it was previously called UNBRACKETED and so was a
+    /// silent no-op. `drain_reactions` follows the bracket contract, draining
+    /// the microtask + CE reactions the popstate/hashchange handlers produced.
+    #[allow(unsafe_code)]
+    pub fn deliver_history_step_events(&mut self, ev: elidex_script_session::HistoryStepEvents) {
+        let mut ctx = ScriptContext::new(&mut self.session, &mut self.dom, self.document);
+        // SAFETY: see `dispatch_event` — the `with_bound` unaliased contract.
+        // `ev` is owned external data and does not alias `ctx`.
+        unsafe {
+            self.runtime.with_bound(&mut ctx, |engine, ctx| {
+                engine.deliver_history_step_events(ev);
+                engine.drain_reactions(ctx);
+            });
+        }
+    }
+
+    /// Run the CSSOM-View §4.2 "evaluate media queries and report changes" pass and
+    /// fire `change` at flipped `MediaQueryList`s, in ONE batch bracket (§4.1). The
+    /// media sibling of [`deliver_layout_observations`](Self::deliver_layout_observations):
+    /// the shell pushes the environment via `set_media_environment` (outside any
+    /// bracket), then calls this once per update-the-rendering step to report flips.
+    /// Assume-bound (it re-evaluates the bound VM's live `MediaQueryList`s);
+    /// `drain_reactions` follows the bracket contract, draining the microtask + CE
+    /// reactions the `change` handlers produced.
+    #[allow(unsafe_code)]
+    pub fn deliver_media_query_changes(&mut self) {
+        let mut ctx = ScriptContext::new(&mut self.session, &mut self.dom, self.document);
+        // SAFETY: see `dispatch_event` — the `with_bound` unaliased contract.
+        unsafe {
+            self.runtime.with_bound(&mut ctx, |engine, ctx| {
+                engine.deliver_media_query_changes();
+                engine.drain_reactions(ctx);
+            });
+        }
     }
 
     /// Remove animation/transition state for entities that no longer exist in the DOM.
@@ -518,50 +549,43 @@ impl PipelineResult {
 /// transitions, feeds them to the `AnimationEngine`, and applies animated
 /// values to `ComputedStyle` before layout.
 ///
-/// Returns the mutation records from the flush, for observer dispatch.
-pub(crate) fn re_render(result: &mut PipelineResult) -> Vec<elidex_script_session::MutationRecord> {
-    // Apply pending CSSOM mutations (insertRule/deleteRule) to real stylesheets.
-    let cssom_mutations = result.runtime.bridge().take_cssom_mutations();
-    if !cssom_mutations.is_empty() {
-        apply_cssom_mutations(&mut result.stylesheets, &cssom_mutations, &result.registry);
-        // Re-sync the bridge representation after applying mutations.
-        sync_stylesheets_to_bridge(&result.runtime, &result.stylesheets);
-    }
-
-    // Flush applies buffered mutations to the DOM and enqueue CE reactions.
-    // `flush` returns a flat record stream (a childList move yields two records).
+/// The flush record stream is delivered + consumed INTERNALLY (observers + CE via
+/// `deliver_records_and_drain`, ancestor-cache invalidation, focus reconciliation);
+/// it is no longer returned. The shell's former record consumers (focusable-cache
+/// invalidation, iframe add/remove detection) moved to the §4.3.8 version-delta
+/// (`ContentState::last_render_dom_version`), because under the VM flip this flush
+/// is usually EMPTY — VM-native mutations write the `EcsDom` directly and never
+/// enter `SessionCore::pending`, so a record stream would starve those consumers.
+pub(crate) fn re_render(result: &mut PipelineResult) {
+    // Flush applies buffered mutations to the DOM. `flush` runs OUTSIDE any
+    // batch bracket — it takes `&mut dom`, which the bound `*mut dom` aliasing
+    // contract forbids overlapping (§4.1). It returns a flat record stream (a
+    // childList move yields two records).
+    //
+    // S5-6b §4.3.1 CE-loop dissolve: under the VM, `session.flush` is usually
+    // EMPTY — VM-native mutations write the `EcsDom` immediately via `apply_*`,
+    // settle CE inside the VM's own checkpoints (the bind-installed dispatcher +
+    // `flush_ce_reactions`), and queue their observer records internally, so
+    // they never enter `SessionCore::pending`. The flushed records are the
+    // EXTERNAL (shell-buffered / layout-derived) case; each bracketed
+    // `deliver_mutation_records` runs the record→CE enqueue (the single
+    // `elidex_custom_elements` classification) + `MutationObserver` delivery,
+    // and `drain_reactions` drains the CE reactions those callbacks produce. CE
+    // callbacks may record further mutations, so re-flush (unbound) → bracket
+    // until stable, bounded.
     let mut mutation_records: Vec<elidex_script_session::MutationRecord> =
         result.session.flush(&mut result.dom);
 
-    // Enqueue and drain CE reactions for any custom elements affected by mutations.
-    // CE callbacks may trigger additional mutations, so loop until stable (bounded).
     if !mutation_records.is_empty() {
-        result
-            .runtime
-            .enqueue_ce_reactions_from_mutations(&mutation_records, &result.dom);
-        result.runtime.drain_custom_element_reactions_public(
-            &mut result.session,
-            &mut result.dom,
-            result.document,
-        );
+        result.deliver_records_and_drain(&mutation_records);
 
-        // Re-flush: CE callbacks may have recorded new mutations.
-        // Bounded to prevent infinite loops from mutually-triggering callbacks.
         for round in 0..MAX_CE_STABILIZATION_ROUNDS {
             let follow_up: Vec<_> = result.session.flush(&mut result.dom);
             if follow_up.is_empty() {
                 break;
             }
-            // Only process NEW records (not previously-handled ones).
-            result
-                .runtime
-                .enqueue_ce_reactions_from_mutations(&follow_up, &result.dom);
+            result.deliver_records_and_drain(&follow_up);
             mutation_records.extend(follow_up);
-            result.runtime.drain_custom_element_reactions_public(
-                &mut result.session,
-                &mut result.dom,
-                result.document,
-            );
             if round == MAX_CE_STABILIZATION_ROUNDS - 1 {
                 eprintln!(
                     "[CE] stabilization loop hit max rounds ({MAX_CE_STABILIZATION_ROUNDS}); \
@@ -597,9 +621,14 @@ pub(crate) fn re_render(result: &mut PipelineResult) -> Vec<elidex_script_sessio
     // reflected in `:focus` styling, form-control caret state and the display
     // list this same frame — otherwise the render builder (which reads
     // `ElementState::FOCUS`) would paint stale `:focus` for a frame after
-    // `activeElement` was already cleared, with nothing scheduling a repair. Also
-    // before observer delivery, so a `MutationObserver` callback sees the
-    // reconciled `activeElement`.
+    // `activeElement` was already cleared, with nothing scheduling a repair. This
+    // is the asynchronous "update the rendering" step-17 focus fixup, so it runs
+    // AFTER observer delivery (this frame's `deliver_records_and_drain` above):
+    // a `MutationObserver` callback — delivered at the earlier microtask
+    // checkpoint (VM-native records) or via that preceding
+    // `deliver_records_and_drain` (external records) — legitimately observes the
+    // pre-fixup holder as `activeElement`, matching `elidex_dom_api::focus` SoT
+    // (`focus/sot.rs`) and HTML "update the rendering" step 17.
     if !mutation_records.is_empty() {
         elidex_dom_api::focus::reconcile_focus(&mut result.dom, result.document);
     }
@@ -611,7 +640,44 @@ pub(crate) fn re_render(result: &mut PipelineResult) -> Vec<elidex_script_sessio
     let old_computed_no_anim = collect_computed_without_anim(&result.dom);
 
     // Phase 2: Re-resolve styles.
-    let stylesheet_refs: Vec<&Stylesheet> = result.stylesheets.iter().collect();
+    //
+    // DOM-as-truth CSSOM (S5-6 §4.2): re-collect the cascade-input stylesheets
+    // from the live DOM's `<style>` / loaded `<link rel="stylesheet">` owners
+    // every frame instead of reading a shell-side shadow copy. The VM's
+    // `insertRule` / `deleteRule` write back to those owner sources
+    // (`elidex-dom-api::cssom_sheet`), and this re-collection picks the changed
+    // owners up (version-compared, re-parsing only what diverged) — the
+    // replacement for the deleted boa CSSOM shadow-sync. The compat/registry
+    // parser is dependency-injected (F3) so vendor-prefix normalisation +
+    // `transition-*`/`animation-*` handler dispatch survive a script re-parse,
+    // matching the build-time cascade's `parse_compat_stylesheet_with_registry`.
+    let registry = &result.registry;
+    let collected =
+        elidex_dom_api::collect_document_stylesheets(result.document, &mut result.dom, |css| {
+            std::sync::Arc::new(parse_compat_stylesheet_with_registry(
+                css,
+                elidex_css::Origin::Author,
+                Some(registry),
+            ))
+        });
+    let stylesheet_refs: Vec<&Stylesheet> =
+        collected.iter().map(std::convert::AsRef::as_ref).collect();
+
+    // Re-register `@keyframes` from the re-collected sheets into the engine.
+    // `result.animation_engine` was seeded with the construction-time keyframe
+    // set; a stylesheet mutation this frame (script `insertRule`, an injected
+    // `<style>`, a newly-loaded `<link>`) can define an `@keyframes` the engine
+    // has never seen. Without this, `sync_css_animations` (below) would see the
+    // new `animation-name` on an element but skip it because
+    // `get_keyframes(name).is_none()`, so a `@keyframes foo` + `animation-name:
+    // foo` added in the same turn would never start. `prune_unused_keyframes`
+    // ran earlier this frame; re-adding every currently-collected rule via the
+    // idempotent, name-keyed registration path restores the live set.
+    register_keyframes_from_stylesheets(
+        stylesheet_refs.iter().copied(),
+        &mut result.animation_engine,
+    );
+
     result.viewport_overflow = resolve_with_mode(
         &mut result.dom,
         &stylesheet_refs,
@@ -641,8 +707,6 @@ pub(crate) fn re_render(result: &mut PipelineResult) -> Vec<elidex_script_sessio
         result.caret_visible,
         result.scroll_offset,
     );
-
-    mutation_records
 }
 
 /// Run the browser from a URL string, opening a window.

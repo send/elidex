@@ -137,6 +137,7 @@ fn mutation_observer_unbind_drains_pending_records() {
         next_sibling: None,
         attribute_name: Some("class".to_string()),
         old_value: None,
+        parent_was_connected: false,
     };
     vm.inner
         .host_data
@@ -211,6 +212,7 @@ fn mutation_observer_methods_after_unbind_then_rebind_to_same_dom() {
         next_sibling: None,
         attribute_name: None,
         old_value: None,
+        parent_was_connected: false,
     }]);
     assert_eq!(vm.eval("calls").unwrap(), JsValue::Number(1.0));
     vm.unbind();

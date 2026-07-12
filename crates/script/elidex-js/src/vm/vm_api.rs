@@ -146,6 +146,23 @@ impl Vm {
         self.inner.host_data.as_deref_mut()
     }
 
+    /// The bound DOM (`Some` only while a batch bracket holds the host
+    /// pointers), reconstructed from the installed `HostData`'s `dom_ptr`.
+    ///
+    /// The engine exposes this via [`ScriptEngine::bound_dom_mut`] so the
+    /// shared event-dispatch loop resolves its dom through the single
+    /// `dom_ptr` derivation chain (slot `#11-bound-safe-dispatch-dom-aliasing`)
+    /// — see [`host_data::HostData::bound_dom_mut`].
+    ///
+    /// [`ScriptEngine::bound_dom_mut`]: elidex_script_session::ScriptEngine::bound_dom_mut
+    #[cfg(feature = "engine")]
+    pub fn bound_dom_mut(&mut self) -> Option<&mut elidex_ecs::EcsDom> {
+        self.inner
+            .host_data
+            .as_deref_mut()
+            .and_then(host_data::HostData::bound_dom_mut)
+    }
+
     /// Set the URL surfaced by `document.referrer` (WHATWG HTML §3.1.4).
     /// Pass `None` to clear the slot back to the empty-string default.
     /// The shell calls this once before each post-navigation `bind`
@@ -435,54 +452,6 @@ impl Vm {
     /// Clear host pointers after JS execution.  No-op if unbound.
     #[allow(clippy::too_many_lines)] // bookkeeping over many side tables — splitting would just add forwarding noise
     pub fn unbind(&mut self) {
-        // D-12 `#11-net-ws-sse` (CRIT-A): snapshot the active
-        // realtime conn_ids BEFORE clearing HostData side-tables
-        // so we can emit a `WebSocketClose` / `EventSourceClose`
-        // per conn through the outgoing handle (mirror of
-        // `reject_pending_fetches_with_error` shape at
-        // `vm/host/fetch_tick.rs:82-131`).  Without the explicit
-        // teardown, the broker's per-conn I/O thread would only
-        // observe its `command_tx`'s `request_rx` drop when the
-        // renderer Drops the `NetworkHandle` itself — which can be
-        // much later than `unbind` if the embedder keeps the
-        // handle around for a subsequent `bind`.  Sending the
-        // Close eagerly bounds the I/O thread's lifetime to the
-        // bind cycle.
-        //
-        // Held in a temporary so the broker `send` calls don't
-        // interleave with the `HostData::*` clears below (clean
-        // borrow split: snapshot first, send after, clear last).
-        #[cfg(feature = "engine")]
-        let realtime_teardown: Option<(Vec<u64>, Vec<u64>)> =
-            self.inner.host_data.as_deref_mut().and_then(|hd| {
-                if hd.is_bound() {
-                    Some(hd.drain_realtime_for_unbind())
-                } else {
-                    None
-                }
-            });
-        #[cfg(feature = "engine")]
-        if let Some((ws_conns, sse_conns)) = realtime_teardown {
-            if let Some(handle) = self.inner.network_handle.as_ref() {
-                for conn_id in ws_conns {
-                    let _ = handle.send(elidex_net::broker::RendererToNetwork::WebSocketClose(
-                        conn_id,
-                    ));
-                }
-                for conn_id in sse_conns {
-                    let _ = handle.send(elidex_net::broker::RendererToNetwork::EventSourceClose(
-                        conn_id,
-                    ));
-                }
-            }
-        }
-
-        // Terminate every dedicated worker spawned by this document (WHATWG
-        // HTML §10.2.4 "terminate a worker" runs from document teardown) and
-        // uncache their `Worker` wrappers while still bound.
-        #[cfg(feature = "engine")]
-        self.inner.teardown_workers();
-
         if let Some(hd) = self.inner.host_data.as_deref_mut() {
             // D-8 PR-A2 — clear the `MutationBridge` from `EcsDom`
             // BEFORE HostData::unbind (which null-zeros `dom_ptr`).
@@ -923,6 +892,72 @@ impl Vm {
             self.inner.crypto_key_states.clear();
             self.inner.crypto_key_js_cache.clear();
         }
+    }
+
+    /// Release the browsing-context-scoped resources this document owns —
+    /// force-close every live WebSocket / EventSource connection and terminate
+    /// every dedicated worker — then `unbind`.  This is the WHATWG HTML §10.2.4
+    /// "terminate a worker" / WebSockets connection-teardown-on-Document-
+    /// destruction moment (document unloading / pipeline replacement), NOT a
+    /// per-turn event: the per-turn [`unbind`](Self::unbind) re-establishment
+    /// boundary deliberately KEEPS these connections + workers alive across the
+    /// bracket storm (their lifetime is the document, bounded by this call or
+    /// the engine-Drop backstop, not the turn).
+    ///
+    /// Runs the close/terminate **while still bound** (both need the live
+    /// `NetworkHandle` / worker registry + wrapper access), then calls
+    /// `unbind()` as its final step.  Idempotent: after the first call the
+    /// realtime side-tables + worker registry are empty, so a second call
+    /// (explicit-then-Drop backstop) sends no `Close` and terminates no worker.
+    #[cfg(feature = "engine")]
+    pub fn teardown_document(&mut self) {
+        // D-12 `#11-net-ws-sse` (CRIT-A): snapshot the active
+        // realtime conn_ids BEFORE clearing HostData side-tables
+        // so we can emit a `WebSocketClose` / `EventSourceClose`
+        // per conn through the outgoing handle (mirror of
+        // `reject_pending_fetches_with_error` shape at
+        // `vm/host/fetch_tick.rs:82-131`).  Without the explicit
+        // teardown, the broker's per-conn I/O thread would only
+        // observe its `command_tx`'s `request_rx` drop when the
+        // renderer Drops the `NetworkHandle` itself — which can be
+        // much later than document teardown if the embedder keeps
+        // the handle around for a subsequent `bind`.  Sending the
+        // Close eagerly bounds the I/O thread's lifetime to the
+        // document.
+        //
+        // Held in a temporary so the broker `send` calls don't
+        // interleave with the `HostData::*` clears (clean borrow
+        // split: snapshot first, send after).
+        let realtime_teardown: Option<(Vec<u64>, Vec<u64>)> =
+            self.inner.host_data.as_deref_mut().and_then(|hd| {
+                if hd.is_bound() {
+                    Some(hd.drain_realtime_for_unbind())
+                } else {
+                    None
+                }
+            });
+        if let Some((ws_conns, sse_conns)) = realtime_teardown {
+            if let Some(handle) = self.inner.network_handle.as_ref() {
+                for conn_id in ws_conns {
+                    let _ = handle.send(elidex_net::broker::RendererToNetwork::WebSocketClose(
+                        conn_id,
+                    ));
+                }
+                for conn_id in sse_conns {
+                    let _ = handle.send(elidex_net::broker::RendererToNetwork::EventSourceClose(
+                        conn_id,
+                    ));
+                }
+            }
+        }
+
+        // Terminate every dedicated worker spawned by this document (WHATWG
+        // HTML §10.2.4 "terminate a worker" runs from document teardown) and
+        // uncache their `Worker` wrappers while still bound.
+        self.inner.teardown_workers();
+
+        // Un-bind the pointers + drop the per-turn caches as the final step.
+        self.unbind();
     }
 
     /// Deliver session-level `MutationRecord`s to every registered

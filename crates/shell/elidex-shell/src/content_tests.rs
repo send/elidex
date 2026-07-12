@@ -24,6 +24,7 @@ fn content_thread_wake_fires_on_display_list() {
         content,
         nh,
         jar,
+        super::test_support::test_web_storage(),
         "<div>Hi</div>".to_string(),
         "div { display: block; }".to_string(),
         crate::ipc::ViewportCell::new(elidex_plugin::Size::new(
@@ -494,77 +495,22 @@ fn content_thread_viewport_resize_updates_scroll() {
     handle.join().unwrap();
 }
 
-#[test]
-fn focusable_cache_invalidates_on_all_focusability_attributes() {
-    // The shell's Tab-order `focusable_cache` must rebuild whenever a mutation
-    // touches any attribute that `is_focusable` reads. `href` (link default) and
-    // `type` (an `<input type=hidden>` flip) were previously missing, leaving a
-    // stale Tab order after a script changed them (Codex S2).
-    use elidex_script_session::{MutationKind, MutationRecord};
-
-    let mut dom = elidex_ecs::EcsDom::new();
-    let target = dom.create_element("a", elidex_ecs::Attributes::default());
-    let attr_record = |name: &str| MutationRecord {
-        kind: MutationKind::Attribute,
-        target,
-        added_nodes: vec![],
-        removed_nodes: vec![],
-        previous_sibling: None,
-        next_sibling: None,
-        attribute_name: Some(name.to_string()),
-        old_value: None,
-    };
-
-    for attr in [
-        "tabindex",
-        "disabled",
-        "contenteditable",
-        "hidden",
-        "href",
-        "type",
-    ] {
-        assert!(
-            should_invalidate_focusable_cache(&[attr_record(attr)]),
-            "a `{attr}` attribute mutation must invalidate the focusable cache"
-        );
-    }
-    // A focus-irrelevant attribute does not invalidate.
-    assert!(
-        !should_invalidate_focusable_cache(&[attr_record("class")]),
-        "a `class` mutation must not invalidate the focusable cache"
-    );
-    // A ChildList mutation always invalidates (elements added/removed).
-    let child_list = MutationRecord {
-        kind: MutationKind::ChildList,
-        target,
-        added_nodes: vec![],
-        removed_nodes: vec![],
-        previous_sibling: None,
-        next_sibling: None,
-        attribute_name: None,
-        old_value: None,
-    };
-    assert!(should_invalidate_focusable_cache(&[child_list]));
-}
-
 // ---------------------------------------------------------------------------
 // Iframe lifecycle (HTML §4.8.5 "content navigable on connection" + lazy)
 // ---------------------------------------------------------------------------
 //
 // A lightweight in-thread `ContentState` harness (no spawned content thread):
 // `eval_script` performs the *live* DOM mutations (createElement / appendChild /
-// detach), then we feed `detect_iframe_mutations` the `MutationRecord`s the
-// mutation pipeline would emit and assert the load / no-load / lazy outcome.
+// detach), then we call `rescan_iframes_by_diff` — the §4.3.8 full-document
+// walk that reconciles the iframe registry against the live tree — and assert
+// the load / no-load / lazy outcome.
 //
-// We drive `detect_iframe_mutations` directly rather than relying on
-// `re_render`'s `session.flush` because JS `appendChild` / `setAttribute` go
-// through `DomApiHandler`s that perform direct DOM ops and do NOT record
-// `ChildList` / `Attribute` mutations (documented at
-// `elidex-dom-api/src/child_node/mutations.rs`; the broader fix is tracked by
-// slot `#11-tree-mutation-record-pipeline`, PR #373 R2). `MutationRecord` is the
-// function's real input contract, so synthesizing it tests exactly the
-// `is_connected` gate + lazy re-deferral PR #373 added, independent of that
-// upstream recording gap.
+// Under the VM flip the record stream starves (VM-native mutations write the
+// `EcsDom` directly and never enter `SessionCore::pending`), so the scan is
+// driven off the live DOM rather than synthesized `MutationRecord`s. The tree the
+// `eval_script` mutations left is the scan's whole input: connectedness (the old
+// `is_connected` gate) is structural — a detached iframe simply is not reached by
+// the walk — and lazy re-deferral is preserved.
 
 /// The single `<iframe>` entity in the parent DOM (the one carrying `IframeData`).
 fn iframe_entity(state: &ContentState) -> elidex_ecs::Entity {
@@ -584,51 +530,14 @@ fn is_lazy_pending(state: &ContentState, entity: elidex_ecs::Entity) -> bool {
     state.iframes.lazy_pending_iter().any(|&e| e == entity)
 }
 
-/// The `ChildList` record the mutation pipeline would emit for inserting
-/// `child` under its (current) parent — `added_nodes = [child]`.
-fn child_added_record(
-    state: &ContentState,
-    child: elidex_ecs::Entity,
-) -> elidex_script_session::MutationRecord {
-    let target = state.pipeline.dom.get_parent(child).unwrap_or(child);
-    elidex_script_session::MutationRecord {
-        kind: elidex_script_session::MutationKind::ChildList,
-        target,
-        added_nodes: vec![child],
-        removed_nodes: vec![],
-        previous_sibling: None,
-        next_sibling: None,
-        attribute_name: None,
-        old_value: None,
-    }
-}
-
-/// The `Attribute` record the mutation pipeline would emit for a `name`
-/// attribute change on `target` (e.g. the `iframe.src` / `iframe.srcdoc` setter).
-fn attribute_record(
-    target: elidex_ecs::Entity,
-    name: &str,
-) -> elidex_script_session::MutationRecord {
-    elidex_script_session::MutationRecord {
-        kind: elidex_script_session::MutationKind::Attribute,
-        target,
-        added_nodes: vec![],
-        removed_nodes: vec![],
-        previous_sibling: None,
-        next_sibling: None,
-        attribute_name: Some(name.to_string()),
-        old_value: None,
-    }
-}
-
 #[test]
 fn detached_iframe_with_srcdoc_set_loads_only_on_insertion() {
     let (mut state, _browser) = build_test_content_state("<body></body>", "");
 
     // `createElement('iframe')` + set `srcdoc` while detached. HTML §4.8.5 only
-    // gives an iframe a content navigable once it is connected, so the
-    // srcdoc-change record must be gated out (the `is_connected(target)` check
-    // in the Attribute branch).
+    // gives an iframe a content navigable once it is connected, so a detached
+    // iframe is structurally excluded from the `rescan_iframes_by_diff` walk (it
+    // is not reachable from the document root).
     let r = state.pipeline.eval_script(
         "globalThis.f = document.createElement('iframe'); f.srcdoc = '<p>detached</p>';",
     );
@@ -640,7 +549,7 @@ fn detached_iframe_with_srcdoc_set_loads_only_on_insertion() {
         "iframe should still be detached"
     );
 
-    let changed = iframe::detect_iframe_mutations(&[attribute_record(f, "srcdoc")], &mut state);
+    let changed = iframe::rescan_iframes_by_diff(&mut state);
     assert!(
         !changed,
         "a detached srcdoc change must not change iframe state"
@@ -654,8 +563,8 @@ fn detached_iframe_with_srcdoc_set_loads_only_on_insertion() {
         "a detached iframe must not be queued for lazy load"
     );
 
-    // Insert into the connected tree → the ChildList record now sees
-    // `is_connected`, so the iframe loads.
+    // Insert into the connected tree → the walk now reaches the iframe, so it
+    // loads.
     let r = state.pipeline.eval_script("document.body.appendChild(f);");
     assert!(r.success, "insert JS failed: {:?}", r.error);
     assert!(
@@ -663,7 +572,7 @@ fn detached_iframe_with_srcdoc_set_loads_only_on_insertion() {
         "iframe should be connected after insertion"
     );
 
-    let changed = iframe::detect_iframe_mutations(&[child_added_record(&state, f)], &mut state);
+    let changed = iframe::rescan_iframes_by_diff(&mut state);
     assert!(changed, "connecting the iframe must load it");
     assert!(
         state.iframes.get(f).is_some(),
@@ -676,8 +585,7 @@ fn iframe_under_detached_parent_loads_only_when_parent_connected() {
     let (mut state, _browser) = build_test_content_state("<body></body>", "");
 
     // Build `<div><iframe srcdoc></iframe></div>` with the div NOT inserted.
-    // The ChildList record for `d.appendChild(f)` reaches detection, but the
-    // iframe is not connected, so its subtree walk must be gated out.
+    // The iframe is not connected, so the document-root walk must not reach it.
     let r = state.pipeline.eval_script(
         "globalThis.d = document.createElement('div');\
          globalThis.f = document.createElement('iframe');\
@@ -687,7 +595,7 @@ fn iframe_under_detached_parent_loads_only_when_parent_connected() {
     assert!(r.success, "setup JS failed: {:?}", r.error);
 
     let f = iframe_entity(&state);
-    let d = state
+    let _d = state
         .pipeline
         .dom
         .get_parent(f)
@@ -697,15 +605,15 @@ fn iframe_under_detached_parent_loads_only_when_parent_connected() {
         "iframe under a detached parent should not be connected"
     );
 
-    let changed = iframe::detect_iframe_mutations(&[child_added_record(&state, f)], &mut state);
+    let changed = iframe::rescan_iframes_by_diff(&mut state);
     assert!(!changed, "appending under a detached parent must not load");
     assert!(
         state.iframes.is_empty() && !state.iframes.has_lazy_pending(),
         "an iframe under a detached parent subtree must not load"
     );
 
-    // Connect the parent subtree. The ChildList record for inserting `d` carries
-    // the iframe in its subtree, which is now connected, so it loads.
+    // Connect the parent subtree. The walk now reaches the nested iframe, so it
+    // loads.
     let r = state.pipeline.eval_script("document.body.appendChild(d);");
     assert!(r.success, "connect JS failed: {:?}", r.error);
     assert!(
@@ -713,7 +621,7 @@ fn iframe_under_detached_parent_loads_only_when_parent_connected() {
         "iframe should be connected after its ancestor is inserted"
     );
 
-    let changed = iframe::detect_iframe_mutations(&[child_added_record(&state, d)], &mut state);
+    let changed = iframe::rescan_iframes_by_diff(&mut state);
     assert!(
         changed,
         "connecting the ancestor must load the nested iframe"
@@ -758,7 +666,7 @@ fn lazy_iframe_srcdoc_change_while_offscreen_re_defers() {
     // test in control of when those run). Then assert the iframe really is laid
     // out below the viewport + lazy margin — the precondition `check_lazy_iframes`
     // keys on — so the "offscreen" assertions below are not vacuous.
-    let _ = crate::re_render(&mut state.pipeline);
+    crate::re_render(&mut state.pipeline);
     let frame_top = state
         .pipeline
         .dom
@@ -775,10 +683,16 @@ fn lazy_iframe_srcdoc_change_while_offscreen_re_defers() {
         crate::DEFAULT_VIEWPORT_HEIGHT
     );
 
-    // Connect → detector defers the lazy iframe to the pending queue
-    // (`force=false` + `LoadingAttribute::Lazy`).
-    let changed = iframe::detect_iframe_mutations(&[child_added_record(&state, f)], &mut state);
-    assert!(changed, "connecting a lazy iframe registers it as pending");
+    // Connect → the scan defers the lazy iframe to the pending queue
+    // (`force=false` + `LoadingAttribute::Lazy`). A deferral loads nothing and
+    // paints nothing, so the scan reports no display-rebuild need (`!changed`) —
+    // it is the lazy-pending queue membership, not the return bool, that records
+    // the defer.
+    let changed = iframe::rescan_iframes_by_diff(&mut state);
+    assert!(
+        !changed,
+        "deferring a lazy iframe schedules no load / display rebuild"
+    );
     assert!(
         state.iframes.get(f).is_none(),
         "a lazy iframe must not load eagerly on connection"
@@ -801,25 +715,31 @@ fn lazy_iframe_srcdoc_change_while_offscreen_re_defers() {
         "an offscreen lazy iframe must remain pending after the lazy-visibility pass"
     );
 
-    // Change `srcdoc` while still offscreen → must RE-DEFER, not force-load:
-    // PR #373 runs the attribute-change reload with `force=false`, so the lazy
-    // iframe re-enters the lazy queue instead of loading eagerly.
+    // Change `srcdoc` while still offscreen → must NOT force-load. Under the
+    // §4.3.8 walk, a still-pending lazy iframe is left in the queue (the scan's
+    // `is_lazy_pending` skip), and its `IframeData` was already re-derived to the
+    // new srcdoc at the attribute write — so the later `check_lazy_iframes` load
+    // reads the fresh `v2` without any eager force-load here.
     let r = state.pipeline.eval_script("f.srcdoc = '<p>v2</p>';");
     assert!(r.success, "srcdoc-change JS failed: {:?}", r.error);
 
-    let srcdoc_changed =
-        iframe::detect_iframe_mutations(&[attribute_record(f, "srcdoc")], &mut state);
-    // Assert the srcdoc record was actually *processed* (the Attribute branch
-    // ran: re-derive → remove-from-pending → re-defer). Without this the test
-    // would pass vacuously — `f` is already lazy-pending, so the "still pending"
-    // assertion alone holds even if the detector regressed to matching only
-    // `src` and ignored the `srcdoc` record (precisely the PR #373 path this
-    // test pins). `detect_iframe_mutations` only returns `true` when a matched
-    // mutation drove a load/defer, so the `srcdoc`-ignored regression flips this
-    // to `false`.
+    let srcdoc_changed = iframe::rescan_iframes_by_diff(&mut state);
     assert!(
-        srcdoc_changed,
-        "a srcdoc attribute change on a connected iframe must be processed (PR #373 srcdoc reload path), not ignored"
+        !srcdoc_changed,
+        "a srcdoc change on an offscreen lazy iframe must not force-load / rebuild — it stays pending"
+    );
+    // The re-derive DID land: the live `IframeData` now carries `v2`, so the
+    // deferred load will read the new resource (not the stale `v1`).
+    assert_eq!(
+        state
+            .pipeline
+            .dom
+            .world()
+            .get::<&elidex_ecs::IframeData>(f)
+            .ok()
+            .and_then(|d| d.srcdoc.clone()),
+        Some("<p>v2</p>".to_string()),
+        "the srcdoc attribute change must re-derive IframeData to v2 (read by the later lazy load)"
     );
     assert!(
         state.iframes.get(f).is_none(),
@@ -861,7 +781,7 @@ fn connected_iframe_append_loads() {
         "appended iframe should be connected"
     );
 
-    let changed = iframe::detect_iframe_mutations(&[child_added_record(&state, f)], &mut state);
+    let changed = iframe::rescan_iframes_by_diff(&mut state);
     assert!(changed, "a connected eager iframe must load on insertion");
     assert_eq!(
         state.iframes.len(),
@@ -895,7 +815,10 @@ fn iframe_inherits_parent_device_facts_at_build() {
         },
         &mut state,
     );
-    assert_eq!(state.pipeline.runtime.bridge().device_pixel_ratio(), 2.0);
+    assert_eq!(
+        state.pipeline.runtime.eval_f64("window.devicePixelRatio"),
+        2.0
+    );
 
     // Create + append an iframe, then load it (same path as `connected_iframe_append_loads`).
     let r = state.pipeline.eval_script(
@@ -905,23 +828,24 @@ fn iframe_inherits_parent_device_facts_at_build() {
     );
     assert!(r.success, "setup JS failed: {:?}", r.error);
     let f = iframe_entity(&state);
-    let changed = iframe::detect_iframe_mutations(&[child_added_record(&state, f)], &mut state);
+    let changed = iframe::rescan_iframes_by_diff(&mut state);
     assert!(changed, "the iframe must load on insertion");
 
     // The loaded in-process iframe's bridge reports the parent's facts, not 1×/Light.
-    let entry = state.iframes.get(f).expect("iframe must be loaded");
-    let iframe::IframeHandle::InProcess(ip) = &entry.handle else {
+    let entry = state.iframes.get_mut(f).expect("iframe must be loaded");
+    let iframe::IframeHandle::InProcess(ip) = &mut entry.handle else {
         panic!("a same-origin srcdoc iframe loads in-process");
     };
-    let iframe_bridge = ip.pipeline.runtime.bridge();
+    let iframe_runtime = &mut ip.pipeline.runtime;
     assert_eq!(
-        iframe_bridge.device_pixel_ratio(),
+        iframe_runtime.eval_f64("window.devicePixelRatio"),
         2.0,
         "iframe must inherit the parent's dppx (was stuck at 1.0 — Codex C3 R1)"
     );
     assert_eq!(
-        iframe_bridge.color_scheme(),
-        ColorScheme::Dark,
+        iframe_runtime
+            .eval_string("matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'"),
+        "dark",
         "iframe must inherit the parent's prefers-color-scheme"
     );
 }
@@ -945,6 +869,7 @@ fn initial_scripts_observe_real_viewport() {
         "",
         nh,
         jar,
+        super::test_support::test_web_storage(),
         elidex_plugin::Size::new(640.0, 480.0),
         crate::ipc::DeviceFacts::default(),
     );
@@ -952,8 +877,8 @@ fn initial_scripts_observe_real_viewport() {
     // Construction input reached the cascade/layout SoT.
     assert_eq!(pipeline.viewport, elidex_plugin::Size::new(640.0, 480.0));
     // ...and the JS bridge SoT that `innerWidth`/`matchMedia` read.
-    assert_eq!(pipeline.runtime.bridge().viewport_width(), 640.0);
-    assert_eq!(pipeline.runtime.bridge().viewport_height(), 480.0);
+    assert_eq!(pipeline.viewport.width, 640.0);
+    assert_eq!(pipeline.viewport.height, 480.0);
     // The initial script OBSERVED the real size — proves the bridge was seeded
     // BEFORE the script-eval loop (the F1 ordering, not merely set post-build).
     assert_eq!(
@@ -979,15 +904,12 @@ fn default_viewport_unifies_bridge_and_cascade() {
         "",
         nh,
         jar,
+        super::test_support::test_web_storage(),
         elidex_plugin::Size::new(
             crate::DEFAULT_VIEWPORT_WIDTH,
             crate::DEFAULT_VIEWPORT_HEIGHT,
         ),
         crate::ipc::DeviceFacts::default(),
-    );
-    assert_eq!(
-        pipeline.runtime.bridge().viewport_width(),
-        crate::DEFAULT_VIEWPORT_WIDTH
     );
     assert_eq!(pipeline.viewport.width, crate::DEFAULT_VIEWPORT_WIDTH);
 }

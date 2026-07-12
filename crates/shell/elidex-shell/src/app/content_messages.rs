@@ -123,16 +123,69 @@ impl App {
                         scope,
                         origin: _,
                         page_url,
+                        update_via_cache,
                     } => {
                         if let Some(ref np) = self.network_process {
-                            self.sw_coordinator.register(
-                                &script_url,
-                                &scope,
-                                &page_url,
-                                np,
-                                &tab.channel,
-                            );
+                            // Acquire the per-origin Cache API connection (owned
+                            // Arc) up front, releasing the `origin_storage` borrow
+                            // immediately so `register` can take `&mut self.…`.
+                            let cache_conn = self.origin_storage.as_ref().and_then(|osm| {
+                                elidex_storage_core::OriginKey::from_url(&scope)
+                                    .and_then(|key| osm.cache_connection(&key).ok())
+                            });
+                            match cache_conn {
+                                Some(cache_conn) => {
+                                    self.sw_coordinator.register(
+                                        &script_url,
+                                        &scope,
+                                        &page_url,
+                                        update_via_cache,
+                                        cache_conn,
+                                        np,
+                                        &tab.channel,
+                                    );
+                                }
+                                None => {
+                                    // A SW with no Cache API connection is
+                                    // non-functional; skip the spawn, but the
+                                    // register() promise must STILL settle (never
+                                    // hang) — reply failure (§4 Part 1 hung-promise
+                                    // invariant).
+                                    let _ =
+                                        tab.channel
+                                            .send(crate::ipc::BrowserToContent::SwRegistered(
+                                            Box::new(crate::ipc::SwRegisteredData {
+                                                scope: scope.clone(),
+                                                success: false,
+                                                error: Some(
+                                                    elidex_api_sw::SwRegisterError::TypeError(
+                                                        "service worker cache storage unavailable"
+                                                            .to_owned(),
+                                                    ),
+                                                ),
+                                                worker: None,
+                                                update_via_cache,
+                                            }),
+                                        ));
+                                }
+                            }
                         }
+                    }
+                    ContentToBrowser::SwUpdate { scope } => {
+                        self.sw_coordinator.update(&scope, &tab.channel);
+                    }
+                    ContentToBrowser::SwUnregister { scope } => {
+                        self.sw_coordinator
+                            .unregister_and_reply(&scope, &tab.channel);
+                    }
+                    ContentToBrowser::SwPostMessage {
+                        scope,
+                        data,
+                        origin,
+                        client_id,
+                    } => {
+                        self.sw_coordinator
+                            .post_message_to_worker(&scope, data, origin, client_id);
                     }
                     ContentToBrowser::ManifestDiscovered { url } => {
                         tracing::debug!(manifest_url = %url, "manifest discovered");
@@ -323,6 +376,7 @@ impl App {
             if let Some(np) = &self.network_process {
                 let nh = np.create_renderer_handle();
                 let jar = Arc::clone(np.cookie_jar());
+                let web_storage = Arc::clone(&self.web_storage);
                 // Mint via the disjoint `wake_proxy` field (an associated fn, not
                 // `&self`) so it coexists with the active `&mut mgr` borrow.
                 let wake = Self::wake_or_noop(self.wake_proxy.as_ref());
@@ -330,6 +384,7 @@ impl App {
                     content_chan,
                     nh,
                     jar,
+                    web_storage,
                     url,
                     Arc::clone(&self.viewport.viewport_cell),
                     wake,

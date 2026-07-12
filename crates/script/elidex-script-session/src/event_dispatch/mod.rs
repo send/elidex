@@ -438,8 +438,27 @@ pub fn script_dispatch_event_core(
     event: &mut DispatchEvent,
     ctx: &mut crate::engine::ScriptContext<'_>,
 ) -> bool {
-    let plan = build_dispatch_plan(ctx.dom, event);
-    event.composed_path = build_propagation_path(ctx.dom, event.target, event.composed);
+    // Resolve every dom-touch site through the engine's bound dom when a
+    // batch bracket is active — the SINGLE derivation chain
+    // (slot `#11-bound-safe-dispatch-dom-aliasing`). When the engine is bound,
+    // it holds a raw `*mut EcsDom` (see `Vm::bind`); a fresh `ctx.dom` reborrow
+    // aliasing the SAME `EcsDom` would invalidate that raw pointer under
+    // Stacked Borrows, and the engine's later `call_listener` would then use an
+    // invalidated pointer (UB). So all dom access below flows through
+    // `engine.bound_dom_mut()` (bound path) and only falls back to `ctx.dom`
+    // when the engine is unbound (`None` — boa's self-binding shell path). Each
+    // resolved dom borrow is DROPPED before the next `engine.call_listener` /
+    // `engine.run_microtasks` so it never coexists with an engine-method call.
+    let (plan, composed_path) = {
+        let dom: &mut EcsDom = match engine.bound_dom_mut() {
+            Some(d) => d,
+            None => ctx.dom,
+        };
+        let plan = build_dispatch_plan(dom, event);
+        let composed_path = build_propagation_path(dom, event.target, event.composed);
+        (plan, composed_path)
+    };
+    event.composed_path = composed_path;
     event.dispatch_flag = true;
     let saved_target = event.target;
 
@@ -453,7 +472,15 @@ pub fn script_dispatch_event_core(
             if event.flags.propagation_stopped || event.flags.immediate_propagation_stopped {
                 break;
             }
-            apply_retarget(event, *entity, saved_target, ctx.dom);
+            // Retarget reads the dom; resolve through the bound chain and drop
+            // the borrow before any engine call in the listener loop below.
+            {
+                let dom: &mut EcsDom = match engine.bound_dom_mut() {
+                    Some(d) => d,
+                    None => ctx.dom,
+                };
+                apply_retarget(event, *entity, saved_target, dom);
+            }
             event.current_target = Some(*entity);
             event.phase = phase;
 
@@ -463,11 +490,14 @@ pub fn script_dispatch_event_core(
                 }
 
                 // WHATWG DOM §2.9 (inner invoke, the once-removal step): remove
-                // once listeners BEFORE invoking.
+                // once listeners BEFORE invoking. Needs `&mut dom`; resolved
+                // through the bound chain and dropped before `call_listener`.
                 if entry.once {
-                    if let Ok(mut listeners) =
-                        ctx.dom.world_mut().get::<&mut EventListeners>(*entity)
-                    {
+                    let dom: &mut EcsDom = match engine.bound_dom_mut() {
+                        Some(d) => d,
+                        None => ctx.dom,
+                    };
+                    if let Ok(mut listeners) = dom.world_mut().get::<&mut EventListeners>(*entity) {
                         listeners.remove(entry.id);
                     }
                 }

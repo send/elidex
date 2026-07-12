@@ -25,6 +25,7 @@ fn notify_child_list() {
     );
 
     let session_record = SessionRecord {
+        parent_was_connected: false,
         kind: MutationKind::ChildList,
         target: parent,
         added_nodes: vec![child],
@@ -65,6 +66,7 @@ fn notify_attribute_with_filter() {
 
     // "class" attribute should match.
     let record_class = SessionRecord {
+        parent_was_connected: false,
         kind: MutationKind::Attribute,
         target: el,
         added_nodes: vec![],
@@ -78,6 +80,7 @@ fn notify_attribute_with_filter() {
 
     // "id" attribute should NOT match the filter.
     let record_id = SessionRecord {
+        parent_was_connected: false,
         kind: MutationKind::Attribute,
         target: el,
         added_nodes: vec![],
@@ -113,6 +116,7 @@ fn disconnect_clears_records_and_targets() {
     );
 
     let record = SessionRecord {
+        parent_was_connected: false,
         kind: MutationKind::ChildList,
         target: el,
         added_nodes: vec![],
@@ -155,6 +159,7 @@ fn despawn_auto_cleans_targets() {
     let _ = dom.destroy_entity(el);
 
     let record = SessionRecord {
+        parent_was_connected: false,
         kind: MutationKind::ChildList,
         target: el,
         added_nodes: vec![],
@@ -191,6 +196,7 @@ fn subtree_observer() {
     // Record on the child is matched via inclusive-ancestor walk to the
     // parent's subtree observer.
     let record = SessionRecord {
+        parent_was_connected: false,
         kind: MutationKind::Attribute,
         target: child,
         added_nodes: vec![],
@@ -223,6 +229,7 @@ fn two_observers_same_target() {
     reg.observe(&mut dom, id_b, el, init);
 
     let record = SessionRecord {
+        parent_was_connected: false,
         kind: MutationKind::ChildList,
         target: el,
         added_nodes: vec![],
@@ -280,6 +287,7 @@ fn take_pending_observers_drains_in_append_order() {
     }
 
     let record = SessionRecord {
+        parent_was_connected: false,
         kind: MutationKind::ChildList,
         target: el,
         added_nodes: vec![],
@@ -440,6 +448,7 @@ fn retire_collected_clears_pending_membership() {
 /// A `ChildList` mutation record on `target` adding `added`.
 fn child_list_added(target: Entity, added: Vec<Entity>) -> SessionRecord {
     SessionRecord {
+        parent_was_connected: false,
         kind: MutationKind::ChildList,
         target,
         added_nodes: added,

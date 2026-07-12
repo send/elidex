@@ -222,11 +222,11 @@ fn structured_clone_event_source_throws_data_clone_error() {
 }
 
 // ---------------------------------------------------------------------------
-// `Vm::unbind` CRIT-A teardown — broker receives Close per conn_id
+// `Vm::teardown_document` CRIT-A teardown — broker receives Close per conn_id
 // ---------------------------------------------------------------------------
 
 #[test]
-fn unbind_emits_websocket_close_per_active_connection() {
+fn teardown_document_emits_websocket_close_per_active_connection() {
     // CRIT-A regression: every active WebSocket conn_id must be
     // surfaced to the broker via `WebSocketClose(conn_id)` BEFORE
     // the renderer-side side-tables are cleared.  The mock handle
@@ -255,7 +255,7 @@ fn unbind_emits_websocket_close_per_active_connection() {
     // only in the teardown wave.
     let _ = handle.drain_recorded_outgoing();
 
-    vm.unbind();
+    vm.teardown_document();
     let observed = handle.drain_recorded_outgoing();
     let close_count = observed
         .iter()
@@ -270,7 +270,7 @@ fn unbind_emits_websocket_close_per_active_connection() {
 }
 
 #[test]
-fn unbind_emits_event_source_close_per_active_connection() {
+fn teardown_document_emits_event_source_close_per_active_connection() {
     let mut vm = Vm::new();
     vm.inner.navigation.current_url =
         url::Url::parse("https://example.com/page/").expect("valid base URL");
@@ -293,7 +293,7 @@ fn unbind_emits_event_source_close_per_active_connection() {
     .unwrap();
     let _ = handle.drain_recorded_outgoing();
 
-    vm.unbind();
+    vm.teardown_document();
     let observed = handle.drain_recorded_outgoing();
     let close_count = observed
         .iter()
@@ -308,7 +308,7 @@ fn unbind_emits_event_source_close_per_active_connection() {
 }
 
 #[test]
-fn unbind_emits_close_for_mixed_websocket_and_event_source() {
+fn teardown_document_emits_close_for_mixed_websocket_and_event_source() {
     // Ensures both side-tables drain in the same unbind pass —
     // mirror of [`super::super::host_data::HostData::
     // drain_realtime_for_unbind`] returning the `(ws, sse)`
@@ -334,7 +334,7 @@ fn unbind_emits_close_for_mixed_websocket_and_event_source() {
     .unwrap();
     let _ = handle.drain_recorded_outgoing();
 
-    vm.unbind();
+    vm.teardown_document();
     let observed = handle.drain_recorded_outgoing();
     let ws_close = observed
         .iter()

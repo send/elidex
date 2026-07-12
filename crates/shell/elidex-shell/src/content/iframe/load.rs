@@ -171,7 +171,13 @@ fn load_iframe_from_url(
                     ctx.parent_url,
                     ctx.parent_origin,
                     &doc_origin,
-                );
+                )
+                // Parse the referrer to `url::Url` at the construction source so
+                // `PreEvalFrameState.referrer` is already typed for the pre-eval
+                // seam (`set_navigation_referrer`). `compute_referrer` emits a
+                // serialized absolute URL (stripped source URL or origin-as-URL),
+                // so this parse never fails in practice.
+                .and_then(|s| url::Url::parse(&s).ok());
                 return make_out_of_process_entry(loaded, state, ctx.device_facts);
             }
 
@@ -194,6 +200,14 @@ fn load_iframe_from_url(
             } else {
                 ctx.cookie_jar.clone()
             };
+            // localStorage backend follows the same isolation as cookies: shared
+            // (persistent) for same-origin frames, `None` (per-VM in-memory) for
+            // credentialless ones (F14).
+            let iframe_web_storage = if iframe_data.credentialless {
+                None
+            } else {
+                ctx.web_storage.clone()
+            };
             // iframe initial build: the sub-browsing-context box is not yet known
             // (the parent lays out the <iframe> element + delivers it via
             // SetViewport later), so build at DEFAULT *size*. NOTE C1's
@@ -209,6 +223,7 @@ fn load_iframe_from_url(
                 pipeline_handle,
                 ctx.font_db.clone(),
                 iframe_cookies,
+                iframe_web_storage,
                 elidex_plugin::Size::new(
                     crate::DEFAULT_VIEWPORT_WIDTH,
                     crate::DEFAULT_VIEWPORT_HEIGHT,
@@ -270,6 +285,10 @@ pub(super) fn make_in_process_entry(pipeline: crate::PipelineResult) -> IframeEn
             needs_render: false,
             cached_display_list: None,
         })),
+        // Stamped from the loaded `IframeData` at `register_iframe_entry` (the
+        // single registry chokepoint); `None` until then.
+        loaded_src: None,
+        loaded_srcdoc: None,
     }
 }
 
@@ -310,6 +329,12 @@ pub(in crate::content) fn make_out_of_process_entry(
             network_handle,
             font_db,
             None,
+            // OOP (cross-origin) iframe runs on its own thread with no handle to
+            // the process-wide manager; its localStorage falls back to per-VM
+            // in-memory, mirroring the `None` cookie jar isolation on this path.
+            // Cross-tab-shared persistence for OOP frames is a separate concern
+            // (not the flagged top-level regression).
+            None,
             elidex_plugin::Size::new(
                 crate::DEFAULT_VIEWPORT_WIDTH,
                 crate::DEFAULT_VIEWPORT_HEIGHT,
@@ -338,6 +363,10 @@ pub(in crate::content) fn make_out_of_process_entry(
             display_list: elidex_render::DisplayList::default(),
             thread: Some(thread),
         }),
+        // Stamped from the loaded `IframeData` at `register_iframe_entry` (the
+        // single registry chokepoint); `None` until then.
+        loaded_src: None,
+        loaded_srcdoc: None,
     }
 }
 
@@ -401,12 +430,15 @@ fn pre_eval_state(
         credentialless,
         // Same-origin path: srcdoc / about:blank / same-origin URL loads inherit
         // the parent origin, so the request origin IS the parent origin.
+        // Parsed to `url::Url` at the construction source (see the OOP arm) so the
+        // `PreEvalFrameState.referrer` field is already typed for the pre-eval seam.
         referrer: compute_referrer(
             referrer_policy,
             ctx.parent_url,
             ctx.parent_origin,
             ctx.parent_origin,
-        ),
+        )
+        .and_then(|s| url::Url::parse(&s).ok()),
     }
 }
 
@@ -441,6 +473,9 @@ fn build_iframe_pipeline(
         ctx.network_handle.clone(),
         ctx.registry.clone(),
         ctx.cookie_jar.clone(),
+        // Same-origin srcdoc/HTML iframe inherits the parent's persistent backend
+        // (credentialless isolation already reflected in `ctx.web_storage`).
+        ctx.web_storage.clone(),
         // iframe build at DEFAULT *size* — box not yet known (slot #11-iframe-build-viewport).
         elidex_plugin::Size::new(
             crate::DEFAULT_VIEWPORT_WIDTH,

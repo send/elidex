@@ -16,14 +16,12 @@ use elidex_script_session::{HostDriver, ScriptContext, ScriptEngine, SessionCore
 use url::Url;
 
 use crate::engine::ElidexJsEngine;
-use crate::vm::host_data::HostData;
 use crate::vm::value::JsValue;
 
 /// Construct an unbound engine + session + dom with a fresh `document_root`
 /// (mirrors `tests_engine_s1c::fresh_unbound`).
 fn fresh_unbound() -> (ElidexJsEngine, SessionCore, EcsDom, Entity) {
-    let mut engine = ElidexJsEngine::new();
-    engine.vm().install_host_data(HostData::new());
+    let engine = ElidexJsEngine::new();
     let session = SessionCore::new();
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
@@ -384,6 +382,34 @@ fn opaque_origin_idb_versionchange_request_carries_identity_key_not_null() {
         "a lossy \"null\" key would cross-broadcast between unrelated opaque origins"
     );
     assert_ne!(reqs[0].request_id, 0);
+}
+
+/// The `HostDriver::storage_origin_key` accessor (the receive-side parent-message
+/// gate reads this for the PARENT key) must return the SAME identity-preserving
+/// serialization the send side resolves `targetOrigin` to: a tuple origin's
+/// serialization, an opaque origin's per-VM sentinel (never the lossy `"null"`).
+#[test]
+fn storage_origin_key_trait_accessor_tuple_and_opaque() {
+    const DOC_URL: &str = "https://example.com/page";
+
+    // Opaque (no current_url / no origin override) → per-VM sentinel, not "null".
+    let (engine, _session, _dom, _doc) = fresh_unbound();
+    let opaque_key = HostDriver::storage_origin_key(&engine);
+    assert!(
+        opaque_key.starts_with("opaque-origin:"),
+        "opaque origin must serialize to the identity-preserving sentinel, got {opaque_key:?}"
+    );
+    assert_ne!(opaque_key, "null");
+
+    // Tuple origin override → its serialization.
+    let (mut engine2, _s2, _d2, _doc2) = fresh_unbound();
+    let tuple = elidex_plugin::SecurityOrigin::from_url(&url(DOC_URL));
+    HostDriver::set_origin(&mut engine2, tuple.clone());
+    assert_eq!(
+        HostDriver::storage_origin_key(&engine2),
+        tuple.serialize(),
+        "tuple origin key must equal SecurityOrigin::serialize()"
+    );
 }
 
 #[test]

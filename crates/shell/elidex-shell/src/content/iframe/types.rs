@@ -2,7 +2,7 @@
 
 use std::thread::JoinHandle;
 
-use elidex_ecs::{Entity, ScrollState};
+use elidex_ecs::ScrollState;
 use elidex_navigation::NavigationController;
 use elidex_plugin::SecurityOrigin;
 use elidex_render::DisplayList;
@@ -58,12 +58,16 @@ pub enum BrowserToIframe {
 pub enum IframeToBrowser {
     /// A new display list is ready for compositing into the parent.
     DisplayListReady(DisplayList),
-    /// Cross-document postMessage from iframe to parent (WHATWG HTML §9.4.3).
+    /// Cross-document postMessage from iframe to parent (WHATWG HTML §9.3.3).
     PostMessage {
         /// JSON-serialized message data.
         data: String,
-        /// Sender's serialized origin.
+        /// Sender's serialized origin (→ parent-side `MessageEvent.origin`).
         origin: String,
+        /// The §9.3.3 `targetOrigin` gate input, resolved to an identity-
+        /// preserving `storage_origin_key` at send time (steps 4-5). The parent
+        /// gate (`parent_message_allowed`) compares it against the parent's key.
+        target_origin: String,
     },
 }
 
@@ -115,17 +119,16 @@ pub enum IframeHandle {
 pub struct IframeEntry {
     /// Handle to the iframe's pipeline (in-process or out-of-process).
     pub handle: IframeHandle,
-}
-
-/// A postMessage received from an out-of-process iframe.
-#[allow(dead_code)] // Fields read by message dispatch in content event loop.
-pub struct OopPostMessage {
-    /// The `<iframe>` entity that sent the message.
-    pub entity: Entity,
-    /// JSON-serialized message data.
-    pub data: String,
-    /// Sender's serialized origin.
-    pub origin: String,
+    /// The `src` of the `IframeData` this entry was loaded from — the baseline the
+    /// §4.3.8 `rescan_iframes_by_diff` full-document walk compares the live
+    /// `IframeData.src` against to detect a re-navigation ("process the iframe
+    /// attributes"). Stamped at registration (`register_iframe_entry`) from the
+    /// exact `IframeData` used to load, replacing the record-driven
+    /// `MutationKind::Attribute` `src`/`srcdoc` detection that starves under the VM.
+    pub loaded_src: Option<String>,
+    /// The `srcdoc` of the `IframeData` this entry was loaded from — the srcdoc
+    /// analog of [`Self::loaded_src`] (both `src` and `srcdoc` trigger a re-nav).
+    pub loaded_srcdoc: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -144,6 +147,11 @@ pub struct IframeLoadContext<'a> {
     pub network_handle: &'a std::rc::Rc<elidex_net::broker::NetworkHandle>,
     /// Parent's cookie jar (for same-origin iframe `document.cookie`).
     pub cookie_jar: Option<std::sync::Arc<elidex_net::CookieJar>>,
+    /// Process-wide `localStorage` backend, inherited by same-origin (non-
+    /// credentialless) in-process iframes so they share the parent's persisted +
+    /// live registry (F14 / §4.3.3). Credentialless frames get `None` (isolated,
+    /// per-VM in-memory), mirroring the cookie-jar isolation.
+    pub web_storage: Option<std::sync::Arc<elidex_storage_core::WebStorageManager>>,
     /// Iframe nesting depth (for `MAX_IFRAME_DEPTH` enforcement).
     pub depth: usize,
     /// Shared CSS property registry.

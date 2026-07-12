@@ -7,8 +7,8 @@ mod component;
 mod offscreen;
 
 pub use component::{
-    canvas_dimensions, ensure_context, mark_dirty, reset_canvas_bitmap, sync_dirty_canvases,
-    with_context, CanvasDirty, CanvasReconciler,
+    canvas_dimensions, ensure_context, has_dirty_canvas, mark_dirty, reset_canvas_bitmap,
+    sync_dirty_canvases, with_context, CanvasDirty, CanvasReconciler,
 };
 pub use offscreen::{
     ensure_offscreen_context, is_placeholder, offscreen_canvas_dimensions,

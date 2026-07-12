@@ -40,9 +40,46 @@ impl ElidexJsEngine {
     ///
     /// [`EngineMode::BrowserCompat`]: elidex_plugin::EngineMode::BrowserCompat
     pub fn new() -> Self {
-        Self {
-            vm: Vm::new(),
-            bound: false,
+        let mut vm = Vm::new();
+        vm.install_host_data(HostData::new());
+        Self { vm, bound: false }
+    }
+
+    /// Evaluate `src` in the VM's global scope and marshal the completion value
+    /// to a Rust `String` — an **embedder-test read-back oracle** (marshal-scale
+    /// surface: read by shell/embedder tests, never by page script), mirroring
+    /// the [`Vm::console_messages`] precedent. It is the cross-crate value-return
+    /// path over the `pub` [`Self::vm`] + [`Vm::eval`] the elidex-js-internal
+    /// `eval_string` test helper uses in-crate. Panics if eval fails or the
+    /// completion is not a string, so a mis-authored oracle expression fails
+    /// loudly rather than silently asserting nothing.
+    ///
+    /// [`Vm::console_messages`]: crate::vm::Vm::console_messages
+    /// [`Vm::eval`]: crate::vm::Vm::eval
+    #[must_use]
+    pub fn eval_string(&mut self, src: &str) -> String {
+        match self
+            .vm()
+            .eval(src)
+            .expect("embedder-test eval_string succeeds")
+        {
+            JsValue::String(sid) => self.vm().inner.strings.get_utf8(sid),
+            other => panic!("eval_string expected a String completion, got {other:?}"),
+        }
+    }
+
+    /// Evaluate `src` in the VM's global scope and marshal the completion value
+    /// to `f64` — the numeric sibling of [`Self::eval_string`] (embedder-test
+    /// oracle). Panics if eval fails or the completion is not a number.
+    #[must_use]
+    pub fn eval_f64(&mut self, src: &str) -> f64 {
+        match self
+            .vm()
+            .eval(src)
+            .expect("embedder-test eval_f64 succeeds")
+        {
+            JsValue::Number(n) => n,
+            other => panic!("eval_f64 expected a Number completion, got {other:?}"),
         }
     }
 
@@ -59,10 +96,9 @@ impl ElidexJsEngine {
     #[cfg(test)]
     #[must_use]
     pub fn new_with_mode(engine_mode: elidex_plugin::EngineMode) -> Self {
-        Self {
-            vm: Vm::new_with_mode(engine_mode),
-            bound: false,
-        }
+        let mut vm = Vm::new_with_mode(engine_mode);
+        vm.install_host_data(HostData::new());
+        Self { vm, bound: false }
     }
 
     /// Access the underlying VM (e.g., for setting globals from host).
@@ -72,6 +108,23 @@ impl ElidexJsEngine {
     /// the shell so no per-turn drive path reaches through here.
     pub fn vm(&mut self) -> &mut Vm {
         &mut self.vm
+    }
+
+    /// Whether a shared [`WebStorageManager`](elidex_storage_core::WebStorageManager)
+    /// backend is installed on the bound host context.
+    ///
+    /// `true` only after
+    /// [`install_web_storage`](HostDriver::install_web_storage)
+    /// landed on an installed `HostData` — so a construction seam can
+    /// `debug_assert!` its production `localStorage` is manager-backed
+    /// (disk-persisted + same-origin shared) rather than the per-VM in-memory
+    /// `fallback_local_storage` (the F14 no-silent-regression invariant).
+    #[cfg(feature = "compat-webapi")]
+    #[must_use]
+    pub fn web_storage_installed(&mut self) -> bool {
+        self.vm
+            .host_data()
+            .is_some_and(|hd| hd.web_storage().is_some())
     }
 
     /// Whether scripting is enabled for the bound browsing context
@@ -300,6 +353,22 @@ impl ScriptEngine for ElidexJsEngine {
             })
             .collect()
     }
+
+    fn bound_dom_mut(&mut self) -> Option<&mut elidex_ecs::EcsDom> {
+        // The single-derivation-chain source for bound-path dispatch: when a
+        // batch bracket has the VM bound (`self.bound` && HostData `dom_ptr`
+        // non-null), hand out the bound `EcsDom` reconstructed from `dom_ptr`
+        // so the shared dispatch loop routes dom access through the same raw
+        // pointer the VM's natives hold — never a fresh `ctx.dom` reborrow that
+        // would invalidate `dom_ptr` under Stacked Borrows
+        // (`#11-bound-safe-dispatch-dom-aliasing`). `None` when unbound (no
+        // bracket) → the caller falls back to `ctx.dom`.
+        if self.bound {
+            self.vm.bound_dom_mut()
+        } else {
+            None
+        }
+    }
 }
 
 impl HostDriver for ElidexJsEngine {
@@ -336,6 +405,19 @@ impl HostDriver for ElidexJsEngine {
 
     fn unbind(&mut self) {
         self.vm.unbind();
+        self.bound = false;
+    }
+
+    #[allow(unsafe_code)]
+    unsafe fn teardown_document(&mut self, ctx: &mut ScriptContext<'_>) {
+        // Bind so the realtime force-close (needs the live `NetworkHandle` + the
+        // `is_bound()` gate) and the worker wrapper-uncache (needs wrapper access)
+        // run WHILE BOUND; `Vm::teardown_document` calls `unbind()` itself as its
+        // final step, so reconcile the batch-bound flag to `false` afterward.
+        // SAFETY: forwarded from `HostDriver::teardown_document`'s `# Safety`
+        // contract — `ctx` stays valid + unaliased for this call.
+        unsafe { self.bind(ctx) };
+        self.vm.teardown_document();
         self.bound = false;
     }
 
@@ -550,6 +632,13 @@ impl HostDriver for ElidexJsEngine {
         self.vm.inner.document_origin()
     }
 
+    fn storage_origin_key(&self) -> String {
+        // Delegate to the same VM serialization the send side uses
+        // (`pending_tasks.rs` resolves `targetOrigin == "/"` via this), so the
+        // receive-side gate key is byte-identical to `ParentMessage.target_origin`.
+        self.vm.inner.storage_origin_key()
+    }
+
     fn set_sandbox_flags(&mut self, flags: Option<elidex_plugin::IframeSandboxFlags>) {
         if let Some(hd) = self.vm.host_data() {
             hd.set_sandbox_flags(flags);
@@ -594,6 +683,14 @@ impl HostDriver for ElidexJsEngine {
         }
     }
 
+    fn window_entity(&self) -> Option<Entity> {
+        self.vm
+            .inner
+            .host_data
+            .as_deref()
+            .and_then(HostData::window_entity)
+    }
+
     // ── page visibility / scroll transport (per-window; S2) ───────────────
 
     fn set_visibility(&mut self, visible: bool) {
@@ -607,6 +704,10 @@ impl HostDriver for ElidexJsEngine {
 
     fn take_pending_scroll(&mut self) -> Option<(f64, f64)> {
         self.vm.take_pending_scroll()
+    }
+
+    fn has_pending_scroll(&self) -> bool {
+        self.vm.has_pending_scroll()
     }
 
     fn set_scroll_offset(&mut self, x: f64, y: f64) {
@@ -683,6 +784,34 @@ impl HostDriver for ElidexJsEngine {
         // unconfigured path).
         if let Some(hd) = self.vm.host_data() {
             hd.install_web_storage(manager);
+        }
+    }
+}
+
+impl Drop for ElidexJsEngine {
+    fn drop(&mut self) {
+        // Backstop for a pipeline dropped WITHOUT an explicit `teardown_document`
+        // (panic-unwind, or an iframe teardown path that forgets the explicit
+        // call): release the document-scoped resources so a leaked pipeline does
+        // not strand the broker I/O thread + worker OS threads until process
+        // exit. Runs UNBOUND: `Vm::teardown_document`'s realtime force-close is
+        // `is_bound()`-gated and so is skipped here (the broker connections fall
+        // back to `NetworkHandle` Drop), but the worker OS threads ARE terminated
+        // (the registry teardown needs no binding). Idempotent: a no-op when an
+        // explicit `teardown_document` already drained the tables.
+        //
+        // GATED on the batch-bound flag being CLEAR. `!self.bound` is the
+        // engine's proof that `unbind` has run, so `HostData`'s `dom` pointer is
+        // NULL and `Vm::teardown_document`'s internal `unbind` cannot dereference
+        // it. The real forget-paths reach `Drop` unbound: `with_bound`'s RAII
+        // guard unbinds even on panic-unwind, and the shell's document boundaries
+        // are all outside any bracket. A STILL-bound engine at `Drop` is only a
+        // lifetime misuse (e.g. the `nested_bind_trips_non_reentrancy_assert`
+        // `should_panic` test that dies mid-second-bind) — running the teardown
+        // there would deref a possibly-dangling `dom` pointer (SIGBUS), so skip it.
+        #[cfg(feature = "engine")]
+        if !self.bound {
+            self.vm.teardown_document();
         }
     }
 }

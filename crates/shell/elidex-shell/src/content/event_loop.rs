@@ -6,12 +6,14 @@ use std::time::{Duration, Instant};
 
 use crossbeam_channel::RecvTimeoutError;
 
+use elidex_api_sw::SwClientUpdate;
+use elidex_script_session::HostDriver;
+
 use crate::ipc::{BrowserToContent, ContentToBrowser};
 
 use super::{
-    animation, apply_script_animations, dispatch_media_query_changes, dispatch_message_event,
-    dispatch_storage_event, iframe, navigation, scroll, ContentState, DEFAULT_POLL_INTERVAL,
-    FRAME_INTERVAL,
+    animation, dispatch_message_event, dispatch_storage_event, iframe, navigation,
+    parent_message_allowed, scroll, ContentState, DEFAULT_POLL_INTERVAL, FRAME_INTERVAL,
 };
 use super::{event_handlers, ime};
 
@@ -59,8 +61,6 @@ pub(super) fn run_event_loop(state: &mut ContentState) {
         let dt = now.duration_since(last_frame);
         let mut needs_render = false;
 
-        apply_script_animations(state);
-
         if state.pipeline.animation_engine.has_active() && dt > Duration::ZERO {
             let dt_secs = dt.min(FRAME_INTERVAL * 2).as_secs_f64();
             let events = state.pipeline.animation_engine.tick(dt_secs);
@@ -80,20 +80,27 @@ pub(super) fn run_event_loop(state: &mut ContentState) {
         }
 
         // --- Iframe + messaging frame tick ---
-        let post_messages = state.iframes.drain_oop_messages();
-        for msg in &post_messages {
-            dispatch_message_event(state, &msg.data, &msg.origin);
+        // Under the VM a depth-0 `window.postMessage` self-delivers internally
+        // (with the §9.3.3 step 8.1 gate applied inline in `dispatch_post_message`),
+        // so the shell no longer drains top-level self-messages. Iframe→parent
+        // messages are drained/gated below (2f4-c). Message-handler DOM mutations
+        // that need a re-render ride the §4.3.8 inclusive-descendants version-delta
+        // (below), the same signal the realtime/worker drains use.
+        // §9.3.3 step 8.1: gate every iframe→parent message against the parent
+        // window's origin key at THIS single chokepoint (fail-closed — a message
+        // whose resolved `targetOrigin` is neither `*` nor the parent key is
+        // dropped). Both transports (OOP IPC + in-process) are normalised onto
+        // one `Vec<ParentMessage>` by `drain_parent_messages`, so the gate sees
+        // one input shape. `parent_key` is the parent's `storage_origin_key`
+        // (byte-identical to the send-side resolution).
+        let parent_key = state.pipeline.runtime.storage_origin_key();
+        for msg in state.iframes.drain_parent_messages() {
+            if parent_message_allowed(&parent_key, &msg.target_origin) {
+                dispatch_message_event(state, &msg.data, &msg.origin);
+            }
         }
 
-        let self_messages = state.pipeline.runtime.bridge().drain_post_messages();
-        for (data, origin) in &self_messages {
-            dispatch_message_event(state, data, origin);
-        }
-        if !self_messages.is_empty() || !post_messages.is_empty() {
-            needs_render = true;
-        }
-
-        for change in state.pipeline.runtime.bridge().drain_storage_changes() {
+        for change in state.pipeline.runtime.take_pending_storage_changes() {
             let _ = state.channel.send(ContentToBrowser::StorageChanged {
                 origin: change.origin,
                 key: change.key,
@@ -106,8 +113,7 @@ pub(super) fn run_event_loop(state: &mut ContentState) {
         for req in state
             .pipeline
             .runtime
-            .bridge()
-            .drain_idb_versionchange_requests()
+            .take_pending_idb_versionchange_requests()
         {
             let _ = state
                 .channel
@@ -120,27 +126,71 @@ pub(super) fn run_event_loop(state: &mut ContentState) {
                 });
         }
 
-        for req in state.pipeline.runtime.bridge().drain_sw_register_requests() {
-            if let Some(ref current_url) = state.pipeline.runtime.bridge().current_url() {
-                let origin = current_url.origin().unicode_serialization();
-                let Ok(script_url) = current_url.join(&req.script_url) else {
-                    continue;
-                };
-                let scope = req
-                    .scope
-                    .as_deref()
-                    .and_then(|s| current_url.join(s).ok())
-                    .unwrap_or_else(|| elidex_api_sw::default_scope(&script_url));
-                let _ = state.channel.send(ContentToBrowser::SwRegister {
-                    script_url,
-                    scope,
-                    origin,
-                    page_url: current_url.clone(),
-                });
+        // Drain all four `ServiceWorkerContainer`/`ServiceWorkerRegistration`/
+        // `ServiceWorker` client requests and route each onto its browser IPC.
+        // The VM queues all four arms and settles their promises via
+        // `deliver_sw_client_update`, so dropping any arm would HANG its
+        // promise (§8). A page with no current_url cannot own SW requests.
+        if let Some(current_url) = state.pipeline.runtime.current_url() {
+            for req in state.pipeline.runtime.drain_sw_client_requests() {
+                match req {
+                    elidex_api_sw::SwClientRequest::Register {
+                        script_url,
+                        scope,
+                        update_via_cache,
+                    } => {
+                        // URLs are already resolved against the doc base
+                        // (canonical) — parse verbatim, no join/default_scope.
+                        let (Ok(script_url), Ok(scope)) =
+                            (url::Url::parse(&script_url), url::Url::parse(&scope))
+                        else {
+                            continue;
+                        };
+                        let origin = current_url.origin().unicode_serialization();
+                        let _ = state.channel.send(ContentToBrowser::SwRegister {
+                            script_url,
+                            scope,
+                            origin,
+                            page_url: current_url.clone(),
+                            update_via_cache,
+                        });
+                    }
+                    elidex_api_sw::SwClientRequest::Update { scope } => {
+                        let Ok(scope) = url::Url::parse(&scope) else {
+                            continue;
+                        };
+                        let _ = state.channel.send(ContentToBrowser::SwUpdate { scope });
+                    }
+                    elidex_api_sw::SwClientRequest::Unregister { scope } => {
+                        let Ok(scope) = url::Url::parse(&scope) else {
+                            continue;
+                        };
+                        let _ = state.channel.send(ContentToBrowser::SwUnregister { scope });
+                    }
+                    elidex_api_sw::SwClientRequest::PostMessage { scope, data } => {
+                        let Ok(scope) = url::Url::parse(&scope) else {
+                            continue;
+                        };
+                        let origin = current_url.origin().unicode_serialization();
+                        let client_id = state.client_id.clone();
+                        let _ = state.channel.send(ContentToBrowser::SwPostMessage {
+                            scope,
+                            data,
+                            origin,
+                            client_id,
+                        });
+                    }
+                }
             }
         }
 
-        elidex_js_boa::bridge::local_storage::flush_dirty_stores();
+        // Persist any `localStorage` origins this turn's scripts dirtied to disk.
+        // The VM-native Storage natives write through the shell-owned
+        // `WebStorageManager` (installed at the pipeline construction seam); this
+        // per-turn flush is the disk-persistence half (F14 / §4.3.3). Replaces the
+        // orphaned pre-flip `elidex_js_boa::bridge::local_storage::flush_dirty_stores()`
+        // (which flushed the boa registry the VM never writes to).
+        state.web_storage.flush_dirty();
 
         // window.open — route the ordered tab-creation / named-navigation
         // queue (a user-visible chrome action, so we wake: a pure-async
@@ -154,39 +204,46 @@ pub(super) fn run_event_loop(state: &mut ContentState) {
         let window_opens = state.pipeline.runtime.take_pending_window_opens();
         needs_render |= super::navigation::route_window_opens(state, window_opens).navigated_iframe;
 
-        if state.pipeline.runtime.bridge().take_pending_focus() {
+        if state.pipeline.runtime.take_pending_focus() {
             state.notify_browser(ContentToBrowser::FocusWindow);
         }
 
-        {
-            let (ws_events, sse_events) = state.pipeline.runtime.bridge().drain_realtime_events();
-            let has_js_events = ws_events
-                .iter()
-                .any(|(_, e)| !matches!(e, elidex_net::ws::WsEvent::BytesSent(_)))
-                || !sse_events.is_empty();
-            if !ws_events.is_empty() || !sse_events.is_empty() {
-                state.pipeline.runtime.dispatch_realtime_events(
-                    ws_events,
-                    sse_events,
-                    &mut state.pipeline.session,
-                    &mut state.pipeline.dom,
-                    state.pipeline.document,
-                );
-                if has_js_events {
-                    needs_render = true;
-                }
-            }
-        }
+        // §4.3.8: the VM-native network turn — settle fetch(), dispatch WS/SSE,
+        // run the microtask checkpoint. `needs_render` for any realtime/fetch-
+        // driven DOM mutation is restored by the inclusive-descendants version-
+        // delta below (stage 2d-2), which subsumed the boa per-drain `has_js_events`
+        // bool this block used to carry.
+        state.pipeline.tick_network();
 
-        needs_render |= state.pipeline.runtime.drain_and_dispatch_worker_events(
-            &mut state.pipeline.session,
-            &mut state.pipeline.dom,
-            state.pipeline.document,
-        );
+        // §4.3.8: worker-drive needs_render now comes from the version-delta (stage 2d-2).
+        state.pipeline.drain_worker_messages();
 
         iframe::tick_iframe_timers(state);
 
         if state.update_caret_blink() {
+            needs_render = true;
+        }
+
+        // §4.3.8: any DOM-tree mutation this turn (worker/timer/dispatch-driven) moved the
+        // document-root version — restore the needs_render signal the boa per-drain bools carried.
+        if state
+            .pipeline
+            .dom
+            .inclusive_descendants_version(state.pipeline.document)
+            != state.last_render_dom_version
+        {
+            needs_render = true;
+        }
+
+        // §4.3.8: two render effects bump NO DOM-tree version, so the delta above
+        // misses a turn whose ONLY visible effect is one of them — restore the
+        // explicit render-dirty signal the pre-flip loop carried. Both drain
+        // INSIDE `re_render` (scroll via `take_pending_scroll`, canvas via
+        // `sync_dirty_canvases`), so a pure-async handler (WS/SSE/worker/
+        // postMessage) that only `scrollTo`s or draws a canvas would otherwise
+        // leave `needs_render` false and stall until a later render/interaction.
+        // PEEK, don't consume — `re_render` stays the single drain point.
+        if state.pipeline.runtime.has_pending_scroll() || state.pipeline.has_dirty_canvas() {
             needs_render = true;
         }
 
@@ -241,10 +298,13 @@ fn apply_device_facts(
         return false;
     }
     state.applied_facts_seq = facts_seq;
-    let bridge = state.pipeline.runtime.bridge();
-    if dppx != bridge.device_pixel_ratio() || color_scheme != bridge.color_scheme() {
-        bridge.set_device_pixel_ratio(dppx);
-        bridge.set_color_scheme(color_scheme);
+    // Value-guard against the shell-owned facts SoT (B20 — the getterless VM can no
+    // longer answer). On a real change, fold the new values into `state.device_facts`
+    // so the caller's `set_media_environment` push reads them; the actual VM push +
+    // MQL re-eval happen in the arms, not here.
+    if dppx != state.device_facts.dppx || color_scheme != state.device_facts.color_scheme {
+        state.device_facts.dppx = dppx;
+        state.device_facts.color_scheme = color_scheme;
         true
     } else {
         false
@@ -273,8 +333,11 @@ fn handle_message(msg: BrowserToContent, state: &mut ContentState) -> bool {
                 return true;
             }
             state.iframes.shutdown_all();
-            state.pipeline.runtime.bridge().shutdown_all_realtime();
-            state.pipeline.runtime.bridge().shutdown_all_workers();
+            // Document teardown (WHATWG HTML §10.2.4 / WebSockets §7): force-close
+            // WS/SSE + terminate dedicated workers AFTER unload handlers ran,
+            // before the content thread exits. Unifies the former separate boa
+            // `shutdown_all_realtime` + `shutdown_all_workers` calls.
+            state.pipeline.teardown_document();
             return false;
         }
 
@@ -406,40 +469,49 @@ fn handle_message(msg: BrowserToContent, state: &mut ContentState) -> bool {
                 return true;
             }
 
-            let bridge = state.pipeline.runtime.bridge().clone();
             if size_changed {
                 state.pipeline.viewport = elidex_plugin::Size::new(width, height);
-                bridge.set_viewport(width, height);
             }
 
-            // Refresh each `MediaQueryList`'s cached `matches` to the new viewport **and**
-            // the facts applied in (iii) **before** dispatching any event (CSSOM View §4.2
-            // — the `matches` getter must read the post-change value in a `change`
-            // listener). One re-eval covers both inputs (atomic — C3 R2); it only refreshes
-            // state + collects the changed set, the `change` *events* fire after `resize`.
-            let changed = bridge.re_evaluate_media_queries(
-                state.pipeline.viewport.width,
-                state.pipeline.viewport.height,
+            // Push the new size + the facts `apply_device_facts` already folded into
+            // `state.device_facts` to the engine (B20 model inversion — the shell owns
+            // the facts SoT, the VM evaluates). Setter form: survives unbind, called
+            // OUTSIDE any bracket. `matchMedia().matches` DERIVES live from this stored
+            // environment on every get, so right after this push a `resize` listener
+            // reads the post-change `matches` with no cache to refresh (C3 R2 atomicity
+            // is preserved by pushing size + facts in one call before any event fires).
+            state.pipeline.runtime.set_media_environment(
+                f64::from(state.pipeline.viewport.width),
+                f64::from(state.pipeline.viewport.height),
+                state.device_facts.dppx,
+                state.device_facts.color_scheme,
+                state.device_facts.reduced_motion,
             );
 
             // HTML "update the rendering" (§8.1.7.3 Processing model): step 8 "run the
             // resize steps" runs **before** step 10 "evaluate media queries and report
-            // changes". Fire `resize` first (iff the size changed), then the MQL `change`
-            // events — spec-correct order, with the cache a `resize` listener reads already
-            // current (refreshed above).
+            // changes". Fire `resize` first (iff the size changed) — its listener reads
+            // the current (already-pushed) `matchMedia` — then report the MQL `change`
+            // flips (CSSOM View §4.2) in one batch bracket.
             if size_changed {
-                let mut resize_event = elidex_script_session::DispatchEvent::new_composed(
-                    "resize",
-                    state.pipeline.document,
-                );
+                // `resize` fires on Window (CSSOM-View §13.1) — target the VM's
+                // dedicated Window entity, NOT the Document: `window.addEventListener
+                // ('resize', …)` records its listener against the Window entity
+                // (window.rs), so a document-targeted dispatch misses it. Falls back
+                // to the document entity pre-bind (window_entity == None).
+                let window_target = state
+                    .pipeline
+                    .runtime
+                    .window_entity()
+                    .unwrap_or(state.pipeline.document);
+                let mut resize_event =
+                    elidex_script_session::DispatchEvent::new_composed("resize", window_target);
                 resize_event.bubbles = false;
                 resize_event.cancelable = false;
                 state.pipeline.dispatch_event(&mut resize_event);
             }
 
-            if !changed.is_empty() {
-                dispatch_media_query_changes(&changed, state);
-            }
+            state.pipeline.deliver_media_query_changes();
 
             state.re_render();
             state.send_display_list();
@@ -458,18 +530,18 @@ fn handle_message(msg: BrowserToContent, state: &mut ContentState) -> bool {
             // value guards live in the shared `apply_device_facts`; a real change needs
             // one re-eval + repaint (no `resize` — the size is unchanged).
             if apply_device_facts(state, color_scheme, dppx, facts_seq) {
-                let bridge = state.pipeline.runtime.bridge().clone();
-                // Refresh each `MediaQueryList`'s cached `matches` to the new facts BEFORE
-                // firing any event (CSSOM View §4.2 — the `matches` getter must read the
-                // post-change value in a `change` listener); the viewport is unchanged, so
-                // pass the current cached size. Then fire the MQL `change` events + repaint.
-                let changed_mqls = bridge.re_evaluate_media_queries(
-                    state.pipeline.viewport.width,
-                    state.pipeline.viewport.height,
+                // Push the settled facts (viewport unchanged — carry the current size)
+                // to the engine, then report MQL `change` flips (CSSOM View §4.2) in one
+                // batch bracket. No `resize` — the size did not change. `matchMedia`
+                // derives live from the pushed environment (B20).
+                state.pipeline.runtime.set_media_environment(
+                    f64::from(state.pipeline.viewport.width),
+                    f64::from(state.pipeline.viewport.height),
+                    state.device_facts.dppx,
+                    state.device_facts.color_scheme,
+                    state.device_facts.reduced_motion,
                 );
-                if !changed_mqls.is_empty() {
-                    dispatch_media_query_changes(&changed_mqls, state);
-                }
+                state.pipeline.deliver_media_query_changes();
                 state.re_render();
                 state.send_display_list();
             }
@@ -482,7 +554,7 @@ fn handle_message(msg: BrowserToContent, state: &mut ContentState) -> bool {
             );
             event.bubbles = false;
             event.cancelable = false;
-            state.pipeline.runtime.bridge().set_visibility(visible);
+            state.pipeline.runtime.set_visibility(visible);
             state.pipeline.dispatch_event(&mut event);
             state.re_render();
             state.send_display_list();
@@ -546,18 +618,48 @@ fn handle_message(msg: BrowserToContent, state: &mut ContentState) -> bool {
             old_version,
             new_version,
         } => {
-            state.pipeline.runtime.dispatch_idb_versionchange(
-                &db_name,
-                old_version,
-                new_version,
-                &mut state.pipeline.session,
-                &mut state.pipeline.dom,
-                state.pipeline.document,
-            );
+            state
+                .pipeline
+                .deliver_idb_versionchange(&db_name, old_version, new_version);
             let _ = state.channel.send(ContentToBrowser::IdbConnectionsClosed {
                 request_id,
                 db_name,
             });
+        }
+
+        // Settle SW client promises / fire client events via ONE self-bracketed
+        // deliver (§6.2 — `handle_message` is NOT inside an open bracket).
+        BrowserToContent::SwRegistered(data) => {
+            state
+                .pipeline
+                .deliver_sw_client_update(SwClientUpdate::Registered {
+                    scope: data.scope,
+                    success: data.success,
+                    error: data.error,
+                    worker: data.worker,
+                    update_via_cache: data.update_via_cache,
+                });
+        }
+        BrowserToContent::SwUnregistered { scope, success } => {
+            state
+                .pipeline
+                .deliver_sw_client_update(SwClientUpdate::Unregistered { scope, success });
+        }
+        BrowserToContent::SwStateChanged {
+            scope,
+            state: sw_state,
+        } => {
+            state
+                .pipeline
+                .deliver_sw_client_update(SwClientUpdate::StateChanged {
+                    scope,
+                    state: sw_state,
+                });
+        }
+        BrowserToContent::SwControllerSet { scope } => {
+            state
+                .pipeline
+                .deliver_sw_client_update(SwClientUpdate::ControllerSet { scope: Some(scope) });
         }
 
         BrowserToContent::IdbUpgradeReady { .. }
@@ -565,9 +667,6 @@ fn handle_message(msg: BrowserToContent, state: &mut ContentState) -> bool {
         | BrowserToContent::StorageEstimateResult { .. }
         | BrowserToContent::StoragePersistResult { .. }
         | BrowserToContent::StoragePersistedResult { .. }
-        | BrowserToContent::SwRegistered(_)
-        | BrowserToContent::SwControllerSet { .. }
-        | BrowserToContent::SwStateChanged { .. }
         | BrowserToContent::ManifestParsed(_)
         | BrowserToContent::SwFetchResponse { .. } => {}
     }
@@ -620,4 +719,94 @@ fn chrome_traverse(state: &mut ContentState, direction: ChromeTraversal) {
         navigation::HistoryCursorOp::Commit(target_index),
         None,
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use elidex_script_session::HostDriver;
+
+    use crate::build_pipeline_interactive;
+
+    /// Regression (S5-6b flip): a turn whose ONLY visible effect is a
+    /// `window.scrollTo` moves NO DOM-tree version, so the event loop's
+    /// inclusive-descendants version-delta render-dirty check (event_loop.rs
+    /// `if needs_render` gate) would miss it and the scroll would stall. The
+    /// scroll drains INSIDE `re_render` (`take_pending_scroll`), so the loop must
+    /// peek `has_pending_scroll()` to schedule that render. Proves the peek fires
+    /// while the DOM version is unchanged, and that peeking does NOT consume.
+    #[test]
+    fn scroll_only_turn_flags_render_without_dom_version_bump() {
+        let mut pipeline = build_pipeline_interactive(
+            "<body><div id='a'>hi</div><script>window.scrollTo(0, 100);</script></body>",
+            "",
+        );
+        let doc = pipeline.document;
+        // The scrollTo ran during build; its request is pending (undrained — the
+        // build path never calls take_pending_scroll).
+        let version_after_scroll = pipeline.dom.inclusive_descendants_version(doc);
+
+        // The event-loop render-dirty peek picks it up...
+        assert!(
+            pipeline.runtime.has_pending_scroll(),
+            "scrollTo must leave a pending scroll the render-dirty gate can see"
+        );
+        // ...and the peek is NON-consuming (unlike take_pending_scroll).
+        assert!(
+            pipeline.runtime.has_pending_scroll(),
+            "has_pending_scroll must not consume the pending scroll"
+        );
+        // The version-delta signal alone would MISS this turn: the peek did not
+        // move the DOM-tree version.
+        assert_eq!(
+            version_after_scroll,
+            pipeline.dom.inclusive_descendants_version(doc),
+            "a scroll-only turn bumps no DOM-tree version"
+        );
+
+        // The gate expression the event loop evaluates fires.
+        let needs_render = pipeline.runtime.has_pending_scroll() || pipeline.has_dirty_canvas();
+        assert!(needs_render, "scroll-only turn must schedule re_render");
+
+        // re_render's drain (take_pending_scroll) clears the signal.
+        assert_eq!(pipeline.runtime.take_pending_scroll(), Some((0.0, 100.0)));
+        assert!(!pipeline.runtime.has_pending_scroll());
+    }
+
+    /// Regression (S5-6b flip): a turn whose ONLY visible effect is a canvas draw
+    /// inserts a `CanvasDirty` marker but bumps NO DOM-tree version, so the
+    /// version-delta gate would miss it and the draw would stall until a later
+    /// render. The pixels flush INSIDE `re_render` (`sync_dirty_canvases`), so the
+    /// loop must peek `has_dirty_canvas()`. Proves the peek fires while the DOM
+    /// version is unchanged.
+    #[test]
+    fn canvas_only_turn_flags_render_without_dom_version_bump() {
+        let mut pipeline = build_pipeline_interactive("<body><canvas id='c'></canvas></body>", "");
+        let doc = pipeline.document;
+        let canvas = pipeline.dom.query_by_tag("canvas")[0];
+
+        let version_before = pipeline.dom.inclusive_descendants_version(doc);
+        assert!(
+            !pipeline.has_dirty_canvas(),
+            "no canvas is dirty before the draw"
+        );
+
+        // A draw marks the canvas dirty (HTML §4.12.5) without touching the DOM
+        // tree — set the marker directly (the raster op path is exercised by the
+        // canvas crate's own tests).
+        elidex_api_canvas::mark_dirty(&mut pipeline.dom, canvas);
+
+        assert_eq!(
+            version_before,
+            pipeline.dom.inclusive_descendants_version(doc),
+            "marking a canvas dirty bumps no DOM-tree version"
+        );
+
+        // The event-loop render-dirty gate now picks it up where the version-delta
+        // signal alone would not.
+        let needs_render = pipeline.runtime.has_pending_scroll() || pipeline.has_dirty_canvas();
+        assert!(
+            needs_render,
+            "canvas-only turn must schedule re_render via has_dirty_canvas()"
+        );
+    }
 }

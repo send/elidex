@@ -20,15 +20,13 @@ use elidex_script_session::event_dispatch::{script_dispatch_event, DispatchEvent
 use elidex_script_session::{ScriptContext, SessionCore};
 
 use crate::engine::ElidexJsEngine;
-use crate::vm::host_data::HostData;
 use crate::vm::value::JsValue;
 
 /// Construct an unbound engine + session + dom with a fresh
 /// `document_root`.  Callers create their DOM tree, then call
 /// `bind_after_dom` to start the VM's host-pointer lifecycle.
 fn fresh_unbound() -> (ElidexJsEngine, SessionCore, EcsDom, Entity) {
-    let mut engine = ElidexJsEngine::new();
-    engine.vm().install_host_data(HostData::new());
+    let engine = ElidexJsEngine::new();
     let session = SessionCore::new();
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
@@ -266,6 +264,167 @@ fn capture_phase_listener_fires_before_target() {
         "capture (outer) must fire before at-target (inner)"
     );
     engine.vm().unbind();
+}
+
+/// Soundness regression for slot `#11-bound-safe-dispatch-dom-aliasing`.
+///
+/// Drives the BOUND dispatch path with a listener that MUTATES the DOM, under
+/// the SOUND driving order the real shell uses: build the `ScriptContext`
+/// ONCE, `bind` the engine THROUGH it (the bound `*mut EcsDom` is derived from
+/// `ctx.dom`), and never create a fresh `&mut dom` afterward — dispatch is
+/// then driven by passing `&mut ctx` through, which reborrows the `ctx` struct
+/// but never `*ctx.dom`.
+///
+/// Before the bound-safe-dispatch fix, `script_dispatch_event_core` reborrowed
+/// `&mut *ctx.dom` at the plan-build / retarget / once-removal sites,
+/// invalidating the engine's bound `dom_ptr` under Stacked Borrows, so the
+/// subsequent `call_listener` (which reads/mutates the DOM through that
+/// now-invalidated pointer) was UB. With the fix, dispatch routes every dom
+/// access through `engine.bound_dom_mut()` — the SAME `dom_ptr` — so there is
+/// ONE derivation chain and no reborrow of `ctx.dom` while bound.
+///
+/// The assertions check BOTH halves: the listener fired (a global flag), and
+/// its DOM mutations (`setAttribute` + `appendChild`) are visible when we read
+/// the `EcsDom` back after `unbind` + dropping `ctx` — proving the engine
+/// mutated the very `EcsDom` that `ctx.dom` aliases.
+///
+/// **Miri note**: this behavioral test asserts under the normal runner. It is
+/// NOT run under miri because the listener's DOM mutation reaches a PRE-EXISTING
+/// Stacked-Borrows issue in `elidex_ecs::EcsDom::dispatch_event`'s
+/// mutation-dispatcher take-and-restore (`&raw mut self.dispatch_depth` is
+/// invalidated by the immediately-following `self.dispatch_depth = ...` write) —
+/// orthogonal to this dispatch-aliasing fix and reachable from ANY bound DOM
+/// mutation. The Stacked-Borrows validation of THIS fix (the bound dispatch
+/// routing) lives in the sibling
+/// [`bound_dispatch_routing_is_stacked_borrows_clean`], which isolates it from
+/// that elidex-ecs bug by not mutating the DOM.
+#[test]
+#[allow(unsafe_code)]
+fn bound_dispatch_listener_dom_mutation_is_sound_and_visible() {
+    use elidex_script_session::HostDriver;
+
+    let mut engine = ElidexJsEngine::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = dom.create_document_root();
+    let target = dom.create_element("button", Attributes::default());
+    assert!(dom.append_child(doc, target));
+
+    // Build `ctx` ONCE, then bind THROUGH it: the raw `*mut EcsDom` the VM
+    // stores is derived from `ctx.dom`, and from here on nothing reborrows
+    // `*ctx.dom`, so that raw pointer stays valid for the whole bracket.
+    let mut ctx = ScriptContext::new(&mut session, &mut dom, doc);
+    // SAFETY: `ctx` (and thus `ctx.session`/`ctx.dom`) outlives the bracket and
+    // is not reborrowed until `unbind`; the dispatch below routes dom access
+    // through the bound pointer via `bound_dom_mut`, per the bound-safe contract.
+    unsafe { HostDriver::bind(&mut engine, &mut ctx) };
+
+    let wrapper = engine.vm().inner.create_element_wrapper(target);
+    engine.vm().set_global("el", JsValue::Object(wrapper));
+    engine
+        .vm()
+        .eval(
+            "globalThis.fired = false;
+             el.addEventListener('click', function () {
+                 globalThis.fired = true;
+                 el.setAttribute('data-fired', 'yes');
+                 el.appendChild(document.createElement('span'));
+             });",
+        )
+        .unwrap();
+
+    let mut event = DispatchEvent::new_composed("click", target);
+    script_dispatch_event(&mut engine, &mut event, &mut ctx);
+
+    assert!(
+        get_bool(&mut engine, "fired"),
+        "bound-path listener must fire"
+    );
+
+    HostDriver::unbind(&mut engine);
+    let _ = ctx;
+
+    // Read the mutations back through the same `EcsDom` `ctx.dom` aliased: if the
+    // single-derivation-chain routing held, the engine's bound-pointer mutations
+    // landed in THIS `dom`.
+    assert_eq!(
+        dom.get_attribute(target, "data-fired").as_deref(),
+        Some("yes"),
+        "listener's setAttribute must be visible in the shared EcsDom"
+    );
+    assert_eq!(
+        dom.children(target).len(),
+        1,
+        "listener's appendChild must be visible in the shared EcsDom"
+    );
+}
+
+/// Focused Stacked-Borrows validation of the bound-safe DISPATCH routing
+/// (slot `#11-bound-safe-dispatch-dom-aliasing`), isolated from DOM mutation.
+///
+/// Same sound driving order as
+/// [`bound_dispatch_listener_dom_mutation_is_sound_and_visible`] (build `ctx`
+/// once, `bind` through it, never reborrow `*ctx.dom`), but the listener only
+/// READS the event and sets a JS global — it does not mutate the DOM, so it
+/// does NOT reach the pre-existing (orthogonal) Stacked-Borrows issue in
+/// `EcsDom::dispatch_event`'s mutation-dispatcher take-and-restore pattern.
+/// This isolates the fix under test: the full bound 3-phase walk
+/// (`build_dispatch_plan` / `apply_retarget` / `call_listener` →
+/// `ensure_event_handler_current` → `HostData::dom`) runs entirely through the
+/// engine's bound `dom_ptr`, never a fresh `ctx.dom` reborrow. **Verified
+/// clean under `cargo +nightly miri test` (Stacked Borrows).** Before the fix,
+/// dispatch's `&mut *ctx.dom` reborrows invalidated the bound pointer and this
+/// test tripped miri at `call_listener`.
+#[test]
+#[allow(unsafe_code)]
+fn bound_dispatch_routing_is_stacked_borrows_clean() {
+    use elidex_script_session::HostDriver;
+
+    let mut engine = ElidexJsEngine::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = dom.create_document_root();
+    let outer = dom.create_element("div", Attributes::default());
+    let inner = dom.create_element("span", Attributes::default());
+    assert!(dom.append_child(doc, outer));
+    assert!(dom.append_child(outer, inner));
+
+    let mut ctx = ScriptContext::new(&mut session, &mut dom, doc);
+    // SAFETY: `ctx` outlives the bracket and is not reborrowed until `unbind`;
+    // dispatch routes dom access through the bound pointer via `bound_dom_mut`.
+    unsafe { HostDriver::bind(&mut engine, &mut ctx) };
+
+    let outer_w = engine.vm().inner.create_element_wrapper(outer);
+    let inner_w = engine.vm().inner.create_element_wrapper(inner);
+    engine.vm().set_global("outer", JsValue::Object(outer_w));
+    engine.vm().set_global("inner", JsValue::Object(inner_w));
+    // Listeners READ the event only (no DOM mutation). A capture + bubble +
+    // once listener exercises retarget + the once-removal borrow of the bound
+    // dom, all off the single derivation chain.
+    engine
+        .vm()
+        .eval(
+            "globalThis.log = '';
+             outer.addEventListener('click', function (e) { globalThis.log += 'C' + e.type; }, true);
+             inner.addEventListener('click', function () { globalThis.log += 'T'; }, { once: true });
+             outer.addEventListener('click', function () { globalThis.log += 'B'; });",
+        )
+        .unwrap();
+
+    let mut event = DispatchEvent::new_composed("click", inner);
+    script_dispatch_event(&mut engine, &mut event, &mut ctx);
+
+    let JsValue::String(sid) = engine.vm().get_global("log").unwrap() else {
+        panic!("log must be a string");
+    };
+    assert_eq!(
+        engine.vm().inner.strings.get_utf8(sid),
+        "CclickTB",
+        "capture → at-target(once) → bubble must all fire through bound dispatch"
+    );
+
+    HostDriver::unbind(&mut engine);
+    let _ = ctx;
 }
 
 #[test]
