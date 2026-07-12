@@ -97,6 +97,41 @@ pub struct PreEvalFrameInputs {
 // builder below (`build_pipeline_from_url`) invokes the resolver by method
 // dispatch rather than reaching up into the sandbox-origin policy.
 
+/// Dispatch one UA/lifecycle event through the §4.1 batch-bind bracket — the
+/// free-function analog of [`PipelineResult::dispatch_event`] for the pipeline
+/// builders (`transition_ready_state` / `dispatch_lifecycle_events`), which hold
+/// `session`/`dom`/`document` as separate `&mut` params rather than as a
+/// `PipelineResult`. Under the VM, `script_dispatch_event` → `call_listener` →
+/// `ensure_event_handler_current` reads `HostData::dom`, which requires the VM
+/// BOUND; a bare (unbracketed) dispatch panics "HostData accessed while unbound".
+/// So every dispatch is bracketed exactly like `dispatch_event`: build
+/// `ScriptContext` ONCE, bind, drive `script_dispatch_event` + `drain_reactions`
+/// under the SAME `&mut ctx`, unbind (RAII-guarded, panic-safe). Sequential
+/// brackets (this + a following `flush_with_ce_reactions`) never overlap, so the
+/// bound `*mut dom` aliasing contract holds.
+#[allow(unsafe_code)]
+/// Returns `true` if a listener called `preventDefault()` (for the cancelable
+/// `beforeunload` gate; the non-cancelable UA/lifecycle callers ignore it).
+fn dispatch_event_bracketed(
+    runtime: &mut ElidexJsEngine,
+    session: &mut SessionCore,
+    dom: &mut EcsDom,
+    document: Entity,
+    event: &mut DispatchEvent,
+) -> bool {
+    let mut ctx = ScriptContext::new(session, dom, document);
+    // SAFETY: mirrors `PipelineResult::dispatch_event` — `ctx` outlives the
+    // bracket and neither this fn nor the trait methods touch `ctx.session` /
+    // `ctx.dom` through a `&mut` while bound (they use the bound pointers).
+    unsafe {
+        runtime.with_bound(&mut ctx, |engine, ctx| {
+            let prevented = elidex_script_session::script_dispatch_event(engine, event, ctx);
+            engine.drain_reactions(ctx);
+            prevented
+        })
+    }
+}
+
 /// Flush pending DOM mutations, then deliver the resulting records to the
 /// engine (record→CE enqueue + `MutationObserver` delivery) and drain the CE
 /// reactions — S5-6b §4.3.1 CE-loop dissolve.
@@ -400,11 +435,7 @@ fn dispatch_lifecycle_events(
     // 2. DOMContentLoaded: bubbles, not cancelable.
     let mut dcl_event = DispatchEvent::new("DOMContentLoaded", document);
     dcl_event.cancelable = false;
-    elidex_script_session::script_dispatch_event(
-        runtime,
-        &mut dcl_event,
-        &mut ScriptContext::new(session, dom, document),
-    );
+    dispatch_event_bracketed(runtime, session, dom, document, &mut dcl_event);
     flush_with_ce_reactions(runtime, session, dom, document);
 
     // 3. Transition to "complete" and fire readystatechange.
@@ -427,11 +458,7 @@ fn dispatch_lifecycle_events(
     let mut load_event = DispatchEvent::new("load", document);
     load_event.bubbles = false;
     load_event.cancelable = false;
-    elidex_script_session::script_dispatch_event(
-        runtime,
-        &mut load_event,
-        &mut ScriptContext::new(session, dom, document),
-    );
+    dispatch_event_bracketed(runtime, session, dom, document, &mut load_event);
 }
 
 /// Transition `document.readyState` and dispatch `readystatechange`.
@@ -449,11 +476,7 @@ fn transition_ready_state(
     let mut event = DispatchEvent::new("readystatechange", document);
     event.bubbles = false;
     event.cancelable = false;
-    elidex_script_session::script_dispatch_event(
-        runtime,
-        &mut event,
-        &mut ScriptContext::new(session, dom, document),
-    );
+    dispatch_event_bracketed(runtime, session, dom, document, &mut event);
     flush_with_ce_reactions(runtime, session, dom, document);
 }
 
@@ -473,11 +496,7 @@ pub(crate) fn dispatch_unload_events(
     let mut beforeunload = DispatchEvent::new("beforeunload", document);
     beforeunload.cancelable = true;
     beforeunload.bubbles = false;
-    let prevented = elidex_script_session::script_dispatch_event(
-        runtime,
-        &mut beforeunload,
-        &mut ScriptContext::new(session, dom, document),
-    );
+    let prevented = dispatch_event_bracketed(runtime, session, dom, document, &mut beforeunload);
     // Always flush mutations from beforeunload handlers, regardless of
     // whether the event was prevented, so the page state remains consistent.
     flush_with_ce_reactions(runtime, session, dom, document);
@@ -489,11 +508,7 @@ pub(crate) fn dispatch_unload_events(
     let mut unload = DispatchEvent::new("unload", document);
     unload.bubbles = false;
     unload.cancelable = false;
-    elidex_script_session::script_dispatch_event(
-        runtime,
-        &mut unload,
-        &mut ScriptContext::new(session, dom, document),
-    );
+    dispatch_event_bracketed(runtime, session, dom, document, &mut unload);
     flush_with_ce_reactions(runtime, session, dom, document);
     true
 }

@@ -377,37 +377,27 @@ fn load_event_fires() {
 #[test]
 fn domcontentloaded_fires_before_load() {
     // DOMContentLoaded should fire before load.
+    // Capture the firing order in the DOM (each handler appends to `#order`),
+    // read back via `get_text_content` — the same VM-robust pattern the sibling
+    // `domcontentloaded_fires` / `load_event_fires` use (no reliance on a
+    // cross-eval `var` global).
     let result = build_pipeline_interactive(
-        "<script>\
-           var order = [];\
+        "<div id=\"order\"></div>\
+         <script>\
            document.addEventListener('DOMContentLoaded', function() {\
-             order.push('dcl');\
+             document.getElementById('order').textContent += 'dcl,';\
            });\
            document.addEventListener('load', function() {\
-             order.push('load');\
+             document.getElementById('order').textContent += 'load,';\
            });\
          </script>",
         "",
     );
-    // Check that both events fired in the right order via console.
-    // We need to read the `order` variable.
-    // Use a follow-up eval to check.
-    let mut session = result.session;
-    let mut dom = result.dom;
-    let mut runtime = result.runtime;
-    {
-        let mut ctx =
-            elidex_script_session::ScriptContext::new(&mut session, &mut dom, result.document);
-        elidex_script_session::ScriptEngine::eval(
-            &mut runtime,
-            "console.log('order=' + order.join(','));",
-            &mut ctx,
-        );
-    }
-    let messages = runtime.vm().console_messages();
-    assert!(
-        messages.iter().any(|m| m.1.contains("order=dcl,load")),
-        "Expected DOMContentLoaded before load, got: {messages:?}"
+    let order_entity = find_by_id(&result, "div", "order").expect("the #order div must exist");
+    assert_eq!(
+        get_text_content(&result.dom, order_entity),
+        "dcl,load,",
+        "DOMContentLoaded must fire before load",
     );
 }
 
