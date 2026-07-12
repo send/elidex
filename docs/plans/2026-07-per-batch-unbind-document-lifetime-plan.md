@@ -256,9 +256,9 @@ the document's.
 >   never re-run per bind), so after the surviving registry data + a dropped wrapper slot, the next access
 >   mints a SECOND wrapper and `convert_custom_element_registry_member` classifies the page's own
 >   `customElements` as `Foreign` (`createElement(x, { customElementRegistry: customElements })` throws
->   NotSupportedError). Reclassified **MOVE (survive per-turn, cleared at `teardown_document`)**, in lockstep
->   with the CE data. Cross-DOM-safe by construction (same-DOM rebind only). Pinned by
->   `custom_element_registry_wrapper_identity_survives_per_turn_unbind`.
+>   NotSupportedError). Reclassified to survive the per-turn unbind (⚠ R3 ALSO cleared it at
+>   `teardown_document` — R4 below shows that half was WRONG; the wrapper is realm-structural, cleared at
+>   NEITHER boundary). Pinned by `custom_element_registry_wrapper_identity_survives_per_turn_unbind`.
 > - **R3-2 (teardown DROPS the surviving SW wrappers)** — R2 made `unbind` RETAIN the Scope-keyed
 >   `ServiceWorkerRegistration` / `ServiceWorker` `wrapper_store` entries but `teardown_document` cleared only
 >   the data + brand rows, leaving stale wrapper entries. A later same-`Vm` re-`register()` of the same scope
@@ -267,11 +267,32 @@ the document's.
 >   `remove_wrapper_keyed`s the surviving Registration/Worker entries in lockstep with the data/brand clear.
 >   Pinned by `teardown_document_drops_sw_registration_wrapper_so_reregister_is_valid`.
 >
-> Net invariant: a **document-lifetime wrapped identity = {data, brand, wrapper}** — `unbind` RETAINS all
-> three, `teardown_document` CLEARS all three, uniformly for the SW registration/worker unit AND the CE
-> registry. The by-construction form (per-document-root component, despawn auto-clears the unit) stays
-> deferred to agent-scoped `EcsDom` (B1, §5 req5+req7) — genuinely unavailable now, so uniform manual
-> completion is the correct interim, self-contained per §6.1.
+> **⚠ AS-BUILT (Codex #459 R4 — the R3 "uniform {data,brand,wrapper}" net-invariant was OVER-generalized)** —
+> R4 (P2, production-unreachable → MINOR, but a cheap by-construction fix + a false comment) caught that R3's
+> teardown-clear of the CE registry wrapper was WRONG. An independent adversarial re-derivation (fresh agent,
+> fired because the R3 design re-gate had blessed the over-generalized model) confirmed: the CE registry
+> SINGLETON wrapper is **realm-structural**, NOT document-lifetime. It is reachable via the install-once
+> `globalThis.customElements` data property (never re-installed per bind), exactly like `sw_container` /
+> `navigator` / `crypto` / the prototypes — so it must be cleared at **NEITHER** `unbind` NOR
+> `teardown_document`; only its backing `ce_registry` DATA is document-scoped. Nulling the slot at teardown
+> frees nothing (the data property keeps the wrapper rooted) and desyncs the cached id, so a teardown+rebind
+> of the same `Vm` re-mints a `Foreign` duplicate. Fix = remove the teardown clear. Pinned by
+> `custom_element_registry_wrapper_identity_survives_teardown_document` (negative-checked).
+>
+> **Corrected net model = a 3-class wrapper-lifetime taxonomy** (stated ONCE in `Vm::unbind` so no field's
+> class is re-litigated per review round — this is what the R1–R4 corner-hopping revealed was missing):
+> 1. **Realm-structural singleton** (`customElements` / `sw_container` / `navigator` / `crypto` / prototypes)
+>    — identity owned by an install-once `globalThis` property; cleared at NEITHER boundary; only its DATA is
+>    document-scoped. (`crypto`'s existing per-turn slot-clear is redundant-but-benign — no `alloc_or_cached`
+>    identity-compare, so no divergence; left as-is, folded into the taxonomy comment.)
+> 2. **Document-lifetime dynamic wrapper** (SW per-scope `ServiceWorkerRegistration`/`ServiceWorker`) — minted
+>    per-op, Scope-keyed, survives per-turn unbind, dropped at `teardown_document` with data+brand (R3-2 ✓).
+> 3. **Per-turn / Entity-keyed transient** — cleared every unbind.
+>
+> The by-construction endpoint (per-realm vs per-document-root ECS component, despawn auto-clears at the right
+> grain) stays deferred to agent-scoped `EcsDom` (B1, §5 req5+req7) — B1 does not *enable* the R4 fix (that is
+> a one-line removal available now), it makes the unbind-vs-teardown distinction for class-1/class-2 wrappers
+> **vanish** (one World-lifetime), which is the real endpoint that removes the manual per-field taxonomy tax.
 
 ### STAYS (per-turn or genuine cross-DOM scrub — this slice does NOT touch)
 

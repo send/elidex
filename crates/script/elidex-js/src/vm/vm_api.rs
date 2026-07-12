@@ -860,23 +860,45 @@ impl Vm {
             // ⚠ SUPERSEDED 2026-06-30: nav-scrub-as-S5-6-hard-gate is RETRACTED
             // (the flip is cross-DOM-neutral) — PR #434
             // docs/plans/2026-06-agent-scoped-ecsdom-world.md §6.2.
+            // ── Wrapper-lifetime taxonomy (Codex #459 R1–R4; the SoT so each
+            // field's class is not re-litigated per review round) ──
+            //  1. REALM-STRUCTURAL singleton — identity owned by an install-
+            //     once, never-re-installed `globalThis` data property (or a
+            //     realm prototype): `customElements`, `sw_container`,
+            //     `navigator`, `crypto`, the prototypes. Only its mutable
+            //     BACKING DATA is document-scoped. The cache slot MUST NOT be
+            //     cleared where re-minting can DIVERGE from the property — the
+            //     `alloc_or_cached_*` + identity-compare case (`customElements`
+            //     via `convert_custom_element_registry_member`): splitting slot
+            //     from property yields two sources of truth for one identity and
+            //     a `Foreign` misclassification. Where there is NO such compare
+            //     (`crypto`), a per-turn slot-clear is redundant-but-benign (the
+            //     property keeps the wrapper rooted; no divergence observable) —
+            //     `sw_container` / `navigator` / prototypes are simply never
+            //     cleared.
+            //  2. DOCUMENT-LIFETIME dynamic wrapper — minted per-op, String/
+            //     Scope-keyed, NOT globalThis-reachable (SW per-scope
+            //     `ServiceWorkerRegistration` / `ServiceWorker`): survives a
+            //     per-turn unbind, dropped at `teardown_document` with its data
+            //     + brand rows.
+            //  3. PER-TURN / Entity-keyed transient — cleared every unbind
+            //     (Node getter wrappers, validity/touch/IDB caches, the CE
+            //     reaction queue).
+            //
             // D-17 `#11-custom-elements-vm` — the cached `customElements`
-            // singleton wrapper SURVIVES the per-turn unbind (Codex #459
-            // R3-1), in lockstep with the registry data (`ce_registry` etc.)
-            // the block above now keeps to `teardown_document`. `globalThis.
-            // customElements` is installed ONCE as an eager data property
-            // (`register_globals` at `Vm::new`, never re-run per bind), so it
-            // still points at the original wrapper across a rebind; dropping
-            // the `custom_element_registry_instance` slot here would let
-            // `alloc_or_cached_custom_element_registry` mint a SECOND wrapper,
-            // and `convert_custom_element_registry_member` would then classify
-            // the page's own `customElements` as `Foreign` and reject it
-            // (`createElement(x, { customElementRegistry: customElements })`
-            // throwing NotSupportedError). Cross-DOM-safe by construction: a
-            // live `Vm` only ever rebinds the SAME `EcsDom` (same argument as
-            // the CE data + SW registration/worker wrappers above), so the
-            // per-VM wrapper `ObjectId` rides the heap validly across a
-            // same-DOM turn. Released at `teardown_document` with the data.
+            // singleton wrapper is CLASS 1 (realm-structural), so it SURVIVES
+            // the per-turn unbind AND `teardown_document` (Codex #459 R3-1 +
+            // R4). `globalThis.customElements` is installed ONCE as an eager
+            // data property (`register_globals` at `Vm::new`, never re-run per
+            // bind), so it permanently points at the original wrapper; dropping
+            // the `custom_element_registry_instance` slot (at unbind OR
+            // teardown) would let `alloc_or_cached_custom_element_registry` mint
+            // a SECOND wrapper, and `convert_custom_element_registry_member`
+            // would then classify the page's own `customElements` as `Foreign`
+            // and reject it (`createElement(x, { customElementRegistry:
+            // customElements })` throwing NotSupportedError). Only the
+            // `ce_registry` DATA is document-lifetime (cleared at teardown); the
+            // wrapper reads it, so after teardown it presents an empty registry.
             // sessionStorage is per-VM and per-browsing-context.  An
             // unbind boundary expresses the browsing-context
             // teardown — drop entries so a rebind cannot observe
@@ -1009,11 +1031,13 @@ impl Vm {
         // wrapper-brand maps (`sw_registration_states` / `service_worker_states`)
         // ARE released here (they are document-lifetime + GC-sweep-pruned, so a
         // retained wrapper stays a valid receiver across batches).  The
-        // document-lifetime WRAPPERS that `unbind` retains — the CE registry
-        // singleton (`custom_element_registry_instance`) and the Scope-keyed
-        // `ServiceWorkerRegistration` / `ServiceWorker` `wrapper_store` entries
-        // — are dropped here too, in lockstep with their data + brand rows
-        // (Codex #459 R3-1 / R3-2), so the whole identity unit clears together.
+        // document-lifetime, per-scope SW WRAPPERS that `unbind` retains — the
+        // Scope-keyed `ServiceWorkerRegistration` / `ServiceWorker`
+        // `wrapper_store` entries — are dropped here too, in lockstep with
+        // their data + brand rows (Codex #459 R3-2), so that per-registration
+        // identity unit clears together.  (The CE registry SINGLETON wrapper is
+        // NOT dropped here — it is realm-structural; see its note below the
+        // `ce_*` clears — Codex #459 R4.)
         if let Some(hd) = self.inner.host_data.as_deref_mut() {
             hd.ce_registry
                 .lock()
@@ -1024,12 +1048,20 @@ impl Vm {
             hd.ce_when_defined_promises.clear();
             hd.ce_next_constructor_id = 0;
         }
-        // Release the CE registry WRAPPER together with its data (Codex #459
-        // R3-1). It survives the per-turn `unbind` (see the comment there),
-        // so it is the document-lifetime wrapper's turn to be dropped here —
-        // otherwise a fresh bind after teardown keeps serving the destroyed
-        // document's registry object.
-        self.inner.custom_element_registry_instance = None;
+        // The CE registry WRAPPER (`custom_element_registry_instance`) is NOT
+        // cleared here — it is **realm-structural**, not document-lifetime
+        // (Codex #459 R4, correcting R3-1's teardown over-reach). Only its
+        // BACKING DATA (`ce_registry` etc., cleared above) is document-scoped;
+        // the wrapper itself is an install-once `globalThis.customElements`
+        // singleton (class 1 in the wrapper-lifetime taxonomy at `unbind`) that
+        // lives as long as the realm global, exactly like `sw_container` /
+        // `navigator` / the prototypes. Nulling the slot would free NOTHING
+        // (the `globalThis.customElements` data property keeps the wrapper
+        // rooted) while DESYNCing the cached id from that property — so a
+        // teardown-then-rebind of the same `Vm` would re-mint a second wrapper
+        // and classify the page's own `customElements` as `Foreign`. After
+        // teardown the surviving wrapper simply reads the now-empty
+        // `ce_registry` = an empty registry, which is correct.
         self.inner.pending_registration_promises.clear();
         self.inner.pending_unregister_promises.clear();
         self.inner.sw_ready_promise = None;

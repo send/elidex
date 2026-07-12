@@ -760,10 +760,12 @@ pub(crate) struct VmInner {
     /// Cached `CustomElementRegistry` singleton wrapper exposed as
     /// `window.customElements` (per-VM identity per HTML §4.13.4).
     /// Eager-initialised at `register_custom_element_registry_global()`.
-    /// Document-lifetime: survives the per-turn `Vm::unbind` (identity is
-    /// stable across BATCH-BIND batches, in lockstep with the registry
-    /// data) and is cleared only at `Vm::teardown_document` (Codex #459
-    /// R3-1).
+    /// **Realm-structural** (wrapper-lifetime taxonomy class 1, see
+    /// `Vm::unbind`): reachable via the install-once `globalThis.customElements`
+    /// data property, so it is NEVER cleared — not on the per-turn `Vm::unbind`
+    /// NOR at `Vm::teardown_document`. Only its backing `ce_registry` DATA is
+    /// document-lifetime. Clearing this slot would desync it from the data
+    /// property and re-mint a `Foreign` duplicate (Codex #459 R3-1 + R4).
     #[cfg(feature = "engine")]
     pub(crate) custom_element_registry_instance: Option<ObjectId>,
     /// `HTMLIFrameElement.prototype` — tag-specific intermediate

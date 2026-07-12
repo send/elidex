@@ -79,12 +79,13 @@ fn custom_element_definition_survives_per_turn_unbind() {
     vm.unbind();
 }
 
-/// The `CustomElementRegistry` WRAPPER identity is document-lifetime too
-/// (Codex #459 R3-1). `globalThis.customElements` is installed ONCE as an
-/// eager data property (`register_globals` at `Vm::new`, never re-run per
-/// bind), so if the per-turn `unbind` dropped `custom_element_registry_
-/// instance` a fresh access would mint a SECOND wrapper — and the page's own
-/// `customElements` would then be classified `Foreign`, making
+/// The `CustomElementRegistry` WRAPPER is realm-structural — its identity must
+/// survive the per-turn unbind (Codex #459 R3-1; the teardown half is R4).
+/// `globalThis.customElements` is installed ONCE as an eager data property
+/// (`register_globals` at `Vm::new`, never re-run per bind), so if the per-turn
+/// `unbind` dropped `custom_element_registry_instance` a fresh access would mint
+/// a SECOND wrapper — and the page's own `customElements` would then be
+/// classified `Foreign`, making
 /// `createElement(x, { customElementRegistry: customElements })` throw
 /// NotSupportedError instead of the document no-op. The wrapper must survive
 /// the per-turn unbind in lockstep with the surviving registry data.
@@ -145,6 +146,58 @@ fn custom_element_registry_cleared_on_teardown_document() {
         get_defined(&mut vm, "my-el"),
         "gone",
         "teardown_document must clear the CE registry"
+    );
+    vm.unbind();
+}
+
+/// The CE registry WRAPPER is realm-structural — it must survive
+/// `teardown_document` too, NOT only the per-turn unbind (Codex #459 R4,
+/// correcting R3-1's teardown over-reach). `teardown_document` clears the
+/// registry DATA but the `globalThis.customElements` singleton wrapper (an
+/// install-once data property) persists; dropping its cached id would re-mint a
+/// second wrapper and misclassify the page's own `customElements` as `Foreign`,
+/// so `createElement(x, { customElementRegistry: customElements })` would throw
+/// after a teardown+rebind even though the registry is merely empty. (Reachable
+/// only via the unit harness — production always drops the `Vm` at teardown —
+/// but pins the realm-structural classification against regression.)
+#[test]
+fn custom_element_registry_wrapper_identity_survives_teardown_document() {
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = build_doc(&mut dom);
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    vm.eval("customElements.define('my-el', class extends HTMLElement {});")
+        .expect("define failed");
+
+    // Document destruction clears the registry DATA (but not the wrapper).
+    vm.teardown_document();
+
+    // Fresh bind: the registry is empty AND the page's own `customElements`
+    // still classifies as the document registry (creation-options no-op, not a
+    // Foreign NotSupportedError).
+    rebind(&mut vm, &mut session, &mut dom, doc);
+    assert_eq!(
+        get_defined(&mut vm, "my-el"),
+        "gone",
+        "registry DATA cleared"
+    );
+    let JsValue::String(sid) = vm
+        .eval(
+            "try { document.createElement('div', { customElementRegistry: customElements }); \
+                   'ok'; } catch (e) { e.name; }",
+        )
+        .expect("createElement probe failed")
+    else {
+        panic!("expected string from createElement probe")
+    };
+    assert_eq!(
+        vm.inner.strings.get_utf8(sid),
+        "ok",
+        "customElements must stay the document registry across teardown+rebind (realm-structural wrapper)",
     );
     vm.unbind();
 }
