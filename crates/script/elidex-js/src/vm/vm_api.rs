@@ -152,7 +152,7 @@ impl Vm {
     /// The engine exposes this via [`ScriptEngine::bound_dom_mut`] so the
     /// shared event-dispatch loop resolves its dom through the single
     /// `dom_ptr` derivation chain (slot `#11-bound-safe-dispatch-dom-aliasing`)
-    /// — see [`HostData::bound_dom_mut`].
+    /// — see [`host_data::HostData::bound_dom_mut`].
     ///
     /// [`ScriptEngine::bound_dom_mut`]: elidex_script_session::ScriptEngine::bound_dom_mut
     #[cfg(feature = "engine")]
