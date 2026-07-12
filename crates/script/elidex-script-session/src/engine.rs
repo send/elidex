@@ -180,6 +180,23 @@ pub trait HostDriver {
     /// [`with_bound`](Self::with_bound).
     fn unbind(&mut self);
 
+    /// Release the document-scoped resources this engine holds — force-close
+    /// every live `WebSocket` / `EventSource` connection and terminate every
+    /// dedicated worker — at a **document-destruction boundary** (shutdown /
+    /// cross-document navigation / pipeline replacement), NOT a per-turn
+    /// [`unbind`](Self::unbind). Binds `ctx`, runs the teardown while bound (it
+    /// needs the live network handle + worker registry + wrappers), then unbinds
+    /// as its final step. Idempotent: a second call after the tables are drained
+    /// is a no-op, so an explicit call followed by the engine-`Drop` backstop is
+    /// safe.
+    ///
+    /// # Safety
+    ///
+    /// Same contract as [`bind`](Self::bind): `ctx.session` / `ctx.dom` must stay
+    /// valid + **unaliased** for the call (the engine binds raw pointers to them).
+    #[allow(unsafe_code)]
+    unsafe fn teardown_document(&mut self, ctx: &mut ScriptContext<'_>);
+
     /// RAII sugar over [`bind`](Self::bind)/[`unbind`](Self::unbind): binds, runs
     /// `f`, then unbinds **even if `f` panics**. `f` receives the bound engine
     /// plus `ctx` (the per-turn methods ignore `ctx` under the assume-bound

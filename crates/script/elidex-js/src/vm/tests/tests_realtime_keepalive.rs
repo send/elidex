@@ -563,16 +563,16 @@ fn es_closed_buffered_event_not_delivered_and_collected_r2b() {
 }
 
 #[test]
-fn unbind_force_closes_even_listener_held_connection() {
+fn teardown_document_force_closes_even_listener_held_connection() {
     // Regression guard for the WebSockets §7 (Garbage collection) distinction:
     // the GC keepalive keeps a
-    // listener-held connection, but `Vm::unbind` (the spec's "Document goes
-    // away ⇒ make disappear / forcibly close") force-closes EVERY connection,
+    // listener-held connection, but `Vm::teardown_document` (the spec's "Document
+    // goes away ⇒ make disappear / forcibly close") force-closes EVERY connection,
     // listener-held or not — so a connection the keepalive just kept across a GC
-    // is still force-closed on unbind. (The general per-conn unbind teardown is
-    // covered in `tests_realtime`; here we assert it holds for a connection the
-    // S5-3b keepalive arm actively kept alive.) Manual setup so the single
-    // `unbind` + post-unbind drain ordering is observable.
+    // is still force-closed at document teardown. (The general per-conn document
+    // teardown is covered in `tests_realtime`; here we assert it holds for a
+    // connection the S5-3b keepalive arm actively kept alive.) Manual setup so the
+    // single `teardown_document` + post-teardown drain ordering is observable.
     let mut vm = Vm::new();
     vm.inner.navigation.current_url =
         url::Url::parse("http://example.com/page/").expect("valid base URL");
@@ -600,11 +600,11 @@ fn unbind_force_closes_even_listener_held_connection() {
     );
     let _ = handle.drain_recorded_outgoing();
 
-    vm.unbind();
+    vm.teardown_document();
     assert_eq!(
         outgoing_count(&handle, "WebSocketClose("),
         1,
-        "unbind must force-close even a keepalive-kept connection (document teardown)",
+        "teardown_document must force-close even a keepalive-kept connection (document teardown)",
     );
     drop(session);
     drop(dom);

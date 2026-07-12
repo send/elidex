@@ -354,6 +354,19 @@ impl HostDriver for ElidexJsEngine {
     }
 
     #[allow(unsafe_code)]
+    unsafe fn teardown_document(&mut self, ctx: &mut ScriptContext<'_>) {
+        // Bind so the realtime force-close (needs the live `NetworkHandle` + the
+        // `is_bound()` gate) and the worker wrapper-uncache (needs wrapper access)
+        // run WHILE BOUND; `Vm::teardown_document` calls `unbind()` itself as its
+        // final step, so reconcile the batch-bound flag to `false` afterward.
+        // SAFETY: forwarded from `HostDriver::teardown_document`'s `# Safety`
+        // contract — `ctx` stays valid + unaliased for this call.
+        unsafe { self.bind(ctx) };
+        self.vm.teardown_document();
+        self.bound = false;
+    }
+
+    #[allow(unsafe_code)]
     unsafe fn with_bound<R>(
         &mut self,
         ctx: &mut ScriptContext<'_>,
@@ -697,6 +710,34 @@ impl HostDriver for ElidexJsEngine {
         // unconfigured path).
         if let Some(hd) = self.vm.host_data() {
             hd.install_web_storage(manager);
+        }
+    }
+}
+
+impl Drop for ElidexJsEngine {
+    fn drop(&mut self) {
+        // Backstop for a pipeline dropped WITHOUT an explicit `teardown_document`
+        // (panic-unwind, or an iframe teardown path that forgets the explicit
+        // call): release the document-scoped resources so a leaked pipeline does
+        // not strand the broker I/O thread + worker OS threads until process
+        // exit. Runs UNBOUND: `Vm::teardown_document`'s realtime force-close is
+        // `is_bound()`-gated and so is skipped here (the broker connections fall
+        // back to `NetworkHandle` Drop), but the worker OS threads ARE terminated
+        // (the registry teardown needs no binding). Idempotent: a no-op when an
+        // explicit `teardown_document` already drained the tables.
+        //
+        // GATED on the batch-bound flag being CLEAR. `!self.bound` is the
+        // engine's proof that `unbind` has run, so `HostData`'s `dom` pointer is
+        // NULL and `Vm::teardown_document`'s internal `unbind` cannot dereference
+        // it. The real forget-paths reach `Drop` unbound: `with_bound`'s RAII
+        // guard unbinds even on panic-unwind, and the shell's document boundaries
+        // are all outside any bracket. A STILL-bound engine at `Drop` is only a
+        // lifetime misuse (e.g. the `nested_bind_trips_non_reentrancy_assert`
+        // `should_panic` test that dies mid-second-bind) — running the teardown
+        // there would deref a possibly-dangling `dom` pointer (SIGBUS), so skip it.
+        #[cfg(feature = "engine")]
+        if !self.bound {
+            self.vm.teardown_document();
         }
     }
 }

@@ -428,6 +428,23 @@ impl PipelineResult {
         }
     }
 
+    /// Release this document's browsing-context-scoped resources (force-close
+    /// WS/SSE connections + terminate dedicated workers) at a document-
+    /// destruction boundary — shutdown / cross-document navigation / pipeline
+    /// replacement. Bracketless: `HostDriver::teardown_document` manages its own
+    /// bind/unbind (it is terminal, not a per-turn deliver helper). Idempotent.
+    #[allow(unsafe_code)]
+    pub fn teardown_document(&mut self) {
+        let mut ctx = ScriptContext::new(&mut self.session, &mut self.dom, self.document);
+        // SAFETY: `ctx` borrows `self.session` / `self.dom` exclusively for this
+        // call and nothing else accesses them meanwhile — the `with_bound`
+        // unaliased contract, upheld here because the call is synchronous and
+        // terminal.
+        unsafe {
+            self.runtime.teardown_document(&mut ctx);
+        }
+    }
+
     /// Deliver the popstate / hashchange of a same-document history-step
     /// application (WHATWG HTML §7.4.6.2), in ONE batch bracket (§4.1).
     /// Assume-bound (it fires at the bound VM's `Window` and reconstructs

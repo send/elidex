@@ -738,7 +738,7 @@ fn drain_live_set_drops_terminated_workers() {
 }
 
 #[test]
-fn worker_wrappers_uncached_on_unbind() {
+fn worker_wrappers_uncached_on_teardown_document() {
     use super::super::host::worker::WorkerRef;
     let mut vm = Vm::new();
     vm.inner.navigation.current_url = Url::parse(PAGE_URL).unwrap();
@@ -756,15 +756,15 @@ fn worker_wrappers_uncached_on_unbind() {
     }
     .expect("worker entity");
 
-    vm.unbind();
+    vm.teardown_document();
 
-    // After unbind, the `Worker` wrapper must be uncached (F-R3-2): the drain
-    // early-returns on the now-empty registry, so an un-removed wrapper would
+    // After teardown_document, the `Worker` wrapper must be uncached (F-R3-2): the
+    // drain early-returns on the now-empty registry, so an un-removed wrapper would
     // stay GC-rooted across navigation.
     let hd = vm.host_data().expect("host data installed");
     assert!(
         hd.get_cached_wrapper(entity).is_none(),
-        "Worker wrapper must be uncached on unbind"
+        "Worker wrapper must be uncached on teardown_document"
     );
 
     drop(vm);

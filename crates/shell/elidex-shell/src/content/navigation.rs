@@ -193,8 +193,12 @@ pub(super) fn handle_navigate(
 
     match elidex_navigation::load_document(url, &network_handle, request) {
         Ok(loaded) => {
-            // Shut down WebSocket/SSE connections before replacing the pipeline.
-            state.pipeline.runtime.bridge().shutdown_all_realtime();
+            // Document teardown on the OUTGOING pipeline before it is replaced
+            // (cross-document navigation / history-traversal rebuild both funnel
+            // through this single `handle_navigate` chokepoint): force-close
+            // WS/SSE AND terminate dedicated workers (WHATWG HTML §10.2.4 — the
+            // former boa path only closed realtime, leaking workers across a nav).
+            state.pipeline.teardown_document();
             // Preserve cookie jar across navigations.
             let cookie_jar = state.pipeline.cookie_jar.clone();
             // Rebuild at the tab's CURRENT viewport + device facts (not `DEFAULT`) so

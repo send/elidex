@@ -321,8 +321,11 @@ fn handle_message(msg: BrowserToContent, state: &mut ContentState) -> bool {
                 return true;
             }
             state.iframes.shutdown_all();
-            state.pipeline.runtime.bridge().shutdown_all_realtime();
-            state.pipeline.runtime.bridge().shutdown_all_workers();
+            // Document teardown (WHATWG HTML §10.2.4 / WebSockets §7): force-close
+            // WS/SSE + terminate dedicated workers AFTER unload handlers ran,
+            // before the content thread exits. Unifies the former separate boa
+            // `shutdown_all_realtime` + `shutdown_all_workers` calls.
+            state.pipeline.teardown_document();
             return false;
         }
 
