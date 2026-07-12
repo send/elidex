@@ -630,22 +630,22 @@ impl Vm {
             self.inner.client_states.clear();
             self.inner.sw_clients.clear();
             self.inner.sw_outgoing.clear();
-            // `navigator.serviceWorker` client (D-19 PR-3): drop every side-store
-            // so an in-flight `register()` promise can't dangle GC-rooted across
-            // a rebind, and a JS-surviving wrapper can't read a prior bind's
-            // registry/controller (eager-clear, the `ce_*` precedent).  The
-            // interned `Scope`-owned wrappers are already dropped by the
-            // existing `wrapper_store.retain(kind == Node)` unbind pass (M3).
-            self.inner.pending_registration_promises.clear();
-            self.inner.pending_unregister_promises.clear();
-            self.inner.sw_ready_promise = None;
-            self.inner.sw_registrations.clear();
-            self.inner.sw_registration_states.clear();
-            self.inner.service_worker_states.clear();
-            self.inner.sw_controller_scope = None;
-            self.inner.sw_messages_enabled = false;
-            self.inner.sw_message_buffer.clear();
-            self.inner.sw_client_outgoing.clear();
+            // `navigator.serviceWorker` CLIENT state (registrations, the
+            // ready / register / unregister promises, controller scope, the
+            // inbound message buffer, and the `sw_client_outgoing` outbound
+            // queue) is document-lifetime (SW §3.4 ServiceWorkerContainer) and
+            // is cleared in `teardown_document`, NOT here — so a `register()`
+            // staged inside a script batch SURVIVES the per-batch unbind and
+            // reaches the out-of-bracket event-loop drain
+            // (`drain_sw_client_requests`), and the client registry a page
+            // reads across batches stays stable.  Survival is cross-DOM-safe:
+            // the client maps key on per-VM `ObjectId` / `String` (ride the
+            // heap) and a live `Vm` only ever rebinds the SAME `EcsDom`.
+            // (`#11-per-batch-unbind-document-lifetime-state`.)  The SW
+            // WORKER-side per-dispatch event state above (`fetch_event_states`
+            // / `client_states` / `sw_clients` / `sw_outgoing`) stays a
+            // per-turn scrub — it is transient and must not let a retained
+            // `Client` wrapper read a prior dispatch's snapshot.
             // NB: the container singleton + the three interface prototypes are
             // NOT cleared — like `navigator` / `clients_prototype` they are
             // realm-structural and persist across a rebind (so a post-rebind
@@ -705,38 +705,35 @@ impl Vm {
             if let Some(hd) = self.inner.host_data.as_deref_mut() {
                 hd.mutation_observers.clear_pending_records();
                 hd.intersection_observers.clear_root_entities();
-                // D-17 `#11-custom-elements-vm` — cross-DOM scrub of
-                // Custom Elements state. Every field below carries
-                // per-VM `ObjectId`s or `Entity` references that would
-                // alias the outgoing world on rebind:
-                // - `ce_registry`: `CustomElementDefinition::
-                //   constructor_id` indexes into `ce_constructors`
-                //   (per-VM). ("Awaiting upgrade" needs no scrub —
-                //   it is the per-entity `CustomElementState`
-                //   component and dies with the world.)
-                // - `ce_reaction_queue`: every variant holds an
-                //   `Entity`.
-                // - `ce_constructors` / `ce_when_defined_promises`:
-                //   per-VM `ObjectId`s.
-                // Same cross-DOM-aliasing rationale as the wrapper-
-                // store retain above (`#11-wrapper-cache-cross-dom-
-                // discriminator` — world_id discriminator left-open).
-                // ⚠ SUPERSEDED 2026-06-30: world_id retracted →
-                // agent-scoped EcsDom World (PR #434
-                // docs/plans/2026-06-agent-scoped-ecsdom-world.md §6);
-                // interim form unchanged until B1.
-                hd.ce_registry
-                    .lock()
-                    .expect("CE registry mutex poisoned")
-                    .clear();
+                // Custom-Elements REACTION QUEUE stays a per-turn scrub:
+                // it is a transient queue drained at every script /
+                // event / microtask checkpoint by `flush_ce_reactions`
+                // (empty at bracket-end in the well-behaved case) and
+                // every variant holds an `Entity`, so it rides the
+                // per-DOM Entity-scrub class alongside
+                // `clear_pending_records` above (`#11-custom-elements-vm`).
+                //
+                // The authoritative CE REGISTRY (`ce_registry` /
+                // `ce_constructors` / `ce_constructor_to_id` /
+                // `ce_when_defined_promises` / the id counter) is
+                // document-lifetime state and is cleared in
+                // `teardown_document`, NOT here — so a
+                // `customElements.define()` SURVIVES the per-batch
+                // (BATCH-BIND) unbind and is visible to a later batch's
+                // upgrade / `whenDefined` (HTML §4.13.4/§4.13.5).
+                // Survival is cross-DOM-safe by construction: a live
+                // `Vm` only ever rebinds the SAME `EcsDom` (navigation
+                // allocates a NEW `Vm`, see `host/media_query.rs`), so
+                // the per-VM ctor `ObjectId`s ride the object heap
+                // validly across a same-DOM turn.
+                // (`#11-per-batch-unbind-document-lifetime-state`; the
+                // grain migration to per-realm components rides
+                // agent-scoped EcsDom,
+                // docs/plans/2026-06-agent-scoped-ecsdom-world.md §5.)
                 hd.ce_reaction_queue
                     .lock()
                     .expect("CE reaction queue mutex poisoned")
                     .clear();
-                hd.ce_constructors.clear();
-                hd.ce_constructor_to_id.clear();
-                hd.ce_when_defined_promises.clear();
-                hd.ce_next_constructor_id = 0;
             }
             // (The Attr identity cache — keyed by `(Entity, StringId)`,
             // same cross-DOM aliasing risk — is cleared by the unified
@@ -955,6 +952,37 @@ impl Vm {
         // HTML §10.2.4 "terminate a worker" runs from document teardown) and
         // uncache their `Worker` wrappers while still bound.
         self.inner.teardown_workers();
+
+        // Custom-Elements registry + `navigator.serviceWorker` client are
+        // document-lifetime state (HTML §4.13.4 The CustomElementRegistry
+        // interface / SW §3.4 ServiceWorkerContainer) — released here at
+        // document destruction, NOT on the per-turn `unbind`, so they survive
+        // the BATCH-BIND unbind between script batches
+        // (`#11-per-batch-unbind-document-lifetime-state`).  Pure map clears
+        // with no emit side-effect, so a double-fire (explicit call then the
+        // engine-Drop backstop) is a trivial no-op.  `ce_reaction_queue` +
+        // the SW worker-side per-dispatch state are NOT cleared here — they
+        // stay on the per-turn scrub in `unbind` (called last, below).
+        if let Some(hd) = self.inner.host_data.as_deref_mut() {
+            hd.ce_registry
+                .lock()
+                .expect("CE registry mutex poisoned")
+                .clear();
+            hd.ce_constructors.clear();
+            hd.ce_constructor_to_id.clear();
+            hd.ce_when_defined_promises.clear();
+            hd.ce_next_constructor_id = 0;
+        }
+        self.inner.pending_registration_promises.clear();
+        self.inner.pending_unregister_promises.clear();
+        self.inner.sw_ready_promise = None;
+        self.inner.sw_registrations.clear();
+        self.inner.sw_registration_states.clear();
+        self.inner.service_worker_states.clear();
+        self.inner.sw_controller_scope = None;
+        self.inner.sw_messages_enabled = false;
+        self.inner.sw_message_buffer.clear();
+        self.inner.sw_client_outgoing.clear();
 
         // Un-bind the pointers + drop the per-turn caches as the final step.
         self.unbind();

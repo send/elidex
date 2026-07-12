@@ -612,8 +612,69 @@ fn pending_register_survives_gc() {
     });
 }
 
+// `#11-per-batch-unbind-document-lifetime-state`: the `navigator.serviceWorker`
+// client state is document-lifetime, so a per-turn (BATCH-BIND) `unbind` must
+// PRESERVE it — a `register()` staged in a script batch must survive the
+// batch's unbind so the out-of-bracket event-loop drain still sees it, and the
+// client registry a page reads across batches must stay stable.  (Was cleared
+// per-turn pre-#11-per-batch-unbind; the clear MOVED to `teardown_document`.)
 #[test]
-fn unbind_clears_sw_client_state() {
+fn sw_client_state_survives_per_turn_unbind() {
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = build_min_fixture(&mut dom);
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    vm.inner.navigation.current_url = url(BASE);
+
+    // Register + deliver → an established registration in the client registry.
+    vm.eval("navigator.serviceWorker.register('sw.js');")
+        .unwrap();
+    vm.drain_sw_client_requests();
+    deliver_registered(&mut vm, SwState::Installing);
+    assert!(!vm.inner.sw_registrations.is_empty());
+
+    // R4-#5 core: a register() staged in this batch, NOT yet drained, must
+    // survive the batch unbind so the out-of-bracket drain finds it.
+    vm.eval("navigator.serviceWorker.register('sw2.js');")
+        .unwrap();
+    assert!(
+        !vm.inner.sw_client_outgoing.is_empty(),
+        "register() must stage an outbound request"
+    );
+    vm.unbind();
+    assert!(
+        !vm.inner.sw_client_outgoing.is_empty(),
+        "staged register() must survive the per-turn unbind (R4-#5)"
+    );
+    assert!(
+        !vm.inner.sw_registrations.is_empty(),
+        "the client registry must survive the per-turn unbind"
+    );
+
+    // A second per-turn unbind (rebind between) also preserves the state.
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    vm.unbind();
+    assert!(!vm.inner.sw_registrations.is_empty());
+    assert!(!vm.inner.sw_client_outgoing.is_empty());
+
+    // The out-of-bracket drain (unbound) still sees the surviving request.
+    let drained = vm.drain_sw_client_requests();
+    assert!(
+        !drained.is_empty(),
+        "the surviving staged register() reaches the event-loop drain"
+    );
+}
+
+// Document teardown (navigation / engine drop) releases the SW client state.
+#[test]
+fn teardown_document_clears_sw_client_state() {
     let mut vm = Vm::new();
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
@@ -628,18 +689,13 @@ fn unbind_clears_sw_client_state() {
         .unwrap();
     vm.drain_sw_client_requests();
     deliver_registered(&mut vm, SwState::Installing);
-    assert!(
-        !vm.inner.pending_registration_promises.is_empty() || !vm.inner.sw_registrations.is_empty()
-    );
-
-    // A second pending register (no deliver) leaves a mid-flight promise.
     vm.eval("navigator.serviceWorker.register('sw.js');")
         .unwrap();
     vm.drain_sw_client_requests();
     assert!(!vm.inner.pending_registration_promises.is_empty());
 
-    // Unbind drops every per-bind side-store (NG-4 — no dangling promise).
-    vm.unbind();
+    // teardown_document clears every SW client side-store (then unbinds).
+    vm.teardown_document();
     assert!(vm.inner.pending_registration_promises.is_empty());
     assert!(vm.inner.pending_unregister_promises.is_empty());
     assert!(vm.inner.sw_registrations.is_empty());
