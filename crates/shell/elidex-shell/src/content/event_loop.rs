@@ -80,17 +80,15 @@ pub(super) fn run_event_loop(state: &mut ContentState) {
         }
 
         // --- Iframe + messaging frame tick ---
+        // Under the VM a depth-0 `window.postMessage` self-delivers internally
+        // (with the §9.3.3 step 8.1 gate applied inline in `dispatch_post_message`),
+        // so the shell no longer drains top-level self-messages. Iframe→parent
+        // messages are drained/gated below (2f4-c). Message-handler DOM mutations
+        // that need a re-render ride the §4.3.8 inclusive-descendants version-delta
+        // (below), the same signal the realtime/worker drains use.
         let post_messages = state.iframes.drain_oop_messages();
         for msg in &post_messages {
             dispatch_message_event(state, &msg.data, &msg.origin);
-        }
-
-        let self_messages = state.pipeline.runtime.bridge().drain_post_messages();
-        for (data, origin) in &self_messages {
-            dispatch_message_event(state, data, origin);
-        }
-        if !self_messages.is_empty() || !post_messages.is_empty() {
-            needs_render = true;
         }
 
         for change in state.pipeline.runtime.take_pending_storage_changes() {
