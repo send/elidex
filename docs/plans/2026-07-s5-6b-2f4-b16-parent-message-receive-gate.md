@@ -478,8 +478,20 @@ full convergence loop, not a single shot.
   deferred: sequenced AFTER 2f-4 (needs its `referrer`/`credentialless` shell fields) and BEFORE
   Stage 3, as its own commit(s) in the flip branch — separated from 2f-4's edge-dense gate by
   blast-radius, not scope-dodge.
-  - **⚠ SCOPING CORRECTION (2026-07-12, post-2f-4 investigation — §6.5's "mostly mechanical" estimate
-    was optimistic).** The 57 errors split into a *mechanical* half and a *design-bearing* half:
+  - **✅ SCOPING RE-CONFIRMED MECHANICAL (2026-07-12, post-2f-4 investigation; an earlier draft of this
+    note over-flagged it as design-bearing — corrected).** The eval-oracle infra ALREADY EXISTS:
+    `ElidexJsEngine::vm(&mut self) -> &mut Vm` is **`pub`** (`engine.rs:71`), and under it `Vm::eval(src)
+    -> Result<JsValue,_>` (`vm_api.rs:16`) + `Vm::console_messages() -> Vec<(String,String)>`
+    (`vm_api.rs:119`) are both `pub`. `window.devicePixelRatio` / `matchMedia` read the
+    `set_media_environment` facts (`vm_api_viewport.rs:34`) and `Vm::eval` reads globals with NO
+    dom-binding, so post-build `runtime.vm().eval("String(window.devicePixelRatio)")` is a valid
+    observable oracle. The ONLY infra gap is cross-crate value **marshalling** (`JsValue::String` is an
+    interned `StringId` needing the string table, which shell can't reach) → add **two thin `pub`
+    embedder-test oracles** on `ElidexJsEngine` mirroring the crate-internal `eval_string`
+    (`tests_engine_s6a.rs:45`): `pub fn eval_string(&mut self, src: &str) -> String` +
+    `pub fn eval_f64(&mut self, src: &str) -> f64` (marshal via the already-in-scope
+    `self.vm().inner.strings`). That is a small addition, NOT a feature — **no plan-memo needed**.
+    The 57 errors then split mechanical / observable-rewrite:
     - **Mechanical (~19)**: `.bridge().origin()` ×9 / `.sandbox_flags()` ×5 / `.set_origin()` ×2 →
       HostDriver trait methods (`runtime.origin()` etc. + `use elidex_script_session::HostDriver;` per
       test file); `.bridge().credentialless()` ×1 → `pipeline.credentialless` (2f4-e field);
@@ -487,32 +499,30 @@ full convergence loop, not a single shot.
       `IframeToBrowser::PostMessage { data, origin }` pattern (`content_iframe_security_tests.rs:431`)
       → add `target_origin` (or `..`); `ContentState::new` (`content_test_support.rs:161`) → add the
       8th arg `crate::ipc::DeviceFacts::default()` (E0061).
-    - **Design-bearing (~38) — needs NEW test infra + observability redesign, not a rename**:
+    - **Observable-rewrite (~38) — the pub `runtime.vm()` oracle + two thin marshalling accessors**:
       1. **device-facts assertions** (`.bridge().device_pixel_ratio()` ×8 + `.color_scheme()` ×6, all
          in `viewport_tests.rs`): device facts reach the VM via a **fused setter with NO getter** (the
          shell-owned pattern, `engine.rs:551` `apply_device_facts(dppx, color_scheme, …)`), so there is
          **no trait getter to swap to**. Ideal (CLAUDE.md "Ideal over pragmatic" + "Supported-surface
          testing") = assert the **web-observable** value via JS eval (`window.devicePixelRatio`,
-         `matchMedia('(prefers-color-scheme: dark)').matches`). That requires a **value-returning eval
-         test-helper reachable from shell tests, which does NOT exist today** (`ScriptEngine::eval`
-         returns an `EvalResult`, not a value; the elidex-js `eval_string` oracle is crate-internal).
-         So this slice must FIRST add that infra (an `ElidexJsEngine` value-returning eval accessor, or
-         a shell `#[cfg(test)]` bind+eval+read helper mirroring `pipeline.rs:120` `with_bound` +
-         `ScriptContext::new`), THEN rewrite the 14 assertions.
+         `matchMedia('(prefers-color-scheme: dark)').matches`). Infra ALREADY present — `runtime.vm()`
+         is pub → `runtime.vm().eval("String(window.devicePixelRatio)")`; add the two thin
+         `eval_string`/`eval_f64` marshalling oracles (above) and rewrite the 14 assertions, e.g.
+         `assert_eq!(rt.bridge().device_pixel_ratio(), 2.0)` → `assert_eq!(rt.eval_f64("window.devicePixelRatio"), 2.0)`;
+         `assert_eq!(rt.bridge().color_scheme(), ColorScheme::Dark)` →
+         `assert_eq!(rt.eval_string("matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'"), "dark")`.
       2. **`console_output().messages()` ×4** (`tests.rs`): boa's `ConsoleOutput::messages()` is gone;
-         the VM oracle is `Vm::console_messages() -> Vec<(String,String)>` (`vm_api.rs:119`, documented
-         "the S5-6 B26 test-oracle … read by embedder tests") — but `ElidexJsEngine.vm` is **private**
-         (`engine.rs:26`), so a **`pub fn console_messages` pass-through on `ElidexJsEngine`** must be
-         ADDED for shell (cross-crate) tests, then adapt the assertions to the `(level, message)` shape.
+         `runtime.vm().console_messages() -> Vec<(String,String)>` (`vm_api.rs:119`) is the drop-in
+         (reachable via the pub `runtime.vm()`), then adapt the assertion `.iter().any(|m| m.1.contains(…))`
+         to the `(level, message)` tuple shape (it already reads `m.1` = message — near-verbatim).
       3. **`p.runtime.eval(src, &mut session, &mut dom, document)` sites** (`content_window_open_tests.rs`,
-         boa signature): rewrite to the VM eval pattern (bind a `ScriptContext`, `ScriptEngine::eval`) —
-         same helper as (1) covers this.
+         boa 4-arg signature): rewrite to `p.runtime.vm().eval(src)` (the VM eval reads globals with no
+         `ScriptContext` needed — SIMPLER than the boa form).
       4. **`.bridge().scroll_y()` ×1 / `.set_pending_navigate_iframe()` ×1**: NOT on the trait NOR the
          shell (grep = none) — investigate per-site; likely assert removed/relocated surface (redirect
          to the shell scroll state / navigation queue, or delete if the asserted behaviour moved).
-    - **Implication**: this slice is closer to a *small feature* (new eval-oracle test infra + 14-site
-      observability rewrite) than a mechanical sweep. Consider a brief plan-memo for the eval-helper
-      infra + the device-facts assertion pattern before executing. Trait-method / shell-field targets
+    - **Implication**: fully mechanical modulo the two thin oracles (T1) + the 14 observable rewrites +
+      the 2 scroll/nav investigations. No plan-memo needed. Trait-method / shell-field / oracle targets
       all grep-verified against HEAD `fdebd93a` (2026-07-12).
 - **`#11-pending-tasks-postmessage-step-renumber`** (NEW cite-sweep carve, plan-review Axis 4 MIN) —
   `pending_tasks.rs` carries stale FLAT §9.3.3 step numbers from an older spec revision that no longer
