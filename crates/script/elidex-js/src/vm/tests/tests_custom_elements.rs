@@ -1130,16 +1130,17 @@ fn no_double_fire_vm_native_and_external_record_same_turn() {
     );
 }
 
-// ── S5-6b: DOM "remove" step-12 `isParentConnected` (record leg) ───────
+// ── S5-6b: mutation-time `isParentConnected` capture (record leg) ──────
 //
-// WHATWG DOM `#concept-node-remove` step 12 captures `isParentConnected`
-// SYNCHRONOUSLY at removal time; step 13 enqueues the custom-element
-// `disconnectedCallback` on THAT captured value. The record leg must
-// therefore gate `removed_nodes` on `MutationRecord::parent_was_connected`
-// (captured at mutation time by the engine-independent apply path), NOT on
-// the target's connectivity re-derived at delivery — otherwise a *later*
-// record in the same batch that detaches the parent wrongly suppresses the
-// earlier removal's reaction.
+// WHATWG DOM enqueues the custom-element reaction DURING the mutation, on the
+// parent's connectivity captured SYNCHRONOUSLY at that moment — remove step 12
+// `isParentConnected` for `disconnectedCallback`, and §4.2.3 insertion "if
+// parent is connected" for `connectedCallback`. The record leg must therefore
+// gate BOTH directions on `MutationRecord::parent_was_connected` (captured at
+// mutation time by the engine-independent apply path), NOT on the target's
+// connectivity re-derived at delivery — otherwise a *later* record in the same
+// batch that detaches the parent wrongly suppresses the earlier mutation's
+// reaction (symmetric on the add and remove sides).
 //
 // Both tests drive the record leg (`deliver_mutation_records`) with
 // hand-built `MutationRecord`s and the VM bound throughout — the record leg
@@ -1148,6 +1149,8 @@ fn no_double_fire_vm_native_and_external_record_same_turn() {
 // `tests_mutation_observer::delivery` pattern). The setup builds a custom
 // element under a DISCONNECTED parent so its connectivity at delivery is
 // `false`, forcing the gate to consult the captured `parent_was_connected`.
+// (The apply-path capture itself is regression-covered by the real-mutation
+// tests above, e.g. `connected_callback_fires_on_append`.)
 
 /// Read the sole child of `entity` from the VM's bound DOM (via `dom_shared`,
 /// not the raw `dom` alias — honours `bind_vm`'s no-alias contract).
@@ -1234,34 +1237,35 @@ fn record_leg_disconnected_gate_uses_captured_parent_connectedness() {
 }
 
 #[test]
-fn record_leg_added_gate_independent_of_parent_was_connected() {
-    // The symmetric add side: the split KEEPS the added_nodes gate on the
-    // target's POST-insert `is_connected`, NOT on `parent_was_connected`. Two
-    // records — one targeting a CONNECTED parent, one a DISCONNECTED parent —
-    // both carry `parent_was_connected: true`; only the connected-target record
-    // may fire connectedCallback. This proves the disconnected-side split did
-    // not cross-wire the added-side gate.
+fn record_leg_added_gate_uses_captured_parent_connectedness() {
+    // The symmetric add side (Codex R2): §4.2.3 insertion evaluates "if parent
+    // is connected" AT INSERTION, so `connectedCallback` must gate on the
+    // captured `parent_was_connected`, NOT on `is_connected(target)` re-derived
+    // at batch-final delivery. A transient-connected insert — parent connected
+    // when the child was added, then detached by a LATER same-batch record —
+    // therefore STILL fires connectedCallback even though the target reads
+    // disconnected at delivery. (The old batch-final `is_connected(target)` gate
+    // wrongly suppressed it — the add-side twin of the remove-side bug.)
     let mut vm = Vm::new();
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
+    // Same shape as the disconnected test: `p` is a DETACHED div, so `p`'s
+    // connectivity at delivery is `false`, forcing the gate onto the captured
+    // `parent_was_connected`.
     let doc = dom.create_document_root();
     let html = dom.create_element("html", elidex_ecs::Attributes::default());
     let body = dom.create_element("body", elidex_ecs::Attributes::default());
-    // `p_conn` connected under body; `p_disc` detached; `holder` detached (used
-    // only to create + resolve the two custom elements while disconnected).
-    let p_conn = dom.create_element("div", elidex_ecs::Attributes::default());
-    let p_disc = dom.create_element("div", elidex_ecs::Attributes::default());
-    let holder = dom.create_element("div", elidex_ecs::Attributes::default());
+    let p = dom.create_element("div", elidex_ecs::Attributes::default());
     assert!(dom.append_child(doc, html));
     assert!(dom.append_child(html, body));
-    assert!(dom.append_child(body, p_conn));
+    // NB: `p` is deliberately NOT attached to `body`.
 
     #[allow(unsafe_code)]
     unsafe {
         bind_vm(&mut vm, &mut session, &mut dom, doc);
     }
-    let holder_wrapper = vm.inner.create_element_wrapper(holder);
-    vm.set_global("holder", JsValue::Object(holder_wrapper));
+    let p_wrapper = vm.inner.create_element_wrapper(p);
+    vm.set_global("pdiv", JsValue::Object(p_wrapper));
 
     vm.eval(
         "globalThis.log = []; \
@@ -1270,43 +1274,47 @@ fn record_leg_added_gate_independent_of_parent_was_connected() {
              disconnectedCallback() { globalThis.log.push('D'); } \
          } \
          customElements.define('d-el', DEl); \
-         globalThis.holder.appendChild(document.createElement('d-el')); \
-         globalThis.holder.appendChild(document.createElement('d-el'));",
+         globalThis.ce = document.createElement('d-el'); \
+         globalThis.pdiv.appendChild(globalThis.ce);",
     )
     .expect("setup failed");
+    // ce sits under the detached `p`, so the real insertion fired no C.
     assert_eq!(
         eval_string(&mut vm, "globalThis.log.join('|')"),
         "",
-        "custom elements under the detached holder fire no connectedCallback"
+        "ce under a disconnected parent must not fire connectedCallback"
     );
 
-    let (ce_conn, ce_disc) = {
-        let hd = vm.host_data().expect("bound");
-        let kids = hd.dom_shared().children(holder);
-        assert_eq!(kids.len(), 2);
-        (kids[0], kids[1])
-    };
-    let mk_add = |target, added| elidex_script_session::MutationRecord {
+    let ce = only_child_of(&mut vm, p);
+    assert!(
+        !vm.host_data().expect("bound").dom_shared().is_connected(p),
+        "p is disconnected at delivery time"
+    );
+
+    // An add record whose target `p` is DISCONNECTED at delivery but whose
+    // `parent_was_connected` was captured `true` at insertion time (§4.2.3 "if
+    // parent is connected", before a later same-batch record detached `p`). The
+    // OLD batch-final `is_connected(target)` gate would wrongly skip it; the
+    // unified gate consults `parent_was_connected`.
+    let rec = elidex_script_session::MutationRecord {
         kind: elidex_script_session::MutationKind::ChildList,
-        target,
-        added_nodes: vec![added],
+        target: p,
+        added_nodes: vec![ce],
         removed_nodes: Vec::new(),
         previous_sibling: None,
         next_sibling: None,
         attribute_name: None,
         old_value: None,
-        // Deliberately `true` on BOTH: the added gate must ignore this field.
         parent_was_connected: true,
     };
-    vm.deliver_mutation_records(&[mk_add(p_conn, ce_conn), mk_add(p_disc, ce_disc)]);
+    vm.deliver_mutation_records(&[rec]);
     vm.inner.flush_ce_reactions();
 
     let log = eval_string(&mut vm, "globalThis.log.join('|')");
     assert_eq!(
         log, "C",
-        "exactly one connectedCallback — from the connected-target record; the \
-         disconnected-target record fires none despite parent_was_connected=true \
-         (added gate stays on post-insert is_connected, got: {log:?})"
+        "connectedCallback must fire from the captured `parent_was_connected` even \
+         though the record's target is disconnected at delivery (got: {log:?})"
     );
     vm.unbind();
 }

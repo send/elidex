@@ -149,18 +149,23 @@ pub struct MutationRecord {
     pub attribute_name: Option<String>,
     /// The old value (for `Attribute` or `CharacterData` mutations when requested).
     pub old_value: Option<String>,
-    /// WHATWG DOM "remove" (`#concept-node-remove`) step 12 `isParentConnected`:
-    /// whether the record's `target` (the mutation parent) was connected at
-    /// **mutation time**, captured BEFORE the removal — the same pre-detach
-    /// seam as `EcsDom::remove_child`'s `was_connected` on the mutation-event
-    /// leg. This drives the record leg's custom-element `disconnectedCallback`
-    /// gate for `removed_nodes`: step 13 enqueues the reaction on the captured
-    /// value, NOT on connectivity re-derived at delivery, so it survives a
-    /// **later record in the same batch detaching `target`** (the bug a
-    /// batch-final `is_connected(target)` gate causes). Meaningful only for
-    /// records carrying `removed_nodes`; `false` for added-only records (whose
-    /// `connectedCallback` gate is the correct post-insert `is_connected` of
-    /// the added nodes, not this field).
+    /// The record `target` (the mutation parent)'s connectedness captured
+    /// SYNCHRONOUSLY at **mutation time** — the same pre-mutation seam as
+    /// `EcsDom::remove_child`'s `was_connected` on the mutation-event leg. It
+    /// drives BOTH custom-element gates on the record leg, because the parent's
+    /// own connectedness is unchanged by adding or removing its children:
+    /// - `removed_nodes` → `disconnectedCallback`: WHATWG DOM "remove"
+    ///   (`#concept-node-remove`) step 12 `isParentConnected`, captured BEFORE
+    ///   the removal.
+    /// - `added_nodes` → `connectedCallback`: §4.2.3 insertion steps "if parent
+    ///   is connected", evaluated AT INSERTION.
+    ///
+    /// Enqueuing on this captured value (NOT connectivity re-derived at
+    /// batch-final delivery) is what lets a reaction survive a **later record in
+    /// the same batch detaching `target`** — the bug a delivery-time
+    /// `is_connected(target)` gate causes on either side. Every `ChildList`
+    /// apply path captures it; `false` only where `target` genuinely was not
+    /// connected (e.g. a fragment source, never in the tree).
     pub parent_was_connected: bool,
 }
 
@@ -476,6 +481,10 @@ pub fn apply_append_child(dom: &mut EcsDom, parent: Entity, child: Entity) -> Ve
     if rejects_shadow_root_insertion(dom, child) {
         return Vec::new();
     }
+    // §4.2.3 insertion "if parent is connected" for the dest record's
+    // `connectedCallback` gate. Capture up front (appending children never
+    // changes `parent`'s own connectedness, so this equals insertion-time).
+    let parent_was_connected = dom.is_connected(parent);
     if dom.is_document_fragment(child) {
         // §4.2.3 ensure pre-insertion validity step 2: a fragment that is a
         // host-including inclusive ancestor of `parent` (incl. `parent` itself, e.g.
@@ -499,6 +508,7 @@ pub fn apply_append_child(dom: &mut EcsDom, parent: Entity, child: Entity) -> Ve
         let dest = MutationRecord {
             added_nodes: nodes,
             previous_sibling: prev_sibling,
+            parent_was_connected,
             ..empty_record(MutationKind::ChildList, parent) // step 8
         };
         return vec![frag_record, dest]; // step 4.2 record THEN step 8 record
@@ -521,6 +531,7 @@ pub fn apply_append_child(dom: &mut EcsDom, parent: Entity, child: Entity) -> Ve
     let dest = MutationRecord {
         added_nodes: vec![child],
         previous_sibling: prev_sibling,
+        parent_was_connected,
         ..empty_record(MutationKind::ChildList, parent)
     };
     move_record_list(source, child, dest)
@@ -567,6 +578,10 @@ pub fn apply_insert_before(
             None => apply_append_child(dom, parent, new_child),
         };
     }
+    // §4.2.3 insertion "if parent is connected" for the dest record's
+    // `connectedCallback` gate (inserting children never changes `parent`'s own
+    // connectedness, so this equals insertion-time). See `apply_append_child`.
+    let parent_was_connected = dom.is_connected(parent);
     if dom.is_document_fragment(new_child) {
         // §4.2.3 step 2 (atomic, before any move): a fragment that is a
         // host-including inclusive ancestor of `parent` is a HierarchyRequestError.
@@ -587,6 +602,7 @@ pub fn apply_insert_before(
             added_nodes: nodes,
             previous_sibling: prev_sibling,
             next_sibling: Some(ref_child),
+            parent_was_connected,
             ..empty_record(MutationKind::ChildList, parent) // step 8
         };
         return vec![frag_record, dest];
@@ -607,6 +623,7 @@ pub fn apply_insert_before(
         added_nodes: vec![new_child],
         previous_sibling: prev_sibling,
         next_sibling: Some(ref_child),
+        parent_was_connected,
         ..empty_record(MutationKind::ChildList, parent)
     };
     move_record_list(source, new_child, dest)

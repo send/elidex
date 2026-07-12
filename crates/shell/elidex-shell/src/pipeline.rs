@@ -491,7 +491,12 @@ fn transition_ready_state(
 /// Dispatch `beforeunload` and `unload` events before navigation or shutdown.
 ///
 /// Per HTML spec §7.1.8: `beforeunload` is cancelable (can prevent navigation),
-/// `unload` is not cancelable. Both fire on the Window (document target).
+/// `unload` is not cancelable. Both fire on the **Window** — after the VM flip
+/// `window.addEventListener('beforeunload'|'unload', …)` / `window.onbeforeunload`
+/// record their listeners against the dedicated Window entity (window.rs), so a
+/// document-targeted dispatch would silently miss them (the same window-vs-
+/// document routing the `resize` dispatch fixed). Target the VM's Window entity,
+/// falling back to `document` pre-bind (`window_entity() == None`).
 ///
 /// Returns `true` if navigation should proceed (beforeunload not cancelled).
 pub(crate) fn dispatch_unload_events(
@@ -500,8 +505,12 @@ pub(crate) fn dispatch_unload_events(
     dom: &mut EcsDom,
     document: Entity,
 ) -> bool {
+    // Event TARGET = the VM Window entity (so window-registered listeners fire);
+    // the ScriptContext still binds to `document` (the active document), exactly
+    // like the `resize` dispatch (event target Window, binding document).
+    let window_target = runtime.window_entity().unwrap_or(document);
     // beforeunload: cancelable (returnValue or preventDefault can block navigation).
-    let mut beforeunload = DispatchEvent::new("beforeunload", document);
+    let mut beforeunload = DispatchEvent::new("beforeunload", window_target);
     beforeunload.cancelable = true;
     beforeunload.bubbles = false;
     let prevented = dispatch_event_bracketed(runtime, session, dom, document, &mut beforeunload);
@@ -513,7 +522,7 @@ pub(crate) fn dispatch_unload_events(
     }
 
     // unload: not cancelable, not bubble.
-    let mut unload = DispatchEvent::new("unload", document);
+    let mut unload = DispatchEvent::new("unload", window_target);
     unload.bubbles = false;
     unload.cancelable = false;
     dispatch_event_bracketed(runtime, session, dom, document, &mut unload);

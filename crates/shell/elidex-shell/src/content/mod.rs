@@ -701,8 +701,17 @@ fn dispatch_storage_event(
 
 /// Dispatch a `MessageEvent` on the parent document (WHATWG HTML §9.3.3 step 8.7).
 fn dispatch_message_event(state: &mut ContentState, data: &str, origin: &str) {
-    let mut event =
-        elidex_script_session::DispatchEvent::new_composed("message", state.pipeline.document);
+    // `message` fires on the Window (HTML §9.3.3) — after the VM flip
+    // `window.addEventListener('message', …)` records against the dedicated
+    // Window entity, so target it (falling back to `document` pre-bind), the
+    // same window-vs-document routing as the `resize` dispatch. `dispatch_event`
+    // still binds the ScriptContext to the pipeline's document internally.
+    let window_target = state
+        .pipeline
+        .runtime
+        .window_entity()
+        .unwrap_or(state.pipeline.document);
+    let mut event = elidex_script_session::DispatchEvent::new_composed("message", window_target);
     event.bubbles = false;
     event.cancelable = false;
     event.payload = elidex_plugin::EventPayload::Message {

@@ -72,36 +72,36 @@ impl VmInner {
         let mut reactions = Vec::new();
         for record in records {
             match record.kind {
-                // The two directions gate on DIFFERENT connectivity bases,
-                // matching WHATWG DOM's insert vs remove steps:
+                // BOTH directions gate on the target's connectivity captured
+                // SYNCHRONOUSLY at mutation time (`record.parent_was_connected`),
+                // NOT re-derived at batch-final delivery — matching WHATWG DOM's
+                // insert/remove steps, which enqueue the reaction during the
+                // mutation itself:
                 //
-                // - added_nodes → connectedCallback: the correct basis is the
-                //   target's POST-insert connectivity (§4.2.3 insertion steps
-                //   "if parent is connected"), so keep `is_connected(target)`.
-                // - removed_nodes → disconnectedCallback: the correct basis is
-                //   `#concept-node-remove` step 12 `isParentConnected` —
-                //   captured SYNCHRONOUSLY at removal time, NOT re-derived at
-                //   delivery. `record.parent_was_connected` carries that
-                //   captured value, so a later same-batch record detaching
-                //   `target` no longer wrongly suppresses the reaction (the
-                //   bug a shared batch-final `is_connected(target)` gate had).
+                // - added_nodes → connectedCallback: §4.2.3 insertion steps
+                //   "if parent is connected" is evaluated AT INSERTION. A
+                //   delivery-time `is_connected(target)` would miss a transient
+                //   connected insert whose parent a LATER same-batch record
+                //   detaches (the add-side twin of the remove-side bug).
+                // - removed_nodes → disconnectedCallback: `#concept-node-remove`
+                //   step 12 `isParentConnected`, captured pre-removal.
                 //
-                // The subtree classification itself is shared (H1); only the
-                // per-direction connectivity gate lives here.
-                MutationKind::ChildList => {
-                    if dom.is_connected(record.target) {
-                        for &added in &record.added_nodes {
-                            reactions.extend(elidex_custom_elements::classify_connected_subtree(
-                                added, dom, &registry,
-                            ));
-                        }
+                // The parent's own connectedness is unchanged by adding/removing
+                // its children, so ONE captured value (`is_connected(parent)` at
+                // the apply site) serves both gates. A `parent_was_connected ==
+                // false` ChildList record enqueues nothing (falls to `_` below).
+                // The subtree classification itself is shared (H1); only this
+                // connectivity gate lives here.
+                MutationKind::ChildList if record.parent_was_connected => {
+                    for &added in &record.added_nodes {
+                        reactions.extend(elidex_custom_elements::classify_connected_subtree(
+                            added, dom, &registry,
+                        ));
                     }
-                    if record.parent_was_connected {
-                        for &removed in &record.removed_nodes {
-                            reactions.extend(
-                                elidex_custom_elements::classify_disconnected_subtree(removed, dom),
-                            );
-                        }
+                    for &removed in &record.removed_nodes {
+                        reactions.extend(elidex_custom_elements::classify_disconnected_subtree(
+                            removed, dom,
+                        ));
                     }
                 }
                 MutationKind::Attribute => {

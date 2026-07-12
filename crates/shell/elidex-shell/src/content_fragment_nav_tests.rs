@@ -390,7 +390,10 @@ fn body_bearing_same_page_fragment_is_cross_document() {
 /// the fragment nav PROCEEDS (the unload-gating IMP, §6.3 caller-audit).
 #[test]
 fn addressbar_fragment_nav_skips_unload_and_does_not_rebuild() {
-    let html = r"<div>doc</div><script>document.addEventListener('beforeunload', function(e) { e.preventDefault(); });</script>";
+    // `beforeunload` registers on the Window (spec `for=Window`) via
+    // `window.addEventListener`; the fragment nav never fires it regardless, so
+    // this cancelling handler is never consulted (the point of the test).
+    let html = r"<div>doc</div><script>window.addEventListener('beforeunload', function(e) { e.preventDefault(); });</script>";
     let (mut state, browser) = build_test_content_state_with_url(html, base());
     drain_browser(&browser);
 
@@ -422,7 +425,12 @@ fn addressbar_fragment_nav_skips_unload_and_does_not_rebuild() {
 /// proves the fragment path above genuinely skipped unload.
 #[test]
 fn addressbar_cross_document_nav_fires_unload() {
-    let html = r"<div>doc</div><script>document.addEventListener('beforeunload', function(e) { e.preventDefault(); });</script>";
+    // `beforeunload` is a Window event (HTML: `for=Window`; `WindowEventHandlers`
+    // `onbeforeunload`), dispatched on — and its listeners registered on — the
+    // Window, NOT the Document. `window.addEventListener` is the spec-correct
+    // surface; it records against the VM's dedicated Window entity, which
+    // `dispatch_unload_events` targets. A cancelling handler here blocks the nav.
+    let html = r"<div>doc</div><script>window.addEventListener('beforeunload', function(e) { e.preventDefault(); });</script>";
     let (mut state, browser) = build_test_content_state_with_url(html, base());
     drain_browser(&browser);
 

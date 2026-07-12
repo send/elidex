@@ -281,6 +281,15 @@ pub(super) fn handle_navigate(
             // Unconditional — the new document consumed exactly `seq` / `facts_seq`.
             state.applied_viewport_seq = seq;
             state.applied_facts_seq = facts_seq;
+            // Re-base `device_facts` too: the rebuilt pipeline was SEEDED with
+            // `snapshot.facts`, and `applied_facts_seq` now marks that generation
+            // consumed — so an equal-`facts_seq` delivery queued during the
+            // blocking `load_document` is (correctly) dropped as already-applied.
+            // If `state.device_facts` kept the OLD document's value it would then
+            // seed later child-frame loads and be re-pushed to the VM media env by
+            // a subsequent `SetViewport` — stranding a real DPI / color-scheme
+            // change. Anchor it to the same snapshot the pipeline was built from.
+            state.device_facts = snapshot.facts;
             super::scroll::update_viewport_scroll_dimensions(state);
 
             // Move the session-history cursor BEFORE `notify_navigation` below,
