@@ -158,6 +158,15 @@ than the WebSocket-mixed-content proxy. Flip WebSocket / origin-wiring question.
 
 ## Disposition
 
+**✅ FULL CI-GREEN reached** (`7f42b428`, 2026-07-12): `mise run ci` passes end-to-end for the first
+time on this branch — check + lint-clippy + test-all (`12789/0`) + doc + deny all green. All 17
+surfaced test failures resolved (A/B-cascade/C/B-resize/E in prior commits; B-MQL=`392aaea0`,
+D-WebSocket=`78f055fb` this session). Running the full gate to completion for the first time ALSO
+surfaced pre-existing latent non-test debt (never checkable while the shell target didn't compile):
+a broken intra-doc link (`be586e45`) and 24 clippy `-D warnings` (`7f42b428`, 11 elidex-js + 13
+elidex-shell) — all mechanical/standard dispositions, none introduced by the flip fixes. Next:
+`/pre-push` design gate → `/external-converge` → Stage 3 (boa deletion + merge).
+
 - The migration (T1 `d740a5ea` + T2 `71968b70`) is **mechanically complete** (build-green) and did
   its job: it surfaced these 17. They are **out of the test-migration's scope** (5 other subsystems)
   but **in scope for "get the flip CI-green before Stage 3"**.
