@@ -171,18 +171,34 @@ than the WebSocket-mixed-content proxy. Flip WebSocket / origin-wiring question.
   `html_with_author_style` embeds the css-arg as a `<style>` DOM owner (matches production, whose CSS
   is already DOM-owned). This dissolved the "B pump gap" and "C animation" hypotheses — the pump
   (`event_loop.rs:398+`) is actually correct.
-- **Remaining 6** = **4 B (matchMedia/window-listener)** + **2 D (WebSocket)**:
-  - **B-matchMedia** (`content_thread_resize_listener_sees_fresh_matchmedia` :227,
-    `atomic_size_and_facts_delivery…` :1099, `content_thread_drops_stale_seq_viewport` :515,
-    `content_thread_same_size_setviewport_is_idempotent` :340): the assertion is "listener did not
-    run" (box stays blue, neither red nor lime). Root cause (to investigate): the SetViewport arm
-    dispatches `resize` on `state.pipeline.document` (`event_loop.rs:479`
-    `DispatchEvent::new_composed("resize", document)`), but the tests register
-    `window.addEventListener('resize', …)` / a `matchMedia` MQL listener — under the VM a
-    **window-target** listener is (apparently) not invoked by a **document-target** dispatch, so the
-    resize/MQL-change callbacks never fire. A **VM window-vs-document event-target routing** question
-    (distinct from the cascade fix), affecting `resize` dispatch + `deliver_media_query_changes`.
-    Next: check how `window.addEventListener` targets vs the `document`-targeted dispatch (are window
-    listeners on a separate object the document dispatch misses?).
-  - **D (2)**: unchanged — test-JS `WebSocket()` without `new` boa-ism + uncertain VM-WS-origin wiring
-    (see Category D above).
+- **✅ Category B window-resize fixed** (`1c1769d2`, 6→3, 238 pass): 3 of the 4 B-matchMedia tests
+  were the **window-vs-document dispatch** bug — `window.addEventListener('resize', …)` records
+  against the VM's dedicated **Window** ECS entity (distinct from the Document, `window.rs:16-19`),
+  but the SetViewport arm dispatched `resize` on `state.pipeline.document`, missing it (worked under
+  boa's window==document aliasing). Fix: expose `HostDriver::window_entity()` (→ `HostData::
+  window_entity`) and target the resize `DispatchEvent` at it (fallback: document pre-bind).
+- **Remaining 3** = **1 B-MQL-change** + **2 D-WebSocket** — both deeper VM investigations (14/17 fixed):
+  - **`atomic_size_and_facts_delivery_fires_no_intermediate_mql_change`** (:1099): the phase-2
+    `SetDeviceFacts{Light}` must flip `matchMedia('(min-width:1200px) and (prefers-color-scheme:
+    light)')` false→true and fire its `mql.addEventListener('change', …)` **once**, but it fires
+    **0** times. NOT an unbound issue — `PipelineResult::deliver_media_query_changes` (`lib.rs:508`)
+    DOES bracket (`with_bound`), so the VM `is_bound` gate (`media_query.rs:413`) passes. Root cause
+    (to investigate): the `MediaQueryList` registry flip-detection / `deliverable_to(current_document)`
+    / listener-dispatch inside `deliver_media_query_changes` (`media_query.rs:412+`) — the change
+    event is not reaching the MQL's `change` listener. Needs VM MQL-delivery debugging (registry state
+    at delivery, `entry.document` identity vs bound document, the phase-B EventTarget fire).
+  - **D (2)** `sandboxed_iframe_initial_script_observes_opaque_origin` (:189) /
+    `unsandboxed_…_tuple_origin` (:219): TWO issues. (a) The test JS uses the boa-ism `WebSocket("ws://
+    …")` **without `new`** (this file's header §"Origin ordering" documents the boa oracle) — the
+    spec-correct `new WebSocket(…)` is the right form. (b) BUT with `new`, the VM WebSocket fires the
+    **mixed-content gate for the SANDBOXED (opaque-origin) iframe too** ("An insecure WebSocket
+    connection may not be initiated from a page loaded over HTTPS") — the sandboxed→opaque iframe's
+    `ws://` should get **past** mixed-content (opaque ≠ the https secure context). So the VM
+    WebSocket's mixed-content check reads the **parent https origin, not the installed sandbox-opaque
+    origin** — a VM-WebSocket origin-wiring gap (the OOP variant `oop_sandboxed_…` PASSES, so the
+    in-process origin install isn't reaching the WS constructor). The same tests ALSO carry a DIRECT
+    `matches!(runtime.origin(), Opaque(_))` assertion (:198) that would pass — the WebSocket-mixed-
+    content proxy is the fragile boa-era oracle. Fix options: (i) fix the VM WebSocket to read the
+    document's installed origin for mixed-content, or (ii) re-author the initial-script oracle onto a
+    direct origin read (e.g. `location.origin` → probe attr) instead of the WebSocket proxy. The
+    `new WebSocket` edit was applied+reverted this session (it exposes (b) but does not close it).
