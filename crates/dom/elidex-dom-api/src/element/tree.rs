@@ -1002,10 +1002,17 @@ fn serialize_node(
 }
 
 // ---------------------------------------------------------------------------
-// Attribute name validation (WHATWG DOM §5.1)
+// Attribute name validation (WHATWG DOM §1.4 "Name validation")
 // ---------------------------------------------------------------------------
 
-/// Validate an attribute name per the WHATWG DOM spec.
+/// Validate an attribute name, per WHATWG DOM §1.4 "Name validation"; an
+/// invalid name yields an `InvalidCharacterError`.
+///
+/// NOTE: this rejects Rust `char::is_whitespace()` (the Unicode `White_Space`
+/// set) rather than only the spec's ASCII whitespace, so a handful of
+/// non-ASCII spaces (NBSP, U+2028, …) are over-rejected — a pre-existing,
+/// extreme-edge divergence shared with `setAttribute`, tracked for a focused
+/// fix rather than widened here.
 pub fn validate_attribute_name(name: &str) -> Result<(), DomApiError> {
     if name.is_empty() {
         return Err(DomApiError {
