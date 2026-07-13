@@ -108,8 +108,18 @@ pub enum UserInvolvement {
 
 /// A pending deferred **traversal apply** (WHATWG HTML §7.4.3 step 4 — the
 /// traversal appended onto the traversable, applied as a later task via
-/// §7.4.6.1). Carries the resolved [`TraversalDelta`] plus the §7.4.3 steps 1–3
-/// source snapshot captured at issue time.
+/// §7.4.6.1). Carries the resolved [`TraversalDelta`] and the §7.4.3 **step-2
+/// [`UserInvolvement`]** input captured at issue time.
+///
+/// The *fuller* §7.4.3 steps-1–3 **source snapshot** (source document / initiator
+/// — consumed by §7.4.6.1 for the sandbox check and cross-document target
+/// population) is **NOT** captured here: it references the shell's document
+/// identity, a type the engine-agnostic substrate does not have. Slice 2/3 threads
+/// it at wire time (the same document-identity boundary as a deferred `SyncUpdate`,
+/// Codex PR#464 R3-D → slot `#11-sync-navigation-steps-queue-tagging`), so until
+/// then a deferred traversal's apply must read live document state, not an
+/// issue-time source snapshot. Only the `Copy` `UserInvolvement` input (no shell
+/// type) is capturable in Slice 1.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct PendingTraversal {
     /// The resolved traversal delta (`Back` / `Forward` / `Go(delta)`).

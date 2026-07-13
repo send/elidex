@@ -204,8 +204,14 @@ traversable proxy (it owns `entries` + the scalar cursor `index`, and is owned b
 engine-independent layer they already live in (`resolve_traversal :344`, `TraversalKind :451`).
 
 Queue shape (decision-altitude — exact fields handed to implementation):
-- an **ordered queue of pending traversal applies** (each carrying the resolved delta/target and the
-  source-snapshot/userInvolvement inputs §7.4.3 steps 1–3 captured), and
+- an **ordered queue of pending traversal applies** (each carrying the resolved delta/target and the §7.4.3
+  **step-2 `userInvolvement`** input). ⚠ **Slice-1 capture boundary (Codex PR#464 R4):** the *fuller* §7.4.3
+  steps-1–3 **source snapshot** (source document / initiator, consumed by §7.4.6.1 for the sandbox check +
+  cross-document target population) references the shell's **document identity** — a type the engine-agnostic
+  substrate does not have — so it is **NOT captured in Slice 1** (only the shell-type-free `UserInvolvement`
+  enum is). Slice 2/3 threads the source snapshot at wire time, the **same document-identity boundary** as the
+  deferred-`SyncUpdate` binding (CARRY-EXT-2 (D) / slot `#11-sync-navigation-steps-queue-tagging`). Until then a
+  deferred traversal's apply reads live document state, not an issue-time snapshot (the R4 residual).
 - the **`running_nested_apply_history_step: bool`** guard (§7.3.1.1), initially false.
 
 This is a **cooperative single-threaded queue**, not an OS "parallel queue" thread: elidex's renderer main
