@@ -115,18 +115,18 @@ per-realm `ce_*` handles + `VmInner` SW client side-tables at the correct `bind`
 engine-independent DOM/form/selector/CSSOM algorithm is moved or added, so the crate-mapping table is N/A
 (same as 2f, which was VM-lifecycle + marshalling).
 
-**Touch-time-split note (CLAUDE.md 1000-line debt).** `vm_api.rs` (1386 L) and `host_data/mod.rs`
-(2023 L) are both >1000. ⚠ **AS-BUILT CORRECTION (Codex #459 R3 fix-delta re-gate, Axis 5):** the plan's
+**Touch-time-split note (CLAUDE.md 1000-line debt).** `vm_api.rs` (1418 L) and `host_data/mod.rs`
+(2023 L) are both >1000. ⚠ **AS-BUILT CORRECTION (Codex #459 R3 re-gate Axis 5 + R6-#3 P3):** the plan's
 first-draft claim that this touch is "net-negative / no substantive >50 LoC growth" is **wrong** — as-built,
-`vm_api.rs` is **net +113** (+165/−52; the survivor-set was NOT a verbatim MOVE — R1/R2/R3 added the
-`wrapper_store.retain` extension, the `teardown_document` wrapper-removal loop, and the load-bearing
-lifetime-rationale comments) and `host_data/mod.rs` is net +18. So the **Axis-5 1000-line backstop DOES
-fire** for `vm_api.rs`. The split itself is a **judgment**, not a gate (`axes.md` Axis 5): the real cohesion
+`vm_api.rs` is **net +145** (+197/−52; the survivor-set was NOT a verbatim MOVE — R1/R2/R3 added the
+`wrapper_store.retain` extension + the `teardown_document` wrapper-removal loop, and R3/R4 added the
+load-bearing lifetime-rationale comments + the 3-class wrapper-lifetime taxonomy) and `host_data/mod.rs` is
+net +18. So the **Axis-5 1000-line backstop DOES fire** for `vm_api.rs`. The split itself is a **judgment**, not a gate (`axes.md` Axis 5): the real cohesion
 seam is the `Vm::unbind` / `Vm::teardown_document` lifecycle pair (a `vm/lifecycle.rs` carve-out) vs the
 `bind` / `eval` / API surface — a genuine seam, so a **standalone prereq split is warranted but deferred**
 (NOT bundled into this converge PR, per the split-on-touch discipline: "split = 単独 PR / 単独 commit"). It
 folds into the tracked `#11-host-data-full-decomposition` sibling debt as the `vm_api.rs` lifecycle-module
-carve. This slice does not enlarge that debt beyond the +113 it acknowledges here.
+carve. This slice does not enlarge that debt beyond the +145 it acknowledges here.
 
 ---
 
@@ -311,22 +311,26 @@ the document's.
 >   with per-name `.remove()`). Two non-behavioral MINOR fixed this PR (stale `alloc_or_cached` doc from R4;
 >   `when_defined_promise_survives_unbind_and_resolves_on_later_define` coverage gap).
 >
-> **Disposition (user-approved A′ at the R5 PAUSE):**
-> - **#1 (scriptURL) → FIXED this PR** (bounded, VM-local): `deliver_registered` evicts the Scope-keyed
->   `ServiceWorker` wrapper when the incoming snapshot's `script_url` differs from the stored one (the existing
->   `deliver_unregistered` evict-then-remint precedent), gated strictly on URL change so a bare state
->   transition keeps identity. Pinned by `cross_batch_script_update_refreshes_worker_script_url` (neg-checked).
-> - **#2 + #3 (pending register/unregister promise correlation) → DEFERRED to a plan-reviewed follow-up**, slot
->   **`#11-sw-client-request-correlation`**. Rationale: the correct fix is a **cross-component request-id
->   correlation protocol** (add a job/request id to `SwClientRequest` + `SwClientUpdate` in `elidex-api-sw`,
->   thread it through the content-thread coordinator round-trip, key the pending-promise Vecs by job id) whose
->   correlation semantics DIFFER per op (register coalesces per SW job-coalescing; unregister is per-job with
->   its own boolean) — **edge-dense ⇒ CLAUDE.md "edge-dense work = 単一 PR に束ねない + 実装前 plan-review 必須"**,
->   NOT a converge-round patch. And it does not regress a working path: pre-survivor-set the same cross-batch
->   multi-register/unregister case was already broken *differently* (the pending promise was cleared at unbind
->   → hung forever); this PR changes the failure mode of an already-broken edge, it does not break a
->   previously-working flow. The scope-only whole-Vec-drain in `deliver.rs` carries an in-code note pointing at
->   the slot.
+> **Disposition (R5 A′ REVISED at R6 — the `#1` "bounded this-PR fix" was itself model-territory):**
+> - **#1 (scriptURL) → initially fixed in R5, then REVERTED at R6.** The R5 fix (evict+remint the Scope-keyed
+>   `ServiceWorker` wrapper on a `script_url` change) turned out to be a canary: Codex R6-#2 showed it left the
+>   OLD wrapper's `service_worker_states` brand row aliasing the NEW worker via scope-recovery (a mixed
+>   old-URL/new-state object) AND violated `worker.rs`'s documented one-per-scope / never-re-mint invariant.
+>   The root cause of BOTH R5-#1 (stale scriptURL) and R6-#2 (alias) is that elidex models a worker as
+>   one-object-per-scope with scope-keyed brand recovery, whereas SW §3.1.1 gives each script its own worker
+>   object — a **deep model gap**, not a bounded fix. So #1 is folded into the same follow-up as #2/#3.
+> - **#1 + #2 + #3 (+ R6-#2) → ALL DEFERRED to a plan-reviewed follow-up**, slot **`#11-sw-client-object-model`**
+>   (broadened from the R5-named `-request-correlation` to cover BOTH clusters: worker-object identity AND
+>   request/promise correlation). Rationale: the correct fix is a cross-component **SW-client-object-model
+>   redesign** (per-worker object identity with per-worker state/brand instead of scope-recovery; per-request
+>   job-id on `SwClientRequest`+`SwClientUpdate` threaded through the content-thread coordinator, op-dependent:
+>   register coalesces / unregister per-boolean) — **edge-dense ⇒ CLAUDE.md "単一 PR に束ねない + 実装前
+>   plan-review 必須"**, NOT a converge-round patch. And none regress a working path: pre-survivor-set these
+>   cross-batch cases were already broken *differently* (stale-not-fresh / hung-forever); the PR changes their
+>   failure mode, it does not break a previously-working flow. Three `deliver.rs` in-code notes point at the
+>   slot. **This PR's SW scope is now narrowed to the survivor-set SURVIVAL correctness** (R1/R2/R3-2: SW
+>   data/brand/registration-wrapper survive per-turn unbind + drop at teardown — the parts that are correct),
+>   with the object-model correctness explicitly deferred.
 
 ### STAYS (per-turn or genuine cross-DOM scrub — this slice does NOT touch)
 
