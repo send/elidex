@@ -106,6 +106,16 @@ design lens で touch の正しさは収束、coordination 承認取得済み。
 - `#11-vm-date-decompose-perf` (F12) — getter/formatter/setter が `year_from_time` の補正ループを
   getDate=4×/toString=7× 再計算。`decompose(t)->{year,month,date,…}` helper で1回に集約。
 
+### external-converge (Codex R1) 由来
+
+- `#11-vm-native-fn-generic-invocation` — **既存 VM bug (Date 無関係、Codex R1 中に発見)**。
+  `Object.prototype.toString` (等の native fn) を **generic invoke** (own-property に assign して
+  呼ぶ / `.call` / `.apply`) すると **全 receiver** で `"Cannot convert undefined or null to
+  object"` を throw する。interpreter の inherited-method fast-path (`({}).toString()`) のみ動く。
+  Codex R1 #4 の `Object.prototype.toString` builtin-tag Date arm (§20.1.3.6) は code-fix 済だが、
+  この既存 bug が JS observable (`Object.prototype.toString.call(new Date())`) を阻む。call
+  dispatch は本 PR 未変更ゆえ既存 regression。VM core (native-fn generic dispatch)、Date scope 外 → 別 PR。
+
 ## Test (engine-independent unit)
 `tests/tests_date_api.rs`: ctor 4 forms / `get*` / `set*` in-place / `Date.parse` ISO /
 format round-trip / `Symbol.toPrimitive` / structuredClone(Date) / invalid→NaN / TimeClip ±8.64e15 境界 /

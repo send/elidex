@@ -416,12 +416,22 @@ fn native_date_to_json(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let t = this_time_value(ctx, this)?;
-    if !t.is_finite() {
+    // §21.4.4.37 — generic (works on any object): `ToPrimitive(this, number)`
+    // for the finiteness gate, then `Invoke(this, "toISOString")`, honoring a
+    // user-overridden `toISOString` rather than reading `[[DateValue]]` +
+    // formatting directly.
+    let JsValue::Object(obj_id) = this else {
+        return Err(VmError::type_error(
+            "Date.prototype.toJSON called on a non-object receiver",
+        ));
+    };
+    let tv = ctx.vm.to_primitive(this, "number")?;
+    if matches!(tv, JsValue::Number(n) if !n.is_finite()) {
         return Ok(JsValue::Null);
     }
-    let sid = ctx.intern(&format::iso_string(t));
-    Ok(JsValue::String(sid))
+    let iso_key = PropertyKey::String(ctx.intern("toISOString"));
+    let method = ctx.get_property_value(obj_id, iso_key)?;
+    ctx.call_value(method, this, &[])
 }
 
 macro_rules! date_stringifier {
@@ -443,35 +453,44 @@ date_stringifier!(native_date_to_date_string, format::to_date_string);
 date_stringifier!(native_date_to_time_string, format::to_time_string);
 date_stringifier!(native_date_to_utc_string, format::utc_string);
 
-/// §21.4.4.45 `Date.prototype[Symbol.toPrimitive](hint)`. Our default
-/// `toString`/`valueOf` return primitives directly, so `OrdinaryToPrimitive`
-/// short-circuits: `"number"` → the time value, `"string"`/`"default"` → the
-/// `toString` rendering.
+// §21.4.4.38-40 toLocale{Date,Time,}String — with no ECMA-402 / Intl, the spec
+// permits implementation-defined fallbacks. Use the locale-independent
+// to{Date,Time,}String / toString renderings (`intl-icu-deferral`); precise
+// locale-aware output is the follow-up `#11-vm-date-tolocalestring-intl`.
+date_stringifier!(native_date_to_locale_string, format::to_string);
+date_stringifier!(native_date_to_locale_date_string, format::to_date_string);
+date_stringifier!(native_date_to_locale_time_string, format::to_time_string);
+
+/// §21.4.4.45 `Date.prototype[Symbol.toPrimitive](hint)`. The hint selects the
+/// preference and step 6 delegates to `OrdinaryToPrimitive`, so a user-defined
+/// `valueOf` / `toString` override is honored (`const d = new Date(0);
+/// d.valueOf = () => 5; +d === 5`) instead of reading `[[DateValue]]` directly.
 fn native_date_to_primitive(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    if !matches!(this, JsValue::Object(_)) {
+    let JsValue::Object(obj_id) = this else {
         return Err(VmError::type_error(
             "Date.prototype[Symbol.toPrimitive] called on non-object",
         ));
-    }
+    };
     let hint = match args.first() {
         Some(JsValue::String(sid)) => ctx.get_utf8(*sid),
         _ => String::new(),
     };
-    match hint.as_str() {
-        "number" => Ok(JsValue::Number(this_time_value(ctx, this)?)),
-        "string" | "default" => {
-            let t = this_time_value(ctx, this)?;
-            let sid = ctx.intern(&format::to_string(t));
-            Ok(JsValue::String(sid))
+    // §21.4.4.45 steps 3-5: "string"/"default" → prefer toString; "number" →
+    // prefer valueOf; any other hint is a TypeError.
+    let prefer_string = match hint.as_str() {
+        "string" | "default" => true,
+        "number" => false,
+        _ => {
+            return Err(VmError::type_error(
+                "Date.prototype[Symbol.toPrimitive] called with invalid hint",
+            ))
         }
-        _ => Err(VmError::type_error(
-            "Date.prototype[Symbol.toPrimitive] called with invalid hint",
-        )),
-    }
+    };
+    ctx.vm.ordinary_to_primitive(this, obj_id, prefer_string)
 }
 
 // ---------------------------------------------------------------------------
@@ -523,6 +542,9 @@ impl VmInner {
             ("toDateString", native_date_to_date_string),
             ("toTimeString", native_date_to_time_string),
             ("toUTCString", native_date_to_utc_string),
+            ("toLocaleString", native_date_to_locale_string),
+            ("toLocaleDateString", native_date_to_locale_date_string),
+            ("toLocaleTimeString", native_date_to_locale_time_string),
         ];
         let proto_id = self.create_object_with_methods(proto_methods);
         self.date_prototype = Some(proto_id);

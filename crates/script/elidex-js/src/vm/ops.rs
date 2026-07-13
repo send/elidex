@@ -270,54 +270,70 @@ impl VmInner {
                     ObjectKind::SymbolWrapper(id) => return Ok(JsValue::Symbol(id)),
                     _ => {}
                 }
-                // OrdinaryToPrimitive (§7.1.1.1): try each method in
-                // hint-specific order; return the first primitive result;
-                // TypeError if neither yields a primitive.  `val` is rooted
-                // as `this` for the duration of every `call_value`; nothing
-                // between iterations triggers GC, so the local `val` /
-                // `obj_id` survive each loop turn unchanged.
-                //
-                // The "toString" / "valueOf" identifiers are pre-interned on
-                // `WellKnownStrings` (`to_string_method` / `value_of`) so the
-                // hot path skips a `strings.intern(...)` hashmap lookup per
-                // call — ToPrimitive runs from every `+` operator, every
-                // `==` mixed-type comparison, and every WebIDL coercion.
-                let method_keys: [PropertyKey; 2] = if hint == "string" {
-                    [
-                        PropertyKey::String(self.well_known.to_string_method),
-                        PropertyKey::String(self.well_known.value_of),
-                    ]
-                } else {
-                    // "number" or "default" — spec uses the same order.
-                    [
-                        PropertyKey::String(self.well_known.value_of),
-                        PropertyKey::String(self.well_known.to_string_method),
-                    ]
-                };
-                for key in method_keys {
-                    let method = match get_property(self, obj_id, key) {
-                        Some(PropertyResult::Data(v)) => v,
-                        Some(PropertyResult::Getter(g)) => self.call(g, val, &[])?,
-                        None => continue,
-                    };
-                    let JsValue::Object(method_id) = method else {
-                        continue;
-                    };
-                    if !self.get_object(method_id).kind.is_callable() {
-                        continue;
-                    }
-                    let result = self.call_value(method, val, &[])?;
-                    if !matches!(result, JsValue::Object(_)) {
-                        return Ok(result);
-                    }
-                }
-                Err(VmError::type_error(
-                    "Cannot convert object to primitive value",
-                ))
+                // OrdinaryToPrimitive (§7.1.1.1) — factored into a reusable
+                // method so `Date.prototype[Symbol.toPrimitive]` (§21.4.4.45)
+                // can invoke it directly, without re-checking @@toPrimitive
+                // (which would recurse back into this function).
+                self.ordinary_to_primitive(val, obj_id, hint == "string")
             }
             // Symbols (and all other primitives) are already primitive.
             other => Ok(other),
         }
+    }
+
+    /// OrdinaryToPrimitive (ECMA-262 §7.1.1.1) — `Get` + `Call` `valueOf` /
+    /// `toString` (or `toString` / `valueOf` when `prefer_string`), returning
+    /// the first primitive result; `TypeError` if neither yields one.
+    ///
+    /// Does **not** consult `@@toPrimitive` — the caller already handled it
+    /// ([`to_primitive`](Self::to_primitive) at §7.1.1 step 2, or
+    /// `Date.prototype[Symbol.toPrimitive]` at §21.4.4.45 step 3), so reusing
+    /// this from a `@@toPrimitive` implementation does not recurse.
+    ///
+    /// `val` is rooted as `this` for the duration of every `call_value`;
+    /// nothing between iterations triggers GC, so the local `val` / `obj_id`
+    /// survive each loop turn unchanged. The `"toString"` / `"valueOf"`
+    /// identifiers are pre-interned on `WellKnownStrings`, so the hot path
+    /// (every `+`, mixed-type `==`, and WebIDL coercion) skips a per-call
+    /// `strings.intern(...)` lookup.
+    pub(crate) fn ordinary_to_primitive(
+        &mut self,
+        val: JsValue,
+        obj_id: super::value::ObjectId,
+        prefer_string: bool,
+    ) -> Result<JsValue, VmError> {
+        let method_keys: [PropertyKey; 2] = if prefer_string {
+            [
+                PropertyKey::String(self.well_known.to_string_method),
+                PropertyKey::String(self.well_known.value_of),
+            ]
+        } else {
+            // "number" / "default" — spec uses the same order.
+            [
+                PropertyKey::String(self.well_known.value_of),
+                PropertyKey::String(self.well_known.to_string_method),
+            ]
+        };
+        for key in method_keys {
+            let method = match get_property(self, obj_id, key) {
+                Some(PropertyResult::Data(v)) => v,
+                Some(PropertyResult::Getter(g)) => self.call(g, val, &[])?,
+                None => continue,
+            };
+            let JsValue::Object(method_id) = method else {
+                continue;
+            };
+            if !self.get_object(method_id).kind.is_callable() {
+                continue;
+            }
+            let result = self.call_value(method, val, &[])?;
+            if !matches!(result, JsValue::Object(_)) {
+                return Ok(result);
+            }
+        }
+        Err(VmError::type_error(
+            "Cannot convert object to primitive value",
+        ))
     }
 
     /// The `+` operator (ECMA-262 §13.8). Handles both addition and string

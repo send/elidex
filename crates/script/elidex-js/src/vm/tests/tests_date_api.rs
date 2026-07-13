@@ -245,3 +245,50 @@ fn negative_zero_time_value() {
     assert!(eval_bool("Object.is(new Date(-0.4).getTime(), 0)"));
     assert!(eval_bool("!Object.is(new Date(-0.4).getTime(), -0)"));
 }
+
+#[test]
+fn coercion_honors_user_overrides() {
+    // Codex R1 #1 (§21.4.4.45): Symbol.toPrimitive delegates to
+    // OrdinaryToPrimitive, so a user valueOf/toString override is observed.
+    assert_eq!(
+        eval_number("(() => { const d = new Date(0); d.valueOf = () => 5; return +d; })()"),
+        5.0
+    );
+    assert!(eval_bool(
+        "(() => { const d = new Date(0); d.toString = () => 'x'; return ('' + d) === 'x'; })()"
+    ));
+    // Codex R1 #2 (§21.4.4.37): toJSON invokes toISOString (overridable) and is
+    // generic (works on any object with toISOString).
+    assert!(eval_bool(
+        "(() => { const d = new Date(0); d.toISOString = () => 'y'; \
+         return JSON.stringify(d) === '\"y\"'; })()"
+    ));
+    assert!(eval_bool(
+        "Date.prototype.toJSON.call({ toISOString() { return 'z'; } }) === 'z'"
+    ));
+}
+
+#[test]
+fn locale_methods_exist() {
+    // Codex R1 #3 (§21.4.4.38-40): toLocale* exist with impl-defined
+    // (locale-independent) string fallbacks, not `undefined`.
+    assert!(eval_bool(
+        "typeof new Date(0).toLocaleString() === 'string'"
+    ));
+    assert!(eval_bool(
+        "typeof new Date(0).toLocaleDateString() === 'string'"
+    ));
+    assert!(eval_bool(
+        "typeof new Date(0).toLocaleTimeString() === 'string'"
+    ));
+}
+
+// Codex R1 #4 (§20.1.3.6): a Date arm was added to
+// `native_object_prototype_to_string`, so the builtin-tag path yields "Date".
+// A JS-observable regression test is deferred: invoking
+// `Object.prototype.toString` generically on ANY receiver (assigned property,
+// `.call`, or `.apply`) currently throws a pre-existing, Date-unrelated
+// "Cannot convert undefined or null to object" in the native-fn generic-call
+// path (`#11-vm-native-fn-generic-invocation`) — only the interpreter's
+// inherited-method fast path reaches the builtin. Once that lands, assert
+// `Object.prototype.toString.call(new Date()) === "[object Date]"`.

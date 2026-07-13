@@ -657,6 +657,50 @@ fn add_cyclic_value_throws_data_clone_error() {
 }
 
 #[test]
+fn date_is_a_valid_key() {
+    with_vm(|vm| {
+        // Codex R1 #5 / §7.4: a Date with a finite [[DateValue]] converts to a
+        // date key (exercised synchronously via `indexedDB.cmp` → js_to_idb_key).
+        assert_eq!(
+            eval_number(vm, "indexedDB.cmp(new Date(1000), new Date(2000))"),
+            -1.0
+        );
+        assert_eq!(
+            eval_number(vm, "indexedDB.cmp(new Date(5), new Date(5))"),
+            0.0
+        );
+        // An Invalid Date is not a valid key → DataError.
+        assert!(eval_bool(
+            vm,
+            "(() => { try { indexedDB.cmp(new Date(NaN), new Date(0)); return false; } \
+             catch (e) { return e.name === 'DataError'; } })()"
+        ));
+    });
+}
+
+#[test]
+fn add_date_value_throws_data_clone_error() {
+    with_vm(|vm| {
+        // Codex R1 #6: a Date is [Serializable] but not JSON-representable
+        // (`toJSON` → ISO string), so the JSON backend would silently persist a
+        // string.  Reject with DataCloneError until binary structured-clone
+        // storage lands (`#11-idb-binary-key`).
+        vm.eval(
+            "globalThis.__err = 'none';
+             const open = indexedDB.open('db_date_clone', 1);
+             open.onupgradeneeded = (e) => { e.target.result.createObjectStore('s'); };
+             open.onsuccess = (e) => {
+                 const tx = e.target.result.transaction(['s'], 'readwrite');
+                 try { tx.objectStore('s').add({ d: new Date(0) }, 1); }
+                 catch (err) { globalThis.__err = err.name; }
+             };",
+        )
+        .unwrap();
+        assert_eq!(eval_string(vm, "globalThis.__err"), "DataCloneError");
+    });
+}
+
+#[test]
 fn add_with_explicit_key_on_inline_store_throws_sync_data_error() {
     with_vm(|vm| {
         // R9 #1 / §10.2.4: providing an explicit key to an inline-key store is
