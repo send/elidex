@@ -93,7 +93,7 @@ fn day_from_year(y: f64) -> f64 {
         + ((y - 1601.0) / 400.0).floor()
 }
 
-/// §21.4.1.9 InLeapYear(t) — `1` in a leap year, else `0`.
+/// §21.4.1.10 InLeapYear(t) — `1` in a leap year, else `0`.
 fn in_leap_year(t: f64) -> f64 {
     if days_in_year(year_from_time(t)) == 366.0 {
         1.0
@@ -120,7 +120,7 @@ pub(super) fn year_from_time(t: f64) -> f64 {
     y
 }
 
-/// §21.4.1.10 DayWithinYear(t).
+/// §21.4.1.9 DayWithinYear(t).
 fn day_within_year(t: f64) -> f64 {
     day(t) - day_from_year(year_from_time(t))
 }

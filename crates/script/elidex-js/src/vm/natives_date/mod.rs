@@ -33,11 +33,8 @@ use super::{NativeFn, VmInner};
 /// Returns an integer `f64` (truncated to whole milliseconds), matching the
 /// `Date.now()` browser observable + the WebIDL `long long` integer-truncation
 /// rule applied to user-supplied timestamps.
-///
-/// The `_vm` parameter is the seam for a future VM-injected clock (making
-/// `Date` deterministic in tests); today it reads the real system clock.
 #[allow(clippy::cast_precision_loss)]
-pub(crate) fn now_epoch_ms(_vm: &VmInner) -> f64 {
+pub(crate) fn now_epoch_ms() -> f64 {
     use std::time::{SystemTime, UNIX_EPOCH};
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -48,7 +45,10 @@ pub(crate) fn now_epoch_ms(_vm: &VmInner) -> f64 {
 // Shared helpers
 // ---------------------------------------------------------------------------
 
-/// §21.4.4.1 thisTimeValue — the `[[DateValue]]` of `this`, or a `TypeError`.
+/// The `[[DateValue]]` of `this`, or a `TypeError`. Every `Date.prototype`
+/// method begins with this brand check — `RequireInternalSlot(this,
+/// [[DateValue]])` (e.g. §21.4.4.10 `getTime` step 1); the standalone
+/// `thisTimeValue` AO was removed from the spec.
 fn this_time_value(ctx: &NativeContext<'_>, this: JsValue) -> Result<f64, VmError> {
     if let JsValue::Object(id) = this {
         if let ObjectKind::Date(t) = ctx.get_object(id).kind {
@@ -100,8 +100,8 @@ fn opt_num(
     }
 }
 
-/// The two-digit-year rule shared by the component constructor and `Date.UTC`
-/// (§21.4.2.1 / §21.4.3.4): an integral year in `0..=99` maps to `1900 + y`.
+/// §21.4.1.30 MakeFullYear — the two-digit-year rule (`0..=99` → `1900 + y`),
+/// shared by the component constructor (§21.4.2.1) and `Date.UTC` (§21.4.3.4).
 fn make_full_year(y: f64) -> f64 {
     if y.is_finite() {
         let yi = y.trunc();
@@ -133,7 +133,7 @@ pub(crate) fn native_date_constructor(
     // early `!is_construct()` guard (native-ctor-guard trip-wire discipline).
     if ctx.is_construct() {
         let tv = match args {
-            [] => time_clip(now_epoch_ms(ctx.vm)),
+            [] => time_clip(now_epoch_ms()),
             [v] => date_from_single(ctx, *v)?,
             _ => date_from_components(ctx, args)?,
         };
@@ -147,14 +147,14 @@ pub(crate) fn native_date_constructor(
         }
     } else {
         // Called as a plain function (no `new`): return the current time as a
-        // String; the arguments are ignored (§21.4.2.1 step 1).
-        let now = time_clip(now_epoch_ms(ctx.vm));
+        // String; the arguments are ignored (§21.4.2.1, called-as-function).
+        let now = time_clip(now_epoch_ms());
         let sid = ctx.intern(&format::to_string(now));
         Ok(JsValue::String(sid))
     }
 }
 
-/// §21.4.2.1 step 4 — the single-argument form.
+/// §21.4.2.1 — the single-argument form.
 fn date_from_single(ctx: &mut NativeContext<'_>, v: JsValue) -> Result<f64, VmError> {
     // If the argument is itself a Date, copy its time value verbatim.
     if let JsValue::Object(id) = v {
@@ -172,7 +172,7 @@ fn date_from_single(ctx: &mut NativeContext<'_>, v: JsValue) -> Result<f64, VmEr
     }
 }
 
-/// §21.4.2.1 steps 2-3 — the `(year, month, [date, hours, …])` form.
+/// §21.4.2.1 — the multi-argument `(year, month[, date, hours, …])` form.
 #[allow(clippy::many_single_char_names)] // spec field names: y, m, d, h, s
 fn date_from_components(ctx: &mut NativeContext<'_>, args: &[JsValue]) -> Result<f64, VmError> {
     let y = ctx.to_number(args[0])?;
@@ -190,11 +190,11 @@ fn date_from_components(ctx: &mut NativeContext<'_>, args: &[JsValue]) -> Result
 
 /// §21.4.3.1 `Date.now()`.
 fn native_date_now(
-    ctx: &mut NativeContext<'_>,
+    _ctx: &mut NativeContext<'_>,
     _this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    Ok(JsValue::Number(time_clip(now_epoch_ms(ctx.vm))))
+    Ok(JsValue::Number(time_clip(now_epoch_ms())))
 }
 
 /// §21.4.3.2 `Date.parse(string)`.
@@ -264,13 +264,24 @@ macro_rules! date_getter {
     };
 }
 
+// Per-getter §21.4.4.x citations (plain comments — a doc comment before a
+// macro invocation would not attach to the generated fn). Each UTC alias
+// (`getUTC*`) shares the base impl under the UTC-baseline.
+// §21.4.4.4 getFullYear
 date_getter!(native_date_get_full_year, year_from_time);
+// §21.4.4.8 getMonth
 date_getter!(native_date_get_month, month_from_time);
+// §21.4.4.2 getDate
 date_getter!(native_date_get_date, date_from_time);
+// §21.4.4.3 getDay
 date_getter!(native_date_get_day, week_day);
+// §21.4.4.5 getHours
 date_getter!(native_date_get_hours, hour_from_time);
+// §21.4.4.7 getMinutes
 date_getter!(native_date_get_minutes, min_from_time);
+// §21.4.4.9 getSeconds
 date_getter!(native_date_get_seconds, sec_from_time);
+// §21.4.4.6 getMilliseconds
 date_getter!(native_date_get_milliseconds, ms_from_time);
 
 /// §21.4.4.11 `getTimezoneOffset` — always `+0` under the UTC-baseline.
@@ -311,7 +322,7 @@ fn native_date_set_milliseconds(
     store(ctx, id, time_clip(make_date(day(t), time)))
 }
 
-/// §21.4.4.28 `setSeconds(sec, ms?)`.
+/// §21.4.4.26 `setSeconds(sec, ms?)`.
 fn native_date_set_seconds(
     ctx: &mut NativeContext<'_>,
     this: JsValue,

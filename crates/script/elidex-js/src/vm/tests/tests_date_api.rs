@@ -117,7 +117,7 @@ fn string_conversions() {
         eval_string("new Date(0).toString()"),
         "Thu Jan 01 1970 00:00:00 GMT+0000 (Coordinated Universal Time)"
     );
-    // toJSON drives JSON.stringify (§25.5.2 SerializeJSONProperty).
+    // toJSON drives JSON.stringify (§25.5.4.2 SerializeJSONProperty).
     assert_eq!(
         eval_string("JSON.stringify(new Date(0))"),
         "\"1970-01-01T00:00:00.000Z\""

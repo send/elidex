@@ -240,7 +240,7 @@ fn parse_file_options(
         JsValue::Undefined | JsValue::Null => Ok((
             ctx.vm.well_known.empty,
             EndingsKind::Transparent,
-            super::super::natives_date::now_epoch_ms(ctx.vm),
+            super::super::natives_date::now_epoch_ms(),
         )),
         JsValue::Object(opts_id) => {
             let type_sid = parse_blob_options_type(ctx, options)?;
@@ -248,7 +248,7 @@ fn parse_file_options(
             let last_modified_key = PropertyKey::String(ctx.vm.well_known.last_modified);
             let last_modified_val = ctx.get_property_value(opts_id, last_modified_key)?;
             let last_modified_ms = match last_modified_val {
-                JsValue::Undefined => super::super::natives_date::now_epoch_ms(ctx.vm),
+                JsValue::Undefined => super::super::natives_date::now_epoch_ms(),
                 other => {
                     // WebIDL `long long` coercion: ToNumber then
                     // ToInt64 (truncate toward zero, modulo 2^64).

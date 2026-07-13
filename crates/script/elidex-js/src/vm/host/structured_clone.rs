@@ -60,8 +60,8 @@ use super::blob::BlobData;
 // Public entry point
 // ---------------------------------------------------------------------------
 
-/// Structured-clone `input` under the WHATWG HTML §2.9 StructuredSerialize
-/// + StructuredDeserialize fused algorithm.
+/// Structured-clone `input` under the fused WHATWG HTML StructuredSerialize
+/// (§2.7.4) + StructuredDeserialize (§2.7.6) algorithm.
 ///
 /// Returns the cloned value on success, or a
 /// `DOMException("DataCloneError")` when the input contains an
@@ -150,7 +150,7 @@ fn clone_recursive(
             vm.number_prototype,
             memo,
         ))),
-        // §2.9 StructuredSerialize: Date is [Serializable] — clone to a new
+        // HTML §2.7.4 StructuredSerialize: Date is [Serializable] — clone to a new
         // Date with the same `[[DateValue]]`.
         CloneKind::Date(t) => Ok(JsValue::Object(alloc_memoized_wrapper(
             vm,
