@@ -300,12 +300,33 @@ ordering (each slice terminal under the approved umbrella once its own plan-revi
 - **Slice 2 — content-mode phase-separation:** move `Back/Forward/Go` out of the synchronous FIFO into the
   queue, schedule the deferred apply on the async `run_event_loop` pump, remove the `:593` supersede-return.
   Flip the `content_history_drain_tests.rs` cases that pin synchronous supersede (§8).
+  ⚠ **CARRY (Slice-1 `/code-review` high, 2026-07-13) — traversal-vs-navigation supersede is under-analyzed.**
+  The coordinator runs Phase-1c `location.*` navigation (`handle_navigation`) *unconditionally*, then applies
+  the deferred traversal in Phase 2 — so a same-turn `history.back(); location.href='/b'` **loads `/b` over the
+  network + ships its frame, then rebuilds to the back target**, a wasted load + visible flash, and lands on the
+  *traversal* target even though `location.href` was issued **later** (issue-order last-wins would land on `/b`).
+  This is the §6-E7 "nav in task N, traversal in task N+1" position, but E7 did not walk the `location.*`-channel
+  supersede specifically (I2 only partitions the `pending_history` FIFO; `pending_navigation` is a separate
+  channel Phase-1c always drains first). **Slice-2 plan-review MUST resolve**: does a same-turn deferred traversal
+  suppress a *later-issued* Phase-1c navigation (or vice-versa) — webref-pin `location.*` navigate (§7.4.2) vs
+  traverse (§7.4.3) same-turn ordering + add the conformance test (§4.5 I2 already fences the exact straddle
+  outcome as Slice-1/2 conformance territory). NOT a Slice-1 substrate defect (substrate faithfully implements
+  the plan's phase model; the *phase model for the nav-vs-traversal case* is what needs ratifying).
 - **Slice 3 — app-mode phase-separation:** resolve Q-SCHED (§4.3) — apply the ratified app-mode scheduling
   (likely end-of-input-handler queue drain), remove the `:73` supersede-return. One-issue-one-way close:
   both shells now drive the shared queue. **Landing-proximity constraint (axis c):** Slice 2 and Slice 3 SHOULD land in close succession — or Slice 2's observable supersede-removal be gated behind Slice 3 — so the content-queued / app-synchronous fork (§2 axis (c) failure mode) is not left open across unrelated PRs.
 - **Slice 4 — reentrancy guard + retirements:** wire `running_nested_apply_history_step`, serialize the
   SW-pump reentrant vector, retire the `commit_index` `debug_assert` and the peek-then-commit
   reentrancy-workaround framing (keep load-atomicity). Close #448-issue.
+  ⚠ **CARRY (Slice-1 `/code-review` high, 2026-07-13) — bound the re-check-until-empty drain loop.**
+  `drain_traversal_queue`'s `while let Some(step) = pop_next()` (the §4.5-I3 eventual-drain) is **unbounded**: a
+  wired host whose `apply_traversal` re-enqueues a traversal on *every* call never terminates → the single-writer
+  renderer main thread hangs. Inert in Slice 1 (no wired re-enqueue source; the unit test bounds via a one-shot
+  `take()`), so NOT a Slice-1 defect — but Slice 4 owns the guard semantics and **MUST make termination
+  structural**: the spec's "running nested apply history step" boolean should *gate* re-entrant applies (serialize
+  the finite set of externally-arrived messages), not merely be observational (`is_applying`) over an unbounded
+  loop. Pin a liveness/termination invariant (a real re-enqueue source produces a *finite* per-turn set; a
+  drain that could loop forever on a pathological source is a bug) with a test.
 
 Do **not** bundle. Slice ordering keeps each PR shippable (Slice 1 is inert substrate; Slices 2/3 each leave
 a working shell; Slice 4 removes the scaffolding once the queue guarantees hold).
