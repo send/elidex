@@ -367,7 +367,15 @@ impl DrainCoordinator {
         // (§7.4.4) issued BEFORE any traversal apply in-task; from the first
         // traversal (§7.4.3) onward, every step defers onto the queue in issue
         // order (never reorder a sync ahead of a traversal issued before it).
-        let mut seen_traversal = false;
+        //
+        // Seed `seen_traversal` from whether the queue ALREADY holds deferred
+        // steps: under the split entry points the queue persists across turns (a
+        // prior turn's `drain_synchronous_phase` may have enqueued a traversal that
+        // this turn's Phase 2 has not yet drained). A fresh sync update this turn
+        // must NOT overtake that still-pending older traversal — the single-FIFO
+        // ordering (I2) holds ACROSS turns, not just within one `pending_history`
+        // batch. (Empty queue = the common case = `false`, unchanged.)
+        let mut seen_traversal = !host.traversal_queue().is_empty();
         for action in host.take_pending_history() {
             match TraversalDelta::from_history_action(&action) {
                 Some(delta) => {

@@ -312,6 +312,20 @@ ordering (each slice terminal under the approved umbrella once its own plan-revi
   traverse (§7.4.3) same-turn ordering + add the conformance test (§4.5 I2 already fences the exact straddle
   outcome as Slice-1/2 conformance territory). NOT a Slice-1 substrate defect (substrate faithfully implements
   the plan's phase model; the *phase model for the nav-vs-traversal case* is what needs ratifying).
+  ⚠ **CARRY-EXT (Codex PR#464 R2, 2026-07-13) — two facets of the same nav/traversal ↔ shell-consumption boundary:**
+  (A) **double apply-body / no supersede** — `DrainOutcome::shipped` gates only the coordinator's final `ship_frame`,
+  NOT the two hook bodies (`handle_navigation` + `apply_traversal` each paint their own frame). So `back(); location.href='/b'`
+  runs BOTH: nav loads/paints `/b`, then Phase 2 paints the back target (the old shell `return true` avoided the
+  fall-through). Slice 2 must decide the supersede — spec-wise a later navigation typically **cancels** a pending
+  traversal (land on `/b`, drop the back), so the plan §4.2 "run both" is likely spec-wrong for this channel pair;
+  Slice 2 carries enough state to **skip one apply body**. (B) **default-suppression for a pending deferred traversal** —
+  a click that only queues a *valid* `history.back()` leaves `own_context_action` false after Phase 1, but the shell
+  click paths (`content/event_handlers.rs` / `app/events.rs`) consume that boolean **immediately** to decide whether
+  to run the link's default navigation → the default would fire before the deferred traversal applies. The substrate
+  already exposes the mechanism (`TraversalQueue::is_empty()`); Slice 2/3 wires the shell's own-context signal as
+  **applied OR pending** (suppress the default when a traversal is queued), refining the in-range-vs-no-op distinction
+  (don't over-suppress a no-op `go(999)`) via a peek-classify at enqueue time (the NavigationController resolves the
+  delta). Both facets are shell-consumption policy = Slice 2/3, not Slice-1 substrate mechanism.
 - **Slice 3 — app-mode phase-separation:** resolve Q-SCHED (§4.3) — apply the ratified app-mode scheduling
   (likely end-of-input-handler queue drain), remove the `:73` supersede-return. One-issue-one-way close:
   both shells now drive the shared queue. **Landing-proximity constraint (axis c):** Slice 2 and Slice 3 SHOULD land in close succession — or Slice 2's observable supersede-removal be gated behind Slice 3 — so the content-queued / app-synchronous fork (§2 axis (c) failure mode) is not left open across unrelated PRs.
