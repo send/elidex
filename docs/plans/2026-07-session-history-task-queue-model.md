@@ -11,6 +11,26 @@
 
 ## §0 Decision + scope (fence up front)
 
+> **🔴 SLICING CORRECTION (2026-07-13, post-implementation + Codex 5-round review, user-ratified).** The §5
+> decomposition's premise — **Slice 1 = an inert, *independently-correct* `DrainCoordinator` substrate that
+> Slices 2/3 merely "adopt"** — is **REFUTED by implementation**. Five Codex rounds surfaced that the
+> coordinator's correctness (the Phase-1 `own_context_action` **outcome contract**, the partition's
+> no-op-vs-in-range classification, deferred-`SyncUpdate` **document binding**, nav-vs-traversal **supersede**,
+> and the drain **loop-bound**) is **entangled with shell state** (document identity, `NavigationController`
+> peek, cross-channel issue order) — none capturable in an engine-agnostic, no-shell layer. An inert
+> `DrainCoordinator` therefore ships **latent correctness defects** (wrong-when-wired: link default fires over a
+> queued traversal, a deferred `pushState` mutates the wrong document, a no-op `go(999)` delays a sync update,
+> both nav + traversal apply/paint, an unbounded reentrant loop). A slice that ships defects-deferred-to-the-next-PR
+> is **not** the "independently correct / behavior-neutral-or-fix" unit §5 itself requires — the Slice-1/Slice-2
+> **boundary is mis-drawn** (the "defers" are not clean cross-slice extensions like `UserInvolvement`'s reasonable
+> `None` default; they are deferred *defects*). **Resolution:** the `DrainCoordinator` + partition **fold into a
+> co-designed "traversal-queue substrate + content-mode phase-separation" slice** (the old Slice 1 ⊕ Slice 2),
+> where the outcome contract / peek-classify / document-binding / supersede / loop-bound are designed **correct
+> against the real consumer**. The 5-round-reviewed substrate code re-homes as that slice's base (not discarded).
+> **This memo's §5 below is superseded for the Slice-1/2 split; the merged slice needs a fresh
+> `/elidex-plan-review` before implementation.** (Root lesson: an "inert substrate born in its final shape"
+> is only valid when the shape does **not** depend on the consumer; here it did. → the paydown-campaign SoT.)
+
 **Decision.** Restructure the single synchronous per-turn navigation drain into the spec's two task-timing
 classes: (a) **synchronous, in-task** URL/history *updates* (`pushState` / `replaceState` / fragment nav /
 `location.*` — WHATWG HTML §7.4.4 *URL and history update steps*, run in the current task) versus (b) a
@@ -297,6 +317,11 @@ The phase-separation's correctness rests on three invariants the shared queue pr
 ---
 
 ## §5 Decomposition — umbrella + slices (each its own `/elidex-plan-review` + PR)
+
+> **⚠ SUPERSEDED for the Slice-1/Slice-2 split (see §0 SLICING CORRECTION 2026-07-13).** The old Slice 1
+> ("inert `DrainCoordinator` substrate") is **not an independently-correct slice** and folds into a co-designed
+> **"traversal-queue substrate + content-mode phase-separation"** slice that needs a fresh `/elidex-plan-review`.
+> Slice 4 (reentrancy guard) and the fenced B1 items are unaffected. The ordering below is retained for lineage.
 
 Per the edge-dense rule this lands as an **umbrella plan + narrowly-scoped slices**, NOT one PR. Proposed
 ordering (each slice terminal under the approved umbrella once its own plan-review passes):
