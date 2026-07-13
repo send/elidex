@@ -37,6 +37,7 @@ mod natives_array;
 mod natives_array_hof;
 mod natives_bigint;
 mod natives_boolean;
+mod natives_date;
 #[cfg(feature = "engine")]
 mod natives_event;
 mod natives_function;
@@ -208,6 +209,8 @@ pub(crate) struct VmInner {
     pub(crate) array_prototype: Option<ObjectId>,
     /// Number.prototype (prototype for number wrapper objects / primitive access).
     pub(crate) number_prototype: Option<ObjectId>,
+    /// Date.prototype (prototype for Date instances, ECMA-262 §21.4.4).
+    pub(crate) date_prototype: Option<ObjectId>,
     /// Boolean.prototype (prototype for boolean wrapper objects / primitive access).
     pub(crate) boolean_prototype: Option<ObjectId>,
     /// BigInt.prototype (prototype for BigInt primitive access).

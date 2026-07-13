@@ -369,8 +369,13 @@ fn gc_heap_bounded_in_loop() {
     // `HostData::ce_constructor_to_id` (host-side Rust map; D-17b R2
     // G1), so no per-ctor JS property contributes to this baseline.
     // Empirical baseline ~3216 live; 3500 keeps loop headroom.
+    // Bumped from 3500 with `#11-vm-date-builtin`: `Date.prototype` + its ~45
+    // method/accessor function objects (get*/getUTC*/set*/setUTC*/to* /
+    // `[Symbol.toPrimitive]`) + the `Date` ctor + `now`/`parse`/`UTC` statics.
+    // Empirical baseline ~3535 live; 3800 keeps the 1000-iteration loop as a
+    // meaningful "GC actually ran" signal.
     assert!(
-        live < 3500,
+        live < 3800,
         "heap should be bounded by GC, got {live} live objects"
     );
 }

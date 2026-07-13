@@ -240,7 +240,7 @@ fn parse_file_options(
         JsValue::Undefined | JsValue::Null => Ok((
             ctx.vm.well_known.empty,
             EndingsKind::Transparent,
-            now_epoch_ms(ctx.vm),
+            super::super::natives_date::now_epoch_ms(ctx.vm),
         )),
         JsValue::Object(opts_id) => {
             let type_sid = parse_blob_options_type(ctx, options)?;
@@ -248,7 +248,7 @@ fn parse_file_options(
             let last_modified_key = PropertyKey::String(ctx.vm.well_known.last_modified);
             let last_modified_val = ctx.get_property_value(opts_id, last_modified_key)?;
             let last_modified_ms = match last_modified_val {
-                JsValue::Undefined => now_epoch_ms(ctx.vm),
+                JsValue::Undefined => super::super::natives_date::now_epoch_ms(ctx.vm),
                 other => {
                     // WebIDL `long long` coercion: ToNumber then
                     // ToInt64 (truncate toward zero, modulo 2^64).
@@ -278,27 +278,6 @@ fn parse_file_options(
             "Failed to construct 'File': options must be an object",
         )),
     }
-}
-
-/// Current Unix epoch milliseconds, matching what `Date.now()` returns
-/// in browsers — spec-mandated for `File.lastModified` default per
-/// FileAPI §4.1 step 3.  Sourced from `SystemTime::now()` so
-/// `new Date(file.lastModified)` renders the current wall-clock time
-/// rather than 1970 (Copilot R1 spec finding).
-///
-/// `SystemTime::duration_since(UNIX_EPOCH)` fails only when the system
-/// clock predates 1970 — extraordinarily unusual; fall back to 0 in
-/// that case (the spec-mandated default for invalid timestamps).
-///
-/// Returns an integer `f64` (truncated to whole milliseconds) so the
-/// default matches `Date.now()` browser observable + the WebIDL
-/// `long long` integer-truncation rule applied to user-supplied values.
-#[allow(clippy::cast_precision_loss)]
-fn now_epoch_ms(_vm: &VmInner) -> f64 {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0.0, |d| d.as_millis() as f64)
 }
 
 // ---------------------------------------------------------------------------

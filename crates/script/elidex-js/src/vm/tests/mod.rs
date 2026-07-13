@@ -43,6 +43,7 @@ mod tests_custom_elements;
 mod tests_custom_elements_lifetime;
 mod tests_data_view;
 mod tests_dataset;
+mod tests_date_api;
 mod tests_destructuring_param;
 mod tests_dispatch_event;
 mod tests_document_global;

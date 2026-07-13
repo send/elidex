@@ -179,6 +179,7 @@ impl VmInner {
 
         // Number.prototype + Boolean.prototype + RegExp.prototype
         self.register_number_prototype();
+        self.register_date_prototype();
         self.register_boolean_prototype();
         self.register_regexp_prototype();
 

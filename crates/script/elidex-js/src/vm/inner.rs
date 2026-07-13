@@ -224,6 +224,24 @@ impl VmInner {
         self.get_object_mut(obj_id).kind = ObjectKind::NumberWrapper(n);
     }
 
+    /// Allocate a `Date` (`new Date(...)`) with `Date.prototype`, holding the
+    /// given `[[DateValue]]` time value (ECMA-262 §21.4).
+    pub(crate) fn create_date(&mut self, tv: f64) -> ObjectId {
+        self.alloc_object(Object {
+            kind: ObjectKind::Date(tv),
+            storage: value::PropertyStorage::shaped(shape::ROOT_SHAPE),
+            prototype: self.date_prototype,
+            extensible: true,
+        })
+    }
+
+    /// Store a `[[DateValue]]` time value on `obj_id`: promotes the
+    /// `do_new`-preallocated Ordinary instance in the `new Date` constructor,
+    /// and updates an existing Date in place from the `set*` methods.
+    pub(crate) fn promote_to_date(&mut self, obj_id: ObjectId, tv: f64) {
+        self.get_object_mut(obj_id).kind = ObjectKind::Date(tv);
+    }
+
     /// Allocate a `BooleanWrapper` (`new Boolean(b)`) with `Boolean.prototype`.
     pub(crate) fn create_boolean_wrapper(&mut self, b: bool) -> ObjectId {
         self.alloc_object(Object {
