@@ -69,6 +69,69 @@ fn clone_node_deep() {
 }
 
 #[test]
+fn clone_input_attaches_cloned_from_marker() {
+    // The form-control cloning-steps link: a cloned `<input>` carries a
+    // `ClonedFrom` pointing at its source, for the `elidex-form` consumer.
+    let (mut dom, mut session) = setup();
+    let input = dom.create_element("input", Attributes::default());
+    wrap(input, &mut session);
+    let r = CloneNode
+        .invoke(input, &[JsValue::Bool(false)], &mut session, &mut dom)
+        .unwrap();
+    let cloned = cloned_entity(&r, &session);
+    let marker = dom.world().get::<&ClonedFrom>(cloned).expect("ClonedFrom");
+    assert_eq!(marker.source, input);
+}
+
+#[test]
+fn clone_textarea_attaches_cloned_from_marker() {
+    let (mut dom, mut session) = setup();
+    let ta = dom.create_element("textarea", Attributes::default());
+    wrap(ta, &mut session);
+    let r = CloneNode
+        .invoke(ta, &[JsValue::Bool(false)], &mut session, &mut dom)
+        .unwrap();
+    let cloned = cloned_entity(&r, &session);
+    assert_eq!(dom.world().get::<&ClonedFrom>(cloned).unwrap().source, ta);
+}
+
+#[test]
+fn clone_non_form_control_has_no_cloned_from_marker() {
+    // The attach is gated on `<input>` / `<textarea>` — a `<div>` clone is
+    // never marked (so a large subtree clone does not churn markers).
+    let (mut dom, mut session) = setup();
+    let div = dom.create_element("div", Attributes::default());
+    wrap(div, &mut session);
+    let r = CloneNode
+        .invoke(div, &[JsValue::Bool(false)], &mut session, &mut dom)
+        .unwrap();
+    let cloned = cloned_entity(&r, &session);
+    assert!(dom.world().get::<&ClonedFrom>(cloned).is_err());
+}
+
+#[test]
+fn clone_deep_marks_nested_form_control_with_its_own_source() {
+    // Deep clone of `<div><input></div>`: the cloned `<input>` descendant is
+    // marked, with `source` pointing at the ORIGINAL nested input (not the root).
+    let (mut dom, mut session) = setup();
+    let div = dom.create_element("div", Attributes::default());
+    let input = dom.create_element("input", Attributes::default());
+    dom.append_child(div, input);
+    wrap(div, &mut session);
+    let r = CloneNode
+        .invoke(div, &[JsValue::Bool(true)], &mut session, &mut dom)
+        .unwrap();
+    let cloned_div = cloned_entity(&r, &session);
+    let cloned_input = dom.children(cloned_div)[0];
+    // The root `<div>` clone carries no marker; only the nested `<input>` does.
+    assert!(dom.world().get::<&ClonedFrom>(cloned_div).is_err());
+    assert_eq!(
+        dom.world().get::<&ClonedFrom>(cloned_input).unwrap().source,
+        input
+    );
+}
+
+#[test]
 fn clone_node_template_deep_clones_content_into_fresh_fragment() {
     // HTML §4.12.3 cloning steps: a deep clone of a `<template>` gets its own
     // fresh content fragment populated with deep-cloned children — never the

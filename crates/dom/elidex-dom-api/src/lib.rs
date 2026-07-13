@@ -100,8 +100,9 @@ pub use element::{
 };
 pub use live_collection::{CollectionFilter, CollectionKind, LiveCollection};
 pub use node_methods::{
-    CloneNode, CompareDocumentPosition, Contains, GetRootNode, GetTextContentNodeKind, IsConnected,
-    IsEqualNode, IsSameNode, Normalize, OwnerDocument, SetNodeValue, SetTextContentNodeKind,
+    CloneNode, ClonedFrom, CompareDocumentPosition, Contains, GetRootNode, GetTextContentNodeKind,
+    IsConnected, IsEqualNode, IsSameNode, Normalize, OwnerDocument, SetNodeValue,
+    SetTextContentNodeKind,
 };
 pub use range::{
     adjust_ranges_for_removal, adjust_ranges_for_text_change, LiveRangeBridge, LiveRangeRegistry,

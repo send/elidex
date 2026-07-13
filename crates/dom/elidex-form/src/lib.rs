@@ -6,6 +6,7 @@
 
 pub mod ancestor_cache;
 mod clipboard;
+mod clone;
 mod datetime;
 mod fieldset;
 pub mod focus_snapshot;
@@ -26,6 +27,7 @@ mod value_mode;
 
 pub use ancestor_cache::AncestorCache;
 pub use clipboard::{clipboard_copy, clipboard_cut, clipboard_paste};
+pub use clone::apply_clone_form_state;
 pub use fieldset::{
     first_legend_child, is_fieldset_disabled, is_in_first_legend, propagate_fieldset_disabled,
 };

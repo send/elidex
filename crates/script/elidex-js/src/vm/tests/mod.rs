@@ -28,6 +28,7 @@ mod tests_character_data;
 mod tests_child_node_mixin;
 mod tests_class_list;
 mod tests_class_machinery;
+mod tests_clone_form_state;
 mod tests_clone_node;
 mod tests_coerce;
 mod tests_console;
