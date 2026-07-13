@@ -83,7 +83,19 @@ detail that C-4 can delete once no consumer names it.
    side of that boundary. No component-ization of the N:M relation (which §15.4.1 forbids), no
    side-store, no new registry.
 
-**The projection primitive (proposed):**
+**⚠ Layering split (R2-6, per SSoT `docs/design/en/12-dom-cssom.md:4,104` + `docs/architecture/core.md:16-22`):**
+only the **raw fold** belongs on `EcsDom` (the storage crate) — the CSSOM-View *algorithms* (the
+4-branch "get the bounding box", the offset-union, the `getClientRects` two-source dispatch, the boxless
+Option/None policy) are **DOM/CSSOM domain logic** and live in the **`elidex-dom-api` CSSOM plugin
+layer**, NOT `elidex-ecs`. So:
+- **`elidex-ecs`** exposes only `EcsDom::box_fragments(entity) -> impl Iterator<Item = BoxFragment>` (the
+  fragments-else-`LayoutBox` fold — genuinely needs both stores in scope = storage marshalling) plus, if
+  useful, *content-neutral* rect utilities (union / first of a `Rect` sequence). No CSSOM branch logic.
+- **`elidex-dom-api`** (+ observer/a11y/shell consumers) own the spec reductions below, calling
+  `box_fragments` and applying their own §-algorithm. This keeps `elidex-ecs` the ECS store and the
+  CSSOM semantics in the CSSOM layer (correcting R1's placement of the reductions in `dom/geometry.rs`).
+
+**The projection primitive (on `EcsDom`, `elidex-ecs`):**
 
 ```
 impl EcsDom {
@@ -97,13 +109,15 @@ impl EcsDom {
 }
 ```
 
-with **spec-anchored** helpers layered on top — each defined by *its consumer's CSSOM algorithm*, NOT
-a generic border-box reduction (the review's root finding: a generic-`Rect` helper set silently drops
-box-model facets and mis-branches; each helper must encode the exact §-algorithm). Because
-`box_fragments` yields the **full `BoxFragment`** (which impl's `BoxModel` → `.border_box()` /
-`.padding_box()` / `.border()` / `.first_baseline` all derivable), every facet below is a fold over the
-same primitive — no primitive change, only the correct reductions (**one exception**: `client_rects`
-also draws on the `InlineClientRects` component for line boxes the store does not hold — see its bullet):
+with **spec-anchored** reductions — each defined by *its consumer's CSSOM algorithm*, NOT a generic
+border-box reduction (a generic-`Rect` helper silently drops box-model facets and mis-branches; each
+must encode the exact §-algorithm). **These reductions live in `elidex-dom-api` (the CSSOM plugin
+layer), NOT `elidex-ecs`** (R2-6) — they call `EcsDom::box_fragments` and apply their own §-algorithm.
+Because `box_fragments` yields the **full `BoxFragment`** (which impl's `BoxModel` → `.border_box()` /
+`.padding_box()` / `.border()` / `.first_baseline`; plus `.content()` for sizes), every facet below is a
+fold over that primitive — no primitive change, only the correct reductions (**exceptions**: `client_rects`
+also draws on the `InlineClientRects` component for line boxes the store does not hold; ResizeObserver
+needs box *sizes*, not a bounding rect — R2-4, see below):
 
 - `principal_padding_box` / `principal_border_widths` / `principal_baseline(entity) -> Option<_>` — the
   **first (principal)** fragment's padding box / raw border widths / `first_baseline` (client*/baseline
@@ -129,17 +143,29 @@ also draws on the `InlineClientRects` component for line boxes the store does no
   else if it has store fragments → per-**column** border boxes; else the single `LayoutBox` border box.
   The store holds NO line-box fragments, so line-boxes stay on `InlineClientRects` until C-4. See the §9
   dispatch table (authoritative) and §7-C-3b.
+  ⚠ **Multicol-split inline caveat (R2-3)**: for an inline element split across BOTH lines AND multicol
+  columns, today's `InlineClientRects` is still per-column/G11 state, and true per-fragment inline client
+  rects are *committed-next* (`elidex-layout-block/src/inline/mod.rs:933-…`). So "InlineClientRects
+  present ⇒ suppress box_fragments" must be re-verified for the multicol-split-inline case at C-3b (it may
+  need to keep BOTH until per-fragment inline rects land) — do not assume plain suppression is correct
+  there; C-3b's plan-review pins it.
 
 **Boxless contract (I-boxless, load-bearing — P1/P2 from the Codex review)**: a boxless entity
 (display:none / pre-layout: no fragments AND no `LayoutBox`) splits consumers into two classes that must
 NOT be collapsed onto one helper:
 - **spec-zero** (`getBoundingClientRect`→all-zero `Rect`, `getClientRects`→empty list): CSSOM mandates a
   concrete empty/zero result. → `bounding_box` / `client_rects`.
-- **Option-None** (IntersectionObserver, ResizeObserver, a11y bounds): these branch on *"is there a
-  box?"* — a zero-rect is NOT the same as no-box. IO treats `None` as the required initial false/ratio-0
-  observation; a11y skips `set_bounds` when there is no box. Feeding them `bounding_box`'s zero-rect
-  regresses both (a boxless origin target reads as an intersecting zero-area box; a boxless node gains a
-  spurious `(0,0,0,0)` AX bound). → `optional_bounding_box` (None-preserving), never `bounding_box`.
+- **Option-None** (IntersectionObserver, a11y bounds): these branch on *"is there a box?"* — a zero-rect
+  is NOT the same as no-box. IO treats `None` as the required initial false/ratio-0 observation; a11y
+  skips `set_bounds` when there is no box. Feeding them `bounding_box`'s zero-rect regresses both (a
+  boxless origin target reads as an intersecting zero-area box; a boxless node gains a spurious
+  `(0,0,0,0)` AX bound). → `optional_bounding_box` (None-preserving), never `bounding_box`.
+- **Box-sizes, not a rect (ResizeObserver, R2-4)**: RO's contract is `(content_rect, border_box_size)`
+  (`resize_observer.rs:403-407` host closure → registry `content_rect` + `border_box_size`,
+  `resize.rs:231-272`) — it needs the principal fragment's **content rect + border-box size**, NOT a
+  bounding rect. So RO does NOT share IO's `optional_bounding_box`; it takes an Option-returning
+  **box-size** projection (`content()` + `border_box().size` of the principal fragment, `None` when
+  boxless). Grouping RO with IO (R1's error) would hand it the wrong geometry.
 
 Consumers call the helper matching their spec, never the raw component or the raw tree. `scrollTop/Left`
 (scroll *offset*) read `ScrollState`, unchanged — **out of C-3 scope**. `scrollWidth/Height` route to
@@ -150,9 +176,11 @@ descendant overflow**, ≥ clientWidth), but elidex already computes it padding-
 padding-box value (no regression) and does NOT claim §6.1 correctness. Full scrolling-area fidelity is a
 separate pre-existing gap, out of C-3 scope.
 
-**Home** (F8): the projection `impl EcsDom` block lands in a **new `crates/core/elidex-ecs/src/dom/
-geometry.rs`** (it needs only `EcsDom`'s private `world` + `fragment_tree`), NOT appended to
-`dom/mod.rs` (already 1073 LoC — CLAUDE.md touch-time-split; the program carries `task_2924ead0`).
+**Home** (F8 + R2-6): the **`box_fragments` primitive** (`impl EcsDom`, needs `world` + `fragment_tree`)
+lands in a **new `crates/core/elidex-ecs/src/dom/geometry.rs` (NEW)** — NOT appended to `dom/mod.rs` (1073 LoC,
+CLAUDE.md touch-time-split; `task_2924ead0`). The **CSSOM reductions** (bounding_box / offset union /
+client_rects dispatch / Option-None / RO box-size) live in **`elidex-dom-api`** alongside the geometry
+handlers (`element/layout_query.rs`), keeping `elidex-ecs` a pure ECS store.
 
 ---
 
@@ -192,7 +220,8 @@ facet and the union-vs-first-vs-per-fragment behavior differ per row and must NO
 |---|---|---|---|
 | `getClientRects()` | `client_rects` — **two-source, dispatch (not union)** | `InlineClientRects`→per-**line** (suppresses box projection); else store→per-**column**; else single box | CSSOM VIEW §6 getClientRects |
 | `getBoundingClientRect()` | `bounding_box` — **4-branch** | empty→all-zero; all-zero-w/h→**first rect**; else union over **non-zero** rects only | CSSOM VIEW §6 "get the bounding box" |
-| `IntersectionObserver` + `ResizeObserver` | `optional_bounding_box` (**None-preserving**, NOT `bounding_box`) | 4-branch when boxed; **`None` when boxless** (initial false/ratio-0) | intersection-observer §3.2.7 step 1 "get the bounding box for target" |
+| `IntersectionObserver` | `optional_bounding_box` (**None-preserving**, NOT `bounding_box`) | 4-branch when boxed; **`None` when boxless** (initial false/ratio-0) | intersection-observer §3.2.7 step 1 "get the bounding box for target" |
+| `ResizeObserver` | box-**size** `(content_rect, border_box_size)`, None-preserving (**not** a bbox, R2-4) | principal fragment content+border-box size | resize-observer (content-rect / border-box) |
 | `offsetWidth`/`offsetHeight` | `offset_border_box_union` | **UNION** (axis-aligned bbox) of principal box's fragment border boxes | CSSOM VIEW §7 offsetWidth **step 2** |
 | `offsetTop`/`offsetLeft` | principal (first) box, offsetParent-relative | **first** box | CSSOM VIEW §7 (asymmetry: Top/Left first, Width/Height union) |
 | `clientWidth`/`clientHeight` | `principal_padding_box` | first box **padding** box | CSSOM VIEW §6.1 |
@@ -301,15 +330,23 @@ reference counts by crate (`git grep -l 'LayoutBox'`, readers **and** writers):
 - **a11y** — `elidex-a11y/src/tree.rs:121-126`: **only calls `set_bounds` when a `LayoutBox` exists** →
   needs an **Option-returning** bounds helper, NOT `bounding_box`'s zero-rect (else boxless nodes flip
   from "no bounds" to a real `(0,0,0,0)` in the AccessKit tree) (P2).
-- **shell** — three readers: scroll extent is a **document-wide max over EVERY visible box**
-  (`content/scroll.rs:133-148`, `compute_content_extent`) → needs an **all-fragment/all-entity extent**
-  projection, NOT the principal box (multicol later columns would be dropped, P2); iframe click-coord
-  xlate (`content/event_handlers.rs:834-840`) + lazy-iframe visibility (`content/iframe/lifecycle.rs:263-274`).
+- **shell** — **four** readers: (a) scroll extent = **document-wide max over EVERY visible box**
+  (`content/scroll.rs:133-148`, `compute_content_extent`) → an **all-fragment/all-entity extent**
+  projection, NOT the principal box (multicol later columns dropped, P2). ⚠ it must iterate the
+  **current** fragments (`fragments_for` index-filtered), NOT `FragmentTree::nodes()` — `remove_entity`
+  leaves de-indexed orphan arena nodes until the next `clear` (`fragment_tree.rs:177-189`; only
+  `:251-264` is index-filtered), so a raw `nodes()` sweep would count stale phantoms (R2-7). (b)
+  caret-scroll: `content/event_handlers.rs:400-405` (`update_scroll_offset`) reads the target box content
+  width after keydown to keep single-line text-control carets visible (R2-2). (c) iframe click-coord
+  xlate (`:834-840`) + (d) lazy-iframe visibility (`content/iframe/lifecycle.rs:263-274`).
 - **flex/grid baseline cross-read** — `elidex-layout-flex/src/lib.rs:473-479` + `/src/baseline.rs:18-26`
   (align-items:baseline; reads padding/border **and** `first_baseline` for a margin-box cross-start
   offset) + `elidex-layout-grid/src/position.rs:444`. Needs `principal_baseline` **plus** the principal
   fragment's padding/border facets + `content().origin.y` (P2) — not raw baseline alone.
-- **render** — the residual single-`LayoutBox` arm (folds into C-4, not C-3).
+- **render** — NOT just the single G11 paint arm: production `LayoutBox` readers also sit at the
+  paged-generation gate (`builder/walk.rs:108`), block-child classification (`:708`), list-marker
+  positioning (`:774`), and root discovery (`builder/mod.rs:482,998`) (R2-1). These fold into C-3e/C-4,
+  but the residual is a **cluster**, not one arm — the C-3a audit enumerates it.
 
 > The producer sites (layout-* *writers*) are a **C-4** concern (every producer must write the store's
 > N=1 box for every entity before `LayoutBox` can be deleted, §5-Q3 of the anchor) — **out of C-3
@@ -324,13 +361,14 @@ reference counts by crate (`git grep -l 'LayoutBox'`, readers **and** writers):
 The migration is large and cross-crate; slice by consumer cluster, seam-first, each
 behavior-neutral-or-spec-fix, in dependency order:
 
-- **C-3a — the projection seam** (`elidex-ecs` only, new `dom/geometry.rs`): add `EcsDom::box_fragments`
-  + the spec-anchored helper set (§1), **plus the complete read-site audit** (§6). The helpers are
-  connected-not-dead via **unit tests** exercising each fold (union / 4-branch / two-source / N=1
-  fast-path / the §2 behavior-neutral invariant) against fixture entities — NOT by migrating a consumer
-  (offset* was floated as the proof, but it lives in `elidex-dom-api`'s `offset_from_parent`, `:81-89`,
-  so migrating it would break C-3a's `elidex-ecs`-only isolation; the offset* migration is C-3b's, P2).
-  The **derisking slice**; lowest blast radius.
+- **C-3a — the projection seam** (`elidex-ecs` only, new `dom/geometry.rs`): add **only**
+  `EcsDom::box_fragments` (the raw fragments-else-`LayoutBox` fold) + content-neutral rect utilities
+  (union/first) — **NOT** the CSSOM reductions (those are `elidex-dom-api`'s, R2-6). **Plus the complete
+  read-site audit** (§6, `get::<&(elidex_plugin::)?LayoutBox>` + `rect_fn` closures across all crates —
+  the grep is a lower bound, R1/R2 both surfaced misses it missed). Connected-not-dead via **unit tests**
+  on `box_fragments` (N=1 fast-path / §2 behavior-neutral invariant / multi-fragment order) — NOT by
+  migrating a consumer (offset* was floated but lives in dom-api's `offset_from_parent` `:81-89`, so it
+  would break `elidex-ecs`-only isolation; offset* is C-3b's). The **derisking slice**; lowest blast radius.
 - **C-3b — CSSOM geometry** (`elidex-dom-api`): the spec-heavy slice. Route `getBoundingClientRect`→
   `bounding_box` (4-branch), `offsetWidth/Height`→`offset_border_box_union` (**union**), `offsetTop/Left`
   → principal box (keeping `offset_from_parent`'s offset-parent walk, `:81-89`), `clientWidth/
@@ -343,7 +381,11 @@ behavior-neutral-or-spec-fix, in dependency order:
 - **C-3c — hit-test + a11y + baseline** (`elidex-layout` + `elidex-a11y` + `elidex-layout-flex`/`-grid`):
   - **hit-test**: fix ONE transform reference box (the element's border box, `hit_test.rs:130-172`) as
     today, then inverse-point-test the projected per-fragment rects in that transformed space — do NOT
-    recompute transform/perspective per raw fragment (would shift transform-origin basis, P2).
+    recompute transform/perspective per raw fragment (would shift transform-origin basis, P2). ⚠ the hit
+    result must carry the **hit fragment**, not just the entity (today it is entity-only, `hit_test.rs:15-19`):
+    downstream iframe routing (C-3d) subtracts the *hit column's* origin, so a fragmented iframe clicked in
+    a later column needs the fragment, not the principal box (R2-8). This changes the hit-result type — a
+    C-3c API change C-3d depends on (order C-3c before C-3d).
   - **a11y**: an **Option-returning** bounds helper; keep `tree.rs:121-126`'s "set_bounds only when a box
     exists" guard — do NOT feed `bounding_box`'s zero-rect (boxless nodes must stay "no bounds", P2).
   - **baseline**: `elidex-layout-flex` (`lib.rs:473-479` **and** `baseline.rs:18-26`, the
@@ -351,17 +393,24 @@ behavior-neutral-or-spec-fix, in dependency order:
     (`position.rs:444`) → `principal_baseline` **plus** the principal fragment's padding/border facets +
     `content().origin.y` (P2). (Reads despite living in producer crates — §6.)
 - **C-3d — observers + shell** (`elidex-js` host + `elidex-api-observers` + `elidex-shell`):
-  - **IntersectionObserver** (`api/intersection/mod.rs` + host `intersection_observer.rs:488-490`) +
-    **ResizeObserver** (host `resize_observer.rs:405`) → an **`Option<Rect>`-preserving** projection
-    (None for boxless), NOT `bounding_box`'s zero-rect — keeps the required initial false/ratio-0
-    observation for boxless targets (`intersection/mod.rs:298-345`, pinned `tests_core.rs:295-317`, P1).
-  - **shell scroll extent** (`content/scroll.rs:133-148`): an **all-fragment/all-entity max-extent**
-    projection (every visible box, incl. later multicol columns) — NOT the principal box (P2).
-  - **shell iframe/event** (`content/event_handlers.rs:834-840` click-coord xlate,
-    `content/iframe/lifecycle.rs:263-274` lazy visibility): migrate too, else fragmented iframes keep a
-    stale single box for event routing / lazy-load (P2).
-- **C-3e — render residual** : fold the single-`LayoutBox` paint arm (G11) into the fragment walk for
-  the non-`consumable` mid-break case (closes the last non-C-4 reader).
+  - **IntersectionObserver** (`api/intersection/mod.rs` + host `intersection_observer.rs:488-490`) →
+    `optional_bounding_box` (**None** for boxless, NOT zero-rect) — keeps the required initial
+    false/ratio-0 observation (`intersection/mod.rs:298-345`, pinned `tests_core.rs:295-317`, P1).
+  - **ResizeObserver** (host `resize_observer.rs:403-407`, registry `resize.rs:231-272`) → a **box-SIZE**
+    projection `(content_rect, border_box_size)` of the principal fragment (None boxless), NOT a bounding
+    rect (R2-4) — RO's contract is sizes, not a bbox; do NOT lump with IO.
+  - **shell scroll extent** (`content/scroll.rs:133-148`): **all-fragment/all-entity max-extent** over the
+    **index-filtered current** fragments (`fragments_for`, NOT `nodes()` — orphan-node hazard, R2-7), not
+    the principal box (P2).
+  - **shell caret-scroll** (`content/event_handlers.rs:400-405`): target box content width for
+    text-control caret visibility (R2-2).
+  - **shell iframe/event** (`content/event_handlers.rs:834-846` click-coord xlate — consumes the C-3c
+    **hit fragment**, R2-8; `content/iframe/lifecycle.rs:263-274` lazy visibility): else fragmented
+    iframes keep a stale single box for event routing / lazy-load (P2).
+- **C-3e — render residual** : fold the G11 paint arm into the fragment walk (non-`consumable` mid-break),
+  **plus the other render readers** the audit surfaced — paged-generation gate (`builder/walk.rs:108`),
+  block-child classification (`:708`), list-marker positioning (`:774`), root discovery
+  (`builder/mod.rs:482,998`) (R2-1). A render **cluster**, not one arm; closes the last non-C-4 readers.
 - **→ C-4** (separate program): retire `LayoutBox` + legacy inline pipeline + `InlineClientRects`,
   once §6's reader table has zero `LayoutBox` refs outside producers, and producers write the store's
   N=1 box for every entity.
@@ -443,11 +492,18 @@ single-PR by spec breadth; the **cross-crate reader spread (§7) is the split dr
 
 ### §9.1 User-input touch audit
 
-No C-3 reader is a user-controllable-input sink: geometry values are layout-derived — the script
+The **CSSOM geometry** readers are not user-input sinks: values are layout-derived — the script
 *triggers* the read (`getBoundingClientRect()`/`offsetWidth`) but supplies no data flowing into the
-computation. The migration changes *which box(es)* feed the existing document→viewport conversion, not
-any parse/coerce of script input. Adjacent pre-existing surface (`accumulated_scroll_offset`,
-`offset_from_parent`, `layout_query.rs:30,82`): unchanged, exposure delta none.
+computation. **BUT two C-3 readers ARE user-input flows (R2-5, correcting an earlier over-broad "none")**:
+- **hit-test** consumes the viewport coordinates of the input event (`hit_test.rs:46-75` takes the event
+  `point`) — the migrated per-fragment test must handle attacker-influenced coordinates safely (no OOB
+  fragment index, no panic on NaN/extreme coords).
+- **iframe click routing** subtracts the iframe box from `MouseClickEvent` points
+  (`event_handlers.rs:834-846`) — same event-coordinate flow, now through the C-3c hit fragment.
+
+Both are pre-existing input flows the migration *re-routes* (not new sinks), but the audit must label
+them user-input, not exclude them. Adjacent surface (`accumulated_scroll_offset`, `offset_from_parent`,
+`layout_query.rs:30,82`): unchanged, exposure delta none.
 
 ---
 
