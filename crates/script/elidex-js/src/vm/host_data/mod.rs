@@ -534,14 +534,25 @@ mod engine_feature {
         // (WHATWG HTML §4.13)
         // -------------------------------------------------------------
         /// Per-realm custom element registry (HTML §4.13.4) — owns the
-        /// `name → CustomElementDefinition` map + the per-name pending-
-        /// upgrade entity queue. Shared via `Arc<Mutex<>>` with
+        /// `name → CustomElementDefinition` map (+ the `constructor_id →
+        /// name` reverse index); it holds NO `Entity` (awaiting-upgrade
+        /// state is the per-entity `CustomElementState` component, which
+        /// dies with the world). Shared via `Arc<Mutex<>>` with
         /// [`elidex_custom_elements::CustomElementReactionConsumer`]
-        /// (which only reads `observed_attributes`). Cleared on
-        /// `Vm::unbind` because each `CustomElementDefinition`
-        /// references its constructor by a `u64` ID that aliases the
-        /// per-VM `custom_element_constructors` map below — neither
-        /// survives an unbind crossing.
+        /// (which only reads `observed_attributes`).
+        ///
+        /// Document-lifetime authoritative registry: it **survives** a
+        /// per-turn (BATCH-BIND) `Vm::unbind` — cleared only at
+        /// `Vm::teardown_document` (document destruction) — so a
+        /// `customElements.define()` in one script batch is visible to a
+        /// later batch's upgrade / `whenDefined` (HTML §4.13.4/§4.13.5).
+        /// Survival is cross-DOM-safe by construction: a live `Vm` only
+        /// ever rebinds the SAME `EcsDom` (navigation allocates a new
+        /// `Vm`), so the per-VM constructor `ObjectId`s in
+        /// `ce_constructors` below ride the object heap validly across a
+        /// same-DOM turn (`#11-per-batch-unbind-document-lifetime-state`;
+        /// the grain migration to a per-realm component rides agent-scoped
+        /// EcsDom, docs/plans/2026-06-agent-scoped-ecsdom-world.md §5).
         pub(crate) ce_registry:
             std::sync::Arc<std::sync::Mutex<elidex_custom_elements::CustomElementRegistry>>,
         /// Per-VM reaction queue (HTML §4.13.6) — pushed to by the
@@ -556,11 +567,18 @@ mod engine_feature {
         >,
         /// VM-monotonic constructor ID counter — assigned in `define()`
         /// and stored on the `CustomElementDefinition::constructor_id`.
+        /// **Document-lifetime**: reset to 0 ONLY at `Vm::teardown_document`,
+        /// NEVER on a per-turn `Vm::unbind` — resetting per-turn would recycle
+        /// ids against the surviving `ce_constructors` entries and mis-map a
+        /// later `new.target` to a stale definition
+        /// (`#11-per-batch-unbind-document-lifetime-state`).
         pub(crate) ce_next_constructor_id: u64,
         /// `constructor_id → constructor ObjectId` map. The constructor
         /// `ObjectId` is per-VM identity (HostData exception (a) — see
         /// `feedback_boa-hostbridge-port-is-not-a-registry.md`), so this
-        /// stays on HostData not as an ECS component. Cleared on unbind.
+        /// stays on HostData not as an ECS component. Document-lifetime:
+        /// cleared at `Vm::teardown_document` (survives a per-turn unbind,
+        /// in lockstep with `ce_registry` above).
         pub(crate) ce_constructors: HashMap<u64, ObjectId>,
         /// Reverse of [`Self::ce_constructors`]: `constructor ObjectId →
         /// constructor_id`. Populated + cleared in lockstep with the
@@ -579,6 +597,9 @@ mod engine_feature {
         /// the same Promise for repeated calls with the same name (per
         /// WHATWG §4.13.4 step 3 — "Set promise to a new promise" runs
         /// once; later calls return the previously stored promise).
+        /// **Document-lifetime**: cleared at `Vm::teardown_document`
+        /// (survives a per-turn unbind, in lockstep with `ce_registry` —
+        /// `#11-per-batch-unbind-document-lifetime-state`).
         pub(crate) ce_when_defined_promises: HashMap<String, ObjectId>,
     }
 
@@ -1786,8 +1807,13 @@ mod engine_feature {
                 // constructor + cached whenDefined Promise must stay
                 // GC-rooted for the registry's lifetime — otherwise an
                 // upgrade after a major GC cycle would dereference a
-                // freed `ObjectId`. Both maps are cleared on
-                // `Vm::unbind` so the roots release on rebind.
+                // freed `ObjectId`. Both maps are document-lifetime:
+                // they SURVIVE a per-turn `Vm::unbind` (so these roots
+                // persist across batches — which is exactly why the
+                // constructor/promise `ObjectId`s stay valid for a
+                // cross-batch upgrade / `whenDefined` resolution) and
+                // release only at `Vm::teardown_document`
+                // (`#11-per-batch-unbind-document-lifetime-state`).
                 .chain(self.ce_constructors.values().copied())
                 .chain(self.ce_when_defined_promises.values().copied())
         }

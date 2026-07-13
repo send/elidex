@@ -205,10 +205,12 @@ impl CustomElementRegistry {
         self.definitions.keys().map(String::as_str)
     }
 
-    /// Drop every definition. Used by `Vm::unbind` to scrub cross-DOM
-    /// references on the way out of a bind cycle
+    /// Drop every definition. Called from `Vm::teardown_document` at
+    /// document destruction to release the document-lifetime registry
     /// (`CustomElementDefinition::constructor_id` indexes into per-VM
-    /// `HostData::ce_constructors`).
+    /// `HostData::ce_constructors`, cleared in lockstep). The registry
+    /// SURVIVES a per-turn `Vm::unbind`
+    /// (`#11-per-batch-unbind-document-lifetime-state`).
     pub fn clear(&mut self) {
         self.definitions.clear();
         self.constructor_id_to_name.clear();

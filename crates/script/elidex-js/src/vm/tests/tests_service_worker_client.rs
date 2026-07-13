@@ -239,7 +239,7 @@ fn registration_and_worker_identity() {
         vm.drain_sw_client_requests();
         deliver_registered(vm, SwState::Activated);
 
-        // reg === getRegistration() (D1 — the §3.2 registration object map).
+        // reg === getRegistration() (D1 — the §3.2.1 service worker registration object map).
         vm.eval(
             "globalThis.__sameReg = false; \
              navigator.serviceWorker.getRegistration('page.html').then(r => { \
@@ -612,8 +612,69 @@ fn pending_register_survives_gc() {
     });
 }
 
+// `#11-per-batch-unbind-document-lifetime-state`: the `navigator.serviceWorker`
+// client state is document-lifetime, so a per-turn (BATCH-BIND) `unbind` must
+// PRESERVE it — a `register()` staged in a script batch must survive the
+// batch's unbind so the out-of-bracket event-loop drain still sees it, and the
+// client registry a page reads across batches must stay stable.  (Was cleared
+// per-turn pre-#11-per-batch-unbind; the clear MOVED to `teardown_document`.)
 #[test]
-fn unbind_clears_sw_client_state() {
+fn sw_client_state_survives_per_turn_unbind() {
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = build_min_fixture(&mut dom);
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    vm.inner.navigation.current_url = url(BASE);
+
+    // Register + deliver → an established registration in the client registry.
+    vm.eval("navigator.serviceWorker.register('sw.js');")
+        .unwrap();
+    vm.drain_sw_client_requests();
+    deliver_registered(&mut vm, SwState::Installing);
+    assert!(!vm.inner.sw_registrations.is_empty());
+
+    // R4-#5 core: a register() staged in this batch, NOT yet drained, must
+    // survive the batch unbind so the out-of-bracket drain finds it.
+    vm.eval("navigator.serviceWorker.register('sw2.js');")
+        .unwrap();
+    assert!(
+        !vm.inner.sw_client_outgoing.is_empty(),
+        "register() must stage an outbound request"
+    );
+    vm.unbind();
+    assert!(
+        !vm.inner.sw_client_outgoing.is_empty(),
+        "staged register() must survive the per-turn unbind (R4-#5)"
+    );
+    assert!(
+        !vm.inner.sw_registrations.is_empty(),
+        "the client registry must survive the per-turn unbind"
+    );
+
+    // A second per-turn unbind (rebind between) also preserves the state.
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    vm.unbind();
+    assert!(!vm.inner.sw_registrations.is_empty());
+    assert!(!vm.inner.sw_client_outgoing.is_empty());
+
+    // The out-of-bracket drain (unbound) still sees the surviving request.
+    let drained = vm.drain_sw_client_requests();
+    assert!(
+        !drained.is_empty(),
+        "the surviving staged register() reaches the event-loop drain"
+    );
+}
+
+// Document teardown (navigation / engine drop) releases the SW client state.
+#[test]
+fn teardown_document_clears_sw_client_state() {
     let mut vm = Vm::new();
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
@@ -628,18 +689,13 @@ fn unbind_clears_sw_client_state() {
         .unwrap();
     vm.drain_sw_client_requests();
     deliver_registered(&mut vm, SwState::Installing);
-    assert!(
-        !vm.inner.pending_registration_promises.is_empty() || !vm.inner.sw_registrations.is_empty()
-    );
-
-    // A second pending register (no deliver) leaves a mid-flight promise.
     vm.eval("navigator.serviceWorker.register('sw.js');")
         .unwrap();
     vm.drain_sw_client_requests();
     assert!(!vm.inner.pending_registration_promises.is_empty());
 
-    // Unbind drops every per-bind side-store (NG-4 — no dangling promise).
-    vm.unbind();
+    // teardown_document clears every SW client side-store (then unbinds).
+    vm.teardown_document();
     assert!(vm.inner.pending_registration_promises.is_empty());
     assert!(vm.inner.pending_unregister_promises.is_empty());
     assert!(vm.inner.sw_registrations.is_empty());
@@ -647,4 +703,135 @@ fn unbind_clears_sw_client_state() {
     assert!(vm.inner.service_worker_states.is_empty());
     assert!(vm.inner.sw_ready_promise.is_none());
     assert!(vm.inner.sw_controller_scope.is_none());
+}
+
+// `#11-per-batch-unbind-document-lifetime-state` / Codex R1 P1: a JS-retained
+// `ServiceWorkerRegistration` wrapper must stay a VALID RECEIVER across per-turn
+// unbinds. Its wrapper-brand entry (`sw_registration_states`) is document-
+// lifetime (survives unbind, cleared at `teardown_document`); the GC sweep
+// prunes only a COLLECTED wrapper's entry, so a retained wrapper keeps its
+// brand. Clearing the brand per-turn would make `reg.scope` / `reg.unregister()`
+// an illegal receiver after the first unbind.
+#[test]
+fn retained_sw_registration_wrapper_survives_per_turn_unbind() {
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = build_min_fixture(&mut dom);
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    vm.inner.navigation.current_url = url(BASE);
+
+    // Retain the registration wrapper in JS across batches.
+    vm.eval("navigator.serviceWorker.register('sw.js').then(r => { globalThis.reg = r; });")
+        .unwrap();
+    vm.drain_sw_client_requests();
+    deliver_registered(&mut vm, SwState::Installing);
+    assert!(
+        !vm.inner.sw_registration_states.is_empty(),
+        "resolving register() should mint the registration wrapper + its brand entry"
+    );
+
+    // ≥2 per-turn unbinds (rebind between). The retained wrapper's brand must
+    // survive so it stays a valid receiver (the brand-check in
+    // `require_registration_scope`).
+    for _ in 0..2 {
+        vm.unbind();
+        #[allow(unsafe_code)]
+        unsafe {
+            bind_vm(&mut vm, &mut session, &mut dom, doc);
+        }
+    }
+    vm.eval(
+        "globalThis.__ok = false; \
+         try { globalThis.__ok = typeof globalThis.reg.scope === 'string' \
+               && globalThis.reg.scope.length > 0; } catch (e) {}",
+    )
+    .unwrap();
+    assert!(
+        eval_bool(&mut vm, "globalThis.__ok"),
+        "a retained ServiceWorkerRegistration must stay a valid receiver across per-turn unbinds"
+    );
+    // ...and its backing data survived too.
+    assert!(!vm.inner.sw_registrations.is_empty());
+
+    // Codex #459 R2: `reg === getRegistration()` must ALSO hold across the
+    // unbinds — the Scope-owned wrapper survived the `wrapper_store.retain`, so
+    // no SECOND object is minted for the same scope (SW §3.2.1 service worker
+    // registration object map).
+    vm.eval(
+        "globalThis.__same = false; \
+         navigator.serviceWorker.getRegistration().then(r => { \
+             globalThis.__same = (r === globalThis.reg); });",
+    )
+    .unwrap();
+    assert!(
+        eval_bool(&mut vm, "globalThis.__same"),
+        "reg === getRegistration() must hold across per-turn unbinds (no duplicate wrapper)"
+    );
+}
+
+// Codex #459 R3-2: the Scope-owned registration/worker WRAPPERS that survive a
+// per-turn `unbind` must be DROPPED at `teardown_document`, in lockstep with
+// their data + brand rows. Otherwise a later same-`Vm` re-`register()` of the
+// same scope hits `intern_wrapper`'s cached `ObjectId`, SKIPS the allocation
+// closure that repopulates `sw_registration_states` / `service_worker_states`,
+// and returns a registration that immediately fails its own brand check.
+#[test]
+fn teardown_document_drops_sw_registration_wrapper_so_reregister_is_valid() {
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = build_min_fixture(&mut dom);
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    vm.inner.navigation.current_url = url(BASE);
+
+    // First document: register the scope so its registration/worker wrappers are
+    // interned into `wrapper_store` (+ their brand rows).
+    vm.eval("navigator.serviceWorker.register('sw.js').then(r => { globalThis.reg = r; });")
+        .unwrap();
+    vm.drain_sw_client_requests();
+    deliver_registered(&mut vm, SwState::Activated);
+    assert!(!vm.inner.sw_registration_states.is_empty());
+
+    // Document destruction drops the whole identity unit — data, brand, AND the
+    // Scope-keyed `wrapper_store` entries.
+    vm.teardown_document();
+    assert!(vm.inner.sw_registrations.is_empty());
+    assert!(vm.inner.sw_registration_states.is_empty());
+    assert!(vm.inner.service_worker_states.is_empty());
+
+    // Fresh document on the SAME `Vm`: re-register the SAME scope. The wrapper
+    // must be a freshly-allocated valid receiver (brand rows repopulated by the
+    // alloc closure), NOT the stale cached `ObjectId` whose closure was skipped.
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    vm.inner.navigation.current_url = url(BASE);
+    vm.eval("navigator.serviceWorker.register('sw.js').then(r => { globalThis.reg2 = r; });")
+        .unwrap();
+    vm.drain_sw_client_requests();
+    deliver_registered(&mut vm, SwState::Activated);
+    assert!(
+        !vm.inner.sw_registration_states.is_empty(),
+        "re-register after teardown must repopulate the wrapper-brand rows (alloc closure ran)",
+    );
+    vm.eval(
+        "globalThis.__ok = false; \
+         try { globalThis.__ok = typeof globalThis.reg2.scope === 'string' \
+               && globalThis.reg2.scope.length > 0; } catch (e) {}",
+    )
+    .unwrap();
+    assert!(
+        eval_bool(&mut vm, "globalThis.__ok"),
+        "a re-registered ServiceWorkerRegistration after teardown must be a valid receiver \
+         (teardown dropped the stale wrapper_store entry)",
+    );
+    vm.unbind();
 }

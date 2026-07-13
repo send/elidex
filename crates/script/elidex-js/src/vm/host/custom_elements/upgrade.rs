@@ -231,8 +231,9 @@ pub(crate) fn invoke_upgrade(ctx: &mut NativeContext<'_>, entity: Entity) -> Res
         // the definition by `constructor_id`, but the host-side
         // `ce_constructors` map (which stores the per-VM JS ObjectId
         // for that id) has no entry. The two maps must move in
-        // lockstep (define.rs:121, vm_api.rs:654 unbind clear). A
-        // missing host entry means an unbind / GC race or a missed
+        // lockstep (define.rs:121 populate, `Vm::teardown_document`
+        // document-lifetime clear). A
+        // missing host entry means a teardown / GC race or a missed
         // rollback — mark the entity Failed so it does NOT re-enqueue
         // indefinitely (D-17b R16 G16-1, mirrors R12 G12-1 for the
         // analogous Phase 1 lookup failure).

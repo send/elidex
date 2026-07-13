@@ -19,9 +19,14 @@
 //!
 //! Per-realm registry + reaction queue + `whenDefined` resolvers all
 //! live on [`super::super::host_data::HostData`] (the binding-crate
-//! exception (a) — per-VM identity handles) and are scrubbed on
-//! `Vm::unbind`. See [`super::super::host_data::HostData::ce_registry`]
-//! and siblings for the field-level rationale.
+//! exception (a) — per-VM identity handles). The **registry +
+//! `whenDefined` resolvers + constructor maps are document-lifetime**:
+//! cleared at `Vm::teardown_document`, so they SURVIVE a per-turn
+//! (BATCH-BIND) `Vm::unbind` (`#11-per-batch-unbind-document-lifetime-state`).
+//! The **reaction queue stays a per-turn scrub** (`Vm::unbind`) — it is a
+//! transient checkpoint-drained queue holding `Entity` refs. See
+//! [`super::super::host_data::HostData::ce_registry`] and siblings for the
+//! field-level rationale.
 //!
 //! The `CustomElementReactionConsumer` reads the same `ce_registry` +
 //! `ce_reaction_queue` via cloned `Arc<Mutex<>>` handles plumbed in
@@ -133,8 +138,15 @@ impl VmInner {
     }
 
     /// Return the per-VM `CustomElementRegistry` singleton wrapper,
-    /// allocating it on the first call. Re-allocates after
-    /// `Vm::unbind` clears the slot.
+    /// allocating it on the first call. The slot is **realm-structural**
+    /// (Codex #459 R3-1 + R4): once minted it is NEVER cleared — not on a
+    /// per-turn `Vm::unbind` NOR at `Vm::teardown_document` — because
+    /// `globalThis.customElements` is an install-once data property that keeps
+    /// it rooted, and clearing the slot would let a rebind re-mint a duplicate
+    /// and misclassify the page's own registry as `Foreign`. Only the backing
+    /// `ce_registry` DATA is document-lifetime; after teardown the surviving
+    /// wrapper reads an empty registry. Re-allocated lazily only on the first
+    /// access of a freshly-constructed `Vm`.
     pub(in crate::vm) fn alloc_or_cached_custom_element_registry(&mut self) -> ObjectId {
         if let Some(id) = self.custom_element_registry_instance {
             return id;
@@ -193,9 +205,13 @@ pub(super) enum RegistryMember {
     /// (`globalThis.customElements`).
     Document,
     /// A genuine `CustomElementRegistry` object that is NOT the
-    /// document's singleton. Only reachable via a wrapper retained
-    /// across a `Vm::unbind`/rebind cycle today — the interface has no
-    /// exposed constructor, so a second live registry cannot be minted.
+    /// document's singleton. Effectively unreachable today — the
+    /// interface has no exposed constructor, so a second live registry
+    /// cannot be minted, and the document's singleton wrapper now
+    /// survives a `Vm::unbind`/rebind cycle (`custom_element_registry_
+    /// instance` is document-lifetime, Codex #459 R3-1), so a retained
+    /// `customElements` reference always re-classifies as `Document`.
+    /// Kept for spec-completeness of the `CustomElementRegistry?` member.
     Foreign,
 }
 

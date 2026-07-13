@@ -92,6 +92,19 @@ fn deliver_registered(
     // Seed the registry authoritatively (F1) — the write-path `.installing` /
     // `.waiting` / `.active` read from at resolve.
     let scope_sid = ctx.vm.strings.intern(&canonical);
+    // ⚠ KNOWN LIMITATION (`#11-sw-client-object-model`, Codex #459 R5-#1):
+    // elidex collapses to ONE Scope-keyed `ServiceWorker` wrapper per scope
+    // (`worker_object`, "one-per-scope, never re-mints, mutates in place"), and
+    // R2 now retains it across the per-turn unbind — so a cross-batch update to
+    // a DIFFERENT script leaves `reg.active.scriptURL` on the old URL (the
+    // wrapper's frozen own-prop is not re-minted).  An R5 attempt to evict+remint
+    // on a script-URL change was REVERTED (Codex #459 R6-#2): it left the old
+    // wrapper's `service_worker_states` brand row aliasing the NEW worker via
+    // scope-recovery (a mixed old-URL/new-state object) AND violated the module's
+    // documented never-re-mint invariant.  The spec-correct fix (per-worker
+    // object identity, SW §3.1.1 — each script is a distinct worker object with
+    // its own state, not scope-recovery) is the deferred SW-client-object-model
+    // redesign (plan-review-required follow-up).
     let prev_state = {
         let entry = ctx
             .vm
@@ -128,6 +141,15 @@ fn deliver_registered(
     // pending promise, which must wait for its own round-trip rather than being
     // settled by this deliver.  (settle_promise queues the `.then` as a
     // microtask, so the handler below still runs before register() resolves.)
+    //
+    // ⚠ KNOWN LIMITATION (`#11-sw-client-object-model`, Codex #459 R5-#2):
+    // the list is Scope-keyed and this drains the WHOLE Vec on the first
+    // `Registered`.  Now that `pending_registration_promises` is document-
+    // lifetime (survives the per-turn unbind), two CROSS-batch same-scope
+    // `register`/`update` jobs can coalesce onto one round-trip and settle the
+    // 2nd job's promise with the 1st job's worker/updateViaCache.  The correct
+    // fix is a per-request job-id carried through the coordinator round-trip
+    // (edge-dense protocol change → deferred to a plan-reviewed follow-up).
     let waiters = ctx
         .vm
         .pending_registration_promises
@@ -292,6 +314,12 @@ fn deliver_unregistered(ctx: &mut NativeContext<'_>, scope: &Url, success: bool)
             .vm
             .remove_wrapper_keyed(WrapperKey::scope(scope_sid, WrapperKind::ServiceWorker));
     }
+    // ⚠ KNOWN LIMITATION (`#11-sw-client-object-model`, Codex #459 R5-#3,
+    // the unregister sibling of R5-#2): Scope-keyed whole-Vec drain — two
+    // cross-batch `unregister()`s on one scope both settle with THIS deliver's
+    // `success`, so the 2nd (which should resolve `false`, SW §3.2.9 "nothing to
+    // remove") wrongly resolves `true`. Fixed by the same per-request job-id
+    // correlation deferred to the plan-reviewed follow-up.
     let waiters = ctx
         .vm
         .pending_unregister_promises
