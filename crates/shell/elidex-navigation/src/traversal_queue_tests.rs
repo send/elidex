@@ -74,6 +74,10 @@ struct MockHost {
     /// A reentrant traversal to enqueue mid-apply on the FIRST
     /// [`DrainHost::apply_traversal`] — the SW-pump reentrancy vector (plan §4.4).
     reentrant_once: Option<PendingTraversal>,
+    /// When set, [`DrainHost::apply_traversal`] returns `false` (a **no-op**
+    /// traversal — no-target `go(999)` / failed cross-document load) instead of
+    /// the default apply-and-ship `true`.
+    traversal_noop: bool,
     log: Vec<Ev>,
 }
 
@@ -84,12 +88,20 @@ impl MockHost {
             pending,
             nav_applies: false,
             reentrant_once: None,
+            traversal_noop: false,
             log: Vec::new(),
         }
     }
 
     fn with_navigation(mut self) -> Self {
         self.nav_applies = true;
+        self
+    }
+
+    /// Make [`DrainHost::apply_traversal`] a no-op (return `false`) — a no-target
+    /// `history.go(999)` / failed cross-document load. Pins Codex Finding 3.
+    fn with_noop_traversal(mut self) -> Self {
+        self.traversal_noop = true;
         self
     }
 
@@ -150,7 +162,9 @@ impl DrainHost for MockHost {
             );
             self.queue.enqueue_traversal(reentrant);
         }
-        true // a traversal ships its own frame
+        // `false` = a no-op traversal (no-target / failed load); default `true` =
+        // applied and shipped its own frame.
+        !self.traversal_noop
     }
 
     fn ship_frame(&mut self) {
@@ -343,6 +357,100 @@ fn navigation_turn_does_not_double_ship() {
         "no redundant end-of-turn ship after a navigation shipped"
     );
     assert!(outcome.own_context_action && outcome.shipped);
+}
+
+#[test]
+fn noop_traversal_marks_no_action() {
+    // A no-op traversal (`history.go(999)` with no target / a failed cross-document
+    // load) returns `false` from `apply_traversal`, so the coordinator marks NO
+    // own-context action and ships nothing — the caller's fallback/default action
+    // is not over-suppressed (pins Codex Finding 3, mirrors `handle_navigation`).
+    let mut host = MockHost::new(vec![back()]).with_noop_traversal();
+    let outcome = DrainCoordinator::drain(&mut host);
+
+    assert!(
+        !outcome.own_context_action,
+        "a no-op traversal marks no own-context action"
+    );
+    assert!(!outcome.shipped, "a no-op traversal ships nothing");
+    assert!(
+        !host.log.iter().any(|e| matches!(e, Ev::ShipFrame)),
+        "no frame shipped for a no-op traversal (nothing to suppress)"
+    );
+}
+
+#[test]
+fn sync_update_with_noop_traversal_still_ships() {
+    // `history.pushState('/a'); history.go(999)` — a synchronous update PLUS a
+    // no-op traversal (no target at the resolved step). The pushState is a real
+    // own-context effect that must render its frame this turn; the no-op traversal
+    // ships nothing. Regression: the earlier two-phase split gated Phase 1's ship
+    // on an empty queue (go(999) held the queue) and Phase 2's ship on the no-op
+    // apply (returns false) — their intersection stranded the committed push frame
+    // (neither phase shipped). The shared `ship_if_needed` tail ships it once.
+    let mut host = MockHost::new(vec![push("/a"), go(999)]).with_noop_traversal();
+    let outcome = DrainCoordinator::drain(&mut host);
+
+    assert!(
+        outcome.own_context_action,
+        "the pushState is a real own-context action"
+    );
+    assert!(
+        outcome.shipped,
+        "the pushState's frame ships despite the no-op traversal"
+    );
+    assert_eq!(
+        host.log
+            .iter()
+            .filter(|e| matches!(e, Ev::ShipFrame))
+            .count(),
+        1,
+        "exactly ONE frame ships (the pushState render), not zero and not two"
+    );
+    // The no-op traversal DID apply (returned false) — it just shipped nothing.
+    assert!(
+        host.log
+            .iter()
+            .any(|e| matches!(e, Ev::TraversalApply { .. })),
+        "the go(999) traversal was applied (and returned no-op)"
+    );
+    assert!(host.queue.is_empty(), "everything drained");
+}
+
+#[test]
+fn phases_schedule_separately() {
+    // The two-phase seam: `drain_synchronous_phase` runs Phase 1 (the push applies)
+    // and ENQUEUES the traversal without applying it; `run_deferred_traversals`
+    // applies it on a later turn (pins Codex Finding 1 / plan §4.5 I1).
+    let mut host = MockHost::new(vec![push("/a"), back()]);
+
+    let _ = DrainCoordinator::drain_synchronous_phase(&mut host);
+    assert!(
+        host.log
+            .iter()
+            .any(|e| matches!(e, Ev::SyncUpdate { label, .. } if label == "push:/a")),
+        "the Phase-1 sync update applied"
+    );
+    assert!(
+        !host
+            .log
+            .iter()
+            .any(|e| matches!(e, Ev::TraversalApply { .. })),
+        "the traversal is NOT applied in Phase 1"
+    );
+    assert!(
+        !host.queue.is_empty(),
+        "the traversal is still QUEUED after Phase 1"
+    );
+
+    let _ = DrainCoordinator::run_deferred_traversals(&mut host);
+    assert!(
+        host.log
+            .iter()
+            .any(|e| matches!(e, Ev::TraversalApply { .. })),
+        "the Back applied in Phase 2"
+    );
+    assert!(host.queue.is_empty(), "Phase 2 drained the queue");
 }
 
 #[test]

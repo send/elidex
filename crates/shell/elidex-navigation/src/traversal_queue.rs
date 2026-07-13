@@ -38,12 +38,17 @@
 //!   landed, realizing §7.4.6.1 *apply the history step* step 12's two-part split
 //!   ("synchronous navigations processed before documents unload").
 //!
-//! In this Slice-1 substrate, [`DrainCoordinator::drain`] runs Phase 2
-//! **synchronously in the same call**, immediately after Phase 1 — this provides
-//! the *ordering* the split needs, not a real task boundary. The actual
-//! separate-task scheduling (content-mode's async pump / app-mode's
-//! end-of-input-handler drain) is the **shell's** job in Slices 2/3
-//! (see [`DrainCoordinator::drain`]'s I1 note).
+//! The two phases are **separately callable** so the shell can realize the task
+//! boundary: [`DrainCoordinator::drain_synchronous_phase`] runs Phase 1 (window-
+//! opens + sync updates + last-wins navigation) and enqueues traversals **without
+//! applying them**; [`DrainCoordinator::run_deferred_traversals`] runs Phase 2
+//! (the deferred traversal apply) on a **later turn** — content-mode schedules it
+//! on a subsequent async-pump turn, app-mode drains it at end-of-input-handler,
+//! strictly after Phase 1 (Slices 2/3). [`DrainCoordinator::drain`] is a
+//! **same-turn convenience** that combines both phases in one call (the app-mode-
+//! degenerate path + the isolation tests); adopting it wholesale would collapse
+//! the very task boundary this substrate exists to remove, so content-mode drives
+//! the two entry points separately (see each method's doc).
 //!
 //! The **scope fence** (plan §0) is single-traversable (top-level) only: the
 //! §7.4.6.1 multi-navigable fan-out (steps 3/4/6/7 + the per-navigable global
@@ -292,8 +297,13 @@ pub trait DrainHost {
     /// [`enqueue_traversal`](TraversalQueue::enqueue_traversal) (serialize) rather
     /// than mutate the cursor. The peek→commit atomicity of the underlying
     /// [`NavigationController`](crate::NavigationController) is thereby structural.
-    /// Returns `true` iff the traversal shipped its own frame (a rebuild or
-    /// same-document apply).
+    ///
+    /// Returns `true` iff the traversal applied AND shipped its own frame (a
+    /// rebuild or same-document apply). A **no-op traversal** — no-target (e.g.
+    /// `history.go(999)` with no entry at the resolved step), or a failed
+    /// cross-document load — returns `false`, so the coordinator marks NO
+    /// own-context action (the caller's fallback/default action is not suppressed),
+    /// mirroring [`handle_navigation`](Self::handle_navigation).
     fn apply_traversal(&mut self, traversal: &PendingTraversal) -> bool;
 
     /// Ship the current display list / frame (shell-specific). Called once by the
@@ -308,37 +318,46 @@ pub trait DrainHost {
 /// state lives on the host (§7.3.1.1's traversable owns its queue), reached
 /// through [`DrainHost::traversal_queue`].
 ///
-/// Slices 2/3 adopt this by implementing [`DrainHost`] on each shell and calling
-/// [`DrainCoordinator::drain`] where the shell runs its synchronous drain today.
+/// Slices 2/3 adopt this by implementing [`DrainHost`] on each shell and driving
+/// the two phases via [`DrainCoordinator::drain_synchronous_phase`] (in-task) +
+/// [`DrainCoordinator::run_deferred_traversals`] (a later turn) — the seam that
+/// realizes the task boundary. [`DrainCoordinator::drain`] is the same-turn
+/// convenience combining both (the app-mode-degenerate path + the isolation tests).
 pub struct DrainCoordinator;
 
 impl DrainCoordinator {
-    /// Run one full drain pass over `host`, honoring the plan §4.5 invariants:
+    /// The **Phase-1 body** — the synchronous, in-task work — over `host`, with
+    /// **NO ship logic**: window-opens (§7.2.2.1) → synchronous history *updates*
+    /// (§7.4.4 *URL and history update steps*) → last-wins own-context navigation
+    /// (§7.4.2). A `Back` / `Forward` / `Go` *traversal* (§7.4.3) is **enqueued**
+    /// onto the [`TraversalQueue`] but **NOT applied**. Returns the raw Phase-1
+    /// [`DrainOutcome`]; the caller ([`drain_synchronous_phase`] /
+    /// [`drain`](Self::drain)) applies the single shared [`ship_if_needed`] tail.
     ///
-    /// - **I1 (ordering).** Phase-1 synchronous writes (`pushState` /
-    ///   `replaceState` / `location.*`) complete **before** any Phase-2 traversal
-    ///   apply reads the entry list. Structural here: [`apply_traversal`] is
-    ///   invoked only after the Phase-1 loop + [`DrainHost::handle_navigation`]
-    ///   return. (In a
-    ///   real async shell the Phase-2 drain is pumped on a *later* turn; app-mode
-    ///   realizes the same ordering by draining Phase 2 at end-of-handler,
-    ///   strictly after Phase 1 — Slice 3's sequencing contract.)
+    /// Separating the body from the ship is what makes shipping a **single shared
+    /// decision** (`ship_if_needed`) regardless of whether Phase 2 runs on this
+    /// turn or a later one: Phase 1's own-context effect (a `pushState` render)
+    /// must ship on Phase 1's turn even when a traversal is also queued for a
+    /// *later* turn — the earlier bug gated Phase-1's ship on an empty queue and a
+    /// `pushState + no-op-traversal` turn stranded the committed frame (neither
+    /// phase shipped it).
+    ///
+    /// Honors the plan §4.5 invariants that belong to Phase 1:
+    ///
+    /// - **I1 (ordering).** Phase-1 synchronous writes complete **before** any
+    ///   Phase-2 traversal apply reads the entry list — enforced structurally by
+    ///   this body NOT running Phase 2 (the caller sequences the two entry
+    ///   points).
     /// - **I2 (partition).** The issue-ordered history FIFO is partitioned
     ///   sync-in-task / traversal-deferred **without reordering**: only the
     ///   *prefix* of synchronous updates issued **before** the first traversal
     ///   runs in Phase 1; from the first traversal onward every step defers (in
     ///   issue order) onto the [`TraversalQueue`]. A trailing sync update never
     ///   jumps ahead of an earlier traversal ("all sync first" is NOT the model).
-    /// - **I3 (guard bracket).** The [`TraversalQueue`]'s "running nested apply
-    ///   history step" boolean (observable via
-    ///   [`TraversalQueue::is_applying`]) is set **before** each traversal apply
-    ///   and cleared **after** it, covering the whole peek→commit window; a
-    ///   message serialized mid-apply is **eventually drained** (the Phase-2 loop
-    ///   re-checks the queue until empty).
     ///
-    /// [`apply_traversal`]: DrainHost::apply_traversal
-    #[must_use]
-    pub fn drain<H: DrainHost>(host: &mut H) -> DrainOutcome {
+    /// [`drain_synchronous_phase`]: Self::drain_synchronous_phase
+    /// [`ship_if_needed`]: Self::ship_if_needed
+    fn run_synchronous_phase_body<H: DrainHost>(host: &mut H) -> DrainOutcome {
         let mut outcome = DrainOutcome::default();
 
         // Phase 1a — window.open effects (§7.2.2.1), other-context, drained first.
@@ -383,17 +402,109 @@ impl DrainCoordinator {
             outcome.shipped = true;
         }
 
-        // Phase 2 — deferred traversal apply (a later task, §7.4.6.1), guarded by
-        // the nested-apply boolean with re-check-until-empty (I3 eventual drain).
-        Self::drain_traversal_queue(host, &mut outcome);
+        outcome
+    }
 
-        // Ship once iff an own-context effect happened and no apply body shipped
-        // (a pure sync-update turn) — the shells' history-only render tail.
+    /// The **single shared ship decision** (plan §4.5 ship-once): ship exactly one
+    /// frame iff an own-context effect happened this pass and no apply body already
+    /// shipped its own. Every entry point ([`drain_synchronous_phase`] /
+    /// [`run_deferred_traversals`] / [`drain`]) funnels its trailing ship through
+    /// here, so the decision cannot fragment into per-phase guards whose
+    /// intersection strands a legitimate frame.
+    ///
+    /// [`drain_synchronous_phase`]: Self::drain_synchronous_phase
+    /// [`run_deferred_traversals`]: Self::run_deferred_traversals
+    /// [`drain`]: Self::drain
+    fn ship_if_needed<H: DrainHost>(host: &mut H, outcome: &mut DrainOutcome) {
         if outcome.own_context_action && !outcome.shipped {
             host.ship_frame();
             outcome.shipped = true;
         }
+    }
 
+    /// Run **Phase 1** — the synchronous, in-task work — over `host`, WITHOUT
+    /// applying any deferred traversal, then ship Phase 1's own frame. This is the
+    /// WHATWG HTML Phase-1 body (`run_synchronous_phase_body`) plus the shared
+    /// `ship_if_needed` tail: window-opens (§7.2.2.1) → synchronous history
+    /// *updates* (§7.4.4) → last-wins own-context navigation (§7.4.2), enqueuing
+    /// each `Back` / `Forward` / `Go` *traversal* (§7.4.3) without applying it. The
+    /// caller runs Phase 2 via [`run_deferred_traversals`] **separately**:
+    /// content-mode on a later async-pump turn, app-mode at end-of-input-handler,
+    /// realizing §7.4.6.1 *apply the history step* step-12's task boundary (plan
+    /// §4.5 I1). The caller checks [`TraversalQueue::is_empty`] (via
+    /// [`DrainHost::traversal_queue`]) to know whether Phase-2 work is pending.
+    ///
+    /// **Ships Phase 1's own-context effect on Phase 1's own turn** (own-context
+    /// action happened and nothing already shipped) — even when a traversal is
+    /// **also** queued for a later turn. In the separated model Phase 2 is a
+    /// *later* turn and must NOT be relied on to ship Phase 1's frame; gating this
+    /// ship on an empty queue stranded the committed `pushState` frame of a
+    /// `pushState + no-op-traversal` turn (neither phase shipped). A pure-sync turn
+    /// therefore also ships here.
+    ///
+    /// [`run_deferred_traversals`]: Self::run_deferred_traversals
+    #[must_use]
+    pub fn drain_synchronous_phase<H: DrainHost>(host: &mut H) -> DrainOutcome {
+        let mut outcome = Self::run_synchronous_phase_body(host);
+        Self::ship_if_needed(host, &mut outcome);
+        outcome
+    }
+
+    /// Run **Phase 2** — apply the deferred traversal(s) queued by
+    /// [`drain_synchronous_phase`](Self::drain_synchronous_phase) — as a **later
+    /// task**: WHATWG HTML §7.4.6.1 *apply the history step* (plan §4.2). Call
+    /// this **after** `drain_synchronous_phase`, on a later turn (content-mode's
+    /// async pump) or at end-of-input-handler (app-mode), so the traversal apply
+    /// reads the entry list only after Phase 1's updates have landed (I1).
+    ///
+    /// - **I3 (guard bracket).** The [`TraversalQueue`]'s "running nested apply
+    ///   history step" boolean (observable via [`TraversalQueue::is_applying`]) is
+    ///   set **before** each traversal apply and cleared **after** it, covering
+    ///   the whole peek→commit window; a message serialized mid-apply is
+    ///   **eventually drained** (the Phase-2 loop re-checks the queue until empty).
+    ///
+    /// Ships a frame iff an own-context effect happened and no apply body already
+    /// shipped (the deferred-apply render tail), via the shared
+    /// `ship_if_needed`; ship-once is preserved.
+    #[must_use]
+    pub fn run_deferred_traversals<H: DrainHost>(host: &mut H) -> DrainOutcome {
+        let mut outcome = DrainOutcome::default();
+        Self::drain_traversal_queue(host, &mut outcome);
+        Self::ship_if_needed(host, &mut outcome);
+        outcome
+    }
+
+    /// The **app-mode-degenerate / atomic same-turn** drain — runs Phase 1
+    /// (`run_synchronous_phase_body`) then Phase 2 (`drain_traversal_queue`)
+    /// back-to-back and ships **exactly once** at the end. This is the shape
+    /// app-mode wants: app-mode has **no task boundary** (plan §4.3 option i /
+    /// §4.5 I1), so its end-of-input-handler drain collapses the two phases into a
+    /// single synchronous return that renders **one** frame — not a per-phase
+    /// frame per turn. It is also the isolation-test convenience.
+    ///
+    /// **Content-mode does NOT use this path.** Content-mode has a real task
+    /// boundary and schedules the two phases across *separate turns* via the split
+    /// entry points ([`drain_synchronous_phase`] in-task +
+    /// [`run_deferred_traversals`] on the async pump) — Phase 1 ships its own frame
+    /// on its turn, Phase 2 ships on a later turn. This same-turn method is the
+    /// degenerate collapse of that schedule, not a driver of the split.
+    ///
+    /// Ship-once is structural: both phase bodies accumulate into one
+    /// [`DrainOutcome`] and a single trailing `ship_if_needed` fires at most one
+    /// [`DrainHost::ship_frame`]. A `pushState + no-op-traversal` turn accumulates
+    /// `own_context_action = true` (the push) with `shipped = false` (the no-op
+    /// traversal ships nothing) → the single tail ships the push's frame. A
+    /// pure-sync turn ships the push; a navigation turn already shipped so the tail
+    /// is a no-op; an empty turn ships nothing. Honors plan §4.5 I1 (Phase 1 before
+    /// Phase 2), I2 (Phase-1b partition), and I3 (Phase-2 guard bracket).
+    ///
+    /// [`drain_synchronous_phase`]: Self::drain_synchronous_phase
+    /// [`run_deferred_traversals`]: Self::run_deferred_traversals
+    #[must_use]
+    pub fn drain<H: DrainHost>(host: &mut H) -> DrainOutcome {
+        let mut outcome = Self::run_synchronous_phase_body(host);
+        Self::drain_traversal_queue(host, &mut outcome);
+        Self::ship_if_needed(host, &mut outcome);
         outcome
     }
 
@@ -402,6 +513,14 @@ impl DrainCoordinator {
     /// until empty** so a step serialized mid-apply (a reentrant SW-pump message)
     /// drains before returning rather than stranding until the next turn.
     fn drain_traversal_queue<H: DrainHost>(host: &mut H, outcome: &mut DrainOutcome) {
+        // NOTE (Slice-4 CARRY): this `re-check until empty` loop is UNBOUNDED — a
+        // wired host whose `apply_traversal` re-enqueues on every apply would loop
+        // forever and hang the single-writer renderer thread. Inert in Slice 1 (no
+        // wired reentrant source; the isolation test bounds via a one-shot
+        // `reentrant_once`). Bounding this (drain a bounded snapshot / reschedule
+        // appended work onto a later task) is DEFERRED to Slice 4, which owns the
+        // reentrancy-guard semantics (plan §5 Slice 4 + the plan-memo's Slice-4
+        // CARRY note).
         while let Some(step) = host.traversal_queue().pop_next() {
             match step {
                 PendingHistoryStep::Traversal(traversal) => {
@@ -412,8 +531,14 @@ impl DrainCoordinator {
                     host.traversal_queue().enter_nested_apply();
                     let shipped = host.apply_traversal(&traversal);
                     host.traversal_queue().exit_nested_apply();
-                    outcome.own_context_action = true;
-                    outcome.shipped |= shipped;
+                    // Gate own-context on the apply OUTCOME (mirrors
+                    // `handle_navigation`): a no-op traversal (no-target `go(999)` /
+                    // failed cross-document load) returns `false` and marks NOTHING,
+                    // so the caller's fallback/default action is not over-suppressed.
+                    if shipped {
+                        outcome.own_context_action = true;
+                        outcome.shipped = true;
+                    }
                 }
                 PendingHistoryStep::SyncUpdate(action) => {
                     // A deferred synchronous update (issued after a same-turn
