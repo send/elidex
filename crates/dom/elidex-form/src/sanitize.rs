@@ -179,14 +179,14 @@ fn sanitize_range(state: &FormControlState) -> Option<String> {
 ///
 /// **Supported color surface**: the engine parses exactly the subset
 /// [`CssColor::parse_str`] accepts — named / hex / `rgb()` / `hsl()` /
-/// `transparent` (absolute sRGB colors). **Any other `<color>` syntax** — CSS
-/// Color 4 functions (`hwb()` / `lab()` / `lch()` / `oklab()` / `oklch()` /
-/// `color()`) and context-dependent keywords (`currentColor`, `<system-color>`)
-/// — fails to parse and so falls to opaque black here, exactly as it does
-/// anywhere the CSS engine parses a color (this is the engine's *declared*
-/// supported surface, not a color-well-specific cap). Extending the grammar is
-/// a CSS-layer concern (`hwb()` is cheap sRGB; `lab()`/`oklab()`/`color()` need
-/// the CSS Color 4 float pipeline; `currentColor`/system colors need
+/// `hwb()` / `transparent` (absolute sRGB colors). **Any other `<color>`
+/// syntax** — CSS Color 4 functions (`lab()` / `lch()` / `oklab()` /
+/// `oklch()` / `color()`) and context-dependent keywords (`currentColor`,
+/// `<system-color>`) — fails to parse and so falls to opaque black here,
+/// exactly as it does anywhere the CSS engine parses a color (this is the
+/// engine's *declared* supported surface, not a color-well-specific cap).
+/// Extending the grammar is a CSS-layer concern (`lab()`/`oklab()`/`color()`
+/// need the CSS Color 4 float pipeline; `currentColor`/system colors need
 /// element-context resolution, not a pure value transform) tracked at
 /// `#11-css-color4-extended-syntax` — when `parse_str` gains them, color
 /// sanitization benefits automatically (one parse home).
