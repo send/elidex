@@ -56,11 +56,12 @@ enum Ev {
     },
     Navigation,
     /// A deferred traversal apply; `guard` = the boolean at call time (must be
-    /// `true` — the I3 bracket), `issue_order` = the FIFO position captured.
+    /// `true` — the I3 bracket). Issue order is pinned by the *position* of this
+    /// event in the log (the VecDeque preserves FIFO order — plan §4.5 I2), not a
+    /// stored index.
     TraversalApply {
         delta: TraversalDelta,
         guard: bool,
-        issue_order: usize,
     },
     ShipFrame,
 }
@@ -139,7 +140,6 @@ impl DrainHost for MockHost {
         self.log.push(Ev::TraversalApply {
             delta: traversal.delta,
             guard,
-            issue_order: traversal.issue_order,
         });
         // Simulate a reentrant nav-mutating message (SW-pump) arriving mid-apply:
         // it is SERIALIZED onto the queue (never applied under the held peek).
@@ -230,13 +230,9 @@ fn i2_trailing_push_not_reordered_ahead_of_traversal() {
         traversal < trail,
         "the trailing push must NOT be reordered ahead of the traversal (I2)"
     );
-    // The FIFO position is preserved on the deferred traversal (issued at index 1).
-    assert!(matches!(
-        host.log
-            .iter()
-            .find(|e| matches!(e, Ev::TraversalApply { .. })),
-        Some(Ev::TraversalApply { issue_order: 1, .. })
-    ));
+    // I2 is pinned by the observed drain order (lead-sync < traversal < trailing-sync):
+    // exactly one traversal exists and it applied between the two syncs, so the
+    // trailing push was never hoisted ahead of the traversal issued before it.
     assert!(host.queue.is_empty(), "everything drained");
 }
 
@@ -250,15 +246,15 @@ fn i2_multiple_traversals_preserve_issue_order() {
         .log
         .iter()
         .filter_map(|e| match e {
-            Ev::TraversalApply {
-                delta, issue_order, ..
-            } => Some((*delta, *issue_order)),
+            Ev::TraversalApply { delta, .. } => Some(*delta),
             _ => None,
         })
         .collect();
+    // The drain ORDER is the issue-order pin: Back was issued before Go(2), so it
+    // must apply first (the VecDeque preserves FIFO position — plan §4.5 I2).
     assert_eq!(
         applied,
-        vec![(TraversalDelta::Back, 0), (TraversalDelta::Go(2), 1),],
+        vec![TraversalDelta::Back, TraversalDelta::Go(2)],
         "traversals apply in issue order"
     );
 }
@@ -293,7 +289,6 @@ fn i3_reentrant_message_is_serialized_and_eventually_drained() {
     // not stranded until the next turn — and it too runs inside the guard.
     let reentrant = PendingTraversal {
         delta: TraversalDelta::Forward,
-        issue_order: 99,
         user_involvement: UserInvolvement::default(),
     };
     let mut host = MockHost::new(vec![back()]).with_reentrant(reentrant);

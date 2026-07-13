@@ -103,11 +103,6 @@ pub enum UserInvolvement {
 pub struct PendingTraversal {
     /// The resolved traversal delta (`Back` / `Forward` / `Go(delta)`).
     pub delta: TraversalDelta,
-    /// The turn-relative FIFO position this traversal was issued at. The single
-    /// `pending_history` FIFO is the **sole ordering source of truth** (plan
-    /// §4.5 I2 axis d), so the queue *preserves* issue order rather than
-    /// re-deriving it.
-    pub issue_order: usize,
     /// The §7.4.3 step-2 [`UserInvolvement`] snapshot. Slice 1 defaults this
     /// (the VM staging carries no involvement fact today, Q-VM-MODEL =
     /// shell-drain-only); Slices 2/3 thread the real issue-time snapshot (a
@@ -206,15 +201,27 @@ impl TraversalQueue {
         self.pending.is_empty()
     }
 
-    /// The number of deferred steps queued.
-    #[must_use]
-    pub fn len(&self) -> usize {
-        self.pending.len()
-    }
-
     /// Pop the next deferred step in issue order (the Phase-2 drain cursor).
     fn pop_next(&mut self) -> Option<PendingHistoryStep> {
         self.pending.pop_front()
+    }
+
+    /// Enter the WHATWG HTML §7.3.1.1 "running nested apply history step" bracket
+    /// (set the guard before the peek). Paired with [`Self::exit_nested_apply`].
+    ///
+    /// The bracket is a method pair rather than an RAII `Drop` guard because a Drop
+    /// guard would have to hold `&mut TraversalQueue` across the
+    /// `DrainHost::apply_traversal(&mut host)` call — but the queue lives *on* the
+    /// host (host-owns-queue, plan §4.1), so that borrow conflicts. The coordinator
+    /// owns the ordering of set→apply→clear (plan §4.5 I3).
+    fn enter_nested_apply(&mut self) {
+        self.running_nested_apply_history_step = true;
+    }
+
+    /// Exit the nested-apply bracket (clear the guard after the commit). See
+    /// [`Self::enter_nested_apply`].
+    fn exit_nested_apply(&mut self) {
+        self.running_nested_apply_history_step = false;
     }
 }
 
@@ -297,7 +304,6 @@ pub trait DrainHost {
 ///
 /// Slices 2/3 adopt this by implementing [`DrainHost`] on each shell and calling
 /// [`DrainCoordinator::drain`] where the shell runs its synchronous drain today.
-#[derive(Clone, Copy, Debug, Default)]
 pub struct DrainCoordinator;
 
 impl DrainCoordinator {
@@ -337,13 +343,12 @@ impl DrainCoordinator {
         // traversal (§7.4.3) onward, every step defers onto the queue in issue
         // order (never reorder a sync ahead of a traversal issued before it).
         let mut seen_traversal = false;
-        for (issue_order, action) in host.take_pending_history().into_iter().enumerate() {
+        for action in host.take_pending_history() {
             match TraversalDelta::from_history_action(&action) {
                 Some(delta) => {
                     seen_traversal = true;
                     host.traversal_queue().enqueue_traversal(PendingTraversal {
                         delta,
-                        issue_order,
                         // Slice 1 defaults the §7.4.3 step-2 snapshot (Q-VM-MODEL —
                         // the VM staging carries no involvement fact); Slices 2/3
                         // thread the real issue-time value.
@@ -398,9 +403,9 @@ impl DrainCoordinator {
                     // clear AFTER the commit. A reentrant message arriving in-bracket
                     // is serialized onto the queue (drained by a later iteration of
                     // this loop), never applied under the held peek.
-                    host.traversal_queue().running_nested_apply_history_step = true;
+                    host.traversal_queue().enter_nested_apply();
                     let shipped = host.apply_traversal(&traversal);
-                    host.traversal_queue().running_nested_apply_history_step = false;
+                    host.traversal_queue().exit_nested_apply();
                     outcome.own_context_action = true;
                     outcome.shipped |= shipped;
                 }
