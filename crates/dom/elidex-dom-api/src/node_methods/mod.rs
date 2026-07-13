@@ -14,7 +14,7 @@ mod clone;
 mod core;
 mod text_content;
 
-pub use clone::CloneNode;
+pub use clone::{CloneNode, ClonedFrom};
 pub use core::{
     CompareDocumentPosition, Contains, GetRootNode, IsConnected, IsEqualNode, IsSameNode,
     Normalize, OwnerDocument,

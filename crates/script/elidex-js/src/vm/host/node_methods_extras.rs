@@ -184,6 +184,10 @@ pub(super) fn native_node_is_equal_node(
 ///   source (or, for deep clones, any descendant) is a shadow host
 ///   with a `clonable` shadow root — a replicated shadow tree
 ///   (DOM §4.4 clone-a-node step 6).
+/// - A cloned `<input>` / `<textarea>` carries its source's live form
+///   state (value / dirty value flag / checkedness / indeterminateness)
+///   per the HTML §4.10.5 / §4.10.11 cloning steps, applied post-dispatch
+///   via [`elidex_form::apply_clone_form_state`].
 /// - The returned wrapper's entity has no parent or siblings (the
 ///   clone-a-node `parent` argument defaults to null — the clone is
 ///   an orphan).
@@ -215,6 +219,16 @@ pub(super) fn native_node_clone_node(
         if let ObjectKind::HostObject { entity_bits } = ctx.vm.get_object(wrapper).kind {
             if let Some(clone_root) = elidex_ecs::Entity::from_bits(entity_bits) {
                 super::custom_elements::upgrade::enqueue_subtree_upgrade_reactions(ctx, clone_root);
+                // Form-control cloning steps (HTML §4.10.5 `<input>` /
+                // §4.10.11 `<textarea>`): copy each cloned control's live
+                // value / dirty value flag / checkedness / indeterminateness
+                // from its source, synchronously at clone time (a detached
+                // clone must read correctly before any insertion). The
+                // algorithm is engine-indep (`elidex-form`); this is
+                // marshalling-only, mirroring the CE clone-upgrade seam above.
+                if let Some(host) = ctx.host_if_bound() {
+                    elidex_form::apply_clone_form_state(host.dom(), clone_root);
+                }
             }
         }
     }

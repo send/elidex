@@ -19,6 +19,65 @@ use elidex_script_session::{
     ComponentKind, DomApiError, DomApiErrorKind, DomApiHandler, SessionCore,
 };
 
+/// Transient clone-provenance marker for the **form-control cloning steps**
+/// (HTML §4.10.5 `<input>` / §4.10.11 `<textarea>`, invoked by DOM §4.4
+/// "clone a node" step 3).
+///
+/// The cloning-step *value copy* (live value / dirty value flag / checkedness /
+/// indeterminateness) is an `elidex-form` concern, but this crate (`elidex-dom-api`)
+/// cannot read `FormControlState` — the dependency edge runs `elidex-form →
+/// elidex-dom-api`, never the reverse. So the cloner only records the src→dst
+/// *link* here; the engine-independent consumer
+/// `elidex_form::apply_clone_form_state` resolves it synchronously at clone
+/// time (from the VM `cloneNode` marshalling shim, beside the CE clone-upgrade
+/// seam), reads the source's `FormControlState`, materializes the copy on `dst`,
+/// and **removes this marker in the same pass**.
+///
+/// Design notes:
+/// - **Not a persistent component** (unlike [`CustomElementState`], which the
+///   cloner writes as real identity state). It is scratch provenance, consumed
+///   and removed within the one synchronous clone operation.
+/// - **Attached only on `<input>` / `<textarea>` clones** (the two elements that
+///   define cloning steps — `propagate_ce_identity`-style gated attach), so a
+///   subtree clone does not churn a marker onto every node.
+/// - **Generation-safe**: `source` is a `hecs::Entity` carrying a generation, so
+///   even a stale read (source despawned) yields a `get::<&FormControlState>`
+///   `Err`, never a mis-resolved alias.
+/// - **Why a persisted marker, not a returned `(src, dst)` list** (the plan's
+///   "Option A"): the FCS copy runs in the VM *after* `cloneNode` dispatch
+///   returns, but that dispatch (`invoke_dom_api`) yields only a wrapper
+///   (`HandlerOut::Entity`) — the linkage must therefore survive *across* the
+///   dispatch boundary. Threading pairs back would force a clone-specific channel
+///   into the generic handler-return protocol shared by every DOM method; a
+///   per-`dst` component consumed by a clone-specific post-dispatch pass keeps
+///   that concern local and is the exact shape of the CE clone-upgrade re-walk
+///   ([`CustomElementState`]). So the marker is the layer-respecting choice here,
+///   not a fallback.
+/// - **A dom-api-direct clone that never runs the consumer leaves the marker.**
+///   The sole production caller is the VM `cloneNode` shim (which always runs
+///   `apply_clone_form_state`); the only non-consuming callers are this crate's
+///   own clone unit tests (and `elidex-dom-api` can't even build an FCS-bearing
+///   source — it doesn't depend on `elidex-form`, I1). A left-behind marker is
+///   harmless: generation-safe (above), never re-copied (a shallow re-clone does
+///   not propagate it), and auto-removed when its entity despawns.
+/// - **Never in the clone-policy copy-set** (`elidex_ecs`'s `tree_clone` module):
+///   a subsequent clone of a still-marked entity does not propagate it.
+/// - The consumer walks the clone's shadow-inclusive descendants **plus** every
+///   `<template>`'s content fragment (`elidex_form`'s
+///   `collect_template_inclusive_descendants`), so every marker attached here —
+///   light-tree, shadow-encapsulated, and template-encapsulated — is read and
+///   removed in the same synchronous pass. Template contents must be included:
+///   a JS-created `<input>`/`<textarea>` moved into `template.content` keeps the
+///   `FormControlState` it got at creation, so a deep clone of that template has
+///   a live value to copy (a plain `for_each_shadow_inclusive_descendant` does
+///   not reach the detached content fragment).
+#[derive(Clone, Copy, Debug)]
+pub struct ClonedFrom {
+    /// The source entity `dst` was cloned from — the node whose live
+    /// `FormControlState` the cloning steps propagate onto `dst`.
+    pub source: Entity,
+}
+
 /// `node.cloneNode(deep?)` — clone a node (optionally deep).
 pub struct CloneNode;
 
@@ -115,11 +174,11 @@ impl DomApiHandler for CloneNode {
 ///    `CustomElementState`, the clone receives a fresh
 ///    `Undefined(definition_name)` — identity (which custom-element
 ///    name) propagates, lifecycle state does not (`Custom` / `Failed`
-///    never carry over; NB no upgrade reaction is enqueued at clone
-///    time yet — the clone upgrades via the insert-time consumer or
-///    the next `define()` walk; the spec's clone-time enqueue is part
-///    of the per-pair clone-reaction seam, slot
-///    `#11-clone-cloning-steps-event`).  No tag inspection, `is=` attribute parsing,
+///    never carry over; the reset-to-`Undefined` clone gets its DOM §4.4
+///    clone-time upgrade reaction enqueued by the engine-bound seam
+///    `elidex_custom_elements::apply_clone_creation_ce_semantics` (Codex
+///    PR331 R13/R14), so it does not linger `Undefined` until a later
+///    insertion or `define()` walk).  No tag inspection, `is=` attribute parsing,
 ///    or namespace guard happens here — those are creation-path
 ///    concerns (`CustomElementState::for_created_element`), and the
 ///    component's existence on the source already proves them.  An
@@ -169,6 +228,11 @@ pub fn clone_node_with_shadow_honor(src: Entity, dom: &mut EcsDom, deep: bool) -
         let (s, d) = pairs[idx];
         idx += 1;
         propagate_ce_identity(s, d, dom);
+        // Form-control cloning steps (HTML §4.10.5 / §4.10.11): record the
+        // src→dst link on `<input>` / `<textarea>` clones so the engine-indep
+        // `elidex_form::apply_clone_form_state` consumer can copy the live form
+        // state at clone time (I1 — this crate can't read `FormControlState`).
+        mark_cloned_form_control(s, d, dom);
         // Pass 3 (HTML §4.12.3 cloning steps): a cloned `<template>` gets its
         // own fresh content fragment, deep-cloned from the source's only when
         // the clone-children flag (`deep`) is set. Pushes the deep-clone's pairs
@@ -275,6 +339,26 @@ fn propagate_ce_identity(src: Entity, dst: Entity, dom: &mut EcsDom) {
             registry,
         },
     );
+}
+
+/// Record the src→dst link for the form-control cloning steps by attaching a
+/// [`ClonedFrom`] marker on `dst` — but only when `src` is an `<input>` or
+/// `<textarea>` (the two elements HTML defines cloning steps for). The gate
+/// mirrors [`propagate_ce_identity`]'s "attach only when it applies" shape, so a
+/// large `cloneNode(true)` does not spray a marker onto every cloned node.
+///
+/// Only the *tag* is inspected here (this crate cannot see `FormControlState`);
+/// the real work — checking the source actually has form state, honouring the
+/// HTML-namespace gate, and copying the cloning-step fields — is the
+/// `elidex-form` consumer's, which no-ops (and still sweeps the marker) when the
+/// source carries no `FormControlState` (a foreign-namespace `<input>`, or a
+/// never-materialized control).
+fn mark_cloned_form_control(src: Entity, dst: Entity, dom: &mut EcsDom) {
+    let is_cloning_step_element =
+        dom.with_tag_name(src, |t| matches!(t, Some("input" | "textarea")));
+    if is_cloning_step_element {
+        let _ = dom.world_mut().insert_one(dst, ClonedFrom { source: src });
+    }
 }
 
 /// Pass 3 of [`clone_node_with_shadow_honor`]: HTML §4.12.3 "cloning steps"
