@@ -122,8 +122,10 @@ impl EcsDom {
 
 with **spec-anchored** reductions — each defined by *its consumer's CSSOM algorithm*, NOT a generic
 border-box reduction (a generic-`Rect` helper silently drops box-model facets and mis-branches; each
-must encode the exact §-algorithm). **These reductions live in `elidex-dom-api` (the CSSOM plugin
-layer), NOT `elidex-ecs`** (R2-6) — they call `EcsDom::box_fragments` and apply their own §-algorithm.
+must encode the exact §-algorithm). **Placement follows the §-above split (R2-6 + R3-2)**: the
+*generic-geometry* folds (union→Option / first / box-size / baseline) live LOW in `elidex-ecs`/`elidex-plugin`
+(reachable by flex/grid/a11y/observers); only the *CSSOM-View-specific* algorithms live in `elidex-dom-api`.
+Both call `EcsDom::box_fragments` and apply their reduction.
 Because `box_fragments` yields the **full `BoxFragment`** (which impl's `BoxModel` → `.border_box()` /
 `.padding_box()` / `.border()` / `.first_baseline`; plus `.content()` for sizes), every facet below is a
 fold over that primitive — no primitive change, only the correct reductions (**exceptions**: `client_rects`
@@ -181,11 +183,11 @@ NOT be collapsed onto one helper:
 Consumers call the helper matching their spec, never the raw component or the raw tree. `scrollTop/Left`
 (scroll *offset*) read `ScrollState`, unchanged — **out of C-3 scope**. `scrollWidth/Height` route to
 `principal_padding_box` only as a **behavior-neutral preservation of today's pre-existing limitation**:
-CSSOM VIEW §6.1 scrollWidth **step 7** returns the *scrolling area* width (padding box **extended by
+CSSOM VIEW §6 scrollWidth **step 7** returns the *scrolling area* width (padding box **extended by
 descendant overflow**, ≥ clientWidth), but elidex already computes it padding-box-only
 (`layout_query.rs:159-170`), and `BoxFragment` carries no scrollable-overflow facet — so C-3 keeps the
-padding-box value (no regression) and does NOT claim §6.1 correctness. Full scrolling-area fidelity is a
-separate pre-existing gap, out of C-3 scope.
+padding-box value (no regression) and does NOT claim §6 scrolling-area correctness. Full scrolling-area
+fidelity is a separate pre-existing gap, out of C-3 scope.
 
 **Home** (F8 + R2-6 + R3-2): the **`box_fragments` primitive + the generic-geometry folds** (union→Option
 / first / box-size / baseline — all content-neutral, reachable by every consumer) land in a **new
@@ -252,12 +254,12 @@ facet and the union-vs-first-vs-per-fragment behavior differ per row and must NO
 | `getClientRects()` | `client_rects` — **two-source, dispatch (not union)** | `InlineClientRects`→per-**line** (suppresses box projection); else store→per-**column**; else single box | CSSOM VIEW §6 getClientRects |
 | `getBoundingClientRect()` | `bounding_box` — **4-branch** | empty→all-zero; all-zero-w/h→**first rect**; else union over **non-zero** rects only | CSSOM VIEW §6 "get the bounding box" |
 | `IntersectionObserver` | `optional_bounding_box` (**None-preserving**, NOT `bounding_box`) | 4-branch when boxed; **`None` when boxless** (initial false/ratio-0) | intersection-observer §3.2.7 step 1 "get the bounding box for target" |
-| `ResizeObserver` | box-**size** `(content_rect, border_box_size)`, None-preserving (**not** a bbox, R2-4) | principal fragment content+border-box size | resize-observer (content-rect / border-box) |
+| `ResizeObserver` | box-**size** `(content_rect, border_box_size)`, None-preserving (**not** a bbox, R2-4) | principal (first-column) fragment content+border-box size — matches RO's single-box/first-fragment behavior | resize-observer-1 §3.3.1 content rect (`#content-rect`); box sizes §3.4 (R4-5) |
 | `offsetWidth`/`offsetHeight` | `offset_border_box_union` | **UNION** (axis-aligned bbox) of principal box's fragment border boxes | CSSOM VIEW §7 offsetWidth **step 2** |
 | `offsetTop`/`offsetLeft` | principal (first) box, offsetParent-relative | **first** box | CSSOM VIEW §7 (asymmetry: Top/Left first, Width/Height union) |
-| `clientWidth`/`clientHeight` | `principal_padding_box` | first box **padding** box | CSSOM VIEW §6.1 |
-| `clientTop`/`clientLeft` | `principal_border_widths` | first box **border widths** | CSSOM VIEW §6.1 |
-| `scrollWidth`/`scrollHeight` | `principal_padding_box` (**pre-existing padding-box limitation**, not §6.1 scrolling-area) | first box padding box (today's value, behavior-neutral) | CSSOM VIEW §6.1 step 7 (scrolling area — NOT met, pre-existing) |
+| `clientWidth`/`clientHeight` | `principal_padding_box` | first box **padding** box | CSSOM VIEW §6 (`#dom-element-clientwidth`) |
+| `clientTop`/`clientLeft` | `principal_border_widths` | first box **border widths** | CSSOM VIEW §6 (`#dom-element-clienttop`) |
+| `scrollWidth`/`scrollHeight` | `principal_padding_box` (**pre-existing padding-box limitation**, not §6 scrolling-area) | first box padding box (today's value, behavior-neutral) | CSSOM VIEW §6 `#dom-element-scrollwidth` (scrolling area — NOT met, pre-existing) |
 | `scrollTop`/`scrollLeft` (scroll **offset**) | `ScrollState` — **OUT OF C-3 SCOPE** | unchanged (not a LayoutBox read) | — |
 | baseline (flex/grid cross-read) | `principal_baseline` | first fragment's `first_baseline` | — (engine-internal alignment) |
 | hit-test | per-fragment (`client_rects`-style) | hit any fragment | — (paint-consistent) |
@@ -342,7 +344,9 @@ reference counts by crate (`git grep -l 'LayoutBox'`, readers **and** writers):
 > shell caret/iframe/fragment-nav, `ScrollIntoView`, `find_nearest_layout_box`, render walk sites …) — which
 > is the **proof that hand-enumerating every reader in this umbrella does not converge**. So this memo owns
 > the **clusters + their choke points** (below), and the **exhaustive per-reader inventory is C-3a's audit
-> OUTPUT** (`get::<&(elidex_plugin::)?LayoutBox>` + closure `rect_fn` across ALL crates), consumed by each
+> OUTPUT** (grep must cover ALL read shapes, not just direct gets: `get::<&(elidex_plugin::)?LayoutBox>`,
+> **multi-component `query::<(..&LayoutBox..)>`** (e.g. `scroll.rs:137` reads `(&LayoutBox, &ComputedStyle)`, R4-1),
+> and closure `rect_fn` sites, across ALL crates), consumed by each
 > per-slice plan-review — NOT a list to complete here. The examples below are illustrative of each cluster,
 > not exhaustive.
 
@@ -399,13 +403,17 @@ reference counts by crate (`git grep -l 'LayoutBox'`, readers **and** writers):
 ## §7 Consumer-cluster sub-slicing (each a shippable, coordinated PR)
 
 The migration is large and cross-crate; slice by consumer cluster, seam-first, each
-behavior-neutral-or-spec-fix, in dependency order:
+behavior-neutral-or-spec-fix, in dependency order. **These slices assign clusters + call out the
+non-obvious readers/edges — they are NOT exhaustive per-reader checklists** (R4-2): the C-3a audit
+(§6) produces the definitive reader inventory per cluster, and each slice migrates *all* of its cluster's
+audited readers, not only the ones named here.
 
 - **C-3a — the projection seam** (`elidex-ecs`/`elidex-plugin`, new `dom/geometry.rs`): `EcsDom::box_fragments`
   (the raw fragments-else-`LayoutBox` fold) + the **generic-geometry folds** reachable by all consumers
   (union→Option / first / box-size / baseline — §1 layering split) — but **NOT** the CSSOM-View-specific
   algorithms (those are `elidex-dom-api`'s, R2-6/R3-2). **Plus the complete read-site audit** (§6,
-  `get::<&(elidex_plugin::)?LayoutBox>` + `rect_fn` closures across all crates — the grep is a lower bound;
+  `get::<&(elidex_plugin::)?LayoutBox>` + multi-component `query::<(..&LayoutBox..)>` (R4-1) + `rect_fn`
+  closures across all crates — the grep is a lower bound;
   R1/R2/R3 each surfaced more, which is why the audit — not this umbrella — owns the exhaustive list).
   Connected-not-dead via **unit tests** on the folds (N=1 fast-path / §2 behavior-neutral invariant /
   multi-fragment order / boxless→None) — NOT by migrating a consumer (offset* lives in dom-api's
@@ -448,6 +456,8 @@ behavior-neutral-or-spec-fix, in dependency order:
   - **shell iframe/event** (`content/event_handlers.rs:834-846` click-coord xlate — consumes the C-3c
     **hit fragment**, R2-8; `content/iframe/lifecycle.rs:263-274` lazy visibility): else fragmented
     iframes keep a stale single box for event routing / lazy-load (P2).
+  - **shell URL-fragment nav** (`content/scroll.rs:236` `scroll_offset_for_fragment`, R4-2): a multicol
+    fragment target must scroll to the correct column fragment, not the stale single box.
 - **C-3e — render residual** : fold the G11 paint arm into the fragment walk (non-`consumable` mid-break),
   **plus the other render readers** the audit surfaced — paged-generation gate (`builder/walk.rs:108`),
   block-child classification (`:708`), list-marker positioning (`:774`), root discovery
@@ -492,8 +502,9 @@ PM-scheduled against the active lanes; C-3a (elidex-ecs, additive) is the most i
 
 Branch enumeration for the CSSOM readers C-3 migrates — the load-bearing correctness surface: the
 **empty / no-box branches** the projection's `Option`/`None` arms must cover, and the **union-vs-first**
-split. (Anchors: §6 `#extension-to-the-element-interface`, §7 `#extensions-to-the-htmlelement-interface`,
-§6.1 `#element-scrolling-members`.)
+split. (Anchors: §6 `#extension-to-the-element-interface` — incl. `client*`/`scroll*` attributes
+`#dom-element-clientwidth`/`#dom-element-scrollwidth`; §7 `#extensions-to-the-htmlelement-interface` —
+`offset*`. §6.1 "Element Scrolling Members" is the scroll *methods*, NOT the client/scroll attributes.)
 
 | Spec section | Step | Branch | Touch (dispatch site) | Full enum? | User-input flow |
 |---|---|---|---|---|---|
