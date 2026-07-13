@@ -224,4 +224,20 @@ mod integration_tests {
         // Second rule: normal.
         assert!(!ss.rules[1].declarations[0].important);
     }
+
+    #[test]
+    fn hwb_resolves_through_declared_value_path() {
+        // CSS Color 4 §8: hwb() resolves to sRGB via the shared `parse_color`
+        // chokepoint, so a declaration value parses to `CssValue::Color`.
+        // hwb(150 20% 10%) == rgb(20% 90% 55%) ≈ (51, 229/230, 140).
+        match parse_raw_token_value("hwb(150 20% 10%)") {
+            CssValue::Color(c) => {
+                assert_eq!(c.r, 51);
+                assert!((229..=230).contains(&c.g), "green channel {}", c.g);
+                assert_eq!(c.b, 140);
+                assert_eq!(c.a, 255);
+            }
+            other => panic!("expected CssValue::Color, got {other:?}"),
+        }
+    }
 }

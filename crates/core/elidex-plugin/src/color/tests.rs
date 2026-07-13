@@ -348,6 +348,133 @@ fn hsl_hue_above_360_wraps() {
     assert_eq!(c, CssColor::new(0, 255, 0, 255));
 }
 
+// --- hwb() tests (CSS Color 4 §8, sRGB-cheap) ---
+
+#[test]
+fn hwb_pure_hues() {
+    // Zero whiteness + blackness → the pure hue (like hsl at s=100%, l=50%).
+    assert_eq!(
+        parse("hwb(0 0% 0%)").unwrap(),
+        CssColor::new(255, 0, 0, 255)
+    );
+    assert_eq!(
+        parse("hwb(120 0% 0%)").unwrap(),
+        CssColor::new(0, 255, 0, 255)
+    );
+    assert_eq!(
+        parse("hwb(240 0% 0%)").unwrap(),
+        CssColor::new(0, 0, 255, 255)
+    );
+}
+
+#[test]
+fn hwb_full_whiteness_is_white() {
+    // whiteness ≥ 100% → achromatic white (blackness = 0 → grey = 1).
+    let c = parse("hwb(200 100% 0%)").unwrap();
+    assert_eq!(c, CssColor::new(255, 255, 255, 255));
+}
+
+#[test]
+fn hwb_full_blackness_is_black() {
+    // blackness ≥ 100% → achromatic black (whiteness = 0 → grey = 0).
+    let c = parse("hwb(200 0% 100%)").unwrap();
+    assert_eq!(c, CssColor::new(0, 0, 0, 255));
+}
+
+#[test]
+fn hwb_equal_white_black_is_mid_grey() {
+    // w + b = 100% → achromatic grey = w / (w + b) = 0.5 → 128 (hue powerless).
+    let c = parse("hwb(0 50% 50%)").unwrap();
+    assert_eq!(c, CssColor::new(128, 128, 128, 255));
+}
+
+#[test]
+fn hwb_sum_over_100_percent_is_achromatic() {
+    // Spec §8 worked example: hwb(45 40% 80%) → grey = 40/(40+80) = 0.3333.
+    let c = parse("hwb(45 40% 80%)").unwrap();
+    assert_eq!(c.r, c.g);
+    assert_eq!(c.g, c.b);
+    assert_eq!(c.r, 85); // 0.3333 * 255 ≈ 85
+}
+
+#[test]
+fn hwb_spec_mix_example() {
+    // Spec §8 worked example: hwb(150 20% 10%) == rgb(20% 90% 55%).
+    let c = parse("hwb(150 20% 10%)").unwrap();
+    assert_eq!(c.r, 51); // 0.20 * 255 = 51
+    assert!(
+        (229..=230).contains(&c.g), // 0.90 * 255 = 229.5 (f32 rounds either way)
+        "green channel {} not ≈ 229.5",
+        c.g
+    );
+    assert_eq!(c.b, 140); // 0.55 * 255 = 140.25
+    assert_eq!(c.a, 255);
+}
+
+#[test]
+fn hwb_slash_number_alpha() {
+    let c = parse("hwb(0 0% 0% / 0.5)").unwrap();
+    assert_eq!(c, CssColor::new(255, 0, 0, 128));
+}
+
+#[test]
+fn hwb_slash_percentage_alpha() {
+    let c = parse("hwb(0 0% 0% / 50%)").unwrap();
+    assert_eq!(c, CssColor::new(255, 0, 0, 128));
+}
+
+#[test]
+fn hwb_hue_angle_unit() {
+    // 0.5turn = 180deg → pure cyan.
+    let c = parse("hwb(0.5turn 0% 0%)").unwrap();
+    assert_eq!(c, CssColor::new(0, 255, 255, 255));
+}
+
+#[test]
+fn hwb_out_of_range_whiteness_full_black_zero_is_white() {
+    // 150% whiteness, 0% blackness → achromatic grey = 150/(150+0) = 1.0 → white.
+    let c = parse("hwb(0 150% 0%)").unwrap();
+    assert_eq!(c, CssColor::new(255, 255, 255, 255));
+}
+
+#[test]
+fn hwb_out_of_range_uses_raw_ratio_not_clamped() {
+    // CSS Color 4 §8/§8.1: out-of-range W/B are valid and the achromatic grey is
+    // the RAW ratio W/(W+B), NOT each side clamped first. hwb(0 150% 50%) →
+    // 150/(150+50) = 0.75 → 191 grey (a per-side clamp gives 1.0/1.5 = 0.667 → 170).
+    let c = parse("hwb(0 150% 50%)").unwrap();
+    assert_eq!(c, CssColor::new(191, 191, 191, 255));
+}
+
+#[test]
+fn hwb_overflowing_percentage_saturates_not_nan() {
+    // A percentage can overflow f32 to ±∞ (`1e999%`). The raw ratio `∞/(∞+0)`
+    // would be NaN → black; instead it saturates: unbounded whiteness → white.
+    let c = parse("hwb(0 1e999% 0%)").unwrap();
+    assert_eq!(c, CssColor::new(255, 255, 255, 255));
+    // Equal overflowing whiteness + blackness → mid grey (ratio 0.5), still finite.
+    let mid = parse("hwb(0 1e999% 1e999%)").unwrap();
+    assert_eq!(mid, CssColor::new(128, 128, 128, 255));
+}
+
+#[test]
+fn hwb_comma_syntax_rejected() {
+    // hwb() has no legacy comma form — commas are an error.
+    assert!(parse("hwb(0, 0%, 0%)").is_err());
+}
+
+#[test]
+fn hwb_bare_number_components_rejected() {
+    // Whiteness/blackness must be percentages, not bare numbers (matches hsl).
+    assert!(parse("hwb(120 20 10)").is_err());
+}
+
+#[test]
+fn hwb_missing_components_rejected() {
+    assert!(parse("hwb(120)").is_err());
+    assert!(parse("hwb(120 50%)").is_err());
+}
+
 // ---- `CssColor::parse_str` (whole-string entry, exhaustion check) ----
 
 #[test]
@@ -357,6 +484,7 @@ fn parse_str_accepts_full_color_strings() {
     assert_eq!(CssColor::parse_str("#f00"), Some(CssColor::RED));
     assert_eq!(CssColor::parse_str("rgb(255, 0, 0)"), Some(CssColor::RED));
     assert_eq!(CssColor::parse_str("rgb(255 0 0)"), Some(CssColor::RED));
+    assert_eq!(CssColor::parse_str("hwb(0 0% 0%)"), Some(CssColor::RED));
     assert_eq!(
         CssColor::parse_str("transparent"),
         Some(CssColor::TRANSPARENT)
