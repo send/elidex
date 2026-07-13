@@ -38,8 +38,14 @@ comma syntax** — commas inside `hwb()` are an error (space-separated only).
 - `hwb(<hue> <whiteness%> <blackness%>)` + optional `/ <alpha>`.
 - Hue: `<number>` | `<angle>` (deg/grad/rad/turn) — reuses existing
   `parse_hue` (identical to `hsl()` per §8).
-- Whiteness/blackness: `<percentage>`, clamped `[0%, 100%]` — reuses existing
-  `parse_percentage_unit_value` (the same helper `hsl()` s/l use).
+- Whiteness/blackness: `<percentage>`, parsed **unclamped**
+  (`parse_percentage_raw_unit_value`). CSS Color 4 §8 says out-of-range W/B are
+  not invalid and §8.1 derives the achromatic grey from the *raw* `W/(W+B)`
+  ratio, so clamping each side first would distort it (`hwb(0 150% 50%)` must be
+  75% grey, not 67%). `hsl()` keeps its own clamping helper
+  (`parse_percentage_unit_value`, §4.2.4). Overflow-to-±∞ percentages are
+  sanitized to a large finite magnitude inside `hwb_to_rgb` (saturating, à la
+  CSS Values 4 §10.12 ±∞ clamping) so `∞/∞` never leaks NaN.
 - Alpha: `<number>` | `<percentage>`, clamped `[0, 1]` — reuses
   `parse_alpha_component`.
 - `hwbToRgb` (§8.1) with achromatic short-circuit (`W + B ≥ 100%` → grey
@@ -64,9 +70,10 @@ comma syntax** — commas inside `hwb()` are an error (space-separated only).
 ## Design
 
 **One-issue-one-way / reuse over new abstraction.** `hwb()` introduces exactly
-one genuinely new step — the whiteness/blackness *mix* — everything else reuses
-the existing `hsl()` helpers (`parse_hue`, `parse_percentage_unit_value`,
-`parse_alpha_component`, `clamp_u8`).
+one genuinely new step — the whiteness/blackness *mix* — and reuses the existing
+`hsl()` helpers (`parse_hue`, `parse_alpha_component`, `clamp_u8`). Whiteness/
+blackness use `parse_percentage_raw_unit_value` (the unclamped split of
+`parse_percentage_unit_value`, which `hsl()` s/l still use with clamping).
 
 The pure-hue → sRGB sextant is shared by HSL and HWB, so extract it once:
 

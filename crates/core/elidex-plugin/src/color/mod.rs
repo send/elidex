@@ -412,8 +412,30 @@ fn hsl_to_rgb(h: f32, s: f32, l: f32) -> (u8, u8, u8) {
 /// `w / (w + blackness)` computed from the *raw* ratio, the hue is powerless);
 /// otherwise the pure hue is mixed toward white by `w` over the
 /// `1 − w − blackness` span. Out-of-gamut results are clamped once by `clamp_u8`.
+///
+/// A raw `<percentage>` can overflow f32 to ±∞ (e.g. `1e999%`). Left as ∞, the
+/// achromatic ratio `∞ / ∞` yields NaN, which `clamp_u8` would render as an
+/// erroneous black; instead a non-finite component is replaced with a large
+/// finite magnitude (÷4 keeps the `w + blackness` sum finite too) so it
+/// saturates to the white/black it implies — matching how CSS clamps ±∞ to the
+/// allowed range (CSS Values 4 §10.12) and how the sRGB conversion clamps
+/// out-of-gamut results.
 #[allow(clippy::many_single_char_names)] // h/w are standard HWB color model notation.
 fn hwb_to_rgb(h: f32, w: f32, blackness: f32) -> (u8, u8, u8) {
+    let finite = |v: f32| {
+        if v.is_finite() {
+            v
+        } else if v > 0.0 {
+            f32::MAX / 4.0
+        } else if v < 0.0 {
+            -f32::MAX / 4.0
+        } else {
+            0.0 // NaN
+        }
+    };
+    let w = finite(w);
+    let blackness = finite(blackness);
+
     if w + blackness >= 1.0 {
         // Achromatic: R = G = B = whiteness / (whiteness + blackness).
         let grey = clamp_u8((w / (w + blackness)) * 255.0);

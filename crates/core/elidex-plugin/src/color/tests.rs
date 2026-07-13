@@ -447,6 +447,17 @@ fn hwb_out_of_range_uses_raw_ratio_not_clamped() {
 }
 
 #[test]
+fn hwb_overflowing_percentage_saturates_not_nan() {
+    // A percentage can overflow f32 to ±∞ (`1e999%`). The raw ratio `∞/(∞+0)`
+    // would be NaN → black; instead it saturates: unbounded whiteness → white.
+    let c = parse("hwb(0 1e999% 0%)").unwrap();
+    assert_eq!(c, CssColor::new(255, 255, 255, 255));
+    // Equal overflowing whiteness + blackness → mid grey (ratio 0.5), still finite.
+    let mid = parse("hwb(0 1e999% 1e999%)").unwrap();
+    assert_eq!(mid, CssColor::new(128, 128, 128, 255));
+}
+
+#[test]
 fn hwb_comma_syntax_rejected() {
     // hwb() has no legacy comma form — commas are an error.
     assert!(parse("hwb(0, 0%, 0%)").is_err());
