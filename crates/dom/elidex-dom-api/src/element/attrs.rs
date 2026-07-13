@@ -4,7 +4,8 @@
 use elidex_ecs::{Attributes, EcsDom, Entity};
 use elidex_plugin::JsValue;
 use elidex_script_session::{
-    apply_remove_attribute, apply_set_attribute, DomApiError, DomApiHandler, SessionCore,
+    apply_remove_attribute, apply_set_attribute, DomApiError, DomApiErrorKind, DomApiHandler,
+    SessionCore,
 };
 
 use super::tree::validate_attribute_name;
@@ -311,6 +312,33 @@ pub fn camel_to_data_attr(name: &str) -> String {
     result
 }
 
+/// Whether a `data-*` **content-attribute** name contributes a
+/// DOMStringMap name-value pair (HTML §3.2.6.6 "get a DOMStringMap's
+/// name-value pairs" step 2): it begins with the string `data-` and its
+/// remaining characters contain no ASCII upper alpha.
+///
+/// A `data-*` attribute whose remainder holds an uppercase letter — e.g.
+/// `data-fooBar`, reachable via `setAttributeNS()` or on foreign / XML
+/// content where attribute names are not ASCII-lowercased — is
+/// intentionally excluded from `dataset`, and stays reachable only via
+/// `getAttribute("data-fooBar")`.
+fn is_dataset_pair_name(name: &str) -> bool {
+    name.strip_prefix("data-")
+        .is_some_and(|rest| !rest.bytes().any(|b| b.is_ascii_uppercase()))
+}
+
+/// Whether a DOMStringMap **property** name contains a U+002D
+/// HYPHEN-MINUS immediately followed by an ASCII lower alpha — the
+/// HTML §3.2.6.6 setter step-1 `SyntaxError` trigger.  Such a name has
+/// no round-tripping `data-*` form (the `-x` would re-derive as the
+/// camelCase `X`), so writing it is rejected rather than silently
+/// aliased onto a different property.
+fn dataset_name_has_dash_lower(name: &str) -> bool {
+    name.as_bytes()
+        .windows(2)
+        .any(|w| w[0] == b'-' && w[1].is_ascii_lowercase())
+}
+
 // ---------------------------------------------------------------------------
 // dataset.get / dataset.set / dataset.delete / dataset.keys
 // ---------------------------------------------------------------------------
@@ -357,7 +385,28 @@ impl DomApiHandler for DatasetSet {
     ) -> Result<JsValue, DomApiError> {
         let key = require_string_arg(args, 0)?;
         let value = require_string_arg(args, 1)?;
+        // HTML §3.2.6.6 DOMStringMap setter step 1: a `-` followed by an
+        // ASCII lower alpha in the property name is a `SyntaxError` (no
+        // valid round-tripping `data-*` form exists).
+        if dataset_name_has_dash_lower(&key) {
+            return Err(DomApiError {
+                kind: DomApiErrorKind::SyntaxError,
+                message: format!(
+                    "Failed to set the '{key}' property on 'DOMStringMap': \
+                     '{key}' is not a valid property name."
+                ),
+            });
+        }
+        // Steps 2–3: fold each ASCII upper alpha to `-` + lowercase, then
+        // prepend `data-`.
         let attr_name = camel_to_data_attr(&key);
+        // Step 4: the derived name must be a valid attribute local name
+        // (DOM §1.4) — reuse the single canonical `setAttribute` predicate
+        // ([`validate_attribute_name`]) so an invalid character
+        // (`dataset["a b"]` / `dataset["a=b"]`) throws `InvalidCharacterError`.
+        validate_attribute_name(&attr_name)?;
+        // Step 5: set the attribute value.
+        //
         // Record-producing chokepoint-route (B2-Slice-2, HTML §3.2.6.6
         // data-* attributes). `camel_to_data_attr` emits the converted
         // lowercase `data-*` local name, so the §4.9 "attributes" record's
@@ -423,10 +472,13 @@ impl DomApiHandler for DatasetKeys {
         dom: &mut EcsDom,
     ) -> Result<JsValue, DomApiError> {
         let attrs = require_attrs(this, dom)?;
+        // HTML §3.2.6.6 "get a DOMStringMap's name-value pairs" step 2:
+        // only `data-*` attributes whose remainder holds no ASCII upper
+        // alpha are exposed (step 3 then camelCases each `-x` run).
         let keys: Vec<String> = attrs
             .keys()
             .iter()
-            .filter(|k| k.starts_with("data-"))
+            .filter(|k| is_dataset_pair_name(k))
             .map(|k| data_attr_to_camel(k))
             .collect();
         Ok(JsValue::String(keys.join("\0")))

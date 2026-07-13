@@ -337,6 +337,109 @@ fn dataset_keys() {
 }
 
 #[test]
+fn dataset_keys_excludes_uppercase_remainder() {
+    // HTML §3.2.6.6 get-name-value-pairs step 2: a `data-*` attribute whose
+    // remainder contains an ASCII upper alpha (reachable via setAttributeNS /
+    // foreign content) is NOT a DOMStringMap pair, so it is absent from keys().
+    let (mut dom, parent, _, mut session) = setup();
+    {
+        let mut attrs = dom.world_mut().get::<&mut Attributes>(parent).unwrap();
+        attrs.set("data-foo-bar", "1");
+        attrs.set("data-fooBar", "2"); // uppercase remainder → excluded
+    }
+    let result = DatasetKeys
+        .invoke(parent, &[], &mut session, &mut dom)
+        .unwrap();
+    let JsValue::String(s) = result else {
+        panic!("expected string");
+    };
+    let keys: Vec<&str> = s.split('\0').collect();
+    assert_eq!(keys, vec!["fooBar"]);
+}
+
+#[test]
+fn dataset_set_rejects_dash_lower_with_syntax_error() {
+    // HTML §3.2.6.6 setter step 1: a `-` followed by an ASCII lower alpha
+    // has no round-tripping `data-*` form → SyntaxError.
+    let (mut dom, parent, _, mut session) = setup();
+    let err = DatasetSet
+        .invoke(
+            parent,
+            &[
+                JsValue::String("foo-bar".into()),
+                JsValue::String("x".into()),
+            ],
+            &mut session,
+            &mut dom,
+        )
+        .unwrap_err();
+    assert_eq!(err.kind, DomApiErrorKind::SyntaxError);
+    // Nothing was written.
+    let attrs = dom.world().get::<&Attributes>(parent).unwrap();
+    assert!(!attrs.contains("data-foo-bar"));
+}
+
+#[test]
+fn dataset_set_dash_digit_is_allowed() {
+    // Step 1 only rejects `-` + ASCII *lower alpha*; `-` + digit is fine and
+    // round-trips (data_attr_to_camel keeps a `-` not followed by lowercase).
+    let (mut dom, parent, _, mut session) = setup();
+    DatasetSet
+        .invoke(
+            parent,
+            &[JsValue::String("a-1".into()), JsValue::String("v".into())],
+            &mut session,
+            &mut dom,
+        )
+        .unwrap();
+    let attrs = dom.world().get::<&Attributes>(parent).unwrap();
+    assert_eq!(attrs.get("data-a-1"), Some("v"));
+}
+
+#[test]
+fn dataset_set_rejects_invalid_attribute_char() {
+    // HTML §3.2.6.6 setter step 4: the derived `data-*` name must be a valid
+    // attribute local name (DOM §1.4) — an embedded space / `=` / `>` throws
+    // InvalidCharacterError.
+    let (mut dom, parent, _, mut session) = setup();
+    for bad in ["a b", "a=b", "a>b", "a/b"] {
+        let err = DatasetSet
+            .invoke(
+                parent,
+                &[JsValue::String(bad.into()), JsValue::String("x".into())],
+                &mut session,
+                &mut dom,
+            )
+            .unwrap_err();
+        assert_eq!(
+            err.kind,
+            DomApiErrorKind::InvalidCharacterError,
+            "expected InvalidCharacterError for dataset[{bad:?}]"
+        );
+    }
+}
+
+#[test]
+fn dataset_set_uppercase_key_round_trips() {
+    // A camelCase key with an uppercase letter is valid (step 2 folds it to
+    // `-` + lowercase); it stores `data-foo-bar` and re-enumerates as `fooBar`.
+    let (mut dom, parent, _, mut session) = setup();
+    DatasetSet
+        .invoke(
+            parent,
+            &[
+                JsValue::String("fooBar".into()),
+                JsValue::String("v".into()),
+            ],
+            &mut session,
+            &mut dom,
+        )
+        .unwrap();
+    let attrs = dom.world().get::<&Attributes>(parent).unwrap();
+    assert_eq!(attrs.get("data-foo-bar"), Some("v"));
+}
+
+#[test]
 fn toggle_attribute_rev_version() {
     let (mut dom, parent, _child, mut session) = setup();
     let v1 = dom.inclusive_descendants_version(parent);
