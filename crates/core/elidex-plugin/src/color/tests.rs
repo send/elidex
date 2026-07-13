@@ -431,10 +431,19 @@ fn hwb_hue_angle_unit() {
 }
 
 #[test]
-fn hwb_out_of_range_whiteness_clamped() {
-    // 150% whiteness clamps to 100% → achromatic white.
+fn hwb_out_of_range_whiteness_full_black_zero_is_white() {
+    // 150% whiteness, 0% blackness → achromatic grey = 150/(150+0) = 1.0 → white.
     let c = parse("hwb(0 150% 0%)").unwrap();
     assert_eq!(c, CssColor::new(255, 255, 255, 255));
+}
+
+#[test]
+fn hwb_out_of_range_uses_raw_ratio_not_clamped() {
+    // CSS Color 4 §8/§8.1: out-of-range W/B are valid and the achromatic grey is
+    // the RAW ratio W/(W+B), NOT each side clamped first. hwb(0 150% 50%) →
+    // 150/(150+50) = 0.75 → 191 grey (a per-side clamp gives 1.0/1.5 = 0.667 → 170).
+    let c = parse("hwb(0 150% 50%)").unwrap();
+    assert_eq!(c, CssColor::new(191, 191, 191, 255));
 }
 
 #[test]
