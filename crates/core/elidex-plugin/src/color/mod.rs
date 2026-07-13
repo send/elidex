@@ -6,8 +6,9 @@
 //!
 //! Polar-notation components (`hsl()` saturation/lightness, `hwb()`
 //! whiteness/blackness) are percentage-only; bare `<number>` components and the
-//! `none` keyword are deferred as one uniform CSS Color 4 extension across the
-//! polar functions (added to all at once, not bolted onto a single one). The
+//! `none` keyword are deferred (under `#11-css-color4-extended-syntax`) as one
+//! uniform CSS Color 4 extension across the polar functions — added to all at
+//! once, not bolted onto a single one. The
 //! wider-gamut functions `lab()`/`lch()`/`oklab()`/`oklch()`/`color()` and the
 //! context-dependent keywords `currentColor`/`<system-color>` need the CSS
 //! Color 4 float pipeline / used-value resolution and are out of scope here
@@ -355,10 +356,10 @@ fn clamp_u8(v: f32) -> u8 {
 /// sextant implementation (One-issue-one-way). `hsl_to_rgb` scales this by the
 /// chroma `C` and adds the lightness offset `m`; `hwb_to_rgb` mixes it with
 /// whiteness/blackness. Non-finite hue is treated as 0 and the value is
-/// normalized to `[0, 360)` (CSS Color Level 4 §12).
+/// normalized to `[0, 360)` (CSS Color Level 4 §4.3, the `<hue>` syntax).
 #[allow(clippy::many_single_char_names)] // h/x are standard color-model notation.
 fn hue_to_rgb01(h: f32) -> (f32, f32, f32) {
-    // Guard against infinity/NaN — treat as 0 (CSS Color Level 4 §12).
+    // Guard against infinity/NaN — treat as 0 (CSS Color Level 4 §4.3, the `<hue>` syntax).
     let h = if h.is_finite() { h } else { 0.0 };
     // Normalize hue to [0, 360).
     let h = ((h % 360.0) + 360.0) % 360.0;

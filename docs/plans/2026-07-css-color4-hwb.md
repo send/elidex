@@ -109,8 +109,13 @@ into this CSS PR.
 ## Slot bookkeeping (PM reconciles SoT)
 
 `#11-css-color4-extended-syntax` is **not fully closed** — it carves down to the
-remaining functions. Suggested post-land disposition: rename/retarget the slot
-to the float-pipeline residue (`lab`/`lch`/`oklab`/`oklch`/`color`) +
-`currentColor`/`<system-color>`, or fold those into
-`#11-color-well-alpha-colorspace`. New sub-note worth tracking: uniform
-`<number>`/`none` polar components across `hsl()`+`hwb()`.
+remaining CSS-parse-grammar residue: the wider-gamut functions
+(`lab`/`lch`/`oklab`/`oklch`/`color`) + `currentColor`/`<system-color>`. That
+residue **stays under `#11-css-color4-extended-syntax`** (it is CSS-parse-grammar
+scope); it merely *shares the float-pipeline dependency* with the form-lane slot
+`#11-color-well-alpha-colorspace` (`<input type=color>` alpha/colorspace/rounding)
+— do **not** fold the grammar residue into that form-lane slot; they are distinct.
+Suggested post-land disposition for PM: retarget `#11-css-color4-extended-syntax`
+to that residue. Also newly folded into its scope by this PR (code comment,
+`color/mod.rs` module doc): uniform bare-`<number>`/`none` polar components across
+`hsl()`+`hwb()` — register that facet on the slot at reconcile time.
