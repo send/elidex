@@ -43,6 +43,23 @@ use elidex_script_session::{
 /// - **Generation-safe**: `source` is a `hecs::Entity` carrying a generation, so
 ///   even a stale read (source despawned) yields a `get::<&FormControlState>`
 ///   `Err`, never a mis-resolved alias.
+/// - **Why a persisted marker, not a returned `(src, dst)` list** (the plan's
+///   "Option A"): the FCS copy runs in the VM *after* `cloneNode` dispatch
+///   returns, but that dispatch (`invoke_dom_api`) yields only a wrapper
+///   (`HandlerOut::Entity`) — the linkage must therefore survive *across* the
+///   dispatch boundary. Threading pairs back would force a clone-specific channel
+///   into the generic handler-return protocol shared by every DOM method; a
+///   per-`dst` component consumed by a clone-specific post-dispatch pass keeps
+///   that concern local and is the exact shape of the CE clone-upgrade re-walk
+///   ([`CustomElementState`]). So the marker is the layer-respecting choice here,
+///   not a fallback.
+/// - **A dom-api-direct clone that never runs the consumer leaves the marker.**
+///   The sole production caller is the VM `cloneNode` shim (which always runs
+///   `apply_clone_form_state`); the only non-consuming callers are this crate's
+///   own clone unit tests (and `elidex-dom-api` can't even build an FCS-bearing
+///   source — it doesn't depend on `elidex-form`, I1). A left-behind marker is
+///   harmless: generation-safe (above), never re-copied (a shallow re-clone does
+///   not propagate it), and auto-removed when its entity despawns.
 /// - **Never in the clone-policy copy-set** (`elidex_ecs`'s `tree_clone` module):
 ///   a subsequent clone of a still-marked entity does not propagate it.
 /// - The consumer walks the clone's shadow-inclusive descendants **plus** every

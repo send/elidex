@@ -271,9 +271,20 @@ VM JS-level (elidex-js `tests_*`), the observable contract:
 
 ## §9 Open review questions
 
-- **O1 — seam B vs A** (§4/§4.1): RESOLVED to **Option B recommended, contingent on the
-  impl-time clone-caller/leak audit**; Option A is the leak-free fallback for any
-  dom-api/parser-internal clone path that can't reach an elidex-form consumer (I1).
+- **O1 — seam B vs A** (§4/§4.1): **RESOLVED to Option B (marker), confirmed at impl.**
+  The clone-caller audit found the only production element-clone path is the VM
+  `cloneNode` shim (importNode/adoptNode unimplemented; `Range.cloneContents` a stub;
+  `extractContents` moves + `create_text`, never element-clones; the parser builds
+  declarative shadows directly) — and it always runs the consumer. Codex PR466 R3
+  observed the marker is left unconsumed by dom-api-direct callers, but those are only
+  this crate's clone unit tests (no non-VM production caller; `elidex-dom-api` can't
+  build an FCS-bearing source, I1) and a left-behind marker is generation-safe. Option A
+  (pairs-return) was **declined**: the FCS copy runs *after* `cloneNode` dispatch, whose
+  `invoke_dom_api` boundary yields only a wrapper, so pairs would have to be threaded
+  through the **generic** handler-return protocol shared by every DOM method — a
+  clone-specific pollution of a shared boundary, strictly worse than a scoped
+  generation-safe component consumed by a clone-specific post-dispatch pass (the CE
+  clone-upgrade re-walk's exact shape). See the `ClonedFrom` doc.
 - **O2 — copy ctor shape** (§5): `from_element`-then-overwrite (keeps non-step fields
   attribute-consistent) vs a dedicated `clone_form_state`. Recommend the former.
 
@@ -319,11 +330,24 @@ plan as the record of the seam choice.
    (`memory/project_open-defer-slots.md`) **at landing** via the PM landing reconcile
    (elidex-review Axis 5 ship-time-registration exception; the landing summary flags it).
    (§5.1.)
-2. If **Option B** chosen: the `ClonedFrom` marker (dom-api component) is transient —
-   attached in the cloner worklist, removed by `apply_clone_form_state` in the same
-   synchronous pass — so it never persists into a subsequent shallow clone and needs
-   **no** clone-policy copy row. No slot; documented in `clone.rs` at the attach site.
-   The `tree_clone.rs` clone-policy enumeration is B1 core (out of lane) → the
-   coordination note is folded into §11 (not a defer slot).
+2. **`#11-fieldset-disabled-dynamic-insert`** (NEW — Codex PR466 R2) — re-derive a
+   control's fieldset-inherited `disabled` when its ancestry changes on insert/move
+   (`handle_insert`), the pre-existing gap that already affects `createElement`'d and
+   moved controls. The clone-time FCS (forced by the I3 detached-read contract) trips
+   the reconciler absence guard, so the clone now shares this gap uniformly rather than
+   dodging it by being FCS-less. The correct fix unifies `disabled` derivation across
+   the create / fieldset-attr-change / IDL-setter / insert paths + move-out re-enable
+   (edge-dense, out of this FCS-copy slice; a lone `handle_insert` patch would be an
+   ad-hoc 5th management path). **Re-eval trigger**: a form/WPT test observing a
+   control's disabled state after insertion under `<fieldset disabled>`. **Re-eval
+   date**: 2026-09. **Registration**: same ship-time ledger registration as slot 1
+   (flagged in the landing summary). (§6, `copy_form_state` doc.)
+3. **Option B (marker) confirmed** (§4.1 / §9 O1; Codex PR466 R3): the transient
+   `ClonedFrom` marker (dom-api component) is attached in the cloner worklist and
+   removed by `apply_clone_form_state` in the same synchronous pass — so it never
+   persists into a subsequent shallow clone and needs **no** clone-policy copy row. No
+   slot; documented in `clone.rs` at the `ClonedFrom` definition. The `tree_clone.rs`
+   clone-policy enumeration is B1 core (out of lane) → the coordination note is folded
+   into §11.
 
-Per-PR ≤3: **1 new slot**. Within budget.
+Per-PR ≤3: **2 new slots** (dirty-checkedness + fieldset-disabled). Within budget.
