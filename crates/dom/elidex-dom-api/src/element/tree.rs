@@ -1002,10 +1002,17 @@ fn serialize_node(
 }
 
 // ---------------------------------------------------------------------------
-// Attribute name validation (WHATWG DOM §5.1)
+// Attribute name validation (WHATWG DOM §1.4 "Name validation")
 // ---------------------------------------------------------------------------
 
-/// Validate an attribute name per the WHATWG DOM spec.
+/// Validate an attribute name against WHATWG DOM §1.4 "valid attribute local
+/// name" (length ≥ 1 and none of: ASCII whitespace, U+0000 NULL, `/`, `=`,
+/// `>`); an invalid name yields an `InvalidCharacterError`.
+///
+/// Whitespace is tested with `char::is_ascii_whitespace` — the spec forbids
+/// only *ASCII* whitespace, so non-ASCII whitespace (NBSP U+00A0, U+2028, …)
+/// is a valid attribute-name character (matching `class_list::validate_token`,
+/// PR178 R4, which reached the same spec-accurate conclusion for tokens).
 pub fn validate_attribute_name(name: &str) -> Result<(), DomApiError> {
     if name.is_empty() {
         return Err(DomApiError {
@@ -1014,7 +1021,7 @@ pub fn validate_attribute_name(name: &str) -> Result<(), DomApiError> {
         });
     }
     for ch in name.chars() {
-        if ch.is_whitespace() || ch == '\0' || ch == '/' || ch == '=' || ch == '>' {
+        if ch.is_ascii_whitespace() || ch == '\0' || ch == '/' || ch == '=' || ch == '>' {
             return Err(DomApiError {
                 kind: DomApiErrorKind::InvalidCharacterError,
                 message: format!("attribute name contains invalid character: {ch:?}"),

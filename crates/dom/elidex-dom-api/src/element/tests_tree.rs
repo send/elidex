@@ -538,9 +538,30 @@ fn validate_attr_name_rejects_empty() {
 }
 
 #[test]
-fn validate_attr_name_rejects_whitespace() {
-    let err = validate_attribute_name("a b").unwrap_err();
-    assert_eq!(err.kind, DomApiErrorKind::InvalidCharacterError);
+fn validate_attr_name_rejects_ascii_whitespace() {
+    // DOM §1.4 forbids ASCII whitespace = {space, tab, LF, FF, CR}.
+    for ws in ["a b", "a\tb", "a\nb", "a\u{000C}b", "a\rb"] {
+        let err = validate_attribute_name(ws).unwrap_err();
+        assert_eq!(
+            err.kind,
+            DomApiErrorKind::InvalidCharacterError,
+            "expected reject for {ws:?}"
+        );
+    }
+}
+
+#[test]
+fn validate_attr_name_accepts_non_ascii_whitespace() {
+    // §1.4 forbids only *ASCII* whitespace; non-ASCII whitespace (NBSP,
+    // U+2028, ideographic space) is a valid attribute-name character.
+    // Regression: a Codex P2 on the dataset setter step-4 reuse — Rust
+    // `char::is_whitespace()` had over-rejected these.
+    for ok in ["a\u{00A0}b", "a\u{2028}b", "a\u{3000}b"] {
+        assert!(
+            validate_attribute_name(ok).is_ok(),
+            "expected accept for {ok:?}"
+        );
+    }
 }
 
 #[test]

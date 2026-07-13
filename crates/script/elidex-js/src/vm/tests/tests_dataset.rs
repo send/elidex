@@ -246,17 +246,52 @@ fn dataset_in_operator_inherited_methods_visible() {
     assert_eq!(out, "true/true/true");
 }
 
-// --- WebIDL §3.10 LegacyOverrideBuiltIns absent (R5 #1) ----------
+// --- setter name validation (§3.2.6.6 setter steps 1 & 4) --------
+
+#[test]
+fn dataset_set_dash_lower_throws_syntax_error() {
+    // HTML §3.2.6.6 DOMStringMap setter step 1: a property name with a `-`
+    // followed by an ASCII lower alpha has no round-tripping `data-*` form and
+    // throws a "SyntaxError" DOMException.
+    let out = run("var d = document.createElement('div'); \
+         try { d.dataset['foo-bar'] = 'x'; 'no-throw'; } \
+         catch (e) { e.name; }");
+    assert_eq!(out, "SyntaxError");
+}
+
+#[test]
+fn dataset_set_space_throws_invalid_character_error() {
+    // HTML §3.2.6.6 setter step 4: the derived `data-*` name must be a valid
+    // attribute local name (DOM §1.4); an embedded space is invalid →
+    // "InvalidCharacterError".
+    let out = run("var d = document.createElement('div'); \
+         try { d.dataset['a b'] = 'x'; 'no-throw'; } \
+         catch (e) { e.name; }");
+    assert_eq!(out, "InvalidCharacterError");
+}
+
+#[test]
+fn dataset_set_equals_throws_invalid_character_error() {
+    let out = run("var d = document.createElement('div'); \
+         try { d.dataset['a=b'] = 'x'; 'no-throw'; } \
+         catch (e) { e.name; }");
+    assert_eq!(out, "InvalidCharacterError");
+}
+
+// --- DOMStringMap named-property visibility (current behavior) ----
 //
-// DOMStringMap is *not* `[LegacyOverrideBuiltIns]`; a `data-*`
-// attribute whose camelCase key collides with an `Object.prototype`
-// member MUST NOT shadow the inherited member — the named-property
-// exotic [[Get]] / [[HasProperty]] / [[Delete]] / [[Set]] /
-// [[OwnPropertyKeys]] traps fall through to the ordinary path.
-// Tests use kebab-case attribute names (`data-to-string`) since
-// HTML attribute storage lowercases names; the camel-conversion
-// (`data-to-string` → `toString`) is what materialises the
-// prototype-collision case.
+// ⚠ KNOWN SPEC-DIVERGENCE — the tests below pin the CURRENT non-override
+// behavior, which is WRONG: DOMStringMap IS `[LegacyOverrideBuiltIns]`
+// (WHATWG HTML IDL, verified against Chrome 148), so a `data-*` attribute
+// whose camelCase key collides with an `Object.prototype` member DOES
+// override it — `dataset.toString` with `data-to-string` set returns the
+// attribute value, `Object.keys` includes it, and `dataset.toString = 'x'`
+// creates the attribute.  (The earlier Codex "R5 #1" review reached the
+// opposite, incorrect conclusion.)  Inverting the `host/dataset.rs`
+// `key_on_prototype_chain` guards changes VM named-property dispatch across
+// all five traps + the deleter's supported-name gating + the uppercase
+// getter path (edge-dense) → deferred to the plan-review-gated slot
+// `#11-domstringmap-legacy-override-builtins`, where these tests are inverted.
 
 #[test]
 fn dataset_does_not_shadow_object_prototype_to_string() {
