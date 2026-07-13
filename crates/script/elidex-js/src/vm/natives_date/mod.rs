@@ -304,6 +304,12 @@ fn native_date_set_milliseconds(
 ) -> Result<JsValue, VmError> {
     let (id, t) = date_this(ctx, this)?;
     let ms = arg_num(ctx, args, 0)?;
+    // §21.4.4.23: after coercing args, an Invalid Date returns NaN WITHOUT
+    // rewriting [[DateValue]] — so a ToNumber side effect (e.g. a `valueOf`
+    // that called `setTime`) stays observable rather than being clobbered.
+    if t.is_nan() {
+        return Ok(JsValue::Number(f64::NAN));
+    }
     let time = make_time(hour_from_time(t), min_from_time(t), sec_from_time(t), ms);
     store(ctx, id, time_clip(make_date(day(t), time)))
 }
@@ -317,6 +323,9 @@ fn native_date_set_seconds(
     let (id, t) = date_this(ctx, this)?;
     let sec = arg_num(ctx, args, 0)?;
     let ms = opt_num(ctx, args, 1, ms_from_time(t))?;
+    if t.is_nan() {
+        return Ok(JsValue::Number(f64::NAN)); // Invalid Date: NaN, don't rewrite slot
+    }
     let time = make_time(hour_from_time(t), min_from_time(t), sec, ms);
     store(ctx, id, time_clip(make_date(day(t), time)))
 }
@@ -331,6 +340,9 @@ fn native_date_set_minutes(
     let min = arg_num(ctx, args, 0)?;
     let sec = opt_num(ctx, args, 1, sec_from_time(t))?;
     let ms = opt_num(ctx, args, 2, ms_from_time(t))?;
+    if t.is_nan() {
+        return Ok(JsValue::Number(f64::NAN)); // Invalid Date: NaN, don't rewrite slot
+    }
     let time = make_time(hour_from_time(t), min, sec, ms);
     store(ctx, id, time_clip(make_date(day(t), time)))
 }
@@ -346,6 +358,9 @@ fn native_date_set_hours(
     let min = opt_num(ctx, args, 1, min_from_time(t))?;
     let sec = opt_num(ctx, args, 2, sec_from_time(t))?;
     let ms = opt_num(ctx, args, 3, ms_from_time(t))?;
+    if t.is_nan() {
+        return Ok(JsValue::Number(f64::NAN)); // Invalid Date: NaN, don't rewrite slot
+    }
     let time = make_time(hour, min, sec, ms);
     store(ctx, id, time_clip(make_date(day(t), time)))
 }
@@ -358,6 +373,9 @@ fn native_date_set_date(
 ) -> Result<JsValue, VmError> {
     let (id, t) = date_this(ctx, this)?;
     let dt = arg_num(ctx, args, 0)?;
+    if t.is_nan() {
+        return Ok(JsValue::Number(f64::NAN)); // Invalid Date: NaN, don't rewrite slot
+    }
     let new_day = make_day(year_from_time(t), month_from_time(t), dt);
     store(ctx, id, time_clip(make_date(new_day, time_within_day(t))))
 }
@@ -371,6 +389,9 @@ fn native_date_set_month(
     let (id, t) = date_this(ctx, this)?;
     let mo = arg_num(ctx, args, 0)?;
     let dt = opt_num(ctx, args, 1, date_from_time(t))?;
+    if t.is_nan() {
+        return Ok(JsValue::Number(f64::NAN)); // Invalid Date: NaN, don't rewrite slot
+    }
     let new_day = make_day(year_from_time(t), mo, dt);
     store(ctx, id, time_clip(make_date(new_day, time_within_day(t))))
 }
@@ -416,22 +437,19 @@ fn native_date_to_json(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    // §21.4.4.37 — generic (works on any object): `ToPrimitive(this, number)`
-    // for the finiteness gate, then `Invoke(this, "toISOString")`, honoring a
-    // user-overridden `toISOString` rather than reading `[[DateValue]]` +
-    // formatting directly.
-    let JsValue::Object(obj_id) = this else {
-        return Err(VmError::type_error(
-            "Date.prototype.toJSON called on a non-object receiver",
-        ));
-    };
-    let tv = ctx.vm.to_primitive(this, "number")?;
+    // §21.4.4.37 — generic: ToObject(this) (boxing a primitive receiver), then
+    // ToPrimitive(O, number) for the finiteness gate, then Invoke(O,
+    // "toISOString") (honoring a user-overridden toISOString) — NOT a direct
+    // [[DateValue]] read.
+    let obj_id = super::coerce::to_object(ctx.vm, this)?;
+    let receiver = JsValue::Object(obj_id);
+    let tv = ctx.vm.to_primitive(receiver, "number")?;
     if matches!(tv, JsValue::Number(n) if !n.is_finite()) {
         return Ok(JsValue::Null);
     }
     let iso_key = PropertyKey::String(ctx.intern("toISOString"));
     let method = ctx.get_property_value(obj_id, iso_key)?;
-    ctx.call_value(method, this, &[])
+    ctx.call_value(method, receiver, &[])
 }
 
 macro_rules! date_stringifier {

@@ -292,3 +292,30 @@ fn locale_methods_exist() {
 // path (`#11-vm-native-fn-generic-invocation`) — only the interpreter's
 // inherited-method fast path reaches the builtin. Once that lands, assert
 // `Object.prototype.toString.call(new Date()) === "[object Date]"`.
+
+#[test]
+fn tojson_boxes_primitive_receiver() {
+    // Codex R2 #8 (§21.4.4.37): toJSON applies ToObject(this), so a primitive
+    // receiver is boxed and its (overridden) toISOString is invoked.
+    assert_eq!(
+        eval_string(
+            "(() => { Number.prototype.toISOString = () => 'ok'; \
+             return Date.prototype.toJSON.call(5); })()"
+        ),
+        "ok"
+    );
+}
+
+#[test]
+fn invalid_date_setter_preserves_side_effects() {
+    // Codex R2 #9 (§21.4.4.23): a non-reviving setter on an Invalid Date coerces
+    // its argument (running side effects) then returns NaN WITHOUT rewriting
+    // [[DateValue]] — so a valueOf that revived the date via setTime persists.
+    assert!(eval_bool(
+        "(() => { const d = new Date(NaN); \
+         d.setMilliseconds({ valueOf() { d.setTime(0); return 1; } }); \
+         return d.getTime() === 0; })()"
+    ));
+    // The setter still returns NaN for the Invalid Date.
+    assert!(eval_bool("isNaN(new Date(NaN).setSeconds(5))"));
+}

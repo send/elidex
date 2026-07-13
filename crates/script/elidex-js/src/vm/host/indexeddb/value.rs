@@ -188,14 +188,15 @@ fn js_to_idb_key_depth(
     }
 }
 
-/// W3C IDB §7.3 "convert a key to a value": `IdbKey` → `JsValue`.  `Date`
-/// keys (which JS cannot currently produce) degrade to their numeric ms
-/// value.
+/// W3C IDB §7.3 "convert a key to a value": `IdbKey` → `JsValue`.  A `Date`
+/// key converts by running the ECMAScript Date constructor → a `Date` object
+/// (so `getKey()` / cursor / key-range getters round-trip a date key).
 pub(crate) fn idb_key_to_js(vm: &mut VmInner, key: &elidex_indexeddb::IdbKey) -> JsValue {
     match key {
-        elidex_indexeddb::IdbKey::Number(n) | elidex_indexeddb::IdbKey::Date(n) => {
-            JsValue::Number(*n)
-        }
+        elidex_indexeddb::IdbKey::Number(n) => JsValue::Number(*n),
+        // §7.3: a date key becomes a Date object carrying that [[DateValue]],
+        // not the raw ms number.
+        elidex_indexeddb::IdbKey::Date(n) => JsValue::Object(vm.create_date(*n)),
         elidex_indexeddb::IdbKey::String(s) => JsValue::String(vm.strings.intern(s)),
         elidex_indexeddb::IdbKey::Array(items) => {
             let elems: Vec<JsValue> = items.iter().map(|k| idb_key_to_js(vm, k)).collect();

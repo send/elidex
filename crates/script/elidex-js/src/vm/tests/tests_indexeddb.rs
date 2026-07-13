@@ -701,6 +701,31 @@ fn add_date_value_throws_data_clone_error() {
 }
 
 #[test]
+fn date_key_reads_back_as_date_object() {
+    with_vm(|vm| {
+        // Codex R2 #7 / §7.3: a stored Date key reads back as a Date object
+        // (via idb_key_to_js), not the raw ms Number.
+        vm.eval(
+            "globalThis.__log = [];
+             const open = indexedDB.open('db_date_rk', 1);
+             open.onupgradeneeded = (e) => { e.target.result.createObjectStore('s'); };
+             open.onsuccess = (e) => {
+                 const tx = e.target.result.transaction(['s'], 'readwrite');
+                 const store = tx.objectStore('s');
+                 store.add('v', new Date(1000));
+                 const cur = store.openCursor();
+                 cur.onsuccess = () => {
+                     const c = cur.result;
+                     if (c) { __log.push(c.key instanceof Date); __log.push(c.key.getTime()); }
+                 };
+             };",
+        )
+        .unwrap();
+        assert_eq!(eval_string(vm, "globalThis.__log.join(',')"), "true,1000");
+    });
+}
+
+#[test]
 fn add_with_explicit_key_on_inline_store_throws_sync_data_error() {
     with_vm(|vm| {
         // R9 #1 / §10.2.4: providing an explicit key to an inline-key store is
