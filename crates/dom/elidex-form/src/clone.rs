@@ -133,14 +133,20 @@ fn copy_form_state(dom: &mut EcsDom, source: Entity, dst: Entity) {
         d.update_char_count();
     }
 
-    // Re-sync the `:checked` ElementState flag to the *overlaid* checkedness
-    // (inputs only — a textarea is never checked). `create_form_control_state`
-    // derived the flag from the `checked` content attribute, but the cloning
-    // steps propagate the live checkedness, which differs for a dirtied checkbox
-    // (checked without the attribute, or unchecked with it).
+    // Re-sync the `:checked` and `:indeterminate` ElementState flags to the
+    // *overlaid* state (inputs only — a textarea is never checked/indeterminate),
+    // so the selector engine's `:checked` / `:indeterminate` reads stay consistent
+    // with the copied `FormControlState`. `create_form_control_state` derived
+    // `:checked` from the `checked` content attribute and `:indeterminate` as
+    // `false` (it has no content attribute), but the cloning steps propagate the
+    // live checkedness (differs for a dirtied checkbox) and the live
+    // indeterminateness (a JS-only property), so both bits must be re-set here or
+    // a cloned control reads e.g. `.indeterminate === true` yet
+    // `matches(':indeterminate') === false` (Codex PR466 R5).
     if kind != FormControlKind::TextArea {
         if let Ok(mut es) = dom.world_mut().get::<&mut ElementState>(dst) {
             es.set(ElementState::CHECKED, checked);
+            es.set(ElementState::INDETERMINATE, indeterminate);
         }
     }
 }
@@ -211,10 +217,16 @@ mod tests {
         let d = dom.world().get::<&FormControlState>(dst).unwrap();
         assert!(d.checked);
         assert!(d.indeterminate);
-        // :checked ElementState flag re-synced to the live checkedness even
-        // though the clone has no `checked` content attribute.
+        // :checked / :indeterminate ElementState flags re-synced to the live
+        // state even though the clone has no `checked` content attribute and
+        // `indeterminate` has no content attribute at all — so the selector
+        // engine's `:checked` / `:indeterminate` reads match the copied FCS.
         let es = dom.world().get::<&ElementState>(dst).unwrap();
         assert!(es.contains(ElementState::CHECKED));
+        assert!(
+            es.contains(ElementState::INDETERMINATE),
+            ":indeterminate must mirror the copied indeterminateness (Codex PR466 R5)"
+        );
     }
 
     #[test]

@@ -89,6 +89,20 @@ fn clone_checkbox_copies_indeterminateness() {
 }
 
 #[test]
+fn clone_indeterminate_input_matches_indeterminate_pseudo_class() {
+    // The copied indeterminateness must also mirror the `:indeterminate`
+    // ElementState bit the selector engine reads — else `c.indeterminate` and
+    // `c.matches(':indeterminate')` disagree and styling goes stale (Codex R5).
+    let out = run(
+        "var i = document.createElement('input'); i.type = 'checkbox'; \
+         i.indeterminate = true; \
+         var c = i.cloneNode(); \
+         String(c.indeterminate) + ',' + String(c.matches(':indeterminate'));",
+    );
+    assert_eq!(out, "true,true");
+}
+
+#[test]
 fn clone_textarea_copies_raw_value() {
     let out = run("var t = document.createElement('textarea'); \
          t.value = 'raw text'; \
