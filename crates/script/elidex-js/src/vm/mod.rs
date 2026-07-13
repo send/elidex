@@ -30,6 +30,7 @@ pub(crate) mod ic;
 mod init;
 mod inner;
 pub mod interpreter;
+mod lifecycle;
 mod native_context;
 mod natives;
 mod natives_array;
