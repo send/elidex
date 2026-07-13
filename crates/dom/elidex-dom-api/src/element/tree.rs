@@ -1005,14 +1005,14 @@ fn serialize_node(
 // Attribute name validation (WHATWG DOM §1.4 "Name validation")
 // ---------------------------------------------------------------------------
 
-/// Validate an attribute name, per WHATWG DOM §1.4 "Name validation"; an
-/// invalid name yields an `InvalidCharacterError`.
+/// Validate an attribute name against WHATWG DOM §1.4 "valid attribute local
+/// name" (length ≥ 1 and none of: ASCII whitespace, U+0000 NULL, `/`, `=`,
+/// `>`); an invalid name yields an `InvalidCharacterError`.
 ///
-/// NOTE: this rejects Rust `char::is_whitespace()` (the Unicode `White_Space`
-/// set) rather than only the spec's ASCII whitespace, so a handful of
-/// non-ASCII spaces (NBSP, U+2028, …) are over-rejected — a pre-existing,
-/// extreme-edge divergence shared with `setAttribute`, tracked for a focused
-/// fix rather than widened here.
+/// Whitespace is tested with `char::is_ascii_whitespace` — the spec forbids
+/// only *ASCII* whitespace, so non-ASCII whitespace (NBSP U+00A0, U+2028, …)
+/// is a valid attribute-name character (matching `class_list::validate_token`,
+/// PR178 R4, which reached the same spec-accurate conclusion for tokens).
 pub fn validate_attribute_name(name: &str) -> Result<(), DomApiError> {
     if name.is_empty() {
         return Err(DomApiError {
@@ -1021,7 +1021,7 @@ pub fn validate_attribute_name(name: &str) -> Result<(), DomApiError> {
         });
     }
     for ch in name.chars() {
-        if ch.is_whitespace() || ch == '\0' || ch == '/' || ch == '=' || ch == '>' {
+        if ch.is_ascii_whitespace() || ch == '\0' || ch == '/' || ch == '=' || ch == '>' {
             return Err(DomApiError {
                 kind: DomApiErrorKind::InvalidCharacterError,
                 message: format!("attribute name contains invalid character: {ch:?}"),

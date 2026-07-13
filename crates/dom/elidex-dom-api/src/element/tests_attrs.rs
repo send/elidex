@@ -420,6 +420,27 @@ fn dataset_set_rejects_invalid_attribute_char() {
 }
 
 #[test]
+fn dataset_set_non_ascii_whitespace_key_is_stored() {
+    // Step 4 forbids only *ASCII* whitespace (DOM §1.4); a key with non-ASCII
+    // whitespace (NBSP) is a valid attribute local name and is stored, not
+    // rejected. Regression for the Codex P2 on the step-4 validator reuse.
+    let (mut dom, parent, _, mut session) = setup();
+    DatasetSet
+        .invoke(
+            parent,
+            &[
+                JsValue::String("a\u{00A0}b".into()),
+                JsValue::String("v".into()),
+            ],
+            &mut session,
+            &mut dom,
+        )
+        .unwrap();
+    let attrs = dom.world().get::<&Attributes>(parent).unwrap();
+    assert_eq!(attrs.get("data-a\u{00A0}b"), Some("v"));
+}
+
+#[test]
 fn dataset_set_uppercase_key_round_trips() {
     // A camelCase key with an uppercase letter is valid (step 2 folds it to
     // `-` + lowercase); it stores `data-foo-bar` and re-enumerates as `fooBar`.
