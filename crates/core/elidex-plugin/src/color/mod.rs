@@ -2,7 +2,16 @@
 //!
 //! Supports named colors (CSS Color Level 4, all 148), hex notation
 //! (`#RGB`, `#RRGGBB`, `#RGBA`, `#RRGGBBAA`), `rgb()`/`rgba()`,
-//! `hsl()`/`hsla()`, and the `transparent` keyword.
+//! `hsl()`/`hsla()`, `hwb()`, and the `transparent` keyword.
+//!
+//! Polar-notation components (`hsl()` saturation/lightness, `hwb()`
+//! whiteness/blackness) are percentage-only; bare `<number>` components and the
+//! `none` keyword are deferred as one uniform CSS Color 4 extension across the
+//! polar functions (added to all at once, not bolted onto a single one). The
+//! wider-gamut functions `lab()`/`lch()`/`oklab()`/`oklch()`/`color()` and the
+//! context-dependent keywords `currentColor`/`<system-color>` need the CSS
+//! Color 4 float pipeline / used-value resolution and are out of scope here
+//! (`#11-css-color4-extended-syntax`).
 
 use cssparser::{Parser, ParserInput};
 
@@ -191,7 +200,7 @@ fn named_color_lower(lower: &str) -> Option<CssColor> {
 /// Parse a CSS color value from a cssparser token stream.
 ///
 /// Supports: named colors, hex (`#RGB`, `#RRGGBB`, `#RGBA`, `#RRGGBBAA`),
-/// `rgb()`, `rgba()`, and `transparent`.
+/// `rgb()`/`rgba()`, `hsl()`/`hsla()`, `hwb()`, and `transparent`.
 #[allow(clippy::result_unit_err)] // cssparser convention: Parser methods return Result<T, ()>.
 pub fn parse_color(input: &mut Parser) -> Result<CssColor, ()> {
     let token = input.next().map_err(|_| ())?;
@@ -217,6 +226,11 @@ pub fn parse_color(input: &mut Parser) -> Result<CssColor, ()> {
                 "hsl" | "hsla" => input
                     .parse_nested_block(|i| {
                         parse_hsl_function(i).map_err(|()| i.new_custom_error(()))
+                    })
+                    .map_err(|_: cssparser::ParseError<'_, ()>| ()),
+                "hwb" => input
+                    .parse_nested_block(|i| {
+                        parse_hwb_function(i).map_err(|()| i.new_custom_error(()))
                     })
                     .map_err(|_: cssparser::ParseError<'_, ()>| ()),
                 _ => Err(()),
@@ -335,6 +349,37 @@ fn clamp_u8(v: f32) -> u8 {
     v.round().clamp(0.0, 255.0) as u8
 }
 
+/// Pure hue → sRGB sextant at full chroma (C = 1), components in `[0, 1]`.
+///
+/// The hue-only half of the HSL/HWB conversions, factored out so both share one
+/// sextant implementation (One-issue-one-way). `hsl_to_rgb` scales this by the
+/// chroma `C` and adds the lightness offset `m`; `hwb_to_rgb` mixes it with
+/// whiteness/blackness. Non-finite hue is treated as 0 and the value is
+/// normalized to `[0, 360)` (CSS Color Level 4 §12).
+#[allow(clippy::many_single_char_names)] // h/x are standard color-model notation.
+fn hue_to_rgb01(h: f32) -> (f32, f32, f32) {
+    // Guard against infinity/NaN — treat as 0 (CSS Color Level 4 §12).
+    let h = if h.is_finite() { h } else { 0.0 };
+    // Normalize hue to [0, 360).
+    let h = ((h % 360.0) + 360.0) % 360.0;
+    let h_prime = h / 60.0;
+    // `x` at C = 1 (the general-chroma `x` is this scaled by C).
+    let x = 1.0 - (h_prime % 2.0 - 1.0).abs();
+    if h_prime < 1.0 {
+        (1.0, x, 0.0)
+    } else if h_prime < 2.0 {
+        (x, 1.0, 0.0)
+    } else if h_prime < 3.0 {
+        (0.0, 1.0, x)
+    } else if h_prime < 4.0 {
+        (0.0, x, 1.0)
+    } else if h_prime < 5.0 {
+        (x, 0.0, 1.0)
+    } else {
+        (1.0, 0.0, x)
+    }
+}
+
 /// Convert HSL to RGB (CSS Color Level 4 algorithm).
 ///
 /// - `h`: hue in degrees (0–360, wraps around)
@@ -342,37 +387,39 @@ fn clamp_u8(v: f32) -> u8 {
 /// - `l`: lightness (0.0–1.0)
 #[allow(clippy::many_single_char_names)] // h/s/l are standard HSL color model notation.
 fn hsl_to_rgb(h: f32, s: f32, l: f32) -> (u8, u8, u8) {
-    // Guard against infinity/NaN — treat as 0 (CSS Color Level 4 §12).
-    let h = if h.is_finite() { h } else { 0.0 };
-    // Normalize hue to [0, 360).
-    let h = ((h % 360.0) + 360.0) % 360.0;
     let s = s.clamp(0.0, 1.0);
     let l = l.clamp(0.0, 1.0);
 
+    let (r, g, b) = hue_to_rgb01(h);
     let c = (1.0 - (2.0 * l - 1.0).abs()) * s;
-    let h_prime = h / 60.0;
-    let x = c * (1.0 - (h_prime % 2.0 - 1.0).abs());
-
-    let (r1, g1, b1) = if h_prime < 1.0 {
-        (c, x, 0.0)
-    } else if h_prime < 2.0 {
-        (x, c, 0.0)
-    } else if h_prime < 3.0 {
-        (0.0, c, x)
-    } else if h_prime < 4.0 {
-        (0.0, x, c)
-    } else if h_prime < 5.0 {
-        (x, 0.0, c)
-    } else {
-        (c, 0.0, x)
-    };
-
     let m = l - c / 2.0;
     (
-        clamp_u8((r1 + m) * 255.0),
-        clamp_u8((g1 + m) * 255.0),
-        clamp_u8((b1 + m) * 255.0),
+        clamp_u8((r * c + m) * 255.0),
+        clamp_u8((g * c + m) * 255.0),
+        clamp_u8((b * c + m) * 255.0),
     )
+}
+
+/// Convert HWB to sRGB (CSS Color Level 4 §8.1 `hwbToRgb`).
+///
+/// - `h`: hue in degrees (normalized inside `hue_to_rgb01`)
+/// - `w`: whiteness in `[0, 1]`
+/// - `blackness`: blackness in `[0, 1]`
+///
+/// When `w + blackness ≥ 1` the color is achromatic (a shade of grey
+/// `w / (w + blackness)`, the hue is powerless); otherwise the pure hue is
+/// mixed toward white by `w` over the `1 − w − blackness` span.
+#[allow(clippy::many_single_char_names)] // h/w are standard HWB color model notation.
+fn hwb_to_rgb(h: f32, w: f32, blackness: f32) -> (u8, u8, u8) {
+    if w + blackness >= 1.0 {
+        // Achromatic: R = G = B = whiteness / (whiteness + blackness).
+        let grey = clamp_u8((w / (w + blackness)) * 255.0);
+        return (grey, grey, grey);
+    }
+    let (r, g, b) = hue_to_rgb01(h);
+    let span = 1.0 - w - blackness;
+    let mix = |channel: f32| clamp_u8((channel * span + w) * 255.0);
+    (mix(r), mix(g), mix(b))
 }
 
 /// Parse a hue value: `<number>` or `<angle>` (deg/grad/rad/turn).
@@ -433,6 +480,35 @@ fn parse_hsl_function(input: &mut Parser) -> Result<CssColor, ()> {
             255
         }
     } else if input
+        .try_parse(|i| i.expect_delim('/').map_err(|_| ()))
+        .is_ok()
+    {
+        parse_alpha_component(input)?
+    } else {
+        255
+    };
+
+    Ok(CssColor::new(r, g, b, a))
+}
+
+/// Parse the contents of `hwb(h w% b%)` or `hwb(h w% b% / a)` (CSS Color 4 §8).
+///
+/// Space-separated only: `hwb()` is new in CSS Color 4 and has **no** legacy
+/// comma syntax — commas inside `hwb()` are an error. Whiteness and blackness
+/// are `<percentage>` clamped to `[0%, 100%]`, matching the engine's
+/// percentage-only polar-component surface (`hsl()`); bare `<number>`
+/// components and the `none` keyword are deferred as a uniform polar-function
+/// extension (see the module docs), not added to `hwb()` in isolation.
+#[allow(clippy::many_single_char_names)] // h/w/b are standard HWB color model notation.
+fn parse_hwb_function(input: &mut Parser) -> Result<CssColor, ()> {
+    let h = parse_hue(input)?;
+    let w = parse_percentage_unit_value(input)?;
+    let blackness = parse_percentage_unit_value(input)?;
+
+    let (r, g, b) = hwb_to_rgb(h, w, blackness);
+
+    // Optional alpha via the modern `/ <alpha>` form only (no legacy comma).
+    let a = if input
         .try_parse(|i| i.expect_delim('/').map_err(|_| ()))
         .is_ok()
     {
