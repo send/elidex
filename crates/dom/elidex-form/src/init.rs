@@ -96,6 +96,34 @@ pub fn create_form_control_state(dom: &mut EcsDom, entity: Entity) -> bool {
     true
 }
 
+/// Collect `root`'s shadow-inclusive descendants **plus** the shadow-inclusive
+/// descendants of every `<template>`'s content fragment, to a fixpoint (templates
+/// nest).
+///
+/// [`EcsDom::for_each_shadow_inclusive_descendant`] alone does NOT reach a
+/// `<template>`'s contents — a detached `DocumentFragment` (HTML §4.12.3) — but a
+/// JS-created form control moved into `template.content` keeps its
+/// `FormControlState` (created at `createElement` time), so any FCS-touching
+/// walk that must cover template-encapsulated controls (parse-into-inert-document
+/// FCS attach; the clone form-state copy) has to add the template-content
+/// frontier itself. The whole-page parse path instead reaches these via a
+/// whole-world `init_form_controls` query.
+pub(crate) fn collect_template_inclusive_descendants(dom: &EcsDom, root: Entity) -> Vec<Entity> {
+    let mut out: Vec<Entity> = Vec::new();
+    let mut roots = vec![root];
+    while let Some(r) = roots.pop() {
+        let mut found: Vec<Entity> = Vec::new();
+        dom.for_each_shadow_inclusive_descendant(r, &mut |e| found.push(e));
+        for &e in &found {
+            if let Some(fragment) = dom.template_contents_fragment(e) {
+                roots.push(fragment);
+            }
+        }
+        out.extend(found);
+    }
+    out
+}
+
 /// Apply post-creation initialization: textarea text content, select options, element state.
 fn finalize_control(dom: &mut EcsDom, entity: Entity, state: &mut FormControlState) {
     // For <textarea>, read initial value from first child text content.

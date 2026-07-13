@@ -45,15 +45,15 @@ use elidex_script_session::{
 ///   `Err`, never a mis-resolved alias.
 /// - **Never in the clone-policy copy-set** (`elidex_ecs`'s `tree_clone` module):
 ///   a subsequent clone of a still-marked entity does not propagate it.
-/// - The consumer re-walks `for_each_shadow_inclusive_descendant(clone_root)` —
-///   the exact walker the reconciler (`handle_insert`) and the CE clone-pass
-///   (`apply_clone_creation_ce_semantics`) use. That walker does not descend into
-///   a `<template>`'s content fragment; a marker left on a deep-clone-of-`<template>`
-///   inert content control is a genuine no-op (template contents are inert and
-///   never carry a `FormControlState` to copy — the reconciler never materializes
-///   one there), is never read (the sole reader's walk does not reach it), and is
-///   auto-removed when its entity despawns. This mirrors the accepted CE-precedent
-///   behaviour exactly.
+/// - The consumer walks the clone's shadow-inclusive descendants **plus** every
+///   `<template>`'s content fragment (`elidex_form`'s
+///   `collect_template_inclusive_descendants`), so every marker attached here —
+///   light-tree, shadow-encapsulated, and template-encapsulated — is read and
+///   removed in the same synchronous pass. Template contents must be included:
+///   a JS-created `<input>`/`<textarea>` moved into `template.content` keeps the
+///   `FormControlState` it got at creation, so a deep clone of that template has
+///   a live value to copy (a plain `for_each_shadow_inclusive_descendant` does
+///   not reach the detached content fragment).
 #[derive(Clone, Copy, Debug)]
 pub struct ClonedFrom {
     /// The source entity `dst` was cloned from — the node whose live

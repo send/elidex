@@ -137,6 +137,21 @@ fn clone_shadow_inclusive_copies_encapsulated_input_value() {
 }
 
 #[test]
+fn clone_deep_copies_template_encapsulated_input_value() {
+    // A JS-created <input> keeps the FormControlState it got at createElement
+    // time when moved into template.content; a deep clone of the <template> must
+    // copy its live value — the walk descends into template contents, not just
+    // shadow-inclusive descendants (Codex PR466 R1).
+    let out = run("var t = document.createElement('template'); \
+         var i = document.createElement('input'); \
+         i.value = 'tmpl-val'; \
+         t.content.appendChild(i); \
+         var c = t.cloneNode(true); \
+         c.content.querySelector('input').value;");
+    assert_eq!(out, "tmpl-val");
+}
+
+#[test]
 fn clone_default_value_input_reads_empty() {
     // No live edit, no `value` attribute: the clone's value is the default
     // (empty), same as the source — no spurious state.

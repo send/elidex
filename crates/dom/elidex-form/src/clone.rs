@@ -25,28 +25,28 @@ use crate::{create_form_control_state, FormControlKind, FormControlState};
 /// Run the form-control cloning steps over the freshly cloned subtree rooted at
 /// `clone_root` (WHATWG HTML §4.10.5 / §4.10.11).
 ///
-/// Re-walks the clone's shadow-inclusive descendants — the exact walker the
-/// reconciler (`handle_insert`) and the custom-element clone-pass
-/// (`apply_clone_creation_ce_semantics`) use — and, for every entity the cloner
-/// tagged with a [`ClonedFrom`] marker, copies the source's cloning-step form
-/// state onto the clone, then removes the marker.
+/// Walks the clone's shadow-inclusive descendants **plus** every `<template>`'s
+/// content fragment (`collect_template_inclusive_descendants`) and, for every
+/// entity the cloner tagged with a [`ClonedFrom`] marker, copies the source's
+/// cloning-step form state onto the clone, then removes the marker.
 ///
 /// It creates the clone's `FormControlState` **at clone time**, so the
 /// insert-time reconciler's absence guard then *skips* the clone (it does not
 /// overwrite the copied state), and a never-inserted detached clone already
 /// reads correctly.
 ///
-/// The shadow-inclusive walk deliberately does not descend into a `<template>`'s
-/// content fragment — matching the reconciler and CE clone-pass — so a marker on
-/// an inert template-content control clone is not swept here; that is the
-/// documented, harmless exception ([`ClonedFrom`]): template contents carry no
-/// `FormControlState` to copy, the marker is never read, and it is auto-removed
-/// on despawn.
+/// The walk must include template contents: the cloner marks `<input>` /
+/// `<textarea>` clones inside a deep-cloned `<template>`'s content too, and a
+/// JS-created control moved into `template.content` keeps its `FormControlState`
+/// (`for_each_shadow_inclusive_descendant` alone does not reach the detached
+/// content fragment) — so a template-only walk would both drop that live value
+/// and leave the marker unswept.
 pub fn apply_clone_form_state(dom: &mut EcsDom, clone_root: Entity) {
-    // Two-phase (mirrors the reconciler): the shadow-inclusive walker borrows
-    // `&self`, but the copy below needs `&mut` — so collect first, mutate after.
-    let mut subtree = Vec::new();
-    dom.for_each_shadow_inclusive_descendant(clone_root, &mut |e| subtree.push(e));
+    // Two-phase (the walker borrows `&self`, the copy below needs `&mut`):
+    // collect first, mutate after. The frontier includes each `<template>`'s
+    // content fragment so the coverage matches the cloner's marker attach (no
+    // marker left unswept, no encapsulated control's value dropped).
+    let subtree = crate::init::collect_template_inclusive_descendants(dom, clone_root);
 
     for dst in subtree {
         let Some(source) = dom
