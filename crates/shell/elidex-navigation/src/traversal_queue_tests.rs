@@ -273,6 +273,49 @@ fn i2_multiple_traversals_preserve_issue_order() {
     );
 }
 
+#[test]
+fn i2_new_sync_defers_behind_a_traversal_queued_last_turn() {
+    // CROSS-TURN I2 (Codex PR#464 R2): under the split entry points the queue
+    // persists across turns. A traversal queued by a PRIOR turn's Phase 1 (Phase 2
+    // not yet drained) must NOT be overtaken by THIS turn's fresh `pushState` — the
+    // single-FIFO ordering holds across turns, not just within one batch.
+    let mut host = MockHost::new(vec![push("/x")]);
+    // Simulate a prior turn having deferred a `back()` traversal still awaiting Phase 2.
+    host.queue.enqueue_traversal(PendingTraversal {
+        delta: TraversalDelta::Back,
+        user_involvement: UserInvolvement::default(),
+    });
+
+    // This turn's Phase 1 must DEFER the fresh push (queue already non-empty), not
+    // apply it in-task ahead of the older traversal.
+    let _ = DrainCoordinator::drain_synchronous_phase(&mut host);
+    assert!(
+        !host
+            .log
+            .iter()
+            .any(|e| matches!(e, Ev::SyncUpdate { label, .. } if label == "push:/x")),
+        "the fresh push must NOT apply in Phase 1 ahead of a last-turn traversal"
+    );
+    assert!(
+        !host.queue.is_empty(),
+        "the push deferred onto the queue behind the older traversal (not applied in Phase 1)"
+    );
+
+    // Draining Phase 2 applies the older traversal FIRST, then the deferred push.
+    let _ = DrainCoordinator::run_deferred_traversals(&mut host);
+    let traversal = host
+        .position(|e| matches!(e, Ev::TraversalApply { .. }))
+        .expect("older traversal applied");
+    let deferred_push = host
+        .position(|e| matches!(e, Ev::SyncUpdate { label, .. } if label == "push:/x"))
+        .expect("deferred push applied");
+    assert!(
+        traversal < deferred_push,
+        "the last-turn traversal applies before this turn's deferred push (cross-turn I2)"
+    );
+    assert!(host.queue.is_empty(), "everything drained");
+}
+
 // --- I3: guard bracket + eventual drain -------------------------------------
 
 #[test]
