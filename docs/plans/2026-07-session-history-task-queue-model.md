@@ -326,6 +326,24 @@ ordering (each slice terminal under the approved umbrella once its own plan-revi
   **applied OR pending** (suppress the default when a traversal is queued), refining the in-range-vs-no-op distinction
   (don't over-suppress a no-op `go(999)`) via a peek-classify at enqueue time (the NavigationController resolves the
   delta). Both facets are shell-consumption policy = Slice 2/3, not Slice-1 substrate mechanism.
+  ⚠ **CARRY-EXT-2 (Codex PR#464 R3, 2026-07-13) — two more facets of the deferred-step ↔ shell-state boundary:**
+  (D) **deferred `SyncUpdate` document binding** → maps to slot **`#11-sync-navigation-steps-queue-tagging`**. A
+  `SyncUpdate` deferred behind a same-turn traversal (`back(); pushState('/x')`) is replayed in Phase 2 as a *bare*
+  `HistoryAction` — but the shells apply push/replace against the *active* pipeline (`content/navigation.rs::apply_push_replace_state`
+  reads `state.pipeline.url`; app-mode → `interactive`), so after a document-changing traversal the OLD document's
+  push/replace would mutate the NEWLY active document identity. The full §7.4.1.3 reconciliation (*finalize a
+  same-document navigation* with document identity) is exactly what that slot fences; Slice 2/3 either carries the
+  issuing-document context on `PendingHistoryStep::SyncUpdate` (the UserInvolvement "defaulted-in-Slice-1 /
+  threaded-in-Slice-2/3" pattern) or cancels the deferred sync when a document-changing traversal intervenes.
+  (E) **no-op traversal as a false partition barrier** (same peek-classify boundary as C). `go(999); pushState('/x')`
+  at end-of-history: the no-op `go(999)` flips `seen_traversal` before the host can resolve it has no target, so the
+  trailing push defers onto the queue and the frame can stay stale until Phase 2 — even though the no-op returns
+  `false` and should not have been a barrier. The substrate cannot classify in-range-vs-no-op at partition time (that
+  needs the `NavigationController` entry list = shell state); Slice 2/3's peek-classify (same hook as C) lets a no-op
+  traversal fall through so subsequent sync updates stay in-task. **R3 convergence note:** these refine *context
+  threading + peek-classify*, NOT the substrate's core shape (two-phase split / queue / issue-order partition), which
+  R1/R2 fixed (ship-once, cross-turn FIFO) and R3 left unchallenged — the remaining findings are all shell-consumption
+  policy with explicit Slice-2/3 / `#11-sync-navigation-steps-queue-tagging` homes.
 - **Slice 3 — app-mode phase-separation:** resolve Q-SCHED (§4.3) — apply the ratified app-mode scheduling
   (likely end-of-input-handler queue drain), remove the `:73` supersede-return. One-issue-one-way close:
   both shells now drive the shared queue. **Landing-proximity constraint (axis c):** Slice 2 and Slice 3 SHOULD land in close succession — or Slice 2's observable supersede-removal be gated behind Slice 3 — so the content-queued / app-synchronous fork (§2 axis (c) failure mode) is not left open across unrelated PRs.
