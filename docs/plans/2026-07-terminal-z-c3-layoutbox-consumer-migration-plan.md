@@ -6,8 +6,9 @@ consumer surface, 2026-07-13. First-principles anchor for the C-3 slice of the t
 committed-next program (`memory/terminal-z-committed-next-fragment-walk-plan.md`).
 
 Predecessors MERGED: Z-1a (#313/#314, standalone `FragmentTree`) / Z-1b (#316, per-column
-`InlineFlow`) / **C-1** (render consumes the store for `consumable` mid-break IFC entities:
-per-column chrome+clip+content) / **C-2** (atomic-as-fragment). C-3 = migrate the remaining
+`InlineFlow`) / **C-1** (#321 `48b0190b`, render consumes the store for `consumable` mid-break IFC
+entities: per-column chrome+clip+content) / **C-2** (#324 `b4e06897`, atomic-as-fragment). C-3 = migrate
+the remaining
 **non-paint** `LayoutBox` readers (CSSOM geometry / IntersectionObserver / hit-test / a11y /
 baseline / shell) off the single per-entity `LayoutBox` onto the fragment store, so C-4 can
 retire `LayoutBox` + the legacy inline pipeline.
@@ -416,16 +417,19 @@ esp. C-3b.
 
 ## §11 Report to PM (coordination)
 
-1. **Correct the shared memo UPDATE 2026-07-13** in `terminal-z-committed-next-fragment-walk-plan`:
-   the "store relocated to elidex-render / dependency wall / layout cannot read it" finding was a
-   flaky-I/O fabrication. LIVE: `FragmentTree` in `elidex-ecs` (`EcsDom` sibling field), universally
-   reachable, no wall, no relocation. The (a)/(b) store-placement options dissolve; the decision is
-   the projection shape (§1, ≈ option c).
+1. **✅ RESOLVED (PM, 2026-07-13)** — the shared memo UPDATE was replaced with a v2 fabrication-retraction
+   + the campaign memo Lane 2 aligned. The "store relocated to elidex-render / dependency wall / layout
+   cannot read it" finding was a flaky-I/O fabrication. LIVE: `FragmentTree` in `elidex-ecs` (`EcsDom`
+   sibling field), universally reachable, no wall, no relocation (`elidex-layout` depends on
+   `elidex-ecs` via `elidex-ecs.workspace = true`). The (a)/(b) store-placement options dissolve; the
+   decision is the projection shape (§1, ≈ option c). The v2 also retracts the "§1/§3/§5 cite STALE"
+   claim — those cites are correct and non-stale.
 2. **C-3 is cross-crate as code** (dom-api/api-observers/layout/a11y/shell/render) — not layout-only,
    not parallel-safe with CSS/script/shell lanes. Schedule as coordinated sub-slices (§7); C-3a
    (elidex-ecs, additive) is the isolatable seed.
-3. **Same UPDATE's other PR numbers are also fabricated**: it cites "C-1 MERGED #425 / C-2 MERGED #430",
-   but git shows C-1 landed as **#321** (commit `48b0190b` "terminal-Z C-1 render fragment-walk"). This
-   memo cites C-1/C-2 without numbers, so it carries no propagated error — but the shared SoT's #425/#430
-   should be corrected alongside the relocation/#413 fix.
+3. **✅ RESOLVED (PM, 2026-07-13)** — the UPDATE's other fabricated numbers were corrected in the SoT:
+   `#425`/`#430` were misattributions (#425 = Dependabot, #430 = s5-3a keepalive); git-confirmed
+   **C-1 = #321 `48b0190b`**, **C-2 = #324 `b4e06897`**, and `#413 = bcee298b` (MutationObserver
+   transient observers, unrelated to any relocation). Crate name corrected `css-tables` → the tracked
+   `crates/css/elidex-css-table/`.
 4. This plan-memo is doc-only/parallel-safe; the impl sub-slices are the coordination surface.
