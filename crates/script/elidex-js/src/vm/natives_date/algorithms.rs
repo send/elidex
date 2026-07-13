@@ -16,6 +16,12 @@
 //! truncation lints are provably inapplicable here.
 #![allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
 
+// The canonical §7.1.5 ToIntegerOrInfinity (One issue, one way) — shared with
+// natives_string_ext / typed-array / relative-index helpers. It uses `trunc`
+// and does NOT normalize `-0`; the Date-specific `-0 → +0` happens once, in
+// `time_clip`, the single funnel every time value passes through.
+use super::super::coerce::to_integer_or_infinity;
+
 /// §21.4.1.2 — milliseconds per second.
 pub(super) const MS_PER_SECOND: f64 = 1000.0;
 /// Milliseconds per minute.
@@ -33,36 +39,9 @@ const MONTH_START_DAY: [f64; 12] = [
     0.0, 31.0, 59.0, 90.0, 120.0, 151.0, 181.0, 212.0, 243.0, 273.0, 304.0, 334.0,
 ];
 
-/// ECMA-262 numeric `x modulo y`: the result `k` has the same sign as `y`
-/// (or is zero) with `abs(k) < abs(y)`. Rust's `%` truncates toward zero
-/// (sign of the dividend), so a negative remainder is corrected. Date only
-/// ever uses positive divisors, but this stays faithful for any `y`.
-fn modulo(x: f64, y: f64) -> f64 {
-    let r = x % y;
-    if r != 0.0 && (r < 0.0) != (y < 0.0) {
-        r + y
-    } else {
-        r
-    }
-}
-
-/// §7.1.5 ToIntegerOrInfinity restricted to the finite/NaN cases the Date
-/// operations feed it: `NaN` → `0`, `±∞` preserved, otherwise truncate toward
-/// zero. Normalizes `-0` to `+0`.
-fn to_integer_or_infinity(x: f64) -> f64 {
-    if x.is_nan() {
-        0.0
-    } else if x.is_infinite() {
-        x
-    } else {
-        let t = x.trunc();
-        if t == 0.0 {
-            0.0
-        } else {
-            t
-        }
-    }
-}
+// ECMA-262 numeric `x modulo y` (result has the sign of `y`) is exactly
+// `f64::rem_euclid` for the positive divisors every Date AO uses — the
+// repo-wide idiom (coerce.rs, natives_string.rs). No bespoke `modulo` helper.
 
 /// §21.4.1.3 Day(t) — the day number of the day in which `t` falls.
 pub(super) fn day(t: f64) -> f64 {
@@ -71,16 +50,16 @@ pub(super) fn day(t: f64) -> f64 {
 
 /// §21.4.1.4 TimeWithinDay(t).
 pub(super) fn time_within_day(t: f64) -> f64 {
-    modulo(t, MS_PER_DAY)
+    t.rem_euclid(MS_PER_DAY)
 }
 
 /// §21.4.1.5 DaysInYear(y) — 365 or 366.
 fn days_in_year(y: f64) -> f64 {
-    if modulo(y, 4.0) != 0.0 {
+    if y.rem_euclid(4.0) != 0.0 {
         365.0
-    } else if modulo(y, 100.0) != 0.0 {
+    } else if y.rem_euclid(100.0) != 0.0 {
         366.0
-    } else if modulo(y, 400.0) != 0.0 {
+    } else if y.rem_euclid(400.0) != 0.0 {
         365.0
     } else {
         366.0
@@ -127,6 +106,13 @@ fn day_within_year(t: f64) -> f64 {
 
 /// §21.4.1.11 MonthFromTime(t) — `0` (January) .. `11` (December).
 pub(super) fn month_from_time(t: f64) -> f64 {
+    // Defensive NaN passthrough (matching `year_from_time`): without this the
+    // `d < …` comparisons are all false for NaN and the final `else` would
+    // wrongly return 11 (December). Callers currently guard `is_nan` first, so
+    // this closes a latent trap rather than a live bug.
+    if !t.is_finite() {
+        return f64::NAN;
+    }
     let d = day_within_year(t);
     let leap = in_leap_year(t);
     if d < 31.0 {
@@ -167,27 +153,27 @@ pub(super) fn date_from_time(t: f64) -> f64 {
 
 /// §21.4.1.13 WeekDay(t) — `0` (Sunday) .. `6` (Saturday).
 pub(super) fn week_day(t: f64) -> f64 {
-    modulo(day(t) + 4.0, 7.0)
+    (day(t) + 4.0).rem_euclid(7.0)
 }
 
 /// §21.4.1.14 HourFromTime(t).
 pub(super) fn hour_from_time(t: f64) -> f64 {
-    modulo((t / MS_PER_HOUR).floor(), 24.0)
+    (t / MS_PER_HOUR).floor().rem_euclid(24.0)
 }
 
 /// §21.4.1.15 MinFromTime(t).
 pub(super) fn min_from_time(t: f64) -> f64 {
-    modulo((t / MS_PER_MINUTE).floor(), 60.0)
+    (t / MS_PER_MINUTE).floor().rem_euclid(60.0)
 }
 
 /// §21.4.1.16 SecFromTime(t).
 pub(super) fn sec_from_time(t: f64) -> f64 {
-    modulo((t / MS_PER_SECOND).floor(), 60.0)
+    (t / MS_PER_SECOND).floor().rem_euclid(60.0)
 }
 
 /// §21.4.1.17 msFromTime(t).
 pub(super) fn ms_from_time(t: f64) -> f64 {
-    modulo(t, MS_PER_SECOND)
+    t.rem_euclid(MS_PER_SECOND)
 }
 
 /// §21.4.1.27 MakeTime(hour, min, sec, ms). Result is **not** range-clamped —
@@ -215,7 +201,7 @@ pub(super) fn make_day(year: f64, month: f64, date: f64) -> f64 {
     if !ym.is_finite() {
         return f64::NAN;
     }
-    let mn = modulo(m, 12.0);
+    let mn = m.rem_euclid(12.0);
     // Day number of `(ym, mn, 1)`: the spec's "find tv such that
     // YearFromTime(tv)=ym, MonthFromTime(tv)=mn, DateFromTime(tv)=1".
     let leap = if days_in_year(ym) == 366.0 { 1.0 } else { 0.0 };
@@ -227,9 +213,10 @@ pub(super) fn make_day(year: f64, month: f64, date: f64) -> f64 {
 
 /// §21.4.1.29 MakeDate(day, time).
 pub(super) fn make_date(day_num: f64, time: f64) -> f64 {
-    if !day_num.is_finite() || !time.is_finite() {
-        return f64::NAN;
-    }
+    // The trailing `is_finite` check is load-bearing (it maps an
+    // overflow-to-infinity to NaN so `year_from_time`'s correction loop never
+    // spins on it), so both non-finite inputs and non-finite sums funnel
+    // through it — no separate leading guard needed.
     let tv = day_num * MS_PER_DAY + time;
     if tv.is_finite() {
         tv
@@ -243,7 +230,16 @@ pub(super) fn time_clip(time: f64) -> f64 {
     if !time.is_finite() || time.abs() > MAX_TIME_VALUE {
         return f64::NAN;
     }
-    to_integer_or_infinity(time)
+    // `coerce::to_integer_or_infinity` uses `trunc`, which preserves `-0`;
+    // §21.4.1.31 returns `𝔽(!ToIntegerOrInfinity(time))` and
+    // ToIntegerOrInfinity(-0.4) is `+0`, so normalize `-0 → +0` here — the one
+    // funnel every produced time value passes through.
+    let clipped = to_integer_or_infinity(time);
+    if clipped == 0.0 {
+        0.0
+    } else {
+        clipped
+    }
 }
 
 #[cfg(test)]
@@ -295,5 +291,21 @@ mod tests {
         assert_eq!(time_clip(MAX_TIME_VALUE), MAX_TIME_VALUE);
         assert_eq!(time_clip(1.5), 1.0);
         assert!(time_clip(f64::INFINITY).is_nan());
+    }
+
+    #[test]
+    fn time_clip_normalizes_negative_zero() {
+        // §21.4.1.31 / ToIntegerOrInfinity(-0.4) = +0 (observable via getTime).
+        let t = time_clip(-0.4);
+        assert_eq!(t, 0.0);
+        assert!(t.is_sign_positive(), "time_clip(-0.4) must be +0, not -0");
+    }
+
+    #[test]
+    fn nan_passthrough() {
+        assert!(month_from_time(f64::NAN).is_nan());
+        assert!(year_from_time(f64::NAN).is_nan());
+        assert!(make_day(f64::NAN, 0.0, 1.0).is_nan());
+        assert!(make_time(f64::NAN, 0.0, 0.0, 0.0).is_nan());
     }
 }

@@ -60,26 +60,19 @@ fn this_time_value(ctx: &NativeContext<'_>, this: JsValue) -> Result<f64, VmErro
     ))
 }
 
-/// Like [`this_time_value`] but returns the receiver's `ObjectId` for the
-/// `set*` methods (which write the slot back in place).
-fn date_receiver(ctx: &NativeContext<'_>, this: JsValue) -> Result<ObjectId, VmError> {
+/// The receiver's `ObjectId` **and** current `[[DateValue]]`, or a `TypeError`
+/// — the combined brand-check-and-slot-read the `set*` methods need (they write
+/// the slot back via the id and derive new fields from `t`). A single
+/// `get_object` lookup, with no unreachable NaN fallback.
+fn date_this(ctx: &NativeContext<'_>, this: JsValue) -> Result<(ObjectId, f64), VmError> {
     if let JsValue::Object(id) = this {
-        if matches!(ctx.get_object(id).kind, ObjectKind::Date(_)) {
-            return Ok(id);
+        if let ObjectKind::Date(t) = ctx.get_object(id).kind {
+            return Ok((id, t));
         }
     }
     Err(VmError::type_error(
         "Date.prototype method called on incompatible receiver",
     ))
-}
-
-/// The `[[DateValue]]` currently stored on a known-Date object.
-fn current_tv(ctx: &NativeContext<'_>, id: ObjectId) -> f64 {
-    if let ObjectKind::Date(t) = ctx.get_object(id).kind {
-        t
-    } else {
-        f64::NAN
-    }
 }
 
 /// `ToNumber(args[i])`, treating a missing argument as `undefined` (→ `NaN`).
@@ -284,15 +277,9 @@ date_getter!(native_date_get_seconds, sec_from_time);
 // §21.4.4.6 getMilliseconds
 date_getter!(native_date_get_milliseconds, ms_from_time);
 
-/// §21.4.4.11 `getTimezoneOffset` — always `+0` under the UTC-baseline.
-fn native_date_get_timezone_offset(
-    ctx: &mut NativeContext<'_>,
-    this: JsValue,
-    _args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    let t = this_time_value(ctx, this)?;
-    Ok(JsValue::Number(if t.is_nan() { f64::NAN } else { 0.0 }))
-}
+// §21.4.4.11 getTimezoneOffset — always +0 under the UTC-baseline (finite
+// receiver → zero offset; NaN stays NaN, both via `component`).
+date_getter!(native_date_get_timezone_offset, |_| 0.0);
 
 // ---------------------------------------------------------------------------
 // Prototype setters (§21.4.4). UTC-baseline: local and UTC share one impl.
@@ -304,7 +291,7 @@ fn native_date_set_time(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let id = date_receiver(ctx, this)?;
+    let (id, _t) = date_this(ctx, this)?;
     let v = arg_num(ctx, args, 0)?;
     store(ctx, id, time_clip(v))
 }
@@ -315,8 +302,7 @@ fn native_date_set_milliseconds(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let id = date_receiver(ctx, this)?;
-    let t = current_tv(ctx, id);
+    let (id, t) = date_this(ctx, this)?;
     let ms = arg_num(ctx, args, 0)?;
     let time = make_time(hour_from_time(t), min_from_time(t), sec_from_time(t), ms);
     store(ctx, id, time_clip(make_date(day(t), time)))
@@ -328,8 +314,7 @@ fn native_date_set_seconds(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let id = date_receiver(ctx, this)?;
-    let t = current_tv(ctx, id);
+    let (id, t) = date_this(ctx, this)?;
     let sec = arg_num(ctx, args, 0)?;
     let ms = opt_num(ctx, args, 1, ms_from_time(t))?;
     let time = make_time(hour_from_time(t), min_from_time(t), sec, ms);
@@ -342,8 +327,7 @@ fn native_date_set_minutes(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let id = date_receiver(ctx, this)?;
-    let t = current_tv(ctx, id);
+    let (id, t) = date_this(ctx, this)?;
     let min = arg_num(ctx, args, 0)?;
     let sec = opt_num(ctx, args, 1, sec_from_time(t))?;
     let ms = opt_num(ctx, args, 2, ms_from_time(t))?;
@@ -357,8 +341,7 @@ fn native_date_set_hours(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let id = date_receiver(ctx, this)?;
-    let t = current_tv(ctx, id);
+    let (id, t) = date_this(ctx, this)?;
     let hour = arg_num(ctx, args, 0)?;
     let min = opt_num(ctx, args, 1, min_from_time(t))?;
     let sec = opt_num(ctx, args, 2, sec_from_time(t))?;
@@ -373,8 +356,7 @@ fn native_date_set_date(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let id = date_receiver(ctx, this)?;
-    let t = current_tv(ctx, id);
+    let (id, t) = date_this(ctx, this)?;
     let dt = arg_num(ctx, args, 0)?;
     let new_day = make_day(year_from_time(t), month_from_time(t), dt);
     store(ctx, id, time_clip(make_date(new_day, time_within_day(t))))
@@ -386,8 +368,7 @@ fn native_date_set_month(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let id = date_receiver(ctx, this)?;
-    let t = current_tv(ctx, id);
+    let (id, t) = date_this(ctx, this)?;
     let mo = arg_num(ctx, args, 0)?;
     let dt = opt_num(ctx, args, 1, date_from_time(t))?;
     let new_day = make_day(year_from_time(t), mo, dt);
@@ -401,8 +382,7 @@ fn native_date_set_full_year(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let id = date_receiver(ctx, this)?;
-    let t0 = current_tv(ctx, id);
+    let (id, t0) = date_this(ctx, this)?;
     let t = if t0.is_nan() { 0.0 } else { t0 };
     let y = arg_num(ctx, args, 0)?;
     let mo = opt_num(ctx, args, 1, month_from_time(t))?;

@@ -220,3 +220,28 @@ fn structured_clone_preserves_date() {
          return c !== d && c.getTime() === d.getTime(); })()"
     ));
 }
+
+#[test]
+fn parse_robustness() {
+    // code-review CRIT: a non-ASCII token must not panic the VM — the legacy
+    // parser's `tok[..3]` slice used to crash on a non-char-boundary offset.
+    assert!(eval_bool("isNaN(Date.parse('aa€'))"));
+    assert!(eval_bool("isNaN(new Date('日本語').getTime())"));
+    // A bare RFC-2822 numeric offset ("-0800"), unmodeled by this bounded
+    // legacy parser, rejects to NaN rather than silently parsing year -800.
+    assert!(eval_bool(
+        "isNaN(Date.parse('Wed, 01 Jan 2020 00:00:00 -0800'))"
+    ));
+    // The engine's own toUTCString still round-trips.
+    assert_eq!(
+        eval_number("Date.parse(new Date(1577836800000).toUTCString())"),
+        1_577_836_800_000.0
+    );
+}
+
+#[test]
+fn negative_zero_time_value() {
+    // §21.4.1.31 TimeClip normalizes -0 → +0 (observable via Object.is).
+    assert!(eval_bool("Object.is(new Date(-0.4).getTime(), 0)"));
+    assert!(eval_bool("!Object.is(new Date(-0.4).getTime(), -0)"));
+}

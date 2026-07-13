@@ -14,9 +14,11 @@ use super::algorithms::{
 };
 
 /// Table 61 — day-of-week names, `WeekDay(t)` = 0 (Sunday) .. 6 (Saturday).
-const WEEKDAYS: [&str; 7] = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+/// Shared with `parse` (the toString round-trip's single source of truth).
+pub(super) const WEEKDAYS: [&str; 7] = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 /// Table 62 — month names, `MonthFromTime(t)` = 0 (January) .. 11 (December).
-const MONTHS: [&str; 12] = [
+/// Shared with `parse` (single source of truth for both directions).
+pub(super) const MONTHS: [&str; 12] = [
     "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
 ];
 

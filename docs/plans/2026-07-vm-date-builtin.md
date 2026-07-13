@@ -90,6 +90,22 @@ design lens で touch の正しさは収束、coordination 承認取得済み。
 - `#11-vm-date-tolocalestring-intl` — `toLocaleString`/`toLocaleDateString`/`toLocaleTimeString`
   （Intl 依存、`intl-icu-deferral` 傘下）。
 
+### code-review 由来 (VM 共通機構 = 構造的分離で別 PR、Date が driver)
+
+- `#11-vm-ordinary-to-primitive-seam` (F2/F3) — `Date.prototype[Symbol.toPrimitive]` / `toJSON`
+  は現状 `[[DateValue]]` を直接読み `OrdinaryToPrimitive` / `Invoke(toISOString)` を bypass →
+  user の `valueOf`/`toString`/`toISOString` override と `toJSON` の generic 性を無視。`ops.rs`
+  の `to_primitive`（@@toPrimitive 再チェックで recurse）から `ordinary_to_primitive` helper を
+  抽出し、Date/Number/String wrapper 共通で spec-faithful に。VM 共通機構ゆえ別 PR。
+- `#11-object-prototype-tostring-builtin-tag` (F4) — §20.1.3.6 builtinTag
+  (`[[DateValue]]`→"Date" / NumberData→"Number" 等)。`Object.prototype.toString.call(new Date())`
+  が "[object Object]"（lodash `isDate` 等の cross-realm brand-check 破綻）。既存
+  Number/String/Boolean wrapper も同 gap = 一貫実装は共通機構ゆえ別 PR。
+- `#11-vm-clock-injection` (F11) — `now_epoch_ms` は bare `SystemTime::now()`。VmInner-owned
+  clock（test determinism / virtual time / Date.now 分解能低減）の seam 化（`start_instant` 前例）。
+- `#11-vm-date-decompose-perf` (F12) — getter/formatter/setter が `year_from_time` の補正ループを
+  getDate=4×/toString=7× 再計算。`decompose(t)->{year,month,date,…}` helper で1回に集約。
+
 ## Test (engine-independent unit)
 `tests/tests_date_api.rs`: ctor 4 forms / `get*` / `set*` in-place / `Date.parse` ISO /
 format round-trip / `Symbol.toPrimitive` / structuredClone(Date) / invalid→NaN / TimeClip ±8.64e15 境界 /

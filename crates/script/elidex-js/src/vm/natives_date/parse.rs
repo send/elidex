@@ -209,19 +209,25 @@ fn build_time_value(
 // ---------------------------------------------------------------------------
 
 fn month_index(tok: &str) -> Option<i64> {
-    let names = [
-        "jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec",
-    ];
-    if tok.len() < 3 {
-        return None;
-    }
-    let key = tok[..3].to_ascii_lowercase();
-    names.iter().position(|&m| m == key).map(|i| i as i64)
+    // `get(..3)` (not `tok[..3]`) yields `None` when offset 3 is inside a
+    // multi-byte char (e.g. "aa€"), avoiding a panic; month names are ASCII.
+    // Matched case-insensitively against `format::MONTHS` — the single source
+    // of truth shared with rendering (One issue, one way).
+    let prefix = tok.get(..3)?;
+    super::format::MONTHS
+        .iter()
+        .position(|m| m.eq_ignore_ascii_case(prefix))
+        .map(|i| i as i64)
 }
 
 fn is_weekday(tok: &str) -> bool {
-    let names = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
-    tok.len() >= 3 && names.contains(&tok[..3].to_ascii_lowercase().as_str())
+    // `get(..3)` avoids a panic when offset 3 is inside a multi-byte char;
+    // weekday names are ASCII. Shares `format::WEEKDAYS` (single source).
+    tok.get(..3).is_some_and(|p| {
+        super::format::WEEKDAYS
+            .iter()
+            .any(|w| w.eq_ignore_ascii_case(p))
+    })
 }
 
 /// Parse an offset token: `"GMT"`, `"UTC"`, `"Z"`, `"GMT+0900"`, `"+0000"`,
@@ -315,13 +321,18 @@ fn parse_legacy(s: &str) -> Option<f64> {
             offset_min = off;
             continue;
         }
-        // Pure integer: a 1-2 digit unsigned value is the day-of-month; any
-        // longer or signed value is the year.
+        // Pure integer: a 1-2 digit unsigned value is the day-of-month; the
+        // first longer/signed value is the year.
         if let Ok(num) = tok.parse::<i64>() {
             if day.is_none() && tok.len() <= 2 && (1..=31).contains(&num) {
                 day = Some(num);
-            } else {
+            } else if year.is_none() {
                 year = Some(num);
+            } else {
+                // A second bare integer (e.g. an RFC-2822 "-0800" numeric
+                // offset, which this bounded parser does not model) — reject
+                // rather than silently overwrite the year with a wrong value.
+                return None;
             }
             continue;
         }
