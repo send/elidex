@@ -220,7 +220,7 @@ Split the single `process_pending_actions` / `process_pending_navigation` pass i
 
 - **Phase 1 — synchronous, in-task (unchanged timing):** window-opens (`content/navigation.rs:542`) →
   synchronous history *updates* only (the `PushState`/`ReplaceState` FIFO entries — §7.4.4) →
-  synchronous navigation (`location.*` last-wins; §7.4.2 *navigate*, fragment = §7.4.2.3.3 *Fragment navigations*). These already mutate
+  synchronous navigation (`location.*` last-wins; §7.4.2.2 *navigate*, fragment = §7.4.2.3.3 *Fragment navigations*). These already mutate
   `NavigationController` / rebuild the pipeline in the current task and must keep doing so.
 - **Phase 2 — deferred traversal apply (new task boundary):** a `Back`/`Forward`/`Go` `HistoryAction`
   drained in Phase 1 is **not** applied inline; it is **appended to the traversal queue** and applied by a
@@ -308,7 +308,7 @@ ordering (each slice terminal under the approved umbrella once its own plan-revi
   This is the §6-E7 "nav in task N, traversal in task N+1" position, but E7 did not walk the `location.*`-channel
   supersede specifically (I2 only partitions the `pending_history` FIFO; `pending_navigation` is a separate
   channel Phase-1c always drains first). **Slice-2 plan-review MUST resolve**: does a same-turn deferred traversal
-  suppress a *later-issued* Phase-1c navigation (or vice-versa) — webref-pin `location.*` navigate (§7.4.2) vs
+  suppress a *later-issued* Phase-1c navigation (or vice-versa) — webref-pin `location.*` navigate (§7.4.2.2) vs
   traverse (§7.4.3) same-turn ordering + add the conformance test (§4.5 I2 already fences the exact straddle
   outcome as Slice-1/2 conformance territory). NOT a Slice-1 substrate defect (substrate faithfully implements
   the plan's phase model; the *phase model for the nav-vs-traversal case* is what needs ratifying).

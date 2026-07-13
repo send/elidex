@@ -34,10 +34,16 @@
 //! - **Phase 2 — deferred traversal apply (a later task):** a `Back` / `Forward`
 //!   / `Go` *traversal* (§7.4.3 *traverse the history by a delta* step 4 —
 //!   "append … traversal steps to traversable") is **not** applied inline; it is
-//!   appended to the [`TraversalQueue`] and applied by a separately scheduled
-//!   drain that runs *after* Phase 1's updates have landed, realizing §7.4.6.1
-//!   *apply the history step* step 12's two-part split ("synchronous navigations
-//!   processed before documents unload").
+//!   appended to the [`TraversalQueue`] and applied *after* Phase 1's updates have
+//!   landed, realizing §7.4.6.1 *apply the history step* step 12's two-part split
+//!   ("synchronous navigations processed before documents unload").
+//!
+//! In this Slice-1 substrate, [`DrainCoordinator::drain`] runs Phase 2
+//! **synchronously in the same call**, immediately after Phase 1 — this provides
+//! the *ordering* the split needs, not a real task boundary. The actual
+//! separate-task scheduling (content-mode's async pump / app-mode's
+//! end-of-input-handler drain) is the **shell's** job in Slices 2/3
+//! (see [`DrainCoordinator::drain`]'s I1 note).
 //!
 //! The **scope fence** (plan §0) is single-traversable (top-level) only: the
 //! §7.4.6.1 multi-navigable fan-out (steps 3/4/6/7 + the per-navigable global
