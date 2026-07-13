@@ -144,7 +144,12 @@ needs box *sizes*, not a bounding rect — R2-4, see below):
 - `bounding_box(entity) -> Rect` — the full **4-branch** "get the bounding box" (CSSOM VIEW §6): empty
   list → all-zero rect; all rects zero-w/h → first rect; else union over the **non-zero** rects only.
   For `getBoundingClientRect` (which spec-mandates the concrete zero rect for boxless). **IntersectionObserver
-  does NOT share this** — see the boxless contract below.
+  does NOT share this** — see the boxless contract below. ⚠ **Transform note (R5-2, shared with
+  `getClientRects`)**: CSSOM View §6 defines `getBoundingClientRect` *from* `getClientRects`, which applies
+  element+ancestor **transforms** (§6 step 3). elidex applies **none** today (`layout_query.rs`, verified) —
+  a **pre-existing gap**, so `bounding_box`/`client_rects` operate on raw un-transformed fragment rects and
+  C-3 preserves that (no regression); full transform fidelity is **out of C-3 scope** (same as the
+  getClientRects transform caveat, §9).
 - `optional_bounding_box(entity) -> Option<Rect>` — same union but **`None` for a boxless entity** (no
   fragments, no `LayoutBox`), for the observer/a11y consumers (below).
 - `client_rects(entity) -> impl Iterator<Item = Rect>` — the `getClientRects` rect list. ⚠ **two
@@ -177,8 +182,13 @@ NOT be collapsed onto one helper:
   (`resize_observer.rs:403-407` host closure → registry `content_rect` + `border_box_size`,
   `resize.rs:231-272`) — it needs the principal fragment's **content rect + border-box size**, NOT a
   bounding rect. So RO does NOT share IO's `optional_bounding_box`; it takes an Option-returning
-  **box-size** projection (`content()` + `border_box().size` of the principal fragment, `None` when
-  boxless). Grouping RO with IO (R1's error) would hand it the wrong geometry.
+  **box-size** projection of the principal fragment (`None` when boxless). ⚠ **`contentRect` is
+  LOCAL-origin (R5-1)**: RO's `content_rect` is content-box-relative (the host uses
+  `LayoutBox::content_rect_local()`, `resize_observer.rs`), NOT the document-space absolute origin that
+  `BoxFragment.content` carries (I-coord). So the RO projection yields the content-box **size** + a
+  **local** origin (0,0-based / content-box-relative), not the fragment's absolute `content()` — feeding
+  the absolute rect would corrupt `ResizeObserverEntry.contentRect`. (Grouping RO with IO — R1's error —
+  would hand it the wrong geometry entirely.)
 
 Consumers call the helper matching their spec, never the raw component or the raw tree. `scrollTop/Left`
 (scroll *offset*) read `ScrollState`, unchanged — **out of C-3 scope**. `scrollWidth/Height` route to
@@ -447,7 +457,9 @@ audited readers, not only the ones named here.
     false/ratio-0 observation (`intersection/mod.rs:298-345`, pinned `tests_core.rs:295-317`, P1).
   - **ResizeObserver** (host `resize_observer.rs:403-407`, registry `resize.rs:231-272`) → a **box-SIZE**
     projection `(content_rect, border_box_size)` of the principal fragment (None boxless), NOT a bounding
-    rect (R2-4) — RO's contract is sizes, not a bbox; do NOT lump with IO.
+    rect (R2-4) — RO's contract is sizes, not a bbox; do NOT lump with IO. ⚠ `contentRect` origin is
+    **LOCAL** (content-box-relative, `content_rect_local()`), NOT the absolute `BoxFragment.content`
+    origin (R5-1) — project size + local origin, not the fragment's document-space rect.
   - **shell scroll extent** (`content/scroll.rs:133-148`): **all-fragment/all-entity max-extent** over the
     **index-filtered current** fragments (`fragments_for`, NOT `nodes()` — orphan-node hazard, R2-7), not
     the principal box (P2).
@@ -458,10 +470,14 @@ audited readers, not only the ones named here.
     iframes keep a stale single box for event routing / lazy-load (P2).
   - **shell URL-fragment nav** (`content/scroll.rs:236` `scroll_offset_for_fragment`, R4-2): a multicol
     fragment target must scroll to the correct column fragment, not the stale single box.
-- **C-3e — render residual** : fold the G11 paint arm into the fragment walk (non-`consumable` mid-break),
-  **plus the other render readers** the audit surfaced — paged-generation gate (`builder/walk.rs:108`),
-  block-child classification (`:708`), list-marker positioning (`:774`), root discovery
-  (`builder/mod.rs:482,998`) (R2-1). A render **cluster**, not one arm; closes the last non-C-4 readers.
+- **C-3e — render residual** : migrate the render `LayoutBox` **geometry readers** the audit surfaced —
+  paged-generation gate (`builder/walk.rs:108`), block-child classification (`:708`), list-marker
+  positioning (`:774`), root discovery (`builder/mod.rs:482,998`) (R2-1). ⚠ **Do NOT re-route the
+  non-`consumable` paint CONTENT path through the fragment walk (R5-3)**: `is_consumable` correctly gates
+  content-carrier consumption (`walk.rs:209,283`) — a non-consumable mid-break has box fragments but **no
+  per-column content carrier**, so its *content* stays the single-box path (that gate is correct and
+  stays; C-3 does not change it). C-3e only removes the *geometry* `LayoutBox` reads above. A render
+  **cluster**, not one arm; closes the last non-C-4 readers.
 - **→ C-4** (separate program): retire `LayoutBox` + legacy inline pipeline + `InlineClientRects`,
   once §6's reader table has zero `LayoutBox` refs outside producers, and producers write the store's
   N=1 box for every entity.
@@ -513,7 +529,7 @@ split. (Anchors: §6 `#extension-to-the-element-interface` — incl. `client*`/`
 | CSSOM VIEW §6 Extensions to the Element Interface | `getClientRects()` | (c) no layout box → empty DOMRectList | same → empty | ✓ | no |
 | CSSOM VIEW §6 "get the bounding box" | `getBoundingClientRect()` | (a) empty rect-list → **all-zero** DOMRect (x=y=w=h=0) | `bounding_box` (NEW), empty-arm | ✓ | no |
 | CSSOM VIEW §6 "get the bounding box" | `getBoundingClientRect()` | (b) all rects zero-w/h → **first rect** | `bounding_box` (NEW) | ✓ | no |
-| CSSOM VIEW §6 "get the bounding box" | `getBoundingClientRect()` | (c) else → union over **non-zero** rects only | `bounding_box` (NEW) | ✓ | no |
+| CSSOM VIEW §6 "get the bounding box" | `getBoundingClientRect()` | (c) else → union over **non-zero** rects only | `bounding_box` (NEW) | branches ✓ — element+ancestor **transforms** (§6 via getClientRects step 3) a **pre-existing gap** (impl applies none), out of C-3 scope (R5-2) | no |
 | CSSOM VIEW §7 Extensions to the HTMLElement Interface | `offsetWidth`/`offsetHeight` | (a) no box → 0 | `offset_border_box_union` (NEW) None-arm | ✓ | no |
 | CSSOM VIEW §7 Extensions to the HTMLElement Interface | `offsetWidth`/`offsetHeight` | (b) has box → **UNION (axis-aligned bbox) of the principal box's fragments** (step 2) | `offset_border_box_union` (NEW) | union ✓ (step-2 inline-split-by-block-descendant sub-source omitted — orthogonal to multicol) | no |
 | CSSOM VIEW §7 Extensions to the HTMLElement Interface | `offsetTop`/`offsetLeft` | offsetParent-relative, **first** box | `offset_from_parent` (principal fragment) | ✓ | no |
@@ -531,7 +547,10 @@ engine-internal (no CSSOM dfn — paint-consistency, not a spec algorithm). css-
 `getClientRects` omits the pre-existing SVG-single-rect / table-box-substitution sub-branches (§6 steps
 2–3) and `client*`/`scrollWidth/Height` are marked **"routing-delta only"** — the fragment routing
 changes the box *source*, the pre-existing inline→0 / root→viewport branches are unchanged and NOT
-re-enumerated here.
+re-enumerated here. **Cross-cutting (all `getClientRects`/`getBoundingClientRect` rows, R5-2)**: element+
+ancestor **transform** application (§6 getClientRects step 3) is a **pre-existing gap** (impl applies none)
+— every ✓ here is branch-enumeration over *un-transformed* fragment rects, and transform fidelity is out
+of C-3 scope (§1 `bounding_box` note).
 
 **Breadth**: K=1 spec (cssom-view), M=12 rows (verified 2026-07-13 via `.claude/tools/webref heading
 cssom-view 6|7|6.1`, `dfn cssom-view getClientRects|getBoundingClientRect|offsetWidth`, `body cssom-view
