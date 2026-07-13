@@ -17,6 +17,7 @@ elidex-css.workspace = true
 elidex-dom-compat.workspace = true
 elidex-net.workspace = true
 elidex-plugin.workspace = true
+elidex-script-session.workspace = true
 bytes.workspace = true
 image.workspace = true
 tracing.workspace = true
