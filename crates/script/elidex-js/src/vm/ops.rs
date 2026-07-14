@@ -257,23 +257,22 @@ impl VmInner {
                     }
                     return Ok(result);
                 }
-                // No @@toPrimitive: unwrap primitive wrappers directly.
-                // Spec-equivalent shortcut for the §7.1.1.1 OrdinaryToPrimitive
-                // path on a wrapper, since `valueOf` / `toString` defer to the
-                // inner primitive anyway.  Plain Objects fall through to the
-                // OrdinaryToPrimitive loop below.
-                match self.get_object(obj_id).kind {
-                    ObjectKind::NumberWrapper(n) => return Ok(JsValue::Number(n)),
-                    ObjectKind::StringWrapper(s) => return Ok(JsValue::String(s)),
-                    ObjectKind::BooleanWrapper(b) => return Ok(JsValue::Boolean(b)),
-                    ObjectKind::BigIntWrapper(id) => return Ok(JsValue::BigInt(id)),
-                    ObjectKind::SymbolWrapper(id) => return Ok(JsValue::Symbol(id)),
-                    _ => {}
-                }
-                // OrdinaryToPrimitive (§7.1.1.1) — factored into a reusable
-                // method so `Date.prototype[Symbol.toPrimitive]` (§21.4.4.45)
-                // can invoke it directly, without re-checking @@toPrimitive
-                // (which would recurse back into this function).
+                // No @@toPrimitive → OrdinaryToPrimitive (§7.1.1 step 1.d →
+                // §7.1.1.1). Factored into a reusable method so
+                // `Date.prototype[Symbol.toPrimitive]` (§21.4.4.45 step 6) can
+                // invoke it directly, without re-checking @@toPrimitive (which
+                // would recurse back into this function).
+                //
+                // There is deliberately NO primitive-wrapper shortcut here.
+                // Unwrapping a Number/String/Boolean wrapper straight to its inner
+                // primitive looks equivalent — the built-in `valueOf` does exactly
+                // that — but it bypasses a user override of `valueOf` / `toString`
+                // on the wrapper's prototype, which §7.1.1.1 must honor:
+                // `Number.prototype.valueOf = () => Infinity; +new Number(5)` is
+                // `Infinity`, not `5`. `Date.prototype.toJSON` (§21.4.4.37 step 2)
+                // depends on that too: borrowed onto a number it must see the
+                // override, get a non-finite value, and return `null` instead of
+                // invoking `toISOString`. Codex R7.
                 self.ordinary_to_primitive(val, obj_id, hint == "string")
             }
             // Symbols (and all other primitives) are already primitive.

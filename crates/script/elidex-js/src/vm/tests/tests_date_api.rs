@@ -249,6 +249,36 @@ fn setter_snapshots_the_time_value_before_argument_coercion() {
 }
 
 #[test]
+fn to_json_on_a_wrapper_honors_an_overridden_value_of() {
+    // §21.4.4.37 `toJSON` is generic: step 1 `ToObject(this)`, step 2
+    // `ToPrimitive(obj, number)`, step 3 return `null` when that is a non-finite
+    // Number. Borrowed onto a number, the step-2 gate must run §7.1.1.1
+    // `OrdinaryToPrimitive`, i.e. call the (possibly overridden) `valueOf` on the
+    // wrapper's prototype.
+    //
+    // `to_primitive` used to shortcut a primitive wrapper straight to its inner
+    // value, which skipped that override — so this returned `'x'` (from the
+    // overridden `toISOString`) where the spec says `null`. The shortcut is gone
+    // (Codex R7).
+    assert!(eval_bool(
+        "Number.prototype.valueOf = () => Infinity; \
+         Number.prototype.toISOString = () => 'x'; \
+         Date.prototype.toJSON.call(5) === null"
+    ));
+    // A finite override passes the gate, so `toISOString` IS invoked (step 4).
+    assert!(eval_bool(
+        "Number.prototype.valueOf = () => 1; \
+         Number.prototype.toISOString = () => 'x'; \
+         Date.prototype.toJSON.call(5) === 'x'"
+    ));
+    // NOTE: `+new Number(5)` still ignores the override, because `ToNumber` /
+    // `ToString` (`coerce.rs`) and `JSON.stringify`'s wrapper step keep their own
+    // slot-reading shortcuts. That is a pre-existing VM bug independent of Date
+    // (`+new Number(5)` predates this builtin), enumerated and carved to
+    // `#11-vm-wrapper-coercion-override-bypass` — see the plan doc.
+}
+
+#[test]
 fn called_as_function_returns_string() {
     // `Date()` (no `new`) returns the current time as a String, ignoring args.
     assert!(eval_bool("typeof Date() === 'string'"));

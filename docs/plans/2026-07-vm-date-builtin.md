@@ -176,6 +176,29 @@ helper 抽出し、`Date.prototype[Symbol.toPrimitive]` (§21.4.4.45 step 6) / `
   `#11-object-prototype-tostring-builtin-tag` 着手時（両者を揃えて初めて
   `Object.prototype.toString.call(x)` が end-to-end で通る）。
 
+### external-converge (Codex R7) 由来
+
+- `#11-vm-wrapper-coercion-override-bypass` — **既存 VM bug (Date 無関係、#23 の fix 中に全列挙)**。
+  primitive wrapper の `valueOf` / `toString` を user が override しても、以下の coercion path が
+  wrapper の内部 slot を **直読み**して override を bypass する（spec はいずれも ToPrimitive →
+  `OrdinaryToPrimitive` を通す）:
+  - `coerce.rs:47` `to_number` の `NumberWrapper` arm — §7.1.4 ToNumber: Object → `ToPrimitive(number)`
+  - `coerce.rs:230` `to_string` の `NumberWrapper` arm — §7.1.17 ToString: Object → `ToPrimitive(string)`
+  - `natives_json/stringify.rs` ×3 — §25.5.4 `SerializeJSONProperty` step 4 は `[[NumberData]]` →
+    `? ToNumber(value)` / `[[StringData]]` → `? ToString(value)` を要求するが slot 直読み
+    （value 本体 / replacer array / `space` 引数の 3 箇所）
+
+  観測例: `Number.prototype.valueOf = () => 42; +new Number(5)` が `5`（spec: `42`）。
+
+  **本 PR で直したのは `ops.rs` `to_primitive` の wrapper fast-path のみ**（Codex R7 #23 =
+  `Date.prototype.toJSON` の §21.4.4.37 step 2 ToPrimitive gate が override を観測するようになった。
+  `Number.prototype.valueOf = () => Infinity` で `Date.prototype.toJSON.call(5)` が spec 通り `null`）。
+  **Why defer**: 残りは ToPrimitive / ToNumber / ToString / JSON-serialize の **4 axes に跨り**、
+  hot-path coercion の perf 実測を伴う = edge-dense（CLAUDE.md: multi-PR program + 実装前 plan-review
+  必須）。Date builtin とは独立（`+new Number(5)` は Date 以前から書けた）。
+  **Re-eval trigger**: VM coercion (`coerce.rs`) を次に触る PR、または
+  `#11-vm-native-fn-generic-invocation` と併せた VM-core semantics PR。
+
 ### IDB × Date — carve (Codex R2/R3 + design re-gate Axis 1 CRIT×2)
 
 converge 中に `host/indexeddb/value.rs` へ Date **key** 対応 (`IdbKey::Date` の生成 / 読み戻し) を
