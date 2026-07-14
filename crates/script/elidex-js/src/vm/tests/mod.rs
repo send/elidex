@@ -105,6 +105,7 @@ mod tests_indexeddb;
 mod tests_indexeddb_common;
 mod tests_indexeddb_cursor;
 mod tests_indexeddb_events;
+mod tests_indexeddb_value;
 mod tests_inner_html_mixin;
 mod tests_insert_adjacent;
 mod tests_integration_fetch;
