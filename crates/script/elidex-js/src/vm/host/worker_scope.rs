@@ -366,10 +366,14 @@ fn native_worker_post_message(
 /// `ThrowValue`) map to `DataCloneError`, the closest structured-clone error.
 ///
 /// A `Date` is the one cloneable kind the shortcut mis-encodes *silently* rather
-/// than failing (`toJSON` → ISO String), so it is rejected up front with that same
-/// `DataCloneError` instead of delivering a String to the peer — see
-/// [`super::structured_serialize::contains_date`]. The faithful encoding lands
-/// with `#11-worker-structured-serialize`.
+/// than failing (`toJSON` → ISO String).
+/// [`stringify_for_structured_shortcut`](super::super::natives_json::stringify_for_structured_shortcut)
+/// therefore fails on it **inside** the walk, before the `toJSON` hook — so a Date
+/// returned by an accessor is caught, the walk's depth cap still fires first on a
+/// deep payload, and a user exception reached earlier still propagates ahead of it.
+/// That failure is a non-`ThrowValue` error, so it lands in the `DataCloneError`
+/// branch below unchanged and the peer never receives a String. The faithful
+/// encoding lands with `#11-worker-structured-serialize`.
 ///
 /// Uses [`stringify_to_string`](super::super::natives_json::stringify_to_string)
 /// (non-interning) rather than `native_json_stringify`: the blob is copied
@@ -379,18 +383,7 @@ pub(in crate::vm) fn serialize_message(
     ctx: &mut NativeContext<'_>,
     data: JsValue,
 ) -> Result<String, VmError> {
-    if super::structured_serialize::contains_date(ctx.vm, data) {
-        return Err(VmError::dom_exception(
-            ctx.vm.well_known.dom_exc_data_clone_error,
-            "Failed to serialize message: a Date is not yet representable",
-        ));
-    }
-    match super::super::natives_json::stringify_to_string(
-        ctx,
-        data,
-        JsValue::Undefined,
-        JsValue::Undefined,
-    ) {
+    match super::super::natives_json::stringify_for_structured_shortcut(ctx, data) {
         Ok(Some(json)) => Ok(json),
         Ok(None) => Ok("null".to_string()),
         Err(e) if matches!(e.kind, VmErrorKind::ThrowValue(_)) => Err(e),

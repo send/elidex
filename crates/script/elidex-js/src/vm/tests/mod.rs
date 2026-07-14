@@ -111,6 +111,7 @@ mod tests_integration_fetch;
 mod tests_integration_pr5b;
 mod tests_intersection_observer;
 mod tests_json;
+mod tests_json_shortcut_date;
 mod tests_location;
 mod tests_m4_10_2;
 mod tests_m4_11;

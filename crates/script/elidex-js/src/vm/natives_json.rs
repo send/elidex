@@ -47,6 +47,10 @@ struct JsonSerializer {
     to_json_key: StringId,
     /// Reusable buffer for array index → string conversion.
     index_buf: String,
+    /// Structured-serialize shortcut mode: fail on a `Date` instead of rendering
+    /// it through `toJSON` — see [`stringify_for_structured_shortcut`]. `false`
+    /// for `JSON.stringify` / `Response.json()`, where an ISO String is correct.
+    reject_date: bool,
 }
 
 impl JsonSerializer {
@@ -61,6 +65,23 @@ impl JsonSerializer {
     ) -> Result<bool, VmError> {
         // Normalize Empty (sparse hole) to Undefined so user code never sees it.
         let mut val = value.or_undefined();
+
+        // Structured-serialize shortcut only: a Date has no faithful JSON form, so
+        // fail BEFORE the step-2 `toJSON` hook would flatten it to an ISO String.
+        // Sitting inside the walk — on the value `SerializeJSONProperty` actually
+        // observes — means a Date reached through an accessor is caught too, the
+        // walk's own depth cap still fires first on a deep payload, and a user
+        // exception encountered earlier (a throwing getter / `toJSON`) still
+        // propagates ahead of this. See [`stringify_for_structured_shortcut`].
+        if self.reject_date {
+            if let JsValue::Object(obj_id) = val {
+                if matches!(ctx.get_object(obj_id).kind, ObjectKind::Date(_)) {
+                    return Err(VmError::range_error(
+                        "a Date is not representable by the JSON serialization shortcut",
+                    ));
+                }
+            }
+        }
 
         // Step 2: If value is Object, check for toJSON.
         if let JsValue::Object(obj_id) = val {
@@ -384,6 +405,51 @@ pub(in crate::vm) fn stringify_to_string(
     replacer_arg: JsValue,
     space_arg: JsValue,
 ) -> Result<Option<String>, VmError> {
+    stringify_impl(ctx, value, replacer_arg, space_arg, false)
+}
+
+/// [`stringify_to_string`] in **structured-serialize shortcut** mode: identical,
+/// except that a `Date` anywhere the JSON walk reaches is a hard failure instead
+/// of an ISO String.
+///
+/// The JSON shortcut stands in for StructuredSerialize on two paths — worker / SW
+/// `postMessage` ([`super::host::worker_scope::serialize_message`]) and
+/// `history.state`
+/// ([`super::host::structured_serialize::structured_serialize_for_storage`]). A
+/// `Date` is [Serializable], so real structured clone round-trips it, but
+/// `JSON.stringify` flattens it through `toJSON` (ECMA-262 §21.4.4.37) into an ISO
+/// String — the peer's `JSON.parse` / `StructuredDeserialize` would then hand back
+/// a **String** where structured clone hands back a Date. Every *other* way the
+/// shortcut departs from structured clone fails **loudly** (a `BigInt`, a cycle,
+/// and the depth cap all throw), which is why only a Date needs an explicit arm.
+///
+/// The check lives **inside** the walk, on the value `SerializeJSONProperty`
+/// observes and before the `toJSON` hook. That placement is what makes it correct
+/// (Codex R5): a Date returned by an **accessor** is seen, the walk's own **depth
+/// cap** still fires first on a deep payload, and a **user exception** reached
+/// earlier (a throwing getter / `toJSON`) still propagates ahead of it. A pre-scan
+/// outside the walk duplicates the traversal and gets all three wrong.
+///
+/// The failure is a non-`ThrowValue` [`VmError`], so each caller's existing "cannot
+/// represent this value" branch handles it unchanged: worker → `DataCloneError`,
+/// history → degrade to `None`. Faithful encoding lands with
+/// `#11-worker-structured-serialize` /
+/// `#11-history-state-structured-serialize-fidelity`, which replace this shortcut
+/// wholesale.
+pub(in crate::vm) fn stringify_for_structured_shortcut(
+    ctx: &mut NativeContext<'_>,
+    value: JsValue,
+) -> Result<Option<String>, VmError> {
+    stringify_impl(ctx, value, JsValue::Undefined, JsValue::Undefined, true)
+}
+
+fn stringify_impl(
+    ctx: &mut NativeContext<'_>,
+    value: JsValue,
+    replacer_arg: JsValue,
+    space_arg: JsValue,
+    reject_date: bool,
+) -> Result<Option<String>, VmError> {
     // Step 4: Process replacer.
     let mut replacer_fn = None;
     let mut property_list = None;
@@ -440,6 +506,7 @@ pub(in crate::vm) fn stringify_to_string(
         property_list,
         to_json_key,
         index_buf: String::with_capacity(8),
+        reject_date,
     };
 
     let wrote =

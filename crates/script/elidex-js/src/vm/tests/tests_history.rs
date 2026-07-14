@@ -546,9 +546,26 @@ fn date_state_succeeds_and_degrades_to_null(// Codex R4
     }
     // §7.4.4 restores `history.state` from the serialized SNAPSHOT (not the live
     // object), so a degraded state reads back `null` synchronously — exactly like
-    // cyclic / BigInt above. The point of the up-front scan: it is `null`, and
-    // never the ISO string `"1970-01-01T00:00:00.000Z"` the JSON shortcut would
-    // otherwise have stored.
+    // cyclic / BigInt above. The point of the check: it is `null`, and never the
+    // ISO string `"1970-01-01T00:00:00.000Z"` the JSON shortcut would otherwise
+    // have stored.
+    assert_eq!(eval_string(&mut vm, "String(history.state);"), "null");
+
+    // Codex R5: the check lives INSIDE the JSON walk, so a Date returned by an
+    // accessor is caught too (a pre-scan outside the walk had to skip accessors —
+    // running a getter is an observable side effect — and let the ISO string
+    // through).
+    vm.eval("history.pushState({ get d() { return new Date(0); } }, '', '/date-get');")
+        .unwrap();
+    match take_one_history(&mut vm) {
+        HistoryAction::PushState {
+            serialized_state, ..
+        } => assert_eq!(
+            serialized_state, None,
+            "an accessor-returned Date degrades too"
+        ),
+        other => panic!("expected PushState, got {other:?}"),
+    }
     assert_eq!(eval_string(&mut vm, "String(history.state);"), "null");
 }
 

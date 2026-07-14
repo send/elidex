@@ -22,80 +22,9 @@
 
 #![cfg(feature = "engine")]
 
-use std::collections::HashSet;
-
-use super::super::natives_json::{parse_json_str, stringify_to_string};
-use super::super::value::{JsValue, NativeContext, ObjectId, ObjectKind, PropertyValue};
+use super::super::natives_json::{parse_json_str, stringify_for_structured_shortcut};
+use super::super::value::{JsValue, NativeContext};
 use super::super::VmInner;
-
-/// Whether `value`'s object graph contains a `Date`.
-///
-/// Every *other* way the JSON shortcut deviates from structured clone is **loud**:
-/// a `BigInt`, a cycle, or the depth cap makes `stringify_to_string` throw, so it
-/// already degrades to `None` here / maps to `DataCloneError` in
-/// [`super::worker_scope::serialize_message`]. A `Date` is the one cloneable kind
-/// it mis-encodes **silently** — `Date.prototype.toJSON` (ECMA-262 §21.4.4.37)
-/// renders it as an ISO String, so the peer's `JSON.parse` /
-/// [`structured_deserialize`] yields a String where structured clone yields a
-/// Date. Detect it up front so each wrapper applies its own failure policy instead
-/// of shipping the silent type change — the same stance IndexedDB takes via its
-/// own `reject_non_json_storable` walker.
-///
-/// Walks what `JSON.stringify` walks: array elements plus the **enumerable own
-/// data** properties of every non-callable object (`SerializeJSONObject` runs over
-/// `EnumerableOwnProperties`, so a Date parked on an `Error` / `RegExp` is reached
-/// too; a callable is omitted from JSON entirely). Accessors are skipped —
-/// invoking a getter here would be an observable side effect, and
-/// `reject_non_json_storable` skips them for the same reason — so a getter
-/// *returning* a Date still slips through, a gap the walker slots below close.
-///
-/// Removed wholesale by the full structured-clone walker
-/// (`#11-worker-structured-serialize` /
-/// `#11-history-state-structured-serialize-fidelity`), which encodes a `Date`
-/// faithfully instead of refusing it.
-pub(in crate::vm) fn contains_date(vm: &VmInner, value: JsValue) -> bool {
-    let mut seen = HashSet::new();
-    contains_date_inner(vm, value, &mut seen)
-}
-
-fn contains_date_inner(vm: &VmInner, value: JsValue, seen: &mut HashSet<ObjectId>) -> bool {
-    let JsValue::Object(id) = value else {
-        return false;
-    };
-    if !seen.insert(id) {
-        return false;
-    }
-    let obj = vm.get_object(id);
-    match &obj.kind {
-        // `toJSON` fires before any property walk, so a Date never survives as one.
-        ObjectKind::Date(_) => return true,
-        // `JSON.stringify` omits a callable value entirely.
-        ObjectKind::Function(_)
-        | ObjectKind::NativeFunction(_)
-        | ObjectKind::BoundFunction { .. } => return false,
-        _ => {}
-    }
-    let mut children: Vec<JsValue> = match &obj.kind {
-        ObjectKind::Array { elements } => elements.clone(),
-        _ => Vec::new(),
-    };
-    children.extend(
-        obj.storage
-            .iter_properties(&vm.shapes)
-            .filter_map(|(_, val, attrs)| {
-                if !attrs.enumerable || attrs.is_accessor {
-                    return None;
-                }
-                match val {
-                    PropertyValue::Data(v) => Some(*v),
-                    PropertyValue::Accessor { .. } => None,
-                }
-            }),
-    );
-    children
-        .into_iter()
-        .any(|child| contains_date_inner(vm, child, seen))
-}
 
 /// `StructuredSerializeForStorage(value)` → **optional** storage bytes (WHATWG HTML
 /// §7.2.5 step 3 / §2.7.5, `forStorage = true`).
@@ -116,9 +45,11 @@ fn contains_date_inner(vm: &VmInner, value: JsValue, seen: &mut HashSet<ObjectId
 /// - **Date**: the one cloneable kind `JSON.stringify` does *not* fail on — it
 ///   renders a Date through `toJSON` as an ISO String (ECMA-262 §21.4.4.37), so a
 ///   traversal would silently restore a **String** where structured clone restores
-///   a Date. Caught up front by [`contains_date`] and degraded to `None` — the same
-///   policy as BigInt / cyclic, and for the same CR-3 reason (a `pushState` that
-///   browsers accept must not start throwing).
+///   a Date. Caught **inside** the walk by
+///   [`stringify_for_structured_shortcut`](super::super::natives_json::stringify_for_structured_shortcut)
+///   (before the `toJSON` hook, so an accessor-returned Date is caught too) and
+///   degraded to `None` here — the same policy as BigInt / cyclic, for the same
+///   CR-3 reason (a `pushState` browsers accept must not start throwing).
 /// - **`function` / `symbol`**: structured clone must throw `DataCloneError`, but
 ///   `JSON.stringify` renders them as `undefined` → `None`. The opposite-direction
 ///   gap (succeeds where the spec throws).
@@ -144,13 +75,7 @@ pub(in crate::vm) fn structured_serialize_for_storage(
     ctx: &mut NativeContext<'_>,
     value: JsValue,
 ) -> Option<Vec<u8>> {
-    // A Date would be encoded as an ISO String rather than failing (see
-    // [`contains_date`]), so a traversal would restore a String where structured
-    // clone restores a Date. Degrade instead of shipping that silent type change.
-    if contains_date(ctx.vm, value) {
-        return None;
-    }
-    match stringify_to_string(ctx, value, JsValue::Undefined, JsValue::Undefined) {
+    match stringify_for_structured_shortcut(ctx, value) {
         Ok(Some(json)) => Some(json.into_bytes()),
         // Everything else degrades to no restorable state: a top-level value JSON
         // renders as `undefined` (`function` / `symbol` / `undefined`), a

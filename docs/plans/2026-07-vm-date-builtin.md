@@ -88,24 +88,49 @@ design lens で touch の正しさは収束、coordination 承認取得済み。
    cloneable-but-not-JSON kind (Error / RegExp / Blob / ArrayBuffer / TypedArray / DataView) と **同一
    stance** で `Kind::Reject("a Date")` を 1 arm 追加（+ module note 更新）。
    **key route（`IdbKey::Date` の生成 / 読み戻し）は入れない** → carve（下記 "IDB × Date"）。
-4. **`host/structured_serialize.rs` + `host/worker_scope.rs`** — **3 と同根**（1 の帰結。Codex R4 が
-   指摘、初版 plan の列挙漏れ）。`natives_json::stringify_to_string` を core にする JSON-shortcut
-   serializer は全部で 4 つ — IDB `value_to_json` / worker+SW `serialize_message` / history
-   `structured_serialize_for_storage` / `Response.json()`。うち **`Response.json()` は真の JSON
-   serialization** ゆえ Date→ISO string が spec 通り正しく、IDB は 3 の pre-scan で塞がる。残る
-   **worker / history が silent Date→String corruption**: `toJSON` は throw せず ISO string を返すので、
-   BigInt / cyclic のような **loud failure path に乗らない**（`structured_serialize.rs` の既存 docstring
-   は "BigInt / cyclic / Map / Date … `JSON.stringify` throws" と書いていたが、Date については **事実誤認** —
-   Date builtin が無く到達不能だった頃の推測。R4 で判明し訂正）。共有 walker
-   `structured_serialize::contains_date` で encoder に渡す**前**に検出し、各 serializer の **既存 failure
-   policy** を適用: worker → `DataCloneError`（cross-thread ゆえ degrade 先が無い / 既存の "cannot
-   represent" 失敗と同じ mapping）、history → `None` に degrade（CR-3 = browsers が受け入れる `pushState`
-   を throw に変えない。§7.4.4 が serialized snapshot から復元するので `history.state` は同期的に `null`
-   = ISO string には決してならない）。
+4. **`natives_json.rs` (VM core) + `host/worker_scope.rs` + `host/structured_serialize.rs`** —
+   **3 と同根**（1 の帰結。Codex R4 が指摘、初版 plan の列挙漏れ）。`stringify_to_string` を core に
+   する JSON-shortcut serializer は全部で 4 つ — IDB `value_to_json` / worker+SW `serialize_message` /
+   history `structured_serialize_for_storage` / `Response.json()`。うち **`Response.json()` は真の JSON
+   serialization** ゆえ Date→ISO string が spec 通り正しく（over-fix しない）、IDB は 3 で塞がる。残る
+   **worker / history が silent Date→String corruption**: `toJSON` は throw せず ISO string を返すので
+   BigInt / cyclic のような **loud failure path に乗らない**（既存 docstring は "BigInt / cyclic / Map /
+   Date … `JSON.stringify` throws" と書いていたが Date について **事実誤認** — Date builtin が無く到達不能
+   だった頃の推測。R4 で訂正。`ObjectKind` に Map は存在しない）。
+
+   **検出は encoder の walk の *内側* に置く**（R4 の pre-scan walker は R5 で mis-designed と判明 →
+   撤去）。`natives_json::stringify_for_structured_shortcut` = `JsonSerializer` に `reject_date` mode を
+   足し、`SerializeJSONProperty` が観測する値に対して **step 2 (`toJSON` hook) の直前** に Date を fail
+   させる。walk の外の pre-scan は **traversal を複製する**ので必ずズレる — Codex R5 が 3 つとも突いた:
+   (a) **accessor 経由の Date を見られない**（getter 呼び出しは observable side effect ゆえ pre-scan は
+   skip せざるを得ない → ISO string が素通り）、(b) **depth cap が無い**（encoder の `MAX_JSON_DEPTH` に
+   到達する前に Rust stack を溢れさせ得る）、(c) **user 例外の順序を壊す**（user code を1行も走らせずに
+   `DataCloneError` を返し、throwing `toJSON` / getter の propagate contract に違反）。in-walk なら
+   3 つとも**構造的に**消える（getter の戻り値を見る / 既存 depth cap が先に効く / JSON の walk 順が保たれる）。
+   walk は1つ = One-issue-one-way。
+
+   failure は非-`ThrowValue` な `VmError` なので、**各 serializer の既存 error 分岐がそのまま効く**
+   (呼び出し側の変更ゼロ): worker → `DataCloneError`（cross-thread ゆえ degrade 先なし / 既存の "cannot
+   represent" mapping）、history → `None` に degrade（CR-3 = browsers が受ける `pushState` を throw に
+   変えない。§7.4.4 が serialized snapshot から復元するので `history.state` は同期的に `null` = ISO
+   string には決してならない）。
    → faithful encoding は既存 slot `#11-worker-structured-serialize` /
    `#11-history-state-structured-serialize-fidelity`（両者が full walker を wholesale で所有）。
 
 `gc/trace.rs` の arm 追加は OWN 圏（payload `f64` ゆえ trace no-op）。
+
+### 1000-line debt (touch-time、**follow-up standalone PR**)
+
+CLAUDE.md 上 split は **単独 PR / 単独 commit**（feature PR に bundle 禁止）ゆえ本 PR に含めない。本 PR
+land 直後に standalone split PR で回収する（defer でなく sequencing）。対象 = 本 PR が触った 1000+ file:
+
+- **`tests/tests_indexeddb.rs`** (~1090行) — Codex R3 指摘。本 PR の追加は carve 後 ~28行 (Axis 5 の
+  >50 LoC 閾値未満) だが file 自体は debt。
+- **`natives_json.rs`** (1030 → 1097行、+67 = Axis 5 該当) — Codex R5 の in-walk 化で touch。**stringify /
+  parse が明確な cohesion seam**（`JsonSerializer` 系 vs `JsonParser` 系）→ 2 module に割る。
+
+`tests/tests_worker.rs` は R5 で 1002行に達したため、worker の Date serialization case を
+**`tests/tests_json_shortcut_date.rs`** に切り出して 947行に戻した（本 PR 内で解消済）。
 
 ## Follow-up slots (carve、PM へ報告)
 

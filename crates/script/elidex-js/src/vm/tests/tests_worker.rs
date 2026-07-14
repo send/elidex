@@ -27,7 +27,7 @@ use super::super::value::JsValue;
 use super::super::worker_thread::{run_worker, run_worker_with_source};
 use super::super::Vm;
 
-const WORKER_URL: &str = "https://example.com/app/worker.js";
+pub(super) const WORKER_URL: &str = "https://example.com/app/worker.js";
 
 /// Bind `vm` (a worker-mode VM) against `session` / `dom`. The caller must keep
 /// both alive and untouched for the VM's lifetime (raw-pointer aliasing
@@ -42,7 +42,7 @@ unsafe fn bind_worker_vm(vm: &mut Vm, session: &mut SessionCore, dom: &mut EcsDo
     }
 }
 
-fn eval_str_on(vm: &mut Vm, src: &str) -> String {
+pub(super) fn eval_str_on(vm: &mut Vm, src: &str) -> String {
     match vm.eval(src).expect("eval succeeds") {
         JsValue::String(sid) => vm.get_string(sid),
         other => panic!("expected string, got {other:?}"),
@@ -76,7 +76,7 @@ fn recv_within(
 /// **before** `vm`, and `vm` is dropped first, satisfying the `Vm::bind_worker`
 /// safety contract (the pointed-to `SessionCore` / `EcsDom` must outlive the
 /// bound VM). `secure` is the creator-inherited `isSecureContext` flag.
-fn with_worker_vm<F, R>(name: &str, url: &str, secure: bool, f: F) -> R
+pub(super) fn with_worker_vm<F, R>(name: &str, url: &str, secure: bool, f: F) -> R
 where
     F: FnOnce(&mut Vm) -> R,
 {
@@ -533,7 +533,7 @@ impl Drop for UnbindOnDrop<'_> {
 /// navigation URL at `https://example.com/app/` so relative / same-origin
 /// worker scripts resolve. No network handle is installed — the tests use
 /// `data:` worker scripts, which the runtime harness decodes inline.
-fn with_main_vm<F, R>(f: F) -> R
+pub(super) fn with_main_vm<F, R>(f: F) -> R
 where
     F: FnOnce(&mut Vm) -> R,
 {
@@ -855,61 +855,6 @@ fn worker_scope_post_message_circular_throws_data_clone() {
             eval_str_on(
                 vm,
                 "const o = {}; o.self = o; try { postMessage(o); 'no-throw' } catch (e) { e.name }",
-            ),
-            "DataCloneError"
-        );
-    });
-}
-
-#[test]
-fn main_worker_post_message_date_throws_data_clone() {
-    with_main_vm(|vm| {
-        // Codex R4: a Date is [Serializable], but the interim JSON shortcut renders
-        // it through `toJSON` as an ISO String — the peer would receive a String
-        // where structured clone delivers a Date. Reject up front with the same
-        // `DataCloneError` the shortcut's other "cannot represent" failures map to,
-        // rather than ship the silent type change
-        // (`structured_serialize::contains_date`; faithful encoding =
-        // `#11-worker-structured-serialize`).
-        assert_eq!(
-            eval_str_on(
-                vm,
-                r#"const w = new Worker("data:text/javascript,self.onmessage=function(){}");
-                   try { w.postMessage({ d: new Date(0) }); 'no-throw' } catch (e) { e.name }"#,
-            ),
-            "DataCloneError"
-        );
-        // Nested behind an array + a plain object too: the scan follows what
-        // `JSON.stringify` walks (elements + enumerable own data properties), not
-        // just the top-level value.
-        assert_eq!(
-            eval_str_on(
-                vm,
-                r#"const w = new Worker("data:text/javascript,self.onmessage=function(){}");
-                   try { w.postMessage([{ inner: [new Date(0)] }]); 'no-throw' } catch (e) { e.name }"#,
-            ),
-            "DataCloneError"
-        );
-        // A Date-free payload still serializes (the scan must not over-reject).
-        assert_eq!(
-            eval_str_on(
-                vm,
-                r#"const w = new Worker("data:text/javascript,self.onmessage=function(){}");
-                   try { w.postMessage({ a: [1, "x", { b: true }] }); 'ok' } catch (e) { e.name }"#,
-            ),
-            "ok"
-        );
-    });
-}
-
-#[test]
-fn worker_scope_post_message_date_throws_data_clone() {
-    // Worker-side `self.postMessage` takes the same path (one shared encoder).
-    with_worker_vm("", WORKER_URL, true, |vm| {
-        assert_eq!(
-            eval_str_on(
-                vm,
-                "try { postMessage({ d: new Date(0) }); 'no-throw' } catch (e) { e.name }",
             ),
             "DataCloneError"
         );
