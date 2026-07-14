@@ -861,6 +861,61 @@ fn worker_scope_post_message_circular_throws_data_clone() {
     });
 }
 
+#[test]
+fn main_worker_post_message_date_throws_data_clone() {
+    with_main_vm(|vm| {
+        // Codex R4: a Date is [Serializable], but the interim JSON shortcut renders
+        // it through `toJSON` as an ISO String — the peer would receive a String
+        // where structured clone delivers a Date. Reject up front with the same
+        // `DataCloneError` the shortcut's other "cannot represent" failures map to,
+        // rather than ship the silent type change
+        // (`structured_serialize::contains_date`; faithful encoding =
+        // `#11-worker-structured-serialize`).
+        assert_eq!(
+            eval_str_on(
+                vm,
+                r#"const w = new Worker("data:text/javascript,self.onmessage=function(){}");
+                   try { w.postMessage({ d: new Date(0) }); 'no-throw' } catch (e) { e.name }"#,
+            ),
+            "DataCloneError"
+        );
+        // Nested behind an array + a plain object too: the scan follows what
+        // `JSON.stringify` walks (elements + enumerable own data properties), not
+        // just the top-level value.
+        assert_eq!(
+            eval_str_on(
+                vm,
+                r#"const w = new Worker("data:text/javascript,self.onmessage=function(){}");
+                   try { w.postMessage([{ inner: [new Date(0)] }]); 'no-throw' } catch (e) { e.name }"#,
+            ),
+            "DataCloneError"
+        );
+        // A Date-free payload still serializes (the scan must not over-reject).
+        assert_eq!(
+            eval_str_on(
+                vm,
+                r#"const w = new Worker("data:text/javascript,self.onmessage=function(){}");
+                   try { w.postMessage({ a: [1, "x", { b: true }] }); 'ok' } catch (e) { e.name }"#,
+            ),
+            "ok"
+        );
+    });
+}
+
+#[test]
+fn worker_scope_post_message_date_throws_data_clone() {
+    // Worker-side `self.postMessage` takes the same path (one shared encoder).
+    with_worker_vm("", WORKER_URL, true, |vm| {
+        assert_eq!(
+            eval_str_on(
+                vm,
+                "try { postMessage({ d: new Date(0) }); 'no-throw' } catch (e) { e.name }",
+            ),
+            "DataCloneError"
+        );
+    });
+}
+
 /// Regression (Copilot R13): a user exception thrown *during* serialization (a
 /// throwing `toJSON` / property getter) must propagate unchanged — NOT be
 /// masked as `DataCloneError`. WHATWG HTML postMessage runs StructuredSerialize,

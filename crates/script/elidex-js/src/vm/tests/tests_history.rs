@@ -523,6 +523,36 @@ fn cyclic_and_bigint_state_succeed_and_degrade_to_null(// CR-3
 }
 
 #[test]
+fn date_state_succeeds_and_degrades_to_null(// Codex R4
+) {
+    // A Date is structured-cloneable, and unlike cyclic / BigInt the JSON shortcut
+    // does NOT throw on it — `toJSON` renders it as an ISO String, so a traversal
+    // would silently restore a **String** where structured clone restores a Date.
+    // Degrade to `None` up front (`structured_serialize::contains_date`), the same
+    // CR-3 policy: a `pushState` browsers accept must not start throwing. Full
+    // fidelity is D1 (`#11-history-state-structured-serialize-fidelity`).
+    let mut vm = new_vm_with_base(); // http://localhost/
+    vm.eval("history.pushState({ d: new Date(0) }, '', '/date');")
+        .unwrap();
+    assert_eq!(eval_string(&mut vm, "location.pathname;"), "/date");
+    match take_one_history(&mut vm) {
+        HistoryAction::PushState {
+            serialized_state, ..
+        } => assert_eq!(
+            serialized_state, None,
+            "a Date degrades to None, never an ISO string"
+        ),
+        other => panic!("expected PushState, got {other:?}"),
+    }
+    // §7.4.4 restores `history.state` from the serialized SNAPSHOT (not the live
+    // object), so a degraded state reads back `null` synchronously — exactly like
+    // cyclic / BigInt above. The point of the up-front scan: it is `null`, and
+    // never the ISO string `"1970-01-01T00:00:00.000Z"` the JSON shortcut would
+    // otherwise have stored.
+    assert_eq!(eval_string(&mut vm, "String(history.state);"), "null");
+}
+
+#[test]
 fn function_state_succeeds_with_null_state_interim(// CR-3 opposite deviation (D1-owned)
 ) {
     // INTERIM behavior pin: the spec REQUIRES `pushState(function(){})` to throw

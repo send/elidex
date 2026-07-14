@@ -88,6 +88,22 @@ design lens で touch の正しさは収束、coordination 承認取得済み。
    cloneable-but-not-JSON kind (Error / RegExp / Blob / ArrayBuffer / TypedArray / DataView) と **同一
    stance** で `Kind::Reject("a Date")` を 1 arm 追加（+ module note 更新）。
    **key route（`IdbKey::Date` の生成 / 読み戻し）は入れない** → carve（下記 "IDB × Date"）。
+4. **`host/structured_serialize.rs` + `host/worker_scope.rs`** — **3 と同根**（1 の帰結。Codex R4 が
+   指摘、初版 plan の列挙漏れ）。`natives_json::stringify_to_string` を core にする JSON-shortcut
+   serializer は全部で 4 つ — IDB `value_to_json` / worker+SW `serialize_message` / history
+   `structured_serialize_for_storage` / `Response.json()`。うち **`Response.json()` は真の JSON
+   serialization** ゆえ Date→ISO string が spec 通り正しく、IDB は 3 の pre-scan で塞がる。残る
+   **worker / history が silent Date→String corruption**: `toJSON` は throw せず ISO string を返すので、
+   BigInt / cyclic のような **loud failure path に乗らない**（`structured_serialize.rs` の既存 docstring
+   は "BigInt / cyclic / Map / Date … `JSON.stringify` throws" と書いていたが、Date については **事実誤認** —
+   Date builtin が無く到達不能だった頃の推測。R4 で判明し訂正）。共有 walker
+   `structured_serialize::contains_date` で encoder に渡す**前**に検出し、各 serializer の **既存 failure
+   policy** を適用: worker → `DataCloneError`（cross-thread ゆえ degrade 先が無い / 既存の "cannot
+   represent" 失敗と同じ mapping）、history → `None` に degrade（CR-3 = browsers が受け入れる `pushState`
+   を throw に変えない。§7.4.4 が serialized snapshot から復元するので `history.state` は同期的に `null`
+   = ISO string には決してならない）。
+   → faithful encoding は既存 slot `#11-worker-structured-serialize` /
+   `#11-history-state-structured-serialize-fidelity`（両者が full walker を wholesale で所有）。
 
 `gc/trace.rs` の arm 追加は OWN 圏（payload `f64` ゆえ trace no-op）。
 

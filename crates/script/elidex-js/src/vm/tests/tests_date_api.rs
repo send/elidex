@@ -199,6 +199,27 @@ fn brand_and_identity() {
 }
 
 #[test]
+fn date_prototype_is_ordinary_and_fails_the_brand_check() {
+    // ECMA-262 §21.4.4: the Date prototype object "is itself an ordinary object.
+    // It is not a Date instance and does not have a [[DateValue]] internal slot."
+    // ES5 made it a Date whose time value was NaN; ES6 deliberately changed this,
+    // so `Date.prototype` must FAIL `RequireInternalSlot` like any other non-Date:
+    // `getTime()` is a TypeError (NOT NaN) and `toString()` is a TypeError (NOT
+    // "Invalid Date").  Pinned because Codex R4 read the missing slot as a bug and
+    // proposed promoting the prototype to `ObjectKind::Date(NaN)` — that would
+    // resurrect the ES5 semantics this section removed.
+    assert!(eval_bool(
+        "(() => { try { Date.prototype.getTime(); return false; } \
+         catch (e) { return e instanceof TypeError; } })()"
+    ));
+    assert!(eval_bool(
+        "(() => { try { Date.prototype.toString(); return false; } \
+         catch (e) { return e instanceof TypeError; } })()"
+    ));
+    assert!(eval_bool("!(Date.prototype instanceof Date)"));
+}
+
+#[test]
 fn called_as_function_returns_string() {
     // `Date()` (no `new`) returns the current time as a String, ignoring args.
     assert!(eval_bool("typeof Date() === 'string'"));
