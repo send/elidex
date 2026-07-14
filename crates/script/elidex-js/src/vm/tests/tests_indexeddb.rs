@@ -657,22 +657,18 @@ fn add_cyclic_value_throws_data_clone_error() {
 }
 
 #[test]
-fn date_is_a_valid_key() {
+fn date_is_not_a_valid_key() {
     with_vm(|vm| {
-        // Codex R1 #5 / §7.4: a Date with a finite [[DateValue]] converts to a
-        // date key (exercised synchronously via `indexedDB.cmp` → js_to_idb_key).
-        assert_eq!(
-            eval_number(vm, "indexedDB.cmp(new Date(1000), new Date(2000))"),
-            -1.0
-        );
-        assert_eq!(
-            eval_number(vm, "indexedDB.cmp(new Date(5), new Date(5))"),
-            0.0
-        );
-        // An Invalid Date is not a valid key → DataError.
+        // §7.4 admits Date keys, but the backend's key routes all pass keys
+        // through `json_to_idb_key` / `idb_key_to_json`, which cannot carry an
+        // `IdbKey::Date` (see `host/indexeddb/value.rs`) — deferred to
+        // `#11-idb-binary-key`.  Until the backend lands, the VM now has a
+        // `Date` builtin, so a Date key is reachable and must be a DataError
+        // rather than an explicit-key-only half-support.  Exercised
+        // synchronously via `indexedDB.cmp` → `js_to_idb_key`.
         assert!(eval_bool(
             vm,
-            "(() => { try { indexedDB.cmp(new Date(NaN), new Date(0)); return false; } \
+            "(() => { try { indexedDB.cmp(new Date(1000), new Date(2000)); return false; } \
              catch (e) { return e.name === 'DataError'; } })()"
         ));
     });
@@ -681,10 +677,10 @@ fn date_is_a_valid_key() {
 #[test]
 fn add_date_value_throws_data_clone_error() {
     with_vm(|vm| {
-        // Codex R1 #6: a Date is [Serializable] but not JSON-representable
-        // (`toJSON` → ISO string), so the JSON backend would silently persist a
-        // string.  Reject with DataCloneError until binary structured-clone
-        // storage lands (`#11-idb-binary-key`).
+        // A Date is structured-cloneable but not JSON-representable (`toJSON` →
+        // ISO string), so the JSON backend would silently persist a String.
+        // Reject with DataCloneError — same stance as Error / RegExp / Blob
+        // values — until `#11-idb-structured-clone-storage` lands.
         vm.eval(
             "globalThis.__err = 'none';
              const open = indexedDB.open('db_date_clone', 1);
@@ -697,31 +693,6 @@ fn add_date_value_throws_data_clone_error() {
         )
         .unwrap();
         assert_eq!(eval_string(vm, "globalThis.__err"), "DataCloneError");
-    });
-}
-
-#[test]
-fn date_key_reads_back_as_date_object() {
-    with_vm(|vm| {
-        // Codex R2 #7 / §7.3: a stored Date key reads back as a Date object
-        // (via idb_key_to_js), not the raw ms Number.
-        vm.eval(
-            "globalThis.__log = [];
-             const open = indexedDB.open('db_date_rk', 1);
-             open.onupgradeneeded = (e) => { e.target.result.createObjectStore('s'); };
-             open.onsuccess = (e) => {
-                 const tx = e.target.result.transaction(['s'], 'readwrite');
-                 const store = tx.objectStore('s');
-                 store.add('v', new Date(1000));
-                 const cur = store.openCursor();
-                 cur.onsuccess = () => {
-                     const c = cur.result;
-                     if (c) { __log.push(c.key instanceof Date); __log.push(c.key.getTime()); }
-                 };
-             };",
-        )
-        .unwrap();
-        assert_eq!(eval_string(vm, "globalThis.__log.join(',')"), "true,1000");
     });
 }
 

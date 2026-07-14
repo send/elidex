@@ -6,9 +6,15 @@
 //! encoding / ordering / key-path evaluation lives in the
 //! `elidex-indexeddb` backend (`key.rs` / `ops.rs`).
 //!
-//! Note: keys are Number / String / Array / Date (§7.4).  A `Date` with a
-//! finite `[[DateValue]]` converts to the backend `IdbKey::Date`; buffer-source
-//! keys (backend `IdbKey::Binary`) are deferred to `#11-idb-binary-key`.
+//! Note: keys are Number / String / Array (§7.4).  `Date` keys (backend
+//! `IdbKey::Date`) stay unsupported even though the VM now has a `Date`
+//! builtin: the backend's own key routes (inline key-path extraction, index
+//! keys, cursor `update()` re-validation, auto-increment injection) all pass
+//! keys through `util::json_to_idb_key` / `idb_key_to_json`, which cannot carry
+//! an `IdbKey::Date` — enabling one here would work on the explicit-key route
+//! alone.  `Date` keys and buffer-source keys (backend `IdbKey::Binary`) both
+//! wait on the backend → `#11-idb-binary-key`; a `Date` *value* likewise waits
+//! on `#11-idb-structured-clone-storage` (see `reject_non_json_storable`).
 
 #![cfg(feature = "engine")]
 
@@ -143,14 +149,6 @@ fn js_to_idb_key_depth(
             Ok(elidex_indexeddb::IdbKey::String(ctx.get_utf8(sid)))
         }
         JsValue::Object(id) => {
-            // §7.4: a Date with a finite [[DateValue]] converts to an
-            // `IdbKey::Date`; an Invalid Date (NaN) is not a valid key.
-            if let ObjectKind::Date(t) = ctx.get_object(id).kind {
-                if t.is_nan() {
-                    return Err(dom_exc(ctx, "DataError", "Invalid Date is not a valid key"));
-                }
-                return Ok(elidex_indexeddb::IdbKey::Date(t));
-            }
             let elements = match &ctx.get_object(id).kind {
                 ObjectKind::Array { elements } => Some(elements.clone()),
                 _ => None,
@@ -180,23 +178,26 @@ fn js_to_idb_key_depth(
                 None => Err(dom_exc(ctx, "DataError", "value is not a valid key")),
             }
         }
-        // §7.4 also admits buffer-source (ArrayBuffer / typed-array / DataView)
-        // keys, which need a backend `IdbKey::Binary` variant (`elidex-indexeddb`
-        // `key.rs` reserves `TAG_BINARY` but rejects it) — deferred to
-        // `#11-idb-binary-key`.  (Date keys are handled in the Object arm above.)
+        // §7.4 also admits Date and buffer-source (ArrayBuffer / typed-array /
+        // DataView) keys.  Date keys need the backend's key routes to carry an
+        // `IdbKey::Date` (see the module note); binary keys need a backend
+        // `IdbKey::Binary` variant (`elidex-indexeddb` `key.rs` reserves
+        // `TAG_BINARY` but rejects it) — both deferred to `#11-idb-binary-key`.
+        // Until then both → DataError (a Date / buffer source is an
+        // `ObjectKind` the Object arm above does not admit).
         _ => Err(dom_exc(ctx, "DataError", "value is not a valid key")),
     }
 }
 
-/// W3C IDB §7.3 "convert a key to a value": `IdbKey` → `JsValue`.  A `Date`
-/// key converts by running the ECMAScript Date constructor → a `Date` object
-/// (so `getKey()` / cursor / key-range getters round-trip a date key).
+/// W3C IDB §7.3 "convert a key to a value": `IdbKey` → `JsValue`.  An
+/// `IdbKey::Date` is unreachable — no route produces one (see the module note)
+/// — so the arm degrades it to its numeric ms value defensively rather than
+/// materializing a `Date` object.
 pub(crate) fn idb_key_to_js(vm: &mut VmInner, key: &elidex_indexeddb::IdbKey) -> JsValue {
     match key {
-        elidex_indexeddb::IdbKey::Number(n) => JsValue::Number(*n),
-        // §7.3: a date key becomes a Date object carrying that [[DateValue]],
-        // not the raw ms number.
-        elidex_indexeddb::IdbKey::Date(n) => JsValue::Object(vm.create_date(*n)),
+        elidex_indexeddb::IdbKey::Number(n) | elidex_indexeddb::IdbKey::Date(n) => {
+            JsValue::Number(*n)
+        }
         elidex_indexeddb::IdbKey::String(s) => JsValue::String(vm.strings.intern(s)),
         elidex_indexeddb::IdbKey::Array(items) => {
             let elems: Vec<JsValue> = items.iter().map(|k| idb_key_to_js(vm, k)).collect();
@@ -295,10 +296,11 @@ fn reject_non_json_storable(
         // Cloneable but not JSON-representable → silent corruption under
         // `JSON.stringify`.  Reject upfront with the spec-correct type name.
         ObjectKind::Error { .. } => Kind::Reject("an Error"),
-        // A Date is [Serializable] but not JSON-representable: `JSON.stringify`
-        // maps it through `toJSON` to an ISO string, so a stored-then-read value
-        // would come back a string, not a Date.  Reject until binary
-        // structured-clone storage lands (`#11-idb-binary-key` cohort).
+        // A Date is structured-cloneable but not JSON-representable:
+        // `JSON.stringify` maps it through `toJSON` to an ISO string, so a
+        // stored-then-read value would come back a String, not a Date.  Reject
+        // upfront — same stance as the other cloneable-but-not-JSON kinds here —
+        // until `#11-idb-structured-clone-storage` lands.
         ObjectKind::Date(_) => Kind::Reject("a Date"),
         ObjectKind::RegExp { .. } => Kind::Reject("a RegExp"),
         ObjectKind::ArrayBuffer => Kind::Reject("an ArrayBuffer"),

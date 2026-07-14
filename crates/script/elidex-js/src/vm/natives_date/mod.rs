@@ -29,16 +29,21 @@ use super::{NativeFn, VmInner};
 /// owner of wall-clock time — holds it.
 ///
 /// `SystemTime::duration_since(UNIX_EPOCH)` fails only when the system clock
-/// predates 1970 (extraordinarily unusual); fall back to `0` in that case.
+/// predates 1970 (extraordinarily unusual). A pre-epoch instant is a perfectly
+/// legal time value, so negate the error's duration rather than clamping to `0`
+/// — clamping would report 1970-01-01 for a clock set to, say, 1969.
 /// Returns an integer `f64` (truncated to whole milliseconds), matching the
 /// `Date.now()` browser observable + the WebIDL `long long` integer-truncation
 /// rule applied to user-supplied timestamps.
 #[allow(clippy::cast_precision_loss)]
 pub(crate) fn now_epoch_ms() -> f64 {
     use std::time::{SystemTime, UNIX_EPOCH};
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0.0, |d| d.as_millis() as f64)
+    match SystemTime::now().duration_since(UNIX_EPOCH) {
+        Ok(d) => d.as_millis() as f64,
+        // `SystemTimeError::duration()` is the (positive) amount by which the
+        // epoch is ahead of the clock, i.e. how far before 1970 "now" is.
+        Err(e) => -(e.duration().as_millis() as f64),
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -47,7 +52,7 @@ pub(crate) fn now_epoch_ms() -> f64 {
 
 /// The `[[DateValue]]` of `this`, or a `TypeError`. Every `Date.prototype`
 /// method begins with this brand check — `RequireInternalSlot(this,
-/// [[DateValue]])` (e.g. §21.4.4.10 `getTime` step 1); the standalone
+/// [[DateValue]])` (e.g. §21.4.4.10 `getTime` step 2); the standalone
 /// `thisTimeValue` AO was removed from the spec.
 fn this_time_value(ctx: &NativeContext<'_>, this: JsValue) -> Result<f64, VmError> {
     if let JsValue::Object(id) = this {
@@ -430,8 +435,10 @@ fn native_date_to_iso_string(
     Ok(JsValue::String(sid))
 }
 
-/// §21.4.4.37 `toJSON` — `null` for a non-finite time value, else the ISO
-/// string.
+/// §21.4.4.37 `toJSON` — steps 1-4: `ToObject(this)` (step 1), `ToPrimitive(obj,
+/// number)` (step 2), `null` when that is a non-finite Number (step 3), else
+/// `Invoke(obj, "toISOString")` (step 4). Intentionally generic: the receiver
+/// need not be a `Date`, only carry a `toISOString` method.
 fn native_date_to_json(
     ctx: &mut NativeContext<'_>,
     this: JsValue,

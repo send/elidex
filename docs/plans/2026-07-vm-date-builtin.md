@@ -79,6 +79,15 @@ design lens で touch の正しさは収束、coordination 承認取得済み。
    arm 追加が**コンパイル不可避**。`Date` は [Serializable] ゆえ spec-faithful に clone（新 Date、same `[[DateValue]]`）。
 2. **`host/file.rs`** — `now_epoch_ms`（system time source）を `natives_date` へ canonical 移設し
    file.rs はそれを呼ぶ（複製回避 = One-issue-one-way）。
+3. **`host/indexeddb/value.rs`** — **1 の帰結として semantic に必然**（初版 plan の列挙漏れ。converge
+   中に Date key/value 対応として過剰に膨らみ、design re-gate Axis 1 = CRIT×2 を受けて下記まで最小化）。
+   `structured_clone.rs` が `Date` を [Serializable] にした瞬間、IDB の `clone_value` は Date を通す
+   ようになり、`reject_non_json_storable` の `_ => Kind::Leaf` に落ちて **JSON backend が黙って ISO
+   string 化**する（stored-then-read が String になる silent type change。その `_` arm の comment 自身が
+   「ここに来るのは leaf か unclonable だけ」と書いており、cloneable な Date の到達は想定外）。既存の
+   cloneable-but-not-JSON kind (Error / RegExp / Blob / ArrayBuffer / TypedArray / DataView) と **同一
+   stance** で `Kind::Reject("a Date")` を 1 arm 追加（+ module note 更新）。
+   **key route（`IdbKey::Date` の生成 / 読み戻し）は入れない** → carve（下記 "IDB × Date"）。
 
 `gc/trace.rs` の arm 追加は OWN 圏（payload `f64` ゆえ trace no-op）。
 
@@ -92,29 +101,61 @@ design lens で touch の正しさは収束、coordination 承認取得済み。
 
 ### code-review 由来 (VM 共通機構 = 構造的分離で別 PR、Date が driver)
 
-- `#11-vm-ordinary-to-primitive-seam` (F2/F3) — `Date.prototype[Symbol.toPrimitive]` / `toJSON`
-  は現状 `[[DateValue]]` を直接読み `OrdinaryToPrimitive` / `Invoke(toISOString)` を bypass →
-  user の `valueOf`/`toString`/`toISOString` override と `toJSON` の generic 性を無視。`ops.rs`
-  の `to_primitive`（@@toPrimitive 再チェックで recurse）から `ordinary_to_primitive` helper を
-  抽出し、Date/Number/String wrapper 共通で spec-faithful に。VM 共通機構ゆえ別 PR。
-- `#11-object-prototype-tostring-builtin-tag` (F4) — §20.1.3.6 builtinTag
-  (`[[DateValue]]`→"Date" / NumberData→"Number" 等)。`Object.prototype.toString.call(new Date())`
-  が "[object Object]"（lodash `isDate` 等の cross-realm brand-check 破綻）。既存
-  Number/String/Boolean wrapper も同 gap = 一貫実装は共通機構ゆえ別 PR。
+**✅ slot 不要 (converge R1 で in-PR 解消)**: `#11-vm-ordinary-to-primitive-seam` (F2/F3) — Codex R1 が
+「defer せず今直せ」と正しく指摘。`ops.rs` の `to_primitive` から `ordinary_to_primitive` (§7.1.1.1) を
+helper 抽出し、`Date.prototype[Symbol.toPrimitive]` (§21.4.4.45 step 6) / `toJSON` (§21.4.4.37 steps
+1-4) をそこへ委譲済み。user の `valueOf`/`toString`/`toISOString` override が honored。**slot 抹消**。
+
+- `#11-object-prototype-tostring-builtin-tag` (F4) — §20.1.3.6 builtinTag。**Date arm (step 12) は
+  converge R1 で in-PR 解消**。残 gap = primitive wrapper (NumberData / StringData / BooleanData =
+  steps 9-11) が step-14 の "Object" default に落ちる件。**Why defer**: wrapper 3 種の一貫実装は Date
+  と無関係な VM 共通機構で、Date builtin の scope 外。**Re-eval trigger**:
+  `#11-vm-native-fn-generic-invocation` 着手時（JS observable `Object.prototype.toString.call(x)` は
+  両者が揃って初めて通るので、同じ PR で end-to-end 検証できる）。
 - `#11-vm-clock-injection` (F11) — `now_epoch_ms` は bare `SystemTime::now()`。VmInner-owned
   clock（test determinism / virtual time / Date.now 分解能低減）の seam 化（`start_instant` 前例）。
+  **Why defer**: clock injection は VM-wide の seam（`Performance.now` / timer / `File.lastModified`
+  も同 clock を引く）で、Date builtin 単体より広い。**Re-eval trigger**: timer / event-loop の
+  determinism が要る test harness 作業、または `#11-keepalive-event-loop-step1-snapshot` 着手時。
 - `#11-vm-date-decompose-perf` (F12) — getter/formatter/setter が `year_from_time` の補正ループを
   getDate=4×/toString=7× 再計算。`decompose(t)->{year,month,date,…}` helper で1回に集約。
 
-### external-converge (Codex R1) 由来
+### external-converge (Codex R1-R3) 由来
 
 - `#11-vm-native-fn-generic-invocation` — **既存 VM bug (Date 無関係、Codex R1 中に発見)**。
   `Object.prototype.toString` (等の native fn) を **generic invoke** (own-property に assign して
   呼ぶ / `.call` / `.apply`) すると **全 receiver** で `"Cannot convert undefined or null to
   object"` を throw する。interpreter の inherited-method fast-path (`({}).toString()`) のみ動く。
-  Codex R1 #4 の `Object.prototype.toString` builtin-tag Date arm (§20.1.3.6) は code-fix 済だが、
-  この既存 bug が JS observable (`Object.prototype.toString.call(new Date())`) を阻む。call
-  dispatch は本 PR 未変更ゆえ既存 regression。VM core (native-fn generic dispatch)、Date scope 外 → 別 PR。
+  Codex R1 #4 の `Object.prototype.toString` builtin-tag Date arm (§20.1.3.6 step 12) は code-fix 済だが、
+  この既存 bug が JS observable (`Object.prototype.toString.call(new Date())`) を阻む。
+  **Why defer**: 壊れているのは native-fn の **call dispatch** (`.call` / `.apply` / own-property
+  assign 経由) — 本 PR が一切触らない VM core 機構で、Date builtin と独立に既存 regression。ここで
+  直すと blast radius が call dispatch 全体（全 native fn × 全 receiver）に広がり、Date の spec
+  surface と混ざる。**Re-eval trigger**: VM の native-fn call dispatch を次に触る PR、または
+  `#11-object-prototype-tostring-builtin-tag` 着手時（両者を揃えて初めて
+  `Object.prototype.toString.call(x)` が end-to-end で通る）。
+
+### IDB × Date — carve (Codex R2/R3 + design re-gate Axis 1 CRIT×2)
+
+converge 中に `host/indexeddb/value.rs` へ Date **key** 対応 (`IdbKey::Date` の生成 / 読み戻し) を
+入れたが、design re-gate (Axis 1 Layering) で **CRIT×2** → **revert して既存 slot に carve**。
+value 側の reject 1 arm のみ残す（"host/ touch" §3 参照）。
+
+- **Date key** (`IdbKey::Date`) → 既存 slot **`#11-idb-binary-key`**。**Why defer**: backend の key
+  route（inline key-path 抽出 / index key / cursor `update()` の key 再検証 / auto-increment
+  injection）は全て `util::json_to_idb_key` / `idb_key_to_json` を通り、**構造的に `IdbKey::Date` を
+  生成・保持できない**。VM host 側だけ有効化すると explicit-key route (`add(v,k)` / KeyRange / `cmp`)
+  でしか動かない **半端 support** になる（Codex が R2「Date value を reject しろ」→ R3「reject するな、
+  inline Date key path が壊れる」と矛盾できたのは、**どちらの経路も VM host からは到達不能**で、
+  欠けているピースが backend にあったから）。**Re-eval trigger**: `elidex-indexeddb` の `key.rs` が
+  `IdbKey::Date` / `IdbKey::Binary` を全 route で round-trip できるようになった時。それまで Date key は
+  `DataError`（test `date_is_not_a_valid_key` が contract を lock）。
+- **Date value** → 既存 slot **`#11-idb-structured-clone-storage`**。**Why defer**: JSON backend は
+  `toJSON` 経由で Date を ISO string に落とすので stored-then-read が String になる。faithful な
+  round-trip には storage format 自体の入れ替えが要る（`value.rs` の `-0` / `undefined` / `NaN` /
+  `BigInt` 拒否と同根の制約）。それまでは既存の cloneable-but-not-JSON kind と同一 stance で
+  `DataCloneError` を upfront throw（test `add_date_value_throws_data_clone_error`）。
+  **Re-eval trigger**: `#11-idb-structured-clone-storage`（JSON → structured-clone storage）着手時。
 
 ## Test (engine-independent unit)
 `tests/tests_date_api.rs`: ctor 4 forms / `get*` / `set*` in-place / `Date.parse` ISO /

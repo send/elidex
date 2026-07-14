@@ -244,11 +244,12 @@ pub(super) fn native_object_prototype_to_string(
                 ObjectKind::Error { .. } => "Error",
                 ObjectKind::RegExp { .. } => "RegExp",
                 ObjectKind::Promise(_) => "Promise",
-                // §20.1.3.6 step 14: an object with a [[DateValue]] slot has
+                // §20.1.3.6 step 12: an object with a [[DateValue]] slot has
                 // builtinTag "Date" (`Object.prototype.toString.call(new Date())`
                 // === "[object Date]"). The primitive wrappers
-                // (Number/String/Boolean) share the same §20.1.3.6 gap in this
-                // match — a full builtinTag pass is
+                // (Number/String/Boolean — steps 9-11) share the same §20.1.3.6
+                // gap in this match, which falls straight to the step-14 "Object"
+                // default — a full builtinTag pass is
                 // `#11-object-prototype-tostring-builtin-tag`.
                 ObjectKind::Date(_) => "Date",
                 _ => "Object",

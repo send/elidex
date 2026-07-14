@@ -237,7 +237,7 @@ impl VmInner {
     pub(crate) fn to_primitive(&mut self, val: JsValue, hint: &str) -> Result<JsValue, VmError> {
         match val {
             JsValue::Object(obj_id) => {
-                // §7.1.1 step 2.a: @@toPrimitive takes precedence for ANY
+                // §7.1.1 steps 1.a-1.b: @@toPrimitive takes precedence for ANY
                 // Object, including primitive wrappers — a user-defined
                 // Symbol.toPrimitive on a wrapper must be honored.
                 let to_prim_key = PropertyKey::Symbol(self.well_known_symbols.to_primitive);
@@ -286,8 +286,8 @@ impl VmInner {
     /// the first primitive result; `TypeError` if neither yields one.
     ///
     /// Does **not** consult `@@toPrimitive` — the caller already handled it
-    /// ([`to_primitive`](Self::to_primitive) at §7.1.1 step 2, or
-    /// `Date.prototype[Symbol.toPrimitive]` at §21.4.4.45 step 3), so reusing
+    /// ([`to_primitive`](Self::to_primitive) at §7.1.1 steps 1.a-1.b, or
+    /// `Date.prototype[Symbol.toPrimitive]` at §21.4.4.45 step 6), so reusing
     /// this from a `@@toPrimitive` implementation does not recurse.
     ///
     /// `val` is rooted as `this` for the duration of every `call_value`;
