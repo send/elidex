@@ -119,26 +119,46 @@ design lens で touch の正しさは収束、coordination 承認取得済み。
 
 `gc/trace.rs` の arm 追加は OWN 圏（payload `f64` ゆえ trace no-op）。
 
-### 1000-line debt (touch-time、**follow-up standalone PR**)
+### 1000-line debt (touch-time split — **本 PR 内で全て解消済**)
 
-CLAUDE.md 上 split は **単独 PR / 単独 commit**（feature PR に bundle 禁止）ゆえ本 PR に含めない。本 PR
-land 直後に standalone split PR で回収する（defer でなく sequencing）。対象 = 本 PR が触った 1000+ file:
+CLAUDE.md の touch-time split は **any-size touch / source・test 問わず** trigger し、split は
+**単独 PR / 単独 commit**（feature commit に bundle 禁止）。本 PR が触った 1000+ file は **すべて本 PR
+内の pure-refactor 単独 commit で解消**した:
 
-- **`tests/tests_indexeddb.rs`** (~1090行) — Codex R3 指摘。本 PR の追加は carve 後 ~28行 (Axis 5 の
-  >50 LoC 閾値未満) だが file 自体は debt。
-- **`natives_json.rs`** (1030 → 1097行、+67 = Axis 5 該当) — Codex R5 の in-walk 化で touch。**stringify /
-  parse が明確な cohesion seam**（`JsonSerializer` 系 vs `JsonParser` 系）→ 2 module に割る。
+- ✅ **`natives_json.rs`** (1030 → 1097行、Codex R7) → `244f227a` で
+  `natives_json/{mod,stringify,parse}.rs` (28 / 534 / 559行) に分割。seam = serializer と parser は
+  `MAX_JSON_DEPTH` 以外に何も共有しない。**`mod.rs` の re-export で call site path は不変**。
+- ✅ **`tests/tests_indexeddb.rs`** (1088行、Codex R3 → R8) → `42ec320c` で value/key marshalling 制約を
+  **`tests_indexeddb_value.rs`** (121行) に切出し、本体 **982行**。既存の `_common` / `_cursor` /
+  `_events` scenario split に合流（helper は `tests_indexeddb_common` から import 済みで下地があった）。
+- ✅ **`tests/tests_worker.rs`** (R5 で 1002行に到達) → worker の Date serialization case を
+  **`tests/tests_json_shortcut_date.rs`** に切出し、本体 **947行**。
 
-`tests/tests_worker.rs` は R5 で 1002行に達したため、worker の Date serialization case を
-**`tests/tests_json_shortcut_date.rs`** に切り出して 947行に戻した（本 PR 内で解消済）。
+⚠ **判断の誤り (記録)**: 当初 tests_indexeddb.rs を「本 PR の追加が Axis 5 の >50 LoC 閾値未満だから
+follow-up PR で良い」と defer した。**CLAUDE.md はその論拠を明示的に否定している** — Axis 5 は
+「**trigger の異なる review-time backstop** であって本 discipline 全体の検出器ではない
+(discipline=touch-time / Axis 5=substantive-growth、相補)」。touch-time split の trigger は
+**any-size touch**。R3 と R7 で 2 度同じ deferral を主張して R8 で覆された。
 
 ## Follow-up slots (carve、PM へ報告)
 
 - `#11-vm-date-local-timezone` — full local-tz（system tz 取得 + `getTimezoneOffset` 実値 +
-  local `get*`/`set*`）。tz-database dep or OS tz 取得の設計判断待ち（`intl-icu-deferral` 傘下）。
+  local `get*`/`set*`）。**Why defer**: tz-database dep を引くか OS tz API に寄せるかは engine-wide の
+  依存判断（`intl-icu-deferral` 傘下）で、Date builtin 単体では決められない。UTC-baseline は
+  `LocalTime`/`UTC` = identity ゆえ spec 上も合法な implementation-defined 選択。
+  **Re-evaluation trigger**: ICU / tz-database の依存判断が決まった時、または local-tz 依存の compat
+  失敗が survey で観測された時。**Re-evaluation date**: by **2026-12-31**, or earlier on the trigger —
+  whichever is first.
 - `#11-vm-date-parse-nonstandard-formats` — 非 ISO implementation-defined parse（RFC 2822 風等）。
+  **Why defer**: spec-mandated なのは §21.4.1.32 の ISO profile のみ。それ以外は各 engine の
+  best-effort で正準アルゴリズムが無く、どの形式を受けるかは compat survey 駆動の判断。
+  **Re-evaluation trigger**: 実サイトの `Date.parse` 失敗が survey / crawler で観測された時。
+  **Re-evaluation date**: by **2026-10-31**, or earlier on the trigger — whichever is first.
 - `#11-vm-date-tolocalestring-intl` — `toLocaleString`/`toLocaleDateString`/`toLocaleTimeString`
-  （Intl 依存、`intl-icu-deferral` 傘下）。
+  （Intl 依存、`intl-icu-deferral` 傘下）。**Why defer**: ECMA-402 が無い環境では spec が
+  implementation-defined fallback を許すため現状は locale-independent rendering で合法。真の
+  locale-aware 出力は ICU 依存判断そのもの。**Re-evaluation trigger**: `intl-icu-deferral` の ICU 採否が
+  決まった時。**Re-evaluation date**: by **2026-12-31**, or earlier on the trigger — whichever is first.
 
 ### code-review 由来 (VM 共通機構 = 構造的分離で別 PR、Date が driver)
 
@@ -150,16 +170,23 @@ helper 抽出し、`Date.prototype[Symbol.toPrimitive]` (§21.4.4.45 step 6) / `
 - `#11-object-prototype-tostring-builtin-tag` (F4) — §20.1.3.6 builtinTag。**Date arm (step 12) は
   converge R1 で in-PR 解消**。残 gap = primitive wrapper (NumberData / StringData / BooleanData =
   steps 9-11) が step-14 の "Object" default に落ちる件。**Why defer**: wrapper 3 種の一貫実装は Date
-  と無関係な VM 共通機構で、Date builtin の scope 外。**Re-eval trigger**:
+  と無関係な VM 共通機構で、Date builtin の scope 外。**Re-evaluation trigger**:
   `#11-vm-native-fn-generic-invocation` 着手時（JS observable `Object.prototype.toString.call(x)` は
-  両者が揃って初めて通るので、同じ PR で end-to-end 検証できる）。
+  両者が揃って初めて通るので、同じ PR で end-to-end 検証できる）。**Re-evaluation date**: by
+  **2026-09-30**, or earlier on the trigger — whichever is first.
 - `#11-vm-clock-injection` (F11) — `now_epoch_ms` は bare `SystemTime::now()`。VmInner-owned
   clock（test determinism / virtual time / Date.now 分解能低減）の seam 化（`start_instant` 前例）。
   **Why defer**: clock injection は VM-wide の seam（`Performance.now` / timer / `File.lastModified`
-  も同 clock を引く）で、Date builtin 単体より広い。**Re-eval trigger**: timer / event-loop の
+  も同 clock を引く）で、Date builtin 単体より広い。**Re-evaluation trigger**: timer / event-loop の
   determinism が要る test harness 作業、または `#11-keepalive-event-loop-step1-snapshot` 着手時。
+  **Re-evaluation date**: by **2026-09-30**, or earlier on the trigger — whichever is first.
 - `#11-vm-date-decompose-perf` (F12) — getter/formatter/setter が `year_from_time` の補正ループを
   getDate=4×/toString=7× 再計算。`decompose(t)->{year,month,date,…}` helper で1回に集約。
+  **Why defer**: correctness に影響せず、**bench 無しに最適化すると premature**（`year_from_time` の
+  補正ループは実測で hot とは限らない）。Date の spec surface が固まった今の形を baseline にできる。
+  **Re-evaluation trigger**: Date-heavy な bench / profile で `year_from_time` が hot と実測された時、
+  または Date を使う layout/script bench を追加する時。**Re-evaluation date**: by **2026-10-31**, or
+  earlier on the trigger — whichever is first.
 
 ### external-converge (Codex R1-R3) 由来
 
@@ -172,9 +199,10 @@ helper 抽出し、`Date.prototype[Symbol.toPrimitive]` (§21.4.4.45 step 6) / `
   **Why defer**: 壊れているのは native-fn の **call dispatch** (`.call` / `.apply` / own-property
   assign 経由) — 本 PR が一切触らない VM core 機構で、Date builtin と独立に既存 regression。ここで
   直すと blast radius が call dispatch 全体（全 native fn × 全 receiver）に広がり、Date の spec
-  surface と混ざる。**Re-eval trigger**: VM の native-fn call dispatch を次に触る PR、または
+  surface と混ざる。**Re-evaluation trigger**: VM の native-fn call dispatch を次に触る PR、または
   `#11-object-prototype-tostring-builtin-tag` 着手時（両者を揃えて初めて
-  `Object.prototype.toString.call(x)` が end-to-end で通る）。
+  `Object.prototype.toString.call(x)` が end-to-end で通る）。**Re-evaluation date**: by
+  **2026-09-30**, or earlier on the trigger — whichever is first.
 
 ### external-converge (Codex R7) 由来
 
@@ -196,8 +224,9 @@ helper 抽出し、`Date.prototype[Symbol.toPrimitive]` (§21.4.4.45 step 6) / `
   **Why defer**: 残りは ToPrimitive / ToNumber / ToString / JSON-serialize の **4 axes に跨り**、
   hot-path coercion の perf 実測を伴う = edge-dense（CLAUDE.md: multi-PR program + 実装前 plan-review
   必須）。Date builtin とは独立（`+new Number(5)` は Date 以前から書けた）。
-  **Re-eval trigger**: VM coercion (`coerce.rs`) を次に触る PR、または
-  `#11-vm-native-fn-generic-invocation` と併せた VM-core semantics PR。
+  **Re-evaluation trigger**: VM coercion (`coerce.rs`) を次に触る PR、または
+  `#11-vm-native-fn-generic-invocation` と併せた VM-core semantics PR。**Re-evaluation date**: by
+  **2026-09-30**, or earlier on the trigger — whichever is first.
 
 ### IDB × Date — carve (Codex R2/R3 + design re-gate Axis 1 CRIT×2)
 
@@ -211,15 +240,17 @@ value 側の reject 1 arm のみ残す（"host/ touch" §3 参照）。
   生成・保持できない**。VM host 側だけ有効化すると explicit-key route (`add(v,k)` / KeyRange / `cmp`)
   でしか動かない **半端 support** になる（Codex が R2「Date value を reject しろ」→ R3「reject するな、
   inline Date key path が壊れる」と矛盾できたのは、**どちらの経路も VM host からは到達不能**で、
-  欠けているピースが backend にあったから）。**Re-eval trigger**: `elidex-indexeddb` の `key.rs` が
-  `IdbKey::Date` / `IdbKey::Binary` を全 route で round-trip できるようになった時。それまで Date key は
-  `DataError`（test `date_is_not_a_valid_key` が contract を lock）。
+  欠けているピースが backend にあったから）。**Re-evaluation trigger**: `elidex-indexeddb` の `key.rs`
+  が `IdbKey::Date` / `IdbKey::Binary` を全 route で round-trip できるようになった時。それまで Date key
+  は `DataError`（test `date_is_not_a_valid_key` が contract を lock）。**Re-evaluation date**: by
+  **2026-12-31**, or earlier on the trigger — whichever is first.
 - **Date value** → 既存 slot **`#11-idb-structured-clone-storage`**。**Why defer**: JSON backend は
   `toJSON` 経由で Date を ISO string に落とすので stored-then-read が String になる。faithful な
   round-trip には storage format 自体の入れ替えが要る（`value.rs` の `-0` / `undefined` / `NaN` /
   `BigInt` 拒否と同根の制約）。それまでは既存の cloneable-but-not-JSON kind と同一 stance で
   `DataCloneError` を upfront throw（test `add_date_value_throws_data_clone_error`）。
-  **Re-eval trigger**: `#11-idb-structured-clone-storage`（JSON → structured-clone storage）着手時。
+  **Re-evaluation trigger**: `#11-idb-structured-clone-storage`（JSON → structured-clone storage）
+  着手時。**Re-evaluation date**: by **2026-12-31**, or earlier on the trigger — whichever is first.
 
 ## Test (engine-independent unit)
 `tests/tests_date_api.rs`: ctor 4 forms / `get*` / `set*` in-place / `Date.parse` ISO /
