@@ -515,6 +515,22 @@ impl CssPropertyHandler for BoxHandler {
             _ => CssValue::Initial,
         }
     }
+
+    /// CSSOM §6.7.2 "serialize a CSS value" for the box shorthands this handler
+    /// owns — all *structural* (no omit-initial): the value list collapses purely
+    /// on component equality, so the shared helpers do the whole job.
+    ///
+    /// - rectangular (4 longhands): `margin` / `padding` / `border-radius`
+    /// - axis-pair (2 longhands): `overflow` (x/y), `gap` (row/column)
+    fn serialize_shorthand(&self, property: &str, longhands: &[(&str, &str)]) -> Option<String> {
+        match property {
+            "margin" | "padding" | "border-radius" => {
+                elidex_plugin::serialize_rectangular(longhands)
+            }
+            "overflow" | "gap" => elidex_plugin::serialize_axis_pair(longhands),
+            _ => None,
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------

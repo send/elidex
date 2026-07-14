@@ -116,6 +116,16 @@ impl CssPropertyHandler for TableHandler {
             _ => CssValue::Initial,
         }
     }
+
+    /// CSSOM §6.7.2 "serialize a CSS value" for `border-spacing` — a structural
+    /// axis-pair (horizontal/vertical): one value when both axes are equal, else
+    /// two. No omit-initial component.
+    fn serialize_shorthand(&self, property: &str, longhands: &[(&str, &str)]) -> Option<String> {
+        match property {
+            "border-spacing" => elidex_plugin::serialize_axis_pair(longhands),
+            _ => None,
+        }
+    }
 }
 
 #[cfg(test)]

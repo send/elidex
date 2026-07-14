@@ -10,7 +10,6 @@ pub mod page;
 mod parser;
 mod selector;
 mod serialize;
-mod shorthand;
 mod values;
 
 // `parse_color` (+ the `CssColor` grammar) lives in `elidex-plugin`, co-located
@@ -30,8 +29,13 @@ pub use selector::{
     parse_selector_from_str, parse_selector_list, AttributeMatcher, PseudoElement, Selector,
     SelectorComponent, Specificity,
 };
+// Shorthand *serialization* (the read-side twin of the parser's shorthand
+// expansion) lives in `elidex-style`: it dispatches the per-family collapse to
+// each property's own `CssPropertyHandler::serialize_shorthand`, which needs the
+// populated `CssPropertyRegistry` — assembled a tier above this crate. Only the
+// shorthand→longhand *name* table (`shorthand_longhands`, re-exported above)
+// stays here, because the parser needs it too.
 pub use serialize::serialize_stylesheet;
-pub use shorthand::serialize_shorthand_value;
 
 use cssparser::{Parser, ParserInput};
 use elidex_plugin::{CssValue, ParseError};
