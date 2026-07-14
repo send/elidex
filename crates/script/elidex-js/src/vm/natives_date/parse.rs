@@ -255,7 +255,13 @@ fn parse_offset_token(tok: &str) -> Option<i64> {
     // integer branch to classify.
     let (hh, mm) = if let Some((h, m)) = digits.split_once(':') {
         (h, m)
-    } else if had_prefix && digits.len() == 4 {
+    } else if had_prefix && digits.len() == 4 && digits.bytes().all(|b| b.is_ascii_digit()) {
+        // `str::len` counts BYTES, so a 4-BYTE non-ASCII body (`GMT+€a` → "€a" =
+        // 3 + 1) would satisfy a bare `len() == 4` and then split a UTF-8 code
+        // point at `[..2]` — a panic on user input, the same class as the `tok[..3]`
+        // slice fixed earlier. An "HHMM" offset is four ASCII digits by definition,
+        // so require exactly that: it makes offset 2 a char boundary AND rejects
+        // the garbage `parse()` below would reject anyway.
         (&digits[..2], &digits[2..])
     } else {
         return None;
@@ -358,6 +364,23 @@ mod tests {
         assert_eq!(parse("1970-01-01"), 0.0);
         assert_eq!(parse("1970"), 0.0);
         assert_eq!(parse("2020-01-01T00:00:00Z"), 1_577_836_800_000.0);
+    }
+
+    /// Codex R6: a GMT/UTC offset body is length-checked in **bytes**, so a 4-byte
+    /// non-ASCII body ("€a" = 3 + 1) used to reach `&digits[..2]` and split a UTF-8
+    /// code point — a panic on user input rather than `NaN`. Every shape below hits
+    /// that branch; none may panic.
+    #[test]
+    fn non_ascii_gmt_offset_is_nan_not_a_panic() {
+        assert!(parse("Jan 01 2020 GMT+€a").is_nan()); // splits mid-code-point
+        assert!(parse("Jan 01 2020 GMT+a€").is_nan()); // splits mid-code-point
+        assert!(parse("Jan 01 2020 UTC-éé").is_nan()); // char boundary, still garbage
+        assert!(parse("Jan 01 2020 GMT+12é").is_nan()); // 3 ASCII + 2-byte tail
+                                                        // The real form still parses: GMT+0130 = 90 minutes east.
+        assert_eq!(
+            parse("Jan 01 2020 00:00:00 GMT+0130"),
+            parse("2020-01-01T00:00:00Z") - 90.0 * 60_000.0
+        );
     }
 
     #[test]

@@ -220,6 +220,35 @@ fn date_prototype_is_ordinary_and_fails_the_brand_check() {
 }
 
 #[test]
+fn setter_snapshots_the_time_value_before_argument_coercion() {
+    // ECMA-262 §21.4.4.23 `setMilliseconds`: **step 3** reads `tv` from the receiver,
+    // **step 4** runs `ToNumber(ms)`. A coercion that mutates the *same* Date is
+    // therefore ignored by design — the setter computes from the step-3 snapshot and
+    // then overwrites the mutation. The whole `set*` family shares this ordering.
+    // Pinned because Codex R6 read it as a staleness bug and wanted the setter to
+    // rebase on the post-coercion receiver, which is what the spec deliberately does
+    // NOT do.
+    assert_eq!(
+        eval_number(
+            "(() => { const d = new Date(0); \
+              d.setMilliseconds({ valueOf() { d.setTime(100000); return 1; } }); \
+              return d.getTime(); })()"
+        ),
+        1.0
+    );
+    // §21.4.4.22 `setHours` has the same shape (step 3 `tv`, then `ToNumber` per
+    // argument): the snapshot is t=0, so the result is 1 hour, not 1 day + 1 hour.
+    assert_eq!(
+        eval_number(
+            "(() => { const d = new Date(0); \
+              d.setHours({ valueOf() { d.setTime(86400000); return 1; } }); \
+              return d.getTime(); })()"
+        ),
+        3_600_000.0
+    );
+}
+
+#[test]
 fn called_as_function_returns_string() {
     // `Date()` (no `new`) returns the current time as a String, ignoring args.
     assert!(eval_bool("typeof Date() === 'string'"));
