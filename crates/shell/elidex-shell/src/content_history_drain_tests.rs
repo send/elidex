@@ -797,6 +797,51 @@ fn content_apply_traversal_does_not_re_enqueue() {
     );
 }
 
+/// F4 (later traversal not dropped by the pre-apply peek): `back(); forward()` in
+/// ONE turn from `[base, /a]` at `/a`. `back()` peek-classifies in-range (barrier);
+/// `forward()` peeks the STILL-UNMOVED index-1 cursor (len 2) → out-of-range, but
+/// because a barrier now exists it enqueues UNCONDITIONALLY (F4 — its target
+/// resolves at Phase-2 apply time). Phase 2 applies BOTH (same-document): `back()`
+/// → `base`, then `forward()` → `/a`, netting back on `/a`. The old pre-apply peek
+/// DROPPED the forward, leaving Phase 2 to apply only `back()` → landing on `base`.
+#[test]
+fn back_then_forward_applies_both_and_nets_to_last_entry() {
+    let (mut state, browser) = build_test_content_state_with_url("<p>doc</p>", base());
+    seed_same_document_pair(&mut state); // [base, /a], cursor on /a
+    let _ = state
+        .pipeline
+        .runtime
+        .vm()
+        .eval("history.back(); history.forward();");
+    drain_browser(&browser);
+
+    // Phase 1 enqueues BOTH — the forward() is not dropped by peeking the unmoved
+    // cursor (F4).
+    let _ = DrainCoordinator::drain_synchronous_phase(&mut state);
+    assert!(
+        state.traversal_queue().has_pending_traversal(),
+        "both back() and forward() queued for Phase 2 (forward not dropped)"
+    );
+    assert_eq!(
+        state.nav_controller.current_url().map(url::Url::as_str),
+        Some("https://example.com/a"),
+        "Phase 1 only enqueued (cursor unmoved on /a)"
+    );
+
+    // Phase 2: back() → base, then forward() → /a. Net no-op landing on /a — NOT
+    // base (the old drop left only back() to apply).
+    let _ = DrainCoordinator::run_deferred_traversals(&mut state);
+    assert!(
+        state.traversal_queue().is_empty(),
+        "both traversals drained"
+    );
+    assert_eq!(
+        state.nav_controller.current_url().map(url::Url::as_str),
+        Some("https://example.com/a"),
+        "back() then forward() nets to the last entry /a (F4: forward applied, not dropped → NOT base)"
+    );
+}
+
 /// E divergence, STACKED (plan §5 / §6 Q-E accepted-bounded): `back(); back()` in
 /// ONE turn peek-classifies BOTH backs against the UNMOVED cursor in Phase 1b
 /// (peek-classify runs at enqueue against the pre-traversal list), so both classify

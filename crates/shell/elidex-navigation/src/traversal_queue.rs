@@ -357,7 +357,36 @@ pub trait DrainHost {
     /// suppresses a same-turn navigation. Moving `PendingTraversal` construction
     /// here (out of the coordinator) is what lets the host supply real
     /// involvement + the in-range decision the engine-agnostic layer cannot make.
+    ///
+    /// Only the **first** traversal of a turn uses this peek-gated form (to decide
+    /// whether it STARTS a barrier). Once a barrier exists, every subsequent
+    /// traversal enqueues via [`pending_traversal`](Self::pending_traversal)
+    /// unconditionally (F4) — so an impl should keep this equal to
+    /// `self.peek_delta(delta).map(|_| self.pending_traversal(delta))` (the peek
+    /// decides `Some`/`None`; `pending_traversal` builds the value).
     fn classify_traversal(&mut self, delta: TraversalDelta) -> Option<PendingTraversal>;
+
+    /// **Phase 1b — construct a pending traversal WITHOUT a peek** (plan §1 F4).
+    /// Once a partition barrier already exists this turn — an earlier in-range
+    /// traversal, a still-queued cross-turn traversal, or an in-flight apply
+    /// ([`TraversalQueue::is_applying`]) — every subsequent `Back`/`Forward`/`Go`
+    /// must enqueue **unconditionally**: its target is resolved at *apply* time
+    /// (§7.4.6.1 *apply the history step*), NOT against the still-unmoved cursor at
+    /// enqueue time. Peek-classifying a later traversal against the pre-traversal
+    /// entry list wrongly **drops** one whose target only becomes in-range after an
+    /// earlier queued traversal applies: from `[base, /a]` at `/a`,
+    /// `history.back(); history.forward()` — `back()` enqueues (in-range), but
+    /// `forward()` peeked against the STILL-UNMOVED index-1 cursor (len 2) resolves
+    /// to index 2 → out-of-range → dropped, so Phase 2 lands on `base` instead of
+    /// re-applying `forward()` back to `/a`.
+    ///
+    /// This builds the [`PendingTraversal`] (delta + the host-supplied
+    /// [`UserInvolvement`]) with NO peek; [`classify_traversal`] is its peek-gated
+    /// form used only for the FIRST traversal (to decide whether it STARTS a
+    /// barrier — a no-op first `go(999)` must NOT become one, Resolution E).
+    ///
+    /// [`classify_traversal`]: Self::classify_traversal
+    fn pending_traversal(&mut self, delta: TraversalDelta) -> PendingTraversal;
 
     /// Apply ONE [`HistoryAction`] against the session history — a synchronous
     /// `pushState` / `replaceState` *update* in Phase 1 (§7.4.4), or a deferred
@@ -464,30 +493,42 @@ impl DrainCoordinator {
         // traversal (§7.4.3) onward, every step defers onto the queue in issue
         // order (never reorder a sync ahead of a traversal issued before it).
         //
-        // Seed `seen_traversal` from whether the queue ALREADY holds a pending
-        // *traversal*: under the split entry points the queue persists across turns
-        // (a prior turn's `drain_synchronous_phase` may have enqueued a traversal
-        // that this turn's Phase 2 has not yet drained). A fresh sync update this
-        // turn must NOT overtake that still-pending older traversal — the
-        // single-FIFO ordering (I2) holds ACROSS turns, not just within one
-        // `pending_history` batch. The barrier concept is a *Traversal* being
-        // pending (not merely a non-empty queue): a `SyncUpdate`-only queue must
-        // NOT seed the barrier, consistent with the Phase-1c suppress predicate
-        // (`has_pending_traversal`). (Empty / sync-only queue = the common case =
-        // `false`.)
-        let mut seen_traversal = host.traversal_queue().has_pending_traversal();
+        // Seed `seen_traversal` from whether a barrier ALREADY exists coming into
+        // this turn: the queue holds a pending *traversal* (a prior turn's
+        // `drain_synchronous_phase` enqueued one this turn's Phase 2 has not yet
+        // drained — the single-FIFO ordering (I2) holds ACROSS turns), OR a
+        // traversal apply is currently IN FLIGHT (`is_applying()` — Phase 1 was
+        // re-entered reentrantly DURING Phase 2, so the in-flight traversal has
+        // been POPPED off the pending queue but still owns the peek→commit window;
+        // F1). A fresh sync update this turn must NOT overtake either — it defers
+        // onto the queue (drained by the Phase-2 re-check-until-empty loop). The
+        // barrier concept is a *Traversal* being pending OR in flight (not merely a
+        // non-empty queue): a `SyncUpdate`-only queue must NOT seed the barrier,
+        // consistent with the Phase-1c suppress predicate. (Empty / sync-only queue
+        // with no in-flight apply = the common case = `false`.)
+        let mut seen_traversal =
+            host.traversal_queue().has_pending_traversal() || host.traversal_queue().is_applying();
         for action in host.take_pending_history() {
             match TraversalDelta::from_history_action(&action) {
                 Some(delta) => {
-                    // A `Back`/`Forward`/`Go` — peek-classify against the host's
-                    // live entry list (Resolution E). Only an IN-RANGE traversal
-                    // is a partition barrier; a no-op (peek → `None`) falls
-                    // through WITHOUT flipping `seen_traversal`, so subsequent
-                    // same-turn sync updates + the nav still drain in-task.
-                    if let Some(pending) = host.classify_traversal(delta) {
+                    // A `Back`/`Forward`/`Go`. The FIRST traversal peek-classifies
+                    // against the host's live entry list (Resolution E): only an
+                    // IN-RANGE traversal STARTS a partition barrier; a no-op (peek →
+                    // `None`) falls through WITHOUT flipping `seen_traversal`, so
+                    // subsequent same-turn sync updates + the nav still drain
+                    // in-task. Once a barrier exists, every SUBSEQUENT traversal
+                    // enqueues UNCONDITIONALLY (F4) — its target resolves at apply
+                    // time (§7.4.6.1), so peeking it against the still-unmoved
+                    // cursor would wrongly DROP one that only becomes in-range after
+                    // an earlier queued traversal applies (`back(); forward()`).
+                    if seen_traversal {
+                        let pending = host.pending_traversal(delta);
+                        host.traversal_queue().enqueue_traversal(pending);
+                    } else if let Some(pending) = host.classify_traversal(delta) {
                         seen_traversal = true;
                         host.traversal_queue().enqueue_traversal(pending);
                     }
+                    // else: a no-op FIRST traversal (peek → `None`) — not a barrier.
                 }
                 None if seen_traversal => {
                     // A synchronous update issued AFTER a same-turn traversal —
@@ -504,24 +545,26 @@ impl DrainCoordinator {
         }
 
         // Phase 1c — last-wins own-context navigation (§7.4.2), in-task. The
-        // supersede-`return` the shells used today is REMOVED, BUT when an
-        // in-range traversal is pending (this turn or still-queued cross-turn) the
-        // navigation is SUPPRESSED: drain-and-DISCARD the `pending_navigation`
-        // slot so it cannot re-fire a turn late (§7.4.2.2 step 19 "ignored"; plan
-        // §1 A / F1). No-ops never enqueue a `Traversal` step (Resolution E), so
-        // they never suppress.
-        let suppress = host.traversal_queue().has_pending_traversal();
+        // supersede-`return` the shells used today is REMOVED, BUT when a traversal
+        // is pending (this turn, still-queued cross-turn) OR a traversal apply is
+        // IN FLIGHT (`is_applying()` — a reentrant Phase 1 nested inside Phase 2,
+        // F1) the navigation is SUPPRESSED: drain-and-DISCARD the
+        // `pending_navigation` slot so it cannot re-fire a turn late (§7.4.2.2 step
+        // 19 "ignored"; plan §1 A / F1). No-ops never enqueue a `Traversal` step
+        // (Resolution E), so they never suppress.
+        let suppress =
+            host.traversal_queue().has_pending_traversal() || host.traversal_queue().is_applying();
         if host.handle_navigation(suppress) {
             outcome.own_context_action = true;
             outcome.shipped = true;
         }
 
-        // The single home for the default-suppression rule (plan §1 B/E1): an
+        // The single home for the default-suppression rule (plan §1 B/E1 + F1): an
         // own-context effect happened this turn OR a `Traversal` step is pending
-        // (this-turn or still-queued cross-turn). `handle_navigation` never
-        // enqueues a traversal, so `suppress` (read just above) still reflects the
-        // queue's Traversal-pending state. Both content call sites read this field
-        // instead of re-deriving the query.
+        // (this-turn or still-queued cross-turn) OR a traversal apply is in flight.
+        // `handle_navigation` never enqueues a traversal, so `suppress` (read just
+        // above) still reflects the queue's Traversal-pending / in-flight state.
+        // Both content call sites read this field instead of re-deriving the query.
         outcome.suppress_default = outcome.own_context_action || suppress;
 
         outcome

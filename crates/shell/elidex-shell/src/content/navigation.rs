@@ -577,8 +577,20 @@ impl DrainHost for ContentState {
     /// ends / out of range (§7.4.3 sub-step 4.4 "does not exist ⇒ abort"), so it
     /// falls through and the trailing same-turn sync/nav stay in-task.
     fn classify_traversal(&mut self, delta: TraversalDelta) -> Option<PendingTraversal> {
+        // The peek decides `Some`/`None` (in-range vs no-op — §7.4.3 sub-step 4.4);
+        // `pending_traversal` builds the value. Only the FIRST traversal of a turn
+        // is peek-gated this way; once a barrier exists the coordinator calls
+        // `pending_traversal` directly (F4).
         let in_range = self.nav_controller.peek_delta(delta).is_some();
-        in_range.then_some(PendingTraversal {
+        in_range.then(|| self.pending_traversal(delta))
+    }
+
+    /// **Phase 1b — build a pending traversal WITHOUT a peek** (F4). The coordinator
+    /// calls this for every traversal AFTER a barrier exists; the target resolves at
+    /// Phase-2 apply time (§7.4.6.1), so a later `Forward`/`Go` is not dropped for
+    /// peeking out-of-range against the still-unmoved cursor.
+    fn pending_traversal(&mut self, delta: TraversalDelta) -> PendingTraversal {
+        PendingTraversal {
             delta,
             // Scripted `history.back()`/`forward()`/`go()` passes a sourceDocument
             // (the calling document) to *traverse the history by a delta*, so
@@ -586,7 +598,7 @@ impl DrainHost for ContentState {
             // "browser UI", overridden by the given-sourceDocument branch). A
             // chrome-button traversal (`BrowserUi`, no sourceDocument) is Slice B.
             user_involvement: UserInvolvement::None,
-        })
+        }
     }
 
     /// **Phase 1c** — the last-wins own-context navigation (`location.*`, §7.4.2).

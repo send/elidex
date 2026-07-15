@@ -26,6 +26,10 @@ fn back() -> HistoryAction {
     HistoryAction::Back
 }
 
+fn forward() -> HistoryAction {
+    HistoryAction::Forward
+}
+
 fn go(delta: i32) -> HistoryAction {
     HistoryAction::Go(delta)
 }
@@ -91,6 +95,12 @@ struct MockHost {
     /// When set, [`DrainHost::classify_traversal`] returns `None` (a no-op
     /// out-of-range peek — Resolution E), so the traversal is NOT a barrier.
     classify_noop: bool,
+    /// Per-call [`DrainHost::classify_traversal`] answers (front = first call):
+    /// `true` = in-range (`Some`), `false` = out-of-range (`None`). Models a peek
+    /// that is in-range for the FIRST traversal but out-of-range against the
+    /// still-UNMOVED cursor for a later one — the F4 barrier case. When empty,
+    /// falls back to the `classify_noop` flag.
+    classify_answers: std::collections::VecDeque<bool>,
     log: Vec<Ev>,
 }
 
@@ -104,6 +114,7 @@ impl MockHost {
             traversal_noop: false,
             traversal_changes_document: false,
             classify_noop: false,
+            classify_answers: std::collections::VecDeque::new(),
             log: Vec::new(),
         }
     }
@@ -169,15 +180,25 @@ impl DrainHost for MockHost {
 
     fn classify_traversal(&mut self, delta: TraversalDelta) -> Option<PendingTraversal> {
         // Resolution E peek-classify: `None` = a no-op out-of-range traversal (not
-        // a barrier); `Some` = in-range, enqueued as a barrier. The mock's
-        // `classify_noop` flag stands in for the shell's `peek_*` returning `None`.
-        if self.classify_noop {
-            return None;
-        }
-        Some(PendingTraversal {
+        // a barrier); `Some` = in-range, enqueued as a barrier. A per-call
+        // `classify_answers` entry stands in for the shell's `peek_*` (front =
+        // first call — models an in-range FIRST + out-of-range LATER peek, F4);
+        // absent it, the `classify_noop` flag governs.
+        let in_range = self
+            .classify_answers
+            .pop_front()
+            .unwrap_or(!self.classify_noop);
+        in_range.then(|| self.pending_traversal(delta))
+    }
+
+    fn pending_traversal(&mut self, delta: TraversalDelta) -> PendingTraversal {
+        // F4: build the pending value with NO peek — the coordinator calls this
+        // for every traversal after a barrier exists (target resolves at apply
+        // time), so a later traversal peeking out-of-range is never dropped.
+        PendingTraversal {
             delta,
             user_involvement: UserInvolvement::default(),
-        })
+        }
     }
 
     fn handle_navigation(&mut self, suppress: bool) -> bool {
@@ -732,6 +753,129 @@ fn has_pending_traversal_reflects_only_traversal_steps() {
     assert!(
         host.queue.has_pending_traversal(),
         "now a Traversal step is pending"
+    );
+}
+
+#[test]
+fn later_traversal_enqueues_unconditionally_after_a_barrier() {
+    // F4: `back(); forward()` from `[base, /a]` at `/a`. The FIRST traversal
+    // (back) peek-classifies in-range → starts the barrier. The SECOND (forward)
+    // peeks the STILL-UNMOVED index-1 cursor → out-of-range (`classify_answers`
+    // front `false`), but because a barrier now exists it must enqueue
+    // UNCONDITIONALLY (its target resolves at apply time) — the pre-apply peek must
+    // NOT drop it. Old behavior dropped the forward, landing on `base`; the fix
+    // applies BOTH, netting back on `/a`.
+    let mut host = MockHost::new(vec![back(), forward()]);
+    host.classify_answers = std::collections::VecDeque::from(vec![true, false]);
+
+    let _ = DrainCoordinator::drain_same_turn(&mut host);
+
+    let applied: Vec<_> = host
+        .log
+        .iter()
+        .filter_map(|e| match e {
+            Ev::TraversalApply { delta, .. } => Some(*delta),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        applied,
+        vec![TraversalDelta::Back, TraversalDelta::Forward],
+        "both traversals applied in issue order — the forward was NOT dropped by \
+         the pre-apply peek against the unmoved cursor (F4)"
+    );
+    assert!(host.queue.is_empty(), "everything drained");
+}
+
+#[test]
+fn first_noop_traversal_before_a_barrier_is_still_dropped() {
+    // F4 guard (first-traversal peek intact): `go(999); back()`. The FIRST
+    // traversal (go(999)) peeks out-of-range (`classify_answers` front `false`) →
+    // it is NOT a barrier and is dropped (Resolution E). Only THEN does the back()
+    // — still the first REAL barrier candidate — peek in-range and enqueue. So a
+    // no-op leading `go` must not enqueue, and the back is the sole applied step.
+    let mut host = MockHost::new(vec![go(999), back()]);
+    host.classify_answers = std::collections::VecDeque::from(vec![false, true]);
+
+    let _ = DrainCoordinator::drain_same_turn(&mut host);
+
+    let applied: Vec<_> = host
+        .log
+        .iter()
+        .filter_map(|e| match e {
+            Ev::TraversalApply { delta, .. } => Some(*delta),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        applied,
+        vec![TraversalDelta::Back],
+        "the no-op leading go(999) was dropped (not a barrier); only the in-range \
+         back() enqueued and applied"
+    );
+}
+
+#[test]
+fn stacked_back_back_enqueues_both() {
+    // F4 guard (`back(); back()` harmless): both backs peek in-range against the
+    // unmoved cursor, so the first STARTS a barrier and the second enqueues
+    // unconditionally — BOTH queue. (The 2nd applying as a no-op after the cursor
+    // moved is content-level territory; here the mock just proves both enqueue.)
+    let mut host = MockHost::new(vec![back(), back()]);
+    host.classify_answers = std::collections::VecDeque::from(vec![true, true]);
+
+    let _ = DrainCoordinator::drain_same_turn(&mut host);
+
+    let applied = host
+        .log
+        .iter()
+        .filter(|e| matches!(e, Ev::TraversalApply { .. }))
+        .count();
+    assert_eq!(applied, 2, "both stacked backs enqueued and applied");
+}
+
+#[test]
+fn in_flight_traversal_barrier_defers_sync_and_discards_nav() {
+    // F1: Phase 1 re-entered reentrantly DURING Phase 2 — the in-flight traversal
+    // was POPPED off the pending queue (`has_pending_traversal() == false`) but
+    // the apply still owns the peek→commit window (`is_applying() == true`). A
+    // reentrant `pushState` must DEFER onto the queue (not apply in-task) and a
+    // reentrant `location.*` must be drain-and-DISCARDED — `is_applying()` is an
+    // additional barrier + suppression signal, completing the nested-apply guard.
+    let mut host = MockHost::new(vec![push("/reentrant")]).with_navigation();
+    host.queue.enter_nested_apply(); // simulate mid-Phase-2 apply
+    assert!(host.queue.is_applying(), "guard set (mid-apply)");
+    assert!(
+        !host.queue.has_pending_traversal(),
+        "the in-flight traversal was popped — nothing pending in the queue"
+    );
+
+    let outcome = DrainCoordinator::drain_synchronous_phase(&mut host);
+
+    // The reentrant sync update did NOT apply in-task…
+    assert!(
+        !host.log.iter().any(|e| matches!(e, Ev::SyncUpdate { .. })),
+        "the reentrant pushState did not apply in-task (is_applying is a barrier)"
+    );
+    // …it was enqueued onto the queue (drained later by the Phase-2 loop).
+    assert!(
+        !host.queue.is_empty(),
+        "the reentrant pushState was enqueued (serialized onto the queue)"
+    );
+    // The reentrant nav was drain-and-discarded, not applied.
+    assert!(
+        host.log
+            .iter()
+            .any(|e| matches!(e, Ev::NavigationDiscarded)),
+        "the reentrant nav was drain-and-discarded (is_applying suppresses)"
+    );
+    assert!(
+        !host.log.iter().any(|e| matches!(e, Ev::Navigation)),
+        "the suppressed nav did NOT apply"
+    );
+    assert!(
+        outcome.suppress_default,
+        "is_applying sets suppress_default (the default is suppressed under a nested apply)"
     );
 }
 
