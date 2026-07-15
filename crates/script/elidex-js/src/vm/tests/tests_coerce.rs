@@ -11,7 +11,7 @@
 
 use super::super::coerce::{
     abstract_eq, relative_index_f64, strict_eq, string_to_number, to_boolean, to_display_string,
-    to_index_u64, to_int32, to_integer_or_infinity, to_number, to_string, typeof_str,
+    to_index_u64, to_int32, to_integer_or_infinity, to_number, to_object, to_string, typeof_str,
 };
 use super::super::coerce_ops::*;
 use super::super::value::{JsValue, NativeContext, ObjectId, StringId};
@@ -56,6 +56,47 @@ fn to_number_symbol_throws() {
     let sid = vm.inner.alloc_symbol(None);
     let result = to_number(&mut vm.inner, JsValue::Symbol(sid));
     assert!(result.is_err());
+}
+
+/// Codex R9: a **boxed** Symbol (`SymbolWrapper`, produced by `ToObject` on a
+/// Symbol primitive) must convert per §20.4.3.4 `valueOf` / §20.4.3.5
+/// `@@toPrimitive` — both yield the underlying Symbol — so `ToPrimitive` returns
+/// a Symbol and a downstream `ToString` / `ToNumber` throws, exactly as it does
+/// for the primitive.
+///
+/// This is exercised at the `coerce` layer rather than from JS on purpose: the
+/// only route that boxes a Symbol (`ToObject`) is not reachable from script here
+/// (`Object(sym)` / `new Symbol` are unsupported), and the JS spellings that
+/// would observe it (`Object.prototype.valueOf.call(sym)`, `` `${boxedSym}` ``)
+/// are blocked upstream by separate pre-existing VM gaps —
+/// `#11-vm-native-fn-generic-invocation` (generic native-fn `.call`) and the
+/// opcode-level Symbol-coercion gap noted in
+/// `#11-vm-symbol-operand-coercion-throws`. Before this fix the wrapper had no
+/// `valueOf`, so `ordinary_to_primitive` fell through to `toString` and produced
+/// the string `"Symbol(x)"`.
+#[test]
+fn boxed_symbol_to_primitive_yields_the_symbol() {
+    let mut vm = Vm::new();
+    let desc = vm.inner.strings.intern("x");
+    let sid = vm.inner.alloc_symbol(Some(desc));
+    let wrapper = to_object(&mut vm.inner, JsValue::Symbol(sid)).unwrap();
+
+    // ToPrimitive(boxedSymbol, *) === the underlying Symbol, under every hint —
+    // via @@toPrimitive (present) which ignores the hint (§20.4.3.5).
+    for hint in ["default", "number", "string"] {
+        assert_eq!(
+            vm.inner
+                .to_primitive(JsValue::Object(wrapper), hint)
+                .unwrap(),
+            JsValue::Symbol(sid),
+            "hint={hint}"
+        );
+    }
+
+    // Consequently a string/number coercion of the boxed Symbol throws, not
+    // stringifies: ToString runs ToPrimitive(string) → Symbol → TypeError.
+    assert!(to_string(&mut vm.inner, JsValue::Object(wrapper)).is_err());
+    assert!(to_number(&mut vm.inner, JsValue::Object(wrapper)).is_err());
 }
 
 #[test]

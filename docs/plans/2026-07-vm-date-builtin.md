@@ -211,7 +211,7 @@ helper 抽出し、`Date.prototype[Symbol.toPrimitive]` (§21.4.4.45 step 6) / `
   wrapper の内部 slot を **直読み**して override を bypass する（spec はいずれも ToPrimitive →
   `OrdinaryToPrimitive` を通す）:
   - `coerce.rs:47` `to_number` の `NumberWrapper` arm — §7.1.4 ToNumber: Object → `ToPrimitive(number)`
-  - `coerce.rs:230` `to_string` の `NumberWrapper` arm — §7.1.17 ToString: Object → `ToPrimitive(string)`
+  - `coerce.rs:230` `to_string` の `NumberWrapper` arm — §7.1.18 ToString: Object → `ToPrimitive(string)`
   - `natives_json/stringify.rs` ×3 — §25.5.4 `SerializeJSONProperty` step 4 は `[[NumberData]]` →
     `? ToNumber(value)` / `[[StringData]]` → `? ToString(value)` を要求するが slot 直読み
     （value 本体 / replacer array / `space` 引数の 3 箇所）
@@ -227,6 +227,29 @@ helper 抽出し、`Date.prototype[Symbol.toPrimitive]` (§21.4.4.45 step 6) / `
   **Re-evaluation trigger**: VM coercion (`coerce.rs`) を次に触る PR、または
   `#11-vm-native-fn-generic-invocation` と併せた VM-core semantics PR。**Re-evaluation date**: by
   **2026-09-30**, or earlier on the trigger — whichever is first.
+
+### external-converge (Codex R9) 由来
+
+- `#11-vm-symbol-operand-coercion-throws` — **既存 VM bug (Date 無関係、下記 R9 fix の test 作成中に
+  発見)**。`coerce.rs` の `to_number` (§7.1.4) / `to_string` (§7.1.18) は Symbol → TypeError を
+  **正しく実装**しているが、VM の **opcode 経路がそれを迂回**し、primitive Symbol の coercion が
+  throw せず string を返す。probe 実測 (いずれも spec では TypeError であるべき):
+  `` `${Symbol('x')}` `` / `''+Symbol('x')` / `Number(Symbol('x'))` / `Symbol('x')*1` /
+  `[Symbol('x')].join()` が全て string。`String(Symbol('x'))` のみ spec 通り (`String()` 関数は
+  §22.1.1.1 step 2.a で Symbol を特別扱い)。
+  **本 PR で直した R9 finding = `Symbol.prototype` の `valueOf` (§20.4.3.4) / `@@toPrimitive`
+  (§20.4.3.5) install 漏れ**（R7 #23 の fast-path 削除で露呈: boxed Symbol が `OrdinaryToPrimitive` で
+  `Object.prototype.valueOf`→`toString` に落ち `"Symbol(x)"` に stringify されていた）。fix は Rust
+  unit test `boxed_symbol_to_primitive_yields_the_symbol` で pin。
+  **Why defer**: opcode-level の coercion dispatch は本 PR が触らない VM core 機構で、全 operator
+  (`+` / template / arithmetic / relational) × Symbol に跨る。**かつ この R9 fix の JS-observable test
+  を阻んでいる張本人** — Codex の repro `Object.prototype.valueOf.call(Symbol('x'))` は別 slot
+  `#11-vm-native-fn-generic-invocation` (native fn の generic `.call`) で先に throw し、boxed Symbol の
+  coercion 経路は本 slot の opcode bug で throw しないため、SymbolWrapper fix は coerce 層の Rust
+  unit test でしか観測できない。**Re-evaluation trigger**: VM の operator opcode / coercion dispatch を
+  次に触る PR、または `#11-vm-wrapper-coercion-override-bypass` (同じ「opcode が coerce.rs を迂回」系) と
+  併せた VM-core semantics PR。**Re-evaluation date**: by **2026-09-30**, or earlier on the trigger —
+  whichever is first.
 
 ### IDB × Date — carve (Codex R2/R3 + design re-gate Axis 1 CRIT×2)
 
