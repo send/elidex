@@ -86,7 +86,7 @@ pub fn create_form_control_state(dom: &mut EcsDom, entity: Entity) -> bool {
 
     finalize_control(dom, entity, &mut state);
     // Check ancestor fieldset disabled state and propagate to this control.
-    if !state.disabled && fieldset::is_fieldset_disabled(entity, dom) {
+    if !state.disabled && crate::is_fieldset_disabled(entity, dom) {
         state.disabled = true;
         if let Ok(mut es) = dom.world_mut().get::<&mut ElementState>(entity) {
             es.insert(ElementState::DISABLED);

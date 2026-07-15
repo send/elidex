@@ -24,6 +24,7 @@ members = [
     "crates/dom/elidex-dom-compat",
     "crates/dom/elidex-a11y",
     "crates/dom/elidex-form",
+    "crates/dom/elidex-form-core",
     "crates/api/elidex-api-observers",
     "crates/api/elidex-cache-api",
     "crates/api/elidex-api-crypto",
@@ -200,6 +201,7 @@ elidex-dom-compat = { path = "crates/dom/elidex-dom-compat" }
 elidex-shell = { path = "crates/shell/elidex-shell" }
 elidex-a11y = { path = "crates/dom/elidex-a11y" }
 elidex-form = { path = "crates/dom/elidex-form" }
+elidex-form-core = { path = "crates/dom/elidex-form-core" }
 elidex-api-observers = { path = "crates/api/elidex-api-observers" }
 elidex-storage-core = { path = "crates/storage/elidex-storage-core" }
 elidex-cache-api = { path = "crates/api/elidex-cache-api" }

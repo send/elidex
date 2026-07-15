@@ -39,7 +39,7 @@ fn strip_newlines(s: &str) -> String {
 ///
 /// Scope: value-*establishment* (IDL `value` setter / parser child-text /
 /// reset) plus `setRangeText`.  The remaining *interactive* edit paths —
-/// paste ([`crate::clipboard_paste`]) and IME ([`FormControlState::insert_at_cursor`])
+/// paste (`clipboard_paste`, in `elidex-form`) and IME ([`FormControlState::insert_at_cursor`])
 /// — are NOT covered here: they fold newlines together with maxlength
 /// counted on the API value and the `InputEvent` data, a coupled
 /// engine+shell follow-up (`#11-textarea-edit-path-newline-normalization`).

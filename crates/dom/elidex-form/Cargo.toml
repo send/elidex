@@ -13,6 +13,7 @@ categories = ["web-programming"]
 [dependencies]
 elidex-plugin.workspace = true
 elidex-ecs.workspace = true
+elidex-form-core.workspace = true
 elidex-dom-api.workspace = true
 # `apply_set_inner_html` / `SetInnerHtmlOptions` for `parse_into_inert_document`
 # (HTML §8.5.1 inert-document build). A clean downward dep: script-session does
