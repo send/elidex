@@ -1,7 +1,7 @@
 //! Engine-independent leaf crate for form control state and pure derivations.
 //!
 //! Holds the [`FormControlState`] ECS component and its entire inherent
-//! `impl` (the value model — Rust coherence [E0116] binds it to the type's
+//! `impl` (the value model — Rust coherence E0116 binds it to the type's
 //! crate), plus the pure derivation closure that reads that state:
 //! constraint validation ([`validate_control`] / [`ValidityState`]), the
 //! fieldset disabled-ancestry predicate ([`is_fieldset_disabled`]), value
@@ -560,7 +560,7 @@ impl FormControlState {
     /// **Policy-free** — it never moves the cursor to a spec-defined
     /// position; that is the caller's job at the two normative sites
     /// (HTML §4.10.5.4 `value`-setter step 5 → end, §4.10.5 type-change
-    /// step 9 → beginning) via [`Self::move_text_cursor_to`].  The clamp
+    /// step 9 → beginning) via `move_text_cursor_to`.  The clamp
     /// runs UNCONDITIONALLY (not only when sanitization changes the
     /// value), because a value-establishment that shortens `value`
     /// without sanitization further changing it would otherwise leave a
@@ -702,7 +702,7 @@ impl FormControlState {
     ///
     /// **No sanitize / cursor move here** — the type-change algorithm
     /// sanitizes at step 6
-    /// ([`sanitize_for_type_change`](crate::sanitize_for_type_change), which
+    /// ([`sanitize_for_type_change`], which
     /// settles under the new kind), so this sets the raw value only.
     pub fn set_value_from_content_attr(&mut self, content: String) {
         self.default_value.clone_from(&content);
