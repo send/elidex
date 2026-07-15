@@ -181,6 +181,17 @@ pub(super) fn handle_click(state: &mut ContentState, click: &crate::ipc::MouseCl
     // suppress the `<a href>` default when it holds.
     let drained = DrainCoordinator::drain_synchronous_phase(state);
     if drained.suppress_default {
+        // `suppress_default` gates ONLY the `<a href>` default action, NOT frame
+        // shipping (F3). A turn that mutates the DOM in the click handler AND queues
+        // an in-range traversal has `own_context_action == false` (the traversal is
+        // deferred), so the drain shipped nothing — the `re_render()`'d frame (with
+        // the mutation) would strand until Phase 2, and never ship if Phase 2's
+        // apply fails. Ship it here (keyed on `!shipped`, not on suppression); if
+        // the drain already shipped (an applied nav / pushState render) don't
+        // double-ship. THEN suppress the default action only.
+        if !drained.shipped {
+            state.send_display_list();
+        }
         return;
     }
 
@@ -396,12 +407,15 @@ pub(super) fn handle_key(
     state.re_render();
 
     // Phase 1 (in-task) — same phase-separated drain as the click path. Ship the
-    // keyboard turn's frame only when the coordinator's `suppress_default` is
-    // clear (no own-context nav/history applied and no traversal pending — a
-    // pending traversal ships its own frame in Phase 2; an applied nav already
-    // shipped).
+    // keyboard turn's `re_render()`'d frame whenever the drain did not already ship
+    // it (keyed on `!shipped`, NOT `!suppress_default` — F3). Decoupling
+    // frame-ship from default-suppression: a turn that mutates the DOM AND queues
+    // an in-range traversal has `own_context_action == false` (traversal deferred)
+    // so the drain shipped nothing, but the mutated frame must still ship this turn
+    // rather than strand until Phase 2. An applied nav / a pushState render already
+    // shipped (`shipped == true`), so this does not double-ship.
     let drained = DrainCoordinator::drain_synchronous_phase(state);
-    if !drained.suppress_default {
+    if !drained.shipped {
         state.send_display_list();
     }
 }

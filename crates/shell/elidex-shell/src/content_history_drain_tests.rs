@@ -28,6 +28,18 @@ use super::navigation::{
 use super::test_support::build_test_content_state_with_url;
 use crate::ipc::{BrowserToContent, ContentToBrowser, LocalChannel};
 
+/// A primary-button `MouseClickEvent` at viewport point `(x, y)` — drives the
+/// `handle_click` path for the F3 frame-ship regression.
+fn click_at(x: f32, y: f32) -> crate::ipc::MouseClickEvent {
+    crate::ipc::MouseClickEvent {
+        point: elidex_plugin::Point::new(x, y),
+        client_point: elidex_plugin::Point::new(f64::from(x), f64::from(y)),
+        button: 0,
+        mods: crate::ipc::ModifierState::default(),
+        placement_seq: 0,
+    }
+}
+
 /// The top-level document URL every test builds against.
 fn base() -> url::Url {
     url::Url::parse("https://example.com/").unwrap()
@@ -901,5 +913,46 @@ fn stacked_back_back_second_traversal_is_a_noop() {
         count_display_lists(&browser),
         1,
         "exactly ONE frame ships: the 1st same-document apply; the 2nd no-op ships nothing"
+    );
+}
+
+/// F3 (default-suppression must not strand the re-rendered frame): a click whose
+/// handler mutates the current document AND queues an in-range (same-document)
+/// traversal. The traversal defers to Phase 2, so `own_context_action == false`
+/// and the drain ships nothing; `suppress_default` is true (a traversal is
+/// pending), which suppresses the `<a href>` default. The bug: the click handler's
+/// early `return` on `suppress_default` SKIPPED `send_display_list()`, stranding
+/// the DOM-mutating `re_render()`'d frame until Phase 2 (never sent if Phase 2's
+/// apply fails). The fix ships the frame keyed on `!drained.shipped`, decoupled
+/// from default-suppression — so a display list IS sent this turn.
+#[test]
+fn click_ships_mutated_frame_when_default_suppressed_by_pending_traversal() {
+    // A click handler (registered via an inline `<script>`, so it runs through the
+    // build-time flush and is live for `dispatch_event`) that mutates the current
+    // document AND queues an in-range same-document back() (which defers to Phase 2
+    // and suppresses the `<a href>` default).
+    let (mut state, browser) = build_test_content_state_with_url(
+        "<div id=\"btn\" style=\"display:block;width:200px;height:100px\">Click</div>\
+         <script>\
+           document.getElementById('btn').addEventListener('click', function () {\
+             document.body.appendChild(document.createElement('span'));\
+             history.back();\
+           });\
+         </script>",
+        base(),
+    );
+    seed_same_document_pair(&mut state); // [base, /a], cursor on /a → back() in-range
+    state.re_render();
+    drain_browser(&browser);
+
+    super::event_handlers::handle_click(&mut state, &click_at(50.0, 50.0));
+
+    assert!(
+        state.traversal_queue().has_pending_traversal(),
+        "the handler's history.back() queued an in-range traversal (the default is suppressed)"
+    );
+    assert!(
+        count_display_lists(&browser) >= 1,
+        "the DOM-mutating re_render'd frame ships THIS turn (not stranded by suppress_default) — F3"
     );
 }
