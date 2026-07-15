@@ -567,10 +567,9 @@ impl DrainHost for ContentState {
     /// A synchronous `pushState`/`replaceState` *update* (§7.4.4) in Phase 1, or a
     /// deferred `SyncUpdate` step in Phase 2. The coordinator routes ONLY these
     /// here (`Back`/`Forward`/`Go` go through `classify_traversal` / `apply_traversal`),
-    /// so this hits the sync-update arm of the shared `handle_history_action`; its
-    /// bool return (a traversal supersede) is irrelevant for a sync update.
+    /// so this delegates straight to the sync-update-only [`handle_history_action`].
     fn handle_history_action(&mut self, action: &HistoryAction) {
-        let _ = handle_history_action(self, action);
+        handle_history_action(self, action);
     }
 
     /// **Phase 1b peek-classify** (Resolution E): `Some` for an in-range traversal
@@ -729,49 +728,24 @@ pub(crate) fn route_window_opens(
     }
 }
 
-/// Apply a single history action. Returns `true` iff it **handled the turn as an
-/// own-context traversal** — a `Back`/`Forward`/`Go` whose `NavigationController`
-/// peek yielded a target AND whose `handle_navigate` (with
-/// [`HistoryCursorOp::Commit`]) either (a) **rebuilt** the document on a
-/// cross-document load that succeeded (replaced `state.pipeline`) OR (b) applied a
-/// **same-document traversal IN PLACE** (§7.4.6.1 — no rebuild: restored state +
-/// scroll and fired popstate, shipping its own display list). A `go(0)` is a
-/// **reload** (History.go step 4) → the rebuild arm (also `true`). Returns `false`
-/// for `PushState`/`ReplaceState` (no rebuild), for a **no-target traversal** (an
-/// out-of-range `go` / empty `peek_back`/`peek_forward` returning `None` → no
-/// `handle_navigate`), AND for a cross-document traversal whose **load FAILED**
-/// (`handle_navigate` `Err` left the pipeline unchanged, so the old document is
-/// still active). The FIFO drain loop keys on
-/// this to STOP replaying remaining same-turn intents ONLY once a traversal
-/// genuinely superseded the document (Codex R1 P2 / R2): a no-op or failed-load
-/// traversal leaves the current document active, so the loop CONTINUES and the
-/// trailing intents still apply. The traversal is **atomic on the non-reentrant
-/// path** (peek-then-commit — Codex R3): the target index is peeked WITHOUT moving
-/// the cursor and committed (`commit_index`, threaded INTO `handle_navigate` via
-/// [`HistoryCursorOp::Commit`] so it precedes `notify_navigation` — Codex R5)
-/// ONLY after the load succeeds, so a failed load never leaves the cursor
-/// speculatively moved (no rollback path — a continuing trailing `pushState`
-/// commits from the correct, unmoved index). **One reentrancy vector is out of
-/// scope**: `handle_navigate`'s SW-fetch synchronous message pump can re-dispatch
-/// a nav-mutating message during its blocking wait, staling the held `target_index`
-/// before the commit — folded into the deferred `#11-session-history-task-queue-model`
-/// (the task-queued model + M4-10 async event loop remove the synchronous
-/// cross-wait window; unreachable today — the SW controller path is dead — and
-/// `commit_index`'s `debug_assert` backstops the out-of-range case in debug/test).
+/// Apply a synchronous §7.4.4 history *update* — a `pushState` / `replaceState`
+/// (Phase 1, in-task) or a deferred `SyncUpdate` step (Phase 2). This is the
+/// sync-update body behind the [`DrainHost::handle_history_action`] seam: after
+/// phase-separation the coordinator routes ONLY `PushState` / `ReplaceState` here
+/// (the `Back` / `Forward` / `Go` traversals go through `classify_traversal` in
+/// Phase 1b and [`apply_traversal_delta`] in Phase 2, §7.4.6.1 *apply the history
+/// step*).
+///
+/// It commits a session-history entry in place (no pipeline rebuild, no cursor
+/// peek/commit) and never ships its own frame — the coordinator ships once at
+/// end-of-turn. A `Back` / `Forward` / `Go` reaching this seam would be a
+/// coordinator-routing bug, guarded by a `debug_assert` (the production dispatch
+/// never constructs a traversal `SyncUpdate`).
 pub(super) fn handle_history_action(
     state: &mut ContentState,
     action: &elidex_script_session::HistoryAction,
-) -> bool {
+) {
     match action {
-        elidex_script_session::HistoryAction::Back => {
-            apply_traversal_delta(state, TraversalDelta::Back).shipped
-        }
-        elidex_script_session::HistoryAction::Forward => {
-            apply_traversal_delta(state, TraversalDelta::Forward).shipped
-        }
-        elidex_script_session::HistoryAction::Go(delta) => {
-            apply_traversal_delta(state, TraversalDelta::Go(*delta)).shipped
-        }
         elidex_script_session::HistoryAction::PushState {
             url,
             serialized_state,
@@ -787,16 +761,28 @@ pub(super) fn handle_history_action(
                 elidex_script_session::HistoryAction::ReplaceState { .. }
             );
             apply_push_replace_state(state, url.as_deref(), replace, serialized_state.clone());
-            false
+        }
+        // Traversals are never routed to the sync-update seam (Phase 1b
+        // `classify_traversal` + Phase 2 `apply_traversal_delta` own them). A
+        // traversal here means the coordinator mis-partitioned a step.
+        elidex_script_session::HistoryAction::Back
+        | elidex_script_session::HistoryAction::Forward
+        | elidex_script_session::HistoryAction::Go(_) => {
+            debug_assert!(
+                false,
+                "a traversal reached the sync-update handle_history_action — it must route \
+                 through apply_traversal_delta (Phase 2)"
+            );
         }
     }
 }
 
 /// Apply a `Back`/`Forward`/`Go` **traversal** (§7.4.6.1 *apply the history
-/// step*) — the single peek-then-commit body shared by the synchronous
-/// [`handle_history_action`] path and the deferred-Phase-2
-/// [`DrainHost::apply_traversal`] seam (One-issue-one-way: one traversal-apply
-/// body, not a fork).
+/// step*) — the single peek-then-commit body driven by the deferred-Phase-2
+/// [`DrainHost::apply_traversal`] seam (and the re-anchored isolation tests).
+/// After phase-separation this is the SOLE traversal-apply path: the synchronous
+/// `handle_history_action` seam only carries §7.4.4 sync updates now
+/// (One-issue-one-way: one traversal-apply body, not a fork).
 ///
 /// Peeks the target WITHOUT moving the cursor; `handle_navigate` commits the move
 /// (via [`HistoryCursorOp::Commit`]) ONLY if the load succeeds — an atomic
