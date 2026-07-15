@@ -25,7 +25,9 @@
 
 use elidex_script_session::{HostDriver, NamedFrameNavigation, OpenTabRequest, WindowOpenIntent};
 
-use super::navigation::{process_pending_actions, route_window_opens};
+use elidex_navigation::DrainCoordinator;
+
+use super::navigation::route_window_opens;
 use super::test_support::{build_test_content_state, build_test_content_state_with_url};
 use super::ContentState;
 use crate::ipc::{BrowserToContent, ContentToBrowser, LocalChannel};
@@ -77,13 +79,13 @@ fn window_open_blank_drains_to_open_new_tab() {
         "<script>window.open('https://example.com/', '_blank');</script>",
         "",
     );
-    let processed = process_pending_actions(&mut state);
+    let outcome = DrainCoordinator::drain_synchronous_phase(&mut state);
     // A `_blank` popup opens ANOTHER context — it is applied (OpenNewTab below)
-    // but does NOT count as an own-context action, so `process_pending_actions`
-    // reports `false` (a co-located link's default navigation must not be
-    // suppressed by the popup).
+    // but does NOT count as an own-context action, so the drain reports
+    // `own_context_action == false` (a co-located link's default navigation must
+    // not be suppressed by the popup).
     assert!(
-        !processed,
+        !outcome.own_context_action,
         "a _blank popup is not an own-context navigation"
     );
     let tabs = drain_open_new_tabs(&browser);
@@ -111,10 +113,10 @@ fn sandboxed_window_open_blank_surfaces_no_open_new_tab() {
         .runtime
         .vm()
         .eval("window.open('https://example.com/', '_blank');");
-    let processed = process_pending_actions(&mut state);
+    let outcome = DrainCoordinator::drain_synchronous_phase(&mut state);
     assert!(
-        !processed,
-        "a sandbox-blocked open queues nothing, so process_pending_actions has no action"
+        !outcome.own_context_action,
+        "a sandbox-blocked open queues nothing, so the drain reports no own-context action"
     );
     assert!(
         drain_open_new_tabs(&browser).is_empty(),
@@ -278,13 +280,12 @@ fn route_window_opens_blocks_javascript_scheme_popup() {
 }
 
 /// Codex R5-F2: a same-turn `_blank` popup + own-context (`_self` / `location`)
-/// navigation must BOTH surface. `process_pending_actions` drains the
-/// (non-destructive) window.open queue BEFORE the pipeline-replacing navigation,
-/// so the popup is not stranded on the old pipeline's runtime. Drives the boa
-/// back-channels directly (a `_blank` open + a `_self`-style pending navigation
-/// to a `data:` URL — inline, no network) and asserts the popup's `OpenNewTab`
-/// still fires. Before the fix, the navigation was drained first and replaced
-/// the pipeline, losing the popup.
+/// navigation must BOTH surface. Phase 1a drains the (non-destructive) window.open
+/// queue BEFORE the Phase-1c pipeline-replacing navigation, so the popup is not
+/// stranded on the old pipeline's runtime. Drives the back-channels directly (a
+/// `_blank` open + a `_self`-style pending navigation to a `data:` URL — inline,
+/// no network) and asserts the popup's `OpenNewTab` still fires. Before the fix,
+/// the navigation was drained first and replaced the pipeline, losing the popup.
 #[test]
 fn window_open_popup_survives_same_turn_self_navigation() {
     let (mut state, browser) = build_test_content_state("<div>doc</div>", "");
@@ -292,9 +293,9 @@ fn window_open_popup_survives_same_turn_self_navigation() {
         "window.open('https://popup.example/', '_blank'); \
          location.assign('data:text/html,<p>next</p>');",
     );
-    let acted = process_pending_actions(&mut state);
+    let outcome = DrainCoordinator::drain_synchronous_phase(&mut state);
     assert!(
-        acted,
+        outcome.own_context_action,
         "the own-context _self navigation is reported as an own-context action"
     );
     assert_eq!(

@@ -19,7 +19,9 @@
 
 use elidex_script_session::HostDriver;
 
-use super::navigation::{handle_navigate, process_pending_actions, HistoryCursorOp};
+use elidex_navigation::DrainCoordinator;
+
+use super::navigation::{handle_navigate, HistoryCursorOp};
 use super::test_support::build_test_content_state_with_url;
 use super::ContentState;
 use crate::ipc::{BrowserToContent, ContentToBrowser, LocalChannel};
@@ -345,7 +347,7 @@ fn reload_of_fragment_url_rebuilds_without_history_growth() {
     let _ = state.pipeline.runtime.vm().eval("location.reload();");
     drain_browser(&browser);
 
-    assert!(process_pending_actions(&mut state));
+    assert!(DrainCoordinator::drain_synchronous_phase(&mut state).own_context_action);
 
     assert!(
         saw_navigation_failed(&browser),

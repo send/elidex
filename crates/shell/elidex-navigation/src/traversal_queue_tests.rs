@@ -70,6 +70,8 @@ enum Ev {
     ShipFrame,
 }
 
+// A test mock's independent behavior toggles read most clearly as flat bools.
+#[allow(clippy::struct_excessive_bools)]
 struct MockHost {
     queue: TraversalQueue,
     pending: Vec<HistoryAction>,
