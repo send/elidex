@@ -322,6 +322,8 @@ The phase-separation's correctness rests on three invariants the shared queue pr
 > ("inert `DrainCoordinator` substrate") is **not an independently-correct slice** and folds into a co-designed
 > **"traversal-queue substrate + content-mode phase-separation"** slice that needs a fresh `/elidex-plan-review`.
 > Slice 4 (reentrancy guard) and the fenced B1 items are unaffected. The ordering below is retained for lineage.
+> **→ The co-designed merged slice is planned in `docs/plans/2026-07-session-history-slice-A-content-phase-separation.md`
+> (Slice A — resolutions A/B/D/E + loop-bound; app-mode = separate Slice B, old Slice 3).**
 
 Per the edge-dense rule this lands as an **umbrella plan + narrowly-scoped slices**, NOT one PR. Proposed
 ordering (each slice terminal under the approved umbrella once its own plan-review passes):
