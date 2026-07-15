@@ -1,7 +1,9 @@
 # Terminal-Z C-3a — the `box_fragments` seam + the reader audit (plan-memo)
 
-**Status**: pre-`/elidex-plan-review` design anchor for **C-3a**, the first slice of the terminal-Z C-3
-program (migrate non-paint `LayoutBox` readers onto the fragment store, so C-4 can retire `LayoutBox`).
+**Status**: design anchor for **C-3a**, the first slice of the terminal-Z C-3 program (migrate non-paint
+`LayoutBox` readers onto the fragment store, so C-4 can retire `LayoutBox`). **Reviewed: full 5-axis
+`/elidex-plan-review` + a cumulative fix-delta re-gate + Codex `/external-converge` (R1–R5); all findings
+applied.**
 Doc-only. Written off a first-hand read of the LIVE store + a tool-authoritative dependency/write-site
 check, 2026-07-14.
 
@@ -73,29 +75,40 @@ geometry.rs` (NEW)** (NOT appended to `dom/mod.rs`, which is **1073 LoC** — CL
 
 ```
 impl EcsDom {
-    /// Border/padding/content boxes for `entity`, one per box fragment, in
-    /// fragmentainer order. The fragment store is authoritative when present
-    /// (positive `fragments_for` presence is the router — never LayoutBox-
-    /// absence, §2 I-router); otherwise the single LayoutBox projected as one
-    /// fragment via `From<&LayoutBox>`. Empty iff the entity has neither.
+    /// Border/padding/content boxes for `entity`, one per box fragment, EACH
+    /// PAIRED WITH ITS `fragmentainer` id, in fragmentainer order. The fragment
+    /// store is authoritative when present (positive `fragments_for` presence is
+    /// the router — never LayoutBox-absence, §2 I-router); otherwise the single
+    /// LayoutBox projected as one fragment `(fragmentainer 0, box)` via
+    /// `From<&LayoutBox>`. Inner iterator empty iff the entity has neither.
     ///
-    /// POST-LAYOUT ONLY, and only after a SCREEN layout pass (§2 I-phase):
-    /// invalid mid-layout, and invalid after a paged/print render (which does
-    /// not rebuild the store). Not for use inside a layout algorithm.
+    /// PHASE-GUARDED (§2 I-phase, ENFORCED not just documented): returns `None`
+    /// unless `EcsDom`'s layout provenance is a COMPLETED SCREEN pass — so a
+    /// mid-layout store, or a paged/print store (which does not rebuild the
+    /// screen store and holds page-relative fragments), CANNOT be read as screen
+    /// geometry. The provenance flag is set by `layout_tree` (screen) and NOT by
+    /// `layout_fragmented_with_tokens` (paged). Not callable inside a layout algo.
     ///
-    /// GUARDS ON LIVENESS (§2 I-phase): returns empty for a despawned entity
-    /// even if the store still holds a stale index entry — the fragment store
-    /// is a side-store that teardown does NOT clean (only the multicol
-    /// committer calls `remove_entity`), so the router checks `world.contains`
-    /// before trusting `fragments_for`. This makes "empty iff no live box"
-    /// hold by construction, not by teardown discipline.
+    /// The `fragmentainer` in each item is the stable `(entity, fragmentainer)`
+    /// identity the store keys on (`fragment_tree.rs:75,113,179`) — so a retained
+    /// hit fragment (C-3c) / iframe click-routing (C-3d) has the key §4 audit
+    /// axis 7 requires, without bypassing the seam to read the store directly.
+    /// (A span starting in a later column has fragmentainer ≠ enumeration index,
+    /// so the id must be yielded, not inferred.)
     ///
-    /// Yields PRE-TRANSFORM layout geometry (§2 I-transform): CSS transforms
-    /// are a paint-time display-list wrapper, not baked into the box. A reader
-    /// whose contract is painted geometry composes the transform chain itself.
-    pub fn box_fragments(&self, entity: Entity) -> impl Iterator<Item = BoxFragment> + '_;
+    /// LIVENESS (§2 I-phase): the inner iterator is empty for a despawned entity
+    /// even if the store holds a stale index entry — the store is a side-store
+    /// teardown does NOT clean (only the multicol committer calls `remove_entity`),
+    /// so the router checks `world.contains` before trusting `fragments_for`.
+    ///
+    /// Yields PRE-TRANSFORM layout geometry (§2 I-transform): CSS transforms are
+    /// a paint-time wrapper; a painted-geometry reader composes the chain itself.
+    pub fn box_fragments(&self, entity: Entity)
+        -> Option<impl Iterator<Item = (u32 /*fragmentainer*/, BoxFragment)> + '_>;
 }
 ```
+
+*(The exact Rust shape — `Option` vs a `ScreenGeometry` guard token, tuple vs a `FragmentRef` struct — is C-3a impl detail; the CONTRACT the memo pins is: **carries the `fragmentainer` identity** (W1/R5) and **is phase-guarded so a paged/mid-layout store cannot masquerade as screen geometry** (W3/R5), both **by construction**, not by caller discipline.)*
 
 **Why on `EcsDom`** (not each consumer reading the store/component directly):
 
@@ -230,7 +243,13 @@ block/children/shift.rs:113-127` says so outright:
    over cleaning every teardown path — the store already has *"no incremental / staleness model; rebuild is the
    reconcile"*).
 
-⇒ **`box_fragments` is valid only after a completed SCREEN layout pass, and only for a live entity.** The three **in-layout** baseline
+⇒ **`box_fragments` is valid only after a completed SCREEN layout pass, and only for a live entity — and it
+ENFORCES this, it does not merely document it** (Codex R5-W3). A documented-only "screen-pass-only"
+precondition is a footgun: a migrated CSSOM/observer/a11y reader can call the ordinary `EcsDom` method after a
+paged/print render and silently consume page-relative geometry. So C-3a adds an **`EcsDom` layout-provenance
+flag** (set to *screen* by `layout_tree`, left non-screen by `layout_fragmented_with_tokens` / cleared
+mid-layout), and `box_fragments` returns **`None`** unless the flag is *screen* — the phase precondition holds
+**by construction**. (Reader-side guard; complements the producer-side C-4 gate item 3 paged-store hygiene.) The three **in-layout** baseline
 readers (`elidex-layout-flex/src/baseline.rs:18`, `/src/lib.rs:474`, `elidex-layout-grid/src/position.rs:444`
 — all `get::<&LayoutBox>` *inside* the layout algorithms) **must NOT be migrated onto `box_fragments`**; they
 keep reading the live `LayoutBox`. Whether they get an explicit live accessor or simply stay on `LayoutBox`
@@ -359,21 +378,28 @@ restate them.
 C-3a produces the **exhaustive, classified `LayoutBox`-reader inventory**. This is the artifact every
 downstream slice cites to pin its consumers' contracts, and the thing C-4's "zero `LayoutBox` reads outside
 producers" gate is checked against. **It must be a durable, citable artifact** — committed as
-`docs/audits/2026-07-layoutbox-reader-inventory.md` (NEW) alongside C-3a, and backed by a CI grep gate that
-fails on an un-audited `LayoutBox` read — not a throwaway analysis (a non-durable inventory would let each
-slice re-derive the classification, the very churn this re-anchor removes).
+`docs/audits/2026-07-layoutbox-reader-inventory.md` (NEW) alongside C-3a, and backed by the **compiler-based
+gate** (below) — not a throwaway analysis (a non-durable inventory would let each slice re-derive the
+classification, the very churn this re-anchor removes).
 
-**The recipe is a COMPLETE identifier sweep + classify — NOT a shape-enumeration** (Codex R1-T6 + R2-U2 both
-found a reference shape a hand-list had missed — `&mut`, then helper-signature params; a shape-list is
-inherently incomplete and re-invites the miss every round, contradicting §4's own "exhaustive inventory"). So:
+**The recipe is a human first-pass grep + classify, gated by a COMPILER check — NOT a grep-completeness claim**
+(Codex R1-T6 / R2-U2 / re-gate-V5 / R5-W2 each found a reference shape a grep-list missed — a grep is
+structurally non-exhaustive, so it cannot *be* the gate; §4's "exhaustive inventory" thesis demands the
+compiler). So:
 
-1. **Sweep every source reference to the identifier**: `git grep -nw 'LayoutBox' -- crates/` (all crates) —
-   **plus** `git grep -nE 'dyn BoxModel|impl BoxModel|:\s*BoxModel|= *LayoutBox' -- crates/` for the
-   **trait-erased** consumers (`&dyn BoxModel`, e.g. `render/builder/paint/mod.rs`), **generic-bound** readers
-   (`fn f<T: BoxModel>` — none today, verified, but the pattern must catch a future one), and **type-alias**
-   evasions (`type LB = LayoutBox`). This is the coverage *definition*; the CI gate greps the same union (not
-   just `LayoutBox`), so a future reader that names neither type via an alias/bound is still caught — the sweep
-   is the gate, the shapes below are examples.
+1. **The exhaustive use-site set is a COMPILER fact, not a grep fact** (Codex R1-T6 / R2-U2 / re-gate-V5 /
+   R5-W2 each found a reference shape a grep-list missed — `&mut`, helper-params, generic bounds/type-aliases,
+   then **import aliases** `use elidex_plugin::LayoutBox as LB; get::<&LB>`; grep structurally cannot follow
+   aliases / re-exports / generic bounds, so any grep union claims a completeness it cannot deliver — the
+   anti-pattern §4's own "exhaustive inventory" thesis forbids). Therefore:
+   - **The SOUND C-4 gate is compiler-based**: make `LayoutBox` **inaccessible to non-producer crates** (a
+     visibility boundary — `pub(crate)` behind a producer facade / a `#[deprecated]`-to-external marker), and
+     the workspace **failing to compile** enumerates every remaining external reference *by construction* — the
+     compiler misses no alias, bound, or shape. (This IS C-4's mechanism: `LayoutBox` deletion is the ultimate
+     compile check; the gate is the same check staged earlier.)
+   - **`git grep -nw 'LayoutBox'` + `git grep -nE 'dyn BoxModel|impl BoxModel'` is the C-3a-audit HUMAN
+     first-pass** — fast, catches the common shapes to classify — but is **explicitly NOT the sound gate** and
+     must not be presented as exhaustive.
 2. **Classify each hit** by the 8 axes. The reference *shapes* the sweep surfaces — illustrative, not
    exhaustive — include: `get::<&LayoutBox>` (shared read); **`get::<&mut …LayoutBox>`** (R1-T6 — mostly
    producer writes, but the C-4 "zero reads outside producers" gate can't be *proven* without classifying each
@@ -381,8 +407,10 @@ inherently incomplete and re-invites the miss every round, contradicting §4's o
    `query::<(..&LayoutBox..)>` (e.g. `scroll.rs:137` = `(&LayoutBox, &ComputedStyle)`); closure / `rect_fn`
    sites (injected observer geometry); **helper-signature params** `fn …(lb: &LayoutBox)` (R2-U2 — e.g.
    `render/builder/transform.rs:19`, `render/builder/form.rs` ×many; the caller `get`s and passes it down);
-   and trait-erased `&dyn BoxModel`. A future shape not listed here is still caught — the sweep is the gate,
-   the shapes are examples.
+   and trait-erased `&dyn BoxModel`. These are the *common* shapes the first-pass grep surfaces for
+   classification; a shape the grep misses (import alias, generic bound, re-export) is caught by the
+   **compiler gate** (step 1), which is what makes coverage exhaustive — the grep is triage, the compiler is
+   the proof.
 
 **Eight classification axes** — a reader's contract is not pinned until ALL eight are answered against the
 live reader (the #463 lesson: a read-site list is necessary but not sufficient; the contract axes are where it
@@ -396,7 +424,7 @@ went wrong):
 | 4 | **source vs routing** | does the migration change *which rects* feed it (⇒ a test), or only *which fragment*? (**everything is a source/behavior change at N>1** — the G11 last-column fact) | N=1 invariant limit |
 | 5 | **reduction** | union / first / per-fragment / **not a geometry read** (e.g. the paged-gen gate reads `layout_generation`, which `BoxFragment` drops) / **a *selection* problem with no store signal** (the inline-text anchor) | — |
 | 6 | **home + shape** | which crates must reach it (floor/ceiling)? and is it a **per-entity projection** or a **cross-entity aggregate** (e.g. shell scroll-extent is a `query` with a `display!=None` co-read — `box_fragments` cannot express it)? | layering |
-| 7 | **identity / lifetime** | does the reader **retain** a store handle past the read? `FragmentId` is a generation-less index into a `Vec` that `clear()` resets each pass — a retained id re-aliases after relayout. Only plain values and `(entity, fragmentainer)` keys survive a pass. | I-phase |
+| 7 | **identity / lifetime** | does the reader **retain** a store handle past the read? `FragmentId` is a generation-less index into a `Vec` that `clear()` resets each pass — a retained id re-aliases after relayout. Only plain values and `(entity, fragmentainer)` keys survive a pass — which is why the seam **yields `(fragmentainer, BoxFragment)`** (§1, R5-W1) so a retained hit fragment expresses that key without bypassing the seam. | I-phase |
 | 8 | **transform basis** | does the reader's contract want **layout (pre-transform)** or **painted (post-transform)** geometry? `box_fragments` yields pre-transform (I-transform); gBCR/getClientRects/IO want painted but read raw today (pre-existing gap). Invisible to axis 4 — a transform on an N=1 element reads as "behavior-neutral". | I-transform |
 
 **Known-hard seed edges** (audit INPUTS — questions the audit starts from, NOT determinations this memo
@@ -444,7 +472,8 @@ C-3a (seam + audit) ──┬── C-3b  CSSOM geometry (elidex-dom-api)       
 
 **C-4 retirement gate** (each item is a real prerequisite; the ones without an owner are flagged for PM):
 
-1. Zero `LayoutBox` reads outside producers — proven by the C-3a audit's inventory + CI gate. ⚠ "producers"
+1. Zero `LayoutBox` reads outside producers — proven by the **compiler-based gate** (§4: `LayoutBox` made
+   producer-inaccessible + the workspace compiles), with the C-3a audit inventory as the human record. ⚠ "producers"
    must be defined precisely: several producer-crate reads are **in-layout** and one is a **presence check**
    (`inline/pack/boxes.rs:62`) whose meaning flips under a `clear()`ed store.
 2. Producers write the store's N=1 box for every entity **AND** an empty `box_fragments` is **distinguishable**
@@ -469,6 +498,22 @@ C-3a (seam + audit) ──┬── C-3b  CSSOM geometry (elidex-dom-api)       
    either a `#11-*` slot (owner + re-eval trigger) or an explicit "inherited pre-existing gap" acknowledgement
    in the C-4 plan. *(No owner — needs a slot.)*
 
+**Proposed `#11-*` slots for PM registration** (Codex R5-W4 — the defer content spelled out HERE, not deferred
+to the landing memo; PM owns the ledger, this is the proposal + re-eval trigger for each of gate items 2-5, 7,
+8). The memo does **not** create them (shared-SoT is PM-owned); it makes the defer auditable now:
+
+| Proposed slot | Gate item | Re-evaluation trigger |
+|---|---|---|
+| `#11-fragment-store-screen-provenance` | 2 (distinguish-empty + laid-marker) | C-4 kickoff, or any slice that needs a producer to write the store's N=1 box for every entity |
+| `#11-paged-fragment-store-hygiene` | 3 (paged store not cleared) | when paged/print media folds into the store (committed-next per `fragment_tree.rs:73`) |
+| `#11-layout-generation-rehome` | 4 (`layout_generation` dual-role) | C-3e (paged-gen gate reader) or C-4, whichever touches `builder/walk.rs:108` first |
+| `#11-fragment-inline-lines` | 5 (`FragmentContent::InlineLines`) | the committed-next inline-line fold (already tracked as terminal-Z dark-data work) |
+| `#11-fragment-store-design-doc` | 7 (no design-doc home) | C-4 (when the paint path migrates and §15.4.1's `LayoutBox` mention goes stale) |
+| `#11-cssom-transform-fidelity` | 8 (raw pre-transform geometry) | any slice that closes the CSSOM/IO transform gap, else inherited-gap acknowledgement at C-4 |
+
+(Gate item 6's two slots — `#11-inline-relayout-box-staleness` + `#11-inline-align-clientrects-nonpersist-path`
+— already exist in `project_open-defer-slots.md`; the ledger folds them into terminal-Z C-3/C-4.)
+
 ---
 
 ## §6 Report to PM (coordination)
@@ -484,7 +529,8 @@ C-3a (seam + audit) ──┬── C-3b  CSSOM geometry (elidex-dom-api)       
    Its deliverable is the seam **+ the durable audit artifact** (§4). The downstream slices are cross-crate and
    **not parallel-safe** with the CSS/script/shell lanes — schedule per §5.
 4. **Six C-4 prerequisites currently have no owner** (§5 items 2-5, the design-doc slice, and the
-   transform-basis gap). They gate `LayoutBox` deletion — none blocks C-3a. Concrete 対処時期 (not open-ended
-   "before C-4"): **C-3a's landing memo registers the six `#11-*` slots** (the D-29 "ship 時に登録" precedent),
-   so PM owns tracked slot IDs from the moment the seed lands, rather than a wide "someday before C-4" window.
+   transform-basis gap). They gate `LayoutBox` deletion — none blocks C-3a. **The six proposed `#11-*` slots +
+   their re-eval triggers are spelled out in the §5 table** (R5-W4 — the defer content is auditable now, not
+   deferred to the landing memo); PM registers them in `project_open-defer-slots.md` at C-3a landing (the D-29
+   "ship 時に登録" precedent), so PM owns tracked slot IDs from the moment the seed lands.
 5. This memo is doc-only / parallel-safe.
