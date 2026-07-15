@@ -33,12 +33,20 @@ false. So every fact below is checked against an authoritative tool, not a prior
   dependency wall: `elidex-ecs` is a low, universally-depended-upon core crate (below only `elidex-plugin`,
   which it depends on) — **every** consumer already depends on it, and it is the only crate owning both the
   `World` and the `FragmentTree`.
-- **`elidex-dom-api` reachability** (`cargo tree --workspace --invert elidex-dom-api -e normal`): the dom-api
-  reverse-tree is `elidex-dom-api ← elidex-form ← { a11y, elidex-js, layout-block ← {layout, -flex, -grid,
-  -multicol, -table, render}, render, shell }`. ⇒ **the only C-3 consumer crate that is genuinely
-  `dom-api=0` is `elidex-api-observers`.** a11y / layout / flex / grid / render all reach dom-api transitively
-  via `elidex-form`. (The #463 table said all five were `dom-api=0`; that was a `grep -c` **direct-dep** count
-  mislabeled "Cargo-verified transitive" — do not repeat it.)
+- **`elidex-dom-api` CALLABILITY is a DIRECT-dependency fact, not transitive reachability** (Codex R1-T8).
+  A Rust crate can `use` only its **direct** dependencies, so where a reduction may live is governed by the
+  **direct** dep edge — `cargo tree --invert` proves *linkage*, `grep elidex-dom-api */Cargo.toml` proves
+  *callability*. Direct `elidex-dom-api` dependents: **`elidex-form`, `elidex-js` (via `engine`),
+  `elidex-shell`** (+ dom-api itself). **`elidex-a11y`, `elidex-layout(-flex/-grid/-multicol/-table)`,
+  `elidex-render`, `elidex-api-observers` do NOT declare it** — they reach dom-api only *transitively* (via
+  `elidex-form`), which **links but does not let them call it**. ⇒ a dom-api-placed reduction is callable by
+  `{dom-api, form, elidex-js, shell}` **only**. **Every** crate directly depends on `elidex-ecs` +
+  `elidex-plugin` (all `ecs=1 plugin=1`), so a **LOW** reduction is callable by all — which is why C-3a places
+  everything low (§1). ⚠ This corrects **two** errors of the same shape: the #463 table's `grep -c` direct-dep
+  count *mislabeled transitive*, **and** this memo's own earlier §0 draft (+ #463's re-gate) over-swung the
+  other way — *"a11y/layout/render reach dom-api transitively, so it's reachable"* — which conflates linkage
+  with callability. For callability, a11y/layout/render **are** dom-api-unreachable (as §1's table states);
+  the earlier "only api-observers is dom-api=0" line was wrong.
 - **`ScrollState` IS written in production**: `crates/shell/elidex-shell/src/content/mod.rs:242-249`
   (`echo_viewport_scroll`) calls `insert_one(self.pipeline.document, self.viewport_scroll.clone())` on the
   **document root** on every scroll commit — a **type-inferred** insert (`grep ScrollState` misses it). So
@@ -72,6 +80,13 @@ impl EcsDom {
     /// invalid mid-layout, and invalid after a paged/print render (which does
     /// not rebuild the store). Not for use inside a layout algorithm.
     ///
+    /// GUARDS ON LIVENESS (§2 I-phase): returns empty for a despawned entity
+    /// even if the store still holds a stale index entry — the fragment store
+    /// is a side-store that teardown does NOT clean (only the multicol
+    /// committer calls `remove_entity`), so the router checks `world.contains`
+    /// before trusting `fragments_for`. This makes "empty iff no live box"
+    /// hold by construction, not by teardown discipline.
+    ///
     /// Yields PRE-TRANSFORM layout geometry (§2 I-transform): CSS transforms
     /// are a paint-time display-list wrapper, not baked into the box. A reader
     /// whose contract is painted geometry composes the transform chain itself.
@@ -98,12 +113,21 @@ impl EcsDom {
 **The frame-neutral folds C-3a ships** (all in `dom/geometry.rs`, all pure Rect/size math over the primitive):
 
 - `principal_fragment(entity) -> Option<BoxFragment>` — the first fragment (or the N=1 box), `None` if boxless.
-- `union_border_boxes(entity) -> Option<Rect>` — the plain axis-aligned union of the fragment border boxes,
-  `None` if boxless.
-- plus the **`content_rect_local()` relocation**: from a `LayoutBox` inherent method
-  (`crates/core/elidex-plugin/src/layout_types/boxes.rs:194-199`) to a **`BoxModel` default method** (it needs
-  only `padding()` + `content()`), so `BoxFragment` gets the border-box-local content rect *by construction*,
-  same arithmetic.
+- `union_border_boxes(entity) -> Option<Rect>` — the **plain** axis-aligned union of the fragment border boxes,
+  `None` if boxless. ⚠ **This is NOT the CSSOM-View "get the bounding box"** (Codex R1-T7): that algorithm
+  returns the **first** rect when all rects are zero-sized, and otherwise unions **only** rects with non-zero
+  width AND height (cssom-view §6 steps 3-4, webref-verified). A plain union that includes zero-sized fragments
+  would move/expand `getBoundingClientRect` for a mixed zero/non-zero element. `union_border_boxes` serves
+  **`offsetWidth/Height`** (cssom-view §7 step 2 — a plain union of the principal box's fragments, no
+  zero-filter); **C-3b's `getBoundingClientRect` MUST build its own spec-shaped 4-step reduction, not reuse
+  this fold.** (Recorded so C-3b does not reflexively reuse it.)
+- plus the **content-box-local facet relocation**: from the RO-named `LayoutBox::content_rect_local()`
+  (`crates/core/elidex-plugin/src/layout_types/boxes.rs:194-199`) to a **generic `BoxModel` default method**
+  (it needs only `padding()` + `content()`) — **dropping the RO-framed name/docstring** (Codex R1-T9). The
+  computation is a **generic** box-model quantity (the content box in border-box-local coords, sibling to
+  `border_box()`/`padding_box()`), NOT an OM algorithm, so it satisfies the floor; the ResizeObserver *policy*
+  (when to fire, `display:none`→zero, which column) stays in `elidex-api-observers/src/resize.rs`. Rename to a
+  generic name (e.g. `content_box_local`) so the low trait stays purely generic.
 
 C-3a ships **no CSSOM-View algorithm and no frame-baking or source-choosing fold** — those pre-commit
 per-consumer contracts the audit has not yet determined (the #463 failure mode). Downstream slices build their
@@ -113,21 +137,31 @@ reductions **on** these folds (§4 seeds).
 
 The layering rule is **two-sided**: a **FLOOR by kind** (a spec / OM algorithm never lives below
 `elidex-dom-api`; SSoT `docs/design/en/12-dom-cssom.md:4,104` + `docs/architecture/core.md:16-22`) and a
-**CEILING by reachability** (a reduction must be reachable by every crate that consumes it). **Everything
-C-3a ships is geometry math, not a CSSOM algorithm**, so the floor places it **low** (`elidex-ecs` /
-`elidex-plugin`), where — per §0 — it is reachable by every consumer including the one genuinely-`dom-api=0`
-crate (`elidex-api-observers`). **C-3a therefore has no floor/ceiling collision.**
+**CEILING by DIRECT-dependency callability** (a reduction must be **directly** depended-on by every crate that
+calls it — §0: transitive linkage is not callability). Direct-callability of each candidate home:
+
+| home | crates that can call it (direct dependents) |
+|---|---|
+| **`elidex-ecs` / `elidex-plugin`** (LOW) | **every** consumer (all `ecs=1 plugin=1`) |
+| **`elidex-dom-api`** | `dom-api` (self), `elidex-form`, **`elidex-js`** (`engine`), `elidex-shell` — **NOT** a11y / layout(-flex/-grid/-multicol/-table) / render / api-observers |
+
+**Everything C-3a ships is geometry math, not a CSSOM algorithm**, so the floor places it **LOW**, where it is
+directly callable by every consumer — including the callability-`dom-api=0` crates (a11y, layout, render,
+api-observers) that a dom-api home would strand. **C-3a therefore has no floor/ceiling collision**, and LOW
+placement is not merely convenient but *required* for the a11y / layout / render readers.
 
 The one genuine collision in the whole program is **downstream and C-3d's**: IntersectionObserver's registry
-is in `elidex-api-observers` (`dom-api=0`) yet IO needs the CSSOM-View §6 "get the bounding box" algorithm (IO
-§3.2.10 step 7). Today it is resolved by dependency injection — the registry takes a
-`rect_fn(&EcsDom, Entity) -> Option<Rect>` closure (`crates/api/elidex-api-observers/src/intersection/
-mod.rs`) and the live closure lives in the dom-api-reachable `elidex-js` host
-(`crates/script/elidex-js/src/vm/host/intersection_observer.rs:488-490`). ⚠ That DI seam is *why* the closure
-has silently returned `LayoutBox.border_box()` — not the §6 bounding box — for the life of the feature,
-uncatchable by any `api-observers` test. **C-3d decides** whether to keep the seam (b) or add the acyclic
-`api-observers → dom-api` edge and implement IO step 7 engine-side (c). **C-3a does not touch it** and does
-not need to.
+is in `elidex-api-observers` (callability-`dom-api=0`) yet IO needs the CSSOM-View §6 "get the bounding box"
+algorithm (IO §3.2.10 step 7), which the floor keeps in `elidex-dom-api`. Resolved by dependency injection —
+the registry takes a `rect_fn(&EcsDom, Entity) -> Option<Rect>` closure
+(`crates/api/elidex-api-observers/src/intersection/mod.rs`) and the live closure lives in the **directly**
+dom-api-dependent `elidex-js` host (`crates/script/elidex-js/src/vm/host/intersection_observer.rs:488-490`),
+which *can* call the dom-api algorithm. ⚠ That DI seam is *why* the closure has silently returned
+`LayoutBox.border_box()` — not the §6 bounding box — for the life of the feature, uncatchable by any
+`api-observers` test. **C-3d decides** whether to keep the seam (b) or add the acyclic `api-observers → dom-api`
+edge and implement IO step 7 engine-side (c). **C-3a does not touch it.** (Every other dom-api-homed reduction —
+the CSSOM algorithms — is consumed only by `dom-api` itself + the `elidex-js` host, both direct callers; a11y
+takes the LOW union, not the dom-api 4-branch. So C-3d is the *only* collision, re-derived on direct edges.)
 
 ---
 
@@ -155,7 +189,7 @@ not need to.
 - **I-lines × source-change** — a consumer newly sourced from `getClientRects` (which draws on the
   line-level `InlineClientRects`) inherits the line-expressivity gap.
 
-### I-phase — the load-bearing one (three facts, all in live code)
+### I-phase — the load-bearing one (four facts, all in live code)
 
 `LayoutBox` and `FragmentTree` have **different authority windows**; `crates/layout/elidex-layout-block/src/
 block/children/shift.rs:113-127` says so outright:
@@ -175,8 +209,17 @@ block/children/shift.rs:113-127` says so outright:
    `layout_fragmented_with_tokens`) **does NOT `clear()`** (the `:315-324` docstring: *"does NOT clear here and
    may leave incidental dark fragments … committed-next"*), and its `fragmentainer` key is **page-relative**,
    so page 2 col 0 upserts over page 1 col 0.
+4. **Teardown-stale** (Codex R1-T1) — the store is a **side-store teardown does not clean**: `destroy_entity` /
+   `despawn_subtree` (`crates/core/elidex-ecs/src/dom/tree/teardown.rs:51,190`) despawn the ECS entity but
+   leave its `FragmentTree` index entry (the only production `remove_entity` caller is the multicol committer,
+   `elidex-layout-multicol/src/lib.rs:491`). So a despawned fragmented entity's index survives until the next
+   screen `clear()`, and presence-routing would hand a **retained/stale `Entity` handle** stale geometry. →
+   the seam's **liveness guard** (`box_fragments` checks `world.contains(entity)` before trusting the store)
+   makes "empty iff no live box" hold **by construction**, not by teardown discipline (the by-construction fix
+   over cleaning every teardown path — the store already has *"no incremental / staleness model; rebuild is the
+   reconcile"*).
 
-⇒ **`box_fragments` is valid only after a completed SCREEN layout pass.** The three **in-layout** baseline
+⇒ **`box_fragments` is valid only after a completed SCREEN layout pass, and only for a live entity.** The three **in-layout** baseline
 readers (`elidex-layout-flex/src/baseline.rs:18`, `/src/lib.rs:474`, `elidex-layout-grid/src/position.rs:444`
 — all `get::<&LayoutBox>` *inside* the layout algorithms) **must NOT be migrated onto `box_fragments`**; they
 keep reading the live `LayoutBox`. Whether they get an explicit live accessor or simply stay on `LayoutBox`
@@ -235,13 +278,16 @@ CSS transforms are applied **at paint time as a display-list `PushTransform` wra
 the layout box. So `box_fragments` yields **pre-transform layout geometry**, and the transform basis a reader
 needs is **per-consumer and spec-mandated**:
 
-- **layout (pre-transform) is CORRECT** for `offsetWidth/Height`, `client*`, and ResizeObserver — the specs
-  say *"ignoring any transforms"* / *"observations will not be triggered by CSS transforms"*.
+- **layout (pre-transform) is CORRECT** for `offsetWidth/Height` (cssom-view §7 — *"ignoring any transforms
+  that apply to the element and its ancestors"*), `client*`/`offsetTop`/`offsetLeft` (same §6/§7 "ignoring any
+  transforms" clause), and ResizeObserver (resize-observer-1 §3.3.1 — *"observations will not be triggered by
+  CSS transforms"*). (Codex R1-T4: these are the traceable anchors; the exact per-branch step cites are C-3b's
+  / C-3d's coverage map, since C-3a implements none of these algorithms.)
 - **painted (post-transform) is REQUIRED** for `getBoundingClientRect` / `getClientRects` (cssom-view §6
   getClientRects step 3 applies element+ancestor transforms) and IntersectionObserver — yet all of these read
   **raw** `border_box()` today (`layout_query.rs:340`, `intersection_observer.rs:490`, and a11y bounds
   `tree.rs:123`), a **pre-existing gap** (transform fidelity is out of C-3 scope; C-3 preserves current
-  behavior).
+  behavior — tracked as a **C-4 gate prerequisite**, §5).
 
 ⚠ This basis is **invisible to the N=1 behavior-neutral test**: a `transform:rotate` on a non-fragmented
 element is "N=1 routing-delta only" (axis 4) while its pre-transform gBCR/IO/a11y geometry is silently wrong.
@@ -306,9 +352,14 @@ producers" gate is checked against. **It must be a durable, citable artifact** �
 fails on an un-audited `LayoutBox` read — not a throwaway analysis (a non-durable inventory would let each
 slice re-derive the classification, the very churn this re-anchor removes).
 
-**Grep recipe** — cover ALL read shapes, across ALL crates, not just direct gets:
+**Grep recipe** — cover ALL reference shapes, across ALL crates, not just shared gets:
 
-- `get::<&(elidex_plugin::)?LayoutBox>` (direct),
+- `get::<&(elidex_plugin::)?LayoutBox>` (shared read),
+- **`get::<&mut …LayoutBox>`** (Codex R1-T6) — the mutable/read-modify-write sites (e.g. `shift.rs:164`,
+  `layout/mod.rs:112`, `inline/mod.rs:1273`). Most are **producer writes** (out of C-3 reader scope), but the
+  C-4 gate "zero `LayoutBox` reads outside producers" cannot be *proven* without enumerating them: a `&mut`
+  site is a read-modify-write and a `layout_generation`-carrier, so the audit must classify each as
+  producer-write vs disguised-read, or the CI gate passes with `&mut` consumers unaccounted for.
 - multi-component `query::<(..&LayoutBox..)>` (e.g. `shell/content/scroll.rs:137` reads
   `(&LayoutBox, &ComputedStyle)`),
 - closure / `rect_fn` sites (the injected observer geometry),
@@ -350,8 +401,10 @@ makes; each is a verified live reader):
 8. **flex/grid baseline (×3)** — **in-layout** (axis 2) *and* three distinct local frames (axis 1) → stays on
    live `LayoutBox`. → C-3c.
 9. **`ScrollIntoView` (C-3b) and shell URL-fragment nav (C-3d)** are the **same algorithm** (WHATWG HTML
-   §7.4.6.4 "scroll to the fragment" step 3 invokes cssom-view `scrollIntoView` with block=start/inline=
-   nearest) — **one shared helper**, decided once, not twice.
+   §7.4.6.4 "scroll to the fragment" **step 3 substep 5** — *"Scroll target into view, with behavior 'auto',
+   block 'start', and inline 'nearest'"* — is the CSSOM-View "scroll an element into view"; webref-verified, and
+   Codex R1-T3-corrected from the bare "step 3", which only sets the target element) — **one shared helper**,
+   decided once, not twice.
 
 ---
 
@@ -388,8 +441,14 @@ C-3a (seam + audit) ──┬── C-3b  CSSOM geometry (elidex-dom-api)       
 6. **`#11-inline-relayout-box-staleness`** (+ its ledger sibling `#11-inline-align-clientrects-nonpersist-path`,
    which `project_open-defer-slots.md` folds into terminal-Z C-3/C-4) resolved or explicitly inherited.
 7. **A design-doc slice for the fragment store** — it currently has **no design-doc home** (`git grep -li
-   fragment_tree -- docs/` = zero), and `docs/design/en/15-rendering-pipeline.md` §15.4.1 ("Layer Tree as
+   fragment_tree -- docs/design/` = zero; scoped to `docs/design/` per Codex R1-T5, since an unscoped `docs/`
+   now matches this plan-memo itself), and `docs/design/en/15-rendering-pipeline.md` §15.4.1 ("Layer Tree as
    Independent Structure") still names `LayoutBox` as what the PaintSystem reads.
+8. **The transform-basis gap recorded** (Codex R1-T2, I-transform §2) — `getBoundingClientRect` /
+   `getClientRects` / IO / a11y-bounds read raw pre-transform `border_box()` today though their contract is
+   painted geometry. C-3 preserves this, but C-4 must **not** retire `LayoutBox` while silently cementing it:
+   either a `#11-*` slot (owner + re-eval trigger) or an explicit "inherited pre-existing gap" acknowledgement
+   in the C-4 plan. *(No owner — needs a slot.)*
 
 ---
 
@@ -405,8 +464,8 @@ C-3a (seam + audit) ──┬── C-3b  CSSOM geometry (elidex-dom-api)       
 3. **C-3a is the isolatable seed** (`elidex-ecs`, additive, no consumer migration) and is the right first PR.
    Its deliverable is the seam **+ the durable audit artifact** (§4). The downstream slices are cross-crate and
    **not parallel-safe** with the CSS/script/shell lanes — schedule per §5.
-4. **Five C-4 prerequisites currently have no owner** (§5 items 2-5, plus the design-doc slice). They gate
-   `LayoutBox` deletion — none blocks C-3a. Concrete 対処時期 (not open-ended "before C-4"): **C-3a's landing
-   memo registers the five `#11-*` slots** (the D-29 "ship 時に登録" precedent), so PM owns tracked slot IDs
-   from the moment the seed lands, rather than a wide "someday before C-4" window.
+4. **Six C-4 prerequisites currently have no owner** (§5 items 2-5, the design-doc slice, and the
+   transform-basis gap). They gate `LayoutBox` deletion — none blocks C-3a. Concrete 対処時期 (not open-ended
+   "before C-4"): **C-3a's landing memo registers the six `#11-*` slots** (the D-29 "ship 時に登録" precedent),
+   so PM owns tracked slot IDs from the moment the seed lands, rather than a wide "someday before C-4" window.
 5. This memo is doc-only / parallel-safe.
