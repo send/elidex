@@ -578,15 +578,14 @@ impl DrainHost for ContentState {
     /// ends / out of range (§7.4.3 sub-step 4.4 "does not exist ⇒ abort"), so it
     /// falls through and the trailing same-turn sync/nav stay in-task.
     fn classify_traversal(&mut self, delta: TraversalDelta) -> Option<PendingTraversal> {
-        let in_range = match delta {
-            TraversalDelta::Back => self.nav_controller.peek_back().is_some(),
-            TraversalDelta::Forward => self.nav_controller.peek_forward().is_some(),
-            TraversalDelta::Go(d) => self.nav_controller.peek_go(d).is_some(),
-        };
+        let in_range = self.nav_controller.peek_delta(delta).is_some();
         in_range.then_some(PendingTraversal {
             delta,
-            // Scripted `history.back()`/`forward()`/`go()` is not user-initiated
-            // (§7.4.3 step 2). A chrome-button traversal (`BrowserUi`) is Slice B.
+            // Scripted `history.back()`/`forward()`/`go()` passes a sourceDocument
+            // (the calling document) to *traverse the history by a delta*, so
+            // §7.4.3 step 3.3 sets `userInvolvement` to "none" (step 2's default is
+            // "browser UI", overridden by the given-sourceDocument branch). A
+            // chrome-button traversal (`BrowserUi`, no sourceDocument) is Slice B.
             user_involvement: UserInvolvement::None,
         })
     }
@@ -650,10 +649,10 @@ pub(crate) struct WindowOpenOutcome {
 /// Route the drained ordered `window.open` intents (WHATWG HTML §7.2.2.1) in
 /// call order — popup and named opens interleaved on ONE queue so a later
 /// `_blank` never surfaces before an earlier named MISS. Shared by BOTH drain
-/// pumps (`process_pending_actions` and the async `run_event_loop`) so the
-/// routing has one home — a named open from a pure-async turn (a timer /
-/// postMessage with no later user input) reaches the same routing as an
-/// input-driven one (edge E4).
+/// pumps (the Phase-1a [`DrainHost::route_window_opens`] seam, driven by
+/// `drain_synchronous_phase`, and the async `run_event_loop`) so the routing has
+/// one home — a named open from a pure-async turn (a timer / postMessage with no
+/// later user input) reaches the same routing as an input-driven one (edge E4).
 ///
 /// Every produced tab / iframe URL is run through the shell navigation
 /// chokepoint [`resolve_nav_url`] (same as link / location navigation), so a
@@ -821,11 +820,7 @@ pub(super) fn apply_traversal_delta(
     state: &mut ContentState,
     delta: TraversalDelta,
 ) -> TraversalApplyOutcome {
-    let peeked = match delta {
-        TraversalDelta::Back => state.nav_controller.peek_back(),
-        TraversalDelta::Forward => state.nav_controller.peek_forward(),
-        TraversalDelta::Go(d) => state.nav_controller.peek_go(d),
-    };
+    let peeked = state.nav_controller.peek_delta(delta);
     // Clone the URL to drop the `nav_controller` borrow before the `&mut state` load.
     let Some((target_index, url)) = peeked.map(|(i, u)| (i, u.clone())) else {
         return TraversalApplyOutcome::default();

@@ -49,7 +49,7 @@
 //! applying them**; [`DrainCoordinator::run_deferred_traversals`] runs Phase 2
 //! (the deferred traversal apply) on a **later turn** — content-mode schedules it
 //! on a subsequent async-pump turn, app-mode drains it at end-of-input-handler,
-//! strictly after Phase 1 (Slices 2/3). [`DrainCoordinator::drain`] is a
+//! strictly after Phase 1 (Slices 2/3). [`DrainCoordinator::drain_same_turn`] is a
 //! **same-turn convenience** that combines both phases in one call (the app-mode-
 //! degenerate path + the isolation tests); adopting it wholesale would collapse
 //! the very task boundary this substrate exists to remove, so content-mode drives
@@ -268,7 +268,7 @@ impl TraversalQueue {
     }
 }
 
-/// The summary of one [`DrainCoordinator::drain`] pass — mirrors the shells'
+/// The summary of one [`DrainCoordinator::drain_same_turn`] pass — mirrors the shells'
 /// `process_pending_*` boolean while exposing the frame-ship bookkeeping the
 /// coordinator uses to avoid a double-send.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -282,6 +282,19 @@ pub struct DrainOutcome {
     /// list, so the coordinator's end-of-turn [`DrainHost::ship_frame`] is
     /// suppressed (no redundant double-send).
     pub shipped: bool,
+    /// Whether the shell must **suppress a caller's fallback/default action** this
+    /// turn — an `<a href>` default navigation (click path) or a keyboard turn's
+    /// own render. Computed ONCE at the end of [`drain_synchronous_phase`] as
+    /// `own_context_action || <the queue holds a pending `Traversal` step>` (plan
+    /// §1 B/E1), so the "own-context effect OR a pending traversal supersedes"
+    /// rule has a **single home** and both content call sites read one field
+    /// rather than re-deriving the queue query. Cross-turn-robust: a Turn-1
+    /// traversal still queued in Turn-2 keeps this `true` until Phase 2 drains it;
+    /// Resolution E guarantees a no-op `go(999)` leaves no `Traversal` step, so it
+    /// never over-suppresses a legitimate default.
+    ///
+    /// [`drain_synchronous_phase`]: DrainCoordinator::drain_synchronous_phase
+    pub suppress_default: bool,
 }
 
 /// The outcome of applying one deferred [`PendingTraversal`]
@@ -403,7 +416,7 @@ pub trait DrainHost {
 /// Slices 2/3 adopt this by implementing [`DrainHost`] on each shell and driving
 /// the two phases via [`DrainCoordinator::drain_synchronous_phase`] (in-task) +
 /// [`DrainCoordinator::run_deferred_traversals`] (a later turn) — the seam that
-/// realizes the task boundary. [`DrainCoordinator::drain`] is the same-turn
+/// realizes the task boundary. [`DrainCoordinator::drain_same_turn`] is the same-turn
 /// convenience combining both (the app-mode-degenerate path + the isolation tests).
 pub struct DrainCoordinator;
 
@@ -414,7 +427,8 @@ impl DrainCoordinator {
     /// (§7.4.2). A `Back` / `Forward` / `Go` *traversal* (§7.4.3) is **enqueued**
     /// onto the [`TraversalQueue`] but **NOT applied**. Returns the raw Phase-1
     /// [`DrainOutcome`]; the caller ([`drain_synchronous_phase`] /
-    /// [`drain`](Self::drain)) applies the single shared [`ship_if_needed`] tail.
+    /// [`drain_same_turn`](Self::drain_same_turn)) applies the single shared
+    /// [`ship_if_needed`] tail.
     ///
     /// Separating the body from the ship is what makes shipping a **single shared
     /// decision** (`ship_if_needed`) regardless of whether Phase 2 runs on this
@@ -450,14 +464,18 @@ impl DrainCoordinator {
         // traversal (§7.4.3) onward, every step defers onto the queue in issue
         // order (never reorder a sync ahead of a traversal issued before it).
         //
-        // Seed `seen_traversal` from whether the queue ALREADY holds deferred
-        // steps: under the split entry points the queue persists across turns (a
-        // prior turn's `drain_synchronous_phase` may have enqueued a traversal that
-        // this turn's Phase 2 has not yet drained). A fresh sync update this turn
-        // must NOT overtake that still-pending older traversal — the single-FIFO
-        // ordering (I2) holds ACROSS turns, not just within one `pending_history`
-        // batch. (Empty queue = the common case = `false`, unchanged.)
-        let mut seen_traversal = !host.traversal_queue().is_empty();
+        // Seed `seen_traversal` from whether the queue ALREADY holds a pending
+        // *traversal*: under the split entry points the queue persists across turns
+        // (a prior turn's `drain_synchronous_phase` may have enqueued a traversal
+        // that this turn's Phase 2 has not yet drained). A fresh sync update this
+        // turn must NOT overtake that still-pending older traversal — the
+        // single-FIFO ordering (I2) holds ACROSS turns, not just within one
+        // `pending_history` batch. The barrier concept is a *Traversal* being
+        // pending (not merely a non-empty queue): a `SyncUpdate`-only queue must
+        // NOT seed the barrier, consistent with the Phase-1c suppress predicate
+        // (`has_pending_traversal`). (Empty / sync-only queue = the common case =
+        // `false`.)
+        let mut seen_traversal = host.traversal_queue().has_pending_traversal();
         for action in host.take_pending_history() {
             match TraversalDelta::from_history_action(&action) {
                 Some(delta) => {
@@ -498,19 +516,27 @@ impl DrainCoordinator {
             outcome.shipped = true;
         }
 
+        // The single home for the default-suppression rule (plan §1 B/E1): an
+        // own-context effect happened this turn OR a `Traversal` step is pending
+        // (this-turn or still-queued cross-turn). `handle_navigation` never
+        // enqueues a traversal, so `suppress` (read just above) still reflects the
+        // queue's Traversal-pending state. Both content call sites read this field
+        // instead of re-deriving the query.
+        outcome.suppress_default = outcome.own_context_action || suppress;
+
         outcome
     }
 
     /// The **single shared ship decision** (plan §4.5 ship-once): ship exactly one
     /// frame iff an own-context effect happened this pass and no apply body already
     /// shipped its own. Every entry point ([`drain_synchronous_phase`] /
-    /// [`run_deferred_traversals`] / [`drain`]) funnels its trailing ship through
+    /// [`run_deferred_traversals`] / [`drain_same_turn`]) funnels its trailing ship through
     /// here, so the decision cannot fragment into per-phase guards whose
     /// intersection strands a legitimate frame.
     ///
     /// [`drain_synchronous_phase`]: Self::drain_synchronous_phase
     /// [`run_deferred_traversals`]: Self::run_deferred_traversals
-    /// [`drain`]: Self::drain
+    /// [`drain_same_turn`]: Self::drain_same_turn
     fn ship_if_needed<H: DrainHost>(host: &mut H, outcome: &mut DrainOutcome) {
         if outcome.own_context_action && !outcome.shipped {
             host.ship_frame();
@@ -597,7 +623,7 @@ impl DrainCoordinator {
     /// [`drain_synchronous_phase`]: Self::drain_synchronous_phase
     /// [`run_deferred_traversals`]: Self::run_deferred_traversals
     #[must_use]
-    pub fn drain<H: DrainHost>(host: &mut H) -> DrainOutcome {
+    pub fn drain_same_turn<H: DrainHost>(host: &mut H) -> DrainOutcome {
         let mut outcome = Self::run_synchronous_phase_body(host);
         Self::drain_traversal_queue(host, &mut outcome);
         Self::ship_if_needed(host, &mut outcome);

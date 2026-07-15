@@ -197,19 +197,22 @@ pub(super) fn run_event_loop(state: &mut ContentState) {
         // window.open with no DOM change would otherwise stall under Wait).
         // Drained via the engine-agnostic session trait surface, not the boa
         // bridge — the S5-6 flip swaps the runtime type here too (memo §4.3.2 /
-        // edge E4). Same ordered routing as `process_pending_actions`: a
-        // named-target open from a pure-async turn (timer / postMessage) MUST
-        // drain here too, not only `_blank`, or it would strand forever. A
-        // routed named HIT re-navigates an iframe → re-render.
+        // edge E4). Same ordered routing as the Phase-1a `route_window_opens` seam
+        // (driven by `drain_synchronous_phase` on an input turn): a named-target
+        // open from a pure-async turn (timer / postMessage) MUST drain here too,
+        // not only `_blank`, or it would strand forever. A routed named HIT
+        // re-navigates an iframe → re-render.
         let window_opens = state.pipeline.runtime.take_pending_window_opens();
         needs_render |= super::navigation::route_window_opens(state, window_opens).navigated_iframe;
 
-        // Phase 2 (§7.4.6.1 *apply the history step*): drain any deferred traversal
-        // an input turn's Phase 1 (`drain_synchronous_phase`) enqueued. This async
-        // pump turn IS the navigation-and-traversal task source realization (plan
-        // §4.3 Q-SCHED content resolution) — the traversal applies here, strictly
-        // AFTER the Phase-1 sync updates landed (I1). The apply ships its own frame
-        // via `handle_navigate`/`ship_frame`, so nothing to fold into needs_render.
+        // Phase 2 (§7.4.6.1 *apply the history step*): drain the deferred traversal
+        // QUEUE that an input turn's Phase 1 (`drain_synchronous_phase`) already
+        // classified and enqueued. This pump realizes only the deferred-apply half
+        // (plan §4.3 Q-SCHED content resolution) — the Phase-1 staging
+        // classification stays input-handler-driven (pre-existing, unchanged by
+        // this slice), NOT re-run here. The queued traversal applies strictly AFTER
+        // the Phase-1 sync updates landed (I1), shipping its own frame via
+        // `handle_navigate`/`ship_frame`, so nothing to fold into needs_render.
         let _ = elidex_navigation::DrainCoordinator::run_deferred_traversals(state);
 
         if state.pipeline.runtime.take_pending_focus() {

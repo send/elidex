@@ -3,7 +3,7 @@
 use elidex_ecs::ElementState as DomElementState;
 use elidex_form::{FormControlKind, FormControlState, KeyAction};
 use elidex_layout::{hit_test_with_scroll, HitTestQuery};
-use elidex_navigation::{DrainCoordinator, DrainHost};
+use elidex_navigation::DrainCoordinator;
 use elidex_plugin::{EventPayload, KeyboardEventInit, MouseEventInit, Point};
 use elidex_script_session::{DispatchEvent, HostDriver};
 
@@ -174,13 +174,13 @@ pub(super) fn handle_click(state: &mut ContentState, click: &crate::ipc::MouseCl
 
     // Phase 1 (in-task): window-opens → §7.4.4 sync updates → last-wins nav;
     // an in-range `history.back()/forward()/go()` enqueues for the async pump's
-    // Phase 2. Suppress the `<a href>` default when an own-context nav/history
-    // applied this turn OR a traversal is pending in the queue — the queue query
-    // is cross-turn-robust (a Turn-1 traversal still queued in Turn-2 is seen),
-    // and Resolution E guarantees a no-op `go(999)` leaves no `Traversal` step, so
-    // it does not over-suppress a legitimate default (plan §1 B/E1).
+    // Phase 2. `suppress_default` is the coordinator's single home for the
+    // "own-context effect applied this turn OR a traversal is pending" rule
+    // (cross-turn-robust; Resolution E leaves no `Traversal` step for a no-op
+    // `go(999)`, so a legitimate default is not over-suppressed — plan §1 B/E1):
+    // suppress the `<a href>` default when it holds.
     let drained = DrainCoordinator::drain_synchronous_phase(state);
-    if drained.own_context_action || state.traversal_queue().has_pending_traversal() {
+    if drained.suppress_default {
         return;
     }
 
@@ -396,11 +396,12 @@ pub(super) fn handle_key(
     state.re_render();
 
     // Phase 1 (in-task) — same phase-separated drain as the click path. Ship the
-    // keyboard turn's frame only when NO own-context nav/history applied and NO
-    // traversal is pending (a pending traversal ships its own frame in Phase 2;
-    // an applied nav already shipped).
+    // keyboard turn's frame only when the coordinator's `suppress_default` is
+    // clear (no own-context nav/history applied and no traversal pending — a
+    // pending traversal ships its own frame in Phase 2; an applied nav already
+    // shipped).
     let drained = DrainCoordinator::drain_synchronous_phase(state);
-    if !(drained.own_context_action || state.traversal_queue().has_pending_traversal()) {
+    if !drained.suppress_default {
         state.send_display_list();
     }
 }

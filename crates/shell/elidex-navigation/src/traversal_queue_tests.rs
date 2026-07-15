@@ -235,7 +235,7 @@ fn i1_sync_update_applies_before_traversal() {
     // `pushState('/a'); history.back()` — the sync update must land in Phase 1
     // (in-task) before the Phase-2 traversal apply reads the entry list.
     let mut host = MockHost::new(vec![push("/a"), back()]);
-    let outcome = DrainCoordinator::drain(&mut host);
+    let outcome = DrainCoordinator::drain_same_turn(&mut host);
 
     let sync = host
         .position(|e| matches!(e, Ev::SyncUpdate { label, .. } if label == "push:/a"))
@@ -262,7 +262,7 @@ fn i1_full_phase1_precedes_phase2_and_nav_suppressed() {
     // discarded, not applied (§7.4.2.2 step 19 "ignored"; the old shell
     // `return true` supersede's phase-separated form).
     let mut host = MockHost::new(vec![push("/a"), back()]).with_navigation();
-    let _ = DrainCoordinator::drain(&mut host);
+    let _ = DrainCoordinator::drain_same_turn(&mut host);
 
     let sync = host
         .position(|e| matches!(e, Ev::SyncUpdate { .. }))
@@ -295,7 +295,7 @@ fn i2_trailing_push_not_reordered_ahead_of_traversal() {
     // traversal defers; the TRAILING push was issued AFTER the traversal and so
     // must NOT jump ahead of it into Phase 1 ("all sync first" is not the model).
     let mut host = MockHost::new(vec![push("/a"), back(), push("/x")]);
-    let _ = DrainCoordinator::drain(&mut host);
+    let _ = DrainCoordinator::drain_same_turn(&mut host);
 
     let lead = host
         .position(|e| matches!(e, Ev::SyncUpdate { label, .. } if label == "push:/a"))
@@ -322,7 +322,7 @@ fn i2_trailing_push_not_reordered_ahead_of_traversal() {
 fn i2_multiple_traversals_preserve_issue_order() {
     // `back(); go(2)` — two traversals defer in issue order (0 then 1).
     let mut host = MockHost::new(vec![back(), go(2)]);
-    let _ = DrainCoordinator::drain(&mut host);
+    let _ = DrainCoordinator::drain_same_turn(&mut host);
 
     let applied: Vec<_> = host
         .log
@@ -392,7 +392,7 @@ fn i3_guard_is_set_during_traversal_apply_only() {
     // (Phase-1) sync update — the bracket covers the traversal peek→commit only.
     let mut host = MockHost::new(vec![push("/a"), back()]);
     assert!(!host.queue.is_applying(), "initially false (§7.3.1.1)");
-    let _ = DrainCoordinator::drain(&mut host);
+    let _ = DrainCoordinator::drain_same_turn(&mut host);
 
     for ev in &host.log {
         match ev {
@@ -417,7 +417,7 @@ fn i3_reentrant_message_is_serialized_and_eventually_drained() {
         user_involvement: UserInvolvement::default(),
     };
     let mut host = MockHost::new(vec![back()]).with_reentrant(reentrant);
-    let _ = DrainCoordinator::drain(&mut host);
+    let _ = DrainCoordinator::drain_same_turn(&mut host);
 
     let applies: Vec<_> = host
         .log
@@ -447,7 +447,7 @@ fn i3_reentrant_message_is_serialized_and_eventually_drained() {
 fn pure_sync_turn_ships_once() {
     // A pushState-only turn ships exactly once at end (no apply body shipped).
     let mut host = MockHost::new(vec![push("/a")]);
-    let outcome = DrainCoordinator::drain(&mut host);
+    let outcome = DrainCoordinator::drain_same_turn(&mut host);
     assert_eq!(
         host.log
             .iter()
@@ -462,7 +462,7 @@ fn pure_sync_turn_ships_once() {
 fn navigation_turn_does_not_double_ship() {
     // A navigation ships its own frame — the coordinator must NOT ship again.
     let mut host = MockHost::new(vec![]).with_navigation();
-    let outcome = DrainCoordinator::drain(&mut host);
+    let outcome = DrainCoordinator::drain_same_turn(&mut host);
     assert!(
         !host.log.iter().any(|e| matches!(e, Ev::ShipFrame)),
         "no redundant end-of-turn ship after a navigation shipped"
@@ -477,7 +477,7 @@ fn noop_traversal_marks_no_action() {
     // own-context action and ships nothing — the caller's fallback/default action
     // is not over-suppressed (pins Codex Finding 3, mirrors `handle_navigation`).
     let mut host = MockHost::new(vec![back()]).with_noop_traversal();
-    let outcome = DrainCoordinator::drain(&mut host);
+    let outcome = DrainCoordinator::drain_same_turn(&mut host);
 
     assert!(
         !outcome.own_context_action,
@@ -500,7 +500,7 @@ fn sync_update_with_noop_traversal_still_ships() {
     // apply (returns false) — their intersection stranded the committed push frame
     // (neither phase shipped). The shared `ship_if_needed` tail ships it once.
     let mut host = MockHost::new(vec![push("/a"), go(999)]).with_noop_traversal();
-    let outcome = DrainCoordinator::drain(&mut host);
+    let outcome = DrainCoordinator::drain_same_turn(&mut host);
 
     assert!(
         outcome.own_context_action,
@@ -568,7 +568,7 @@ fn phases_schedule_separately() {
 fn empty_turn_is_a_noop() {
     // No history, no navigation — only the window-open drain runs, nothing ships.
     let mut host = MockHost::new(vec![]);
-    let outcome = DrainCoordinator::drain(&mut host);
+    let outcome = DrainCoordinator::drain_same_turn(&mut host);
     assert_eq!(host.log, vec![Ev::WindowOpens]);
     assert_eq!(outcome, DrainOutcome::default());
 }
@@ -675,7 +675,7 @@ fn syncupdate_canceled_after_document_changing_traversal() {
     // document — the deferred /x push is CANCELED (it must not mutate the
     // newly-active document's identity), shipping no incoherent cross-document state.
     let mut host = MockHost::new(vec![back(), push("/x")]).with_document_change();
-    let _ = DrainCoordinator::drain(&mut host);
+    let _ = DrainCoordinator::drain_same_turn(&mut host);
 
     assert!(
         host.log
@@ -699,7 +699,7 @@ fn syncupdate_applies_after_same_document_traversal() {
     // false`) does NOT cancel the trailing deferred push — no identity mismatch, so
     // it applies in issue order.
     let mut host = MockHost::new(vec![back(), push("/x")]); // default: changed_document false
-    let _ = DrainCoordinator::drain(&mut host);
+    let _ = DrainCoordinator::drain_same_turn(&mut host);
 
     let traversal = host
         .position(|e| matches!(e, Ev::TraversalApply { .. }))

@@ -467,8 +467,11 @@ fn same_turn_traversal_supersedes_and_discards_navigation() {
         state.traversal_queue().has_pending_traversal(),
         "the in-range back() is queued for Phase 2 (supersedes the same-turn nav)"
     );
+    // Documents the production default-suppression predicate: the coordinator's
+    // single `suppress_default` field (own-context effect OR a pending traversal) is
+    // exactly what the shell's click path reads to drop the `<a href>` default.
     assert!(
-        outcome.own_context_action || state.traversal_queue().has_pending_traversal(),
+        outcome.suppress_default,
         "the shell suppresses the <a href> default (a pending traversal supersedes)"
     );
     // The /b nav was DISCARDED, not drained-and-applied: it shipped no display
@@ -622,8 +625,8 @@ fn phase_sep_pushstate_then_back_orders_across_task_boundary() {
 /// cross-channel order `location.assign('/b'); history.back()` lands the SAME way —
 /// staging discards cross-channel issue order, and the spec lands on the traversal
 /// target in BOTH orders (§7.4.2.2 step 19 ignores a nav issued while traversing;
-/// step 20 has a later traversal abort the earlier nav). Uses a same-document back()
-/// so Phase 2 applies in the harness.
+/// step 20 — a later same-turn navigation aborts other *navigations* but NOT a
+/// traversal). Uses a same-document back() so Phase 2 applies in the harness.
 #[test]
 fn nav_vs_traversal_supersede_lands_on_back_target() {
     for script in [
@@ -763,10 +766,10 @@ fn cross_turn_pending_traversal_suppresses_turn2_default_and_nav() {
     // is suppressed.
     let _ = state.pipeline.runtime.vm().eval("location.assign('/c');");
     let outcome = DrainCoordinator::drain_synchronous_phase(&mut state);
-    let default_suppressed =
-        outcome.own_context_action || state.traversal_queue().has_pending_traversal();
+    // The production single-home predicate (`suppress_default` = own-context effect
+    // OR a pending traversal) reads TRUE across the turn boundary (E1).
     assert!(
-        default_suppressed,
+        outcome.suppress_default,
         "the still-pending cross-turn traversal suppresses the Turn-2 link default (E1)"
     );
     assert_eq!(
