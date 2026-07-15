@@ -423,3 +423,17 @@ hand-off, **run `/elidex-plan-review` on this memo before implementing.**
   re-verified against Blink at their PRs — the *rule* is expected to hold (keep first
   canonical component) but each family's all-initial output must be measured, not
   assumed. Noted so PR2–4 carry the same corner-matrix discipline.
+
+- **Q4 (PR2 refactor consideration) — helper interface: pre-paired slice vs
+  initial-getter closure.** PR1 ships `serialize_omit_initial(&[(value, initial)])`,
+  so each handler pre-builds the `(value, initial)` pairs — a 3-line gather+zip
+  (`longhands.iter().map(initial_value).collect()` + a `zip`). `/simplify` flagged
+  (LOW/judgment) that this plumbing will repeat in every PR2–4 omit-initial handler,
+  and proposed a closure form `serialize_omit_initial(longhands, |n| self.initial_value(n).to_css_string())`
+  that drops each handler to a sibling-matching one-liner (and restores the
+  `(longhand-name, value)` tuple order the structural siblings use). **Deferred to PR2
+  (not applied in PR1)**: the pre-paired form has the cleanest literal-slice unit tests
+  and PR1 has only one call site, so extracting the closure form is best done when the
+  **second concrete consumer (`flex-flow`) lands** and can inform the exact interface —
+  rather than speculatively generalizing on one use. PR2 should evaluate the extraction
+  (it would touch this PR1 handler); flagged here so it is not lost.

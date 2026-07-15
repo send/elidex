@@ -1,14 +1,20 @@
 //! Shared CSS shorthand serialization helpers.
 //!
-//! The structural collapse rules that [`CssPropertyHandler::serialize_shorthand`]
+//! The collapse rules that [`CssPropertyHandler::serialize_shorthand`]
 //! implementations reuse (CSSOM §6.7.2 "serialize a CSS value"). They live in this
 //! base crate rather than `elidex-css` because handler crates are a *tier*, not a
 //! chain: `elidex-css-flex` depends only on `elidex-plugin`, so helpers homed in
 //! `elidex-css` would be unreachable from it.
 //!
-//! Each helper takes the ordered `(longhand-name, serialized-value)` pairs the
-//! coordinator has already validated (all present, uniform `!important` — CSSOM
-//! §6.6.1) and returns the collapsed shorthand string.
+//! Two shapes, both fed the coordinator's already-validated longhands (all present,
+//! uniform `!important` — CSSOM §6.6.1):
+//! - the *structural* collapsers ([`serialize_rectangular`] / [`serialize_axis_pair`])
+//!   take `(longhand-name, serialized-value)` pairs and collapse on component
+//!   equality (no initials needed);
+//! - the *omit-initial* collapser ([`serialize_omit_initial`]) instead takes
+//!   `(serialized-value, serialized-initial)` pairs — it drops each component equal
+//!   to its initial, so the handler pre-pairs each value with `initial_value(name)`
+//!   (its own SoT) before the call.
 //!
 //! [`CssPropertyHandler::serialize_shorthand`]: crate::CssPropertyHandler::serialize_shorthand
 
