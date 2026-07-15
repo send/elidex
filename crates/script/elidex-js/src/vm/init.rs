@@ -207,6 +207,7 @@ impl Vm {
                 object_prototype: None,
                 array_prototype: None,
                 number_prototype: None,
+                date_prototype: None,
                 boolean_prototype: None,
                 bigint_prototype: None,
                 function_prototype: None,

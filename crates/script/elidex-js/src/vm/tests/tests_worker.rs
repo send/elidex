@@ -27,7 +27,7 @@ use super::super::value::JsValue;
 use super::super::worker_thread::{run_worker, run_worker_with_source};
 use super::super::Vm;
 
-const WORKER_URL: &str = "https://example.com/app/worker.js";
+pub(super) const WORKER_URL: &str = "https://example.com/app/worker.js";
 
 /// Bind `vm` (a worker-mode VM) against `session` / `dom`. The caller must keep
 /// both alive and untouched for the VM's lifetime (raw-pointer aliasing
@@ -42,7 +42,7 @@ unsafe fn bind_worker_vm(vm: &mut Vm, session: &mut SessionCore, dom: &mut EcsDo
     }
 }
 
-fn eval_str_on(vm: &mut Vm, src: &str) -> String {
+pub(super) fn eval_str_on(vm: &mut Vm, src: &str) -> String {
     match vm.eval(src).expect("eval succeeds") {
         JsValue::String(sid) => vm.get_string(sid),
         other => panic!("expected string, got {other:?}"),
@@ -76,7 +76,7 @@ fn recv_within(
 /// **before** `vm`, and `vm` is dropped first, satisfying the `Vm::bind_worker`
 /// safety contract (the pointed-to `SessionCore` / `EcsDom` must outlive the
 /// bound VM). `secure` is the creator-inherited `isSecureContext` flag.
-fn with_worker_vm<F, R>(name: &str, url: &str, secure: bool, f: F) -> R
+pub(super) fn with_worker_vm<F, R>(name: &str, url: &str, secure: bool, f: F) -> R
 where
     F: FnOnce(&mut Vm) -> R,
 {
@@ -533,7 +533,7 @@ impl Drop for UnbindOnDrop<'_> {
 /// navigation URL at `https://example.com/app/` so relative / same-origin
 /// worker scripts resolve. No network handle is installed — the tests use
 /// `data:` worker scripts, which the runtime harness decodes inline.
-fn with_main_vm<F, R>(f: F) -> R
+pub(super) fn with_main_vm<F, R>(f: F) -> R
 where
     F: FnOnce(&mut Vm) -> R,
 {

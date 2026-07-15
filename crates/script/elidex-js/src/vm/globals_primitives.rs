@@ -16,7 +16,8 @@ use super::natives::{
     native_string_search, native_string_slice, native_string_split, native_string_starts_with,
     native_string_substring, native_string_to_lower_case, native_string_to_upper_case,
     native_string_trim, native_symbol_constructor, native_symbol_for, native_symbol_key_for,
-    native_symbol_prototype_to_string,
+    native_symbol_prototype_to_primitive, native_symbol_prototype_to_string,
+    native_symbol_prototype_value_of,
 };
 use super::natives_boolean::{native_boolean_to_string, native_boolean_value_of};
 use super::natives_number::{
@@ -200,8 +201,30 @@ impl VmInner {
     }
 
     pub(super) fn register_symbol_prototype(&mut self) {
-        let proto_id =
-            self.create_object_with_methods(&[("toString", native_symbol_prototype_to_string)]);
+        // §20.4.3.3 `toString` and §20.4.3.4 `valueOf` are ordinary string-keyed
+        // methods; both unwrap `[[SymbolData]]`. `valueOf` in particular must
+        // exist so a boxed Symbol coerces per spec (throw), not via
+        // `Object.prototype.valueOf` (Codex R9).
+        let proto_id = self.create_object_with_methods(&[
+            ("toString", native_symbol_prototype_to_string),
+            ("valueOf", native_symbol_prototype_value_of),
+        ]);
+        // §20.4.3.5 `Symbol.prototype [ %Symbol.toPrimitive% ]` — `{ ¬W, ¬E, C }`,
+        // a symbol-keyed property, so it is defined explicitly (as for Date).
+        let to_prim_fn = self
+            .create_native_function("[Symbol.toPrimitive]", native_symbol_prototype_to_primitive);
+        let to_prim_key = PropertyKey::Symbol(self.well_known_symbols.to_primitive);
+        self.define_shaped_property(
+            proto_id,
+            to_prim_key,
+            PropertyValue::Data(JsValue::Object(to_prim_fn)),
+            PropertyAttrs {
+                writable: false,
+                enumerable: false,
+                configurable: true,
+                is_accessor: false,
+            },
+        );
         self.symbol_prototype = Some(proto_id);
     }
 

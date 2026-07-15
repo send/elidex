@@ -557,6 +557,8 @@ pub(super) fn trace_work_list(
             | ObjectKind::ForInIterator(_)
             | ObjectKind::StringIterator(_)
             | ObjectKind::NumberWrapper(_)
+            // `Date`'s `[[DateValue]]` is a plain `f64` — no GC edges.
+            | ObjectKind::Date(_)
             | ObjectKind::StringWrapper(_)
             | ObjectKind::BooleanWrapper(_)
             | ObjectKind::BigIntWrapper(_)

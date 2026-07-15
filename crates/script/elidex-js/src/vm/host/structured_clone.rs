@@ -60,8 +60,8 @@ use super::blob::BlobData;
 // Public entry point
 // ---------------------------------------------------------------------------
 
-/// Structured-clone `input` under the WHATWG HTML §2.9 StructuredSerialize
-/// + StructuredDeserialize fused algorithm.
+/// Structured-clone `input` under the fused WHATWG HTML StructuredSerialize
+/// (§2.7.4) + StructuredDeserialize (§2.7.6) algorithm.
 ///
 /// Returns the cloned value on success, or a
 /// `DOMException("DataCloneError")` when the input contains an
@@ -150,6 +150,15 @@ fn clone_recursive(
             vm.number_prototype,
             memo,
         ))),
+        // HTML §2.7.4 StructuredSerialize: Date is [Serializable] — clone to a new
+        // Date with the same `[[DateValue]]`.
+        CloneKind::Date(t) => Ok(JsValue::Object(alloc_memoized_wrapper(
+            vm,
+            src_id,
+            ObjectKind::Date(t),
+            vm.date_prototype,
+            memo,
+        ))),
         CloneKind::StringWrapper(sid) => Ok(JsValue::Object(alloc_memoized_wrapper(
             vm,
             src_id,
@@ -211,6 +220,8 @@ enum CloneKind {
     RegExp,
     Error,
     NumberWrapper(f64),
+    /// A `Date` — cloned as a new Date carrying the same `[[DateValue]]`.
+    Date(f64),
     StringWrapper(super::super::value::StringId),
     BooleanWrapper(bool),
     BigIntWrapper(super::super::value::BigIntId),
@@ -230,6 +241,7 @@ fn classify(kind: &ObjectKind) -> CloneKind {
         ObjectKind::RegExp { .. } => CloneKind::RegExp,
         ObjectKind::Error { .. } => CloneKind::Error,
         ObjectKind::NumberWrapper(n) => CloneKind::NumberWrapper(*n),
+        ObjectKind::Date(t) => CloneKind::Date(*t),
         ObjectKind::StringWrapper(s) => CloneKind::StringWrapper(*s),
         ObjectKind::BooleanWrapper(b) => CloneKind::BooleanWrapper(*b),
         ObjectKind::BigIntWrapper(id) => CloneKind::BigIntWrapper(*id),

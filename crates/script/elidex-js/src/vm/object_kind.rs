@@ -143,6 +143,10 @@ pub enum ObjectKind {
     Arguments { values: Vec<JsValue> },
     /// Wrapper object for Number primitives (§10.2.1.2 this-boxing).
     NumberWrapper(f64),
+    /// A Date object (ECMA-262 §21.4).  Holds the `[[DateValue]]` internal
+    /// slot: a time value in milliseconds since the Unix epoch, or `NaN`
+    /// for an invalid Date.  Mutated in place by the `set*` methods.
+    Date(f64),
     /// Wrapper object for String primitives (§10.2.1.2 this-boxing).
     StringWrapper(StringId),
     /// Wrapper object for Boolean primitives (§10.2.1.2 this-boxing).

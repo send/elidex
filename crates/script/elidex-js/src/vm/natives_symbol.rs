@@ -2,7 +2,7 @@
 
 use super::value::{
     ArrayIterState, JsValue, NativeContext, Object, ObjectKind, PropertyKey, PropertyStorage,
-    StringIterState, VmError,
+    StringIterState, SymbolId, VmError,
 };
 
 // -- Symbol constructor & methods -------------------------------------------
@@ -52,30 +52,38 @@ pub(super) fn native_symbol_key_for(
     Ok(JsValue::Undefined)
 }
 
+/// §20.4.3.4.1 `ThisSymbolValue(value)`: a Symbol primitive, or the
+/// `[[SymbolData]]` of a Symbol wrapper object; `TypeError` otherwise. Shared by
+/// `toString` / `valueOf` / `@@toPrimitive` (`method` names the caller for the
+/// error text).
+fn this_symbol_value(
+    ctx: &NativeContext<'_>,
+    this: JsValue,
+    method: &str,
+) -> Result<SymbolId, VmError> {
+    match this {
+        JsValue::Symbol(sid) => Ok(sid),
+        JsValue::Object(obj_id) => {
+            if let ObjectKind::SymbolWrapper(sid) = ctx.get_object(obj_id).kind {
+                Ok(sid)
+            } else {
+                Err(VmError::type_error(format!(
+                    "Symbol.prototype.{method} requires a symbol value"
+                )))
+            }
+        }
+        _ => Err(VmError::type_error(format!(
+            "Symbol.prototype.{method} requires a symbol value"
+        ))),
+    }
+}
+
 pub(super) fn native_symbol_prototype_to_string(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    // §20.4.3.4.1 thisSymbolValue: accept both Symbol primitive and a
-    // Symbol wrapper object (unwrap `[[SymbolData]]`).
-    let sid = match this {
-        JsValue::Symbol(sid) => sid,
-        JsValue::Object(obj_id) => {
-            if let ObjectKind::SymbolWrapper(sid) = ctx.get_object(obj_id).kind {
-                sid
-            } else {
-                return Err(VmError::type_error(
-                    "Symbol.prototype.toString requires a symbol value",
-                ));
-            }
-        }
-        _ => {
-            return Err(VmError::type_error(
-                "Symbol.prototype.toString requires a symbol value",
-            ));
-        }
-    };
+    let sid = this_symbol_value(ctx, this, "toString")?;
     // Build the output in WTF-16 so descriptions with unpaired surrogates
     // are preserved losslessly (UTF-8 round-trip via get_utf8 would
     // replace them with U+FFFD).
@@ -86,6 +94,32 @@ pub(super) fn native_symbol_prototype_to_string(
     units.push(u16::from(b')'));
     let id = ctx.vm.strings.intern_utf16(&units);
     Ok(JsValue::String(id))
+}
+
+/// §20.4.3.4 `Symbol.prototype.valueOf` and §20.4.3.5
+/// `Symbol.prototype [ %Symbol.toPrimitive% ]` — both return the underlying
+/// Symbol primitive (the `@@toPrimitive` hint is ignored: a Symbol has no
+/// meaningful string/number preference). Wiring these matters because a boxed
+/// Symbol reaching `OrdinaryToPrimitive` must yield the Symbol so that a
+/// string/number coercion throws, rather than falling through to
+/// `Object.prototype.valueOf` (which returns the object) and then `toString`
+/// (which would silently stringify it to `"Symbol(x)"`). Codex R9.
+pub(super) fn native_symbol_prototype_value_of(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let sid = this_symbol_value(ctx, this, "valueOf")?;
+    Ok(JsValue::Symbol(sid))
+}
+
+pub(super) fn native_symbol_prototype_to_primitive(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let sid = this_symbol_value(ctx, this, "[Symbol.toPrimitive]")?;
+    Ok(JsValue::Symbol(sid))
 }
 
 // -- JSON stubs (M4-10) -----------------------------------------------------
@@ -244,6 +278,14 @@ pub(super) fn native_object_prototype_to_string(
                 ObjectKind::Error { .. } => "Error",
                 ObjectKind::RegExp { .. } => "RegExp",
                 ObjectKind::Promise(_) => "Promise",
+                // §20.1.3.6 step 12: an object with a [[DateValue]] slot has
+                // builtinTag "Date" (`Object.prototype.toString.call(new Date())`
+                // === "[object Date]"). The primitive wrappers
+                // (Number/String/Boolean — steps 9-11) share the same §20.1.3.6
+                // gap in this match, which falls straight to the step-14 "Object"
+                // default — a full builtinTag pass is
+                // `#11-object-prototype-tostring-builtin-tag`.
+                ObjectKind::Date(_) => "Date",
                 _ => "Object",
             }
         }

@@ -62,6 +62,7 @@ impl VmInner {
                 self.object_prototype,
                 self.array_prototype,
                 self.number_prototype,
+                self.date_prototype,
                 self.boolean_prototype,
                 self.function_prototype,
                 self.bigint_prototype,

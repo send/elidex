@@ -22,7 +22,7 @@
 
 #![cfg(feature = "engine")]
 
-use super::super::natives_json::{parse_json_str, stringify_to_string};
+use super::super::natives_json::{parse_json_str, stringify_for_structured_shortcut};
 use super::super::value::{JsValue, NativeContext};
 use super::super::VmInner;
 
@@ -38,10 +38,18 @@ use super::super::VmInner;
 /// (`#11-history-state-structured-serialize-fidelity`), at which point the noted
 /// tests flip as visible landing signals — are:
 ///
-/// - **BigInt / cyclic / Map / Date**: structured clone **succeeds** (all
-///   cloneable) but `JSON.stringify` throws. Degrade to `None` rather than throw
+/// - **BigInt / cyclic**: structured clone **succeeds** (both cloneable) but
+///   `JSON.stringify` throws. Degrade to `None` rather than throw
 ///   `DataCloneError`, which would regress `pushState({v: 10n})` etc. that browsers
 ///   accept (CR-3).
+/// - **Date**: the one cloneable kind `JSON.stringify` does *not* fail on — it
+///   renders a Date through `toJSON` as an ISO String (ECMA-262 §21.4.4.37), so a
+///   traversal would silently restore a **String** where structured clone restores
+///   a Date. Caught **inside** the walk by
+///   [`stringify_for_structured_shortcut`](super::super::natives_json::stringify_for_structured_shortcut)
+///   (before the `toJSON` hook, so an accessor-returned Date is caught too) and
+///   degraded to `None` here — the same policy as BigInt / cyclic, for the same
+///   CR-3 reason (a `pushState` browsers accept must not start throwing).
 /// - **`function` / `symbol`**: structured clone must throw `DataCloneError`, but
 ///   `JSON.stringify` renders them as `undefined` → `None`. The opposite-direction
 ///   gap (succeeds where the spec throws).
@@ -67,7 +75,7 @@ pub(in crate::vm) fn structured_serialize_for_storage(
     ctx: &mut NativeContext<'_>,
     value: JsValue,
 ) -> Option<Vec<u8>> {
-    match stringify_to_string(ctx, value, JsValue::Undefined, JsValue::Undefined) {
+    match stringify_for_structured_shortcut(ctx, value) {
         Ok(Some(json)) => Some(json.into_bytes()),
         // Everything else degrades to no restorable state: a top-level value JSON
         // renders as `undefined` (`function` / `symbol` / `undefined`), a
