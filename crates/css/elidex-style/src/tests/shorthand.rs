@@ -145,8 +145,9 @@ fn mixed_important_is_none() {
 fn uncovered_shorthand_is_none_even_when_complete() {
     // `flex` is a mapped shorthand and all longhands are present, but the
     // omit-initial ordered families are not yet covered by their handler's
-    // `serialize_shorthand` (follow-up PRs) — the handler returns None, which the
-    // caller maps to "" (a CSSOM-valid "cannot serialize" result).
+    // `serialize_shorthand` (follow-up PRs under `#11-style-shorthand-expand`) —
+    // the handler returns None, which the caller maps to "" (a CSSOM-valid
+    // "cannot serialize" result).
     let mut m = HashMap::new();
     m.insert("flex-grow", "1");
     m.insert("flex-shrink", "1");

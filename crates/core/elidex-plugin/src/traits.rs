@@ -151,7 +151,8 @@ pub trait CssPropertyHandler: Send + Sync {
     /// handler's *own* source of truth — so initials are never duplicated.
     ///
     /// Defaults to `None`: a handler owning no shorthand (or not yet covering
-    /// one) opts out without boilerplate.
+    /// one — the omit-initial families deferred under slot
+    /// `#11-style-shorthand-expand`) opts out without boilerplate.
     fn serialize_shorthand(&self, _property: &str, _longhands: &[(&str, &str)]) -> Option<String> {
         None
     }
