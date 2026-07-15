@@ -17,7 +17,7 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use elidex_ecs::Entity;
-use elidex_navigation::NavigationController;
+use elidex_navigation::{NavigationController, TraversalQueue};
 use elidex_script_session::HostDriver;
 
 use crate::ipc::{BrowserToContent, ContentToBrowser, LocalChannel};
@@ -54,6 +54,15 @@ struct ContentState {
     client_id: String,
     channel: LocalChannel<ContentToBrowser, BrowserToContent>,
     nav_controller: NavigationController,
+    /// The traversable's **session history traversal queue** (WHATWG HTML
+    /// §7.3.1.1) — the deferred Phase-2 traversal-apply queue the
+    /// [`DrainCoordinator`](elidex_navigation::DrainCoordinator) drives. Homed
+    /// here beside `nav_controller` (both survive pipeline rebuild), so a
+    /// same-turn `history.back()` enqueued by an input turn's Phase 1
+    /// (`drain_synchronous_phase`) survives to be applied on the async pump's
+    /// Phase 2 (`run_deferred_traversals`). CLAUDE.md side-store exception (b)
+    /// (browsing-context/session-level state, not a per-entity ECS component).
+    traversal_queue: TraversalQueue,
     hover_chain: Vec<Entity>,
     active_chain: Vec<Entity>,
     /// Whether the caret is currently visible (toggles every 500ms).
@@ -205,6 +214,7 @@ impl ContentState {
             channel,
             web_storage,
             nav_controller,
+            traversal_queue: TraversalQueue::new(),
             hover_chain: Vec::new(),
             active_chain: Vec::new(),
             caret_visible: true,

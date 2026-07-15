@@ -22,5 +22,5 @@ pub use navigation::{
 pub use resource::{ImageSource, ScriptSource, StyleSource};
 pub use traversal_queue::{
     DrainCoordinator, DrainHost, DrainOutcome, PendingHistoryStep, PendingTraversal,
-    TraversalDelta, TraversalQueue, UserInvolvement,
+    TraversalApplyOutcome, TraversalDelta, TraversalQueue, UserInvolvement,
 };

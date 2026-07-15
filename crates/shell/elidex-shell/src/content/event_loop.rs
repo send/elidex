@@ -204,6 +204,14 @@ pub(super) fn run_event_loop(state: &mut ContentState) {
         let window_opens = state.pipeline.runtime.take_pending_window_opens();
         needs_render |= super::navigation::route_window_opens(state, window_opens).navigated_iframe;
 
+        // Phase 2 (§7.4.6.1 *apply the history step*): drain any deferred traversal
+        // an input turn's Phase 1 (`drain_synchronous_phase`) enqueued. This async
+        // pump turn IS the navigation-and-traversal task source realization (plan
+        // §4.3 Q-SCHED content resolution) — the traversal applies here, strictly
+        // AFTER the Phase-1 sync updates landed (I1). The apply ships its own frame
+        // via `handle_navigate`/`ship_frame`, so nothing to fold into needs_render.
+        let _ = elidex_navigation::DrainCoordinator::run_deferred_traversals(state);
+
         if state.pipeline.runtime.take_pending_focus() {
             state.notify_browser(ContentToBrowser::FocusWindow);
         }

@@ -3,6 +3,7 @@
 use elidex_ecs::ElementState as DomElementState;
 use elidex_form::{FormControlKind, FormControlState, KeyAction};
 use elidex_layout::{hit_test_with_scroll, HitTestQuery};
+use elidex_navigation::{DrainCoordinator, DrainHost};
 use elidex_plugin::{EventPayload, KeyboardEventInit, MouseEventInit, Point};
 use elidex_script_session::{DispatchEvent, HostDriver};
 
@@ -17,7 +18,7 @@ use super::form_input::{
     dispatch_input_event, dispatch_input_event_typed, dispatch_state_change_events,
     handle_form_reset, handle_form_submit, handle_label_click, toggle_checkbox_if_needed,
 };
-use super::navigation::{handle_navigate, process_pending_actions, HistoryCursorOp};
+use super::navigation::{handle_navigate, HistoryCursorOp};
 use super::ContentState;
 
 /// Clear `:active` state from all entities in the active chain.
@@ -171,7 +172,15 @@ pub(super) fn handle_click(state: &mut ContentState, click: &crate::ipc::MouseCl
 
     state.re_render();
 
-    if process_pending_actions(state) {
+    // Phase 1 (in-task): window-opens → §7.4.4 sync updates → last-wins nav;
+    // an in-range `history.back()/forward()/go()` enqueues for the async pump's
+    // Phase 2. Suppress the `<a href>` default when an own-context nav/history
+    // applied this turn OR a traversal is pending in the queue — the queue query
+    // is cross-turn-robust (a Turn-1 traversal still queued in Turn-2 is seen),
+    // and Resolution E guarantees a no-op `go(999)` leaves no `Traversal` step, so
+    // it does not over-suppress a legitimate default (plan §1 B/E1).
+    let drained = DrainCoordinator::drain_synchronous_phase(state);
+    if drained.own_context_action || state.traversal_queue().has_pending_traversal() {
         return;
     }
 
@@ -386,7 +395,12 @@ pub(super) fn handle_key(
 
     state.re_render();
 
-    if !process_pending_actions(state) {
+    // Phase 1 (in-task) — same phase-separated drain as the click path. Ship the
+    // keyboard turn's frame only when NO own-context nav/history applied and NO
+    // traversal is pending (a pending traversal ships its own frame in Phase 2;
+    // an applied nav already shipped).
+    let drained = DrainCoordinator::drain_synchronous_phase(state);
+    if !(drained.own_context_action || state.traversal_queue().has_pending_traversal()) {
         state.send_display_list();
     }
 }
