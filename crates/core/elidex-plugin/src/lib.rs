@@ -68,7 +68,7 @@ pub use sandbox::{parse_sandbox_attribute, IframeSandboxFlags};
 /// [`CssPropertyHandler::serialize_shorthand`] implementations. Homed in the base
 /// crate so every handler crate can reach them (`elidex-css-flex` depends only on
 /// `elidex-plugin`, not `elidex-css`).
-pub use shorthand::{serialize_axis_pair, serialize_rectangular};
+pub use shorthand::{serialize_axis_pair, serialize_omit_initial, serialize_rectangular};
 pub use spec_level::{
     CssSpecLevel, DomSpecLevel, EngineMode, EsSpecLevel, HtmlSpecLevel, SpecLevelPolicy,
     StyleCompatPolicy, WebApiSpecLevel,
