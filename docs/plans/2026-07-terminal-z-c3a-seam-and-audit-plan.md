@@ -38,12 +38,14 @@ false. So every fact below is checked against an authoritative tool, not a prior
   **direct** dep edge — `cargo tree --invert` proves *linkage*, `grep elidex-dom-api */Cargo.toml` proves
   *callability*. Direct `elidex-dom-api` dependents (`grep -rl 'elidex-dom-api' crates/*/*/Cargo.toml`):
   **`elidex-form`, `elidex-js` (via `engine`), `elidex-shell`, `elidex-wasm-runtime`** (R2-U1) (+ dom-api
-  itself). **`elidex-a11y`, `elidex-layout(-flex/-grid/-multicol/-table)`, `elidex-render`,
-  `elidex-api-observers` do NOT declare it** — they reach dom-api only *transitively* (via `elidex-form`),
-  which **links but does not let them call it** (`elidex-api-observers` is not even in dom-api's reverse tree). ⇒ a dom-api-placed reduction is callable by
-  `{dom-api, form, elidex-js, shell}` **only**. **Every** crate directly depends on `elidex-ecs` +
-  `elidex-plugin` (all `ecs=1 plugin=1`), so a **LOW** reduction is callable by all — which is why C-3a places
-  everything low (§1). ⚠ This corrects **two** errors of the same shape: the #463 table's `grep -c` direct-dep
+  itself). **`elidex-a11y`, `elidex-layout(-block/-flex/-grid/-multicol/-table)`, `elidex-render`,
+  `elidex-api-observers` do NOT declare it** — a11y / layout / render only *link* to dom-api transitively (via
+  `elidex-form`; `elidex-layout`'s path is `layout-block → form`), which does **not** let them call it, and
+  `elidex-api-observers` does not reach dom-api **at all** (deps = ecs/plugin/script-session; not in dom-api's
+  reverse tree). ⇒ a dom-api-placed reduction is callable by
+  `{dom-api, form, elidex-js, shell, wasm-runtime}` **only**. **Every box-geometry consumer** directly depends
+  on `elidex-ecs` + `elidex-plugin` (all `ecs=1 plugin=1`), so a **LOW** reduction is callable by all of them —
+  which is why C-3a places everything low (§1). ⚠ This corrects **two** errors of the same shape: the #463 table's `grep -c` direct-dep
   count *mislabeled transitive*, **and** this memo's own earlier §0 draft (+ #463's re-gate) over-swung the
   other way — *"a11y/layout/render reach dom-api transitively, so it's reachable"* — which conflates linkage
   with callability. For callability, a11y/layout/render **are** dom-api-unreachable (as §1's table states);
@@ -194,6 +196,9 @@ takes the LOW union, not the dom-api 4-branch. So C-3d is the *only* collision, 
   helpers'* basis (which is often local). Conflating them is the #463 root (RO / baseline).
 - **I-lines × source-change** — a consumer newly sourced from `getClientRects` (which draws on the
   line-level `InlineClientRects`) inherits the line-expressivity gap.
+- **I-transform × N=1 (audit axis 4)** — a transform on a non-fragmented element is "behavior-neutral N=1
+  routing-delta" under axis 4, yet its pre-transform gBCR/IO/a11y geometry is silently wrong; the auditor must
+  hold I-transform against axis 4 or mis-mark a transformed reader "fully classified" (→ audit axis 8, §4).
 
 ### I-phase — the load-bearing one (four facts, all in live code)
 
@@ -363,9 +368,12 @@ found a reference shape a hand-list had missed — `&mut`, then helper-signature
 inherently incomplete and re-invites the miss every round, contradicting §4's own "exhaustive inventory"). So:
 
 1. **Sweep every source reference to the identifier**: `git grep -nw 'LayoutBox' -- crates/` (all crates) —
-   **plus** `git grep -nE 'dyn BoxModel|impl BoxModel' -- crates/` for the **trait-erased** consumers that
-   read `LayoutBox` data without naming the type (e.g. `render/builder/paint/mod.rs`). This is the coverage
-   *definition*; the classification below runs over its output.
+   **plus** `git grep -nE 'dyn BoxModel|impl BoxModel|:\s*BoxModel|= *LayoutBox' -- crates/` for the
+   **trait-erased** consumers (`&dyn BoxModel`, e.g. `render/builder/paint/mod.rs`), **generic-bound** readers
+   (`fn f<T: BoxModel>` — none today, verified, but the pattern must catch a future one), and **type-alias**
+   evasions (`type LB = LayoutBox`). This is the coverage *definition*; the CI gate greps the same union (not
+   just `LayoutBox`), so a future reader that names neither type via an alias/bound is still caught — the sweep
+   is the gate, the shapes below are examples.
 2. **Classify each hit** by the 8 axes. The reference *shapes* the sweep surfaces — illustrative, not
    exhaustive — include: `get::<&LayoutBox>` (shared read); **`get::<&mut …LayoutBox>`** (R1-T6 — mostly
    producer writes, but the C-4 "zero reads outside producers" gate can't be *proven* without classifying each
@@ -383,7 +391,7 @@ went wrong):
 | # | Axis | Question | Invariant |
 |---|---|---|---|
 | 1 | **frame** | doc-space, or a local frame the reader composes? | I-frame |
-| 2 | **phase** | post-layout, or **in-layout** (must NOT use `box_fragments`)? | I-phase |
+| 2 | **phase** | **in-layout** (must NOT use `box_fragments`) / **screen-post-layout** (valid) / **paged-post-layout** (INVALID — the paged path does not `clear()` and its `fragmentainer` is page-relative, I-phase fact 3; a render-residual reader under `paged:true` — e.g. `paint/mod.rs`, `form.rs` helpers — is "post-layout" yet reads page-relative geometry). Trinary, not binary — a binary post-vs-in-layout split marks a paged reader "fully classified" while nothing captures its paged-store invalidity | I-phase |
 | 3 | **boxless** | spec-zero, or `Option::None`? — and note `display:contents`, which gets a **zero-size `LayoutBox`** (`layout/mod.rs:74`), so `box_fragments` yields **one zero-rect fragment, not `None`**: a reader must **not** infer box-presence from non-emptiness. | I-boxless |
 | 4 | **source vs routing** | does the migration change *which rects* feed it (⇒ a test), or only *which fragment*? (**everything is a source/behavior change at N>1** — the G11 last-column fact) | N=1 invariant limit |
 | 5 | **reduction** | union / first / per-fragment / **not a geometry read** (e.g. the paged-gen gate reads `layout_generation`, which `BoxFragment` drops) / **a *selection* problem with no store signal** (the inline-text anchor) | — |
@@ -413,7 +421,7 @@ makes; each is a verified live reader):
    live `LayoutBox`. → C-3c.
 9. **`ScrollIntoView` (C-3b) and shell URL-fragment nav (C-3d)** are the **same algorithm** (WHATWG HTML
    §7.4.6.4 "scroll to the fragment" **step 3 substep 5** — *"Scroll target into view, with behavior 'auto',
-   block 'start', and inline 'nearest'"* — is the CSSOM-View "scroll an element into view"; webref-verified, and
+   block 'start', and inline 'nearest'"* — is the CSSOM-View "scroll a target into view" (§6.1); webref-verified, and
    Codex R1-T3-corrected from the bare "step 3", which only sets the target element) — **one shared helper**,
    decided once, not twice.
 
