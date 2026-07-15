@@ -55,6 +55,10 @@ enum Ev {
         guard: bool,
     },
     Navigation,
+    /// A Phase-1c navigation drained-and-DISCARDED under suppression (plan §1 A /
+    /// F1): the slot was drained (so it cannot re-fire a turn late) but the
+    /// request dropped without applying.
+    NavigationDiscarded,
     /// A deferred traversal apply; `guard` = the boolean at call time (must be
     /// `true` — the I3 bracket). Issue order is pinned by the *position* of this
     /// event in the log (the VecDeque preserves FIFO order — plan §4.5 I2), not a
@@ -74,10 +78,17 @@ struct MockHost {
     /// A reentrant traversal to enqueue mid-apply on the FIRST
     /// [`DrainHost::apply_traversal`] — the SW-pump reentrancy vector (plan §4.4).
     reentrant_once: Option<PendingTraversal>,
-    /// When set, [`DrainHost::apply_traversal`] returns `false` (a **no-op**
-    /// traversal — no-target `go(999)` / failed cross-document load) instead of
-    /// the default apply-and-ship `true`.
+    /// When set, [`DrainHost::apply_traversal`] reports `shipped = false` (a
+    /// **no-op** traversal — no-target `go(999)` / failed cross-document load)
+    /// instead of the default apply-and-ship `shipped = true`.
     traversal_noop: bool,
+    /// When set, [`DrainHost::apply_traversal`] reports `changed_document = true`
+    /// (a §7.4.6.1 `Rebuild` that landed a fresh document) — drives the
+    /// Resolution-D `SyncUpdate` cancellation (plan §1 D).
+    traversal_changes_document: bool,
+    /// When set, [`DrainHost::classify_traversal`] returns `None` (a no-op
+    /// out-of-range peek — Resolution E), so the traversal is NOT a barrier.
+    classify_noop: bool,
     log: Vec<Ev>,
 }
 
@@ -89,6 +100,8 @@ impl MockHost {
             nav_applies: false,
             reentrant_once: None,
             traversal_noop: false,
+            traversal_changes_document: false,
+            classify_noop: false,
             log: Vec::new(),
         }
     }
@@ -98,10 +111,25 @@ impl MockHost {
         self
     }
 
-    /// Make [`DrainHost::apply_traversal`] a no-op (return `false`) — a no-target
-    /// `history.go(999)` / failed cross-document load. Pins Codex Finding 3.
+    /// Make [`DrainHost::apply_traversal`] a no-op (report `shipped = false`) — a
+    /// no-target `history.go(999)` / failed cross-document load. Pins Codex
+    /// Finding 3.
     fn with_noop_traversal(mut self) -> Self {
         self.traversal_noop = true;
+        self
+    }
+
+    /// Make [`DrainHost::apply_traversal`] report `changed_document = true` (a
+    /// document-changing `Rebuild`) — Resolution D drives the `SyncUpdate` cancel.
+    fn with_document_change(mut self) -> Self {
+        self.traversal_changes_document = true;
+        self
+    }
+
+    /// Make [`DrainHost::classify_traversal`] return `None` (a no-op out-of-range
+    /// traversal — Resolution E) so it is NOT a partition barrier.
+    fn with_noop_classify(mut self) -> Self {
+        self.classify_noop = true;
         self
     }
 
@@ -137,7 +165,29 @@ impl DrainHost for MockHost {
         });
     }
 
-    fn handle_navigation(&mut self) -> bool {
+    fn classify_traversal(&mut self, delta: TraversalDelta) -> Option<PendingTraversal> {
+        // Resolution E peek-classify: `None` = a no-op out-of-range traversal (not
+        // a barrier); `Some` = in-range, enqueued as a barrier. The mock's
+        // `classify_noop` flag stands in for the shell's `peek_*` returning `None`.
+        if self.classify_noop {
+            return None;
+        }
+        Some(PendingTraversal {
+            delta,
+            user_involvement: UserInvolvement::default(),
+        })
+    }
+
+    fn handle_navigation(&mut self, suppress: bool) -> bool {
+        if suppress {
+            // Drain-and-DISCARD (plan §1 A / F1): the slot IS drained so it cannot
+            // re-fire a turn late; a nav it held is dropped without applying
+            // (logged only when there WAS one — an empty slot drains to a no-op).
+            if self.nav_applies {
+                self.log.push(Ev::NavigationDiscarded);
+            }
+            return false;
+        }
         if self.nav_applies {
             self.log.push(Ev::Navigation);
             true
@@ -146,7 +196,7 @@ impl DrainHost for MockHost {
         }
     }
 
-    fn apply_traversal(&mut self, traversal: &PendingTraversal) -> bool {
+    fn apply_traversal(&mut self, traversal: &PendingTraversal) -> TraversalApplyOutcome {
         // The coordinator must have set the guard BEFORE this call (I3).
         let guard = self.queue.is_applying();
         self.log.push(Ev::TraversalApply {
@@ -162,9 +212,13 @@ impl DrainHost for MockHost {
             );
             self.queue.enqueue_traversal(reentrant);
         }
-        // `false` = a no-op traversal (no-target / failed load); default `true` =
-        // applied and shipped its own frame.
-        !self.traversal_noop
+        // `shipped = false` = a no-op traversal (no-target / failed load); default
+        // `true` = applied and shipped its own frame. `changed_document` drives
+        // Resolution D's `SyncUpdate` cancel.
+        TraversalApplyOutcome {
+            shipped: !self.traversal_noop,
+            changed_document: self.traversal_changes_document,
+        }
     }
 
     fn ship_frame(&mut self) {
@@ -198,23 +252,35 @@ fn i1_sync_update_applies_before_traversal() {
 }
 
 #[test]
-fn i1_full_phase1_precedes_phase2() {
-    // sync update + a last-wins navigation (Phase 1c) must BOTH precede the
-    // deferred traversal apply (Phase 2).
+fn i1_full_phase1_precedes_phase2_and_nav_suppressed() {
+    // FLIP (plan §5, Resolution A): the pre-phase-sep "run both nav AND traversal"
+    // model is retired. A Phase-1 sync update precedes the Phase-2 traversal apply
+    // (I1), and the same-turn last-wins navigation is now SUPPRESSED
+    // (drain-and-discard) because an in-range traversal is pending — the nav is
+    // discarded, not applied (§7.4.2.2 step 19 "ignored"; the old shell
+    // `return true` supersede's phase-separated form).
     let mut host = MockHost::new(vec![push("/a"), back()]).with_navigation();
     let _ = DrainCoordinator::drain(&mut host);
 
     let sync = host
         .position(|e| matches!(e, Ev::SyncUpdate { .. }))
         .unwrap();
-    let nav = host.position(|e| matches!(e, Ev::Navigation)).unwrap();
     let traversal = host
         .position(|e| matches!(e, Ev::TraversalApply { .. }))
         .unwrap();
-    assert!(sync < nav, "sync update precedes the last-wins navigation");
     assert!(
-        nav < traversal,
-        "Phase-1 navigation precedes the Phase-2 traversal apply"
+        sync < traversal,
+        "Phase-1 sync precedes the Phase-2 traversal apply (I1)"
+    );
+    assert!(
+        host.log
+            .iter()
+            .any(|e| matches!(e, Ev::NavigationDiscarded)),
+        "the same-turn nav is drain-and-discarded (a pending traversal supersedes)"
+    );
+    assert!(
+        !host.log.iter().any(|e| matches!(e, Ev::Navigation)),
+        "the suppressed nav did NOT apply"
     );
 }
 
@@ -503,6 +569,168 @@ fn empty_turn_is_a_noop() {
     let outcome = DrainCoordinator::drain(&mut host);
     assert_eq!(host.log, vec![Ev::WindowOpens]);
     assert_eq!(outcome, DrainOutcome::default());
+}
+
+// --- Slice A co-design seams (A / B / D / E) --------------------------------
+
+#[test]
+fn noop_traversal_peek_classify_falls_through() {
+    // Resolution E: `go(999); pushState('/x')` at end-of-history — the no-op
+    // go(999) classifies as `None`, so it is NOT a partition barrier. The trailing
+    // push applies IN-TASK (Phase 1), no `Traversal` step is queued, and a
+    // same-turn nav is NOT suppressed.
+    let mut host = MockHost::new(vec![go(999), push("/x")])
+        .with_noop_classify()
+        .with_navigation();
+    let outcome = DrainCoordinator::drain_synchronous_phase(&mut host);
+
+    assert!(
+        host.log
+            .iter()
+            .any(|e| matches!(e, Ev::SyncUpdate { label, guard } if label == "push:/x" && !*guard)),
+        "the trailing push applied in-task (a no-op traversal is not a barrier)"
+    );
+    assert!(
+        !host
+            .log
+            .iter()
+            .any(|e| matches!(e, Ev::TraversalApply { .. })),
+        "a no-op traversal never enqueues → nothing to apply"
+    );
+    assert!(
+        !host.queue.has_pending_traversal(),
+        "no Traversal step queued by a no-op"
+    );
+    assert!(host.queue.is_empty(), "no deferred work");
+    assert!(
+        host.log.iter().any(|e| matches!(e, Ev::Navigation)),
+        "the same-turn nav APPLIED (not drain-and-discarded) — no-op is not a barrier"
+    );
+    assert!(
+        !host
+            .log
+            .iter()
+            .any(|e| matches!(e, Ev::NavigationDiscarded)),
+        "a no-op traversal must not suppress the nav"
+    );
+    assert!(outcome.own_context_action);
+}
+
+#[test]
+fn pending_traversal_drains_and_discards_navigation() {
+    // Resolution A / F1: `history.back(); location.href='/b'` — the in-range
+    // back() enqueues (Phase 1b), so Phase 1c drains-and-DISCARDS the nav slot: the
+    // nav does not apply AND does not strand to re-fire a turn late. Uses
+    // `drain_synchronous_phase` so Phase 2 does not run (the traversal stays queued).
+    let mut host = MockHost::new(vec![back()]).with_navigation();
+    let outcome = DrainCoordinator::drain_synchronous_phase(&mut host);
+
+    assert!(
+        host.log
+            .iter()
+            .any(|e| matches!(e, Ev::NavigationDiscarded)),
+        "the nav slot was drained-and-discarded (not stranded)"
+    );
+    assert!(
+        !host.log.iter().any(|e| matches!(e, Ev::Navigation)),
+        "the suppressed nav did NOT apply"
+    );
+    assert!(
+        host.queue.has_pending_traversal(),
+        "the traversal is still queued for Phase 2 (default-suppression signal — B)"
+    );
+    assert!(
+        !outcome.own_context_action,
+        "no own-context nav applied in Phase 1 (the traversal defers to Phase 2)"
+    );
+}
+
+#[test]
+fn cross_turn_pending_traversal_still_discards_navigation() {
+    // Resolution A cross-turn (E1): a traversal queued last turn (Phase 2 not yet
+    // pumped) still suppresses THIS turn's nav via `has_pending_traversal`, so the
+    // seed (`seen_traversal = !is_empty()`) and the drain-and-discard both key on
+    // the cross-turn queue state.
+    let mut host = MockHost::new(vec![]).with_navigation();
+    host.queue.enqueue_traversal(PendingTraversal {
+        delta: TraversalDelta::Back,
+        user_involvement: UserInvolvement::default(),
+    });
+
+    let _ = DrainCoordinator::drain_synchronous_phase(&mut host);
+    assert!(
+        host.log
+            .iter()
+            .any(|e| matches!(e, Ev::NavigationDiscarded)),
+        "a still-queued cross-turn traversal drains-and-discards this turn's nav"
+    );
+    assert!(!host.log.iter().any(|e| matches!(e, Ev::Navigation)));
+}
+
+#[test]
+fn syncupdate_canceled_after_document_changing_traversal() {
+    // Resolution D: `back(); pushState('/x')` where the back() rebuilds a FRESH
+    // document — the deferred /x push is CANCELED (it must not mutate the
+    // newly-active document's identity), shipping no incoherent cross-document state.
+    let mut host = MockHost::new(vec![back(), push("/x")]).with_document_change();
+    let _ = DrainCoordinator::drain(&mut host);
+
+    assert!(
+        host.log
+            .iter()
+            .any(|e| matches!(e, Ev::TraversalApply { .. })),
+        "the back() traversal applied (document-changing)"
+    );
+    assert!(
+        !host
+            .log
+            .iter()
+            .any(|e| matches!(e, Ev::SyncUpdate { label, .. } if label == "push:/x")),
+        "the deferred push is CANCELED after a document-changing traversal (Resolution D)"
+    );
+    assert!(host.queue.is_empty(), "everything drained");
+}
+
+#[test]
+fn syncupdate_applies_after_same_document_traversal() {
+    // Resolution D complement: a SAME-document traversal (`changed_document =
+    // false`) does NOT cancel the trailing deferred push — no identity mismatch, so
+    // it applies in issue order.
+    let mut host = MockHost::new(vec![back(), push("/x")]); // default: changed_document false
+    let _ = DrainCoordinator::drain(&mut host);
+
+    let traversal = host
+        .position(|e| matches!(e, Ev::TraversalApply { .. }))
+        .expect("traversal applied");
+    let trail = host
+        .position(|e| matches!(e, Ev::SyncUpdate { label, .. } if label == "push:/x"))
+        .expect("the trailing push applied (same-document traversal does not cancel it)");
+    assert!(
+        traversal < trail,
+        "the deferred push applies AFTER the same-document traversal (issue order)"
+    );
+    assert!(host.queue.is_empty(), "everything drained");
+}
+
+#[test]
+fn has_pending_traversal_reflects_only_traversal_steps() {
+    // The ONE default-suppression signal (B): true iff a `Traversal` step is
+    // queued; a `SyncUpdate`-only queue reports false (so it does not over-suppress).
+    let mut host = MockHost::new(vec![]);
+    assert!(!host.queue.has_pending_traversal(), "empty queue");
+    host.queue.enqueue_sync_update(push("/x"));
+    assert!(
+        !host.queue.has_pending_traversal(),
+        "a SyncUpdate-only queue holds no Traversal step"
+    );
+    host.queue.enqueue_traversal(PendingTraversal {
+        delta: TraversalDelta::Back,
+        user_involvement: UserInvolvement::default(),
+    });
+    assert!(
+        host.queue.has_pending_traversal(),
+        "now a Traversal step is pending"
+    );
 }
 
 // --- classification ---------------------------------------------------------
