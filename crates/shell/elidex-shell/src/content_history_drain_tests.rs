@@ -796,3 +796,65 @@ fn content_apply_traversal_does_not_re_enqueue() {
         "the same-document apply re-enqueued nothing → the queue drained empty"
     );
 }
+
+/// E divergence, STACKED (plan §5 / §6 Q-E accepted-bounded): `back(); back()` in
+/// ONE turn peek-classifies BOTH backs against the UNMOVED cursor in Phase 1b
+/// (peek-classify runs at enqueue against the pre-traversal list), so both classify
+/// in-range and enqueue. `has_pending_traversal()` is therefore true after Phase 1
+/// — a legitimate FIRST traversal IS pending, so the default-suppression predicate
+/// is correct here (the queue-Traversal-pending shape means there is NO spurious
+/// over-suppression). In Phase 2 the 1st back applies (same-document, `/a` → base,
+/// ships one frame); the 2nd back re-peeks from the now-moved cursor (base), finds
+/// no prior entry, and applies as a NO-OP that ships nothing (`apply_traversal`
+/// correctly ships nothing for the no-op). The only residual is `deferred_own_context`
+/// possibly over-set for the stacked case — pinned here as ACCEPTED, not slotted
+/// (an accepted bounded behavior is not a platform gap). This test pins the plan §6
+/// Q-E accepted-bounded divergence.
+#[test]
+fn stacked_back_back_second_traversal_is_a_noop() {
+    let (mut state, browser) = build_test_content_state_with_url("<p>doc</p>", base());
+    seed_same_document_pair(&mut state); // [base, /a], cursor on /a
+    let _ = state
+        .pipeline
+        .runtime
+        .vm()
+        .eval("history.back(); history.back();");
+    drain_browser(&browser);
+
+    // Phase 1: both backs peek the unmoved cursor (index 1 → index 0) and enqueue.
+    // A legitimate first traversal is pending → default-suppression is correct (no
+    // spurious over-suppression from the queue-Traversal-pending shape).
+    let outcome = DrainCoordinator::drain_synchronous_phase(&mut state);
+    assert!(
+        state.traversal_queue().has_pending_traversal(),
+        "the stacked back();back() enqueued — a legitimate first traversal is pending"
+    );
+    assert!(
+        outcome.suppress_default,
+        "default-suppression is correct (a real first traversal is pending — not spurious)"
+    );
+    assert_eq!(
+        state.nav_controller.current_url().map(url::Url::as_str),
+        Some("https://example.com/a"),
+        "Phase 1 only enqueued (cursor unmoved on /a)"
+    );
+    drain_browser(&browser);
+
+    // Phase 2: the 1st back applies (same-document, /a → base, ships ONE frame); the
+    // 2nd back re-peeks from base, finds no prior entry → a NO-OP that ships nothing.
+    let _ = DrainCoordinator::run_deferred_traversals(&mut state);
+    assert!(
+        state.traversal_queue().is_empty(),
+        "both queued backs drained (the 2nd as a no-op)"
+    );
+    assert_eq!(
+        state.nav_controller.current_url().map(url::Url::as_str),
+        Some("https://example.com/"),
+        "landed on base — the 1st back applied, the 2nd was absorbed as a no-op"
+    );
+    assert_eq!(
+        count_display_lists(&browser),
+        1,
+        "exactly ONE frame ships: the 1st same-document apply; the 2nd no-op ships nothing"
+    );
+}
