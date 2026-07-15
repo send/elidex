@@ -133,6 +133,29 @@ pub trait CssPropertyHandler: Send + Sync {
     ///
     /// Used by `getComputedStyle()` and for inheritance serialization.
     fn get_computed(&self, name: &str, style: &ComputedStyle) -> CssValue;
+
+    /// Serialize the **shorthand** `property` back from its longhands — the
+    /// read-side twin of [`parse`](Self::parse) (which does the expansion).
+    ///
+    /// `longhands` are the ordered `(name, serialized-value)` pairs for
+    /// `property`'s longhands, already validated by the caller per CSSOM §6.6.1
+    /// `getPropertyValue` (every longhand present; uniform `!important`). Return
+    /// the collapsed shorthand string (CSSOM §6.7.2 "serialize a CSS value"), or
+    /// `None` when this handler does not serialize `property` — the caller maps
+    /// `None` to the empty string, a CSSOM-valid "cannot serialize" result.
+    ///
+    /// Structural families reuse the shared collapse helpers
+    /// ([`serialize_rectangular`](crate::serialize_rectangular) /
+    /// [`serialize_axis_pair`](crate::serialize_axis_pair)). Omit-initial families
+    /// compare each value against [`initial_value`](Self::initial_value) — the
+    /// handler's *own* source of truth — so initials are never duplicated.
+    ///
+    /// Defaults to `None`: a handler owning no shorthand (or not yet covering
+    /// one — the omit-initial families deferred under slot
+    /// `#11-style-shorthand-expand`) opts out without boilerplate.
+    fn serialize_shorthand(&self, _property: &str, _longhands: &[(&str, &str)]) -> Option<String> {
+        None
+    }
 }
 
 /// Type alias for a registry of CSS property handlers.

@@ -19,6 +19,7 @@ pub mod origin;
 pub mod process_sandbox;
 mod registry;
 pub mod sandbox;
+mod shorthand;
 mod spec_level;
 mod traits;
 pub mod transform_math;
@@ -63,6 +64,11 @@ pub use origin::{
 pub use process_sandbox::{PlatformSandbox, SandboxError, SandboxPolicy};
 pub use registry::PluginRegistry;
 pub use sandbox::{parse_sandbox_attribute, IframeSandboxFlags};
+/// Shared CSS shorthand-collapse helpers for
+/// [`CssPropertyHandler::serialize_shorthand`] implementations. Homed in the base
+/// crate so every handler crate can reach them (`elidex-css-flex` depends only on
+/// `elidex-plugin`, not `elidex-css`).
+pub use shorthand::{serialize_axis_pair, serialize_rectangular};
 pub use spec_level::{
     CssSpecLevel, DomSpecLevel, EngineMode, EsSpecLevel, HtmlSpecLevel, SpecLevelPolicy,
     StyleCompatPolicy, WebApiSpecLevel,

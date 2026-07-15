@@ -61,15 +61,16 @@ fn ensure_inline_style(entity: Entity, dom: &mut EcsDom) {
 /// CSSOM §6.6.1 `getPropertyValue(property)`: the serialized value of
 /// the named declaration. For a shorthand, reconstruct it from the
 /// component's longhands via the canonical
-/// [`elidex_css::serialize_shorthand_value`] (the same reconstruction the
-/// rule path uses); for a longhand, read it directly. Empty string when
-/// absent or not serializable. Assumes `InlineStyle` is already present
+/// [`elidex_style::serialize_shorthand_value`] (the same reconstruction the
+/// rule path uses — it dispatches the per-family collapse to the property's
+/// own `CssPropertyHandler`); for a longhand, read it directly. Empty string
+/// when absent or not serializable. Assumes `InlineStyle` is already present
 /// (caller hydrates).
 fn inline_property_value(dom: &EcsDom, entity: Entity, property: &str) -> String {
     let Ok(style) = dom.world().get::<&InlineStyle>(entity) else {
         return String::new();
     };
-    elidex_css::serialize_shorthand_value(property, |lh| {
+    elidex_style::serialize_shorthand_value(inline_style_registry(), property, |lh| {
         style
             .get(lh)
             .map(|v| (v.to_owned(), style.is_important(lh)))

@@ -72,6 +72,75 @@ pub fn get_computed(property: &str, style: &ComputedStyle) -> CssValue {
     resolve::get_computed_with_registry(property, style, default_css_property_registry())
 }
 
+/// Reconstruct a CSS **shorthand** value from its longhand declarations —
+/// CSSOM §6.6.1 `getPropertyValue`, the single canonical entry used by BOTH the
+/// inline `el.style` path and the rule `cssRule.style` path.
+///
+/// The declaration block stores **longhands** (the parser expands shorthands,
+/// defaulting omitted components to their initial value), so a shorthand getter
+/// must rebuild the shorthand string. `get` maps a longhand name to its
+/// `(serialized value, important flag)`.
+///
+/// This coordinator owns only the **property-agnostic** CSSOM §6.6.1 checks:
+///
+/// 1. `property` is a shorthand (else `None` — the caller reads it directly);
+/// 2. **every** mapped longhand is present (a missing one makes the shorthand
+///    non-serializable);
+/// 3. the longhands' `!important` flags are **uniform** (a mixed block yields
+///    `""`). Note this is *uniformity*, not "all important" —
+///    `getPropertyPriority` checks all-important; the value getter checks
+///    all-equal.
+///
+/// The per-family **collapse** (CSSOM §6.7.2 "serialize a CSS value") is then
+/// dispatched to the property's own [`CssPropertyHandler::serialize_shorthand`],
+/// which owns that family's grammar and — for omit-initial families — its own
+/// `initial_value` (single source of truth; initials are never duplicated).
+///
+/// Returns `None` when the shorthand is not serializable or the owning handler
+/// does not cover it; the caller maps `None` to the empty string (CSSOM-valid).
+///
+/// [`CssPropertyHandler::serialize_shorthand`]: elidex_plugin::CssPropertyHandler::serialize_shorthand
+#[must_use]
+pub fn serialize_shorthand_value(
+    registry: &CssPropertyRegistry,
+    property: &str,
+    get: impl Fn(&str) -> Option<(String, bool)>,
+) -> Option<String> {
+    let longhands = elidex_css::shorthand_longhands(property);
+    if longhands.is_empty() {
+        return None; // not a shorthand — caller reads the property directly
+    }
+    // §6.6.1: every mapped longhand must be present.
+    let decls: Vec<(String, bool)> = longhands
+        .iter()
+        .map(|lh| get(lh))
+        .collect::<Option<Vec<_>>>()?;
+
+    // §6.6.1: the important flags must be uniform (all-important OR all-normal).
+    let first_important = decls[0].1;
+    if !decls
+        .iter()
+        .all(|(_, important)| *important == first_important)
+    {
+        return None;
+    }
+
+    // Dispatch the collapse to the owning handler (§6.7.2).
+    let pairs: Vec<(&str, &str)> = longhands
+        .iter()
+        .map(String::as_str)
+        .zip(decls.iter().map(|(value, _)| value.as_str()))
+        .collect();
+    // The registry is keyed by **longhand** name (`CssPropertyHandler::property_names`
+    // is longhands-only — shorthand expansion is internal to `parse`), so a
+    // shorthand name never resolves. Find the owning handler via the shorthand's
+    // first longhand: every longhand of a shorthand is owned by the same handler
+    // (`margin-*` → Box, `border-spacing-*` → Table, `flex-*` → Flex, …).
+    registry
+        .resolve(&longhands[0])?
+        .serialize_shorthand(property, &pairs)
+}
+
 /// Serialize a property's CSSOM **resolved value** (CSSOM-1 §9 +
 /// §6.7.2 "serialize a CSS value") — the string `getComputedStyle`
 /// returns.

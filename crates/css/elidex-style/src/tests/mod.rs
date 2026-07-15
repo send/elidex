@@ -10,6 +10,7 @@ mod overflow_propagation;
 mod properties;
 mod selectors_pseudo;
 mod shadow_compat;
+mod shorthand;
 
 fn build_simple_dom() -> (EcsDom, Entity, Entity, Entity) {
     let mut dom = EcsDom::new();

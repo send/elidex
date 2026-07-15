@@ -601,7 +601,7 @@ impl DomApiHandler for RuleStyleGetPropertyValue {
         let value = with_rule(this, args, session, dom, String::new(), |r| {
             // Last declaration wins (mirrors the cascade). A shorthand
             // reconstructs from its longhands via the same canonical
-            // `elidex_css::serialize_shorthand_value` the inline path
+            // `elidex_style::serialize_shorthand_value` the inline path
             // uses — rules are always parser-expanded, so a shorthand key
             // never appears in `declarations` directly.
             let last = |name: &str| {
@@ -611,9 +611,13 @@ impl DomApiHandler for RuleStyleGetPropertyValue {
                     .find(|d| d.property == name)
                     .map(|d| (d.value.to_css_string(), d.important))
             };
-            elidex_css::serialize_shorthand_value(&normalized, |lh| last(lh))
-                .or_else(|| last(&normalized).map(|(value, _)| value))
-                .unwrap_or_default()
+            elidex_style::serialize_shorthand_value(
+                elidex_style::default_css_property_registry(),
+                &normalized,
+                |lh| last(lh),
+            )
+            .or_else(|| last(&normalized).map(|(value, _)| value))
+            .unwrap_or_default()
         });
         Ok(JsValue::String(value))
     }
