@@ -73,42 +73,33 @@ beyond that.
 geometry.rs` (NEW)** (NOT appended to `dom/mod.rs`, which is **1073 LoC** — CLAUDE.md touch-time split;
 `task_2924ead0`):
 
+The **contract** C-3a's implementation must satisfy — **the memo pins the contract, NOT the Rust encoding**
+(the exact signature is C-3a's implementation-plan-review decision; specifying a mechanism here is out of a
+decision-record's altitude — R6 showed three glib mechanism-specs were each wrong):
+
 ```
 impl EcsDom {
-    /// Border/padding/content boxes for `entity`, one per box fragment, EACH
-    /// PAIRED WITH ITS `fragmentainer` id, in fragmentainer order. The fragment
-    /// store is authoritative when present (positive `fragments_for` presence is
-    /// the router — never LayoutBox-absence, §2 I-router); otherwise the single
-    /// LayoutBox projected as one fragment `(fragmentainer 0, box)` via
-    /// `From<&LayoutBox>`. Inner iterator empty iff the entity has neither.
-    ///
-    /// PHASE-GUARDED (§2 I-phase, ENFORCED not just documented): returns `None`
-    /// unless `EcsDom`'s layout provenance is a COMPLETED SCREEN pass — so a
-    /// mid-layout store, or a paged/print store (which does not rebuild the
-    /// screen store and holds page-relative fragments), CANNOT be read as screen
-    /// geometry. The provenance flag is set by `layout_tree` (screen) and NOT by
-    /// `layout_fragmented_with_tokens` (paged). Not callable inside a layout algo.
-    ///
-    /// The `fragmentainer` in each item is the stable `(entity, fragmentainer)`
-    /// identity the store keys on (`fragment_tree.rs:75,113,179`) — so a retained
-    /// hit fragment (C-3c) / iframe click-routing (C-3d) has the key §4 audit
-    /// axis 7 requires, without bypassing the seam to read the store directly.
-    /// (A span starting in a later column has fragmentainer ≠ enumeration index,
-    /// so the id must be yielded, not inferred.)
-    ///
-    /// LIVENESS (§2 I-phase): the inner iterator is empty for a despawned entity
-    /// even if the store holds a stale index entry — the store is a side-store
-    /// teardown does NOT clean (only the multicol committer calls `remove_entity`),
-    /// so the router checks `world.contains` before trusting `fragments_for`.
-    ///
-    /// Yields PRE-TRANSFORM layout geometry (§2 I-transform): CSS transforms are
-    /// a paint-time wrapper; a painted-geometry reader composes the chain itself.
-    pub fn box_fragments(&self, entity: Entity)
-        -> Option<impl Iterator<Item = (u32 /*fragmentainer*/, BoxFragment)> + '_>;
+    /// (ILLUSTRATIVE signature — the CONTRACT is the four requirements below;
+    ///  the exact encoding is C-3a impl.)
+    fn box_fragments(&self, entity: Entity) -> <phase-guarded projection>;
 }
 ```
 
-*(The exact Rust shape — `Option` vs a `ScreenGeometry` guard token, tuple vs a `FragmentRef` struct — is C-3a impl detail; the CONTRACT the memo pins is: **carries the `fragmentainer` identity** (W1/R5) and **is phase-guarded so a paged/mid-layout store cannot masquerade as screen geometry** (W3/R5), both **by construction**, not by caller discipline.)*
+1. **Fragment identity** — each yielded box carries its **`fragmentainer` id** (the stable
+   `(entity, fragmentainer)` key the store keys on, `fragment_tree.rs:75,113,179`), so a retained hit fragment
+   (C-3c) / iframe click-routing (C-3d) has the key §4 audit axis 7 requires without bypassing the seam. A span
+   starting in a later column has fragmentainer ≠ enumeration index, so the id must be **yielded, not inferred**.
+2. **Router = presence** (§2 I-router) — store-authoritative when `fragments_for` is non-empty (never
+   LayoutBox-absence); else the single `LayoutBox` as one fragment `(fragmentainer 0, box)` via `From<&LayoutBox>`.
+3. **Phase-invalidity is a DISTINCT signal from box-absence** (§2 I-phase; R6-X1) — a mid-layout or paged/print
+   store must be **unreadable as screen geometry**, and that failure must **NOT** collapse to the same value as
+   a boxless/despawned entity (whose downstream policy is a11y-skip / IO-RO-zero). So "not a completed screen
+   pass" is a *guard failure* (a `Result::Err(InvalidPhase)` / a screen-geometry access token / a separate
+   `try_*` accessor — impl's choice), never the boxless `None`/empty that means "no box." Liveness is part of
+   *box-absence*: a despawned entity (whose stale store index teardown does NOT clean — only the multicol
+   committer calls `remove_entity`) reads as absent, checked via `world.contains` before trusting `fragments_for`.
+4. **Pre-transform geometry** (§2 I-transform) — CSS transforms are a paint-time wrapper; a painted-geometry
+   reader composes the chain itself.
 
 **Why on `EcsDom`** (not each consumer reading the store/component directly):
 
@@ -133,10 +124,15 @@ impl EcsDom {
   `None` if boxless. ⚠ **This is NOT the CSSOM-View "get the bounding box"** (Codex R1-T7): that algorithm
   returns the **first** rect when all rects are zero-sized, and otherwise unions **only** rects with non-zero
   width AND height (cssom-view §6 steps 3-4, webref-verified). A plain union that includes zero-sized fragments
-  would move/expand `getBoundingClientRect` for a mixed zero/non-zero element. `union_border_boxes` serves
-  **`offsetWidth/Height`** (cssom-view §7 step 2 — a plain union of the principal box's fragments, no
-  zero-filter); **C-3b's `getBoundingClientRect` MUST build its own spec-shaped 4-step reduction, not reuse
-  this fold.** (Recorded so C-3b does not reflexively reuse it.)
+  would move/expand `getBoundingClientRect` for a mixed zero/non-zero element. `union_border_boxes` is a
+  **per-entity building block**, not a finished CSSOM reduction: **C-3b's `getBoundingClientRect` MUST build its
+  own spec-shaped 4-step reduction, not reuse this fold**; and ⚠ **`offsetWidth/Height` is only *partly* this
+  fold** (Codex R6-X3) — cssom-view §7 step 2 unions the principal box's own fragments, BUT for **an inline
+  principal box split by a block-level descendant** it *"also include[s] fragments generated by the block-level
+  descendants"* (webref-verified) — a **cross-entity** aggregation `box_fragments(entity)` (per-entity) cannot
+  do. So `offsetWidth` = `union_border_boxes(entity)` **plus** the descendant boxes, aggregated by C-3b's
+  dom-api offset algorithm (audit axis 6 home+shape: a cross-entity reader, like shell scroll-extent). The
+  low fold stays **generic per-entity**; the cross-entity aggregation is the CSSOM layer's.
 **C-3a ships NO `content_rect_local` relocation** (Codex R1-T9 + R2-U3 — dropped). R1 proposed moving the
 RO-named `LayoutBox::content_rect_local()` to a generic `BoxModel` default; **R2-U3 showed that is wrong**:
 its arithmetic is `Rect::new(padding.left, padding.top, …)` — **padding-only** — which is RO's contentRect
@@ -243,13 +239,18 @@ block/children/shift.rs:113-127` says so outright:
    over cleaning every teardown path — the store already has *"no incremental / staleness model; rebuild is the
    reconcile"*).
 
-⇒ **`box_fragments` is valid only after a completed SCREEN layout pass, and only for a live entity — and it
-ENFORCES this, it does not merely document it** (Codex R5-W3). A documented-only "screen-pass-only"
-precondition is a footgun: a migrated CSSOM/observer/a11y reader can call the ordinary `EcsDom` method after a
-paged/print render and silently consume page-relative geometry. So C-3a adds an **`EcsDom` layout-provenance
-flag** (set to *screen* by `layout_tree`, left non-screen by `layout_fragmented_with_tokens` / cleared
-mid-layout), and `box_fragments` returns **`None`** unless the flag is *screen* — the phase precondition holds
-**by construction**. (Reader-side guard; complements the producer-side C-4 gate item 3 paged-store hygiene.) The three **in-layout** baseline
+⇒ **`box_fragments` must be valid only after a completed SCREEN layout pass, and only for a live entity — and
+it must ENFORCE this, not merely document it** (Codex R5-W3). A documented-only "screen-pass-only" precondition
+is a footgun: a migrated reader can call the seam after a paged/print render and silently consume page-relative
+geometry. **Requirements** (the mechanism — an `EcsDom` provenance enum, a generation counter, an access token
+— is C-3a impl; the memo pins the requirements, not the state machine):
+- (a) an **`EcsDom` layout-provenance signal** distinguishes *completed-screen* from *mid-layout / paged*;
+- (b) **every non-screen layout entry actively sets a non-screen provenance BEFORE laying out** (Codex R6-X4) —
+  NOT merely "does not set screen": a paged render after a prior screen pass would otherwise leave the stale
+  *screen* provenance in place and pass the guard on page-relative fragments;
+- (c) `box_fragments` **fails the guard** (distinct from box-absence, §1 requirement 3) unless the provenance is
+  *completed-screen*.
+(Reader-side guard; complements the producer-side C-4 gate item 3 paged-store hygiene.) The three **in-layout** baseline
 readers (`elidex-layout-flex/src/baseline.rs:18`, `/src/lib.rs:474`, `elidex-layout-grid/src/position.rs:444`
 — all `get::<&LayoutBox>` *inside* the layout algorithms) **must NOT be migrated onto `box_fragments`**; they
 keep reading the live `LayoutBox`. Whether they get an explicit live accessor or simply stay on `LayoutBox`
@@ -392,11 +393,15 @@ compiler). So:
    then **import aliases** `use elidex_plugin::LayoutBox as LB; get::<&LB>`; grep structurally cannot follow
    aliases / re-exports / generic bounds, so any grep union claims a completeness it cannot deliver — the
    anti-pattern §4's own "exhaustive inventory" thesis forbids). Therefore:
-   - **The SOUND C-4 gate is compiler-based**: make `LayoutBox` **inaccessible to non-producer crates** (a
-     visibility boundary — `pub(crate)` behind a producer facade / a `#[deprecated]`-to-external marker), and
-     the workspace **failing to compile** enumerates every remaining external reference *by construction* — the
-     compiler misses no alias, bound, or shape. (This IS C-4's mechanism: `LayoutBox` deletion is the ultimate
-     compile check; the gate is the same check staged earlier.)
+   - **The SOUND C-4 gate is compiler-based** (requirement; the exact mechanism is C-4 impl): the compiler must
+     be made to **reject a `LayoutBox` reference from any non-producer crate**, so the workspace failing to
+     compile enumerates every remaining consumer *by construction* (no alias/bound/shape escapes). ⚠ Plain
+     `pub(crate)` does **NOT** express this (Codex R6-X2): `LayoutBox` lives in `elidex-plugin` but the *producer*
+     crates (`elidex-layout-*`) are **also external** to `elidex-plugin`, so crate-privacy would reject the
+     allowed producer writes too. The gate needs a **producer-allowlisting** mechanism — a sealed producer-facing
+     API, a `deny`-by-default lint (clippy/dylint) with a producer-module allowlist, or module-visibility that
+     separates producers from consumers — chosen at C-4. (`LayoutBox` deletion is itself the ultimate such
+     check; the gate stages it earlier.)
    - **`git grep -nw 'LayoutBox'` + `git grep -nE 'dyn BoxModel|impl BoxModel'` is the C-3a-audit HUMAN
      first-pass** — fast, catches the common shapes to classify — but is **explicitly NOT the sound gate** and
      must not be presented as exhaustive.
