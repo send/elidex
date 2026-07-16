@@ -117,11 +117,17 @@ impl EcsDom {
    one-component-per-entity model. The projection is the read side; no side-store, no registry, no
    component-ization of the N:M relation.
 
-**The frame-neutral folds C-3a ships** (all in `dom/geometry.rs`, all pure Rect/size math over the primitive):
+**The frame-neutral folds C-3a ships** (all in `dom/geometry.rs`, all pure Rect/size math over the primitive).
+⚠ **The `-> Option<…>` signatures below are ILLUSTRATIVE, not normative** (Codex R7-Y1): every fold is derived
+from `box_fragments` and therefore **inherits its phase guard** — requirement 3 above (phase-invalidity is a
+DISTINCT signal from box-absence) **propagates to the folds**, so a plain `Option` that collapses
+*invalid-phase* into the boxless `None` would hand a migrated a11y/IO consumer the boxless branch on stale
+page-relative geometry. The **encoding** (a `Result`, a token-gated accessor, folds defined only on an
+already-guarded projection) is **C-3a's implementation-plan-review decision**, like the primitive's:
 
-- `principal_fragment(entity) -> Option<BoxFragment>` — the first fragment (or the N=1 box), `None` if boxless.
-- `union_border_boxes(entity) -> Option<Rect>` — the **plain** axis-aligned union of the fragment border boxes,
-  `None` if boxless. ⚠ **This is NOT the CSSOM-View "get the bounding box"** (Codex R1-T7): that algorithm
+- `principal_fragment(entity)` → the first fragment (or the N=1 box); box-absent if boxless.
+- `union_border_boxes(entity)` → the **plain** axis-aligned union of the fragment border boxes; box-absent if
+  boxless. ⚠ **This is NOT the CSSOM-View "get the bounding box"** (Codex R1-T7): that algorithm
   returns the **first** rect when all rects are zero-sized, and otherwise unions **only** rects with non-zero
   width AND height (cssom-view §6 steps 3-4, webref-verified). A plain union that includes zero-sized fragments
   would move/expand `getBoundingClientRect` for a mixed zero/non-zero element. `union_border_boxes` is a
@@ -393,15 +399,18 @@ compiler). So:
    then **import aliases** `use elidex_plugin::LayoutBox as LB; get::<&LB>`; grep structurally cannot follow
    aliases / re-exports / generic bounds, so any grep union claims a completeness it cannot deliver — the
    anti-pattern §4's own "exhaustive inventory" thesis forbids). Therefore:
-   - **The SOUND C-4 gate is compiler-based** (requirement; the exact mechanism is C-4 impl): the compiler must
-     be made to **reject a `LayoutBox` reference from any non-producer crate**, so the workspace failing to
-     compile enumerates every remaining consumer *by construction* (no alias/bound/shape escapes). ⚠ Plain
-     `pub(crate)` does **NOT** express this (Codex R6-X2): `LayoutBox` lives in `elidex-plugin` but the *producer*
-     crates (`elidex-layout-*`) are **also external** to `elidex-plugin`, so crate-privacy would reject the
-     allowed producer writes too. The gate needs a **producer-allowlisting** mechanism — a sealed producer-facing
-     API, a `deny`-by-default lint (clippy/dylint) with a producer-module allowlist, or module-visibility that
-     separates producers from consumers — chosen at C-4. (`LayoutBox` deletion is itself the ultimate such
-     check; the gate stages it earlier.)
+   - **The SOUND enumeration is compiler-based** (requirement; the mechanism is impl's): the compiler must be
+     made to **reject a `LayoutBox` reference from any non-producer crate**, so the workspace failing to compile
+     enumerates every remaining consumer *by construction* (no alias/bound/shape escapes). ⚠ Plain `pub(crate)`
+     does **NOT** express this (Codex R6-X2): `LayoutBox` lives in `elidex-plugin` but the *producer* crates
+     (`elidex-layout-*`) are **also external** to it, so crate-privacy would reject the allowed producer writes
+     too. It needs a **producer-allowlisting** mechanism — a sealed producer-facing API, a `deny`-by-default lint
+     (clippy/dylint) with a producer-module allowlist, or module visibility separating producers from consumers.
+   - **⚠ C-3a RUNS this check — it is not deferred to C-4** (Codex R7-Y2). §4's inventory is advertised as
+     *exhaustive* and **C-3b–C-3e plan their contracts from it**; if C-3a shipped only the grep first-pass, the
+     alias/generic/re-export cases would surface at C-4 — *after* four slices had planned from an incomplete
+     inventory. So the compiler check is **the C-3a audit's exhaustiveness proof** (run once as a throwaway
+     experiment if the permanent gate lands later); C-4 re-runs the same check as the deletion gate.
    - **`git grep -nw 'LayoutBox'` + `git grep -nE 'dyn BoxModel|impl BoxModel'` is the C-3a-audit HUMAN
      first-pass** — fast, catches the common shapes to classify — but is **explicitly NOT the sound gate** and
      must not be presented as exhaustive.
@@ -425,7 +434,7 @@ went wrong):
 |---|---|---|---|
 | 1 | **frame** | doc-space, or a local frame the reader composes? | I-frame |
 | 2 | **phase** | **in-layout** (must NOT use `box_fragments`) / **screen-post-layout** (valid) / **paged-post-layout** (INVALID — the paged path does not `clear()` and its `fragmentainer` is page-relative, I-phase fact 3; a render-residual reader under `paged:true` — e.g. `paint/mod.rs`, `form.rs` helpers — is "post-layout" yet reads page-relative geometry). Trinary, not binary — a binary post-vs-in-layout split marks a paged reader "fully classified" while nothing captures its paged-store invalidity | I-phase |
-| 3 | **boxless** | spec-zero, or `Option::None`? — and note `display:contents`, which gets a **zero-size `LayoutBox`** (`layout/mod.rs:74`), so `box_fragments` yields **one zero-rect fragment, not `None`**: a reader must **not** infer box-presence from non-emptiness. | I-boxless |
+| 3 | **boxless** | spec-zero, or box-absent? — ⚠ and `display:contents` is a **pre-existing spec deviation the audit must record** (Codex R7-Y5): CSS Display 3 **§2.5** *"the element itself does not generate any boxes"* (webref-verified; the live comment at `layout/mod.rs:74` cites §2.8 — drifted), yet elidex synthesises a **zero-size `LayoutBox`**, so `box_fragments` yields **one zero-rect fragment, not box-absent** — a consumer migrating off `LayoutBox` would treat it as a real zero-sized box instead of taking its no-box / spec-zero branch (cssom-view §6 `getClientRects()` = empty list when there is no associated box). C-3 **inherits** the deviation (no regression); the audit records, per reader, whether it needs a true *"has an associated CSS box"* signal — and if any does, that is a C-3b/C-3d ask, not a silent inheritance. | I-boxless |
 | 4 | **source vs routing** | does the migration change *which rects* feed it (⇒ a test), or only *which fragment*? (**everything is a source/behavior change at N>1** — the G11 last-column fact) | N=1 invariant limit |
 | 5 | **reduction** | union / first / per-fragment / **not a geometry read** (e.g. the paged-gen gate reads `layout_generation`, which `BoxFragment` drops) / **a *selection* problem with no store signal** (the inline-text anchor) | — |
 | 6 | **home + shape** | which crates must reach it (floor/ceiling)? and is it a **per-entity projection** or a **cross-entity aggregate** (e.g. shell scroll-extent is a `query` with a `display!=None` co-read — `box_fragments` cannot express it)? | layering |
@@ -505,7 +514,12 @@ C-3a (seam + audit) ──┬── C-3b  CSSOM geometry (elidex-dom-api)       
 
 **Proposed `#11-*` slots for PM registration** (Codex R5-W4 — the defer content spelled out HERE, not deferred
 to the landing memo; PM owns the ledger, this is the proposal + re-eval trigger for each of gate items 2-5, 7,
-8). The memo does **not** create them (shared-SoT is PM-owned); it makes the defer auditable now:
+8). The memo does **not** create them (shared-SoT is PM-owned); it makes the defer auditable now.
+⚠ **These are PROPOSALS, not registered slots** (Codex R7-Y4): the ledger's why/trigger/**date** triple is
+completed **by PM at registration** (C-3a landing, §6.4) — the *why* is the gate item, the *trigger* is stated
+below and is deliberately **event-based** (these gate a program, C-4, that has no calendar date yet; an invented
+date would be false precision), and the *date* is the registration date PM stamps. Until then they are notes,
+not ledger entries.
 
 | Proposed slot | Gate item | Re-evaluation trigger |
 |---|---|---|
@@ -530,7 +544,17 @@ to the landing memo; PM owns the ledger, this is the proposal + re-eval trigger 
    over-corrected to *"there is no `elidex-render` crate"* — it is real (`crates/core/elidex-render/`); only
    the *relocation* was fabricated. (b) the reader-crate lists should name **`elidex-js`** (the observer host),
    not `elidex-api-observers` (which is geometry-agnostic and untouched by C-3).
-3. **C-3a is the isolatable seed** (`elidex-ecs`, additive, no consumer migration) and is the right first PR.
+3. **C-3a is the isolatable seed** (`elidex-ecs`-centred, additive, **no consumer migration**) and is the right
+   first PR. ⚠ **It is not `elidex-ecs`-ONLY** (Codex R7-Y3): enforcing the I-phase guard (§2) has a **writer
+   side** — the screen layout entry must *publish* completed-screen provenance — so C-3a carries a **bounded
+   cross-crate tail** at the layout entrypoint (`elidex-layout`). Actively invalidating on the *paged* entries
+   is the `#11-paged-fragment-store-hygiene` slot (§5). Without this the guard degrades to the documented-only
+   precondition §2 rejects, so the tail is in scope, not optional.
+   **This memo pins the seam's CONTRACT + REQUIREMENTS; the ENFORCEMENT APPROACH is C-3a's implementation
+   plan-review** — the phase-guard encoding (`Result` / token / guarded projection) and its propagation to the
+   folds, the provenance representation, and the producer-allowlisting mechanism for the audit's compiler check
+   are all decided there, against live code, per the per-slice plan-review discipline. Specifying them *here*
+   is out of a decision-record's altitude and was the source of the R5→R7 finding cascade.
    Its deliverable is the seam **+ the durable audit artifact** (§4). The downstream slices are cross-crate and
    **not parallel-safe** with the CSS/script/shell lanes — schedule per §5.
 4. **Six C-4 prerequisites currently have no owner** (§5 items 2-5, the design-doc slice, and the
