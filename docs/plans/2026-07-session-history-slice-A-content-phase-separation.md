@@ -33,8 +33,10 @@ seam/field additions, §2) and **wires it into content mode** (§4).
 
 **The five co-designed resolutions (the plan's spine, §1):** A nav-vs-traversal supersede · B
 default-suppression for a *pending* deferred traversal · D deferred-`SyncUpdate` document binding · E no-op
-traversal peek-classify · loop-bound (inert-this-slice, fenced to Slice 4). A/B/D/E each need real shell
-state the inert substrate lacked; the loop-bound is a conscious fence.
+traversal peek-classify · loop-bound (BOUNDED SNAPSHOT shipped this slice; only the canonical
+reentrancy-guard *wiring* is fenced to Slice 4). A/B/D/E each need real shell state the inert substrate
+lacked; the loop-bound's *bound* is shipped this slice, only its canonical-serialization *wiring* is a
+conscious Slice-4 fence.
 
 **Scope fence (state clearly, plan-review verifies each leg):**
 - **IN:** substrate CO-DESIGN (extend for A/B/D/E) + content-mode WIRING only.
@@ -59,10 +61,18 @@ state the inert substrate lacked; the loop-bound is a conscious fence.
   production fork (complements, does not replace, the runtime-fork argument; leg-1 close-succession remains the
   load-bearing scheduling backstop). This is a deliberate retirement, not a silent drop (confirm in §6
   Q-fence).
-- **OUT → Slice 4:** reentrancy-guard *wiring* + `commit_index` `debug_assert` retirement. The
-  `running_nested_apply_history_step` bracket exists in the substrate but its only real re-enqueue vector
-  (the SW-fetch reentrant pump) is **DEAD/unreachable** in content today (`content/navigation.rs:775`
-  "the SW controller path is dead"); wiring it + the termination guard stays Slice 4.
+- **OUT → Slice 4:** the FULL canonical reentrant-message *serialization* that REPLACES this slice's interim
+  guard — §7.3.1.1 running-nested-apply guard WIRING for a reentrant **DIRECT** nav via
+  `running_nested_apply_history_step` (which does not consult `is_applying()` today) + the §7.4.1.3 canonical
+  routing + `commit_index` `debug_assert` retirement. **The reachable SW-fetch reentrancy window is NOT
+  deferred — it is CLOSED THIS SLICE.** An SW-controlled page re-dispatching a nav-mutating `BrowserToContent`
+  from the SW-fetch wait loop (`deliver_controller_set` → `sw_controller_scope()` → `handle_navigate`'s
+  blocking SW-wait) during a Phase-2 apply is a **reachable** peek/commit cursor-mutation window; the shell's
+  INTERIM buffer-during-apply guard `content/drain_host.rs::dispatch_or_buffer_reentrant` closes it (while
+  `is_applying()` holds, the message is buffered onto `ContentState::deferred_reentrant_messages` and replayed
+  at the top of a later `pump_turn`, so it cannot mutate the cursor under the held peek). Slice 4 only swaps
+  that interim guard for the canonical serialization. (Matches the honest code comment at
+  `crates/shell/elidex-navigation/src/traversal_queue.rs` drain-loop reentrancy note.)
 - **OUT → B1:** multi-navigable fan-out (§7.4.6.1 steps 3/4/6/7 + per-navigable global-task of 8/12).
   `changingNavigables` is always `{top-level}` under the single-traversable reality (umbrella §0 fence).
 
@@ -298,16 +308,22 @@ queue — is left for the **next** `run_deferred_traversals` turn, so the loop *
 against a host that re-enqueues on every apply. Liveness is preserved because **content-mode's async pump drains
 Phase-2 every turn** (`event_loop.rs` top-of-loop `run_deferred_traversals`), not by draining to exhaustion. In
 content mode the only re-enqueue vector is the reentrant SW-fetch message pump (`content/navigation.rs` SW-fetch
-relay; the reentrancy-vector doc note records it as **DEAD/unreachable** today — "the SW controller path is
-dead"), and content's `apply_traversal` (a Rebuild / same-document apply) does **not** re-enqueue mid-apply, so
-even the next-turn deferral is inert here.
+relay); this vector is **reachable**, and its cursor-mutation window is **closed THIS slice** by the shell's
+INTERIM buffer-during-apply guard `content/drain_host.rs::dispatch_or_buffer_reentrant` — while `is_applying()`
+holds, the re-dispatched `BrowserToContent` is buffered (`ContentState::deferred_reentrant_messages`) and
+replayed on a later `pump_turn`, never applied under the held peek. Content's own `apply_traversal` (a Rebuild /
+same-document apply) does **not** itself re-enqueue mid-apply, so the next-turn deferral of any *other* staged
+step is inert here.
 
 **Decision.** The loop **bound is IMPLEMENTED in this slice** (bounded snapshot above). It adds a **test
 asserting content's `apply_traversal` does not re-enqueue** (bounded-in-practice) plus a test that a mid-apply
 re-enqueue is deferred, not drained to exhaustion. What **stays Slice 4** is only the reentrancy-guard *wiring* —
 serializing a reentrant **DIRECT** nav message via `running_nested_apply_history_step` (it does not consult
-`is_applying()` today) + the `commit_index` `debug_assert` retirement — NOT the loop bound. Stated explicitly so
-plan-review sees the split: **bound = shipped; guard wiring = conscious Slice-4 fence.**
+`is_applying()` today) + the `commit_index` `debug_assert` retirement — NOT the loop bound. The reachable
+SW-fetch *message* reentrancy vector, by contrast, is **not** left for Slice 4 — its window is
+closed this slice by the shell interim guard above (`drain_host.rs::dispatch_or_buffer_reentrant`); Slice 4 only
+replaces that interim with the canonical serialization. Stated explicitly so
+plan-review sees the split: **bound = shipped; interim SW guard = shipped; canonical serialization wiring = conscious Slice-4 fence.**
 
 ⚠ **App-mode (Slice B) liveness caveat.** This bounded-drain liveness argument is **content-mode-specific** — it
 rides the every-turn async pump. App-mode (Slice B) drains via `drain_same_turn` (`app/events.rs:89`/`:131`
@@ -384,7 +400,7 @@ multi-navigable fan-out OUT/B1). Section labels use the webref **section titles*
 | WHATWG HTML §7.4.6.1 Updating the traversable | 12 + 12.4 | two-part split ("processed before documents unload"); 12.4 update-only when `displayedEntry is targetEntry` | IN — the decisive phase-separation (Phase 1 lands, Phase 2 applies) | ✓ | no |
 | WHATWG HTML §7.4.6.1 Updating the traversable | 14.1.1 | *synchronous navigations jump the queue … before this traversal potentially unloads their document* | PARTIAL — Resolution D (GENERALIZED, R6) cancel-behind-any-traversal is the bounded stand-in; call-time-entry jump-the-queue reconciliation fenced | ✗ (bounded — `#11-sync-navigation-steps-queue-tagging`) | no |
 | WHATWG HTML §7.3.1.1 Traversable navigables | queue obj | session history traversal **queue** object | IN — `TraversalQueue` on `NavigationController` (cooperative deferred task, not an OS thread) | ✓ | no |
-| WHATWG HTML §7.3.1.1 Traversable navigables | queue obj | **"running nested apply history step" boolean** (init false) | PARTIAL — present + observational; reentrancy-guard *wiring* + termination = Slice 4 (loop-bound inert) | ✗ (Slice 4) | no |
+| WHATWG HTML §7.3.1.1 Traversable navigables | queue obj | **"running nested apply history step" boolean** (init false) | PARTIAL — present + observational; the loop *bound* (bounded snapshot) is shipped this slice, only the canonical reentrancy-guard *wiring* + termination is fenced to Slice 4 | ✗ (Slice 4) | no |
 
 **Breadth**: K=1 spec (html), M=13 rows.
 
@@ -530,7 +546,7 @@ App-mode parity is **Slice B** (out of scope here); no new app-mode history-drai
 | **Closes** | CARRY-EXT (B) — default fires over a pending deferred traversal | Resolution B — `deferred_own_context` |
 | **Closes** | CARRY-EXT-2 (E) — no-op traversal false partition barrier | Resolution E — peek-classify |
 | **Closes** | CARRY-EXT-2 (D) — deferred `SyncUpdate` document binding | Resolution D (GENERALIZED, R6) — cancel a straddle `SyncUpdate` behind ANY same-turn traversal (bounded) |
-| **Defers → Slice 4** | loop-bound (unbounded re-check-until-empty) + reentrancy-guard wiring + `commit_index` `debug_assert` retirement | inert this slice (SW pump dead); loop-inert test only |
+| **Defers → Slice 4** | canonical reentrant-message serialization (§7.3.1.1 DIRECT-nav `running_nested_apply_history_step` wiring + §7.4.1.3) that REPLACES the interim guard + `commit_index` `debug_assert` retirement | the reachable SW-fetch window is CLOSED this slice by the interim shell guard (`drain_host.rs::dispatch_or_buffer_reentrant`); loop bound + interim guard both shipped, Slice 4 only swaps in the canonical form |
 | **Defers → Slice B** | app-mode phase-separation (Q-SCHED end-of-input-handler drain) | distinct shell; lands in close succession |
 | **Defers → `#11-sync-navigation-steps-queue-tagging`** | full issue-order nav-channel integration (A) + document-identity jump-the-queue reconciliation (D) | §7.4.1.3 / §7.4.2.3.3 / §7.4.6.1 tagged-queue machinery; **A's cross-channel leg additionally needs a Q-VM-MODEL reopen** (co-homed, F7) — the slot charter is the tagged-queue reconciliation, and A's `location.*` cross-channel integration needs VM staging to preserve cross-channel issue order |
 | **Defers → B1** | multi-navigable fan-out (§7.4.6.1 steps 3/4/6/7 + per-navigable global-task) | `changingNavigables = {top-level}` today |
