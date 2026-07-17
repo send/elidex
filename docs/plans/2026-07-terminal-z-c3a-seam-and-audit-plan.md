@@ -382,12 +382,17 @@ and the per-consumer spec characterization is **the audit's output** (§4), not 
 | Spec section | Step | Branch | Touch (C-3a code) | Full enum? | User-input flow |
 |---|---|---|---|---|---|
 | RESIZE OBSERVER §3.3.1 content rect | — | `top`=padding top / `left`=padding left / `w,h`=content size | **C-3a ships nothing RO-specific** (R2-U3): RO's contentRect **composes at the reader** (C-3d host) from the fragment's generic `padding()` + `content().size` facets — byte-identical to today's `content_rect_local()` | ✓ (SVG-no-box + multicol width note are RO reader policy, → C-3d) | no |
+| CSS DISPLAY 3 §2.5 Box Generation | `contents` | *"the element itself does not generate any boxes"* → **no associated box** | §1 **requirement 5** — the seam must expose *no-associated-box* as distinct from a real zero-sized box (elidex currently synthesises a zero-size `LayoutBox`, `layout/mod.rs:74` — a pre-existing deviation C-3 **inherits**, §2 I-boxless) | ✓ for the box-generation branch (`none` is out of C-3's reach — layout skips it; the `contents`-computes-to-`none` sub-case per Appendix B is unchanged) | no |
+| CSSOM VIEW §6 `getClientRects()` | step 1 | *"does not have an associated box → return an **empty** DOMRectList and stop"* | the **consumer branch** requirement 5 exists to make expressible (C-3b implements the algorithm; C-3a only ships the signal it needs) | branch ✓ (steps 2-3 = SVG / per-fragment, C-3b's map) | no |
 
-**Breadth**: K=1 (resize-observer-1), M=1 — because C-3a is a **seam**, not a spec slice. The CSSOM-View map
-(get-the-bounding-box 4-step/3-branch, offset*/client*/scroll*, getClientRects two-source, plus the
-pre-existing transform gap — which is spec-*mandated-ignored* for offset*/client*/RO and a genuine gap only
-for getClientRects/gBCR/IO) is **C-3b's** coverage map; IO §3.2.7/§3.2.10 is **C-3d's**. This memo does not
-restate them.
+**Breadth**: K=3 (resize-observer-1, css-display-3, cssom-view-1), M=3 — still minimal because C-3a is a
+**seam**: two of the three rows exist only because §1 requirement 5 (R9-AA3) makes the seam ship the
+*no-associated-box signal*, so the branch it feeds must be cited here rather than left to C-3b (R11-BB3 — an
+uncited signal would let the seam ship without a test for the distinction and force C-3b/C-3d back to
+duplicated style checks). The rest of the CSSOM-View map (get-the-bounding-box 4-step/3-branch,
+offset*/client*/scroll*, getClientRects steps 2-3, plus the pre-existing transform gap — spec-*mandated-ignored*
+for offset*/client*/RO and a genuine gap only for getClientRects/gBCR/IO) is **C-3b's**; IO §3.2.7/§3.2.10 is
+**C-3d's**. This memo does not restate them.
 
 > Preflight note (soft-warn): the coverage-map helper emits the label `RESIZE OBSERVER`, which
 > `preflight.py`'s `SPEC_LABEL_REVERSE` does not map — a tooling seam, not a citation error; the row was
@@ -425,7 +430,7 @@ compiler). So:
    | 1 | **`pub(crate)` as the boundary** (R6-X2) | `LayoutBox` is in `elidex-plugin` but the *producer* crates (`elidex-layout-*`) are **also external** to it — crate-privacy rejects the allowed producer writes too, so the boundary must **allowlist producers** |
    | 2 | **allowlisting `elidex-ecs` wholesale** (R9-AA4) | the seam itself (`box_fragments`) must read `LayoutBox` for the N=1 fallback (§1 req 2) — a broad `elidex-ecs` allowlist would let *future* low-level readers bypass the audit. The exception must be **seam-only**, so the proof stays *"every consumer read goes through `box_fragments`"* |
    | 3 | **a single compiler run** (R8-Z2) | a crate whose *dependency* failed is never type-checked (rustc needs the dep's metadata), so one run surfaces only the **first error layer** — an `elidex-dom-api` error hides `elidex-js`'s readers. `cargo check --keep-going` helps only *independent* crates. The method must **iterate to a no-new-errors fixed point** |
-   | 4 | **running once, at C-3a, then rotting** (R7-Y2 + R9-AA2) | C-3b–C-3e plan their contracts **from this inventory**, so it must be exhaustive **at C-3a** (not deferred to C-4, or four slices plan from stale data) **and stay** exhaustive as slices land — a throwaway experiment leaves a later slice's new reader invisible until C-4. It needs to be **durable** (a committed inventory + a standing check that diffs against it, or a per-slice re-run obligation) |
+   | 4 | **running once, at C-3a, then rotting** (R7-Y2 + R9-AA2) | C-3b–C-3e plan their contracts **from this inventory**, so it must be exhaustive **at C-3a** (not deferred to C-4, or four slices plan from stale data) **and stay** exhaustive as slices land — a throwaway experiment leaves a later slice's new reader invisible until C-4. The freshness check must be **STRUCTURAL and mandatory** (a committed inventory + a standing check that diffs against it and fails). ⚠ **"each slice re-runs it" is NOT an acceptable substitute** (R11-BB1): that is a *review convention* — one slice forgetting leaves downstream planning on stale data until C-4, which is exactly what CLAUDE.md's *"Security by structure, not review convention"* forbids. A per-slice re-run is an **additional** workflow step, never the gate |
 2. **Classify each hit** by the 8 axes. The reference *shapes* the sweep surfaces — illustrative, not
    exhaustive — include: `get::<&LayoutBox>` (shared read); **`get::<&mut …LayoutBox>`** (R1-T6 — mostly
    producer writes, but the C-4 "zero reads outside producers" gate can't be *proven* without classifying each
@@ -503,8 +508,16 @@ C-3a (seam + audit) ──┬── C-3b  CSSOM geometry (elidex-dom-api)       
    must be defined precisely: several producer-crate reads are **in-layout** and one is a **presence check**
    (`inline/pack/boxes.rs:62`) whose meaning flips under a `clear()`ed store.
 2. Producers write the store's N=1 box for every entity **AND** an empty `box_fragments` is **distinguishable**
-   from boxless (a laid-this-pass marker / generation) — else in-layout readers (and the I-boxless × I-phase
-   crossing) break. *(No owner — needs a slot.)*
+   from boxless (a laid-this-pass marker / generation) — else the I-boxless × I-phase crossing breaks.
+   *(No owner — needs a slot.)*
+2b. **A PROBE-VISIBLE / current-pass geometry source exists for the in-layout readers** (Codex R11-BB2) —
+   otherwise C-4 cannot delete `LayoutBox` at all. The three flex/grid baseline readers run **inside** layout
+   (§2 I-phase), where `box_fragments` is *by contract* unusable; item 2's "producers write the N=1 box" is a
+   **post-commit** fact and does **not** give them a live source during a probe or mid-pass. So deleting
+   `LayoutBox` on item 2 alone would either strand those readers or force them onto the screen-only seam the
+   memo forbids. Either this prerequisite lands, or **`LayoutBox` survives C-4 for the in-layout readers**.
+   *(No owner — needs a slot; folds into `#11-fragment-store-screen-provenance`'s neighbourhood but is a
+   distinct requirement: provenance makes the guard sound, this makes the in-layout readers migratable.)*
 3. **Paged-store CONTENT hygiene** — the paged path must clear/rebuild the store (its `fragmentainer` key is
    page-relative and it never clears, so it leaves incidental cross-page fragments). ⚠ Scope note (R8-Z1): this
    is **only** the store's *content*; the paged entries' **provenance invalidation** is **C-3a's** (§6.3) —
@@ -557,7 +570,11 @@ not ledger entries.
 2. **Two shared-SoT corrections still owed** (I do not edit the shared SoT): (a) the anchor memo's v2 retraction
    over-corrected to *"there is no `elidex-render` crate"* — it is real (`crates/core/elidex-render/`); only
    the *relocation* was fabricated. (b) the reader-crate lists should name **`elidex-js`** (the observer host),
-   not `elidex-api-observers` (which is geometry-agnostic and untouched by C-3).
+   not `elidex-api-observers`. ⚠ Phrase it as *"the **current live** observer-geometry reader is the
+   `elidex-js` host closure"* — **not** "api-observers is untouched by C-3" (Codex R11-BB4): §1 leaves C-3d the
+   option (c) of adding the acyclic `api-observers → dom-api` edge and implementing IO §3.2.10 step 7
+   engine-side, which **would** touch api-observers. A PM list that rules it out pre-empts a decision §1
+   explicitly reserves for C-3d's plan-review.
 3. **C-3a is the isolatable seed** (`elidex-ecs`-centred, additive, **no consumer migration**) and is the right
    first PR. ⚠ **It is not `elidex-ecs`-ONLY** (Codex R7-Y3): enforcing the I-phase guard (§2) has a **writer
    side**, so C-3a carries a **bounded cross-crate tail** at the layout entrypoints (`elidex-layout`).
