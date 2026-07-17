@@ -29,10 +29,8 @@ Predecessors MERGED: Z-1a (#313, standalone `FragmentTree`) / Z-1b (#316, per-co
 > pre-compute one — not as a list, not as a count, not "for readability". Naming an example to prove a class
 > is **non-empty** is fine; naming it to define the class is not. If you catch yourself writing "the N cases
 > are…" about something the audit determines, **delete it and state the mandate**.
-> **This is the defect that killed PR #463** — §6.1 is the record; the cause is stated there once, not here.
-> **It is not a hypothetical**: every hand-list this memo attempted was wrong, and *the corrections were wrong
-> too*. The last one read a single caller's guard and generalised to all callers — the very method-error it
-> was written to condemn. So the rule is not "hand-list more carefully"; it is **do not hand-list**.
+> **This is the defect that killed PR #463** — §6.1 is the record. The rule is not "hand-list more
+> carefully"; it is **do not hand-list**.
 > ⚠ **Corollary — do not narrate the drafts.** "An earlier draft said X, which was wrong because Y" restates
 > X, which makes a fresh drift site out of the fix itself; git holds that history. State the decision in its
 > final form with the evidence that makes it checkable, and nothing about what it used to say.
@@ -41,13 +39,7 @@ Predecessors MERGED: Z-1a (#313, standalone `FragmentTree`) / Z-1b (#316, per-co
 > section; every other section **points** at it. **Sections are deliberately NOT self-contained**: a second
 > rendering of a fact is a *defect*, not a convenience, because the copies drift and each drift is a wrong
 > decision by whoever read that section. This is not a style rule — it is the diagnosis of this memo's own
-> review history. The Codex loop enumerated this surface a couple of sites at a time, round after round: the
-> callability
-> set was rendered at seven sites and **had already drifted**; §1 and §6.3 disagreed on this slice's scope;
-> §4 axis 3 contradicted §1 requirement 5; §3 and §5 disagreed on the transform gap's membership; hand-off
-> items existed as a table *and* as prose. **PR #463 — this memo's predecessor — died of exactly this**
-> (§6.1), which is why the rule is stated before §0 rather than trusted to reviewers. CLAUDE.md *One issue,
-> one way*: 単一の正準形に一括収束させ、strangler 中間状態を残さない。
+> review history (§6.1). CLAUDE.md *One issue, one way*: 単一の正準形に一括収束させ、strangler 中間状態を残さない。
 > **If you must state a fact a second time to make a section readable, point instead. Never restate a count,
 > a list, or a set** — a count is a copy of the thing counted (that copy is what drifted at §6.4).
 
@@ -154,9 +146,9 @@ impl EcsDom {
    box, cssom-view §6; `display:contents` generates **no box**, CSS Display 3 §2.5).
    - **Absent ⇒ no associated box.** Sound: nothing fabricates a box for a boxless element.
    - **Present ⇒ *a box was produced*, which is weaker than "has an associated box".** Producer paths leave
-     boxes on elements the spec says have none, and **the dominant one is not `display:contents` at all — it
-     is DETACHMENT**: `remove_child` **detaches without despawning**, so requirement 3's `world.contains`
-     liveness check still passes, and **no production path removes a `LayoutBox`** (§2 I-boxless) — a
+     boxes on elements the spec says have none — e.g. **detachment**: `remove_child` **detaches without
+     despawning**, so requirement 3's `world.contains` liveness check still passes, and **no production path
+     removes a `LayoutBox`** (§2 I-boxless) — a
      script-removed element keeps its **stale** box and the seam reports "has a box" for something cssom-view
      §6 gives an **empty** list. C-3 **inherits** this (today's `getClientRects` reads that same stale box, so
      migrating changes nothing), but the contract must not claim more than it delivers.
@@ -292,14 +284,12 @@ dom-api-dependent `elidex-js` host (`crates/script/elidex-js/src/vm/host/interse
 which *can* call the dom-api algorithm. ⚠ That DI seam is *why* the closure has silently returned
 `LayoutBox.border_box()` — not the §6 bounding box — for the life of the feature, uncatchable by any
 `api-observers` test. **C-3d decides** whether to keep the seam (b) or add the acyclic `api-observers → dom-api`
-edge and implement IO step 7 engine-side (c). **C-3a does not touch it.** (Every other dom-api-homed reduction —
-the CSSOM algorithms — is consumed only by `dom-api` itself + the `elidex-js` host, both direct callers. a11y
-reads a **single box's `border_box()`** today (`crates/dom/elidex-a11y/src/tree.rs:123`, verified — not a union
-and not the dom-api 4-branch), so on **that** shape it needs no dom-api-homed reduction — one fewer collision
-than a linkage-based reading would suggest, re-derived on direct edges. ⚠ That is a statement about today's read, **not a decision about a11y's
-post-migration reduction** (Codex R16-EE2): which reduction a11y should take is **audit axis 1's** output, and
-§2 I-transform records its geometry contract as *unresolved*. If the audit finds a11y needs a CSSOM-homed
-algorithm, that is a **second** collision for C-3c to surface — this paragraph does not foreclose it.)
+edge and implement IO step 7 engine-side (c). **C-3a does not touch it.** (a11y reads a **single box's `border_box()`** today
+(`crates/dom/elidex-a11y/src/tree.rs:123`, verified — not a union and not the dom-api 4-branch), so on **that**
+shape it needs no dom-api-homed reduction. ⚠ A statement about today's read, **not a decision about a11y's
+post-migration reduction**: which reduction a11y takes is **audit axis 1's** output, and §2 I-transform records
+its geometry contract as *unresolved*. Which readers collide is **axis 6's** output — this paragraph forecloses
+nothing.)
 
 ---
 
@@ -389,7 +379,7 @@ and `inline/pack/mod.rs` also read a `LayoutBox` mid-pass, and a C-3c scoped fro
 migrated them onto the screen-only seam. Whether the ones the sweep finds get an explicit live accessor or
 simply stay on `LayoutBox` until a probe-visible store exists is **C-3c's** decision.
 
-### I-boxless — de-universalized, and barely reachable in production
+### I-boxless — de-universalized
 
 Empty → `None`, **for the consumers that branch on box-presence** (a11y skips `set_bounds`; IO short-circuits
 to ratio 0). Two corrections the #463 memo got wrong:
@@ -403,11 +393,11 @@ to ratio 0). Two corrections the #463 memo got wrong:
   edge-adjacent target as *isIntersecting=true, ratio 1* (webref-verified: there is **no boxless guard**).
   elidex's `None` short-circuit is a deliberate deviation matching browsers (pinned:
   `elidex-api-observers/src/intersection/tests_core.rs:295-317`).
-- ⚠ **Barely reachable**: **no production path removes `LayoutBox`** (`remove_one::<LayoutBox>` appears only
-  in two *test* files); layout *skips* `display:none` subtrees but never *clears* a stale box
+- **No production path removes `LayoutBox`** (`remove_one::<LayoutBox>` appears only in two *test* files);
+  layout *skips* `display:none` subtrees but never *clears* a stale box
   (`elidex-layout-block/src/inline/pack/boxes.rs:96-101`, slot `#11-inline-relayout-box-staleness`). So an
-  element that *becomes* `display:none` keeps its box, and the pinning tests synthesize a state the engine
-  cannot reach. C-3 does not fix this; the audit records it and C-4 inherits the slot.
+  element that *becomes* `display:none` keeps its box. C-3 does not fix this; the audit records it and C-4
+  inherits the slot. *(How reachable box-absence is, is §1 requirement 5's — not this bullet's.)*
 
 ### I-frame — folds frame-neutral; the gate is LIVE
 
