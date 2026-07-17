@@ -247,8 +247,9 @@ fn cross_turn_pending_traversal_suppresses_turn2_default_and_nav() {
 
 /// loop-bound (plan §1 loop-bound / T1): content's Phase-2 apply does NOT
 /// re-enqueue, so `run_deferred_traversals` drains its bounded snapshot to empty in
-/// one pass. The drain is bounded-by-construction (T1); the reentrancy-guard WIRING
-/// for a reentrant DIRECT nav is Slice 4 (its only vector, the SW-pump, is dead).
+/// one pass. The drain is bounded-by-construction (T1); the canonical reentrancy-guard
+/// serialization WIRING for a reentrant DIRECT nav is Slice 4 (the reachable SW-pump
+/// message vector is already closed this slice by `dispatch_or_buffer_reentrant`).
 #[test]
 fn content_apply_traversal_does_not_re_enqueue() {
     let (mut state, browser) = build_test_content_state_with_url("<p>doc</p>", base());

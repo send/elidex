@@ -393,8 +393,12 @@ ordering (each slice terminal under the approved umbrella once its own plan-revi
   "running nested apply history step" boolean so a reentrant **DIRECT** nav message (address-bar `Navigate`/`Reload`,
   chrome `GoBack`/`GoForward`) — which does not consult `is_applying()` and could mutate session history between a
   held peek and its commit — is serialized onto the queue rather than applied under the peek, plus the
-  `commit_index` `debug_assert` retirement. That vector is structurally unreachable today (its only source, the
-  SW-fetch reentrant pump, is dead), so this is guard *wiring*, not a loop bound. ⚠ **App-mode (Slice B):** the
+  `commit_index` `debug_assert` retirement. The SW-fetch reentrant-message vector IS **reachable**
+  (`deliver_controller_set` → `sw_controller_scope()` → `handle_navigate`'s blocking SW-wait re-dispatches a
+  nav-mutating `BrowserToContent` during a Phase-2 apply), and its window is **closed THIS slice (Slice A)** by
+  the shell's interim buffer-during-apply guard (`content/drain_host.rs::dispatch_or_buffer_reentrant`, buffering
+  while `is_applying()`); Slice 4 only swaps that interim guard for the canonical DIRECT-nav serialization above
+  — guard *wiring* that REPLACES the interim, not a loop bound. ⚠ **App-mode (Slice B):** the
   bounded-drain liveness rides the content async pump; `drain_same_turn` (app-mode) has none — Slice B must
   re-add an end-of-handler re-check or keep the reentrancy vector dead before adopting the bounded drain.
 
@@ -467,9 +471,10 @@ result).
   landed before Phase 2). `history.back(); pushState('/x')` ⇒ both observed in the spec order. `go(0)` reload
   still `Rebuild`. These pin axis (a).
 - **Reentrancy test (Slice 4):** drive a reentrant nav-mutating message during a traversal apply and assert
-  the cursor is not staled (the `commit_index` assert no longer reachable) — pins axis (b). If the SW-pump
-  vector remains unreachable in test today (the SW controller path is "dead" per `:775`), assert the
-  serialization at the queue level directly rather than through the SW path.
+  the cursor is not staled (the `commit_index` assert no longer reachable) — pins axis (b). Because the SW-pump
+  reentrant-message vector is **reachable** (closed this slice by the interim shell guard; Slice 4 replaces it
+  with the canonical serialization), the Slice-4 test asserts the DIRECT-nav serialization at the queue level
+  directly rather than driving it through the SW path.
 - **Two-shell parity:** the same scenario table runs against both `content_history_drain_tests.rs` and the
   app-mode equivalent (`app_fragment_nav_tests.rs` neighborhood), pinning axis (c) — One-issue-one-way is
   test-enforced, not just asserted.

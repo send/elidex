@@ -1,6 +1,7 @@
 //! The `<a href>` **default-navigation** path for a primary-button click — the
-//! WHATWG HTML §4.8.5 / §7.4.2.4 link-activation resolution (target attribute +
-//! `_blank` / `_top` / `_parent` / named-frame sandbox gates + navigate), carved
+//! WHATWG HTML §4.6.5 Following hyperlinks / §7.4.2.4 link-activation resolution
+//! (target attribute §4.6.2 + `_blank` / `_top` / `_parent` / named-frame sandbox
+//! gates [§7.1.5 Sandboxing `allow-popups` / §7.4.2.4 allowed-to-navigate] + navigate), carved
 //! out of [`super::event_handlers::handle_click`] as a cohesive unit distinct
 //! from event dispatch (touch-time split, CLAUDE.md "1000-line debt = touch-time
 //! split").
@@ -37,7 +38,9 @@ pub(super) fn perform_link_default_navigation(
             if let Some(target_url) = resolved {
                 match target_attr.as_deref() {
                     Some("_blank") => {
-                        // Sandbox allow-popups check (WHATWG HTML §4.8.5):
+                        // Sandbox allow-popups check (WHATWG HTML §7.1.5 Sandboxing,
+                        // `allow-popups` keyword / sandboxed auxiliary navigation
+                        // browsing context flag):
                         // block popup navigation from sandboxed iframes without
                         // the allow-popups flag.
                         if !state.pipeline.runtime.popups_allowed() {
