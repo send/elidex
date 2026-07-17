@@ -64,6 +64,21 @@ struct ContentState {
     /// Phase 2 (`run_deferred_traversals`). CLAUDE.md side-store exception (b)
     /// (browsing-context/session-level state, not a per-entity ECS component).
     traversal_queue: TraversalQueue,
+    /// **Interim reentrancy guard buffer** (Codex PR#469 R4). The SW-fetch wait
+    /// loop in `content/navigation.rs` synchronously re-dispatches non-matching
+    /// `BrowserToContent` messages while blocked. If that re-dispatch fires DURING
+    /// a Phase-2 traversal apply (the §7.3.1.1 "running nested apply history step"
+    /// guard is set — [`TraversalQueue::is_applying`](elidex_navigation::TraversalQueue::is_applying)),
+    /// a nav-mutating message (`Navigate` / `Reload` / chrome `GoBack`/`GoForward`
+    /// / `MouseClick` / `KeyDown`) would mutate the [`NavigationController`] entry
+    /// list/cursor BETWEEN the traversal's peek and its commit, committing a stale
+    /// index against a mutated list. To close that window, such a message is
+    /// BUFFERED here instead of dispatched, and replayed at the top of a later
+    /// `pump_turn` (once `is_applying()` has cleared and the apply fully
+    /// committed). This is the bounded interim guard; the FULL canonical
+    /// serialization (routing every nav-mutating step through the traversal queue)
+    /// is Slice 4.
+    deferred_reentrant_messages: Vec<BrowserToContent>,
     hover_chain: Vec<Entity>,
     active_chain: Vec<Entity>,
     /// Whether the caret is currently visible (toggles every 500ms).
@@ -216,6 +231,7 @@ impl ContentState {
             web_storage,
             nav_controller,
             traversal_queue: TraversalQueue::new(),
+            deferred_reentrant_messages: Vec::new(),
             hover_chain: Vec::new(),
             active_chain: Vec::new(),
             caret_visible: true,

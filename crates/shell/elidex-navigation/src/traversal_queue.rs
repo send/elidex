@@ -729,11 +729,16 @@ impl DrainCoordinator {
         // next turn — liveness is preserved via the async pump, not exhaustion.
         //
         // Slice-4 CARRY (narrowed): the BOUND now lives here; what stays Slice 4 is
-        // the reentrant-message *serialization* semantics (§7.3.1.1 running-nested-
-        // apply guard WIRING for a reentrant DIRECT nav — T4 below), NOT the loop
-        // bound. Inert in this slice regardless: content's `apply_traversal` does
-        // not re-enqueue (plan §1 loop-bound); the SW-pump reentrancy vector is dead
-        // (`content/navigation.rs` handle_message re-dispatch — TODO SW body).
+        // the FULL canonical reentrant-message *serialization* semantics (§7.3.1.1
+        // running-nested-apply guard WIRING for a reentrant DIRECT nav — T4 below),
+        // NOT the loop bound. The reachable reentrancy window (an SW-controlled page
+        // re-dispatching a nav-mutating `BrowserToContent` from the SW-fetch wait
+        // loop DURING a Phase-2 apply) is closed for this slice by the shell's
+        // INTERIM buffer-during-apply guard (`content/navigation.rs`
+        // `dispatch_or_buffer_reentrant`): while `is_applying()` holds, such a
+        // message is buffered, not dispatched, so it cannot mutate the cursor under
+        // the held peek. Content's own `apply_traversal` does not re-enqueue (plan §1
+        // loop-bound).
         //
         // `document_changed` latch (Resolution D): once a traversal apply lands a
         // FRESH document, every subsequent deferred `SyncUpdate` (within this
@@ -751,16 +756,22 @@ impl DrainCoordinator {
                 PendingHistoryStep::Traversal(traversal) => {
                     // I3 guard bracket: set BEFORE the peek (inside `apply_traversal`),
                     // clear AFTER the commit. A reentrant message arriving in-bracket
-                    // is serialized onto the queue (drained on the NEXT pump turn —
-                    // outside this bounded snapshot), never applied under the held
-                    // peek. NOTE (T4 → Slice 4): a reentrant DIRECT nav message
-                    // (address-bar `Navigate`/`Reload`, chrome `GoBack`/`GoForward`)
-                    // does NOT consult `is_applying()` and could mutate session
-                    // history between this peek and its commit. That serialization is
-                    // the reentrancy-guard WIRING fenced to Slice 4 — structurally
-                    // unreachable today (its only vector, the SW-fetch reentrant
-                    // message pump, is dead: `content/navigation.rs` re-dispatch has a
-                    // TODO SW body that never constructs a document).
+                    // is serialized (drained on the NEXT pump turn — outside this
+                    // bounded snapshot), never applied under the held peek. The
+                    // reachable vector is the SW-fetch reentrant message pump: while
+                    // this bracket holds, `handle_navigate`'s SW-wait loop consults
+                    // `is_applying()` and BUFFERS a re-dispatched nav-mutating message
+                    // (`content/navigation.rs` `dispatch_or_buffer_reentrant`, the
+                    // shell's INTERIM guard) instead of mutating the cursor between
+                    // this peek and its commit. NOTE (T4 → Slice 4): the FULL
+                    // canonical serialization — routing EVERY nav-mutating step
+                    // (JS traversals + sync updates + direct/chrome/input navigations)
+                    // through this queue with per-step apply-time context (issue-order,
+                    // call-time URL, cross-turn document-changed cancellation), per
+                    // WHATWG HTML §7.4.1.3 *Centralized modifications* + §7.3.1.1 — is
+                    // Slice 4 (`/elidex-plan-review` mandatory — edge-dense, I1×I2×I3
+                    // intersecting). The interim buffer closes the reachable corruption
+                    // window until then.
                     host.traversal_queue().enter_nested_apply();
                     let applied = host.apply_traversal(&traversal);
                     host.traversal_queue().exit_nested_apply();

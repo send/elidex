@@ -552,3 +552,101 @@ fn deferred_syncupdate_binds_call_time_url_not_post_traversal() {
          (base) that pipeline.url holds at apply time (T3)"
     );
 }
+
+/// **Interim reentrancy guard** (Codex PR#469 R4): a nav-mutating `BrowserToContent`
+/// buffered while a Phase-2 apply held the peek→commit window does NOT mutate the
+/// `NavigationController` while it sits in the buffer, and IS replayed + applied on
+/// a later `pump_turn` once `is_applying()` has cleared.
+///
+/// This pins the guard's REPLAY contract and its no-mutation-while-buffered
+/// invariant (the reachable corruption window the guard closes: a re-dispatched
+/// message must not mutate the entry list between the in-flight traversal's peek and
+/// its commit). The buffered state is simulated directly — the buffering DECISION
+/// under `is_applying()` is exercised separately by `dispatch_or_buffer_reentrant`
+/// (see `interim_guard_dispatches_reentrant_when_not_applying`), while the SW-fetch
+/// wait loop that SETS `is_applying()` true is not unit-drivable (its internally
+/// generated `fetch_id` cannot be matched to break the blocking wait without a 30s
+/// timeout). Uses a same-document fragment `Navigate` so the replay applies in the
+/// disconnected harness (no fetch).
+#[test]
+fn interim_guard_buffered_nav_replays_on_later_pump_turn() {
+    let (mut state, browser) = build_test_content_state_with_url("<p>doc</p>", base());
+    state.nav_controller.push(base()); // one entry; pipeline.url = base
+    drain_browser(&browser);
+
+    let len_before = state.nav_controller.len();
+    let url_before = state.nav_controller.current_url().map(url::Url::to_string);
+
+    // A nav-mutating message arrives mid-apply and is BUFFERED (as the SW-wait guard
+    // does while `is_applying()` holds) — a same-document fragment nav.
+    let frag = url::Url::parse("https://example.com/#frag").unwrap();
+    state
+        .deferred_reentrant_messages
+        .push(BrowserToContent::Navigate(frag));
+
+    // While buffered, it has mutated NOTHING — the entry list/cursor are unchanged
+    // (no mutation between the in-flight traversal's peek and its commit).
+    assert_eq!(
+        state.nav_controller.len(),
+        len_before,
+        "a buffered nav must not mutate the entry list while it waits"
+    );
+    assert_eq!(
+        state.nav_controller.current_url().map(url::Url::to_string),
+        url_before,
+        "a buffered nav must not move the cursor while it waits"
+    );
+
+    // A later pump turn replays the buffer (after the apply committed / guard clear).
+    super::event_loop::replay_deferred_reentrant_messages(&mut state);
+
+    assert!(
+        state.deferred_reentrant_messages.is_empty(),
+        "the buffer drains on replay"
+    );
+    assert_eq!(
+        state.pipeline.url.as_ref().map(url::Url::as_str),
+        Some("https://example.com/#frag"),
+        "the buffered fragment nav applied on the replay turn"
+    );
+    assert_eq!(
+        state.nav_controller.len(),
+        len_before + 1,
+        "the replayed fragment nav pushed its same-document entry (applied after the window)"
+    );
+}
+
+/// **Interim reentrancy guard** — the common (non-applying) path is UNCHANGED: when
+/// NO Phase-2 apply is in progress (`is_applying()` false), a re-dispatched message
+/// is dispatched SYNCHRONOUSLY (not buffered), so a normal SW-fetch re-dispatch does
+/// not regress. The fragment nav applies immediately and the buffer stays empty.
+#[test]
+fn interim_guard_dispatches_reentrant_when_not_applying() {
+    let (mut state, browser) = build_test_content_state_with_url("<p>doc</p>", base());
+    state.nav_controller.push(base());
+    drain_browser(&browser);
+
+    assert!(
+        !state.traversal_queue().is_applying(),
+        "no Phase-2 apply is in progress (the common case)"
+    );
+    let len_before = state.nav_controller.len();
+
+    let frag = url::Url::parse("https://example.com/#frag").unwrap();
+    super::navigation::dispatch_or_buffer_reentrant(&mut state, BrowserToContent::Navigate(frag));
+
+    assert!(
+        state.deferred_reentrant_messages.is_empty(),
+        "with no apply in progress the message dispatches synchronously — not buffered"
+    );
+    assert_eq!(
+        state.pipeline.url.as_ref().map(url::Url::as_str),
+        Some("https://example.com/#frag"),
+        "the synchronously-dispatched fragment nav applied immediately (common path unchanged)"
+    );
+    assert_eq!(
+        state.nav_controller.len(),
+        len_before + 1,
+        "the immediate fragment nav pushed its same-document entry"
+    );
+}

@@ -10,7 +10,7 @@ use elidex_navigation::{
 use elidex_script_session::{HistoryAction, HistoryStepEvents, HostDriver, NavigationType};
 
 use crate::app::navigation::resolve_nav_url;
-use crate::ipc::ContentToBrowser;
+use crate::ipc::{BrowserToContent, ContentToBrowser};
 
 use super::ContentState;
 
@@ -155,7 +155,14 @@ pub(super) fn handle_navigate(
 
             // Wait for SW response. This blocks the content thread; fully async
             // navigation interception requires M4-10 (elidex-js VM event loop).
-            // Loop to avoid consuming unrelated messages.
+            // Loop to avoid consuming unrelated messages. A non-matching message is
+            // re-dispatched — but NOT synchronously if this `handle_navigate` is
+            // itself running INSIDE a Phase-2 traversal apply (the reentrant vector,
+            // reachable when this navigation is an SW-controlled cross-document
+            // traversal): the re-dispatch is then buffered (see
+            // `dispatch_or_buffer_reentrant`) so a nav-mutating message cannot mutate
+            // session history between the traversal's peek and its commit (Codex
+            // PR#469 R4).
             let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
             loop {
                 let remaining = deadline.saturating_duration_since(std::time::Instant::now());
@@ -182,9 +189,10 @@ pub(super) fn handle_navigate(
                         break; // Passthrough.
                     }
                     Ok(other) => {
-                        // Re-dispatch non-matching message (including
-                        // SwFetchResponse with wrong fetch_id).
-                        super::event_loop::handle_message_public(other, state);
+                        // Re-dispatch (or, mid-apply, BUFFER) a non-matching
+                        // message (including a `SwFetchResponse` with the wrong
+                        // fetch_id). See [`dispatch_or_buffer_reentrant`].
+                        dispatch_or_buffer_reentrant(state, other);
                     }
                     Err(_) => break, // Timeout or disconnected.
                 }
@@ -350,6 +358,39 @@ pub(super) fn handle_navigate(
             });
             false
         }
+    }
+}
+
+/// Route a `BrowserToContent` message re-dispatched from the SW-fetch wait loop
+/// (`handle_navigate` above) — the **interim reentrancy guard** vector (Codex
+/// PR#469 R4).
+///
+/// When NO Phase-2 traversal apply is in progress (the common case — the SW-wait
+/// was entered by a fresh `location.*` / address-bar navigation, not from inside
+/// an `apply_traversal`), dispatch the message SYNCHRONOUSLY, exactly as before:
+/// normal SW-fetch re-dispatch is unchanged.
+///
+/// When a Phase-2 apply IS in progress (`TraversalQueue::is_applying()` — this
+/// `handle_navigate` is nested inside `apply_traversal_delta`, e.g. an
+/// SW-controlled cross-document traversal), a re-dispatched nav-mutating message
+/// (`Navigate` / `Reload` / chrome `GoBack`/`GoForward` / `MouseClick` /
+/// `KeyDown`) would mutate the [`NavigationController`] entry list/cursor BETWEEN
+/// the in-flight traversal's peek (`apply_traversal_delta`) and its
+/// `commit_index`, committing a stale index against a mutated list — the reachable
+/// corruption window. So BUFFER the message into
+/// [`ContentState::deferred_reentrant_messages`] instead; the event loop replays
+/// it at the top of a later `pump_turn`, once `is_applying()` has cleared and the
+/// apply fully committed (see `event_loop::replay_deferred_reentrant_messages`).
+///
+/// This is the bounded interim guard — it consumes `is_applying()` at the single
+/// reentrancy vector. The FULL canonical serialization (routing EVERY nav-mutating
+/// step through the traversal queue with per-step apply-time context, WHATWG HTML
+/// §7.4.1.3) is Slice 4.
+pub(super) fn dispatch_or_buffer_reentrant(state: &mut ContentState, msg: BrowserToContent) {
+    if state.traversal_queue.is_applying() {
+        state.deferred_reentrant_messages.push(msg);
+    } else {
+        super::event_loop::handle_message_public(msg, state);
     }
 }
 

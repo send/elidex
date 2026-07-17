@@ -48,6 +48,15 @@ pub(super) fn pump_turn(state: &mut ContentState, last_frame: &mut Instant) -> C
         // there is nothing to fold into `needs_render` and no unbounded work here.
         let _ = elidex_navigation::DrainCoordinator::run_deferred_traversals(state);
 
+        // Interim reentrancy guard replay (Codex PR#469 R4). A nav-mutating message
+        // that arrived while a Phase-2 apply held the peek→commit window was BUFFERED
+        // by the SW-fetch wait loop (`navigation::dispatch_or_buffer_reentrant`)
+        // rather than mutating session history mid-apply. Replay it HERE — after the
+        // `run_deferred_traversals` above has fully committed and cleared the
+        // nested-apply guard (`is_applying()` is now false), so the buffered
+        // `Navigate`/`Reload`/chrome/input message dispatches OUTSIDE any held peek.
+        replay_deferred_reentrant_messages(state);
+
         let animations_running = state.pipeline.animation_engine.has_running();
 
         let now_for_timeout = Instant::now();
@@ -286,6 +295,32 @@ pub(super) fn pump_turn(state: &mut ContentState, last_frame: &mut Instant) -> C
     }
 
     ControlFlow::Continue(())
+}
+
+/// Replay any messages the SW-fetch wait loop BUFFERED because they were
+/// re-dispatched while a Phase-2 traversal apply held the peek→commit window (the
+/// interim reentrancy guard, Codex PR#469 R4 — see
+/// [`navigation::dispatch_or_buffer_reentrant`]). Called at the top of
+/// [`pump_turn`], AFTER `run_deferred_traversals` has fully committed the apply and
+/// cleared the nested-apply guard, so each buffered nav-mutating message now runs
+/// through the normal [`handle_message`] path OUTSIDE any held peek — the mutation
+/// window the guard closed. Takes the buffer out first so the replayed handler may
+/// itself buffer again (a fresh apply) without aliasing the drain.
+pub(super) fn replay_deferred_reentrant_messages(state: &mut ContentState) {
+    if state.deferred_reentrant_messages.is_empty() {
+        return;
+    }
+    debug_assert!(
+        !state.traversal_queue.is_applying(),
+        "buffered reentrant messages must replay only after the apply committed"
+    );
+    for msg in std::mem::take(&mut state.deferred_reentrant_messages) {
+        // Return value (`false` = Shutdown) is intentionally ignored here, matching
+        // the pre-guard synchronous re-dispatch site: a buffered Shutdown is rare
+        // (it is dispatched inline when not mid-apply) and the loop's own Shutdown
+        // handling drives teardown on the next `recv`.
+        let _ = handle_message(msg, state);
+    }
 }
 
 /// Whether a coordinate-bearing input event mapped against `placement_seq` is stale:
