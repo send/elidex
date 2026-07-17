@@ -233,18 +233,28 @@ modifications of session history** (`#centralized-modifications-of-session-histo
 document-identity-preserving jump-the-queue reconciliation is exactly what slot
 `#11-sync-navigation-steps-queue-tagging` fences.
 
-**Decision (GENERALIZED — Codex PR#469 R6; supersedes the earlier document-changing-only scope):** a
-`SyncUpdate` that STRADDLES **any** same-turn traversal apply — same-document OR document-changing — is
-**CANCELED** (dropped, not applied against the post-traversal cursor). The earlier scope (cancel behind a
-*document-changing* traversal only, let a same-document straddle apply) was **spec-wrong on the entry/index**:
-a straddle sync applied against the post-traversal cursor lands the update on the **traversal target**,
-corrupting the current entry. Example: from `[base, /a]` at `/a`, `history.back(); history.replaceState(null,
-'', '/x')` — `back()` (same-document, `document_changed` stays false under the old model) applies moving the
-cursor to `base`, then the deferred `ReplaceState` applied against `base` lands `/x`-current with list `[/x,
-/a]` instead of leaving `base` current with list `[base, /x]`. **This is a REACHABLE corruption** (needs no
-service worker). Canceling drops the straddle update but preserves **coherent state** — correct cursor
-(`base`) + correct current entry (`base`), list `[base, /a]`; the only divergence is the lost straddle
-`replaceState` (a bounded, documented divergence), NOT a corrupt `/x`-current entry.
+**Decision (GENERALIZED — Codex PR#469 R6; supersedes the earlier document-changing-only scope; re-check-gated
+on `shipped`):** a `SyncUpdate` that STRADDLES a same-turn traversal that **MOVED THE CURSOR** — same-document
+apply OR document-changing rebuild (both ship, `shipped = true`) — is **CANCELED** (dropped, not applied
+against the post-traversal cursor). The earlier scope (cancel behind a *document-changing* traversal only, let
+a same-document straddle apply) was **spec-wrong on the entry/index**: a straddle sync applied against the
+post-traversal cursor lands the update on the **traversal target**, corrupting the current entry. Example: from
+`[base, /a]` at `/a`, `history.back(); history.replaceState(null, '', '/x')` — `back()` (same-document,
+`document_changed` stays false under the old model) applies moving the cursor to `base`, then the deferred
+`ReplaceState` applied against `base` lands `/x`-current with list `[/x, /a]` instead of leaving `base` current
+with list `[base, /x]`. **This is a REACHABLE corruption** (needs no service worker). Canceling drops the
+straddle update but preserves **coherent state** — correct cursor (`base`) + correct current entry (`base`),
+list `[base, /a]`; the only divergence is the lost straddle `replaceState` (a bounded, documented divergence),
+NOT a corrupt `/x`-current entry.
+
+**The cancel is keyed on the cursor actually MOVING (`shipped`), not on the barrier being processed.** A barrier
+traversal that classifies in-range but whose cross-document load **FAILS at apply** (`apply_traversal` returns
+`shipped = false` — peek-then-commit atomicity: the cursor never moved) leaves the still-active document on the
+**call-time entry**, so a trailing straddle `SyncUpdate` applies **coherently** to that unmoved entry — no
+jump-the-queue needed — and must **NOT** be canceled. Over-cancelling here (setting the latch regardless of
+`shipped`) wrongly drops a trailing `pushState`/`replaceState` after a failed load, contradicting the R2
+contract `failed_traversal_load_does_not_drop_trailing_history`. So the latch is set **only when the traversal
+moved the cursor**.
 
 **Root (self-root-check, ≥2 rounds on the deferred-SyncUpdate-straddle mechanism — R3 T3 call-time-URL,
 R4 :744/:540 cross-turn context, R6 :803 call-time-entry):** the correct behavior is WHATWG HTML §7.4.1.3
@@ -257,9 +267,11 @@ tagged-queue reconciliation stays **NAMED-FENCED to `#11-sync-navigation-steps-q
 Q-SYNC-FINALIZE, edge-dense — `/elidex-plan-review` mandatory).
 
 **Change (interim, coherent bounded divergence).** The Phase-2 `drain_traversal_queue` loop tracks a monotonic
-`traversal_applied` latch: once **ANY** traversal step has applied this drain (same-document OR
-document-changing), every subsequent `PendingHistoryStep::SyncUpdate` step is **CANCELED** (skipped) instead
-of calling `handle_history_action`. This SUPERSEDES the earlier `changed_document`-discriminated cancel: the
+`traversal_applied` latch, set **only when a traversal step MOVED THE CURSOR** this drain (`traversal_applied |=
+shipped` — same-document apply / rebuild both ship; a failed-load / no-op barrier reports `shipped = false` and
+leaves the latch clear): once set, every subsequent `PendingHistoryStep::SyncUpdate` step is **CANCELED**
+(skipped) instead of calling `handle_history_action`. A failed-load barrier therefore lets the trailing straddle
+sync apply to the still-active call-time entry. This SUPERSEDES the earlier `changed_document`-discriminated cancel: the
 `TraversalApplyOutcome { shipped, changed_document }` return collapses back to `apply_traversal -> bool`
 (shipped), and T3's `normalize_deferred_sync_update` seam + the content `normalize_deferred_history_url` helper
 are **removed** (the straddle `SyncUpdate` is now always canceled, never applied — the URL-binding they existed
@@ -270,7 +282,11 @@ cancel is the single Phase-2 home, uniform across same-turn and cross-turn strad
 to `#11-sync-navigation-steps-queue-tagging`. **Conformance tests** pin the cancel (pinned-not-silent):
 `traversal_queue_tests::syncupdate_canceled_after_{document_changing,same_document}_traversal` +
 `content_history_phase_sep_tests::deferred_syncupdate_canceled_behind_same_document_traversal` (the re-anchored
-former T3 test).
+former T3 test). The `shipped`-gate is pinned at the coordinator level by
+`traversal_queue_tests::syncupdate_applies_after_failed_load_barrier_did_not_move_cursor` (a barrier whose
+`apply_traversal` reports `shipped = false` leaves the latch clear → the trailing straddle sync APPLIES),
+complementing the content-level `failed_traversal_load_does_not_drop_trailing_history` (R2) which bypasses the
+latch by hand-sequencing the two host calls.
 
 ### Resolution (loop-bound) — BOUNDED SNAPSHOT shipped (Codex PR#469 R3 T1); reentrancy-guard wiring stays Slice 4
 
@@ -328,11 +344,15 @@ DOM/selector/form/algorithm logic crosses into `elidex-navigation` — only orde
    (a Turn-1 traversal still queued in Turn-2, `:388`).
 4. **`DrainOutcome.deferred_own_context: bool` (B).** New field, distinct from `own_context_action` /
    `shipped`. Set when `classify_traversal` returns `Some`. Consumed by the content default-suppression site.
-5. **Phase-2 `SyncUpdate` cancellation behind ANY traversal (D — GENERALIZED, R6).** `drain_traversal_queue`
-   tracks a monotonic `traversal_applied` latch and cancels (skips) subsequent `SyncUpdate` steps once **any**
-   traversal (same-document OR document-changing) has applied. `apply_traversal` returns a plain `bool`
+5. **Phase-2 `SyncUpdate` cancellation behind a cursor-MOVING traversal (D — GENERALIZED, R6; re-check-gated on
+   `shipped`).** `drain_traversal_queue` tracks a monotonic `traversal_applied` latch set **only when a traversal
+   MOVED THE CURSOR** (`traversal_applied |= shipped` — same-document apply / rebuild both ship; a failed-load /
+   no-op barrier reports `shipped = false` and leaves the latch clear), and cancels (skips) subsequent
+   `SyncUpdate` steps once set. A failed-load barrier therefore lets the trailing straddle sync apply to the
+   still-active call-time entry (R2 contract `failed_traversal_load_does_not_drop_trailing_history`).
+   `apply_traversal` returns a plain `bool`
    (shipped) — the `TraversalApplyOutcome.changed_document` discriminator + T3's `normalize_deferred_sync_update`
-   seam are removed (superseded — a straddle sync is always canceled, never applied). Full call-time-entry
+   seam are removed (superseded — a cursor-moving straddle sync is always canceled, never applied). Full call-time-entry
    jump-the-queue → `#11-sync-navigation-steps-queue-tagging`.
 
 Unchanged: `TraversalQueue` shape (the `running_nested_apply_history_step` guard stays observational this

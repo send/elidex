@@ -695,22 +695,27 @@ impl DrainCoordinator {
         // the held peek. Content's own `apply_traversal` does not re-enqueue (plan §1
         // loop-bound).
         //
-        // `traversal_applied` latch (Resolution D — GENERALIZED, Codex PR#469 R6):
-        // once ANY traversal has applied this drain (same-document OR
-        // document-changing), every subsequent deferred `SyncUpdate` (within this
-        // snapshot) is CANCELED. A straddle sync update (`back(); replaceState('/x')`)
-        // must NOT apply against the POST-traversal cursor — that lands the update on
-        // the traversal target (corrupting the current entry) instead of the
-        // call-time entry. The R3 T3 call-time-URL capture was a piecemeal patch on
-        // the apply-after model (it fixed the URL but not the entry/index); this
-        // generalization SUPERSEDES it — the straddle sync is dropped, preserving
-        // coherent state (correct cursor + correct current entry), the ONLY divergence
-        // being the lost straddle update (bounded, pinned-not-silent). The correct
-        // §7.4.1.3 "Centralized modifications of session history" jump-the-queue
-        // application to the CALL-TIME entry (before the traversal moves the cursor)
-        // is fenced to `#11-sync-navigation-steps-queue-tagging` (edge-dense —
-        // `/elidex-plan-review` mandatory). Monotonic: it never re-clears within a
-        // drain.
+        // `traversal_applied` latch (Resolution D — GENERALIZED, Codex PR#469 R6;
+        // re-check-gated on `shipped`): once a traversal has MOVED THE CURSOR this
+        // drain (same-document apply OR document-changing rebuild — both ship), every
+        // subsequent deferred `SyncUpdate` (within this snapshot) is CANCELED. A
+        // straddle sync update (`back(); replaceState('/x')`) must NOT apply against
+        // the POST-traversal cursor — that lands the update on the traversal target
+        // (corrupting the current entry) instead of the call-time entry. The R3 T3
+        // call-time-URL capture was a piecemeal patch on the apply-after model (it
+        // fixed the URL but not the entry/index); this generalization SUPERSEDES it —
+        // the straddle sync is dropped, preserving coherent state (correct cursor +
+        // correct current entry), the ONLY divergence being the lost straddle update
+        // (bounded, pinned-not-silent). A **failed-load / no-op** barrier does NOT
+        // ship (peek-then-commit atomicity: the cursor never moved), so it does NOT
+        // set the latch: the still-active document is the call-time entry, and a
+        // trailing straddle sync applies coherently there — no jump-the-queue needed
+        // (matching the R2 contract `failed_traversal_load_does_not_drop_trailing_history`).
+        // The correct §7.4.1.3 "Centralized modifications of session history"
+        // jump-the-queue application to the CALL-TIME entry (before a cursor-MOVING
+        // traversal moves the cursor) is fenced to
+        // `#11-sync-navigation-steps-queue-tagging` (edge-dense — `/elidex-plan-review`
+        // mandatory). Monotonic: it never re-clears within a drain.
         let mut remaining = host.traversal_queue().pending_len();
         let mut traversal_applied = false;
         while remaining > 0 {
@@ -741,13 +746,19 @@ impl DrainCoordinator {
                     host.traversal_queue().enter_nested_apply();
                     let shipped = host.apply_traversal(&traversal);
                     host.traversal_queue().exit_nested_apply();
-                    // A traversal was processed this drain — any trailing deferred
-                    // `SyncUpdate` in this snapshot is now a straddle behind it and is
-                    // CANCELED below (Resolution D generalized, R6). Set regardless of
-                    // `shipped`: even a no-op traversal apply establishes that the
-                    // trailing sync straddled a traversal, and jumping it to the
-                    // call-time entry is fenced (`#11-sync-navigation-steps-queue-tagging`).
-                    traversal_applied = true;
+                    // A traversal that MOVED THE CURSOR turns any trailing deferred
+                    // `SyncUpdate` in this snapshot into a straddle behind it, CANCELED
+                    // below (Resolution D generalized, R6). Set only when the traversal
+                    // moved the cursor (`shipped` — same-document apply / rebuild both
+                    // ship); a failed-load / no-op barrier leaves the cursor on the
+                    // call-time entry, so a trailing straddle sync applies coherently
+                    // there — no jump-the-queue needed (the §7.4.1.3 jump-the-queue for
+                    // the cursor-MOVED straddle remains `#11-sync-navigation-steps-queue-tagging`).
+                    // Over-cancelling here (the pre-R6-re-check bug) wrongly dropped a
+                    // trailing `pushState`/`replaceState` after a failed cross-document
+                    // load — contradicting the R2 contract
+                    // `failed_traversal_load_does_not_drop_trailing_history`.
+                    traversal_applied |= shipped;
                     // Gate own-context on the apply OUTCOME (mirrors
                     // `handle_navigation`): a no-op traversal (no-target `go(999)` /
                     // failed cross-document load) reports `shipped = false` and marks

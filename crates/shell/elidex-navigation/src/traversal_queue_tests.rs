@@ -812,6 +812,40 @@ fn syncupdate_canceled_after_same_document_traversal() {
 }
 
 #[test]
+fn syncupdate_applies_after_failed_load_barrier_did_not_move_cursor() {
+    // Resolution D re-check (Codex PR#469 R6 fix-delta): the straddle cancel is
+    // gated on the barrier traversal MOVING THE CURSOR (`shipped`), NOT on merely
+    // being processed. `back(); pushState('/kept')` where the back()'s cross-document
+    // load FAILS at apply (`apply_traversal` reports `shipped = false` —
+    // peek-then-commit atomicity, the cursor never moved) leaves the still-active
+    // document on the CALL-TIME entry. The trailing straddle `SyncUpdate('/kept')`
+    // must therefore APPLY there (coherently — no jump-the-queue needed), NOT be
+    // canceled. Contrast `syncupdate_canceled_after_same_document_traversal` /
+    // `_after_document_changing_traversal` (both `shipped = true` → cursor moved →
+    // cancel). This drives through the coordinator (the R2 test
+    // `failed_traversal_load_does_not_drop_trailing_history` bypasses the latch by
+    // hand-sequencing the two host calls), pinning the coordinator-level path.
+    let mut host = MockHost::new(vec![back(), push("/kept")]).with_noop_traversal();
+    let _ = DrainCoordinator::drain_same_turn(&mut host);
+
+    assert!(
+        host.log
+            .iter()
+            .any(|e| matches!(e, Ev::TraversalApply { .. })),
+        "the back() barrier traversal was applied (and reported a failed load)"
+    );
+    assert!(
+        host.log
+            .iter()
+            .any(|e| matches!(e, Ev::SyncUpdate { label, .. } if label == "push:/kept")),
+        "the trailing straddle pushState IS applied — a failed-load barrier did NOT \
+         move the cursor, so the latch stays clear and the sync is NOT canceled \
+         (cancellation is only when a traversal moved the cursor)"
+    );
+    assert!(host.queue.is_empty(), "everything drained");
+}
+
+#[test]
 fn has_pending_traversal_reflects_only_traversal_steps() {
     // The ONE default-suppression signal (B): true iff a `Traversal` step is
     // queued; a `SyncUpdate`-only queue reports false (so it does not over-suppress).
