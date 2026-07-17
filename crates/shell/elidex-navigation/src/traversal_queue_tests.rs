@@ -3,7 +3,9 @@
 //! §4.5 invariants (`docs/plans/2026-07-session-history-task-queue-model.md`):
 //! I1 (Phase-1-before-Phase-2 ordering), I2 (issue-order-preserving partition —
 //! a `pushState; back(); pushState` sequence must NOT reorder the trailing push
-//! ahead of the traversal), and I3 (guard bracket + eventual drain).
+//! ahead of the traversal), and I3 (guard bracket + bounded next-turn drain — the
+//! Phase-2 drain processes a bounded snapshot, deferring a reentrant re-enqueue to
+//! the next turn rather than draining to exhaustion, T1).
 //!
 //! Per plan §4.5 these tests assert the coordinator's **ordering / guard
 //! structure**, NOT a specific same-turn-straddle *navigation outcome* (that is
@@ -429,18 +431,24 @@ fn i3_guard_is_set_during_traversal_apply_only() {
 }
 
 #[test]
-fn i3_reentrant_message_is_serialized_and_eventually_drained() {
-    // A reentrant traversal enqueued DURING the first apply (the SW-pump vector)
-    // must be re-checked and drained before `drain` returns (eventual drain),
-    // not stranded until the next turn — and it too runs inside the guard.
+fn i3_reentrant_message_deferred_to_next_turn_bounded_drain() {
+    // T1 BOUNDED SNAPSHOT (Codex PR#469 R3): a reentrant traversal enqueued DURING
+    // the first apply (the SW-pump vector) is NOT drained to exhaustion within this
+    // pass — the drain processes only the snapshot pending at entry, so it
+    // TERMINATES BY CONSTRUCTION. The re-enqueued Forward stays for the NEXT
+    // `run_deferred_traversals` turn (content mode pumps Phase 2 every event-loop
+    // turn, so liveness holds via the async pump). This removes the unbounded
+    // re-check-until-empty loop that could hang the renderer thread.
     let reentrant = PendingTraversal {
         delta: TraversalDelta::Forward,
         user_involvement: UserInvolvement::default(),
     };
     let mut host = MockHost::new(vec![back()]).with_reentrant(reentrant);
-    let _ = DrainCoordinator::drain_same_turn(&mut host);
 
-    let applies: Vec<_> = host
+    // Pass 1: only the snapshot (the Back) applies; the reentrant Forward, enqueued
+    // mid-apply, is deferred — it remains on the queue, NOT drained this pass.
+    let _ = DrainCoordinator::drain_same_turn(&mut host);
+    let pass1: Vec<_> = host
         .log
         .iter()
         .filter_map(|e| match e {
@@ -449,16 +457,75 @@ fn i3_reentrant_message_is_serialized_and_eventually_drained() {
         })
         .collect();
     assert_eq!(
-        applies,
+        pass1,
+        vec![(TraversalDelta::Back, true)],
+        "pass 1 applies ONLY the initial snapshot (the Back), inside the guard — \
+         the reentrant Forward is NOT drained to exhaustion (bounded, T1)"
+    );
+    assert!(
+        host.queue.has_pending_traversal(),
+        "the reentrant Forward is deferred — still queued after the bounded pass"
+    );
+
+    // Pass 2 (a later pump turn): the deferred Forward now applies, still inside the
+    // guard, and the queue drains empty (liveness via the async pump).
+    let _ = DrainCoordinator::run_deferred_traversals(&mut host);
+    let pass2: Vec<_> = host
+        .log
+        .iter()
+        .filter_map(|e| match e {
+            Ev::TraversalApply { delta, guard, .. } => Some((*delta, *guard)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        pass2,
         vec![
             (TraversalDelta::Back, true),
-            (TraversalDelta::Forward, true),
+            (TraversalDelta::Forward, true)
         ],
-        "the reentrant Forward drained after the Back, both inside the guard"
+        "the deferred Forward drained on the NEXT turn (after the Back), inside the guard"
     );
     assert!(
         host.queue.is_empty(),
-        "re-check-until-empty left nothing stranded (I3 eventual drain)"
+        "the next turn's bounded pass drained the deferred Forward — nothing stranded"
+    );
+}
+
+#[test]
+fn bounded_drain_processes_only_the_entry_snapshot() {
+    // T1 termination-by-construction: a host whose `apply_traversal` re-enqueues
+    // mid-apply cannot make the drain over-run its snapshot. Seed TWO steps pending
+    // at entry; the first apply re-enqueues a third (`reentrant_once`). The bounded
+    // pass pops exactly the 2-step snapshot and TERMINATES — the re-enqueued Go(1)
+    // is left for the next turn, NOT drained to exhaustion.
+    let mut host = MockHost::new(vec![]).with_reentrant(PendingTraversal {
+        delta: TraversalDelta::Go(1),
+        user_involvement: UserInvolvement::default(),
+    });
+    host.queue.enqueue_traversal(PendingTraversal {
+        delta: TraversalDelta::Back,
+        user_involvement: UserInvolvement::default(),
+    });
+    host.queue.enqueue_traversal(PendingTraversal {
+        delta: TraversalDelta::Forward,
+        user_involvement: UserInvolvement::default(),
+    });
+
+    let _ = DrainCoordinator::run_deferred_traversals(&mut host);
+    let applied = host
+        .log
+        .iter()
+        .filter(|e| matches!(e, Ev::TraversalApply { .. }))
+        .count();
+    assert_eq!(
+        applied, 2,
+        "the bounded pass applied ONLY the 2-step entry snapshot (terminated), not \
+         the mid-apply re-enqueued Go(1)"
+    );
+    assert!(
+        host.queue.has_pending_traversal(),
+        "the re-enqueued Go(1) is deferred to the next turn (bounded, not exhausted)"
     );
 }
 

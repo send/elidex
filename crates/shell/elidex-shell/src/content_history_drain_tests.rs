@@ -786,9 +786,10 @@ fn cross_turn_pending_traversal_suppresses_turn2_default_and_nav() {
     );
 }
 
-/// loop-inert (plan §1 loop-bound): content's Phase-2 apply does NOT re-enqueue, so
-/// `run_deferred_traversals` drains to empty in one pass (the unbounded re-check
-/// loop is inert — no wired reentrant source; the structural guard is Slice 4).
+/// loop-bound (plan §1 loop-bound / T1): content's Phase-2 apply does NOT
+/// re-enqueue, so `run_deferred_traversals` drains its bounded snapshot to empty in
+/// one pass. The drain is bounded-by-construction (T1); the reentrancy-guard WIRING
+/// for a reentrant DIRECT nav is Slice 4 (its only vector, the SW-pump, is dead).
 #[test]
 fn content_apply_traversal_does_not_re_enqueue() {
     let (mut state, browser) = build_test_content_state_with_url("<p>doc</p>", base());
@@ -954,5 +955,67 @@ fn click_ships_mutated_frame_when_default_suppressed_by_pending_traversal() {
     assert!(
         count_display_lists(&browser) >= 1,
         "the DOM-mutating re_render'd frame ships THIS turn (not stranded by suppress_default) — F3"
+    );
+}
+
+/// T2 (Codex PR#469 R3, the LATER-TURN BOUNDARY): the `run_event_loop` pump applies
+/// a Phase-2 traversal on a turn AFTER the input turn that enqueued it — NOT the
+/// same iteration. `pump_turn` drains Phase 2 at the TOP of the turn, so a
+/// `history.back()` an input handler enqueues (Phase 1b, inside `handle_message` →
+/// `handle_click`) is NOT applied that turn; the NEXT pump turn's top-drain applies
+/// it (plan §4.5 I1 "the async pump exposes the deferred apply only on a later
+/// turn"). Regression: the old BOTTOM-of-loop drain applied the just-enqueued
+/// traversal in the SAME iteration, collapsing the task boundary the
+/// phase-separation exists to create.
+#[test]
+fn pump_turn_applies_enqueued_traversal_on_a_later_turn() {
+    // A clickable element whose handler runs a same-document, in-range
+    // history.back() — the input handler enqueues the traversal in Phase 1b.
+    let (mut state, browser) = build_test_content_state_with_url(
+        "<div id=\"btn\" style=\"display:block;width:200px;height:100px\">Back</div>\
+         <script>\
+           document.getElementById('btn').addEventListener('click', function () {\
+             history.back();\
+           });\
+         </script>",
+        base(),
+    );
+    seed_same_document_pair(&mut state); // [base, /a], cursor on /a → back() in-range
+    state.re_render();
+    drain_browser(&browser);
+    let mut last_frame = std::time::Instant::now();
+
+    // Turn N: deliver the click through the full pump. The top-drain runs FIRST on an
+    // empty queue (no-op), THEN `handle_message` → `handle_click` enqueues the back().
+    browser
+        .send(BrowserToContent::MouseClick(click_at(50.0, 50.0)))
+        .unwrap();
+    let flow = super::event_loop::pump_turn(&mut state, &mut last_frame);
+    assert!(flow.is_continue(), "a click turn continues the loop");
+    assert!(
+        state.traversal_queue().has_pending_traversal(),
+        "the click handler ENQUEUED the back() (Phase 1b) this turn"
+    );
+    assert_eq!(
+        state.nav_controller.current_url().map(url::Url::as_str),
+        Some("https://example.com/a"),
+        "the back() was NOT applied on the enqueuing turn (cursor still /a) — the OLD \
+         bottom-of-loop drain would have applied it HERE, collapsing the task boundary (T2)"
+    );
+
+    // Turn N+1: the top-of-loop Phase-2 drain applies the deferred back() BEFORE this
+    // turn's message. A Shutdown makes `recv` return right after the top-drain.
+    browser.send(BrowserToContent::Shutdown).unwrap();
+    let flow = super::event_loop::pump_turn(&mut state, &mut last_frame);
+    assert!(flow.is_break(), "Shutdown breaks the loop");
+    assert_eq!(
+        state.nav_controller.current_url().map(url::Url::as_str),
+        Some("https://example.com/"),
+        "the NEXT pump turn's top-drain applied the deferred back() → base \
+         (later-turn boundary — plan §4.5 I1)"
+    );
+    assert!(
+        state.traversal_queue().is_empty(),
+        "the deferred back() drained on the later turn"
     );
 }

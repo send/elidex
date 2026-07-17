@@ -249,6 +249,14 @@ impl TraversalQueue {
         self.pending.pop_front()
     }
 
+    /// Number of deferred steps pending — the **bounded-snapshot size** the
+    /// Phase-2 drain captures at drain-start so it processes only the steps that
+    /// were already queued, terminating by construction even if an apply
+    /// re-enqueues (plan §1 loop-bound / Codex PR#469 R3 T1).
+    fn pending_len(&self) -> usize {
+        self.pending.len()
+    }
+
     /// Enter the WHATWG HTML §7.3.1.1 "running nested apply history step" bracket
     /// (set the guard before the peek). Paired with [`Self::exit_nested_apply`].
     ///
@@ -501,7 +509,7 @@ impl DrainCoordinator {
         // re-entered reentrantly DURING Phase 2, so the in-flight traversal has
         // been POPPED off the pending queue but still owns the peek→commit window;
         // F1). A fresh sync update this turn must NOT overtake either — it defers
-        // onto the queue (drained by the Phase-2 re-check-until-empty loop). The
+        // onto the queue (drained by a later Phase-2 bounded-snapshot pass). The
         // barrier concept is a *Traversal* being pending OR in flight (not merely a
         // non-empty queue): a `SyncUpdate`-only queue must NOT seed the barrier,
         // consistent with the Phase-1c suppress predicate. (Empty / sync-only queue
@@ -625,8 +633,11 @@ impl DrainCoordinator {
     /// - **I3 (guard bracket).** The [`TraversalQueue`]'s "running nested apply
     ///   history step" boolean (observable via [`TraversalQueue::is_applying`]) is
     ///   set **before** each traversal apply and cleared **after** it, covering
-    ///   the whole peek→commit window; a message serialized mid-apply is
-    ///   **eventually drained** (the Phase-2 loop re-checks the queue until empty).
+    ///   the whole peek→commit window. This drain processes a **bounded snapshot**
+    ///   of the steps pending at entry (T1 — it terminates by construction even if
+    ///   an apply re-enqueues); a step serialized mid-apply is left for the **next**
+    ///   `run_deferred_traversals` turn (content mode pumps Phase 2 every event-loop
+    ///   turn, so liveness holds via the async pump, not exhaustion).
     ///
     /// Ships a frame iff an own-context effect happened and no apply body already
     /// shipped (the deferred-apply render tail), via the shared
@@ -674,31 +685,54 @@ impl DrainCoordinator {
     }
 
     /// The Phase-2 deferred drain (plan §4.5 I3). Pops steps in issue order,
-    /// bracketing each traversal apply in the nested-apply guard, and **re-checks
-    /// until empty** so a step serialized mid-apply (a reentrant SW-pump message)
-    /// drains before returning rather than stranding until the next turn.
+    /// bracketing each traversal apply in the nested-apply guard, over a **bounded
+    /// snapshot** of the steps pending at drain-start (plan §1 loop-bound / Codex
+    /// PR#469 R3 T1).
     fn drain_traversal_queue<H: DrainHost>(host: &mut H, outcome: &mut DrainOutcome) {
-        // NOTE (Slice-4 CARRY): this `re-check until empty` loop is UNBOUNDED — a
-        // wired host whose `apply_traversal` re-enqueues on every apply would loop
-        // forever and hang the single-writer renderer thread. Inert in this slice
-        // (content's `apply_traversal` does not re-enqueue — plan §1 loop-bound;
-        // the isolation test bounds via a one-shot `reentrant_once`). Bounding this
-        // (drain a bounded snapshot / reschedule appended work onto a later task)
-        // is DEFERRED to Slice 4, which owns the reentrancy-guard semantics.
+        // BOUNDED SNAPSHOT (Codex PR#469 R3 T1): capture the number of steps
+        // pending at drain-start and process ONLY those (`remaining`). A step
+        // enqueued DURING this drain — a reentrant SW-pump message serialized onto
+        // the back of the queue — is left for the NEXT `run_deferred_traversals`
+        // turn rather than drained to exhaustion, so this loop TERMINATES BY
+        // CONSTRUCTION: a wired host whose `apply_traversal` re-enqueues on every
+        // apply can no longer loop forever and hang the single-writer renderer
+        // thread. Content mode pumps Phase 2 every event-loop turn
+        // (`event_loop.rs` top-of-loop), so a deferred reentrant step drains on the
+        // next turn — liveness is preserved via the async pump, not exhaustion.
+        //
+        // Slice-4 CARRY (narrowed): the BOUND now lives here; what stays Slice 4 is
+        // the reentrant-message *serialization* semantics (§7.3.1.1 running-nested-
+        // apply guard WIRING for a reentrant DIRECT nav — T4 below), NOT the loop
+        // bound. Inert in this slice regardless: content's `apply_traversal` does
+        // not re-enqueue (plan §1 loop-bound); the SW-pump reentrancy vector is dead
+        // (`content/navigation.rs` handle_message re-dispatch — TODO SW body).
         //
         // `document_changed` latch (Resolution D): once a traversal apply lands a
-        // FRESH document, every subsequent deferred `SyncUpdate` is CANCELED — a
-        // `pushState` issued after a same-turn document-changing `back()` must not
-        // mutate the newly-active document's identity (plan §1 D). Monotonic: it
-        // never re-clears within a drain.
+        // FRESH document, every subsequent deferred `SyncUpdate` (within this
+        // snapshot) is CANCELED — a `pushState` issued after a same-turn
+        // document-changing `back()` must not mutate the newly-active document's
+        // identity (plan §1 D). Monotonic: it never re-clears within a drain.
+        let mut remaining = host.traversal_queue().pending_len();
         let mut document_changed = false;
-        while let Some(step) = host.traversal_queue().pop_next() {
+        while remaining > 0 {
+            remaining -= 1;
+            let Some(step) = host.traversal_queue().pop_next() else {
+                break; // Queue emptied early (a step was consumed elsewhere) — done.
+            };
             match step {
                 PendingHistoryStep::Traversal(traversal) => {
                     // I3 guard bracket: set BEFORE the peek (inside `apply_traversal`),
                     // clear AFTER the commit. A reentrant message arriving in-bracket
-                    // is serialized onto the queue (drained by a later iteration of
-                    // this loop), never applied under the held peek.
+                    // is serialized onto the queue (drained on the NEXT pump turn —
+                    // outside this bounded snapshot), never applied under the held
+                    // peek. NOTE (T4 → Slice 4): a reentrant DIRECT nav message
+                    // (address-bar `Navigate`/`Reload`, chrome `GoBack`/`GoForward`)
+                    // does NOT consult `is_applying()` and could mutate session
+                    // history between this peek and its commit. That serialization is
+                    // the reentrancy-guard WIRING fenced to Slice 4 — structurally
+                    // unreachable today (its only vector, the SW-fetch reentrant
+                    // message pump, is dead: `content/navigation.rs` re-dispatch has a
+                    // TODO SW body that never constructs a document).
                     host.traversal_queue().enter_nested_apply();
                     let applied = host.apply_traversal(&traversal);
                     host.traversal_queue().exit_nested_apply();

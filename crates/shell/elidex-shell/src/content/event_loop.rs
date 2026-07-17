@@ -2,6 +2,7 @@
 //!
 //! Extracted from `content/mod.rs` to keep file sizes manageable.
 
+use std::ops::ControlFlow;
 use std::time::{Duration, Instant};
 
 use crossbeam_channel::RecvTimeoutError;
@@ -17,11 +18,36 @@ use super::{
 };
 use super::{event_handlers, ime};
 
-#[allow(clippy::too_many_lines)] // Event loop with iframe integration.
 pub(super) fn run_event_loop(state: &mut ContentState) {
     let mut last_frame = Instant::now();
+    // One `pump_turn` per event-loop turn; `Break` stops the loop (Shutdown /
+    // channel disconnect). Extracted so a test can drive turns one at a time and
+    // observe the Phase-1-enqueue / Phase-2-apply task boundary across turns
+    // (`pump_turn_applies_enqueued_traversal_on_a_later_turn`).
+    while pump_turn(state, &mut last_frame).is_continue() {}
+}
 
-    loop {
+/// Process ONE event-loop turn: drain the deferred-traversal Phase 2, then handle
+/// at most one inbound message + the per-turn frame tick. Returns
+/// [`ControlFlow::Break`] to stop the loop (Shutdown / channel disconnect),
+/// [`ControlFlow::Continue`] otherwise.
+#[allow(clippy::too_many_lines)] // Event loop with iframe integration.
+pub(super) fn pump_turn(state: &mut ContentState, last_frame: &mut Instant) -> ControlFlow<()> {
+    {
+        // Phase 2 (§7.4.6.1 *apply the history step*) — drained at the TOP of the
+        // pump turn, BEFORE this turn's `recv_timeout`/`handle_message`, so it
+        // applies ONLY the traversals a PRIOR turn's Phase 1
+        // (`drain_synchronous_phase`, run inside `handle_message`'s input handlers)
+        // enqueued. This makes Phase 2 a genuine LATER task than the turn that
+        // enqueued it (plan §4.5 I1: "the async pump exposes the deferred apply only
+        // on a later turn — structural by construction"). Draining at the BOTTOM
+        // instead would apply a traversal THIS turn's input handler just enqueued,
+        // collapsing the task boundary the phase-separation exists to create. The
+        // apply ships its own frame (`handle_navigate`/`ship_frame`), and the drain
+        // is a BOUNDED snapshot (a reentrant re-enqueue defers to the next turn), so
+        // there is nothing to fold into `needs_render` and no unbounded work here.
+        let _ = elidex_navigation::DrainCoordinator::run_deferred_traversals(state);
+
         let animations_running = state.pipeline.animation_engine.has_running();
 
         let now_for_timeout = Instant::now();
@@ -31,7 +57,7 @@ pub(super) fn run_event_loop(state: &mut ContentState) {
             .next_timer_deadline()
             .map(|d| d.saturating_duration_since(now_for_timeout));
         let timeout = if animations_running {
-            let next_frame = last_frame + FRAME_INTERVAL;
+            let next_frame = *last_frame + FRAME_INTERVAL;
             let frame_remaining = next_frame
                 .saturating_duration_since(now_for_timeout)
                 .max(Duration::from_millis(1));
@@ -46,26 +72,26 @@ pub(super) fn run_event_loop(state: &mut ContentState) {
                 // unload) — stop the loop before this iteration's frame tick so no
                 // script/render work runs after unload.
                 if !handle_message(msg, state) {
-                    break;
+                    return ControlFlow::Break(());
                 }
                 if state.pipeline.animation_engine.has_active() {
                     state.pipeline.prune_dead_animation_entities();
                 }
             }
             Err(RecvTimeoutError::Timeout) => {}
-            Err(RecvTimeoutError::Disconnected) => break,
+            Err(RecvTimeoutError::Disconnected) => return ControlFlow::Break(()),
         }
 
         // --- Frame tick: animations + timers ---
         let now = Instant::now();
-        let dt = now.duration_since(last_frame);
+        let dt = now.duration_since(*last_frame);
         let mut needs_render = false;
 
         if state.pipeline.animation_engine.has_active() && dt > Duration::ZERO {
             let dt_secs = dt.min(FRAME_INTERVAL * 2).as_secs_f64();
             let events = state.pipeline.animation_engine.tick(dt_secs);
             animation::dispatch_animation_events(&events, state);
-            last_frame = now;
+            *last_frame = now;
             needs_render = true;
         }
 
@@ -205,15 +231,10 @@ pub(super) fn run_event_loop(state: &mut ContentState) {
         let window_opens = state.pipeline.runtime.take_pending_window_opens();
         needs_render |= super::navigation::route_window_opens(state, window_opens).navigated_iframe;
 
-        // Phase 2 (§7.4.6.1 *apply the history step*): drain the deferred traversal
-        // QUEUE that an input turn's Phase 1 (`drain_synchronous_phase`) already
-        // classified and enqueued. This pump realizes only the deferred-apply half
-        // (plan §4.3 Q-SCHED content resolution) — the Phase-1 staging
-        // classification stays input-handler-driven (pre-existing, unchanged by
-        // this slice), NOT re-run here. The queued traversal applies strictly AFTER
-        // the Phase-1 sync updates landed (I1), shipping its own frame via
-        // `handle_navigate`/`ship_frame`, so nothing to fold into needs_render.
-        let _ = elidex_navigation::DrainCoordinator::run_deferred_traversals(state);
+        // NOTE: Phase 2 (§7.4.6.1 *apply the history step*) is drained at the TOP of
+        // the loop, NOT here — so a traversal enqueued by THIS turn's input handler
+        // (`handle_message` → `drain_synchronous_phase`) applies on the NEXT pump
+        // turn, a genuine later task (plan §4.5 I1). See the top-of-loop drain.
 
         if state.pipeline.runtime.take_pending_focus() {
             state.notify_browser(ContentToBrowser::FocusWindow);
@@ -263,6 +284,8 @@ pub(super) fn run_event_loop(state: &mut ContentState) {
             state.send_display_list();
         }
     }
+
+    ControlFlow::Continue(())
 }
 
 /// Whether a coordinate-bearing input event mapped against `placement_seq` is stale:
