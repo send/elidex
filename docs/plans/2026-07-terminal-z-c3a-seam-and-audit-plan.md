@@ -394,9 +394,17 @@ offset*/client*/scroll*, getClientRects steps 2-3, plus the pre-existing transfo
 for offset*/client*/RO and a genuine gap only for getClientRects/gBCR/IO) is **C-3b's**; IO §3.2.7/§3.2.10 is
 **C-3d's**. This memo does not restate them.
 
-> Preflight note (soft-warn): the coverage-map helper emits the label `RESIZE OBSERVER`, which
-> `preflight.py`'s `SPEC_LABEL_REVERSE` does not map — a tooling seam, not a citation error; the row was
-> webref-verified.
+> ⚠ **The automated §3 citation-drift gate does NOT cover these rows — do not read the table as gate-verified**
+> (Codex R13-CC1). `preflight.py` reports `parsed citations: 0` and `unrecognized labels: ['CSS DISPLAY 3',
+> 'CSSOM VIEW', 'RESIZE OBSERVER']`: its `SPEC_LABEL_REVERSE` maps **no CSS module** beyond `selectors-4` /
+> `geometry-1`, so **all three** rows are skipped (an earlier note claimed this seam for `RESIZE OBSERVER`
+> alone, which under-stated it). Each row was **manually** webref-verified — re-runnable:
+> `.claude/tools/webref body resize-observer-1 content-rect-h` / `heading css-display-3 2` +
+> `body css-display-3 box-generation` / `body cssom-view dom-element-getclientrects`.
+> **Follow-up (separate, not this doc-only PR — it is a shared-skill change every lane's plan-review uses):**
+> extend `SPEC_LABEL_REVERSE` with `cssom-view` / `css-display-3` / `resize-observer-1` (and CSS modules
+> generally — CLAUDE.md already makes CSS modules webref-covered, so the mapping gap is the tooling's, not this
+> memo's) → then the gate verifies these rows structurally instead of relying on this note.
 
 ---
 
@@ -551,6 +559,7 @@ not ledger entries.
 | Proposed slot | Gate item | Re-evaluation trigger |
 |---|---|---|
 | `#11-fragment-store-screen-provenance` | 2 (distinguish-empty + laid-marker) | C-4 kickoff, or any slice that needs a producer to write the store's N=1 box for every entity |
+| `#11-in-layout-probe-visible-geometry` | **2b** (probe-visible source for the in-layout readers) | C-4 kickoff — ⚠ **distinct from item 2** (R13-CC2): item 2 is a *post-commit* fact; 2b is what the 3 flex/grid baseline readers need **during** a probe/mid-pass. Without it **`LayoutBox` cannot be deleted for them** — so C-4 must either land this or keep `LayoutBox` for those readers |
 | `#11-paged-fragment-store-hygiene` | 3 (paged store not cleared) | when paged/print media folds into the store (committed-next per `fragment_tree.rs:73`) |
 | `#11-layout-generation-rehome` | 4 (`layout_generation` dual-role) | C-3e (paged-gen gate reader) or C-4, whichever touches `builder/walk.rs:108` first |
 | `#11-fragment-inline-lines` | 5 (`FragmentContent::InlineLines`) | the committed-next inline-line fold (already tracked as terminal-Z dark-data work) |
@@ -595,9 +604,12 @@ not ledger entries.
    is out of a decision-record's altitude and was the source of the R5→R7 finding cascade.
    Its deliverable is the seam **+ the durable audit artifact** (§4). The downstream slices are cross-crate and
    **not parallel-safe** with the CSS/script/shell lanes — schedule per §5.
-4. **Six C-4 prerequisites currently have no owner** (§5 items 2-5, the design-doc slice, and the
-   transform-basis gap). They gate `LayoutBox` deletion — none blocks C-3a. **The six proposed `#11-*` slots +
-   their re-eval triggers are spelled out in the §5 table** (R5-W4 — the defer content is auditable now, not
-   deferred to the landing memo); PM registers them in `project_open-defer-slots.md` at C-3a landing (the D-29
-   "ship 時に登録" precedent), so PM owns tracked slot IDs from the moment the seed lands.
+4. **SEVEN C-4 prerequisites currently have no owner** (§5 items 2, **2b**, 3, 4, 5, the design-doc slice, and
+   the transform-basis gap). They gate `LayoutBox` deletion — none blocks C-3a. **All seven proposed `#11-*`
+   slots + their re-eval triggers are spelled out in the §5 table** (R5-W4 — the defer content is auditable
+   now, not deferred to the landing memo); PM registers them in `project_open-defer-slots.md` at C-3a landing
+   (the D-29 "ship 時に登録" precedent), so PM owns tracked slot IDs from the moment the seed lands.
+   ⚠ **2b is easy to lose** (R13-CC2): it reads like a sub-item of 2 but is a *distinct* blocker — the ledger
+   could show every other row resolved while C-4 still cannot delete `LayoutBox` for the in-layout flex/grid
+   baseline readers.
 5. This memo is doc-only / parallel-safe.
