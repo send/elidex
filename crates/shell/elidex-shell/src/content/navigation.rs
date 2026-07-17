@@ -540,7 +540,7 @@ pub(crate) struct WindowOpenOutcome {
 /// Route the drained ordered `window.open` intents (WHATWG HTML §7.2.2.1) in
 /// call order — popup and named opens interleaved on ONE queue so a later
 /// `_blank` never surfaces before an earlier named MISS. Shared by BOTH drain
-/// pumps (the Phase-1a [`DrainHost::route_window_opens`] seam, driven by
+/// pumps (the Phase-1a `DrainHost::route_window_opens` seam, driven by
 /// `drain_synchronous_phase`, and the async `run_event_loop`) so the routing has
 /// one home — a named open from a pure-async turn (a timer / postMessage with no
 /// later user input) reaches the same routing as an input-driven one (edge E4).
@@ -551,8 +551,8 @@ pub(crate) struct WindowOpenOutcome {
 /// forwarded as an `OpenNewTab` for a scheme the normal paths reject.
 ///
 /// Per intent:
-/// - **[`WindowOpenIntent::Popup`]** → `OpenNewTab` (blocked-scheme-filtered).
-/// - **[`WindowOpenIntent::NamedFrame`]** resolved against the current
+/// - **`WindowOpenIntent::Popup`** → `OpenNewTab` (blocked-scheme-filtered).
+/// - **`WindowOpenIntent::NamedFrame`** resolved against the current
 ///   document's iframe tree:
 ///   - **HIT** (`find_iframe_by_name` matches a descendant iframe) →
 ///     `navigate_iframe`, **ungated**. Spec-correct: `find_iframe_by_name`
@@ -622,10 +622,10 @@ pub(crate) fn route_window_opens(
 
 /// Apply a synchronous §7.4.4 history *update* — a `pushState` / `replaceState`
 /// (Phase 1, in-task) or a deferred `SyncUpdate` step (Phase 2). This is the
-/// sync-update body behind the [`DrainHost::handle_history_action`] seam: after
+/// sync-update body behind the `DrainHost::handle_history_action` seam: after
 /// phase-separation the coordinator routes ONLY `PushState` / `ReplaceState` here
 /// (the `Back` / `Forward` / `Go` traversals go through `classify_traversal` in
-/// Phase 1b and [`apply_traversal_delta`] in Phase 2, §7.4.6.1 *apply the history
+/// Phase 1b and `super::drain_host::apply_traversal_delta` in Phase 2, §7.4.6.1 *apply the history
 /// step*).
 ///
 /// It commits a session-history entry in place (no pipeline rebuild, no cursor

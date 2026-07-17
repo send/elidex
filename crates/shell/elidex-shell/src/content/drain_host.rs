@@ -29,7 +29,7 @@ use super::navigation::{
 use super::ContentState;
 
 /// Route a `BrowserToContent` message re-dispatched from the SW-fetch wait loop
-/// ([`handle_navigate`](super::navigation::handle_navigate)) — the **interim
+/// (`super::navigation::handle_navigate`) — the **interim
 /// reentrancy guard** vector (Codex PR#469 R4).
 ///
 /// When NO Phase-2 traversal apply is in progress (the common case — the SW-wait
@@ -41,7 +41,7 @@ use super::ContentState;
 /// `handle_navigate` is nested inside `apply_traversal_delta`, e.g. an
 /// SW-controlled cross-document traversal), a re-dispatched nav-mutating message
 /// (`Navigate` / `Reload` / chrome `GoBack`/`GoForward` / `MouseClick` /
-/// `KeyDown`) would mutate the [`NavigationController`] entry list/cursor BETWEEN
+/// `KeyDown`) would mutate the `NavigationController` entry list/cursor BETWEEN
 /// the in-flight traversal's peek (`apply_traversal_delta`) and its
 /// `commit_index`, committing a stale index against a mutated list — the reachable
 /// corruption window. So BUFFER the message into
@@ -241,7 +241,7 @@ impl DrainHost for ContentState {
 /// (a rebuild that replaced the pipeline, or a same-document apply-in-place), and
 /// `changed_document` iff the applied traversal landed a **fresh document** — a
 /// §7.4.6.1 [`TraversalKind::Rebuild`] that actually loaded (`shipped`). The
-/// `Rebuild`-ness is read via [`NavigationController::resolve_traversal`] BEFORE
+/// `Rebuild`-ness is read via `NavigationController::resolve_traversal` BEFORE
 /// `handle_navigate` commits/re-stamps the cursor, then ANDed with `shipped` so a
 /// **failed** rebuild (old document still active) reports `changed_document =
 /// false` and a trailing deferred `SyncUpdate` still applies (plan §1 D). A no-op
