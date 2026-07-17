@@ -87,10 +87,12 @@ deletes.
 Codex R14-re-gate found §1 and §6.3 disagreeing, and an implementer scopes from §1):
 1. the **projection primitive** `box_fragments` + 2. the **frame-neutral folds** over it + 3. the **durable
 reader audit** (§4 — a deliverable, not a by-product) + 4. **the layout-entry provenance writes** the §2
-I-phase guard needs to be sound.
-⚠ (4) makes C-3a **not `elidex-ecs`-only**: the guard has a **writer side**, so C-3a carries a bounded
-cross-crate tail at the `elidex-layout` entrypoints, and that tail is **indivisible** — see §6.3 for why every
-entry (screen *and* paged) must participate and what it costs PM. Nothing else is consumer-facing.
+I-phase guard needs to be sound + 5. **the producer-owned no-associated-box signal** requirement 5 needs to
+be expressible.
+⚠ (4) and (5) make C-3a **not `elidex-ecs`-only**: both are seam requirements with a **writer side**, so C-3a
+carries a bounded cross-crate tail at the `elidex-layout` entrypoints. The (4) tail is **indivisible** — see
+§6.3 for why every entry (screen *and* paged) must participate and what it costs PM. Nothing else is
+consumer-facing.
 
 **The projection primitive** — `EcsDom::box_fragments` (NEW), in a **new `crates/core/elidex-ecs/src/dom/
 geometry.rs` (NEW)** (NOT appended to `dom/mod.rs`, which is **1073 LoC** — CLAUDE.md touch-time split;
@@ -138,7 +140,19 @@ impl EcsDom {
    style checks** — so **the seam carries it, and that is decided HERE** (this requirement is the fact's only
    home; §3's row and §4 axis 3 point at it and must not re-decide it). ⚠ This does **not** oblige C-3 to *fix*
    the deviation — C-3 preserves current behavior — it obliges the seam to **expose the distinction** so a
-   consumer *can* take its spec branch. *(The deviation is `display:contents`-specific and lives here. An
+   consumer *can* take its spec branch.
+   ⚠ **This requirement has a PRODUCER side, and it is C-3a's** (Codex R16-EE1 — the same shape as R8-Z1's
+   provenance writes: a seam obligation whose writer was unowned). **Nothing produces the bit today**:
+   `LayoutBox` (`boxes.rs:84-98`) and `BoxFragment` (`fragment_tree.rs:118-128`) carry only content/padding/
+   border/margin/baseline — no "has an associated CSS box" facet — and the distinction exists **only** inside
+   layout's own synthesis (`layout/mod.rs:74`). Left unowned, the implementer has exactly two options and both
+   are forbidden: put a CSS-Display/style check **inside `EcsDom::box_fragments`**, which is a spec/style
+   algorithm below this section's layering FLOOR; or let C-3b/C-3d re-derive it from style — the duplication
+   this requirement exists to prevent. So the **producer must mark it where the zero box is synthesised**, and
+   that write is in C-3a's scope (deliverable 5). *(How it is expressed — a facet on the fragment, a marker
+   component, or not synthesising a box at all — is C-3a's implementation-plan-review decision, per the
+   altitude rule above; this memo pins only that the producer owns it and the seam carries it.)*
+   *(The deviation is `display:contents`-specific and lives here. An
    earlier draft pointed at §2 I-boxless for it, which §2 never discusses — but the replacement then mis-cast
    I-boxless as merely "no production path removes a `LayoutBox`", one of its four bullets, while §4 axis 3
    rightly routes the boxless **policy** question to it: Codex R15-re-gate. I-boxless governs empty→`None` and
@@ -233,8 +247,13 @@ which *can* call the dom-api algorithm. ⚠ That DI seam is *why* the closure ha
 `LayoutBox.border_box()` — not the §6 bounding box — for the life of the feature, uncatchable by any
 `api-observers` test. **C-3d decides** whether to keep the seam (b) or add the acyclic `api-observers → dom-api`
 edge and implement IO step 7 engine-side (c). **C-3a does not touch it.** (Every other dom-api-homed reduction —
-the CSSOM algorithms — is consumed only by `dom-api` itself + the `elidex-js` host, both direct callers; a11y
-takes the LOW union, not the dom-api 4-branch. So C-3d is the *only* collision, re-derived on direct edges.)
+the CSSOM algorithms — is consumed only by `dom-api` itself + the `elidex-js` host, both direct callers. a11y
+reads a **single box's `border_box()`** today (`crates/dom/elidex-a11y/src/tree.rs:123`, verified — not a union
+and not the dom-api 4-branch), so on **that** shape it needs no dom-api-homed reduction and C-3d is the *only*
+collision, re-derived on direct edges. ⚠ That is a statement about today's read, **not a decision about a11y's
+post-migration reduction** (Codex R16-EE2): which reduction a11y should take is **audit axis 1's** output, and
+§2 I-transform records its geometry contract as *unresolved*. If the audit finds a11y needs a CSSOM-homed
+algorithm, that is a **second** collision for C-3c to surface — this paragraph does not foreclose it.)
 
 ---
 
