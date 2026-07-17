@@ -22,6 +22,7 @@
 //! plus VM/connected-integration coverage).
 
 use elidex_navigation::{DrainCoordinator, DrainHost};
+use elidex_script_session::HostDriver;
 
 use super::test_support::build_test_content_state_with_url;
 use crate::ipc::{BrowserToContent, ContentToBrowser, LocalChannel};
@@ -736,5 +737,110 @@ fn interim_guard_shutdown_handled_immediately_not_buffered() {
         flow.is_break(),
         "pump_turn must return Break as soon as it observes shutdown_requested (prompt exit, \
          no wait for the SW timeout)"
+    );
+}
+
+/// **Interim reentrancy guard** (Codex PR#469 R8 **re-check**): the REPLAY phase is the
+/// third — and previously uncovered — pump phase that can newly set `shutdown_requested`.
+/// A replayed nav-mutating message (`Navigate`/`Reload`/`GoBack`/`GoForward`) whose nested
+/// SW-wait consumes a re-dispatched `Shutdown` runs teardown + sets the flag, yet
+/// `handle_message` returns `true` (those arms discard `handle_navigate`'s `false`), so the
+/// replay swallows the flag-set. Without a post-replay check, `pump_turn` would then block
+/// one poll interval on `recv_timeout` and run a full frame tick on the torn-down pipeline.
+///
+/// This pins BOTH halves of the fix:
+///  1. `replay_deferred_reentrant_messages` STOPS dispatching the rest of the batch once
+///     the flag is set mid-replay — a message ordered AFTER the shutdown-consuming one is
+///     NOT dispatched on the torn-down pipeline (proven by exactly ONE `SwFetchRequest`
+///     reaching the browser: a second dispatch would send a second one).
+///  2. `pump_turn` returns `Break` right after the replay — before `recv_timeout` /
+///     the frame tick — completing the "check `shutdown_requested` after every pump
+///     phase" invariant.
+///
+/// Unlike the sibling guards (which cannot match the internally generated `fetch_id` and so
+/// simulate), this drives the REAL SW-wait: seeding a controller scope makes an in-scope
+/// nav take the wait path, and a PRE-queued `Shutdown` is re-dispatched there immediately
+/// (no 30s deadline). A second pre-queued `Shutdown` makes a regression of the stop fail
+/// FAST (a second `SwFetchRequest`) instead of hanging on the ~30s SW deadline.
+#[test]
+fn interim_guard_replay_stops_and_pump_breaks_on_nested_shutdown() {
+    let scope = || url::Url::parse("https://example.com/app/").unwrap();
+
+    // --- Half 1: the replay loop STOPS after the flag is set; the second nav is not run.
+    let (mut state, browser) = build_test_content_state_with_url("<p>doc</p>", base());
+    state.nav_controller.push(base());
+    // Control the page so an in-scope cross-document nav takes the SW-wait path (the
+    // reentrancy vector `dispatch_or_buffer_reentrant` guards).
+    state.pipeline.runtime.seed_sw_client(Some(scope()), &[]);
+    drain_browser(&browser);
+
+    // Two SW-controlled cross-document navs buffered. The FIRST will consume a Shutdown in
+    // its nested SW-wait (teardown + `shutdown_requested`); the SECOND must NOT dispatch.
+    state
+        .deferred_reentrant_messages
+        .push(BrowserToContent::Navigate(
+            url::Url::parse("https://example.com/app/one").unwrap(),
+        ));
+    state
+        .deferred_reentrant_messages
+        .push(BrowserToContent::Navigate(
+            url::Url::parse("https://example.com/app/two").unwrap(),
+        ));
+
+    // Queue the Shutdown the first nav's SW-wait picks up immediately (no 30s deadline).
+    // The second Shutdown only matters if the stop-on-flag regresses (fail fast, no hang).
+    browser.send(BrowserToContent::Shutdown).unwrap();
+    browser.send(BrowserToContent::Shutdown).unwrap();
+
+    let flow = super::event_loop::replay_deferred_reentrant_messages(&mut state);
+
+    assert!(
+        state.shutdown_requested,
+        "the first replayed nav's nested SW-wait consumed a Shutdown → teardown ran + flag set"
+    );
+    assert!(
+        flow.is_continue(),
+        "a nested-SW-wait Shutdown is surfaced via `shutdown_requested` (caught by \
+         pump_turn's post-replay check), so replay itself reports Continue — not Break"
+    );
+    assert!(
+        state.deferred_reentrant_messages.is_empty(),
+        "the batch was taken for replay; nothing re-buffered"
+    );
+    let mut sw_fetch_count = 0;
+    while let Ok(msg) = browser.try_recv() {
+        if matches!(msg, ContentToBrowser::SwFetchRequest { .. }) {
+            sw_fetch_count += 1;
+        }
+    }
+    assert_eq!(
+        sw_fetch_count, 1,
+        "only the FIRST buffered nav dispatched (one SwFetchRequest); the SECOND was dropped \
+         once the replay saw shutdown_requested — never run on the torn-down pipeline"
+    );
+
+    // --- Half 2: driven through the whole pump — pump_turn Breaks right after the replay,
+    // NOT blocking on recv_timeout or running the frame tick on the torn-down pipeline.
+    let (mut state, browser) = build_test_content_state_with_url("<p>doc</p>", base());
+    state.nav_controller.push(base());
+    state.pipeline.runtime.seed_sw_client(Some(scope()), &[]);
+    drain_browser(&browser);
+    state
+        .deferred_reentrant_messages
+        .push(BrowserToContent::Navigate(
+            url::Url::parse("https://example.com/app/one").unwrap(),
+        ));
+    browser.send(BrowserToContent::Shutdown).unwrap();
+
+    let mut last_frame = std::time::Instant::now();
+    let flow = super::event_loop::pump_turn(&mut state, &mut last_frame);
+    assert!(
+        flow.is_break(),
+        "pump_turn must Break as soon as the replay sets shutdown_requested — before \
+         recv_timeout blocks a poll interval and the frame tick touches the torn-down pipeline"
+    );
+    assert!(
+        state.shutdown_requested,
+        "the flag set by the replayed nav's nested SW-wait is what drove the Break"
     );
 }

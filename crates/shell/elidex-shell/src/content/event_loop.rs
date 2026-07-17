@@ -73,6 +73,19 @@ pub(super) fn pump_turn(state: &mut ContentState, last_frame: &mut Instant) -> C
         if replay_deferred_reentrant_messages(state).is_break() {
             return ControlFlow::Break(());
         }
+        // A replayed nav-mutating message (`Navigate`/`Reload`/`GoBack`/`GoForward`) can
+        // enter a NESTED SW-wait and consume a re-dispatched `Shutdown` there
+        // (`dispatch_or_buffer_reentrant` ran teardown + set `shutdown_requested`), yet
+        // `handle_message` returned `true` for those arms (they discard `handle_navigate`'s
+        // `false`), so `replay_deferred_reentrant_messages` reports `Continue`. Break NOW —
+        // before this turn's `recv_timeout` blocks for the poll interval and the frame tick
+        // touches the torn-down pipeline — mirroring the after-drain (above) and
+        // after-`handle_message` (below) checks. Completes the "check `shutdown_requested`
+        // after EVERY pump phase" invariant: the replay was the one uncovered phase (Codex
+        // PR#469 R8 re-check).
+        if state.shutdown_requested {
+            return ControlFlow::Break(());
+        }
 
         let animations_running = state.pipeline.animation_engine.has_running();
 
@@ -338,6 +351,14 @@ pub(super) fn pump_turn(state: &mut ContentState, last_frame: &mut Instant) -> C
 /// consumed from the channel here, so swallowing its exit signal would leave the pump
 /// running and then blocking on the next `recv` — a hung/leaked content thread on
 /// shutdown-during-a-SW-controlled-apply (Codex PR#469 R5).
+///
+/// A replay can ALSO trip `shutdown_requested` WITHOUT returning `Break`: a replayed
+/// `Navigate`/`Reload`/`GoBack`/`GoForward` whose nested SW-wait consumed a `Shutdown`
+/// (teardown ran, flag set) returns from `handle_message` as `true` (those arms discard
+/// `handle_navigate`'s `false`). The loop STOPS on the flag so no later buffered message
+/// dispatches on the torn-down pipeline; `pump_turn`'s post-replay `shutdown_requested`
+/// check surfaces the exit (Codex PR#469 R8 re-check — the replay was the last uncovered
+/// pump phase).
 pub(super) fn replay_deferred_reentrant_messages(state: &mut ContentState) -> ControlFlow<()> {
     if state.deferred_reentrant_messages.is_empty() {
         return ControlFlow::Continue(());
@@ -352,6 +373,17 @@ pub(super) fn replay_deferred_reentrant_messages(state: &mut ContentState) -> Co
         // moot because the thread is exiting.
         if !handle_message(msg, state) {
             return ControlFlow::Break(());
+        }
+        // A replayed nav-mutating message can ALSO signal exit WITHOUT returning `false`:
+        // its `handle_navigate` may enter a nested SW-wait and consume a re-dispatched
+        // `Shutdown` there (`dispatch_or_buffer_reentrant` ran teardown + set
+        // `shutdown_requested`), but the `Navigate`/`Reload`/`GoBack`/`GoForward` arms
+        // discard `handle_navigate`'s `false`, so `handle_message` returned `true`. STOP
+        // replaying the REST of the batch — a message ordered AFTER the shutdown-consuming
+        // one must NOT dispatch on the torn-down pipeline. `pump_turn`'s post-replay
+        // `shutdown_requested` check surfaces the exit as `Break` (Codex PR#469 R8 re-check).
+        if state.shutdown_requested {
+            break;
         }
     }
     ControlFlow::Continue(())
