@@ -23,6 +23,18 @@ Predecessors MERGED: Z-1a (#313, standalone `FragmentTree`) / Z-1b (#316, per-co
 
 ---
 
+> **Mandate invariant — the memo states what the audit MUST determine, never what it WILL find.**
+> An enumeration that §4's sweep or an axis produces (which readers run in-layout; which producer paths leave
+> a box on a boxless element; which consumers need a signal) is an **audit OUTPUT**. This memo does **not**
+> pre-compute one — not as a list, not as a count, not "for readability". **This is the defect that killed
+> PR #463** (§6.1: the umbrella characterised consumers before the audit that determines them), and it
+> reproduced here: every hand-list this memo attempted was **wrong** — "the three flex/grid baseline readers"
+> missed `multicol/fill.rs:76`/`:421` and `inline/pack/mod.rs:613` (R18-GG3); the `display:contents` producer
+> cases named a root case that cannot happen and missed the positioned one that does (R18-GG1/GG2). Naming an
+> example to prove a class is **non-empty** is fine; naming it to define the class is not. If you catch
+> yourself writing "the N cases are…" about something the audit determines, **delete it and state the
+> mandate**.
+>
 > **Reading invariant — one fact, one home.** Every load-bearing fact in this memo is stated in exactly ONE
 > section; every other section **points** at it. **Sections are deliberately NOT self-contained**: a second
 > rendering of a fact is a *defect*, not a convenience, because the copies drift and each drift is a wrong
@@ -349,12 +361,14 @@ not as a design:
 | 2 | **a re-entrant/second SCREEN pass, mid-flight** (R9-AA1) | `layout_tree` `clear()`s the store at the **top** of the pass (I-phase fact 2), so a stale *completed-screen* from the prior pass stays green while the store is empty/partial |
 | 3 | **a probe pass** (I-phase fact 1) | the store holds the prior definitive pass's coords |
 
-(Reader-side guard; complements the producer-side C-4 gate item 3 paged-store **content** hygiene.) The three **in-layout** baseline
-readers (`elidex-layout-flex/src/baseline.rs:18`, `/src/lib.rs:474`, `elidex-layout-grid/src/position.rs:444`
-— all `get::<&LayoutBox>` *inside* the layout algorithms) **must NOT be migrated onto `box_fragments`**; they
-keep reading the live `LayoutBox`. Whether they get an explicit live accessor or simply stay on `LayoutBox`
-until C-4 provides a probe-visible store is **C-3c's** decision — recorded here so the seam contract is
-unambiguous.
+(Reader-side guard; complements the producer-side C-4 gate item 3 paged-store **content** hygiene.)
+**The seam contract, stated as a rule rather than a roster** (Codex R19-HH2): **any reader that runs *inside* a
+layout algorithm must NOT be migrated onto `box_fragments`** — `box_fragments` is by contract unusable mid-pass,
+so such a reader keeps reading the live `LayoutBox`. **Which readers those are is §4's sweep output, not this
+memo's to list**: an earlier draft named three flex/grid baseline sites here and was wrong — `multicol/fill.rs`
+and `inline/pack/mod.rs` also read a `LayoutBox` mid-pass, and a C-3c scoped from that roster would have
+migrated them onto the screen-only seam. Whether the ones the sweep finds get an explicit live accessor or
+simply stay on `LayoutBox` until a probe-visible store exists is **C-3c's** decision.
 
 ### I-boxless — de-universalized, and barely reachable in production
 
@@ -547,7 +561,7 @@ went wrong):
 |---|---|---|---|
 | 1 | **frame** | doc-space, or a local frame the reader composes? | I-frame |
 | 2 | **phase** | **in-layout** (must NOT use `box_fragments`) / **screen-post-layout** (valid) / **paged-post-layout** (INVALID — the paged path does not `clear()` and its `fragmentainer` is page-relative, I-phase fact 3; a render-residual reader under `paged:true` — e.g. `paint/mod.rs`, `form.rs` helpers — is "post-layout" yet reads page-relative geometry). Trinary, not binary — a binary post-vs-in-layout split marks a paged reader "fully classified" while nothing captures its paged-store invalidity | I-phase |
-| 3 | **boxless** | spec-zero, or box-absent? — ⚠ and the **`display:contents` producer defects the audit must record** (Codex R7-Y5, **re-scoped at R17-FF1**): CSS Display 3 **§2.5** *"the element itself does not generate any boxes"* (webref-verified; the live comment at `layout/mod.rs:74` cites §2.8 — drifted). An *ordinary* such element is **already box-absent** (layout flattens it away before dispatch; that line never writes to the ECS), so `box_fragments` gives the spec answer by construction — an earlier draft of this axis claimed the opposite. What the audit records is the **two narrow cases where the producer wrongly leaves a box** and a consumer would read a real zero-sized box instead of taking its no-box branch (cssom-view §6 `getClientRects()` = empty list when there is no associated box): a `display:contents` **root** that is also `position:relative` (`layout/mod.rs:387` dispatches the root directly, `:130` inserts), and a **stale** box (§2 I-boxless). §1 requirement 5 is the home for both. C-3 **inherits** them (no regression). **The seam carries the signal — decided at §1 requirement 5, not here** (an earlier draft of this axis made it conditional on the audit's output and a "C-3b/C-3d ask", contradicting that requirement: Codex R14-re-gate). This axis only **classifies**: per reader, does it need the requirement-5 *"has an associated CSS box"* signal, and is its zero-rect case spec-zero or box-absent? | I-boxless |
+| 3 | **boxless** | spec-zero, or box-absent? — ⚠ and the **`display:contents` producer defects the audit must record** (Codex R7-Y5, **re-scoped at R17-FF1**): CSS Display 3 **§2.5** *"the element itself does not generate any boxes"* (webref-verified; the live comment at `layout/mod.rs:74` cites §2.8 — drifted). An *ordinary* such element is **already box-absent** (layout flattens it away before dispatch; that line never writes to the ECS), so `box_fragments` gives the spec answer by construction — an earlier draft of this axis claimed the opposite. **What this axis MUST determine — by sweep, not from this memo** (Codex R19-HH1, and the mandate invariant above): **enumerate every producer path that leaves a `LayoutBox` on an element that generates no box**, and record, per reader, whether it would then read a real zero-sized box instead of taking its no-box branch (cssom-view §6 `getClientRects()` = empty list when there is no associated box). This memo names examples only to prove the class is non-empty (§1 requirement 5) — it does **not** enumerate it, and an earlier draft of this axis proved why: it carried a root-`position:relative` case that **cannot occur** and omitted the positioned one that does. C-3 **inherits** whatever the sweep finds (no regression). **The seam carries the signal — decided at §1 requirement 5, not here** (an earlier draft of this axis made it conditional on the audit's output and a "C-3b/C-3d ask", contradicting that requirement: Codex R14-re-gate). This axis only **classifies**: per reader, does it need the requirement-5 *"has an associated CSS box"* signal, and is its zero-rect case spec-zero or box-absent? | I-boxless |
 | 4 | **source vs routing** | does the migration change *which rects* feed it (⇒ a test), or only *which fragment*? (**everything is a source/behavior change at N>1** — the G11 last-column fact) | N=1 invariant limit |
 | 5 | **reduction** | union / first / per-fragment / **not a geometry read** (e.g. the paged-gen gate reads `layout_generation`, which `BoxFragment` drops) / **a *selection* problem with no store signal** (the inline-text anchor) | — |
 | 6 | **home + shape** | which crates must reach it (floor/ceiling)? and is it a **per-entity projection** or a **cross-entity aggregate** (e.g. shell scroll-extent is a `query` with a `display!=None` co-read — `box_fragments` cannot express it)? | layering |
@@ -572,8 +586,9 @@ makes; each is a verified live reader):
 6. **render paged-generation gate** — **not a box-geometry read** (axis 5): reads `layout_generation`, which
    `BoxFragment` drops. Needs a re-home, not `box_fragments`. → C-3e / C-4.
 7. **shell scroll-extent** — a **cross-entity aggregate** with a `display!=None` co-read (axis 6). → C-3d.
-8. **flex/grid baseline (×3)** — **in-layout** (axis 2) *and* three distinct local frames (axis 1) → stays on
-   live `LayoutBox`. → C-3c.
+8. **flex/grid baseline** — **in-layout** (axis 2) *and* distinct local frames (axis 1) → stays on live
+   `LayoutBox`. → C-3c. ⚠ A **seed, not the set**: the in-layout readers are whatever the sweep finds (§2's
+   rule), and the flex/grid baseline sites are merely the ones known at authoring time.
 9. **`ScrollIntoView` (C-3b) and shell URL-fragment nav (C-3d)** are the **same algorithm** (WHATWG HTML
    §7.4.6.4 "scroll to the fragment" **step 3 substep 5** — *"Scroll target into view, with behavior 'auto',
    block 'start', and inline 'nearest'"* — is the CSSOM-View "scroll a target into view" (§6.1); webref-verified, and
@@ -670,9 +685,14 @@ table in the first place (Codex R13-CC2).
 3. **C-3a is the isolatable seed** (`elidex-ecs`-centred, additive, **no consumer migration**) and is the right
    first PR — at the scope §1 enumerates, which **includes the cross-crate provenance-write tail** (R7-Y3;
    §1 is that fact's home, this section is why it cannot shrink and what it costs PM).
-   ⚠ **The provenance protocol is NOT divisible** (Codex R8-Z1): **every** layout entry must participate —
-   the screen entry *publishes* completed-screen at completion, and **the paged/print entries invalidate before
-   laying out**. An earlier draft deferred the paged invalidation to `#11-paged-fragment-store-hygiene`; that
+   ⚠ **The provenance protocol is NOT divisible** (Codex R8-Z1): **every** layout entry must participate, and
+   every entry **invalidates before laying out** — the screen entry additionally *publishes* completed-screen at
+   completion. ⚠ **The screen entry's invalidation is not optional** (Codex R19-HH3): an earlier draft had it
+   only publish at completion, but §2's own soundness table (R9-AA1) has `layout_tree` `clear()`ing the store at
+   the **top** of the pass — so a **second screen pass** would leave the *prior* pass's green provenance
+   standing over a cleared, half-rebuilt store, and any `box_fragments` read during it would collapse
+   invalid-phase back into boxless geometry: exactly what the guard exists to prevent, and reachable without any
+   paged render at all. An earlier draft deferred the paged invalidation to `#11-paged-fragment-store-hygiene`; that
    split makes the guard **unsound**, because a paged render following a completed screen layout would leave the
    stale *completed-screen* provenance in place and `box_fragments` would return page-relative fragments under a
    **green** guard — precisely the failure §2 exists to prevent. Nothing outside the store can distinguish a
