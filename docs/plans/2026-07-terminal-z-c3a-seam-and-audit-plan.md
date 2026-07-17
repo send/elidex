@@ -401,10 +401,9 @@ for offset*/client*/RO and a genuine gap only for getClientRects/gBCR/IO) is **C
 > alone, which under-stated it). Each row was **manually** webref-verified — re-runnable:
 > `.claude/tools/webref body resize-observer-1 content-rect-h` / `heading css-display-3 2` +
 > `body css-display-3 box-generation` / `body cssom-view dom-element-getclientrects`.
-> **Follow-up (separate, not this doc-only PR — it is a shared-skill change every lane's plan-review uses):**
-> extend `SPEC_LABEL_REVERSE` with `cssom-view` / `css-display-3` / `resize-observer-1` (and CSS modules
-> generally — CLAUDE.md already makes CSS modules webref-covered, so the mapping gap is the tooling's, not this
-> memo's) → then the gate verifies these rows structurally instead of relying on this note.
+> Closing the gap — extending `SPEC_LABEL_REVERSE` so the gate verifies these rows structurally instead of
+> relying on this note — is **hand-off row 8** (§6.4), with an owner and a trigger. It is deliberately not a
+> "separate follow-up" written here: an unowned prose follow-up is a dropped one (Codex R14-DD1).
 
 ---
 
@@ -517,57 +516,41 @@ C-3a (seam + audit) ──┬── C-3b  CSSOM geometry (elidex-dom-api)       
    (`inline/pack/boxes.rs:62`) whose meaning flips under a `clear()`ed store.
 2. Producers write the store's N=1 box for every entity **AND** an empty `box_fragments` is **distinguishable**
    from boxless (a laid-this-pass marker / generation) — else the I-boxless × I-phase crossing breaks.
-   *(No owner — needs a slot.)*
+   *(→ hand-off row 1.)*
 2b. **A PROBE-VISIBLE / current-pass geometry source exists for the in-layout readers** (Codex R11-BB2) —
    otherwise C-4 cannot delete `LayoutBox` at all. The three flex/grid baseline readers run **inside** layout
    (§2 I-phase), where `box_fragments` is *by contract* unusable; item 2's "producers write the N=1 box" is a
    **post-commit** fact and does **not** give them a live source during a probe or mid-pass. So deleting
    `LayoutBox` on item 2 alone would either strand those readers or force them onto the screen-only seam the
    memo forbids. Either this prerequisite lands, or **`LayoutBox` survives C-4 for the in-layout readers**.
-   *(No owner — needs a slot; folds into `#11-fragment-store-screen-provenance`'s neighbourhood but is a
-   distinct requirement: provenance makes the guard sound, this makes the in-layout readers migratable.)*
+   *(→ hand-off row 2 — deliberately its own row, not folded into row 1: provenance makes the guard sound,
+   this makes the in-layout readers migratable.)*
 3. **Paged-store CONTENT hygiene** — the paged path must clear/rebuild the store (its `fragmentainer` key is
    page-relative and it never clears, so it leaves incidental cross-page fragments). ⚠ Scope note (R8-Z1): this
    is **only** the store's *content*; the paged entries' **provenance invalidation** is **C-3a's** (§6.3) —
-   the guard is unsound if split, so it is not deferred here. *(Committed-next per the code; no owner — slot.)*
+   the guard is unsound if split, so it is not deferred here. *(Committed-next per the code; → hand-off row 3.)*
 4. **`layout_generation` re-homed** — it serves the paged-gen gate AND the box-staleness generation-bump;
-   `BoxFragment` drops it and `fragmentainer` cannot take either role. *(No owner — needs a slot.)*
+   `BoxFragment` drops it and `fragmentainer` cannot take either role. *(→ hand-off row 4.)*
 5. **Line-fragment mapping landed** (`FragmentContent::InlineLines`, I-lines) — required before
-   `InlineClientRects` can be retired, since C-3b/C-3d *deepen* the dependency on it. *(Committed-next; no
-   owner — needs a slot.)*
+   `InlineClientRects` can be retired, since C-3b/C-3d *deepen* the dependency on it. *(Committed-next;
+   → hand-off row 5.)*
 6. **`#11-inline-relayout-box-staleness`** (+ its ledger sibling `#11-inline-align-clientrects-nonpersist-path`,
    which `project_open-defer-slots.md` folds into terminal-Z C-3/C-4) resolved or explicitly inherited.
 7. **A design-doc slice for the fragment store** — it currently has **no design-doc home** (`git grep -li
    fragment_tree -- docs/design/` = zero; scoped to `docs/design/` per Codex R1-T5, since an unscoped `docs/`
    now matches this plan-memo itself), and `docs/design/en/15-rendering-pipeline.md` §15.4.1 ("Layer Tree as
-   Independent Structure") still names `LayoutBox` as what the PaintSystem reads.
+   Independent Structure") still names `LayoutBox` as what the PaintSystem reads. *(→ hand-off row 6.)*
 8. **The transform-basis gap recorded** (Codex R1-T2, I-transform §2) — `getBoundingClientRect` /
    `getClientRects` / IO / a11y-bounds read raw pre-transform `border_box()` today though their contract is
    painted geometry. C-3 preserves this, but C-4 must **not** retire `LayoutBox` while silently cementing it:
    either a `#11-*` slot (owner + re-eval trigger) or an explicit "inherited pre-existing gap" acknowledgement
-   in the C-4 plan. *(No owner — needs a slot.)*
+   in the C-4 plan. *(→ hand-off row 7.)*
 
-**Proposed `#11-*` slots for PM registration** (Codex R5-W4 — the defer content spelled out HERE, not deferred
-to the landing memo; PM owns the ledger, this is the proposal + re-eval trigger for each of gate items 2-5, 7,
-8). The memo does **not** create them (shared-SoT is PM-owned); it makes the defer auditable now.
-⚠ **These are PROPOSALS, not registered slots** (Codex R7-Y4): the ledger's why/trigger/**date** triple is
-completed **by PM at registration** (C-3a landing, §6.4) — the *why* is the gate item, the *trigger* is stated
-below and is deliberately **event-based** (these gate a program, C-4, that has no calendar date yet; an invented
-date would be false precision), and the *date* is the registration date PM stamps. Until then they are notes,
-not ledger entries.
-
-| Proposed slot | Gate item | Re-evaluation trigger |
-|---|---|---|
-| `#11-fragment-store-screen-provenance` | 2 (distinguish-empty + laid-marker) | C-4 kickoff, or any slice that needs a producer to write the store's N=1 box for every entity |
-| `#11-in-layout-probe-visible-geometry` | **2b** (probe-visible source for the in-layout readers) | C-4 kickoff — ⚠ **distinct from item 2** (R13-CC2): item 2 is a *post-commit* fact; 2b is what the 3 flex/grid baseline readers need **during** a probe/mid-pass. Without it **`LayoutBox` cannot be deleted for them** — so C-4 must either land this or keep `LayoutBox` for those readers |
-| `#11-paged-fragment-store-hygiene` | 3 (paged store not cleared) | when paged/print media folds into the store (committed-next per `fragment_tree.rs:73`) |
-| `#11-layout-generation-rehome` | 4 (`layout_generation` dual-role) | C-3e (paged-gen gate reader) or C-4, whichever touches `builder/walk.rs:108` first |
-| `#11-fragment-inline-lines` | 5 (`FragmentContent::InlineLines`) | the committed-next inline-line fold (already tracked as terminal-Z dark-data work) |
-| `#11-fragment-store-design-doc` | 7 (no design-doc home) | C-4 (when the paint path migrates and §15.4.1's `LayoutBox` mention goes stale) |
-| `#11-cssom-transform-fidelity` | 8 (raw pre-transform geometry) | any slice that closes the CSSOM/IO transform gap, else inherited-gap acknowledgement at C-4 |
-
-(Gate item 6's two slots — `#11-inline-relayout-box-staleness` + `#11-inline-align-clientrects-nonpersist-path`
-— already exist in `project_open-defer-slots.md`; the ledger folds them into terminal-Z C-3/C-4.)
+**The proposed `#11-*` slot for each gate item above is a row in §6.4's hand-off table** — the memo's single
+record of everything that must outlive this PR. It is **not** duplicated here: this section is *informative*
+(it characterises the gate), and a hand-off obligation is *normative*, so the record lives in the PM report.
+Restating the slots — or their count — in this section is what made §6.4's count drift out of sync with the
+table in the first place (Codex R13-CC2).
 
 ---
 
@@ -576,7 +559,8 @@ not ledger entries.
 1. **PR #463 closed**, re-anchored on this C-3a-first memo (the umbrella characterized consumers before the
    audit that determines them; three collapses each re-introduced an unverified-premise defect). Codex R1-R7
    history preserved on branch `terminal-z-c3-plan` @ `7204c12e`.
-2. **Two shared-SoT corrections still owed** (I do not edit the shared SoT): (a) the anchor memo's v2 retraction
+2. **Two shared-SoT corrections — hand-off rows 9 and 10** (§6.4 is the record: owner + trigger; this item is
+   the *detail* PM needs to apply them). The memo does not edit the shared SoT itself. (a) the anchor memo's v2 retraction
    over-corrected to *"there is no `elidex-render` crate"* — it is real (`crates/core/elidex-render/`); only
    the *relocation* was fabricated. (b) the reader-crate lists should name **`elidex-js`** (the observer host),
    not `elidex-api-observers`. ⚠ Phrase it as *"the **current live** observer-geometry reader is the
@@ -604,12 +588,41 @@ not ledger entries.
    is out of a decision-record's altitude and was the source of the R5→R7 finding cascade.
    Its deliverable is the seam **+ the durable audit artifact** (§4). The downstream slices are cross-crate and
    **not parallel-safe** with the CSS/script/shell lanes — schedule per §5.
-4. **SEVEN C-4 prerequisites currently have no owner** (§5 items 2, **2b**, 3, 4, 5, the design-doc slice, and
-   the transform-basis gap). They gate `LayoutBox` deletion — none blocks C-3a. **All seven proposed `#11-*`
-   slots + their re-eval triggers are spelled out in the §5 table** (R5-W4 — the defer content is auditable
-   now, not deferred to the landing memo); PM registers them in `project_open-defer-slots.md` at C-3a landing
-   (the D-29 "ship 時に登録" precedent), so PM owns tracked slot IDs from the moment the seed lands.
-   ⚠ **2b is easy to lose** (R13-CC2): it reads like a sub-item of 2 but is a *distinct* blocker — the ledger
-   could show every other row resolved while C-4 still cannot delete `LayoutBox` for the in-layout flex/grid
-   baseline readers.
+4. **Hand-off table — the memo's SINGLE record of everything that must outlive this PR.** None of it blocks
+   C-3a; all of it is lost if PM does not carry it.
+
+   > **Hand-off invariant** (the root of Codex R13-CC2 / R14-DD1 / R14-DD2 — three findings, one class):
+   > **every item that must outlive this PR is a ROW here, with an owner and a trigger. Prose may explain a
+   > row; it must never *be* the record.** Each of those three was a separate prose hand-off — "follow-up
+   > (separate, not this PR)", "still owed", a gate item with no row — and PM audits *this table* at landing,
+   > not the prose, so a prose-only hand-off is a dropped hand-off. Patching them one at a time only produced
+   > the next one (CC1's own fix *created* DD1). **Do not add a hand-off anywhere else in this memo, and do not
+   > restate this table's contents or count** — a count is a copy of the row set, and keeping the copy in sync
+   > is the CC2 defect, not a safeguard. CLAUDE.md *One issue, one way*: 単一の正準形に一括収束。§6.1 records
+   > this same class — a duplicated decision surface — killing PR #463.
+
+   ⚠ **Rows 1-7 are PROPOSALS, not registered slots** (Codex R7-Y4): the ledger's why/trigger/**date** triple is
+   completed **by PM at registration** (C-3a landing) — the *why* is the gate item, the *trigger* is stated below
+   and is deliberately **event-based** (these gate C-4, a program with no calendar date yet; an invented date
+   would be false precision), and the *date* is the one PM stamps. Until then they are notes, not ledger entries.
+   The memo does not create them (shared-SoT is PM-owned); it makes the defer auditable **now** (R5-W4), per the
+   D-29 "ship 時に登録" precedent.
+
+   | # | Hand-off item | What breaks if it is dropped | Owner → destination | Trigger |
+   |---|---|---|---|---|
+   | 1 | `#11-fragment-store-screen-provenance` (gate item 2) | no producer writes the store's N=1 box for every entity, so "empty" stays ambiguous | PM → defer ledger | C-4 kickoff, or any slice needing that producer |
+   | 2 | `#11-in-layout-probe-visible-geometry` (gate item **2b**) | **C-4 cannot delete `LayoutBox` for the 3 flex/grid baseline readers.** ⚠ distinct from row 1 (R13-CC2): item 2 is a *post-commit* fact; 2b is what those readers need **during** a probe/mid-pass | PM → defer ledger | C-4 kickoff — C-4 must land this or keep `LayoutBox` for those readers |
+   | 3 | `#11-paged-fragment-store-hygiene` (gate item 3) | the paged store's content is never cleared/rebuilt | PM → defer ledger | when paged/print media folds into the store (committed-next per `fragment_tree.rs:73`) |
+   | 4 | `#11-layout-generation-rehome` (gate item 4) | `layout_generation`'s dual role has no home once `BoxFragment` drops it | PM → defer ledger | C-3e (paged-gen gate reader) or C-4 — whichever touches `builder/walk.rs:108` first |
+   | 5 | `#11-fragment-inline-lines` (gate item 5) | the store still cannot express `FragmentContent::InlineLines` (I-lines) | PM → defer ledger | the committed-next inline-line fold (tracked as terminal-Z dark-data work) |
+   | 6 | `#11-fragment-store-design-doc` (gate item 7) | the store has no design-doc home and §15.4.1 keeps naming `LayoutBox` as what paint reads | PM → defer ledger | C-4 (when the paint path migrates) |
+   | 7 | `#11-cssom-transform-fidelity` (gate item 8) | C-4 retires `LayoutBox` while silently cementing raw pre-transform geometry | PM → defer ledger | any slice closing the CSSOM/IO transform gap, else an inherited-gap acknowledgement in C-4's plan |
+   | 8 | Map CSS modules in `preflight.py`'s `SPEC_LABEL_REVERSE` (`cssom-view` / `css-display-3` / `resize-observer-1`, and CSS modules generally) | **§3's citation gate stays blind** — `parsed citations: 0` for this memo *and* for every later plan citing a CSS module, so the structural webref gate silently degrades to manual convention (R14-DD1). CLAUDE.md already makes CSS modules webref-covered; the gap is the tooling's | PM → a tooling PR on `.claude/skills/elidex-plan-review/preflight.py` (**not** this doc-only PR: a shared-skill change every lane's plan-review runs) | before the next plan-memo citing a CSS module — C-3b at the latest |
+   | 9 | Shared-SoT correction (a): `elidex-render` **is real** (detail → §6.2) | a later C-3 slice re-reads the anchor memo's over-correction and re-decides on a false crate premise — the exact defect class that collapsed #463 (R14-DD2) | PM → anchor memo | C-3a landing |
+   | 10 | Shared-SoT correction (b): reader lists name **`elidex-js`** (detail + required phrasing → §6.2) | same class; and an "api-observers untouched" phrasing pre-empts the option (c) §1 reserves for C-3d's plan-review | PM → anchor memo | C-3a landing |
+   | 11 | `MEMORY.md`'s Layout-lane line still says #463 "R7 待ち" | #463 is closed and re-anchored here (§6.1); the stale index line sends the next session to a dead PR | PM → `MEMORY.md` | C-3a landing |
+
+   (Gate item 6's two slots — `#11-inline-relayout-box-staleness` + `#11-inline-align-clientrects-nonpersist-path`
+   — are **not** rows: they already exist in `project_open-defer-slots.md`, and the ledger folds them into
+   terminal-Z C-3/C-4. Nothing to hand off.)
 5. This memo is doc-only / parallel-safe.
