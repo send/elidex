@@ -4,6 +4,7 @@
 //! thread and sending back display list updates.
 
 mod animation;
+mod drain_host;
 mod event_handlers;
 mod event_loop;
 pub(crate) mod focus;

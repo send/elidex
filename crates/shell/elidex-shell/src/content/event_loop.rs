@@ -50,7 +50,7 @@ pub(super) fn pump_turn(state: &mut ContentState, last_frame: &mut Instant) -> C
 
         // Interim reentrancy guard replay (Codex PR#469 R4). A nav-mutating message
         // that arrived while a Phase-2 apply held the peek→commit window was BUFFERED
-        // by the SW-fetch wait loop (`navigation::dispatch_or_buffer_reentrant`)
+        // by the SW-fetch wait loop (`drain_host::dispatch_or_buffer_reentrant`)
         // rather than mutating session history mid-apply. Replay it HERE — after the
         // `run_deferred_traversals` above has fully committed and cleared the
         // nested-apply guard (`is_applying()` is now false), so the buffered
@@ -306,7 +306,7 @@ pub(super) fn pump_turn(state: &mut ContentState, last_frame: &mut Instant) -> C
 /// Replay any messages the SW-fetch wait loop BUFFERED because they were
 /// re-dispatched while a Phase-2 traversal apply held the peek→commit window (the
 /// interim reentrancy guard, Codex PR#469 R4 — see
-/// [`navigation::dispatch_or_buffer_reentrant`]). Called at the top of
+/// [`super::drain_host::dispatch_or_buffer_reentrant`]). Called at the top of
 /// [`pump_turn`], AFTER `run_deferred_traversals` has fully committed the apply and
 /// cleared the nested-apply guard, so each buffered nav-mutating message now runs
 /// through the normal [`handle_message`] path OUTSIDE any held peek — the mutation

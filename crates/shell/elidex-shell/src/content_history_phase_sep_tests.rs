@@ -637,7 +637,7 @@ fn interim_guard_dispatches_reentrant_when_not_applying() {
     let len_before = state.nav_controller.len();
 
     let frag = url::Url::parse("https://example.com/#frag").unwrap();
-    super::navigation::dispatch_or_buffer_reentrant(&mut state, BrowserToContent::Navigate(frag));
+    super::drain_host::dispatch_or_buffer_reentrant(&mut state, BrowserToContent::Navigate(frag));
 
     assert!(
         state.deferred_reentrant_messages.is_empty(),

@@ -30,9 +30,8 @@
 use elidex_navigation::{DrainCoordinator, DrainHost, TraversalDelta};
 use elidex_script_session::HistoryAction;
 
-use super::navigation::{
-    apply_traversal_delta, handle_history_action, handle_navigate, HistoryCursorOp,
-};
+use super::drain_host::apply_traversal_delta;
+use super::navigation::{handle_history_action, handle_navigate, HistoryCursorOp};
 use super::test_support::build_test_content_state_with_url;
 use crate::ipc::{BrowserToContent, ContentToBrowser, LocalChannel};
 
