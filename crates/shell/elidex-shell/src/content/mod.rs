@@ -773,6 +773,10 @@ mod window_open_tests;
 mod history_drain_tests;
 
 #[cfg(test)]
+#[path = "../content_history_phase_sep_tests.rs"]
+mod history_phase_sep_tests;
+
+#[cfg(test)]
 #[path = "../content_fragment_nav_tests.rs"]
 mod fragment_nav_tests;
 
