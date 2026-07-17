@@ -79,7 +79,7 @@ decision-record's altitude — R6 showed three glib mechanism-specs were each wr
 
 ```
 impl EcsDom {
-    /// (ILLUSTRATIVE signature — the CONTRACT is the four requirements below;
+    /// (ILLUSTRATIVE signature — the CONTRACT is the five requirements below;
     ///  the exact encoding is C-3a impl.)
     fn box_fragments(&self, entity: Entity) -> <phase-guarded projection>;
 }
@@ -100,6 +100,14 @@ impl EcsDom {
    committer calls `remove_entity`) reads as absent, checked via `world.contains` before trusting `fragments_for`.
 4. **Pre-transform geometry** (§2 I-transform) — CSS transforms are a paint-time wrapper; a painted-geometry
    reader composes the chain itself.
+5. **"No associated CSS box" is distinguishable from "a real zero-sized box"** (Codex R9-AA3) — CSSOM consumers
+   MUST branch on it (`getClientRects()` returns an **empty** list when there is no associated box, cssom-view
+   §6; `display:contents` generates **no box**, CSS Display 3 §2.5) — yet elidex synthesises a **zero-size
+   `LayoutBox`** for `display:contents` (`layout/mod.rs:74`), so a bare fragment sequence cannot express the
+   difference. Deferring this signal to C-3b/C-3d would force those slices to **bypass the seam or duplicate
+   style checks** — so the seam carries it. ⚠ This does **not** oblige C-3 to *fix* the deviation (C-3 preserves
+   current behavior, §2 I-boxless): it obliges the seam to **expose the distinction** so a consumer *can* take
+   its spec branch. Which readers need it is audit axis 3's output.
 
 **Why on `EcsDom`** (not each consumer reading the store/component directly):
 
@@ -245,18 +253,25 @@ block/children/shift.rs:113-127` says so outright:
    over cleaning every teardown path — the store already has *"no incremental / staleness model; rebuild is the
    reconcile"*).
 
-⇒ **`box_fragments` must be valid only after a completed SCREEN layout pass, and only for a live entity — and
-it must ENFORCE this, not merely document it** (Codex R5-W3). A documented-only "screen-pass-only" precondition
-is a footgun: a migrated reader can call the seam after a paged/print render and silently consume page-relative
-geometry. **Requirements** (the mechanism — an `EcsDom` provenance enum, a generation counter, an access token
-— is C-3a impl; the memo pins the requirements, not the state machine):
-- (a) an **`EcsDom` layout-provenance signal** distinguishes *completed-screen* from *mid-layout / paged*;
-- (b) **every non-screen layout entry actively sets a non-screen provenance BEFORE laying out** (Codex R6-X4) —
-  NOT merely "does not set screen": a paged render after a prior screen pass would otherwise leave the stale
-  *screen* provenance in place and pass the guard on page-relative fragments;
-- (c) `box_fragments` **fails the guard** (distinct from box-absence, §1 requirement 3) unless the provenance is
-  *completed-screen*.
-(Reader-side guard; complements the producer-side C-4 gate item 3 paged-store hygiene.) The three **in-layout** baseline
+⇒ **REQUIREMENT (the memo's decision): `box_fragments` must FAIL its guard — distinctly from box-absence (§1
+requirement 3) — unless the store reflects a COMPLETED SCREEN layout, and it must ENFORCE this, not merely
+document it** (Codex R5-W3: a documented-only precondition is a footgun — a migrated reader silently consumes
+page-relative geometry after a print render; CLAUDE.md *"Security by structure, not review convention"*).
+
+⚠ **The enforcement PROTOCOL is C-3a's implementation plan-review, NOT this memo** (§6.3 — the rule this memo
+already states and which R6-X4 → R8-Z1 → R9-AA1 each caught this memo violating: three rounds of hand-building
+a protocol one rule at a time is exactly the enforcement-mechanism specification §6.3 routes away). What the
+memo owes instead is the **soundness obligations** the C-3a protocol must discharge — each is a *live* hole a
+naive design falls into, and each was found by review, so they are recorded here as the acceptance criteria,
+not as a design:
+
+| # | The protocol must not be fooled by | Why it is a real hole |
+|---|---|---|
+| 1 | **paged/print after a completed screen pass** (R8-Z1) | nothing distinguishes a screen-built from a paged-built store unless an entry marks it, so a stale *completed-screen* would stay green over page-relative fragments |
+| 2 | **a re-entrant/second SCREEN pass, mid-flight** (R9-AA1) | `layout_tree` `clear()`s the store at the **top** of the pass (I-phase fact 2), so a stale *completed-screen* from the prior pass stays green while the store is empty/partial |
+| 3 | **a probe pass** (I-phase fact 1) | the store holds the prior definitive pass's coords |
+
+(Reader-side guard; complements the producer-side C-4 gate item 3 paged-store **content** hygiene.) The three **in-layout** baseline
 readers (`elidex-layout-flex/src/baseline.rs:18`, `/src/lib.rs:474`, `elidex-layout-grid/src/position.rs:444`
 — all `get::<&LayoutBox>` *inside* the layout algorithms) **must NOT be migrated onto `box_fragments`**; they
 keep reading the live `LayoutBox`. Whether they get an explicit live accessor or simply stay on `LayoutBox`
@@ -394,33 +409,23 @@ classification, the very churn this re-anchor removes).
 structurally non-exhaustive, so it cannot *be* the gate; §4's "exhaustive inventory" thesis demands the
 compiler). So:
 
-1. **The exhaustive use-site set is a COMPILER fact, not a grep fact** (Codex R1-T6 / R2-U2 / re-gate-V5 /
-   R5-W2 each found a reference shape a grep-list missed — `&mut`, helper-params, generic bounds/type-aliases,
-   then **import aliases** `use elidex_plugin::LayoutBox as LB; get::<&LB>`; grep structurally cannot follow
-   aliases / re-exports / generic bounds, so any grep union claims a completeness it cannot deliver — the
-   anti-pattern §4's own "exhaustive inventory" thesis forbids). Therefore:
-   - **The SOUND enumeration is compiler-based** (requirement; the mechanism is impl's): the compiler must be
-     made to **reject a `LayoutBox` reference from any non-producer crate**, so the workspace failing to compile
-     enumerates every remaining consumer *by construction* (no alias/bound/shape escapes). ⚠ Plain `pub(crate)`
-     does **NOT** express this (Codex R6-X2): `LayoutBox` lives in `elidex-plugin` but the *producer* crates
-     (`elidex-layout-*`) are **also external** to it, so crate-privacy would reject the allowed producer writes
-     too. It needs a **producer-allowlisting** mechanism — a sealed producer-facing API, a `deny`-by-default lint
-     (clippy/dylint) with a producer-module allowlist, or module visibility separating producers from consumers.
-   - **⚠ C-3a RUNS this check — it is not deferred to C-4** (Codex R7-Y2). §4's inventory is advertised as
-     *exhaustive* and **C-3b–C-3e plan their contracts from it**; if C-3a shipped only the grep first-pass, the
-     alias/generic/re-export cases would surface at C-4 — *after* four slices had planned from an incomplete
-     inventory. So the compiler check is **the C-3a audit's exhaustiveness proof** (run as a throwaway
-     experiment if the permanent gate lands later); C-4 re-runs the same check as the deletion gate.
-   - **⚠ The check is ITERATIVE, to a fixed point — one run is NOT exhaustive** (Codex R8-Z2). A crate whose
-     *dependency* failed to compile is never type-checked (rustc needs the dep's metadata), so a single run only
-     surfaces the **first error layer**: an error in `elidex-dom-api` hides `elidex-js`'s readers entirely.
-     `cargo check --keep-going` ("do not abort the build as soon as there is an error") helps only for
-     *independent* crates, not dependents. So the audit runs **check → record + allowlist the readers found →
-     re-check → repeat until a no-new-errors fixed point**, and only that fixed point is the exhaustive
-     inventory.
-   - **`git grep -nw 'LayoutBox'` + `git grep -nE 'dyn BoxModel|impl BoxModel'` is the C-3a-audit HUMAN
-     first-pass** — fast, catches the common shapes to classify — but is **explicitly NOT the sound gate** and
-     must not be presented as exhaustive.
+1. **REQUIREMENT (the memo's decision): the inventory must be EXHAUSTIVE and must STAY current, and only the
+   COMPILER can prove that — a grep cannot.** (Codex R1-T6 / R2-U2 / re-gate-V5 / R5-W2 each found a reference
+   shape a grep-list missed — `&mut`, helper-params, generic bounds/type-aliases, then import aliases
+   `use elidex_plugin::LayoutBox as LB; get::<&LB>`; grep structurally cannot follow aliases / re-exports /
+   generic bounds, so any grep union claims a completeness it cannot deliver.) `git grep -nw 'LayoutBox'` +
+   `git grep -nE 'dyn BoxModel|impl BoxModel'` remains the **human first-pass** for classification, explicitly
+   **not** the proof.
+   ⚠ **The enumeration METHOD and the standing check's shape are C-3a's implementation plan-review, NOT this
+   memo** (§6.3 — the same rule R6-X2 → R7-Y2/R8-Z2 → R9-AA2/AA4 each caught this memo violating). The memo owes
+   the **soundness obligations** the C-3a method must discharge — each a live hole found by review:
+
+   | # | The proof must not be fooled by | Why it is a real hole |
+   |---|---|---|
+   | 1 | **`pub(crate)` as the boundary** (R6-X2) | `LayoutBox` is in `elidex-plugin` but the *producer* crates (`elidex-layout-*`) are **also external** to it — crate-privacy rejects the allowed producer writes too, so the boundary must **allowlist producers** |
+   | 2 | **allowlisting `elidex-ecs` wholesale** (R9-AA4) | the seam itself (`box_fragments`) must read `LayoutBox` for the N=1 fallback (§1 req 2) — a broad `elidex-ecs` allowlist would let *future* low-level readers bypass the audit. The exception must be **seam-only**, so the proof stays *"every consumer read goes through `box_fragments`"* |
+   | 3 | **a single compiler run** (R8-Z2) | a crate whose *dependency* failed is never type-checked (rustc needs the dep's metadata), so one run surfaces only the **first error layer** — an `elidex-dom-api` error hides `elidex-js`'s readers. `cargo check --keep-going` helps only *independent* crates. The method must **iterate to a no-new-errors fixed point** |
+   | 4 | **running once, at C-3a, then rotting** (R7-Y2 + R9-AA2) | C-3b–C-3e plan their contracts **from this inventory**, so it must be exhaustive **at C-3a** (not deferred to C-4, or four slices plan from stale data) **and stay** exhaustive as slices land — a throwaway experiment leaves a later slice's new reader invisible until C-4. It needs to be **durable** (a committed inventory + a standing check that diffs against it, or a per-slice re-run obligation) |
 2. **Classify each hit** by the 8 axes. The reference *shapes* the sweep surfaces — illustrative, not
    exhaustive — include: `get::<&LayoutBox>` (shared read); **`get::<&mut …LayoutBox>`** (R1-T6 — mostly
    producer writes, but the C-4 "zero reads outside producers" gate can't be *proven* without classifying each
