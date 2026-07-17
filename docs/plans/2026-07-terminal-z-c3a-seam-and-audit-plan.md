@@ -409,8 +409,15 @@ compiler). So:
    - **⚠ C-3a RUNS this check — it is not deferred to C-4** (Codex R7-Y2). §4's inventory is advertised as
      *exhaustive* and **C-3b–C-3e plan their contracts from it**; if C-3a shipped only the grep first-pass, the
      alias/generic/re-export cases would surface at C-4 — *after* four slices had planned from an incomplete
-     inventory. So the compiler check is **the C-3a audit's exhaustiveness proof** (run once as a throwaway
+     inventory. So the compiler check is **the C-3a audit's exhaustiveness proof** (run as a throwaway
      experiment if the permanent gate lands later); C-4 re-runs the same check as the deletion gate.
+   - **⚠ The check is ITERATIVE, to a fixed point — one run is NOT exhaustive** (Codex R8-Z2). A crate whose
+     *dependency* failed to compile is never type-checked (rustc needs the dep's metadata), so a single run only
+     surfaces the **first error layer**: an error in `elidex-dom-api` hides `elidex-js`'s readers entirely.
+     `cargo check --keep-going` ("do not abort the build as soon as there is an error") helps only for
+     *independent* crates, not dependents. So the audit runs **check → record + allowlist the readers found →
+     re-check → repeat until a no-new-errors fixed point**, and only that fixed point is the exhaustive
+     inventory.
    - **`git grep -nw 'LayoutBox'` + `git grep -nE 'dyn BoxModel|impl BoxModel'` is the C-3a-audit HUMAN
      first-pass** — fast, catches the common shapes to classify — but is **explicitly NOT the sound gate** and
      must not be presented as exhaustive.
@@ -493,8 +500,10 @@ C-3a (seam + audit) ──┬── C-3b  CSSOM geometry (elidex-dom-api)       
 2. Producers write the store's N=1 box for every entity **AND** an empty `box_fragments` is **distinguishable**
    from boxless (a laid-this-pass marker / generation) — else in-layout readers (and the I-boxless × I-phase
    crossing) break. *(No owner — needs a slot.)*
-3. **Paged-store hygiene** — the paged path must clear/rebuild or stamp provenance, else post-print reads
-   return page-relative geometry. *(Committed-next per the code; no owner — needs a slot.)*
+3. **Paged-store CONTENT hygiene** — the paged path must clear/rebuild the store (its `fragmentainer` key is
+   page-relative and it never clears, so it leaves incidental cross-page fragments). ⚠ Scope note (R8-Z1): this
+   is **only** the store's *content*; the paged entries' **provenance invalidation** is **C-3a's** (§6.3) —
+   the guard is unsound if split, so it is not deferred here. *(Committed-next per the code; no owner — slot.)*
 4. **`layout_generation` re-homed** — it serves the paged-gen gate AND the box-staleness generation-bump;
    `BoxFragment` drops it and `fragmentainer` cannot take either role. *(No owner — needs a slot.)*
 5. **Line-fragment mapping landed** (`FragmentContent::InlineLines`, I-lines) — required before
@@ -546,9 +555,16 @@ not ledger entries.
    not `elidex-api-observers` (which is geometry-agnostic and untouched by C-3).
 3. **C-3a is the isolatable seed** (`elidex-ecs`-centred, additive, **no consumer migration**) and is the right
    first PR. ⚠ **It is not `elidex-ecs`-ONLY** (Codex R7-Y3): enforcing the I-phase guard (§2) has a **writer
-   side** — the screen layout entry must *publish* completed-screen provenance — so C-3a carries a **bounded
-   cross-crate tail** at the layout entrypoint (`elidex-layout`). Actively invalidating on the *paged* entries
-   is the `#11-paged-fragment-store-hygiene` slot (§5). Without this the guard degrades to the documented-only
+   side**, so C-3a carries a **bounded cross-crate tail** at the layout entrypoints (`elidex-layout`).
+   ⚠ **The provenance protocol is NOT divisible** (Codex R8-Z1): **every** layout entry must participate —
+   the screen entry *publishes* completed-screen at completion, and **the paged/print entries invalidate before
+   laying out**. An earlier draft deferred the paged invalidation to `#11-paged-fragment-store-hygiene`; that
+   split makes the guard **unsound**, because a paged render following a completed screen layout would leave the
+   stale *completed-screen* provenance in place and `box_fragments` would return page-relative fragments under a
+   **green** guard — precisely the failure §2 exists to prevent. Nothing outside the store can distinguish a
+   screen-built from a paged-built store unless an entry marks it, so the paged entries are **in C-3a's scope**.
+   (The slot remains, but for a *different* concern: the paged store's **content** hygiene — clear/rebuild —
+   not the provenance protocol.) Without the whole protocol the guard degrades to the documented-only
    precondition §2 rejects, so the tail is in scope, not optional.
    **This memo pins the seam's CONTRACT + REQUIREMENTS; the ENFORCEMENT APPROACH is C-3a's implementation
    plan-review** — the phase-guard encoding (`Result` / token / guarded projection) and its propagation to the
