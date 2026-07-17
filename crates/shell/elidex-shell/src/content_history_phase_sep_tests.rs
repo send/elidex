@@ -598,7 +598,11 @@ fn interim_guard_buffered_nav_replays_on_later_pump_turn() {
     );
 
     // A later pump turn replays the buffer (after the apply committed / guard clear).
-    super::event_loop::replay_deferred_reentrant_messages(&mut state);
+    // A same-document fragment nav signals no exit, so replay reports `Continue`.
+    assert!(
+        super::event_loop::replay_deferred_reentrant_messages(&mut state).is_continue(),
+        "a buffered non-Shutdown nav replays without signalling the thread to exit"
+    );
 
     assert!(
         state.deferred_reentrant_messages.is_empty(),
@@ -648,5 +652,52 @@ fn interim_guard_dispatches_reentrant_when_not_applying() {
         state.nav_controller.len(),
         len_before + 1,
         "the immediate fragment nav pushed its same-document entry"
+    );
+}
+
+/// **Interim reentrancy guard** (Codex PR#469 R5): a buffered `Shutdown` — one that
+/// arrived mid-apply and was buffered by the SW-fetch wait guard — must PROPAGATE its
+/// exit signal when replayed. `handle_message(Shutdown)` returns the content-thread
+/// exit signal (`false`) after running unload/teardown; `replay_deferred_reentrant_messages`
+/// must surface it as `ControlFlow::Break` and `pump_turn` must RETURN that Break so
+/// `run_event_loop` exits. The bug this pins: the replay discarded the signal, so the
+/// Shutdown was consumed from the buffer yet the pump kept running (then blocked on the
+/// next `recv`) — a hung/leaked content thread on shutdown-during-a-SW-controlled-apply.
+#[test]
+fn interim_guard_buffered_shutdown_breaks_the_pump() {
+    let (mut state, browser) = build_test_content_state_with_url("<p>doc</p>", base());
+    drain_browser(&browser);
+
+    // A Shutdown arrived mid-apply and was BUFFERED (as the SW-wait guard does while
+    // `is_applying()` holds) rather than dispatched inline.
+    state
+        .deferred_reentrant_messages
+        .push(BrowserToContent::Shutdown);
+
+    // Replaying it propagates the exit signal as Break — NOT discarded.
+    let replay_flow = super::event_loop::replay_deferred_reentrant_messages(&mut state);
+    assert!(
+        replay_flow.is_break(),
+        "a buffered Shutdown's exit signal must propagate as ControlFlow::Break — not be \
+         discarded (which would leave the content thread pumping, then blocked on recv)"
+    );
+    assert!(
+        state.deferred_reentrant_messages.is_empty(),
+        "the buffer drains on replay (the Shutdown was consumed)"
+    );
+
+    // And driven through the whole pump: a buffered Shutdown replayed at the top of
+    // `pump_turn` makes the turn RETURN Break (the content thread exits), not Continue.
+    let (mut state, browser) = build_test_content_state_with_url("<p>doc</p>", base());
+    drain_browser(&browser);
+    state
+        .deferred_reentrant_messages
+        .push(BrowserToContent::Shutdown);
+    let mut last_frame = std::time::Instant::now();
+    let flow = super::event_loop::pump_turn(&mut state, &mut last_frame);
+    assert!(
+        flow.is_break(),
+        "pump_turn must return Break when the top-of-turn replay hits a buffered Shutdown \
+         (so run_event_loop exits) — the old code swallowed the signal and continued"
     );
 }

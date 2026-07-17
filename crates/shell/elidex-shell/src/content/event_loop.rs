@@ -55,7 +55,13 @@ pub(super) fn pump_turn(state: &mut ContentState, last_frame: &mut Instant) -> C
         // `run_deferred_traversals` above has fully committed and cleared the
         // nested-apply guard (`is_applying()` is now false), so the buffered
         // `Navigate`/`Reload`/chrome/input message dispatches OUTSIDE any held peek.
-        replay_deferred_reentrant_messages(state);
+        // A buffered `Shutdown` (or any exit-signaling message) replayed there returns
+        // the content-thread exit signal — propagate it as `Break` so `run_event_loop`
+        // exits, rather than pumping on with the Shutdown already consumed from the
+        // channel and then blocking on the next `recv` (Codex PR#469 R5).
+        if replay_deferred_reentrant_messages(state).is_break() {
+            return ControlFlow::Break(());
+        }
 
         let animations_running = state.pipeline.animation_engine.has_running();
 
@@ -306,21 +312,30 @@ pub(super) fn pump_turn(state: &mut ContentState, last_frame: &mut Instant) -> C
 /// through the normal [`handle_message`] path OUTSIDE any held peek — the mutation
 /// window the guard closed. Takes the buffer out first so the replayed handler may
 /// itself buffer again (a fresh apply) without aliasing the drain.
-pub(super) fn replay_deferred_reentrant_messages(state: &mut ContentState) {
+/// Returns [`ControlFlow::Break`] iff a replayed message signalled the content thread
+/// to exit — `handle_message` returns `false` for a `Shutdown` (after running
+/// unload/teardown). The caller ([`pump_turn`]) propagates that `Break` so
+/// [`run_event_loop`] stops. A buffered `Shutdown` MUST NOT be discarded: it is
+/// consumed from the channel here, so swallowing its exit signal would leave the pump
+/// running and then blocking on the next `recv` — a hung/leaked content thread on
+/// shutdown-during-a-SW-controlled-apply (Codex PR#469 R5).
+pub(super) fn replay_deferred_reentrant_messages(state: &mut ContentState) -> ControlFlow<()> {
     if state.deferred_reentrant_messages.is_empty() {
-        return;
+        return ControlFlow::Continue(());
     }
     debug_assert!(
         !state.traversal_queue.is_applying(),
         "buffered reentrant messages must replay only after the apply committed"
     );
     for msg in std::mem::take(&mut state.deferred_reentrant_messages) {
-        // Return value (`false` = Shutdown) is intentionally ignored here, matching
-        // the pre-guard synchronous re-dispatch site: a buffered Shutdown is rare
-        // (it is dispatched inline when not mid-apply) and the loop's own Shutdown
-        // handling drives teardown on the next `recv`.
-        let _ = handle_message(msg, state);
+        // Replay FIFO; on the first exit-signalling message (`handle_message` → `false`
+        // = Shutdown), stop and propagate `Break` — the remaining buffered messages are
+        // moot because the thread is exiting.
+        if !handle_message(msg, state) {
+            return ControlFlow::Break(());
+        }
     }
+    ControlFlow::Continue(())
 }
 
 /// Whether a coordinate-bearing input event mapped against `placement_seq` is stale:
