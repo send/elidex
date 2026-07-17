@@ -403,6 +403,28 @@ pub trait DrainHost {
     /// (the coordinator ships once at end); it must NOT peek/commit the cursor.
     fn handle_history_action(&mut self, action: &HistoryAction);
 
+    /// **Bind a to-be-deferred `SyncUpdate`'s URL to the CALL-TIME document URL**
+    /// (plan §1 Resolution D / Codex PR#469 R3 T3). Called by the coordinator
+    /// **only** when a synchronous `pushState` / `replaceState` update issued
+    /// **after** a same-turn traversal is about to defer onto the queue (I2). A
+    /// `history.pushState(state, '')` / `replaceState` with the URL omitted stages
+    /// `url: None` (and a *relative* URL is base-relative); deferred behind a
+    /// same-document traversal, Phase 2's `handle_history_action` would otherwise
+    /// resolve the URL against the **post-traversal** document URL, recording the
+    /// back target instead of the call-time one (`back(); pushState(null, '')` from
+    /// `/a` would record `base`, not `/a`).
+    ///
+    /// The host resolves the effective URL **now** — the current document URL at
+    /// enqueue time — and folds it into the returned [`HistoryAction`]; the
+    /// coordinator just stores what the host returns. This keeps the substrate
+    /// **engine-agnostic**: the coordinator never resolves URLs (it has no
+    /// document-identity / base-URL concept), the host supplies the normalization.
+    /// An in-task Phase-1 update is applied directly and never passes through here
+    /// (it already reads the live call-time URL). Non-`PushState`/`ReplaceState`
+    /// actions are never deferred as a `SyncUpdate`, so an impl returns them
+    /// unchanged.
+    fn normalize_deferred_sync_update(&self, action: HistoryAction) -> HistoryAction;
+
     /// **Phase 1c** — drain the last-wins own-context navigation slot
     /// (`pending_navigation`, §7.4.2). Returns `true` iff a navigation applied
     /// (replaced the pipeline **and** shipped its own frame).
@@ -540,7 +562,13 @@ impl DrainCoordinator {
                 }
                 None if seen_traversal => {
                     // A synchronous update issued AFTER a same-turn traversal —
-                    // defer it (tagged) so it cannot jump ahead (I2).
+                    // defer it (tagged) so it cannot jump ahead (I2). Bind its URL
+                    // to the CALL-TIME document URL FIRST (T3): once deferred, Phase
+                    // 2 would otherwise resolve an omitted/relative URL against the
+                    // POST-traversal `pipeline.url` (the back target). The host
+                    // resolves the effective URL now (substrate stays
+                    // engine-agnostic); the coordinator stores the normalized action.
+                    let action = host.normalize_deferred_sync_update(action);
                     host.traversal_queue().enqueue_sync_update(action);
                 }
                 None => {

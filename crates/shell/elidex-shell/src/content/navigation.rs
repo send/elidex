@@ -572,6 +572,44 @@ impl DrainHost for ContentState {
         handle_history_action(self, action);
     }
 
+    /// **T3** (Codex PR#469 R3) — bind a to-be-deferred `SyncUpdate`'s URL to the
+    /// CALL-TIME document URL. `history.pushState(state, '')` / `replaceState` with
+    /// the URL omitted stages `url: None`; a relative URL is base-relative. Once
+    /// deferred behind a same-turn traversal, Phase-2's `apply_push_replace_state`
+    /// resolves the URL against the **post-traversal** `pipeline.url` — so
+    /// `back(); pushState(null, '')` from `/a` would record the back target (base),
+    /// not `/a`. Resolve the effective URL NOW against the current document URL
+    /// (the call-time base): `None` → the current document URL; a relative/absolute
+    /// URL → its absolute call-time resolution. Phase 2 then records the call-time
+    /// target regardless of any same-document traversal that moved `pipeline.url`
+    /// first. Traversals never defer as a `SyncUpdate`, so they pass through
+    /// unchanged.
+    fn normalize_deferred_sync_update(&self, action: HistoryAction) -> HistoryAction {
+        let base = self.pipeline.url.as_ref();
+        match action {
+            HistoryAction::PushState {
+                url,
+                title,
+                serialized_state,
+            } => HistoryAction::PushState {
+                url: normalize_deferred_history_url(base, url),
+                title,
+                serialized_state,
+            },
+            HistoryAction::ReplaceState {
+                url,
+                title,
+                serialized_state,
+            } => HistoryAction::ReplaceState {
+                url: normalize_deferred_history_url(base, url),
+                title,
+                serialized_state,
+            },
+            // Not a sync update — never deferred as a `SyncUpdate`; return verbatim.
+            other => other,
+        }
+    }
+
     /// **Phase 1b peek-classify** (Resolution E): `Some` for an in-range traversal
     /// (a partition barrier), `None` for a no-op — `peek_*` returns `None` at the
     /// ends / out of range (§7.4.3 sub-step 4.4 "does not exist ⇒ abort"), so it
@@ -834,6 +872,29 @@ pub(super) fn apply_traversal_delta(
     TraversalApplyOutcome {
         shipped,
         changed_document: shipped && is_rebuild,
+    }
+}
+
+/// Resolve a to-be-deferred `SyncUpdate`'s URL to an ABSOLUTE **call-time** URL
+/// (T3). Called at Phase-1b enqueue time, when `base` is the CALL-TIME document
+/// URL (`state.pipeline.url` before any deferred traversal applies):
+/// - `None` (an omitted `pushState` / `replaceState` URL) → the current document
+///   URL (§7.2.5: an absent/empty url resolves against the document's URL at call
+///   time — the entry keeps the call-time URL).
+/// - `Some(u)` → its absolute resolution against the call-time base; left verbatim
+///   only if it does not resolve (Phase-2's apply re-checks scheme/origin).
+///
+/// This makes the deferred update base-INDEPENDENT at apply time, so a same-turn
+/// same-document traversal that moved `pipeline.url` first cannot rebind it to the
+/// back target.
+fn normalize_deferred_history_url(base: Option<&url::Url>, url: Option<String>) -> Option<String> {
+    match url {
+        None => base.map(url::Url::to_string),
+        Some(u) => Some(
+            resolve_nav_url(base, &u)
+                .map(|resolved| resolved.to_string())
+                .unwrap_or(u),
+        ),
     }
 }
 

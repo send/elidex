@@ -1019,3 +1019,43 @@ fn pump_turn_applies_enqueued_traversal_on_a_later_turn() {
         "the deferred back() drained on the later turn"
     );
 }
+
+/// T3 (Codex PR#469 R3): a `SyncUpdate` deferred behind a same-document traversal
+/// binds its URL to the CALL-TIME document URL, not the post-traversal one.
+/// `back(); pushState(null, '')` from `/a` records `/a` (the call-time URL) — NOT
+/// the back target (base) that `pipeline.url` holds at Phase-2 apply time. The
+/// pushState omits the URL (`url: None`); without the T3 enqueue-time normalization
+/// Phase 2's `None` branch used the post-traversal `pipeline.url` (base).
+#[test]
+fn deferred_syncupdate_binds_call_time_url_not_post_traversal() {
+    let (mut state, browser) = build_test_content_state_with_url(
+        "<p>doc</p>",
+        url::Url::parse("https://example.com/a").unwrap(),
+    );
+    seed_same_document_pair(&mut state); // [base, /a], cursor on /a; call-time URL = /a
+    let _ = state
+        .pipeline
+        .runtime
+        .vm()
+        .eval("history.back(); history.pushState(null, '');");
+    drain_browser(&browser);
+
+    // Phase 1: back() enqueued (barrier); the empty-URL pushState defers behind it,
+    // its URL bound to the call-time /a at enqueue time (T3).
+    let _ = DrainCoordinator::drain_synchronous_phase(&mut state);
+    assert!(
+        state.traversal_queue().has_pending_traversal(),
+        "back() queued; the empty-URL push deferred behind it (I2)"
+    );
+
+    // Phase 2: same-document back() → base (pipeline.url now base), THEN the deferred
+    // push applies against its CALL-TIME-bound /a — recording /a, not base.
+    let _ = DrainCoordinator::run_deferred_traversals(&mut state);
+    assert!(state.traversal_queue().is_empty(), "queue drained");
+    assert_eq!(
+        state.nav_controller.current_url().map(url::Url::as_str),
+        Some("https://example.com/a"),
+        "the deferred empty-URL push bound to the CALL-TIME /a, not the back target \
+         (base) that pipeline.url holds at apply time (T3)"
+    );
+}

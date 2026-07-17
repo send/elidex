@@ -180,6 +180,14 @@ impl DrainHost for MockHost {
         });
     }
 
+    fn normalize_deferred_sync_update(&self, action: HistoryAction) -> HistoryAction {
+        // The isolation mock has no document URL; the call-time-URL binding (T3) is
+        // content-level (pinned by the shell test
+        // `deferred_syncupdate_binds_call_time_url_not_post_traversal`). Return the
+        // action unchanged so the ordering/partition assertions read the raw label.
+        action
+    }
+
     fn classify_traversal(&mut self, delta: TraversalDelta) -> Option<PendingTraversal> {
         // Resolution E peek-classify: `None` = a no-op out-of-range traversal (not
         // a barrier); `Some` = in-range, enqueued as a barrier. A per-call
