@@ -631,14 +631,21 @@ fn interim_guard_dispatches_reentrant_when_not_applying() {
     );
 }
 
-/// **Interim reentrancy guard** (Codex PR#469 R5): a buffered `Shutdown` — one that
-/// arrived mid-apply and was buffered by the SW-fetch wait guard — must PROPAGATE its
-/// exit signal when replayed. `handle_message(Shutdown)` returns the content-thread
-/// exit signal (`false`) after running unload/teardown; `replay_deferred_reentrant_messages`
-/// must surface it as `ControlFlow::Break` and `pump_turn` must RETURN that Break so
-/// `run_event_loop` exits. The bug this pins: the replay discarded the signal, so the
-/// Shutdown was consumed from the buffer yet the pump kept running (then blocked on the
-/// next `recv`) — a hung/leaked content thread on shutdown-during-a-SW-controlled-apply.
+/// **Interim reentrancy guard** — the DEFENSIVE R5 replay-exit backstop (Codex
+/// PR#469 R5, retained under R8). Any exit-signaling message that reaches the buffer
+/// must PROPAGATE its exit signal when replayed: `handle_message(Shutdown)` returns
+/// the content-thread exit signal (`false`) after running unload/teardown;
+/// `replay_deferred_reentrant_messages` must surface it as `ControlFlow::Break` and
+/// `pump_turn` must RETURN that Break so `run_event_loop` exits.
+///
+/// RE-ANCHORED (R8): the LIVE guard no longer routes `Shutdown` into this buffer — it
+/// is now handled IMMEDIATELY at `dispatch_or_buffer_reentrant` (teardown + the
+/// `shutdown_requested` flag) so teardown does not wait on the ~30s SW deadline (see
+/// `interim_guard_shutdown_handled_immediately_not_buffered`). This test injects a
+/// `Shutdown` DIRECTLY into the buffer to pin the retained defensive propagation — so a
+/// buffered exit-signaling message can never leave the pump hung (the original R5 bug:
+/// the replay discarded the signal, so the Shutdown was consumed from the buffer yet
+/// the pump kept running, then blocked on the next `recv`).
 #[test]
 fn interim_guard_buffered_shutdown_breaks_the_pump() {
     let (mut state, browser) = build_test_content_state_with_url("<p>doc</p>", base());
@@ -675,5 +682,59 @@ fn interim_guard_buffered_shutdown_breaks_the_pump() {
         flow.is_break(),
         "pump_turn must return Break when the top-of-turn replay hits a buffered Shutdown \
          (so run_event_loop exits) — the old code swallowed the signal and continued"
+    );
+}
+
+/// **Interim reentrancy guard** (Codex PR#469 R8): a `Shutdown` arriving at the
+/// reentrancy vector (`dispatch_or_buffer_reentrant`) is handled IMMEDIATELY — it runs
+/// unload/teardown and sets `shutdown_requested` — and is NEVER buffered. This is the
+/// follow-on to R5: R5 made a buffered Shutdown's exit signal PROPAGATE on replay, but a
+/// buffered Shutdown still could not be OBSERVED until the SW-fetch wait loop unblocked,
+/// which — for a delayed/lost `SwFetchResponse` during an SW-controlled cross-document
+/// traversal — is only at the ~30s navigation deadline. So a tab/window close would hang
+/// teardown for up to 30s even though the Shutdown was already consumed from the channel.
+///
+/// The fix short-circuits `Shutdown` BEFORE the `is_applying()` buffer branch, so it holds
+/// under BOTH the guarded (mid-apply) and common vectors — the buffering DECISION being
+/// is_applying-independent for Shutdown is the whole point. The guarded (`is_applying()`)
+/// SW-wait that would otherwise buffer it is not itself unit-drivable (its internally
+/// generated `fetch_id` cannot be matched to break the blocking wait without a 30s
+/// timeout — see `interim_guard_buffered_nav_replays_on_later_pump_turn`), so the contract
+/// is asserted at the `dispatch_or_buffer_reentrant` / `pump_turn` level directly, as the
+/// sibling interim-guard tests do.
+#[test]
+fn interim_guard_shutdown_handled_immediately_not_buffered() {
+    let (mut state, browser) = build_test_content_state_with_url("<p>doc</p>", base());
+    drain_browser(&browser);
+
+    assert!(
+        !state.shutdown_requested,
+        "precondition: the thread is live"
+    );
+
+    // A Shutdown is re-dispatched from the SW-fetch wait loop (the reentrancy vector).
+    super::drain_host::dispatch_or_buffer_reentrant(&mut state, BrowserToContent::Shutdown);
+
+    // Handled IMMEDIATELY: teardown ran (flag set) and it did NOT sit in the buffer
+    // waiting on the ~30s SW deadline (the R8 hang this pins).
+    assert!(
+        state.shutdown_requested,
+        "a Shutdown at the reentrancy vector runs teardown immediately and flags the exit \
+         — not deferred to a later replay turn"
+    );
+    assert!(
+        state.deferred_reentrant_messages.is_empty(),
+        "a Shutdown is NEVER buffered — buffering it would delay teardown until the SW-wait's \
+         ~30s deadline could unblock and let a later pump_turn replay observe it"
+    );
+
+    // The pump then exits PROMPTLY: pump_turn observes `shutdown_requested` right after the
+    // Phase-2 drain and returns Break WITHOUT blocking on this turn's recv_timeout.
+    let mut last_frame = std::time::Instant::now();
+    let flow = super::event_loop::pump_turn(&mut state, &mut last_frame);
+    assert!(
+        flow.is_break(),
+        "pump_turn must return Break as soon as it observes shutdown_requested (prompt exit, \
+         no wait for the SW timeout)"
     );
 }

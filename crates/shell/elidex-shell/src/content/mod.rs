@@ -80,6 +80,17 @@ struct ContentState {
     /// serialization (routing every nav-mutating step through the traversal queue)
     /// is Slice 4.
     deferred_reentrant_messages: Vec<BrowserToContent>,
+    /// Set the instant a `Shutdown` is handled at the interim-reentrancy vector
+    /// (`drain_host::dispatch_or_buffer_reentrant`) DURING a guarded SW-fetch wait
+    /// — the message ran unload/teardown immediately and must NOT sit in
+    /// [`deferred_reentrant_messages`](Self::deferred_reentrant_messages) waiting
+    /// on the ~30s SW deadline (Codex PR#469 R8). Once set, the SW-wait loop breaks,
+    /// `handle_navigate` returns WITHOUT loading/committing against the torn-down
+    /// pipeline, the Phase-2 `apply_traversal` / `handle_history_action` seams
+    /// no-op (no post-teardown mutation), and `pump_turn` returns
+    /// [`ControlFlow::Break`](std::ops::ControlFlow::Break) so `run_event_loop`
+    /// exits promptly. Never cleared — a torn-down content thread is exiting.
+    shutdown_requested: bool,
     hover_chain: Vec<Entity>,
     active_chain: Vec<Entity>,
     /// Whether the caret is currently visible (toggles every 500ms).
@@ -233,6 +244,7 @@ impl ContentState {
             nav_controller,
             traversal_queue: TraversalQueue::new(),
             deferred_reentrant_messages: Vec::new(),
+            shutdown_requested: false,
             hover_chain: Vec::new(),
             active_chain: Vec::new(),
             caret_visible: true,

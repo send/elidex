@@ -51,8 +51,33 @@ use super::ContentState;
 /// reentrancy vector. The FULL canonical serialization (routing EVERY nav-mutating
 /// step through the traversal queue with per-step apply-time context, WHATWG HTML
 /// §7.4.1.3) is Slice 4.
+///
+/// **`Shutdown` is NEVER buffered** (Codex PR#469 R8). Buffering it would defer
+/// teardown until a later `pump_turn` could replay the buffer — but that replay
+/// cannot run until this SW-wait loop unblocks, which (for a delayed/lost
+/// `SwFetchResponse`) is only at the ~30s navigation deadline. So a tab/window
+/// close during an SW-controlled cross-document traversal would hang teardown for
+/// up to 30s even though the `Shutdown` was already consumed from the channel.
+/// Instead, handle `Shutdown` IMMEDIATELY here: run unload/teardown
+/// (`handle_message_public`) and set [`ContentState::shutdown_requested`], which
+/// breaks the SW-wait loop, aborts the in-flight `handle_navigate` before it can
+/// load/commit against the torn-down pipeline, no-ops the remaining Phase-2 apply
+/// seams, and makes `pump_turn` return `ControlFlow::Break` — a prompt exit with no
+/// post-teardown mutation. R5's `replay_deferred_reentrant_messages -> ControlFlow`
+/// exit-propagation stays as the defensive path (a buffered exit-signalling message
+/// still breaks the pump), but `Shutdown` should now never reach the buffer.
 pub(super) fn dispatch_or_buffer_reentrant(state: &mut ContentState, msg: BrowserToContent) {
-    if state.traversal_queue.is_applying() {
+    if matches!(msg, BrowserToContent::Shutdown) {
+        // Teardown NOW (unload → iframes.shutdown_all → teardown_document).
+        // `handle_message` returns `false` iff it ACTUALLY shut down (unload ran,
+        // not `beforeunload`-canceled); only then flag the exit that the wait loop /
+        // apply chain / `pump_turn` unwind observes. A `beforeunload`-canceled
+        // Shutdown returns `true` (keep running) — do NOT force the exit, matching the
+        // normal recv-path Shutdown contract (`handle_message` → `true` ⇒ no Break).
+        if !super::event_loop::handle_message_public(msg, state) {
+            state.shutdown_requested = true;
+        }
+    } else if state.traversal_queue.is_applying() {
         state.deferred_reentrant_messages.push(msg);
     } else {
         super::event_loop::handle_message_public(msg, state);
@@ -110,6 +135,12 @@ impl DrainHost for ContentState {
     /// here (`Back`/`Forward`/`Go` go through `classify_traversal` / `apply_traversal`),
     /// so this delegates straight to the sync-update-only [`handle_history_action`].
     fn handle_history_action(&mut self, action: &HistoryAction) {
+        // A `Shutdown` handled mid-drain (`dispatch_or_buffer_reentrant`) already ran
+        // teardown; a trailing Phase-2 `SyncUpdate` must NOT mutate the torn-down
+        // pipeline (Codex PR#469 R8). The pump breaks on the flag right after the drain.
+        if self.shutdown_requested {
+            return;
+        }
         handle_history_action(self, action);
     }
 
@@ -176,6 +207,13 @@ impl DrainHost for ContentState {
     /// ANY traversal applies (Resolution D generalized, R6), so the apply no longer
     /// reports document-change discrimination.
     fn apply_traversal(&mut self, traversal: &PendingTraversal) -> bool {
+        // If a `Shutdown` tore this thread down mid-drain (an earlier step's SW-wait
+        // saw it — `dispatch_or_buffer_reentrant`), do NOT peek/commit a further
+        // queued traversal against the torn-down pipeline (Codex PR#469 R8). Report
+        // no apply; the pump breaks on `shutdown_requested` right after the drain.
+        if self.shutdown_requested {
+            return false;
+        }
         apply_traversal_delta(self, traversal.delta)
     }
 

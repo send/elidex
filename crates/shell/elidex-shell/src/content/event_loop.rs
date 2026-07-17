@@ -48,6 +48,14 @@ pub(super) fn pump_turn(state: &mut ContentState, last_frame: &mut Instant) -> C
         // there is nothing to fold into `needs_render` and no unbounded work here.
         let _ = elidex_navigation::DrainCoordinator::run_deferred_traversals(state);
 
+        // A `Shutdown` arriving during a guarded SW-wait INSIDE that Phase-2 apply is
+        // handled immediately (teardown ran) and sets `shutdown_requested` rather than
+        // buffering — so exit NOW, before this turn's `recv_timeout` blocks for the poll
+        // interval, and before any code touches the torn-down pipeline (Codex PR#469 R8).
+        if state.shutdown_requested {
+            return ControlFlow::Break(());
+        }
+
         // Interim reentrancy guard replay (Codex PR#469 R4). A nav-mutating message
         // that arrived while a Phase-2 apply held the peek→commit window was BUFFERED
         // by the SW-fetch wait loop (`drain_host::dispatch_or_buffer_reentrant`)
@@ -55,10 +63,13 @@ pub(super) fn pump_turn(state: &mut ContentState, last_frame: &mut Instant) -> C
         // `run_deferred_traversals` above has fully committed and cleared the
         // nested-apply guard (`is_applying()` is now false), so the buffered
         // `Navigate`/`Reload`/chrome/input message dispatches OUTSIDE any held peek.
-        // A buffered `Shutdown` (or any exit-signaling message) replayed there returns
-        // the content-thread exit signal — propagate it as `Break` so `run_event_loop`
-        // exits, rather than pumping on with the Shutdown already consumed from the
-        // channel and then blocking on the next `recv` (Codex PR#469 R5).
+        // Any buffered exit-signaling message replayed there returns the content-thread
+        // exit signal — propagate it as `Break` so `run_event_loop` exits, rather than
+        // pumping on with it already consumed from the channel and then blocking on the
+        // next `recv` (Codex PR#469 R5). `Shutdown` itself no longer reaches this buffer
+        // (it is handled immediately at `dispatch_or_buffer_reentrant` and exits via the
+        // `shutdown_requested` check above — Codex PR#469 R8); this stays as the
+        // DEFENSIVE path for any exit-signaling message still routed through the buffer.
         if replay_deferred_reentrant_messages(state).is_break() {
             return ControlFlow::Break(());
         }
@@ -87,6 +98,14 @@ pub(super) fn pump_turn(state: &mut ContentState, last_frame: &mut Instant) -> C
                 // unload) — stop the loop before this iteration's frame tick so no
                 // script/render work runs after unload.
                 if !handle_message(msg, state) {
+                    return ControlFlow::Break(());
+                }
+                // A fresh navigation's (non-nested) SW-wait can also see a re-dispatched
+                // `Shutdown`: `handle_navigate` ran teardown + set `shutdown_requested`
+                // and returned without applying, but its caller `handle_message` returned
+                // `true`. Break here so the thread exits without a frame tick on the
+                // torn-down pipeline (Codex PR#469 R8).
+                if state.shutdown_requested {
                     return ControlFlow::Break(());
                 }
                 if state.pipeline.animation_engine.has_active() {

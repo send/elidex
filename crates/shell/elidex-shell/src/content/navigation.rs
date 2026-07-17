@@ -189,11 +189,25 @@ pub(super) fn handle_navigate(
                         // message (including a `SwFetchResponse` with the wrong
                         // fetch_id). See `drain_host::dispatch_or_buffer_reentrant`.
                         super::drain_host::dispatch_or_buffer_reentrant(state, other);
+                        // A `Shutdown` re-dispatched here is handled IMMEDIATELY (it
+                        // ran teardown + set `shutdown_requested`); stop waiting NOW
+                        // rather than block to the ~30s deadline (Codex PR#469 R8).
+                        if state.shutdown_requested {
+                            break;
+                        }
                     }
                     Err(_) => break, // Timeout or disconnected.
                 }
             }
         }
+    }
+
+    // A `Shutdown` seen during the SW-wait already ran unload/teardown
+    // (`dispatch_or_buffer_reentrant`). Do NOT load/rebuild/commit against the
+    // torn-down pipeline — return WITHOUT applying (Codex PR#469 R8). `pump_turn`
+    // observes `shutdown_requested` right after the drain and breaks the loop.
+    if state.shutdown_requested {
+        return false;
     }
 
     let network_handle = Rc::clone(&state.pipeline.network_handle);
