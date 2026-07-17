@@ -8,10 +8,10 @@ Doc-only. Written off a first-hand read of the LIVE store + a tool-authoritative
 check, 2026-07-14.
 
 **Why this memo is C-3a-scoped, not a C-3 umbrella.** The prior C-3 umbrella (#463, closed) tried to pin
-**each consumer's per-fragment contract** before the reader audit that determines it. Across seven Codex
-rounds + two structural collapses + a 5-axis re-gate, that layer never converged: every pass found another
-row whose contract had been *asserted but not verified against the live reader*, and each collapse
-re-introduced the same defect class (a structural premise stated as "verified" that was not). The umbrella's
+**each consumer's per-fragment contract** before the reader audit that determines it. That layer never
+converged: every pass found another row whose contract had been *asserted but not verified against the live
+reader*, and each structural collapse re-introduced the same defect class — a premise stated as "verified"
+that was not. (§6.1 is the record of what happened; it is not restated here.) The umbrella's
 own §4 had already said the quiet part: *"hand-enumerating every reader in this umbrella does not converge …
 the exhaustive inventory is C-3a's audit output."* So this memo inverts the order: **C-3a ships the seam and
 PRODUCES the audit; the per-consumer contracts are the audit's output**, owned by each downstream slice.
@@ -26,14 +26,16 @@ Predecessors MERGED: Z-1a (#313, standalone `FragmentTree`) / Z-1b (#316, per-co
 > **Mandate invariant — the memo states what the audit MUST determine, never what it WILL find.**
 > An enumeration that §4's sweep or an axis produces (which readers run in-layout; which producer paths leave
 > a box on a boxless element; which consumers need a signal) is an **audit OUTPUT**. This memo does **not**
-> pre-compute one — not as a list, not as a count, not "for readability". **This is the defect that killed
-> PR #463** (§6.1: the umbrella characterised consumers before the audit that determines them), and it
-> reproduced here: every hand-list this memo attempted was **wrong** — "the three flex/grid baseline readers"
-> missed `multicol/fill.rs:76`/`:421` and `inline/pack/mod.rs:613` (R18-GG3); the `display:contents` producer
-> cases named a root case that cannot happen and missed the positioned one that does (R18-GG1/GG2). Naming an
-> example to prove a class is **non-empty** is fine; naming it to define the class is not. If you catch
-> yourself writing "the N cases are…" about something the audit determines, **delete it and state the
-> mandate**.
+> pre-compute one — not as a list, not as a count, not "for readability". Naming an example to prove a class
+> is **non-empty** is fine; naming it to define the class is not. If you catch yourself writing "the N cases
+> are…" about something the audit determines, **delete it and state the mandate**.
+> **This is the defect that killed PR #463** — §6.1 is the record; the cause is stated there once, not here.
+> **It is not a hypothetical**: every hand-list this memo attempted was wrong, and *the corrections were wrong
+> too*. The last one read a single caller's guard and generalised to all callers — the very method-error it
+> was written to condemn. So the rule is not "hand-list more carefully"; it is **do not hand-list**.
+> ⚠ **Corollary — do not narrate the drafts.** "An earlier draft said X, which was wrong because Y" restates
+> X, which makes a fresh drift site out of the fix itself; git holds that history. State the decision in its
+> final form with the evidence that makes it checkable, and nothing about what it used to say.
 >
 > **Reading invariant — one fact, one home.** Every load-bearing fact in this memo is stated in exactly ONE
 > section; every other section **points** at it. **Sections are deliberately NOT self-contained**: a second
@@ -52,8 +54,8 @@ Predecessors MERGED: Z-1a (#313, standalone `FragmentTree`) / Z-1b (#316, per-co
 ## §0 Premise checks (this lineage has a fabrication history — every load-bearing fact is tool-verified)
 
 The shared anchor memo once claimed the store was *relocated to `elidex-render` behind a dependency wall*
-(a flaky-I/O fabrication), and the #463 umbrella twice asserted a "verified" structural premise that was
-false. So every fact below is checked against an authoritative tool, not a prior memo:
+(a flaky-I/O fabrication), and the #463 umbrella asserted "verified" structural premises that were false
+(§6.1). So every fact below is checked against an authoritative tool, not a prior memo:
 
 - **The fragment store lives in `crates/core/elidex-ecs/src/fragment_tree.rs`** — the single tracked
   `fragment_tree.rs` (`git ls-files`). It is a **sibling field of `EcsDom`** (`crates/core/elidex-ecs/src/
@@ -156,10 +158,12 @@ impl EcsDom {
    built a seam obligation (and, at R16-EE1, a producer deliverable) on it. **The premise is false**, and it
    survived from R7-Y5 through a premise-audit that confirmed the *line exists* without ever tracing whether it
    *writes*. Verified data flow:
-   - Layout **flattens `display:contents` away before dispatch** — `flatten_contents` "replaces each
-     `display:contents` child with its own `composed_children`" (`elidex-layout-block/src/helpers.rs:348`), and
-     **every** child walk goes through it (`block/mod.rs:308`, `block/children/helpers.rs:115`,
-     `inline/mod.rs:251`). The element is never handed to `dispatch_layout_child`.
+   - Layout **flattens `display:contents` away before dispatch on the in-flow paths** — `flatten_contents`
+     "replaces each `display:contents` child with its own `composed_children`"
+     (`elidex-layout-block/src/helpers.rs:359-363`; `composed_children_flat` wraps it at `:348`), and the
+     in-flow child walks go through it (`block/mod.rs:308`, `block/children/helpers.rs:115`,
+     `inline/mod.rs:251`). On those paths the element is never handed to `dispatch_layout_child`. *(Not every
+     walk: the positioned walk does not flatten — example (a) below.)*
    - The `Display::Contents` arm (`layout/mod.rs:74`) **never inserts**: it builds a zero `LayoutBox`, `.into()`s
      it to a `LayoutOutcome`, and returns. Every *other* arm delegates to a layout algorithm that does insert
      (`flex/lib.rs:504`, `grid/lib.rs:619`, `table/lib.rs:394,785`, `multicol/lib.rs:329`,
@@ -168,8 +172,8 @@ impl EcsDom {
    ⇒ **An ordinary `display:contents` element has no `LayoutBox` at all** — it is already box-absent, and the
    seam's fallback returns the spec answer **by construction**. No producer bit, and **no C-3a deliverable**:
    R16-EE1's addition is **withdrawn**, because it assigned a write at a path consumers never read.
-   ⚠ What IS real — the cases where a boxless element *does* carry a box, which C-3 **inherits** (it preserves
-   current behavior) and **audit axis 3 must record**:
+   ⚠ What IS real — **examples** of a boxless element carrying a box anyway, enough to prove axis 3 has
+   something to find. C-3 **inherits** them (it preserves current behavior); axis 3 **enumerates** them:
    (a) **`display:contents` + `position:absolute|fixed`** (Codex R18-GG2) — the positioned walk **bypasses the
        flatten**: `collect_inner` pushes `Position::Absolute`/`Fixed` children **without testing `display`**
        (the `Contents` test sits only on the non-positioned branch,
@@ -179,13 +183,16 @@ impl EcsDom {
    (b) **a stale box** left by an earlier layout — no production path removes a `LayoutBox` (§2 I-boxless),
        so an element that *becomes* `display:contents` keeps the box it had (slot
        `#11-inline-relayout-box-staleness`).
-   *(A `display:contents` **root** is **not** such a case, though an earlier draft of this list said it was —
-   Codex R18-GG1: `layout_root` tests `display == Display::Contents`, lays the children out directly and
-   **returns**, so `dispatch_layout_child(root, …)` is reached only for non-`contents` roots and no box is
-   inserted. Recording it would have made the audit carry a defect that does not exist.)*
-   Both are **producer defects**, not seam-expressiveness gaps: the seam reports absence/presence faithfully;
-   in these cases the producer's presence is the lie. Which readers depend on the distinction is
-   audit axis 3's output; **that** the seam carries it is not axis 3's to decide.
+   ⚠ **These are EXAMPLES proving the class is non-empty — not the class.** Axis 3's sweep enumerates it, and
+   this memo must not pre-empt that (the mandate invariant). Concretely: `layout_root`'s `Display::Contents`
+   guard (`layout/mod.rs:378-386`) covers the **screen** root only — `layout_fragmented_with_tokens` (`:292`)
+   dispatches the root with **no display test** and is reached on the live paged path
+   (`shell/pipeline.rs:420` → `render/builder/mod.rs:345`, and `layout_paged:207`), while `:130` is not
+   display-guarded either. Whether a `contents` **root** can carry a box there is **axis 3's to determine**;
+   the screen guard does not settle it.
+   Such producer paths are **producer defects**, not seam-expressiveness gaps: the seam reports
+   absence/presence faithfully; the producer's presence is the lie. Which readers depend on the distinction is
+   audit axis 3's output too; **that** the seam carries it is not axis 3's to decide.
 
 **Why on `EcsDom`** (not each consumer reading the store/component directly):
 
@@ -264,7 +271,9 @@ directly callable by every consumer — **including the crates that cannot call 
 tool-verified set is the authority on which those are) and that a dom-api home would therefore strand. **C-3a therefore has no floor/ceiling collision**, and LOW
 placement is not merely convenient but *required* for the a11y / layout / render readers.
 
-The one genuine collision in the whole program is **downstream and C-3d's**: IntersectionObserver's registry
+A collision the audit will have to handle — **an example, not the population** (axis 6 determines that; an
+earlier version called it "the one genuine collision in the whole program" and then conceded, twelve lines
+down, that a11y alone could make it two) — is **downstream and C-3d's**: IntersectionObserver's registry
 is in `elidex-api-observers` (callability-`dom-api=0`) yet IO needs the CSSOM-View §6 "get the bounding box"
 algorithm (IO §3.2.10 step 7), which the floor keeps in `elidex-dom-api`. Resolved by dependency injection —
 the registry takes a `rect_fn(&EcsDom, Entity) -> Option<Rect>` closure
@@ -276,8 +285,8 @@ which *can* call the dom-api algorithm. ⚠ That DI seam is *why* the closure ha
 edge and implement IO step 7 engine-side (c). **C-3a does not touch it.** (Every other dom-api-homed reduction —
 the CSSOM algorithms — is consumed only by `dom-api` itself + the `elidex-js` host, both direct callers. a11y
 reads a **single box's `border_box()`** today (`crates/dom/elidex-a11y/src/tree.rs:123`, verified — not a union
-and not the dom-api 4-branch), so on **that** shape it needs no dom-api-homed reduction and C-3d is the *only*
-collision, re-derived on direct edges. ⚠ That is a statement about today's read, **not a decision about a11y's
+and not the dom-api 4-branch), so on **that** shape it needs no dom-api-homed reduction — one fewer collision
+than a linkage-based reading would suggest, re-derived on direct edges. ⚠ That is a statement about today's read, **not a decision about a11y's
 post-migration reduction** (Codex R16-EE2): which reduction a11y should take is **audit axis 1's** output, and
 §2 I-transform records its geometry contract as *unresolved*. If the audit finds a11y needs a CSSOM-homed
 algorithm, that is a **second** collision for C-3c to surface — this paragraph does not foreclose it.)
@@ -393,7 +402,10 @@ to ratio 0). Two corrections the #463 memo got wrong:
 ### I-frame — folds frame-neutral; the gate is LIVE
 
 The folds return doc-space geometry or raw fragment facets; **consumer-local frames compose at the reader**,
-arithmetic unchanged. The local-frame readers (audit inputs, verified live):
+arithmetic unchanged. **Each reader's frame is audit axis 1's output — this memo does not roster them** (an
+earlier version's table both defined "the local-frame readers" and pinned three of their frames, two lines
+above the note that says frames are not pinned here; its line numbers had already drifted from the copy §2
+carried elsewhere). Examples, verified live, enough to show the frames genuinely differ:
 
 | Reader | Frame | Composed from |
 |---|---|---|
@@ -427,19 +439,21 @@ needs is **per-consumer and spec-mandated**:
   transforms" clause), and ResizeObserver (resize-observer-1 §3.3.1 — *"observations will not be triggered by
   CSS transforms"*). (Codex R1-T4: these are the traceable anchors; the exact per-branch step cites are C-3b's
   / C-3d's coverage map, since C-3a implements none of these algorithms.)
-- **This is the gap's only definition** (every other section points here; Codex R14-re-gate found §3 saying
-  *"only gBCR/getClientRects/IO"* while §5 added a11y **and asserted its contract**). Two different facts:
-  - **Reads raw `border_box()` today** (verified): `getBoundingClientRect` / `getClientRects`
-    (`layout_query.rs:340`), IntersectionObserver (`intersection_observer.rs:490`), **and a11y bounds**
-    (`tree.rs:123`). All four.
-  - **Contract is painted (post-transform) geometry** — established **only** where cited: gBCR / getClientRects
-    (cssom-view §6 getClientRects step 3 applies element+ancestor transforms) and IO (§3.2.7 step 6 maps to the
-    viewport's space). **a11y's contract is NOT established by this memo** — no citation was ever produced for
-    it, so it is *unresolved*, not *in*. Do not assert it downstream; C-4 resolves it (with a citation) or
-    acknowledges it as inherited.
-  So the **cited** gap is {gBCR, getClientRects, IO}, with a11y a raw-reader of unresolved contract.
-  Transform fidelity is out of C-3 scope (C-3 preserves current behavior) — tracked as a **C-4 gate
-  prerequisite**, §5.
+- **This is the gap's only DEFINITION; its MEMBERSHIP is audit axis 8's output** (mandate invariant — an
+  earlier version rostered the raw readers here and counted them "all four", which a `git grep 'border_box()'`
+  refutes: `elidex-render/src/builder/{paint,slice,transform,walk}.rs`, `resize_observer.rs:406` and
+  `shell/content/scroll.rs` read it too). Keep the two facts apart, because they are **not** the same set:
+  - **Reads raw `border_box()` today** — a code fact the sweep enumerates. Examples proving it non-empty:
+    `getBoundingClientRect`/`getClientRects` (`layout_query.rs:340`), IntersectionObserver
+    (`intersection_observer.rs:490`), a11y bounds (`tree.rs:123`).
+  - **Contract is painted (post-transform) geometry** — a *cited* fact, and this memo establishes it **only**
+    for gBCR/getClientRects (cssom-view §6 getClientRects step 3 applies element+ancestor transforms) and IO
+    (§3.2.7 step 6 maps to the viewport's space). Anything else — a11y included — is **unresolved**, not
+    "in": no citation was produced. Do not assert an uncited contract downstream; C-4 resolves it with a
+    citation or acknowledges it as inherited.
+  A reader is in the **gap** only where both hold, so axis 8 must answer both per reader — a roster here would
+  pre-empt exactly that. Transform fidelity is out of C-3 scope (C-3 preserves current behavior) — tracked as a
+  **C-4 gate prerequisite**, §5.
 
 ⚠ This basis is **invisible to the N=1 behavior-neutral test**: a `transform:rotate` on a non-fragmented
 element is "N=1 routing-delta only" (axis 4) while its pre-transform gBCR/IO geometry is silently wrong.
@@ -484,7 +498,7 @@ and the per-consumer spec characterization is **the audit's output** (§4), not 
 | Spec section | Step | Branch | Touch (C-3a code) | Full enum? | User-input flow |
 |---|---|---|---|---|---|
 | RESIZE OBSERVER §3.3.1 content rect | — | the padding-offset convention (§1's `content_rect_local` decision is the home for the arithmetic and the byte-identity claim; not re-rendered here) | **C-3a ships nothing RO-specific** (R2-U3): RO's contentRect **composes at the reader** (C-3d host) from the fragment's generic `padding()` + `content().size` facets — byte-identical to today's `content_rect_local()` | ✓ (SVG-no-box + multicol width note are RO reader policy, → C-3d) | no |
-| CSS DISPLAY 3 §2.5 Box Generation | `contents` | *"the element itself does not generate any boxes"* → **no associated box** | §1 **requirement 5** (its home): the seam already expresses *no-associated-box* as box-**absence**, and an ordinary `display:contents` element is genuinely box-absent — layout flattens it away before dispatch, so nothing inserts a `LayoutBox`. *(An earlier draft claimed a zero-size box is synthesised at `layout/mod.rs:74`; that line never writes to the ECS — R17-FF1. The two narrow cases where such an element does carry a box are producer defects C-3 inherits; requirement 5 lists them.)* | ✓ for the box-generation branch (`none` is out of C-3's reach — layout skips it; the `contents`-computes-to-`none` sub-case per Appendix B is unchanged) | no |
+| CSS DISPLAY 3 §2.5 Box Generation | `contents` | *"the element itself does not generate any boxes"* → **no associated box** | §1 **requirement 5** (its home): the seam already expresses *no-associated-box* as box-**absence**, and an ordinary `display:contents` element is genuinely box-absent — layout flattens it away before dispatch, so nothing inserts a `LayoutBox`. *(The `Display::Contents` arm at `layout/mod.rs:74` builds a zero box as a return value and never writes the ECS.)* Producer paths that leave a box on such an element anyway are producer defects C-3 inherits — **axis 3 enumerates them**; requirement 5 gives examples only. | ✓ for the box-generation branch (`none` is out of C-3's reach — layout skips it; the `contents`-computes-to-`none` sub-case per Appendix B is unchanged) | no |
 | CSSOM VIEW §6 `getClientRects()` | step 1 | *"does not have an associated box → return an **empty** DOMRectList and stop"* | the **consumer branch** requirement 5 exists to make expressible (C-3b implements the algorithm; C-3a only ships the signal it needs) | branch ✓ (steps 2-3 = SVG / per-fragment, C-3b's map) | no |
 
 **Breadth**: K=3 (resize-observer-1, css-display-3, cssom-view-1), M=3 — still minimal because C-3a is a
@@ -561,7 +575,7 @@ went wrong):
 |---|---|---|---|
 | 1 | **frame** | doc-space, or a local frame the reader composes? | I-frame |
 | 2 | **phase** | **in-layout** (must NOT use `box_fragments`) / **screen-post-layout** (valid) / **paged-post-layout** (INVALID — the paged path does not `clear()` and its `fragmentainer` is page-relative, I-phase fact 3; a render-residual reader under `paged:true` — e.g. `paint/mod.rs`, `form.rs` helpers — is "post-layout" yet reads page-relative geometry). Trinary, not binary — a binary post-vs-in-layout split marks a paged reader "fully classified" while nothing captures its paged-store invalidity | I-phase |
-| 3 | **boxless** | spec-zero, or box-absent? — ⚠ and the **`display:contents` producer defects the audit must record** (Codex R7-Y5, **re-scoped at R17-FF1**): CSS Display 3 **§2.5** *"the element itself does not generate any boxes"* (webref-verified; the live comment at `layout/mod.rs:74` cites §2.8 — drifted). An *ordinary* such element is **already box-absent** (layout flattens it away before dispatch; that line never writes to the ECS), so `box_fragments` gives the spec answer by construction — an earlier draft of this axis claimed the opposite. **What this axis MUST determine — by sweep, not from this memo** (Codex R19-HH1, and the mandate invariant above): **enumerate every producer path that leaves a `LayoutBox` on an element that generates no box**, and record, per reader, whether it would then read a real zero-sized box instead of taking its no-box branch (cssom-view §6 `getClientRects()` = empty list when there is no associated box). This memo names examples only to prove the class is non-empty (§1 requirement 5) — it does **not** enumerate it, and an earlier draft of this axis proved why: it carried a root-`position:relative` case that **cannot occur** and omitted the positioned one that does. C-3 **inherits** whatever the sweep finds (no regression). **The seam carries the signal — decided at §1 requirement 5, not here** (an earlier draft of this axis made it conditional on the audit's output and a "C-3b/C-3d ask", contradicting that requirement: Codex R14-re-gate). This axis only **classifies**: per reader, does it need the requirement-5 *"has an associated CSS box"* signal, and is its zero-rect case spec-zero or box-absent? | I-boxless |
+| 3 | **boxless** | spec-zero, or box-absent? — ⚠ and the **`display:contents` producer defects the audit must record** (Codex R7-Y5, **re-scoped at R17-FF1**): CSS Display 3 **§2.5** *"the element itself does not generate any boxes"* (webref-verified; live comments cite **§2.8** — `layout/mod.rs:71` and `elidex-layout-block/src/helpers.rs:355` both drift, and the axis must record whichever the sweep finds rather than trust this pair; webref: §2.8 = "The Root Element's Principal Box"). An *ordinary* such element is **already box-absent** (layout flattens it away before dispatch; that line never writes to the ECS), so `box_fragments` gives the spec answer by construction — an earlier draft of this axis claimed the opposite. **What this axis MUST determine — by sweep, not from this memo** (Codex R19-HH1, and the mandate invariant above): **enumerate every producer path that leaves a `LayoutBox` on an element that generates no box**, and record, per reader, whether it would then read a real zero-sized box instead of taking its no-box branch (cssom-view §6 `getClientRects()` = empty list when there is no associated box). This memo names examples only to prove the class is non-empty (§1 requirement 5) — it does **not** enumerate it, and an earlier draft of this axis proved why: it carried a root-`position:relative` case that **cannot occur** and omitted the positioned one that does. C-3 **inherits** whatever the sweep finds (no regression). **The seam carries the signal — decided at §1 requirement 5, not here** (an earlier draft of this axis made it conditional on the audit's output and a "C-3b/C-3d ask", contradicting that requirement: Codex R14-re-gate). This axis only **classifies**: per reader, does it need the requirement-5 *"has an associated CSS box"* signal, and is its zero-rect case spec-zero or box-absent? | I-boxless |
 | 4 | **source vs routing** | does the migration change *which rects* feed it (⇒ a test), or only *which fragment*? (**everything is a source/behavior change at N>1** — the G11 last-column fact) | N=1 invariant limit |
 | 5 | **reduction** | union / first / per-fragment / **not a geometry read** (e.g. the paged-gen gate reads `layout_generation`, which `BoxFragment` drops) / **a *selection* problem with no store signal** (the inline-text anchor) | — |
 | 6 | **home + shape** | which crates must reach it (floor/ceiling)? and is it a **per-entity projection** or a **cross-entity aggregate** (e.g. shell scroll-extent is a `query` with a `display!=None` co-read — `box_fragments` cannot express it)? | layering |
