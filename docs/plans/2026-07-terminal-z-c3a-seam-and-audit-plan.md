@@ -87,12 +87,13 @@ deletes.
 Codex R14-re-gate found §1 and §6.3 disagreeing, and an implementer scopes from §1):
 1. the **projection primitive** `box_fragments` + 2. the **frame-neutral folds** over it + 3. the **durable
 reader audit** (§4 — a deliverable, not a by-product) + 4. **the layout-entry provenance writes** the §2
-I-phase guard needs to be sound + 5. **the producer-owned no-associated-box signal** requirement 5 needs to
-be expressible.
-⚠ (4) and (5) make C-3a **not `elidex-ecs`-only**: both are seam requirements with a **writer side**, so C-3a
-carries a bounded cross-crate tail at the `elidex-layout` entrypoints. The (4) tail is **indivisible** — see
-§6.3 for why every entry (screen *and* paged) must participate and what it costs PM. Nothing else is
-consumer-facing.
+I-phase guard needs to be sound.
+⚠ (4) makes C-3a **not `elidex-ecs`-only**: it is a seam requirement with a **writer side**, so C-3a carries a
+bounded cross-crate tail at the `elidex-layout` entrypoints, and that tail is **indivisible** — see §6.3 for
+why every entry (screen *and* paged) must participate and what it costs PM. Nothing else is consumer-facing.
+*(A fifth deliverable — a producer-owned "no associated box" bit — was added at R16-EE1 and **withdrawn** at
+R17-FF1: its premise, that layout synthesises a zero `LayoutBox` for `display:contents`, is false. See
+requirement 5.)*
 
 **The projection primitive** — `EcsDom::box_fragments` (NEW), in a **new `crates/core/elidex-ecs/src/dom/
 geometry.rs` (NEW)** (NOT appended to `dom/mod.rs`, which is **1073 LoC** — CLAUDE.md touch-time split;
@@ -132,32 +133,39 @@ impl EcsDom {
    committer calls `remove_entity`) reads as absent, checked via `world.contains` before trusting `fragments_for`.
 4. **Pre-transform geometry** (§2 I-transform) — CSS transforms are a paint-time wrapper; a painted-geometry
    reader composes the chain itself.
-5. **"No associated CSS box" is distinguishable from "a real zero-sized box"** (Codex R9-AA3) — CSSOM consumers
-   MUST branch on it (`getClientRects()` returns an **empty** list when there is no associated box, cssom-view
-   §6; `display:contents` generates **no box**, CSS Display 3 §2.5) — yet elidex synthesises a **zero-size
-   `LayoutBox`** for `display:contents` (`layout/mod.rs:74`), so a bare fragment sequence cannot express the
-   difference. Deferring this signal to C-3b/C-3d would force those slices to **bypass the seam or duplicate
-   style checks** — so **the seam carries it, and that is decided HERE** (this requirement is the fact's only
-   home; §3's row and §4 axis 3 point at it and must not re-decide it). ⚠ This does **not** oblige C-3 to *fix*
-   the deviation — C-3 preserves current behavior — it obliges the seam to **expose the distinction** so a
-   consumer *can* take its spec branch.
-   ⚠ **This requirement has a PRODUCER side, and it is C-3a's** (Codex R16-EE1 — the same shape as R8-Z1's
-   provenance writes: a seam obligation whose writer was unowned). **Nothing produces the bit today**:
-   `LayoutBox` (`boxes.rs:84-98`) and `BoxFragment` (`fragment_tree.rs:118-128`) carry only content/padding/
-   border/margin/baseline — no "has an associated CSS box" facet — and the distinction exists **only** inside
-   layout's own synthesis (`layout/mod.rs:74`). Left unowned, the implementer has exactly two options and both
-   are forbidden: put a CSS-Display/style check **inside `EcsDom::box_fragments`**, which is a spec/style
-   algorithm below this section's layering FLOOR; or let C-3b/C-3d re-derive it from style — the duplication
-   this requirement exists to prevent. So the **producer must mark it where the zero box is synthesised**, and
-   that write is in C-3a's scope (deliverable 5). *(How it is expressed — a facet on the fragment, a marker
-   component, or not synthesising a box at all — is C-3a's implementation-plan-review decision, per the
-   altitude rule above; this memo pins only that the producer owns it and the seam carries it.)*
-   *(The deviation is `display:contents`-specific and lives here. An
-   earlier draft pointed at §2 I-boxless for it, which §2 never discusses — but the replacement then mis-cast
-   I-boxless as merely "no production path removes a `LayoutBox`", one of its four bullets, while §4 axis 3
-   rightly routes the boxless **policy** question to it: Codex R15-re-gate. I-boxless governs empty→`None` and
-   its non-universality; this `display:contents` deviation is simply not among its bullets.)* Which readers
-   need the signal is
+5. **Box-ABSENCE is the "no associated CSS box" signal — the seam needs nothing more** (Codex R9-AA3, but
+   **re-derived on the real write path after R17-FF1 falsified its premise**; this requirement is that fact's
+   only home — §3's row and §4 axis 3 point here and must not re-decide it). CSSOM consumers MUST branch on the
+   distinction (`getClientRects()` returns an **empty** list when there is no associated box, cssom-view §6;
+   `display:contents` generates **no box**, CSS Display 3 §2.5), and the seam **already expresses it**:
+   *absent* = no associated box, *present with a 0×0 rect* = a real zero-sized box.
+   ⚠ **An earlier draft asserted the opposite** — that "elidex synthesises a zero-size `LayoutBox` for
+   `display:contents` (`layout/mod.rs:74`), so a bare fragment sequence cannot express the difference" — and
+   built a seam obligation (and, at R16-EE1, a producer deliverable) on it. **The premise is false**, and it
+   survived from R7-Y5 through a premise-audit that confirmed the *line exists* without ever tracing whether it
+   *writes*. Verified data flow:
+   - Layout **flattens `display:contents` away before dispatch** — `flatten_contents` "replaces each
+     `display:contents` child with its own `composed_children`" (`elidex-layout-block/src/helpers.rs:348`), and
+     **every** child walk goes through it (`block/mod.rs:308`, `block/children/helpers.rs:115`,
+     `inline/mod.rs:251`). The element is never handed to `dispatch_layout_child`.
+   - The `Display::Contents` arm (`layout/mod.rs:74`) **never inserts**: it builds a zero `LayoutBox`, `.into()`s
+     it to a `LayoutOutcome`, and returns. Every *other* arm delegates to a layout algorithm that does insert
+     (`flex/lib.rs:504`, `grid/lib.rs:619`, `table/lib.rs:394,785`, `multicol/lib.rs:329`,
+     `block/mod.rs:624`, `block/lib.rs:363`). The only `insert_one` in `layout/mod.rs` is `:130`, inside
+     `if style.position == Position::Relative`.
+   ⇒ **An ordinary `display:contents` element has no `LayoutBox` at all** — it is already box-absent, and the
+   seam's fallback returns the spec answer **by construction**. No producer bit, and **no C-3a deliverable**:
+   R16-EE1's addition is **withdrawn**, because it assigned a write at a path consumers never read.
+   ⚠ What IS real — the two narrow cases where a boxless element *does* carry a box, which C-3 **inherits**
+   (it preserves current behavior) and **audit axis 3 must record**:
+   (a) **root + `position:relative`** — `layout_root` calls `dispatch_layout_child(root)` **directly**
+       (`layout/mod.rs:387`), bypassing the flatten, so a `display:contents` *root* reaches the arm and, if also
+       relatively positioned, gets the zero box inserted at `:130`;
+   (b) **a stale box** left by an earlier layout — no production path removes a `LayoutBox` (§2 I-boxless),
+       so an element that *becomes* `display:contents` keeps the box it had (slot
+       `#11-inline-relayout-box-staleness`).
+   Both are **producer defects**, not seam-expressiveness gaps: the seam reports absence/presence faithfully;
+   in these cases the producer's presence is the lie. Which readers depend on the distinction is
    audit axis 3's output; **that** the seam carries it is not axis 3's to decide.
 
 **Why on `EcsDom`** (not each consumer reading the store/component directly):
@@ -455,7 +463,7 @@ and the per-consumer spec characterization is **the audit's output** (§4), not 
 | Spec section | Step | Branch | Touch (C-3a code) | Full enum? | User-input flow |
 |---|---|---|---|---|---|
 | RESIZE OBSERVER §3.3.1 content rect | — | the padding-offset convention (§1's `content_rect_local` decision is the home for the arithmetic and the byte-identity claim; not re-rendered here) | **C-3a ships nothing RO-specific** (R2-U3): RO's contentRect **composes at the reader** (C-3d host) from the fragment's generic `padding()` + `content().size` facets — byte-identical to today's `content_rect_local()` | ✓ (SVG-no-box + multicol width note are RO reader policy, → C-3d) | no |
-| CSS DISPLAY 3 §2.5 Box Generation | `contents` | *"the element itself does not generate any boxes"* → **no associated box** | §1 **requirement 5** — the seam must expose *no-associated-box* as distinct from a real zero-sized box (elidex currently synthesises a zero-size `LayoutBox`, `layout/mod.rs:74` — a pre-existing deviation C-3 **inherits** — §1 requirement 5, which is that deviation's home; not §2 I-boxless) | ✓ for the box-generation branch (`none` is out of C-3's reach — layout skips it; the `contents`-computes-to-`none` sub-case per Appendix B is unchanged) | no |
+| CSS DISPLAY 3 §2.5 Box Generation | `contents` | *"the element itself does not generate any boxes"* → **no associated box** | §1 **requirement 5** (its home): the seam already expresses *no-associated-box* as box-**absence**, and an ordinary `display:contents` element is genuinely box-absent — layout flattens it away before dispatch, so nothing inserts a `LayoutBox`. *(An earlier draft claimed a zero-size box is synthesised at `layout/mod.rs:74`; that line never writes to the ECS — R17-FF1. The two narrow cases where such an element does carry a box are producer defects C-3 inherits; requirement 5 lists them.)* | ✓ for the box-generation branch (`none` is out of C-3's reach — layout skips it; the `contents`-computes-to-`none` sub-case per Appendix B is unchanged) | no |
 | CSSOM VIEW §6 `getClientRects()` | step 1 | *"does not have an associated box → return an **empty** DOMRectList and stop"* | the **consumer branch** requirement 5 exists to make expressible (C-3b implements the algorithm; C-3a only ships the signal it needs) | branch ✓ (steps 2-3 = SVG / per-fragment, C-3b's map) | no |
 
 **Breadth**: K=3 (resize-observer-1, css-display-3, cssom-view-1), M=3 — still minimal because C-3a is a
@@ -532,7 +540,7 @@ went wrong):
 |---|---|---|---|
 | 1 | **frame** | doc-space, or a local frame the reader composes? | I-frame |
 | 2 | **phase** | **in-layout** (must NOT use `box_fragments`) / **screen-post-layout** (valid) / **paged-post-layout** (INVALID — the paged path does not `clear()` and its `fragmentainer` is page-relative, I-phase fact 3; a render-residual reader under `paged:true` — e.g. `paint/mod.rs`, `form.rs` helpers — is "post-layout" yet reads page-relative geometry). Trinary, not binary — a binary post-vs-in-layout split marks a paged reader "fully classified" while nothing captures its paged-store invalidity | I-phase |
-| 3 | **boxless** | spec-zero, or box-absent? — ⚠ and `display:contents` is a **pre-existing spec deviation the audit must record** (Codex R7-Y5): CSS Display 3 **§2.5** *"the element itself does not generate any boxes"* (webref-verified; the live comment at `layout/mod.rs:74` cites §2.8 — drifted), yet elidex synthesises a **zero-size `LayoutBox`**, so `box_fragments` yields **one zero-rect fragment, not box-absent** — a consumer migrating off `LayoutBox` would treat it as a real zero-sized box instead of taking its no-box / spec-zero branch (cssom-view §6 `getClientRects()` = empty list when there is no associated box). C-3 **inherits** the deviation (no regression). **The seam carries the signal — decided at §1 requirement 5, not here** (an earlier draft of this axis made it conditional on the audit's output and a "C-3b/C-3d ask", contradicting that requirement: Codex R14-re-gate). This axis only **classifies**: per reader, does it need the requirement-5 *"has an associated CSS box"* signal, and is its zero-rect case spec-zero or box-absent? | I-boxless |
+| 3 | **boxless** | spec-zero, or box-absent? — ⚠ and the **`display:contents` producer defects the audit must record** (Codex R7-Y5, **re-scoped at R17-FF1**): CSS Display 3 **§2.5** *"the element itself does not generate any boxes"* (webref-verified; the live comment at `layout/mod.rs:74` cites §2.8 — drifted). An *ordinary* such element is **already box-absent** (layout flattens it away before dispatch; that line never writes to the ECS), so `box_fragments` gives the spec answer by construction — an earlier draft of this axis claimed the opposite. What the audit records is the **two narrow cases where the producer wrongly leaves a box** and a consumer would read a real zero-sized box instead of taking its no-box branch (cssom-view §6 `getClientRects()` = empty list when there is no associated box): a `display:contents` **root** that is also `position:relative` (`layout/mod.rs:387` dispatches the root directly, `:130` inserts), and a **stale** box (§2 I-boxless). §1 requirement 5 is the home for both. C-3 **inherits** them (no regression). **The seam carries the signal — decided at §1 requirement 5, not here** (an earlier draft of this axis made it conditional on the audit's output and a "C-3b/C-3d ask", contradicting that requirement: Codex R14-re-gate). This axis only **classifies**: per reader, does it need the requirement-5 *"has an associated CSS box"* signal, and is its zero-rect case spec-zero or box-absent? | I-boxless |
 | 4 | **source vs routing** | does the migration change *which rects* feed it (⇒ a test), or only *which fragment*? (**everything is a source/behavior change at N>1** — the G11 last-column fact) | N=1 invariant limit |
 | 5 | **reduction** | union / first / per-fragment / **not a geometry read** (e.g. the paged-gen gate reads `layout_generation`, which `BoxFragment` drops) / **a *selection* problem with no store signal** (the inline-text anchor) | — |
 | 6 | **home + shape** | which crates must reach it (floor/ceiling)? and is it a **per-entity projection** or a **cross-entity aggregate** (e.g. shell scroll-extent is a `query` with a `display!=None` co-read — `box_fragments` cannot express it)? | layering |
