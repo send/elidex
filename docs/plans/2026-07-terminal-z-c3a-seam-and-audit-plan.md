@@ -156,14 +156,21 @@ impl EcsDom {
    ⇒ **An ordinary `display:contents` element has no `LayoutBox` at all** — it is already box-absent, and the
    seam's fallback returns the spec answer **by construction**. No producer bit, and **no C-3a deliverable**:
    R16-EE1's addition is **withdrawn**, because it assigned a write at a path consumers never read.
-   ⚠ What IS real — the two narrow cases where a boxless element *does* carry a box, which C-3 **inherits**
-   (it preserves current behavior) and **audit axis 3 must record**:
-   (a) **root + `position:relative`** — `layout_root` calls `dispatch_layout_child(root)` **directly**
-       (`layout/mod.rs:387`), bypassing the flatten, so a `display:contents` *root* reaches the arm and, if also
-       relatively positioned, gets the zero box inserted at `:130`;
+   ⚠ What IS real — the cases where a boxless element *does* carry a box, which C-3 **inherits** (it preserves
+   current behavior) and **audit axis 3 must record**:
+   (a) **`display:contents` + `position:absolute|fixed`** (Codex R18-GG2) — the positioned walk **bypasses the
+       flatten**: `collect_inner` pushes `Position::Absolute`/`Fixed` children **without testing `display`**
+       (the `Contents` test sits only on the non-positioned branch,
+       `elidex-layout-block/src/positioned/mod.rs:177+`), and `layout_absolutely_positioned` then inserts
+       **unconditionally** (`positioned/layout.rs:523`). So such an element gets a real `LayoutBox` though
+       CSS Display 3 §2.5 says it generates none.
    (b) **a stale box** left by an earlier layout — no production path removes a `LayoutBox` (§2 I-boxless),
        so an element that *becomes* `display:contents` keeps the box it had (slot
        `#11-inline-relayout-box-staleness`).
+   *(A `display:contents` **root** is **not** such a case, though an earlier draft of this list said it was —
+   Codex R18-GG1: `layout_root` tests `display == Display::Contents`, lays the children out directly and
+   **returns**, so `dispatch_layout_child(root, …)` is reached only for non-`contents` roots and no box is
+   inserted. Recording it would have made the audit carry a defect that does not exist.)*
    Both are **producer defects**, not seam-expressiveness gaps: the seam reports absence/presence faithfully;
    in these cases the producer's presence is the lie. Which readers depend on the distinction is
    audit axis 3's output; **that** the seam carries it is not axis 3's to decide.
@@ -602,11 +609,16 @@ C-3a (seam + audit) ──┬── C-3b  CSSOM geometry (elidex-dom-api)       
    from boxless (a laid-this-pass marker / generation) — else the I-boxless × I-phase crossing breaks.
    *(→ hand-off row 1.)*
 2b. **A PROBE-VISIBLE / current-pass geometry source exists for the in-layout readers** (Codex R11-BB2) —
-   otherwise C-4 cannot delete `LayoutBox` at all. The three flex/grid baseline readers run **inside** layout
-   (§2 I-phase), where `box_fragments` is *by contract* unusable; item 2's "producers write the N=1 box" is a
-   **post-commit** fact and does **not** give them a live source during a probe or mid-pass. So deleting
-   `LayoutBox` on item 2 alone would either strand those readers or force them onto the screen-only seam the
-   memo forbids. Either this prerequisite lands, or **`LayoutBox` survives C-4 for the in-layout readers**.
+   otherwise C-4 cannot delete `LayoutBox` at all. These readers run **inside** layout (§2 I-phase), where
+   `box_fragments` is *by contract* unusable; item 2's "producers write the N=1 box" is a **post-commit** fact
+   and does **not** give them a live source during a probe or mid-pass. So deleting `LayoutBox` on item 2 alone
+   would either strand them or force them onto the screen-only seam the memo forbids. Either this prerequisite
+   lands, or **`LayoutBox` survives C-4 for the in-layout readers**.
+   ⚠ **Their set is §4's sweep output — this memo does not enumerate it** (Codex R18-GG3). An earlier draft
+   named "the three flex/grid baseline readers" and was **wrong**: `multicol/fill.rs:76` (`snapshot_box`) and
+   `:421`, and `inline/pack/mod.rs:613` (an atomic's baseline fallback) also read a `LayoutBox` mid-pass. That
+   is exactly why §4's gate is a **complete `git grep -nw LayoutBox` sweep + the compiler**, not a hand-list: a
+   PM ledger keyed to a hand-picked subset lets C-4 delete `LayoutBox` while stranding the rest.
    *(→ hand-off row 2 — deliberately its own row, not folded into row 1: provenance makes the guard sound,
    this makes the in-layout readers migratable.)*
 3. **Paged-store CONTENT hygiene** — the paged path must clear/rebuild the store (its `fragmentainer` key is
@@ -699,7 +711,7 @@ table in the first place (Codex R13-CC2).
    | # | Hand-off item | What breaks if it is dropped | Owner → destination | Trigger |
    |---|---|---|---|---|
    | 1 | `#11-fragment-store-n1-coverage-marker` (gate item 2) — ⚠ **renamed** (Codex R14-re-gate): it was `#11-fragment-store-screen-provenance`, minted at R5 *before* R8-Z1 moved screen-provenance publishing **into C-3a's scope** (§6.3). Registering that string would tell a future session provenance is unbuilt while C-3a builds it — the SoT-pollution class §0 opens with. Same disambiguation §6.3 already applies to the paged slot | no producer writes the store's N=1 box for every entity, so "empty" stays ambiguous | PM → defer ledger | C-4 kickoff, or any slice needing that producer |
-   | 2 | `#11-in-layout-probe-visible-geometry` (gate item **2b**) | **C-4 cannot delete `LayoutBox` for the 3 flex/grid baseline readers.** ⚠ distinct from row 1 (R13-CC2): item 2 is a *post-commit* fact; 2b is what those readers need **during** a probe/mid-pass | PM → defer ledger | C-4 kickoff — C-4 must land this or keep `LayoutBox` for those readers |
+   | 2 | `#11-in-layout-probe-visible-geometry` (gate item **2b**) | **C-4 cannot delete `LayoutBox` for the readers that run INSIDE layout** — the set is §4's sweep output, not a hand-list (R18-GG3: an earlier draft said "the 3 flex/grid baseline readers" and missed `multicol/fill.rs:76,421` and `inline/pack/mod.rs:613`). ⚠ distinct from row 1 (R13-CC2): item 2 is a *post-commit* fact; 2b is what they need **during** a probe/mid-pass | PM → defer ledger | C-4 kickoff — C-4 must land this or keep `LayoutBox` for them |
    | 3 | `#11-paged-fragment-store-hygiene` (gate item 3) | the paged store's content is never cleared/rebuilt | PM → defer ledger | when paged/print media folds into the store (committed-next per `fragment_tree.rs:73`) |
    | 4 | `#11-layout-generation-rehome` (gate item 4) | `layout_generation`'s dual role has no home once `BoxFragment` drops it | PM → defer ledger | C-3e (paged-gen gate reader) or C-4 — whichever touches `builder/walk.rs:108` first |
    | 5 | `#11-fragment-inline-lines` (gate item 5) | the store still cannot express `FragmentContent::InlineLines` (I-lines) | PM → defer ledger | the committed-next inline-line fold (tracked as terminal-Z dark-data work) |
