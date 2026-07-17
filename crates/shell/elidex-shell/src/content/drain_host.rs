@@ -4,19 +4,17 @@
 //! Carved out of `content/navigation.rs` at the drain-adapter cohesion seam
 //! (touch-time 1000-line split, Codex PR#469 R5): the `impl DrainHost for
 //! ContentState` phase-drain seams (`route_window_opens` / `take_pending_history` /
-//! `handle_history_action` / `normalize_deferred_sync_update` / `classify_traversal`
-//! / `pending_traversal` / `handle_navigation` / `apply_traversal` / `ship_frame`)
-//! plus the three free functions that ONLY serve those seams: the Phase-2
-//! traversal-apply body [`apply_traversal_delta`], the deferred-`SyncUpdate` URL
-//! normalizer [`normalize_deferred_history_url`], and the interim reentrancy-guard
+//! `handle_history_action` / `classify_traversal` / `pending_traversal` /
+//! `handle_navigation` / `apply_traversal` / `ship_frame`) plus the two free
+//! functions that ONLY serve those seams: the Phase-2 traversal-apply body
+//! [`apply_traversal_delta`] and the interim reentrancy-guard
 //! [`dispatch_or_buffer_reentrant`]. The sibling `content/navigation.rs` keeps the
 //! pipeline-rebuild body (`handle_navigate`), the same-document-step primitive,
 //! `window.open` routing, the §7.4.4 sync-update body (`handle_history_action`), and
 //! URL normalization. Behavior-neutral move (no logic change).
 
 use elidex_navigation::{
-    DrainHost, PendingTraversal, TraversalApplyOutcome, TraversalDelta, TraversalKind,
-    TraversalQueue, UserInvolvement,
+    DrainHost, PendingTraversal, TraversalDelta, TraversalQueue, UserInvolvement,
 };
 use elidex_script_session::{HistoryAction, HostDriver, NavigationType};
 
@@ -115,44 +113,6 @@ impl DrainHost for ContentState {
         handle_history_action(self, action);
     }
 
-    /// **T3** (Codex PR#469 R3) — bind a to-be-deferred `SyncUpdate`'s URL to the
-    /// CALL-TIME document URL. `history.pushState(state, '')` / `replaceState` with
-    /// the URL omitted stages `url: None`; a relative URL is base-relative. Once
-    /// deferred behind a same-turn traversal, Phase-2's `apply_push_replace_state`
-    /// resolves the URL against the **post-traversal** `pipeline.url` — so
-    /// `back(); pushState(null, '')` from `/a` would record the back target (base),
-    /// not `/a`. Resolve the effective URL NOW against the current document URL
-    /// (the call-time base): `None` → the current document URL; a relative/absolute
-    /// URL → its absolute call-time resolution. Phase 2 then records the call-time
-    /// target regardless of any same-document traversal that moved `pipeline.url`
-    /// first. Traversals never defer as a `SyncUpdate`, so they pass through
-    /// unchanged.
-    fn normalize_deferred_sync_update(&self, action: HistoryAction) -> HistoryAction {
-        let base = self.pipeline.url.as_ref();
-        match action {
-            HistoryAction::PushState {
-                url,
-                title,
-                serialized_state,
-            } => HistoryAction::PushState {
-                url: normalize_deferred_history_url(base, url),
-                title,
-                serialized_state,
-            },
-            HistoryAction::ReplaceState {
-                url,
-                title,
-                serialized_state,
-            } => HistoryAction::ReplaceState {
-                url: normalize_deferred_history_url(base, url),
-                title,
-                serialized_state,
-            },
-            // Not a sync update — never deferred as a `SyncUpdate`; return verbatim.
-            other => other,
-        }
-    }
-
     /// **Phase 1b peek-classify** (Resolution E): `Some` for an in-range traversal
     /// (a partition barrier), `None` for a no-op — `peek_*` returns `None` at the
     /// ends / out of range (§7.4.3 sub-step 4.4 "does not exist ⇒ abort"), so it
@@ -211,10 +171,11 @@ impl DrainHost for ContentState {
     }
 
     /// **Phase 2** — apply ONE deferred traversal (§7.4.6.1 *apply the history
-    /// step*) via the shared peek-then-commit body, reporting `shipped` +
-    /// `changed_document` (the latter drives the coordinator's Resolution-D
-    /// `SyncUpdate` cancellation).
-    fn apply_traversal(&mut self, traversal: &PendingTraversal) -> TraversalApplyOutcome {
+    /// step*) via the shared peek-then-commit body, returning `true` iff it applied
+    /// and shipped. The coordinator cancels any trailing straddle `SyncUpdate` once
+    /// ANY traversal applies (Resolution D generalized, R6), so the apply no longer
+    /// reports document-change discrimination.
+    fn apply_traversal(&mut self, traversal: &PendingTraversal) -> bool {
         apply_traversal_delta(self, traversal.delta)
     }
 
@@ -237,59 +198,17 @@ impl DrainHost for ContentState {
 /// still-active document, so a trailing same-turn `pushState` commits from the
 /// correct index (no speculative move, no rollback).
 ///
-/// Returns a [`TraversalApplyOutcome`]: `shipped` iff `handle_navigate` applied
-/// (a rebuild that replaced the pipeline, or a same-document apply-in-place), and
-/// `changed_document` iff the applied traversal landed a **fresh document** — a
-/// §7.4.6.1 [`TraversalKind::Rebuild`] that actually loaded (`shipped`). The
-/// `Rebuild`-ness is read via `NavigationController::resolve_traversal` BEFORE
-/// `handle_navigate` commits/re-stamps the cursor, then ANDed with `shipped` so a
-/// **failed** rebuild (old document still active) reports `changed_document =
-/// false` and a trailing deferred `SyncUpdate` still applies (plan §1 D). A no-op
-/// (no target — e.g. a stacked `back(); back()` whose cursor already moved, or an
-/// out-of-range `go`) reports the default (`shipped = false`, `changed_document =
-/// false`).
-pub(super) fn apply_traversal_delta(
-    state: &mut ContentState,
-    delta: TraversalDelta,
-) -> TraversalApplyOutcome {
+/// Returns `true` iff `handle_navigate` applied (a rebuild that replaced the
+/// pipeline, or a same-document apply-in-place). A no-op (no target — e.g. a
+/// stacked `back(); back()` whose cursor already moved, or an out-of-range `go`)
+/// or a failed cross-document load returns `false`. The coordinator cancels any
+/// trailing straddle `SyncUpdate` once ANY traversal applies (Resolution D
+/// generalized, R6), so this no longer reports document-change discrimination.
+pub(super) fn apply_traversal_delta(state: &mut ContentState, delta: TraversalDelta) -> bool {
     let peeked = state.nav_controller.peek_delta(delta);
     // Clone the URL to drop the `nav_controller` borrow before the `&mut state` load.
     let Some((target_index, url)) = peeked.map(|(i, u)| (i, u.clone())) else {
-        return TraversalApplyOutcome::default();
+        return false;
     };
-    // Read the cross-document classification BEFORE `handle_navigate` commits +
-    // re-stamps the document identity (else it would compare against the moved
-    // cursor). `changed_document` is only true when the rebuild actually landed.
-    let is_rebuild = matches!(
-        state.nav_controller.resolve_traversal(target_index),
-        TraversalKind::Rebuild
-    );
-    let shipped = handle_navigate(state, &url, HistoryCursorOp::Commit(target_index), None);
-    TraversalApplyOutcome {
-        shipped,
-        changed_document: shipped && is_rebuild,
-    }
-}
-
-/// Resolve a to-be-deferred `SyncUpdate`'s URL to an ABSOLUTE **call-time** URL
-/// (T3). Called at Phase-1b enqueue time, when `base` is the CALL-TIME document
-/// URL (`state.pipeline.url` before any deferred traversal applies):
-/// - `None` (an omitted `pushState` / `replaceState` URL) → the current document
-///   URL (§7.2.5: an absent/empty url resolves against the document's URL at call
-///   time — the entry keeps the call-time URL).
-/// - `Some(u)` → its absolute resolution against the call-time base; left verbatim
-///   only if it does not resolve (Phase-2's apply re-checks scheme/origin).
-///
-/// This makes the deferred update base-INDEPENDENT at apply time, so a same-turn
-/// same-document traversal that moved `pipeline.url` first cannot rebind it to the
-/// back target.
-fn normalize_deferred_history_url(base: Option<&url::Url>, url: Option<String>) -> Option<String> {
-    match url {
-        None => base.map(url::Url::to_string),
-        Some(u) => Some(
-            resolve_nav_url(base, &u)
-                .map(|resolved| resolved.to_string())
-                .unwrap_or(u),
-        ),
-    }
+    handle_navigate(state, &url, HistoryCursorOp::Commit(target_index), None)
 }

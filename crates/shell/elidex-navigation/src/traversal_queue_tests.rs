@@ -90,10 +90,6 @@ struct MockHost {
     /// **no-op** traversal — no-target `go(999)` / failed cross-document load)
     /// instead of the default apply-and-ship `shipped = true`.
     traversal_noop: bool,
-    /// When set, [`DrainHost::apply_traversal`] reports `changed_document = true`
-    /// (a §7.4.6.1 `Rebuild` that landed a fresh document) — drives the
-    /// Resolution-D `SyncUpdate` cancellation (plan §1 D).
-    traversal_changes_document: bool,
     /// When set, [`DrainHost::classify_traversal`] returns `None` (a no-op
     /// out-of-range peek — Resolution E), so the traversal is NOT a barrier.
     classify_noop: bool,
@@ -114,7 +110,6 @@ impl MockHost {
             nav_applies: false,
             reentrant_once: None,
             traversal_noop: false,
-            traversal_changes_document: false,
             classify_noop: false,
             classify_answers: std::collections::VecDeque::new(),
             log: Vec::new(),
@@ -131,13 +126,6 @@ impl MockHost {
     /// Finding 3.
     fn with_noop_traversal(mut self) -> Self {
         self.traversal_noop = true;
-        self
-    }
-
-    /// Make [`DrainHost::apply_traversal`] report `changed_document = true` (a
-    /// document-changing `Rebuild`) — Resolution D drives the `SyncUpdate` cancel.
-    fn with_document_change(mut self) -> Self {
-        self.traversal_changes_document = true;
         self
     }
 
@@ -178,14 +166,6 @@ impl DrainHost for MockHost {
             label: label(action),
             guard,
         });
-    }
-
-    fn normalize_deferred_sync_update(&self, action: HistoryAction) -> HistoryAction {
-        // The isolation mock has no document URL; the call-time-URL binding (T3) is
-        // content-level (pinned by the shell test
-        // `deferred_syncupdate_binds_call_time_url_not_post_traversal`). Return the
-        // action unchanged so the ordering/partition assertions read the raw label.
-        action
     }
 
     fn classify_traversal(&mut self, delta: TraversalDelta) -> Option<PendingTraversal> {
@@ -229,7 +209,7 @@ impl DrainHost for MockHost {
         }
     }
 
-    fn apply_traversal(&mut self, traversal: &PendingTraversal) -> TraversalApplyOutcome {
+    fn apply_traversal(&mut self, traversal: &PendingTraversal) -> bool {
         // The coordinator must have set the guard BEFORE this call (I3).
         let guard = self.queue.is_applying();
         self.log.push(Ev::TraversalApply {
@@ -245,13 +225,10 @@ impl DrainHost for MockHost {
             );
             self.queue.enqueue_traversal(reentrant);
         }
-        // `shipped = false` = a no-op traversal (no-target / failed load); default
-        // `true` = applied and shipped its own frame. `changed_document` drives
-        // Resolution D's `SyncUpdate` cancel.
-        TraversalApplyOutcome {
-            shipped: !self.traversal_noop,
-            changed_document: self.traversal_changes_document,
-        }
+        // `false` = a no-op traversal (no-target / failed load); default `true` =
+        // applied and shipped its own frame. Any traversal apply now triggers the
+        // coordinator's generalized straddle-`SyncUpdate` cancel (Resolution D, R6).
+        !self.traversal_noop
     }
 
     fn ship_frame(&mut self) {
@@ -325,27 +302,31 @@ fn i2_trailing_push_not_reordered_ahead_of_traversal() {
     // The LEADING push is a Phase-1 sync (issued before any traversal); the
     // traversal defers; the TRAILING push was issued AFTER the traversal and so
     // must NOT jump ahead of it into Phase 1 ("all sync first" is not the model).
+    // Post-R6 the trailing straddle push is then CANCELED in Phase 2 (Resolution D
+    // generalized — a straddle sync behind ANY traversal is dropped, not applied
+    // against the post-traversal cursor). I2 (no reorder-ahead) is what this pins;
+    // the cancel is what the syncupdate_canceled_* tests pin.
     let mut host = MockHost::new(vec![push("/a"), back(), push("/x")]);
     let _ = DrainCoordinator::drain_same_turn(&mut host);
 
     let lead = host
         .position(|e| matches!(e, Ev::SyncUpdate { label, .. } if label == "push:/a"))
-        .expect("leading push applied");
+        .expect("leading push applied in Phase 1");
     let traversal = host
         .position(|e| matches!(e, Ev::TraversalApply { .. }))
         .expect("traversal applied");
-    let trail = host
-        .position(|e| matches!(e, Ev::SyncUpdate { label, .. } if label == "push:/x"))
-        .expect("trailing push applied");
 
     assert!(lead < traversal, "the leading push is a Phase-1 sync");
+    // The trailing push (issued after the traversal) was NOT hoisted ahead into
+    // Phase 1 — it deferred behind the traversal and was CANCELED (never applied).
     assert!(
-        traversal < trail,
-        "the trailing push must NOT be reordered ahead of the traversal (I2)"
+        !host
+            .log
+            .iter()
+            .any(|e| matches!(e, Ev::SyncUpdate { label, .. } if label == "push:/x")),
+        "the trailing straddle push was deferred behind the traversal (not reordered \
+         ahead, I2) and then canceled (Resolution D generalized, R6)"
     );
-    // I2 is pinned by the observed drain order (lead-sync < traversal < trailing-sync):
-    // exactly one traversal exists and it applied between the two syncs, so the
-    // trailing push was never hoisted ahead of the traversal issued before it.
     assert!(host.queue.is_empty(), "everything drained");
 }
 
@@ -400,17 +381,24 @@ fn i2_new_sync_defers_behind_a_traversal_queued_last_turn() {
         "the push deferred onto the queue behind the older traversal (not applied in Phase 1)"
     );
 
-    // Draining Phase 2 applies the older traversal FIRST, then the deferred push.
+    // Draining Phase 2 applies the older traversal, then CANCELS the deferred push
+    // (Resolution D generalized, R6 — the cross-turn straddle sync is dropped, not
+    // applied against the post-traversal cursor; the same cancellation as the
+    // same-turn straddle, uniform across turns).
     let _ = DrainCoordinator::run_deferred_traversals(&mut host);
-    let traversal = host
-        .position(|e| matches!(e, Ev::TraversalApply { .. }))
-        .expect("older traversal applied");
-    let deferred_push = host
-        .position(|e| matches!(e, Ev::SyncUpdate { label, .. } if label == "push:/x"))
-        .expect("deferred push applied");
     assert!(
-        traversal < deferred_push,
-        "the last-turn traversal applies before this turn's deferred push (cross-turn I2)"
+        host.log
+            .iter()
+            .any(|e| matches!(e, Ev::TraversalApply { .. })),
+        "the older traversal applied"
+    );
+    assert!(
+        !host
+            .log
+            .iter()
+            .any(|e| matches!(e, Ev::SyncUpdate { label, .. } if label == "push:/x")),
+        "the cross-turn deferred push is CANCELED after the older traversal applies \
+         (not applied against the post-traversal cursor — R6)"
     );
     assert!(host.queue.is_empty(), "everything drained");
 }
@@ -767,45 +755,58 @@ fn cross_turn_pending_traversal_still_discards_navigation() {
 
 #[test]
 fn syncupdate_canceled_after_document_changing_traversal() {
-    // Resolution D: `back(); pushState('/x')` where the back() rebuilds a FRESH
-    // document — the deferred /x push is CANCELED (it must not mutate the
-    // newly-active document's identity), shipping no incoherent cross-document state.
-    let mut host = MockHost::new(vec![back(), push("/x")]).with_document_change();
+    // Resolution D (GENERALIZED, Codex PR#469 R6): `back(); pushState('/x')` where
+    // the back() rebuilds a FRESH document — the deferred /x push is CANCELED (it
+    // must not mutate the newly-active document's identity), shipping no incoherent
+    // cross-document state. Now the SAME code path as the same-document case
+    // (`syncupdate_canceled_after_same_document_traversal`): ANY traversal cancels a
+    // trailing straddle sync (the mock no longer distinguishes rebuild vs
+    // same-document — that discrimination was superseded).
+    let mut host = MockHost::new(vec![back(), push("/x")]);
     let _ = DrainCoordinator::drain_same_turn(&mut host);
 
     assert!(
         host.log
             .iter()
             .any(|e| matches!(e, Ev::TraversalApply { .. })),
-        "the back() traversal applied (document-changing)"
+        "the back() traversal applied"
     );
     assert!(
         !host
             .log
             .iter()
             .any(|e| matches!(e, Ev::SyncUpdate { label, .. } if label == "push:/x")),
-        "the deferred push is CANCELED after a document-changing traversal (Resolution D)"
+        "the deferred push is CANCELED after the traversal (Resolution D generalized)"
     );
     assert!(host.queue.is_empty(), "everything drained");
 }
 
 #[test]
-fn syncupdate_applies_after_same_document_traversal() {
-    // Resolution D complement: a SAME-document traversal (`changed_document =
-    // false`) does NOT cancel the trailing deferred push — no identity mismatch, so
-    // it applies in issue order.
-    let mut host = MockHost::new(vec![back(), push("/x")]); // default: changed_document false
+fn syncupdate_canceled_after_same_document_traversal() {
+    // Resolution D GENERALIZATION (Codex PR#469 R6) — the FLIP of the retired
+    // `syncupdate_applies_after_same_document_traversal`: a straddle sync behind a
+    // SAME-document traversal now also CANCELS (it previously applied). Applying it
+    // against the post-traversal cursor would land the update on the traversal
+    // target, corrupting the current entry (`back(); replaceState('/x')` would land
+    // `/x`-current instead of leaving `base` current). The correct §7.4.1.3
+    // jump-the-queue application to the call-time entry is fenced to
+    // `#11-sync-navigation-steps-queue-tagging`.
+    let mut host = MockHost::new(vec![back(), push("/x")]);
     let _ = DrainCoordinator::drain_same_turn(&mut host);
 
-    let traversal = host
-        .position(|e| matches!(e, Ev::TraversalApply { .. }))
-        .expect("traversal applied");
-    let trail = host
-        .position(|e| matches!(e, Ev::SyncUpdate { label, .. } if label == "push:/x"))
-        .expect("the trailing push applied (same-document traversal does not cancel it)");
     assert!(
-        traversal < trail,
-        "the deferred push applies AFTER the same-document traversal (issue order)"
+        host.log
+            .iter()
+            .any(|e| matches!(e, Ev::TraversalApply { .. })),
+        "the back() traversal applied"
+    );
+    assert!(
+        !host
+            .log
+            .iter()
+            .any(|e| matches!(e, Ev::SyncUpdate { label, .. } if label == "push:/x")),
+        "the deferred push is CANCELED after ANY same-turn traversal, not applied \
+         against the post-traversal cursor (Resolution D generalized, R6)"
     );
     assert!(host.queue.is_empty(), "everything drained");
 }

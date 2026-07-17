@@ -10,7 +10,9 @@
 //! cross-task-boundary phase-separation conformance: I1 ordering across the task
 //! boundary, later-turn `pump_turn` application, the bounded-drain loop-inert
 //! assertions, peek-classify partition, default-suppression frame-ship, and the
-//! call-time-URL binding of a deferred `SyncUpdate`.
+//! cancellation of a deferred `SyncUpdate` that straddles a same-turn traversal
+//! (Resolution D generalized, Codex PR#469 R6 — supersedes the R3 T3 call-time-URL
+//! binding).
 //!
 //! Same-document entries (`push` + `push_same_document`, shared
 //! `document_sequence`) take the no-fetch `same_document_step` path, so their
@@ -198,43 +200,6 @@ fn noop_traversal_peek_classify_does_not_defer_trailing_intents() {
         count_display_lists(&browser),
         1,
         "the /y nav was NOT suppressed by the no-op traversal (it drained + pre-sent)"
-    );
-}
-
-/// D complement (same-document): a `SyncUpdate` deferred behind a **same-document**
-/// traversal is NOT canceled — `back(); pushState('/x')` where back() is
-/// same-document applies the deferred /x in Phase 2 (no identity mismatch). The
-/// document-CHANGING cancel path needs a successful rebuild (VM/connected coverage);
-/// the substrate isolation test pins the cancel itself.
-#[test]
-fn deferred_syncupdate_applies_after_same_document_traversal() {
-    let (mut state, browser) = build_test_content_state_with_url("<p>doc</p>", base());
-    seed_same_document_pair(&mut state); // [base, /a], cursor on /a
-    let _ = state
-        .pipeline
-        .runtime
-        .vm()
-        .eval("history.back(); history.pushState(null, '', '/x');");
-    drain_browser(&browser);
-
-    // Phase 1: back() enqueued (barrier), the trailing pushState DEFERRED (I2), so
-    // it is NOT applied in-task — the controller still reads /a.
-    let _ = DrainCoordinator::drain_synchronous_phase(&mut state);
-    assert!(state.traversal_queue().has_pending_traversal());
-    assert_eq!(
-        state.nav_controller.current_url().map(url::Url::as_str),
-        Some("https://example.com/a"),
-        "the trailing pushState is DEFERRED behind the traversal (not applied in Phase 1)"
-    );
-
-    // Phase 2: same-document back() applies (no fetch) → base; then the deferred
-    // /x push applies (same-document traversal did NOT cancel it — Resolution D).
-    let _ = DrainCoordinator::run_deferred_traversals(&mut state);
-    assert!(state.traversal_queue().is_empty(), "queue drained");
-    assert_eq!(
-        state.nav_controller.current_url().map(url::Url::as_str),
-        Some("https://example.com/x"),
-        "the deferred /x push applied after the same-document back() (not canceled)"
     );
 }
 
@@ -513,14 +478,20 @@ fn pump_turn_applies_enqueued_traversal_on_a_later_turn() {
     );
 }
 
-/// T3 (Codex PR#469 R3): a `SyncUpdate` deferred behind a same-document traversal
-/// binds its URL to the CALL-TIME document URL, not the post-traversal one.
-/// `back(); pushState(null, '')` from `/a` records `/a` (the call-time URL) — NOT
-/// the back target (base) that `pipeline.url` holds at Phase-2 apply time. The
-/// pushState omits the URL (`url: None`); without the T3 enqueue-time normalization
-/// Phase 2's `None` branch used the post-traversal `pipeline.url` (base).
+/// Resolution D GENERALIZED (Codex PR#469 R6) — SUPERSEDES the R3 T3
+/// call-time-URL binding: a `SyncUpdate` that STRADDLES a same-turn traversal is
+/// CANCELED, not applied against the post-traversal cursor. `back();
+/// replaceState('/x')` from `/a` on `[base, /a]` → back() applies same-document to
+/// `base` (correct landing), and the deferred replaceState is DROPPED — final on
+/// `base`, list still `[base, /a]`. Applying the straddle replaceState against the
+/// post-traversal cursor (`base`) would corrupt the current entry (land `/x`-current
+/// with list `[/x, /a]`); the correct §7.4.1.3 "Centralized modifications of session
+/// history" jump-the-queue application to the CALL-TIME entry (before the traversal
+/// moves the cursor) is fenced to `#11-sync-navigation-steps-queue-tagging`. Pinned,
+/// not silent (supported-surface testing): the bounded divergence is the lost
+/// straddle update, not the previously-corrupt current entry.
 #[test]
-fn deferred_syncupdate_binds_call_time_url_not_post_traversal() {
+fn deferred_syncupdate_canceled_behind_same_document_traversal() {
     let (mut state, browser) = build_test_content_state_with_url(
         "<p>doc</p>",
         url::Url::parse("https://example.com/a").unwrap(),
@@ -530,26 +501,31 @@ fn deferred_syncupdate_binds_call_time_url_not_post_traversal() {
         .pipeline
         .runtime
         .vm()
-        .eval("history.back(); history.pushState(null, '');");
+        .eval("history.back(); history.replaceState(null, '', '/x');");
     drain_browser(&browser);
 
-    // Phase 1: back() enqueued (barrier); the empty-URL pushState defers behind it,
-    // its URL bound to the call-time /a at enqueue time (T3).
+    // Phase 1: back() enqueued (barrier); the replace('/x') defers behind it (I2).
     let _ = DrainCoordinator::drain_synchronous_phase(&mut state);
     assert!(
         state.traversal_queue().has_pending_traversal(),
-        "back() queued; the empty-URL push deferred behind it (I2)"
+        "back() queued; the straddle replaceState deferred behind it (I2)"
     );
 
-    // Phase 2: same-document back() → base (pipeline.url now base), THEN the deferred
-    // push applies against its CALL-TIME-bound /a — recording /a, not base.
+    // Phase 2: same-document back() → base; the deferred straddle replaceState is
+    // CANCELED (Resolution D generalized) — the current entry stays `base`, NOT `/x`.
     let _ = DrainCoordinator::run_deferred_traversals(&mut state);
     assert!(state.traversal_queue().is_empty(), "queue drained");
     assert_eq!(
         state.nav_controller.current_url().map(url::Url::as_str),
-        Some("https://example.com/a"),
-        "the deferred empty-URL push bound to the CALL-TIME /a, not the back target \
-         (base) that pipeline.url holds at apply time (T3)"
+        Some("https://example.com/"),
+        "back() landed on base and the straddle replaceState was CANCELED — the \
+         current entry is the back target (base), not the corrupt /x (R6)"
+    );
+    assert_eq!(
+        state.nav_controller.len(),
+        2,
+        "the entry list is unchanged [base, /a] — the canceled replaceState \
+         mutated nothing"
     );
 }
 

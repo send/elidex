@@ -20,12 +20,15 @@
 //! (`has_pending_traversal`), and the browser channel's `DisplayListReady` count.
 //!
 //! **Harness reachability:** cross-document loads fail over the disconnected test
-//! network, so a *successful* cross-document rebuild (and thus a document-changing
-//! traversal's `changed_document = true` → Resolution-D `SyncUpdate` cancel) is
-//! **not** reachable here — it is pinned by the substrate isolation test
-//! (`traversal_queue_tests::syncupdate_canceled_after_document_changing_traversal`)
-//! plus VM/connected-integration coverage. Supersede / cross-turn / peek-classify
-//! are asserted at the queue + coordinator level (plan §5).
+//! network, so a *successful* cross-document rebuild is **not** reachable here.
+//! Resolution-D `SyncUpdate` cancel is now GENERALIZED (Codex PR#469 R6 — a
+//! straddle sync behind ANY traversal is canceled, same-document included), pinned
+//! by the substrate isolation tests
+//! (`traversal_queue_tests::syncupdate_canceled_after_{document_changing,same_document}_traversal`)
+//! and the content-level
+//! `content_history_phase_sep_tests::deferred_syncupdate_canceled_behind_same_document_traversal`.
+//! Supersede / cross-turn / peek-classify are asserted at the queue + coordinator
+//! level (plan §5).
 
 use elidex_navigation::{DrainCoordinator, DrainHost, TraversalDelta};
 use elidex_script_session::HistoryAction;
@@ -322,13 +325,13 @@ fn apply_traversal_delta_reports_no_supersede_on_failed_or_noop() {
     // A Back with a prior entry drives handle_navigate, but the load fails in the
     // harness → the pipeline is NOT replaced → reports NO supersede (shipped false).
     assert!(
-        !apply_traversal_delta(&mut state, TraversalDelta::Back).shipped,
+        !apply_traversal_delta(&mut state, TraversalDelta::Back),
         "a traversal whose load fails does not replace the pipeline → reports no supersede"
     );
     // A no-op traversal (out-of-range go) drives no handle_navigate at all → no
-    // supersede (shipped false), so a continuing trailing intent is not suppressed.
+    // supersede (returns false), so a continuing trailing intent is not suppressed.
     assert!(
-        !apply_traversal_delta(&mut state, TraversalDelta::Go(999)).shipped,
+        !apply_traversal_delta(&mut state, TraversalDelta::Go(999)),
         "an out-of-range go is a no-op (no handle_navigate) → reports no supersede"
     );
 }
@@ -355,7 +358,7 @@ fn failed_traversal_load_does_not_drop_trailing_history() {
 
     // The failed traversal does not supersede (shipped false)…
     assert!(
-        !apply_traversal_delta(&mut state, TraversalDelta::Back).shipped,
+        !apply_traversal_delta(&mut state, TraversalDelta::Back),
         "the Back's load failed → no supersede"
     );
     // …so the trailing same-turn sync update still applies to the still-active doc.
@@ -391,11 +394,8 @@ fn failed_traversal_load_leaves_cursor_unmoved() {
     // A Back whose load FAILS must NOT move the cursor (peek-then-commit only
     // commits on a successful load). `apply_traversal_delta` is the sole traversal
     // body post phase-separation.
-    let outcome = apply_traversal_delta(&mut state, TraversalDelta::Back);
-    assert!(
-        !outcome.shipped,
-        "a failed-load traversal does not supersede"
-    );
+    let shipped = apply_traversal_delta(&mut state, TraversalDelta::Back);
+    assert!(!shipped, "a failed-load traversal does not supersede");
     assert_eq!(
         state.nav_controller.current_url().map(url::Url::as_str),
         Some("https://example.com/a"),
@@ -534,12 +534,9 @@ fn failed_traversal_ships_no_navigation_state() {
     // index=1 on /a; a Back peeks index 0 but its load FAILS in the harness.
     drain_browser(&browser);
 
-    let outcome = apply_traversal_delta(&mut state, TraversalDelta::Back);
+    let shipped = apply_traversal_delta(&mut state, TraversalDelta::Back);
 
-    assert!(
-        !outcome.shipped,
-        "a failed-load traversal does not supersede"
-    );
+    assert!(!shipped, "a failed-load traversal does not supersede");
     assert_eq!(
         count_navigation_states(&browser),
         0,

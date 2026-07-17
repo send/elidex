@@ -23,9 +23,9 @@
 //!
 //! Slice A co-designs the substrate with its first consumer (content mode) — the
 //! peek-classify (`classify_traversal`), nav-suppression (`handle_navigation`
-//! drain-and-discard), and deferred-`SyncUpdate` document-binding
-//! (`apply_traversal` → [`TraversalApplyOutcome`]) seams are each designed
-//! **correct against the real shell state** the inert substrate lacked
+//! drain-and-discard), and deferred-`SyncUpdate` cancellation (Phase 2 drops a
+//! straddle sync behind ANY traversal, Resolution D generalized) seams are each
+//! designed **correct against the real shell state** the inert substrate lacked
 //! (`docs/plans/2026-07-session-history-slice-A-content-phase-separation.md`).
 //! The isolation unit tests below still pin the coordinator in isolation; content
 //! mode drives it (`content/navigation.rs`). App mode = Slice B.
@@ -305,27 +305,6 @@ pub struct DrainOutcome {
     pub suppress_default: bool,
 }
 
-/// The outcome of applying one deferred [`PendingTraversal`]
-/// ([`DrainHost::apply_traversal`], plan §1 Resolution D). Extends the prior
-/// bare `bool` (did it ship a frame?) with the **document-change** signal the
-/// Phase-2 `SyncUpdate` cancellation needs.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct TraversalApplyOutcome {
-    /// The traversal applied AND shipped its own frame (a rebuild or a
-    /// same-document apply). A **no-op** traversal (no target — e.g. a stacked
-    /// `back(); back()` whose cursor already moved — or a failed cross-document
-    /// load) reports `false`, so the coordinator marks NO own-context action
-    /// (mirrors [`DrainHost::handle_navigation`]).
-    pub shipped: bool,
-    /// The applied traversal **changed the active document** (a §7.4.6.1
-    /// `TraversalKind::Rebuild` that actually landed a fresh document). A
-    /// deferred `SyncUpdate` behind a document-changing traversal is CANCELED
-    /// (plan §1 D — it must not mutate the newly-active document's identity); a
-    /// same-document traversal (or a failed rebuild leaving the old document
-    /// active) reports `false`, so a trailing `SyncUpdate` still applies.
-    pub changed_document: bool,
-}
-
 /// The shell-specific seams the [`DrainCoordinator`] drives — the hooks the two
 /// shells diverge on (Slice-0 assessment). Implementing this keeps
 /// `ContentState` / `InteractiveState` / the pipeline / `EcsDom` **behind the
@@ -403,28 +382,6 @@ pub trait DrainHost {
     /// (the coordinator ships once at end); it must NOT peek/commit the cursor.
     fn handle_history_action(&mut self, action: &HistoryAction);
 
-    /// **Bind a to-be-deferred `SyncUpdate`'s URL to the CALL-TIME document URL**
-    /// (plan §1 Resolution D / Codex PR#469 R3 T3). Called by the coordinator
-    /// **only** when a synchronous `pushState` / `replaceState` update issued
-    /// **after** a same-turn traversal is about to defer onto the queue (I2). A
-    /// `history.pushState(state, '')` / `replaceState` with the URL omitted stages
-    /// `url: None` (and a *relative* URL is base-relative); deferred behind a
-    /// same-document traversal, Phase 2's `handle_history_action` would otherwise
-    /// resolve the URL against the **post-traversal** document URL, recording the
-    /// back target instead of the call-time one (`back(); pushState(null, '')` from
-    /// `/a` would record `base`, not `/a`).
-    ///
-    /// The host resolves the effective URL **now** — the current document URL at
-    /// enqueue time — and folds it into the returned [`HistoryAction`]; the
-    /// coordinator just stores what the host returns. This keeps the substrate
-    /// **engine-agnostic**: the coordinator never resolves URLs (it has no
-    /// document-identity / base-URL concept), the host supplies the normalization.
-    /// An in-task Phase-1 update is applied directly and never passes through here
-    /// (it already reads the live call-time URL). Non-`PushState`/`ReplaceState`
-    /// actions are never deferred as a `SyncUpdate`, so an impl returns them
-    /// unchanged.
-    fn normalize_deferred_sync_update(&self, action: HistoryAction) -> HistoryAction;
-
     /// **Phase 1c** — drain the last-wins own-context navigation slot
     /// (`pending_navigation`, §7.4.2). Returns `true` iff a navigation applied
     /// (replaced the pipeline **and** shipped its own frame).
@@ -447,18 +404,14 @@ pub trait DrainHost {
     /// than mutate the cursor. The peek→commit atomicity of the underlying
     /// [`NavigationController`](crate::NavigationController) is thereby structural.
     ///
-    /// Returns a [`TraversalApplyOutcome`] — `shipped` iff the traversal applied
-    /// AND shipped its own frame (a rebuild or same-document apply), and
-    /// `changed_document` iff it landed a **fresh document** (a §7.4.6.1
-    /// `Rebuild`). A **no-op traversal** — no-target (e.g. `history.go(999)` with
-    /// no entry at the resolved step, or a stacked `back(); back()` whose cursor
-    /// already moved), or a failed cross-document load — reports
-    /// `shipped = false` (so the coordinator marks NO own-context action, the
-    /// caller's fallback/default is not suppressed, mirroring
-    /// [`handle_navigation`](Self::handle_navigation)) and `changed_document =
-    /// false` (a failed rebuild left the old document active, so a trailing
-    /// deferred `SyncUpdate` still applies — plan §1 D).
-    fn apply_traversal(&mut self, traversal: &PendingTraversal) -> TraversalApplyOutcome;
+    /// Returns `true` iff the traversal applied AND shipped its own frame (a
+    /// rebuild or same-document apply). A **no-op traversal** — no-target (e.g.
+    /// `history.go(999)` with no entry at the resolved step, or a stacked
+    /// `back(); back()` whose cursor already moved), or a failed cross-document
+    /// load — returns `false`, so the coordinator marks NO own-context action and
+    /// the caller's fallback/default is not suppressed (mirrors
+    /// [`handle_navigation`](Self::handle_navigation)).
+    fn apply_traversal(&mut self, traversal: &PendingTraversal) -> bool;
 
     /// Ship the current display list / frame (shell-specific). Called once by the
     /// coordinator iff an own-context effect happened but no apply body already
@@ -562,13 +515,15 @@ impl DrainCoordinator {
                 }
                 None if seen_traversal => {
                     // A synchronous update issued AFTER a same-turn traversal —
-                    // defer it (tagged) so it cannot jump ahead (I2). Bind its URL
-                    // to the CALL-TIME document URL FIRST (T3): once deferred, Phase
-                    // 2 would otherwise resolve an omitted/relative URL against the
-                    // POST-traversal `pipeline.url` (the back target). The host
-                    // resolves the effective URL now (substrate stays
-                    // engine-agnostic); the coordinator stores the normalized action.
-                    let action = host.normalize_deferred_sync_update(action);
+                    // defer it (tagged, in issue order) so it cannot jump ahead
+                    // (I2). Phase 2 CANCELS it once the barrier traversal applies
+                    // (Resolution D generalized — a straddle `SyncUpdate` is dropped,
+                    // not applied against the post-traversal cursor). Enqueued here
+                    // then canceled in `drain_traversal_queue` — the single
+                    // cancellation home, uniform across same-turn and cross-turn
+                    // straddles. The correct §7.4.1.3 jump-the-queue application to
+                    // the CALL-TIME entry is fenced to
+                    // `#11-sync-navigation-steps-queue-tagging`.
                     host.traversal_queue().enqueue_sync_update(action);
                 }
                 None => {
@@ -740,13 +695,24 @@ impl DrainCoordinator {
         // the held peek. Content's own `apply_traversal` does not re-enqueue (plan §1
         // loop-bound).
         //
-        // `document_changed` latch (Resolution D): once a traversal apply lands a
-        // FRESH document, every subsequent deferred `SyncUpdate` (within this
-        // snapshot) is CANCELED — a `pushState` issued after a same-turn
-        // document-changing `back()` must not mutate the newly-active document's
-        // identity (plan §1 D). Monotonic: it never re-clears within a drain.
+        // `traversal_applied` latch (Resolution D — GENERALIZED, Codex PR#469 R6):
+        // once ANY traversal has applied this drain (same-document OR
+        // document-changing), every subsequent deferred `SyncUpdate` (within this
+        // snapshot) is CANCELED. A straddle sync update (`back(); replaceState('/x')`)
+        // must NOT apply against the POST-traversal cursor — that lands the update on
+        // the traversal target (corrupting the current entry) instead of the
+        // call-time entry. The R3 T3 call-time-URL capture was a piecemeal patch on
+        // the apply-after model (it fixed the URL but not the entry/index); this
+        // generalization SUPERSEDES it — the straddle sync is dropped, preserving
+        // coherent state (correct cursor + correct current entry), the ONLY divergence
+        // being the lost straddle update (bounded, pinned-not-silent). The correct
+        // §7.4.1.3 "Centralized modifications of session history" jump-the-queue
+        // application to the CALL-TIME entry (before the traversal moves the cursor)
+        // is fenced to `#11-sync-navigation-steps-queue-tagging` (edge-dense —
+        // `/elidex-plan-review` mandatory). Monotonic: it never re-clears within a
+        // drain.
         let mut remaining = host.traversal_queue().pending_len();
-        let mut document_changed = false;
+        let mut traversal_applied = false;
         while remaining > 0 {
             remaining -= 1;
             let Some(step) = host.traversal_queue().pop_next() else {
@@ -773,33 +739,42 @@ impl DrainCoordinator {
                     // intersecting). The interim buffer closes the reachable corruption
                     // window until then.
                     host.traversal_queue().enter_nested_apply();
-                    let applied = host.apply_traversal(&traversal);
+                    let shipped = host.apply_traversal(&traversal);
                     host.traversal_queue().exit_nested_apply();
-                    if applied.changed_document {
-                        document_changed = true;
-                    }
+                    // A traversal was processed this drain — any trailing deferred
+                    // `SyncUpdate` in this snapshot is now a straddle behind it and is
+                    // CANCELED below (Resolution D generalized, R6). Set regardless of
+                    // `shipped`: even a no-op traversal apply establishes that the
+                    // trailing sync straddled a traversal, and jumping it to the
+                    // call-time entry is fenced (`#11-sync-navigation-steps-queue-tagging`).
+                    traversal_applied = true;
                     // Gate own-context on the apply OUTCOME (mirrors
                     // `handle_navigation`): a no-op traversal (no-target `go(999)` /
                     // failed cross-document load) reports `shipped = false` and marks
                     // NOTHING, so the caller's fallback/default is not over-suppressed.
-                    if applied.shipped {
+                    if shipped {
                         outcome.own_context_action = true;
                         outcome.shipped = true;
                     }
                 }
                 PendingHistoryStep::SyncUpdate(action) => {
-                    if document_changed {
-                        // Resolution D — CANCEL: a `SyncUpdate` deferred behind a
-                        // document-changing traversal is dropped, not applied to the
-                        // wrong (rebuilt) document. The safe choice — ships no
-                        // incoherent cross-document state (plan §1 D). A same-document
-                        // traversal leaves `document_changed = false`, so its trailing
-                        // `SyncUpdate` still applies below.
+                    if traversal_applied {
+                        // Resolution D (GENERALIZED, R6) — CANCEL: a `SyncUpdate`
+                        // deferred behind ANY same-turn traversal is dropped, not
+                        // applied against the post-traversal cursor. Applying it there
+                        // would land the update on the traversal target, corrupting
+                        // the current entry (`back(); replaceState('/x')` would land
+                        // `/x`-current instead of leaving `base` current). Dropping
+                        // preserves coherent state; the correct jump-the-queue
+                        // application to the call-time entry is fenced to
+                        // `#11-sync-navigation-steps-queue-tagging`.
                         continue;
                     }
-                    // A deferred synchronous update (issued after a same-turn
-                    // traversal) — apply in issue order; no cursor peek/commit, so
-                    // no guard bracket.
+                    // A deferred synchronous update with no preceding traversal in
+                    // this snapshot (a `SyncUpdate`-only tail) — apply in issue order;
+                    // no cursor peek/commit, so no guard bracket. In practice a
+                    // `SyncUpdate` is only deferred behind a barrier traversal, so this
+                    // arm is reached only when no traversal has applied yet.
                     host.handle_history_action(&action);
                     outcome.own_context_action = true;
                 }

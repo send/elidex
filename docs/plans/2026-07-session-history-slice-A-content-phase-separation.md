@@ -233,22 +233,44 @@ modifications of session history** (`#centralized-modifications-of-session-histo
 document-identity-preserving jump-the-queue reconciliation is exactly what slot
 `#11-sync-navigation-steps-queue-tagging` fences.
 
-**Decision (minimal-correct, bounded):** a `SyncUpdate` deferred behind a **document-changing** traversal
-apply is **CANCELED** — dropped, not applied to the wrong document — the safe choice that ships **no
-incoherent cross-document state**. A `SyncUpdate` behind a **same-document** traversal MAY still apply (no
-identity mismatch). Present cancel-vs-apply-to-old-doc as a plan-review question (§6 Q-D) but **recommend
-cancel**.
+**Decision (GENERALIZED — Codex PR#469 R6; supersedes the earlier document-changing-only scope):** a
+`SyncUpdate` that STRADDLES **any** same-turn traversal apply — same-document OR document-changing — is
+**CANCELED** (dropped, not applied against the post-traversal cursor). The earlier scope (cancel behind a
+*document-changing* traversal only, let a same-document straddle apply) was **spec-wrong on the entry/index**:
+a straddle sync applied against the post-traversal cursor lands the update on the **traversal target**,
+corrupting the current entry. Example: from `[base, /a]` at `/a`, `history.back(); history.replaceState(null,
+'', '/x')` — `back()` (same-document, `document_changed` stays false under the old model) applies moving the
+cursor to `base`, then the deferred `ReplaceState` applied against `base` lands `/x`-current with list `[/x,
+/a]` instead of leaving `base` current with list `[base, /x]`. **This is a REACHABLE corruption** (needs no
+service worker). Canceling drops the straddle update but preserves **coherent state** — correct cursor
+(`base`) + correct current entry (`base`), list `[base, /a]`; the only divergence is the lost straddle
+`replaceState` (a bounded, documented divergence), NOT a corrupt `/x`-current entry.
 
-**Change.** `apply_traversal` must report whether the applied traversal changed the document — recommended
-extend its return from `bool` to a small `TraversalApplyOutcome { shipped: bool, changed_document: bool }`
-(the host knows via `resolve_traversal`'s `TraversalKind`: `Rebuild` = changed, `SameDocument` = not). The
-Phase-2 `drain_traversal_queue` loop tracks "a document-changing traversal has applied"; once set, it
-**skips** (cancels) subsequent `PendingHistoryStep::SyncUpdate` steps instead of calling
-`handle_history_action`. Exact return shape → §6 Q-D.
+**Root (self-root-check, ≥2 rounds on the deferred-SyncUpdate-straddle mechanism — R3 T3 call-time-URL,
+R4 :744/:540 cross-turn context, R6 :803 call-time-entry):** the correct behavior is WHATWG HTML §7.4.1.3
+"Centralized modifications of session history" **jump-the-queue** — a synchronous navigation step that
+straddles a traversal must apply to the **call-time entry BEFORE** the traversal moves the cursor. The R3 T3
+fix (capture the deferred `SyncUpdate`'s call-time URL and APPLY it after the traversal) was a **piecemeal
+symptom-patch on the apply-after model** — it fixed the URL but not the entry/index, and completing it
+piecemeal (index/doc-changed snapshots) is exactly the ad-hoc edifice this plan committed against. That full
+tagged-queue reconciliation stays **NAMED-FENCED to `#11-sync-navigation-steps-queue-tagging`** (umbrella §7
+Q-SYNC-FINALIZE, edge-dense — `/elidex-plan-review` mandatory).
 
-**Bounded divergence + fence + test.** The full document-identity-preserving jump-the-queue reconciliation is
-NAMED-FENCED to `#11-sync-navigation-steps-queue-tagging`. **Conformance test** pins the cancel behavior
-(pinned-not-silent).
+**Change (interim, coherent bounded divergence).** The Phase-2 `drain_traversal_queue` loop tracks a monotonic
+`traversal_applied` latch: once **ANY** traversal step has applied this drain (same-document OR
+document-changing), every subsequent `PendingHistoryStep::SyncUpdate` step is **CANCELED** (skipped) instead
+of calling `handle_history_action`. This SUPERSEDES the earlier `changed_document`-discriminated cancel: the
+`TraversalApplyOutcome { shipped, changed_document }` return collapses back to `apply_traversal -> bool`
+(shipped), and T3's `normalize_deferred_sync_update` seam + the content `normalize_deferred_history_url` helper
+are **removed** (the straddle `SyncUpdate` is now always canceled, never applied — the URL-binding they existed
+to fix is moot). The trailing sync still defers onto the queue in issue order (I2 partition unchanged); the
+cancel is the single Phase-2 home, uniform across same-turn and cross-turn straddles.
+
+**Bounded divergence + fence + test.** The full call-time-entry jump-the-queue reconciliation is NAMED-FENCED
+to `#11-sync-navigation-steps-queue-tagging`. **Conformance tests** pin the cancel (pinned-not-silent):
+`traversal_queue_tests::syncupdate_canceled_after_{document_changing,same_document}_traversal` +
+`content_history_phase_sep_tests::deferred_syncupdate_canceled_behind_same_document_traversal` (the re-anchored
+former T3 test).
 
 ### Resolution (loop-bound) — BOUNDED SNAPSHOT shipped (Codex PR#469 R3 T1); reentrancy-guard wiring stays Slice 4
 
@@ -306,9 +328,12 @@ DOM/selector/form/algorithm logic crosses into `elidex-navigation` — only orde
    (a Turn-1 traversal still queued in Turn-2, `:388`).
 4. **`DrainOutcome.deferred_own_context: bool` (B).** New field, distinct from `own_context_action` /
    `shipped`. Set when `classify_traversal` returns `Some`. Consumed by the content default-suppression site.
-5. **Phase-2 `SyncUpdate` cancellation on document change (D).** `apply_traversal` return extended to report
-   `changed_document`; `drain_traversal_queue` cancels (skips) subsequent `SyncUpdate` steps once a
-   document-changing traversal has applied.
+5. **Phase-2 `SyncUpdate` cancellation behind ANY traversal (D — GENERALIZED, R6).** `drain_traversal_queue`
+   tracks a monotonic `traversal_applied` latch and cancels (skips) subsequent `SyncUpdate` steps once **any**
+   traversal (same-document OR document-changing) has applied. `apply_traversal` returns a plain `bool`
+   (shipped) — the `TraversalApplyOutcome.changed_document` discriminator + T3's `normalize_deferred_sync_update`
+   seam are removed (superseded — a straddle sync is always canceled, never applied). Full call-time-entry
+   jump-the-queue → `#11-sync-navigation-steps-queue-tagging`.
 
 Unchanged: `TraversalQueue` shape (the `running_nested_apply_history_step` guard stays observational this
 slice — its *wiring* is Slice 4), the ship-once `ship_if_needed` funnel, the split entry points
@@ -332,12 +357,12 @@ multi-navigable fan-out OUT/B1). Section labels use the webref **section titles*
 | WHATWG HTML §7.4.3 Reloading and traversing | 4 | append traversal steps to traversable → resolve `targetStepIndex` | IN — Phase-1b enqueue via new `classify_traversal` seam | ✓ | yes (back/forward/go) |
 | WHATWG HTML §7.4.3 Reloading and traversing | 4.4 | `allSteps[targetStepIndex]` does not exist ⇒ abort (no-op) | IN — Resolution E peek-classify: `peek_*` → `None` = no barrier, falls through | ✓ | yes (back/forward/go) |
 | WHATWG HTML §7.4.4 Non-fragment synchronous "navigations" | 3–11 | *URL and history update steps*: build `newEntry`, on push bump index+length, set URL/active entry | IN — Phase-1b sync updates (`PushState`/`ReplaceState`) in-task via `handle_history_action` | ✓ | yes (pushState/replaceState/`location.*`) |
-| WHATWG HTML §7.4.4 Non-fragment synchronous "navigations" | 12–13 | append *synchronous navigation steps* (finalize + BiDi) to the traversable's ONE tagged queue | PARTIAL — Resolution D: a deferred `SyncUpdate` behind a document-changing traversal is CANCELED (bounded); full finalize/jump-the-queue reconciliation fenced | ✗ (bounded — `#11-sync-navigation-steps-queue-tagging`) | yes |
+| WHATWG HTML §7.4.4 Non-fragment synchronous "navigations" | 12–13 | append *synchronous navigation steps* (finalize + BiDi) to the traversable's ONE tagged queue | PARTIAL — Resolution D (GENERALIZED, R6): a deferred `SyncUpdate` behind ANY same-turn traversal is CANCELED (bounded); full call-time-entry jump-the-queue reconciliation fenced | ✗ (bounded — `#11-sync-navigation-steps-queue-tagging`) | yes |
 | WHATWG HTML §7.4.6.1 Updating the traversable | 1 | *apply the history step*: assert running within traversal queue | IN — the queue-serialized Phase-2 apply (guard observational this slice) | ✓ | no |
 | WHATWG HTML §7.4.6.1 Updating the traversable | 3/4/6/7 | initiator sandbox check / cross-doc navigable set / `changingNavigables` / nonchanging siblings | OUT (B1) — always `{top-level}`; the fan-out fence | n/a (B1) | no |
 | WHATWG HTML §7.4.6.1 Updating the traversable | 8 | per-navigable: set current entry; queue global task on the navigation-and-traversal task source | IN (top-level only) — the single Phase-2 apply task, scheduled on `run_event_loop` (`event_loop.rs:21`) | ✓ | no |
 | WHATWG HTML §7.4.6.1 Updating the traversable | 12 + 12.4 | two-part split ("processed before documents unload"); 12.4 update-only when `displayedEntry is targetEntry` | IN — the decisive phase-separation (Phase 1 lands, Phase 2 applies) | ✓ | no |
-| WHATWG HTML §7.4.6.1 Updating the traversable | 14.1.1 | *synchronous navigations jump the queue … before this traversal potentially unloads their document* | PARTIAL — Resolution D cancel is the bounded stand-in; document-identity reconciliation fenced | ✗ (bounded — `#11-sync-navigation-steps-queue-tagging`) | no |
+| WHATWG HTML §7.4.6.1 Updating the traversable | 14.1.1 | *synchronous navigations jump the queue … before this traversal potentially unloads their document* | PARTIAL — Resolution D (GENERALIZED, R6) cancel-behind-any-traversal is the bounded stand-in; call-time-entry jump-the-queue reconciliation fenced | ✗ (bounded — `#11-sync-navigation-steps-queue-tagging`) | no |
 | WHATWG HTML §7.3.1.1 Traversable navigables | queue obj | session history traversal **queue** object | IN — `TraversalQueue` on `NavigationController` (cooperative deferred task, not an OS thread) | ✓ | no |
 | WHATWG HTML §7.3.1.1 Traversable navigables | queue obj | **"running nested apply history step" boolean** (init false) | PARTIAL — present + observational; reentrancy-guard *wiring* + termination = Slice 4 (loop-bound inert) | ✗ (Slice 4) | no |
 
@@ -374,7 +399,7 @@ umbrella §3/§5.
 | `handle_history_action` | the **sync-update-only** arm of the existing `handle_history_action` (`:777`) — `PushState`/`ReplaceState`; the `Back`/`Forward`/`Go` arms move OUT to `apply_traversal` |
 | `handle_navigation` | the Phase-1c `take_pending_navigation` + `resolve_nav_url` + `handle_navigate` block (`:609`–`:628`); on suppress, takes-and-drops `pending_navigation` without applying (F1) |
 | `classify_traversal` (NEW) | `peek_back`/`peek_forward`/`peek_go` on `nav_controller`; `Some` with `UserInvolvement::None` (scripted), `None` on out-of-range |
-| `apply_traversal` (NEW) | the peek-then-commit + `handle_navigate` body currently in `handle_history_action`'s traversal arms, returning `{ shipped, changed_document }` |
+| `apply_traversal` (NEW) | the peek-then-commit + `handle_navigate` body currently in `handle_history_action`'s traversal arms, returning `bool` (shipped) — the `changed_document` discriminator was removed when D generalized (R6) |
 | `ship_frame` | `state.send_display_list()` |
 
 **Drain rewiring:**
@@ -424,9 +449,14 @@ justified in-plan (`#11-browsing-context-state-ecs-components` owns any wholesal
   reverse cross-channel order (bounded divergence, pinned-not-silent).
 - **NEW no-op peek-classify test (E):** `go(999); pushState('/x')` at end-of-history ⇒ the no-op does NOT
   defer the trailing push (it applies in-task) and does NOT suppress a same-turn nav/default.
-- **NEW `SyncUpdate`-cancellation conformance test (D):** `back(); pushState('/x')` across a
-  document-changing traversal ⇒ the deferred `/x` push is **canceled** (does not mutate the rebuilt
-  document); a same-document traversal variant lets it apply.
+- **`SyncUpdate`-cancellation conformance tests (D — GENERALIZED, R6):** `back(); replaceState('/x')` across a
+  same-document traversal ⇒ the deferred `/x` update is **canceled** (lands on the back target `base`, list
+  `[base, /a]` unchanged — NOT the corrupt `/x`-current); the document-changing variant cancels via the SAME
+  code path. Substrate isolation pins both scenarios
+  (`syncupdate_canceled_after_{document_changing,same_document}_traversal`); the content-level re-anchored
+  former-T3 test (`deferred_syncupdate_canceled_behind_same_document_traversal`) pins the reachable
+  same-document corruption. (Earlier plan text let a same-document straddle *apply* — superseded: that was the
+  R6-caught corruption.)
 - **NEW cross-turn default-suppression conformance test (B cross-turn-robust, E1):** a Turn-1 `history.back()`
   left queued (no intervening Phase-2 pump), then a Turn-2 `<a href>` click whose handler runs
   `location.href='/c'` ⇒ the link default is **suppressed** (the still-pending traversal supersedes; F1 drops
@@ -445,13 +475,18 @@ App-mode parity is **Slice B** (out of scope here); no new app-mode history-drai
 
 ## §6 Open questions for `/elidex-plan-review`
 
-- **Q-D — `SyncUpdate` cancel vs apply-to-old-doc.** Recommend **cancel** (safe, no incoherent
-  cross-document state). Confirm, and confirm the same-document variant may still apply.
+- **Q-D — `SyncUpdate` cancel scope. RESOLVED + GENERALIZED (Codex PR#469 R6).** Recommend was **cancel** for
+  the document-changing case; R6 showed the same-document straddle *applying* is a REACHABLE corruption (lands
+  the update on the traversal target, corrupting the current entry). Resolution: cancel a deferred `SyncUpdate`
+  behind **ANY** same-turn traversal (interim bounded divergence — the straddle update is dropped, coherent
+  state preserved). The correct §7.4.1.3 jump-the-queue application to the call-time entry is
+  `#11-sync-navigation-steps-queue-tagging`.
 - **Q-shape — the exact `DrainOutcome` / seam shapes.** `classify_traversal -> Option<PendingTraversal>` vs a
   bool "in-range?" seam; the nav-discard seam (A/F1) as `discard_pending_navigation()` (take-and-drop) vs
-  `handle_navigation(suppress: bool)` (still drains, does not apply); `apply_traversal` extended return
-  (`TraversalApplyOutcome { shipped, changed_document }`) vs a coordinator-tracked flag; `deferred_own_context`
-  as a `DrainOutcome` field vs a queue query.
+  `handle_navigation(suppress: bool)` (still drains, does not apply); `apply_traversal` return (**resolved
+  R6:** plain `bool` shipped + a coordinator-tracked `traversal_applied` latch — the earlier
+  `TraversalApplyOutcome { shipped, changed_document }` was superseded when D generalized to cancel behind ANY
+  traversal); `deferred_own_context` as a `DrainOutcome` field vs a queue query.
 - **Q-A — nav-suppression predicate.** "queue holds a pending `Traversal` step" — does it correctly handle
   **both** same-turn orders (`back(); location.href` and `location.href; back()`) acceptably given staging
   discarded cross-channel issue order? Confirm the bounded divergence is acceptable + fenced.
@@ -474,7 +509,7 @@ App-mode parity is **Slice B** (out of scope here); no new app-mode history-drai
 | **Closes** | CARRY-EXT (A) — double apply-body / no supersede | Resolution A |
 | **Closes** | CARRY-EXT (B) — default fires over a pending deferred traversal | Resolution B — `deferred_own_context` |
 | **Closes** | CARRY-EXT-2 (E) — no-op traversal false partition barrier | Resolution E — peek-classify |
-| **Closes** | CARRY-EXT-2 (D) — deferred `SyncUpdate` document binding | Resolution D — cancel-on-doc-change (bounded) |
+| **Closes** | CARRY-EXT-2 (D) — deferred `SyncUpdate` document binding | Resolution D (GENERALIZED, R6) — cancel a straddle `SyncUpdate` behind ANY same-turn traversal (bounded) |
 | **Defers → Slice 4** | loop-bound (unbounded re-check-until-empty) + reentrancy-guard wiring + `commit_index` `debug_assert` retirement | inert this slice (SW pump dead); loop-inert test only |
 | **Defers → Slice B** | app-mode phase-separation (Q-SCHED end-of-input-handler drain) | distinct shell; lands in close succession |
 | **Defers → `#11-sync-navigation-steps-queue-tagging`** | full issue-order nav-channel integration (A) + document-identity jump-the-queue reconciliation (D) | §7.4.1.3 / §7.4.2.3.3 / §7.4.6.1 tagged-queue machinery; **A's cross-channel leg additionally needs a Q-VM-MODEL reopen** (co-homed, F7) — the slot charter is the tagged-queue reconciliation, and A's `location.*` cross-channel integration needs VM staging to preserve cross-channel issue order |
