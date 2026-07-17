@@ -5,8 +5,11 @@
 //! crate), plus the pure derivation closure that reads that state:
 //! constraint validation ([`validate_control`] / [`ValidityState`]), the
 //! fieldset disabled-ancestry predicate ([`is_fieldset_disabled`]), value
-//! sanitization, the step-grid + datetime primitives, and the `value` IDL
-//! value-mode cluster ([`ValueMode`] / [`ValueSetAction`]).
+//! sanitization, the step-grid + datetime primitives, the `value` IDL
+//! value-mode cluster ([`ValueMode`] / [`ValueSetAction`]), and the
+//! selection / clipboard value-model helpers ([`select_all`] /
+//! [`delete_selection`] / [`clipboard_paste`] — pure `&mut FormControlState`
+//! edits, not `&mut EcsDom` systems).
 //!
 //! Deps are `elidex-ecs` + `elidex-plugin` + `regex` + `url` + `tracing`
 //! only — a true leaf with no path to `elidex-dom-api` / `elidex-css` /
@@ -15,19 +18,23 @@
 //! migration) live in `elidex-form`, which re-exports this crate's surface
 //! so `elidex_form::X` keeps resolving for downstream crates.
 
+mod clipboard;
 mod datetime;
 mod fieldset;
 mod input;
 mod sanitize;
+mod selection;
 pub mod util;
 mod validation;
 mod value_mode;
 
+pub use clipboard::{clipboard_copy, clipboard_cut, clipboard_paste};
 pub use fieldset::{first_legend_child, is_fieldset_disabled, is_in_first_legend};
 pub use input::{
     apply_step, form_control_key_input, form_control_key_input_action, resolve_input_list,
     sanitize_for_type_change, KeyAction, StepError,
 };
+pub use selection::{collapse_selection, delete_selection, extend_selection, select_all};
 pub use validation::{is_constraint_validation_candidate, validate_control, ValidityState};
 pub use value_mode::{ValueMode, ValueSetAction};
 
@@ -363,7 +370,7 @@ pub struct FormControlState {
     /// Placeholder text (displayed when value is empty).
     pub placeholder: String,
     /// Cursor position within the value string (byte offset).
-    pub cursor_pos: usize,
+    pub(crate) cursor_pos: usize,
     /// Whether the control is read-only (text controls only).
     pub readonly: bool,
     /// Number of visible rows (textarea only, default 2 per HTML spec §4.10.7).
@@ -399,9 +406,9 @@ pub struct FormControlState {
     /// Autocomplete hint (`autocomplete` attribute).
     pub autocomplete: String,
     /// Selection start (byte offset, for text controls).
-    pub selection_start: usize,
+    pub(crate) selection_start: usize,
     /// Selection end (byte offset, for text controls).
-    pub selection_end: usize,
+    pub(crate) selection_end: usize,
     /// Selection direction.
     pub selection_direction: SelectionDirection,
     /// Composition text from IME (if active).
@@ -413,7 +420,7 @@ pub struct FormControlState {
     /// Whether the dropdown is open (for `<select>` controls).
     pub dropdown_open: bool,
     /// Cached character count (O(1)).  Kept in sync with `value` by editing methods.
-    pub char_count: usize,
+    pub(crate) char_count: usize,
     /// Minimum value constraint (`min` attribute, for number/range/date types).
     pub min: Option<String>,
     /// Maximum value constraint (`max` attribute, for number/range/date types).

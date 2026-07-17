@@ -99,12 +99,11 @@ mod tests {
     use super::*;
 
     fn make_state(kind: FormControlKind, rows: u32, cols: u32) -> FormControlState {
-        FormControlState {
-            kind,
-            rows,
-            cols,
-            ..FormControlState::default()
-        }
+        let mut state = FormControlState::default();
+        state.kind = kind;
+        state.rows = rows;
+        state.cols = cols;
+        state
     }
 
     #[test]

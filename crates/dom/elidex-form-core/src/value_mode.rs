@@ -162,3 +162,115 @@ impl FormControlKind {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn value_idl_mode_per_kind_matches_spec_bookkeeping() {
+        use FormControlKind as K;
+        // value mode: text-like + numeric + date/time states.
+        for k in [
+            K::TextInput,
+            K::Password,
+            K::Email,
+            K::Url,
+            K::Tel,
+            K::Search,
+            K::Number,
+            K::Range,
+            K::Color,
+            K::Date,
+            K::DatetimeLocal,
+            K::Time,
+            K::Week,
+            K::Month,
+        ] {
+            assert_eq!(
+                k.value_idl_mode(),
+                ValueMode::Value,
+                "{k:?} should be value mode"
+            );
+        }
+        // default mode: hidden / submit / reset / button.
+        for k in [K::Hidden, K::SubmitButton, K::ResetButton, K::Button] {
+            assert_eq!(
+                k.value_idl_mode(),
+                ValueMode::Default,
+                "{k:?} should be default mode"
+            );
+        }
+        // default/on mode: checkbox / radio.
+        for k in [K::Checkbox, K::Radio] {
+            assert_eq!(
+                k.value_idl_mode(),
+                ValueMode::DefaultOn,
+                "{k:?} should be default/on mode"
+            );
+        }
+        // filename mode: file.
+        assert_eq!(K::File.value_idl_mode(), ValueMode::Filename);
+        // Non-input value-bearing kinds take the value mode (live value is
+        // authoritative — avoids a spurious content-attribute round-trip).
+        for k in [K::TextArea, K::Select, K::Output, K::Meter, K::Progress] {
+            assert_eq!(
+                k.value_idl_mode(),
+                ValueMode::Value,
+                "{k:?} should be value mode"
+            );
+        }
+    }
+
+    #[test]
+    fn value_idl_get_dispatch() {
+        // value mode → live value (ignores content attr / filename).
+        assert_eq!(
+            ValueMode::Value.idl_get("live", Some("attr"), Some("f.txt")),
+            "live"
+        );
+        // default mode → content attr, fallback "".
+        assert_eq!(
+            ValueMode::Default.idl_get("live", Some("attr"), None),
+            "attr"
+        );
+        assert_eq!(ValueMode::Default.idl_get("live", None, None), "");
+        // default/on mode → content attr, fallback "on".
+        assert_eq!(
+            ValueMode::DefaultOn.idl_get("live", Some("yes"), None),
+            "yes"
+        );
+        assert_eq!(ValueMode::DefaultOn.idl_get("live", None, None), "on");
+        // filename mode → "C:\fakepath\" + first file name, or "".
+        assert_eq!(
+            ValueMode::Filename.idl_get("live", Some("attr"), Some("photo.png")),
+            "C:\\fakepath\\photo.png"
+        );
+        assert_eq!(ValueMode::Filename.idl_get("live", Some("attr"), None), "");
+    }
+
+    #[test]
+    fn value_idl_set_action_dispatch() {
+        assert_eq!(
+            ValueMode::Value.idl_set_action("x"),
+            ValueSetAction::SetLiveValue
+        );
+        assert_eq!(
+            ValueMode::Default.idl_set_action("x"),
+            ValueSetAction::SetContentAttr
+        );
+        assert_eq!(
+            ValueMode::DefaultOn.idl_set_action("x"),
+            ValueSetAction::SetContentAttr
+        );
+        // filename: empty → clear files; non-empty → throw.
+        assert_eq!(
+            ValueMode::Filename.idl_set_action(""),
+            ValueSetAction::ClearFiles
+        );
+        assert_eq!(
+            ValueMode::Filename.idl_set_action("x"),
+            ValueSetAction::ThrowInvalidState
+        );
+    }
+}

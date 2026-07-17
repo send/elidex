@@ -1986,8 +1986,6 @@ dependencies = [
  "elidex-form-core",
  "elidex-plugin",
  "elidex-script-session",
- "regex",
- "tracing",
  "url",
 ]
 

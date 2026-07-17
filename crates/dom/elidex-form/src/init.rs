@@ -215,7 +215,7 @@ mod tests {
         // HTML §4.10.20: the initial text entry cursor is at the BEGINNING of
         // the control (value establishment at creation is clamp-only, not a
         // collapse to the end).
-        assert_eq!(state.cursor_pos, 0);
+        assert_eq!(state.cursor_pos(), 0);
     }
 
     #[test]

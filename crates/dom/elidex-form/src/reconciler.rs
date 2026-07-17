@@ -585,7 +585,8 @@ mod tests {
         let (mut dom, e) = setup("input", &[("value", "longer-initial")]);
         with_fcs(&dom, e, |s| {
             assert_eq!(
-                s.cursor_pos, 0,
+                s.cursor_pos(),
+                0,
                 "initial cursor at the beginning (§4.10.20)"
             );
         });
@@ -593,8 +594,8 @@ mod tests {
         with_fcs(&dom, e, |s| {
             assert_eq!(s.value, "short");
             assert_eq!(s.default_value, "short");
-            assert_eq!(s.char_count, 5);
-            assert_eq!(s.cursor_pos, 0, "cursor 0 is in-bounds → clamp leaves it");
+            assert_eq!(s.char_count(), 5);
+            assert_eq!(s.cursor_pos(), 0, "cursor 0 is in-bounds → clamp leaves it");
             assert!(!s.dirty_value);
         });
     }
@@ -621,8 +622,8 @@ mod tests {
         with_fcs(&dom, e, |s| {
             assert_eq!(s.value, "short");
             // (10, 14) both clamp to the new length (5).
-            assert_eq!(s.selection_start, 5);
-            assert_eq!(s.selection_end, 5);
+            assert_eq!(s.selection_start(), 5);
+            assert_eq!(s.selection_end(), 5);
             // Direction is PRESERVED — §4.10.20 clamps positions only.
             assert_eq!(s.selection_direction, SelectionDirection::Forward);
         });

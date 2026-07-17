@@ -19,8 +19,6 @@ elidex-dom-api.workspace = true
 # (HTML §8.5.1 inert-document build). A clean downward dep: script-session does
 # not reach back to elidex-form, so no cycle (form → dom-api → script-session).
 elidex-script-session.workspace = true
-regex.workspace = true
-tracing.workspace = true
 url.workspace = true
 
 [lints]
