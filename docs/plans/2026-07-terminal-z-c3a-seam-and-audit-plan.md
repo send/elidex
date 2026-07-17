@@ -27,7 +27,8 @@ Predecessors MERGED: Z-1a (#313, standalone `FragmentTree`) / Z-1b (#316, per-co
 > section; every other section **points** at it. **Sections are deliberately NOT self-contained**: a second
 > rendering of a fact is a *defect*, not a convenience, because the copies drift and each drift is a wrong
 > decision by whoever read that section. This is not a style rule — it is the diagnosis of this memo's own
-> review history. Fourteen Codex rounds enumerated this surface a couple of sites at a time: the callability
+> review history. The Codex loop enumerated this surface a couple of sites at a time, round after round: the
+> callability
 > set was rendered at seven sites and **had already drifted**; §1 and §6.3 disagreed on this slice's scope;
 > §4 axis 3 contradicted §1 requirement 5; §3 and §5 disagreed on the transform gap's membership; hand-off
 > items existed as a table *and* as prose. **PR #463 — this memo's predecessor — died of exactly this**
@@ -116,8 +117,15 @@ impl EcsDom {
 3. **Phase-invalidity is a DISTINCT signal from box-absence** (§2 I-phase; R6-X1) — a mid-layout or paged/print
    store must be **unreadable as screen geometry**, and that failure must **NOT** collapse to the same value as
    a boxless/despawned entity (whose downstream policy is a11y-skip / IO-RO-zero). So "not a completed screen
-   pass" is a *guard failure* (a `Result::Err(InvalidPhase)` / a screen-geometry access token / a separate
-   `try_*` accessor — impl's choice), never the boxless `None`/empty that means "no box." Liveness is part of
+   pass" is a *guard failure*, never the boxless `None`/empty that means "no box." **The candidate encodings
+   are listed here and only here** (every other section points at this list): a `Result::Err(InvalidPhase)`; a
+   screen-geometry access token; a separate `try_*` accessor; or **folds defined only on an already-guarded
+   projection** — impl's choice. ⚠ The last one is not interchangeable with the first three (Codex
+   R15-re-gate): they are *per-call* guards that oblige **every** fold to re-discharge the check, while a
+   guarded projection makes the propagation this requirement demands **structural** — which is what §2 asks for
+   under CLAUDE.md *Security by structure, not review convention*, and what the illustrative signature above
+   (`-> <phase-guarded projection>`) already assumes. A menu missing it would hand C-3a's plan-review only the
+   options that cannot satisfy the constraint. Liveness is part of
    *box-absence*: a despawned entity (whose stale store index teardown does NOT clean — only the multicol
    committer calls `remove_entity`) reads as absent, checked via `world.contains` before trusting `fragments_for`.
 4. **Pre-transform geometry** (§2 I-transform) — CSS transforms are a paint-time wrapper; a painted-geometry
@@ -130,9 +138,12 @@ impl EcsDom {
    style checks** — so **the seam carries it, and that is decided HERE** (this requirement is the fact's only
    home; §3's row and §4 axis 3 point at it and must not re-decide it). ⚠ This does **not** oblige C-3 to *fix*
    the deviation — C-3 preserves current behavior — it obliges the seam to **expose the distinction** so a
-   consumer *can* take its spec branch. *(The deviation is `display:contents`-specific and lives here; it is
-   **not** §2 I-boxless, which is the unrelated fact that no production path ever removes a `LayoutBox` —
-   Codex R14-re-gate found this pointer landing on the wrong deviation.)* Which readers need the signal is
+   consumer *can* take its spec branch. *(The deviation is `display:contents`-specific and lives here. An
+   earlier draft pointed at §2 I-boxless for it, which §2 never discusses — but the replacement then mis-cast
+   I-boxless as merely "no production path removes a `LayoutBox`", one of its four bullets, while §4 axis 3
+   rightly routes the boxless **policy** question to it: Codex R15-re-gate. I-boxless governs empty→`None` and
+   its non-universality; this `display:contents` deviation is simply not among its bullets.)* Which readers
+   need the signal is
    audit axis 3's output; **that** the seam carries it is not axis 3's to decide.
 
 **Why on `EcsDom`** (not each consumer reading the store/component directly):
@@ -251,7 +262,9 @@ takes the LOW union, not the dom-api 4-branch. So C-3d is the *only* collision, 
 - **I-lines × source-change** — a consumer newly sourced from `getClientRects` (which draws on the
   line-level `InlineClientRects`) inherits the line-expressivity gap.
 - **I-transform × N=1 (audit axis 4)** — a transform on a non-fragmented element is "behavior-neutral N=1
-  routing-delta" under axis 4, yet its pre-transform gBCR/IO/a11y geometry is silently wrong; the auditor must
+  routing-delta" under axis 4, yet its pre-transform gBCR/IO geometry is silently wrong (the **cited** gap —
+  membership is I-transform's, below; a11y is a raw-reader of unresolved contract, so "wrong" is not
+  established for it); the auditor must
   hold I-transform against axis 4 or mis-mark a transformed reader "fully classified" (→ audit axis 8, §4).
 
 ### I-phase — the load-bearing one (four facts, all in live code)
@@ -381,7 +394,9 @@ needs is **per-consumer and spec-mandated**:
   prerequisite**, §5.
 
 ⚠ This basis is **invisible to the N=1 behavior-neutral test**: a `transform:rotate` on a non-fragmented
-element is "N=1 routing-delta only" (axis 4) while its pre-transform gBCR/IO/a11y geometry is silently wrong.
+element is "N=1 routing-delta only" (axis 4) while its pre-transform gBCR/IO geometry is silently wrong.
+⚠ **gBCR/IO, not a11y** — saying a11y's geometry is "wrong" presupposes the very contract this subsection says
+was never cited (Codex R15-re-gate caught this line contradicting the fix four lines above it).
 So the audit must classify it **explicitly** (axis 8, §4) — otherwise a reader is marked "fully classified"
 while the transform contract is never captured, and C-4 could retire `LayoutBox` with the gap cemented. C-3a
 does not *fix* the gap; it makes the basis an explicit audit output so the migration is transparent about
@@ -420,7 +435,7 @@ and the per-consumer spec characterization is **the audit's output** (§4), not 
 
 | Spec section | Step | Branch | Touch (C-3a code) | Full enum? | User-input flow |
 |---|---|---|---|---|---|
-| RESIZE OBSERVER §3.3.1 content rect | — | `top`=padding top / `left`=padding left / `w,h`=content size | **C-3a ships nothing RO-specific** (R2-U3): RO's contentRect **composes at the reader** (C-3d host) from the fragment's generic `padding()` + `content().size` facets — byte-identical to today's `content_rect_local()` | ✓ (SVG-no-box + multicol width note are RO reader policy, → C-3d) | no |
+| RESIZE OBSERVER §3.3.1 content rect | — | the padding-offset convention (§1's `content_rect_local` decision is the home for the arithmetic and the byte-identity claim; not re-rendered here) | **C-3a ships nothing RO-specific** (R2-U3): RO's contentRect **composes at the reader** (C-3d host) from the fragment's generic `padding()` + `content().size` facets — byte-identical to today's `content_rect_local()` | ✓ (SVG-no-box + multicol width note are RO reader policy, → C-3d) | no |
 | CSS DISPLAY 3 §2.5 Box Generation | `contents` | *"the element itself does not generate any boxes"* → **no associated box** | §1 **requirement 5** — the seam must expose *no-associated-box* as distinct from a real zero-sized box (elidex currently synthesises a zero-size `LayoutBox`, `layout/mod.rs:74` — a pre-existing deviation C-3 **inherits** — §1 requirement 5, which is that deviation's home; not §2 I-boxless) | ✓ for the box-generation branch (`none` is out of C-3's reach — layout skips it; the `contents`-computes-to-`none` sub-case per Appendix B is unchanged) | no |
 | CSSOM VIEW §6 `getClientRects()` | step 1 | *"does not have an associated box → return an **empty** DOMRectList and stop"* | the **consumer branch** requirement 5 exists to make expressible (C-3b implements the algorithm; C-3a only ships the signal it needs) | branch ✓ (steps 2-3 = SVG / per-fragment, C-3b's map) | no |
 
@@ -503,12 +518,12 @@ went wrong):
 | 5 | **reduction** | union / first / per-fragment / **not a geometry read** (e.g. the paged-gen gate reads `layout_generation`, which `BoxFragment` drops) / **a *selection* problem with no store signal** (the inline-text anchor) | — |
 | 6 | **home + shape** | which crates must reach it (floor/ceiling)? and is it a **per-entity projection** or a **cross-entity aggregate** (e.g. shell scroll-extent is a `query` with a `display!=None` co-read — `box_fragments` cannot express it)? | layering |
 | 7 | **identity / lifetime** | does the reader **retain** a store handle past the read? `FragmentId` is a generation-less index into a `Vec` that `clear()` resets each pass — a retained id re-aliases after relayout. Only plain values and `(entity, fragmentainer)` keys survive a pass — which is why §1 requirement 1 obliges each yielded box to **carry** its `fragmentainer` id, so a retained hit fragment expresses that key without bypassing the seam. *(How it is carried — tuple, field, self-identifying `BoxFragment` — is C-3a impl's, per §1; this axis does not pick.)* | I-phase |
-| 8 | **transform basis** | does the reader's contract want **layout (pre-transform)** or **painted (post-transform)** geometry? `box_fragments` yields pre-transform (I-transform); gBCR/getClientRects/IO want painted but read raw today (pre-existing gap). Invisible to axis 4 — a transform on an N=1 element reads as "behavior-neutral". | I-transform |
+| 8 | **transform basis** | does the reader's contract want **layout (pre-transform)** or **painted (post-transform)** geometry? `box_fragments` yields pre-transform (I-transform, which defines the gap's membership — this axis does not re-render it; note a11y's contract is *unresolved* there, so do not classify it as "wants painted"). Invisible to axis 4 — a transform on an N=1 element reads as "behavior-neutral". | I-transform |
 
 **Known-hard seed edges** (audit INPUTS — questions the audit starts from, NOT determinations this memo
 makes; each is a verified live reader):
 
-1. **RO** — frame **padding-offset** composed at the reader (axis 1; RO §3.3.1 top=padding top/left=padding
+1. **RO** — frame **padding-offset** composed at the reader (axis 1; the arithmetic is §1's, not restated: RO §3.3.1 top=padding top/left=padding
    left, *not* border-box-local — R2-U3), spec-zero (axis 3). Open: which fragment (RO §3.3.1 pins *width*
    to the first column, silent on height). → C-3d.
 2. **IO** — needs the CSSOM-View §6 fold in **doc space** (axis 1), `None` preserved (axis 3), a **source-change**
@@ -582,10 +597,12 @@ C-3a (seam + audit) ──┬── C-3b  CSSOM geometry (elidex-dom-api)       
    fragment_tree -- docs/design/` = zero; scoped to `docs/design/` per Codex R1-T5, since an unscoped `docs/`
    now matches this plan-memo itself), and `docs/design/en/15-rendering-pipeline.md` §15.4.1 ("Layer Tree as
    Independent Structure") still names `LayoutBox` as what the PaintSystem reads. *(→ hand-off row 6.)*
-8. **The transform-basis gap recorded** (Codex R1-T2) — **§2 I-transform defines the gap and its membership;
-   this item does not re-render it**. In short: the cited gap is gBCR / getClientRects / IO, and a11y-bounds is
-   a raw-reader whose contract this memo does **not** establish (so C-4 must resolve it with a citation rather
-   than inherit an asserted one — Codex R14-re-gate caught §3 and §5 disagreeing on exactly this). C-3 preserves this, but C-4 must **not** retire `LayoutBox` while silently cementing it:
+8. **The transform-basis gap recorded** (Codex R1-T2) — **its membership is §2 I-transform's, and this item
+   does not re-render it** (an earlier draft said exactly that and then re-rendered it anyway under "in short",
+   which is the violation this memo's reading invariant names — Codex R15-re-gate). What this *item* adds:
+   whichever readers I-transform lists as the **cited** gap, C-4 must handle them; and for any raw-reader whose
+   contract I-transform leaves **unresolved**, C-4 must resolve it *with a citation* rather than inherit an
+   asserted one. C-3 preserves this, but C-4 must **not** retire `LayoutBox` while silently cementing it:
    either a `#11-*` slot (owner + re-eval trigger) or an explicit "inherited pre-existing gap" acknowledgement
    in the C-4 plan. *(→ hand-off row 7.)*
 
