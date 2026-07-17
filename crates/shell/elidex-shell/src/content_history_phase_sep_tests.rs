@@ -479,6 +479,137 @@ fn pump_turn_applies_enqueued_traversal_on_a_later_turn() {
     );
 }
 
+/// R9 (Codex PR#469 — the reachable "navigation stuck" bug): a callback the pump
+/// runs stages a §7.4.4 synchronous nav intent, and the pump DRAINS it THIS turn.
+/// The top-of-turn `run_deferred_traversals` applies a same-document traversal
+/// whose `popstate` handler calls `history.pushState('/frompop')` — which only
+/// STAGES a `PushState` in the VM `pending_history` buffer. Before the fix the pump
+/// never ran the Phase-1 synchronous drain (`drain_synchronous_phase` ran ONLY from
+/// input handlers), so the staged pushState sat UNPROCESSED until an unrelated later
+/// INPUT turn drained it — firing much too late. The bottom-of-turn Phase-1 drain
+/// completes the event-loop turn: the popstate-staged pushState is drained + applied
+/// THIS turn (`current_url` becomes `/frompop`), and `pending_history` no longer
+/// holds it.
+#[test]
+fn pump_drains_popstate_staged_pushstate_this_turn() {
+    let (mut state, browser) = build_test_content_state_with_url(
+        "<p>doc</p>\
+         <script>\
+           window.addEventListener('popstate', function () {\
+             history.pushState(null, '', '/frompop');\
+           });\
+         </script>",
+        base(),
+    );
+    seed_same_document_pair(&mut state); // [base, /a], cursor on /a → back() same-document
+                                         // Queue a same-document back() (Phase 1); it applies at the TOP of the pump turn.
+    let _ = state.pipeline.runtime.vm().eval("history.back();");
+    let _ = DrainCoordinator::drain_synchronous_phase(&mut state);
+    assert!(
+        state.traversal_queue().has_pending_traversal(),
+        "the back() is queued for the next pump turn's top-of-loop Phase-2 apply"
+    );
+    drain_browser(&browser);
+
+    // Drive ONE pump turn. Top-of-loop `run_deferred_traversals` applies the back()
+    // → fires popstate → the handler stages a `pushState('/frompop')`. A benign
+    // `CursorLeft` unblocks this turn's `recv_timeout` WITHOUT itself draining
+    // history or shutting down, so the bottom-of-turn Phase-1 drain is what must
+    // pick up the staged pushState.
+    browser.send(BrowserToContent::CursorLeft).unwrap();
+    let mut last_frame = std::time::Instant::now();
+    let flow = super::event_loop::pump_turn(&mut state, &mut last_frame);
+    assert!(
+        flow.is_continue(),
+        "a non-shutdown pump turn continues the loop"
+    );
+
+    assert_eq!(
+        state.nav_controller.current_url().map(url::Url::as_str),
+        Some("https://example.com/frompop"),
+        "the popstate-staged pushState was drained + applied THIS turn (R9) — not \
+         stranded in pending_history until a later input"
+    );
+    assert!(
+        state.pipeline.runtime.take_pending_history().is_empty(),
+        "the VM pending_history buffer holds nothing after the turn — the callback-\
+         staged intent was drained by the pump's bottom-of-turn Phase-1 drain"
+    );
+}
+
+/// R9 + I1 (the traversal leg): when the callback-staged intent is a `Back` /
+/// `Forward` / `Go`, the pump DRAINS it this turn but ENQUEUES it for the NEXT
+/// turn's top-of-loop `run_deferred_traversals` — it is NOT applied same-turn
+/// (`drain_synchronous_phase` only enqueues traversals; the apply is Phase 2, at the
+/// TOP of a later turn). A `popstate` handler runs `history.back()` while the pump's
+/// top-drain is applying an in-range back(); the staged Back is drained out of
+/// `pending_history` (not stranded) AND enqueued, and applies only on the following
+/// turn — preserving the §4.5 I1 task boundary.
+#[test]
+fn pump_enqueues_popstate_staged_traversal_for_next_turn_not_same_turn() {
+    let (mut state, browser) = build_test_content_state_with_url(
+        "<p>doc</p>\
+         <script>\
+           window.addEventListener('popstate', function () {\
+             history.back();\
+           });\
+         </script>",
+        base(),
+    );
+    // Three same-document entries [base, /a, /b], cursor on /b.
+    state.nav_controller.push(base()); // 0
+    state
+        .nav_controller
+        .push_same_document(url::Url::parse("https://example.com/a").unwrap()); // 1
+    state
+        .nav_controller
+        .push_same_document(url::Url::parse("https://example.com/b").unwrap()); // 2
+                                                                                // Queue the first back() (from /b, in-range → applies at the top of turn 1).
+    let _ = state.pipeline.runtime.vm().eval("history.back();");
+    let _ = DrainCoordinator::drain_synchronous_phase(&mut state);
+    drain_browser(&browser);
+
+    // Turn 1: top-drain applies back() (/b → /a) → popstate → the handler stages a
+    // `history.back()` (in-range from /a). The bottom-of-turn Phase-1 drain ENQUEUES
+    // it (does NOT apply it — I1).
+    browser.send(BrowserToContent::CursorLeft).unwrap();
+    let mut last_frame = std::time::Instant::now();
+    let flow = super::event_loop::pump_turn(&mut state, &mut last_frame);
+    assert!(flow.is_continue());
+    assert!(
+        state.traversal_queue().has_pending_traversal(),
+        "the popstate-staged back() was drained from pending_history AND enqueued this turn"
+    );
+    assert_eq!(
+        state.nav_controller.current_url().map(url::Url::as_str),
+        Some("https://example.com/a"),
+        "I1: the popstate-staged traversal is NOT applied same-turn (cursor still /a) — \
+         drain_synchronous_phase enqueues it for the NEXT run_deferred_traversals"
+    );
+    assert!(
+        state.pipeline.runtime.take_pending_history().is_empty(),
+        "the VM pending_history buffer is empty — the staged Back was drained (enqueued), \
+         not left to fire on a later input"
+    );
+
+    // Turn 2: the top-of-loop Phase-2 drain applies the enqueued back() (/a → base) —
+    // proving the enqueue from turn 1 lands on the NEXT turn (I1). Its own popstate
+    // stages a back() from `base` (out of range → a no-op that enqueues nothing), so
+    // the loop self-terminates.
+    browser.send(BrowserToContent::CursorLeft).unwrap();
+    let flow = super::event_loop::pump_turn(&mut state, &mut last_frame);
+    assert!(flow.is_continue());
+    assert_eq!(
+        state.nav_controller.current_url().map(url::Url::as_str),
+        Some("https://example.com/"),
+        "the turn-1-enqueued traversal applied on turn 2's top-of-loop Phase-2 drain (I1)"
+    );
+    assert!(
+        state.traversal_queue().is_empty(),
+        "the out-of-range popstate back() on turn 2 enqueued nothing — the queue drained"
+    );
+}
+
 /// Resolution D GENERALIZED (Codex PR#469 R6) — SUPERSEDES the R3 T3
 /// call-time-URL binding: a `SyncUpdate` that STRADDLES a same-turn traversal is
 /// CANCELED, not applied against the post-traversal cursor. `back();

@@ -330,6 +330,48 @@ pub(super) fn pump_turn(state: &mut ContentState, last_frame: &mut Instant) -> C
             state.re_render();
             state.send_display_list();
         }
+
+        // Phase 1 (§7.4.2 last-wins navigation / §7.4.4 synchronous history
+        // updates) — drained at the BOTTOM of the turn, AFTER every JS-running
+        // phase above: the top-of-turn `run_deferred_traversals` (a same-document
+        // traversal fires `popstate` SYNC via `same_document_step`), `drain_timers`,
+        // `dispatch_message_event` (postMessage), `tick_network` (fetch callbacks),
+        // and `drain_worker_messages`. Any of those callbacks may call
+        // `location.assign()` / `history.pushState()` / `history.back()`, which only
+        // STAGE intents in the VM `pending_navigation` / `pending_history` buffers.
+        // `drain_synchronous_phase` is the SOLE drain of those buffers — and it
+        // otherwise runs ONLY from the input handlers (`event_handlers.rs` click /
+        // key). Without this drain a nav staged by a popstate/timer/fetch/worker
+        // callback sits UNPROCESSED until an unrelated later INPUT turn drained it,
+        // firing much too late — the "navigation stuck" bug (Codex PR#469 R9). This
+        // completes the event-loop turn: the callback-staged nav applies in-task
+        // (a `location.*` / `pushState`), or a `Back`/`Forward`/`Go` is ENQUEUED for
+        // the NEXT turn's top-of-loop `run_deferred_traversals` — NOT applied this
+        // turn (`drain_synchronous_phase` only enqueues traversals, never applies
+        // them; the apply is Phase 2, at the TOP of a later turn), preserving the
+        // §4.5 I1 task boundary.
+        //
+        // Window-open routing stays EXACTLY-ONCE. The frame-tick `route_window_opens`
+        // above already drained the queue present at that point (opens staged by the
+        // popstate / timer / postMessage phases); this drain's Phase-1a seam
+        // (`DrainHost::route_window_opens`) takes only the LEFTOVER opens staged by the
+        // later `tick_network` / `drain_worker_messages` phases — a temporal
+        // partition of `take_pending_window_opens`, never the same intent twice. The
+        // returned `DrainOutcome` is ignored: a pump turn has no `<a href>` default to
+        // suppress, and the drain ships its own frames (`ship_if_needed` /
+        // `handle_navigate`).
+        let _ = elidex_navigation::DrainCoordinator::drain_synchronous_phase(state);
+
+        // A callback-staged `location.*` nav can reach `handle_navigate`'s SW-wait,
+        // where a re-dispatched `Shutdown` runs teardown + sets `shutdown_requested`
+        // (`dispatch_or_buffer_reentrant`). Check the flag after this new drain too —
+        // completing the "check `shutdown_requested` after EVERY pump phase that can
+        // reach the SW-wait" invariant (Codex PR#469 R8): break NOW, before the next
+        // turn's `recv_timeout` blocks the poll interval and before any code touches
+        // the torn-down pipeline.
+        if state.shutdown_requested {
+            return ControlFlow::Break(());
+        }
     }
 
     ControlFlow::Continue(())
