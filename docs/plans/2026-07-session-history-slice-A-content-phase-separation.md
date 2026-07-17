@@ -40,7 +40,11 @@ state the inert substrate lacked; the loop-bound is a conscious fence.
 - **IN:** substrate CO-DESIGN (extend for A/B/D/E) + content-mode WIRING only.
 - **OUT → Slice B (old Slice 3): app-mode.** App has **no async pump** (`app/events.rs:89`/`:131` drive
   `process_pending_navigation` synchronously right after event dispatch) — the Q-SCHED end-of-input-handler
-  drain is a distinct hard decision. Content and app are **distinct deployment shells, never both active at
+  drain is a distinct hard decision. ⚠ **Bounded-drain liveness is content-specific:** Phase-2's bounded
+  snapshot (Codex PR#469 R3 T1) relies on content's every-turn async pump to drain a mid-apply-serialized
+  step on the *next* turn. App-mode's `drain_same_turn` has no such pump, so Slice B must NOT adopt the
+  bounded drain without re-adding an end-of-handler re-check **or** keeping the reentrancy vector dead (see
+  the "Resolution (loop-bound)" section + umbrella §4.5 I3). Content and app are **distinct deployment shells, never both active at
   runtime**, so removing content's `:593` supersede while app keeps `app/navigation.rs:73` is a **bounded
   code-duplication strangler, NOT a runtime conflict**; Slice B lands in close succession (umbrella §5
   landing-proximity constraint, axis c). Do **not** wire app-mode here. **Leg-2 of the axis-c constraint
@@ -246,20 +250,34 @@ Phase-2 `drain_traversal_queue` loop tracks "a document-changing traversal has a
 NAMED-FENCED to `#11-sync-navigation-steps-queue-tagging`. **Conformance test** pins the cancel behavior
 (pinned-not-silent).
 
-### Resolution (loop-bound) — inert in this slice, guard stays Slice 4
+### Resolution (loop-bound) — BOUNDED SNAPSHOT shipped (Codex PR#469 R3 T1); reentrancy-guard wiring stays Slice 4
 
-The `drain_traversal_queue` re-check-until-empty loop (`traversal_queue.rs:542` `while let Some(step) =
-pop_next()`) is **unbounded** (umbrella §5 Slice-4 CARRY). In content mode the only re-enqueue vector is the
-reentrant SW-fetch message pump (`content/navigation.rs` SW-fetch relay, gated on `sw_controller_scope()` at
-`:116`; the reentrancy-vector doc note at `:770`–`:776` records it as **DEAD/unreachable** today — "the SW
-controller path is dead"). Content's `apply_traversal` (a Rebuild / same-document apply) does **not**
-re-enqueue mid-apply. So the loop is **inert** in this slice (no wired reentrant source).
+`drain_traversal_queue` (`traversal_queue.rs` `fn drain_traversal_queue` ~`:719`) drains a **bounded snapshot**,
+not a re-check-until-empty loop: it captures `let mut remaining = host.traversal_queue().pending_len();` once and
+runs `while remaining > 0 { remaining -= 1; … pop_next() … }` (`:745`), processing **only** the steps present at
+drain-start. A step enqueued **during** the drain — a reentrant SW-pump message serialized onto the back of the
+queue — is left for the **next** `run_deferred_traversals` turn, so the loop **terminates by construction** even
+against a host that re-enqueues on every apply. Liveness is preserved because **content-mode's async pump drains
+Phase-2 every turn** (`event_loop.rs` top-of-loop `run_deferred_traversals`), not by draining to exhaustion. In
+content mode the only re-enqueue vector is the reentrant SW-fetch message pump (`content/navigation.rs` SW-fetch
+relay; the reentrancy-vector doc note records it as **DEAD/unreachable** today — "the SW controller path is
+dead"), and content's `apply_traversal` (a Rebuild / same-document apply) does **not** re-enqueue mid-apply, so
+even the next-turn deferral is inert here.
 
-**Decision.** This slice does **NOT** bound the loop. It adds a **test asserting content's `apply_traversal`
-does not re-enqueue** (bounded-in-practice). The structural termination guard + reentrancy-guard *wiring*
-stays Slice 4 (which owns the `running_nested_apply_history_step` semantics + the `commit_index`
-`debug_assert` retirement). Stated explicitly so plan-review sees this is a **conscious fence, not an
-oversight**.
+**Decision.** The loop **bound is IMPLEMENTED in this slice** (bounded snapshot above). It adds a **test
+asserting content's `apply_traversal` does not re-enqueue** (bounded-in-practice) plus a test that a mid-apply
+re-enqueue is deferred, not drained to exhaustion. What **stays Slice 4** is only the reentrancy-guard *wiring* —
+serializing a reentrant **DIRECT** nav message via `running_nested_apply_history_step` (it does not consult
+`is_applying()` today) + the `commit_index` `debug_assert` retirement — NOT the loop bound. Stated explicitly so
+plan-review sees the split: **bound = shipped; guard wiring = conscious Slice-4 fence.**
+
+⚠ **App-mode (Slice B) liveness caveat.** This bounded-drain liveness argument is **content-mode-specific** — it
+rides the every-turn async pump. App-mode (Slice B) drains via `drain_same_turn` (`app/events.rs:89`/`:131`
+synchronous end-of-input-handler) with **no async pump**, so a step serialized mid-apply would strand until the
+next input event. **Slice B must NOT adopt the bounded drain as-is** without either (a) re-adding an
+end-of-handler re-check that re-drains the residual snapshot, **or** (b) keeping the reentrancy vector dead
+(no source that re-enqueues mid-apply). Captured here so the constraint is not lost when Slice B is built (see
+also §0 scope fence "OUT → Slice B" and umbrella §4.5 I3 app-mode caveat).
 
 ---
 
