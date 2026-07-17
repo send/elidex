@@ -147,12 +147,23 @@ impl EcsDom {
    committer calls `remove_entity`) reads as absent, checked via `world.contains` before trusting `fragments_for`.
 4. **Pre-transform geometry** (§2 I-transform) — CSS transforms are a paint-time wrapper; a painted-geometry
    reader composes the chain itself.
-5. **Box-ABSENCE is the "no associated CSS box" signal — the seam needs nothing more** (Codex R9-AA3, but
-   **re-derived on the real write path after R17-FF1 falsified its premise**; this requirement is that fact's
-   only home — §3's row and §4 axis 3 point here and must not re-decide it). CSSOM consumers MUST branch on the
-   distinction (`getClientRects()` returns an **empty** list when there is no associated box, cssom-view §6;
-   `display:contents` generates **no box**, CSS Display 3 §2.5), and the seam **already expresses it**:
-   *absent* = no associated box, *present with a 0×0 rect* = a real zero-sized box.
+5. **Box-ABSENCE is a sound "no associated CSS box" signal; box-PRESENCE is not a sound "has one"** — the
+   asymmetry is the contract, and the seam needs no extra facet to express it (Codex R9-AA3; this requirement
+   is that fact's only home — §3's row and §4 axis 3 point here and must not re-decide it). CSSOM consumers
+   MUST branch on the distinction (`getClientRects()` returns an **empty** list when there is no associated
+   box, cssom-view §6; `display:contents` generates **no box**, CSS Display 3 §2.5).
+   - **Absent ⇒ no associated box.** Sound: nothing fabricates a box for a boxless element.
+   - **Present ⇒ *a box was produced*, which is weaker than "has an associated box".** Producer paths leave
+     boxes on elements the spec says have none, and **the dominant one is not `display:contents` at all — it
+     is DETACHMENT**: `remove_child` **detaches without despawning**, so requirement 3's `world.contains`
+     liveness check still passes, and **no production path removes a `LayoutBox`** (§2 I-boxless) — a
+     script-removed element keeps its **stale** box and the seam reports "has a box" for something cssom-view
+     §6 gives an **empty** list. C-3 **inherits** this (today's `getClientRects` reads that same stale box, so
+     migrating changes nothing), but the contract must not claim more than it delivers.
+   ⇒ **Axis 3's sweep must cover connectedness, not just box-generation** — a consumer that needs a true
+   "has an associated CSS box" predicate needs connectedness ∧ box-presence, and where that matters is axis
+   3's to determine. The seam does not owe a new facet: absence already answers soundly, and presence is
+   qualified here.
    ⚠ **An earlier draft asserted the opposite** — that "elidex synthesises a zero-size `LayoutBox` for
    `display:contents` (`layout/mod.rs:74`), so a bare fragment sequence cannot express the difference" — and
    built a seam obligation (and, at R16-EE1, a producer deliverable) on it. **The premise is false**, and it
@@ -271,9 +282,8 @@ directly callable by every consumer — **including the crates that cannot call 
 tool-verified set is the authority on which those are) and that a dom-api home would therefore strand. **C-3a therefore has no floor/ceiling collision**, and LOW
 placement is not merely convenient but *required* for the a11y / layout / render readers.
 
-A collision the audit will have to handle — **an example, not the population** (axis 6 determines that; an
-earlier version called it "the one genuine collision in the whole program" and then conceded, twelve lines
-down, that a11y alone could make it two) — is **downstream and C-3d's**: IntersectionObserver's registry
+A collision the audit will have to handle — **an example, not the population** (axis 6 determines that) — is
+**downstream and C-3d's**: IntersectionObserver's registry
 is in `elidex-api-observers` (callability-`dom-api=0`) yet IO needs the CSSOM-View §6 "get the bounding box"
 algorithm (IO §3.2.10 step 7), which the floor keeps in `elidex-dom-api`. Resolved by dependency injection —
 the registry takes a `rect_fn(&EcsDom, Entity) -> Option<Rect>` closure
@@ -575,7 +585,7 @@ went wrong):
 |---|---|---|---|
 | 1 | **frame** | doc-space, or a local frame the reader composes? | I-frame |
 | 2 | **phase** | **in-layout** (must NOT use `box_fragments`) / **screen-post-layout** (valid) / **paged-post-layout** (INVALID — the paged path does not `clear()` and its `fragmentainer` is page-relative, I-phase fact 3; a render-residual reader under `paged:true` — e.g. `paint/mod.rs`, `form.rs` helpers — is "post-layout" yet reads page-relative geometry). Trinary, not binary — a binary post-vs-in-layout split marks a paged reader "fully classified" while nothing captures its paged-store invalidity | I-phase |
-| 3 | **boxless** | spec-zero, or box-absent? — ⚠ and the **`display:contents` producer defects the audit must record** (Codex R7-Y5, **re-scoped at R17-FF1**): CSS Display 3 **§2.5** *"the element itself does not generate any boxes"* (webref-verified; live comments cite **§2.8** — `layout/mod.rs:71` and `elidex-layout-block/src/helpers.rs:355` both drift, and the axis must record whichever the sweep finds rather than trust this pair; webref: §2.8 = "The Root Element's Principal Box"). An *ordinary* such element is **already box-absent** (layout flattens it away before dispatch; that line never writes to the ECS), so `box_fragments` gives the spec answer by construction — an earlier draft of this axis claimed the opposite. **What this axis MUST determine — by sweep, not from this memo** (Codex R19-HH1, and the mandate invariant above): **enumerate every producer path that leaves a `LayoutBox` on an element that generates no box**, and record, per reader, whether it would then read a real zero-sized box instead of taking its no-box branch (cssom-view §6 `getClientRects()` = empty list when there is no associated box). This memo names examples only to prove the class is non-empty (§1 requirement 5) — it does **not** enumerate it, and an earlier draft of this axis proved why: it carried a root-`position:relative` case that **cannot occur** and omitted the positioned one that does. C-3 **inherits** whatever the sweep finds (no regression). **The seam carries the signal — decided at §1 requirement 5, not here** (an earlier draft of this axis made it conditional on the audit's output and a "C-3b/C-3d ask", contradicting that requirement: Codex R14-re-gate). This axis only **classifies**: per reader, does it need the requirement-5 *"has an associated CSS box"* signal, and is its zero-rect case spec-zero or box-absent? | I-boxless |
+| 3 | **boxless** | spec-zero, or box-absent? — ⚠ and the **`display:contents` producer defects the audit must record** (Codex R7-Y5, **re-scoped at R17-FF1**): CSS Display 3 **§2.5** *"the element itself does not generate any boxes"* (webref-verified; live comments cite **§2.8** — `layout/mod.rs:71` and `elidex-layout-block/src/helpers.rs:355` both drift, and the axis must record whichever the sweep finds rather than trust this pair; webref: §2.8 = "The Root Element's Principal Box"). An *ordinary* such element is **already box-absent** (layout flattens it away before dispatch; that line never writes to the ECS), so `box_fragments` gives the spec answer by construction — an earlier draft of this axis claimed the opposite. **What this axis MUST determine — by sweep, not from this memo** (the mandate invariant above): **enumerate every producer path that leaves a `LayoutBox` on an element that has no associated CSS box — whether because it generates none *or because it is not connected*** (requirement 5: `remove_child` detaches without despawning and nothing removes the box, so detachment is the dominant such path, and the liveness guard does not catch it), and record, per reader, whether it would then read a real zero-sized box instead of taking its no-box branch (cssom-view §6 `getClientRects()` = empty list when there is no associated box). This memo names examples only to prove the class is non-empty (§1 requirement 5) — it does **not** enumerate it, and an earlier draft of this axis proved why: it carried a root-`position:relative` case that **cannot occur** and omitted the positioned one that does. C-3 **inherits** whatever the sweep finds (no regression). **The seam carries the signal — decided at §1 requirement 5, not here** (an earlier draft of this axis made it conditional on the audit's output and a "C-3b/C-3d ask", contradicting that requirement: Codex R14-re-gate). This axis only **classifies**: per reader, does it need the requirement-5 *"has an associated CSS box"* signal, and is its zero-rect case spec-zero or box-absent? | I-boxless |
 | 4 | **source vs routing** | does the migration change *which rects* feed it (⇒ a test), or only *which fragment*? (**everything is a source/behavior change at N>1** — the G11 last-column fact) | N=1 invariant limit |
 | 5 | **reduction** | union / first / per-fragment / **not a geometry read** (e.g. the paged-gen gate reads `layout_generation`, which `BoxFragment` drops) / **a *selection* problem with no store signal** (the inline-text anchor) | — |
 | 6 | **home + shape** | which crates must reach it (floor/ceiling)? and is it a **per-entity projection** or a **cross-entity aggregate** (e.g. shell scroll-extent is a `query` with a `display!=None` co-read — `box_fragments` cannot express it)? | layering |
@@ -590,8 +600,8 @@ makes; each is a verified live reader):
    to the first column, silent on height). → C-3d.
 2. **IO** — needs the CSSOM-View §6 fold in **doc space** (axis 1), `None` preserved (axis 3), a **source-change**
    (axis 4). Note: IO §3.2.7 step 6 maps entry rects to **viewport** space and elidex hands script **doc-space**
-   rects — a pre-existing deviation, **live** on scrolled pages; record, don't bless. Home = the one genuine
-   collision (§1). → C-3d.
+   rects — a pre-existing deviation, **live** on scrolled pages; record, don't bless. Home = §1's floor/ceiling
+   rule; whether other readers collide too is **axis 6's** to determine, not this seed's. → C-3d.
 3. **`getClientRects`** — two-source dispatch (line vs column); the both-split case is **I-lines**. → C-3b.
 4. **`getBoundingClientRect`** — a **source-change** (axis 4): today it never consults `getClientRects`. → C-3b.
 5. **render inline-text anchor** (`find_nearest_layout_box`) — a **selection problem with no store signal**
