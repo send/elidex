@@ -161,6 +161,19 @@ impl CssPropertyHandler for MulticolHandler {
 
     /// Omit-initial shorthand serialization (CSSOM §6.7.2) for the Multicol
     /// family — first per-family increment under slot `#11-style-shorthand-expand`.
+    ///
+    /// NB (deferred, engine-wide): returning `Some(..)` makes `column-rule`/`columns`
+    /// COVERED, so `serialize_shorthand_value` becomes authoritative and reconstructs
+    /// from the longhands. If the block ALSO holds a *later* whole-shorthand `var()`
+    /// stored as a direct declaration (`columns: 200px 3; columns: var(--cols)`), the
+    /// caller's `.or_else` reads that direct value ONLY on `None`, so the later
+    /// declaration — the css-cascade-4 §6.1 order-of-appearance winner — is lost.
+    /// This order-blindness is the coordinator+caller's *existing* limitation shared
+    /// by EVERY covered shorthand (`margin`/`gap`/… exhibit it today), not a Multicol
+    /// concern and not fixable here: the handler receives only longhand pairs and the
+    /// coordinator's `get` closure is longhand-keyed with no order/position info.
+    /// Root (parser/block declaration-supersession, or an order-aware getter across
+    /// both callers) is deferred to `#11-shorthand-direct-decl-cascade-order`.
     fn serialize_shorthand(&self, property: &str, longhands: &[(&str, &str)]) -> Option<String> {
         match property {
             // Both are omit-initial `||` shorthands over their (already
