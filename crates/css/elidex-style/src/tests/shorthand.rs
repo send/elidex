@@ -154,3 +154,350 @@ fn uncovered_shorthand_is_none_even_when_complete() {
     m.insert("flex-basis", "0%");
     assert_eq!(serialize("flex", &m), None);
 }
+
+/// REGRESSION (Codex PR#473 R2) — the value-KIND gate must NOT fire for a
+/// shorthand the coordinator does not serialize. Handler coverage is established
+/// FIRST (dispatch returns `None`); the gate then only OVERRIDES a *covered*
+/// handler's collapse. Without this ordering the gate emits a value for an
+/// UNCOVERED shorthand and preempts the caller's fallback to a *direct* shorthand
+/// declaration (a later whole-shorthand `var()` stored under the shorthand name),
+/// which wins by order of appearance (css-cascade-4 §6.1) and is read back via the
+/// caller's `.or_else` getter (outside the §6.6.1 shorthand-reconstruction path):
+///   `background: initial; background: var(--bg)`
+///   → getPropertyValue("background") == "var(--bg)" (Blink 148), NOT "initial".
+///
+/// `background` is mapped (8 longhands) but uncovered; so are `column-rule` /
+/// `columns` until PR1 covers them. Every longhand set to the same CSS-wide
+/// keyword — or to an unresolved `var()` — must still yield `None`, not
+/// `Some("initial")` / `Some("")`.
+#[test]
+fn uncovered_shorthand_with_nonphysical_longhands_is_none() {
+    const BG: [&str; 8] = [
+        "background-color",
+        "background-image",
+        "background-position",
+        "background-size",
+        "background-repeat",
+        "background-origin",
+        "background-clip",
+        "background-attachment",
+    ];
+
+    // all-same CSS-wide keyword — a COVERED shorthand collapses to Some("initial")
+    // via the gate; uncovered `background` must stay None (else it preempts the
+    // caller's direct-declaration fallback).
+    let mut all_initial = HashMap::new();
+    for lh in BG {
+        all_initial.insert(lh, "initial");
+    }
+    assert_eq!(serialize("background", &all_initial), None);
+
+    // an unresolved var() component — Some("") for a covered shorthand; None here.
+    let mut with_var = HashMap::new();
+    for lh in BG {
+        with_var.insert(lh, "var(--bg)");
+    }
+    assert_eq!(serialize("background", &with_var), None);
+
+    // column-rule is uncovered until PR1 — same rule (all-same keyword ⇒ None,
+    // not the keyword; PR1 covers it and re-adds the keyword assertion).
+    let mut cr = HashMap::new();
+    cr.insert("column-rule-width", "initial");
+    cr.insert("column-rule-style", "initial");
+    cr.insert("column-rule-color", "initial");
+    assert_eq!(serialize("column-rule", &cr), None);
+}
+
+// --- CSSOM §6.7.2 step 1.2 value-KIND gate (property-agnostic coordinator) ---
+//
+// The gate classifies each component longhand's *serialized string* (CSSOM
+// stores serialized values; the inline `el.style` path is string-backed) into
+// Physical / CSS-wide keyword / unresolved `var()`, then applies §6.7.2 step 1.2
+// BEFORE the per-family collapse. `revert`/`revert-layer` are classified for
+// forward-compat but are intentionally UNTESTED here: the parser drops them
+// (`parse_global_keyword` → None), so `margin: revert` is unreachable — deferred
+// to `#11-css-wide-revert-keyword`.
+
+/// Corner 1 — every component is the SAME CSS-wide keyword ⇒ the shorthand *is*
+/// that keyword (css-cascade-4 §7.3). The gate is an **override of a covered
+/// handler's collapse**, so it applies across the COVERED families — margin
+/// (rectangular) and overflow (Box axis-pair) both collapse to the keyword.
+/// UNCOVERED shorthands (`column-rule`/`columns`, until PR1 covers them; `flex`;
+/// `background`) return `None` here and defer to the caller's direct-declaration
+/// fallback — see `uncovered_shorthand_with_nonphysical_longhands_is_none`. PR1
+/// covers Multicol and re-adds its keyword assertions.
+#[test]
+fn all_same_css_wide_keyword_collapses_to_keyword() {
+    for kw in ["initial", "inherit", "unset"] {
+        let mut margin = HashMap::new();
+        for side in ["margin-top", "margin-right", "margin-bottom", "margin-left"] {
+            margin.insert(side, kw);
+        }
+        assert_eq!(serialize("margin", &margin), Some(kw.to_string()));
+
+        let mut overflow = HashMap::new();
+        overflow.insert("overflow-x", kw);
+        overflow.insert("overflow-y", kw);
+        assert_eq!(serialize("overflow", &overflow), Some(kw.to_string()));
+    }
+}
+
+/// Corner 2 — different CSS-wide keywords on different components cannot be
+/// exactly represented (§6.7.2 step 1.2) ⇒ "".
+#[test]
+fn mixed_different_css_wide_keywords_are_empty() {
+    let mut margin = HashMap::new();
+    margin.insert("margin-top", "initial");
+    margin.insert("margin-right", "inherit");
+    margin.insert("margin-bottom", "initial");
+    margin.insert("margin-left", "inherit");
+    assert_eq!(serialize("margin", &margin), Some(String::new()));
+
+    let mut gap = HashMap::new();
+    gap.insert("row-gap", "initial");
+    gap.insert("column-gap", "inherit");
+    assert_eq!(serialize("gap", &gap), Some(String::new()));
+
+    let mut overflow = HashMap::new();
+    overflow.insert("overflow-x", "unset");
+    overflow.insert("overflow-y", "inherit");
+    assert_eq!(serialize("overflow", &overflow), Some(String::new()));
+}
+
+/// Corner 3 — any unsubstituted `var()` component makes the shorthand
+/// non-representable at specified-value time (css-variables-1 §3/§2.2) ⇒ "".
+/// Covers pure V with physical siblings, V mixed with a physical value, V mixed
+/// with a CSS-wide keyword, and the `RawTokens("var(.., fallback)")` spelling.
+#[test]
+fn any_unresolved_var_is_empty() {
+    let mut margin = HashMap::new();
+    margin.insert("margin-top", "var(--x)");
+    margin.insert("margin-right", "0px");
+    margin.insert("margin-bottom", "0px");
+    margin.insert("margin-left", "0px");
+    assert_eq!(serialize("margin", &margin), Some(String::new()));
+
+    let mut gap = HashMap::new();
+    gap.insert("row-gap", "var(--g)");
+    gap.insert("column-gap", "4px");
+    assert_eq!(serialize("gap", &gap), Some(String::new()));
+
+    let mut overflow = HashMap::new();
+    overflow.insert("overflow-x", "var(--o)");
+    overflow.insert("overflow-y", "hidden");
+    assert_eq!(serialize("overflow", &overflow), Some(String::new()));
+
+    // V + CSS-wide keyword — the var branch short-circuits before the keyword
+    // count, so a var anywhere wins.
+    let mut margin_vk = HashMap::new();
+    margin_vk.insert("margin-top", "var(--x)");
+    margin_vk.insert("margin-right", "initial");
+    margin_vk.insert("margin-bottom", "inherit");
+    margin_vk.insert("margin-left", "0px");
+    assert_eq!(serialize("margin", &margin_vk), Some(String::new()));
+
+    // A `var()` with a fallback still carries the `var(` substring (covered
+    // Table axis-pair `border-spacing` — a different handler than Box).
+    let mut border_spacing = HashMap::new();
+    border_spacing.insert("border-spacing-h", "var(--w, 10px)");
+    border_spacing.insert("border-spacing-v", "2px");
+    assert_eq!(
+        serialize("border-spacing", &border_spacing),
+        Some(String::new())
+    );
+}
+
+/// Corner 4 — a CSS-wide keyword on some components and a physical value on
+/// others cannot be exactly represented (§6.7.2 step 1.2) ⇒ "" for every COVERED
+/// family (the 6 landed families). The gate overrides the covered handler's
+/// collapse spec-uniformly, diverging from Blink's `gap` outlier (Blink emits the
+/// non-round-tripping `"initial 4px"`; see the `gap` note below) toward "".
+/// (Uncovered `column-rule` / `columns` return `None` until PR1 covers them —
+/// their mixed-corner assertions move to PR1.)
+#[test]
+fn css_wide_keyword_mixed_with_physical_is_empty() {
+    // rectangular: initial + physical (structural)
+    let mut margin = HashMap::new();
+    margin.insert("margin-top", "initial");
+    margin.insert("margin-right", "5px");
+    margin.insert("margin-bottom", "initial");
+    margin.insert("margin-left", "5px");
+    assert_eq!(serialize("margin", &margin), Some(String::new()));
+
+    // rectangular: inherit + physical
+    let mut padding = HashMap::new();
+    padding.insert("padding-top", "inherit");
+    padding.insert("padding-right", "5px");
+    padding.insert("padding-bottom", "5px");
+    padding.insert("padding-left", "5px");
+    assert_eq!(serialize("padding", &padding), Some(String::new()));
+
+    // rectangular: border-radius
+    let mut br = HashMap::new();
+    br.insert("border-top-left-radius", "initial");
+    br.insert("border-top-right-radius", "2px");
+    br.insert("border-bottom-right-radius", "2px");
+    br.insert("border-bottom-left-radius", "2px");
+    assert_eq!(serialize("border-radius", &br), Some(String::new()));
+
+    // Box axis-pair overflow
+    let mut overflow = HashMap::new();
+    overflow.insert("overflow-x", "inherit");
+    overflow.insert("overflow-y", "hidden");
+    assert_eq!(serialize("overflow", &overflow), Some(String::new()));
+
+    // Table axis-pair border-spacing (different handler — proves the gate is in
+    // the coordinator, ahead of every family's dispatch).
+    let mut bs = HashMap::new();
+    bs.insert("border-spacing-h", "initial");
+    bs.insert("border-spacing-v", "2px");
+    assert_eq!(serialize("border-spacing", &bs), Some(String::new()));
+
+    // gap — INTENTIONAL Blink divergence. Blink returns "initial 4px" here, but
+    // that output does NOT round-trip: `el.style.setProperty("gap","initial 4px")`
+    // → `cssText === ""` (Blink rejects its own getter output as invalid input).
+    // The sibling Box axis-pair `overflow` already returns "" for the identical
+    // shape, so uniform "" is spec-faithful (§6.7.2 step 1.2) and internally
+    // consistent — the property-agnostic gate cannot special-case `gap` without
+    // destroying I2 (plan §2, §Notes).
+    let mut gap = HashMap::new();
+    gap.insert("row-gap", "initial");
+    gap.insert("column-gap", "4px");
+    assert_eq!(serialize("gap", &gap), Some(String::new()));
+}
+
+/// Regression — the exact mis-collapses measured on the landed families (plan
+/// §Problem: elidex-today via throwaway probe) are now "", using the plan's
+/// "stored" longhand strings directly.
+#[test]
+fn six_family_regression_mis_collapses_now_empty() {
+    // was elidex "initial 5px" (Blink "")
+    let mut m1 = HashMap::new();
+    m1.insert("margin-top", "initial");
+    m1.insert("margin-right", "5px");
+    m1.insert("margin-bottom", "initial");
+    m1.insert("margin-left", "5px");
+    assert_eq!(serialize("margin", &m1), Some(String::new()));
+
+    // was elidex "inherit 5px 5px" (Blink "")
+    let mut m2 = HashMap::new();
+    m2.insert("margin-top", "inherit");
+    m2.insert("margin-right", "5px");
+    m2.insert("margin-bottom", "5px");
+    m2.insert("margin-left", "5px");
+    assert_eq!(serialize("margin", &m2), Some(String::new()));
+
+    // was elidex "var(--x) 0px 0px" (Blink "")
+    let mut m3 = HashMap::new();
+    m3.insert("margin-top", "var(--x)");
+    m3.insert("margin-right", "0px");
+    m3.insert("margin-bottom", "0px");
+    m3.insert("margin-left", "0px");
+    assert_eq!(serialize("margin", &m3), Some(String::new()));
+
+    // was elidex "var(--g) 4px" (Blink "")
+    let mut g = HashMap::new();
+    g.insert("row-gap", "var(--g)");
+    g.insert("column-gap", "4px");
+    assert_eq!(serialize("gap", &g), Some(String::new()));
+
+    // was elidex "initial inherit" (Blink "")
+    let mut m4 = HashMap::new();
+    m4.insert("margin-top", "initial");
+    m4.insert("margin-right", "inherit");
+    m4.insert("margin-bottom", "initial");
+    m4.insert("margin-left", "inherit");
+    assert_eq!(serialize("margin", &m4), Some(String::new()));
+
+    // corner 1 unchanged — all-same-K still collapses to the keyword.
+    let mut m5 = HashMap::new();
+    m5.insert("margin-top", "initial");
+    m5.insert("margin-right", "initial");
+    m5.insert("margin-bottom", "initial");
+    m5.insert("margin-left", "initial");
+    assert_eq!(serialize("margin", &m5), Some("initial".to_string()));
+}
+
+/// I3 behavior-preservation — an all-physical shorthand falls through the gate
+/// (`value_kind_gate` → None) to the family collapse, byte-identical to #468.
+#[test]
+fn all_physical_falls_through_to_collapse() {
+    // t=10 r=20 b=10 l=20 → left==right and top==bottom ⇒ two-value form.
+    let mut margin = HashMap::new();
+    margin.insert("margin-top", "10px");
+    margin.insert("margin-right", "20px");
+    margin.insert("margin-bottom", "10px");
+    margin.insert("margin-left", "20px");
+    assert_eq!(serialize("margin", &margin), Some("10px 20px".to_string()));
+
+    let mut gap = HashMap::new();
+    gap.insert("row-gap", "4px");
+    gap.insert("column-gap", "8px");
+    assert_eq!(serialize("gap", &gap), Some("4px 8px".to_string()));
+}
+
+/// Corner 5 (coordinator view) — a WHOLE-shorthand `var()` is stored under the
+/// shorthand name, not longhand-expanded, so the §6.6.1 all-present check fails
+/// and `serialize_shorthand_value` returns `None` BEFORE the gate. The caller's
+/// `.or_else` fallback (elidex-dom-api, out of this crate) then reads the
+/// shorthand's own stored `var(--x)`. The gate never runs, so it cannot regress
+/// corner 5.
+#[test]
+fn whole_shorthand_var_not_reached_by_gate() {
+    let mut m = HashMap::new();
+    m.insert("margin", "var(--x)"); // no longhands present
+    assert_eq!(serialize("margin", &m), None);
+}
+
+// --- end-to-end reachability: author CSS → parser → gate (populated registry) ---
+
+/// Serialize a shorthand from GENUINELY parsed author CSS. MUST pass a populated
+/// registry — multicol/box longhands are registry-backed and a `None` registry
+/// silently drops them (plan §Parse-discrepancy investigation: the guard for any
+/// elidex-internal multicol/flex/grid probe).
+fn serialize_parsed(property: &str, css: &str) -> Option<String> {
+    let decls = elidex_css::parse_declaration_block_with_registry(
+        css,
+        Some(default_css_property_registry()),
+    );
+    serialize_shorthand_value(default_css_property_registry(), property, move |lh| {
+        decls
+            .iter()
+            .rev() // last-declaration-wins (CSSOM cascade within a block)
+            .find(|d| d.property == lh)
+            .map(|d| (d.value.to_css_string(), d.important))
+    })
+}
+
+/// The gate is reachable from ordinary author CSS: the parser expands a
+/// shorthand CSS-wide keyword into per-longhand keyword declarations
+/// (`declaration.rs` `expand_global_keyword`) and stores a longhand `var()` as a
+/// var-carrying value — both serialize to the strings the gate classifies.
+#[test]
+fn author_css_reaches_gate_end_to_end() {
+    // shorthand css-wide keyword → per-longhand `initial` → all-same-K → "initial"
+    assert_eq!(
+        serialize_parsed("margin", "margin: initial"),
+        Some("initial".to_string())
+    );
+
+    // a longhand var() with physical siblings → any-V → ""
+    assert_eq!(
+        serialize_parsed(
+            "margin",
+            "margin-top: var(--x); margin-right: 0px; margin-bottom: 0px; margin-left: 0px",
+        ),
+        Some(String::new())
+    );
+
+    // Uncovered Multicol `columns` — coverage is checked BEFORE the gate, so even
+    // though the parser stores `column-width: var(--w)` as a var-carrying value,
+    // `serialize_shorthand_value` returns None (no covering handler) and the
+    // caller falls back to any direct `columns` declaration. Both longhands parse
+    // ONLY with a populated registry (the plan's parse-discrepancy guard). PR1
+    // covers `columns` and re-adds the var → "" assertion (as a covered family).
+    assert_eq!(
+        serialize_parsed("columns", "column-width: var(--w); column-count: auto"),
+        None
+    );
+}
