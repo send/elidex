@@ -62,16 +62,40 @@ pub(crate) fn compile_pattern_regex(p: &str) -> Option<Arc<regex::Regex>> {
         .map(Arc::new)
 }
 
-/// HTML §2.6.1 "limited to only non-negative numbers greater than zero,
-/// with fallback" — parse `value` as a non-negative integer and use it
-/// only when it is > 0; otherwise (absent / invalid / `0`) return
-/// `default`. Single-sourced reflection shared by `from_textarea_element`
-/// (createElement init) and the `rows`/`cols` reconciler arms
-/// (HTML §4.10.11 `rows`/`cols`, `ReflectPositiveWithFallback`).
+/// Reflect `value` as an HTML non-negative integer under the §2.6.1
+/// "limited to only positive numbers with fallback" reflection rule
+/// (`#limited-to-only-non-negative-numbers-greater-than-zero-with-fallback`;
+/// the anchor slug predates the dfn's rename from "non-negative numbers
+/// greater than zero"): return the parsed value only when it is `> 0`,
+/// otherwise (absent / invalid / `0` / negative / overflow) return `default`.
+///
+/// Parsing follows HTML "rules for parsing non-negative integers"
+/// (§2.3.4.2, `#rules-for-parsing-non-negative-integers`): **skip leading
+/// ASCII whitespace, consume an optional leading `+`, take the leading
+/// ASCII-digit run, and ignore trailing junk**. This deliberately differs
+/// from [`str::parse`] (which requires the WHOLE string to be a valid
+/// integer) so that `rows=" 5"` and `rows="5px"` both reflect `5` — the
+/// value browsers use — instead of falling back to the default. A leading
+/// `-` (or any non-digit first character) leaves an empty digit run → the
+/// fallback, matching the non-negative rule that rejects negatives.
+///
+/// Single-sourced reflection shared by `from_textarea_element` (createElement
+/// init) and the `rows`/`cols` reconciler arms (HTML §4.10.11 `rows`/`cols`,
+/// `ReflectPositiveWithFallback`).
 #[must_use]
 pub fn parse_positive_with_fallback(value: Option<&str>, default: u32) -> u32 {
-    value
-        .and_then(|v| v.parse::<u32>().ok())
+    let Some(s) = value else { return default };
+    // "Rules for parsing non-negative integers" (§2.3.4.2): skip leading
+    // ASCII whitespace, drop an optional leading `+`, then take the leading
+    // ASCII-digit run (trailing junk is ignored). `char::is_ascii_whitespace`
+    // is exactly HTML's ASCII whitespace set (space, \t, \n, \x0C, \r).
+    let s = s.trim_start_matches(|c: char| c.is_ascii_whitespace());
+    let s = s.strip_prefix('+').unwrap_or(s);
+    let end = s.find(|c: char| !c.is_ascii_digit()).unwrap_or(s.len());
+    // §2.6.1 "…with fallback": use `default` unless the value is `> 0`.
+    s[..end]
+        .parse::<u32>()
+        .ok()
         .filter(|&n| n > 0)
         .unwrap_or(default)
 }

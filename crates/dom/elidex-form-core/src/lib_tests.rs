@@ -835,16 +835,28 @@ fn delete_forward_marks_dirty() {
 
 #[test]
 fn parse_positive_with_fallback_takes_positive_else_default() {
-    // HTML §2.6.1 "limited to only non-negative numbers greater than zero,
-    // with fallback": absent / non-numeric / `0` / negative / fractional all
-    // fall back to the default; a valid `> 0` integer is taken as-is.
+    // §2.6.1 "limited to only positive numbers with fallback": absent /
+    // non-numeric / `0` / negative all fall back to the default; a valid
+    // `> 0` integer is taken as-is.
     assert_eq!(parse_positive_with_fallback(None, 2), 2);
     assert_eq!(parse_positive_with_fallback(Some("0"), 2), 2);
     assert_eq!(parse_positive_with_fallback(Some("-5"), 2), 2);
     assert_eq!(parse_positive_with_fallback(Some("abc"), 2), 2);
-    assert_eq!(parse_positive_with_fallback(Some("3.5"), 2), 2); // u32 parse fails
     assert_eq!(parse_positive_with_fallback(Some("10"), 2), 10);
     assert_eq!(parse_positive_with_fallback(Some("100000"), 20), 100_000);
+
+    // HTML "rules for parsing non-negative integers" (§2.3.4.2): skip leading
+    // ASCII whitespace, consume an optional leading `+`, take the leading
+    // ASCII-digit run, and IGNORE trailing junk. Unlike `str::parse` (whole
+    // string), these all parse the leading digit run:
+    assert_eq!(parse_positive_with_fallback(Some("3.5"), 2), 3); // leading run "3"
+    assert_eq!(parse_positive_with_fallback(Some(" 5"), 2), 5); // leading space skipped
+    assert_eq!(parse_positive_with_fallback(Some("\t5"), 2), 5); // leading tab skipped
+    assert_eq!(parse_positive_with_fallback(Some("5px"), 2), 5); // trailing junk ignored
+    assert_eq!(parse_positive_with_fallback(Some("5 "), 2), 5); // trailing space ignored
+    assert_eq!(parse_positive_with_fallback(Some("+5"), 2), 5); // leading `+` consumed
+    assert_eq!(parse_positive_with_fallback(Some("  12  "), 2), 12); // ws both sides
+    assert_eq!(parse_positive_with_fallback(Some(" "), 2), 2); // whitespace only → default
 }
 
 #[test]
