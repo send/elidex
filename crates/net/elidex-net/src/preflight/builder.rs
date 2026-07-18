@@ -1,5 +1,5 @@
 //! OPTIONS preflight request construction (WHATWG Fetch §4.8
-//! steps 1-9).
+//! CORS-preflight fetch steps 1-5).
 
 use bytes::Bytes;
 
@@ -7,7 +7,7 @@ use super::is_non_safelisted_author_header;
 use crate::{CredentialsMode, RedirectMode, Request, RequestMode};
 
 /// Build the OPTIONS preflight request for an actual cross-origin
-/// CORS request (WHATWG Fetch §4.8 steps 1-9).
+/// CORS request (WHATWG Fetch §4.8 steps 1-5).
 ///
 /// The preflight is always:
 /// - method = `OPTIONS`
@@ -18,8 +18,8 @@ use crate::{CredentialsMode, RedirectMode, Request, RequestMode};
 /// - credentials = `Omit` (preflight is never credentialed; the
 ///   `Access-Control-Allow-Credentials: true` response header
 ///   gates the **actual** request)
-/// - redirect = `Error` (3xx responses to a preflight are network
-///   errors per §4.8 step 11)
+/// - redirect = `Error` (3xx responses to a preflight fail the
+///   §4.8 step 7 ok-status requirement → step 8 network error)
 /// - headers = `Access-Control-Request-Method` (ACRM) +
 ///   `Access-Control-Request-Headers` (ACRH, lowercased + sorted
 ///   non-safelisted header names) + `Origin`
@@ -51,8 +51,8 @@ pub fn build_preflight_request(orig: &Request) -> Request {
 }
 
 /// Collect the lowercased + sorted comma-joined non-safelisted
-/// header-name list for `Access-Control-Request-Headers` (§4.6.5
-/// + §4.8 step 5).
+/// header-name list for `Access-Control-Request-Headers` (§2.2.2
+/// CORS-unsafe request-header names + §4.8 step 5).
 ///
 /// Caller passes the actual request headers; safelisted names
 /// (and `Authorization` in safelisted positions, but it's never

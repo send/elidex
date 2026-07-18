@@ -1,5 +1,6 @@
-//! CORS preflight (WHATWG Fetch §4.8) + non-simple-request
-//! detection (§4.6.5 CORS-safelisted-request-header).
+//! CORS preflight (WHATWG Fetch §4.8 CORS-preflight fetch) +
+//! non-simple-request detection (§4.4 HTTP fetch step 4.1 +
+//! §2.2.2 CORS-safelisted request-header).
 //!
 //! For cross-origin requests with `mode = Cors`, the broker must
 //! issue an `OPTIONS` preflight to confirm the server permits the
@@ -10,7 +11,7 @@
 //!
 //! 1. [`requires_preflight`] decides whether the request is "non
 //!    simple" — non-`GET`/`HEAD`/`POST` method or any author
-//!    header outside the §4.6.5 safelist.
+//!    header outside the §2.2.2 safelist.
 //! 2. [`build_preflight_request`] constructs the OPTIONS request
 //!    with `Access-Control-Request-Method` (ACRM) and
 //!    `Access-Control-Request-Headers` (ACRH, sorted +
@@ -28,8 +29,9 @@
 //!    the OPTIONS round-trip).
 //!
 //! `cors.rs` (the pre-existing module) is intentionally separate
-//! — it implements only the §4.4 `Access-Control-Allow-Origin`
-//! check on the actual response, not preflight.
+//! — it implements only the §4.10 CORS check
+//! (`Access-Control-Allow-Origin`) on the actual response, not
+//! preflight.
 //!
 //! ## File layout
 //!
@@ -59,7 +61,8 @@ use crate::error::{NetError, NetErrorKind};
 use crate::transport::HttpTransport;
 use crate::{Request, RequestMode};
 
-/// Conservative cap on `Access-Control-Max-Age` (§4.8 step 19).
+/// Conservative cap on `Access-Control-Max-Age` (§4.8 step 7.10 —
+/// the imposed limit on max-age).
 ///
 /// Spec allows arbitrary integers; browsers cap differently
 /// (Chromium 7200s, Firefox 86400s).  We pick **7200s** to match
@@ -69,7 +72,7 @@ use crate::{Request, RequestMode};
 pub const MAX_AGE_CAP_SECONDS: u64 = 7200;
 
 /// Default `Access-Control-Max-Age` when the response omits the
-/// header (§4.8 step 19 — "5 seconds" default).
+/// header (§4.8 step 7.9 — "failure or null → 5" default).
 pub const DEFAULT_MAX_AGE_SECONDS: u64 = 5;
 
 /// Result of validating a preflight response.  Cached by
@@ -95,14 +98,15 @@ pub struct PreflightAllowance {
 }
 
 /// Decide whether a request requires a CORS preflight per
-/// WHATWG Fetch §4.8.1 ("CORS-preflight fetch flag").
+/// WHATWG Fetch §4.4 HTTP fetch step 4.1 (the makeCORSPreflight
+/// condition).
 ///
 /// Returns `true` iff:
 /// - request is `Cors` mode AND
 /// - request is cross-origin AND
 /// - method is **not** in `{GET, HEAD, POST}`, OR
 /// - any author-specified header is **not**
-///   CORS-safelisted-request-header (§4.6.5).
+///   CORS-safelisted-request-header (§2.2.2).
 pub fn requires_preflight(request: &Request) -> bool {
     if request.mode != RequestMode::Cors {
         return false;
@@ -133,20 +137,20 @@ fn is_same_origin(request: &Request) -> bool {
     }
 }
 
-/// CORS-safelisted method check (§4.6.4): `GET`, `HEAD`, `POST`
+/// CORS-safelisted method check (§2.2.1): `GET`, `HEAD`, `POST`
 /// (case-sensitive per spec — methods are normalised earlier).
 pub(super) fn is_cors_safelisted_method(method: &str) -> bool {
     matches!(method, "GET" | "HEAD" | "POST")
 }
 
 /// Header names that the broker / VM-side fetch path auto-injects
-/// (NOT author-controllable per WHATWG Fetch §4.6 forbidden-request-
-/// header list + the broker's Origin / Referer attachments in
+/// (NOT author-controllable per WHATWG Fetch §2.2.2 forbidden-
+/// request-header list + the broker's Origin / Referer attachments in
 /// `crates/script/elidex-js/src/vm/host/fetch/dispatch.rs::attach_default_origin`
 /// / `::attach_default_referer`).
 ///
 /// These headers MUST be excluded from:
-/// - the §4.8.1 preflight detection ([`requires_preflight`])
+/// - the §4.4 step 4.1 preflight detection ([`requires_preflight`])
 /// - the `Access-Control-Request-Headers` enumeration
 ///   (the per-request `collect_acrh_value` helper inside [`builder`])
 /// - the `Access-Control-Allow-Headers` validation
@@ -162,7 +166,7 @@ pub fn is_broker_injected_header(name: &str) -> bool {
     let lower = name.to_ascii_lowercase();
     matches!(
         lower.as_str(),
-        // §4.6 forbidden + broker auto-injected.
+        // §2.2.2 forbidden-request-header + broker auto-injected.
         "origin"
             | "referer"
             | "host"
@@ -176,14 +180,14 @@ pub fn is_broker_injected_header(name: &str) -> bool {
 }
 
 /// "Author-specified non-safelisted-request-header" predicate: the
-/// header participates in §4.8 preflight decisions iff it is both
-/// (a) author-controlled (not [`is_broker_injected_header`]) AND
-/// (b) not [`is_cors_safelisted_request_header`].
+/// header participates in the §4.4 step 4.1 preflight decision iff
+/// it is both (a) author-controlled (not [`is_broker_injected_header`])
+/// AND (b) not [`is_cors_safelisted_request_header`].
 pub(super) fn is_non_safelisted_author_header(name: &str, value: &str) -> bool {
     !is_broker_injected_header(name) && !is_cors_safelisted_request_header(name, value)
 }
 
-/// CORS-safelisted-request-header check (WHATWG Fetch §4.6.5).
+/// CORS-safelisted-request-header check (WHATWG Fetch §2.2.2).
 ///
 /// A header is safelisted iff:
 /// - name (case-insensitive) is in `{Accept, Accept-Language,
@@ -191,8 +195,10 @@ pub(super) fn is_non_safelisted_author_header(name: &str, value: &str) -> bool {
 /// - the **value** matches the per-name shape constraints below.
 ///
 /// Special cases:
-/// - `Authorization` (§4.6.5 step 4) is **always non-safelisted**
-///   regardless of value — it triggers preflight.
+/// - `Authorization` is **always non-safelisted** (§2.2.2 — not a
+///   name in the CORS-safelisted-request-header switch, so it falls
+///   to the default `false`) regardless of value — it triggers
+///   preflight.
 /// - `Content-Type` value must (a) contain only safe bytes (no
 ///   CORS-unsafe-request-header-byte such as `:` outside MIME
 ///   delimiters — Copilot R6) AND (b) parse to one of three
@@ -201,10 +207,10 @@ pub(super) fn is_non_safelisted_author_header(name: &str, value: &str) -> bool {
 ///   preflight.
 /// - `Range` value must match `bytes=N-` or `bytes=N-M` form.
 /// - `Accept` / `Accept-Language` / `Content-Language` /
-///   `Save-Data` values must contain only the §4.6.5 byte set
+///   `Save-Data` values must contain only the §2.2.2 byte set
 ///   (subset of ASCII excluding CORS-unsafe-request-header-byte).
 ///
-/// **Note**: this function answers the per-header §4.6.5 question
+/// **Note**: this function answers the per-header §2.2.2 question
 /// in isolation; callers that need the "is this header an
 /// author-specified non-safelisted header (so it counts toward
 /// preflight)" question should compose with [`is_broker_injected_header`]
@@ -233,7 +239,7 @@ pub fn is_cors_safelisted_request_header(name: &str, value: &str) -> bool {
 }
 
 /// Check that a byte is **not** a CORS-unsafe-request-header-byte
-/// (WHATWG Fetch §4.6.5).
+/// (WHATWG Fetch §2.2.2).
 ///
 /// A byte is **unsafe** iff:
 /// - it is less than `0x20` AND not `0x09` (HT), OR
@@ -278,7 +284,7 @@ fn is_safelisted_content_type(value: &str) -> bool {
     )
 }
 
-/// `Range` safelist check (§4.6.5): only `bytes=N-` or
+/// `Range` safelist check (§2.2.2): only `bytes=N-` or
 /// `bytes=N-M` with non-negative integers, no multi-range.
 fn is_safelisted_range(value: &str) -> bool {
     let Some(rest) = value.strip_prefix("bytes=") else {
@@ -509,7 +515,7 @@ mod tests {
     /// Regression for Copilot R1 finding 1 + 4: broker-injected
     /// `Origin` / `Referer` (auto-injected by `attach_default_origin`
     /// / `attach_default_referer` on the VM-side fetch path) must
-    /// NOT count toward the §4.8.1 preflight detection — they are
+    /// NOT count toward the §4.4 step 4.1 preflight detection — they are
     /// not author-controllable headers.  Without the filter, a
     /// normal cross-origin `fetch()` would force a preflight just
     /// because the broker put `Origin` into `request.headers`.
@@ -595,7 +601,7 @@ mod tests {
         ));
     }
 
-    /// Regression for Copilot R4 finding 1: §4.6.5
+    /// Regression for Copilot R4 finding 1: §2.2.2
     /// CORS-unsafe-request-header-byte set covers the **full**
     /// `0x00..=0x1F` range minus `0x09` (HT).  Previously the
     /// implementation only flagged `0x00..=0x08` and
@@ -628,7 +634,7 @@ mod tests {
     }
 
     /// Sentinel: HT (`0x09`) is the **only** byte below `0x20`
-    /// that's safelisted (§4.6.5 explicitly excludes it).
+    /// that's safelisted (§2.2.2 explicitly excludes it).
     #[test]
     fn safelisted_accept_allows_horizontal_tab() {
         assert!(is_cors_safelisted_request_header(
@@ -659,10 +665,13 @@ mod tests {
         ));
     }
 
-    /// Regression for Copilot R6 finding 2: `Save-Data` is in
-    /// the §4.6.5 safelist (formerly deferred as SP-CORS-4 in
-    /// PR-spec-polish; closed inline during R6).  Values must
-    /// pass the same byte-check as `Accept` etc.
+    /// Regression for Copilot R6 finding 2: elidex safelists
+    /// `Save-Data` as an extension — the §2.2.2 CORS-safelisted-
+    /// request-header switch itself lists only Accept / Accept-
+    /// Language / Content-Language / Content-Type / Range (Save-Data
+    /// was formerly deferred as SP-CORS-4 in PR-spec-polish; closed
+    /// inline during R6).  Values must pass the same byte-check as
+    /// `Accept` etc.
     #[test]
     fn safelisted_save_data_on() {
         assert!(is_cors_safelisted_request_header("Save-Data", "on"));

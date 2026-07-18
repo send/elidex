@@ -110,7 +110,7 @@ pub enum CredentialsMode {
 /// CORS treatment for this request.
 ///
 /// - [`RequestMode::Cors`]: cross-origin requests are subject to
-///   the §4.4 CORS check and §4.8 preflight.  This is the
+///   the §4.10 CORS check and §4.8 preflight.  This is the
 ///   default for `fetch()` but **not** the broker's default
 ///   (embedder-driven paths typically have no document context).
 /// - [`RequestMode::NoCors`] (default): no preflight, no CORS
@@ -185,7 +185,7 @@ pub struct Request {
     pub credentials: CredentialsMode,
     /// CORS mode (WHATWG Fetch §5.3).  Default:
     /// [`RequestMode::NoCors`] — embedder-driven paths bypass
-    /// the §4.8 preflight + §4.4 CORS check.  VM-side
+    /// the §4.8 preflight + §4.10 CORS check.  VM-side
     /// `fetch()` paths set [`RequestMode::Cors`] (the JS
     /// default) so cross-origin custom-header / non-simple-method
     /// fetches go through preflight.
@@ -300,7 +300,7 @@ pub struct Response {
     /// `true` when the redirect chain crossed origin at least once
     /// — the broker's redirect loop sets this so the JS-side
     /// response classifier (in `elidex-js`'s `vm/host/cors.rs`,
-    /// **not** [`crate::cors`] which is the broker-side §4.4 ACAO
+    /// **not** [`crate::cors`] which is the broker-side §4.10 CORS
     /// check) can drop the "current URL is same-origin" Basic
     /// shortcut and run the cors path even when the **final** URL
     /// happens to land back on the initiator origin.  Not relevant for embedder-driven (NoCors)
@@ -345,7 +345,7 @@ pub struct NetClient {
     /// When `true`, Cookie headers are not sent and `Set-Cookie` headers are
     /// not stored. Used for iframe `credentialless` attribute (WHATWG HTML §4.8.5).
     credentialless: bool,
-    /// CORS preflight cache (WHATWG Fetch §4.8 step 22) shared
+    /// CORS preflight cache (WHATWG Fetch §4.9) shared
     /// across all requests routed through this client.
     preflight_cache: Arc<PreflightCache>,
 }
@@ -440,12 +440,12 @@ impl NetClient {
         self.middleware.process_request(&mut request)?;
 
         // Cors-mode requests MUST have a document origin context
-        // so the §4.4 ACAO check (VM-side) and §4.8 preflight
+        // so the §4.10 CORS check (ACAO, VM-side) and §4.8 preflight
         // (broker-side) have a value to gate against.  A `None`
         // origin at this point is a misconfigured caller — fail
         // closed before any network activity, including for
         // simple GET/HEAD/POST requests that bypass the
-        // §4.8.1 preflight detection (Copilot R5 PR #134).
+        // §4.4 step 4.1 preflight detection (Copilot R5 PR #134).
         if request.mode == RequestMode::Cors && request.origin.is_none() {
             return Err(NetError::new(
                 NetErrorKind::CorsBlocked,
