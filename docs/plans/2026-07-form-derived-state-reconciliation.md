@@ -127,6 +127,8 @@ pub fn validity(entity: Entity, dom: &EcsDom) -> ValidityState;        // → va
 
 `ElementState` keeps `HOVER`/`FOCUS`/`ACTIVE`/`LINK`/`VISITED` (genuinely UI/pure-function state with real writers).
 
+**Sibling manually-synced cache (F4, deferred — same species, distinct scope).** `FormControlState.char_count` is a hand-synced derived cache (text length; readers: `elidex-render/builder/form.rs:338` password-mask width, `elidex-shell/content/ime.rs:129` maxlength) — the *same species* as the ElementState form bits this umbrella abolishes. **No live desync today** (`clone.rs:127→133` syncs it). It is **NOT touched in Slice 0a** (0a is a pure move); the 0a visibility split it leaves — `value` `pub` (can *cause* desync) but `char_count` `pub(crate)` (downstream can't *repair* it) — is backwards but deliberately left (Slice-0a `/elidex-review` F4). Fix = derive-on-read at the two readers (this umbrella's thesis), gated on the **same per-read perf question as O3** (`:valid`/`:invalid`, §5/§9). Land it in the derive-on-read phase **without broadening the Slice-1 pseudo-class keystone** (§6 irreducibility) — Slice 1 or an immediate follow-on, its own measurement gate. Recorded here so it reads as known-deferred, not overlooked; no separate defer slot (this committed note is its durable home).
+
 ### §3.3 Why not the alternatives
 
 | Option | Verdict |

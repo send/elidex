@@ -41,9 +41,6 @@ pub use elidex_form_core::{
     FormControlKind, FormControlState, KeyAction, SelectOption, SelectionDirection, StepError,
     ValidityState, ValueMode, ValueSetAction, MAX_PATTERN_LENGTH,
 };
-// `compile_pattern_regex` is `pub` in form-core, but stays crate-internal
-// here (the reconciler `pattern`-arm calls it) — not elidex-form public API.
-pub(crate) use elidex_form_core::compile_pattern_regex;
 
 pub use ancestor_cache::AncestorCache;
 pub use clone::apply_clone_form_state;

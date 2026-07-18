@@ -12,7 +12,7 @@ use crate::{first_legend_child, FormControlState};
 
 /// Propagate `<fieldset disabled>` to descendant form controls.
 ///
-/// Per HTML §4.10.19.2, controls inside a disabled fieldset are disabled,
+/// Per HTML §4.10.19.5, controls inside a disabled fieldset are disabled,
 /// except those inside the first `<legend>` child.
 pub fn propagate_fieldset_disabled(dom: &mut EcsDom) {
     let fieldsets: Vec<(Entity, bool)> = dom

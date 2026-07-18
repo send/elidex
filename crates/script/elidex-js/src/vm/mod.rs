@@ -1101,7 +1101,7 @@ pub(crate) struct VmInner {
     pub(crate) html_options_collection_prototype: Option<ObjectId>,
     /// `ValidityState.prototype` (HTML §4.10.20.3).  Plain Object
     /// prototype with 11 boolean accessor methods that read from
-    /// `elidex_form::validation::validate_control` directly.
+    /// `elidex_form::validate_control` directly.
     #[cfg(feature = "engine")]
     pub(crate) validity_state_prototype: Option<ObjectId>,
     /// `DOMException.prototype` (WebIDL §3.14.1).  Chains to

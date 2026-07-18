@@ -1,5 +1,5 @@
 //! Fieldset disabled detection — legend lookup + disabled-ancestry pull
-//! predicate (HTML §4.10.19.2).
+//! predicate (HTML §4.10.19.5).
 //!
 //! Pure read-only derivations (no `&mut EcsDom`). The push-propagation
 //! system (`propagate_fieldset_disabled` / `disable_descendants`) lives in
@@ -39,7 +39,7 @@ pub fn is_in_first_legend(dom: &EcsDom, entity: Entity, first_legend: Entity) ->
 
 /// Check if an entity is inside a disabled `<fieldset>` ancestor.
 ///
-/// Per HTML §4.10.19.2, a form control is disabled if it is a descendant of a
+/// Per HTML §4.10.19.5, a form control is disabled if it is a descendant of a
 /// disabled `<fieldset>` element AND is not a descendant of that fieldset's
 /// first `<legend>` child.
 #[must_use]

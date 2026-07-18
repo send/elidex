@@ -48,7 +48,7 @@ pub const MAX_PATTERN_LENGTH: usize = 1024;
 ///
 /// Returns `None` if the pattern exceeds [`MAX_PATTERN_LENGTH`] or is not valid regex.
 /// Per HTML spec §4.10.5.3.8, invalid patterns are silently ignored.
-pub fn compile_pattern_regex(p: &str) -> Option<Arc<regex::Regex>> {
+pub(crate) fn compile_pattern_regex(p: &str) -> Option<Arc<regex::Regex>> {
     if p.len() > MAX_PATTERN_LENGTH {
         return None;
     }

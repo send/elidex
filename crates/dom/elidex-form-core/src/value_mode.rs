@@ -1,5 +1,6 @@
-//! HTML §4.10.5.4 `value` IDL attribute **value mode** — the per-kind
-//! value-mode predicate + the pure IDL getter/setter dispatch:
+//! HTML §4.10.5.4 "Common input element APIs" — the `value` IDL
+//! attribute **value mode**: the per-kind value-mode predicate + the
+//! pure IDL getter/setter dispatch:
 //!
 //! - [`ValueMode`] / [`ValueSetAction`] enums + the per-kind predicate
 //!   [`FormControlKind::value_idl_mode`].
