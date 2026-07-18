@@ -198,7 +198,7 @@ convention (RO §3.3.1: *"top is padding top, left is padding left"*), **NOT** a
 (this codebase derives `border_box() = padding_box().expand(border())`, so the content origin relative to the
 border box is `border + padding`, `boxes.rs:135-141`). Calling it "border-box-local" and baking padding-only
 into a generic facet would give the wrong local origin for any bordered box. The correct home for a **local
-frame is the reader** (I-frame): RO's contentRect **composes at the RO reader** (the `elidex-js` host / C-3d)
+frame is the reader** (I-frame): RO's contentRect **composes engine-side in `elidex-api-observers::resize`**, not the JS host (its facet math needs no dom-api, so unlike IO's `rect_fn` below it takes no host seam; C-3d, R22-JJ3)
 from the fragment's **generic** `BoxModel` facets — `Rect::new(f.padding().left, f.padding().top,
 f.content().size.width, f.content().size.height)`, byte-identical to today. So `elidex-plugin`'s `BoxModel`
 stays **purely generic** (no RO-semantic helper below the floor). C-3a's scope is enumerated once, at the
@@ -449,7 +449,7 @@ and the per-consumer spec characterization is **the audit's output** (§4), not 
 
 | Spec section | Step | Branch | Touch (C-3a code) | Full enum? | User-input flow |
 |---|---|---|---|---|---|
-| RESIZE OBSERVER §3.3.1 content rect | — | the padding-offset convention (§1's `content_rect_local` decision is the home for the arithmetic and the byte-identity claim; not re-rendered here) | **C-3a ships nothing RO-specific** (R2-U3): RO's contentRect **composes at the reader** (C-3d host) from the fragment's generic `padding()` + `content().size` facets — byte-identical to today's `content_rect_local()` | ✓ (SVG-no-box + multicol width note are RO reader policy, → C-3d) | no |
+| RESIZE OBSERVER §3.3.1 content rect | — | the padding-offset convention (§1's `content_rect_local` decision is the home for the arithmetic and the byte-identity claim; not re-rendered here) | **C-3a ships nothing RO-specific** (R2-U3): RO's contentRect **composes engine-side** from the fragment's generic `padding()` + `content().size` facets — byte-identical to today's `content_rect_local()` | ✓ (SVG-no-box + multicol width note are RO reader policy, → C-3d) | no |
 | CSS DISPLAY 3 §2.5 Box Generation | `contents` | *"the element itself does not generate any boxes"* → **no associated box** | → **§1 requirement 5** (its home) for what the seam does and does not express; not re-decided here. Producer paths that leave a box on such an element anyway are producer defects C-3 inherits — **axis 3 enumerates them**. | ✓ for the box-generation branch (`none` is out of C-3's reach — layout skips it; the `contents`-computes-to-`none` sub-case per Appendix B is unchanged) | no |
 | CSSOM VIEW §6 `getClientRects()` | step 1 | *"does not have an associated box → return an **empty** DOMRectList and stop"* | the **consumer branch** requirement 5 exists to make expressible (C-3b implements the algorithm) | branch ✓ (steps 2-3 = SVG / per-fragment, C-3b's map) | no |
 
