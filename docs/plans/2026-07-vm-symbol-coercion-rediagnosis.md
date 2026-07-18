@@ -54,7 +54,7 @@ ApplyStringOrNumericBinaryOperator) — ALL THROW:**
 | spelling | result | note |
 |---|---|---|
 | `typeof Object(Symbol())` | `"object"` | SymbolWrapper |
-| `` `${Object(Symbol())}` `` `Object(Symbol())+1` | throw | §7.1.1.1 OrdinaryToPrimitive → §20.4.3.4/.5 → Symbol → throw (the #467 R9 fix, now JS-observable) |
+| `` `${Object(Symbol())}` `` `Object(Symbol())+1` | throw | §7.1.1 ToPrimitive → §20.4.3.5 %Symbol.toPrimitive% (installed by #467 R9) → Symbol → throw. The exotic @@toPrimitive pre-empts §7.1.1.1 OrdinaryToPrimitive, so §20.4.3.4 valueOf is not reached — the #467 R9 fix, now JS-observable. |
 | `Number(Object(Symbol()))` `Object(Symbol())*2` | throw | — |
 | `String(Object(Symbol()))` | **throw** | value is an Object, not a primitive Symbol → §22.1.1.1 step 2.a inapplicable → step 2.b ToString → throw (contrast `String(Symbol())` below) |
 
