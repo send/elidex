@@ -330,37 +330,29 @@ mod tests {
         assert!(!toggle_radio(&mut dom, entity, &mut cache));
     }
 
+    /// A bare `<input type=radio name=g>` state with the given checkedness.
+    /// (`FormControlState`'s value-model fields — cursor / selection /
+    /// char_count — are `elidex-form-core`-private, so this builds from
+    /// `default()` rather than a `..FormControlState::default()` update.)
+    fn radio_state(checked: bool) -> FormControlState {
+        let mut state = FormControlState::default();
+        state.kind = FormControlKind::Radio;
+        state.checked = checked;
+        state.name = "g".to_string();
+        state
+    }
+
     #[test]
     fn radio_group_satisfied_when_one_checked() {
-        let checked = FormControlState {
-            kind: FormControlKind::Radio,
-            checked: true,
-            name: "g".to_string(),
-            ..FormControlState::default()
-        };
-        let unchecked = FormControlState {
-            kind: FormControlKind::Radio,
-            checked: false,
-            name: "g".to_string(),
-            ..FormControlState::default()
-        };
+        let checked = radio_state(true);
+        let unchecked = radio_state(false);
         assert!(is_radio_group_satisfied(&[&unchecked, &checked]));
     }
 
     #[test]
     fn radio_group_not_satisfied_when_none_checked() {
-        let r1 = FormControlState {
-            kind: FormControlKind::Radio,
-            checked: false,
-            name: "g".to_string(),
-            ..FormControlState::default()
-        };
-        let r2 = FormControlState {
-            kind: FormControlKind::Radio,
-            checked: false,
-            name: "g".to_string(),
-            ..FormControlState::default()
-        };
+        let r1 = radio_state(false);
+        let r2 = radio_state(false);
         assert!(!is_radio_group_satisfied(&[&r1, &r2]));
     }
 

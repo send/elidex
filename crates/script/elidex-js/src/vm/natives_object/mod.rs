@@ -33,6 +33,40 @@ fn to_property_key(ctx: &mut NativeContext<'_>, val: JsValue) -> Result<Property
     Ok(PropertyKey::String(sid))
 }
 
+/// `Object ( value )` — ECMA-262 §20.1.1.1. The `Object` constructor: callable
+/// (`Object(x)`) and constructable (`new Object(x)`, subclass `new`).
+pub(crate) fn native_object_constructor(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let value = args.first().copied().unwrap_or(JsValue::Undefined);
+    // Step 1: a subclass `new` (NewTarget ≠ %Object%) returns the `do_new`-provided
+    // instance (which carries the subclass prototype); `value` is ignored.
+    // `new_target()` is `Some` only in construct mode, so it doubles as the
+    // construct gate; the `%Object%` id compare is what makes `new Object(5)`
+    // (NewTarget === %Object%) fall through to step 3. `Date`/`Number` return
+    // `this` the same way (`natives_date/mod.rs`, `natives_number.rs`).
+    if let Some(nt) = ctx.new_target() {
+        if Some(nt) != ctx.vm.object_constructor {
+            return Ok(this);
+        }
+    }
+    // Step 2: `value` is undefined or null → a fresh ordinary object with
+    // %Object.prototype% (construct mode returns the `do_new` `this`, call mode
+    // allocs fresh — `ensure_instance_or_alloc` folds both, as the sibling
+    // Error/DOMException/… ctors do).
+    if value.is_nullish() {
+        return Ok(ctx
+            .vm
+            .ensure_instance_or_alloc(this, ctx.vm.object_prototype, ctx.mode));
+    }
+    // Step 3: Return ! ToObject(value) — boxes a primitive into its wrapper. The
+    // `do_new` receiver is discarded here, so `new Object(5)` yields a Number
+    // wrapper (§7.1.19 ToObject).
+    Ok(JsValue::Object(super::coerce::to_object(ctx.vm, value)?))
+}
+
 pub(super) use descriptor::{
     native_object_define_property, native_object_get_own_property_descriptor,
     native_object_get_own_property_names, native_object_get_own_property_symbols,

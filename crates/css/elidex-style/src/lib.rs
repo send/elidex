@@ -72,6 +72,76 @@ pub fn get_computed(property: &str, style: &ComputedStyle) -> CssValue {
     resolve::get_computed_with_registry(property, style, default_css_property_registry())
 }
 
+/// The **value-kind** of a shorthand component longhand, classified on its
+/// *serialized string* for the CSSOM §6.7.2 step 1.2 gate below.
+///
+/// The gate serves BOTH the inline `el.style` path and the rule path, and
+/// `InlineStyle` is a string-backed CSSOM store (`InlineDeclaration { value:
+/// String }`) — the inline path can only surface serialized strings, never a
+/// `CssValue`. So the single property-agnostic gate must classify the common
+/// denominator (strings). That is robust here: CSS-wide keywords are globally
+/// reserved exact tokens and `var(` is the only CSS function spelled that way,
+/// so a standard serialized value never contains the literal substring `var(`
+/// except an actual `var()`.
+enum Kind {
+    /// A concrete component value (`5px`, `hidden`, `red`).
+    Physical,
+    /// A CSS-wide keyword — css-cascade-4 §7.3 *Explicit Defaulting*
+    /// (`initial`/`inherit`/`unset`/`revert`; `revert-layer` is css-cascade-5
+    /// §7.3.5 *Rolling Back Cascade Layers*).
+    CssWide,
+    /// An unsubstituted `var()` — css-variables-1 §3 *the var() notation* / §2.2
+    /// *Guaranteed-Invalid Values*: a var-carrying value is not substituted
+    /// until computed-value time, so its specified-value serialization is not a
+    /// concrete component.
+    Var,
+}
+
+/// Classify a serialized component value string into its [`Kind`].
+///
+/// Substring-matches `var(` (the only such-spelled CSS function), else
+/// exact-matches the CSS-wide keyword set with `eq_ignore_ascii_case` (no
+/// per-component allocation — the common all-physical read falls through here).
+fn value_kind(v: &str) -> Kind {
+    const CSS_WIDE: [&str; 5] = ["initial", "inherit", "unset", "revert", "revert-layer"];
+    if v.contains("var(") {
+        Kind::Var // CssValue::Var or a RawTokens("…var(…")
+    } else if CSS_WIDE.iter().any(|kw| v.eq_ignore_ascii_case(kw)) {
+        Kind::CssWide // css-cascade-4 §7.3 (revert-layer: css-cascade-5 §7.3.5)
+    } else {
+        Kind::Physical
+    }
+}
+
+/// CSSOM §6.7.2 step 1.2 ("if the shorthand cannot exactly represent the values
+/// of all the properties in list, return the empty string") applied by
+/// component value-kind:
+/// - any unresolved var()        → Some("")   (not a concrete component pre-substitution)
+/// - all the same CSS-wide kw     → Some(kw)   (the shorthand IS that keyword)
+/// - mixed different CSS-wide kw   → Some("")   (cannot exactly represent)
+/// - a CSS-wide kw mixed with a physical value → Some("")   (cannot exactly represent)
+/// - all physical                 → None       (defer to the family collapse)
+fn value_kind_gate(pairs: &[(&str, &str)]) -> Option<String> {
+    let mut csswide = 0usize;
+    for (_, v) in pairs {
+        match value_kind(v) {
+            Kind::Var => return Some(String::new()), // any var ⇒ "" regardless of siblings
+            Kind::CssWide => csswide += 1,
+            Kind::Physical => {}
+        }
+    }
+    if csswide == 0 {
+        return None; // all physical → the family collapse runs below
+    }
+    // ≥1 CSS-wide, no var: the shorthand IS the keyword only when every component
+    // is that same keyword; a physical sibling or a differing keyword ⇒ "".
+    let first = pairs[0].1;
+    if csswide == pairs.len() && pairs.iter().all(|(_, v)| v.eq_ignore_ascii_case(first)) {
+        return Some(first.to_ascii_lowercase()); // §6.7.2 keyword serialization
+    }
+    Some(String::new()) // mixed CSS-wide, or CSS-wide + physical → cannot represent
+}
+
 /// Reconstruct a CSS **shorthand** value from its longhand declarations —
 /// CSSOM §6.6.1 `getPropertyValue`, the single canonical entry used by BOTH the
 /// inline `el.style` path and the rule `cssRule.style` path.
@@ -125,20 +195,48 @@ pub fn serialize_shorthand_value(
         return None;
     }
 
-    // Dispatch the collapse to the owning handler (§6.7.2).
+    // Build the (longhand, value) component pairs read by BOTH the value-KIND
+    // gate and the family collapse.
     let pairs: Vec<(&str, &str)> = longhands
         .iter()
         .map(String::as_str)
         .zip(decls.iter().map(|(value, _)| value.as_str()))
         .collect();
+
+    // Dispatch to the owning handler FIRST — its return distinguishes "this
+    // coordinator serializes `property`" (`Some`) from "it does not" (`None`).
+    //
     // The registry is keyed by **longhand** name (`CssPropertyHandler::property_names`
     // is longhands-only — shorthand expansion is internal to `parse`), so a
     // shorthand name never resolves. Find the owning handler via the shorthand's
     // first longhand: every longhand of a shorthand is owned by the same handler
     // (`margin-*` → Box, `border-spacing-*` → Table, `flex-*` → Flex, …).
-    registry
+    //
+    // A `None` here means the shorthand is **not covered** — no handler
+    // serializes it (`background` / `flex` / `text-decoration`, or the
+    // omit-initial families still deferred under `#11-style-shorthand-expand`).
+    // The coordinator is then NOT authoritative: the caller falls back to a
+    // *direct* shorthand declaration stored under the shorthand name — a
+    // whole-shorthand `var()` (`background: var(--bg)`) — which, being the later
+    // declaration, wins by order of appearance (css-cascade-4 §6.1) and is read
+    // back via the caller's `.or_else` (a getter fallback outside the §6.6.1
+    // shorthand-reconstruction algorithm). Blink 148:
+    // `background: initial; background: var(--bg)` →
+    // `getPropertyValue("background")` == `"var(--bg)"`, NOT the expanded-longhand
+    // `"initial"`). Running the value-KIND gate *before* this dispatch would emit
+    // `Some("initial")` / `Some("")` from those still-present longhands and preempt
+    // that fallback — so the gate applies ONLY once coverage is established.
+    let collapsed = registry
         .resolve(&longhands[0])?
-        .serialize_shorthand(property, &pairs)
+        .serialize_shorthand(property, &pairs)?;
+
+    // Covered. CSSOM §6.7.2 step 1.2 — value-KIND gate (property-agnostic).
+    // Override the pure string-equality collapse when a component's KIND (an
+    // unresolved `var()`, or a CSS-wide keyword — uniform, mixed, or with a
+    // physical sibling) cannot be represented; `None` = all-physical → keep the
+    // collapse. This stops the collapse helpers from emitting an invalid,
+    // non-round-tripping shorthand (`"initial 5px"`, `"var(--x) 0px 0px"`).
+    Some(value_kind_gate(&pairs).unwrap_or(collapsed))
 }
 
 /// Serialize a property's CSSOM **resolved value** (CSSOM-1 §9 +

@@ -365,13 +365,13 @@ fn locale_methods_exist() {
 
 // Codex R1 #4 (§20.1.3.6): a Date arm was added to
 // `native_object_prototype_to_string`, so the builtin-tag path yields "Date".
-// A JS-observable regression test is deferred: invoking
-// `Object.prototype.toString` generically on ANY receiver (assigned property,
-// `.call`, or `.apply`) currently throws a pre-existing, Date-unrelated
-// "Cannot convert undefined or null to object" in the native-fn generic-call
-// path (`#11-vm-native-fn-generic-invocation`) — only the interpreter's
-// inherited-method fast path reaches the builtin. Once that lands, assert
-// `Object.prototype.toString.call(new Date()) === "[object Date]"`.
+// The JS-observable test (`Object.prototype.toString.call(new Date()) ===
+// "[object Date]"`, and the assigned-property / `.call` / `.apply` spellings) was
+// deferred here while `Object.prototype` was unreachable — the global `Object`
+// was a namespace object, so `Object.prototype` evaluated to undefined and the
+// member get threw "Cannot convert undefined or null to object" (ToObject).
+// It now lives in `tests_object_constructor.rs`, after `Object` was repaired into
+// a proper constructor (`#11-vm-native-fn-generic-invocation` re-diagnosis).
 
 #[test]
 fn tojson_boxes_primitive_receiver() {

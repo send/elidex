@@ -1,6 +1,6 @@
 # /external-converge project overlay — elidex
 
-Loaded by `~/.claude/skills/external-converge/SKILL.md` (the full multi-round convergence loop) when invoked from this repo. Provides project-specific calibration — `reviewer`, `wakeup_median`, `layering`, `fix_discipline`, historical `failure_modes`. Reviewer = **OpenAI Codex on ChatGPT Pro** (loop-affordable, no per-credit cost). For the routine single-pass, see `external-review/project.md` (same reviewer).
+Loaded by `~/.claude/skills/external-converge/SKILL.md` (the full multi-round convergence loop) when invoked from this repo. Provides project-specific calibration — `reviewer`, `wakeup_poll` / `wakeup_surface_threshold`, `layering`, `fix_discipline`, historical `failure_modes`. Reviewer = **OpenAI Codex on ChatGPT Pro** (loop-affordable, no per-credit cost). For the routine single-pass, see `external-review/project.md` (same reviewer).
 
 ## repo
 
@@ -67,11 +67,15 @@ Historical **Copilot** R-loop incidents that calibrated the loop's defensive rul
 
 `300s` — poll cadence while waiting for Codex's review to land, **NOT a latency prediction**.
 
-**Observed latency (user-confirmed 2026-06-21, #390): a single Codex review normally takes ~15 minutes to land.** (Prior "~2 min" [#288] was a *manual-trigger one-off*; #295's ~30–90 min round gaps were *fix-time between rounds* [Claude fixing], not review latency.) So:
+## wakeup_surface_threshold
 
-- **~15 min is NORMAL, not stuck** — do **not** re-trigger or "surface as slow" at ~14–15 min. At that point the first review is almost certainly still running, and re-triggering interrupts/duplicates a live review rather than recovering a stuck one (#390 re-triggered at ~14 min into a still-running first review — premature).
-- **Poll patiently** — 300s cadence is fine (not-spamming the reviewer matters more than the 300s prompt-cache TTL here; widen toward 600s if preferred). `ScheduleWakeup` IS the poll.
-- **Surface / re-trigger threshold = ~25–30 min** of zero Codex activity on head (no formal review, no marker-bearing issue-comment, no inline thread) — NOT the generic SKILL.md "~15 min" sanity cap, which is too aggressive for this reviewer. Only then treat it as queued/slow/trigger-not-taken and surface to the user.
+`~45min` — surface-to-user sanity cap (SKILL.md Step 5.5 (2)). Deliberately set **well above** Codex's typical review latency so a normal-but-slow review is never cut off mid-flight. This is the single source of truth for the cap — it overrides the generic SKILL.md `~15 min` default (which is far too aggressive for this reviewer).
+
+**Observed latency (user-confirmed 2026-07-18): a Codex review commonly takes ~30 minutes to land — and the loop was giving up around ~15 min far too often.** Range ≈ ~15–30 min, sometimes longer; the earlier "~15 min normal" [#390, 2026-06-21] was the *low* end (one review), the prior "~2 min" [#288] a *manual-trigger one-off*, and #295's ~30–90 min round gaps were *fix-time between rounds* [Claude fixing], not review latency. So:
+
+- **~30 min is NORMAL, not stuck** — do **not** re-trigger or "surface as slow" anywhere in the ~15–30 min window. The first review is almost certainly still running, and re-triggering interrupts/duplicates a live review rather than recovering a stuck one (#390 re-triggered at ~14 min into a still-running first review — premature; this early-give-up is exactly the failure being fixed here).
+- **Poll patiently** — 300s cadence is fine (not-spamming the reviewer matters more than cache warmth here; a ~30 min wait needs only a handful of polls, so widen toward 600s if preferred). `ScheduleWakeup` IS the poll.
+- **Surface threshold = `wakeup_surface_threshold` (~45 min)** of zero Codex activity on head (no formal review, no marker-bearing issue-comment, no inline thread). Only then treat it as queued/slow/trigger-not-taken and **surface to the user** — do **not** auto-re-trigger, since a review this slow may still be running.
 
 → `memory/feedback_external-converge-codex-latency.md`.
 

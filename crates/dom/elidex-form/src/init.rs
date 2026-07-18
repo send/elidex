@@ -86,7 +86,7 @@ pub fn create_form_control_state(dom: &mut EcsDom, entity: Entity) -> bool {
 
     finalize_control(dom, entity, &mut state);
     // Check ancestor fieldset disabled state and propagate to this control.
-    if !state.disabled && fieldset::is_fieldset_disabled(entity, dom) {
+    if !state.disabled && crate::is_fieldset_disabled(entity, dom) {
         state.disabled = true;
         if let Ok(mut es) = dom.world_mut().get::<&mut ElementState>(entity) {
             es.insert(ElementState::DISABLED);
@@ -215,7 +215,7 @@ mod tests {
         // HTML §4.10.20: the initial text entry cursor is at the BEGINNING of
         // the control (value establishment at creation is clamp-only, not a
         // collapse to the end).
-        assert_eq!(state.cursor_pos, 0);
+        assert_eq!(state.cursor_pos(), 0);
     }
 
     #[test]

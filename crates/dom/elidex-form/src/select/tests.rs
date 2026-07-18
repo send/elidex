@@ -214,11 +214,9 @@ fn multiple_select_no_auto_select() {
     let _ = dom.append_child(opt, tn);
     let _ = dom.append_child(sel, opt);
 
-    let mut state = FormControlState {
-        kind: FormControlKind::Select,
-        multiple: true,
-        ..FormControlState::default()
-    };
+    let mut state = FormControlState::default();
+    state.kind = FormControlKind::Select;
+    state.multiple = true;
     init_select_options(&dom, sel, &mut state);
     // Multiple select should not auto-select.
     assert_eq!(state.selected_index, -1);

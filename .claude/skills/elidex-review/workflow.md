@@ -31,7 +31,7 @@ For each **new/changed test case** AND **new code path that reads ECS components
 
    `<scenario identifier>` は test の場合 `<file>:<test_name>` / non-test の場合 `<file>:<fn_name>` / plan-memo の場合 `plan §<section> §E-<N>` 等、scenario を一意に指す identifier を入れる。
 
-5. Output to `<dry-run-file>` (path specified per skill — `/tmp/elidex-review.dry-run.md` or `/tmp/elidex-plan-review.dry-run.md`).
+5. Output to `<dry-run-file>` (the session-isolated `$RUN_DIR/dry-run.md`; each SKILL.md Step 1 resolves `$RUN_DIR` — see "Concurrency isolation" under Step 2).
 6. Step 2 Agent 2 prompt receives `<dry-run-file>` path and incorporates gaps into Sub-check 2b findings.
 
 ## Step 1.6 — Rename / reframe propagation sweep (conditional, mechanical)
@@ -58,10 +58,12 @@ Each SKILL.md supplies five variables before dispatching the agents (substitute 
 | Variable | `elidex-review` (diff) | `elidex-plan-review` (plan) |
 |---|---|---|
 | `<INPUT_TAG>` | `[diff]` | `[plan]` |
-| `<INPUT_PATH>` — what each agent reads | `/tmp/elidex-review.diff` (stat at `/tmp/elidex-review.stat`) | the plan-memo absolute path |
+| `<INPUT_PATH>` — what each agent reads | `$RUN_DIR/diff` (stat at `$RUN_DIR/stat`) | the plan-memo absolute path |
 | `<INPUT_CONTEXT>` — one-line description for the agent prompt | the branch's own changes vs the resolved base, 3-dot `$BASE...HEAD` where `$BASE` = current `origin/main` | the plan-memo before implementation |
-| `<DRYRUN_PATH>` — Agent 2 only | `/tmp/elidex-review.dry-run.md` | `/tmp/elidex-plan-review.dry-run.md` |
+| `<DRYRUN_PATH>` — Agent 2 only | `$RUN_DIR/dry-run.md` | `$RUN_DIR/dry-run.md` |
 | `<LOC_RULE>` — how each finding cites location | `file:line` | plan-memo §section identifiers (e.g. `plan-memo §C-3`) |
+
+**Concurrency isolation (both skills)**: `$RUN_DIR` is a per-session scratch dir (`/tmp/<skill>.${CLAUDE_CODE_SESSION_ID:-$$}`) created + echoed by each SKILL.md Step 1, so `/elidex-review` (or `/elidex-plan-review`) running in **parallel sessions** never clobber each other's `diff` / `stat` / `dry-run.md` (fixed `/tmp/elidex-*.diff` paths silently cross-corrupted before — a later session's `git diff` overwrote an earlier session's, and the Step-1 stale-clear `rm` could delete another session's in-flight file). Substitute the resolved absolute literal into every agent prompt (agents Read the path; they do NOT recompute `$RUN_DIR` — like `${REPO_ROOT}`).
 
 Shared prompt template (one Agent tool call per axis, all 5 in a single message):
 

@@ -1983,8 +1983,18 @@ version = "0.1.0"
 dependencies = [
  "elidex-dom-api",
  "elidex-ecs",
+ "elidex-form-core",
  "elidex-plugin",
  "elidex-script-session",
+ "url",
+]
+
+[[package]]
+name = "elidex-form-core"
+version = "0.1.0"
+dependencies = [
+ "elidex-ecs",
+ "elidex-plugin",
  "regex",
  "tracing",
  "url",

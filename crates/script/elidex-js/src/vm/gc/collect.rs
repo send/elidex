@@ -1097,6 +1097,7 @@ impl VmInner {
             subclass_array_ctor_roots: &[],
             global_object: self.global_object,
             html_element_constructor: self.html_element_constructor,
+            object_constructor: self.object_constructor,
             upvalues: &self.upvalues,
             objects: &self.objects,
             host_data: self.host_data.as_deref(),

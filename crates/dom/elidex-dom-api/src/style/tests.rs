@@ -543,6 +543,42 @@ fn css_text_round_trip() {
     assert!(text_s.contains("display: block"));
 }
 
+/// REGRESSION (Codex PR#473 R2) — a later whole-shorthand `var()` for an
+/// UNCOVERED shorthand must win over the earlier expanded longhands. The parser
+/// stores `background: var(--bg)` as a direct `background` declaration (a var
+/// cannot expand to longhands) while `background: initial` expands to eight
+/// `background-*: initial` longhands, so both coexist in the block. The
+/// value-KIND gate must NOT reconstruct `"initial"` from those longhands and
+/// preempt the caller's `.or_else` fallback to the direct — later, order-of-
+/// appearance-winning (css-cascade-4 §6.1) — declaration (Blink 148:
+/// `getPropertyValue("background")` ==
+/// `"var(--bg)"`). Handler coverage is checked before the gate, so the uncovered
+/// `background` yields `None` and the fallback fires.
+#[test]
+fn later_whole_shorthand_var_wins_over_earlier_expanded_longhands() {
+    let (mut dom, elem, mut session) = setup();
+    StyleCssTextSet
+        .invoke(
+            elem,
+            &[JsValue::String(
+                "background: initial; background: var(--bg)".into(),
+            )],
+            &mut session,
+            &mut dom,
+        )
+        .unwrap();
+
+    let value = StyleGetPropertyValue
+        .invoke(
+            elem,
+            &[JsValue::String("background".into())],
+            &mut session,
+            &mut dom,
+        )
+        .unwrap();
+    assert_eq!(value, JsValue::String("var(--bg)".into()));
+}
+
 /// IMP-8: cssText="garbage" clears the block (all-or-nothing semantics).
 #[test]
 fn css_text_invalid_clears() {

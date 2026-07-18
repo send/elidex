@@ -71,16 +71,24 @@ mod tests {
     use crate::{FormControlKind, FormControlState};
     use elidex_ecs::Attributes;
 
+    /// A control state of the given kind + live value.  (`FormControlState`'s
+    /// value-model fields — cursor / selection / char_count — are
+    /// `elidex-form-core`-private, so this builds from `default()` rather
+    /// than a `..Default::default()` functional update.)
+    fn fcs(kind: FormControlKind, value: &str) -> FormControlState {
+        let mut state = FormControlState::default();
+        state.kind = kind;
+        state.value = value.to_string();
+        state
+    }
+
     #[test]
     fn record_and_take_round_trip_for_text_control() {
         let mut dom = EcsDom::new();
         let input = dom.create_element("input", Attributes::default());
-        let fcs = FormControlState {
-            kind: FormControlKind::TextInput,
-            value: "initial".to_string(),
-            ..Default::default()
-        };
-        let _ = dom.world_mut().insert_one(input, fcs);
+        let _ = dom
+            .world_mut()
+            .insert_one(input, fcs(FormControlKind::TextInput, "initial"));
 
         record_focus_snapshot(&mut dom, input);
         assert_eq!(
@@ -100,14 +108,9 @@ mod tests {
         // baseline and fires a spurious `change`.
         let mut dom = EcsDom::new();
         let input = dom.create_element("input", Attributes::default());
-        let _ = dom.world_mut().insert_one(
-            input,
-            FormControlState {
-                kind: FormControlKind::TextInput,
-                value: "typed".to_string(),
-                ..Default::default()
-            },
-        );
+        let _ = dom
+            .world_mut()
+            .insert_one(input, fcs(FormControlKind::TextInput, "typed"));
         record_focus_snapshot(&mut dom, input);
         assert_eq!(
             take_focus_snapshot(&mut dom, input),
@@ -131,11 +134,9 @@ mod tests {
     fn no_snapshot_for_non_text_control() {
         let mut dom = EcsDom::new();
         let button = dom.create_element("button", Attributes::default());
-        let fcs = FormControlState {
-            kind: FormControlKind::Button,
-            ..Default::default()
-        };
-        let _ = dom.world_mut().insert_one(button, fcs);
+        let _ = dom
+            .world_mut()
+            .insert_one(button, fcs(FormControlKind::Button, ""));
 
         record_focus_snapshot(&mut dom, button);
         assert_eq!(
