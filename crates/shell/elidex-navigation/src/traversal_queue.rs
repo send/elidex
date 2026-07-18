@@ -722,7 +722,7 @@ impl DrainCoordinator {
         // CONSTRUCTION: a wired host whose `apply_traversal` re-enqueues on every
         // apply can no longer loop forever and hang the single-writer renderer
         // thread. Content mode pumps Phase 2 every event-loop turn
-        // (`event_loop.rs` top-of-loop), so a deferred reentrant step drains on the
+        // (`event_loop.rs` step-3 `run_deferred_traversals`), so a deferred reentrant step drains on the
         // next turn — liveness is preserved via the async pump, not exhaustion.
         //
         // Slice-4 CARRY (narrowed): the BOUND now lives here; what stays Slice 4 is
@@ -758,6 +758,19 @@ impl DrainCoordinator {
         // traversal moves the cursor) is fenced to
         // `#11-sync-navigation-steps-queue-tagging` (edge-dense — `/elidex-plan-review`
         // mandatory). Monotonic: it never re-clears within a drain.
+        //
+        // ⚠ `traversal_applied` is a PER-DRAIN local (reset each call). A `SyncUpdate`
+        // serialized BEHIND an in-flight traversal and left for a LATER drain would lose
+        // this context — the next drain (with `traversal_applied` false again) would APPLY
+        // it against the post-traversal cursor at the `SyncUpdate` arm below instead of
+        // cancelling it (Codex PR#469 R18). That cross-drain-boundary carry is UNREACHABLE
+        // in content-mode Slice-A: the interim buffer guard
+        // (`content/drain_host.rs::dispatch_or_buffer_reentrant`) buffers EVERY reentrant
+        // message while `is_applying()`, so no reentrant Phase-1 drain runs mid-apply, and
+        // `pending_len()` counts ALL steps so a Phase-1-enqueued `[Traversal, SyncUpdate]`
+        // pair is always captured whole in one snapshot (cancelled here). The app-mode /
+        // canonical reentrant-Phase-1-under-apply case that WOULD need the cross-drain
+        // carry lands with the tagged queue (`#11-sync-navigation-steps-queue-tagging`).
         let mut remaining = host.traversal_queue().pending_len();
         let mut traversal_applied = false;
         while remaining > 0 {

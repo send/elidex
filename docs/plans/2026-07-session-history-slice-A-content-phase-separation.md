@@ -307,7 +307,8 @@ runs `while remaining > 0 { remaining -= 1; … pop_next() … }` (`:745`), proc
 drain-start. A step enqueued **during** the drain — a reentrant SW-pump message serialized onto the back of the
 queue — is left for the **next** `run_deferred_traversals` turn, so the loop **terminates by construction** even
 against a host that re-enqueues on every apply. Liveness is preserved because **content-mode's async pump drains
-Phase-2 every turn** (`event_loop.rs` top-of-loop `run_deferred_traversals`), not by draining to exhaustion. In
+Phase-2 every turn** (`event_loop.rs` per-turn `run_deferred_traversals`, at **step 3** of the message-held pump —
+not a top-of-loop pass, retired by the pump-turn drain unification), not by draining to exhaustion. In
 content mode the only re-enqueue vector is the reentrant SW-fetch message pump (`content/navigation.rs` SW-fetch
 relay); this vector is **reachable**, and its cursor-mutation window is **closed THIS slice** by the shell's
 INTERIM buffer-during-apply guard `content/drain_host.rs::dispatch_or_buffer_reentrant` — while `is_applying()`

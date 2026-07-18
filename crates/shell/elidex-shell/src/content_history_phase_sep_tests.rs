@@ -494,7 +494,7 @@ fn pump_drains_popstate_staged_pushstate_this_turn() {
     let _ = DrainCoordinator::drain_synchronous_phase(&mut state);
     assert!(
         state.traversal_queue().has_pending_traversal(),
-        "the back() is queued for the next pump turn's top-of-loop Phase-2 apply"
+        "the back() is queued for the next pump turn's step-3 Phase-2 apply"
     );
     drain_browser(&browser);
 
@@ -526,7 +526,7 @@ fn pump_drains_popstate_staged_pushstate_this_turn() {
 
 /// R9 + I1 (the traversal leg): when the callback-staged intent is a `Back` /
 /// `Forward` / `Go`, the pump DRAINS it this turn but ENQUEUES it for the NEXT
-/// turn's top-of-loop `run_deferred_traversals` — it is NOT applied same-turn
+/// turn's step-3 `run_deferred_traversals` — it is NOT applied same-turn
 /// (`drain_synchronous_phase` only enqueues traversals; the apply is Phase 2, at the
 /// TOP of a later turn). A `popstate` handler runs `history.back()` while the pump's
 /// top-drain is applying an in-range back(); the staged Back is drained out of
@@ -589,7 +589,7 @@ fn pump_enqueues_popstate_staged_traversal_for_next_turn_not_same_turn() {
     assert_eq!(
         state.nav_controller.current_url().map(url::Url::as_str),
         Some("https://example.com/"),
-        "the turn-1-enqueued traversal applied on turn 2's top-of-loop Phase-2 drain (I1)"
+        "the turn-1-enqueued traversal applied on turn 2's step-3 Phase-2 drain (I1)"
     );
     assert!(
         state.traversal_queue().is_empty(),
