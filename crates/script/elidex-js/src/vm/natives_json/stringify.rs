@@ -86,10 +86,14 @@ impl JsonSerializer {
         }
 
         // Step 4 (§25.5.4.2 SerializeJSONProperty): unwrap wrapper objects.
-        // Kept out-of-line (see `unwrap_wrapper_value`) so the `? ToNumber` /
-        // `? ToString` coercion locals do not enlarge this *recursive* frame —
-        // the JSON depth cap is tuned to the per-level frame size (`MAX_JSON_DEPTH`).
-        val = unwrap_wrapper_value(ctx, val)?;
+        // Only an Object can be a wrapper, so guard here — a primitive leaf (the
+        // common case) skips the out-of-line call entirely. `unwrap_wrapper_value`
+        // is kept out of this *recursive* frame so its `? ToNumber` / `? ToString`
+        // locals do not enlarge every nesting level — the JSON depth cap is tuned
+        // to the per-level frame size (`MAX_JSON_DEPTH`).
+        if let JsValue::Object(obj_id) = val {
+            val = unwrap_wrapper_value(ctx, val, obj_id)?;
+        }
 
         // Step 5+: Type-specific serialization.
         match val {
@@ -517,11 +521,13 @@ fn stringify_impl(
 /// Kept `#[inline(never)]` and out of the *recursive* `serialize_property`
 /// frame so the coercion's locals do not enlarge every nesting level's stack
 /// frame — the JSON depth cap (`MAX_JSON_DEPTH`) is tuned to that per-level size.
+/// The caller guards on `JsValue::Object` and passes the extracted `obj_id`.
 #[inline(never)]
-fn unwrap_wrapper_value(ctx: &mut NativeContext<'_>, val: JsValue) -> Result<JsValue, VmError> {
-    let JsValue::Object(obj_id) = val else {
-        return Ok(val);
-    };
+fn unwrap_wrapper_value(
+    ctx: &mut NativeContext<'_>,
+    val: JsValue,
+    obj_id: ObjectId,
+) -> Result<JsValue, VmError> {
     Ok(match ctx.get_object(obj_id).kind {
         ObjectKind::NumberWrapper(_) => JsValue::Number(ctx.to_number(val)?),
         ObjectKind::StringWrapper(_) => JsValue::String(ctx.to_string_val(val)?),

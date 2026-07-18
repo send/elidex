@@ -99,6 +99,16 @@ fn to_string_honors_overridden_to_string() {
         eval_string("Number.prototype.toString = () => 'z'; `${new Number(5)}`"),
         "z"
     );
+    // to_string removes all four wrapper arms, so Boolean/BigInt wrappers must
+    // honor an overridden toString too (was 'true' / '1' from the slot).
+    assert_eq!(
+        eval_string("Boolean.prototype.toString = () => 'z'; String(new Boolean(true))"),
+        "z"
+    );
+    assert_eq!(
+        eval_string("BigInt.prototype.toString = () => 'z'; String(Object(1n))"),
+        "z"
+    );
 }
 
 #[test]
