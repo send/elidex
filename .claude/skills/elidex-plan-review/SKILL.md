@@ -122,18 +122,21 @@ When preflight surfaces SPLIT-DEFAULT / SPLIT-RECOMMENDED, **stop and ask user**
 ```bash
 wc -l "$PLAN_MEMO"
 
-# Clear stale dry-run from prior plan-review in the same session —
-# the Step 1.5 output path is fixed and Write tool requires a Read
-# before overwriting a non-empty file, which trips agents up when a
-# previous invocation's dry-run still sits at the same path.
-rm -f /tmp/elidex-plan-review.dry-run.md
+# Session-isolated scratch dir so parallel /elidex-plan-review sessions don't
+# clobber each other's dry-run (see workflow.md "Concurrency isolation"). Key on
+# the session id; `rm -rf` clears same-session prior residue only (the Step 1.5
+# output path is otherwise fixed, and the Write "Read first" guard trips agents
+# on a previous invocation's stale dry-run).
+RUN_DIR="/tmp/elidex-plan-review.${CLAUDE_CODE_SESSION_ID:-$$}"
+rm -rf "$RUN_DIR" && mkdir -p "$RUN_DIR"
+echo "RUN_DIR=$RUN_DIR"
 ```
 
 Plan-memo size > 1000 行なら user 確認 (通常 ~200-500 行)。
 
 ### Step 1.5 — Mental dry-run
 
-`workflow.md` § "Step 1.5" を適用、output を `/tmp/elidex-plan-review.dry-run.md` に。**対象は test 限定ではない** — workflow.md 通り plan-memo §E-N test cases AND plan body / §Implementation で言及される new code path that reads ECS components 両方を simulate、write-path が plan 内予定 OR 既存実装で wired か確認。後者を skip すると Axis 2 sub-check 2b coverage が弱化する (non-test read site の data-flow gap 見逃し)。
+`workflow.md` § "Step 1.5" を適用、output を `$RUN_DIR/dry-run.md` (Step 1 で echo した session-isolated concrete path) に。**対象は test 限定ではない** — workflow.md 通り plan-memo §E-N test cases AND plan body / §Implementation で言及される new code path that reads ECS components 両方を simulate、write-path が plan 内予定 OR 既存実装で wired か確認。後者を skip すると Axis 2 sub-check 2b coverage が弱化する (non-test read site の data-flow gap 見逃し)。
 
 ### Step 2 — Launch 5 agents in parallel
 
@@ -144,7 +147,7 @@ Plan-memo size > 1000 行なら user 確認 (通常 ~200-500 行)。
 | `<INPUT_TAG>` | `[plan]` |
 | `<INPUT_PATH>` | the expanded value of `$PLAN_MEMO` (the plan-memo absolute path the user supplied in Step 0) — substitute the actual path, not the literal `$PLAN_MEMO` string |
 | `<INPUT_CONTEXT>` | `the plan-memo before implementation` |
-| `<DRYRUN_PATH>` | `/tmp/elidex-plan-review.dry-run.md` |
+| `<DRYRUN_PATH>` | `$RUN_DIR/dry-run.md` (Step 1 の session-isolated path) |
 | `<LOC_RULE>` | plan-memo §section identifiers (e.g. `plan-memo §C-3`) |
 
 ### Step 3 / 3.5 / 4 / 4.5

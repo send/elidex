@@ -52,11 +52,7 @@ Invoke the `elidex-review` skill. The project-specific 5-axis design review (Lay
 
 ## On completion
 
-When Stages 1–6 are all green / addressed, the branch is push-ready. Record a gate-completion marker so a future `git push` hook can enforce the gate:
-```sh
-git rev-parse HEAD > "/tmp/elidex-pre-push-$(git rev-parse --abbrev-ref HEAD | tr '/' '-').done"
-```
-Then surface the push / PR proposal to the user (do not push autonomously unless previously authorized).
+When Stages 1–6 are all green / addressed, the branch is push-ready. Surface the push / PR proposal to the user (do not push autonomously unless previously authorized).
 
 ## Skip-OK (whole skill)
 
