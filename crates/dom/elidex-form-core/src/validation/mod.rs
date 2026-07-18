@@ -416,7 +416,7 @@ fn check_step(validity: &mut ValidityState, state: &FormControlState) {
 ///
 /// For radio buttons, this checks the individual control. For group-level
 /// validation (any radio in the group is checked), use
-/// [`is_radio_group_satisfied`](crate::radio::is_radio_group_satisfied).
+/// `is_radio_group_satisfied` (in `elidex-form`).
 fn check_required_checked(validity: &mut ValidityState, state: &FormControlState) {
     if state.required && !state.checked {
         validity.value_missing = true;

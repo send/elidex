@@ -462,35 +462,33 @@ fn hidden_input_is_submittable() {
 
 #[test]
 fn select_multiple_submits_all_selected() {
-    let mut state = FormControlState {
-        kind: FormControlKind::Select,
-        name: "colors".to_string(),
-        multiple: true,
-        options: vec![
-            crate::SelectOption {
-                text: "R".into(),
-                value: "r".into(),
-                disabled: false,
-                group: None,
-                selected: true,
-            },
-            crate::SelectOption {
-                text: "G".into(),
-                value: "g".into(),
-                disabled: false,
-                group: None,
-                selected: false,
-            },
-            crate::SelectOption {
-                text: "B".into(),
-                value: "b".into(),
-                disabled: false,
-                group: None,
-                selected: true,
-            },
-        ],
-        ..FormControlState::default()
-    };
+    let mut state = FormControlState::default();
+    state.kind = FormControlKind::Select;
+    state.name = "colors".to_string();
+    state.multiple = true;
+    state.options = vec![
+        crate::SelectOption {
+            text: "R".into(),
+            value: "r".into(),
+            disabled: false,
+            group: None,
+            selected: true,
+        },
+        crate::SelectOption {
+            text: "G".into(),
+            value: "g".into(),
+            disabled: false,
+            group: None,
+            selected: false,
+        },
+        crate::SelectOption {
+            text: "B".into(),
+            value: "b".into(),
+            disabled: false,
+            group: None,
+            selected: true,
+        },
+    ];
     state.value = "r".to_string();
     let mut dom = EcsDom::new();
     let form = dom.create_element("form", Attributes::default());
