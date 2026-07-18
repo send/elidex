@@ -158,6 +158,41 @@ impl CssPropertyHandler for MulticolHandler {
             _ => CssValue::Initial,
         }
     }
+
+    /// Omit-initial shorthand serialization (CSSOM §6.7.2) for the Multicol
+    /// family — first per-family increment under slot `#11-style-shorthand-expand`.
+    ///
+    /// NB (deferred, engine-wide): returning `Some(..)` makes `column-rule`/`columns`
+    /// COVERED, so `serialize_shorthand_value` becomes authoritative and reconstructs
+    /// from the longhands. If the block ALSO holds a *later* whole-shorthand `var()`
+    /// stored as a direct declaration (`columns: 200px 3; columns: var(--cols)`), the
+    /// caller's `.or_else` reads that direct value ONLY on `None`, so the later
+    /// declaration — the css-cascade-4 §6.1 order-of-appearance winner — is lost.
+    /// This order-blindness is the coordinator+caller's *existing* limitation shared
+    /// by EVERY covered shorthand (`margin`/`gap`/… exhibit it today), not a Multicol
+    /// concern and not fixable here: the handler receives only longhand pairs and the
+    /// coordinator's `get` closure is longhand-keyed with no order/position info.
+    /// Root (parser/block declaration-supersession, or an order-aware getter across
+    /// both callers) is deferred to `#11-shorthand-direct-decl-cascade-order`.
+    fn serialize_shorthand(&self, property: &str, longhands: &[(&str, &str)]) -> Option<String> {
+        match property {
+            // Both are omit-initial `||` shorthands over their (already
+            // canonical-ordered) longhands — one body, no per-family branch.
+            "column-rule" | "columns" => {
+                let initials: Vec<String> = longhands
+                    .iter()
+                    .map(|(name, _)| self.initial_value(name).to_css_string())
+                    .collect();
+                let components: Vec<(&str, &str)> = longhands
+                    .iter()
+                    .zip(&initials)
+                    .map(|((_, value), initial)| (*value, initial.as_str()))
+                    .collect();
+                elidex_plugin::serialize_omit_initial(&components)
+            }
+            _ => None,
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -454,5 +489,115 @@ mod tests {
             handler.get_computed("column-rule-style", &style),
             CssValue::Keyword("solid".into())
         );
+    }
+
+    // --- serialize_shorthand: §2 corner matrix (omit-initial, CSSOM §6.7.2) ---
+    //
+    // Each `(name, value)` pair is the longhand as elidex ACTUALLY stores it
+    // (border-width keyword → px, named color → #rrggbb; see plan Risks R2), fed
+    // in the canonical grammar order the coordinator supplies. Initials come from
+    // `MulticolHandler::initial_value` (width=3px, style=none, color=currentcolor;
+    // column-width/count=auto), so the arm needs no duplicated initials.
+
+    fn ser(property: &str, longhands: &[(&str, &str)]) -> Option<String> {
+        MulticolHandler.serialize_shorthand(property, longhands)
+    }
+
+    #[test]
+    fn shorthand_column_rule_corner1_style_only() {
+        // `column-rule: solid` — width+color initial, keep style.
+        let lh = [
+            ("column-rule-width", "3px"),
+            ("column-rule-style", "solid"),
+            ("column-rule-color", "currentcolor"),
+        ];
+        assert_eq!(ser("column-rule", &lh), Some("solid".to_string()));
+    }
+
+    #[test]
+    fn shorthand_column_rule_corner2_style_gap() {
+        // `column-rule: thick blue` — style=initial in the MIDDLE; keep width
+        // then color in order (no re-sort). thick→5px, blue→#0000ff (R2).
+        let lh = [
+            ("column-rule-width", "5px"),
+            ("column-rule-style", "none"),
+            ("column-rule-color", "#0000ff"),
+        ];
+        assert_eq!(ser("column-rule", &lh), Some("5px #0000ff".to_string()));
+    }
+
+    #[test]
+    fn shorthand_column_rule_corner2b_leading_width_omitted() {
+        // `column-rule: dashed green` — width=initial (medium→3px) dropped;
+        // style+color survive in order. green→#008000 (R2).
+        let lh = [
+            ("column-rule-width", "3px"),
+            ("column-rule-style", "dashed"),
+            ("column-rule-color", "#008000"),
+        ];
+        assert_eq!(ser("column-rule", &lh), Some("dashed #008000".to_string()));
+    }
+
+    #[test]
+    fn shorthand_column_rule_corner3_all_initial_keeps_width() {
+        // `column-rule: medium none currentcolor` — ALL initial ⇒ keep FIRST
+        // (width). `3px` vs Blink's `medium` is the pre-existing R2 divergence.
+        let lh = [
+            ("column-rule-width", "3px"),
+            ("column-rule-style", "none"),
+            ("column-rule-color", "currentcolor"),
+        ];
+        assert_eq!(ser("column-rule", &lh), Some("3px".to_string()));
+    }
+
+    #[test]
+    fn shorthand_column_rule_corner3b_all_non_initial() {
+        // `column-rule: thick solid red` — all kept, canonical order.
+        // thick→5px, red→#ff0000 (R2).
+        let lh = [
+            ("column-rule-width", "5px"),
+            ("column-rule-style", "solid"),
+            ("column-rule-color", "#ff0000"),
+        ];
+        assert_eq!(
+            ser("column-rule", &lh),
+            Some("5px solid #ff0000".to_string())
+        );
+    }
+
+    #[test]
+    fn shorthand_columns_corner4_all_initial_keeps_width() {
+        // `columns: auto auto` — both initial ⇒ keep FIRST (width) ⇒ single `auto`.
+        let lh = [("column-width", "auto"), ("column-count", "auto")];
+        assert_eq!(ser("columns", &lh), Some("auto".to_string()));
+    }
+
+    #[test]
+    fn shorthand_columns_corner5_width_only() {
+        // `columns: 200px` — count=initial (auto) dropped.
+        let lh = [("column-width", "200px"), ("column-count", "auto")];
+        assert_eq!(ser("columns", &lh), Some("200px".to_string()));
+    }
+
+    #[test]
+    fn shorthand_columns_corner5b_count_only() {
+        // `columns: 3` — width=initial (auto) dropped; Number(3.0)→"3" (R3).
+        let lh = [("column-width", "auto"), ("column-count", "3")];
+        assert_eq!(ser("columns", &lh), Some("3".to_string()));
+    }
+
+    #[test]
+    fn shorthand_columns_corner5c_both() {
+        // `columns: 200px 3` — both kept, canonical order width→count.
+        let lh = [("column-width", "200px"), ("column-count", "3")];
+        assert_eq!(ser("columns", &lh), Some("200px 3".to_string()));
+    }
+
+    #[test]
+    fn shorthand_unknown_property_is_none() {
+        // The handler opts IN only to the shorthands it owns; anything else →
+        // None (the coordinator maps that to "" — a CSSOM-valid non-serialize).
+        let lh = [("margin-top", "1px")];
+        assert_eq!(ser("margin", &lh), None);
     }
 }

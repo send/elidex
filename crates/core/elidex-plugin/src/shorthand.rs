@@ -1,14 +1,20 @@
 //! Shared CSS shorthand serialization helpers.
 //!
-//! The structural collapse rules that [`CssPropertyHandler::serialize_shorthand`]
+//! The collapse rules that [`CssPropertyHandler::serialize_shorthand`]
 //! implementations reuse (CSSOM §6.7.2 "serialize a CSS value"). They live in this
 //! base crate rather than `elidex-css` because handler crates are a *tier*, not a
 //! chain: `elidex-css-flex` depends only on `elidex-plugin`, so helpers homed in
 //! `elidex-css` would be unreachable from it.
 //!
-//! Each helper takes the ordered `(longhand-name, serialized-value)` pairs the
-//! coordinator has already validated (all present, uniform `!important` — CSSOM
-//! §6.6.1) and returns the collapsed shorthand string.
+//! Two shapes, both fed the coordinator's already-validated longhands (all present,
+//! uniform `!important` — CSSOM §6.6.1):
+//! - the *structural* collapsers ([`serialize_rectangular`] / [`serialize_axis_pair`])
+//!   take `(longhand-name, serialized-value)` pairs and collapse on component
+//!   equality (no initials needed);
+//! - the *omit-initial* collapser ([`serialize_omit_initial`]) instead takes
+//!   `(serialized-value, serialized-initial)` pairs — it drops each component equal
+//!   to its initial, so the handler pre-pairs each value with `initial_value(name)`
+//!   (its own SoT) before the call.
 //!
 //! [`CssPropertyHandler::serialize_shorthand`]: crate::CssPropertyHandler::serialize_shorthand
 
@@ -54,6 +60,33 @@ pub fn serialize_axis_pair(longhands: &[(&str, &str)]) -> Option<String> {
     })
 }
 
+/// Collapse an omit-initial `||` shorthand from ordered
+/// `(serialized-value, serialized-initial)` component pairs (CSSOM §6.7.2).
+/// Third shared shorthand-collapse helper (with `serialize_rectangular` /
+/// `serialize_axis_pair`) for the omit-initial families under slot
+/// `#11-style-shorthand-expand`.
+/// Omit each component equal to its initial; join survivors with " " in the
+/// given (canonical) order. When ALL are initial, keep the FIRST component —
+/// omitting all would yield "" (invalid / "less backwards-compatible",
+/// §6.7.2 step 2). Verified vs Blink: `column-rule: medium none currentcolor`
+/// ⇒ first = width; `columns: auto auto` ⇒ first = width.
+#[must_use]
+pub fn serialize_omit_initial(components: &[(&str, &str)]) -> Option<String> {
+    if components.is_empty() {
+        return None; // defensive; the coordinator always supplies the full set
+    }
+    let kept: Vec<&str> = components
+        .iter()
+        .filter(|(value, initial)| value != initial)
+        .map(|(value, _)| *value)
+        .collect();
+    Some(if kept.is_empty() {
+        components[0].0.to_string()
+    } else {
+        kept.join(" ")
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -86,5 +119,63 @@ mod tests {
     fn wrong_arity_is_none() {
         assert!(serialize_rectangular(&[("t", "1px")]).is_none());
         assert!(serialize_axis_pair(&[("a", "1px"), ("b", "2px"), ("c", "3px")]).is_none());
+    }
+
+    #[test]
+    fn omit_initial_all_initial_keeps_first() {
+        // Every component equals its initial ⇒ omit-all would yield "" (invalid);
+        // keep the FIRST canonical component instead (`column-rule` width).
+        let all_initial = [
+            ("3px", "3px"),
+            ("none", "none"),
+            ("currentcolor", "currentcolor"),
+        ];
+        assert_eq!(serialize_omit_initial(&all_initial).unwrap(), "3px");
+    }
+
+    #[test]
+    fn omit_initial_middle_gap_preserves_order() {
+        // width + color non-initial, style = initial (middle gap): drop the
+        // middle, keep survivors in the given (canonical) order — no re-sort.
+        let gap = [
+            ("5px", "3px"),
+            ("none", "none"),
+            ("#0000ff", "currentcolor"),
+        ];
+        assert_eq!(serialize_omit_initial(&gap).unwrap(), "5px #0000ff");
+    }
+
+    #[test]
+    fn omit_initial_single_non_initial() {
+        // Only the style differs from its initial ⇒ that lone survivor.
+        let one = [
+            ("3px", "3px"),
+            ("solid", "none"),
+            ("currentcolor", "currentcolor"),
+        ];
+        assert_eq!(serialize_omit_initial(&one).unwrap(), "solid");
+    }
+
+    #[test]
+    fn omit_initial_all_non_initial_full_join() {
+        // Nothing is initial ⇒ full join in the given order.
+        let all = [
+            ("5px", "3px"),
+            ("solid", "none"),
+            ("#ff0000", "currentcolor"),
+        ];
+        assert_eq!(serialize_omit_initial(&all).unwrap(), "5px solid #ff0000");
+    }
+
+    #[test]
+    fn omit_initial_two_component_all_initial() {
+        // `columns: auto auto` ⇒ both initial ⇒ keep first ⇒ single `auto`.
+        let columns = [("auto", "auto"), ("auto", "auto")];
+        assert_eq!(serialize_omit_initial(&columns).unwrap(), "auto");
+    }
+
+    #[test]
+    fn omit_initial_empty_is_none() {
+        assert!(serialize_omit_initial(&[]).is_none());
     }
 }

@@ -166,10 +166,11 @@ fn uncovered_shorthand_is_none_even_when_complete() {
 ///   `background: initial; background: var(--bg)`
 ///   → getPropertyValue("background") == "var(--bg)" (Blink 148), NOT "initial".
 ///
-/// `background` is mapped (8 longhands) but uncovered; so are `column-rule` /
-/// `columns` until PR1 covers them. Every longhand set to the same CSS-wide
-/// keyword — or to an unresolved `var()` — must still yield `None`, not
-/// `Some("initial")` / `Some("")`.
+/// `background` (and `flex`) is mapped but uncovered — every longhand set to the
+/// same CSS-wide keyword, or an unresolved `var()`, must still yield `None`, not
+/// `Some("initial")` / `Some("")`. (`column-rule`/`columns` became COVERED in PR1,
+/// so they now serialize via the gate — see
+/// `multicol_csswide_and_var_collapse_via_gate`.)
 #[test]
 fn uncovered_shorthand_with_nonphysical_longhands_is_none() {
     const BG: [&str; 8] = [
@@ -198,14 +199,6 @@ fn uncovered_shorthand_with_nonphysical_longhands_is_none() {
         with_var.insert(lh, "var(--bg)");
     }
     assert_eq!(serialize("background", &with_var), None);
-
-    // column-rule is uncovered until PR1 — same rule (all-same keyword ⇒ None,
-    // not the keyword; PR1 covers it and re-adds the keyword assertion).
-    let mut cr = HashMap::new();
-    cr.insert("column-rule-width", "initial");
-    cr.insert("column-rule-style", "initial");
-    cr.insert("column-rule-color", "initial");
-    assert_eq!(serialize("column-rule", &cr), None);
 }
 
 // --- CSSOM §6.7.2 step 1.2 value-KIND gate (property-agnostic coordinator) ---
@@ -222,10 +215,11 @@ fn uncovered_shorthand_with_nonphysical_longhands_is_none() {
 /// that keyword (css-cascade-4 §7.3). The gate is an **override of a covered
 /// handler's collapse**, so it applies across the COVERED families — margin
 /// (rectangular) and overflow (Box axis-pair) both collapse to the keyword.
-/// UNCOVERED shorthands (`column-rule`/`columns`, until PR1 covers them; `flex`;
-/// `background`) return `None` here and defer to the caller's direct-declaration
-/// fallback — see `uncovered_shorthand_with_nonphysical_longhands_is_none`. PR1
-/// covers Multicol and re-adds its keyword assertions.
+/// UNCOVERED shorthands (`flex`, `background`) return `None` here and defer to the
+/// caller's direct-declaration fallback — see
+/// `uncovered_shorthand_with_nonphysical_longhands_is_none`. The now-COVERED
+/// Multicol shorthands (`column-rule`/`columns`) collapse to the keyword too — see
+/// `multicol_csswide_and_var_collapse_via_gate`.
 #[test]
 fn all_same_css_wide_keyword_collapses_to_keyword() {
     for kw in ["initial", "inherit", "unset"] {
@@ -312,8 +306,8 @@ fn any_unresolved_var_is_empty() {
 /// family (the 6 landed families). The gate overrides the covered handler's
 /// collapse spec-uniformly, diverging from Blink's `gap` outlier (Blink emits the
 /// non-round-tripping `"initial 4px"`; see the `gap` note below) toward "".
-/// (Uncovered `column-rule` / `columns` return `None` until PR1 covers them —
-/// their mixed-corner assertions move to PR1.)
+/// (The now-COVERED Multicol `column-rule` / `columns` add their K+P `""` assertion
+/// in `multicol_csswide_and_var_collapse_via_gate`.)
 #[test]
 fn css_wide_keyword_mixed_with_physical_is_empty() {
     // rectangular: initial + physical (structural)
@@ -490,14 +484,159 @@ fn author_css_reaches_gate_end_to_end() {
         Some(String::new())
     );
 
-    // Uncovered Multicol `columns` — coverage is checked BEFORE the gate, so even
-    // though the parser stores `column-width: var(--w)` as a var-carrying value,
-    // `serialize_shorthand_value` returns None (no covering handler) and the
-    // caller falls back to any direct `columns` declaration. Both longhands parse
-    // ONLY with a populated registry (the plan's parse-discrepancy guard). PR1
-    // covers `columns` and re-adds the var → "" assertion (as a covered family).
+    // Covered Multicol `columns` (PR1): a var-carrying longhand → any-V → "".
+    // Both longhands parse ONLY with a populated registry (the parse-discrepancy
+    // guard — the no-registry `parse_declaration_block` drops registry-backed
+    // multicol longhands).
     assert_eq!(
         serialize_parsed("columns", "column-width: var(--w); column-count: auto"),
+        Some(String::new())
+    );
+}
+
+// --- Multicol omit-initial family (MulticolHandler: column-rule / columns) ---
+//
+// PR1 makes `column-rule`/`columns` COVERED (`MulticolHandler::serialize_shorthand`
+// via `serialize_omit_initial`). Under the coverage-first coordinator they now
+// serialize like every covered family: the value-KIND gate overrides css-wide/var
+// component KINDs (fixing the two R1 Codex findings), and an all-physical block
+// falls through to the handler's concrete omit-initial collapse.
+
+/// The 2 R1 Codex findings on PR1 are fixed by the coverage-first value-KIND gate:
+/// a covered Multicol shorthand whose components are a uniform CSS-wide keyword
+/// collapses to that keyword (NOT `"initial initial initial"` — PR1's handler
+/// collapse alone), and any unresolved `var()` (or CSS-wide+physical) component
+/// yields `""`.
+#[test]
+fn multicol_csswide_and_var_collapse_via_gate() {
+    // R1 finding #1 — all-same CSS-wide keyword ⇒ the keyword (was
+    // "initial initial initial" before the gate overrode the omit-initial collapse).
+    let mut cr = HashMap::new();
+    for lh in [
+        "column-rule-width",
+        "column-rule-style",
+        "column-rule-color",
+    ] {
+        cr.insert(lh, "initial");
+    }
+    assert_eq!(serialize("column-rule", &cr), Some("initial".to_string()));
+
+    let mut cols = HashMap::new();
+    cols.insert("column-width", "inherit");
+    cols.insert("column-count", "inherit");
+    assert_eq!(serialize("columns", &cols), Some("inherit".to_string()));
+
+    // R1 finding #2 — an unresolved `var()` component ⇒ "" (any-V short-circuit).
+    let mut cr_var = HashMap::new();
+    cr_var.insert("column-rule-width", "var(--w)");
+    cr_var.insert("column-rule-style", "solid");
+    cr_var.insert("column-rule-color", "red");
+    assert_eq!(serialize("column-rule", &cr_var), Some(String::new()));
+
+    // K+P (CSS-wide keyword + physical) ⇒ "". The Blink-faithful `initial`-omit
+    // (`"solid red"`) is the deferred `#11-shorthand-omit-initial-csswide-omission`
+    // under-approximation, not a bug.
+    let mut cr_kp = HashMap::new();
+    cr_kp.insert("column-rule-width", "initial");
+    cr_kp.insert("column-rule-style", "solid");
+    cr_kp.insert("column-rule-color", "red");
+    assert_eq!(serialize("column-rule", &cr_kp), Some(String::new()));
+}
+
+/// PR1 concrete omit-initial (the common case): a component whose *concrete* value
+/// equals its initial is omitted. GENUINE parse→serialize via `serialize_parsed`
+/// (registry-backed multicol longhands — the no-registry `parse_declaration_block`
+/// drops them, plan §Parse-discrepancy) — exercises elidex's own keyword/color
+/// serialization (thick→5px, blue→#0000ff, …), which a literal string map cannot.
+#[test]
+fn column_rule_omit_initial_corners() {
+    // only style non-initial
+    assert_eq!(
+        serialize_parsed("column-rule", "column-rule: solid"),
+        Some("solid".to_string())
+    );
+    // width+color kept, style=initial in the MIDDLE (thick→5px, blue→#0000ff)
+    assert_eq!(
+        serialize_parsed("column-rule", "column-rule: thick blue"),
+        Some("5px #0000ff".to_string())
+    );
+    // leading width omitted, style+color survive (green→#008000)
+    assert_eq!(
+        serialize_parsed("column-rule", "column-rule: dashed green"),
+        Some("dashed #008000".to_string())
+    );
+    // ALL initial ⇒ keep first (width); `3px` vs Blink's `medium`
+    assert_eq!(
+        serialize_parsed("column-rule", "column-rule: medium none currentcolor"),
+        Some("3px".to_string())
+    );
+    // all non-initial (thick→5px, red→#ff0000)
+    assert_eq!(
+        serialize_parsed("column-rule", "column-rule: thick solid red"),
+        Some("5px solid #ff0000".to_string())
+    );
+}
+
+#[test]
+fn columns_omit_initial_corners() {
+    // both auto (initial) ⇒ single `auto`, both author forms
+    assert_eq!(
+        serialize_parsed("columns", "columns: auto"),
+        Some("auto".to_string())
+    );
+    assert_eq!(
+        serialize_parsed("columns", "columns: auto auto"),
+        Some("auto".to_string())
+    );
+    // width only (count=initial auto dropped)
+    assert_eq!(
+        serialize_parsed("columns", "columns: 200px"),
+        Some("200px".to_string())
+    );
+    // count only (width=initial auto dropped); Number(3.0)→"3"
+    assert_eq!(
+        serialize_parsed("columns", "columns: 3"),
+        Some("3".to_string())
+    );
+    assert_eq!(
+        serialize_parsed("columns", "columns: 3 auto"),
+        Some("3".to_string())
+    );
+    // both kept, canonical order width→count
+    assert_eq!(
+        serialize_parsed("columns", "columns: 200px 3"),
+        Some("200px 3".to_string())
+    );
+}
+
+/// §6.6.1 uniform-`!important` on a COVERED Multicol shorthand — mixed priority
+/// rejects before dispatch (None); uniform serializes (keep style, drop the
+/// initial width+color).
+#[test]
+fn column_rule_mixed_important_is_none() {
+    let mixed = |name: &str| match name {
+        "column-rule-width" => Some(("5px".to_string(), true)),
+        "column-rule-style" => Some(("none".to_string(), false)),
+        "column-rule-color" => Some(("#0000ff".to_string(), false)),
+        _ => None,
+    };
+    assert_eq!(
+        serialize_shorthand_value(default_css_property_registry(), "column-rule", mixed),
         None
+    );
+
+    let all_important = |name: &str| match name {
+        "column-rule-width" => Some(("3px".to_string(), true)),
+        "column-rule-style" => Some(("solid".to_string(), true)),
+        "column-rule-color" => Some(("currentcolor".to_string(), true)),
+        _ => None,
+    };
+    assert_eq!(
+        serialize_shorthand_value(
+            default_css_property_registry(),
+            "column-rule",
+            all_important
+        ),
+        Some("solid".to_string())
     );
 }
