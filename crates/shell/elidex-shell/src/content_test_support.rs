@@ -199,6 +199,26 @@ fn finalize_test_content_state(
     state
 }
 
+/// The top-level document URL the history/pump-turn test modules build against.
+pub(super) fn base() -> url::Url {
+    url::Url::parse("https://example.com/").unwrap()
+}
+
+/// Discard every message currently queued on the browser channel end so a later
+/// measurement observes only post-drain sends.
+pub(super) fn drain_browser(browser: &LocalChannel<BrowserToContent, ContentToBrowser>) {
+    while browser.try_recv().is_ok() {}
+}
+
+/// Two same-document entries `[base, /a]` (shared `document_sequence`), cursor on
+/// `/a`, so a `back()` resolves same-document and applies in place (no fetch).
+pub(super) fn seed_same_document_pair(state: &mut ContentState) {
+    state.nav_controller.push(base()); // index 0, base
+    state
+        .nav_controller
+        .push_same_document(url::Url::parse("https://example.com/a").unwrap()); // index 1, /a
+}
+
 /// Read the value of an attribute on the `<div>` with the given `id` — the shared
 /// DOM probe both content-thread test modules use to assert a script-driven
 /// attribute mutation landed (after a `re_render` flush).

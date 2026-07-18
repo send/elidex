@@ -433,39 +433,26 @@ pub trait DrainHost {
 pub struct DrainCoordinator;
 
 impl DrainCoordinator {
-    /// The **Phase-1 body** — the synchronous, in-task work — over `host`, with
-    /// **NO ship logic**: window-opens (§7.2.2.1) → synchronous history *updates*
-    /// (§7.4.4 *URL and history update steps*) → last-wins own-context navigation
-    /// (§7.4.2). A `Back` / `Forward` / `Go` *traversal* (§7.4.3) is **enqueued**
-    /// onto the [`TraversalQueue`] but **NOT applied**. Returns the raw Phase-1
-    /// [`DrainOutcome`]; the caller ([`drain_synchronous_phase`] /
-    /// [`drain_same_turn`](Self::drain_same_turn)) applies the single shared
-    /// [`ship_if_needed`] tail.
+    /// **Phase 1a + 1b body** — window-opens (§7.2.2.1) + the synchronous
+    /// history-FIFO partition (§7.4.4 same-document *URL and history update steps*
+    /// applied in-task; §7.4.3 traversals **enqueued** onto the [`TraversalQueue`],
+    /// not applied), with **NO Phase 1c** (§7.4.2 last-wins own-context navigation)
+    /// and **NO ship**. Returns the raw Phase-1a/1b [`DrainOutcome`].
     ///
-    /// Separating the body from the ship is what makes shipping a **single shared
-    /// decision** (`ship_if_needed`) regardless of whether Phase 2 runs on this
-    /// turn or a later one: Phase 1's own-context effect (a `pushState` render)
-    /// must ship on Phase 1's turn even when a traversal is also queued for a
-    /// *later* turn — the earlier bug gated Phase-1's ship on an empty queue and a
-    /// `pushState + no-op-traversal` turn stranded the committed frame (neither
-    /// phase shipped it).
+    /// The shared core of two callers that differ ONLY in whether Phase 1c runs:
+    /// - [`run_synchronous_phase_body`] appends Phase 1c → the FULL drain
+    ///   ([`drain_synchronous_phase`] / [`drain_same_turn`]).
+    /// - [`drain_synchronous_updates`] ships this body as-is → the **top-drain seam**
+    ///   that MUST settle only the same-document sync intent (`pending_history`) and
+    ///   window-opens, and MUST NOT apply a same-turn cross-document
+    ///   `pending_navigation` (that defers to the bottom full drain, so a held input
+    ///   dispatched between the two drains hits the pre-navigation document — see
+    ///   [`drain_synchronous_updates`]).
     ///
-    /// Honors the plan §4.5 invariants that belong to Phase 1:
-    ///
-    /// - **I1 (ordering).** Phase-1 synchronous writes complete **before** any
-    ///   Phase-2 traversal apply reads the entry list — enforced structurally by
-    ///   this body NOT running Phase 2 (the caller sequences the two entry
-    ///   points).
-    /// - **I2 (partition).** The issue-ordered history FIFO is partitioned
-    ///   sync-in-task / traversal-deferred **without reordering**: only the
-    ///   *prefix* of synchronous updates issued **before** the first traversal
-    ///   runs in Phase 1; from the first traversal onward every step defers (in
-    ///   issue order) onto the [`TraversalQueue`]. A trailing sync update never
-    ///   jumps ahead of an earlier traversal ("all sync first" is NOT the model).
-    ///
-    /// [`drain_synchronous_phase`]: Self::drain_synchronous_phase
-    /// [`ship_if_needed`]: Self::ship_if_needed
-    fn run_synchronous_phase_body<H: DrainHost>(host: &mut H) -> DrainOutcome {
+    /// Honors the Phase-1 slice of the plan §4.5 invariants (I1 ordering — this body
+    /// runs no Phase 2; I2 partition — the history FIFO defers from the first
+    /// traversal onward without reordering).
+    fn run_synchronous_updates_body<H: DrainHost>(host: &mut H) -> DrainOutcome {
         let mut outcome = DrainOutcome::default();
 
         // Phase 1a — window.open effects (§7.2.2.1), other-context, drained first.
@@ -535,6 +522,28 @@ impl DrainCoordinator {
             }
         }
 
+        outcome
+    }
+
+    /// The **full Phase-1 body** — [`run_synchronous_updates_body`] (1a + 1b) plus
+    /// **Phase 1c** (§7.4.2 last-wins own-context navigation, in-task), with **NO
+    /// ship logic**. Returns the raw Phase-1 [`DrainOutcome`]; the caller
+    /// ([`drain_synchronous_phase`] / [`drain_same_turn`](Self::drain_same_turn))
+    /// applies the single shared [`ship_if_needed`] tail.
+    ///
+    /// Separating the body from the ship is what makes shipping a **single shared
+    /// decision** (`ship_if_needed`) regardless of whether Phase 2 runs on this
+    /// turn or a later one: Phase 1's own-context effect (a `pushState` render)
+    /// must ship on Phase 1's turn even when a traversal is also queued for a
+    /// *later* turn — the earlier bug gated Phase-1's ship on an empty queue and a
+    /// `pushState + no-op-traversal` turn stranded the committed frame (neither
+    /// phase shipped it).
+    ///
+    /// [`drain_synchronous_phase`]: Self::drain_synchronous_phase
+    /// [`ship_if_needed`]: Self::ship_if_needed
+    fn run_synchronous_phase_body<H: DrainHost>(host: &mut H) -> DrainOutcome {
+        let mut outcome = Self::run_synchronous_updates_body(host);
+
         // Phase 1c — last-wins own-context navigation (§7.4.2), in-task. The
         // supersede-`return` the shells used today is REMOVED, BUT when a traversal
         // is pending (this turn, still-queued cross-turn) OR a traversal apply is
@@ -602,6 +611,39 @@ impl DrainCoordinator {
     #[must_use]
     pub fn drain_synchronous_phase<H: DrainHost>(host: &mut H) -> DrainOutcome {
         let mut outcome = Self::run_synchronous_phase_body(host);
+        Self::ship_if_needed(host, &mut outcome);
+        outcome
+    }
+
+    /// Drain **Phase 1a + 1b ONLY** — window-opens (§7.2.2.1) + the synchronous
+    /// same-document history *updates* (§7.4.4 `pushState`/`replaceState`, applied
+    /// in-task; §7.4.3 traversals enqueued, not applied) — then ship Phase 1's own
+    /// frame. Deliberately **omits Phase 1c** (§7.4.2 last-wins own-context
+    /// `pending_navigation`), unlike the full [`drain_synchronous_phase`].
+    ///
+    /// **Why the asymmetry (the top-drain seam).** Content-mode's event loop runs
+    /// this at the TOP of a pump turn, immediately after `run_deferred_traversals`
+    /// applies a deferred traversal — a same-document traversal fires `popstate`
+    /// **synchronously**, whose handler may stage a `pushState` (same-document,
+    /// `pending_history`) AND/OR a `location.assign` (CROSS-document,
+    /// `pending_navigation`). The same-document `pushState` MUST settle here so it is
+    /// committed to the entry list before a held nav-mutating message is dispatched
+    /// (the :73 property). But a **cross-document** navigation MUST NOT be applied at
+    /// the top: `handle_navigation` → a blocking document load rebuilds the pipeline,
+    /// so a held `MouseClick`/`KeyDown` dispatched next would hit the WRONG document.
+    /// Per WHATWG HTML a `location.assign` completes in a **later task**, so an
+    /// already-pending input (an older task) must process against the pre-navigation
+    /// document. Deferring Phase 1c to the bottom full [`drain_synchronous_phase`]
+    /// (run AFTER the held-message dispatch) realizes that ordering: the input hits
+    /// the pre-nav document, and the cross-document nav applies below as a later task.
+    ///
+    /// Ships via the shared `ship_if_needed` — a `pushState` committed here ships
+    /// its Phase-1 frame on this turn exactly as the full drain would.
+    ///
+    /// [`drain_synchronous_phase`]: Self::drain_synchronous_phase
+    #[must_use]
+    pub fn drain_synchronous_updates<H: DrainHost>(host: &mut H) -> DrainOutcome {
+        let mut outcome = Self::run_synchronous_updates_body(host);
         Self::ship_if_needed(host, &mut outcome);
         outcome
     }

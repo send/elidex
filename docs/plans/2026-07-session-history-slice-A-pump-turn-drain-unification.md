@@ -77,13 +77,21 @@ whose handler may stage `pushState`/`location.*` in the VM `pending_history`/`pe
 
 ## §2 Coupled-invariant enumeration (edge-dense plan — REQUIRED)
 
-Three axes the restructure simultaneously satisfies:
+Four axes the restructure simultaneously satisfies:
 - **(a) shutdown/teardown-priority** — a queued teardown runs before further script/network on a closing tab;
   a torn-down pipeline is never mutated.
 - **(b) phase ordering** — **I1** (a deferred apply is exposed only on a *later* turn) + **I2** (one ordered
   intake + one ordered FIFO drain SoT; no second message-dispatch channel).
 - **(c) reentrancy-buffer window-closure** — the `is_applying()` peek→commit window stays closed (interim
   guard KEPT).
+- **(d) input-vs-popstate-nav ordering (the plan-review MISS, fixed by the drain-split).** An
+  already-pending held input (a `MouseClick`/`KeyDown` — an *older task*) must be dispatched against the
+  document that was current when it was queued, NOT against a document a **same-turn** popstate-staged
+  CROSS-document navigation (`location.assign`, a *later task*) would rebuild to. Draft-2 ran the WHOLE
+  Phase-1 body at the top drain (incl. Phase 1c `handle_navigation`), so a popstate-staged cross-document nav
+  blocking-loaded + rebuilt `state.pipeline` at step 3, BEFORE step 4's held input → the input hit the wrong
+  document (spec-divergent; the OLD pre-restructure code drained `pending_navigation` only at the bottom,
+  after the message, and was spec-aligned).
 
 Pairwise intersections:
 - **a × b:** the held-message check `if msg == Shutdown → teardown → Break` sits BEFORE Phase-2, so teardown
@@ -95,6 +103,14 @@ Pairwise intersections:
   `ControlFlow` exit-propagation is unnecessary.
 - **b × c:** the buffer becomes a *deferral queue feeding the one intake* (one message per turn), not a
   *parallel drain* — one writer, one ordered intake; the single VM FIFO stays the drain SoT.
+- **b × d (the drain-split):** the top drain is the NEW `drain_synchronous_updates` (Phase 1a window-opens +
+  1b same-document `pending_history`), the bottom stays the full `drain_synchronous_phase` (1a + 1b + 1c). So
+  the top settles ONLY the same-document sync intent :73 protects; a popstate-staged CROSS-document
+  `pending_navigation` is drained ONLY at the bottom (step 6), AFTER the step-4 held input — the input hits
+  the pre-nav document by construction (b: phase ordering realizes d).
+- **c × d / a × d:** orthogonal — the cross-document nav (Phase 1c) is neither a reentrancy vector (c) nor a
+  teardown (a); the split touches only which drain runs 1c, leaving the `is_applying()` guard and the
+  shutdown short-circuit unchanged.
 
 **Accretion ledger (honest before/after).**
 
@@ -131,10 +147,13 @@ webref-verified (`webref heading html 8.1.7`; anchors `#event-loop-processing-mo
 **Breadth**: K=1 spec (html), M=6 rows.
 
 **Split decision**: single-PR. K/M is small AND — unlike the umbrella (5 intersecting invariants, canonical
-algorithm absent → multi-slice) — this is a bounded content-shell restructure of one file whose canonical
-replacement (Slice 4) is explicitly out. The §2 edge-density mandates the `/elidex-plan-review` gate, but the
-three axes are satisfied *within one held-message intake + one ordered apply/drain structure* (no cross-crate
-surface), so it does not re-slice. Terminal per-PR unit under the Slice-A/umbrella program.
+algorithm absent → multi-slice) — this is a bounded restructure (one shell file + one small engine-agnostic
+coordinator seam) whose canonical replacement (Slice 4) is explicitly out. The §2 edge-density (four axes)
+mandates the `/elidex-plan-review` gate, but the axes are satisfied *within one held-message intake + one
+ordered, source-partitioned apply/drain structure*; the only cross-crate surface is the clean
+`drain_synchronous_updates` coordinator seam (a behavior-preserving factoring of the existing Phase-1 body,
+axis d), which is a local addition, not a re-slice trigger. Terminal per-PR unit under the Slice-A/umbrella
+program.
 
 ---
 
@@ -154,15 +173,19 @@ The order alone makes the three defects unreachable.
     traversal is pending — see "Liveness" below. `Disconnected` ⇒ Break.)
 2. TEARDOWN-PRIORITY [:49]:  if msg == Some(Shutdown) → handle_message(Shutdown) → return Break
                              // runs BEFORE any Phase-2 work: no popstate/load on a closing tab
-3. PHASE-2 APPLY + POPSTATE SETTLE (one atomic unit, before the held message can rebuild):
-     run_deferred_traversals(state)            // [:49 site] applies a PRIOR turn's queued traversal [:416]
-     drain_synchronous_phase(state)  // TOP drain — settles the popstate-staged sync intent [:73]
-     if shutdown_requested → Break             // (Phase-2/drain can reach handle_navigate's SW-wait)
-4. DISPATCH THE HELD MESSAGE (after Phase-2 + popstate settle):
-     if let Some(m) = msg (non-Shutdown) → handle_message(m)   // may rebuild VM; popstate intent already safe
+3. PHASE-2 APPLY + POPSTATE SAME-DOCUMENT SETTLE (before the held message can rebuild):
+     run_deferred_traversals(state)              // applies a PRIOR turn's queued traversal [:416]
+     drain_synchronous_updates(state)  // TOP drain — 1a window-opens + 1b same-doc pushState ONLY [:73],
+                                        //            NOT 1c cross-doc nav (deferred to step 6 — axis d)
+     if shutdown_requested → Break               // (Phase-2/drain can reach handle_navigate's SW-wait)
+4. DISPATCH THE HELD MESSAGE (after Phase-2 + same-doc settle):
+     if let Some(m) = msg (non-Shutdown) → handle_message(m)   // may rebuild VM; same-doc intent already safe,
+                                                               // popstate cross-doc nav still pending → input
+                                                               // hits the pre-nav document (axis d)
      if shutdown_requested → Break
 5. FRAME TICK (timers / fetch / worker / iframe / render) — may stage navs
-6. R9 BOTTOM DRAIN:  drain_synchronous_phase(state)   // [:363 site] frame-tick + step-4 non-input staged navs
+6. R9 BOTTOM DRAIN:  drain_synchronous_phase(state)   // FULL 1a+1b+1c — runs Phase 1c (cross-doc nav);
+                                                       // + frame-tick + step-4 non-input staged navs
      if shutdown_requested → Break
 7. Continue
 ```
@@ -183,32 +206,41 @@ Shutdown-probe — teardown-priority is decided on the already-held `msg` (step 
 check-and-discarded. crossbeam's no-peek/no-putback is irrelevant because we never need to put a message back.
 
 **IMP-3 (:73 uniform for fresh AND buffered) — resolved by construction.** Whether `msg` came from the buffer
-or a fresh `recv_timeout`, it is the SAME held value dispatched at step 4 — after step 3's atomic Phase-2 +
-popstate settle. So a fresh cross-document `Navigate`/`Reload` can no longer rebuild between the popstate
-staging (step 3, `run_deferred_traversals`) and its drain (step 3, top `drain_synchronous_phase`); the intent
-lands in `NavigationController` (which survives pipeline rebuild) before step 4. The half-coverage of draft-1
-is gone.
+or a fresh `recv_timeout`, it is the SAME held value dispatched at step 4 — after step 3's Phase-2 apply +
+same-document settle. So a fresh cross-document `Navigate`/`Reload` can no longer rebuild between the popstate
+staging (step 3, `run_deferred_traversals`) and its settle (step 3, top `drain_synchronous_updates`); the
+same-document intent lands in `NavigationController` (which survives pipeline rebuild) before step 4. The
+half-coverage of draft-1 is gone.
 
 **:416 — resolved by construction.** Phase-2 (step 3) applies a queued traversal BEFORE the held message
 dispatches (step 4), every turn, unconditionally — a direct `Navigate` can never overtake a queued traversal.
 Buffered input+direct-nav pairs are delivered one-per-turn (buffer-first, step 1), each getting its own step-3
 apply, so the traversal from turn T applies at step 3 of turn T+1 before T+1's held message.
 
-**Why two drain sites, and why that is not accretion.** Mechanically BOTH drains are the same
-`drain_synchronous_phase` → `run_synchronous_phase_body`, and each drains the **entire** VM FIFO
-(window-opens + synchronously-staged history + last-wins nav, including a `handle_navigation` rebuild) — the
-partition between them is **TEMPORAL, not a disjoint source set** (do NOT read "top = popstate only": the top
-drain runs the SAME whole-FIFO body, so its Phase-1c `handle_navigation` path is live there too). The top
-drain (step 3) fires immediately after the Phase-2 apply, so it reads as the completion of the apply task's
-synchronous effects (§8.1.7.3 run-to-completion) — conceptually part of the atomic apply unit, not a new
-channel. Correctness does NOT rest on the top drain seeing popstate-only; it rests on **the bottom drain
-(step 6) being TOTAL over the FIFO** plus **runtime-swap-on-rebuild leaving the FIFO clean before the next
-turn's top drain** — so the top drain only ever *sees* that turn's fresh popstate/load-time staging (a prior
-turn's staging was already drained and cleared, not because the top drain filters sources). Both are the
-single coordinator `drain_synchronous_phase` over the single VM FIFO in issue order (I2 intact); cross-drain
-ordering is preserved through the shared `traversal_queue` (a step-3-enqueued traversal is still pending at
-step 6, so Resolution A/B suppression there still fires). Input-handler in-task draining is UNCHANGED and
-orthogonal.
+**Why two drain sites, and the ASYMMETRIC split (draft-2 correction).** Draft-2 ran the *same* whole-body
+`drain_synchronous_phase` at both the top (step 3) and bottom (step 6), partitioned only TEMPORALLY. `/code-review`
+(verified by an independent adversarial pass) found that over-drains: the whole body includes Phase 1c
+(`handle_navigation`), so a popstate handler calling a CROSS-document `location.assign` during the step-3 apply
+staged `pending_navigation`, which the top drain then applied → a blocking document load rebuilt `state.pipeline`
+to `/other` BEFORE step 4's held `MouseClick`/`KeyDown` dispatched → the input hit the wrong document
+(spec-divergent — the OLD code drained `pending_navigation` only at the bottom, after the message, so an
+already-pending input processed against the pre-nav document; `location.assign` completes in a LATER task).
+`placement_seq` staleness is viewport-only and does NOT cover a document rebuild. **The fix is the drain-split**
+(faithful to §4's own stated "settle the *sync* intent"): a new coordinator seam
+`DrainCoordinator::drain_synchronous_updates` runs Phase 1a (window-opens) + 1b (same-document `pending_history`)
+but NOT Phase 1c; the top drain (step 3) uses it, the bottom drain (step 6) keeps the full
+`drain_synchronous_phase` (1a+1b+1c). So the partition is now **ASYMMETRIC by SOURCE, not merely temporal**:
+- **top (step 3)** = same-document `pushState`/`replaceState` (the :73 intent) + window-opens — committed to
+  `NavigationController` before the held message, so it survives a held-Navigate rebuild.
+- **bottom (step 6)** = the FULL body — runs Phase 1c (`handle_navigation`, the CROSS-document
+  `pending_navigation` drain). A popstate-staged cross-document nav is NEVER drained at the top; it is drained
+  at step 4's input handler (in-task Phase 1c, after the event dispatched) or here at step 6 — both AFTER the
+  step-4 held input → the input hits the pre-nav document, the cross-doc nav applies as a later task.
+Both seams share the same 1a/1b core (`run_synchronous_updates_body`) — the full body is `updates_body` + 1c,
+no copy-paste; the FIFO-partition logic stays in `elidex-navigation`. The single VM FIFO stays the ordering SoT
+(I2): the same-document `pending_history` is drained by whichever of top/bottom first takes it (take-consumed,
+no double-apply); a step-3-enqueued traversal is still pending at step 6, so Resolution A/B suppression there
+still fires. Input-handler in-task draining is UNCHANGED and orthogonal.
 
 ### §4.1 Validation against the mandated constraints
 
@@ -229,11 +261,15 @@ orthogonal.
   and the buffer is provably `Shutdown`-free (guard invariant), so no teardown signal is ever stuck in it.
 - **R9 (bottom-drain coverage of callback-staged navs) preserved.** R9 (commit `94feacda`) moved
   `drain_synchronous_phase` to the bottom to drain timer/fetch/worker (and popstate) callback-staged navs.
-  Here the bottom drain (step 6) STAYS after the frame tick and still covers timer/fetch/worker AND any
-  non-input held-message handler that stages a nav (e.g. a `resize`/`visibilitychange` handler calling
-  `location.*`). Only the *popstate* source moves to the top drain (step 3), where it must be to precede the
-  held-message rebuild. No R9 source is dropped; the two drains partition the staging sources
-  (top = Phase-2/popstate · in-task = input handlers · bottom = frame-tick + non-input message handlers).
+  Here the bottom drain (step 6) STAYS the FULL `drain_synchronous_phase` after the frame tick and still
+  covers timer/fetch/worker AND any non-input held-message handler that stages a nav (e.g. a
+  `resize`/`visibilitychange` handler calling `location.*`) — AND it runs Phase 1c (cross-document
+  `pending_navigation`, axis d). Only the *popstate SAME-document sync* intent settles at the top drain
+  (step 3, `drain_synchronous_updates`), where it must be to precede the held-message rebuild; a popstate
+  CROSS-document nav is NEVER drained at the top (that was the draft-2 regression) — it defers to step 4's
+  input handler (in-task, after the event dispatched) or this step-6 bottom drain, both after the held input. No R9 source is dropped; the split is asymmetric by source
+  (top 1a+1b = same-doc sync + window-opens · in-task = input handlers · bottom 1a+1b+1c = frame-tick +
+  non-input message handlers + the sole cross-doc nav).
 
 ---
 
@@ -305,7 +341,7 @@ those instead. This is a required impl-time step, not a deferrable TODO.
 
 Existing symbols grep-verified against `crates/shell/elidex-shell/src`; NEW annotated.
 
-- `crates/shell/elidex-shell/src/content/event_loop.rs` — `pump_turn` (restructure), `replay_deferred_reentrant_messages` (RETIRE), `run_deferred_traversals` (step 3, unchanged body), `drain_synchronous_phase` (top **and** `:363` bottom, unchanged body), `handle_message` (single intake, reused), `recv_timeout` + timeout compute (`:90-108`, +`traversal_queue.is_empty()` input).
+- `crates/shell/elidex-shell/src/content/event_loop.rs` — `pump_turn` (restructure), `replay_deferred_reentrant_messages` (RETIRE), `run_deferred_traversals` (step 3, unchanged body), `drain_synchronous_updates` (step-3 top drain — **NEW seam**, see below), `drain_synchronous_phase` (step-6 bottom, unchanged full body), `handle_message` (single intake, reused), `recv_timeout` + timeout compute (`:90-108`, +`traversal_queue.is_empty()` input).
 - `crates/shell/elidex-shell/src/content/drain_host.rs` — `dispatch_or_buffer_reentrant` **function body KEPT
   unchanged**, but its **docstring is EDITED**: `:46-48` ("the event loop replays / it at the top of a later
   `pump_turn` … see `event_loop::replay_deferred_reentrant_messages`") and `:66` ("R5's
@@ -315,12 +351,24 @@ Existing symbols grep-verified against `crates/shell/elidex-shell/src`; NEW anno
   single held-message intake, not batch-replayed; the `Shutdown`-never-buffered invariant is unchanged and no
   longer relies on a `ControlFlow` replay exit).
 - `crates/shell/elidex-shell/src/content/mod.rs` — `deferred_reentrant_messages` field (KEPT; drained via the single intake), `shutdown_requested` (KEPT).
-- `crates/shell/elidex-navigation/src/traversal_queue.rs` — `TraversalQueue::is_empty` (`:226`, EXISTING; read by the timeout). **No new accessor, no `elidex-navigation` surface change.**
-- `crates/shell/elidex-shell/src/content_history_phase_sep_tests.rs` — three interim-guard tests (flip/re-purpose per §6) + three NEW R13 conformance tests.
+- `crates/shell/elidex-navigation/src/traversal_queue.rs` — `TraversalQueue::is_empty` (`:226`, EXISTING; read
+  by the timeout). **NEW public seam `DrainCoordinator::drain_synchronous_updates`** (draft-2 correction, axis
+  d) = the shared 1a/1b body (`run_synchronous_updates_body`, factored OUT of `run_synchronous_phase_body`
+  which now composes `updates_body` + Phase 1c) + `ship_if_needed`. The full `drain_synchronous_phase` is
+  unchanged in behavior. No copy-paste (the difference is only whether 1c runs); the FIFO-partition logic
+  stays engine-agnostic in `elidex-navigation`.
+- `crates/shell/elidex-shell/src/content_history_pump_turn_tests.rs` — three NEW R13 conformance tests +
+  the NEW `popstate_cross_document_navigation_deferred_below_held_input` regression (axis d), which uses
+  `drain_synchronous_updates` / `drain_synchronous_phase` + `runtime.take_pending_navigation` (EXISTING
+  `HostDriver` method) to pin the deferral structurally.
+- `crates/shell/elidex-shell/src/content_history_phase_sep_tests.rs` — interim-guard tests (flip/delete per §6).
 
 **Crate surface.** No NEW `HostDriver` peek (draft-1's `has_pending_*` is eliminated by the peek-less rework),
-so **no `elidex-script-session` / `elidex-js` trait surface** and **no `elidex-navigation` surface**. Blast
-radius = `content/event_loop.rs` + its tests (the timeout reads the already-present `traversal_queue`).
+so **no `elidex-script-session` / `elidex-js` trait surface**. There IS a **NEW `elidex-navigation` surface**
+(the drain-split correction): the public `DrainCoordinator::drain_synchronous_updates` seam (axis d). It stays
+a clean engine-agnostic coordinator method — the shell just calls the right one of the two drains at each site
+(top = updates-only, bottom = full). Blast radius = `content/event_loop.rs` + `elidex-navigation`'s coordinator
+seam + the tests.
 
 ---
 

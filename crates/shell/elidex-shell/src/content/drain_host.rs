@@ -43,9 +43,11 @@ use super::ContentState;
 /// the in-flight traversal's peek (`apply_traversal_delta`) and its
 /// `commit_index`, committing a stale index against a mutated list — the reachable
 /// corruption window. So BUFFER the message into
-/// [`ContentState::deferred_reentrant_messages`] instead; the event loop replays
-/// it at the top of a later `pump_turn`, once `is_applying()` has cleared and the
-/// apply fully committed (see `event_loop::replay_deferred_reentrant_messages`).
+/// [`ContentState::deferred_reentrant_messages`] instead; the event loop
+/// re-delivers it ONE per turn through its single held-message intake, once
+/// `is_applying()` has cleared and the apply fully committed (see the buffer-first
+/// intake in `event_loop::pump_turn` — it inherits that turn's Phase-2 apply and
+/// the R9 bottom drain, so the buffered message runs OUTSIDE any held peek).
 ///
 /// This is the bounded interim guard — it consumes `is_applying()` at the single
 /// reentrancy vector. The FULL canonical serialization (routing EVERY nav-mutating
@@ -53,8 +55,8 @@ use super::ContentState;
 /// §7.4.1.3) is Slice 4.
 ///
 /// **`Shutdown` is NEVER buffered** (Codex PR#469 R8). Buffering it would defer
-/// teardown until a later `pump_turn` could replay the buffer — but that replay
-/// cannot run until this SW-wait loop unblocks, which (for a delayed/lost
+/// teardown until a later `pump_turn` could re-deliver the buffer — but that
+/// re-delivery cannot run until this SW-wait loop unblocks, which (for a delayed/lost
 /// `SwFetchResponse`) is only at the ~30s navigation deadline. So a tab/window
 /// close during an SW-controlled cross-document traversal would hang teardown for
 /// up to 30s even though the `Shutdown` was already consumed from the channel.
@@ -63,9 +65,10 @@ use super::ContentState;
 /// breaks the SW-wait loop, aborts the in-flight `handle_navigate` before it can
 /// load/commit against the torn-down pipeline, no-ops the remaining Phase-2 apply
 /// seams, and makes `pump_turn` return `ControlFlow::Break` — a prompt exit with no
-/// post-teardown mutation. R5's `replay_deferred_reentrant_messages -> ControlFlow`
-/// exit-propagation stays as the defensive path (a buffered exit-signalling message
-/// still breaks the pump), but `Shutdown` should now never reach the buffer.
+/// post-teardown mutation. Because `Shutdown` is never buffered, the buffer is
+/// provably `Shutdown`-free — so the single held-message intake never has to carry
+/// an exit signal out of the buffer (the retired replay batch's bespoke
+/// `ControlFlow` exit-propagation is unnecessary).
 pub(super) fn dispatch_or_buffer_reentrant(state: &mut ContentState, msg: BrowserToContent) {
     if matches!(msg, BrowserToContent::Shutdown) {
         // Teardown NOW (unload → iframes.shutdown_all → teardown_document).

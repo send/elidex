@@ -74,11 +74,12 @@ struct ContentState {
     /// / `MouseClick` / `KeyDown`) would mutate the [`NavigationController`] entry
     /// list/cursor BETWEEN the traversal's peek and its commit, committing a stale
     /// index against a mutated list. To close that window, such a message is
-    /// BUFFERED here instead of dispatched, and replayed at the top of a later
-    /// `pump_turn` (once `is_applying()` has cleared and the apply fully
-    /// committed). This is the bounded interim guard; the FULL canonical
-    /// serialization (routing every nav-mutating step through the traversal queue)
-    /// is Slice 4.
+    /// BUFFERED here instead of dispatched, and re-delivered ONE per turn through
+    /// [`pump_turn`](super::event_loop::pump_turn)'s single buffer-first held-message
+    /// intake (once `is_applying()` has cleared and the apply fully committed), so it
+    /// inherits that turn's Phase-2 apply and R9 bottom drain. This is the bounded
+    /// interim guard; the FULL canonical serialization (routing every nav-mutating
+    /// step through the traversal queue) is Slice 4.
     deferred_reentrant_messages: Vec<BrowserToContent>,
     /// Set the instant a `Shutdown` is handled at the interim-reentrancy vector
     /// (`drain_host::dispatch_or_buffer_reentrant`) DURING a guarded SW-fetch wait
@@ -804,6 +805,10 @@ mod history_drain_tests;
 #[cfg(test)]
 #[path = "../content_history_phase_sep_tests.rs"]
 mod history_phase_sep_tests;
+
+#[cfg(test)]
+#[path = "../content_history_pump_turn_tests.rs"]
+mod history_pump_turn_tests;
 
 #[cfg(test)]
 #[path = "../content_fragment_nav_tests.rs"]

@@ -24,7 +24,9 @@
 use elidex_navigation::{DrainCoordinator, DrainHost};
 use elidex_script_session::HostDriver;
 
-use super::test_support::build_test_content_state_with_url;
+use super::test_support::{
+    base, build_test_content_state_with_url, drain_browser, seed_same_document_pair,
+};
 use crate::ipc::{BrowserToContent, ContentToBrowser, LocalChannel};
 
 /// A primary-button `MouseClickEvent` at viewport point `(x, y)` — drives the
@@ -39,17 +41,6 @@ fn click_at(x: f32, y: f32) -> crate::ipc::MouseClickEvent {
     }
 }
 
-/// The top-level document URL every test builds against.
-fn base() -> url::Url {
-    url::Url::parse("https://example.com/").unwrap()
-}
-
-/// Discard every message currently queued on the browser channel end so a later
-/// [`count_display_lists`] measures only the post-drain sends.
-fn drain_browser(browser: &LocalChannel<BrowserToContent, ContentToBrowser>) {
-    while browser.try_recv().is_ok() {}
-}
-
 /// Count the `DisplayListReady` messages currently queued on the browser channel.
 fn count_display_lists(browser: &LocalChannel<BrowserToContent, ContentToBrowser>) -> usize {
     let mut n = 0;
@@ -59,15 +50,6 @@ fn count_display_lists(browser: &LocalChannel<BrowserToContent, ContentToBrowser
         }
     }
     n
-}
-
-/// Two same-document entries `[base, /a]` (shared `document_sequence`), cursor on
-/// `/a`, so a `back()` resolves same-document and applies in place (no fetch).
-fn seed_same_document_pair(state: &mut super::ContentState) {
-    state.nav_controller.push(base()); // index 0, base
-    state
-        .nav_controller
-        .push_same_document(url::Url::parse("https://example.com/a").unwrap()); // index 1, /a
 }
 
 /// I1 (ordering across the task boundary): `pushState('/a'); history.back()` in one
@@ -463,15 +445,19 @@ fn pump_turn_applies_enqueued_traversal_on_a_later_turn() {
          bottom-of-loop drain would have applied it HERE, collapsing the task boundary (T2)"
     );
 
-    // Turn N+1: the top-of-loop Phase-2 drain applies the deferred back() BEFORE this
-    // turn's message. A Shutdown makes `recv` return right after the top-drain.
-    browser.send(BrowserToContent::Shutdown).unwrap();
+    // Turn N+1: the step-3 Phase-2 apply drains the deferred back() BEFORE this turn's
+    // held message. A benign `CursorLeft` unblocks `recv_timeout` WITHOUT itself
+    // draining history or shutting down — it must be non-`Shutdown`, because under the
+    // message-held skeleton a held `Shutdown` is teardown-priority and Breaks at step 2
+    // BEFORE the step-3 Phase-2 apply (plan §4 :49), so it would NOT apply the deferred
+    // back() this turn.
+    browser.send(BrowserToContent::CursorLeft).unwrap();
     let flow = super::event_loop::pump_turn(&mut state, &mut last_frame);
-    assert!(flow.is_break(), "Shutdown breaks the loop");
+    assert!(flow.is_continue(), "a non-shutdown turn continues the loop");
     assert_eq!(
         state.nav_controller.current_url().map(url::Url::as_str),
         Some("https://example.com/"),
-        "the NEXT pump turn's top-drain applied the deferred back() → base \
+        "the NEXT pump turn's step-3 Phase-2 apply drained the deferred back() → base \
          (later-turn boundary — plan §4.5 I1)"
     );
     assert!(
@@ -662,12 +648,15 @@ fn deferred_syncupdate_canceled_behind_same_document_traversal() {
     );
 }
 
-/// **Interim reentrancy guard** (Codex PR#469 R4): a nav-mutating `BrowserToContent`
-/// buffered while a Phase-2 apply held the peek→commit window does NOT mutate the
-/// `NavigationController` while it sits in the buffer, and IS replayed + applied on
-/// a later `pump_turn` once `is_applying()` has cleared.
+/// **Interim reentrancy guard** (Codex PR#469 R4; re-delivery FLIPPED to the
+/// message-held pump per the drain-unification plan §4/§6): a nav-mutating
+/// `BrowserToContent` buffered while a Phase-2 apply held the peek→commit window does
+/// NOT mutate the `NavigationController` while it sits in the buffer, and IS
+/// re-delivered + applied on a later `pump_turn` once `is_applying()` has cleared —
+/// now through the pump's single **buffer-first held-message intake** (one per turn),
+/// NOT a top-of-turn replay batch.
 ///
-/// This pins the guard's REPLAY contract and its no-mutation-while-buffered
+/// This pins the guard's re-delivery contract and its no-mutation-while-buffered
 /// invariant (the reachable corruption window the guard closes: a re-dispatched
 /// message must not mutate the entry list between the in-flight traversal's peek and
 /// its commit). The buffered state is simulated directly — the buffering DECISION
@@ -675,10 +664,10 @@ fn deferred_syncupdate_canceled_behind_same_document_traversal() {
 /// (see `interim_guard_dispatches_reentrant_when_not_applying`), while the SW-fetch
 /// wait loop that SETS `is_applying()` true is not unit-drivable (its internally
 /// generated `fetch_id` cannot be matched to break the blocking wait without a 30s
-/// timeout). Uses a same-document fragment `Navigate` so the replay applies in the
-/// disconnected harness (no fetch).
+/// timeout). Uses a same-document fragment `Navigate` so the re-delivery applies in
+/// the disconnected harness (no fetch).
 #[test]
-fn interim_guard_buffered_nav_replays_on_later_pump_turn() {
+fn interim_guard_buffered_nav_redelivers_on_later_pump_turn() {
     let (mut state, browser) = build_test_content_state_with_url("<p>doc</p>", base());
     state.nav_controller.push(base()); // one entry; pipeline.url = base
     drain_browser(&browser);
@@ -706,26 +695,29 @@ fn interim_guard_buffered_nav_replays_on_later_pump_turn() {
         "a buffered nav must not move the cursor while it waits"
     );
 
-    // A later pump turn replays the buffer (after the apply committed / guard clear).
-    // A same-document fragment nav signals no exit, so replay reports `Continue`.
+    // A later pump turn re-delivers the buffered message through its single
+    // buffer-first intake (step 1), dispatching it at step 4 after the (empty) Phase-2
+    // apply. A same-document fragment nav signals no exit, so the turn Continues.
+    let mut last_frame = std::time::Instant::now();
+    let flow = super::event_loop::pump_turn(&mut state, &mut last_frame);
     assert!(
-        super::event_loop::replay_deferred_reentrant_messages(&mut state).is_continue(),
-        "a buffered non-Shutdown nav replays without signalling the thread to exit"
+        flow.is_continue(),
+        "a buffered non-Shutdown nav re-delivered by the pump does not signal exit"
     );
 
     assert!(
         state.deferred_reentrant_messages.is_empty(),
-        "the buffer drains on replay"
+        "the buffer drains one-per-turn through the held-message intake"
     );
     assert_eq!(
         state.pipeline.url.as_ref().map(url::Url::as_str),
         Some("https://example.com/#frag"),
-        "the buffered fragment nav applied on the replay turn"
+        "the buffered fragment nav applied on the re-delivery turn"
     );
     assert_eq!(
         state.nav_controller.len(),
         len_before + 1,
-        "the replayed fragment nav pushed its same-document entry (applied after the window)"
+        "the re-delivered fragment nav pushed its same-document entry (applied after the window)"
     );
 }
 
@@ -764,60 +756,6 @@ fn interim_guard_dispatches_reentrant_when_not_applying() {
     );
 }
 
-/// **Interim reentrancy guard** — the DEFENSIVE R5 replay-exit backstop (Codex
-/// PR#469 R5, retained under R8). Any exit-signaling message that reaches the buffer
-/// must PROPAGATE its exit signal when replayed: `handle_message(Shutdown)` returns
-/// the content-thread exit signal (`false`) after running unload/teardown;
-/// `replay_deferred_reentrant_messages` must surface it as `ControlFlow::Break` and
-/// `pump_turn` must RETURN that Break so `run_event_loop` exits.
-///
-/// RE-ANCHORED (R8): the LIVE guard no longer routes `Shutdown` into this buffer — it
-/// is now handled IMMEDIATELY at `dispatch_or_buffer_reentrant` (teardown + the
-/// `shutdown_requested` flag) so teardown does not wait on the ~30s SW deadline (see
-/// `interim_guard_shutdown_handled_immediately_not_buffered`). This test injects a
-/// `Shutdown` DIRECTLY into the buffer to pin the retained defensive propagation — so a
-/// buffered exit-signaling message can never leave the pump hung (the original R5 bug:
-/// the replay discarded the signal, so the Shutdown was consumed from the buffer yet
-/// the pump kept running, then blocked on the next `recv`).
-#[test]
-fn interim_guard_buffered_shutdown_breaks_the_pump() {
-    let (mut state, browser) = build_test_content_state_with_url("<p>doc</p>", base());
-    drain_browser(&browser);
-
-    // A Shutdown arrived mid-apply and was BUFFERED (as the SW-wait guard does while
-    // `is_applying()` holds) rather than dispatched inline.
-    state
-        .deferred_reentrant_messages
-        .push(BrowserToContent::Shutdown);
-
-    // Replaying it propagates the exit signal as Break — NOT discarded.
-    let replay_flow = super::event_loop::replay_deferred_reentrant_messages(&mut state);
-    assert!(
-        replay_flow.is_break(),
-        "a buffered Shutdown's exit signal must propagate as ControlFlow::Break — not be \
-         discarded (which would leave the content thread pumping, then blocked on recv)"
-    );
-    assert!(
-        state.deferred_reentrant_messages.is_empty(),
-        "the buffer drains on replay (the Shutdown was consumed)"
-    );
-
-    // And driven through the whole pump: a buffered Shutdown replayed at the top of
-    // `pump_turn` makes the turn RETURN Break (the content thread exits), not Continue.
-    let (mut state, browser) = build_test_content_state_with_url("<p>doc</p>", base());
-    drain_browser(&browser);
-    state
-        .deferred_reentrant_messages
-        .push(BrowserToContent::Shutdown);
-    let mut last_frame = std::time::Instant::now();
-    let flow = super::event_loop::pump_turn(&mut state, &mut last_frame);
-    assert!(
-        flow.is_break(),
-        "pump_turn must return Break when the top-of-turn replay hits a buffered Shutdown \
-         (so run_event_loop exits) — the old code swallowed the signal and continued"
-    );
-}
-
 /// **Interim reentrancy guard** (Codex PR#469 R8): a `Shutdown` arriving at the
 /// reentrancy vector (`dispatch_or_buffer_reentrant`) is handled IMMEDIATELY — it runs
 /// unload/teardown and sets `shutdown_requested` — and is NEVER buffered. This is the
@@ -832,9 +770,20 @@ fn interim_guard_buffered_shutdown_breaks_the_pump() {
 /// is_applying-independent for Shutdown is the whole point. The guarded (`is_applying()`)
 /// SW-wait that would otherwise buffer it is not itself unit-drivable (its internally
 /// generated `fetch_id` cannot be matched to break the blocking wait without a 30s
-/// timeout — see `interim_guard_buffered_nav_replays_on_later_pump_turn`), so the contract
-/// is asserted at the `dispatch_or_buffer_reentrant` / `pump_turn` level directly, as the
+/// timeout — see `interim_guard_buffered_nav_redelivers_on_later_pump_turn`), so the
+/// contract is asserted at the `dispatch_or_buffer_reentrant` level directly, as the
 /// sibling interim-guard tests do.
+///
+/// Scope after the drain-unification flip: this pins the KEPT
+/// `dispatch_or_buffer_reentrant` short-circuit (immediate teardown, never buffered).
+/// The "pump then exits on the flag" property is NOT re-driven here: `pump_turn`'s
+/// step-0 entry invariant is a `debug_assert!(!shutdown_requested)` (the restructure
+/// removed the per-phase shutdown re-check accretion — a live step-0 guard would re-add
+/// it for a by-construction-impossible state), so pre-setting the flag and then calling
+/// `pump_turn` would (correctly) trip that assertion. The break-on-nested-shutdown path
+/// — the only way the flag is set in real operation, always with a same-turn Break — is
+/// pinned by
+/// `interim_guard_break_on_nested_shutdown_leaves_second_buffered_nav_undelivered`.
 #[test]
 fn interim_guard_shutdown_handled_immediately_not_buffered() {
     let (mut state, browser) = build_test_content_state_with_url("<p>doc</p>", base());
@@ -853,52 +802,36 @@ fn interim_guard_shutdown_handled_immediately_not_buffered() {
     assert!(
         state.shutdown_requested,
         "a Shutdown at the reentrancy vector runs teardown immediately and flags the exit \
-         — not deferred to a later replay turn"
+         — not deferred to a later re-delivery turn"
     );
     assert!(
         state.deferred_reentrant_messages.is_empty(),
         "a Shutdown is NEVER buffered — buffering it would delay teardown until the SW-wait's \
-         ~30s deadline could unblock and let a later pump_turn replay observe it"
-    );
-
-    // The pump then exits PROMPTLY: pump_turn observes `shutdown_requested` right after the
-    // Phase-2 drain and returns Break WITHOUT blocking on this turn's recv_timeout.
-    let mut last_frame = std::time::Instant::now();
-    let flow = super::event_loop::pump_turn(&mut state, &mut last_frame);
-    assert!(
-        flow.is_break(),
-        "pump_turn must return Break as soon as it observes shutdown_requested (prompt exit, \
-         no wait for the SW timeout)"
+         ~30s deadline could unblock and let a later pump_turn observe it"
     );
 }
 
-/// **Interim reentrancy guard** (Codex PR#469 R8 **re-check**): the REPLAY phase is the
-/// third — and previously uncovered — pump phase that can newly set `shutdown_requested`.
-/// A replayed nav-mutating message (`Navigate`/`Reload`/`GoBack`/`GoForward`) whose nested
-/// SW-wait consumes a re-dispatched `Shutdown` runs teardown + sets the flag, yet
-/// `handle_message` returns `true` (those arms discard `handle_navigate`'s `false`), so the
-/// replay swallows the flag-set. Without a post-replay check, `pump_turn` would then block
-/// one poll interval on `recv_timeout` and run a full frame tick on the torn-down pipeline.
+/// **Interim reentrancy guard** (Codex PR#469 R8 re-check; FLIPPED to the message-held
+/// pump per the drain-unification plan §4/§6): a re-delivered nav-mutating message
+/// (`Navigate`/`Reload`/`GoBack`/`GoForward`) whose nested SW-wait consumes a
+/// re-dispatched `Shutdown` runs teardown + sets `shutdown_requested`, yet
+/// `handle_message` returns `true` (those arms discard `handle_navigate`'s `false`).
+/// Step 4's `shutdown_requested` check must Break the pump right there — before the
+/// frame tick / bottom drain touch the torn-down pipeline, and (the "batch stop"
+/// property, re-expressed) before the NEXT buffered message is intaken.
 ///
-/// This pins BOTH halves of the fix:
-///  1. `replay_deferred_reentrant_messages` STOPS dispatching the rest of the batch once
-///     the flag is set mid-replay — a message ordered AFTER the shutdown-consuming one is
-///     NOT dispatched on the torn-down pipeline (proven by exactly ONE `SwFetchRequest`
-///     reaching the browser: a second dispatch would send a second one).
-///  2. `pump_turn` returns `Break` right after the replay — before `recv_timeout` /
-///     the frame tick — completing the "check `shutdown_requested` after every pump
-///     phase" invariant.
-///
-/// Unlike the sibling guards (which cannot match the internally generated `fetch_id` and so
-/// simulate), this drives the REAL SW-wait: seeding a controller scope makes an in-scope
-/// nav take the wait path, and a PRE-queued `Shutdown` is re-dispatched there immediately
-/// (no 30s deadline). A second pre-queued `Shutdown` makes a regression of the stop fail
-/// FAST (a second `SwFetchRequest`) instead of hanging on the ~30s SW deadline.
+/// Under the message-held skeleton the buffer is re-delivered ONE per turn, so the
+/// "second nav must not run on the torn-down pipeline" invariant is now structural:
+/// the first buffered nav is intaken at step 1, its nested SW-wait sets the flag, step
+/// 4 Breaks — so the second buffered nav is STILL IN THE BUFFER, never intaken. Proven
+/// by exactly ONE `SwFetchRequest` reaching the browser and the second nav remaining
+/// buffered. Drives the REAL SW-wait: seeding a controller scope makes an in-scope nav
+/// take the wait path, and a queued `Shutdown` is re-dispatched there immediately (no
+/// 30s deadline).
 #[test]
-fn interim_guard_replay_stops_and_pump_breaks_on_nested_shutdown() {
+fn interim_guard_break_on_nested_shutdown_leaves_second_buffered_nav_undelivered() {
     let scope = || url::Url::parse("https://example.com/app/").unwrap();
 
-    // --- Half 1: the replay loop STOPS after the flag is set; the second nav is not run.
     let (mut state, browser) = build_test_content_state_with_url("<p>doc</p>", base());
     state.nav_controller.push(base());
     // Control the page so an in-scope cross-document nav takes the SW-wait path (the
@@ -906,8 +839,9 @@ fn interim_guard_replay_stops_and_pump_breaks_on_nested_shutdown() {
     state.pipeline.runtime.seed_sw_client(Some(scope()), &[]);
     drain_browser(&browser);
 
-    // Two SW-controlled cross-document navs buffered. The FIRST will consume a Shutdown in
-    // its nested SW-wait (teardown + `shutdown_requested`); the SECOND must NOT dispatch.
+    // Two SW-controlled cross-document navs buffered. Step 1 intakes ONLY the first
+    // (buffer-first, one/turn); its nested SW-wait consumes a Shutdown (teardown +
+    // `shutdown_requested`), step 4 Breaks, so the SECOND is never intaken.
     state
         .deferred_reentrant_messages
         .push(BrowserToContent::Navigate(
@@ -920,24 +854,26 @@ fn interim_guard_replay_stops_and_pump_breaks_on_nested_shutdown() {
         ));
 
     // Queue the Shutdown the first nav's SW-wait picks up immediately (no 30s deadline).
-    // The second Shutdown only matters if the stop-on-flag regresses (fail fast, no hang).
-    browser.send(BrowserToContent::Shutdown).unwrap();
     browser.send(BrowserToContent::Shutdown).unwrap();
 
-    let flow = super::event_loop::replay_deferred_reentrant_messages(&mut state);
+    let mut last_frame = std::time::Instant::now();
+    let flow = super::event_loop::pump_turn(&mut state, &mut last_frame);
 
+    assert!(
+        flow.is_break(),
+        "pump_turn Breaks at step 4's shutdown_requested check — before the frame tick / \
+         bottom drain touch the torn-down pipeline"
+    );
     assert!(
         state.shutdown_requested,
-        "the first replayed nav's nested SW-wait consumed a Shutdown → teardown ran + flag set"
+        "the first re-delivered nav's nested SW-wait consumed a Shutdown → teardown + flag set"
     );
-    assert!(
-        flow.is_continue(),
-        "a nested-SW-wait Shutdown is surfaced via `shutdown_requested` (caught by \
-         pump_turn's post-replay check), so replay itself reports Continue — not Break"
-    );
-    assert!(
-        state.deferred_reentrant_messages.is_empty(),
-        "the batch was taken for replay; nothing re-buffered"
+    // The SECOND buffered nav was NEVER intaken (the pump broke on the first) — the
+    // one-per-turn re-delivery makes the old "batch stops mid-replay" property structural.
+    assert_eq!(
+        state.deferred_reentrant_messages.len(),
+        1,
+        "the second buffered nav stays in the buffer — never dispatched on the torn-down pipeline"
     );
     let mut sw_fetch_count = 0;
     while let Ok(msg) = browser.try_recv() {
@@ -947,32 +883,6 @@ fn interim_guard_replay_stops_and_pump_breaks_on_nested_shutdown() {
     }
     assert_eq!(
         sw_fetch_count, 1,
-        "only the FIRST buffered nav dispatched (one SwFetchRequest); the SECOND was dropped \
-         once the replay saw shutdown_requested — never run on the torn-down pipeline"
-    );
-
-    // --- Half 2: driven through the whole pump — pump_turn Breaks right after the replay,
-    // NOT blocking on recv_timeout or running the frame tick on the torn-down pipeline.
-    let (mut state, browser) = build_test_content_state_with_url("<p>doc</p>", base());
-    state.nav_controller.push(base());
-    state.pipeline.runtime.seed_sw_client(Some(scope()), &[]);
-    drain_browser(&browser);
-    state
-        .deferred_reentrant_messages
-        .push(BrowserToContent::Navigate(
-            url::Url::parse("https://example.com/app/one").unwrap(),
-        ));
-    browser.send(BrowserToContent::Shutdown).unwrap();
-
-    let mut last_frame = std::time::Instant::now();
-    let flow = super::event_loop::pump_turn(&mut state, &mut last_frame);
-    assert!(
-        flow.is_break(),
-        "pump_turn must Break as soon as the replay sets shutdown_requested — before \
-         recv_timeout blocks a poll interval and the frame tick touches the torn-down pipeline"
-    );
-    assert!(
-        state.shutdown_requested,
-        "the flag set by the replayed nav's nested SW-wait is what drove the Break"
+        "only the FIRST buffered nav dispatched (one SwFetchRequest); the SECOND never ran"
     );
 }

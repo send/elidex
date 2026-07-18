@@ -27,109 +27,169 @@ pub(super) fn run_event_loop(state: &mut ContentState) {
     while pump_turn(state, &mut last_frame).is_continue() {}
 }
 
-/// Process ONE event-loop turn: drain the deferred-traversal Phase 2, then handle
-/// at most one inbound message + the per-turn frame tick. Returns
+/// Process ONE event-loop turn as the message-held skeleton (plan
+/// `docs/plans/2026-07-session-history-slice-A-pump-turn-drain-unification.md` §4):
+/// (1) intake ONE message and HOLD it (buffer-first, else one `recv_timeout`);
+/// (2) if it is a `Shutdown`, tear down before any Phase-2 work (:49); (3) apply the
+/// deferred traversal + settle its `popstate`-staged SAME-document sync intent
+/// (`drain_synchronous_updates`, NOT a cross-document nav — that defers to step 6)
+/// (:416 / :73); (4) dispatch the held message; (5) frame tick; (6) the R9 bottom
+/// full drain (the sole cross-document-nav drain). One ordered intake, no separate
+/// replay channel. Returns
 /// [`ControlFlow::Break`] to stop the loop (Shutdown / channel disconnect),
 /// [`ControlFlow::Continue`] otherwise.
 #[allow(clippy::too_many_lines)] // Event loop with iframe integration.
 pub(super) fn pump_turn(state: &mut ContentState, last_frame: &mut Instant) -> ControlFlow<()> {
     {
-        // Phase 2 (§7.4.6.1 *apply the history step*) — drained at the TOP of the
-        // pump turn, BEFORE this turn's `recv_timeout`/`handle_message`, so it
-        // applies ONLY the traversals a PRIOR turn's Phase 1
-        // (`drain_synchronous_phase`, run inside `handle_message`'s input handlers)
-        // enqueued. This makes Phase 2 a genuine LATER task than the turn that
-        // enqueued it (plan §4.5 I1: "the async pump exposes the deferred apply only
-        // on a later turn — structural by construction"). Draining at the BOTTOM
-        // instead would apply a traversal THIS turn's input handler just enqueued,
-        // collapsing the task boundary the phase-separation exists to create. The
-        // apply ships its own frame (`handle_navigate`/`ship_frame`), and the drain
-        // is a BOUNDED snapshot (a reentrant re-enqueue defers to the next turn), so
-        // there is nothing to fold into `needs_render` and no unbounded work here.
-        let _ = elidex_navigation::DrainCoordinator::run_deferred_traversals(state);
+        // === Step 0: entry invariant (DOCUMENTED, not a live guard) ===
+        // `shutdown_requested` is set only inside `drain_host::dispatch_or_buffer_
+        // reentrant` (an SW-wait re-dispatch). Every reachable set-site is followed by a
+        // same-turn `Break`: the step-3 and step-4 `shutdown_requested` checks catch a
+        // set in the Phase-2 apply / held-message dispatch, and the step-6 bottom-drain
+        // check is the CATCH-ALL for a set anywhere in the frame tick (e.g. a
+        // `route_window_opens` / `tick_network` SW-wait between steps 4 and 6). So a turn
+        // that returns `Continue` leaves the flag false — `pump_turn` is only ever
+        // re-entered with it clear. This is ASSERTED, not live-checked: a runtime
+        // `if shutdown_requested { Break }` here would re-add the per-phase shutdown-
+        // check accretion the restructure removed, for a by-construction-unreachable
+        // state. The `debug_assert` documents (and, in debug builds, enforces) the
+        // invariant without that cost.
+        debug_assert!(
+            !state.shutdown_requested,
+            "pump_turn entry invariant: every shutdown_requested set-site Breaks same-turn \
+             (step-3/step-4 checks + the step-6 bottom-drain catch-all), so Continue ⟹ flag false"
+        );
 
-        // A `Shutdown` arriving during a guarded SW-wait INSIDE that Phase-2 apply is
-        // handled immediately (teardown ran) and sets `shutdown_requested` rather than
-        // buffering — so exit NOW, before this turn's `recv_timeout` blocks for the poll
-        // interval, and before any code touches the torn-down pipeline (Codex PR#469 R8).
-        if state.shutdown_requested {
-            return ControlFlow::Break(());
-        }
-
-        // Interim reentrancy guard replay (Codex PR#469 R4). A nav-mutating message
-        // that arrived while a Phase-2 apply held the peek→commit window was BUFFERED
-        // by the SW-fetch wait loop (`drain_host::dispatch_or_buffer_reentrant`)
-        // rather than mutating session history mid-apply. Replay it HERE — after the
-        // `run_deferred_traversals` above has fully committed and cleared the
-        // nested-apply guard (`is_applying()` is now false), so the buffered
-        // `Navigate`/`Reload`/chrome/input message dispatches OUTSIDE any held peek.
-        // Any buffered exit-signaling message replayed there returns the content-thread
-        // exit signal — propagate it as `Break` so `run_event_loop` exits, rather than
-        // pumping on with it already consumed from the channel and then blocking on the
-        // next `recv` (Codex PR#469 R5). `Shutdown` itself no longer reaches this buffer
-        // (it is handled immediately at `dispatch_or_buffer_reentrant` and exits via the
-        // `shutdown_requested` check above — Codex PR#469 R8); this stays as the
-        // DEFENSIVE path for any exit-signaling message still routed through the buffer.
-        if replay_deferred_reentrant_messages(state).is_break() {
-            return ControlFlow::Break(());
-        }
-        // A replayed nav-mutating message (`Navigate`/`Reload`/`GoBack`/`GoForward`) can
-        // enter a NESTED SW-wait and consume a re-dispatched `Shutdown` there
-        // (`dispatch_or_buffer_reentrant` ran teardown + set `shutdown_requested`), yet
-        // `handle_message` returned `true` for those arms (they discard `handle_navigate`'s
-        // `false`), so `replay_deferred_reentrant_messages` reports `Continue`. Break NOW —
-        // before this turn's `recv_timeout` blocks for the poll interval and the frame tick
-        // touches the torn-down pipeline — mirroring the after-drain (above) and
-        // after-`handle_message` (below) checks. Completes the "check `shutdown_requested`
-        // after EVERY pump phase" invariant: the replay was the one uncovered phase (Codex
-        // PR#469 R8 re-check).
-        if state.shutdown_requested {
-            return ControlFlow::Break(());
-        }
-
-        let animations_running = state.pipeline.animation_engine.has_running();
-
-        let now_for_timeout = Instant::now();
-        let timer_timeout = state
-            .pipeline
-            .runtime
-            .next_timer_deadline()
-            .map(|d| d.saturating_duration_since(now_for_timeout));
-        let timeout = if animations_running {
-            let next_frame = *last_frame + FRAME_INTERVAL;
-            let frame_remaining = next_frame
-                .saturating_duration_since(now_for_timeout)
-                .max(Duration::from_millis(1));
-            timer_timeout.map_or(frame_remaining, |t| frame_remaining.min(t))
+        // === Step 1: intake ONE message, HELD (plan §4 message-held skeleton) ===
+        // A single intake point per turn — the SOLE reader of the channel/buffer, so
+        // exactly ONE message is read and held (never a `try_recv` probe that could
+        // drop it — crossbeam has no peek/putback; plan §4 IMP-2). Buffer-first: a
+        // reentrant message the SW-fetch wait loop deferred while a Phase-2 apply held
+        // the peek→commit window (`drain_host::dispatch_or_buffer_reentrant`) is
+        // re-delivered ONE per turn through this same path, so it inherits the turn's
+        // Phase-2 apply (step 3, before it) and the R9 bottom drain (step 6, after it)
+        // — retiring the old top-of-turn replay batch (a 2nd dispatch channel; §0).
+        let msg: Option<BrowserToContent> = if state.deferred_reentrant_messages.is_empty() {
+            // Wait-duration only (NOT an ordering gate): fold a pending deferred
+            // traversal into the timeout as `0` — like a due timer — so an idle turn
+            // with a queued traversal returns immediately and step 3 applies it without
+            // a poll-interval delay (plan §4.1 Liveness). Same category as the existing
+            // animation/timer timeout inputs.
+            let timeout = if state.traversal_queue.is_empty() {
+                let now_for_timeout = Instant::now();
+                let timer_timeout = state
+                    .pipeline
+                    .runtime
+                    .next_timer_deadline()
+                    .map(|d| d.saturating_duration_since(now_for_timeout));
+                if state.pipeline.animation_engine.has_running() {
+                    let next_frame = *last_frame + FRAME_INTERVAL;
+                    let frame_remaining = next_frame
+                        .saturating_duration_since(now_for_timeout)
+                        .max(Duration::from_millis(1));
+                    timer_timeout.map_or(frame_remaining, |t| frame_remaining.min(t))
+                } else {
+                    timer_timeout.unwrap_or(DEFAULT_POLL_INTERVAL)
+                }
+            } else {
+                Duration::ZERO
+            };
+            match state.channel.recv_timeout(timeout) {
+                Ok(m) => Some(m),
+                Err(RecvTimeoutError::Timeout) => None,
+                Err(RecvTimeoutError::Disconnected) => return ControlFlow::Break(()),
+            }
         } else {
-            timer_timeout.unwrap_or(DEFAULT_POLL_INTERVAL)
+            // FIFO one-per-turn re-delivery (the buffer is bounded — it only fills
+            // during a single `is_applying()` SW-wait window). No channel wait this turn.
+            Some(state.deferred_reentrant_messages.remove(0))
         };
 
-        match state.channel.recv_timeout(timeout) {
-            Ok(msg) => {
-                // `handle_message` returns `false` on `Shutdown` (after dispatching
-                // unload) — stop the loop before this iteration's frame tick so no
-                // script/render work runs after unload.
-                if !handle_message(msg, state) {
-                    return ControlFlow::Break(());
-                }
-                // A fresh navigation's (non-nested) SW-wait can also see a re-dispatched
-                // `Shutdown`: `handle_navigate` ran teardown + set `shutdown_requested`
-                // and returned without applying, but its caller `handle_message` returned
-                // `true`. Break here so the thread exits without a frame tick on the
-                // torn-down pipeline (Codex PR#469 R8).
-                if state.shutdown_requested {
-                    return ControlFlow::Break(());
-                }
-                if state.pipeline.animation_engine.has_active() {
-                    state.pipeline.prune_dead_animation_entities();
-                }
+        // === Step 2: teardown-priority (plan §4 :49) ===
+        // A `Shutdown` already in hand is handled BEFORE any Phase-2 work — no
+        // `popstate` handler / cross-document load runs on a closing tab. Decided on
+        // the ALREADY-HELD message, so no channel peek is needed (`Shutdown` is a unit
+        // variant — reconstruct it for dispatch). elidex teardown-priority policy,
+        // permitted by §8.1.7.3 step 2.1 (the event loop picks "one such task queue,
+        // chosen in an implementation-defined manner").
+        // `handle_message(Shutdown)` returns `false` iff it ACTUALLY tore down (unload
+        // ran) → Break; a `beforeunload`-CANCELED `Shutdown` returns `true` (keep
+        // running) — do NOT force the exit, matching the recv-path `Shutdown` contract:
+        // consume it and continue this turn message-less (msg → `None`).
+        let msg = if matches!(msg, Some(BrowserToContent::Shutdown)) {
+            if !handle_message(BrowserToContent::Shutdown, state) {
+                return ControlFlow::Break(());
             }
-            Err(RecvTimeoutError::Timeout) => {}
-            Err(RecvTimeoutError::Disconnected) => return ControlFlow::Break(()),
+            None
+        } else {
+            msg
+        };
+
+        // === Step 3: Phase-2 apply + popstate SAME-document sync settle ===
+        // Phase 2 (§7.4.6.1 *apply the history step*) applies ONLY the traversals a
+        // PRIOR turn enqueued (I1: a genuine LATER task — Phase 2 does not itself
+        // enqueue; only the drains do, all at/after this point). A same-document
+        // traversal fires `popstate` SYNCHRONOUSLY here, whose handler may stage a
+        // same-document `pushState`/`replaceState` (`pending_history`) AND/OR a
+        // CROSS-document `location.*` (`pending_navigation`).
+        //
+        // The top drain is `drain_synchronous_updates` — Phase 1a (window-opens) +
+        // Phase 1b (same-document `pending_history`), but NOT Phase 1c
+        // (`handle_navigation`, the cross-document `pending_navigation` apply). This
+        // settles the popstate-staged SAME-document `pushState` into the
+        // NavigationController BEFORE step 4's held message (the :73 property — the
+        // committed entry survives a held-Navigate rebuild), while a popstate-staged
+        // CROSS-document navigation is NEVER drained at the top (step 3): it is drained
+        // at step 4's input handler (in-task, AFTER the event dispatched) or the step-6
+        // bottom `drain_synchronous_phase` (Phase 1c) — both AFTER the held input
+        // dispatches. A blocking cross-document load rebuilds `state.pipeline`; running
+        // it here (before step 4) would make a held `MouseClick`/`KeyDown` hit the WRONG
+        // document. Per spec a `location.assign` completes in a LATER task, so an
+        // already-pending input (older task) must process against the pre-navigation
+        // document — hence the cross-document nav is never applied before the input.
+        // `run_deferred_traversals` drains only the traversal queue (NOT the
+        // history/nav FIFO), so this updates drain is what commits the popstate
+        // same-document intent.
+        let _ = elidex_navigation::DrainCoordinator::run_deferred_traversals(state);
+        let _ = elidex_navigation::DrainCoordinator::drain_synchronous_updates(state);
+        // Phase 2 / the top drain can reach `handle_navigate`'s SW-wait, where a
+        // re-dispatched `Shutdown` runs teardown + sets `shutdown_requested`. Break
+        // before any code touches the torn-down pipeline (Codex PR#469 R8).
+        if state.shutdown_requested {
+            return ControlFlow::Break(());
         }
 
-        // --- Frame tick: animations + timers ---
+        // === Step 4: dispatch the HELD message (after Phase-2 + same-doc settle) ===
+        // `msg` is non-`Shutdown` here (step 2 exited on `Shutdown`). It dispatches
+        // AFTER the queued traversal applied (step 3) — so a direct `Navigate` can
+        // never overtake a queued traversal (:416) — and after the popstate
+        // same-document intent was settled — so a rebuild here cannot sever it (:73).
+        // Because step 3 did NOT run Phase 1c, a popstate-staged CROSS-document
+        // navigation is still pending here, so a held input hits the pre-nav document;
+        // that nav applies below at step 6.
+        if let Some(msg) = msg {
+            // `handle_message` returns `false` on `Shutdown` (already excluded) — the
+            // `false`/`Break` path stays for the recv contract's completeness.
+            if !handle_message(msg, state) {
+                return ControlFlow::Break(());
+            }
+            // A fresh navigation's (non-nested) SW-wait can also see a re-dispatched
+            // `Shutdown`: `handle_navigate` ran teardown + set `shutdown_requested` and
+            // returned without applying, but its caller `handle_message` returned
+            // `true`. Break here so the thread exits without a frame tick on the
+            // torn-down pipeline (Codex PR#469 R8).
+            if state.shutdown_requested {
+                return ControlFlow::Break(());
+            }
+            if state.pipeline.animation_engine.has_active() {
+                state.pipeline.prune_dead_animation_entities();
+            }
+        }
+
+        // === Step 5: frame tick (animations / timers / iframe / network / render) ===
+        // Every JS phase that may STAGE a nav intent (drained by the step-6 bottom
+        // drain): `drain_timers`, `dispatch_message_event`, `tick_network`,
+        // `drain_worker_messages`, plus the re-render.
         let now = Instant::now();
         let dt = now.duration_since(*last_frame);
         let mut needs_render = false;
@@ -278,10 +338,10 @@ pub(super) fn pump_turn(state: &mut ContentState, last_frame: &mut Instant) -> C
         let window_opens = state.pipeline.runtime.take_pending_window_opens();
         needs_render |= super::navigation::route_window_opens(state, window_opens).navigated_iframe;
 
-        // NOTE: Phase 2 (§7.4.6.1 *apply the history step*) is drained at the TOP of
-        // the loop, NOT here — so a traversal enqueued by THIS turn's input handler
+        // NOTE: Phase 2 (§7.4.6.1 *apply the history step*) is applied at step 3 of
+        // the turn, NOT here — so a traversal enqueued by THIS turn's input handler
         // (`handle_message` → `drain_synchronous_phase`) applies on the NEXT pump
-        // turn, a genuine later task (plan §4.5 I1). See the top-of-loop drain.
+        // turn, a genuine later task (plan §4.5 I1). See the step-3 apply.
 
         if state.pipeline.runtime.take_pending_focus() {
             state.notify_browser(ContentToBrowser::FocusWindow);
@@ -331,34 +391,51 @@ pub(super) fn pump_turn(state: &mut ContentState, last_frame: &mut Instant) -> C
             state.send_display_list();
         }
 
+        // === Step 6: R9 bottom drain (FULL Phase 1, incl. 1c cross-document nav) ===
         // Phase 1 (§7.4.2 last-wins navigation / §7.4.4 synchronous history
-        // updates) — drained at the BOTTOM of the turn, AFTER every JS-running
-        // phase above: the top-of-turn `run_deferred_traversals` (a same-document
-        // traversal fires `popstate` SYNC via `same_document_step`), `drain_timers`,
-        // `dispatch_message_event` (postMessage), `tick_network` (fetch callbacks),
-        // and `drain_worker_messages`. Any of those callbacks may call
-        // `location.assign()` / `history.pushState()` / `history.back()`, which only
-        // STAGE intents in the VM `pending_navigation` / `pending_history` buffers.
-        // `drain_synchronous_phase` is the SOLE drain of those buffers — and it
-        // otherwise runs ONLY from the input handlers (`event_handlers.rs` click /
-        // key). Without this drain a nav staged by a popstate/timer/fetch/worker
-        // callback sits UNPROCESSED until an unrelated later INPUT turn drained it,
-        // firing much too late — the "navigation stuck" bug (Codex PR#469 R9). This
-        // completes the event-loop turn: the callback-staged nav applies in-task
-        // (a `location.*` / `pushState`), or a `Back`/`Forward`/`Go` is ENQUEUED for
-        // the NEXT turn's top-of-loop `run_deferred_traversals` — NOT applied this
-        // turn (`drain_synchronous_phase` only enqueues traversals, never applies
-        // them; the apply is Phase 2, at the TOP of a later turn), preserving the
-        // §4.5 I1 task boundary.
+        // updates) — the R9 BOTTOM drain, the FULL `drain_synchronous_phase` (1a
+        // window-opens + 1b same-document sync + 1c CROSS-document nav), run AFTER
+        // every frame-tick JS phase above: `drain_timers`, `dispatch_message_event`
+        // (postMessage), `tick_network` (fetch callbacks), `drain_worker_messages`,
+        // and any non-input step-4 held message handler (e.g. a
+        // `resize`/`visibilitychange` listener). Any of those callbacks may call
+        // `location.assign()` / `history.pushState()` / `history.back()`, staging
+        // intents in the VM `pending_navigation` / `pending_history` buffers.
         //
-        // Window-open routing stays EXACTLY-ONCE. The frame-tick `route_window_opens`
-        // above already drained the queue present at that point (opens staged by the
-        // popstate / timer / postMessage phases); this drain's Phase-1a seam
-        // (`DrainHost::route_window_opens`) takes only the LEFTOVER opens staged by the
-        // later `tick_network` / `drain_worker_messages` phases — a temporal
-        // partition of `take_pending_window_opens`, never the same intent twice. The
-        // returned `DrainOutcome` is ignored: a pump turn has no `<a href>` default to
-        // suppress, and the drain ships its own frames (`ship_if_needed` /
+        // The drain partition (top `drain_synchronous_updates` vs bottom
+        // `drain_synchronous_phase`) is ASYMMETRIC, not just temporal:
+        //   · top (step 3) = 1a + 1b only — same-document `pushState`/`replaceState`
+        //     (the popstate intent the :73 property protects) + window-opens.
+        //   · bottom (step 6) = 1a + 1b + 1c — runs Phase 1c (`handle_navigation`), the
+        //     CROSS-document `pending_navigation` drain.
+        // A popstate-staged cross-document `location.assign` is NEVER drained at the
+        // top (step 3): it is drained at step 4's input handler (in-task Phase 1c, AFTER
+        // the event dispatched) or here at step 6 — both AFTER the step-4 held input
+        // dispatched, so the input hits the pre-navigation document (spec:
+        // `location.assign` completes in a later task than an already-pending input) and
+        // the cross-document nav applies as that later task. The single VM FIFO stays
+        // the ordering SoT; the same-document
+        // `pending_history` is drained by whichever of top/bottom first observes it
+        // (take-consumed, no double-apply). Without this drain a nav staged by a
+        // timer/fetch/worker callback sits UNPROCESSED until an unrelated later INPUT
+        // turn drained it — the "navigation stuck" bug (Codex PR#469 R9). The
+        // callback-staged nav applies in-task (a `location.*` / `pushState`), or a
+        // `Back`/`Forward`/`Go` is ENQUEUED for a LATER turn's step-3
+        // `run_deferred_traversals` — NOT applied this turn (`drain_synchronous_*`
+        // only enqueues traversals, never applies them; the apply is Phase 2, at step
+        // 3 of a later turn), preserving the §4.5 I1 task boundary.
+        //
+        // Window-open routing stays EXACTLY-ONCE across THREE drain points this turn,
+        // each consuming via `take_pending_window_opens` (a take, not a peek), so an
+        // open is routed by whichever point first observes it and never twice: (1) the
+        // step-3 TOP `drain_synchronous_updates` Phase-1a seam (opens staged by the
+        // Phase-2 popstate apply); (2) the frame-tick `route_window_opens` above (opens
+        // staged by the held message / `drain_timers` / postMessage phases); (3) this
+        // bottom drain's Phase-1a seam (`DrainHost::route_window_opens`), taking only
+        // the LEFTOVER opens staged by the later `tick_network` / `drain_worker_messages`
+        // phases. A temporal partition of one take-consumed queue, never the same intent
+        // twice. The returned `DrainOutcome` is ignored: a pump turn has no `<a href>`
+        // default to suppress, and the drain ships its own frames (`ship_if_needed` /
         // `handle_navigate`).
         let _ = elidex_navigation::DrainCoordinator::drain_synchronous_phase(state);
 
@@ -374,60 +451,6 @@ pub(super) fn pump_turn(state: &mut ContentState, last_frame: &mut Instant) -> C
         }
     }
 
-    ControlFlow::Continue(())
-}
-
-/// Replay any messages the SW-fetch wait loop BUFFERED because they were
-/// re-dispatched while a Phase-2 traversal apply held the peek→commit window (the
-/// interim reentrancy guard, Codex PR#469 R4 — see
-/// [`super::drain_host::dispatch_or_buffer_reentrant`]). Called at the top of
-/// [`pump_turn`], AFTER `run_deferred_traversals` has fully committed the apply and
-/// cleared the nested-apply guard, so each buffered nav-mutating message now runs
-/// through the normal [`handle_message`] path OUTSIDE any held peek — the mutation
-/// window the guard closed. Takes the buffer out first so the replayed handler may
-/// itself buffer again (a fresh apply) without aliasing the drain.
-/// Returns [`ControlFlow::Break`] iff a replayed message signalled the content thread
-/// to exit — `handle_message` returns `false` for a `Shutdown` (after running
-/// unload/teardown). The caller ([`pump_turn`]) propagates that `Break` so
-/// [`run_event_loop`] stops. A buffered `Shutdown` MUST NOT be discarded: it is
-/// consumed from the channel here, so swallowing its exit signal would leave the pump
-/// running and then blocking on the next `recv` — a hung/leaked content thread on
-/// shutdown-during-a-SW-controlled-apply (Codex PR#469 R5).
-///
-/// A replay can ALSO trip `shutdown_requested` WITHOUT returning `Break`: a replayed
-/// `Navigate`/`Reload`/`GoBack`/`GoForward` whose nested SW-wait consumed a `Shutdown`
-/// (teardown ran, flag set) returns from `handle_message` as `true` (those arms discard
-/// `handle_navigate`'s `false`). The loop STOPS on the flag so no later buffered message
-/// dispatches on the torn-down pipeline; `pump_turn`'s post-replay `shutdown_requested`
-/// check surfaces the exit (Codex PR#469 R8 re-check — the replay was the last uncovered
-/// pump phase).
-pub(super) fn replay_deferred_reentrant_messages(state: &mut ContentState) -> ControlFlow<()> {
-    if state.deferred_reentrant_messages.is_empty() {
-        return ControlFlow::Continue(());
-    }
-    debug_assert!(
-        !state.traversal_queue.is_applying(),
-        "buffered reentrant messages must replay only after the apply committed"
-    );
-    for msg in std::mem::take(&mut state.deferred_reentrant_messages) {
-        // Replay FIFO; on the first exit-signalling message (`handle_message` → `false`
-        // = Shutdown), stop and propagate `Break` — the remaining buffered messages are
-        // moot because the thread is exiting.
-        if !handle_message(msg, state) {
-            return ControlFlow::Break(());
-        }
-        // A replayed nav-mutating message can ALSO signal exit WITHOUT returning `false`:
-        // its `handle_navigate` may enter a nested SW-wait and consume a re-dispatched
-        // `Shutdown` there (`dispatch_or_buffer_reentrant` ran teardown + set
-        // `shutdown_requested`), but the `Navigate`/`Reload`/`GoBack`/`GoForward` arms
-        // discard `handle_navigate`'s `false`, so `handle_message` returned `true`. STOP
-        // replaying the REST of the batch — a message ordered AFTER the shutdown-consuming
-        // one must NOT dispatch on the torn-down pipeline. `pump_turn`'s post-replay
-        // `shutdown_requested` check surfaces the exit as `Break` (Codex PR#469 R8 re-check).
-        if state.shutdown_requested {
-            break;
-        }
-    }
     ControlFlow::Continue(())
 }
 
