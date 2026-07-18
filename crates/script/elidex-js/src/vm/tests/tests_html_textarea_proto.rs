@@ -64,6 +64,31 @@ fn textarea_cols_round_trip() {
 }
 
 #[test]
+fn textarea_rows_getter_reflects_microsyntax() {
+    // FIX 3: the `rows` getter reflects via the shared
+    // `parse_positive_with_fallback` (HTML §2.6.1 "…positive numbers with
+    // fallback"), agreeing with FormControlState / layout instead of the old
+    // whole-string `i32::parse` in `long_get`. `rows="5px"` → 5 (leading digit
+    // run), not the default 2 the whole-string parse fell back to.
+    let out = run("var t = document.createElement('textarea'); \
+         t.setAttribute('rows', '5px'); \
+         '' + t.rows;");
+    assert_eq!(out, "5");
+}
+
+#[test]
+fn textarea_rows_getter_zero_falls_back_to_default() {
+    // `rows="0"` is outside the [1, 2147483647] range → the getter returns the
+    // default 2, matching the rendered row count (layout applies the same
+    // positive-with-fallback rule via the reconciler arm). Previously the
+    // `long_get` whole-string parse returned 0, diverging from layout.
+    let out = run("var t = document.createElement('textarea'); \
+         t.setAttribute('rows', '0'); \
+         '' + t.rows;");
+    assert_eq!(out, "2");
+}
+
+#[test]
 fn textarea_max_length_default_minus_one() {
     let out = run("var t = document.createElement('textarea'); '' + t.maxLength;");
     assert_eq!(out, "-1");

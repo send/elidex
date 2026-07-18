@@ -857,6 +857,17 @@ fn parse_positive_with_fallback_takes_positive_else_default() {
     assert_eq!(parse_positive_with_fallback(Some("+5"), 2), 5); // leading `+` consumed
     assert_eq!(parse_positive_with_fallback(Some("  12  "), 2), 12); // ws both sides
     assert_eq!(parse_positive_with_fallback(Some(" "), 2), 2); // whitespace only → default
+
+    // §2.6.1 getter steps 5-6: the reflection is bounded by maximum
+    // 2147483647 (inclusive). The max itself is accepted; anything above it
+    // (still ≤ u32::MAX, or overflowing u32) falls back to the default.
+    assert_eq!(
+        parse_positive_with_fallback(Some("2147483647"), 2),
+        2_147_483_647
+    ); // max, accepted
+    assert_eq!(parse_positive_with_fallback(Some("2147483648"), 2), 2); // max + 1 → default
+    assert_eq!(parse_positive_with_fallback(Some("3000000000"), 2), 2); // > max, ≤ u32::MAX → default
+    assert_eq!(parse_positive_with_fallback(Some("4294967295"), 2), 2); // u32::MAX → default
 }
 
 #[test]
