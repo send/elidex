@@ -41,6 +41,57 @@ fn layout_fragmented_single_fragment_when_content_fits() {
 }
 
 #[test]
+fn layout_fragmented_invalidates_screen_geometry_provenance() {
+    // Provenance (terminal-Z C-3a §2): `layout_fragmented_with_tokens` is the
+    // COMPLETE paged store-write locus, and entering it must invalidate a prior
+    // screen pass's `CompletedScreen` — else `screen_geometry()` would read a
+    // page-relative store as screen geometry (soundness hole 1). Fires before any
+    // `push_box`, so it holds even for a zero-write page.
+    let mut dom = EcsDom::new();
+    let div = dom.create_element("div", Attributes::default());
+    dom.world_mut().insert_one(
+        div,
+        ComputedStyle {
+            display: Display::Block,
+            height: Dimension::Length(50.0),
+            ..Default::default()
+        },
+    );
+    // A prior screen pass completed.
+    dom.fragment_tree_mut().publish_completed_screen();
+    assert!(
+        dom.screen_geometry().is_some(),
+        "precondition: completed screen"
+    );
+
+    let font_db = FontDatabase::new();
+    let frag = elidex_layout_block::FragmentainerContext {
+        available_block_size: 200.0,
+        fragmentation_type: elidex_layout_block::FragmentationType::Page,
+    };
+    let input = elidex_layout_block::LayoutInput {
+        containing: CssSize::definite(400.0, 1000.0),
+        containing_inline_size: 400.0,
+        offset: Point::ZERO,
+        font_db: &font_db,
+        depth: 0,
+        float_ctx: None,
+        viewport: None,
+        fragmentainer: None,
+        break_token: None,
+        subgrid: None,
+        layout_generation: 0,
+        is_probe: false,
+    };
+    let _ = layout_fragmented(&mut dom, div, &input, frag);
+
+    assert!(
+        dom.screen_geometry().is_none(),
+        "the paged layout locus invalidated the stale CompletedScreen"
+    );
+}
+
+#[test]
 fn layout_fragmented_two_fragments_on_overflow() {
     let mut dom = EcsDom::new();
     let parent = dom.create_element("div", Attributes::default());

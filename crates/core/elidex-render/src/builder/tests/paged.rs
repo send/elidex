@@ -45,6 +45,40 @@ fn single_page_display_list() {
 }
 
 #[test]
+fn interleaved_paged_driver_leaves_screen_geometry_invalid() {
+    // Provenance (terminal-Z C-3a §2), production path end-to-end: the interleaved
+    // driver's Phase 1 (`layout_fragmented_with_tokens`) invalidates the store and
+    // its Phase 2 inherits that `Invalid`; nothing on the paged path publishes. So a
+    // prior screen pass's `CompletedScreen` cannot survive a paged render — a reader
+    // can never see a page-relative store as screen geometry.
+    let (mut dom, _elem) = setup_block_element(
+        elidex_plugin::ComputedStyle {
+            display: elidex_plugin::Display::Block,
+            ..Default::default()
+        },
+        elidex_plugin::LayoutBox {
+            content: Rect::new(0.0, 0.0, 100.0, 100.0),
+            ..Default::default()
+        },
+    );
+    // A prior screen pass completed.
+    dom.fragment_tree_mut().publish_completed_screen();
+    assert!(
+        dom.screen_geometry().is_some(),
+        "precondition: completed screen"
+    );
+
+    let font_db = elidex_text::FontDatabase::new();
+    let page_ctx = make_page_ctx(816.0, 1056.0);
+    let _ = build_paged_display_lists_interleaved(&mut dom, &font_db, &page_ctx);
+
+    assert!(
+        dom.screen_geometry().is_none(),
+        "the interleaved paged driver leaves phase Invalid (Phase 1 invalidates, no publish)"
+    );
+}
+
+#[test]
 fn multi_page_display_list_count() {
     let fragments: Vec<elidex_layout::PageFragment> = (1..=3)
         .map(|i| elidex_layout::PageFragment {

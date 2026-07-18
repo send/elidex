@@ -27,6 +27,26 @@ fn layout_tree_assigns_layout_box() {
 }
 
 #[test]
+fn layout_tree_publishes_completed_screen_provenance() {
+    // Provenance (terminal-Z C-3a §2): `layout_tree` invalidates before laying out
+    // and PUBLISHES a completed screen pass at completion (single publisher). So
+    // `screen_geometry()` opens only after a full screen pass.
+    let (mut dom, ..) = build_styled_dom();
+    assert!(
+        dom.screen_geometry().is_none(),
+        "no completed screen pass before layout"
+    );
+
+    let font_db = FontDatabase::new();
+    layout_tree(&mut dom, Size::new(800.0, 600.0), &font_db);
+
+    assert!(
+        dom.screen_geometry().is_some(),
+        "layout_tree publishes CompletedScreen at completion"
+    );
+}
+
+#[test]
 fn nested_divs_position() {
     let (mut dom, _root, _html, body) = build_styled_dom();
     let div = dom.create_element("div", Attributes::default());

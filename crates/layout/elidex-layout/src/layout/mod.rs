@@ -278,6 +278,17 @@ pub fn layout_fragmented_with_tokens(
     Vec<elidex_layout_block::LayoutOutcome>,
     Vec<Option<elidex_layout_block::BreakToken>>,
 ) {
+    // Provenance (terminal-Z C-3a §2): this is the COMPLETE paged store-write locus.
+    // The interleaved driver's Phase 1 calls it directly, `layout_paged` reaches it
+    // via `layout_fragmented`, and the driver's Phase-2 per-page direct dispatch
+    // writes AFTER Phase 1 so it inherits this `Invalid` (Phase 1 computes the page
+    // count Phase 2 loops over — a structural dependency, not incidental ordering).
+    // A paged store is page-relative, never a completed screen pass, and nothing
+    // here publishes, so `screen_geometry()` correctly reads `None` over it — even a
+    // zero-write page (this fires before any `push_box`). Not on the screen path
+    // (screen multicol commits via `elidex-layout-multicol`, not `layout_fragmented`).
+    dom.fragment_tree_mut().invalidate();
+
     let mut fragments = Vec::new();
     let mut tokens = Vec::new();
     let mut current_token: Option<elidex_layout_block::BreakToken> = None;
@@ -322,11 +333,20 @@ pub fn layout_tree(dom: &mut EcsDom, viewport: Size, font_db: &FontDatabase) {
     // NOT clear here and may leave incidental dark fragments; folding paged media
     // into the store (and its hygiene) is committed-next, per the
     // `FragmentNode::fragmentainer` docstring.
+    // Provenance (terminal-Z C-3a §2): invalidate BEFORE laying out, so a stale
+    // `CompletedScreen` from a prior pass cannot be read while this pass's store is
+    // empty/partial (the re-entrant-screen soundness hole). `clear()` below is
+    // arena-only and does not touch the phase.
+    dom.fragment_tree_mut().invalidate();
     dom.fragment_tree_mut().clear();
     let roots = find_roots(dom);
     for root in roots {
         layout_root(dom, root, viewport, font_db);
     }
+    // Single publisher: `layout_tree` is the ONLY site that marks the store a
+    // completed screen pass, and only here at completion (after all roots are laid).
+    // Probes run inside this window (before this line), so they read `Invalid`.
+    dom.fragment_tree_mut().publish_completed_screen();
 }
 
 /// Find root entities for layout: parentless entities with styles or children.
