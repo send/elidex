@@ -156,6 +156,7 @@ mod tests_storage;
 mod tests_string;
 mod tests_string_complement;
 mod tests_structured_clone;
+mod tests_symbol_coercion;
 mod tests_symbol_iter;
 mod tests_text_encoding;
 mod tests_timer;
