@@ -492,8 +492,8 @@ went wrong):
 | # | Axis | Question | Invariant |
 |---|---|---|---|
 | 1 | **frame** | doc-space, or a local frame the reader composes? | I-frame |
-| 2 | **phase** | **in-layout** (must NOT use `box_fragments`) / **screen-post-layout** (valid) / **paged-post-layout** (INVALID — the paged path does not `clear()` and its `fragmentainer` is page-relative, I-phase fact 3; a render-residual reader under `paged:true` — e.g. `paint/mod.rs`, `form.rs` helpers — is "post-layout" yet reads page-relative geometry). Trinary, not binary — a binary post-vs-in-layout split marks a paged reader "fully classified" while nothing captures its paged-store invalidity | I-phase |
-| 3 | **boxless** | spec-zero, or box-absent? — ⚠ and the **`display:contents` producer defects the audit must record** (Codex R7-Y5, **re-scoped at R17-FF1**): CSS Display 3 **§2.5** *"the element itself does not generate any boxes"* (webref-verified; live comments cite **§2.8** — `layout/mod.rs:71` and `elidex-layout-block/src/helpers.rs:355` both drift, and the axis must record whichever the sweep finds rather than trust this pair; webref: §2.8 = "The Root Element's Principal Box"). An *ordinary* such element is **already box-absent** (layout flattens it away before dispatch; that line never writes to the ECS), so `box_fragments` gives the spec answer by construction. **What this axis MUST determine — by sweep, not from this memo** (the mandate invariant above): **enumerate every producer path that leaves a `LayoutBox` on an element that has no associated CSS box — whether because it generates none *or because it is not connected*** (§1 requirement 5 gives the examples), and record, per reader, whether it would then read a real zero-sized box instead of taking its no-box branch (cssom-view §6 → empty; §3 row / §1 req 5). This memo names examples only to prove the class is non-empty (§1 requirement 5) — it does **not** enumerate it. C-3 **inherits** whatever the sweep finds (no regression). What the seam's answer is worth is **§1 requirement 5's**, not this axis's. This axis only **classifies**: per reader, does it need a true *"has an associated CSS box"* predicate, and is its zero-rect case spec-zero or box-absent? | I-boxless |
+| 2 | **phase** | **in-layout** (must NOT use `box_fragments`) / **screen-post-layout** (valid) / **paged-post-layout** (INVALID per **I-phase fact 3**; a render-residual reader under `paged:true` — e.g. `paint/mod.rs`, `form.rs` helpers — is "post-layout" yet reads page-relative geometry). Trinary, not binary — a binary post-vs-in-layout split marks a paged reader "fully classified" while nothing captures its paged-store invalidity | I-phase |
+| 3 | **boxless** | spec-zero, or box-absent? — ⚠ and the **`display:contents` producer defects the audit must record** (Codex R7-Y5, **re-scoped at R17-FF1**): CSS Display 3 **§2.5** (§3 row; webref-verified) — live comments cite **§2.8** — `layout/mod.rs:71` and `elidex-layout-block/src/helpers.rs:355` both drift, and the axis must record whichever the sweep finds rather than trust this pair; webref: §2.8 = "The Root Element's Principal Box"). An *ordinary* such element is **already box-absent** (layout flattens it away before dispatch; that line never writes to the ECS), so `box_fragments` gives the spec answer by construction. **What this axis MUST determine — by sweep, not from this memo** (the mandate invariant above): **enumerate every producer path that leaves a `LayoutBox` on an element that has no associated CSS box — whether because it generates none *or because it is not connected*** (§1 requirement 5 gives the examples), and record, per reader, whether it would then read a real zero-sized box instead of taking its no-box branch (cssom-view §6 → empty; §3 row / §1 req 5). This memo names examples only to prove the class is non-empty (§1 requirement 5) — it does **not** enumerate it. C-3 **inherits** whatever the sweep finds (no regression). What the seam's answer is worth is **§1 requirement 5's**, not this axis's. This axis only **classifies**: per reader, does it need a true *"has an associated CSS box"* predicate, and is its zero-rect case spec-zero or box-absent? | I-boxless |
 | 4 | **source vs routing** | does the migration change *which rects* feed it (⇒ a test), or only *which fragment*? (**everything is a source/behavior change at N>1** — the G11 last-column fact) | N=1 invariant limit |
 | 5 | **reduction** | union / first / per-fragment / **not a geometry read** (e.g. the paged-gen gate reads `layout_generation`, which `BoxFragment` drops) / **a *selection* problem with no store signal** (the inline-text anchor) | — |
 | 6 | **home + shape** | which crates must reach it (floor/ceiling)? and is it a **per-entity projection** or a **cross-entity aggregate** (e.g. shell scroll-extent is a `query` with a `display!=None` co-read — `box_fragments` cannot express it)? | layering |
@@ -563,8 +563,7 @@ C-3a (seam + audit) ──┬── C-3b  CSSOM geometry (elidex-dom-api)       
    PM ledger keyed to a hand-picked subset lets C-4 delete `LayoutBox` while stranding the rest.
    *(→ hand-off row 2 — deliberately its own row, not folded into row 1: provenance makes the guard sound,
    this makes the in-layout readers migratable.)*
-3. **Paged-store CONTENT hygiene** — the paged path must clear/rebuild the store (its `fragmentainer` key is
-   page-relative and it never clears, so it leaves incidental cross-page fragments). ⚠ Scope note (R8-Z1): this
+3. **Paged-store CONTENT hygiene** — the paged path must clear/rebuild the store (§2 I-phase fact 3: page-relative key, never cleared). ⚠ Scope note (R8-Z1): this
    is **only** the store's *content*; the paged entries' **provenance invalidation** is **C-3a's** (§6.3) —
    the guard is unsound if split, so it is not deferred here. *(Committed-next per the code; → hand-off row 3.)*
 4. **`layout_generation` re-homed** — it serves the paged-gen gate AND the box-staleness generation-bump;
@@ -596,8 +595,7 @@ table in the first place (Codex R13-CC2).
 
 ## §6 Report to PM (coordination)
 
-1. **PR #463 closed**, re-anchored on this C-3a-first memo (the umbrella characterized consumers before the
-   audit that determines them; three collapses each re-introduced an unverified-premise defect). Codex R1-R7
+1. **PR #463 closed**, re-anchored on this C-3a-first memo (the #463 failure diagnosis is the opening rationale, not restated). Codex R1-R7
    history preserved on branch `terminal-z-c3-plan` @ `7204c12e`.
 2. **Two shared-SoT corrections — hand-off rows 9 and 10** (§6.4 is the record: owner + trigger; this item is
    the *detail* PM needs to apply them). The memo does not edit the shared SoT itself. (a) the anchor memo's v2 retraction
@@ -605,15 +603,14 @@ table in the first place (Codex R13-CC2).
    the *relocation* was fabricated. (b) the reader-crate lists should name **`elidex-js`** (the observer host),
    not `elidex-api-observers`. ⚠ Phrase it as *"the **current live** observer-geometry reader is the
    `elidex-js` host closure"* — **not** "api-observers is untouched by C-3" (Codex R11-BB4): §1 leaves C-3d the
-   option (c) of adding the acyclic `api-observers → dom-api` edge and implementing IO §3.2.10 step 7
-   engine-side, which **would** touch api-observers. A PM list that rules it out pre-empts a decision §1
+   option (c) of adding the acyclic `api-observers → dom-api` edge (§1), which **would** touch api-observers. A PM list that rules it out pre-empts a decision §1
    explicitly reserves for C-3d's plan-review.
 3. **C-3a is the isolatable seed** (`elidex-ecs`-centred, additive, **no consumer migration**) and is the right
    first PR — at the scope §1 enumerates, which **includes the cross-crate provenance-write tail** (R7-Y3;
    §1 is that fact's home, this section is why it cannot shrink and what it costs PM).
    ⚠ **The provenance protocol is NOT divisible** (Codex R8-Z1): **every** layout entry must participate, and
    every entry **invalidates before laying out** — the screen entry additionally *publishes* completed-screen at
-   completion. ⚠ **The screen entry's invalidation is not optional** (Codex R19-HH3): publishing only at completion is unsound (§2 soundness-table row 2: a second screen pass over a cleared store, reachable without any paged render), and deferring the paged invalidation to `#11-paged-fragment-store-hygiene` is unsound (§2 row 1: a paged render over stale completed-screen provenance). Only an entry-mark distinguishes a screen-built from a paged-built store, so the paged entries are **in C-3a's scope**.
+   completion. ⚠ **The screen entry's invalidation is not optional** (Codex R19-HH3): publishing only at completion is unsound (§2 soundness-table row 2, reachable without any paged render), and deferring the paged invalidation to `#11-paged-fragment-store-hygiene` is unsound (§2 row 1). Only an entry-mark distinguishes a screen-built from a paged-built store, so the paged entries are **in C-3a's scope**.
    (The slot remains, but for a *different* concern: the paged store's **content** hygiene — clear/rebuild —
    not the provenance protocol.) Without the whole protocol the guard degrades to the documented-only
    precondition §2 rejects, so the tail is in scope, not optional.
@@ -658,7 +655,7 @@ table in the first place (Codex R13-CC2).
    | 9 | Shared-SoT correction (a): `elidex-render` **is real** (detail → §6.2) | a later C-3 slice re-reads the anchor memo's over-correction and re-decides on a false crate premise — the exact defect class that collapsed #463 (R14-DD2) | PM → anchor memo | C-3a landing |
    | 10 | Shared-SoT correction (b): reader lists name **`elidex-js`** (detail + required phrasing → §6.2) | same class; and an "api-observers untouched" phrasing pre-empts the option (c) §1 reserves for C-3d's plan-review | PM → anchor memo | C-3a landing |
    | 11 | `MEMORY.md`'s Layout-lane line still says #463 "R7 待ち" | #463 is closed and re-anchored here (§6.1); the stale index line sends the next session to a dead PR | PM → `MEMORY.md` | C-3a landing |
-   | 12 | `#11-find-roots-css-root-predicate` (§1 requirement 5 / axis 3) | `find_roots` treats every parentless-but-styled entity as a layout root (`dom/tree/navigation.rs` `root_entities`, excludes only `DocumentFragment`), so a **detached** element is re-laid against the viewport, so it has a real `LayoutBox` though it has no associated CSS box (cssom-view §6 = empty list) — C-3 inherits it (today's `getClientRects` has no connectedness guard); the seam reports presence faithfully, the producer's presence is the lie | PM → defer ledger | C-4, or any slice tightening `find_roots` to the CSS root element |
+   | 12 | `#11-find-roots-css-root-predicate` (§1 requirement 5 / axis 3) | `find_roots` treats every parentless-but-styled entity as a layout root (`dom/tree/navigation.rs` `root_entities`, excludes only `DocumentFragment`), so a **detached** element is re-laid against the viewport, so it has a real `LayoutBox` though it has no associated CSS box (cssom-view §6 = empty list) — C-3 inherits it (today's `getClientRects` has no connectedness guard); the seam reports presence faithfully | PM → defer ledger | C-4, or any slice tightening `find_roots` to the CSS root element |
 
    (Gate item 6's two slots — `#11-inline-relayout-box-staleness` + `#11-inline-align-clientrects-nonpersist-path`
    — are **not** rows: they already exist in `project_open-defer-slots.md`, and the ledger folds them into
