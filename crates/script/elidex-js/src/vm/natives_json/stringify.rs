@@ -440,14 +440,28 @@ fn stringify_impl(
     if let JsValue::Object(obj_id) = replacer_arg {
         if ctx.get_object(obj_id).kind.is_callable() {
             replacer_fn = Some(obj_id);
-        } else if let ObjectKind::Array { elements } = &ctx.get_object(obj_id).kind {
-            let elems: Vec<JsValue> = elements.clone();
+        } else if matches!(ctx.get_object(obj_id).kind, ObjectKind::Array { .. }) {
+            // §25.5.4 step 5.b.ii: build the PropertyList inclusion set. `len` is
+            // read once (step 2, LengthOfArrayLike), but each element is fetched
+            // FRESH per iteration via `? Get(replacer, ToString(k))` (step 4.b) —
+            // matching `serialize_array`, NOT a cloned snapshot. The 4.f.i
+            // coercion below now runs a user-overridden `toString` / `valueOf`,
+            // which can mutate a later replacer index; a snapshot would keep the
+            // stale value and diverge from spec.
+            let len = match &ctx.get_object(obj_id).kind {
+                ObjectKind::Array { elements } => elements.len(),
+                _ => 0,
+            };
             let mut list = Vec::new();
-            for elem in elems {
-                // §25.5.4 step 5.b.ii.4: a String/Number element becomes an
-                // included key. Per 4.f.i a `[[StringData]]` OR `[[NumberData]]`
-                // wrapper is coerced with `? ToString(propertyValue)` (BOTH →
-                // ToString, honoring an override), not a direct slot read.
+            for k in 0..len {
+                #[allow(clippy::cast_precision_loss)]
+                let elem = ctx
+                    .vm
+                    .get_element(JsValue::Object(obj_id), JsValue::Number(k as f64))?;
+                // step 4.d/4.e/4.f.i: a String / Number element — including a
+                // `[[StringData]]` OR `[[NumberData]]` wrapper — becomes an
+                // included key via `? ToString(propertyValue)` (BOTH wrapper kinds
+                // → ToString, honoring an override), not a direct slot read.
                 let sid = match elem {
                     JsValue::String(s) => s,
                     JsValue::Number(_) => ctx.to_string_val(elem)?,

@@ -178,6 +178,23 @@ fn json_replacer_array_wrapper_key_honors_override() {
 }
 
 #[test]
+fn json_replacer_array_element_read_fresh_per_iteration() {
+    // §25.5.4 step 4.b: each replacer element is `Get` FRESH per iteration, so an
+    // element's ToString override that mutates a LATER index is observed (not a
+    // stale clone). Here r[0].toString sets r[1]='b' before k=1 is read, so the
+    // included key is 'b', not the pre-mutation 'c'. (Codex R1 — the coercion now
+    // runs user code, which a cloned snapshot would have missed.)
+    assert_eq!(
+        eval_string(
+            "var r = [new Number(0), 'c']; \
+             Number.prototype.toString = function () { r[1] = 'b'; return 'a'; }; \
+             JSON.stringify({ a: 1, b: 2, c: 3 }, r)"
+        ),
+        "{\"a\":1,\"b\":2}"
+    );
+}
+
+#[test]
 fn json_space_wrapper_honors_override() {
     // A boxed `space` with overridden valueOf sets the indent width via
     // `? ToNumber(space)` (§25.5.4 step 6.a): valueOf → 2 ⇒ two-space indent.
