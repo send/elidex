@@ -240,7 +240,7 @@ Engine-independent (`elidex-form` reconciler tests, using the `FormControlOnlyTe
 2. **`rows`/`cols` attr → FCS → `form_intrinsic_size`** (arm B; the layout-bug proof):
    - reconciler: `set_attribute("rows","10")` → `FCS.rows == 10`; `set_attribute("rows","0")` → `FCS.rows == 2` (§2.6.1 fallback); `set_attribute("cols","abc")` → `FCS.cols == 20`; `remove_attribute("rows")` → `FCS.rows == 2`.
    - integration: `form_intrinsic_size` (`sizing.rs:41`) reflects the updated `rows`/`cols` after a runtime attribute change (currently uses the stale init value).
-   - VM end-to-end: `textarea.rows = 10` → `FCS.rows == 10` (proves the IDL setter → `attr_set` → arm path).
+   - VM end-to-end: **omitted (not JS-observable)** — the `textarea.rows`/`cols` IDL getters read the *content attribute*, not `FCS.rows`, so a JS `textarea.rows = 10; textarea.rows` round-trip is tautological (it passes even without the arm), and `FCS.rows` has no JS-observable getter in the VM `run()` harness (unlike `checked`, which is observable via `form.reset()`). The IDL-setter→`attr_set` half is covered by the existing `textarea_cols_round_trip`; the `attr_set`→arm→`FCS`→sizing half by the reconciler + `form_intrinsic_size` tests above.
    - **Parity guard** (ties to J-C): assert the arm's fallback for `"0"`/absent equals `from_textarea_element`'s result for the same attribute (they must agree post-J-C).
 3. **Reconciler-arm unit tests** — each arm against its SoT, including the boolean-cluster placement for `checked` and the boundary values for `rows`/`cols` (0, negative, non-numeric, large).
 4. **Mirror-deletion equivalence**:

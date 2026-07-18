@@ -266,7 +266,7 @@ fn handle_attribute_change(node: Entity, name: &str, new_value: Option<&str>, do
         // The `checked` content attribute gives the DEFAULT checkedness; setting
         // LIVE checkedness is gated on the (unmodeled → Slice 4) dirty checkedness
         // flag, so 0b maintains only the default half — the half `reset_value`
-        // (elidex-form-core `lib.rs:684`) consumes.
+        // (elidex-form-core) consumes.
         "checked" => fcs.default_checked = new_value.is_some(),
         "multiple" => {
             fcs.multiple = new_value.is_some();
