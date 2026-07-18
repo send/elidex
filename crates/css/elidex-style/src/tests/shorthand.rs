@@ -155,6 +155,58 @@ fn uncovered_shorthand_is_none_even_when_complete() {
     assert_eq!(serialize("flex", &m), None);
 }
 
+/// REGRESSION (Codex PR#473 R2) — the value-KIND gate must NOT fire for a
+/// shorthand the coordinator does not serialize. Handler coverage is established
+/// FIRST (dispatch returns `None`); the gate then only OVERRIDES a *covered*
+/// handler's collapse. Without this ordering the gate emits a value for an
+/// UNCOVERED shorthand and preempts the caller's fallback to a *direct* shorthand
+/// declaration (a later whole-shorthand `var()` stored under the shorthand name),
+/// which is the CSSOM §6.6.1 cascade winner:
+///   `background: initial; background: var(--bg)`
+///   → getPropertyValue("background") == "var(--bg)" (Blink 148), NOT "initial".
+///
+/// `background` is mapped (8 longhands) but uncovered; so are `column-rule` /
+/// `columns` until PR1 covers them. Every longhand set to the same CSS-wide
+/// keyword — or to an unresolved `var()` — must still yield `None`, not
+/// `Some("initial")` / `Some("")`.
+#[test]
+fn uncovered_shorthand_with_nonphysical_longhands_is_none() {
+    const BG: [&str; 8] = [
+        "background-color",
+        "background-image",
+        "background-position",
+        "background-size",
+        "background-repeat",
+        "background-origin",
+        "background-clip",
+        "background-attachment",
+    ];
+
+    // all-same CSS-wide keyword — a COVERED shorthand collapses to Some("initial")
+    // via the gate; uncovered `background` must stay None (else it preempts the
+    // caller's direct-declaration fallback).
+    let mut all_initial = HashMap::new();
+    for lh in BG {
+        all_initial.insert(lh, "initial");
+    }
+    assert_eq!(serialize("background", &all_initial), None);
+
+    // an unresolved var() component — Some("") for a covered shorthand; None here.
+    let mut with_var = HashMap::new();
+    for lh in BG {
+        with_var.insert(lh, "var(--bg)");
+    }
+    assert_eq!(serialize("background", &with_var), None);
+
+    // column-rule is uncovered until PR1 — same rule (all-same keyword ⇒ None,
+    // not the keyword; PR1 covers it and re-adds the keyword assertion).
+    let mut cr = HashMap::new();
+    cr.insert("column-rule-width", "initial");
+    cr.insert("column-rule-style", "initial");
+    cr.insert("column-rule-color", "initial");
+    assert_eq!(serialize("column-rule", &cr), None);
+}
+
 // --- CSSOM §6.7.2 step 1.2 value-KIND gate (property-agnostic coordinator) ---
 //
 // The gate classifies each component longhand's *serialized string* (CSSOM
@@ -166,10 +218,13 @@ fn uncovered_shorthand_is_none_even_when_complete() {
 // to `#11-css-wide-revert-keyword`.
 
 /// Corner 1 — every component is the SAME CSS-wide keyword ⇒ the shorthand *is*
-/// that keyword (css-cascade-4 §7.3). Property-agnostic: margin (rectangular),
-/// overflow (Box axis-pair), and column-rule/columns (Multicol) all collapse to
-/// the keyword via the gate, BEFORE any per-family dispatch — so even the
-/// not-yet-served Multicol shorthands (PR1) yield the keyword.
+/// that keyword (css-cascade-4 §7.3). The gate is an **override of a covered
+/// handler's collapse**, so it applies across the COVERED families — margin
+/// (rectangular) and overflow (Box axis-pair) both collapse to the keyword.
+/// UNCOVERED shorthands (`column-rule`/`columns`, until PR1 covers them; `flex`;
+/// `background`) return `None` here and defer to the caller's direct-declaration
+/// fallback — see `uncovered_shorthand_with_nonphysical_longhands_is_none`. PR1
+/// covers Multicol and re-adds its keyword assertions.
 #[test]
 fn all_same_css_wide_keyword_collapses_to_keyword() {
     for kw in ["initial", "inherit", "unset"] {
@@ -183,17 +238,6 @@ fn all_same_css_wide_keyword_collapses_to_keyword() {
         overflow.insert("overflow-x", kw);
         overflow.insert("overflow-y", kw);
         assert_eq!(serialize("overflow", &overflow), Some(kw.to_string()));
-
-        let mut column_rule = HashMap::new();
-        column_rule.insert("column-rule-width", kw);
-        column_rule.insert("column-rule-style", kw);
-        column_rule.insert("column-rule-color", kw);
-        assert_eq!(serialize("column-rule", &column_rule), Some(kw.to_string()));
-
-        let mut columns = HashMap::new();
-        columns.insert("column-width", kw);
-        columns.insert("column-count", kw);
-        assert_eq!(serialize("columns", &columns), Some(kw.to_string()));
     }
 }
 
@@ -251,18 +295,24 @@ fn any_unresolved_var_is_empty() {
     margin_vk.insert("margin-left", "0px");
     assert_eq!(serialize("margin", &margin_vk), Some(String::new()));
 
-    // A `var()` with a fallback still carries the `var(` substring.
-    let mut columns = HashMap::new();
-    columns.insert("column-width", "var(--w, 10px)");
-    columns.insert("column-count", "auto");
-    assert_eq!(serialize("columns", &columns), Some(String::new()));
+    // A `var()` with a fallback still carries the `var(` substring (covered
+    // Table axis-pair `border-spacing` — a different handler than Box).
+    let mut border_spacing = HashMap::new();
+    border_spacing.insert("border-spacing-h", "var(--w, 10px)");
+    border_spacing.insert("border-spacing-v", "2px");
+    assert_eq!(
+        serialize("border-spacing", &border_spacing),
+        Some(String::new())
+    );
 }
 
 /// Corner 4 — a CSS-wide keyword on some components and a physical value on
-/// others cannot be exactly represented (§6.7.2 step 1.2) ⇒ "" for EVERY family
-/// (the 6 landed families + the 2 Multicol shorthands). This is the coupled
-/// corner the plan resolves spec-uniformly, diverging from Blink's two outliers
-/// (`gap`, `column-rule`) — both toward "".
+/// others cannot be exactly represented (§6.7.2 step 1.2) ⇒ "" for every COVERED
+/// family (the 6 landed families). The gate overrides the covered handler's
+/// collapse spec-uniformly, diverging from Blink's `gap` outlier (Blink emits the
+/// non-round-tripping `"initial 4px"`; see the `gap` note below) toward "".
+/// (Uncovered `column-rule` / `columns` return `None` until PR1 covers them —
+/// their mixed-corner assertions move to PR1.)
 #[test]
 fn css_wide_keyword_mixed_with_physical_is_empty() {
     // rectangular: initial + physical (structural)
@@ -302,12 +352,6 @@ fn css_wide_keyword_mixed_with_physical_is_empty() {
     bs.insert("border-spacing-v", "2px");
     assert_eq!(serialize("border-spacing", &bs), Some(String::new()));
 
-    // Multicol columns: initial + physical
-    let mut columns = HashMap::new();
-    columns.insert("column-width", "initial");
-    columns.insert("column-count", "3");
-    assert_eq!(serialize("columns", &columns), Some(String::new()));
-
     // gap — INTENTIONAL Blink divergence. Blink returns "initial 4px" here, but
     // that output does NOT round-trip: `el.style.setProperty("gap","initial 4px")`
     // → `cssText === ""` (Blink rejects its own getter output as invalid input).
@@ -319,17 +363,6 @@ fn css_wide_keyword_mixed_with_physical_is_empty() {
     gap.insert("row-gap", "initial");
     gap.insert("column-gap", "4px");
     assert_eq!(serialize("gap", &gap), Some(String::new()));
-
-    // column-rule — the Blink-faithful `initial`-omit (`"solid red"`) is DEFERRED
-    // to `#11-shorthand-omit-initial-csswide-omission` (family-dependent, and
-    // Blink is itself inconsistent — `columns` does not omit). Until then the
-    // coordinator returns "" (a safe CSSOM-valid under-approximation). Asserting
-    // "" here (NOT "solid red") is the deferral contract, not a bug.
-    let mut column_rule = HashMap::new();
-    column_rule.insert("column-rule-width", "initial");
-    column_rule.insert("column-rule-style", "solid");
-    column_rule.insert("column-rule-color", "red");
-    assert_eq!(serialize("column-rule", &column_rule), Some(String::new()));
 }
 
 /// Regression — the exact mis-collapses measured on the landed families (plan
@@ -456,11 +489,14 @@ fn author_css_reaches_gate_end_to_end() {
         Some(String::new())
     );
 
-    // Multicol registry-backed guard: BOTH longhands parse ONLY with a populated
-    // registry (the plan's parse-discrepancy resolution); `column-width: var(--w)`
-    // → any-V → "".
+    // Uncovered Multicol `columns` — coverage is checked BEFORE the gate, so even
+    // though the parser stores `column-width: var(--w)` as a var-carrying value,
+    // `serialize_shorthand_value` returns None (no covering handler) and the
+    // caller falls back to any direct `columns` declaration. Both longhands parse
+    // ONLY with a populated registry (the plan's parse-discrepancy guard). PR1
+    // covers `columns` and re-adds the var → "" assertion (as a covered family).
     assert_eq!(
         serialize_parsed("columns", "column-width: var(--w); column-count: auto"),
-        Some(String::new())
+        None
     );
 }

@@ -203,26 +203,38 @@ pub fn serialize_shorthand_value(
         .zip(decls.iter().map(|(value, _)| value.as_str()))
         .collect();
 
-    // CSSOM §6.7.2 step 1.2 — value-KIND gate (property-agnostic; the single
-    // canonical site). Returns `Some(..)` for every case the component KINDS
-    // decide (any unresolved `var()`, or any CSS-wide keyword — alone, uniform,
-    // or mixed with physical); `None` only when all components are physical, in
-    // which case the family collapse runs below. This stops the pure
-    // string-equality collapse helpers from emitting an invalid,
-    // non-round-tripping shorthand for a component whose kind the grammar cannot
-    // represent alongside its siblings.
-    if let Some(result) = value_kind_gate(&pairs) {
-        return Some(result);
-    }
-
+    // Dispatch to the owning handler FIRST — its return distinguishes "this
+    // coordinator serializes `property`" (`Some`) from "it does not" (`None`).
+    //
     // The registry is keyed by **longhand** name (`CssPropertyHandler::property_names`
     // is longhands-only — shorthand expansion is internal to `parse`), so a
     // shorthand name never resolves. Find the owning handler via the shorthand's
     // first longhand: every longhand of a shorthand is owned by the same handler
     // (`margin-*` → Box, `border-spacing-*` → Table, `flex-*` → Flex, …).
-    registry
+    //
+    // A `None` here means the shorthand is **not covered** — no handler
+    // serializes it (`background` / `flex` / `text-decoration`, or the
+    // omit-initial families still deferred under `#11-style-shorthand-expand`).
+    // The coordinator is then NOT authoritative: the caller falls back to a
+    // *direct* shorthand declaration stored under the shorthand name — a
+    // whole-shorthand `var()` (`background: var(--bg)`) — which, being the later
+    // declaration, is the CSSOM §6.6.1 cascade winner (Blink 148:
+    // `background: initial; background: var(--bg)` →
+    // `getPropertyValue("background")` == `"var(--bg)"`, NOT the expanded-longhand
+    // `"initial"`). Running the value-KIND gate *before* this dispatch would emit
+    // `Some("initial")` / `Some("")` from those still-present longhands and preempt
+    // that fallback — so the gate applies ONLY once coverage is established.
+    let collapsed = registry
         .resolve(&longhands[0])?
-        .serialize_shorthand(property, &pairs)
+        .serialize_shorthand(property, &pairs)?;
+
+    // Covered. CSSOM §6.7.2 step 1.2 — value-KIND gate (property-agnostic).
+    // Override the pure string-equality collapse when a component's KIND (an
+    // unresolved `var()`, or a CSS-wide keyword — uniform, mixed, or with a
+    // physical sibling) cannot be represented; `None` = all-physical → keep the
+    // collapse. This stops the collapse helpers from emitting an invalid,
+    // non-round-tripping shorthand (`"initial 5px"`, `"var(--x) 0px 0px"`).
+    Some(value_kind_gate(&pairs).unwrap_or(collapsed))
 }
 
 /// Serialize a property's CSSOM **resolved value** (CSSOM-1 §9 +

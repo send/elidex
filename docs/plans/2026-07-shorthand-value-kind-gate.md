@@ -8,10 +8,75 @@ It **fixes a real, confirmed latent bug in the 6 families #468 already ships** a
 is the **prerequisite that makes PR1 (Multicol `column-rule`/`columns`) correct**.
 
 Design direction PM-anchored: *property-agnostic value-KIND gate in the
-coordinator, running after the §6.6.1 all-present + uniform-`!important` checks and
-before the per-family collapse dispatch.* This memo grounds every corner against
-the live parser/serializer (throwaway probe, since removed) and live Blink
+coordinator, running after the §6.6.1 all-present + uniform-`!important` checks
+and — per the **R2 amendment** below — after handler-coverage dispatch, as an
+**override** of a covered family's collapse.* This memo grounds every corner
+against the live parser/serializer (throwaway probe, since removed) and live Blink
 (Chrome 148.0.7778.271), and resolves the one genuinely family-dependent corner.
+
+---
+
+## ⚠ R2 amendment — coverage-first ordering (Codex PR#473)
+
+The initial design placed the gate **before** the per-family collapse dispatch, so
+it fired for *every* mapped shorthand — including ones the coordinator does **not**
+serialize (`background` / `flex` / `text-decoration`, and `column-rule` / `columns`
+until PR1 covers them). Codex R2 caught the resulting regression: for an
+**uncovered** shorthand whose longhands are set by an *earlier* same-property
+declaration, the gate returned `Some("initial")` / `Some("")` and **preempted the
+caller's `.or_else` fallback** to a *direct* shorthand declaration stored under the
+shorthand name. That direct declaration — a later whole-shorthand `var()` — is the
+CSSOM §6.6.1 cascade winner:
+
+```
+background: initial; background: var(--bg)
+  → getPropertyValue("background")   Blink 148: "var(--bg)"   (later wins)
+  → before R2 (gate before dispatch): "initial"              ✗ regression
+```
+
+(`background: initial` expands to eight `background-*: initial` longhands; a
+whole-shorthand `var()` cannot expand, so `background: var(--bg)` is stored as a
+direct `background` declaration — both coexist. Browser-measured: `background`,
+`columns`, `column-rule`, `flex`, `margin` all confirm later-declaration-wins.)
+
+**Corrected ordering** — dispatch to the owning handler FIRST; its `None` means
+"this coordinator does not serialize `property`", so the coordinator stays
+non-authoritative and the caller's direct-declaration fallback runs. The gate then
+applies ONLY to a **covered** handler's collapse, overriding it when a component
+KIND (CSS-wide keyword / unresolved `var()`) cannot be represented:
+
+```rust
+let collapsed = registry.resolve(&longhands[0])?.serialize_shorthand(property, &pairs)?;
+Some(value_kind_gate(&pairs).unwrap_or(collapsed))   // gate = override, not preempt
+```
+
+**Consequences for the corner matrix below.** The COVERED families
+(`margin`/`padding`/`border-radius`/`overflow`/`gap`/`border-spacing`) are
+unchanged — the gate still fixes their `"initial 5px"` / `"var(--x) 0px 0px"`
+mis-collapses. The UNCOVERED Multicol shorthands (`column-rule`/`columns`) now
+return `None` here (not the keyword / `""`); their corner-1/4 assertions **move to
+PR1**, which makes them covered and re-adds keyword/`""` service via the same gate
+override. Matrix rows citing `column-rule: initial → initial` /
+`columns: initial → ""` describe the pre-R2 before-dispatch design and are
+superseded by this amendment for the uncovered (pre-PR1) state.
+
+**Deferred (new named slot) `#11-shorthand-direct-decl-cascade-order`** — the fix
+restores the *forward* case (earlier expanded longhands, later direct `var()` →
+`var()` wins). The **reverse / covered** cases stay order-blind, a pre-existing gap
+independent of this gate:
+- `background: var(--bg); background: initial` → Blink `"initial"`, elidex
+  `"var(--bg)"` (the caller's `.or_else` is declaration-order-blind).
+- `margin: initial; margin: var(--x)` → Blink `"var(--x)"`, elidex `"initial"` (a
+  **covered** shorthand reconstructs from the stale longhands; the direct `var()`
+  never reached). Affects `margin` today; `column-rule`/`columns` after PR1.
+
+Root: the block keeps a shorthand's expanded longhands even after a later
+whole-shorthand declaration supersedes them, and `getPropertyValue` is not
+declaration-order-aware between the direct decl and the expanded longhands. The fix
+belongs in the parser/block (declaration supersession) or an order-aware getter —
+NOT the value-KIND gate. Uncovered-alone keyword serialization
+(`column-rule: initial` → Blink `"initial"`, elidex `""` until PR1 covers it) is
+part of the same order-aware machinery.
 
 ---
 
@@ -150,18 +215,21 @@ Notes proving the corner-4 divergences are **Blink outliers, not the ideal**:
 ## Ideal architecture (property-agnostic gate in the coordinator)
 
 Insert the gate in `serialize_shorthand_value` **after** the §6.6.1 all-present +
-uniform-`!important` checks and **before** the per-family dispatch:
+uniform-`!important` checks. **Per the R2 amendment, dispatch to the owning handler
+FIRST** so the gate overrides only a *covered* family's collapse — an uncovered
+shorthand's `None` must reach the caller's direct-declaration fallback:
 
 ```rust
 // … existing: longhands present? uniform important? build `pairs` …
 
-// CSSOM §6.7.2 step 1.2 — value-KIND gate (property-agnostic; the single
-// canonical site). Returns Some(..) for every case the component KINDS decide;
-// None only when all components are physical → the family collapse runs.
-if let Some(result) = value_kind_gate(&pairs) {
-    return Some(result);
-}
-registry.resolve(&longhands[0])?.serialize_shorthand(property, &pairs)  // all-P
+// Dispatch FIRST — a None means the coordinator does not serialize `property`
+// (uncovered: `background`/`flex`/…), so the caller falls back to a direct
+// shorthand declaration (a later whole-shorthand `var()` — the cascade winner).
+let collapsed = registry.resolve(&longhands[0])?.serialize_shorthand(property, &pairs)?;
+
+// CSSOM §6.7.2 step 1.2 — value-KIND gate (property-agnostic): OVERRIDE the
+// covered collapse when a component KIND cannot be represented; None = all-P.
+Some(value_kind_gate(&pairs).unwrap_or(collapsed))
 ```
 
 ```rust
