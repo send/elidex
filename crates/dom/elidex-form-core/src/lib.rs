@@ -22,6 +22,7 @@ mod clipboard;
 mod datetime;
 mod fieldset;
 mod input;
+mod reflect;
 mod sanitize;
 mod selection;
 pub mod util;
@@ -34,33 +35,19 @@ pub use input::{
     apply_step, form_control_key_input, form_control_key_input_action, resolve_input_list,
     sanitize_for_type_change, KeyAction, StepError,
 };
+pub use reflect::{parse_positive_with_fallback, MAX_PATTERN_LENGTH};
 pub use selection::{collapse_selection, delete_selection, extend_selection, select_all};
 pub use validation::{is_constraint_validation_candidate, validate_control, ValidityState};
 pub use value_mode::{ValueMode, ValueSetAction};
 
+// `compile_pattern_regex` is crate-internal (callers: `update_pattern` /
+// `from_input_element` below and `validation::tests`); re-export at the crate
+// root so unqualified and `crate::compile_pattern_regex` paths keep resolving
+// after the `reflect` split.
+pub(crate) use reflect::compile_pattern_regex;
+
 use elidex_ecs::Attributes;
 use std::sync::Arc;
-
-/// Maximum pattern length to prevent `ReDoS` via excessively long regex patterns.
-pub const MAX_PATTERN_LENGTH: usize = 1024;
-
-/// Compile a `pattern` attribute value into an anchored regex.
-///
-/// Returns `None` if the pattern exceeds [`MAX_PATTERN_LENGTH`] or is not valid regex.
-/// Per HTML spec §4.10.5.3.8, invalid patterns are silently ignored.
-pub(crate) fn compile_pattern_regex(p: &str) -> Option<Arc<regex::Regex>> {
-    if p.len() > MAX_PATTERN_LENGTH {
-        return None;
-    }
-    let anchored = format!("^(?:{p})$");
-    regex::RegexBuilder::new(&anchored)
-        .size_limit(1 << 20)
-        // JS pattern attribute uses the `u` flag (WHATWG HTML §4.10.5.3.8).
-        // Rust regex defaults match this: \d/\w are ASCII-only, `.` matches Unicode scalars.
-        .build()
-        .ok()
-        .map(Arc::new)
-}
 
 /// The kind of form control represented by an element.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -373,9 +360,9 @@ pub struct FormControlState {
     pub(crate) cursor_pos: usize,
     /// Whether the control is read-only (text controls only).
     pub readonly: bool,
-    /// Number of visible rows (textarea only, default 2 per HTML spec §4.10.7).
+    /// Number of visible rows (textarea only, default 2 per HTML spec §4.10.11).
     pub rows: u32,
-    /// Number of visible columns (textarea only, default 20 per HTML spec §4.10.7).
+    /// Number of visible columns (textarea only, default 20 per HTML spec §4.10.11).
     pub cols: u32,
     /// The `name` attribute value (used for radio group association and form data).
     pub name: String,
@@ -938,8 +925,8 @@ impl FormControlState {
             disabled: attrs.contains("disabled"),
             readonly: attrs.contains("readonly"),
             placeholder: attrs.get("placeholder").unwrap_or("").to_string(),
-            rows: attrs.get("rows").and_then(|v| v.parse().ok()).unwrap_or(2),
-            cols: attrs.get("cols").and_then(|v| v.parse().ok()).unwrap_or(20),
+            rows: parse_positive_with_fallback(attrs.get("rows"), 2),
+            cols: parse_positive_with_fallback(attrs.get("cols"), 20),
             name: attrs.get("name").unwrap_or("").to_string(),
             required: attrs.contains("required"),
             minlength: attrs.get("minlength").and_then(|v| v.parse().ok()),

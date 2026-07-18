@@ -61,7 +61,7 @@ use super::super::value::{JsValue, NativeContext, Object, ObjectKind, PropertySt
 use super::super::VmInner;
 
 use elidex_ecs::{Entity, NodeKind};
-use elidex_form::FormControlState;
+use elidex_form::{parse_positive_with_fallback, FormControlState};
 
 impl VmInner {
     #[allow(clippy::too_many_lines)] // Phase 6 install: 5 string + 4 bool + 4 long + 6 read-only accessors fit in one place by design.
@@ -510,12 +510,40 @@ fn long_set(
     Ok(JsValue::Undefined)
 }
 
+/// `rows` / `cols` getter: reflect the content attribute under the HTML
+/// §2.6.1 "limited to only positive numbers with fallback" rule via the
+/// engine-independent [`parse_positive_with_fallback`] helper (min 1, max
+/// 2147483647, else `default`).
+///
+/// This is the marshalling boundary (read attr → reflect via form-core →
+/// return), NOT the generic whole-string [`long_get`] parse the length
+/// (`maxLength` / `minLength`) getters use: the positive-with-fallback rule
+/// is what value sanitization and layout apply (`from_textarea_element` /
+/// the `rows`/`cols` reconciler arm), so routing the getter through the same
+/// helper keeps `textarea.rows` in agreement with the rendered row/column
+/// count for `rows="5px"` (→ 5) and `rows="0"` (→ default), which the plain
+/// `i32::parse` in `long_get` diverged from.
+fn positive_long_get(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    method: &str,
+    attr: &str,
+    default: u32,
+) -> Result<JsValue, VmError> {
+    let Some(entity) = require_textarea_receiver(ctx, this, method)? else {
+        return Ok(JsValue::Number(f64::from(default)));
+    };
+    let attr_value = ctx.host().dom().get_attribute(entity, attr);
+    let v = parse_positive_with_fallback(attr_value.as_deref(), default);
+    Ok(JsValue::Number(f64::from(v)))
+}
+
 fn native_textarea_get_cols(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    long_get(ctx, this, "cols", "cols", 20)
+    positive_long_get(ctx, this, "cols", "cols", 20)
 }
 
 fn native_textarea_set_cols(
@@ -531,7 +559,7 @@ fn native_textarea_get_rows(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    long_get(ctx, this, "rows", "rows", 2)
+    positive_long_get(ctx, this, "rows", "rows", 2)
 }
 
 fn native_textarea_set_rows(

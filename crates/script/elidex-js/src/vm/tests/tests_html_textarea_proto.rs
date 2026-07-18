@@ -64,6 +64,31 @@ fn textarea_cols_round_trip() {
 }
 
 #[test]
+fn textarea_rows_getter_reflects_microsyntax() {
+    // FIX 3: the `rows` getter reflects via the shared
+    // `parse_positive_with_fallback` (HTML §2.6.1 "…positive numbers with
+    // fallback"), agreeing with FormControlState / layout instead of the old
+    // whole-string `i32::parse` in `long_get`. `rows="5px"` → 5 (leading digit
+    // run), not the default 2 the whole-string parse fell back to.
+    let out = run("var t = document.createElement('textarea'); \
+         t.setAttribute('rows', '5px'); \
+         '' + t.rows;");
+    assert_eq!(out, "5");
+}
+
+#[test]
+fn textarea_rows_getter_zero_falls_back_to_default() {
+    // `rows="0"` is outside the [1, 2147483647] range → the getter returns the
+    // default 2, matching the rendered row count (layout applies the same
+    // positive-with-fallback rule via the reconciler arm). Previously the
+    // `long_get` whole-string parse returned 0, diverging from layout.
+    let out = run("var t = document.createElement('textarea'); \
+         t.setAttribute('rows', '0'); \
+         '' + t.rows;");
+    assert_eq!(out, "2");
+}
+
+#[test]
 fn textarea_max_length_default_minus_one() {
     let out = run("var t = document.createElement('textarea'); '' + t.maxLength;");
     assert_eq!(out, "-1");
@@ -159,6 +184,24 @@ fn textarea_default_value_setter_does_not_overwrite_dirty_value() {
          t.defaultValue = 'reset-target'; \
          t.value;");
     assert_eq!(out, "user-typed");
+}
+
+#[test]
+fn textarea_default_value_via_retained_mirror_0b() {
+    // Slice 0b DOCUMENTATION test: `textarea.defaultValue = "x"` updates
+    // `FCS.value` (observable as `t.value`) via the RETAINED
+    // `native_textarea_set_default_value` mirror.  This passes BECAUSE Slice
+    // 0b deliberately KEEPS the textarea mirror — `textarea.defaultValue`
+    // reflects child text (HTML §4.10.11 raw value), which the
+    // AttributeChange-only reconciler cannot reach (unlike the two input
+    // mirrors, which 0b deletes).  Deleting this mirror awaits slot
+    // `#11-textarea-defaultvalue-textcontent-reconciliation`; if a future
+    // "delete all mirrors" sweep removes it, THIS TEST FAILS — keeping the
+    // deferred gap visible.
+    let out = run("var t = document.createElement('textarea'); \
+         t.defaultValue = 'x'; \
+         t.value + '/' + t.defaultValue;");
+    assert_eq!(out, "x/x");
 }
 
 #[test]

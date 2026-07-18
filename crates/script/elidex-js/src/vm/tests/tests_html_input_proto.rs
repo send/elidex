@@ -136,6 +136,43 @@ fn input_default_checked_reflects_checked_attribute() {
 }
 
 // ---------------------------------------------------------------------------
+// Slice 0b — input IDL hand-mirror deletion equivalence
+// ---------------------------------------------------------------------------
+
+#[test]
+fn input_default_value_deletion_equivalence() {
+    // Slice 0b deleted the `native_input_set_default_value` FCS hand-mirror.
+    // The reconciler `value`-arm (reached via the retained `attr_set("value",
+    // …)`) now maintains both `default_value` and live `value` for a non-submit
+    // input — the common-case identity is unchanged: `defaultValue` (reads the
+    // `value` content attribute) and `value` (reads live FCS.value) both "x".
+    let out = run("var i = document.createElement('input'); \
+         i.defaultValue = 'x'; \
+         i.value + '/' + i.defaultValue;");
+    assert_eq!(out, "x/x");
+}
+
+#[test]
+fn input_default_checked_reset_restores_checked() {
+    // Slice 0b end-to-end (mirror deletion + arm A): `defaultChecked = true`
+    // sets the `checked` content attribute (retained `attr_set`), which the NEW
+    // reconciler `checked` arm reflects into `default_checked`.  Live
+    // checkedness stays `false` (the arm does not write it — Slice-4
+    // dirty-checkedness-flag deferral), and `form.reset()` restores `checked`
+    // from `default_checked`.  Before 0b, `setAttribute("checked")` never
+    // updated `default_checked`, so reset restored a stale (false) checkedness.
+    let out = run("var f = document.createElement('form'); \
+         var i = document.createElement('input'); \
+         i.type = 'checkbox'; \
+         f.appendChild(i); \
+         i.defaultChecked = true; \
+         var before = '' + i.checked; \
+         f.reset(); \
+         before + '/' + i.checked;");
+    assert_eq!(out, "false/true");
+}
+
+// ---------------------------------------------------------------------------
 // indeterminate (HTML §4.10.5.1.16) — IDL-only, independent of `checked`
 // ---------------------------------------------------------------------------
 

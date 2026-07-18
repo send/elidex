@@ -830,3 +830,56 @@ fn delete_forward_marks_dirty() {
     state.delete_forward();
     assert!(state.is_dirty());
 }
+
+// -- Slice 0b: shared positive-with-fallback reflection helper -----------
+
+#[test]
+fn parse_positive_with_fallback_takes_positive_else_default() {
+    // §2.6.1 "limited to only positive numbers with fallback": absent /
+    // non-numeric / `0` / negative all fall back to the default; a valid
+    // `> 0` integer is taken as-is.
+    assert_eq!(parse_positive_with_fallback(None, 2), 2);
+    assert_eq!(parse_positive_with_fallback(Some("0"), 2), 2);
+    assert_eq!(parse_positive_with_fallback(Some("-5"), 2), 2);
+    assert_eq!(parse_positive_with_fallback(Some("abc"), 2), 2);
+    assert_eq!(parse_positive_with_fallback(Some("10"), 2), 10);
+    assert_eq!(parse_positive_with_fallback(Some("100000"), 20), 100_000);
+
+    // HTML "rules for parsing non-negative integers" (§2.3.4.2): skip leading
+    // ASCII whitespace, consume an optional leading `+`, take the leading
+    // ASCII-digit run, and IGNORE trailing junk. Unlike `str::parse` (whole
+    // string), these all parse the leading digit run:
+    assert_eq!(parse_positive_with_fallback(Some("3.5"), 2), 3); // leading run "3"
+    assert_eq!(parse_positive_with_fallback(Some(" 5"), 2), 5); // leading space skipped
+    assert_eq!(parse_positive_with_fallback(Some("\t5"), 2), 5); // leading tab skipped
+    assert_eq!(parse_positive_with_fallback(Some("5px"), 2), 5); // trailing junk ignored
+    assert_eq!(parse_positive_with_fallback(Some("5 "), 2), 5); // trailing space ignored
+    assert_eq!(parse_positive_with_fallback(Some("+5"), 2), 5); // leading `+` consumed
+    assert_eq!(parse_positive_with_fallback(Some("  12  "), 2), 12); // ws both sides
+    assert_eq!(parse_positive_with_fallback(Some(" "), 2), 2); // whitespace only → default
+
+    // §2.6.1 getter steps 5-6: the reflection is bounded by maximum
+    // 2147483647 (inclusive). The max itself is accepted; anything above it
+    // (still ≤ u32::MAX, or overflowing u32) falls back to the default.
+    assert_eq!(
+        parse_positive_with_fallback(Some("2147483647"), 2),
+        2_147_483_647
+    ); // max, accepted
+    assert_eq!(parse_positive_with_fallback(Some("2147483648"), 2), 2); // max + 1 → default
+    assert_eq!(parse_positive_with_fallback(Some("3000000000"), 2), 2); // > max, ≤ u32::MAX → default
+    assert_eq!(parse_positive_with_fallback(Some("4294967295"), 2), 2); // u32::MAX → default
+}
+
+#[test]
+fn textarea_rows_cols_zero_fall_back_to_default() {
+    // Latent init bug fixed by the shared helper: the previous plain `u32`
+    // parse made `rows="0"` → 0; §2.6.1 requires the fallback (default 2 rows
+    // / 20 cols).  Ties `from_textarea_element` to the same reflection the
+    // reconciler arm uses.
+    let mut attrs = Attributes::default();
+    attrs.set("rows", "0");
+    attrs.set("cols", "0");
+    let state = FormControlState::from_element("textarea", &attrs).unwrap();
+    assert_eq!(state.rows, 2);
+    assert_eq!(state.cols, 20);
+}

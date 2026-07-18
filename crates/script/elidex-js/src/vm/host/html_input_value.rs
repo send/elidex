@@ -199,16 +199,6 @@ pub(super) fn native_input_set_default_value(
     let sid = super::super::coerce::to_string(ctx.vm, val)?;
     let s = ctx.vm.strings.get_utf8(sid);
     super::element_attrs::attr_set(ctx, entity, "value", &s);
-    // Mirror into FormControlState.default_value if not dirty — while
-    // the dirty value flag is false, value mirrors the default value
-    // (HTML §4.10.18.1 "A form control's value").
-    let dom = ctx.host().dom();
-    if let Ok(mut state) = dom.world_mut().get::<&mut FormControlState>(entity) {
-        state.default_value.clone_from(&s);
-        if !state.is_dirty() {
-            state.set_value_initial(s);
-        }
-    }
     Ok(JsValue::Undefined)
 }
 
@@ -273,10 +263,6 @@ pub(super) fn native_input_set_default_checked(
         super::element_attrs::attr_set(ctx, entity, "checked", "");
     } else {
         super::element_attrs::attr_remove(ctx, entity, "checked");
-    }
-    let dom = ctx.host().dom();
-    if let Ok(mut state) = dom.world_mut().get::<&mut FormControlState>(entity) {
-        state.default_checked = flag;
     }
     Ok(JsValue::Undefined)
 }
