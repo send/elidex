@@ -25,8 +25,9 @@ until PR1 covers them). Codex R2 caught the resulting regression: for an
 **uncovered** shorthand whose longhands are set by an *earlier* same-property
 declaration, the gate returned `Some("initial")` / `Some("")` and **preempted the
 caller's `.or_else` fallback** to a *direct* shorthand declaration stored under the
-shorthand name. That direct declaration — a later whole-shorthand `var()` — is the
-CSSOM §6.6.1 cascade winner:
+shorthand name. That direct declaration — a later whole-shorthand `var()` — wins by
+order of appearance (css-cascade-4 §6.1); the caller reads it back via `.or_else`,
+outside the §6.6.1 shorthand-reconstruction algorithm:
 
 ```
 background: initial; background: var(--bg)
@@ -54,11 +55,16 @@ Some(value_kind_gate(&pairs).unwrap_or(collapsed))   // gate = override, not pre
 (`margin`/`padding`/`border-radius`/`overflow`/`gap`/`border-spacing`) are
 unchanged — the gate still fixes their `"initial 5px"` / `"var(--x) 0px 0px"`
 mis-collapses. The UNCOVERED Multicol shorthands (`column-rule`/`columns`) now
-return `None` here (not the keyword / `""`); their corner-1/4 assertions **move to
-PR1**, which makes them covered and re-adds keyword/`""` service via the same gate
-override. Matrix rows citing `column-rule: initial → initial` /
-`columns: initial → ""` describe the pre-R2 before-dispatch design and are
-superseded by this amendment for the uncovered (pre-PR1) state.
+return `None` at the coordinator across **every** corner (1 all-same-K, 3 any-V,
+4 K+P) — not the keyword / `""`; their corner-1/3/4 assertions **move to PR1**,
+which makes them covered and re-adds keyword/`""` service via the same gate
+override. So every `column-rule`/`columns` cell in the §2 matrix below — corner 1
+(`… → initial`), corner 3 (`column-width:var(--w); column-count:auto → ""`),
+corner 4 (`columns width:initial; count:3 → ""` and the `column-rule` omit-initial
+row) — describes the pre-R2 before-dispatch design and is superseded by this
+amendment for the uncovered (pre-PR1) state (the coordinator returns `None`; the
+observable `getPropertyValue` is `""` via the caller's `.or_else` only when no
+direct declaration competes).
 
 **Deferred (new named slot) `#11-shorthand-direct-decl-cascade-order`** — the fix
 restores the *forward* case (earlier expanded longhands, later direct `var()` →
@@ -224,7 +230,7 @@ shorthand's `None` must reach the caller's direct-declaration fallback:
 
 // Dispatch FIRST — a None means the coordinator does not serialize `property`
 // (uncovered: `background`/`flex`/…), so the caller falls back to a direct
-// shorthand declaration (a later whole-shorthand `var()` — the cascade winner).
+// shorthand declaration (a later whole-shorthand `var()` — order-of-appearance winner, css-cascade-4 §6.1).
 let collapsed = registry.resolve(&longhands[0])?.serialize_shorthand(property, &pairs)?;
 
 // CSSOM §6.7.2 step 1.2 — value-KIND gate (property-agnostic): OVERRIDE the
@@ -352,6 +358,21 @@ concrete initials), so the gate falls through to the handler.
   already classifies the strings for forward-compat. **Trigger**: revert support
   (needs a `CssValue` variant + cascade origin rollback) or a WPT/site. **Re-eval**:
   2026-10-31.
+- **`#11-shorthand-direct-decl-cascade-order`** (carved R2) — `getPropertyValue(
+  shorthand)` is not declaration-order-aware between a *direct* shorthand
+  declaration (a whole-shorthand `var()` stored under the shorthand name) and the
+  *expanded longhands* of a prior same-property declaration; css-cascade-4 §6.1 =
+  the later wins across both. The **forward** case is fixed in this PR (coverage-first
+  ordering routes an uncovered shorthand's `None` to the caller's `.or_else`). The
+  **reverse / covered** cases stay order-blind, a pre-existing gap independent of the
+  gate: `background: var(--bg); background: initial` → elidex `"var(--bg)"` (Blink
+  `"initial"`); `margin: initial; margin: var(--x)` → elidex `"initial"` (Blink
+  `"var(--x)"` — a covered shorthand reconstructs from the stale longhands). Same
+  machinery covers uncovered-alone keyword serialization (`column-rule: initial` →
+  elidex `""` vs Blink `"initial"` until PR1 covers it). Root = parser/block
+  declaration-supersession, or an order-aware getter — NOT the value-KIND gate.
+  **Trigger**: a WPT/site depending on later-shorthand-`var()` round-trip, or the
+  order-aware getter work. **Re-eval**: 2026-10-31.
 - **Corner 5 (whole-shorthand `var()`) is NOT deferred — it already works.**
   `margin: var(--x)` / `columns: var(--w)` store the value under the **shorthand**
   name (whole-value var is not longhand-expanded; only global keywords expand), so
@@ -466,7 +487,8 @@ prototype surface.
   guard) — the two near-duplicate helpers must not coexist post-rebase.
 - Under the `#11-style-shorthand-expand` umbrella (slot STAYS OPEN for per-family
   omit-initial coverage). Register the two new slots at landing per the defer
-  lifecycle (per-PR ≤3: 2 registered here — omit-initial-omission, revert-keyword).
+  lifecycle (per-PR ≤3: 3 registered here — omit-initial-omission, revert-keyword,
+  direct-decl-cascade-order).
 
 ## Edge-density → plan-review
 

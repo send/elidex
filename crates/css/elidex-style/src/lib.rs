@@ -218,7 +218,9 @@ pub fn serialize_shorthand_value(
     // The coordinator is then NOT authoritative: the caller falls back to a
     // *direct* shorthand declaration stored under the shorthand name — a
     // whole-shorthand `var()` (`background: var(--bg)`) — which, being the later
-    // declaration, is the CSSOM §6.6.1 cascade winner (Blink 148:
+    // declaration, wins by order of appearance (css-cascade-4 §6.1) and is read
+    // back via the caller's `.or_else` (a getter fallback outside the §6.6.1
+    // shorthand-reconstruction algorithm). Blink 148:
     // `background: initial; background: var(--bg)` →
     // `getPropertyValue("background")` == `"var(--bg)"`, NOT the expanded-longhand
     // `"initial"`). Running the value-KIND gate *before* this dispatch would emit

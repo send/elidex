@@ -161,7 +161,8 @@ fn uncovered_shorthand_is_none_even_when_complete() {
 /// handler's collapse. Without this ordering the gate emits a value for an
 /// UNCOVERED shorthand and preempts the caller's fallback to a *direct* shorthand
 /// declaration (a later whole-shorthand `var()` stored under the shorthand name),
-/// which is the CSSOM §6.6.1 cascade winner:
+/// which wins by order of appearance (css-cascade-4 §6.1) and is read back via the
+/// caller's `.or_else` getter (outside the §6.6.1 shorthand-reconstruction path):
 ///   `background: initial; background: var(--bg)`
 ///   → getPropertyValue("background") == "var(--bg)" (Blink 148), NOT "initial".
 ///
