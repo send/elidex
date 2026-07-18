@@ -58,6 +58,10 @@ pub(super) struct GcRoots<'a> {
     /// html_element_constructor`) cannot fire against a collected
     /// slot if script ever deletes `globalThis.HTMLElement`.
     pub(super) html_element_constructor: Option<ObjectId>,
+    /// `globalThis.Object` constructable function (§20.1.1.1). Held as a strong
+    /// root so the `new_target == object_constructor` identity compare cannot
+    /// fire against a collected slot if script deletes `globalThis.Object`.
+    pub(super) object_constructor: Option<ObjectId>,
     pub(super) upvalues: &'a [Upvalue],
     pub(super) objects: &'a [Option<Object>],
     /// Host-data (listeners, wrappers) if installed.
@@ -337,6 +341,9 @@ pub(super) fn mark_roots(
     }
     mark_object(roots.global_object, obj_marks, work);
     if let Some(id) = roots.html_element_constructor {
+        mark_object(id, obj_marks, work);
+    }
+    if let Some(id) = roots.object_constructor {
         mark_object(id, obj_marks, work);
     }
     if let Some(hd) = roots.host_data {

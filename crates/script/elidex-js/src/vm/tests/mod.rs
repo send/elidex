@@ -127,6 +127,8 @@ mod tests_node_common;
 mod tests_normalize;
 mod tests_number;
 mod tests_object_complement;
+#[cfg(feature = "engine")]
+mod tests_object_constructor;
 mod tests_observer_keepalive;
 #[cfg(feature = "engine")]
 mod tests_offscreen_canvas;
