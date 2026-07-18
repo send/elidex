@@ -102,6 +102,26 @@ pub(super) fn dispatch_or_buffer_reentrant(state: &mut ContentState, msg: Browse
             state.shutdown_requested = true;
         }
     } else if state.traversal_queue.is_applying() {
+        // Buffer EVERY reentrant non-`Shutdown` message (not just nav-mutating ones):
+        // "nav-mutating" is NOT a static message-TYPE property — nearly every
+        // per-document delivery fires a JS event whose handler can `pushState` /
+        // `history.back()` / `location.*`, so a type-based "buffer only nav-mutating"
+        // partition has no well-defined boundary. ⚠ BOUNDED DIVERGENCE (Codex PR#469
+        // R20, pinned-not-silent): a per-document delivery (`StorageEvent` /
+        // `IdbVersionChange` / SW-lifecycle) consumed mid-apply is re-delivered into the
+        // post-swap document on the next pump turn. Because `matches_scope` (same-origin
+        // scheme+host+port) gates the SW-wait, the post-swap doc is SAME-ORIGIN as the
+        // departing one — so this is a stale SAME-ORIGIN misdelivery, NOT a cross-origin
+        // leak, and the guard's actual target (the `NavigationController` peek→commit) is
+        // UNHARMED. Net-wrong reduces to 2 variants (a stale `StorageEvent` delta + a
+        // spurious `IdbVersionChange` closing the new doc's connection); the rest
+        // self-drop (`SetViewport`/`SetDeviceFacts` seq guards), no-op, or are relevant
+        // to the same-origin new doc (SW-lifecycle). The alternatives are worse, not
+        // cleaner: dispatching non-nav immediately runs its JS under the held peek (a
+        // half-applied traversal) and STAGES a `pushState` the imminent pipeline swap
+        // silently drops. The correct per-document-delivery ordering during a
+        // cross-document apply is the async-SW-fetch canonical (a proper event-loop task
+        // model), M4-10-gated + edge-dense → fenced to `#11-session-history-task-queue-model`.
         state.deferred_reentrant_messages.push(msg);
     } else {
         super::message_dispatch::handle_message_public(msg, state);
