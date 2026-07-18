@@ -42,6 +42,35 @@ fn to_number_honors_overridden_value_of() {
 }
 
 #[test]
+fn nullish_symbol_to_primitive_treated_as_absent() {
+    // §7.1.1 step 1.a → §7.3.10 GetMethod step 2: an @@toPrimitive explicitly set
+    // to `undefined` / `null` is ABSENT, so coercion falls through to
+    // OrdinaryToPrimitive (valueOf/toString) rather than throwing on a call to
+    // `undefined`. The removed wrapper fast-path used to mask this for wrappers
+    // (Codex R2); the fix in `to_primitive` also covers the plain-object case.
+    assert_eq!(
+        eval_number("Number.prototype[Symbol.toPrimitive] = undefined; +new Number(5)"),
+        5.0
+    );
+    assert_eq!(
+        eval_number("Number.prototype[Symbol.toPrimitive] = null; +new Number(5)"),
+        5.0
+    );
+    assert_eq!(
+        eval_string("String.prototype[Symbol.toPrimitive] = undefined; String(new String('a'))"),
+        "a"
+    );
+    assert_eq!(
+        eval_string(
+            "Number.prototype[Symbol.toPrimitive] = undefined; JSON.stringify(new Number(5))"
+        ),
+        "5"
+    );
+    // Same GetMethod fix covers the pre-existing plain-object case.
+    assert!(eval_number("var o = {}; o[Symbol.toPrimitive] = undefined; +o").is_nan());
+}
+
+#[test]
 fn to_number_honors_symbol_to_primitive() {
     // @@toPrimitive takes precedence over valueOf/toString (§7.1.1 step 1.b);
     // the old fast-path bypassed even this.

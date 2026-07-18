@@ -245,7 +245,13 @@ impl VmInner {
                     Some(PropertyResult::Data(v)) => Some(v),
                     Some(PropertyResult::Getter(g)) => Some(self.call(g, val, &[])?),
                     None => None,
-                };
+                }
+                // §7.1.1 step 1.a is `? GetMethod(input, @@toPrimitive)`, and
+                // §7.3.10 GetMethod step 2 returns undefined when the property is
+                // `undefined` OR `null` — i.e. a nullish @@toPrimitive is treated
+                // as ABSENT (not called), falling through to OrdinaryToPrimitive
+                // below (e.g. `x[Symbol.toPrimitive] = undefined; +x`).
+                .filter(|v| !v.is_nullish());
                 if let Some(exotic_to_prim) = exotic_to_prim {
                     let hint_id = self.strings.intern(hint);
                     let result =
