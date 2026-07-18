@@ -374,6 +374,8 @@ seam + the tests.
 
 ## §8 Landing-time doc-sync (sibling memos describe the RETIRED replay as live)
 
+**✅ RECONCILED at Codex PR#469 R17 (2026-07-18)** — all three spans below rewritten to the one-per-turn held-message intake wording: content-phase-separation.md `:72-73` + `:314` (retired reentrant-replay-at-the-top → buffer-first one-per-turn intake), task-queue-model.md I3 (`:313` "top-of-loop `run_deferred_traversals`" → "step-3 per-turn"). Kept below as the obligation record.
+
 This slice retires the "buffered … and replayed at the top of a later `pump_turn`" mechanism that two sibling
 memos currently describe as live interim behavior. **On landing, update these spans** (grep-verified line
 refs; re-grep at landing since siblings may shift) to the new one-per-turn intake wording — e.g. "the buffer

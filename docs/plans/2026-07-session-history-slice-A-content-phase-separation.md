@@ -69,8 +69,9 @@ conscious Slice-4 fence.
   from the SW-fetch wait loop (`deliver_controller_set` → `sw_controller_scope()` → `handle_navigate`'s
   blocking SW-wait) during a Phase-2 apply is a **reachable** peek/commit cursor-mutation window; the shell's
   INTERIM buffer-during-apply guard `content/drain_host.rs::dispatch_or_buffer_reentrant` closes it (while
-  `is_applying()` holds, the message is buffered onto `ContentState::deferred_reentrant_messages` and replayed
-  at the top of a later `pump_turn`, so it cannot mutate the cursor under the held peek). Slice 4 only swaps
+  `is_applying()` holds, the message is buffered onto `ContentState::deferred_reentrant_messages` and
+  re-delivered ONE per turn through the single held-message intake (buffer-first) of a later `pump_turn`, so it
+  cannot mutate the cursor under the held peek — retiring the old top-of-turn replay batch). Slice 4 only swaps
   that interim guard for the canonical serialization. (Matches the honest code comment at
   `crates/shell/elidex-navigation/src/traversal_queue.rs` drain-loop reentrancy note.)
 - **OUT → B1:** multi-navigable fan-out (§7.4.6.1 steps 3/4/6/7 + per-navigable global-task of 8/12).
@@ -311,7 +312,8 @@ content mode the only re-enqueue vector is the reentrant SW-fetch message pump (
 relay); this vector is **reachable**, and its cursor-mutation window is **closed THIS slice** by the shell's
 INTERIM buffer-during-apply guard `content/drain_host.rs::dispatch_or_buffer_reentrant` — while `is_applying()`
 holds, the re-dispatched `BrowserToContent` is buffered (`ContentState::deferred_reentrant_messages`) and
-replayed on a later `pump_turn`, never applied under the held peek. Content's own `apply_traversal` (a Rebuild /
+re-delivered one-per-turn through the single held-message intake (buffer-first) on a later `pump_turn`, never
+applied under the held peek. Content's own `apply_traversal` (a Rebuild /
 same-document apply) does **not** itself re-enqueue mid-apply, so the next-turn deferral of any *other* staged
 step is inert here.
 
