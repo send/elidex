@@ -5,7 +5,7 @@
 use std::ops::ControlFlow;
 use std::time::{Duration, Instant};
 
-use crossbeam_channel::RecvTimeoutError;
+use crossbeam_channel::{RecvTimeoutError, TryRecvError};
 
 use elidex_api_sw::SwClientUpdate;
 use elidex_script_session::HostDriver;
@@ -42,22 +42,32 @@ pub(super) fn run_event_loop(state: &mut ContentState) {
 pub(super) fn pump_turn(state: &mut ContentState, last_frame: &mut Instant) -> ControlFlow<()> {
     {
         // === Step 0: entry invariant (DOCUMENTED, not a live guard) ===
-        // `shutdown_requested` is set only inside `drain_host::dispatch_or_buffer_
-        // reentrant` (an SW-wait re-dispatch). Every reachable set-site is followed by a
-        // same-turn `Break`: the step-3 and step-4 `shutdown_requested` checks catch a
-        // set in the Phase-2 apply / held-message dispatch, and the step-6 bottom-drain
-        // check is the CATCH-ALL for a set anywhere in the frame tick (e.g. a
-        // `route_window_opens` / `tick_network` SW-wait between steps 4 and 6). So a turn
-        // that returns `Continue` leaves the flag false — `pump_turn` is only ever
-        // re-entered with it clear. This is ASSERTED, not live-checked: a runtime
-        // `if shutdown_requested { Break }` here would re-add the per-phase shutdown-
-        // check accretion the restructure removed, for a by-construction-unreachable
-        // state. The `debug_assert` documents (and, in debug builds, enforces) the
-        // invariant without that cost.
+        // Teardown safety is enforced at the SEAM BOUNDARY, not by the post-drain checks
+        // below: every pipeline-mutating `DrainHost` seam fails closed on
+        // `shutdown_requested` at entry (see the `impl DrainHost for ContentState` doc
+        // comment for the enumerated seams + the `handle_navigation` cause-not-victim
+        // exception). Because `DrainCoordinator` touches the pipeline ONLY through those
+        // seams, a `Shutdown` handled mid-drain (`drain_host::dispatch_or_buffer_reentrant`,
+        // an SW-wait re-dispatch) cannot re-render / ship / rebuild from the torn-down
+        // pipeline no matter where in a compound drain it fires — the completeness a
+        // post-drain check cannot give (a check placed AFTER a compound drain always
+        // leaves a "the next seam ran before the check" hole; Codex PR#469 R14).
+        //
+        // The pump's own `shutdown_requested` checks (steps 3/4/6) are therefore NOT the
+        // teardown-safety mechanism. They (a) promptly EXIT the loop once a mid-drain
+        // teardown has set the flag, and (b) guard the DIRECT, non-coordinator pump work
+        // — the step-4 held `handle_message` and the step-5 frame tick — which does not
+        // pass through a seam. So a turn that returns `Continue` leaves the flag false,
+        // and `pump_turn` is only ever re-entered with it clear. This ENTRY invariant is
+        // ASSERTED, not live-checked: a runtime `if shutdown_requested { Break }` here
+        // would re-add the per-phase shutdown accretion the restructure removed, for a
+        // by-construction-unreachable state. The `debug_assert` documents (and, in debug
+        // builds, enforces) it without that cost.
         debug_assert!(
             !state.shutdown_requested,
-            "pump_turn entry invariant: every shutdown_requested set-site Breaks same-turn \
-             (step-3/step-4 checks + the step-6 bottom-drain catch-all), so Continue ⟹ flag false"
+            "pump_turn entry invariant: teardown safety is seam-guarded (every \
+             pipeline-mutating DrainHost seam fails closed at entry) and every \
+             shutdown_requested set-site Breaks same-turn (steps 3/4/6), so Continue ⟹ flag false"
         );
 
         // === Step 1: intake ONE message, HELD (plan §4 message-held skeleton) ===
@@ -100,9 +110,22 @@ pub(super) fn pump_turn(state: &mut ContentState, last_frame: &mut Instant) -> C
                 Err(RecvTimeoutError::Disconnected) => return ControlFlow::Break(()),
             }
         } else {
-            // FIFO one-per-turn re-delivery (the buffer is bounded — it only fills
-            // during a single `is_applying()` SW-wait window). No channel wait this turn.
-            Some(state.deferred_reentrant_messages.remove(0))
+            // Buffer non-empty: FIFO one-per-turn re-delivery. A channel `Shutdown` must
+            // NOT be starved behind the buffer (teardown-priority, step 2) — so probe the
+            // channel non-blocking each buffer-drain turn. A `Shutdown` preempts (handed to
+            // step 2; the buffer stays intact, drained a later turn). Any other freshly-
+            // arrived message is NEWER than every buffered one, so push it to the buffer
+            // BACK (FIFO preserved — crossbeam has no putback) and still deliver the buffer
+            // FRONT this turn (Codex PR#469 R14 / Finding 2).
+            match state.channel.try_recv() {
+                Ok(BrowserToContent::Shutdown) => Some(BrowserToContent::Shutdown),
+                Ok(other) => {
+                    state.deferred_reentrant_messages.push(other);
+                    Some(state.deferred_reentrant_messages.remove(0))
+                }
+                Err(TryRecvError::Empty) => Some(state.deferred_reentrant_messages.remove(0)),
+                Err(TryRecvError::Disconnected) => return ControlFlow::Break(()),
+            }
         };
 
         // === Step 2: teardown-priority (plan §4 :49) ===
@@ -152,9 +175,12 @@ pub(super) fn pump_turn(state: &mut ContentState, last_frame: &mut Instant) -> C
         // same-document intent.
         let _ = elidex_navigation::DrainCoordinator::run_deferred_traversals(state);
         let _ = elidex_navigation::DrainCoordinator::drain_synchronous_updates(state);
-        // Phase 2 / the top drain can reach `handle_navigate`'s SW-wait, where a
-        // re-dispatched `Shutdown` runs teardown + sets `shutdown_requested`. Break
-        // before any code touches the torn-down pipeline (Codex PR#469 R8).
+        // The step-3 drains can reach `handle_navigate`'s SW-wait (via a Phase-2 apply
+        // or the top drain), where a re-dispatched `Shutdown` runs teardown + sets
+        // `shutdown_requested`. Those drains' seams are now seam-guarded (fail closed at
+        // entry — no post-teardown pipeline mutation), so this check is NOT the
+        // teardown-safety mechanism: it is a prompt loop-exit, breaking before step 4's
+        // DIRECT held-message dispatch touches the torn-down pipeline (Codex PR#469 R14).
         if state.shutdown_requested {
             return ControlFlow::Break(());
         }
@@ -173,11 +199,13 @@ pub(super) fn pump_turn(state: &mut ContentState, last_frame: &mut Instant) -> C
             if !handle_message(msg, state) {
                 return ControlFlow::Break(());
             }
-            // A fresh navigation's (non-nested) SW-wait can also see a re-dispatched
-            // `Shutdown`: `handle_navigate` ran teardown + set `shutdown_requested` and
-            // returned without applying, but its caller `handle_message` returned
-            // `true`. Break here so the thread exits without a frame tick on the
-            // torn-down pipeline (Codex PR#469 R8).
+            // The step-4 held `handle_message` is DIRECT pump work (not a coordinator
+            // seam), so it is guarded HERE, not at a seam: a fresh navigation's
+            // (non-nested) SW-wait can see a re-dispatched `Shutdown` — `handle_navigate`
+            // ran teardown + set `shutdown_requested` and returned without applying, but
+            // its caller `handle_message` returned `true`. Break so the thread exits
+            // without a frame tick on the torn-down pipeline (prompt loop-exit +
+            // direct-work guard; Codex PR#469 R14).
             if state.shutdown_requested {
                 return ControlFlow::Break(());
             }
@@ -439,13 +467,17 @@ pub(super) fn pump_turn(state: &mut ContentState, last_frame: &mut Instant) -> C
         // `handle_navigate`).
         let _ = elidex_navigation::DrainCoordinator::drain_synchronous_phase(state);
 
-        // A callback-staged `location.*` nav can reach `handle_navigate`'s SW-wait,
-        // where a re-dispatched `Shutdown` runs teardown + sets `shutdown_requested`
-        // (`dispatch_or_buffer_reentrant`). Check the flag after this new drain too —
-        // completing the "check `shutdown_requested` after EVERY pump phase that can
-        // reach the SW-wait" invariant (Codex PR#469 R8): break NOW, before the next
-        // turn's `recv_timeout` blocks the poll interval and before any code touches
-        // the torn-down pipeline.
+        // The step-6 bottom drain (`drain_synchronous_phase`) can reach
+        // `handle_navigate`'s SW-wait via a callback-staged `location.*` nav, where a
+        // re-dispatched `Shutdown` runs teardown + sets `shutdown_requested`
+        // (`dispatch_or_buffer_reentrant`). Its seams are seam-guarded (fail closed at
+        // entry), so this is NOT the "check after EVERY phase" catch-all it once was: it
+        // is a prompt loop-exit — break after a bottom-drain teardown so the next turn
+        // does not re-enter on the torn-down pipeline (before its `recv_timeout` blocks
+        // the poll interval). Nothing direct runs after this drain THIS turn; step 5's
+        // frame-tick work already ran on the live pipeline (gated by the step-4 check —
+        // step 5 stages navs for this drain but cannot itself reach the SW-wait teardown)
+        // (Codex PR#469 R14).
         if state.shutdown_requested {
             return ControlFlow::Break(());
         }

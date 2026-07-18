@@ -10,6 +10,12 @@
 //! popstate-staged `pushState` survives a held nav (fresh AND buffered), and (:49) a
 //! queued `Shutdown` preempts the Phase-2 apply.
 //!
+//! The R14 seam-boundary completion adds the teardown-safety scenarios: the
+//! pipeline-mutating `DrainHost` seams fail closed after a mid-drain teardown
+//! (`route_window_opens` HOLE A / `ship_frame` HOLE B), and the step-1 intake probes
+//! the channel each buffer-drain turn so a `Shutdown` preempts (teardown-priority)
+//! while a probed non-`Shutdown` message is preserved in FIFO order (Finding 2).
+//!
 //! Same-document entries (`push` + `push_same_document`, shared `document_sequence`)
 //! take the no-fetch `same_document_step` path, so their Phase-2 apply succeeds in the
 //! disconnected harness (a cross-document rebuild would fail — exercised elsewhere).
@@ -20,7 +26,20 @@ use elidex_script_session::HostDriver;
 use super::test_support::{
     base, build_test_content_state_with_url, drain_browser, seed_same_document_pair,
 };
-use crate::ipc::BrowserToContent;
+use crate::ipc::{BrowserToContent, ContentToBrowser, LocalChannel};
+
+/// Count the `DisplayListReady` messages currently queued on the browser channel —
+/// the "did the (possibly torn-down) pipeline ship a frame?" witness for the R14
+/// seam-guard tests (mirrors the sibling `content_history_drain_tests` helper).
+fn count_display_lists(browser: &LocalChannel<BrowserToContent, ContentToBrowser>) -> usize {
+    let mut n = 0;
+    while let Ok(msg) = browser.try_recv() {
+        if matches!(msg, ContentToBrowser::DisplayListReady(_)) {
+            n += 1;
+        }
+    }
+    n
+}
 
 /// **:416 — a queued traversal applies BEFORE a held direct navigate.** A prior turn
 /// queued a same-document `back()`; a direct `Navigate` is HELD this turn. The pump
@@ -264,5 +283,184 @@ fn popstate_cross_document_navigation_deferred_below_held_input() {
     assert!(
         state.pipeline.runtime.take_pending_navigation().is_none(),
         "the full drain (step-6 role) runs Phase 1c and consumes the cross-document nav"
+    );
+}
+
+/// **HOLE A — `route_window_opens` fails closed after a mid-drain teardown.** In a pump
+/// turn's step 3, `run_deferred_traversals` (drain-1) can apply a traversal whose SW-wait
+/// re-dispatches a `Shutdown` (`dispatch_or_buffer_reentrant`), tearing the pipeline down
+/// and setting `shutdown_requested`. The very next drain-2 (`drain_synchronous_updates`)
+/// runs Phase-1a `route_window_opens` BEFORE the pump's post-step-3 `shutdown_requested`
+/// check, so without the seam's entry guard it would re-render + ship a display list (and
+/// route an `OpenNewTab`) from the torn-down pipeline (Codex PR#469 R14).
+///
+/// The disconnected harness cannot drive a real SW-wait teardown, so this pins the SEAM
+/// guard directly: with `shutdown_requested` already set (as drain-1 would leave it) and a
+/// `window.open` popup staged, the drain-2 entry point must NOT consume the pending open
+/// nor ship. Fail-before-fix witnesses: the open stays QUEUED (the guard returned before
+/// `take_pending_window_opens`) and zero display lists are sent (unguarded,
+/// `route_window_opens` takes the open, routes an `OpenNewTab`, and ships its frame).
+#[test]
+fn route_window_opens_fails_closed_after_mid_drain_teardown() {
+    let (mut state, browser) = build_test_content_state_with_url("<p>doc</p>", base());
+    // Stage a `window.open` popup — a Phase-1a intent the drain-2 seam would route.
+    let _ = state
+        .pipeline
+        .runtime
+        .vm()
+        .eval("window.open('https://example.com/popup');");
+    // Simulate drain-1's teardown: the SW-wait `Shutdown` already set the flag.
+    state.shutdown_requested = true;
+    drain_browser(&browser);
+
+    // Drain-2 of step 3 — its Phase-1a `route_window_opens` seam must fail closed.
+    let _ = DrainCoordinator::drain_synchronous_updates(&mut state);
+
+    assert_eq!(
+        count_display_lists(&browser),
+        0,
+        "HOLE A — a torn-down pipeline's drain-2 route_window_opens ships nothing"
+    );
+    assert!(
+        !state
+            .pipeline
+            .runtime
+            .take_pending_window_opens()
+            .is_empty(),
+        "HOLE A — the seam returned at its entry guard BEFORE taking the window-open \
+         (unguarded it would have consumed + routed it)"
+    );
+}
+
+/// **HOLE B — `ship_frame` fails closed after a mid-drain teardown.** `ship_frame` is
+/// reached via the coordinator's shared `ship_if_needed` tail, which runs INSIDE
+/// `run_deferred_traversals` / `drain_synchronous_phase` — BEFORE the pump's post-drain
+/// `shutdown_requested` check. So a Phase-1c `handle_navigation` SW-wait (or a Phase-2
+/// apply) that tears down mid-drain, with an own-context effect already recorded this pass
+/// (e.g. a co-staged `pushState`), would let `ship_if_needed` ship the torn-down
+/// pipeline's display list — a dead frame (Codex PR#469 R14).
+///
+/// Pinned via the real coordinator path with `shutdown_requested` pre-set (as a mid-drain
+/// teardown would leave it): a staged `pushState` drives `run_synchronous_updates_body` to
+/// record `own_context_action` (even though the already-guarded `handle_history_action`
+/// no-ops on the torn-down controller), so `ship_if_needed` calls `ship_frame`. The
+/// `ship_frame` entry guard is the last line of defense — fail-before-fix: unguarded it
+/// sends one `DisplayListReady` from the dead pipeline; guarded it sends none.
+#[test]
+fn ship_frame_fails_closed_after_mid_drain_teardown() {
+    let (mut state, browser) = build_test_content_state_with_url("<p>doc</p>", base());
+    // A co-staged synchronous history update — the own-context effect that makes
+    // `ship_if_needed` want to ship at the end of the drain.
+    let _ = state
+        .pipeline
+        .runtime
+        .vm()
+        .eval("history.pushState(null, '', '/a');");
+    // Simulate the mid-drain teardown: Phase-1c's SW-wait `Shutdown` already set it.
+    state.shutdown_requested = true;
+    drain_browser(&browser);
+
+    // The full Phase-1 drain (the step-6 role) records own_context_action from the
+    // pushState and reaches `ship_if_needed` → `ship_frame`, which must fail closed.
+    let _ = DrainCoordinator::drain_synchronous_phase(&mut state);
+
+    assert_eq!(
+        count_display_lists(&browser),
+        0,
+        "HOLE B — ship_frame ships nothing from the torn-down pipeline"
+    );
+    assert_eq!(
+        state.nav_controller.len(),
+        0,
+        "the guarded handle_history_action left the torn-down controller untouched \
+         (no pushState applied post-teardown)"
+    );
+}
+
+/// **Finding 2 (teardown-priority) — a channel `Shutdown` preempts a buffer-drain turn.**
+/// When the reentrant buffer is non-empty, the step-1 intake used to deliver a buffered
+/// message WITHOUT reading the channel, starving a `Shutdown` waiting on the channel behind
+/// the buffer (teardown-priority could not fire until the buffer emptied — up to the ~30s
+/// SW deadline). The intake now probes the channel non-blocking each buffer-drain turn: a
+/// `Shutdown` preempts (handed to step 2's teardown) while the buffer stays intact (Codex
+/// PR#469 R14).
+///
+/// Fail-before-fix: with a buffered message queued AND a `Shutdown` on the channel, the
+/// turn must BREAK (teardown-priority) — the old drain-the-buffer-first intake returned
+/// `Continue`, delivering the buffered message and leaving the `Shutdown` unread.
+#[test]
+fn channel_shutdown_preempts_a_buffer_drain_turn() {
+    let (mut state, browser) = build_test_content_state_with_url("<p>doc</p>", base());
+    // A buffered reentrant message awaiting one-per-turn re-delivery.
+    state
+        .deferred_reentrant_messages
+        .push(BrowserToContent::CursorLeft);
+    // A Shutdown arrives on the channel while the buffer is non-empty.
+    browser.send(BrowserToContent::Shutdown).unwrap();
+
+    let mut last_frame = std::time::Instant::now();
+    let flow = super::event_loop::pump_turn(&mut state, &mut last_frame);
+
+    assert!(
+        flow.is_break(),
+        "Finding 2 — the channel Shutdown preempted the buffer-drain (teardown-priority \
+         fired); the old intake would have delivered the buffered message and returned Continue"
+    );
+    assert_eq!(
+        state.deferred_reentrant_messages.len(),
+        1,
+        "the buffer stayed intact — the Shutdown preempted without draining a buffered message"
+    );
+    assert!(
+        matches!(
+            state.deferred_reentrant_messages.first(),
+            Some(BrowserToContent::CursorLeft)
+        ),
+        "the exact buffered message is preserved (the Shutdown was surfaced from the channel)"
+    );
+}
+
+/// **Finding 2 (FIFO preserve) — a non-`Shutdown` message read during a buffer-drain is
+/// buffered, not dropped.** crossbeam has no peek/putback, so the intake's channel probe
+/// (added for the `Shutdown` preempt above) consumes whatever it reads. A freshly-arrived
+/// non-`Shutdown` message is NEWER than every buffered one, so it is pushed to the buffer
+/// BACK and the buffer FRONT is still delivered this turn — preserving FIFO and never
+/// dropping the probed message (Codex PR#469 R14).
+///
+/// Pins the new intake's ordering: with `A` buffered and a newer `B` on the channel, one
+/// turn delivers `A` (the buffer front) and leaves `B` buffered for a later turn. A
+/// regression that delivered `B` (out of order) or dropped it would leave the buffer as
+/// `[A]` or `[]` respectively, not `[B]`. (`A` = `CursorLeft` with no hover dispatches as a
+/// no-op; `B` is left buffered, never dispatched this turn.)
+#[test]
+fn buffer_drain_preserves_a_probed_non_shutdown_message_in_fifo_order() {
+    let (mut state, browser) = build_test_content_state_with_url("<p>doc</p>", base());
+    // `A` is buffered (older); dispatching it (CursorLeft, no hover) is a no-op.
+    state
+        .deferred_reentrant_messages
+        .push(BrowserToContent::CursorLeft);
+    // `B` (newer, distinct) arrives on the channel during the buffer-drain turn.
+    browser
+        .send(BrowserToContent::MouseRelease { button: 0 })
+        .unwrap();
+
+    let mut last_frame = std::time::Instant::now();
+    let flow = super::event_loop::pump_turn(&mut state, &mut last_frame);
+    assert!(flow.is_continue(), "a non-shutdown turn continues the loop");
+
+    // A was delivered (removed from the front); B was probed off the channel and pushed
+    // to the buffer BACK — so the buffer holds exactly [B], preserving FIFO.
+    assert_eq!(
+        state.deferred_reentrant_messages.len(),
+        1,
+        "Finding 2 — B was buffered (not dropped) and A was delivered (FIFO front-first)"
+    );
+    assert!(
+        matches!(
+            state.deferred_reentrant_messages.first(),
+            Some(BrowserToContent::MouseRelease { button: 0 })
+        ),
+        "the buffer now holds B (the newer channel message) for a later turn; A (the older \
+         buffered message) was delivered this turn"
     );
 }

@@ -99,6 +99,37 @@ pub(super) fn dispatch_or_buffer_reentrant(state: &mut ContentState, msg: Browse
 /// realization). The coordinator owns the phase ordering + the §4.5 I1/I2/I3
 /// invariants; these seams own the shell-specific bodies (pipeline rebuild, frame
 /// shipping, entry-list resolution).
+///
+/// **Teardown-safety invariant — fail-closed at the seam boundary (Codex PR#469
+/// R14).** A `Shutdown` handled mid-drain at the interim reentrancy vector
+/// ([`dispatch_or_buffer_reentrant`], reached from a seam's `handle_navigate`
+/// SW-wait) runs teardown and sets [`ContentState::shutdown_requested`]. Because
+/// [`DrainCoordinator`](elidex_navigation::DrainCoordinator) touches the pipeline
+/// ONLY through these `DrainHost` methods, guarding every **pipeline-mutating** seam
+/// at ENTRY makes post-teardown pipeline work impossible BY CONSTRUCTION — the
+/// completeness a post-drain `pump_turn` check cannot give (a check placed AFTER a
+/// compound drain always leaves a "the next seam ran before the check" hole; this
+/// generalizes the per-seam R8 guards into a provably-complete boundary). The
+/// pipeline-mutating seams and their disposition:
+/// - [`handle_history_action`](Self::handle_history_action) — fails closed at entry.
+/// - [`apply_traversal`](Self::apply_traversal) — fails closed at entry.
+/// - [`route_window_opens`](Self::route_window_opens) — fails closed at entry (HOLE A).
+/// - [`ship_frame`](Self::ship_frame) — fails closed at entry (HOLE B).
+/// - [`handle_navigation`](Self::handle_navigation) — the teardown *cause*, never a
+///   victim: it is the ONLY seam whose SW-wait tears our pipeline down, and nothing
+///   earlier in the same drain does (Phase 1a `route_window_opens` routes to an
+///   isolated iframe pipeline, Phase 1b `handle_history_action` is same-document
+///   no-SW), so at its entry `shutdown_requested` is always false and its own pre-nav
+///   `send_display_list` runs on the still-live pipeline BEFORE `handle_navigate`. A
+///   guard there would be dead code, so it is documented, not added.
+///
+/// The non-pipeline-mutating seams need no guard: [`traversal_queue`](Self::traversal_queue)
+/// (accessor), [`take_pending_history`](Self::take_pending_history) (drains the VM
+/// FIFO, ships nothing), [`classify_traversal`](Self::classify_traversal) /
+/// [`pending_traversal`](Self::pending_traversal) (peek + value construction).
+/// `pump_turn`'s own `shutdown_requested` checks are thereby demoted to prompt
+/// loop-exit + a guard for the DIRECT (non-seam) pump work (the held `handle_message`
+/// + the frame tick).
 impl DrainHost for ContentState {
     fn traversal_queue(&mut self) -> &mut TraversalQueue {
         &mut self.traversal_queue
@@ -112,6 +143,14 @@ impl DrainHost for ContentState {
     /// (they live on the old pipeline's runtime). Same ordered routing as the
     /// async pump (edge E4).
     fn route_window_opens(&mut self) {
+        // A `Shutdown` handled mid-drain (`dispatch_or_buffer_reentrant`) already ran
+        // teardown; do NOT re-render / ship a frame from the torn-down pipeline. Every
+        // pipeline-mutating `DrainHost` seam fails closed at entry (the provable
+        // teardown-safety invariant; see the impl-level doc comment). The pump breaks on
+        // `shutdown_requested` right after the drain (Codex PR#469 R14 / HOLE A).
+        if self.shutdown_requested {
+            return;
+        }
         let window_opens = self.pipeline.runtime.take_pending_window_opens();
         if window_opens.is_empty() {
             return;
@@ -221,6 +260,13 @@ impl DrainHost for ContentState {
     }
 
     fn ship_frame(&mut self) {
+        // Fail-closed on a mid-drain teardown: a co-staged Phase-1c `handle_navigation`
+        // SW-wait can tear down before `ship_if_needed` reaches here, and shipping the
+        // torn-down pipeline's display list would surface a dead frame (Codex PR#469 R14
+        // / HOLE B). Same seam-boundary invariant as the other `DrainHost` seams.
+        if self.shutdown_requested {
+            return;
+        }
         self.send_display_list();
     }
 }

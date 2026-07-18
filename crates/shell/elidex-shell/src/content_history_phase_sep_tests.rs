@@ -782,8 +782,7 @@ fn interim_guard_dispatches_reentrant_when_not_applying() {
 /// it for a by-construction-impossible state), so pre-setting the flag and then calling
 /// `pump_turn` would (correctly) trip that assertion. The break-on-nested-shutdown path
 /// — the only way the flag is set in real operation, always with a same-turn Break — is
-/// pinned by
-/// `interim_guard_break_on_nested_shutdown_leaves_second_buffered_nav_undelivered`.
+/// pinned by `interim_guard_nested_shutdown_in_sw_wait_breaks_the_pump`.
 #[test]
 fn interim_guard_shutdown_handled_immediately_not_buffered() {
     let (mut state, browser) = build_test_content_state_with_url("<p>doc</p>", base());
@@ -811,25 +810,29 @@ fn interim_guard_shutdown_handled_immediately_not_buffered() {
     );
 }
 
-/// **Interim reentrancy guard** (Codex PR#469 R8 re-check; FLIPPED to the message-held
-/// pump per the drain-unification plan §4/§6): a re-delivered nav-mutating message
-/// (`Navigate`/`Reload`/`GoBack`/`GoForward`) whose nested SW-wait consumes a
-/// re-dispatched `Shutdown` runs teardown + sets `shutdown_requested`, yet
-/// `handle_message` returns `true` (those arms discard `handle_navigate`'s `false`).
-/// Step 4's `shutdown_requested` check must Break the pump right there — before the
-/// frame tick / bottom drain touch the torn-down pipeline, and (the "batch stop"
-/// property, re-expressed) before the NEXT buffered message is intaken.
+/// **Interim reentrancy guard** (Codex PR#469 R8, re-expressed for the message-held pump
+/// and the R14 intake probe): a nav-mutating message (`Navigate`/`Reload`/`GoBack`/
+/// `GoForward`) whose nested SW-wait consumes a re-dispatched `Shutdown` runs teardown +
+/// sets `shutdown_requested`, yet `handle_message` returns `true` (those arms discard
+/// `handle_navigate`'s `false`). Step 4's `shutdown_requested` check must Break the pump
+/// right there — before the frame tick / bottom drain touch the torn-down pipeline, and
+/// before any later message is intaken.
 ///
-/// Under the message-held skeleton the buffer is re-delivered ONE per turn, so the
-/// "second nav must not run on the torn-down pipeline" invariant is now structural:
-/// the first buffered nav is intaken at step 1, its nested SW-wait sets the flag, step
-/// 4 Breaks — so the second buffered nav is STILL IN THE BUFFER, never intaken. Proven
-/// by exactly ONE `SwFetchRequest` reaching the browser and the second nav remaining
-/// buffered. Drives the REAL SW-wait: seeding a controller scope makes an in-scope nav
-/// take the wait path, and a queued `Shutdown` is re-dispatched there immediately (no
-/// 30s deadline).
+/// The nav is delivered from the CHANNEL (buffer empty, so step-1 `recv` reads it), with
+/// the `Shutdown` queued BEHIND it: the nav's SW-wait — NOT step-1 — reads the trailing
+/// `Shutdown` and re-dispatches it through the reentrant vector
+/// (`dispatch_or_buffer_reentrant`), which sets the flag. This is the distinct
+/// complement of teardown-priority: when a `Shutdown` is instead ALREADY waiting at
+/// step-1 with a non-empty buffer, the R14 intake probe surfaces it BEFORE any nav
+/// dispatches, so the flag is NOT set (a channel-`recv` teardown) — pinned by
+/// `history_pump_turn_tests::channel_shutdown_preempts_a_buffer_drain_turn`. Here the
+/// buffer is empty at step-1, so the probe is not taken and the nav dispatches, letting
+/// its SW-wait own the `Shutdown`. Exactly ONE `SwFetchRequest` reaches the browser (the
+/// nav's) — the pump broke on the flag before any further work. Drives the REAL SW-wait:
+/// seeding a controller scope makes an in-scope nav take the wait path, and a queued
+/// `Shutdown` is re-dispatched there immediately (no 30s deadline).
 #[test]
-fn interim_guard_break_on_nested_shutdown_leaves_second_buffered_nav_undelivered() {
+fn interim_guard_nested_shutdown_in_sw_wait_breaks_the_pump() {
     let scope = || url::Url::parse("https://example.com/app/").unwrap();
 
     let (mut state, browser) = build_test_content_state_with_url("<p>doc</p>", base());
@@ -839,21 +842,15 @@ fn interim_guard_break_on_nested_shutdown_leaves_second_buffered_nav_undelivered
     state.pipeline.runtime.seed_sw_client(Some(scope()), &[]);
     drain_browser(&browser);
 
-    // Two SW-controlled cross-document navs buffered. Step 1 intakes ONLY the first
-    // (buffer-first, one/turn); its nested SW-wait consumes a Shutdown (teardown +
-    // `shutdown_requested`), step 4 Breaks, so the SECOND is never intaken.
-    state
-        .deferred_reentrant_messages
-        .push(BrowserToContent::Navigate(
+    // A channel-delivered in-scope nav (step-1 `recv`, buffer empty), then the Shutdown
+    // its nested SW-wait picks up immediately (no 30s deadline). Buffer empty ⇒ step-1
+    // does NOT probe, so the nav dispatches and its SW-wait — not the intake — owns the
+    // Shutdown (the reentrant-vector flag set, distinct from teardown-priority).
+    browser
+        .send(BrowserToContent::Navigate(
             url::Url::parse("https://example.com/app/one").unwrap(),
-        ));
-    state
-        .deferred_reentrant_messages
-        .push(BrowserToContent::Navigate(
-            url::Url::parse("https://example.com/app/two").unwrap(),
-        ));
-
-    // Queue the Shutdown the first nav's SW-wait picks up immediately (no 30s deadline).
+        ))
+        .unwrap();
     browser.send(BrowserToContent::Shutdown).unwrap();
 
     let mut last_frame = std::time::Instant::now();
@@ -866,14 +863,8 @@ fn interim_guard_break_on_nested_shutdown_leaves_second_buffered_nav_undelivered
     );
     assert!(
         state.shutdown_requested,
-        "the first re-delivered nav's nested SW-wait consumed a Shutdown → teardown + flag set"
-    );
-    // The SECOND buffered nav was NEVER intaken (the pump broke on the first) — the
-    // one-per-turn re-delivery makes the old "batch stops mid-replay" property structural.
-    assert_eq!(
-        state.deferred_reentrant_messages.len(),
-        1,
-        "the second buffered nav stays in the buffer — never dispatched on the torn-down pipeline"
+        "the nav's nested SW-wait consumed a Shutdown via the reentrant vector → teardown + \
+         flag set (NOT the channel-recv teardown-priority path, which leaves the flag clear)"
     );
     let mut sw_fetch_count = 0;
     while let Ok(msg) = browser.try_recv() {
@@ -883,6 +874,7 @@ fn interim_guard_break_on_nested_shutdown_leaves_second_buffered_nav_undelivered
     }
     assert_eq!(
         sw_fetch_count, 1,
-        "only the FIRST buffered nav dispatched (one SwFetchRequest); the SECOND never ran"
+        "only the nav dispatched (one SwFetchRequest); the pump broke on the flag before \
+         any further work touched the torn-down pipeline"
     );
 }
