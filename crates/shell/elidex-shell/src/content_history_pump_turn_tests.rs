@@ -16,6 +16,10 @@
 //! the channel each buffer-drain turn so a `Shutdown` preempts (teardown-priority)
 //! while a probed non-`Shutdown` message is preserved in FIFO order (Finding 2).
 //!
+//! The R15 intake DRAIN generalizes the buffer-drain probe to a full non-blocking
+//! drain (until `Shutdown` or `Empty`), so a `Shutdown` BEHIND an earlier channel
+//! message still preempts rather than being starved a turn late (Codex PR#469 R15).
+//!
 //! Same-document entries (`push` + `push_same_document`, shared `document_sequence`)
 //! take the no-fetch `same_document_step` path, so their Phase-2 apply succeeds in the
 //! disconnected harness (a cross-document rebuild would fail — exercised elsewhere).
@@ -462,5 +466,62 @@ fn buffer_drain_preserves_a_probed_non_shutdown_message_in_fifo_order() {
         ),
         "the buffer now holds B (the newer channel message) for a later turn; A (the older \
          buffered message) was delivered this turn"
+    );
+}
+
+/// **R15 (teardown-priority through the channel) — a `Shutdown` BEHIND a normal message
+/// still preempts a buffer-drain turn.** The step-1 buffer-drain arm now DRAINS the
+/// channel non-blocking until `Shutdown` or `Empty` (not a single HEAD probe): a channel
+/// `[MouseRelease, Shutdown]` had its `Shutdown` starved behind the `MouseRelease` under
+/// the R14 single-probe intake (which saw only the HEAD, delivered the buffer front, and
+/// returned `Continue`), deferring teardown for later turns — up to the ~30s SW deadline
+/// while a non-empty buffer keeps re-delivering (Codex PR#469 R15).
+///
+/// Fail-before-fix: with `[CursorLeft]` buffered AND `[MouseRelease, Shutdown]` on the
+/// channel, one `pump_turn` must BREAK — the drain buffers `MouseRelease`, reads
+/// `Shutdown`, and hands it to step-2 teardown. The old single-probe intake returned
+/// `Continue`, delivering `CursorLeft` and leaving the `Shutdown` unread behind the
+/// `MouseRelease`. Both messages stay buffered in FIFO order — neither is dispatched on
+/// the closing tab.
+#[test]
+fn channel_shutdown_behind_normal_message_still_preempts() {
+    let (mut state, browser) = build_test_content_state_with_url("<p>doc</p>", base());
+    // A buffered reentrant message awaiting one-per-turn re-delivery.
+    state
+        .deferred_reentrant_messages
+        .push(BrowserToContent::CursorLeft);
+    // The channel holds a normal message AHEAD of the Shutdown — the exact R15 repro. A
+    // single `try_recv` probe would observe only the MouseRelease (the channel HEAD).
+    browser
+        .send(BrowserToContent::MouseRelease { button: 0 })
+        .unwrap();
+    browser.send(BrowserToContent::Shutdown).unwrap();
+
+    let mut last_frame = std::time::Instant::now();
+    let flow = super::event_loop::pump_turn(&mut state, &mut last_frame);
+
+    assert!(
+        flow.is_break(),
+        "R15 — the intake DRAINS the channel to the Shutdown, so it preempts even behind a \
+         normal message; the old single-probe intake delivered the buffer front and \
+         returned Continue, starving the Shutdown"
+    );
+    // The drain buffered MouseRelease to the buffer BACK (FIFO), then read the Shutdown and
+    // broke at step 2 — so BOTH messages are preserved, in order, neither dispatched.
+    assert_eq!(
+        state.deferred_reentrant_messages.len(),
+        2,
+        "both the pre-buffered message and the drained channel message are kept"
+    );
+    assert!(
+        matches!(
+            state.deferred_reentrant_messages.as_slice(),
+            [
+                BrowserToContent::CursorLeft,
+                BrowserToContent::MouseRelease { button: 0 }
+            ]
+        ),
+        "FIFO preserved as [CursorLeft, MouseRelease]: the drained MouseRelease went to the \
+         buffer BACK and neither was dispatched before the Shutdown broke the turn"
     );
 }

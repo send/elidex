@@ -110,21 +110,23 @@ pub(super) fn pump_turn(state: &mut ContentState, last_frame: &mut Instant) -> C
                 Err(RecvTimeoutError::Disconnected) => return ControlFlow::Break(()),
             }
         } else {
-            // Buffer non-empty: FIFO one-per-turn re-delivery. A channel `Shutdown` must
-            // NOT be starved behind the buffer (teardown-priority, step 2) — so probe the
-            // channel non-blocking each buffer-drain turn. A `Shutdown` preempts (handed to
-            // step 2; the buffer stays intact, drained a later turn). Any other freshly-
-            // arrived message is NEWER than every buffered one, so push it to the buffer
-            // BACK (FIFO preserved — crossbeam has no putback) and still deliver the buffer
-            // FRONT this turn (Codex PR#469 R14 / Finding 2).
-            match state.channel.try_recv() {
-                Ok(BrowserToContent::Shutdown) => Some(BrowserToContent::Shutdown),
-                Ok(other) => {
-                    state.deferred_reentrant_messages.push(other);
-                    Some(state.deferred_reentrant_messages.remove(0))
+            // Buffer non-empty: FIFO one-per-turn re-delivery. A channel `Shutdown` must NOT
+            // be starved behind the buffer OR behind earlier channel work (teardown-priority,
+            // step 2) — so DRAIN the channel non-blocking until `Shutdown` or `Empty`,
+            // buffering every non-`Shutdown` to the buffer BACK (FIFO preserved — crossbeam has
+            // no putback), THEN deliver the buffer FRONT. A single probe would observe only the
+            // channel HEAD, leaving a `Shutdown` behind other channel messages starved for later
+            // turns (Codex PR#469 R15). The buffer holds ≥1 (this arm's precondition), so the
+            // `remove(0)` after an `Empty` is always valid.
+            loop {
+                match state.channel.try_recv() {
+                    Ok(BrowserToContent::Shutdown) => break Some(BrowserToContent::Shutdown),
+                    Ok(other) => state.deferred_reentrant_messages.push(other),
+                    Err(TryRecvError::Empty) => {
+                        break Some(state.deferred_reentrant_messages.remove(0))
+                    }
+                    Err(TryRecvError::Disconnected) => return ControlFlow::Break(()),
                 }
-                Err(TryRecvError::Empty) => Some(state.deferred_reentrant_messages.remove(0)),
-                Err(TryRecvError::Disconnected) => return ControlFlow::Break(()),
             }
         };
 
