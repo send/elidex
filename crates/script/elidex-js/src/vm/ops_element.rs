@@ -129,7 +129,7 @@ fn classify_typed_array_string_key(vm: &mut VmInner, sid: StringId) -> TypedArra
     // (the fast path above already handles non-negative integers, so
     // any remaining canonical form — `"Infinity"`, `"NaN"`, negative
     // integer, fractional — is non-integer-valid).  `to_number` takes
-    // `&mut vm` for the §7.1.4 step 4 Object path, so the early borrow
+    // `&mut vm` for the §7.1.4 step 8 Object path, so the early borrow
     // above is dropped before this call and re-acquired below.
     let n = super::coerce::to_number(vm, JsValue::String(sid)).unwrap_or(f64::NAN);
     let mut roundtrip = String::new();

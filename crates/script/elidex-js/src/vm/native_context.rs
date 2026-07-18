@@ -57,7 +57,7 @@ impl NativeContext<'_> {
     /// Convert a value to f64 using ECMA-262 ToNumber.
     /// Returns `Err(VmError)` for Symbol values (ECMA-262 §7.1.4).
     ///
-    /// Takes `&mut self` because the §7.1.4 step 4 Object path delegates
+    /// Takes `&mut self` because the §7.1.4 step 8 Object path delegates
     /// to `ToPrimitive(val, "number")`, which may invoke user-defined
     /// `valueOf` / `toString` and through them arbitrary JS.
     #[inline]

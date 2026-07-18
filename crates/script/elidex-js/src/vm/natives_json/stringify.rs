@@ -467,7 +467,7 @@ fn stringify_impl(
     // `valueOf` / `toString` throws propagates the abrupt completion).
     let gap = compute_gap(ctx, space_arg)?;
 
-    // Build wrapper object: { "": value } (§25.5.4 step 9)
+    // Build wrapper object: { "": value } (§25.5.4 steps 10-11)
     let wrapper_id = ctx.alloc_object(Object {
         kind: ObjectKind::Ordinary,
         storage: PropertyStorage::shaped(ROOT_SHAPE),
