@@ -135,8 +135,9 @@ impl EcsDom {
    (Codex R9-AA3; this requirement is that fact's only home — §3's row and §4 axis 3 point here and must not
    re-decide it). CSSOM consumers MUST branch on the distinction (`getClientRects()` returns an **empty** list
    when there is no associated box, cssom-view §6; `display:contents` generates **no box**, CSS Display 3 §2.5).
-   Neither direction of the store fact is that predicate: **absence** is `{no associated box}` ∪ `{laid out after
-   the last completed pass}` (§2 soundness-table row 4) — and **presence** only means a box was produced, which producer paths leave on spec-boxless
+   Neither direction of the store fact is that predicate: **absence** is `{no associated box}` ∪ `{laid out after the last completed pass}` — elidex forces no reflow, so a script-appended entity reads
+   empty until the next pass, which C-3 inherits (the §2 phase guard validates screen-vs-paged **geometry**, not
+   per-entity DOM freshness, so it does not — and need not — fail here) — and **presence** only means a box was produced, which producer paths leave on spec-boxless
    elements. **What a true "has an associated CSS box" predicate requires, and what absence/presence is worth per
    reader, is §4 axis 3's to determine** against the producer paths it enumerates. The seam owes no extra facet;
    it reports the store faithfully, and the producer's presence is the lie. The class is non-empty (examples only
@@ -186,7 +187,7 @@ convention (RO §3.3.1: *"top is padding top, left is padding left"*), **NOT** a
 (this codebase derives `border_box() = padding_box().expand(border())`, so the content origin relative to the
 border box is `border + padding`, `boxes.rs:135-141`). Calling it "border-box-local" and baking padding-only
 into a generic facet would give the wrong local origin for any bordered box. The correct home for a **local
-frame is the reader** (I-frame): RO's contentRect **composes engine-side in `elidex-api-observers::resize`**, not the JS host (its facet math needs no dom-api, so unlike IO's `rect_fn` below it takes no host seam; C-3d, R22-JJ3)
+frame is the reader** (I-frame): RO's contentRect **belongs engine-side in `elidex-api-observers::resize`** (its facet math needs no dom-api, so unlike IO's `rect_fn` below it takes no host seam; C-3d, R22-JJ3) — but **today it composes in the JS host closure** (`resize_observer.rs:404-407` reads `LayoutBox::content_rect_local()`, a live component-path reader §4's sweep catches and C-3d must migrate off — do not read this line as already-engine-side)
 from the fragment's **generic** `BoxModel` facets — `Rect::new(f.padding().left, f.padding().top,
 f.content().size.width, f.content().size.height)`, byte-identical to today. So `elidex-plugin`'s `BoxModel`
 stays **purely generic** (no RO-semantic helper below the floor). C-3a's scope is enumerated once, at the
@@ -306,7 +307,6 @@ not as a design:
 | 1 | **paged/print after a completed screen pass** (R8-Z1) | nothing distinguishes a screen-built from a paged-built store unless an entry marks it, so a stale *completed-screen* would stay green over page-relative fragments |
 | 2 | **a re-entrant/second SCREEN pass, mid-flight** (R9-AA1) | `layout_tree` `clear()`s the store at the **top** of the pass (I-phase fact 2), so a stale *completed-screen* from the prior pass stays green while the store is empty/partial |
 | 3 | **a probe pass** (I-phase fact 1) | the store holds the prior definitive pass's coords |
-| 4 | **the DOM mutated after a completed screen pass** (re-gate #5) | the guard is **store-global provenance, not per-entity freshness**, so it stays green while a script-appended entity reads box-**absent** though it will get a box — elidex forces no reflow (`layout_tree` runs only from `shell/pipeline.rs`, never a read handler), so `box_fragments` returns the pre-mutation answer and C-3 **inherits** it (§1 requirement 5: absence is two-valued) |
 
 (Reader-side guard; complements the producer-side C-4 gate item 3 paged-store **content** hygiene.)
 **The seam contract, stated as a rule rather than a roster** (Codex R19-HH2): **any reader that runs *inside* a
@@ -662,7 +662,7 @@ table in the first place (Codex R13-CC2).
    > is the CC2 defect, not a safeguard. CLAUDE.md *One issue, one way*: 単一の正準形に一括収束。§6.1 records
    > this same class — a duplicated decision surface — killing PR #463.
 
-   ⚠ **Rows 1-7 and 12 are PROPOSALS, not registered slots** (Codex R7-Y4): the ledger's why/trigger/**date** triple is
+   ⚠ **Rows 1-8 and 12 are PROPOSALS, not registered slots** (Codex R7-Y4): the ledger's why/trigger/**date** triple is
    completed **by PM at registration** (C-3a landing) — the *why* is the gate item, the *trigger* is stated below
    and is deliberately **event-based** (these gate C-4, a program with no calendar date yet; an invented date
    would be false precision), and the *date* is the one PM stamps. Until then they are notes, not ledger entries.
