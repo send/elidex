@@ -162,6 +162,24 @@ fn textarea_default_value_setter_does_not_overwrite_dirty_value() {
 }
 
 #[test]
+fn textarea_default_value_via_retained_mirror_0b() {
+    // Slice 0b DOCUMENTATION test: `textarea.defaultValue = "x"` updates
+    // `FCS.value` (observable as `t.value`) via the RETAINED
+    // `native_textarea_set_default_value` mirror.  This passes BECAUSE Slice
+    // 0b deliberately KEEPS the textarea mirror — `textarea.defaultValue`
+    // reflects child text (HTML §4.10.11 raw value), which the
+    // AttributeChange-only reconciler cannot reach (unlike the two input
+    // mirrors, which 0b deletes).  Deleting this mirror awaits slot
+    // `#11-textarea-defaultvalue-textcontent-reconciliation`; if a future
+    // "delete all mirrors" sweep removes it, THIS TEST FAILS — keeping the
+    // deferred gap visible.
+    let out = run("var t = document.createElement('textarea'); \
+         t.defaultValue = 'x'; \
+         t.value + '/' + t.defaultValue;");
+    assert_eq!(out, "x/x");
+}
+
+#[test]
 fn textarea_text_length_counts_utf16() {
     let out = run("var t = document.createElement('textarea'); \
          t.value = 'abcd'; \

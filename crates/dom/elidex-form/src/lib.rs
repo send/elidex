@@ -37,9 +37,9 @@ pub use elidex_form_core::{
     apply_step, clipboard_copy, clipboard_cut, clipboard_paste, collapse_selection,
     delete_selection, extend_selection, first_legend_child, form_control_key_input,
     form_control_key_input_action, is_constraint_validation_candidate, is_fieldset_disabled,
-    is_in_first_legend, resolve_input_list, sanitize_for_type_change, select_all, validate_control,
-    FormControlKind, FormControlState, KeyAction, SelectOption, SelectionDirection, StepError,
-    ValidityState, ValueMode, ValueSetAction, MAX_PATTERN_LENGTH,
+    is_in_first_legend, parse_positive_with_fallback, resolve_input_list, sanitize_for_type_change,
+    select_all, validate_control, FormControlKind, FormControlState, KeyAction, SelectOption,
+    SelectionDirection, StepError, ValidityState, ValueMode, ValueSetAction, MAX_PATTERN_LENGTH,
 };
 
 pub use ancestor_cache::AncestorCache;

@@ -252,13 +252,13 @@ Engine-independent (`elidex-form` reconciler tests, using the `FormControlOnlyTe
 
 ---
 
-## §9 1000-line touch-time note (no split needed)
+## §9 1000-line touch-time note (tests extracted to a sibling module)
 
-Verified counts (2026-07-18, `wc -l`): `reconciler.rs` = **926**, `elidex-form-core/src/lib.rs` = **973**, `clone.rs` = 304, `sizing.rs` = 139, `html_input_value.rs` = 557, `html_textarea_proto.rs` = 851 — **all < 1000**.
+Post-implementation counts (`wc -l`): `reconciler.rs` (production + `#[path]` stub) = **333**, `reconciler_tests.rs` (extracted) = **735**, `elidex-form-core/src/lib.rs` = **987**, `clone.rs` = 304, `sizing.rs` = 139, `html_input_value.rs` = 543, `html_textarea_proto.rs` = 851 — **all < 1000**.
 
-- The three arms add ~8-12 lines to `reconciler.rs` (926 → ~935-940); the two mirror deletions **remove** lines from `html_input_value.rs`. `lib.rs` grows only if `parse_positive_with_fallback` (~6 lines) lands there (still < 1000); with decision E deferred (§5) there is no `adopt_value_state` growth.
-- **No prereq split is forced.** Per the touch-time discipline (cohesion, not mechanical line-count), the reconciler is a **flat case-table** (`handle_attribute_change`'s per-attribute match) — an explicitly non-splittable shape (a cohesive dispatch, like the guidance's "flat case table"). Adding arms to it is exactly what it is for.
-- If `lib.rs` (973, closest to the cap) is *ever* split, the cleanest cohesion seam is the `FormControlKind` enum + its inherent `impl` (`lib.rs:67-326`, per the 0a move-list line ranges) → its own module. **0b does not need it and must not bundle it** — stated here so plan-review does not demand a speculative split for a +6-line touch.
+- **Production stays a ~333-line flat case-table (exempt from a split).** The three arms add only a few lines to `handle_attribute_change`'s per-attribute match — a cohesive dispatch (the touch-time discipline's explicitly non-splittable "flat case table"), so the *production* half is not a split candidate. The two mirror deletions **remove** lines from `html_input_value.rs`; `parse_positive_with_fallback` (~14 lines incl. doc) lands in `elidex-form-core/src/lib.rs` (987, still < 1000); with decision E deferred (§5) there is no `adopt_value_state` growth.
+- **The added tests forced a tests-only split (this note's earlier "no split needed" premise was falsified — it under-counted the tests).** The new arm / mirror-deletion / parity / reset tests grew the inline `#[cfg(test)] mod tests` module enough that the *file total* crossed 1000 (~1063). Per the touch-time discipline (the touched file must stay bounded; test files are in-scope on the same basis as source), the test module is extracted **verbatim** to `reconciler_tests.rs` and included via `#[cfg(test)] #[path = "reconciler_tests.rs"] mod tests;` — the crate's existing `submit.rs` / `submit_tests.rs` (and `lib_tests.rs`) idiom. **No production-code split** — the arms stay in the flat case-table; the split is tests-only, a pure relocation (identical test count/names).
+- If `elidex-form-core/src/lib.rs` (987, closest to the cap) is *ever* split, the cleanest cohesion seam is the `FormControlKind` enum + its inherent `impl` (`lib.rs:67-326`, per the 0a move-list line ranges) → its own module. **0b does not need it and must not bundle it** — stated here so plan-review does not demand a speculative split for a small touch.
 
 ---
 

@@ -62,6 +62,20 @@ pub(crate) fn compile_pattern_regex(p: &str) -> Option<Arc<regex::Regex>> {
         .map(Arc::new)
 }
 
+/// HTML §2.6.1 "limited to only non-negative numbers greater than zero,
+/// with fallback" — parse `value` as a non-negative integer and use it
+/// only when it is > 0; otherwise (absent / invalid / `0`) return
+/// `default`. Single-sourced reflection shared by `from_textarea_element`
+/// (createElement init) and the `rows`/`cols` reconciler arms
+/// (HTML §4.10.11 `rows`/`cols`, `ReflectPositiveWithFallback`).
+#[must_use]
+pub fn parse_positive_with_fallback(value: Option<&str>, default: u32) -> u32 {
+    value
+        .and_then(|v| v.parse::<u32>().ok())
+        .filter(|&n| n > 0)
+        .unwrap_or(default)
+}
+
 /// The kind of form control represented by an element.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum FormControlKind {
@@ -373,9 +387,9 @@ pub struct FormControlState {
     pub(crate) cursor_pos: usize,
     /// Whether the control is read-only (text controls only).
     pub readonly: bool,
-    /// Number of visible rows (textarea only, default 2 per HTML spec §4.10.7).
+    /// Number of visible rows (textarea only, default 2 per HTML spec §4.10.11).
     pub rows: u32,
-    /// Number of visible columns (textarea only, default 20 per HTML spec §4.10.7).
+    /// Number of visible columns (textarea only, default 20 per HTML spec §4.10.11).
     pub cols: u32,
     /// The `name` attribute value (used for radio group association and form data).
     pub name: String,
@@ -938,8 +952,8 @@ impl FormControlState {
             disabled: attrs.contains("disabled"),
             readonly: attrs.contains("readonly"),
             placeholder: attrs.get("placeholder").unwrap_or("").to_string(),
-            rows: attrs.get("rows").and_then(|v| v.parse().ok()).unwrap_or(2),
-            cols: attrs.get("cols").and_then(|v| v.parse().ok()).unwrap_or(20),
+            rows: parse_positive_with_fallback(attrs.get("rows"), 2),
+            cols: parse_positive_with_fallback(attrs.get("cols"), 20),
             name: attrs.get("name").unwrap_or("").to_string(),
             required: attrs.contains("required"),
             minlength: attrs.get("minlength").and_then(|v| v.parse().ok()),

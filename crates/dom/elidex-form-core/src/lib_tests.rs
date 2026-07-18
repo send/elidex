@@ -830,3 +830,33 @@ fn delete_forward_marks_dirty() {
     state.delete_forward();
     assert!(state.is_dirty());
 }
+
+// -- Slice 0b: shared positive-with-fallback reflection helper -----------
+
+#[test]
+fn parse_positive_with_fallback_takes_positive_else_default() {
+    // HTML §2.6.1 "limited to only non-negative numbers greater than zero,
+    // with fallback": absent / non-numeric / `0` / negative / fractional all
+    // fall back to the default; a valid `> 0` integer is taken as-is.
+    assert_eq!(parse_positive_with_fallback(None, 2), 2);
+    assert_eq!(parse_positive_with_fallback(Some("0"), 2), 2);
+    assert_eq!(parse_positive_with_fallback(Some("-5"), 2), 2);
+    assert_eq!(parse_positive_with_fallback(Some("abc"), 2), 2);
+    assert_eq!(parse_positive_with_fallback(Some("3.5"), 2), 2); // u32 parse fails
+    assert_eq!(parse_positive_with_fallback(Some("10"), 2), 10);
+    assert_eq!(parse_positive_with_fallback(Some("100000"), 20), 100_000);
+}
+
+#[test]
+fn textarea_rows_cols_zero_fall_back_to_default() {
+    // Latent init bug fixed by the shared helper: the previous plain `u32`
+    // parse made `rows="0"` → 0; §2.6.1 requires the fallback (default 2 rows
+    // / 20 cols).  Ties `from_textarea_element` to the same reflection the
+    // reconciler arm uses.
+    let mut attrs = Attributes::default();
+    attrs.set("rows", "0");
+    attrs.set("cols", "0");
+    let state = FormControlState::from_element("textarea", &attrs).unwrap();
+    assert_eq!(state.rows, 2);
+    assert_eq!(state.cols, 20);
+}
