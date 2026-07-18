@@ -98,13 +98,15 @@ enum Kind {
 }
 
 /// Classify a serialized component value string into its [`Kind`].
+///
+/// Substring-matches `var(` (the only such-spelled CSS function), else
+/// exact-matches the CSS-wide keyword set with `eq_ignore_ascii_case` (no
+/// per-component allocation — the common all-physical read falls through here).
 fn value_kind(v: &str) -> Kind {
+    const CSS_WIDE: [&str; 5] = ["initial", "inherit", "unset", "revert", "revert-layer"];
     if v.contains("var(") {
         Kind::Var // CssValue::Var or a RawTokens("…var(…")
-    } else if matches!(
-        v.to_ascii_lowercase().as_str(),
-        "initial" | "inherit" | "unset" | "revert" | "revert-layer"
-    ) {
+    } else if CSS_WIDE.iter().any(|kw| v.eq_ignore_ascii_case(kw)) {
         Kind::CssWide // css-cascade-4 §7.3 (revert-layer: css-cascade-5 §7.3.5)
     } else {
         Kind::Physical
@@ -120,22 +122,24 @@ fn value_kind(v: &str) -> Kind {
 /// - a CSS-wide kw mixed with a physical value → Some("")   (cannot exactly represent)
 /// - all physical                 → None       (defer to the family collapse)
 fn value_kind_gate(pairs: &[(&str, &str)]) -> Option<String> {
-    let kinds: Vec<Kind> = pairs.iter().map(|(_, v)| value_kind(v)).collect();
-    if kinds.iter().any(|k| matches!(k, Kind::Var)) {
-        return Some(String::new());
-    }
-    let csswide = kinds.iter().filter(|k| matches!(k, Kind::CssWide)).count();
-    if csswide == 0 {
-        return None; // all physical → handler
-    }
-    if csswide == pairs.len() {
-        let first = pairs[0].1;
-        if pairs.iter().all(|(_, v)| v.eq_ignore_ascii_case(first)) {
-            return Some(first.to_ascii_lowercase()); // §6.7.2 keyword serialization
+    let mut csswide = 0usize;
+    for (_, v) in pairs {
+        match value_kind(v) {
+            Kind::Var => return Some(String::new()), // any var ⇒ "" regardless of siblings
+            Kind::CssWide => csswide += 1,
+            Kind::Physical => {}
         }
-        return Some(String::new()); // mixed different CSS-wide
     }
-    Some(String::new()) // CSS-wide mixed with physical
+    if csswide == 0 {
+        return None; // all physical → the family collapse runs below
+    }
+    // ≥1 CSS-wide, no var: the shorthand IS the keyword only when every component
+    // is that same keyword; a physical sibling or a differing keyword ⇒ "".
+    let first = pairs[0].1;
+    if csswide == pairs.len() && pairs.iter().all(|(_, v)| v.eq_ignore_ascii_case(first)) {
+        return Some(first.to_ascii_lowercase()); // §6.7.2 keyword serialization
+    }
+    Some(String::new()) // mixed CSS-wide, or CSS-wide + physical → cannot represent
 }
 
 /// Reconstruct a CSS **shorthand** value from its longhand declarations —
