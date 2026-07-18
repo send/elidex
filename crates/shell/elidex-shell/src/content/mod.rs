@@ -12,6 +12,7 @@ mod form_input;
 pub(crate) mod iframe;
 mod ime;
 mod link_nav;
+mod message_dispatch;
 mod navigation;
 pub(crate) mod scroll;
 
@@ -713,7 +714,8 @@ fn content_thread_main_url(
     event_loop::run_event_loop(&mut state);
 }
 
-// run_event_loop + handle_message are in event_loop.rs.
+// run_event_loop + pump_turn are in event_loop.rs; the BrowserToContent dispatch
+// (handle_message + chrome traversal) is in message_dispatch.rs.
 
 /// Dispatch a `storage` event on window (WHATWG HTML §11.2.1).
 ///

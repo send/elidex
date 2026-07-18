@@ -399,7 +399,7 @@ fn addressbar_fragment_nav_skips_unload_and_does_not_rebuild() {
     let (mut state, browser) = build_test_content_state_with_url(html, base());
     drain_browser(&browser);
 
-    super::event_loop::handle_message_public(
+    super::message_dispatch::handle_message_public(
         BrowserToContent::Navigate(url("https://example.com/#sec")),
         &mut state,
     );
@@ -436,7 +436,7 @@ fn addressbar_cross_document_nav_fires_unload() {
     let (mut state, browser) = build_test_content_state_with_url(html, base());
     drain_browser(&browser);
 
-    super::event_loop::handle_message_public(
+    super::message_dispatch::handle_message_public(
         BrowserToContent::Navigate(url("https://example.com/other")),
         &mut state,
     );

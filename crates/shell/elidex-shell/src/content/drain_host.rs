@@ -77,13 +77,13 @@ pub(super) fn dispatch_or_buffer_reentrant(state: &mut ContentState, msg: Browse
         // apply chain / `pump_turn` unwind observes. A `beforeunload`-canceled
         // Shutdown returns `true` (keep running) — do NOT force the exit, matching the
         // normal recv-path Shutdown contract (`handle_message` → `true` ⇒ no Break).
-        if !super::event_loop::handle_message_public(msg, state) {
+        if !super::message_dispatch::handle_message_public(msg, state) {
             state.shutdown_requested = true;
         }
     } else if state.traversal_queue.is_applying() {
         state.deferred_reentrant_messages.push(msg);
     } else {
-        super::event_loop::handle_message_public(msg, state);
+        super::message_dispatch::handle_message_public(msg, state);
     }
 }
 

@@ -807,7 +807,7 @@ fn iframe_inherits_parent_device_facts_at_build() {
     // The parent acquires non-default device facts (e.g. a HiDPI dark display) — the
     // shell `SetDeviceFacts` arm writes them into the parent bridge before the iframe
     // is created.
-    super::event_loop::handle_message_public(
+    super::message_dispatch::handle_message_public(
         crate::ipc::BrowserToContent::SetDeviceFacts {
             color_scheme: ColorScheme::Dark,
             dppx: 2.0,

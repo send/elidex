@@ -860,7 +860,7 @@ fn set_device_facts_activates_device_pixel_ratio_and_color_scheme() {
         "light"
     );
 
-    super::event_loop::handle_message_public(
+    super::message_dispatch::handle_message_public(
         BrowserToContent::SetDeviceFacts {
             color_scheme: ColorScheme::Dark,
             dppx: 2.0,
@@ -917,7 +917,7 @@ fn set_device_facts_flips_matchmedia_and_fires_change() {
         "no change should have fired before any delivery"
     );
 
-    super::event_loop::handle_message_public(
+    super::message_dispatch::handle_message_public(
         BrowserToContent::SetDeviceFacts {
             color_scheme: ColorScheme::Dark,
             dppx: 1.0,
@@ -950,7 +950,7 @@ fn stale_device_facts_delivery_is_dropped() {
 
     // The current document built at the cell's latest facts: dppx 2.0 / Dark at
     // generation 2 (the build high-water mark this delivery establishes).
-    super::event_loop::handle_message_public(
+    super::message_dispatch::handle_message_public(
         BrowserToContent::SetDeviceFacts {
             color_scheme: ColorScheme::Dark,
             dppx: 2.0,
@@ -972,7 +972,7 @@ fn stale_device_facts_delivery_is_dropped() {
 
     // A STALE delivery (older generation 1) with *different* facts (1×/Light) arrives
     // behind the build — it must be dropped (1 ≤ 2), NOT flash the bridge backward.
-    super::event_loop::handle_message_public(
+    super::message_dispatch::handle_message_public(
         BrowserToContent::SetDeviceFacts {
             color_scheme: ColorScheme::Light,
             dppx: 1.0,
@@ -996,7 +996,7 @@ fn stale_device_facts_delivery_is_dropped() {
 
     // A genuinely newer delivery (generation 3) still applies — the guard drops only
     // stale generations, not the live stream.
-    super::event_loop::handle_message_public(
+    super::message_dispatch::handle_message_public(
         BrowserToContent::SetDeviceFacts {
             color_scheme: ColorScheme::Light,
             dppx: 1.0,
@@ -1057,7 +1057,7 @@ fn atomic_size_and_facts_delivery_fires_no_intermediate_mql_change() {
     // Atomic final: 1400 ≥ 1200 (true) AND Dark (light = false) = FALSE — same as init, so
     // the query does NOT transition. The buggy two-message path re-evaluates the
     // intermediate (1400 + Light) = true AND true = TRUE first, firing a spurious change.
-    super::event_loop::handle_message_public(
+    super::message_dispatch::handle_message_public(
         BrowserToContent::SetViewport {
             width: 1400.0,
             height: 768.0,
@@ -1091,7 +1091,7 @@ fn atomic_size_and_facts_delivery_fires_no_intermediate_mql_change() {
     // Phase 2 — a facts-only delivery back to Light at the now-1400 width: the query
     // becomes 1400 ≥ 1200 (true) AND Light (true) = TRUE, so it DOES transition and fires
     // once. Proves the query parses + is responsive (phase-1's zero-fire was real).
-    super::event_loop::handle_message_public(
+    super::message_dispatch::handle_message_public(
         BrowserToContent::SetDeviceFacts {
             color_scheme: ColorScheme::Light,
             dppx: 2.0,
@@ -1140,7 +1140,7 @@ fn fractional_dppx_is_lossless_to_devicepixelratio_and_media() {
     );
 
     // A real 1.2× display delivers dppx = 1.2 (the lossless f64 winit scale).
-    super::event_loop::handle_message_public(
+    super::message_dispatch::handle_message_public(
         BrowserToContent::SetDeviceFacts {
             color_scheme: ColorScheme::Light,
             dppx: 1.2,
