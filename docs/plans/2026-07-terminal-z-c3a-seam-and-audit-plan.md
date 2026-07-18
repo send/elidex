@@ -67,12 +67,7 @@ The shared anchor memo once claimed the store was *relocated to `elidex-render` 
   reverse tree). ⇒ a dom-api-placed reduction is callable by
   `{dom-api, form, elidex-js, shell, wasm-runtime}` **only**. **Every box-geometry consumer** directly depends
   on `elidex-ecs` + `elidex-plugin` (all `ecs=1 plugin=1`), so a **LOW** reduction is callable by all of them —
-  which is why C-3a places everything low (§1). ⚠ This corrects **two** errors of the same shape: the #463 table's `grep -c` direct-dep
-  count *mislabeled transitive*, **and** this memo's own earlier §0 draft (+ #463's re-gate) over-swung the
-  other way — *"a11y/layout/render reach dom-api transitively, so it's reachable"* — which conflates linkage
-  with callability. For callability, a11y/layout/render **are** dom-api-unreachable (this section is the sole
-  authority on the set — §1's table points here, so citing it back would be circular);
-  the earlier "only api-observers is dom-api=0" line was wrong.
+  which is why C-3a places everything low (§1).
 - **`ScrollState` IS written in production**: `crates/shell/elidex-shell/src/content/mod.rs:242-249`
   (`echo_viewport_scroll`) calls `insert_one(self.pipeline.document, self.viewport_scroll.clone())` on the
   **document root** on every scroll commit — a **type-inferred** insert (`grep ScrollState` misses it). So
@@ -177,12 +172,7 @@ decision**, like the primitive's (requirement 3 is where the candidate encodings
   **first** rect when *every* rect has zero width **or** zero height (step 3, verbatim: *"If all rectangles in
   list have zero width or height, return the first rectangle in list"*), and otherwise unions only the rects
   *"of which the height or width is not zero"* (step 4) — i.e. it drops **only fully-degenerate 0×0** rects.
-  ⚠ An earlier draft stated both predicates **inverted** (`AND` where the spec says `OR`) and stamped the claim
-  *webref-verified*; it was not (Codex R14-re-gate). The duals are not equivalent: for `[A: 0×10, B: 50×50]`
-  the spec keeps A (its height is non-zero) and unions to `x ∈ [0,150]`, while the `AND` rule drops A and
-  yields `x ∈ [100,150]` — a different origin *and* width. §4 makes this memo the artifact C-3b plans its
-  contract from, so the inverted rule would have propagated into the implementation and its tests.
-  A plain union differs from the spec algorithm either way — which is the point here: `union_border_boxes` is a
+  A plain union differs from the spec algorithm — which is the point here: `union_border_boxes` is a
   **per-entity building block**, not a finished CSSOM reduction: **C-3b's `getBoundingClientRect` MUST build its
   own spec-shaped 4-step reduction, not reuse this fold**; and ⚠ **`offsetWidth/Height` is only *partly* this
   fold** (Codex R6-X3) — cssom-view §7 step 2 unions the principal box's own fragments, BUT for **an inline
@@ -191,9 +181,7 @@ decision**, like the primitive's (requirement 3 is where the candidate encodings
   do. So `offsetWidth` = `union_border_boxes(entity)` **plus** the descendant boxes, aggregated by C-3b's
   dom-api offset algorithm (audit axis 6 home+shape: a cross-entity reader, like shell scroll-extent). The
   low fold stays **generic per-entity**; the cross-entity aggregation is the CSSOM layer's.
-**C-3a ships NO `content_rect_local` relocation** (Codex R1-T9 + R2-U3 — dropped). R1 proposed moving the
-RO-named `LayoutBox::content_rect_local()` to a generic `BoxModel` default; **R2-U3 showed that is wrong**:
-its arithmetic is `Rect::new(padding.left, padding.top, …)` — **padding-only** — which is RO's contentRect
+**C-3a ships NO `content_rect_local` relocation** (Codex R1-T9 + R2-U3 — dropped). The RO-named `LayoutBox::content_rect_local()`'s arithmetic is `Rect::new(padding.left, padding.top, …)` — **padding-only** — which is RO's contentRect
 convention (RO §3.3.1: *"top is padding top, left is padding left"*), **NOT** a border-box-local content rect
 (this codebase derives `border_box() = padding_box().expand(border())`, so the content origin relative to the
 border box is `border + padding`, `boxes.rs:135-141`). Calling it "border-box-local" and baking padding-only
@@ -218,7 +206,7 @@ calls it — §0: transitive linkage is not callability). Direct-callability of 
 | home | crates that can call it (direct dependents) |
 |---|---|
 | **`elidex-ecs` / `elidex-plugin`** (LOW) | **every** consumer (all `ecs=1 plugin=1`) |
-| **`elidex-dom-api`** | **exactly the five crates §0 enumerates** (tool-verified there; not re-listed here — this row is where the set drifted: it had dropped `elidex-layout-block` from the negative list, inviting the reader to conclude block layout *can* call a dom-api reduction) |
+| **`elidex-dom-api`** | **exactly the five crates §0 enumerates** (tool-verified in §0; not re-listed here) |
 
 **Everything C-3a ships is geometry math, not a CSSOM algorithm**, so the floor places it **LOW**, where it is
 directly callable by every consumer — **including the crates that cannot call dom-api at all** (§0's
@@ -268,9 +256,7 @@ nothing.)
 - **I-lines × source-change** — a consumer newly sourced from `getClientRects` (which draws on the
   line-level `InlineClientRects`) inherits the line-expressivity gap.
 - **I-transform × N=1 (audit axis 4)** — a transform on a non-fragmented element is "behavior-neutral N=1
-  routing-delta" under axis 4, yet its pre-transform gBCR/IO geometry is silently wrong (the **cited** gap —
-  membership is I-transform's, below; a11y is a raw-reader of unresolved contract, so "wrong" is not
-  established for it); the auditor must
+  routing-delta" under axis 4, and its geometry basis is I-transform's concern (below); the auditor must
   hold I-transform against axis 4 or mis-mark a transformed reader "fully classified" (→ audit axis 8, §4).
 
 ### I-phase — the load-bearing one (four facts, all in live code)
@@ -299,7 +285,7 @@ block/children/shift.rs:113-127` says so outright:
    `elidex-layout-multicol/src/lib.rs:491`). So a despawned fragmented entity's index survives until the next
    screen `clear()`, and presence-routing would hand a **retained/stale `Entity` handle** stale geometry. →
    the seam's **liveness guard** (`box_fragments` checks `world.contains(entity)` before trusting the store)
-   makes "empty iff no live box" hold **by construction**, not by teardown discipline (the by-construction fix
+   makes a **despawned** entity read empty **by construction**, not by teardown discipline (the by-construction fix
    over cleaning every teardown path — the store already has *"no incremental / staleness model; rebuild is the
    reconcile"*).
 
@@ -326,9 +312,7 @@ not as a design:
 **The seam contract, stated as a rule rather than a roster** (Codex R19-HH2): **any reader that runs *inside* a
 layout algorithm must NOT be migrated onto `box_fragments`** — `box_fragments` is by contract unusable mid-pass,
 so such a reader keeps reading the live `LayoutBox`. **Which readers those are is §4's sweep output, not this
-memo's to list**: an earlier draft named three flex/grid baseline sites here and was wrong — `multicol/fill.rs`
-and `inline/pack/mod.rs` also read a `LayoutBox` mid-pass, and a C-3c scoped from that roster would have
-migrated them onto the screen-only seam. Whether the ones the sweep finds get an explicit live accessor or
+memo's to list**. Whether the ones the sweep finds get an explicit live accessor or
 simply stay on `LayoutBox` until a probe-visible store exists is **C-3c's** decision.
 
 ### I-boxless — de-universalized
@@ -465,8 +449,7 @@ for offset*/client*/RO, and a genuine gap whose membership §2 I-transform defin
 > ⚠ **The automated §3 citation-drift gate does NOT cover these rows — do not read the table as gate-verified**
 > (Codex R13-CC1). `preflight.py` reports `parsed citations: 0` and `unrecognized labels: ['CSS DISPLAY 3',
 > 'CSSOM VIEW', 'RESIZE OBSERVER']`: its `SPEC_LABEL_REVERSE` maps **no CSS module** beyond `selectors-4` /
-> `geometry-1`, so **all three** rows are skipped (an earlier note claimed this seam for `RESIZE OBSERVER`
-> alone, which under-stated it). Each row was **manually** webref-verified — re-runnable:
+> `geometry-1`, so **all three** rows are skipped. Each row was **manually** webref-verified — re-runnable:
 > `.claude/tools/webref body resize-observer-1 content-rect-h` / `heading css-display-3 2` +
 > `body css-display-3 box-generation` / `body cssom-view dom-element-getclientrects`.
 > Closing the gap — extending `SPEC_LABEL_REVERSE` so the gate verifies these rows structurally instead of
@@ -581,10 +564,8 @@ C-3a (seam + audit) ──┬── C-3b  CSSOM geometry (elidex-dom-api)       
 
 1. Zero `LayoutBox` reads outside producers — proven the way §4 requires: **the compiler, not a grep**, with
    the C-3a audit inventory as the human record. *(§4 states the requirement and routes the enumeration method
-   and the check's shape to C-3a's implementation plan-review; an earlier draft restated a mechanism here that
-   §4 no longer contains — Codex R14-re-gate.)* ⚠ "producers"
-   must be defined precisely: several producer-crate reads are **in-layout** and one is a **presence check**
-   (`inline/pack/boxes.rs:62`) whose meaning flips under a `clear()`ed store.
+   and the check's shape to C-3a's implementation plan-review.)* ⚠ "producers"
+   must be defined precisely: some producer-crate reads are **in-layout** or **presence checks** (axes 2/5) whose meaning flips under a `clear()`ed store.
 2. Producers write the store's N=1 box for every entity **AND** an empty `box_fragments` is **distinguishable**
    from boxless (a laid-this-pass marker / generation) — else the I-boxless × I-phase crossing breaks.
    *(→ hand-off row 1.)*
@@ -594,9 +575,7 @@ C-3a (seam + audit) ──┬── C-3b  CSSOM geometry (elidex-dom-api)       
    and does **not** give them a live source during a probe or mid-pass. So deleting `LayoutBox` on item 2 alone
    would either strand them or force them onto the screen-only seam the memo forbids. Either this prerequisite
    lands, or **`LayoutBox` survives C-4 for the in-layout readers**.
-   ⚠ **Their set is §4's sweep output — this memo does not enumerate it** (Codex R18-GG3). An earlier draft
-   named "the three flex/grid baseline readers" and was **wrong**: `multicol/fill.rs:76` (`snapshot_box`) and
-   `:421`, and `inline/pack/mod.rs:613` (an atomic's baseline fallback) also read a `LayoutBox` mid-pass. That
+   ⚠ **Their set is §4's sweep output — this memo does not enumerate it** (Codex R18-GG3). That
    is exactly why §4's gate is a **complete `git grep -nw LayoutBox` sweep + the compiler**, not a hand-list: a
    PM ledger keyed to a hand-picked subset lets C-4 delete `LayoutBox` while stranding the rest.
    *(→ hand-off row 2 — deliberately its own row, not folded into row 1: provenance makes the guard sound,
@@ -617,8 +596,7 @@ C-3a (seam + audit) ──┬── C-3b  CSSOM geometry (elidex-dom-api)       
    now matches this plan-memo itself), and `docs/design/en/15-rendering-pipeline.md` §15.4.1 ("Layer Tree as
    Independent Structure") still names `LayoutBox` as what the PaintSystem reads. *(→ hand-off row 6.)*
 8. **The transform-basis gap recorded** (Codex R1-T2) — **its membership is §2 I-transform's, and this item
-   does not re-render it** (an earlier draft said exactly that and then re-rendered it anyway under "in short",
-   which is the violation this memo's reading invariant names — Codex R15-re-gate). What this *item* adds:
+   does not re-render it**. What this *item* adds:
    whichever readers I-transform lists as the **cited** gap, C-4 must handle them; and for any raw-reader whose
    contract I-transform leaves **unresolved**, C-4 must resolve it *with a citation* rather than inherit an
    asserted one. C-3 preserves this, but C-4 must **not** retire `LayoutBox` while silently cementing it:
@@ -652,13 +630,11 @@ table in the first place (Codex R13-CC2).
    §1 is that fact's home, this section is why it cannot shrink and what it costs PM).
    ⚠ **The provenance protocol is NOT divisible** (Codex R8-Z1): **every** layout entry must participate, and
    every entry **invalidates before laying out** — the screen entry additionally *publishes* completed-screen at
-   completion. ⚠ **The screen entry's invalidation is not optional** (Codex R19-HH3): an earlier draft had it
-   only publish at completion, but §2's own soundness table (R9-AA1) has `layout_tree` `clear()`ing the store at
+   completion. ⚠ **The screen entry's invalidation is not optional** (Codex R19-HH3): publishing only at completion is unsound: §2's own soundness table (R9-AA1) has `layout_tree` `clear()`ing the store at
    the **top** of the pass — so a **second screen pass** would leave the *prior* pass's green provenance
    standing over a cleared, half-rebuilt store, and any `box_fragments` read during it would collapse
    invalid-phase back into boxless geometry: exactly what the guard exists to prevent, and reachable without any
-   paged render at all. An earlier draft deferred the paged invalidation to `#11-paged-fragment-store-hygiene`; that
-   split makes the guard **unsound**, because a paged render following a completed screen layout would leave the
+   paged render at all. Deferring the paged invalidation to `#11-paged-fragment-store-hygiene` would make the guard **unsound**: a paged render following a completed screen layout would leave the
    stale *completed-screen* provenance in place and `box_fragments` would return page-relative fragments under a
    **green** guard — precisely the failure §2 exists to prevent. Nothing outside the store can distinguish a
    screen-built from a paged-built store unless an entry marks it, so the paged entries are **in C-3a's scope**.
@@ -686,7 +662,7 @@ table in the first place (Codex R13-CC2).
    > is the CC2 defect, not a safeguard. CLAUDE.md *One issue, one way*: 単一の正準形に一括収束。§6.1 records
    > this same class — a duplicated decision surface — killing PR #463.
 
-   ⚠ **Rows 1-7 are PROPOSALS, not registered slots** (Codex R7-Y4): the ledger's why/trigger/**date** triple is
+   ⚠ **Rows 1-7 and 12 are PROPOSALS, not registered slots** (Codex R7-Y4): the ledger's why/trigger/**date** triple is
    completed **by PM at registration** (C-3a landing) — the *why* is the gate item, the *trigger* is stated below
    and is deliberately **event-based** (these gate C-4, a program with no calendar date yet; an invented date
    would be false precision), and the *date* is the one PM stamps. Until then they are notes, not ledger entries.
@@ -696,7 +672,7 @@ table in the first place (Codex R13-CC2).
    | # | Hand-off item | What breaks if it is dropped | Owner → destination | Trigger |
    |---|---|---|---|---|
    | 1 | `#11-fragment-store-n1-coverage-marker` (gate item 2) — ⚠ **renamed** (Codex R14-re-gate): it was `#11-fragment-store-screen-provenance`, minted at R5 *before* R8-Z1 moved screen-provenance publishing **into C-3a's scope** (§6.3). Registering that string would tell a future session provenance is unbuilt while C-3a builds it — the SoT-pollution class §0 opens with. Same disambiguation §6.3 already applies to the paged slot | no producer writes the store's N=1 box for every entity, so "empty" stays ambiguous | PM → defer ledger | C-4 kickoff, or any slice needing that producer |
-   | 2 | `#11-in-layout-probe-visible-geometry` (gate item **2b**) | **C-4 cannot delete `LayoutBox` for the readers that run INSIDE layout** — the set is §4's sweep output, not a hand-list (R18-GG3: an earlier draft said "the 3 flex/grid baseline readers" and missed `multicol/fill.rs:76,421` and `inline/pack/mod.rs:613`). ⚠ distinct from row 1 (R13-CC2): item 2 is a *post-commit* fact; 2b is what they need **during** a probe/mid-pass | PM → defer ledger | C-4 kickoff — C-4 must land this or keep `LayoutBox` for them |
+   | 2 | `#11-in-layout-probe-visible-geometry` (gate item **2b**) | **C-4 cannot delete `LayoutBox` for the readers that run INSIDE layout** — the set is §4's sweep output, not a hand-list (§4's sweep output). ⚠ distinct from row 1 (R13-CC2): item 2 is a *post-commit* fact; 2b is what they need **during** a probe/mid-pass | PM → defer ledger | C-4 kickoff — C-4 must land this or keep `LayoutBox` for them |
    | 3 | `#11-paged-fragment-store-hygiene` (gate item 3) | the paged store's content is never cleared/rebuilt | PM → defer ledger | when paged/print media folds into the store (committed-next per `fragment_tree.rs:73`) |
    | 4 | `#11-layout-generation-rehome` (gate item 4) | `layout_generation`'s dual role has no home once `BoxFragment` drops it | PM → defer ledger | C-3e (paged-gen gate reader) or C-4 — whichever touches `builder/walk.rs:108` first |
    | 5 | `#11-fragment-inline-lines` (gate item 5) | the store still cannot express `FragmentContent::InlineLines` (I-lines) | PM → defer ledger | the committed-next inline-line fold (tracked as terminal-Z dark-data work) |
@@ -706,6 +682,7 @@ table in the first place (Codex R13-CC2).
    | 9 | Shared-SoT correction (a): `elidex-render` **is real** (detail → §6.2) | a later C-3 slice re-reads the anchor memo's over-correction and re-decides on a false crate premise — the exact defect class that collapsed #463 (R14-DD2) | PM → anchor memo | C-3a landing |
    | 10 | Shared-SoT correction (b): reader lists name **`elidex-js`** (detail + required phrasing → §6.2) | same class; and an "api-observers untouched" phrasing pre-empts the option (c) §1 reserves for C-3d's plan-review | PM → anchor memo | C-3a landing |
    | 11 | `MEMORY.md`'s Layout-lane line still says #463 "R7 待ち" | #463 is closed and re-anchored here (§6.1); the stale index line sends the next session to a dead PR | PM → `MEMORY.md` | C-3a landing |
+   | 12 | `#11-find-roots-css-root-predicate` (§1 requirement 5 / axis 3) | `find_roots` treats every parentless-but-styled entity as a layout root (`dom/tree/navigation.rs` `root_entities`, excludes only `DocumentFragment`), so a **detached** element is re-laid against the viewport, so it has a real `LayoutBox` though it has no associated CSS box (cssom-view §6 = empty list) — C-3 inherits it (today's `getClientRects` has no connectedness guard); the seam reports presence faithfully, the producer's presence is the lie | PM → defer ledger | C-4, or any slice tightening `find_roots` to the CSS root element |
 
    (Gate item 6's two slots — `#11-inline-relayout-box-staleness` + `#11-inline-align-clientrects-nonpersist-path`
    — are **not** rows: they already exist in `project_open-defer-slots.md`, and the ledger folds them into
