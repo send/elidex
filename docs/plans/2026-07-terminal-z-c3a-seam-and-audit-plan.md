@@ -242,7 +242,7 @@ nothing.)
 **Coupled-invariant crossings** (the intersections a downstream implementer must hold at once):
 
 - **I-router × I-phase** — both answer "which store speaks"; presence-routing means a store that is empty
-  *mid-pass* (I-phase) is read as boxless (I-boxless) — a wrong answer for an in-layout reader.
+  *mid-pass* (I-phase) is **not** boxless — the router falls back to the entity's stale `LayoutBox` (I-phase fact 2), a deceptive non-`None` answer an in-layout reader gets that only the phase guard (req 3), not box-absence, catches.
 - **I-boxless × I-phase** — an empty `box_fragments` is ambiguous between "no box at all" and "not yet
   committed this pass"; the disambiguator is the `LayoutBox` fallback arm, which **C-4 deletes** → see the
   C-4 gate (§5).
