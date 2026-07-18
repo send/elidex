@@ -269,7 +269,7 @@ block/children/shift.rs:113-127` says so outright:
    the *prior definitive pass's* geometry while `LayoutBox` holds the working value.
 2. **Within-pass emptiness** — `clear()` runs at the **top** of `layout_tree`, before any root is laid
    (`elidex-layout/src/layout/mod.rs:325`), and `push_box` only commits in the definitive pass. So an entity
-   has **no store fragments until its own definitive commit** — mid-layout, `box_fragments` → empty → `None`.
+   has **no store fragments until its own definitive commit** — so mid-layout `box_fragments`' router (req 2) falls back to the entity's **working / prior-pass `LayoutBox`** (one fragment, **not** `None` — no pass clears `LayoutBox`): exactly the mid-pass value the phase guard (req 3) must invalidate.
 3. **Paged incoherence** — the paged/print path (`build_paged_display_lists_interleaved` →
    `layout_fragmented_with_tokens`) **does NOT `clear()`** (the `:315-324` docstring: *"does NOT clear here and
    may leave incidental dark fragments … committed-next"*), and its `fragmentainer` key is **page-relative**,
@@ -503,8 +503,7 @@ went wrong):
 **Known-hard seed edges** (audit INPUTS — questions the audit starts from, NOT determinations this memo
 makes; each is a verified live reader):
 
-1. **RO** — **multiple entry fields → classify separately (axis 5)**: `contentRect` (padding-offset frame, axis 1 — arithmetic §1's, not restated, R2-U3; spec-zero, axis 3) plus `borderBoxSize` (the live provider also reads `border_box().size`, `resize_observer.rs:404-407`). Open: which fragment (RO §3.3.1 pins *width*
-   to the first column, silent on height). → C-3d.
+1. **RO** — **multiple entry fields → classify separately (axis 5)**: `contentRect` (padding-offset frame, axis 1 — arithmetic §1's, not restated, R2-U3; spec-zero, axis 3) plus the `contentBoxSize`/`borderBoxSize` arrays (the live provider also reads `border_box().size`, `resize_observer.rs:404-407`) — **RO §2.3 pins these to a single first-column size** (per-fragment = a future spec version), so they are settled, not an open fragment-choice; only `contentRect`'s height is spec-silent (RO §3.3.1: first-column *width*, silent height). → C-3d.
 2. **IO** — needs the CSSOM-View §6 fold in **doc space** (axis 1), `None` preserved (axis 3), a **source-change**
    (axis 4). Note: IO §3.2.7 step 6 maps entry rects to **viewport** space and elidex hands script **doc-space**
    rects — a pre-existing deviation, **live** on scrolled pages; record, don't bless. Home = §1's floor/ceiling
@@ -594,6 +593,8 @@ table in the first place (Codex R13-CC2).
 ---
 
 ## §6 Report to PM (coordination)
+
+*(Throughout this memo, a `§6.N` citation is §6's Nth numbered item below — those items are this section's citable homes.)*
 
 1. **PR #463 closed**, re-anchored on this C-3a-first memo (the #463 failure diagnosis is the opening rationale, not restated). Codex R1-R7
    history preserved on branch `terminal-z-c3-plan` @ `7204c12e`.
