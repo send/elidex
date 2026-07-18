@@ -168,7 +168,7 @@ fn web_idl_enum_extracts_via_user_to_string() {
 #[cfg(feature = "engine")]
 #[test]
 fn web_idl_unrestricted_double_extracts_via_user_value_of() {
-    // §7.1.4 step 4 → §7.1.1.1: `new CountQueuingStrategy({highWaterMark})`
+    // §7.1.4 step 8 → §7.1.1.1: `new CountQueuingStrategy({highWaterMark})`
     // runs ToNumber on `highWaterMark`.  A plain Object whose `valueOf`
     // returns a number should be accepted and surface as that number on
     // the resulting strategy; pre-slot-#10.7 the shortcut returned NaN

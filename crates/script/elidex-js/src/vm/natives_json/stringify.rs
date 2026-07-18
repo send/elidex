@@ -85,15 +85,14 @@ impl JsonSerializer {
             val = ctx.call_function(replacer, JsValue::Object(holder), &[key, val])?;
         }
 
-        // Step 4: Unwrap wrapper objects.
+        // Step 4 (§25.5.4.2 SerializeJSONProperty): unwrap wrapper objects.
+        // Only an Object can be a wrapper, so guard here — a primitive leaf (the
+        // common case) skips the out-of-line call entirely. `unwrap_wrapper_value`
+        // is kept out of this *recursive* frame so its `? ToNumber` / `? ToString`
+        // locals do not enlarge every nesting level — the JSON depth cap is tuned
+        // to the per-level frame size (`MAX_JSON_DEPTH`).
         if let JsValue::Object(obj_id) = val {
-            val = match ctx.get_object(obj_id).kind {
-                ObjectKind::NumberWrapper(n) => JsValue::Number(n),
-                ObjectKind::StringWrapper(s) => JsValue::String(s),
-                ObjectKind::BooleanWrapper(b) => JsValue::Boolean(b),
-                ObjectKind::BigIntWrapper(id) => JsValue::BigInt(id),
-                _ => val,
-            };
+            val = unwrap_wrapper_value(ctx, val, obj_id)?;
         }
 
         // Step 5+: Type-specific serialization.
@@ -441,16 +440,36 @@ fn stringify_impl(
     if let JsValue::Object(obj_id) = replacer_arg {
         if ctx.get_object(obj_id).kind.is_callable() {
             replacer_fn = Some(obj_id);
-        } else if let ObjectKind::Array { elements } = &ctx.get_object(obj_id).kind {
-            let elems: Vec<JsValue> = elements.clone();
+        } else if matches!(ctx.get_object(obj_id).kind, ObjectKind::Array { .. }) {
+            // §25.5.4 step 5.b.ii: build the PropertyList inclusion set. `len` is
+            // read once (step 5.b.ii.2, LengthOfArrayLike), but each element is
+            // fetched FRESH per iteration via `? Get(replacer, ToString(k))`
+            // (step 5.b.ii.4.b) — matching `serialize_array`, NOT a cloned
+            // snapshot. The 5.b.ii.4.f.i
+            // coercion below now runs a user-overridden `toString` / `valueOf`,
+            // which can mutate a later replacer index; a snapshot would keep the
+            // stale value and diverge from spec.
+            let len = match &ctx.get_object(obj_id).kind {
+                ObjectKind::Array { elements } => elements.len(),
+                _ => 0,
+            };
             let mut list = Vec::new();
-            for elem in elems {
+            for k in 0..len {
+                #[allow(clippy::cast_precision_loss)]
+                let elem = ctx
+                    .vm
+                    .get_element(JsValue::Object(obj_id), JsValue::Number(k as f64))?;
+                // step 5.b.ii.4.d/4.e/4.f.i: a String / Number element — including a
+                // `[[StringData]]` OR `[[NumberData]]` wrapper — becomes an
+                // included key via `? ToString(propertyValue)` (BOTH wrapper kinds
+                // → ToString, honoring an override), not a direct slot read.
                 let sid = match elem {
                     JsValue::String(s) => s,
                     JsValue::Number(_) => ctx.to_string_val(elem)?,
                     JsValue::Object(oid) => match ctx.get_object(oid).kind {
-                        ObjectKind::NumberWrapper(n) => ctx.to_string_val(JsValue::Number(n))?,
-                        ObjectKind::StringWrapper(s) => s,
+                        ObjectKind::NumberWrapper(_) | ObjectKind::StringWrapper(_) => {
+                            ctx.to_string_val(elem)?
+                        }
                         _ => continue,
                     },
                     _ => continue,
@@ -463,10 +482,11 @@ fn stringify_impl(
         }
     }
 
-    // Step 5-8: Process space.
-    let gap = compute_gap(ctx, space_arg);
+    // Step 6-9: Process space (fallible — a boxed `space` whose overridden
+    // `valueOf` / `toString` throws propagates the abrupt completion).
+    let gap = compute_gap(ctx, space_arg)?;
 
-    // Build wrapper object: { "": value } (§25.5.4 step 9)
+    // Build wrapper object: { "": value } (§25.5.4 steps 10-11)
     let wrapper_id = ctx.alloc_object(Object {
         kind: ObjectKind::Ordinary,
         storage: PropertyStorage::shaped(ROOT_SHAPE),
@@ -504,19 +524,53 @@ fn stringify_impl(
     }
 }
 
-/// Compute the `gap` string from the `space` argument.
-fn compute_gap(ctx: &mut NativeContext<'_>, space: JsValue) -> String {
-    // Unwrap wrapper objects first.
+/// §25.5.4.2 SerializeJSONProperty step 4: unwrap a primitive-wrapper `value`
+/// to the primitive the serializer emits.
+///
+/// 4.b `[[NumberData]]` → `? ToNumber(value)` and 4.c `[[StringData]]` →
+/// `? ToString(value)` route through the spec AO so a user-overridden `valueOf`
+/// / `toString` / `@@toPrimitive` is honored; 4.d `[[BooleanData]]` / 4.e
+/// `[[BigIntData]]` read the slot directly (no override path). A non-wrapper
+/// value is returned unchanged.
+///
+/// Kept `#[inline(never)]` and out of the *recursive* `serialize_property`
+/// frame so the coercion's locals do not enlarge every nesting level's stack
+/// frame — the JSON depth cap (`MAX_JSON_DEPTH`) is tuned to that per-level size.
+/// The caller guards on `JsValue::Object` and passes the extracted `obj_id`.
+#[inline(never)]
+fn unwrap_wrapper_value(
+    ctx: &mut NativeContext<'_>,
+    val: JsValue,
+    obj_id: ObjectId,
+) -> Result<JsValue, VmError> {
+    Ok(match ctx.get_object(obj_id).kind {
+        ObjectKind::NumberWrapper(_) => JsValue::Number(ctx.to_number(val)?),
+        ObjectKind::StringWrapper(_) => JsValue::String(ctx.to_string_val(val)?),
+        ObjectKind::BooleanWrapper(b) => JsValue::Boolean(b),
+        ObjectKind::BigIntWrapper(id) => JsValue::BigInt(id),
+        _ => val,
+    })
+}
+
+/// Compute the `gap` string from the `space` argument (§25.5.4 steps 6-9).
+///
+/// Fallible because §25.5.4 step 6 unwraps a Number/String wrapper via
+/// `? ToNumber` / `? ToString`, which invoke a user-overridden `valueOf` /
+/// `toString` and can throw (abrupt completion must propagate).
+fn compute_gap(ctx: &mut NativeContext<'_>, space: JsValue) -> Result<String, VmError> {
+    // Step 6: a Number/String wrapper unwraps through the spec AO (6.a
+    // `? ToNumber` / 6.b `? ToString`), honoring a user override — not a direct
+    // slot read.
     let space = match space {
         JsValue::Object(obj_id) => match ctx.get_object(obj_id).kind {
-            ObjectKind::NumberWrapper(n) => JsValue::Number(n),
-            ObjectKind::StringWrapper(s) => JsValue::String(s),
+            ObjectKind::NumberWrapper(_) => JsValue::Number(ctx.to_number(space)?),
+            ObjectKind::StringWrapper(_) => JsValue::String(ctx.to_string_val(space)?),
             _ => space,
         },
         other => other,
     };
 
-    match space {
+    Ok(match space {
         JsValue::Number(n) => {
             #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
             let count = n.clamp(0.0, 10.0) as usize;
@@ -528,5 +582,5 @@ fn compute_gap(ctx: &mut NativeContext<'_>, space: JsValue) -> String {
             String::from_utf16_lossy(&units[..len])
         }
         _ => String::new(),
-    }
+    })
 }

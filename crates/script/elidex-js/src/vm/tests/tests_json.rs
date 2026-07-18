@@ -361,9 +361,9 @@ fn stringify_circular_throws() {
 // Wrapper objects (new Number / new String / new Boolean)
 // ============================================================================
 // §25.5.4.2 step 4: wrapper objects unwrap to their primitive value.
-// `new String(...)` landed in r2; these tests exercise the wrapper-unwrap
-// path in stringify (the full `? ToNumber`/`? ToString` via valueOf
-// override is tracked as a dedicated follow-up PR).
+// These cover the no-override path; the full `? ToNumber` / `? ToString`
+// via a user-overridden valueOf/toString (step 4.b/4.c) is covered in
+// `tests_wrapper_coercion.rs`.
 
 #[test]
 fn stringify_new_string_wrapper() {
