@@ -49,10 +49,31 @@ use super::ContentState;
 /// intake in `event_loop::pump_turn` — it inherits that turn's Phase-2 apply and
 /// the R9 bottom drain, so the buffered message runs OUTSIDE any held peek).
 ///
-/// This is the bounded interim guard — it consumes `is_applying()` at the single
-/// reentrancy vector. The FULL canonical serialization (routing EVERY nav-mutating
-/// step through the traversal queue with per-step apply-time context, WHATWG HTML
-/// §7.4.1.3) is Slice 4.
+/// This is the bounded interim guard for ONE of the TWO nav-mutating reentrancy
+/// vectors — it is NOT a complete serialization. The peek→commit corruption window
+/// (a re-dispatched nav-mutating message mutating the entry list between a
+/// traversal's peek and its `commit_index`) is reachable from two equally-live
+/// vectors:
+/// 1. **Coordinator-routed JS-queued traversals** (`history.back()`/`forward()`/`go()`
+///    → the deferred Phase-2 [`apply_traversal_delta`]) — interim-guarded HERE: the
+///    apply runs inside the `enter_nested_apply`/`exit_nested_apply` bracket, so
+///    `is_applying()` holds and this function BUFFERS a reentrant message instead of
+///    dispatching it under the held peek.
+/// 2. **Chrome-direct traversals** (toolbar Back/Forward → `message_dispatch::chrome_traverse`)
+///    — PRE-EXISTING and NOT interim-guarded: `chrome_traverse` peeks `target_index`
+///    then calls `handle_navigate` WITHOUT the nested-apply bracket, so during its own
+///    SW-wait `is_applying()` is FALSE and a re-dispatched nav-mutating message
+///    dispatches SYNCHRONOUSLY, able to mutate the entry list before the stale
+///    `target_index` commits. (Pre-existing: origin/main had the same peek→commit; R15
+///    only carved this function.) Its corruption window is fenced to
+///    `#11-session-history-task-queue-model` (which names the chrome-button-traversal
+///    atomicity gap + the SW-fetch held-peek reentrancy vector).
+///
+/// BOTH vectors close canonically in Slice 4 — the FULL serialization routing EVERY
+/// nav-mutating step (JS traversals + sync updates + direct/chrome/input navigations)
+/// through the one traversal queue with per-step apply-time context (WHATWG HTML
+/// §7.4.1.3 *Centralized modifications of session history*), which retires this interim
+/// guard rather than only extending it.
 ///
 /// **`Shutdown` is NEVER buffered** (Codex PR#469 R8). Buffering it would defer
 /// teardown until a later `pump_turn` could re-deliver the buffer — but that
@@ -101,9 +122,11 @@ pub(super) fn dispatch_or_buffer_reentrant(state: &mut ContentState, msg: Browse
 /// shipping, entry-list resolution).
 ///
 /// **Teardown-safety invariant — fail-closed at the seam boundary (Codex PR#469
-/// R14).** A `Shutdown` handled mid-drain at the interim reentrancy vector
+/// R14).** A `Shutdown` handled mid-drain at the interim reentrancy guard
 /// ([`dispatch_or_buffer_reentrant`], reached from a seam's `handle_navigate`
-/// SW-wait) runs teardown and sets [`ContentState::shutdown_requested`]. Because
+/// SW-wait — for EITHER reentrancy vector's SW-wait, since `Shutdown` short-circuits
+/// before the `is_applying()` branch) runs teardown and sets
+/// [`ContentState::shutdown_requested`]. Because
 /// [`DrainCoordinator`](elidex_navigation::DrainCoordinator) touches the pipeline
 /// ONLY through these `DrainHost` methods, guarding every **pipeline-mutating** seam
 /// at ENTRY makes post-teardown pipeline work impossible BY CONSTRUCTION — the

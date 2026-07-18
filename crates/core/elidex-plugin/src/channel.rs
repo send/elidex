@@ -30,6 +30,23 @@ impl<S, R> LocalChannel<S, R> {
     pub fn recv_timeout(&self, timeout: Duration) -> Result<R, RecvTimeoutError> {
         self.rx.recv_timeout(timeout)
     }
+
+    /// Number of messages currently queued on the receive side (O(1)).
+    ///
+    /// A snapshot at call time: it bounds a non-blocking receive scan to the
+    /// messages present now, so a concurrent sender cannot make the scan
+    /// unbounded (the content event loop's buffer-drain intake uses this to
+    /// mirror the Phase-2 drain's snapshot bound — Codex PR#469 R16).
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.rx.len()
+    }
+
+    /// Whether the receive side currently has no queued messages.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.rx.is_empty()
+    }
 }
 
 /// Create a pair of connected bidirectional channels.
@@ -94,5 +111,21 @@ mod tests {
         for i in 0..5 {
             assert_eq!(b.try_recv().unwrap(), i);
         }
+    }
+
+    #[test]
+    fn len_reflects_queued_receive_side() {
+        let (a, b) = channel_pair::<u32, u32>();
+        // `b.len()`/`b.is_empty()` observe messages queued for `b` to RECEIVE (sent by `a`) —
+        // the snapshot the content event loop uses to bound its buffer-drain scan.
+        assert!(b.is_empty());
+        assert_eq!(b.len(), 0);
+        for i in 0..3 {
+            a.send(i).unwrap();
+        }
+        assert!(!b.is_empty());
+        assert_eq!(b.len(), 3);
+        b.try_recv().unwrap();
+        assert_eq!(b.len(), 2);
     }
 }

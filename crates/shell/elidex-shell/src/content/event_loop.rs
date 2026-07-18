@@ -110,18 +110,28 @@ pub(super) fn pump_turn(state: &mut ContentState, last_frame: &mut Instant) -> C
                 Err(RecvTimeoutError::Disconnected) => return ControlFlow::Break(()),
             }
         } else {
-            // Buffer non-empty: FIFO one-per-turn re-delivery. A channel `Shutdown` must NOT
-            // be starved behind the buffer OR behind earlier channel work (teardown-priority,
-            // step 2) — so DRAIN the channel non-blocking until `Shutdown` or `Empty`,
-            // buffering every non-`Shutdown` to the buffer BACK (FIFO preserved — crossbeam has
-            // no putback), THEN deliver the buffer FRONT. A single probe would observe only the
-            // channel HEAD, leaving a `Shutdown` behind other channel messages starved for later
-            // turns (Codex PR#469 R15). The buffer holds ≥1 (this arm's precondition), so the
-            // `remove(0)` after an `Empty` is always valid.
+            // Buffer non-empty: FIFO one-per-turn re-delivery. A channel `Shutdown` must NOT be
+            // starved behind the buffer OR behind earlier channel work (teardown-priority, step 2),
+            // so scan the channel for one — but BOUND the scan to the messages present at turn
+            // start (`channel.len()`), mirroring the Phase-2 drain's snapshot bound. Without the
+            // bound, sustained non-`Shutdown` input (e.g. high-rate `MouseMove` during a guarded SW
+            // nav) means `try_recv()` never reaches `Empty` and the turn never delivers the buffer
+            // front / runs Phase-2 / reaches the frame tick — a liveness stall (Codex PR#469 R16). A
+            // `Shutdown` that arrives AFTER the snapshot is a next-turn message (not starvation); a
+            // `Shutdown` within the snapshot preempts. Non-`Shutdown` messages are buffered to the
+            // BACK (FIFO), then the buffer FRONT is delivered (the buffer holds ≥1 by this arm's
+            // precondition, so `remove(0)` is valid).
+            let mut bound = state.channel.len();
             loop {
+                if bound == 0 {
+                    break Some(state.deferred_reentrant_messages.remove(0));
+                }
                 match state.channel.try_recv() {
                     Ok(BrowserToContent::Shutdown) => break Some(BrowserToContent::Shutdown),
-                    Ok(other) => state.deferred_reentrant_messages.push(other),
+                    Ok(other) => {
+                        state.deferred_reentrant_messages.push(other);
+                        bound -= 1;
+                    }
                     Err(TryRecvError::Empty) => {
                         break Some(state.deferred_reentrant_messages.remove(0))
                     }
@@ -175,6 +185,23 @@ pub(super) fn pump_turn(state: &mut ContentState, last_frame: &mut Instant) -> C
         // `run_deferred_traversals` drains only the traversal queue (NOT the
         // history/nav FIFO), so this updates drain is what commits the popstate
         // same-document intent.
+        // NOTE (multi-traversal popstate ordering — a known BOUNDED divergence): within a
+        // Phase-2 snapshot holding MULTIPLE queued traversals, `run_deferred_traversals`
+        // drains the WHOLE snapshot BEFORE `drain_synchronous_updates` settles a
+        // popstate-staged `pushState` (the VM `pending_history` a mid-snapshot popstate
+        // handler stages). So a 2nd queued traversal resolves against the PRE-`pushState`
+        // entry list — e.g. `[/, /a, /b]` with `back(); back()` where the `/a` popstate does
+        // `pushState('/x')`: the 2nd `back()` peeks the un-mutated list rather than the
+        // post-`pushState` one. Per WHATWG HTML §7.4.6.1 *apply the history step* step 14.1.1,
+        // a synchronous navigation staged between two traversals JUMPS THE QUEUE — it is added
+        // to the session history entries BEFORE the next traversal applies — so spec-faithful
+        // ordering would settle the `pushState` between the two `back()`s. This is the same
+        // jump-the-queue class already PARTIAL-fenced for the cursor-MOVED straddle
+        // (`traversal_queue.rs` Resolution D), fenced to `#11-sync-navigation-steps-queue-tagging`:
+        // that slot's tagged-queue machinery finalizes the sync-nav-steps per-task BETWEEN
+        // traversals. Edge-dense (I1×I2×I3 intersecting) → that slot's `/elidex-plan-review` is
+        // mandatory. Do NOT reorder these two drains to patch it — the per-task interleave is
+        // the slot's job, not a local drain swap (Codex PR#469 R16).
         let _ = elidex_navigation::DrainCoordinator::run_deferred_traversals(state);
         let _ = elidex_navigation::DrainCoordinator::drain_synchronous_updates(state);
         // The step-3 drains can reach `handle_navigate`'s SW-wait (via a Phase-2 apply

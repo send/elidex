@@ -20,6 +20,13 @@
 //! drain (until `Shutdown` or `Empty`), so a `Shutdown` BEHIND an earlier channel
 //! message still preempts rather than being starved a turn late (Codex PR#469 R15).
 //!
+//! The R16 intake BOUND caps that drain to the messages present at turn start
+//! (`channel.len()`), mirroring the Phase-2 drain's snapshot bound: under sustained
+//! non-`Shutdown` input the unbounded drain never reached `Empty`, so the turn never
+//! delivered the buffer front / reached the frame tick — a liveness stall. The bound
+//! guarantees termination by construction while keeping R15's behind-a-message
+//! preempt (a `Shutdown` inside the snapshot is still reached) (Codex PR#469 R16).
+//!
 //! Same-document entries (`push` + `push_same_document`, shared `document_sequence`)
 //! take the no-fetch `same_document_step` path, so their Phase-2 apply succeeds in the
 //! disconnected harness (a cross-document rebuild would fail — exercised elsewhere).
@@ -523,5 +530,68 @@ fn channel_shutdown_behind_normal_message_still_preempts() {
         ),
         "FIFO preserved as [CursorLeft, MouseRelease]: the drained MouseRelease went to the \
          buffer BACK and neither was dispatched before the Shutdown broke the turn"
+    );
+}
+
+/// **R16 (bounded intake) — a buffer-drain turn TERMINATES and delivers the buffer front
+/// under a channel flood.** The R15 buffer-drain intake drained the channel with an
+/// UNBOUNDED `loop { try_recv() ... }` until `Empty`; under sustained non-`Shutdown` input
+/// (high-rate `MouseMove`/cursor traffic during a guarded SW nav) `try_recv()` never reaches
+/// `Empty`, so the turn never delivers the buffer front / runs Phase-2 / reaches the frame
+/// tick — a liveness stall. The intake now BOUNDS the scan to the messages present at turn
+/// start (`channel.len()`), mirroring the Phase-2 drain's `pending_len()` snapshot bound, so
+/// the turn terminates by construction no matter how much non-`Shutdown` input is queued
+/// (Codex PR#469 R16).
+///
+/// A single-threaded test cannot truly SUSTAIN input (a fixed burst always drains to `Empty`,
+/// so both the bounded and unbounded intakes would terminate on it) — the unbounded hang only
+/// manifests under a genuinely concurrent refilling sender. So this pins the property the
+/// bound GUARANTEES: after buffering exactly the snapshot (the flood) to the buffer BACK, the
+/// turn delivers the buffer FRONT and returns `Continue`. Fail-witness for a regression that
+/// broke the `bound == 0 ⇒ remove(0)` deliver arm: the buffer front (`CursorLeft`) is
+/// delivered (removed), the flood (`MouseRelease`) is buffered in FIFO order behind it, and
+/// nothing starves.
+#[test]
+fn buffer_drain_is_bounded_under_channel_flood() {
+    const FLOOD: usize = 50;
+
+    let (mut state, browser) = build_test_content_state_with_url("<p>doc</p>", base());
+    // The buffer front awaiting one-per-turn re-delivery (CursorLeft with no hover =
+    // a no-op when delivered at step 4).
+    state
+        .deferred_reentrant_messages
+        .push(BrowserToContent::CursorLeft);
+    // Flood the channel with many non-`Shutdown` messages — the intake must NOT drain
+    // them unboundedly and starve the buffer front. They are distinct from the front so
+    // the assertions can prove the front was delivered (removed).
+    for _ in 0..FLOOD {
+        browser
+            .send(BrowserToContent::MouseRelease { button: 0 })
+            .unwrap();
+    }
+
+    let mut last_frame = std::time::Instant::now();
+    let flow = super::event_loop::pump_turn(&mut state, &mut last_frame);
+
+    assert!(
+        flow.is_continue(),
+        "R16 — the bounded buffer-drain turn TERMINATES (delivers + continues) despite the \
+         channel flood; the unbounded drain relied on reaching Empty"
+    );
+    // The bound (`channel.len()` = FLOOD) buffered exactly the flood to the buffer BACK, then
+    // the `bound == 0` arm delivered the buffer FRONT — so the front is GONE and the flood
+    // remains buffered in FIFO order for later turns.
+    assert_eq!(
+        state.deferred_reentrant_messages.len(),
+        FLOOD,
+        "the flood was buffered (not dropped) and the original front was delivered"
+    );
+    assert!(
+        matches!(
+            state.deferred_reentrant_messages.first(),
+            Some(BrowserToContent::MouseRelease { button: 0 })
+        ),
+        "R16 — the buffer FRONT (CursorLeft) was delivered this turn; the buffer now leads \
+         with the flooded MouseRelease messages (progress made, no starvation)"
     );
 }
