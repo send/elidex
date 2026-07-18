@@ -39,9 +39,13 @@ The decision is a **per-PR judgment per axis ("could this change plausibly trip 
 ### Step 1 — Collect diff + resolve repo root
 
 ```bash
-# Clear stale dry-run from prior PR review in the same session (Write tool's
-# "Read first" guard otherwise trips agents on stale residue).
-rm -f /tmp/elidex-review.dry-run.md
+# Session-isolated scratch dir. Concurrent /elidex-review runs in PARALLEL
+# SESSIONS must not clobber each other's diff/stat/dry-run, so key the dir on the
+# session id (distinct per session, stable across this session's Bash calls). The
+# `rm -rf` clears same-session prior-PR residue (the Write "Read first" guard
+# otherwise trips agents on a stale dry-run) WITHOUT touching other sessions.
+RUN_DIR="/tmp/elidex-review.${CLAUDE_CODE_SESSION_ID:-$$}"
+rm -rf "$RUN_DIR" && mkdir -p "$RUN_DIR"
 
 # Resolve $BASE against CURRENT remote main (the GitHub PR diff's base), not a
 # possibly-stale local main. Best-effort fetch — warn on failure rather than
@@ -55,9 +59,10 @@ else echo "no origin/main or local main to diff against — fetch the base branc
 # 3-dot `$BASE...HEAD` = merge-base..HEAD (the branch's own commits, matching
 # the GitHub PR diff). Avoids the 2-dot phantom-deletion failure mode when the
 # base has advanced past the branch's fork point.
-git diff "$BASE"...HEAD > /tmp/elidex-review.diff
-git diff "$BASE"...HEAD --stat > /tmp/elidex-review.stat
-wc -l /tmp/elidex-review.diff
+git diff "$BASE"...HEAD > "$RUN_DIR/diff"
+git diff "$BASE"...HEAD --stat > "$RUN_DIR/stat"
+wc -l "$RUN_DIR/diff"
+echo "RUN_DIR=$RUN_DIR"   # Step 1.5 dry-run + Step 2 agents read $RUN_DIR/{diff,stat,dry-run.md} — substitute this concrete path
 
 # Staleness preflight: warn if $BASE has advanced past merge-base (review still
 # correct, but semantic drift against newer base code is invisible). Non-blocking.
@@ -75,7 +80,7 @@ Diff size > 5000 行なら user 確認 (5-agent token cost 過大)。
 
 ### Step 1.5 — Mental dry-run
 
-`workflow.md` § "Step 1.5" を適用、output を `/tmp/elidex-review.dry-run.md` に。**対象は test 限定ではない** — workflow.md 通り「新規/変更 test case AND new code path that reads ECS components」両方 (refactor PR の new caller / new system query 等 non-test も含む) を simulate、Sub-check 2b coverage を担保。Step 2 Agent 2 prompt に hand off。
+`workflow.md` § "Step 1.5" を適用、output を `$RUN_DIR/dry-run.md` (Step 1 で echo した session-isolated concrete path) に。**対象は test 限定ではない** — workflow.md 通り「新規/変更 test case AND new code path that reads ECS components」両方 (refactor PR の new caller / new system query 等 non-test も含む) を simulate、Sub-check 2b coverage を担保。Step 2 Agent 2 prompt に hand off。
 
 ### Step 1.6 — Rename / reframe propagation sweep (conditional)
 
@@ -88,10 +93,12 @@ Diff size > 5000 行なら user 確認 (5-agent token cost 過大)。
 | Variable | Value |
 |---|---|
 | `<INPUT_TAG>` | `[diff]` |
-| `<INPUT_PATH>` | `/tmp/elidex-review.diff` (stat at `/tmp/elidex-review.stat`) |
+| `<INPUT_PATH>` | `$RUN_DIR/diff` (stat at `$RUN_DIR/stat`) — the session-isolated path from Step 1 |
 | `<INPUT_CONTEXT>` | the branch's own changes vs the resolved base, 3-dot `$BASE...HEAD` where `$BASE` = current `origin/main` |
-| `<DRYRUN_PATH>` | `/tmp/elidex-review.dry-run.md` |
+| `<DRYRUN_PATH>` | `$RUN_DIR/dry-run.md` |
 | `<LOC_RULE>` | `file:line` |
+
+`$RUN_DIR` = the concrete session-isolated path echoed by Step 1 — substitute the resolved literal into each agent prompt (agents Read the absolute path; they do NOT recompute `$RUN_DIR`), exactly like `${REPO_ROOT}`.
 
 ### Step 3 / 3.5 / 4 / 4.5
 
