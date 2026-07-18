@@ -34,6 +34,31 @@ use hecs::Entity;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct FragmentId(pub u32);
 
+/// Provenance of the store's current contents — the phase guard the terminal-Z
+/// C-3 geometry seam reads (`EcsDom::screen_geometry`). It answers the question
+/// *"does this store reflect a COMPLETED SCREEN layout pass?"* — a **store-global**
+/// fact (not per-entity), so it lives on the store rather than as a component.
+///
+/// A geometry consumer reading box fragments as **screen** geometry needs this
+/// because `LayoutBox` and the fragment store have different authority windows: the
+/// store holds the prior pass's coords during a probe re-measure, is empty/partial
+/// mid-pass (`clear()` runs at the top of `layout_tree`), and is **page-relative**
+/// during a paged/print render. None of those is a completed screen pass, and the
+/// distinction is invisible from the node contents alone — only the layout entry
+/// that produced them knows, so the entries stamp it (invalidate before laying out;
+/// the screen entry publishes at completion). See the C-3a plan-memo §2.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+enum StorePhase {
+    /// Not trustworthy as screen geometry: mid-pass, re-entrant, probe, paged/print,
+    /// or never laid. The default — a fresh / cleared store is not a completed pass.
+    #[default]
+    Invalid,
+    /// The store reflects a COMPLETED screen layout pass. The only state
+    /// [`FragmentTree::is_completed_screen`] accepts. Published solely by the screen
+    /// `layout_tree` entry at completion (single-publisher invariant).
+    CompletedScreen,
+}
+
 /// The standalone fragment tree: an arena of [`FragmentNode`]s. Cleared and
 /// rebuilt each layout pass (full-from-root relayout is the reconcile — no
 /// incremental / staleness model). Root nodes are those with no
@@ -50,6 +75,14 @@ pub struct FragmentTree {
     /// O(1)-per-entity (the Z-1a `fragments_for` O(nodes) scan the paint walk was
     /// forbidden from calling).
     index: HashMap<Entity, Vec<FragmentId>>,
+    /// Provenance guard for the screen-geometry seam (terminal-Z C-3a). Written
+    /// only by the layout entries via [`invalidate`](Self::invalidate) /
+    /// [`publish_completed_screen`](Self::publish_completed_screen); read by
+    /// `EcsDom::screen_geometry` via [`is_completed_screen`](Self::is_completed_screen).
+    /// `Default = Invalid`, so a freshly-constructed store is never mistaken for a
+    /// completed pass. Additive to the existing render consumers (which read
+    /// `fragments_for` / `is_consumable` directly and do not consult this).
+    phase: StorePhase,
 }
 
 /// One node of the [`FragmentTree`]. The fields are the Z-final tree shape;
@@ -114,7 +147,7 @@ pub enum FragmentContent {
 /// box-model fields of [`elidex_plugin::LayoutBox`] minus its component-era
 /// `layout_generation` (the node's [`fragmentainer`](FragmentNode::fragmentainer)
 /// replaces it).
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct BoxFragment {
     /// Content area (absolute coords).
     pub content: Rect,
@@ -163,9 +196,47 @@ impl From<&elidex_plugin::LayoutBox> for BoxFragment {
 impl FragmentTree {
     /// Remove all nodes — called at the start of each layout pass (the tree is
     /// rebuilt from scratch every pass; full-from-root relayout is the reconcile).
+    ///
+    /// Does **not** touch [`phase`](Self::phase): provenance is driven explicitly by
+    /// the layout entries (`invalidate` before laying out, `publish_completed_screen`
+    /// at screen completion) so there is exactly one auditable locus per entry, not a
+    /// second mechanism coupled to `clear`. (`layout_tree` invalidates immediately
+    /// before it calls `clear`, so a cleared store is already `Invalid` regardless.)
     pub fn clear(&mut self) {
         self.nodes.clear();
         self.index.clear();
+    }
+
+    // ---- Provenance guard (terminal-Z C-3a screen-geometry seam) ----
+
+    /// Mark the store as **not** a completed screen pass. Called at the top of every
+    /// layout entry, before it lays anything out (screen `layout_tree`, and the paged
+    /// `layout_fragmented_with_tokens` which covers all paged store writers). Makes a
+    /// stale [`CompletedScreen`](StorePhase::CompletedScreen) from a prior pass
+    /// unreadable as screen geometry the instant a new (or paged) pass begins — the
+    /// soundness requirement the seam's phase guard rests on (plan-memo §2).
+    /// Idempotent; redundant calls are harmless (only `publish_completed_screen` moves
+    /// the phase the other way).
+    pub fn invalidate(&mut self) {
+        self.phase = StorePhase::Invalid;
+    }
+
+    /// Mark the store as reflecting a **completed screen** layout pass. **Single
+    /// publisher**: only the screen `layout_tree` entry may call this, at completion
+    /// (after all roots are laid). No paged/probe path publishes, so a page-relative
+    /// or mid-pass store can never read as screen geometry (plan-memo §2).
+    pub fn publish_completed_screen(&mut self) {
+        self.phase = StorePhase::CompletedScreen;
+    }
+
+    /// Whether the store reflects a completed screen pass — the gate
+    /// `EcsDom::screen_geometry` checks before handing out a readable projection.
+    /// `false` (mid-pass / re-entrant / probe / paged / never-laid) is a signal
+    /// **distinct** from per-entity box-absence: it fails the whole projection, not a
+    /// single entity's lookup (plan-memo §1 req 3 / §2 I-phase).
+    #[must_use]
+    pub fn is_completed_screen(&self) -> bool {
+        self.phase == StorePhase::CompletedScreen
     }
 
     /// `true` if the tree has no nodes.
@@ -564,5 +635,37 @@ mod tests {
             "the orphaned col-2 fragment is gone — no phantom column painted"
         );
         assert!(tree.is_consumable(e));
+    }
+
+    #[test]
+    fn phase_defaults_invalid_and_transitions_only_on_explicit_writes() {
+        // The provenance guard (terminal-Z C-3a). A fresh / cleared store is NOT a
+        // completed screen pass — the seam's phase gate must never mistake it for one.
+        let mut tree = FragmentTree::default();
+        assert!(
+            !tree.is_completed_screen(),
+            "Default = Invalid — a fresh store is not a completed pass"
+        );
+
+        // The screen entry publishes at completion.
+        tree.publish_completed_screen();
+        assert!(tree.is_completed_screen());
+
+        // Any layout entry invalidating (screen re-entry / paged) clears it — even a
+        // zero-write pass, which is exactly the paged-after-screen soundness hole.
+        tree.invalidate();
+        assert!(
+            !tree.is_completed_screen(),
+            "invalidate() before laying out clears a stale CompletedScreen"
+        );
+
+        // clear() is arena-only: it does not itself publish (provenance is
+        // entry-driven), so a clear on a published store leaves the phase as-is.
+        tree.publish_completed_screen();
+        tree.clear();
+        assert!(
+            tree.is_completed_screen(),
+            "clear() touches only the arena, not the phase (entries drive provenance)"
+        );
     }
 }

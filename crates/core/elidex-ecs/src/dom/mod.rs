@@ -18,6 +18,7 @@
 mod attribute;
 mod attribute_reconcile;
 pub(crate) mod equality;
+mod geometry;
 mod mutation_event;
 pub mod shadow;
 mod text_data;
@@ -26,6 +27,7 @@ mod tree;
 mod tree_clone;
 
 pub use attribute::AttributeWrite;
+pub use geometry::{FragmentView, ScreenGeometry};
 pub use mutation_event::{MutationDispatcher, MutationEvent};
 pub(crate) use text_util::splice_utf16;
 
