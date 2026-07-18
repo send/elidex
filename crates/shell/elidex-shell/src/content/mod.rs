@@ -4,12 +4,15 @@
 //! thread and sending back display list updates.
 
 mod animation;
+mod drain_host;
 mod event_handlers;
 mod event_loop;
 pub(crate) mod focus;
 mod form_input;
 pub(crate) mod iframe;
 mod ime;
+mod link_nav;
+mod message_dispatch;
 mod navigation;
 pub(crate) mod scroll;
 
@@ -17,7 +20,7 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use elidex_ecs::Entity;
-use elidex_navigation::NavigationController;
+use elidex_navigation::{NavigationController, TraversalQueue};
 use elidex_script_session::HostDriver;
 
 use crate::ipc::{BrowserToContent, ContentToBrowser, LocalChannel};
@@ -54,6 +57,42 @@ struct ContentState {
     client_id: String,
     channel: LocalChannel<ContentToBrowser, BrowserToContent>,
     nav_controller: NavigationController,
+    /// The traversable's **session history traversal queue** (WHATWG HTML
+    /// §7.3.1.1) — the deferred Phase-2 traversal-apply queue the
+    /// [`DrainCoordinator`](elidex_navigation::DrainCoordinator) drives. Homed
+    /// here beside `nav_controller` (both survive pipeline rebuild), so a
+    /// same-turn `history.back()` enqueued by an input turn's Phase 1
+    /// (`drain_synchronous_phase`) survives to be applied on the async pump's
+    /// Phase 2 (`run_deferred_traversals`). CLAUDE.md side-store exception (b)
+    /// (browsing-context/session-level state, not a per-entity ECS component).
+    traversal_queue: TraversalQueue,
+    /// **Interim reentrancy guard buffer** (Codex PR#469 R4). The SW-fetch wait
+    /// loop in `content/navigation.rs` synchronously re-dispatches non-matching
+    /// `BrowserToContent` messages while blocked. If that re-dispatch fires DURING
+    /// a Phase-2 traversal apply (the §7.3.1.1 "running nested apply history step"
+    /// guard is set — [`TraversalQueue::is_applying`](elidex_navigation::TraversalQueue::is_applying)),
+    /// a nav-mutating message (`Navigate` / `Reload` / chrome `GoBack`/`GoForward`
+    /// / `MouseClick` / `KeyDown`) would mutate the [`NavigationController`] entry
+    /// list/cursor BETWEEN the traversal's peek and its commit, committing a stale
+    /// index against a mutated list. To close that window, such a message is
+    /// BUFFERED here instead of dispatched, and re-delivered ONE per turn through
+    /// [`pump_turn`](super::event_loop::pump_turn)'s single buffer-first held-message
+    /// intake (once `is_applying()` has cleared and the apply fully committed), so it
+    /// inherits that turn's Phase-2 apply and R9 bottom drain. This is the bounded
+    /// interim guard; the FULL canonical serialization (routing every nav-mutating
+    /// step through the traversal queue) is Slice 4.
+    deferred_reentrant_messages: Vec<BrowserToContent>,
+    /// Set the instant a `Shutdown` is handled at the interim-reentrancy vector
+    /// (`drain_host::dispatch_or_buffer_reentrant`) DURING a guarded SW-fetch wait
+    /// — the message ran unload/teardown immediately and must NOT sit in
+    /// [`deferred_reentrant_messages`](Self::deferred_reentrant_messages) waiting
+    /// on the ~30s SW deadline (Codex PR#469 R8). Once set, the SW-wait loop breaks,
+    /// `handle_navigate` returns WITHOUT loading/committing against the torn-down
+    /// pipeline, the Phase-2 `apply_traversal` / `handle_history_action` seams
+    /// no-op (no post-teardown mutation), and `pump_turn` returns
+    /// [`ControlFlow::Break`](std::ops::ControlFlow::Break) so `run_event_loop`
+    /// exits promptly. Never cleared — a torn-down content thread is exiting.
+    shutdown_requested: bool,
     hover_chain: Vec<Entity>,
     active_chain: Vec<Entity>,
     /// Whether the caret is currently visible (toggles every 500ms).
@@ -205,6 +244,9 @@ impl ContentState {
             channel,
             web_storage,
             nav_controller,
+            traversal_queue: TraversalQueue::new(),
+            deferred_reentrant_messages: Vec::new(),
+            shutdown_requested: false,
             hover_chain: Vec::new(),
             active_chain: Vec::new(),
             caret_visible: true,
@@ -672,7 +714,8 @@ fn content_thread_main_url(
     event_loop::run_event_loop(&mut state);
 }
 
-// run_event_loop + handle_message are in event_loop.rs.
+// run_event_loop + pump_turn are in event_loop.rs; the BrowserToContent dispatch
+// (handle_message + chrome traversal) is in message_dispatch.rs.
 
 /// Dispatch a `storage` event on window (WHATWG HTML §11.2.1).
 ///
@@ -760,6 +803,14 @@ mod window_open_tests;
 #[cfg(test)]
 #[path = "../content_history_drain_tests.rs"]
 mod history_drain_tests;
+
+#[cfg(test)]
+#[path = "../content_history_phase_sep_tests.rs"]
+mod history_phase_sep_tests;
+
+#[cfg(test)]
+#[path = "../content_history_pump_turn_tests.rs"]
+mod history_pump_turn_tests;
 
 #[cfg(test)]
 #[path = "../content_fragment_nav_tests.rs"]

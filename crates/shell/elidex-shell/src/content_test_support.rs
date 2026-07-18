@@ -3,6 +3,8 @@
 //! network broker, and building a `ContentState` to drive on the test thread.
 //! Kept in one place so neither test module owns the scaffolding.
 
+use elidex_script_session::HostDriver;
+
 use super::{spawn_content_thread, ContentState};
 use crate::ipc::{BrowserToContent, ContentToBrowser, LocalChannel};
 
@@ -197,6 +199,41 @@ fn finalize_test_content_state(
     super::iframe::scan_initial_iframes(&mut state);
     state.re_render();
     state
+}
+
+/// The top-level document URL the history/pump-turn test modules build against.
+pub(super) fn base() -> url::Url {
+    url::Url::parse("https://example.com/").unwrap()
+}
+
+/// Discard every message currently queued on the browser channel end so a later
+/// measurement observes only post-drain sends.
+pub(super) fn drain_browser(browser: &LocalChannel<BrowserToContent, ContentToBrowser>) {
+    while browser.try_recv().is_ok() {}
+}
+
+/// Two same-document entries `[base, /a]` (shared `document_sequence`), cursor on
+/// `/a`, so a `back()` resolves same-document and applies in place (no fetch).
+///
+/// Mirrors a production same-document `pushState('/a')` (`content/navigation.rs`
+/// `apply_push_replace_state`): the active-document facts — pipeline URL + VM
+/// current-URL + VM session-history `(index, length)` — track the cursor, so the
+/// fixture never leaves the production-impossible state where `location` /
+/// `history.length` / relative-URL resolution describe `base` while the cursor sits on
+/// `/a` (Codex PR#469 R18).
+pub(super) fn seed_same_document_pair(state: &mut ContentState) {
+    let a = url::Url::parse("https://example.com/a").unwrap();
+    state.nav_controller.push(base()); // index 0, base
+    state.nav_controller.push_same_document(a.clone()); // index 1, /a
+    state.pipeline.url = Some(a);
+    state
+        .pipeline
+        .runtime
+        .set_current_url(state.pipeline.url.clone());
+    state.pipeline.runtime.set_session_history(
+        state.nav_controller.current_index(),
+        state.nav_controller.len(),
+    );
 }
 
 /// Read the value of an attribute on the `<div>` with the given `id` — the shared

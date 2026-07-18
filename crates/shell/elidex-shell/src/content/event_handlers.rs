@@ -3,11 +3,11 @@
 use elidex_ecs::ElementState as DomElementState;
 use elidex_form::{FormControlKind, FormControlState, KeyAction};
 use elidex_layout::{hit_test_with_scroll, HitTestQuery};
+use elidex_navigation::DrainCoordinator;
 use elidex_plugin::{EventPayload, KeyboardEventInit, MouseEventInit, Point};
-use elidex_script_session::{DispatchEvent, HostDriver};
+use elidex_script_session::DispatchEvent;
 
 use crate::app::hover::{apply_hover_diff, collect_hover_chain, update_element_state};
-use crate::app::navigation::resolve_nav_url;
 use crate::ipc::ModifierState;
 
 use elidex_dom_api::focus::current_focus;
@@ -17,7 +17,6 @@ use super::form_input::{
     dispatch_input_event, dispatch_input_event_typed, dispatch_state_change_events,
     handle_form_reset, handle_form_submit, handle_label_click, toggle_checkbox_if_needed,
 };
-use super::navigation::{handle_navigate, process_pending_actions, HistoryCursorOp};
 use super::ContentState;
 
 /// Clear `:active` state from all entities in the active chain.
@@ -171,77 +170,38 @@ pub(super) fn handle_click(state: &mut ContentState, click: &crate::ipc::MouseCl
 
     state.re_render();
 
-    if process_pending_actions(state) {
+    // Phase 1 (in-task): window-opens → §7.4.4 sync updates → last-wins nav;
+    // an in-range `history.back()/forward()/go()` enqueues for the async pump's
+    // Phase 2. `suppress_default` is the coordinator's single home for the
+    // "own-context effect applied this turn OR a traversal is pending" rule
+    // (cross-turn-robust; Resolution E leaves no `Traversal` step for a no-op
+    // `go(999)`, so a legitimate default is not over-suppressed — plan §1 B/E1):
+    // suppress the `<a href>` default when it holds.
+    let drained = DrainCoordinator::drain_synchronous_phase(state);
+    if drained.suppress_default {
+        // `suppress_default` gates ONLY the `<a href>` default action, NOT frame
+        // shipping (F3). A turn that mutates the DOM in the click handler AND queues
+        // an in-range traversal has `own_context_action == false` (the traversal is
+        // deferred), so the drain shipped nothing — the `re_render()`'d frame (with
+        // the mutation) would strand until Phase 2, and never ship if Phase 2's
+        // apply fails. Ship it here (keyed on `!shipped`, not on suppression); if
+        // the drain already shipped (an applied nav / pushState render) don't
+        // double-ship. THEN suppress the default action only.
+        if !drained.shipped {
+            state.send_display_list();
+        }
         return;
     }
 
-    // Link navigation: if click was not prevented, check for <a href>.
-    if click.button == 0 && !click_prevented {
-        if let Some((href, target_attr)) =
-            crate::app::events::find_link_ancestor_with_target(&state.pipeline.dom, hit_entity)
-        {
-            let resolved = resolve_nav_url(state.pipeline.url.as_ref(), &href);
-            if let Some(target_url) = resolved {
-                match target_attr.as_deref() {
-                    Some("_blank") => {
-                        // Sandbox allow-popups check (WHATWG HTML §4.8.5):
-                        // block popup navigation from sandboxed iframes without
-                        // the allow-popups flag.
-                        if !state.pipeline.runtime.popups_allowed() {
-                            state.send_display_list();
-                            return;
-                        }
-                        // Open in a new tab.
-                        state.notify_browser(crate::ipc::ContentToBrowser::OpenNewTab(target_url));
-                        state.send_display_list();
-                        return;
-                    }
-                    Some("_top" | "_parent")
-                        if !elidex_plugin::sandbox::top_navigation_allowed(
-                            state.pipeline.runtime.sandbox_flags(),
-                            true,
-                        ) =>
-                    {
-                        // Sandbox top-navigation check (WHATWG HTML §7.4.2.4
-                        // *allowed by sandboxing to navigate* steps 3.2/3.3):
-                        // block navigation to parent/top from a sandboxed iframe
-                        // lacking a top-navigation grant. A link CLICK is a user
-                        // gesture, so `activation = true` is the statically-
-                        // correct per-call-site truth here (memo §4.3.3) — this
-                        // is what makes `allow-top-navigation-by-user-activation`
-                        // permit the navigation while `window.open` (activation
-                        // = false) does not. Real transient-activation tracking
-                        // is carved (`#11-transient-activation-tracking`).
-                        state.send_display_list();
-                        return;
-                    }
-                    Some("_top" | "_parent") => {
-                        // Fall through to navigate current document
-                        // (true parent/top navigation requires multi-process IPC).
-                    }
-                    Some(name) if !name.is_empty() && !name.starts_with('_') => {
-                        // Named target: look for an iframe with matching name.
-                        if let Some(iframe_entity) = super::iframe::find_iframe_by_name(state, name)
-                        {
-                            super::iframe::navigate_iframe(state, iframe_entity, &target_url);
-                            state.re_render();
-                            state.send_display_list();
-                            return;
-                        }
-                        // No matching iframe → fall through to normal navigation.
-                    }
-                    _ => {
-                        // _self or no target → navigate current document.
-                    }
-                }
-                state.send_display_list();
-                handle_navigate(state, &target_url, HistoryCursorOp::Push, None);
-                return;
-            }
-        }
-    }
-
-    state.send_display_list();
+    // The `<a href>` default-navigation path (target resolution + `_blank` /
+    // `_top` / `_parent` / named-frame sandbox gates + navigate) is a cohesive
+    // unit carved into `link_nav` (touch-time split). It owns the click turn's
+    // remaining frame shipping, so this handler does NOT ship again.
+    super::link_nav::perform_link_default_navigation(
+        state,
+        hit_entity,
+        click.button == 0 && !click_prevented,
+    );
 }
 
 /// Handle mouse button release — clear `:active` state.
@@ -386,7 +346,16 @@ pub(super) fn handle_key(
 
     state.re_render();
 
-    if !process_pending_actions(state) {
+    // Phase 1 (in-task) — same phase-separated drain as the click path. Ship the
+    // keyboard turn's `re_render()`'d frame whenever the drain did not already ship
+    // it (keyed on `!shipped`, NOT `!suppress_default` — F3). Decoupling
+    // frame-ship from default-suppression: a turn that mutates the DOM AND queues
+    // an in-range traversal has `own_context_action == false` (traversal deferred)
+    // so the drain shipped nothing, but the mutated frame must still ship this turn
+    // rather than strand until Phase 2. An applied nav / a pushState render already
+    // shipped (`shipped == true`), so this does not double-ship.
+    let drained = DrainCoordinator::drain_synchronous_phase(state);
+    if !drained.shipped {
         state.send_display_list();
     }
 }

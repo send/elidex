@@ -2154,6 +2154,7 @@ dependencies = [
  "elidex-html-parser",
  "elidex-net",
  "elidex-plugin",
+ "elidex-script-session",
  "image",
  "tracing",
  "url",

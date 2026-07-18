@@ -1,30 +1,40 @@
-//! S5-5a — history-before-navigation drain order + FIFO history drain.
+//! Content-mode history/navigation drain — Slice A phase-separation, **core
+//! same-turn drain** half
+//! (`docs/plans/2026-07-session-history-slice-A-content-phase-separation.md`).
 //!
-//! Pins the `process_pending_actions` drain reorder (WHATWG HTML §7.4.4): a
-//! synchronous `pushState`/`replaceState` (its URL/history update already ran
-//! during the script) must commit its `NavigationController` entry BEFORE an
-//! async pipeline-replacing navigation supersedes. The old order drained the
-//! navigation first and early-returned, stranding the history mutation.
+//! The cross-task-boundary phase-separation conformance (I1 ordering, later-turn
+//! `pump_turn` application, bounded-drain loop-inert, peek-classify partition,
+//! default-suppression frame-ship, call-time-URL binding) lives in the sibling
+//! module `content_history_phase_sep_tests` — carved out at the file's authored
+//! section boundary (touch-time 1000-line split, Codex PR#469 R3). This module
+//! keeps the **core same-turn drain**: navigation ordering, FIFO commit,
+//! failed-load robustness, the `apply_traversal_delta` outcome contract, and the
+//! same-turn traversal supersede-and-discard.
 //!
-//! Boa is the live shell engine until the S5-6 flip, so the oracle is the
-//! shell-owned `NavigationController` (entry commit + order) plus the browser
-//! channel's `DisplayListReady` count (the no-redundant-double-send structure).
-//! Navigations fail to load over the disconnected test network, so a stranded
-//! navigation leaves only the committed history entries in the controller — the
-//! clean new-vs-old signature.
+//! The single synchronous `process_pending_actions` drain is retired: these tests
+//! drive the shared [`DrainCoordinator`] — [`DrainCoordinator::drain_synchronous_phase`]
+//! (Phase 1, in-task: window-opens → §7.4.4 sync updates → last-wins nav,
+//! enqueuing in-range traversals) and [`DrainCoordinator::run_deferred_traversals`]
+//! (Phase 2, §7.4.6.1 *apply the history step*). The oracle is the shell-owned
+//! `NavigationController` (entry commit + cursor), the traversal queue
+//! (`has_pending_traversal`), and the browser channel's `DisplayListReady` count.
 //!
-//! Boa's `pending_history` bridge slot is single last-wins, so a genuine
-//! multi-`pushState` turn is only producible at the VM engine (post-flip,
-//! `take_pending_history() -> Vec` of every action — covered by `elidex-js`
-//! `tests_engine_s1c`). The multi-action FIFO-apply that the shell drain loop
-//! (`for action in &pending_history`) relies on is pinned here at the
-//! `handle_history_action` seam.
+//! **Harness reachability:** cross-document loads fail over the disconnected test
+//! network, so a *successful* cross-document rebuild is **not** reachable here.
+//! Resolution-D `SyncUpdate` cancel is now GENERALIZED (Codex PR#469 R6 — a
+//! straddle sync behind ANY traversal is canceled, same-document included), pinned
+//! by the substrate isolation tests
+//! (`traversal_queue_tests::syncupdate_canceled_after_{document_changing,same_document}_traversal`)
+//! and the content-level
+//! `content_history_phase_sep_tests::deferred_syncupdate_canceled_behind_same_document_traversal`.
+//! Supersede / cross-turn / peek-classify are asserted at the queue + coordinator
+//! level (plan §5).
 
+use elidex_navigation::{DrainCoordinator, DrainHost, TraversalDelta};
 use elidex_script_session::HistoryAction;
 
-use super::navigation::{
-    handle_history_action, handle_navigate, process_pending_actions, HistoryCursorOp,
-};
+use super::drain_host::apply_traversal_delta;
+use super::navigation::{handle_history_action, handle_navigate, HistoryCursorOp};
 use super::test_support::build_test_content_state_with_url;
 use crate::ipc::{BrowserToContent, ContentToBrowser, LocalChannel};
 
@@ -35,14 +45,6 @@ fn base() -> url::Url {
 
 fn push_state(path: &str) -> HistoryAction {
     HistoryAction::PushState {
-        url: Some(path.to_string()),
-        title: String::new(),
-        serialized_state: None,
-    }
-}
-
-fn replace_state(path: &str) -> HistoryAction {
-    HistoryAction::ReplaceState {
         url: Some(path.to_string()),
         title: String::new(),
         serialized_state: None,
@@ -93,9 +95,12 @@ fn history_drains_before_navigation() {
         .eval("history.pushState(null, '', '/a'); location.assign('/b');");
     drain_browser(&browser);
 
-    let processed = process_pending_actions(&mut state);
+    let outcome = DrainCoordinator::drain_synchronous_phase(&mut state);
 
-    assert!(processed, "a same-turn navigation is an own-context action");
+    assert!(
+        outcome.own_context_action,
+        "a same-turn navigation is an own-context action"
+    );
     // The `/b` navigation fails to load over the disconnected test network, so
     // it never enters the controller — but the pushState `/a` entry, drained
     // FIRST now, is committed. Under the old (navigation-first) order the
@@ -119,11 +124,10 @@ fn history_drains_before_navigation() {
     );
 }
 
-/// Multiple synchronous pushStates in one turn commit in FIFO order. Boa's
-/// single-slot bridge cannot hold two, so this pins the FIFO-apply the shell
-/// drain loop relies on by applying the two actions in order via the same
-/// `handle_history_action` the loop calls (the VM produces the real two-element
-/// `Vec` post-flip — `elidex-js` `tests_engine_s1c`).
+/// Multiple synchronous pushStates in one turn commit in FIFO order — the shell
+/// applies the two §7.4.4 sync updates in issue order via the sync-update-only
+/// `handle_history_action` seam (the VM produces the real two-element `Vec`
+/// post-flip — `elidex-js` `tests_engine_s1c`).
 #[test]
 fn multiple_pushstates_commit_in_fifo_order() {
     let (mut state, _browser) = build_test_content_state_with_url("<p>doc</p>", base());
@@ -165,9 +169,9 @@ fn replacestate_then_navigation_ordering() {
         .eval("history.replaceState(null, '', '/a'); location.assign('/b');");
     drain_browser(&browser);
 
-    let processed = process_pending_actions(&mut state);
+    let outcome = DrainCoordinator::drain_synchronous_phase(&mut state);
 
-    assert!(processed);
+    assert!(outcome.own_context_action);
     // replaceState replaced the initial entry in place (len stays 1, no new
     // entry), applied BEFORE the /b navigation (which fails to load). The old
     // order early-returned on the navigation and dropped replaceState, leaving
@@ -196,10 +200,10 @@ fn pure_navigation_turn_unchanged() {
         .eval("location.assign('/next');");
     drain_browser(&browser);
 
-    let processed = process_pending_actions(&mut state);
+    let outcome = DrainCoordinator::drain_synchronous_phase(&mut state);
 
     assert!(
-        processed,
+        outcome.own_context_action,
         "a pure-navigation turn reports the own-context action"
     );
     // The navigation fails to load over the disconnected test network, leaving
@@ -225,10 +229,10 @@ fn pure_pushstate_turn_unchanged() {
         .eval("history.pushState(null, '', '/a');");
     drain_browser(&browser);
 
-    let processed = process_pending_actions(&mut state);
+    let outcome = DrainCoordinator::drain_synchronous_phase(&mut state);
 
     assert!(
-        processed,
+        outcome.own_context_action,
         "a pure-history turn reports the own-context action"
     );
     assert_eq!(state.nav_controller.len(), 1);
@@ -299,15 +303,18 @@ fn handle_navigate_commit_op_is_success_gated() {
     );
 }
 
-/// The `handle_history_action` return contract the drain-loop break keys on:
-/// `true` ONLY for a traversal that genuinely superseded the document (a target
-/// existed AND `handle_navigate` replaced the pipeline). In the disconnected
-/// harness every `load_document` fails, so a `Back`/`Go` with a target still
-/// returns `false` (no replacement) — alongside `PushState`/`ReplaceState` and a
-/// no-op out-of-range `go`. So NONE of these break the drain loop here; the
-/// `true`-on-successful-rebuild case is VM / connected-integration-covered.
+/// The traversal-apply outcome contract — post phase-separation `apply_traversal_delta`
+/// is the SOLE traversal body (the free `handle_history_action` carries only §7.4.4
+/// sync updates now). `shipped = true` ONLY for a traversal that genuinely
+/// superseded the document (a target existed AND `handle_navigate` replaced the
+/// pipeline / applied same-document). In the disconnected harness every
+/// cross-document `load_document` fails, so a `Back` with a target still reports
+/// `shipped = false` (no replacement), and a no-op out-of-range `Go(999)` reports
+/// the default (no target → no `handle_navigate`) — so neither over-suppresses the
+/// caller's fallback. The `shipped`-on-successful-rebuild case is VM /
+/// connected-integration-covered.
 #[test]
-fn handle_history_action_reports_rebuild() {
+fn apply_traversal_delta_reports_no_supersede_on_failed_or_noop() {
     let (mut state, _browser) = build_test_content_state_with_url("<p>doc</p>", base());
     // Populate the controller so a Back has a prior entry to traverse to.
     state.nav_controller.push(base());
@@ -316,37 +323,30 @@ fn handle_history_action_reports_rebuild() {
         .push(url::Url::parse("https://example.com/a").unwrap());
 
     // A Back with a prior entry drives handle_navigate, but the load fails in the
-    // harness → the pipeline is NOT replaced → reports NO supersede (false).
+    // harness → the pipeline is NOT replaced → reports NO supersede (shipped false).
     assert!(
-        !handle_history_action(&mut state, &HistoryAction::Back),
+        !apply_traversal_delta(&mut state, TraversalDelta::Back),
         "a traversal whose load fails does not replace the pipeline → reports no supersede"
     );
-    // pushState / replaceState never rebuild.
-    assert!(
-        !handle_history_action(&mut state, &push_state("/b")),
-        "pushState commits an entry without rebuilding the pipeline"
-    );
-    assert!(
-        !handle_history_action(&mut state, &replace_state("/c")),
-        "replaceState commits in place without rebuilding the pipeline"
-    );
     // A no-op traversal (out-of-range go) drives no handle_navigate at all → no
-    // supersede → the loop must CONTINUE past it.
+    // supersede (returns false), so a continuing trailing intent is not suppressed.
     assert!(
-        !handle_history_action(&mut state, &HistoryAction::Go(999)),
+        !apply_traversal_delta(&mut state, TraversalDelta::Go(999)),
         "an out-of-range go is a no-op (no handle_navigate) → reports no supersede"
     );
 }
 
-/// Load-failure correctness (Codex R2): when a same-turn traversal's load FAILS
-/// the document is NOT superseded, so the drain loop must CONTINUE and the
-/// trailing same-turn `pushState` IS applied to the (still-active) document. In
-/// the disconnected harness `load_document` always fails, so this is the path
-/// exercised here; the complementary successful-load supersede-and-break (the
-/// trailing intent dropped) is VM / connected-integration-covered. Drives the
-/// exact loop the drain runs — `for a in &history { if handle_history_action(..)
-/// { break; } }` (boa's single-slot bridge can't flow a real two-item `Vec`
-/// through `process_pending_actions` pre-flip).
+/// Load-failure correctness (Codex R2): when a traversal's load FAILS the document
+/// is NOT superseded, so a trailing same-turn `pushState` IS still applied to the
+/// (still-active) document. Under phase-separation this is the two-step sequence
+/// the coordinator drives — the traversal apply (`apply_traversal_delta`, the
+/// Phase-2 body) reports `shipped = false` on the failed load, and the trailing
+/// `SyncUpdate` (`handle_history_action`) still commits — the phase-separated form
+/// of the retired "the drain continues past a no-supersede traversal." In the
+/// disconnected harness cross-document `load_document` always fails, so this is the
+/// path exercised here; the successful-load complement (a document-changing
+/// traversal CANCELS the trailing `SyncUpdate`, Resolution D) is VM /
+/// connected-integration-covered.
 #[test]
 fn failed_traversal_load_does_not_drop_trailing_history() {
     let (mut state, _browser) = build_test_content_state_with_url("<p>doc</p>", base());
@@ -356,19 +356,14 @@ fn failed_traversal_load_does_not_drop_trailing_history() {
         .push(url::Url::parse("https://example.com/a").unwrap());
     // index=1, len=2; a Back traverses to `base` but its load FAILS (harness).
 
-    let history = vec![HistoryAction::Back, push_state("/kept")];
-    let mut applied = 0usize;
-    for action in &history {
-        applied += 1;
-        if handle_history_action(&mut state, action) {
-            break;
-        }
-    }
-
-    assert_eq!(
-        applied, 2,
-        "the Back's load failed → no supersede → the loop continues to the trailing pushState"
+    // The failed traversal does not supersede (shipped false)…
+    assert!(
+        !apply_traversal_delta(&mut state, TraversalDelta::Back),
+        "the Back's load failed → no supersede"
     );
+    // …so the trailing same-turn sync update still applies to the still-active doc.
+    handle_history_action(&mut state, &push_state("/kept"));
+
     assert_eq!(
         state.nav_controller.current_url().map(url::Url::as_str),
         Some("https://example.com/kept"),
@@ -397,9 +392,10 @@ fn failed_traversal_load_leaves_cursor_unmoved() {
     );
 
     // A Back whose load FAILS must NOT move the cursor (peek-then-commit only
-    // commits on a successful load).
-    let superseded = handle_history_action(&mut state, &HistoryAction::Back);
-    assert!(!superseded, "a failed-load traversal does not supersede");
+    // commits on a successful load). `apply_traversal_delta` is the sole traversal
+    // body post phase-separation.
+    let shipped = apply_traversal_delta(&mut state, TraversalDelta::Back);
+    assert!(!shipped, "a failed-load traversal does not supersede");
     assert_eq!(
         state.nav_controller.current_url().map(url::Url::as_str),
         Some("https://example.com/a"),
@@ -422,35 +418,30 @@ fn failed_traversal_load_leaves_cursor_unmoved() {
     );
 }
 
-/// #283 (this slice's own regression): after a same-turn traversal SUCCEEDS and
-/// rebuilds the pipeline, the drain must NOT fall through to
-/// `take_pending_navigation()` and drain a `location.*` the FRESHLY-loaded page's
-/// initial scripts queued — the superseding traversal `return true`s from the
-/// history loop (the 5a fix) instead of `break`ing into the navigation drain.
+/// FLIP (#283 re-anchor — plan §5): under phase-separation the same-turn
+/// `history.back(); location.assign('/b')` no longer "falls through and drains
+/// /b." An **in-range** back() is peek-classified into the traversal queue in
+/// Phase 1b, so Phase 1c **drain-and-DISCARDS** the /b navigation (§7.4.2.2 step
+/// 19 "any attempts to navigate a navigable that is currently traversing are
+/// ignored"; §7.4.6.1 step 12 splits the traversal onto a later task). The /b nav
+/// is dropped WITHOUT applying (and WITHOUT stranding to re-fire a turn late,
+/// F1); the traversal defers to Phase 2. The old-model "the /b navigation drained
+/// (1 display list)" flips to "the /b nav is discarded (0 display lists)."
 ///
-/// Reachability boundary: a *successful* traversal needs a real `load_document`,
-/// but the disconnected test network `Err`s every load, so `handle_history_action`
-/// never returns `true` here (the same boundary `handle_history_action_reports_rebuild`
-/// documents). The discriminating success-path assertion — a nav queued by the
-/// fresh page is left UN-drained — is therefore VM / connected-integration
-/// coverage (registered as an S5-6-flip live-shell deliverable, alongside the
-/// other `true`-on-success cases in this file).
-///
-/// What IS reachable and pinned here is the COMPLEMENT sharing the same code
-/// path: a *failed* traversal does NOT supersede, so the loop CONTINUES and a
-/// same-turn `pending_navigation` on the still-current runtime DOES drain —
-/// confirming the `break`→`return true` refactor preserved the non-supersede
-/// fall-through exactly (an over-eager `return true` would have swallowed this
-/// navigation). Peek-then-commit also leaves the failed Back's cursor unmoved,
-/// and the turn ships exactly one display list (no double-send).
+/// The Phase-2 back() here is CROSS-document ([base, /a] via `push`, distinct
+/// `document_sequence`s), so its `load_document` fails over the disconnected
+/// harness → `shipped = false`, cursor left unmoved on /a (the successful-rebuild
+/// landing is VM / connected-integration coverage). The land-on-the-back-target
+/// success complement is pinned by `nav_vs_traversal_supersede_lands_on_back_target`
+/// using a same-document back() (the no-fetch path the harness can apply).
 #[test]
-fn failed_traversal_does_not_block_same_turn_navigation_drain() {
+fn same_turn_traversal_supersedes_and_discards_navigation() {
     let (mut state, browser) = build_test_content_state_with_url("<p>doc</p>", base());
     state.nav_controller.push(base());
     state
         .nav_controller
         .push(url::Url::parse("https://example.com/a").unwrap());
-    // index=1 on /a; a same-turn Back (fails to load → no supersede) + a nav.
+    // index=1 on /a; a same-turn in-range Back + a location nav.
     let _ = state
         .pipeline
         .runtime
@@ -458,29 +449,55 @@ fn failed_traversal_does_not_block_same_turn_navigation_drain() {
         .eval("history.back(); location.assign('/b');");
     drain_browser(&browser);
 
-    let processed = process_pending_actions(&mut state);
+    let outcome = DrainCoordinator::drain_synchronous_phase(&mut state);
 
+    // The in-range back() enqueued (Phase 1b) → the nav is drain-and-discarded
+    // (Phase 1c), so NO own-context nav applied this turn — but the default IS
+    // suppressed via the queue-pending signal (the shell's suppression predicate).
     assert!(
-        processed,
-        "the same-turn navigation is an own-context action"
+        !outcome.own_context_action,
+        "the nav was discarded (not applied) — no own-context nav in Phase 1"
     );
-    // Back's load FAILED → no supersede → the loop continued → the /b navigation
-    // drained (and itself failed to load, so it never entered the controller).
-    // The cursor never moved (peek-then-commit), so it still sits on /a.
+    assert!(
+        state.traversal_queue().has_pending_traversal(),
+        "the in-range back() is queued for Phase 2 (supersedes the same-turn nav)"
+    );
+    // Documents the production default-suppression predicate: the coordinator's
+    // single `suppress_default` field (own-context effect OR a pending traversal) is
+    // exactly what the shell's click path reads to drop the `<a href>` default.
+    assert!(
+        outcome.suppress_default,
+        "the shell suppresses the <a href> default (a pending traversal supersedes)"
+    );
+    // The /b nav was DISCARDED, not drained-and-applied: it shipped no display
+    // list (the old model shipped its pre-send DL = 1; this flips to 0).
     assert_eq!(
-        state.nav_controller.current_url().map(url::Url::as_str),
-        Some("https://example.com/a"),
-        "failed Back left the cursor on /a (peek-then-commit); /b nav failed to load"
+        count_display_lists(&browser),
+        0,
+        "the discarded /b nav ships no display list (FLIP: was 1 under the fall-through model)"
     );
     assert_eq!(
         state.nav_controller.len(),
         2,
-        "no entry added: Back failed to supersede and /b failed to load"
+        "no /b entry: the nav was discarded, not applied"
     );
     assert_eq!(
-        count_display_lists(&browser),
-        1,
-        "the drained /b navigation ships exactly its pre-send display list (no double-send)"
+        state.nav_controller.current_url().map(url::Url::as_str),
+        Some("https://example.com/a"),
+        "cursor still on /a — Phase 1 only enqueued the traversal (Phase 2 not yet run)"
+    );
+
+    // Phase 2: the cross-document back() applies but its load fails (harness) →
+    // cursor unmoved, queue drained. (Successful rebuild = VM/connected coverage.)
+    let _ = DrainCoordinator::run_deferred_traversals(&mut state);
+    assert!(
+        state.traversal_queue().is_empty(),
+        "Phase 2 drained the queue (no re-enqueue — loop-inert)"
+    );
+    assert_eq!(
+        state.nav_controller.current_url().map(url::Url::as_str),
+        Some("https://example.com/a"),
+        "the cross-document back() load failed → cursor unmoved (still /a), /b never navigated"
     );
 }
 
@@ -517,9 +534,9 @@ fn failed_traversal_ships_no_navigation_state() {
     // index=1 on /a; a Back peeks index 0 but its load FAILS in the harness.
     drain_browser(&browser);
 
-    let superseded = handle_history_action(&mut state, &HistoryAction::Back);
+    let shipped = apply_traversal_delta(&mut state, TraversalDelta::Back);
 
-    assert!(!superseded, "a failed-load traversal does not supersede");
+    assert!(!shipped, "a failed-load traversal does not supersede");
     assert_eq!(
         count_navigation_states(&browser),
         0,

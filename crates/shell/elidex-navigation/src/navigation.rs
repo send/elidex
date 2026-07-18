@@ -245,6 +245,20 @@ impl NavigationController {
         (target < self.entries.len()).then(|| (target, &self.entries[target].url))
     }
 
+    /// Peek the target of a [`TraversalDelta`](crate::TraversalDelta) WITHOUT
+    /// moving the cursor — the single dispatch over
+    /// [`peek_back`](Self::peek_back) / [`peek_forward`](Self::peek_forward) /
+    /// [`peek_go`](Self::peek_go) shared by the shell's enqueue-time peek-classify
+    /// and its Phase-2 apply body (so the `delta → peek_*` match lives in one
+    /// place). `None` for a no-op (out of range, §7.4.3 sub-step 4.4).
+    pub fn peek_delta(&self, delta: crate::TraversalDelta) -> Option<(usize, &url::Url)> {
+        match delta {
+            crate::TraversalDelta::Back => self.peek_back(),
+            crate::TraversalDelta::Forward => self.peek_forward(),
+            crate::TraversalDelta::Go(d) => self.peek_go(d),
+        }
+    }
+
     /// Commit the cursor to a peeked target index (from
     /// [`peek_back`](Self::peek_back) / [`peek_forward`](Self::peek_forward) /
     /// [`peek_go`](Self::peek_go)) after its load succeeded — the second half of
