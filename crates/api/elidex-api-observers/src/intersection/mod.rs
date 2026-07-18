@@ -260,7 +260,7 @@ impl IntersectionObserverRegistry {
     }
 
     /// Gather intersection observations by computing intersection ratios
-    /// (Intersection Observer §3.2.8 "Run the Update Intersection Observations
+    /// (Intersection Observer §3.2.10 "Run the Update Intersection Observations
     /// Steps").
     ///
     /// `rect_fn` provides the current bounding rect for an entity, taking
@@ -323,10 +323,10 @@ impl IntersectionObserverRegistry {
                 // ratio and the spec-mandated `intersectionRect` from
                 // it — previously the intersection was computed twice
                 // (once for the ratio, once for the entry's
-                // `intersectionRect`).  IO §3.2.7: `isIntersecting` is
-                // driven by whether intersection is non-null (edge-
+                // `intersectionRect`).  IO §3.2.10 step 11: `isIntersecting`
+                // is driven by whether intersection is non-null (edge-
                 // adjacent / zero-area overlaps still count), NOT by
-                // `ratio > 0`; and a zero-area target reports
+                // `ratio > 0`; step 12: a zero-area target reports
                 // ratio = 1 when intersecting.
                 let (ratio, is_intersecting, bounding_client_rect, intersection_rect) =
                     match maybe_rect {
@@ -413,7 +413,7 @@ pub fn observing_observer_ids(dom: &EcsDom) -> std::collections::HashSet<u64> {
 /// `#[cfg(test)]` wrapper [`compute_intersection_ratio`], so unit
 /// tests and production can never diverge.
 ///
-/// IO §3.2.7: when `target_area == 0` the area-ratio is undefined (0/0);
+/// IO §3.2.10 step 12: when `target_area == 0` the area-ratio is undefined (0/0);
 /// the spec collapses it to `1.0` if the target is intersecting (a
 /// zero-area point inside the root is fully visible) and `0.0`
 /// otherwise.
