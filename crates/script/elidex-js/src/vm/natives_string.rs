@@ -107,9 +107,14 @@ pub(super) fn set_regexp_last_index(
 
 // -- String.prototype methods -----------------------------------------------
 
-/// §21.1.3 String.prototype method this coercion:
+/// §22.1.3 String.prototype method `this` coercion:
 /// RequireObjectCoercible(this) then ToString(this).
-/// Handles String primitive, StringWrapper, and other values via ToString.
+///
+/// A String primitive is returned as-is (ToString of a String is itself; no
+/// override can apply). Every other coercible value — including a
+/// `new String(...)` wrapper — routes through ToString so a user-overridden
+/// `toString` / `valueOf` / `@@toPrimitive` is honored, rather than reading the
+/// wrapper's `[[StringData]]` slot directly.
 pub(super) fn coerce_this_string(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -119,13 +124,6 @@ pub(super) fn coerce_this_string(
             "String.prototype method called on null or undefined",
         )),
         JsValue::String(id) => Ok(id),
-        JsValue::Object(obj_id) => {
-            if let ObjectKind::StringWrapper(sid) = ctx.get_object(obj_id).kind {
-                Ok(sid)
-            } else {
-                ctx.to_string_val(this)
-            }
-        }
         other => ctx.to_string_val(other),
     }
 }

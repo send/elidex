@@ -31,7 +31,7 @@ pub(crate) fn to_boolean(vm: &VmInner, val: JsValue) -> bool {
 
 /// ToNumber (ECMA-262 §7.1.4). Symbol → TypeError per spec.
 ///
-/// Takes `&mut VmInner` because the §7.1.4 step 4 Object path delegates to
+/// Takes `&mut VmInner` because the §7.1.4 step 8 Object path delegates to
 /// `ToPrimitive(val, "number")`, which may invoke user-defined `valueOf` /
 /// `toString` (and through them arbitrary JS).  Pure-number callers should
 /// prefer the [`f64_to_int32`] / [`f64_to_uint32`] / [`to_integer_or_infinity`]
@@ -39,25 +39,14 @@ pub(crate) fn to_boolean(vm: &VmInner, val: JsValue) -> bool {
 pub(crate) fn to_number(vm: &mut VmInner, val: JsValue) -> Result<f64, VmError> {
     match val {
         JsValue::Empty | JsValue::Undefined => Ok(f64::NAN),
-        JsValue::Object(id) => {
-            // Wrapper fast-path: spec-equivalent shortcut for the §7.1.4
-            // step 4 → §7.1.1.1 path on primitive wrappers, since their
-            // `valueOf` / `toString` defer to the inner primitive anyway.
-            match vm.get_object(id).kind {
-                ObjectKind::NumberWrapper(n) => return Ok(n),
-                ObjectKind::BooleanWrapper(false) => return Ok(0.0),
-                ObjectKind::BooleanWrapper(true) => return Ok(1.0),
-                ObjectKind::StringWrapper(sid) => {
-                    return Ok(string_to_number_u16(vm.strings.get(sid)));
-                }
-                ObjectKind::BigIntWrapper(_) => {
-                    return Err(VmError::type_error(
-                        "Cannot convert a BigInt value to a number",
-                    ));
-                }
-                _ => {}
-            }
-            // §7.1.4 step 4: ? ToPrimitive(val, "number") → ? ToNumber(prim).
+        JsValue::Object(_) => {
+            // §7.1.4 steps 7-10: ? ToPrimitive(val, number) → ? ToNumber(prim).
+            // No wrapper slot shortcut: a boxed primitive's overridden
+            // `valueOf` / `toString` / `@@toPrimitive` must be honored, and only
+            // `to_primitive` does (this mirrors the `ordinary_to_primitive` note
+            // in `ops.rs`, which likewise has no wrapper fast-path for the same
+            // reason). A BigInt-wrapper still throws — but only *after* its
+            // (possibly overridden) `valueOf` runs, per §7.1.4 on the result.
             let prim = vm.to_primitive(val, "number")?;
             to_number(vm, prim)
         }
@@ -221,27 +210,14 @@ pub(crate) fn to_string(vm: &mut VmInner, val: JsValue) -> Result<StringId, VmEr
             let s = vm.bigints.get(id).to_string();
             Ok(vm.strings.intern(&s))
         }
-        JsValue::Object(id) => {
-            // Wrapper fast-path: spec-equivalent shortcut for the
-            // §7.1.18 step 9 → §7.1.1.1 path on primitive wrappers,
-            // which would invoke their `valueOf` / `toString` and
-            // resolve back to the inner primitive anyway.
-            match vm.get_object(id).kind {
-                ObjectKind::NumberWrapper(n) => return Ok(number_to_string_id(vm, n)),
-                ObjectKind::StringWrapper(sid) => return Ok(sid),
-                ObjectKind::BooleanWrapper(true) => return Ok(vm.well_known.r#true),
-                ObjectKind::BooleanWrapper(false) => return Ok(vm.well_known.r#false),
-                ObjectKind::BigIntWrapper(bi_id) => {
-                    let s = vm.bigints.get(bi_id).to_string();
-                    return Ok(vm.strings.intern(&s));
-                }
-                _ => {}
-            }
-            // §7.1.18 step 9: ? ToPrimitive(val, "string") → ? ToString(prim).
-            // The OrdinaryToPrimitive fallback inside `to_primitive` invokes
-            // user-defined `toString` / `valueOf` per §7.1.1.1; the recursive
-            // `to_string` call below sees a non-Object primitive (TypeError
-            // would have already propagated) and finishes the conversion.
+        JsValue::Object(_) => {
+            // §7.1.18 steps 9-12: ? ToPrimitive(val, string) → ? ToString(prim).
+            // No wrapper slot shortcut: a boxed primitive's overridden
+            // `toString` / `valueOf` / `@@toPrimitive` must be honored. The
+            // OrdinaryToPrimitive fallback inside `to_primitive` invokes the
+            // user-defined method per §7.1.1.1; the recursive `to_string` call
+            // below sees a non-Object primitive (a TypeError would have already
+            // propagated) and finishes the conversion.
             let prim = vm.to_primitive(val, "string")?;
             to_string(vm, prim)
         }

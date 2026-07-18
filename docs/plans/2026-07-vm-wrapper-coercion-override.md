@@ -48,7 +48,7 @@ Each case runs in a fresh VM; the override is isolated. **Spec = the override is
 | `…; new Number(5) * 2` | `10` | `84` | to_number |
 | `Number.prototype[Symbol.toPrimitive]=()=>99; +new Number(5)` | `5` | `99` | to_number (bypasses even @@toPrimitive) |
 | `String.prototype.toString=()=>'x'; \`${new String('a')}\`` | `"a"` | `"x"` | to_string fast-path |
-| `…; new String('a') + ''` | `"a"` | `"x"` | to_string |
+| `…; String(new String('a'))` | `"a"` | `"x"` | to_string (String() call → ToString) |
 | `Number.prototype.toString=()=>'z'; \`${new Number(5)}\`` | `"5"` | `"z"` | to_string on NumberWrapper |
 | `Number.prototype.valueOf=()=>42; JSON.stringify(new Number(5))` | `"5"` | `"42"` | JSON |
 | `String.prototype.toString=()=>'x'; JSON.stringify(new String('a'))` | `"\"a\""` | `"\"x\""` | JSON |
@@ -160,6 +160,18 @@ coercion — unlike the infallible `coerce.rs` deletions. A naive `unwrap_or` sw
 silently drop a throwing `space.valueOf`'s abrupt completion, which a happy-path-only test
 would miss (§6 item 3 pins the throw). The step-4 (`:88-97`) and replacer (`:450-453`) sites
 already sit in `Result` contexts, so this is `space`-specific.
+
+**⚠ step-4 is extracted, not inlined — `serialize_property` is recursive (impl finding)**:
+`serialize_property` recurses (via `serialize_object`/`serialize_array`) once per JSON
+nesting level, and `MAX_JSON_DEPTH` (debug 800 / release 1000, `natives_json/mod.rs`) is
+**tuned to that per-level Rust frame size** — the comment there records that a deep payload
+"can outgrow the thread's stack budget". Adding the `? ToNumber` / `? ToString` coercion
+locals inline into the step-4 block **enlarged that recursive frame and tripped
+`json_stringify_depth_cap`'s 2000-deep input into a native stack overflow before the cap's
+`RangeError` fired** (observed in debug). Fix: hoist step-4 into a `#[inline(never)]` free
+`fn unwrap_wrapper_value(ctx, val)` so the coercion's locals live in a *popped-before-recursion*
+frame, keeping each nesting level lean. The replacer / `space` sites are called **once** (not
+per-level), so they stay inline.
 
 ### (b) Legitimate — direct slot read is spec-correct → **MUST STAY**
 
