@@ -442,9 +442,10 @@ fn stringify_impl(
             replacer_fn = Some(obj_id);
         } else if matches!(ctx.get_object(obj_id).kind, ObjectKind::Array { .. }) {
             // §25.5.4 step 5.b.ii: build the PropertyList inclusion set. `len` is
-            // read once (step 2, LengthOfArrayLike), but each element is fetched
-            // FRESH per iteration via `? Get(replacer, ToString(k))` (step 4.b) —
-            // matching `serialize_array`, NOT a cloned snapshot. The 4.f.i
+            // read once (step 5.b.ii.2, LengthOfArrayLike), but each element is
+            // fetched FRESH per iteration via `? Get(replacer, ToString(k))`
+            // (step 5.b.ii.4.b) — matching `serialize_array`, NOT a cloned
+            // snapshot. The 5.b.ii.4.f.i
             // coercion below now runs a user-overridden `toString` / `valueOf`,
             // which can mutate a later replacer index; a snapshot would keep the
             // stale value and diverge from spec.
@@ -458,7 +459,7 @@ fn stringify_impl(
                 let elem = ctx
                     .vm
                     .get_element(JsValue::Object(obj_id), JsValue::Number(k as f64))?;
-                // step 4.d/4.e/4.f.i: a String / Number element — including a
+                // step 5.b.ii.4.d/4.e/4.f.i: a String / Number element — including a
                 // `[[StringData]]` OR `[[NumberData]]` wrapper — becomes an
                 // included key via `? ToString(propertyValue)` (BOTH wrapper kinds
                 // → ToString, honoring an override), not a direct slot read.

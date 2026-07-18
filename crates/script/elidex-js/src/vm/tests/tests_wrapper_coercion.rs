@@ -208,7 +208,7 @@ fn json_replacer_array_wrapper_key_honors_override() {
 
 #[test]
 fn json_replacer_array_element_read_fresh_per_iteration() {
-    // §25.5.4 step 4.b: each replacer element is `Get` FRESH per iteration, so an
+    // §25.5.4 step 5.b.ii.4.b: each replacer element is `Get` FRESH per iteration, so an
     // element's ToString override that mutates a LATER index is observed (not a
     // stale clone). Here r[0].toString sets r[1]='b' before k=1 is read, so the
     // included key is 'b', not the pre-mutation 'c'. (Codex R1 — the coercion now
