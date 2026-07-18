@@ -353,8 +353,7 @@ output**, not pinned here (pinning the whole family to "subtract scroll" is the 
 re-anchor exists to stop).
 
 ⚠ **The scroll subtraction is LIVE** (§0). A shared bounding-box fold must therefore be
-**doc-space**, and each consumer applies its own frame (`getBoundingClientRect` subtracts; IO does not, since
-its registry is doc-space). The C-3b regression test that checks a multicol `getBoundingClientRect` in
+**doc-space**, and each consumer applies its own frame (`getBoundingClientRect` subtracts; IO does not — its doc-space registry is a **live deviation** from IO §3.2.7 step 6's viewport mapping (§4 seed 2: *record, don't bless*), not IO's output contract). The C-3b regression test that checks a multicol `getBoundingClientRect` in
 viewport coords **must exercise a scrolled page** (the production `ScrollState` provides the offset) — this is
 falsifiable, not inert.
 
@@ -427,7 +426,7 @@ and the per-consumer spec characterization is **the audit's output** (§4), not 
 |---|---|---|---|---|---|
 | RESIZE OBSERVER §3.3.1 content rect | — | the padding-offset convention (§1's `content_rect_local` decision is the home for the arithmetic and the byte-identity claim; not re-rendered here) | **C-3a ships nothing RO-specific** (R2-U3): RO's contentRect **composes at the RO reader** from the fragment's generic `padding()` + `content().size` facets — byte-identical to today's `content_rect_local()` | ✓ (SVG-no-box + multicol width note are RO reader policy, → C-3d) | no |
 | CSS DISPLAY 3 §2.5 Box Generation | `contents` | *"the element itself does not generate any boxes"* → **no associated box** | → **§1 requirement 5** (its home) for what the seam does and does not express; not re-decided here. Producer paths that leave a box on such an element anyway are producer defects C-3 inherits — **axis 3 enumerates them**. | ✓ for the box-generation branch (`none` is out of C-3's reach — layout skips it; the `contents`-computes-to-`none` sub-case per Appendix B is unchanged) | no |
-| CSSOM VIEW §6 `getClientRects()` | step 1 | *"does not have an associated box → return an **empty** DOMRectList and stop"* | the **consumer branch** requirement 5 exists to make expressible (C-3b implements the algorithm) | branch ✓ (steps 2-3 = SVG / per-fragment, C-3b's map) | no |
+| CSSOM VIEW §6 `getClientRects()` | step 1 | *"does not have an associated box → return an **empty** DOMRectList and stop"* | **C-3b's branch** — `box_fragments` gives mechanical presence, but the no-associated-box **predicate** this step needs is **§4 axis 3's** (§1 requirement 5), not the seam's | step 1 needs the axis-3 predicate → **C-3b's, not C-3a-covered**; steps 2-3 = SVG / per-fragment, C-3b's map | no |
 
 **Breadth**: K=3 (resize-observer-1, css-display-3, cssom-view-1), M=3 — still minimal because C-3a is a
 **seam**: two rows are cited because CSSOM consumers must **branch** on the no-associated-box distinction
@@ -510,7 +509,7 @@ went wrong):
 **Known-hard seed edges** (audit INPUTS — questions the audit starts from, NOT determinations this memo
 makes; each is a verified live reader):
 
-1. **RO** — frame **padding-offset** composed at the reader (axis 1; the arithmetic is §1's, not restated — R2-U3), spec-zero (axis 3). Open: which fragment (RO §3.3.1 pins *width*
+1. **RO** — **multiple entry fields → classify separately (axis 5)**: `contentRect` (padding-offset frame, axis 1 — arithmetic §1's, not restated, R2-U3; spec-zero, axis 3) plus `borderBoxSize` (the live provider also reads `border_box().size`, `resize_observer.rs:404-407`). Open: which fragment (RO §3.3.1 pins *width*
    to the first column, silent on height). → C-3d.
 2. **IO** — needs the CSSOM-View §6 fold in **doc space** (axis 1), `None` preserved (axis 3), a **source-change**
    (axis 4). Note: IO §3.2.7 step 6 maps entry rects to **viewport** space and elidex hands script **doc-space**
@@ -661,7 +660,7 @@ table in the first place (Codex R13-CC2).
 
    | # | Hand-off item | What breaks if it is dropped | Owner → destination | Trigger |
    |---|---|---|---|---|
-   | 1 | `#11-fragment-store-n1-coverage-marker` (gate item 2) — ⚠ **renamed** (Codex R14-re-gate): it was `#11-fragment-store-screen-provenance`, minted at R5 *before* R8-Z1 moved screen-provenance publishing **into C-3a's scope** (§6.3). Registering that string would tell a future session provenance is unbuilt while C-3a builds it — the SoT-pollution class §0 opens with. Same disambiguation §6.3 already applies to the paged slot | no producer writes the store's N=1 box for every entity, so "empty" stays ambiguous | PM → defer ledger | C-4 kickoff, or any slice needing that producer |
+   | 1 | `#11-fragment-store-n1-coverage-marker` (gate item 2) — ⚠ **renamed** (Codex R14-re-gate): it was `#11-fragment-store-screen-provenance`, minted at R5 *before* R8-Z1 moved screen-provenance publishing **into C-3a's scope** (§6.3). Registering that string would tell a future session provenance is unbuilt while C-3a builds it — the SoT-pollution class §0 opens with. Same disambiguation §6.3 already applies to the paged slot | no producer writes the store's N=1 box for every entity **and** no laid-this-pass marker/generation distinguishes not-yet-committed from no-box, so "empty" stays ambiguous | PM → defer ledger | C-4 kickoff, or any slice needing that producer |
    | 2 | `#11-in-layout-probe-visible-geometry` (gate item **2b**) | **C-4 cannot delete `LayoutBox` for the readers that run INSIDE layout** — the set is §4's sweep output, not a hand-list. ⚠ distinct from row 1 (R13-CC2): item 2 is a *post-commit* fact; 2b is what they need **during** a probe/mid-pass | PM → defer ledger | C-4 kickoff — C-4 must land this or keep `LayoutBox` for them |
    | 3 | `#11-paged-fragment-store-hygiene` (gate item 3) | the paged store's content is never cleared/rebuilt | PM → defer ledger | when paged/print media folds into the store (committed-next per `fragment_tree.rs:73`) |
    | 4 | `#11-layout-generation-rehome` (gate item 4) | `layout_generation`'s dual role has no home once `BoxFragment` drops it | PM → defer ledger | C-3e (paged-gen gate reader) or C-4 — whichever touches `builder/walk.rs:108` first |
