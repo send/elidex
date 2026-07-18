@@ -389,7 +389,13 @@ prototype surface.
   impl.
 - **This is the PR1 prerequisite.** PR1 (`MulticolHandler::serialize_shorthand`)
   **rebases onto this** and relies on the gate to strip all css-wide/var before
-  dispatch. Land this first.
+  dispatch. Land this first. **On the PR1 rebase, reconcile the concurrently-edited
+  `tests/shorthand.rs`**: PR1 added a `roundtrip` helper calling the *no-registry*
+  `parse_declaration_block` (which the §Parse-discrepancy guard warns drops
+  registry-backed longhands like multicol), while this prereq added `serialize_parsed`
+  calling the *populated-registry* `parse_declaration_block_with_registry`. Collapse
+  PR1's `roundtrip` onto `serialize_parsed` (One-issue-one-way / I2 + the registry
+  guard) — the two near-duplicate helpers must not coexist post-rebase.
 - Under the `#11-style-shorthand-expand` umbrella (slot STAYS OPEN for per-family
   omit-initial coverage). Register the two new slots at landing per the defer
   lifecycle (per-PR ≤3: 2 registered here — omit-initial-omission, revert-keyword).
