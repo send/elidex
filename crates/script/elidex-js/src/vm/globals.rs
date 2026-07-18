@@ -7,16 +7,17 @@ use super::natives::{
     native_array_constructor, native_array_is_array, native_array_iterator_next,
     native_array_values, native_decode_uri, native_decode_uri_component, native_encode_uri,
     native_encode_uri_component, native_is_finite, native_is_nan, native_iterator_self,
-    native_object_assign, native_object_create, native_object_define_property,
-    native_object_entries, native_object_freeze, native_object_from_entries,
-    native_object_get_own_property_descriptor, native_object_get_own_property_names,
-    native_object_get_own_property_symbols, native_object_get_prototype_of,
-    native_object_has_own_property, native_object_is, native_object_is_extensible,
-    native_object_is_frozen, native_object_is_prototype_of, native_object_is_sealed,
-    native_object_keys, native_object_prevent_extensions, native_object_property_is_enumerable,
-    native_object_prototype_to_locale_string, native_object_prototype_to_string,
-    native_object_seal, native_object_set_prototype_of, native_object_value_of,
-    native_object_values, native_parse_float, native_parse_int, native_string_iterator_next,
+    native_object_assign, native_object_constructor, native_object_create,
+    native_object_define_property, native_object_entries, native_object_freeze,
+    native_object_from_entries, native_object_get_own_property_descriptor,
+    native_object_get_own_property_names, native_object_get_own_property_symbols,
+    native_object_get_prototype_of, native_object_has_own_property, native_object_is,
+    native_object_is_extensible, native_object_is_frozen, native_object_is_prototype_of,
+    native_object_is_sealed, native_object_keys, native_object_prevent_extensions,
+    native_object_property_is_enumerable, native_object_prototype_to_locale_string,
+    native_object_prototype_to_string, native_object_seal, native_object_set_prototype_of,
+    native_object_value_of, native_object_values, native_parse_float, native_parse_int,
+    native_string_iterator_next,
 };
 use super::natives_array::{
     native_array_concat, native_array_copy_within, native_array_fill, native_array_includes,
@@ -1364,35 +1365,60 @@ impl VmInner {
     }
 
     fn register_object_global(&mut self) {
-        let obj_id = self.create_object_with_methods(&[
-            ("keys", native_object_keys),
-            ("values", native_object_values),
-            ("entries", native_object_entries),
-            ("assign", native_object_assign),
-            ("create", native_object_create),
-            ("defineProperty", native_object_define_property),
-            ("is", native_object_is),
-            ("getPrototypeOf", native_object_get_prototype_of),
-            ("setPrototypeOf", native_object_set_prototype_of),
-            (
-                "getOwnPropertyDescriptor",
-                native_object_get_own_property_descriptor,
-            ),
-            ("getOwnPropertyNames", native_object_get_own_property_names),
-            (
-                "getOwnPropertySymbols",
-                native_object_get_own_property_symbols,
-            ),
-            ("freeze", native_object_freeze),
-            ("seal", native_object_seal),
-            ("isFrozen", native_object_is_frozen),
-            ("isSealed", native_object_is_sealed),
-            ("preventExtensions", native_object_prevent_extensions),
-            ("isExtensible", native_object_is_extensible),
-            ("fromEntries", native_object_from_entries),
-        ]);
-        let name = self.strings.intern("Object");
-        self.globals.insert(name, JsValue::Object(obj_id));
+        // §20.1.1 The Object Constructor — a constructable function so both
+        // `Object(x)` (call form, §20.1.1.1) and `new Object(x)` / subclass `new`
+        // (construct form) work, wired to %Object.prototype% like every sibling
+        // constructor. (The historic namespace-object shape — `ObjectKind::Ordinary`
+        // via `create_object_with_methods` — left `Object` non-callable and
+        // `Object.prototype`/`Object.prototype.constructor` unreachable.)
+        let ctor_id = self.create_constructable_function("Object", native_object_constructor);
+        // Record the intrinsic id so `native_object_constructor` can distinguish a
+        // direct `new Object()` (NewTarget === %Object%) from a subclass `new`.
+        self.object_constructor = Some(ctor_id);
+        // §20.1.2 static methods.
+        self.install_methods(
+            ctor_id,
+            &[
+                ("keys", native_object_keys),
+                ("values", native_object_values),
+                ("entries", native_object_entries),
+                ("assign", native_object_assign),
+                ("create", native_object_create),
+                ("defineProperty", native_object_define_property),
+                ("is", native_object_is),
+                ("getPrototypeOf", native_object_get_prototype_of),
+                ("setPrototypeOf", native_object_set_prototype_of),
+                (
+                    "getOwnPropertyDescriptor",
+                    native_object_get_own_property_descriptor,
+                ),
+                ("getOwnPropertyNames", native_object_get_own_property_names),
+                (
+                    "getOwnPropertySymbols",
+                    native_object_get_own_property_symbols,
+                ),
+                ("freeze", native_object_freeze),
+                ("seal", native_object_seal),
+                ("isFrozen", native_object_is_frozen),
+                ("isSealed", native_object_is_sealed),
+                ("preventExtensions", native_object_prevent_extensions),
+                ("isExtensible", native_object_is_extensible),
+                ("fromEntries", native_object_from_entries),
+            ],
+        );
+        // §20.1.2.21 `Object.prototype` (BUILTIN) + §20.1.3.1
+        // `Object.prototype.constructor` (METHOD) + the `Object` global binding,
+        // via the shared sibling helper. %Object.prototype% is created by
+        // `register_prototypes` (called at globals.rs `register()` before this).
+        let obj_proto = self.object_prototype.expect(
+            "object_prototype is populated by register_prototypes before register_object_global",
+        );
+        self.wire_constructor_global("Object", ctor_id, obj_proto);
+        // `Object.name` = "Object" comes free from `create_native_function_keyed`.
+        // `Object.length` is intentionally NOT installed: no built-in ctor in elidex
+        // installs `.length` (a uniform gap — a per-ctor `.length` pass is a
+        // separate concern, tracked as a candidate slot in this PR's plan-memo §7),
+        // so adding it only to `Object` would be a strangler.
     }
 
     fn register_array_global(&mut self) {

@@ -277,6 +277,14 @@ pub(crate) struct VmInner {
     /// `None` until registered. Read by `native_html_element_ctor`
     /// (\[C1\] §3.2.3 step 1) to reject direct `new HTMLElement()`.
     pub(crate) html_element_constructor: Option<ObjectId>,
+    /// `globalThis.Object` constructable function `ObjectId`. Populated by
+    /// `register_object_global` at globals init, `None` until registered. Read
+    /// by `native_object_constructor` (ECMA-262 §20.1.1.1 step 1) to distinguish
+    /// a direct `new Object()` (NewTarget === %Object%) from a subclass `new`.
+    /// Held as a GC root (like `html_element_constructor`) so the identity
+    /// compare cannot fire against a collected slot if script deletes
+    /// `globalThis.Object`.
+    pub(crate) object_constructor: Option<ObjectId>,
     /// Key bound to the native accessor currently executing — staged from
     /// [`value::NativeFunction::bound_key`] for the duration of the native
     /// call (save/restore around dispatch). A shared backend fn reads it via

@@ -244,6 +244,7 @@ impl Vm {
                 #[cfg(test)]
                 force_gc_before_next_alloc: false,
                 html_element_constructor: None,
+                object_constructor: None,
                 active_bound_key: None,
                 console_capture: VecDeque::new(),
                 host_data: None,

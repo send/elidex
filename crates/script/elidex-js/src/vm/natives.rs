@@ -852,15 +852,15 @@ pub(super) fn native_console_trace(
 
 // Re-exports from split modules.
 pub(super) use super::natives_object::{
-    native_object_assign, native_object_create, native_object_define_property,
-    native_object_entries, native_object_freeze, native_object_from_entries,
-    native_object_get_own_property_descriptor, native_object_get_own_property_names,
-    native_object_get_own_property_symbols, native_object_get_prototype_of,
-    native_object_has_own_property, native_object_is, native_object_is_extensible,
-    native_object_is_frozen, native_object_is_prototype_of, native_object_is_sealed,
-    native_object_keys, native_object_prevent_extensions, native_object_property_is_enumerable,
-    native_object_seal, native_object_set_prototype_of, native_object_value_of,
-    native_object_values,
+    native_object_assign, native_object_constructor, native_object_create,
+    native_object_define_property, native_object_entries, native_object_freeze,
+    native_object_from_entries, native_object_get_own_property_descriptor,
+    native_object_get_own_property_names, native_object_get_own_property_symbols,
+    native_object_get_prototype_of, native_object_has_own_property, native_object_is,
+    native_object_is_extensible, native_object_is_frozen, native_object_is_prototype_of,
+    native_object_is_sealed, native_object_keys, native_object_prevent_extensions,
+    native_object_property_is_enumerable, native_object_seal, native_object_set_prototype_of,
+    native_object_value_of, native_object_values,
 };
 pub(super) use super::natives_string::{
     native_string_char_at, native_string_char_code_at, native_string_ends_with,

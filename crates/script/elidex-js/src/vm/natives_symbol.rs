@@ -268,25 +268,30 @@ pub(super) fn native_object_prototype_to_string(
                     return Ok(JsValue::String(id));
                 }
             }
-            // Default tags based on object kind
+            // Default builtinTag based on object kind — §20.1.3.6 steps 5-14, in
+            // spec step order. `@@toStringTag` (checked above, steps 15-16) wins
+            // when a String tag is present.
             let obj = ctx.get_object(obj_id);
             match &obj.kind {
-                ObjectKind::Array { .. } => "Array",
+                ObjectKind::Array { .. } => "Array", // step 5 (IsArray)
+                // step 6: an arguments object has a [[ParameterMap]] slot — both
+                // mapped and unmapped (strict) arguments carry it (§10.4.4.6
+                // steps 2-3), so elidex's strict-only Arguments still tags here.
+                ObjectKind::Arguments { .. } => "Arguments",
                 ObjectKind::Function(_)
                 | ObjectKind::NativeFunction(_)
-                | ObjectKind::BoundFunction { .. } => "Function",
-                ObjectKind::Error { .. } => "Error",
-                ObjectKind::RegExp { .. } => "RegExp",
+                | ObjectKind::BoundFunction { .. } => "Function", // step 7 ([[Call]])
+                ObjectKind::Error { .. } => "Error", // step 8 ([[ErrorData]])
+                ObjectKind::BooleanWrapper(_) => "Boolean", // step 9 ([[BooleanData]])
+                ObjectKind::NumberWrapper(_) => "Number", // step 10 ([[NumberData]])
+                ObjectKind::StringWrapper(_) => "String", // step 11 ([[StringData]])
+                ObjectKind::Date(_) => "Date",       // step 12 ([[DateValue]])
+                ObjectKind::RegExp { .. } => "RegExp", // step 13 ([[RegExpMatcher]])
+                // Promise has no §20.1.3.6 builtinTag (falls to step 14 "Object");
+                // its "[object Promise]" derives from @@toStringTag (§27.5.5.5).
+                // elidex keeps this compatible shortcut arm (behavior-preserving).
                 ObjectKind::Promise(_) => "Promise",
-                // §20.1.3.6 step 12: an object with a [[DateValue]] slot has
-                // builtinTag "Date" (`Object.prototype.toString.call(new Date())`
-                // === "[object Date]"). The primitive wrappers
-                // (Number/String/Boolean — steps 9-11) share the same §20.1.3.6
-                // gap in this match, which falls straight to the step-14 "Object"
-                // default — a full builtinTag pass is
-                // `#11-object-prototype-tostring-builtin-tag`.
-                ObjectKind::Date(_) => "Date",
-                _ => "Object",
+                _ => "Object", // step 14 default
             }
         }
     };
