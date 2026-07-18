@@ -3,9 +3,11 @@
 //!
 //! ## Layering
 //!
-//! Per CLAUDE.md "Layering mandate".  `elidex_form::validate_control`
-//! lives in the engine-independent `elidex_form` crate; this module
-//! exposes the result
+//! Per CLAUDE.md "Layering mandate".  `validate_control` lives in the
+//! engine-independent **leaf** crate `elidex_form_core` (re-exported by
+//! the `elidex_form` facade, which still depends on the higher form
+//! systems — `elidex-dom-api` / `elidex-script-session`; host code calls
+//! it as `elidex_form::validate_control`); this module exposes the result
 //! to JS via 11 boolean accessors.  Custom validity is stored on
 //! [`elidex_form::FormControlState::custom_validity_message`] —
 //! no standalone HashMap.
