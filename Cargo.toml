@@ -89,11 +89,11 @@ serde_json = "1"
 tokio = { version = "1", features = ["rt-multi-thread", "sync", "time", "macros", "net", "io-util", "fs"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-syn = { version = "2", features = ["full"] }
+syn = { version = "3", features = ["full"] }
 quote = "1"
 proc-macro2 = "1"
-phf = "0.13"
-phf_codegen = "0.13"
+phf = "0.14"
+phf_codegen = "0.14"
 fontdb = "0.23"
 futures-util = { version = "0.3", default-features = false, features = ["sink"] }
 rustybuzz = "0.20"
@@ -109,7 +109,7 @@ hyper-util = { version = "0.1", features = ["tokio"] }
 rustls = { version = "0.23", default-features = false, features = ["std", "tls12", "aws_lc_rs"] }
 rustls-pki-types = "1"
 tokio-rustls = { version = "0.26", default-features = false, features = ["logging", "tls12", "aws_lc_rs"] }
-tokio-tungstenite = { version = "0.29", features = ["rustls-tls-webpki-roots"] }
+tokio-tungstenite = { version = "0.30", features = ["rustls-tls-webpki-roots"] }
 url = "2"
 percent-encoding = "2"
 uuid = { version = "1", features = ["v4"] }
@@ -214,16 +214,16 @@ elidex-custom-elements = { path = "crates/dom/elidex-custom-elements" }
 elidex-indexeddb = { path = "crates/dom/elidex-indexeddb" }
 rusqlite = { version = "0.40", features = ["bundled"] }
 egui = "0.34"
-egui-wgpu = "0.34"
+egui-wgpu = "0.35"
 egui-winit = "0.34"
 vello = "0.9"
-wgpu = "29"
+wgpu = "30"
 winit = "0.30"
-pollster = "0.4"
+pollster = "1.0"
 tiny-skia = "0.12"
 accesskit = "0.24"
 accesskit_winit = "0.33"
-wasmtime = "45"
+wasmtime = "46"
 wat = "1"
 static_assertions = "1"
 rayon = "1"
