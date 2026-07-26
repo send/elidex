@@ -241,7 +241,9 @@ pub fn clone_node_with_shadow_honor(src: Entity, dom: &mut EcsDom, deep: bool) -
     } else {
         dom.owner_document(src)
     };
-    // Index-based worklist: pass 2 appends pairs while we iterate.
+    // Index-based worklist: passes 3 and 4 append pairs while we iterate
+    // (`replicate_template_contents` pushes the content fragment's deep-clone
+    // pairs; the shadow-replication block pushes the shadow children's).
     let mut idx = 0;
     while idx < pairs.len() {
         let (s, d) = pairs[idx];
@@ -258,6 +260,9 @@ pub fn clone_node_with_shadow_honor(src: Entity, dom: &mut EcsDom, deep: bool) -
         // onto this same worklist, so templates nested inside template content
         // converge here too.
         replicate_template_contents(s, d, dom, deep, shadow_doc, &mut pairs);
+        // Pass 4 (DOM §4.4 "clone a node" step 6): a clonable shadow host's
+        // shadow root is replicated onto the clone. Pushes the shadow children's
+        // pairs onto this same worklist, so nested shadow trees converge here.
         let Some((init, src_shadow_root)) = read_clonable_shadow_init(s, dom) else {
             continue;
         };
@@ -360,7 +365,8 @@ fn propagate_ce_identity(src: Entity, dst: Entity, dom: &mut EcsDom) {
     );
 }
 
-/// Record the src→dst link for the form-control cloning steps by attaching a
+/// Pass 2 of [`clone_node_with_shadow_honor`]: record the src→dst link for the
+/// form-control cloning steps by attaching a
 /// [`ClonedFrom`] marker on `dst` — but only when `src` is an `<input>` or
 /// `<textarea>` (the two elements HTML defines cloning steps for). The gate
 /// mirrors [`propagate_ce_identity`]'s "attach only when it applies" shape, so a
