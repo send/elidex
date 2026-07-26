@@ -959,6 +959,27 @@ impl DrainCoordinator {
                     host.traversal_queue().enter_nested_apply();
                     let shipped = host.apply_traversal(&traversal);
                     host.traversal_queue().exit_nested_apply();
+                    // ⚠ KNOWN DIVERGENCE — a §7.4.4 intent staged by a `popstate`
+                    // handler THIS apply just fired is NOT consumed before the next
+                    // queued traversal runs (`#11-sync-navigation-steps-queue-tagging`,
+                    // its R16 multi-traversal-snapshot facet). Such an intent lands on
+                    // the host's own pending-history channel — Phase 1b has already
+                    // run, so it does not reach `enqueue_sync_update` and Resolution
+                    // D's `traversal_applied` cancel below never sees it. The
+                    // traversals that follow keep moving the cursor underneath it, and
+                    // the NEXT Phase 1b applies it wherever the cursor stopped.
+                    // §7.4.6.1 *Updating the traversable* step 14's note requires the
+                    // opposite: synchronous navigations "jump the queue … before this
+                    // traversal potentially unloads their document", i.e. they settle
+                    // against the entry whose handler issued them. Pinned (app-mode)
+                    // by `app_multi_traversal_snapshot_lands_popstate_staged_update_on_the_wrong_entry`.
+                    // NEWLY REACHABLE in app-mode via Slice B, deliberately: the
+                    // retired hand-rolled drain returned after the FIRST traversal
+                    // (dropping the second — the #259 truncation this slice fixes), so
+                    // unlocking multi-traversal application exposes the straddle that
+                    // was underneath it. The fix is per-task finalization with
+                    // call-time entry association (§7.4.1.3) — edge-dense, its own
+                    // plan-reviewed PR.
                     // A traversal that MOVED THE CURSOR turns any trailing deferred
                     // `SyncUpdate` in this snapshot into a straddle behind it, CANCELED
                     // below (Resolution D generalized, R6). Set only when the traversal

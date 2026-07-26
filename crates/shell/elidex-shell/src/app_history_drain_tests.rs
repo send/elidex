@@ -742,6 +742,88 @@ fn app_drain_same_turn_leaves_no_residual_and_applies_every_queued_traversal() {
     );
 }
 
+/// **Pins a WRONG-ENTRY divergence, not correct behavior** — slot
+/// `#11-sync-navigation-steps-queue-tagging` (its R16 *multi-traversal snapshot*
+/// facet). Codex `/external-converge` R7 on PR #487.
+///
+/// A **single** Phase-2 bounded snapshot applies EVERY queued traversal
+/// back-to-back, and a §7.4.4 intent staged by a `popstate` handler that an
+/// intermediate apply fired is NOT consumed between them: it lands on the VM's
+/// `pending_history` (out-of-band — Phase 1b has already run), so the traversals
+/// that follow keep moving the cursor underneath it, and the NEXT drain's Phase 1b
+/// applies it against wherever the cursor finally stopped.
+///
+/// From `[base, /a]` on `/a` with a one-shot `popstate` listener calling
+/// `replaceState('/from-popstate')`, `history.back(); history.forward()`:
+/// `back()` applies → cursor to `base` → `popstate` fires → the handler stages the
+/// replace **while `base` is current** → `forward()` applies → cursor back to `/a`
+/// → the next drain replaces **`/a`**. WHATWG HTML §7.4.6.1 *Updating the
+/// traversable* step 14's note is explicit that synchronous navigations *"jump the
+/// queue … before this traversal potentially unloads their document"*, so the spec
+/// applies the replace to the entry whose handler issued it — **`base`, entry 0**.
+/// elidex destroys `/a` instead and leaves `base` untouched: the exact inversion.
+///
+/// **NEWLY REACHABLE in app-mode because of Slice B, and that is deliberate.**
+/// `origin/main`'s hand-rolled `app/navigation.rs::process_pending_navigation`
+/// `return`ed as soon as one traversal handled the turn (`:73`), so the SECOND
+/// traversal was silently dropped — the #259 multi-action truncation this slice
+/// exists to fix. Unlocking it necessarily exposes the straddle underneath; the
+/// slice trades a *lost* traversal for a *pinned* wrong-entry write, and does not
+/// pretend the residual is absent.
+///
+/// **Why the fix is not here**: consuming sync-nav steps BETWEEN queued traversals
+/// is precisely the tagged-queue work — per-task finalization with call-time entry
+/// association (§7.4.1.3) — which is edge-dense (I1 × I2 × the bounded snapshot ×
+/// Resolution D's cancel latch) and carries a mandatory `/elidex-plan-review` in
+/// its own PR. This test flips to asserting `base` when that lands.
+#[test]
+fn app_multi_traversal_snapshot_lands_popstate_staged_update_on_the_wrong_entry() {
+    let mut app = app_at(
+        "<p>doc</p>\
+         <script>window.addEventListener('popstate', function once() {\
+           window.removeEventListener('popstate', once);\
+           history.replaceState(null, '', '/from-popstate');\
+         });</script>",
+        base(),
+    );
+    seed_same_document_pair(&mut app); // [base, /a], cursor on /a
+
+    eval(&mut app, "history.back(); history.forward();");
+    let _ = app.process_pending_navigation();
+
+    assert!(
+        app.traversal_queue().is_empty(),
+        "both queued traversals drained in the one snapshot (the Slice-B unlock)"
+    );
+    assert_eq!(
+        current_url(&app).as_deref(),
+        Some("https://example.com/a"),
+        "back() then forward() both applied, netting onto /a"
+    );
+    assert_eq!(
+        entry_url(&app, 1).as_deref(),
+        Some("https://example.com/a"),
+        "the popstate-staged replaceState is NOT settled by the drain that fired it \
+         (it is still on the VM FIFO) — that deferral is `#11-app-mode-turn-completion-drain`"
+    );
+
+    // The next drive settles it — against the cursor the SECOND traversal left.
+    let _ = app.process_pending_navigation();
+
+    assert_eq!(
+        entry_url(&app, 1).as_deref(),
+        Some("https://example.com/from-popstate"),
+        "DIVERGENCE (pinned): the replace lands on /a — the entry the FORWARD traversal \
+         moved to — destroying it"
+    );
+    assert_eq!(
+        entry_url(&app, 0).as_deref(),
+        Some("https://example.com/"),
+        "and `base` — the entry that was current when the handler ran, i.e. the one \
+         §7.4.6.1 step 14's note says should have been replaced — is left untouched"
+    );
+}
+
 /// **Pins app-mode's CURRENT BOUNDED behavior, not a correct-by-design one** — slot
 /// `#11-app-mode-turn-completion-drain`.
 ///
