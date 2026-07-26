@@ -15,12 +15,22 @@
 //! fork this slice closes). The hand-rolled synchronous app-mode drain — window-open
 //! drop → history FIFO with a traversal-supersede `return` → last-wins navigation —
 //! is retired: [`App::process_pending_navigation`] is now a thin guard over
-//! [`DrainCoordinator::drain_same_turn`]. The shells differ ONLY in WHEN Phase 2 is
-//! pumped: content-mode on a later async-pump turn
+//! [`DrainCoordinator::drain_same_turn`].
+//!
+//! **What differs is the SCHEDULE — and the two schedules are not mirror images.**
+//! Content-mode makes THREE coordinator calls per event-loop turn
+//! (`content/event_loop.rs:205` `run_deferred_traversals` → `:206`
+//! `drain_synchronous_updates` → `:497` `drain_synchronous_phase`); app-mode makes
+//! ONE ([`drain_same_turn`](DrainCoordinator::drain_same_turn), at
+//! end-of-input-handler). The *headline* difference is WHEN Phase 2 is pumped —
+//! content-mode on a later async-pump turn
 //! ([`run_deferred_traversals`](DrainCoordinator::run_deferred_traversals)),
-//! app-mode back-to-back inside the input handler
-//! ([`drain_same_turn`](DrainCoordinator::drain_same_turn)) — app-mode has no async
-//! pump, so its Phase 2 is a *degenerate* later task (Q-SCHED option (i)). That
+//! app-mode back-to-back inside the input handler, so its Phase 2 is a
+//! *degenerate* later task (Q-SCHED option (i)). But app-mode also has **no
+//! post-Phase-2 synchronous settle**, the counterpart of content's `:206` top
+//! drain — a bounded gap documented at the drive site
+//! ([`App::process_pending_navigation`]) and fenced to
+//! `#11-app-mode-turn-completion-drain`. That
 //! degenerate collapse still delivers WHATWG HTML §7.4.6.1 *Updating the
 //! traversable* step 12's ordering guarantee for a single top-level traversable
 //! ("This set of steps are split into two parts to allow synchronous navigations to
@@ -110,6 +120,24 @@ impl App {
     /// `interactive` is absent (threaded mode) no drain runs and the default
     /// outcome — every field `false`, i.e. "nothing happened, suppress nothing" —
     /// is returned.
+    ///
+    /// **⚠ No post-Phase-2 synchronous settle — the turn is not run to quiescence**
+    /// (slot `#11-app-mode-turn-completion-drain`). `drain_same_turn` is Phase 1 →
+    /// Phase 2 → ship, and then it returns: nothing re-drains the VM
+    /// `pending_history` FIFO afterwards. So a §7.4.4 intent staged **during**
+    /// Phase 2 — the canonical case being a `pushState` from the `popstate` handler
+    /// a same-document traversal fires synchronously — is not applied on the turn
+    /// that fired it; it waits for the NEXT input event (pinned by
+    /// `app_history_drain_tests::app_popstate_staged_action_defers_to_the_next_drain_not_the_current_queue`).
+    /// Content-mode fixed exactly this shape in Slice A (Codex #469 R9) by calling
+    /// [`DrainCoordinator::drain_synchronous_updates`] immediately after
+    /// `run_deferred_traversals` (`content/event_loop.rs:206`, pinned by
+    /// `content_history_phase_sep_tests::pump_drains_popstate_staged_pushstate_this_turn`);
+    /// app-mode has no counterpart. The correct fix is **loop-until-quiescent turn
+    /// completion**, not a trailing `drain_synchronous_updates` — that would settle
+    /// a popstate-staged `pushState` but leave a popstate-staged `back()` enqueued
+    /// with no Phase 2 behind it to drain, trading one stranding for another. It is
+    /// therefore edge-dense and lands as its own plan-reviewed PR.
     pub(super) fn process_pending_navigation(&mut self) -> DrainOutcome {
         if self.interactive.is_none() {
             return DrainOutcome::default();
@@ -145,14 +173,26 @@ impl App {
 /// **Layering.** The coordinator owns the phase ordering + the I1/I2/I3 invariants;
 /// these seams own the irreducibly shell-specific bodies. `App` /
 /// `InteractiveState` / the pipeline / `EcsDom` / the winit window stay **behind the
-/// trait** and never cross the `elidex-navigation` crate boundary — the coordinator
-/// touches the OS window only through [`ship_frame`](Self::ship_frame).
+/// trait** and never cross the `elidex-navigation` crate boundary: no shell type
+/// appears in a coordinator signature, and every OS-window touch happens inside a
+/// host-seam body. [`ship_frame`](Self::ship_frame) is not the only such touch —
+/// [`handle_history_action`](Self::handle_history_action),
+/// [`handle_navigation`](Self::handle_navigation) and
+/// [`apply_traversal`](Self::apply_traversal) all reach `Window::set_title` through
+/// the nav bodies they delegate to, deliberately (see
+/// [`ship_frame`](Self::ship_frame)'s "`set_title` is deliberately NOT here"). What
+/// [`ship_frame`](Self::ship_frame) alone owns is the **frame ship** — the repaint
+/// request — not window access in general.
 ///
-/// **No teardown guards.** Content-mode fails every pipeline-mutating seam closed on
-/// `shutdown_requested`, because its `Shutdown` can be handled mid-drain at the
-/// SW-wait reentrancy vector. App-mode has no message pump and no SW-wait inside a
-/// drain (module doc, premises 2–4), so there is no mid-drain teardown to guard
-/// against — adding one would be a guard for an unreachable state.
+/// **No teardown guards.** Content-mode fails FOUR of its five pipeline-mutating
+/// seams closed on `shutdown_requested` (`handle_history_action` / `apply_traversal`
+/// / `route_window_opens` / `ship_frame`), because its `Shutdown` can be handled
+/// mid-drain at the SW-wait reentrancy vector; it deliberately EXEMPTS the fifth,
+/// `handle_navigation`, as "the teardown *cause*, never a victim … a guard there
+/// would be dead code, so it is documented, not added" (`content/drain_host.rs`).
+/// App-mode has no message pump and no SW-wait inside a drain (module doc, premises
+/// 2–4), so there is no mid-drain teardown to guard against at all — every seam
+/// here is in content's exempted `handle_navigation` position.
 impl DrainHost for App {
     fn traversal_queue(&mut self) -> &mut TraversalQueue {
         &mut self.inline_state_mut().traversal_queue
@@ -177,11 +217,15 @@ impl DrainHost for App {
     }
 
     fn take_pending_history(&mut self) -> Vec<HistoryAction> {
-        // The VM `pending_history` FIFO in issue order (each synchronous
-        // `pushState`/`replaceState` an independent session-history commit;
-        // `Back`/`Forward`/`Go` staged as enqueue-only). Q-VM-MODEL: the staging
-        // model is unchanged and identical to content's — only the shell drain
-        // re-times.
+        // The VM `pending_history` FIFO in issue order. Each synchronous
+        // `pushState`/`replaceState` is an independent session-history commit that
+        // the coordinator applies IN-TASK (WHATWG HTML §7.4.4 *Non-fragment
+        // synchronous "navigations"* — the *URL and history update steps*), while
+        // `Back`/`Forward`/`Go` are staged enqueue-only because §7.4.3 *Reloading
+        // and traversing* step 4 appends their steps to the traversable for a LATER
+        // task. That §7.4.4-vs-§7.4.3 split is exactly the partition the coordinator
+        // performs on this Vec. Q-VM-MODEL: the staging model is unchanged and
+        // identical to content's — only the shell drain re-times.
         self.inline_state_mut()
             .pipeline
             .runtime
@@ -247,10 +291,29 @@ impl DrainHost for App {
     /// hand-rolled drain's `nav-applied` early `return true` now lives: "a
     /// navigation applied" flows through
     /// [`DrainOutcome::own_context_action`]/[`shipped`](DrainOutcome::shipped)
-    /// instead of short-circuiting the drain. `navigate` performs the shell's own
-    /// output for this leg (rebuild/same-document apply + `set_title`), so the
-    /// coordinator's trailing [`ship_frame`](Self::ship_frame) is correctly
-    /// suppressed for it.
+    /// instead of short-circuiting the drain.
+    ///
+    /// **⚠ That `true` is UNCONDITIONAL — the known applied/shipped conflation**
+    /// (slot `#11-nav-applied-shipped-decouple`, carved on PR #469 R15).
+    /// [`App::navigate`](super::App::navigate) returns `()` and early-returns when
+    /// `load_url_into_pipeline` fails, so a **failed** load still reports `true`
+    /// here — setting BOTH [`own_context_action`](DrainOutcome::own_context_action)
+    /// (→ the `<a href>` click default is suppressed) AND
+    /// [`shipped`](DrainOutcome::shipped) (→ the coordinator's trailing
+    /// [`ship_frame`](Self::ship_frame) is skipped) from ONE bool that overloads
+    /// "moved the cursor" with "shipped a frame", against a trait contract asking
+    /// for `true` iff the navigation replaced the pipeline **and** shipped its own
+    /// frame. Content-mode's seam has the identical pre-existing behavior, so this
+    /// is a mirrored gap, not an app-mode regression, and it is deliberately NOT
+    /// fixed here (the naive propagation regressed 5 tests when the slot was
+    /// carved). **App-mode is HARDER than the slot anticipated**: the slot scoped a
+    /// `DrainHost`-contract change with "NO app-mode impl", but `navigate` itself
+    /// returns `()` — the decouple has to change that signature too, and with it
+    /// the non-drain callers (`<a href>` click, chrome address bar).
+    ///
+    /// `navigate` performs this leg's document work in the body (rebuild /
+    /// same-document apply + `set_title`); the repaint it does NOT issue is covered
+    /// by the dispatch layer — see [`ship_frame`](Self::ship_frame).
     fn handle_navigation(&mut self, suppress: bool) -> bool {
         let interactive = self.inline_state_mut();
         let Some(nav_req) = interactive.pipeline.runtime.take_pending_navigation() else {
@@ -303,13 +366,29 @@ impl DrainHost for App {
     ///   `request_redraw` of their own. So the non-drain callers still issue exactly
     ///   the ONE dispatch-layer repaint they always did (`app/inline.rs`).
     ///
-    /// On a drain turn the dispatch layer redraws too — it always has, and it covers
-    /// the input handler's own effects (hover/active state, the dispatched event's
-    /// re-render, the `<a href>` default navigation), not the drain's. winit
-    /// coalesces concurrent requests into one `RedrawRequested`, so that is a second
-    /// *request*, never a second frame; keeping the seam's own output here is what
-    /// makes the drain self-sufficient instead of dependent on its caller's dispatch
-    /// layer — the property `ContentState::ship_frame` has via `send_display_list`.
+    /// **The ship-frame-output symmetry is NOT yet realized — say what actually
+    /// holds.** `ContentState::ship_frame` is the drain's own output path for every
+    /// own-context effect content-mode has. This seam is not: it is reached only on
+    /// a turn with **no** navigation and **no** applied traversal, because either
+    /// one sets `shipped = true` and the coordinator's `ship_if_needed` then skips
+    /// it — and the app-mode nav bodies issue no `request_redraw` of their own
+    /// (`app/navigation.rs` contains none). So on a drain turn that navigates or
+    /// traverses, the drain requests **no repaint at all**; the repaint comes from
+    /// the dispatch layer's unconditional redraw (`app/inline.rs:202` on the click
+    /// path, `:298` on the keyboard path), which also covers the input handler's own
+    /// effects (hover/active state, the dispatched event's re-render, the `<a href>`
+    /// default navigation). This seam covers exactly the leftover case: the pure
+    /// §7.4.4 sync-update turn.
+    ///
+    /// That is correct today — winit coalesces concurrent requests into one
+    /// `RedrawRequested`, so the seam and the dispatch layer never produce two
+    /// frames, and every non-drain caller redraws through that same dispatch layer —
+    /// but it is a **division of labour with the caller**, not the self-sufficiency
+    /// `ContentState::ship_frame` has via `send_display_list`. Closing the gap needs
+    /// the applied/shipped decouple first: while
+    /// [`handle_navigation`](Self::handle_navigation) reports `shipped = true`
+    /// unconditionally, `shipped` cannot be trusted to mean a frame went out
+    /// (`#11-nav-applied-shipped-decouple`).
     fn ship_frame(&mut self) {
         if let Some(state) = &self.render_state {
             state.window.request_redraw();
@@ -321,10 +400,19 @@ impl DrainHost for App {
 /// — the delta-keyed Phase-2 entry point driven by the [`DrainHost::apply_traversal`]
 /// seam, the app-mode mirror of `content/drain_host.rs::apply_traversal_delta`.
 ///
-/// A deferred traversal carries its delta **un-resolved** (§7.4.6.1 resolves the
-/// target step at *apply* time against the possibly-Phase-1-mutated entry list), so
-/// this resolves it here — `peek_delta` → `(target_index, url)` — and hands the
-/// resolved pair to the index-keyed [`App::traverse_to`], which owns the actual
+/// A deferred traversal carries its delta **un-resolved**, and the resolution is
+/// §7.4.3's, not §7.4.6.1's: the delta→index arithmetic lives in the *queued* steps
+/// of §7.4.3 *Reloading and traversing* → *traverse the history by a delta* step 4
+/// — 4.1 "Let allSteps be the result of getting all used history steps for
+/// traversable", 4.2 "Let currentStepIndex be the index of traversable's current
+/// session history step within allSteps", 4.3 "Let targetStepIndex be
+/// currentStepIndex plus delta" — which run when the queued steps run, i.e. against
+/// the possibly-Phase-1-mutated entry list rather than the list as it stood at issue
+/// time. §7.4.6.1 *apply the history step* is downstream of that and takes an
+/// **already-resolved non-negative integer step**. So this function is the step-4
+/// leg: it resolves the delta at Phase-2 drain time — `peek_delta` →
+/// `(target_index, url)` — and hands the resolved pair to the index-keyed
+/// [`App::traverse_to`], which owns the §7.4.6.1
 /// peek-then-commit apply. `None` is a no-op traversal (out of range, or a stacked
 /// `back(); back()` whose cursor already moved) and returns `false` without touching
 /// the document, so the coordinator marks no own-context action and the caller's
@@ -341,10 +429,12 @@ impl DrainHost for App {
 /// **What is shared is `traverse_to`, NOT the resolve prologue.** Those two callers
 /// hand-roll their own `peek_back`/`peek_forward` + clone per key/button arm, so the
 /// peek→clone resolve is genuinely triplicated today (this function being the third).
-/// Left in place deliberately: both callers are fenced out of this slice, and Slice
-/// 4's canonical DIRECT-nav serialization
-/// (`#11-session-history-task-queue-model`) restructures them — unifying the
-/// prologue now would edit exactly the bodies the fence exists to hold still.
+/// **The fence is about queue ROUTING, not this dedup** — what Slice 4 decides is
+/// whether those two callers go through the coordinator/queue at all
+/// (`#11-session-history-task-queue-model`); collapsing three four-line peek→clone
+/// prologues is a plain local refactor the fence never covered. It is deliberately
+/// deferred *with* the routing rather than justified by it: Slice 4 restructures the
+/// same three call sites, so unifying now is work that would be redone there.
 pub(super) fn apply_traversal_delta(app: &mut App, delta: TraversalDelta) -> bool {
     let peeked = app.inline_state().nav_controller.peek_delta(delta);
     // Clone the URL to drop the `nav_controller` borrow before the `&mut app` apply.

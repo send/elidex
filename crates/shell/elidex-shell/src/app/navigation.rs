@@ -374,8 +374,13 @@ impl App {
     /// 1. the deferred Phase-2 apply
     ///    (`drain_host::apply_traversal_delta`, which resolves the queued
     ///    [`TraversalDelta`](elidex_navigation::TraversalDelta) via `peek_delta`
-    ///    first — the delta is carried un-resolved so §7.4.6.1 can resolve it
-    ///    against the possibly-Phase-1-mutated list);
+    ///    first — the delta is carried un-resolved because the delta→index
+    ///    arithmetic belongs to the *queued* §7.4.3 *traverse the history by a
+    ///    delta* steps 4.1–4.3 ("Let allSteps be…" / "Let currentStepIndex be…" /
+    ///    "Let targetStepIndex be currentStepIndex plus delta"), which run against
+    ///    the possibly-Phase-1-mutated list; §7.4.6.1 *apply the history step* is
+    ///    downstream and takes an already-resolved non-negative integer step, which
+    ///    is what THIS function receives);
     /// 2. the chrome toolbar Back/Forward ([`Self::handle_chrome_action`]);
     /// 3. Alt+←/→ (`inline.rs::handle_keyboard_inline`).
     ///

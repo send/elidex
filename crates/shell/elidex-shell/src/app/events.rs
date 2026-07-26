@@ -104,6 +104,29 @@ impl App {
 
         // Link navigation: if click was not prevented, check for <a href>.
         if button_num == 0 && !click_prevented {
+            // ⚠ LOAD-BEARING CROSS-CRATE INVARIANT — `hit_entity` is captured BEFORE
+            // the drain above and resolved AFTER it, and a drain can replace the
+            // whole `EcsDom`: `load_url_into_pipeline`'s `Ok` arm runs
+            // `teardown_document()` and then `interactive.pipeline = new_pipeline`,
+            // and `EcsDom::new()` builds a FRESH `hecs::World`, so entity ids and
+            // generations restart. A stale `Entity` would not dangle — it would
+            // ALIAS a live one and resolve a DIFFERENT element's `href`.
+            //
+            // This is unreachable today only because every rebuild path also latched
+            // `DrainOutcome::suppress_default`, on which the caller already returned:
+            //   · Phase 1c — `handle_navigation` → `App::navigate` → rebuild reports
+            //     `true`, so `own_context_action` (hence `suppress_default`) is set.
+            //   · Phase 2 — `apply_traversal` can only rebuild for a traversal that
+            //     was ENQUEUED in Phase 1b, so `has_pending_traversal()` was already
+            //     true when the coordinator latched `suppress` at the end of
+            //     `run_synchronous_phase_body` (`elidex-navigation`
+            //     `traversal_queue.rs`) — independent of whether the apply then
+            //     succeeded, and true for a cross-turn queued traversal too.
+            // No test can pin it: the app-mode harness's disconnected network makes a
+            // SUCCESSFUL rebuild-during-click unreachable. Any change that lets a
+            // drain rebuild WITHOUT setting `suppress_default` — the
+            // `#11-nav-applied-shipped-decouple` slot edits exactly that field — must
+            // re-hit-test here instead of reusing `hit_entity`.
             let nav_target = {
                 let Some(interactive) = &self.interactive else {
                     return;
