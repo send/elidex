@@ -283,8 +283,8 @@ pub struct App {
     /// **Never-cleared invariant** (relied on by every `DrainHost` seam in
     /// `app/drain_host.rs`): the ONLY writes to this field are at construction —
     /// `None` in [`Self::from_tab_manager`] (threaded mode), `Some(..)` in
-    /// [`Self::new_interactive`] / [`Self::new_interactive_with_url`] (inline
-    /// mode). Nothing clears it afterwards: the navigation bodies
+    /// [`Self::new_interactive_with_url`] (inline mode, the sole inline
+    /// constructor). Nothing clears it afterwards: the navigation bodies
     /// (`navigate` / `navigate_to_history_url` / `load_url_into_pipeline`) replace
     /// `interactive.pipeline` **in place**, never the `Option`. So once the sole
     /// drain site (`drain_host::App::process_pending_navigation`) has checked
@@ -525,49 +525,6 @@ impl App {
         let mut app = Self::from_tab_manager(TabManager::new(), np, wake_proxy);
         app.viewport.pending_initial_spawn = Some(PendingSpawn::Url(url));
         app
-    }
-
-    /// Create a new legacy (inline) interactive application from a pipeline result.
-    #[allow(dead_code)]
-    pub fn new_interactive(pipeline: crate::PipelineResult) -> Self {
-        Self {
-            render_state: None,
-            tab_manager: None,
-            cursor_pos: None,
-            modifiers: Modifiers::default(),
-            cursor_in_content: false,
-            interactive: Some(InteractiveState {
-                chrome: crate::chrome::ChromeState::new(None),
-                pipeline,
-                cursor_pos: None,
-                hover_chain: Vec::new(),
-                active_chain: Vec::new(),
-                modifiers: Modifiers::default(),
-                nav_controller: NavigationController::new(),
-                traversal_queue: TraversalQueue::new(),
-                window_title: "elidex".to_string(),
-                // Inline pipelines are built with default facts (1× / Light); no
-                // window → no dynamic writer, so this static seed IS parity (B20).
-                device_facts: crate::ipc::DeviceFacts::default(),
-            }),
-            pending_focus: false,
-            network_process: None, // Legacy mode — no broker.
-            sw_coordinator: sw_coordinator::SwCoordinator::new(),
-            browser_db: None,
-            origin_storage: None, // Inline/legacy mode — no SW, no per-origin storage.
-            // Inline/legacy mode has no content thread, but its in-app navigation
-            // rebuild (`load_url_into_pipeline`) still constructs pipelines that
-            // must persist `localStorage` — own one disk-backed manager here too.
-            web_storage: std::sync::Arc::new(
-                elidex_storage_core::WebStorageManager::with_default_profile(),
-            ),
-            cookie_gen: 0,
-            wake_proxy: None, // Inline mode is synchronous — nothing to wake.
-            viewport: viewport::ViewportProducer::new(
-                crate::DEFAULT_VIEWPORT_WIDTH,
-                crate::DEFAULT_VIEWPORT_HEIGHT,
-            ),
-        }
     }
 
     /// Create a new legacy (inline) interactive application from a URL-loaded pipeline result.

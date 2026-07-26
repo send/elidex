@@ -47,12 +47,12 @@
 //! vector at all**:
 //!
 //! 1. This drive runs EXCLUSIVELY on the legacy-inline `InteractiveState` path
-//!    ([`App::new_interactive`] / [`App::new_interactive_with_url`]), reached only
-//!    from `events::handle_click` / `events::handle_keyboard`. Threaded mode uses a
+//!    ([`App::new_interactive_with_url`]), reached only from
+//!    `events::handle_click` / `events::handle_keyboard`. Threaded mode uses a
 //!    different method set that messages the content thread, which runs its own
 //!    content-mode `DrainHost`.
-//! 2. The inline path has NO service-worker machinery: `new_interactive*` set
-//!    `network_process: None` and `origin_storage: None`.
+//! 2. The inline path has NO service-worker machinery: `new_interactive_with_url`
+//!    sets `network_process: None` and `origin_storage: None`.
 //! 3. Its navigation body issues a DIRECT blocking fetch with no SW hook
 //!    (`load_url_into_pipeline` → `elidex_navigation::load_document` →
 //!    `fetch_blocking`). Content-mode's SW-fetch **wait loop**, which re-dispatches
