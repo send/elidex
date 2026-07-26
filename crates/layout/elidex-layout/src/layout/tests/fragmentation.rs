@@ -129,6 +129,57 @@ fn layout_paged_invalidates_screen_geometry_provenance() {
 }
 
 #[test]
+fn a_zero_write_paged_early_return_leaves_the_phase_alone() {
+    // Codex PR#488 R2 asked for an `invalidate()` *before* the paged entries'
+    // validation returns, so that entering paged mode always clears
+    // `CompletedScreen`. Deliberately NOT done — the invariant is about the store's
+    // CONTENTS, not about which mode is executing. `CompletedScreen` means "the store
+    // reflects a completed screen pass", and a paged attempt that bails on
+    // `roots.is_empty()` or a non-positive content area writes NOTHING (`find_roots` /
+    // `find_roots_mut` both take `&EcsDom`), so the store still holds exactly that and
+    // `Some` is the truthful answer.
+    //
+    // Invalidating there would be a spurious demotion — the same defect this branch
+    // removed from `remove_entity` one round earlier (a mutator that writes nothing must
+    // not demote a published store, pinned by
+    // `every_content_mutator_invalidates_a_published_store`). Codex's patch would have
+    // reintroduced it on the paged side and forced a full relayout before any
+    // screen-geometry read whenever a print attempt no-ops.
+    //
+    // The plan's §2 wording ("BOTH paged entries leave phase `Invalid`") was the real
+    // defect here — stated at ENTRY granularity where the mechanism is WRITE
+    // granularity — and is corrected there. This test pins the decision so a future
+    // reader of that section cannot "fix" the code back.
+    let mut dom = EcsDom::new();
+    let div = dom.create_element("div", Attributes::default());
+    dom.world_mut().insert_one(
+        div,
+        ComputedStyle {
+            display: Display::Block,
+            height: Dimension::Length(50.0),
+            ..Default::default()
+        },
+    );
+    dom.fragment_tree_mut().publish_completed_screen();
+
+    let font_db = FontDatabase::new();
+    // Margins exceed the page box ⇒ content_width/height <= 0 ⇒ the early return.
+    let degenerate = elidex_plugin::PagedMediaContext {
+        page_width: 10.0,
+        page_height: 10.0,
+        page_margins: elidex_plugin::EdgeSizes::uniform(20.0),
+        page_rules: Vec::new(),
+    };
+    let pages = layout_paged(&mut dom, &degenerate, &font_db);
+
+    assert!(pages.is_empty(), "degenerate page box lays nothing out");
+    assert!(
+        dom.screen_geometry().is_some(),
+        "a zero-write paged early return must not demote the published screen pass"
+    );
+}
+
+#[test]
 fn layout_fragmented_two_fragments_on_overflow() {
     let mut dom = EcsDom::new();
     let parent = dom.create_element("div", Attributes::default());

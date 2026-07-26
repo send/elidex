@@ -222,7 +222,20 @@ Invalidation ≠ content-clearing.
 mutation (paged `layout_fragmented_with_tokens` + Phase 2, screen multicol) at most `invalidate()`s or leaves
 phase untouched — so a redundant invalidate is always harmless and a stray publish is the only way to reintroduce
 a hole. Pin it with a test that BOTH paged entries (the interleaved driver AND `layout_paged`) leave phase
-`Invalid` (§5 item 6), and the impl must confirm no site other than `layout_tree` publishes. **Note** `layout_fragmented_with_tokens` is NOT on the normal screen path (screen multicol commits via `elidex-layout-multicol`, not `layout_fragmented`), so this adds no screen-path entanglement.
+`Invalid` **whenever they lay anything out** (§5 item 6), and the impl must confirm no site other than
+`layout_tree` publishes.
+
+⚠ **That qualifier is load-bearing, and an earlier draft omitted it** (Codex PR#488 R2 read the
+unqualified form and asked for an `invalidate()` before the paged entries' validation returns). The
+invariant is about the store's **CONTENTS**, not about which mode is executing: `CompletedScreen` means
+"the store reflects a completed screen pass". A paged attempt that bails on `roots.is_empty()` or a
+non-positive content area writes **nothing** (`find_roots` / `find_roots_mut` both take `&EcsDom`), so the
+store still holds exactly that completed screen pass and `Some` is the truthful answer. Invalidating there
+would be a **spurious demotion** — the same defect removed from `remove_entity` in R1 under the rule *a
+mutator that writes nothing must not demote a published store* — and would force a full relayout before
+any screen-geometry read whenever a print attempt no-ops. State the requirement at WRITE granularity, which
+is the granularity the mechanism actually has. Pinned by
+`a_zero_write_paged_early_return_leaves_the_phase_alone`. **Note** `layout_fragmented_with_tokens` is NOT on the normal screen path (screen multicol commits via `elidex-layout-multicol`, not `layout_fragmented`), so this adds no screen-path entanglement.
 
 **Additive to the existing render consumer (no regression).** Render reads `fragment_tree().is_consumable()` /
 `.fragments_for()` / `.is_empty()` **directly** today (`render/builder/walk.rs:207–294`, the C-1 consumer).
