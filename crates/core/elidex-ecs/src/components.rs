@@ -598,13 +598,13 @@ pub struct IsModalDialog;
 #[derive(Clone, Debug, Default)]
 pub struct DialogReturnValue(pub String);
 
-/// Per-`<output>` default-value state (HTML §4.10.13).  Stored separately
+/// Per-`<output>` default-value state (HTML §4.10.12).  Stored separately
 /// from the rendered text so that form reset can restore the displayed
 /// content from the default snapshot.  Slot `#11-tags-T2d-interactive`.
 #[derive(Clone, Debug, Default)]
 pub struct OutputDefaultValue(pub String);
 
-/// Per-`<output>` value-mode override (HTML §4.10.13).  `None` means
+/// Per-`<output>` value-mode override (HTML §4.10.12).  `None` means
 /// the element is in default mode and reads/writes go through
 /// `textContent`; `Some(_)` means the `value` IDL setter has been
 /// called and the explicit override is the source of truth.  Cleared

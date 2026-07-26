@@ -286,7 +286,8 @@ fn execute_submission(
 
 /// Handle form reset (reset button click).
 ///
-/// Per HTML §4.10.15.4: dispatches a "reset" event, then restores default values.
+/// Per HTML §4.10.23 "Resetting a form": step 1 dispatches a `reset`
+/// event, step 2 restores default values via `elidex_form::reset_form`.
 pub(super) fn handle_form_reset(state: &mut ContentState, target: Entity) {
     let Some(form_entity) = elidex_form::find_form_ancestor(&state.pipeline.dom, target) else {
         return;

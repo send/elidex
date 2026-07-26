@@ -303,7 +303,7 @@ impl VmInner {
 }
 
 // ---------------------------------------------------------------------------
-// SubmitEvent (HTML §4.10.21.5.5)
+// SubmitEvent (HTML §4.10.22.10 "The SubmitEvent interface")
 // ---------------------------------------------------------------------------
 
 fn native_submit_event_constructor(
@@ -340,7 +340,7 @@ fn native_submit_event_constructor(
 }
 
 // ---------------------------------------------------------------------------
-// FormDataEvent (HTML §4.10.21.5.4)
+// FormDataEvent (HTML §4.10.22.11 "The FormDataEvent interface")
 // ---------------------------------------------------------------------------
 
 fn native_formdata_event_constructor(

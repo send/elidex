@@ -296,7 +296,7 @@ fn native_validity_valid(
 /// TypeError per WebIDL "Illegal invocation".
 ///
 /// `<output>` is a constraint-validation candidate per
-/// HTML §4.10.10.1 lists `<output>` as a listed form-control too;
+/// HTML §4.10.12 lists `<output>` as a listed form-control too;
 /// slot `#11-tags-T2d-interactive` extends the brand check to include
 /// it now that `HTMLOutputElement.prototype` is registered with the
 /// ConstraintValidation mixin installed (`globals.rs`).  `<form>` has

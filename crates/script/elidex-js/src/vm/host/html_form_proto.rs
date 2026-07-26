@@ -30,7 +30,7 @@
 //!   deferred to slot `#11-form-navigation` (D-33 paired sweep).
 //! - `requestSubmit(submitter?)` — fires cancelable `submit` event
 //!   then, if not cancelled, populates a `FormData` from controls
-//!   and fires the `formdata` event per HTML §4.10.21.4.  Submitter
+//!   and fires the `formdata` event per HTML §4.10.22.4 step 7.  Submitter
 //!   validation throws `TypeError` (non-submit-button) or
 //!   `NotFoundError` (not owned by this form) per spec.  Navigation
 //!   deferred to slot `#11-form-navigation`.
@@ -475,7 +475,7 @@ fn native_form_submit(
     Ok(JsValue::Undefined)
 }
 
-/// `form.requestSubmit(submitter?)` — WHATWG HTML §4.10.21.4 +
+/// `form.requestSubmit(submitter?)` — WHATWG HTML §4.10.3 `#dom-form-requestsubmit`, whose §4.10.21.4 +
 /// §4.10.21.3 step 8.4-8.5.
 ///
 /// Algorithm:
@@ -573,7 +573,9 @@ fn native_form_request_submit(
     Ok(JsValue::Undefined)
 }
 
-/// `form.reset()` — HTML §4.10.21.5.
+/// `form.reset()` — HTML §4.10.3 `#dom-form-reset`, which runs the
+/// §4.10.23 "Resetting a form" steps (1: fire `reset`; 2: invoke each
+/// resettable element's reset algorithm, `elidex_form::reset_form`).
 ///
 /// Group β F-7 + F-8 fold:
 ///

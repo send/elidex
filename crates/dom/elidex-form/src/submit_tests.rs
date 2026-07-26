@@ -660,7 +660,7 @@ fn percent_encode_asterisk() {
 }
 
 // ---------------------------------------------------------------
-// is_submit_button / is_form_owner — WHATWG HTML §4.10.21.4 step 2
+// is_submit_button / is_form_owner — WHATWG HTML §4.10.3 `#dom-form-requestsubmit` step 1
 // ---------------------------------------------------------------
 
 fn make_submit_button(dom: &mut EcsDom, parent: Entity) -> Entity {

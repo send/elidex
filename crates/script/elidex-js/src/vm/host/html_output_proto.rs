@@ -1,8 +1,8 @@
 //! `HTMLOutputElement.prototype` intrinsic — per-tag prototype layer
-//! for `<output>` wrappers (HTML §4.10.13, slot
+//! for `<output>` wrappers (HTML §4.10.12, slot
 //! `#11-tags-T2d-interactive`).
 //!
-//! IDL surface (HTML §4.10.13):
+//! IDL surface (HTML §4.10.12):
 //!
 //! - `htmlFor` — `[SameObject, PutForwards=value]` DOMTokenList backed
 //!   by the `for` content attribute.  Identity is preserved per

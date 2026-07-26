@@ -712,7 +712,8 @@ fn handle_text_key(state: &mut FormControlState, key: &str) -> KeyAction {
                     if state.kind == FormControlKind::Number && !is_valid_number_char(ch) {
                         return KeyAction::None;
                     }
-                    // Enforce maxlength (HTML spec §4.10.5.2.7).
+                    // Enforce maxlength (HTML §4.10.19.3 "Limiting user input length: the
+                    // maxlength attribute", `#attr-fe-maxlength`).
                     if would_exceed_maxlength(state) {
                         return KeyAction::None;
                     }

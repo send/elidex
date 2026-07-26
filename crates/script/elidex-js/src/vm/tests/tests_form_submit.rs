@@ -11,7 +11,7 @@
 //! - E-3 `form.requestSubmit(button)` propagates the submitter into
 //!   the `submit` event slot.
 //! - E-4 `form.requestSubmit(otherFormButton)` throws `NotFoundError`
-//!   DOMException (§4.10.21.4 step 2.2).
+//!   DOMException (§4.10.3 `#dom-form-requestsubmit` step 1.2).
 //! - E-5 Calling `preventDefault()` in the `submit` listener
 //!   suppresses the subsequent `formdata` event.
 //! - E-6 `FormDataEvent.formData` carries an entry list populated
@@ -23,7 +23,7 @@
 //!   form's controls via the §C-3 single-source-of-truth path
 //!   (existing FormData ctor TODO closed).
 //! - E-8 `form.requestSubmit(divEl)` with a non-submit-button
-//!   wrapper throws `TypeError` per HTML §4.10.21.4 step 2.1.
+//!   wrapper throws `TypeError` per HTML §4.10.3 `#dom-form-requestsubmit` step 2.1.
 //! - E-9 Interactive validation arm (§4.10.21.3 substep): a form
 //!   with a single `<input required>` empty control fires `invalid`
 //!   on the control and aborts before `submit` / `formdata`.
@@ -197,7 +197,7 @@ fn new_form_data_with_form_populates_entries() {
 }
 
 // E-8 — requestSubmit(non-submit-button) → TypeError per HTML
-// §4.10.21.4 step 2.1.  `<div>` passes `entity_from_this` (it has a
+// §4.10.3 `#dom-form-requestsubmit` step 1.1.  `<div>` passes `entity_from_this` (it has a
 // HostObject wrapper) but fails `is_submit_button` because it has
 // no `FormControlState`.
 #[test]

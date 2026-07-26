@@ -901,7 +901,7 @@ fn output_form_reset_preserves_pristine_default_text() {
     // Copilot R1 IMP regression test: an `<output>` that has never
     // entered value mode (no `OutputValueOverride`) keeps its
     // descendant text content on form reset — the children represent
-    // the implicit default per HTML §4.10.13, not a stale value-mode
+    // the implicit default per HTML §4.10.12, not a stale value-mode
     // display that needs wiping.
     let out = run("var f = document.createElement('form'); \
          var o = document.createElement('output'); \

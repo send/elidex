@@ -273,7 +273,7 @@ pub fn find_form_ancestor(dom: &EcsDom, entity: Entity) -> Option<Entity> {
     None
 }
 
-/// WHATWG HTML §4.10.21.4 `requestSubmit(submitter?)` step 2.1:
+/// WHATWG HTML §4.10.3 `#dom-form-requestsubmit` step 1.1:
 /// a non-null submitter must be a submit button — `<button type=submit>`,
 /// `<input type=submit>`, or `<input type=image>` (all classified as
 /// `FormControlKind::SubmitButton` by `from_element`).
@@ -286,7 +286,7 @@ pub fn is_submit_button(dom: &EcsDom, submitter: Entity) -> bool {
         .is_ok_and(|fcs| fcs.kind == FormControlKind::SubmitButton)
 }
 
-/// WHATWG HTML §4.10.21.4 `requestSubmit(submitter?)` step 2.2:
+/// WHATWG HTML §4.10.3 `#dom-form-requestsubmit` step 1.2:
 /// the submitter's form owner must be `form`.  Delegates to the
 /// canonical §4.10.18.3 form-owner resolution path
 /// ([`resolve_form_owner_public`](crate::radio::resolve_form_owner_public)),
@@ -303,7 +303,8 @@ pub fn is_form_owner(dom: &EcsDom, submitter: Entity, form: Entity) -> bool {
 
 /// Collect form data from all submittable controls in a form.
 ///
-/// Per HTML §4.10.15.3: collect entries from input, select, textarea
+/// Per HTML §4.10.22.4 "Constructing the entry list": collect entries
+/// from input, select, textarea
 /// that have a name, are not disabled, and are submittable.
 /// Also collects controls associated via `form` attribute (cross-tree).
 #[must_use]
@@ -319,7 +320,8 @@ pub fn collect_form_data(dom: &EcsDom, form_entity: Entity) -> Vec<FormDataEntry
         0,
     );
     // Collect controls associated via `form` attribute (HTML
-    // §4.10.15.3).  Empty `id=""` is filtered for symmetry with the
+    // §4.10.18.3 "Association of controls and forms").  Empty `id=""` is
+    // filtered for symmetry with the
     // submitter-side lookup (WHATWG DOM §4.2.5 / HTML §3.2.5 —
     // empty IDREF is unreachable),
     // so a `<form id="">` does not silently sweep up cross-tree
@@ -454,9 +456,12 @@ fn walk_form_descendants(
 }
 
 /// Reset all form controls within a form to their default values
-/// (HTML §4.10.21.5).
+/// (HTML §4.10.23 "Resetting a form" step 2 — step 1 fires the
+/// `reset` event, which the caller owns; this is the step-2 half that
+/// invokes each resettable element's reset algorithm).
 ///
-/// `<output>` reset (HTML §4.10.13 step "reset algorithm"): clears the
+/// `<output>` reset (HTML §4.10.12 "The output element", its reset
+/// algorithm): clears the
 /// value-mode override (`OutputValueOverride`) and replaces the element's
 /// children with a single text node containing the default value
 /// (read from `OutputDefaultValue` if explicitly set, otherwise the
@@ -483,7 +488,7 @@ pub fn reset_form(dom: &mut EcsDom, form_entity: Entity) {
     }
 }
 
-/// `<output>` reset hook (HTML §4.10.13).  Clears the value-mode
+/// `<output>` reset hook (HTML §4.10.12).  Clears the value-mode
 /// override and re-renders the displayed text from the snapshotted
 /// `OutputDefaultValue`.  Pristine default-mode elements (no
 /// `OutputValueOverride` ever set) are left untouched: their

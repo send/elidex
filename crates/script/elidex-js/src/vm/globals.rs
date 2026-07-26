@@ -377,7 +377,7 @@ impl VmInner {
             self.register_html_progress_prototype();
             self.register_html_meter_prototype();
             // ConstraintValidation mixin install on `<output>` —
-            // HTML §4.10.13 lists `<output>` as a listed form-control
+            // HTML §4.10.12 lists `<output>` as a listed form-control
             // (`willValidate` / `validity` / `validationMessage` /
             // `checkValidity` / `reportValidity` / `setCustomValidity`).
             // Mirrors the T1-v2 install block above for the 5 form

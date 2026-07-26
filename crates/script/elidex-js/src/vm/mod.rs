@@ -1072,7 +1072,7 @@ pub(crate) struct VmInner {
     /// `<option>` elements.
     #[cfg(feature = "engine")]
     pub(crate) html_datalist_prototype: Option<ObjectId>,
-    /// `HTMLOutputElement.prototype` (HTML §4.10.13).  Carries
+    /// `HTMLOutputElement.prototype` (HTML §4.10.12).  Carries
     /// `htmlFor` (`[SameObject, PutForwards=value]` DOMTokenList) +
     /// `form` / `name` / `type` / `defaultValue` / `value` (state
     /// machine via [`elidex_ecs::OutputDefaultValue`] +
@@ -1493,11 +1493,11 @@ pub(crate) struct VmInner {
     /// own-data slots (reuses the UA-dispatch `close_event` shape).
     #[cfg(feature = "engine")]
     pub(crate) close_event_prototype: Option<ObjectId>,
-    /// `SubmitEvent.prototype` (HTML §4.10.21.5.5).  Chains to
+    /// `SubmitEvent.prototype` (HTML §4.10.22.10).  Chains to
     /// [`event_prototype`].  Adds `submitter` own-data slot.
     #[cfg(feature = "engine")]
     pub(crate) submit_event_prototype: Option<ObjectId>,
-    /// `FormDataEvent.prototype` (HTML §4.10.21.5.4).  Chains to
+    /// `FormDataEvent.prototype` (HTML §4.10.22.11).  Chains to
     /// [`event_prototype`].  Adds `formData` own-data slot.
     #[cfg(feature = "engine")]
     pub(crate) formdata_event_prototype: Option<ObjectId>,

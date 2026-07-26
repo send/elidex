@@ -1,4 +1,5 @@
-//! Form validation (HTML §4.10.15).
+//! Form validation (HTML §4.10.21.1 "Definitions" + §4.10.21.2
+//! "Constraint validation").
 
 use std::sync::OnceLock;
 
@@ -43,7 +44,8 @@ pub fn is_constraint_validation_candidate(
     !crate::is_fieldset_disabled(entity, dom)
 }
 
-/// WHATWG HTML §4.10.5.1.6 email validation regex, compiled once.
+/// WHATWG HTML §4.10.5.1.5 "Email state (type=email)" validation
+/// regex, compiled once.  (§4.10.5.1.6 is the Password state.)
 fn email_regex() -> &'static regex::Regex {
     static RE: OnceLock<regex::Regex> = OnceLock::new();
     RE.get_or_init(|| {
@@ -54,7 +56,8 @@ fn email_regex() -> &'static regex::Regex {
     })
 }
 
-/// Validity state for a form control (HTML §4.10.14.2).
+/// Validity state for a form control (HTML §4.10.21.3 "The constraint
+/// validation API", `#validitystate`).
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 #[allow(clippy::struct_excessive_bools)] // HTML spec defines validity as individual boolean constraints.
 pub struct ValidityState {
@@ -207,7 +210,8 @@ pub fn validate_control(state: &FormControlState) -> ValidityState {
 fn check_text_constraints(validity: &mut ValidityState, state: &FormControlState) {
     check_required(validity, state);
     check_length(validity, state);
-    // WHATWG §4.10.7.3.1: textarea does not support the pattern attribute.
+    // WHATWG HTML §4.10.11 "The textarea element": textarea does not
+    // support the pattern attribute.
     if state.kind != FormControlKind::TextArea {
         check_pattern(validity, state);
     }
@@ -224,7 +228,9 @@ fn check_length(validity: &mut ValidityState, state: &FormControlState) {
     // Use cached char_count (O(1) instead of O(n)).
     let char_count = state.char_count;
     if let Some(min) = state.minlength {
-        // HTML spec §4.10.15.2: minlength only applies when the value has been
+        // HTML §4.10.19.4 "Setting minimum input length requirements: the
+        // minlength attribute" (`#attr-fe-minlength`, the shared
+        // input+textarea dfn): minlength only applies when the value has been
         // edited by the user (dirty_value flag) and is non-empty.
         if state.dirty_value && !state.value.is_empty() && char_count < min {
             tracing::debug!(kind = ?state.kind, name = %state.name, minlength = min, char_count, "validation: too_short");
@@ -365,7 +371,8 @@ fn check_range(validity: &mut ValidityState, state: &FormControlState) {
 
 /// Check required for `<select>`: considers placeholder option rule.
 ///
-/// HTML §4.10.5.3.11: A select is `value_missing` if required and the value
+/// HTML §4.10.7 "The select element" (`#attr-select-required`): a
+/// select is `value_missing` if required and the value
 /// is empty, or the first option is a placeholder (value="") and is selected.
 fn check_required_select(validity: &mut ValidityState, state: &FormControlState) {
     if !state.required {
