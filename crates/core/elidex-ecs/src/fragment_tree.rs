@@ -227,6 +227,13 @@ impl FragmentTree {
     /// publisher**: only the screen `layout_tree` entry may call this, at completion
     /// (after all roots are laid). No paged/probe path publishes, so a page-relative
     /// or mid-pass store can never read as screen geometry (plan-memo §2).
+    ///
+    /// The single-publisher rule is not load-bearing on its own: every content
+    /// mutator invalidates on write (`invalidate_on_write`, private), so a publish
+    /// survives only until the next write. A caller that publishes too early therefore
+    /// cannot leave a stale green phase over subsequently-written geometry — the worst
+    /// it can do is publish over a store it did not build, which the *entry* marks
+    /// cover.
     pub fn publish_completed_screen(&mut self) {
         self.phase = StorePhase::CompletedScreen;
     }
@@ -239,6 +246,28 @@ impl FragmentTree {
     #[must_use]
     pub fn is_completed_screen(&self) -> bool {
         self.phase == StorePhase::CompletedScreen
+    }
+
+    /// Every CONTENT mutation invalidates the phase, so `CompletedScreen` means
+    /// "published after the last write" **by construction** rather than by the
+    /// entries keeping their side of a protocol.
+    ///
+    /// Without this the single-publisher invariant is only as strong as the review
+    /// convention around it: `fragment_tree_mut()` is public, and
+    /// `elidex_layout::dispatch_layout_child` — which reaches
+    /// [`push_box`](Self::push_box) / [`remove_entity`](Self::remove_entity) /
+    /// [`shift_entity`](Self::shift_entity) via multicol — is `pub`, re-exported, and
+    /// already called cross-crate from `elidex-render`'s paged Phase 2. That call is
+    /// correct today *only* because Phase 1 ran first and invalidated; the next caller
+    /// (incremental / dirty-subtree relayout is the obvious one) would inherit a stale
+    /// `CompletedScreen` with no compile error and no failing test. CLAUDE.md
+    /// *"Security by structure, not review convention"* — the same argument the seam's
+    /// phase guard already makes for the READ side, applied to the WRITE side.
+    ///
+    /// The layout entries still invalidate explicitly: a pass that writes **nothing**
+    /// (an empty page) runs no mutator, so the entry mark is what covers it.
+    fn invalidate_on_write(&mut self) {
+        self.phase = StorePhase::Invalid;
     }
 
     /// `true` if the tree has no nodes.
@@ -261,6 +290,7 @@ impl FragmentTree {
     /// [`clear`](Self::clear) (a Vec-arena compaction would invalidate other
     /// `FragmentId`s, so de-indexing is the safe removal).
     pub fn remove_entity(&mut self, entity: Entity) {
+        self.invalidate_on_write();
         self.index.remove(&entity);
     }
 
@@ -295,6 +325,7 @@ impl FragmentTree {
         box_fragment: BoxFragment,
         consumable: bool,
     ) -> FragmentId {
+        self.invalidate_on_write();
         // Replace an existing (entity, fragmentainer) node if one is present — the
         // `consumable` flag is overwritten alongside the geometry, so a re-lay that
         // drops the carrier flips the node to non-consumable (no stale latch).
@@ -363,16 +394,19 @@ impl FragmentTree {
     /// link and shift with the writing-mode-projected delta — added with that
     /// variant; Z-1a / Z-1b has box nodes only.
     pub fn shift_entity(&mut self, entity: Entity, delta: Vector) {
-        let Some(ids) = self.index.get(&entity) else {
-            return;
-        };
         // The id list is tiny (one box per spanned column); clone it so we can
         // mutate `self.nodes` without holding the `self.index` borrow. Every
         // indexed id is a box root (the index keys box-roots only), so the match
         // is irrefutable today; the committed-next `InlineLines` variant turns this
         // into a match whose lines arm applies the WM-projected delta (those nodes
         // are reached via `children`, not the index).
-        for id in ids.clone() {
+        let Some(ids) = self.index.get(&entity).cloned() else {
+            return;
+        };
+        // Only AFTER the early return — an entity with no fragments writes nothing,
+        // so it must not invalidate a legitimately-published store.
+        self.invalidate_on_write();
+        for id in ids {
             let FragmentContent::Box(bf) = &mut self.nodes[id.0 as usize].content;
             bf.content.origin += delta;
         }
@@ -669,6 +703,50 @@ mod tests {
         assert!(
             !tree.is_completed_screen(),
             "clear() invalidates the phase — a cleared store is never a completed pass"
+        );
+    }
+
+    #[test]
+    fn every_content_mutator_invalidates_a_published_store() {
+        // `CompletedScreen` must mean "published after the LAST write", by construction
+        // — not "the entries kept their side of a protocol". `fragment_tree_mut()` is
+        // public and `dispatch_layout_child` (which reaches these mutators via multicol)
+        // is `pub` and already called cross-crate, so a writer that forgets to
+        // invalidate must not be able to leave a stale green phase behind.
+        let mut world = hecs::World::new();
+        let e = entity(&mut world);
+        let f = entity(&mut world);
+
+        let mut tree = FragmentTree::default();
+        tree.publish_completed_screen();
+        tree.push_box(e, 0, box_at(0.0), false);
+        assert!(
+            !tree.is_completed_screen(),
+            "push_box invalidates — a written store is not a published one"
+        );
+
+        tree.publish_completed_screen();
+        tree.shift_entity(e, Vector::new(1.0, 1.0));
+        assert!(
+            !tree.is_completed_screen(),
+            "shift_entity invalidates — it moves committed geometry"
+        );
+
+        tree.publish_completed_screen();
+        tree.remove_entity(e);
+        assert!(
+            !tree.is_completed_screen(),
+            "remove_entity invalidates — it drops committed geometry"
+        );
+
+        // ...but a mutator that writes NOTHING must not invalidate: `shift_entity` on an
+        // entity with no fragments returns before touching anything, and demoting a
+        // legitimately-published store there would be a spurious phase failure.
+        tree.publish_completed_screen();
+        tree.shift_entity(f, Vector::new(1.0, 1.0));
+        assert!(
+            tree.is_completed_screen(),
+            "a no-op shift_entity (entity has no fragments) leaves the phase alone"
         );
     }
 }

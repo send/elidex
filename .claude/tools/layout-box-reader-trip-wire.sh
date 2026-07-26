@@ -13,12 +13,21 @@
 # prove exhaustiveness — a grep cannot", and routed the method to the C-3a impl
 # plan-review, which chose grep + a NAME-INTRODUCTION BAN):
 #   * A `LayoutBox` / `BoxModel` reference the grep MISSES only if its token is
-#     absent at the use-site. The three ways that happens —
+#     absent at the use-site. FOUR mechanisms do that:
 #       (a) import aliases     `use …LayoutBox as X;`   → `X` has no token
 #       (b) type aliases       `type X = …LayoutBox;`   → `X` has no token
 #       (c) aliased re-exports  `pub use … as X;`       → `X` has no token
-#     — are all NAME INTRODUCTIONS this wire BANS (wire #2), so with none in the
-#     tree every reference carries the token.
+#       (d) a `LayoutBox`-TYPED STRUCT FIELD — the declaration carries the token,
+#           every `v.the_field.content…` read does not (`elidex-render`
+#           `builder/mod.rs:367` is a live consumer geometry read of exactly this
+#           shape).
+#     (a)-(c) are NAME INTRODUCTIONS wire #2 BANS. (d) cannot be banned outright —
+#     two production fields legitimately exist — so wire #5 instead BOUNDS the
+#     family: the set of `LayoutBox`-typed field declarations is allowlisted, and
+#     the audit enumerates the reads of each allowlisted field name by hand. A new
+#     field therefore cannot introduce an un-audited token-less reader silently.
+#     With (a)-(c) absent and (d) bounded, every reference is either token-carrying
+#     or reached through a named, enumerated field.
 #   * Bare trait bounds `<T: BoxModel>` / `where T: BoxModel` are NOT `dyn`/`impl`,
 #     so the gate greps bare `-w BoxModel` (not `dyn|impl BoxModel`) — accepting
 #     allowlist noise (the trait def + impls) in exchange for catching every
@@ -250,6 +259,25 @@ if [ -n "$bad_class" ]; then
   fail=1
 else
   green "OK ($(committed_readers | wc -l | tr -d ' ') rows, every classification in vocabulary)"
+fi
+
+echo "wire #5: the LayoutBox-typed struct-field family stays bounded (token-less-read guard)"
+# Mechanism (d) in the header: the declaration carries the token, the reads do not. Banning
+# the shape is not an option (two production fields legitimately exist), so the FAMILY is
+# bounded instead — every declaration must be listed here, and the audit enumerates each
+# listed field name's reads by hand. Production fields only: `*_tests.rs` / inline test
+# fixtures are dropped by the same test-path predicate wires #1/#3 use.
+KNOWN_BOX_FIELDS='crates/layout/elidex-layout-block/src/lib.rs|crates/layout/elidex-layout/src/layout/mod.rs'
+field_decls="$(cd "$ROOT" && git grep -nwE '[A-Za-z_][A-Za-z0-9_]*:[[:space:]]*(elidex_plugin::)?LayoutBox[,[:space:]]*$' -- 'crates/**/*.rs' \
+  | strip_comments | { grep -vE "$(test_path_re ':')" || true; } | { grep -vE "^($KNOWN_BOX_FIELDS):" || true; })"
+if [ -n "$field_decls" ]; then
+  red "FAIL: a NEW LayoutBox-typed struct field — its reads (\`v.<field>.content…\`) carry no token, so"
+  red "      wire #1 cannot see them. Add the file to KNOWN_BOX_FIELDS *and* enumerate the field's reads"
+  red "      in docs/audits/2026-07-layoutbox-reader-inventory.md before landing it:"
+  printf '%s\n' "$field_decls" | sed 's/^/  /'
+  fail=1
+else
+  green "OK (field family bounded to the 2 audited declarations)"
 fi
 
 if [ "$fail" -ne 0 ]; then

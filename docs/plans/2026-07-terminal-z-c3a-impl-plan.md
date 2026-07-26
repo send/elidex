@@ -24,21 +24,31 @@ it points; it does not copy.
 1. the projection primitive `box_fragments`; 2. the frame-neutral folds; 3. the durable reader audit (§4 of
 the memo) + its compiler gate; 4. the layout-entry provenance writes the §2 I-phase guard needs.
 
-**Parallel-safety (re-verified 2026-07-18 on live main `a139363f`).** C-3a edits `elidex-ecs` (seam + phase
-field) and `elidex-layout` (screen + paged provenance writes, §2 — the paged write is in
-`layout_fragmented_with_tokens`, NOT `elidex-render`); it adds one `elidex-render` **integration test** (the
-interleaved paged driver leaves phase `Invalid`, §5), so render *source* is untouched. Plus a grep trip-wire
-script + committed allowlist (D4, §3) + docs. **No new crate.** Since the plan was authored,
-**#471 MERGED into base** (it is now main HEAD `a139363f`, the "column-rule/columns omit-initial serialization"
-commit), so its `elidex-plugin` edit is no longer concurrent. The remaining open non-dependabot PRs — #480
-`elidex-js`; #479 `elidex-form`/`elidex-form-core`/`elidex-js`; #469 `elidex-navigation`/`elidex-shell` —
-touch **no** `elidex-ecs`/`elidex-layout`/`elidex-render` file (re-verified via `gh pr view … --json files`),
-so C-3a is parallel-safe. **C-3a does NOT edit `elidex-plugin`** — `BoxModel` stays purely generic (memo §1),
-the projection reads `elidex_plugin::LayoutBox` without modifying it, and the D4 trip-wire is placed OUTSIDE
-`elidex-plugin`. This is a **standing constraint**: if D4's mechanism were ever to need a `LayoutBox`
-visibility change, that is a *new* `elidex-plugin` edit and must be re-checked against whatever CSS-lane PR is
-then in flight. (dependabot #456's 23-crate bump may mechanically conflict on `Cargo.lock` — a trivial re-run,
-not a design concern.)
+**Parallel-safety (re-verified 2026-07-26 on live main `de235992`; the original 2026-07-18 `a139363f`
+verification is superseded — #480/#479/#469/#471 have all merged into base).** C-3a edits `elidex-ecs`
+(seam + phase field), `elidex-layout` (screen + paged provenance writes, §2 — the paged write is in
+`layout_fragmented_with_tokens`, NOT `elidex-render`), `elidex-plugin` (**`Rect::union` only** — see the
+constraint below), and `elidex-render` (`builder/walk.rs`: the local `union_rect` helper deleted and its
+fold routed through `Rect::union`, plus one integration test that the interleaved paged driver leaves phase
+`Invalid`, §5). Plus a grep trip-wire script + committed allowlist (D4, §3) + docs. **No new crate.**
+
+Open non-dependabot PRs at re-verification — #484 (`elidex-ecs/src/dom/tree_clone.rs`, docs-only retag),
+#485 (`elidex-shell` content test helpers) — touch **no** file C-3a touches; #485 was additionally checked
+against the D4 gate (its head keeps all ten shell allowlist rows content-identical and introduces no token
+into `content_test_support.rs`, which the `*_tests.rs` exclusion does **not** cover), so no allowlist drift.
+dependabot #486's 34-crate bump may mechanically conflict on `Cargo.lock` — a trivial re-run, not a design
+concern.
+
+⚠ **The `elidex-plugin` constraint, restated to what it actually protects.** An earlier draft of this
+section asserted "C-3a does NOT edit `elidex-plugin`" full stop; the shipped diff **does** edit it
+(`layout_types/rect.rs`, +13, `Rect::union`), so that flat claim was false and is withdrawn. The
+constraint's substance is unchanged and still holds: **no change to the `LayoutBox` / `BoxModel` surface**
+— `BoxModel` stays purely generic (memo §1), the projection reads `elidex_plugin::LayoutBox` without
+modifying it, and the D4 trip-wire is placed OUTSIDE `elidex-plugin`. `Rect::union` is a generic geometry
+primitive on an unrelated type, added so render's hand-rolled `union_rect` could be deleted rather than
+duplicated (One-issue-one-way). **Standing obligation**: any `elidex-plugin` edit — including this one —
+must be re-checked against whatever CSS-lane PR is then in flight. Discharged here: no open PR touches
+`crates/core/elidex-plugin/**`.
 
 **Split assessment (CLAUDE.md touch-time / edge-dense).**
 - `dom/mod.rs` is **1073 LoC**; the seam goes in a **NEW `dom/geometry.rs`**, not appended (memo §1;
@@ -104,7 +114,7 @@ req 3's two-signal separation) is unrepresentable.
 The two can never alias: they are returned by different calls at different levels.
 
 **Liveness (memo §2 I-phase fact 4, teardown-stale).** `box_fragments` guards each entity with
-`self.dom.contains(entity)` (the existing `EcsDom::contains`, `dom/mod.rs:325`) BEFORE trusting the store, so a
+`self.dom.contains(entity)` (the existing `EcsDom::contains`, `dom/mod.rs:327`) BEFORE trusting the store, so a
 despawned entity whose stale `FragmentTree` index entry survives reads **empty by construction** — box-absent,
 not a phantom. Liveness is per-entity (inside `box_fragments`), distinct from the DOM-global phase gate.
 
@@ -123,7 +133,13 @@ not inferred — a span starting in a later column has `fragmentainer ≠ enumer
 /// the N=1 arm synthesizes it, the N>1 arm clones the store node's — so one uniform item
 /// type across both arms (no borrow/owned iterator split).
 pub struct FragmentView {
-    pub fragmentainer: u32,
+    /// `Some(n)` = store-sourced and authoritative. `None` = the N=1 fallback arm, which
+    /// has no fragmentainer to report. NOT `u32`-defaulting-to-0: the store fragments only
+    /// entities it breaks, so a non-spanning child inside a later multicol column falls
+    /// through the fallback arm — a `0` there is a fabricated column the consumer cannot
+    /// distinguish from a real column 0, which would silently mis-key exactly the two
+    /// per-column consumers req 1 exists for (C-3c hit-test, C-3d iframe routing).
+    pub fragmentainer: Option<u32>,
     pub box_model: BoxFragment,
 }
 ```
@@ -167,7 +183,7 @@ before laying out**; **only the screen entry publishes completed-screen at compl
 
 | Entry | Crate / site | Write |
 |---|---|---|
-| **screen** | `elidex-layout` `layout_tree` (`layout/mod.rs:313`) | `invalidate()` at top (before the existing `clear()` at :325); `publish_completed_screen()` after the root loop (:329) |
+| **screen** | `elidex-layout` `layout_tree` (`layout/mod.rs:324`) | `invalidate()` at top (before the existing `clear()` at :325); `publish_completed_screen()` after the root loop (:329) |
 | **paged** | `elidex-layout` `layout_fragmented_with_tokens` (`layout/mod.rs:272`) | `invalidate()` at top — the shared layout-side paged entry; **complete** coverage (below) |
 
 **Why `layout_fragmented_with_tokens` is the COMPLETE paged locus (plan-review re-check — verified live).** The
@@ -209,7 +225,7 @@ a hole. Pin it with a test that BOTH paged entries (the interleaved driver AND `
 `Invalid` (§5 item 6), and the impl must confirm no site other than `layout_tree` publishes. **Note** `layout_fragmented_with_tokens` is NOT on the normal screen path (screen multicol commits via `elidex-layout-multicol`, not `layout_fragmented`), so this adds no screen-path entanglement.
 
 **Additive to the existing render consumer (no regression).** Render reads `fragment_tree().is_consumable()` /
-`.fragments_for()` / `.is_empty()` **directly** today (`render/builder/walk.rs:208–285`, the C-1 consumer).
+`.fragments_for()` / `.is_empty()` **directly** today (`render/builder/walk.rs:207–294`, the C-1 consumer).
 C-3a does **not** migrate it (that is C-3e/C-4). The phase field and its methods are **purely additive** — the
 existing store methods are unchanged, and the paint walk runs after `layout_tree` completes (so it observes a
 `CompletedScreen` store regardless, though it does not consult phase). Adding `phase: StorePhase` to
@@ -382,11 +398,16 @@ ships no scroll-subtracting reader, so it is out of this matrix.)
 - `crates/layout/elidex-layout/src/layout/mod.rs` — screen provenance at `layout_tree` (invalidate + publish) +
   paged provenance `invalidate()` at `layout_fragmented_with_tokens` (§2, complete over all 3 paged writers);
   layout-side driver integration test.
-- `crates/core/elidex-render/` — **integration TEST only** (interleaved paged driver leaves phase `Invalid`,
-  §5 item 6b); render *source* untouched.
+- `crates/core/elidex-plugin/src/layout_types/rect.rs` — `Rect::union` (the generic smallest-enclosing-rect
+  primitive). No `LayoutBox`/`BoxModel` surface change — see the §0 constraint.
+- `crates/core/elidex-render/src/builder/walk.rs` — the local `union_rect` helper deleted, its paged-multicol
+  fold routed through `Rect::union` via `Iterator::reduce` (One-issue-one-way).
+- `crates/core/elidex-render/src/builder/tests/paged.rs` — integration test (interleaved paged driver leaves
+  phase `Invalid`, §5 item 6b).
 - `docs/audits/2026-07-layoutbox-reader-inventory.md` **(NEW)** — the audit + its machine-checked allowlist sibling.
-- `.claude/tools/layout-box-reader-trip-wire.sh` **(NEW)** — the D4 trip-wire (+ name-introduction ban), wired
-  into `mise.toml` `[tasks.trip-wires]`. **Not** `elidex-plugin` (§0 constraint); no new crate, stable toolchain.
+- `.claude/tools/layout-box-reader-trip-wire.sh` **(NEW)** — the D4 trip-wire (name-introduction ban with a
+  positive control + the classification-vocabulary wire), wired into `mise.toml` `[tasks.trip-wires]`; placed
+  OUTSIDE `elidex-plugin` (§0 constraint); no new crate, stable toolchain.
 - `docs/plans/2026-07-terminal-z-c3a-impl-plan.md` — this plan (bundled).
 
 **Landing checklist — the §6.4 hand-off actions at C-3a-IMPL landing.** The merged memo's §6.4 table is the
@@ -415,8 +436,29 @@ completed by PM at registration (C-3a landing) … Until then they are notes, no
   "api-observers untouched" (that pre-empts C-3d's option (c), memo §6.2).
 - **Verify row 11** — MEMORY.md Layout-lane line (already done per handoff memo).
 
-**New hand-off created by C-3a:** none. The audit *produces* the classified inventory downstream slices cite;
-C-3a registers no NEW `#11-*` slots beyond the memo's §6.4 pre-enumerated set (which it registers per above).
+**New hand-off created by C-3a — TWO slots + one cross-lane obligation.** (An earlier draft said "none";
+that was written before the second `/elidex-review` pass, and is withdrawn.) The audit *produces* the
+classified inventory downstream slices cite, and beyond the memo's §6.4 pre-enumerated set it surfaces:
+
+1. **`#11-layoutbox-absence-unreachable`** — there is no `LayoutBox` **removal** path, so the seam's
+   "box-absent" branch fires only for a never-laid entity; a `display:none`-toggled element keeps its last
+   box forever and the N=1 fallback yields it as live geometry. Inherited (C-3a changes no producer), but it
+   makes the audit's per-reader axis-3 rows describe a state today's engine cannot produce for a once-laid
+   target — IO/RO are the exposed readers. Resolution trigger = C-4, or any slice needing a truthful
+   box-absent signal. Same missing fact as §6.4 row 1 from the component side.
+2. **`#11-layoutbox-field-typed-reader-coverage`** — wire #5 bounds the `LayoutBox`-typed struct-field
+   family, but the *reads* of an allowlisted field are enumerated by hand, not machine-checked. Resolution
+   trigger = C-4 (which must not delete `LayoutBox` on a machine-green gate that never saw these).
+*(A third candidate — the fallback fragment reporting a fabricated column `0` — was **fixed in-slice**
+rather than slotted: `FragmentView::fragmentainer` is now `Option<u32>`, so "unknown" is unrepresentable
+as a column index. It was a now-or-never call — the type has zero production consumers today, and the
+same change after C-3b–e adopt the seam would be a breaking one.)*
+
+**Cross-lane obligation (not a slot — a standing CI fact PM must carry into the campaign SoT):** the D4
+trip-wire is wired into `mise run ci` and greps **all** of `crates/**/*.rs`. Any PR in any lane that adds or
+edits a non-test `LayoutBox`/`BoxModel` line must now update the allowlist *and* this audit. That blast
+radius is **semantic, not textual** — a concurrent PR can conflict with no line yet red CI on main — so §0's
+file-overlap parallel-safety analysis does not cover it.
 
 ---
 

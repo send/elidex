@@ -337,9 +337,11 @@ pub fn layout_tree(dom: &mut EcsDom, viewport: Size, font_db: &FontDatabase) {
     // `CompletedScreen` from a prior pass cannot be read while this pass's store is
     // empty/partial (the re-entrant-screen soundness hole). This is the screen
     // entry's explicit half of the "every entry invalidates" protocol, symmetric
-    // with the paged entry's. `clear()` below *also* invalidates by construction
-    // (an emptied store is definitionally not a completed pass), so the guard holds
-    // even if either call is later moved — belt-and-braces, not one enforcer.
+    // with the paged entry's. Two other mechanisms back it up, so the guard does not
+    // depend on this line alone: `clear()` below invalidates by construction, and
+    // every content mutator (`push_box`/`remove_entity`/`shift_entity`) invalidates
+    // on write. What the ENTRY mark uniquely covers is the pass that writes nothing
+    // at all — an empty page reaches no mutator and no clear.
     dom.fragment_tree_mut().invalidate();
     dom.fragment_tree_mut().clear();
     let roots = find_roots(dom);

@@ -46,17 +46,23 @@ use crate::fragment_tree::{BoxFragment, FragmentContent};
 /// store arm yield one uniform item type with no borrow/owned iterator split.
 #[derive(Clone, Debug, PartialEq)]
 pub struct FragmentView {
-    /// Fragmentainer index this fragment lives in (multicol column; 0 for the
-    /// non-fragmented N=1 box).
+    /// Fragmentainer index this fragment lives in (multicol column), or `None` when
+    /// the store carries no fragmentainer for it.
     ///
-    /// ⚠ Authoritative **only for store-sourced (N>1) fragments**. The store carries
-    /// a fragmentainer only for entities it fragments (spanning mid-breaks); a
-    /// **non-spanning** child wholly inside a later multicol column has no store
-    /// fragment, so the N=1 fallback reports `0` even though it physically lies in
-    /// column N>0. A per-column-keyed consumer (C-3c hit-test, C-3d iframe routing)
-    /// must treat `0` on a fallback fragment as "column unknown", not "column 0".
-    /// (The `box_model` geometry is always correct — it is absolute doc-space.)
-    pub fragmentainer: u32,
+    /// `Some(n)` is **store-sourced and authoritative**. `None` is the N=1 fallback
+    /// arm: the store fragments only the entities it breaks (spanning mid-breaks), so
+    /// a **non-spanning** child lying wholly inside a later multicol column has no
+    /// store fragment and its column is genuinely unknown here; a non-multicol
+    /// element has no fragmentainer at all. Both are honestly `None`.
+    ///
+    /// This is an `Option`, not a `u32` defaulting to `0`, because a consumer cannot
+    /// otherwise tell the two apart: a per-column-keyed reader (C-3c hit-test, C-3d
+    /// iframe click-routing — the memo §1 req 1 consumers) would key a later-column
+    /// child on a fabricated column `0` with no way to detect it. Making "unknown"
+    /// unrepresentable-as-`0` is the same by-construction treatment the phase guard
+    /// gets, applied to this axis.
+    /// (The `box_model` geometry is correct either way — it is absolute doc-space.)
+    pub fragmentainer: Option<u32>,
     /// The box-model geometry for this `(entity, fragmentainer)` fragment.
     pub box_model: BoxFragment,
 }
@@ -152,17 +158,19 @@ impl ScreenGeometry<'_> {
             .map(|node| {
                 let FragmentContent::Box(bf) = &node.content;
                 FragmentView {
-                    fragmentainer: node.fragmentainer,
+                    fragmentainer: Some(node.fragmentainer),
                     box_model: bf.clone(),
                 }
             })
             .collect();
         if out.is_empty() {
-            // N=1 fallback: the single `LayoutBox` as one fragment in column 0. A
-            // boxless entity has no `LayoutBox` here → stays empty (box-absent).
+            // N=1 fallback: the single `LayoutBox` as one fragment with NO
+            // fragmentainer — the store knows of none, and inventing `0` would be
+            // indistinguishable from a real column 0 (see `FragmentView`). A boxless
+            // entity has no `LayoutBox` here → stays empty (box-absent).
             if let Ok(lb) = self.dom.world().get::<&LayoutBox>(entity) {
                 out.push(FragmentView {
-                    fragmentainer: 0,
+                    fragmentainer: None,
                     box_model: BoxFragment::from(&*lb),
                 });
             }
@@ -236,7 +244,10 @@ mod tests {
 
         let frags: Vec<_> = geom.box_fragments(e).collect();
         assert_eq!(frags.len(), 1, "non-fragmented ⇒ exactly one fragment");
-        assert_eq!(frags[0].fragmentainer, 0, "the N=1 box is column 0");
+        assert_eq!(
+            frags[0].fragmentainer, None,
+            "the N=1 fallback has NO fragmentainer — not a fabricated column 0"
+        );
         assert_eq!(
             frags[0].box_model,
             BoxFragment::from(&lb),
@@ -271,8 +282,8 @@ mod tests {
         assert_eq!(frags.len(), 2, "both columns yielded (presence-routed)");
         assert_eq!(
             frags.iter().map(|f| f.fragmentainer).collect::<Vec<_>>(),
-            vec![0, 1],
-            "each carries its own fragmentainer id"
+            vec![Some(0), Some(1)],
+            "each carries its own store-sourced fragmentainer id"
         );
         assert_eq!(
             geom.principal_fragment(e).unwrap().content.origin.x,
@@ -306,7 +317,8 @@ mod tests {
         let frags: Vec<_> = geom.box_fragments(e).collect();
         assert_eq!(frags.len(), 1);
         assert_eq!(
-            frags[0].fragmentainer, 3,
+            frags[0].fragmentainer,
+            Some(3),
             "yielded from the store node, not inferred from position"
         );
     }
