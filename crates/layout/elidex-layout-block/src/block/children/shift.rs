@@ -3,7 +3,7 @@
 use std::collections::HashSet;
 
 use elidex_ecs::{EcsDom, Entity, InlineFlow};
-use elidex_plugin::{LayoutBox, Vector, WritingModeContext};
+use elidex_plugin::{Vector, WritingModeContext};
 
 use super::super::is_block_level;
 
@@ -161,7 +161,7 @@ fn shift_descendants_inner(
         let skip_shift = block_only
             && !crate::try_get_style(dom, child).is_some_and(|s| is_block_level(s.display));
         if !skip_shift {
-            if let Ok(mut lb) = dom.world_mut().get::<&mut LayoutBox>(child) {
+            if let Some(mut lb) = dom.layout_box_mut(child) {
                 lb.content.origin += delta;
             }
         }

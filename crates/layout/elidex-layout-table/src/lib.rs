@@ -328,7 +328,7 @@ pub fn layout_table(
             };
             let cap_lb = layout_child(dom, cap, &cap_input).layout_box;
             caption_top_height += box_total_height(&cap_lb);
-            let _ = dom.world_mut().insert_one(cap, cap_lb);
+            dom.set_layout_box(cap, cap_lb);
         }
         cursor_y += caption_top_height;
     }
@@ -391,7 +391,7 @@ pub fn layout_table(
             content_height,
             None,
         );
-        let _ = dom.world_mut().insert_one(entity, lb.clone());
+        dom.set_layout_box(entity, lb.clone());
         return lb.into();
     }
 
@@ -711,7 +711,7 @@ pub fn layout_table(
             is_probe: input.is_probe,
         };
         let cell_lb = layout_child(dom, cell.entity, &cell_relayout_input).layout_box;
-        let _ = dom.world_mut().insert_one(cell.entity, cell_lb);
+        dom.set_layout_box(cell.entity, cell_lb);
     }
 
     // Advance cursor past the table rows.
@@ -738,7 +738,7 @@ pub fn layout_table(
             let cap_lb = layout_child(dom, cap, &cap_input).layout_box;
             caption_bottom_height += box_total_height(&cap_lb);
             cursor_y += box_total_height(&cap_lb);
-            let _ = dom.world_mut().insert_one(cap, cap_lb);
+            dom.set_layout_box(cap, cap_lb);
         }
     }
 
@@ -782,7 +782,7 @@ pub fn layout_table(
         final_content_h,
         table_baseline,
     );
-    let _ = dom.world_mut().insert_one(entity, lb.clone());
+    dom.set_layout_box(entity, lb.clone());
 
     // Layout positioned descendants owned by this containing block.
     // CSS 2.1 §17.2: the table establishes a CB for absolute children

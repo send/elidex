@@ -44,11 +44,9 @@ pub struct FragmentId(pub u32);
 /// store holds the prior pass's coords during a probe re-measure, is empty/partial
 /// mid-pass (`clear()` runs at the top of `layout_tree`), and is **page-relative**
 /// during a paged/print render. None of those is a completed screen pass, and the
-/// distinction is invisible from the node contents alone — so the **writers** stamp it:
-/// a write to the store invalidates, entering `elidex_layout::dispatch_layout_child`
-/// invalidates, and only `layout_tree` publishes, at completion. (Two halves, not one
-/// rule — the store half is write-conditional, the component half unconditional; see
-/// [`invalidate`](FragmentTree::invalidate).) See the C-3a plan-memo §2.
+/// distinction is invisible from the node contents alone — so the **writers** stamp it,
+/// under one rule at one granularity: *any write to either geometry source invalidates
+/// the phase; only `layout_tree` publishes, at completion*. See the C-3a plan-memo §2.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 enum StorePhase {
     /// Not trustworthy as screen geometry: mid-pass, re-entrant, probe, paged/print,
@@ -77,11 +75,11 @@ pub struct FragmentTree {
     /// O(1)-per-entity (the Z-1a `fragments_for` O(nodes) scan the paint walk was
     /// forbidden from calling).
     index: HashMap<Entity, Vec<FragmentId>>,
-    /// Provenance guard for the screen-geometry seam (terminal-Z C-3a). Demoted by the
-    /// two write-side mechanisms — [`clear`](Self::clear) / `invalidate_on_write`
-    /// (private) for the store half, and
-    /// [`invalidate`](Self::invalidate) from `elidex_layout::dispatch_layout_child`'s
-    /// bracket for the `LayoutBox`-component half — and promoted only by
+    /// Provenance guard for the screen-geometry seam (terminal-Z C-3a). Demoted at every
+    /// write to either geometry source — [`clear`](Self::clear) / `invalidate_on_write`
+    /// (private) for the store, and [`invalidate`](Self::invalidate) from
+    /// `EcsDom::set_layout_box` / `layout_box_mut` for the `LayoutBox` component — and
+    /// promoted only by
     /// [`publish_completed_screen`](Self::publish_completed_screen), which only
     /// `layout_tree` calls; read by
     /// `EcsDom::screen_geometry` via [`is_completed_screen`](Self::is_completed_screen).
@@ -217,26 +215,20 @@ impl FragmentTree {
 
     // ---- Provenance guard (terminal-Z C-3a screen-geometry seam) ----
 
-    /// Mark the store as **not** a completed screen pass — the `LayoutBox`-**component**
-    /// half of the write rule.
+    /// Mark the store as **not** a completed screen pass.
     ///
-    /// The sole production caller is `elidex_layout::dispatch_layout_child`, at its
-    /// bracket. The layout **entries** deliberately do not mark: `layout_tree`
-    /// invalidates by construction via [`clear`](Self::clear) on its next line, and
-    /// `layout_fragmented_with_tokens`'s fragmentainer loop reaches the bracket on every
-    /// iteration (`MAX_FRAGMENTS >= 1`, so it always runs at least once). An earlier
-    /// revision marked both entries as well; deleting them is the *One issue, one way*
-    /// collapse — see plan §2, which records why keeping both was the forbidden
-    /// strangler state.
+    /// The sole production caller is `EcsDom::set_layout_box` / `layout_box_mut` — the
+    /// `LayoutBox` **component** write chokepoint, which is the component half of the one
+    /// rule (`invalidate_on_write`, private, is the store half). Both fire *at the write*,
+    /// so the rule holds at one granularity with no caller obligation anywhere.
     ///
-    /// Unlike the store half (`invalidate_on_write`, private) this is
-    /// **unconditional**: the bracket cannot know whether the algorithm it is about to
-    /// dispatch writes a `LayoutBox`, so it demotes either way (`Display::Contents` on a
-    /// static, non-relative element is the arm that writes neither source and demotes
-    /// anyway). That is conservative in the safe direction — a spurious `Invalid` costs a
-    /// relayout, whereas a spurious `CompletedScreen` serves a mixed generation — and it
-    /// is why the two halves are stated separately rather than as one rule at "write"
-    /// granularity.
+    /// No layout entry and no dispatcher marks. `layout_tree` invalidates by construction
+    /// via [`clear`](Self::clear); `layout_fragmented_with_tokens` and
+    /// `dispatch_layout_child` do nothing at all, because whatever they end up writing
+    /// invalidates itself. Two earlier revisions did otherwise — entry marks, then a
+    /// `dispatch_layout_child` bracket — and both were superseded: see plan §2 for why
+    /// each was the wrong site (the entry marks were the *One issue, one way* strangler
+    /// state; the bracket was simultaneously bypassable and over-eager).
     ///
     /// Idempotent; redundant calls are harmless (only `publish_completed_screen` moves
     /// the phase the other way).
@@ -254,29 +246,25 @@ impl FragmentTree {
     /// are covered by construction:
     ///
     /// * **store** — every content mutator here calls `invalidate_on_write` (private).
-    /// * **`LayoutBox` component** — `elidex_layout::dispatch_layout_child` invalidates
-    ///   at its bracket, the path **every present production write** is reached through,
-    ///   so none of the ~14 `insert_one` sites across the layout crates has to remember.
+    /// * **`LayoutBox` component** — every write goes through `EcsDom::set_layout_box` /
+    ///   `layout_box_mut`, which call [`invalidate`](Self::invalidate). All 19 producer
+    ///   write sites across 6 crates are routed through them, and the D4 trip-wire's
+    ///   wire #5 rejects a raw `insert_one(e, LayoutBox { … })` / `get::<&mut LayoutBox>`.
     ///
-    /// The two are **not** equally strong, and the asymmetry is deliberate: the store
-    /// half invalidates at the **write site**, so it holds by construction; the component
-    /// half invalidates at a **dispatch site**, so it holds only while every writer is
-    /// reached through that dispatch. It is not — the algorithms below the bracket
-    /// (`layout_block_inner`, `stack_block_children`, `layout_{flex,grid,table,multicol}`,
-    /// `layout_positioned_children`, `layout_absolutely_positioned`, `empty_container_box`,
-    /// `shift_descendants{,_excluding_own_fragments}`) are `pub`, and direct cross-crate
-    /// calls between the layout crates are an established pattern (multicol →
-    /// `stack_block_children`; flex/grid/table → `positioned`). Those are correct today
-    /// only because each sits inside an enclosing dispatch window. Making the component
-    /// half true by construction needs an `EcsDom`-owned `LayoutBox` write accessor that
-    /// invalidates — the write-site chokepoint the store half already has, in the shape
-    /// `dom/attribute.rs`'s attribute-write chokepoint uses. C-4 owns that decision when
-    /// it defines the producer surface (audit note (d)).
-    ///
+    /// Both fire **at the write**, so neither rests on a caller remembering anything.
     /// Without the second, a dirty-subtree or probe relayout of an ordinary non-multicol
     /// box would rewrite components while leaving `CompletedScreen` standing, and the
     /// projection would serve a MIXED GENERATION — this pass's component geometry beside
     /// the previous pass's fragments (Codex PR#488 R1).
+    ///
+    /// ⚠ An intermediate revision put the component guard at
+    /// `elidex_layout::dispatch_layout_child` instead. That was wrong in *both*
+    /// directions — bypassable (the algorithms below it are `pub` and called directly
+    /// cross-crate) and over-eager (it demoted on `display: contents`, which writes
+    /// nothing). Both are one root: the guard was not where the write is. Neither
+    /// direction was testable while it stood; both are pinned now
+    /// (`a_write_that_bypasses_the_dispatcher_still_invalidates`,
+    /// `a_boxless_dispatch_after_publish_leaves_the_phase_alone`).
     pub fn publish_completed_screen(&mut self) {
         self.phase = StorePhase::CompletedScreen;
     }
@@ -300,10 +288,9 @@ impl FragmentTree {
     /// `elidex_layout::dispatch_layout_child` — which reaches
     /// [`push_box`](Self::push_box) / [`remove_entity`](Self::remove_entity) /
     /// [`shift_entity`](Self::shift_entity) via multicol — is `pub`, re-exported, and
-    /// already called cross-crate from `elidex-render`'s paged Phase 2. That call is
-    /// correct today *only* because Phase 1 ran first and invalidated; the next caller
-    /// (incremental / dirty-subtree relayout is the obvious one) would inherit a stale
-    /// `CompletedScreen` with no compile error and no failing test. CLAUDE.md
+    /// already called cross-crate from `elidex-render`'s paged Phase 2. Such a caller
+    /// (incremental / dirty-subtree relayout is the obvious one) would otherwise inherit a
+    /// stale `CompletedScreen` with no compile error and no failing test. CLAUDE.md
     /// *"Security by structure, not review convention"* — the same argument the seam's
     /// phase guard already makes for the READ side, applied to the WRITE side.
     ///
@@ -311,10 +298,10 @@ impl FragmentTree {
     /// a published store: the store still holds exactly the pass that was published, so
     /// `Some` is the truthful answer, and demoting would force a needless full relayout
     /// (`remove_entity`'s no-op guard here, and
-    /// `a_zero_write_paged_early_return_leaves_the_phase_alone` on the layout side). This
-    /// is exactly where the two halves differ — the component half
-    /// ([`invalidate`](Self::invalidate)) is unconditional at its bracket, because from
-    /// there no write has happened yet to be conditional on.
+    /// `a_zero_write_paged_early_return_leaves_the_phase_alone` on the layout side). The
+    /// component half is conditional in the same sense and for the same reason — it fires
+    /// from the write chokepoint, so a pass that writes no `LayoutBox` (`display:
+    /// contents`) does not demote either.
     fn invalidate_on_write(&mut self) {
         self.phase = StorePhase::Invalid;
     }
@@ -744,13 +731,13 @@ mod tests {
         tree.publish_completed_screen();
         assert!(tree.is_completed_screen());
 
-        // The component half demotes it: `dispatch_layout_child`'s bracket calls this
-        // unconditionally, so any layout activity (screen re-entry, paged, probe) clears
-        // a stale `CompletedScreen` before it can be read.
+        // A `LayoutBox` component write demotes it: `EcsDom::set_layout_box` /
+        // `layout_box_mut` call this, so any pass that actually writes geometry (screen
+        // re-entry, paged, probe) clears a stale `CompletedScreen` before it can be read.
         tree.invalidate();
         assert!(
             !tree.is_completed_screen(),
-            "invalidate() at the dispatch bracket clears a stale CompletedScreen"
+            "a component write clears a stale CompletedScreen"
         );
 
         // clear() invalidates by construction: an emptied store is definitionally

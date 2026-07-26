@@ -51,10 +51,11 @@ fn direct_dispatch_after_publish_invalidates_the_phase() {
     // Codex PR#488 R1: `dispatch_layout_child` is `pub`, re-exported, and already
     // called cross-crate. A dirty-subtree / probe relayout of an ORDINARY non-multicol
     // box rewrites the `LayoutBox` COMPONENT without touching any `FragmentTree`
-    // mutator, so before the bracket the phase stayed `CompletedScreen` and
-    // `screen_geometry()` served a MIXED GENERATION — this pass's component geometry
-    // beside the previous pass's fragments — while promising a completed screen pass.
-    // Invalidating at the dispatch bracket covers the component half by construction.
+    // mutator, so the phase stayed `CompletedScreen` and `screen_geometry()` served a
+    // MIXED GENERATION — this pass's component geometry beside the previous pass's
+    // fragments — while promising a completed screen pass. It now demotes because the
+    // dispatch reaches a real `LayoutBox` write, which goes through
+    // `EcsDom::set_layout_box` (NOT because this fn brackets — see the two tests below).
     let (mut dom, _root, _html, body) = build_styled_dom();
     let font_db = FontDatabase::new();
     layout_tree(&mut dom, Size::new(800.0, 600.0), &font_db);
@@ -79,6 +80,88 @@ fn direct_dispatch_after_publish_invalidates_the_phase() {
     assert!(
         dom.screen_geometry().is_none(),
         "a direct post-publish dispatch invalidates — no mixed-generation read"
+    );
+}
+
+#[test]
+fn a_boxless_dispatch_after_publish_leaves_the_phase_alone() {
+    // Codex PR#488 R3 (the OVER-EAGER direction). `display: contents` generates no box:
+    // that arm of `dispatch_layout_child` constructs a `LayoutOutcome` and returns it,
+    // writing neither `LayoutBox` nor the store. Under the old dispatch-site bracket the
+    // phase demoted anyway, so a probe / dirty-subtree caller could close
+    // `screen_geometry()` engine-wide having changed nothing — the branch's own no-op
+    // rule ("a write of nothing must not demote a published store") broken at a 4th site.
+    // With the guard moved to the write chokepoint this is exact: no write, no demotion.
+    let (mut dom, _root, _html, body) = build_styled_dom();
+    let contents = dom.create_element("div", Attributes::default());
+    dom.append_child(body, contents);
+    dom.world_mut().insert_one(
+        contents,
+        ComputedStyle {
+            display: Display::Contents,
+            ..Default::default()
+        },
+    );
+
+    let font_db = FontDatabase::new();
+    layout_tree(&mut dom, Size::new(800.0, 600.0), &font_db);
+    assert!(dom.screen_geometry().is_some(), "full pass published");
+
+    let input = LayoutInput {
+        containing: CssSize::definite(800.0, 600.0),
+        containing_inline_size: 800.0,
+        offset: elidex_plugin::Point::ZERO,
+        font_db: &font_db,
+        depth: 0,
+        float_ctx: None,
+        viewport: Some(Size::new(800.0, 600.0)),
+        fragmentainer: None,
+        break_token: None,
+        subgrid: None,
+        layout_generation: 0,
+        is_probe: false,
+    };
+    dispatch_layout_child(&mut dom, contents, &input);
+
+    assert!(
+        dom.screen_geometry().is_some(),
+        "a boxless dispatch wrote nothing, so the published pass still stands"
+    );
+}
+
+#[test]
+fn a_write_that_bypasses_the_dispatcher_still_invalidates() {
+    // Codex PR#488 R4 (the BYPASSABLE direction). The layout algorithms below
+    // `dispatch_layout_child` are `pub` and are called directly cross-crate, so a guard
+    // at the dispatcher was only as good as callers entering through it. Here a caller
+    // reaches `layout_block_only` directly — never touching `dispatch_layout_child` —
+    // and the phase must still demote, because the write itself goes through
+    // `EcsDom::set_layout_box`. This test could not exist under the bracket design; that
+    // it passes IS the difference between a review convention and a structural guard.
+    let (mut dom, _root, _html, body) = build_styled_dom();
+    let font_db = FontDatabase::new();
+    layout_tree(&mut dom, Size::new(800.0, 600.0), &font_db);
+    assert!(dom.screen_geometry().is_some(), "full pass published");
+
+    let input = LayoutInput {
+        containing: CssSize::definite(800.0, 600.0),
+        containing_inline_size: 800.0,
+        offset: elidex_plugin::Point::ZERO,
+        font_db: &font_db,
+        depth: 0,
+        float_ctx: None,
+        viewport: Some(Size::new(800.0, 600.0)),
+        fragmentainer: None,
+        break_token: None,
+        subgrid: None,
+        layout_generation: 0,
+        is_probe: false,
+    };
+    let _ = elidex_layout_block::layout_block_only(&mut dom, body, &input);
+
+    assert!(
+        dom.screen_geometry().is_none(),
+        "a bypassing LayoutBox write still demotes — the guard is at the write, not the dispatch"
     );
 }
 

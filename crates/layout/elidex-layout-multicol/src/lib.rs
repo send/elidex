@@ -326,7 +326,7 @@ pub fn layout_multicol(
         layout_generation: 0,
     };
 
-    let _ = dom.world_mut().insert_one(entity, lb.clone());
+    dom.set_layout_box(entity, lb.clone());
 
     // Attach MulticolInfo for column rule rendering.
     let info = MulticolInfo {

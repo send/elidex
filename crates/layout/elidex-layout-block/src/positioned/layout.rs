@@ -520,7 +520,7 @@ pub fn layout_absolutely_positioned(
         first_baseline: child_lb.first_baseline,
         layout_generation: env.layout_generation,
     };
-    let _ = dom.world_mut().insert_one(entity, lb);
+    dom.set_layout_box(entity, lb);
 
     // Shift descendants to match final position.
     let delta = content_origin - child_lb.content.origin;

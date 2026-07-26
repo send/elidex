@@ -85,7 +85,7 @@ pub(in crate::inline) fn assign_inline_layout_boxes(
             first_baseline: None,
             layout_generation,
         };
-        let _ = dom.world_mut().insert_one(*entity, lb);
+        dom.set_layout_box(*entity, lb);
 
         // Store per-line rects for getClientRects() (CSSOM View §6): one border-box
         // fragment per line. A single-line element (`len() == 1` after the per-line

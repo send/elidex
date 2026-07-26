@@ -197,62 +197,74 @@ record**; the shipped mechanism is stated immediately after.
 | Merged-memo passage | What it asserts | Disposition |
 |---|---|---|
 | §6.3 item 3 — *"the provenance protocol is NOT divisible … every entry invalidates before laying out"* | the protocol's unit is the **layout entry** | **Substantively met, mechanism changed.** Indivisibility holds — it is now indivisible at the *writer*, which is strictly stronger (an entry that forgets is impossible; there is nothing to forget) |
-| §6.3 item 3 — *"Only an entry-mark distinguishes a paged pass from a stale screen pass"* | an entry mark is **necessary** | **Falsified.** The bracket distinguishes them, and does so for the component half the entry mark never covered |
-| §2 row 1 (paged-after-screen hole) | discharged **by the paged entry mark** | Still discharged — see the soundness table below, now via the bracket |
+| §6.3 item 3 — *"Only an entry-mark distinguishes a paged pass from a stale screen pass"* | an entry mark is **necessary** | **Falsified.** The writes themselves distinguish them, and cover the `LayoutBox` component no entry mark ever did |
+| §2 row 1 (paged-after-screen hole) | discharged **by the paged entry mark** | Still discharged — see the soundness table below, now by the writes |
 | §5 slot text (paged invalidate ≠ store hygiene) | unchanged | unchanged — invalidation is still not content-clearing |
 
 PM propagates this as a §6.4-style hand-off (§6, "Landing checklist").
 
-**The shipped rule — two halves, deliberately not one sentence.** *A write to the **store** invalidates the
-phase; **entering `dispatch_layout_child`** invalidates the phase; only `layout_tree` publishes, at
-completion.* Realised in exactly four places, no others:
+⚠ **SUPERSEDED A SECOND TIME — the `dispatch_layout_child` bracket is gone too.** An intermediate revision
+replaced the entry marks with a mark at the dispatcher. Codex R3 and R4 then independently reported the two
+*opposite* failures of that placement: R3 that it is **over-eager** (the `Display::Contents` arm writes neither
+geometry source, yet the bracket demoted, closing `screen_geometry()` engine-wide having changed nothing —
+the branch's own "a write of nothing must not demote" rule broken at a 4th site), and R4 that it is
+**bypassable** (`layout_block_only`, `stack_block_children`, `empty_container_box`,
+`layout_positioned_children`, the shifters are all `pub`, and direct cross-crate calls to them are an
+established pattern: `multicol/fill.rs:158`/`:389`, flex/grid/table → `positioned`; even in-crate `layout_root`
+reaches `stack_block_children` directly). **Two reports, two directions, one root: the guard was not where the
+write is.** Per the Step-4 self-root-check that fires at ≥2 rounds on one mechanism, the answer is to converge
+on the single correct site rather than defend the wrong one — so the guard moved to the write.
 
-| Source | Site | Mechanism | Granularity |
-|---|---|---|---|
-| store contents | `FragmentTree::clear` | invalidates — an emptied store is definitionally not a completed pass | write |
-| store contents | `push_box` / `remove_entity` / `shift_entity` | `invalidate_on_write()`, and **only when they actually write** (a no-op must not demote a published store) | write |
-| `LayoutBox` component | `elidex_layout::dispatch_layout_child` | invalidates at its bracket, covering all 14 `insert_one` sites across 6 crates | **dispatch (unconditional)** |
-| — | `layout_tree`, after its root loop | the sole `publish_completed_screen()` | — |
+**The shipped rule — one sentence, one granularity.** *Any write to either geometry source invalidates the
+phase; only `layout_tree` publishes, at completion.* Realised in exactly four places, no others:
 
-⚠ **The two halves are NOT equally strong, and the difference is load-bearing.** The store half invalidates at
-the **write site**, so it is true by construction. The component half invalidates at a **dispatch site**, so it
-is true only while every writer is reached through that dispatch — and that is a property of today's call
-graph, not of the type system. The algorithms below the bracket (`layout_block_inner`,
-`stack_block_children`, `layout_{flex,grid,table,multicol}`, `layout_positioned_children`,
-`layout_absolutely_positioned`, `empty_container_box`, `shift_descendants{,_excluding_own_fragments}`) are all
-`pub`, and direct cross-crate calls to them are an established pattern (multicol → `stack_block_children` at
-`multicol/fill.rs:158`/`:389`; multicol/flex/grid/table → `positioned`). Even in-crate, `layout_root` reaches
-`stack_block_children` directly for the `display: contents` and document-root arms, so the component half rests
-on **two** mechanisms today (the bracket, plus `layout_tree`'s `clear()`), not the one. This is the same
-"correct today only because an earlier phase ran first" argument that `invalidate_on_write`'s own docstring
-calls insufficient for the store half — so it is recorded here as a **known bound**, not claimed away. The
-structural close is an `EcsDom`-owned `LayoutBox` write accessor that invalidates (the write-site chokepoint,
-mirroring `dom/attribute.rs`'s attribute-write chokepoint); **C-4 owns that decision** where it defines the
-producer surface precisely (audit note (d)) — it is not a new defer slot, it is an input to a gate C-4 already
-has.
+| Source | Site | Mechanism |
+|---|---|---|
+| store contents | `FragmentTree::clear` | invalidates — an emptied store is definitionally not a completed pass |
+| store contents | `push_box` / `remove_entity` / `shift_entity` | `invalidate_on_write()`, and **only when they actually write** (a no-op must not demote a published store) |
+| `LayoutBox` component | `EcsDom::set_layout_box` / `EcsDom::layout_box_mut` | the **write chokepoint** — all **19** producer write sites (16 `insert_one` + 3 `&mut`) across 6 crates route through it |
+| — | `layout_tree`, after its root loop | the sole `publish_completed_screen()` |
+
+Both sources now invalidate **at the write**, so the rule holds at one granularity with no caller obligation
+anywhere — the shape `dom/attribute.rs`'s attribute-write chokepoint already uses. `dispatch_layout_child`
+touches the phase not at all. Consequences, both newly **test-pinnable** (neither was, under the bracket):
+`a_boxless_dispatch_after_publish_leaves_the_phase_alone` (no write ⇒ no demotion) and
+`a_write_that_bypasses_the_dispatcher_still_invalidates` (a caller entering *below* the dispatcher still
+demotes). The second is the difference between a structural guard and a review convention.
+
+⚠ **What the enforcing gate does and does not bound.** Trip-wire **wire #5** rejects the raw write shapes that
+NAME the type — `insert_one(e, LayoutBox { … })` and `get::<&mut LayoutBox>`. It does **not** catch a write
+through an already-declared `LayoutBox`-typed binding (`let lb = LayoutBox { … }; … insert_one(e, lb)`), which
+is how all 19 migrated sites were written: grep cannot type-infer, and banning `insert_one` with an identifier
+argument fires on every `style` / `info` insert in the same files. This is the **same binding-opacity limit**
+the audit records for the READ side as case (d), now on the write side; slot
+`#11-layoutbox-field-typed-reader-coverage` is extended to own both. What the gate still buys: the binding's
+*declaration* carries the token, so wire #1 forces an allowlist row — a new write path cannot land invisibly,
+only unrejected. Stated as a bound rather than claimed away, because C-4's delete decision is taken against
+these claims (a prior wire #5 in that script was withdrawn for exactly this overclaim).
 
 *Superseded entry-mark rows (historical):*
 
 | Entry | Crate / site | Write |
 |---|---|---|
 | **screen** | `elidex-layout` `layout_tree` | ~~`invalidate()` at top~~ — dropped; `clear()` on the next line invalidates by construction. `publish_completed_screen()` after the root loop remains |
-| **paged** | `elidex-layout` `layout_fragmented_with_tokens` | ~~`invalidate()` at top~~ — dropped; its fragmentainer loop always calls `dispatch_layout_child`, so the bracket covers it |
+| **paged** | `elidex-layout` `layout_fragmented_with_tokens` | ~~`invalidate()` at top~~ — dropped; whatever the pass writes invalidates itself at the write |
 
-**Why the bracket covers the paged surface completely (the placement analysis, re-framed post-collapse).** The
-original question was where to put the paged *entry mark*; with the mark gone the same three-writer analysis is
-what shows the bracket needs no paged supplement. The paged store has **three** writers:
+**Why the paged surface needs no mark of its own (the placement analysis, re-framed).** The original question
+was where to put the paged *entry mark*; with the guard at the write, the same three-writer analysis is what
+shows the paged path needs no supplement. The paged store has **three** writers:
 - **interleaved driver Phase 1** (`render/builder/mod.rs:345`) calls `layout_fragmented_with_tokens` directly,
-  whose fragmentainer loop dispatches → covered by the bracket;
+  whose fragmentainer loop lays out → every `LayoutBox` it writes goes through the chokepoint;
 - **`layout_paged`** (`elidex-layout`, `pub`, the layout-crate paged public fn) reaches the same fn via
   `layout_fragmented` → covered; *(symbol-anchored deliberately — `layout/mod.rs` line numbers have drifted
   twice in this PR's own review rounds)*
 - **interleaved driver Phase 2** (`render/builder/mod.rs:366`) is itself a per-page **direct**
   `dispatch_layout_child` → covered *at its own call*, not merely by inheriting Phase 1's `Invalid`. (Phase 1
   still precedes it by a structural data dependency — Phase 1 computes the page count Phase 2 loops over — so
-  the inheritance argument also holds; the bracket just makes it unnecessary.)
+  the inheritance argument also holds; the chokepoint just makes it unnecessary.)
 
 Note what the collapse bought here: under the entry-mark protocol, Phase 2 was covered only by *inheritance*,
-which is exactly the review-convention-shaped argument this plan rejects elsewhere. The bracket covers it
+which is exactly the review-convention-shaped argument this plan rejects elsewhere. The chokepoint covers it
 directly. (The legacy `build_paged_display_lists`, `render/builder/mod.rs:192`, takes `dom: &EcsDom` —
 **read-only paint from pre-laid fragments**, not a store writer, so it needs nothing.) ⇒ **C-3a does NOT edit
 `elidex-render`** for provenance; the write stays in `elidex-layout`.
@@ -262,7 +274,7 @@ The original argument was: the paged path does not `clear()` and may write **zer
 with no multicol content), so without a paged `invalidate()` a prior screen pass's `CompletedScreen` would stay
 green over a page-relative store (soundness hole 1). The premise is right; the conclusion no longer follows.
 A paged pass that lays anything out reaches `dispatch_layout_child` — `MAX_FRAGMENTS >= 1`, so the loop always
-runs at least once — and the bracket demotes there **whether or not a `push_box` follows**. That is precisely
+runs at least once — and its `LayoutBox` writes demote **whether or not a `push_box` follows**. That is precisely
 the zero-write page the entry mark was introduced for. And a paged attempt that lays out *nothing at all*
 (the early returns) must **not** demote — see the R2 correction below — which the entry mark got wrong.
 Unchanged: this is still not deferrable to `#11-paged-fragment-store-hygiene` (that slot is the store's
@@ -272,9 +284,9 @@ Unchanged: this is still not deferrable to `#11-paged-fragment-store-hygiene` (t
 
 | Hole (memo §2) | How the mechanism forecloses it |
 |---|---|
-| 1. paged/print after a completed screen pass | a paged pass that lays anything out reaches `dispatch_layout_child` (Phase 1's fragmentainer loop, `layout_paged` via the same fn, Phase 2 directly) ⇒ the bracket clears the stale `CompletedScreen`, **including on a zero-`push_box` page**; nothing paged publishes. A paged attempt that lays out nothing writes nothing and correctly leaves the phase alone |
-| 2. re-entrant / second SCREEN pass mid-flight | `layout_tree`'s `clear()` invalidates by construction ⇒ pass-1's `CompletedScreen` is gone before pass-2's store is empty/partial, and the bracket re-invalidates on every dispatch within the pass |
-| 3. a probe pass | probes run *inside* `layout_tree` (flex/grid/table re-measure via `dispatch_layout_child(is_probe:true)`) and therefore *through the bracket* ⇒ each probe dispatch invalidates, and the pass re-publishes only at completion, so any read during a probe sees `Invalid` |
+| 1. paged/print after a completed screen pass | a paged pass that lays anything out writes `LayoutBox`es through the chokepoint (Phase 1's fragmentainer loop, `layout_paged` via the same fn, Phase 2 directly) ⇒ the stale `CompletedScreen` is cleared, **including on a zero-`push_box` page**; nothing paged publishes. A paged attempt that lays out nothing writes nothing and correctly leaves the phase alone |
+| 2. re-entrant / second SCREEN pass mid-flight | `layout_tree`'s `clear()` invalidates by construction ⇒ pass-1's `CompletedScreen` is gone before pass-2's store is empty/partial, and every geometry write within the pass re-invalidates |
+| 3. a probe pass | probes run *inside* `layout_tree` (flex/grid/table re-measure via `dispatch_layout_child(is_probe:true)`) and write `LayoutBox`es through the chokepoint ⇒ each probe write invalidates, and the pass re-publishes only at completion, so any read during a probe sees `Invalid` |
 
 **Single-publisher invariant.** **Only `layout_tree` may call `publish_completed_screen()`.** Every other store
 mutation (paged `layout_fragmented_with_tokens` + Phase 2, screen multicol) at most `invalidate()`s or leaves
@@ -293,9 +305,9 @@ would be a **spurious demotion** — the same defect removed from `remove_entity
 mutator that writes nothing must not demote a published store* — and would force a full relayout before
 any screen-geometry read whenever a print attempt no-ops. The defect in the old wording was stating the
 guarantee at **MODE** granularity ("a paged entry was called"), where what actually demotes is the pass
-reaching a store writer or a dispatch bracket; an attempt that returns before both reaches neither. ⚠ The
-correction is **not** "the mechanism is uniformly write-granular" — the component half demotes
-**unconditionally** at the bracket, write or no write (see the two-halves table above). Pinned by
+reaching a writer of either source; an attempt that returns before both reaches neither. The mechanism *is*
+uniformly write-granular now — that was true of the store half from the start, and became true of the
+component half when the guard moved to the write chokepoint. Pinned by
 `a_zero_write_paged_early_return_leaves_the_phase_alone`, on **both** of `layout_paged`'s zero-write arms
 (`roots.is_empty()` and non-positive content area). **Note** `layout_fragmented_with_tokens` is NOT on the normal screen path (screen multicol commits via `elidex-layout-multicol`, not `layout_fragmented`), so this adds no screen-path entanglement.
 
@@ -437,7 +449,7 @@ parallel-safety constraint (§0) and memo §1 layering both require it.
 All in `dom/geometry.rs` `#[cfg(test)]` unless noted. Anchored on the memo's invariants:
 
 1. **N=1 behavior-neutral** (memo §1) — a non-fragmented entity: `box_fragments` yields one `FragmentView`
-   `{fragmentainer:0}` whose `box_model` is `From<&LayoutBox>` bit-for-bit; `principal_fragment == that box`;
+   `{fragmentainer: None}` whose `box_model` is `From<&LayoutBox>` bit-for-bit; `principal_fragment == that box`;
    `union_border_boxes == that box's border_box`. The no-regression proof for the common entity.
 2. **N>1 routing** (memo §1 strict-limit / §2 I-router) — a 2-column mid-break entity: `box_fragments` yields
    both columns in fragmentainer order with the correct `fragmentainer` ids (1st ≠ enumeration index case
@@ -459,14 +471,21 @@ All in `dom/geometry.rs` `#[cfg(test)]` unless noted. Anchored on the memo's inv
    `build_paged_display_lists_interleaved` it is `None` (exercises the production interleaved path — both
    phases dispatch, neither publishes, §2). Both guard that **no** paged path publishes `CompletedScreen`
    (single-publisher), not just the store methods.
-7. **Component-half coverage** (Codex PR#488 R1) — `direct_dispatch_after_publish_invalidates_the_phase`: after
-   a full `layout_tree`, a direct post-publish `dispatch_layout_child` on an ordinary non-multicol box leaves
-   `screen_geometry() == None`. Without the bracket this returns `Some` over a MIXED GENERATION (this pass's
-   components beside last pass's fragments) — the defect the entry-mark protocol could not see.
+7. **Component coverage** (Codex PR#488 R1) — `direct_dispatch_after_publish_invalidates_the_phase`: after a
+   full `layout_tree`, a direct post-publish `dispatch_layout_child` on an ordinary non-multicol box leaves
+   `screen_geometry() == None`. Without a component-side guard this returns `Some` over a MIXED GENERATION
+   (this pass's components beside last pass's fragments) — the defect the entry-mark protocol could not see.
 8. **Zero-write must not demote** (Codex PR#488 R2) — `a_zero_write_paged_early_return_leaves_the_phase_alone`:
    **both** of `layout_paged`'s early returns (`roots.is_empty()`, non-positive content area) leave a published
-   `CompletedScreen` standing. The counter-pin to item 6 — together they say demotion tracks *laying out*, not
+   `CompletedScreen` standing. The counter-pin to item 7 — together they say demotion tracks *writing*, not
    *entering paged mode*.
+9. **The chokepoint is exact in both directions** (Codex PR#488 R3+R4 — the two failures of the intermediate
+   dispatch-site bracket, §2). (a) `a_boxless_dispatch_after_publish_leaves_the_phase_alone`: dispatching a
+   `display: contents` entity writes neither source, so a published pass survives — the bracket demoted here.
+   (b) `a_write_that_bypasses_the_dispatcher_still_invalidates`: a caller entering *below* the dispatcher
+   (`elidex_layout_block::layout_block_only`) still demotes — the bracket could not see this write at all.
+   **Neither test was expressible while the guard sat at the dispatcher**; that they are now is the acceptance
+   criterion for the guard being structural rather than conventional.
 
 (The scrolled-page falsifiability note, memo §2 I-frame, is **C-3b's** `getBoundingClientRect` test — C-3a
 ships no scroll-subtracting reader, so it is out of this matrix.)
@@ -531,7 +550,13 @@ completed by PM at registration (C-3a landing) … Until then they are notes, no
 - **Verify row 11** — MEMORY.md Layout-lane line (already done per handoff memo).
 
 **New hand-off created by C-3a — THREE slots + one cross-lane obligation.** (An earlier draft said "none";
-that was written before the second `/elidex-review` pass, and is withdrawn.) The audit *produces* the
+that was written before the second `/elidex-review` pass, and is withdrawn.)
+
+⚠ **Each slot below carries an explicit REEVALUATION DATE = 2026-10-27** (three months from C-3a authoring).
+The memo's §6.4 rule is that PM completes the ledger's why/trigger/date triple *at registration*, which is this
+landing — but "at landing" fixes only *when* the field is filled, not *what* goes in it, and a resolution
+trigger (`C-4`) is not a date: if C-4 slips, an undated slot has nothing that ever forces a look (Codex PR#488
+R4). The trigger stays the resolution event; the date is the independent floor. The audit *produces* the
 classified inventory downstream slices cite, and beyond the memo's §6.4 pre-enumerated set it surfaces:
 
 1. **`#11-layoutbox-absence-unreachable`** — there is no `LayoutBox` **removal** path, so the seam's
@@ -540,12 +565,16 @@ classified inventory downstream slices cite, and beyond the memo's §6.4 pre-enu
    makes the audit's per-reader axis-3 rows describe a state today's engine cannot produce for a once-laid
    target — IO/RO are the exposed readers. Resolution trigger = C-4, or any slice needing a truthful
    box-absent signal. Same missing fact as §6.4 row 1 from the component side.
-2. **`#11-layoutbox-field-typed-reader-coverage`** — a `LayoutBox`-typed BINDING (struct field or fn
-   param) carries the token at its declaration but not at any read through it. Wire #1 forces a row for a
-   NEW binding; the *reads through* an existing one are enumerated by hand only. A wire #5 that claimed to
-   bound the family was written and then withdrawn — its regex missed `&'a LayoutBox` and a new field in an
-   already-listed file passed every wire — so this is genuinely unmachined. Resolution trigger = C-4, which
-   must not read a green gate as covering it.
+2. **`#11-layoutbox-field-typed-reader-coverage`** — a `LayoutBox`-typed BINDING (struct field, fn param,
+   or `let`) carries the token at its declaration but not at any use through it. Wire #1 forces a row for a
+   NEW binding; the *uses through* an existing one are enumerated by hand only. An early wire #5 that claimed
+   to bound the family was written and then withdrawn — its regex missed `&'a LayoutBox` and a new field in an
+   already-listed file passed every wire — so this is genuinely unmachined. **Scope extended at R4: this now
+   covers the WRITE side too.** The shipped wire #5 rejects the token-bearing raw writes
+   (`insert_one(e, LayoutBox { … })`, `get::<&mut LayoutBox>`) but cannot see
+   `let lb = LayoutBox { … }; … insert_one(e, lb)` — the form all 19 migrated sites use — because grep cannot
+   type-infer and banning identifier-argument inserts fires on every `style`/`info` insert in the same files.
+   Same root, both directions. Resolution trigger = C-4, which must not read a green gate as covering either.
 3. **`#11-layoutbox-trip-wire-not-in-ci`** — the D4 gate runs only in the local `mise run ci`; no GitHub
    workflow invokes it (see the ⚠ below). Until it is in a workflow its verdict is a pre-push habit rather
    than an enforced invariant, which is load-bearing because C-4's delete decision reads it. Resolution

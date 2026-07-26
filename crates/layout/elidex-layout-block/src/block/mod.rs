@@ -621,7 +621,7 @@ pub fn layout_block_inner(
         layout_generation: 0,
     };
 
-    let _ = dom.world_mut().insert_one(entity, lb.clone());
+    dom.set_layout_box(entity, lb.clone());
 
     // Layout positioned descendants owned by this containing block.
     let is_root = dom.get_parent(entity).is_none();

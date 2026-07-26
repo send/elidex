@@ -45,8 +45,8 @@ fn layout_fragmented_invalidates_screen_geometry_provenance() {
     // Provenance (terminal-Z C-3a §2): a paged pass that lays anything out must leave a
     // prior screen pass's `CompletedScreen` demoted — else `screen_geometry()` would read
     // a page-relative store as screen geometry (soundness hole 1). It holds without any
-    // entry mark: the fragmentainer loop reaches `dispatch_layout_child`, whose bracket
-    // invalidates. (A paged attempt that lays out NOTHING is the opposite case and must
+    // entry mark: whatever the pass lays out writes `LayoutBox`es through
+    // `EcsDom::set_layout_box`, which invalidates. (A paged attempt that lays out NOTHING is the opposite case and must
     // NOT demote — `a_zero_write_paged_early_return_leaves_the_phase_alone` below.)
     let mut dom = EcsDom::new();
     let div = dom.create_element("div", Attributes::default());
@@ -88,7 +88,7 @@ fn layout_fragmented_invalidates_screen_geometry_provenance() {
 
     assert!(
         dom.screen_geometry().is_none(),
-        "the paged pass's dispatch bracket invalidated the stale CompletedScreen"
+        "the paged pass's geometry writes invalidated the stale CompletedScreen"
     );
 }
 
@@ -125,7 +125,7 @@ fn layout_paged_invalidates_screen_geometry_provenance() {
 
     assert!(
         dom.screen_geometry().is_none(),
-        "layout_paged laid content out, so the dispatch bracket cleared CompletedScreen"
+        "layout_paged laid content out, so its writes cleared CompletedScreen"
     );
 }
 
@@ -150,12 +150,12 @@ fn a_zero_write_paged_early_return_leaves_the_phase_alone() {
     // The plan's §2 wording ("BOTH paged entries leave phase `Invalid`") was the real
     // defect here — it stated the guarantee at MODE granularity ("a paged fn was
     // called"), whereas what actually demotes is the pass reaching a store writer or a
-    // dispatch bracket; an attempt that returns before both reaches neither. §2 is
-    // corrected there. The correction is NOT "the mechanism is uniformly write-granular"
-    // — the component half demotes unconditionally at `dispatch_layout_child`'s bracket,
-    // write or no write. It is that ENTERING a mode is not itself a demotion event.
-    // This test pins the decision so a future reader of that section cannot "fix" the
-    // code back.
+    // component write; an attempt that returns before both reaches neither. §2 is
+    // corrected there. ENTERING a mode is not itself a demotion event; writing is. Both
+    // geometry sources now invalidate at their own write (`FragmentTree`'s mutators;
+    // `EcsDom::set_layout_box`/`layout_box_mut`), so the rule is uniform and this case
+    // falls out of it rather than being an exception to it. This test pins the decision
+    // so a future reader of that section cannot "fix" the code back.
     let mut dom = EcsDom::new();
     let div = dom.create_element("div", Attributes::default());
     dom.world_mut().insert_one(

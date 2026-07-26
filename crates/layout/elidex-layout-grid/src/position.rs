@@ -425,7 +425,7 @@ pub(crate) fn position_items(
                 ),
                 ..final_lb
             };
-            let _ = dom.world_mut().insert_one(item.entity, corrected);
+            dom.set_layout_box(item.entity, corrected);
         }
     }
 

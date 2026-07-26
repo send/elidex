@@ -95,6 +95,43 @@ impl EcsDom {
             .is_completed_screen()
             .then_some(ScreenGeometry { dom: self })
     }
+
+    /// The **`LayoutBox` write chokepoint** — the component half of the seam's
+    /// provenance rule (plan §2), and the write-side counterpart of
+    /// [`screen_geometry`](Self::screen_geometry).
+    ///
+    /// Writing the component through here invalidates the store phase, so
+    /// `CompletedScreen` means "published after the last write to **either** geometry
+    /// source" **by construction** — the same guarantee `FragmentTree`'s mutators give
+    /// the store half, now at the same granularity. Producers must not reach
+    /// `world_mut().insert_one(e, LayoutBox { .. })` directly; the D4 trip-wire's
+    /// wire #5 enforces that.
+    ///
+    /// Why a write-site chokepoint and not a dispatch-site bracket: an earlier
+    /// revision invalidated at `elidex_layout::dispatch_layout_child`. That was
+    /// bypassable (the algorithms below it — `layout_block_only`,
+    /// `stack_block_children`, `empty_container_box`, … — are `pub` and called directly
+    /// cross-crate) *and* over-eager (it demoted on `display: contents`, which writes
+    /// nothing). Both are the same root: the guard was not where the write is
+    /// (Codex PR#488 R3+R4). Here it is exact in both directions.
+    pub fn set_layout_box(&mut self, entity: Entity, layout_box: LayoutBox) {
+        self.fragment_tree_mut().invalidate();
+        let _ = self.world_mut().insert_one(entity, layout_box);
+    }
+
+    /// Read-modify-write access to an entity's [`LayoutBox`], through the same
+    /// chokepoint as [`set_layout_box`](Self::set_layout_box).
+    ///
+    /// Invalidates on **acquire**, not on drop: a caller that takes the handle has
+    /// announced a write, and demoting early is the safe direction (the alternative
+    /// needs a guard type whose `Drop` runs before any read — more machinery for a
+    /// strictly weaker guarantee). `None` if the entity has no `LayoutBox`, in which
+    /// case nothing was written — but the phase is still demoted, the one conservative
+    /// edge this shape keeps.
+    pub fn layout_box_mut(&mut self, entity: Entity) -> Option<hecs::RefMut<'_, LayoutBox>> {
+        self.fragment_tree_mut().invalidate();
+        self.world_mut().get::<&mut LayoutBox>(entity).ok()
+    }
 }
 
 impl ScreenGeometry<'_> {

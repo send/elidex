@@ -228,9 +228,39 @@ BAN_TYPEALIAS='type[[:space:]]+[A-Za-z_][A-Za-z0-9_]*([[:space:]]*<[^=]*>)?[[:sp
 # grep is LINE-based, so an alias rustfmt wrapped across two lines carries the token on
 # a line with no `type` and the `type` on a line with no token — invisible to the two
 # patterns above. Rather than attempt multi-line matching, ban the wrap itself: an alias
-# whose RHS starts on the next line must be written on one line so the gate can see it.
-# Narrow by construction (only fires on a `type X … =` line with nothing after the `=`).
-BAN_TYPEALIAS_WRAP='^[[:space:]]*type[[:space:]]+[A-Za-z_][A-Za-z0-9_]*([[:space:]]*<[^=]*>)?[[:space:]]*=[[:space:]]*$'
+# whose RHS does not TERMINATE on the declaration line must be written on one line so the
+# gate can see it.
+# ⚠ An earlier form anchored `=[[:space:]]*$` — RHS starts on the *next* line. That missed
+# the alias whose RHS *opens* on the declaration line but carries the token on a
+# continuation (`type Boxes = (` ⏎ `LayoutBox,` ⏎ `);`): `BAN_TYPEALIAS` needs the token on
+# the `type` line and the old wrap pattern needed nothing after `=`, so both slipped, wire
+# #1 then took an allowlist row for the bare token line, someone classified it `type-def`,
+# and every read through `Boxes` was tokenless with all wires green (Codex PR#488 R3).
+# The fix is to key on the ABSENCE of a terminating `;`, which subsumes the `= $` case:
+# any alias declaration line that does not close its own statement is banned.
+BAN_TYPEALIAS_WRAP='^[[:space:]]*type[[:space:]]+[A-Za-z_][A-Za-z0-9_]*([[:space:]]*<[^=]*>)?[[:space:]]*=[^;]*$'
+# The body-aware scan wire #2 runs with that trigger. Opens on an alias declaration whose
+# statement does not terminate on its own line; reports the DECLARATION line only if a
+# token appears before the terminating `;`. Reported in `path:line:text` form so it
+# concatenates with the `git grep` hits and flows through `strip_comments` unchanged.
+WRAP_SCAN='
+  FNR == 1 { inalias = 0; hit = 0 }
+  {
+    code = $0; sub(/\/\/.*$/, "", code)
+    if (inalias) {
+      if (code ~ /LayoutBox|BoxModel/) hit = 1
+      if (code ~ /;/) {
+        if (hit) printf "%s:%d:%s\n", FILENAME, startline, starttext
+        inalias = 0; hit = 0
+      }
+      next
+    }
+    if (code ~ pat) {
+      inalias = 1; startline = FNR; starttext = $0
+      hit = (code ~ /LayoutBox|BoxModel/)
+    }
+  }
+'
 
 # Positive control — the STRUCTURAL fix for the class, not just the regex. A ban wire that
 # cannot match is indistinguishable from a clean tree, so trusting its verdict requires first
@@ -269,7 +299,40 @@ ban_control "$BAN_ALIAS" 'use elidex_plugin::LayoutBox as LB;' 'import/re-export
 ban_control "$BAN_TYPEALIAS" 'type MyBox = elidex_plugin::LayoutBox;' 'type alias' || control_ok=1
 ban_control "$BAN_TYPEALIAS" "type BoxRef<'a> = &'a elidex_plugin::LayoutBox;" 'generic/lifetime type alias' || control_ok=1
 ban_control "$BAN_ALIAS" 'use elidex_plugin::{LayoutBox as LB, Rect};' 'braced alias' || control_ok=1
-ban_control "$BAN_TYPEALIAS_WRAP" 'type MyBox =' 'wrapped type alias' || control_ok=1
+# The wrap scan is multi-line, so it needs its own control — and a NEGATIVE one. The
+# single-line control could only prove the trigger fires; it could not see that an earlier
+# revision reported EVERY wrapped alias in a token file, including ones with no token in
+# the body. A ban wire that fires on clean code is as useless as one that never fires, so
+# both directions are asserted here.
+wrap_control() { # $1 = multi-line sample, $2 = "hit"|"miss", $3 = shape label
+  local dir out rc=0
+  if ! dir="$(mktemp -d)" || [ -z "$dir" ] || [ ! -d "$dir" ]; then
+    red "FAIL: wire #2 wrap self-test could not create a scratch dir — not trustworthy."
+    return 1
+  fi
+  printf '%s\n' "$1" > "$dir/control.rs"
+  out="$(cd "$dir" && awk -v pat="$BAN_TYPEALIAS_WRAP" "$WRAP_SCAN" control.rs 2>/dev/null || true)"
+  rm -rf "$dir"
+  if [ "$2" = hit ] && [ -z "$out" ]; then
+    red "FAIL: wire #2 wrap self-test — '$3' was NOT caught. The multi-line alias ban is dead."
+    rc=1
+  elif [ "$2" = miss ] && [ -n "$out" ]; then
+    red "FAIL: wire #2 wrap self-test — '$3' was flagged, but it carries no token. The ban"
+    red "      over-matches and would red CI on unrelated code."
+    rc=1
+  fi
+  return "$rc"
+}
+wrap_control 'type MyBox =
+    elidex_plugin::LayoutBox;' hit 'wrapped alias, RHS on the next line' || control_ok=1
+wrap_control 'type Boxes = (
+    elidex_plugin::LayoutBox,
+    u32,
+);' hit 'wrapped alias, parenthesized RHS (Codex PR#488 R3)' || control_ok=1
+wrap_control 'type RoleTestCase = (
+    &str,
+    u32,
+);' miss 'wrapped alias with no geometry token' || control_ok=1
 if [ "$control_ok" -ne 0 ]; then
   fail=1
 else
@@ -281,11 +344,18 @@ else
   # token grep. Scanning the whole tree instead fired on unrelated wrapped aliases
   # (`subtle_crypto/ops.rs` `type CipherOp =`) — a gate that reds CI on code with no
   # `LayoutBox` in it teaches people to ignore it.
+  # ⚠ Scoping to token FILES is necessary but NOT sufficient: an earlier revision matched
+  # the declaration line alone, which reds on any wrapped alias that happens to live in a
+  # token file (`a11y/tree.rs` `type RoleTestCase = (`, `grid/tests/mod.rs`
+  # `type TrackSizingCase = (`) — the same "gate reds CI on code with no LayoutBox in it"
+  # failure the file scoping was introduced to fix, just one level in. So the scan is
+  # BODY-AWARE: it opens on an alias declaration whose statement does not terminate on its
+  # own line, and reports only if the token appears before the terminating `;`.
   token_files="$(cd "$ROOT" && git grep -lwE 'LayoutBox|BoxModel' -- 'crates/**/*.rs' || true)"
   wrap_hits=""
   if [ -n "$token_files" ]; then
     # shellcheck disable=SC2086
-    wrap_hits="$(cd "$ROOT" && grep -nH -E "$BAN_TYPEALIAS_WRAP" -- $token_files 2>/dev/null || true)"
+    wrap_hits="$(cd "$ROOT" && awk -v pat="$BAN_TYPEALIAS_WRAP" "$WRAP_SCAN" $token_files 2>/dev/null || true)"
   fi
   ban_hits="$( { cd "$ROOT" && git grep -nwE "$BAN_ALIAS|$BAN_TYPEALIAS" -- 'crates/**/*.rs'; printf '%s' "$wrap_hits"; } | strip_comments || true)"
   if [ -n "$ban_hits" ]; then
@@ -309,7 +379,12 @@ if [ -n "$reader_files" ]; then
   # mention of `macro_rules!` in that file becomes a false FAIL. Reachable precisely as
   # the C-3 migration shrinks the reader-file set toward one. `--` stops a path that
   # begins with `-` being read as an option.
-  macro_hits="$(cd "$ROOT" && grep -nH -E 'macro_rules!' -- $reader_files 2>/dev/null | strip_comments | grep -vE "macro_rules![[:space:]]+($ALLOWED_MACROS)\b" || true)"
+  # `([^A-Za-z0-9_]|$)` NOT `\b`: `-E` is POSIX ERE, where `\b` is not a word-boundary
+  # operator — the very trap this script's wire-#2 header records as having left that wire
+  # dead on arrival. Here the failure mode is inverted but still real: a non-matching `\b`
+  # makes the exclusion miss the allowed macros, so wire #3 FAILs every run on a host whose
+  # grep lacks the GNU extension (Codex PR#488 R3). A trailing character class is portable.
+  macro_hits="$(cd "$ROOT" && grep -nH -E 'macro_rules!' -- $reader_files 2>/dev/null | strip_comments | grep -vE "macro_rules![[:space:]]+($ALLOWED_MACROS)([^A-Za-z0-9_]|$)" || true)"
 fi
 if [ -n "$macro_hits" ]; then
   red "FAIL: a new macro_rules! landed in a LayoutBox/BoxModel-reading file. Verify it does NOT expand to a token-less geometry read, then add it to ALLOWED_MACROS (or escalate D4 to a dylint HIR lint):"
@@ -344,6 +419,63 @@ else
   else
     rows="$(grep -cvE '^[[:space:]]*(#|$)' "$ALLOWLIST" || true)"
     green "OK ($rows rows, every classification in vocabulary, no duplicate keys)"
+  fi
+fi
+
+echo "wire #5: no TOKEN-BEARING raw LayoutBox component write outside the EcsDom chokepoint"
+# The seam's phase guard (terminal-Z C-3a §2) is only sound if EVERY `LayoutBox` component
+# write invalidates. That is enforced structurally by routing all writes through
+# `EcsDom::set_layout_box` / `layout_box_mut` — but "all writes" is a claim about the whole
+# tree, so it needs a gate, exactly like the reader inventory above. Without this wire the
+# guard degrades to the review convention it replaced: an earlier revision invalidated at
+# `elidex_layout::dispatch_layout_child` instead, which was both bypassable (the algorithms
+# below it are `pub` and called cross-crate) and over-eager (it demoted on `display:
+# contents`, which writes nothing) — Codex PR#488 R3+R4, the two directions of one root.
+#
+# ⚠ WHAT THIS BOUNDS, EXACTLY — it is NOT "every write". It bans the two raw write shapes
+# that NAME THE TYPE at the write site: `get::<&mut LayoutBox>` and
+# `insert_one(e, LayoutBox { … })`. It does **NOT** catch a write through an
+# already-declared `LayoutBox`-typed BINDING (`let lb = LayoutBox { … }; …
+# insert_one(e, lb)`) — which is how all 16 migrated sites were written, so the residual is
+# real, not theoretical. grep cannot type-infer `lb`, and banning "insert_one with an
+# identifier argument" fires on every `style` / `info` / `anon_style` insert in the same
+# files.
+# This is the SAME binding-opacity limit the header records for the READ side as case (d),
+# now on the write side; slot `#11-layoutbox-field-typed-reader-coverage` owns closing both.
+# What the gate still buys: the binding's DECLARATION line carries the token, so wire #1
+# forces a new allowlist row + classification for it — a new write path cannot land
+# invisibly, only unrejected.
+# ⚠ Do NOT restate this wire as "all writes are chokepointed". A previous wire #5 in this
+# script was withdrawn for exactly that overclaim (see the header) — and C-4's delete
+# decision is taken against these claims.
+# Test code is excluded on the same basis as wire #1 (tests own their fixtures and never
+# feed the seam). The chokepoint's own body is excluded by path — it IS the sanctioned write.
+CHOKEPOINT_PATH='crates/core/elidex-ecs/src/dom/geometry.rs'
+raw_write_hits="$( { cd "$ROOT" && git grep -nE 'get::<&mut[[:space:]]+(elidex_plugin::)?LayoutBox>|insert_one\([^;]*,[[:space:]]*(elidex_plugin::)?LayoutBox[[:space:]]*\{' -- 'crates/**/*.rs' || true; } \
+  | strip_comments \
+  | { grep -vE "$(test_path_re ':')" || true; } \
+  | { grep -vE "^$CHOKEPOINT_PATH:" || true; } )"
+if [ -n "$raw_write_hits" ]; then
+  red "FAIL: a raw LayoutBox COMPONENT write bypasses the EcsDom chokepoint. Such a write"
+  red "      leaves a published CompletedScreen standing over fresh component geometry, so"
+  red "      screen_geometry() would serve a MIXED GENERATION. Use EcsDom::set_layout_box"
+  red "      (whole-value) or EcsDom::layout_box_mut (read-modify-write):"
+  printf '%s\n' "$raw_write_hits" | sed 's/^/  /'
+  fail=1
+else
+  # Positive control, same discipline as wire #2: a ban wire that cannot fire is
+  # indistinguishable from a clean tree, so prove both shapes hit before reporting OK.
+  w5_control_ok=0
+  for probe in 'let _ = dom.world_mut().insert_one(e, LayoutBox { content: r });' \
+               'if let Ok(mut lb) = dom.world_mut().get::<&mut LayoutBox>(e) {'; do
+    printf '%s\n' "$probe" \
+      | grep -qE 'get::<&mut[[:space:]]+(elidex_plugin::)?LayoutBox>|insert_one\([^;]*,[[:space:]]*(elidex_plugin::)?LayoutBox[[:space:]]*\{' \
+      || { red "FAIL: wire #5 self-test — a known raw write was NOT matched: $probe"; w5_control_ok=1; }
+  done
+  if [ "$w5_control_ok" -ne 0 ]; then
+    fail=1
+  else
+    green "OK (no token-bearing raw write; both banned shapes verified live against a control)"
   fi
 fi
 

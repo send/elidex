@@ -54,6 +54,15 @@ four wires narrow that gap rather than closing it):
 3. **Duplicate-content reads in one file** — the gate keys on unique `(path, content)`, so a *second*
    line identical to an already-allowlisted one in the same file does not fire (see "Counting basis").
    Per-site precision is this document's job, not the gate's.
+   ⚠ Codex PR#488 R4 read this as a defect: a second `dom.world().get::<&LayoutBox>(entity)` in a
+   *different function* of the same file collapses to the same key, so it lands unclassified while
+   wire #1 stays green. That mechanism is real and is **accepted deliberately**, not overlooked — the
+   dedup is what lets a reader MOVE within a file without churning the allowlist, and the residual is
+   narrow: the new site is by construction the same reader-shape in the same file as one already
+   triaged, so it inherits that row's migration semantics. The dangerous direction — a **novel**
+   reader shape, or a reader in a new file — always fires. Widening the key to `(path, line, content)`
+   would trade this for allowlist churn on every edit above a reader, which is the failure mode that
+   makes a gate get ignored. Recorded here so C-4 does not read "exhaustive" as "per-site exhaustive".
 4. **Token-hiding macros** — wire #3 guards against a new `macro_rules!` in a reader-token file;
    verifiably none today.
 
@@ -128,7 +137,7 @@ would have gone green over a live read that then silently loses item baselines. 
 of this same mislabel (after `render/builder/inline.rs:73` and `builder/mod.rs:482`/`:998`): being in a
 producer crate is not the test — reading someone else's committed geometry is. A sweep of the 31 rows
 classified `producer` *before* this reclassification found no fourth, so the live allowlist holds **30**:
-the remainder are writes (`insert_one` / `&mut` / literals), local result-holders, or reads of geometry
+the remainder are writes (`set_layout_box` / `layout_box_mut` / literals), local result-holders, or reads of geometry
 the same algorithm just produced (recorded in section (d)).
 
 ⚠ The four baseline readers are in **producer crates** and run **in-layout** — `box_fragments` is
@@ -216,17 +225,25 @@ and the `#[cfg(test)] mod tests` are infrastructure/test, not readers.)
 
 ### Producers — `elidex-layout-*` (grouped, terse)
 
-Writes (`&mut`, construction, `insert_one`, struct fields) + in-layout producer reads. These **survive
-C-4** (LayoutBox stays the producer's working representation). Representative sites; the trip-wire
+Writes (`&mut`, construction, the write chokepoint, struct fields) + in-layout producer reads. These
+**survive C-4** (LayoutBox stays the producer's working representation). Representative sites; the trip-wire
 treats the full set as crate-level producer entries.
+
+⚠ **Every component write now routes through `EcsDom::set_layout_box` / `EcsDom::layout_box_mut`** (the
+terminal-Z C-3a write chokepoint, plan §2) so it invalidates the screen-geometry phase. That is **19** sites —
+16 whole-value writes + 3 read-modify-write — across 6 crates; an earlier count of "14 `insert_one` sites" was
+low, having missed `grid/position.rs:428` and three of the five `table/lib.rs` writes. That the writer
+inventory was itself incomplete is why the guard could not stay at a dispatch site: "every writer is reached
+through the dispatcher" was not a claim review could check. Trip-wire **wire #5** rejects raw token-bearing
+writes; see plan §2 for what it does and does not bound.
 
 | kind | representative sites | CLASS |
 |---|---|---|
-| `&mut LayoutBox` read-modify-write | `block/children/shift.rs:164` (probe-lag shift, I-phase fact 1), `layout/mod.rs:157` (layout_generation stamp), `positioned/mod.rs:101` (`apply_relative_offset` param) | producer |
+| `&mut LayoutBox` read-modify-write (**via `EcsDom::layout_box_mut`**) | `block/children/shift.rs:164` (probe-lag shift, I-phase fact 1), `inline/mod.rs:1273` (atomic reposition), `layout/mod.rs:157` (layout_generation stamp), `positioned/mod.rs:101` (`apply_relative_offset` param) | producer |
 | multicol committer read (feeds store) | `multicol/fill.rs:76` (`snapshot_box` get<&LayoutBox>) + `:77` `BoxFragment::from`, `multicol/fill.rs:421` (monolithic block extent) | producer |
 | in-layout presence check | `inline/pack/boxes.rs:62` (`get<&LayoutBox>.is_ok()` — "skip if already laid") | producer |
 | in-layout derived-value helper (LOCAL box) | `table/helpers.rs:23` `box_total_height`, `table/lib.rs:61` `cell_baseline` | producer |
-| construction + `insert_one` (one per algorithm) | `block/mod.rs:624`, `block/lib.rs:363`, `block/children/helpers.rs:355` (display:contents/anon — axis 3), `inline/pack/boxes.rs:88`, `positioned/layout.rs:515,523`, `flex/lib.rs:491,504`, `flex/algo.rs:519`, `grid/lib.rs:619`, `multicol/lib.rs:329`, `table/lib.rs:394,785`, `layout/mod.rs:175` | producer |
+| construction + **`EcsDom::set_layout_box`** (one per algorithm) | `block/mod.rs:624`, `block/lib.rs:363`, `block/children/helpers.rs:355` (display:contents/anon — axis 3), `inline/pack/boxes.rs:88`, `positioned/layout.rs:515,523`, `flex/lib.rs:491,504`, `flex/algo.rs:519`, `grid/lib.rs:619`, `grid/position.rs:428`, `multicol/lib.rs:329`, `table/lib.rs:331,394,714,741,785`, `layout/mod.rs:175` | producer |
 | struct field / result holder | `block/lib.rs:57` `pub layout_box: LayoutBox`, `layout/mod.rs:189` `PageFragment.layout_box`, `table/lib.rs:493` `Vec<LayoutBox>` | producer |
 | producer field-read | `multicol/lib.rs:269` `outcome.layout_box.margin_box()` | producer |
 
