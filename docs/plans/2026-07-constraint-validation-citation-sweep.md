@@ -150,9 +150,22 @@ It emits, per distinct number: the resolved title (or `*** UNRESOLVED ***`), the
 
 ### §4.0 The evidence base — all 81 numbers
 
-Run 2026-07-27 via `.claude/tools/webref cite-audit html --prefix 4.10`: **82 distinct `§4.10.x` numbers across 731 cites** in `crates/`. **25 numbers do not resolve, carrying 96 cites** (the "96" is a *cite* count, not a number count).
+Run 2026-07-27 via `.claude/tools/webref cite-audit html --prefix 4.10`.
 
-⚠ **These supersede draft 2's 81 / 632.** Its grep required a digit after `4.10.`, so it missed **bare `§4.10` (99 cites)** entirely — 82 = 81 + 1, 731 = 632 + 99. The unresolved figures are unchanged (25 / 96), which is why the defect stayed invisible to a resolution-shaped check.
+**Attribution matters, and the raw numbers are not the audit set.** The tool's first cut resolved *every* bare `§N.N` against HTML, which reports **correct work as drift**: `§2.2.2` (37 cites in `crates/net/elidex-net/src/preflight/`) is WHATWG **Fetch** — the citations PR #483 deliberately swept *to* their correct Fetch numbers — and `§0.5` (4 cites, e.g. `vm/dispatch_class.rs:6`) is a **plan-memo** pointer, not a spec citation at all. The tool now attributes each cite to a spec in three buckets (§3.1) before resolving. Whole-tree, the difference is an order of magnitude:
+
+| Measure | Unattributed (first cut) | **Attributed (authoritative)** |
+|---|---|---|
+| `crates/` distinct sections / cites | 1257 / 11984 | **405 / 2390** (html) |
+| unresolved sections / cites | 710 / 3763 | **61 / 171** (html) |
+| attributed to another spec | — | 2663 cites |
+| **UNATTRIBUTED** | — | **6931 cites** |
+
+**The `§4.10` cluster, attributed to HTML**: **74 distinct sections / 497 cites**; **24 unresolved / 92 cites**.
+
+⚠ **Three corrections these supersede.** (1) Draft 2's 81 / 632 came from a grep that required a digit after `4.10.`, so it missed **bare `§4.10` (99 cites)**. (2) Draft 3's 82 / 731 was right about the *space* but counted unattributed cites as HTML. (3) The audit set is therefore **74 / 497**, and the 25-number table below is 24 numbers under attribution — the one that drops out is cited only from comment blocks that never name a spec.
+
+**UNATTRIBUTED is a finding, not noise.** 6931 cites tree-wide (234 within `§4.10.x`) carry a bare `§` whose spec a reader cannot determine from its comment block. That is a defect *independent of whether the number happens to resolve*, and it is the largest single citation-hygiene gap the tool exposes. **Out of scope here** (it spans every spec and every crate) → queued in §10.1 as `#11-unattributed-spec-citations`.
 
 **The 25 non-resolving numbers, with cite counts and disposition:**
 
@@ -256,9 +269,15 @@ Applying the one rule pulls in, previously unnamed: `vm/host/events_misc.rs:306`
 
 ### §4.6 Fate — for cites whose code a successor PR re-authors
 
-> **A cite is excludable only when the successor PR deletes the code it annotates, *or* rewrites it such that the successor re-authors the comment. A cite that outlives the change is IN.**
+> **A cite is excludable only when the successor PR deletes the code it annotates, *or* rewrites it such that the successor must re-author the comment. A cite that outlives the change is IN.**
 
-("deleted" alone was too narrow — it returned OUT for `matching.rs:284`, which Slice 1 *rewrites*.) Verdicts against Slice-1's §5 deletion set and its §6-C citation list:
+**The discriminator, stated** (it was applied but never written down — all five `crates/css/elidex-css/src/selector/tests/matching.rs` sites are in Slice-1's *same* rewrite set, yet split IN/OUT):
+
+> **Re-seeding a test body does not force a comment edit; semantically inverting its assertion does.** Slice 1 re-seeds every one of those tests (`ElementState` bits → `Attributes`/FCS), which leaves each comment's *claim* intact. But for three of them Slice-1 §6-A **inverts the asserted answer** (rows 6-7 `<fieldset>` now matches `:disabled`/`:enabled`; row 9 `<output>` no longer matches `:valid`), so the comment asserting the old answer becomes false and Slice 1 **must** re-author it. For the other two the claim survives verbatim, so nothing forces Slice 1 to touch the comment — and an untouched wrong cite is PR-A0's job.
+
+⚠ **This is a commitment Slice-1 has not made.** Its §6-C lists **no** `tests/matching.rs` site at all. The reciprocal edit (§11) must therefore *add* the three OUT sites to Slice-1 §6-C explicitly; without that row they are orphaned by both memos. If Slice 1 declines, all five flip to IN here.
+
+Verdicts against Slice-1's §5 deletion set and its §6-A inversion rows:
 
 | Site | Cite | Annotates | Slice-1 fate | Verdict |
 |---|---|---|---|---|
@@ -269,11 +288,11 @@ Applying the one rule pulls in, previously unnamed: `vm/host/events_misc.rs:306`
 | `matching.rs:137` | §4.10.15.2.4 | `is_requirable_element` doc | **deleted** (§5-R4) | **OUT** — Slice 1 |
 | `matching.rs:405`/`:419` | §4.10.18.3/.5 | `is_indeterminate_candidate` / `is_disableable_element` docs | **deleted** (§5-R4) | **OUT** — Slice 1 |
 | `matching.rs:577` | §4.10.18.5 | inline test comment | test rewritten | **OUT** — Slice 1 |
-| `tests/matching.rs:715` | §4.10.15.2.4 | `required_does_not_match_fieldset` — the *assertion* survives | body re-seeded; comment not re-authored | **IN** |
+| `tests/matching.rs:715` | §4.10.15.2.4 | `required_does_not_match_fieldset` | re-seeded; **claim survives** (`:required` still excludes `<fieldset>`) ⇒ no forced comment edit | **IN** |
 | `tests/matching.rs:727` | §4.10.15.2.4 | `optional_does_not_match_fieldset` | **Slice-1 §5 lists line 726 among the 16 it rewrites**, and its re-seed rule removes the `ElementState::default()` insert — so the *body* changes; the comment still outlives it | **IN** (verdict unchanged; **basis corrected** — the earlier "survives byte-identical" was wrong) |
-| `tests/matching.rs:767` | §4.10.18.7 | `valid_matches_output_element` — Slice-1 §6-A row 9 **inverts** this test | comment re-authored | **OUT** — Slice 1 |
-| `tests/matching.rs:788` | §4.10.18.5 | fieldset-not-disableable | Slice-1 §6-A rows 6-7 **invert** it | **OUT** — Slice 1 |
-| `tests/matching.rs:839` | §4.10.18.3 | `:indeterminate` non-candidate | rewritten | **OUT** — Slice 1 |
+| `tests/matching.rs:767` | §4.10.18.7 | `valid_matches_output_element` | **§6-A row 9 inverts the answer** ⇒ comment must be re-authored | **OUT** — Slice 1 *(needs the §6-C row)* |
+| `tests/matching.rs:788` | §4.10.18.5 | fieldset-not-disableable | **§6-A rows 6-7 invert the answer** ⇒ must be re-authored | **OUT** — Slice 1 *(needs the §6-C row)* |
+| `tests/matching.rs:839` | §4.10.18.3 | `:indeterminate` non-candidate | §6-A row 8 adds the `<progress>` branch ⇒ answer changes, comment re-authored | **OUT** — Slice 1 *(needs the §6-C row)* |
 | `validity_state.rs:152`/`:154` | §4.10.20.3 | the bar list | PR-A adds *its own* bars only | **IN** (number + the missing `readonly` bar, §4.4) |
 | `validation/mod.rs:12` | §4.10.20.3 | candidacy doc | PR-A adds its own bars | **IN** for the number; PR-A owns the new-bar prose |
 
@@ -281,35 +300,45 @@ Applying the one rule pulls in, previously unnamed: `vm/host/events_misc.rs:306`
 
 **Reciprocal edits** (§11): write the per-site verdicts into **both** Slice-1 §6-C and **PR-A** §4.4, so no memo can silently drop a site.
 
+**Non-`elidex-css` contested sites — the same rule, stated rather than assumed.** Earlier drafts were exhaustive for `elidex-css` only; these three are contested and were silent:
+
+| Site | PR-A0 does | Slice 1 does | Verdict |
+|---|---|---|---|
+| `crates/dom/elidex-form-core/src/validation/mod.rs:32` | **adds** a new §4.10.5.1.1 cite on the hidden bar | §5-M2 rewrites the *disabledness* lines (`:29-31`, `:43`) in the same fn | **IN — no conflict.** Different lines; the added cite outlives M2's edit, which does not touch the hidden bar. |
+| `crates/dom/elidex-form/src/submit.rs:306`/`:322`/`:276-279`/`:457`/`:459`/`:486` | renumbers 6 comments | §5-M1 rewrites `collect_control_entry` (`:349-355`) | **IN — no conflict.** M1's rewrite is 30+ lines below the nearest PR-A0 cite; no comment PR-A0 edits is re-authored by M1. |
+| `crates/shell/elidex-shell/src/content/form_input.rs:289` | renumbers the reset cite | §5-W5 deletes `:36-39` (the `ElementState` sync) | **IN — no conflict.** Different function, 250 lines apart; `:289`'s comment outlives W5 untouched. |
+
 **Also OUT with an owner**: `tests_html_input_proto.rs:176` (`§4.10.5.1.16` → §4.10.5 `#dom-input-indeterminate`) — different concept, already queued in `memory/project_html-section-renumber-sweep.md`.
 
 ---
 
 ## §5 Behavior deltas
 
-**None.** Comments and doc-comments only; no production statement, signature, or test assertion changes. Success = `mise run ci` green with a diff containing no non-comment line.
+**No `crates/**` behavior change.** Within the engine the diff is comments and doc-comments only — no production statement, signature, or test assertion changes.
 
----
+**The PR is no longer doc-only, and §6/§8 say so.** It also adds **code**: `.claude/tools/_webref/commands/cite_audit.py` (the discovery detector, §3.1), its wiring in `_webref/cli.py`, and `_webref/test_cite_audit.py`. That is deliberate — the tool is what stops the hand-authored class from recurring, and bundling it here is what gets it to `/code-review` and `/elidex-review` at pre-push, which is where a tool's correctness is actually caught. It is outside the cargo workspace and has no engine consumer, so it cannot affect engine behavior; it is scoped and tested in §6.
 
 ## §6 Test plan
 
 There is nothing to assert — the deliverable is prose. Verification is procedural:
 
 1. **`mise run ci` green**, including the `-D warnings` `doc` job (catches a broken intra-doc link introduced while editing doc-comments).
-2. **Diff discipline**: `git diff -U0 | grep '^[+-]' | grep -v '^[+-][+-]' | grep -vE '^[+-]\s*(//|///|//!|\*)'` must be **empty** — the mechanical proof that the PR is doc-only.
+2. **Diff discipline, scoped**: over `crates/**` only, `git diff -U0 -- crates/ | grep '^[+-]' | grep -v '^[+-][+-]' | grep -vE '^[+-]\s*(//|///|//!|\*)'` must be **empty** — the mechanical proof that no engine non-comment line changed. The `.claude/tools/**` diff is **explicitly excluded and justified** (§5): it is the new detector plus its tests, outside the cargo workspace, with no engine consumer.
 3. **Citation re-verification**: every `§`-number introduced by the diff re-checked with `webref heading --exact`, and every **step** number re-checked with `body html <anchor>`.
 4. **Exit criterion — negative space, not a pattern list.** Re-run §3.1 step (0) and assert that **every** distinct `§4.10.x` in `crates/` either resolves *or* appears on §4.0's named-OUT list. A pattern-shaped residual scan cannot state this: the first draft's scan was **narrower than its own audit grep** (it dropped `§4.10.15.2` and never had `§4.10.21.5` / `§4.10.18.x` / bare `§4.10.15`), so the PR could have passed its own exit criterion with the cluster half-swept. The negative-space form has no such gap by construction:
    ```
    .claude/tools/webref cite-audit html --prefix 4.10 --strict   # exit 1 on any unresolved
    .claude/tools/webref cite-audit html --prefix 4.10            # per-cite review pass
    ```
-   **Per-cite over the concept axis, not per-number over resolution**: (i) `--strict` exits 0, or every remaining `*** UNRESOLVED ***` number matches §4.0's OUT list exactly; (ii) each cite in the full output carries a disposition — swept, or on §4.6's fate list, or on §10.1's queue. A pattern-shaped scan cannot state (ii); draft 2's residual scan was in fact **narrower than its own audit grep** (dropping `§4.10.15.2`, never having `§4.10.21.5` / `§4.10.18.x` / bare `§4.10.15`), so the PR could have passed its own exit criterion with the cluster half-swept. Plus: no `§4.10.21.3` survives except `validation/mod.rs:188`; no `§`-less "step 2/2.1/2.2" in the `requestSubmit` family; `§4.10.12` cite count > 0.
+   **Scoped to attributed-HTML cites in the cluster** — the assertion cannot cover bare cites whose spec is unknown (§4.0), so unattributed cites are *reported as a count*, not asserted on. **Per-cite over the concept axis, not per-number over resolution**: (i) `--strict` exits 0, or every remaining `*** UNRESOLVED ***` number matches §4.0's OUT list exactly; (ii) each cite in the full output carries a disposition — swept, or on §4.6's fate list, or on §10.1's queue. A pattern-shaped scan cannot state (ii); draft 2's residual scan was in fact **narrower than its own audit grep** (dropping `§4.10.15.2`, never having `§4.10.21.5` / `§4.10.18.x` / bare `§4.10.15`), so the PR could have passed its own exit criterion with the cluster half-swept. Plus: no `§4.10.21.3` survives except `validation/mod.rs:188`; no `§`-less "step 2/2.1/2.2" in the `requestSubmit` family; `§4.10.12` cite count > 0.
 
-5. **The new tool is itself verified** — it is a `.claude/tools/` adapter command, outside the cargo workspace, so `mise run ci` does not cover it. Two defects were already found and fixed by exercising it rather than reading it, which is the argument for the checks:
-   - `--strict` was a **no-op**: `cli.main` calls `args.func(args)` and discards the return value (every command signals via `sys.exit`), so a bare `return 1` was dropped. Now `sys.exit(1)`, matching the convention.
-   - `--prefix` used **string** matching, so `4.10.2` also matched `4.10.20.3` — a silent order-of-magnitude widening, the same quiet-over-match class `heading --exact` exists to guard. Now dotted-component matching.
+5. **The tool is code, so it is unit-tested** — `.claude/tools/_webref/test_cite_audit.py` (NEW, 13 tests, `unittest`, following the `test_inventory_diff.py` / `test_agent_brief.py` / `test_refresh.py` shape already in `_webref/`). It is outside the cargo workspace, so `mise run ci` does not run it; the gate runs it explicitly alongside its three siblings. Coverage maps 1:1 onto the defects that made it necessary:
+   - **`TestStrictExitCode`** — `--strict` exits non-zero on an unresolved cite, zero when all resolve, and zero without the flag. *(`--strict` was a no-op: `cli.main` calls `args.func(args)` and discards the return value, so the bare `return 1` was dropped.)*
+   - **`TestPrefixIsDottedComponent`** — `--prefix 4.10.2` matches `4.10.2` and `4.10.2.7` but **not** `4.10.20.3`. *(It used `str.startswith`, silently sweeping the whole `4.10.2x` range.)*
+   - **`TestSpecAttribution`** (7 tests) — explicit label selects that spec; longest label wins (`WHATWG HTML` is not parsed as the bare `HTML` alias); bare cites inherit within a comment block; a non-comment line ends the block; `§0.5`-style plan-memo pointers land in UNATTRIBUTED rather than being audited as HTML; `--show-unattributed` lists them.
+   - **`TestResolverExactness`** — a cited `§4.10.20.3` reports UNRESOLVED rather than passing because `§4.10.2` exists. *(`lookup_section` is prefix-tolerant and has **no** `exact` parameter — the first commit called it with `exact=True`, which Pyright flagged; the shipped guard is `hit[0] == section`.)*
 
-   Checks: `--strict` exits **1** on `--prefix 4.10` (unresolved present) and **0** on `--prefix 4.10.2` (clean subtree); `--prefix` component-boundary cases (`4.10.2` → 1 section, not 8); and per-number verdicts round-trip against `heading --exact`.
+   Verified green 2026-07-27: `python3 .claude/tools/_webref/test_cite_audit.py` → 13 tests OK, and the three sibling test files still OK.
 
 **Gate**: `mise run ci`, then `/pre-push`, then **`/external-converge` from round 1**. The reactive escalation trigger ([[feedback_gate-miss-on-edge-dense-escalate-to-converge]]) has already fired twice on this memo — two gaps found pre-dispatch, then 1 CRIT / 28 IMP at review — and the #483 precedent this PR invokes did **not** converge in a single pass (it left three open carves). §2's honest re-statement (discovery is not canonical) is the same conclusion from the design side.
 
@@ -329,24 +358,30 @@ There is nothing to assert — the deliverable is prose. Verification is procedu
 
 ## §8 Line-count budget
 
-Verified 2026-07-27 (`wc -l`). The earlier version of this section was **false** — it omitted two named touch sites that are already >1000 and mis-stated a third.
+Full derivation over **every** file this memo names as a touch site (verified 2026-07-27, `wc -l`), not the subset earlier drafts published. Sorted descending; **bold = already >1000**.
 
-| File | Lines | Note |
+| File | Lines | Why touched |
 |---|---|---|
-| `crates/script/elidex-js/src/vm/mod.rs` | **2782** | already >1000; touched (`:1089`, `:1094`, `:1105`, `:1113`, `:1496`, `:1500`) |
-| `crates/script/elidex-js/src/vm/object_kind.rs` | **1700** | already >1000; touched (`:983`) |
-| `crates/script/elidex-js/src/vm/well_known.rs` | **1588** | already >1000; touched (`:1134`, `:1136`, `:1140`, `:1145`) |
-| `crates/script/elidex-js/src/vm/globals.rs` | **1533** | already >1000; touched (`:287`, `:380`) |
-| `crates/script/elidex-js/src/vm/host/html_form_proto.rs` | 680 | |
-| `crates/dom/elidex-form/src/submit.rs` | 546 | |
-| `crates/script/elidex-js/src/vm/host/validity_state.rs` | 518 | |
-| `crates/dom/elidex-form-core/src/validation/mod.rs` | 430 | |
-| `crates/shell/elidex-shell/src/content/form_input.rs` | 318 | |
-| `crates/script/elidex-js/src/vm/tests/tests_form_submit.rs` | **250** | (not 213) |
+| `crates/script/elidex-js/src/vm/mod.rs` | **2782** | §4.2 (`:1075`, `:1089`, `:1094`, `:1105`, `:1113`, `:1496`, `:1500`, `:803`, `:806`, `:1070`, `:1083`) |
+| `crates/script/elidex-js/src/vm/host/html_select_proto.rs` | **1806** | §4.2 §4.10.10 misuse (`:516`, `:557`) |
+| `crates/script/elidex-js/src/vm/object_kind.rs` | **1700** | §4.2 (`:983`) |
+| `crates/script/elidex-js/src/vm/well_known.rs` | **1588** | §4.2 (`:1134`, `:1136`, `:1140`, `:1145`) |
+| `crates/script/elidex-js/src/vm/globals.rs` | **1533** | §4.2 (`:287`, `:380`) |
+| `crates/script/elidex-js/src/vm/tests/tests_html_t2d_protos.rs` | **1207** | **newly pulled in by the cascade sweep** (`:904`) |
+| `crates/core/elidex-ecs/src/components.rs` | **1037** | **newly pulled in by the cascade sweep** (`:601`, `:607`) |
+| `crates/dom/elidex-form-core/src/lib.rs` | 960 | §4.2 (`:176`, `:424`) — **nearest to the cap**; PR-A adds ~15 more (its §8) |
+| `crates/script/elidex-js/src/vm/host/events_misc.rs` | 835 | §4.5 (`:306`, `:343`) — named in §3/§4.5, absent from earlier §8 |
+| `crates/script/elidex-js/src/vm/host/html_form_proto.rs` | 680 | §4.2, §4.3, §7 |
+| `crates/dom/elidex-form/src/submit.rs` | 546 | §4.2, §4.3, §4.4 |
+| `crates/script/elidex-js/src/vm/host/validity_state.rs` | 518 | §4.2, §4.4 |
+| `crates/dom/elidex-form-core/src/validation/mod.rs` | 430 | §4.0, §4.2, §4.4 |
+| `crates/shell/elidex-shell/src/content/form_input.rs` | 318 | §4.5 (`:289`), §7 |
+| `crates/script/elidex-js/src/vm/tests/tests_form_submit.rs` | 250 | §4.2, §4.3 |
+| *(plus the remaining test/proto files named in §4.2, all <1000)* | | |
 
-**Disposition — explicit, same shape as Slice-1 §9's `components.rs` (1037) row.** Four touched files are already >1000. The touch-time split discipline targets *growth into* unbounded files; PR-A0's diff is **comments only and net-flat** (a few multi-line comments reflow ±1 line), so it adds no debt and triggers no obligation. Splitting any of them would be a speculative refactor bundled into a doc-only PR, which the same discipline forbids. Recorded here so plan-review does not read the four >1000 counts as unaddressed.
+**Disposition — explicit, same shape as Slice-1 §9's `components.rs` row.** **Seven** touched files are already >1000, two of them (`tests_html_t2d_protos.rs`, `components.rs`) pulled in *by this PR's cascade sweep*. The touch-time split discipline targets *growth into* unbounded files: PR-A0's `crates/**` diff is **comments only and net-flat** (a few multi-line comments reflow ±1 line), so it adds no debt to any of them and triggers no split obligation. Splitting any would be a speculative refactor bundled into a citation sweep, which the same discipline forbids. Recorded so plan-review reads the seven counts as dispositioned, not overlooked.
 
----
+**Tool files added** (outside `crates/`, outside the cargo workspace): `_webref/commands/cite_audit.py` (~230), `_webref/test_cite_audit.py` (~155), + ~3 lines wiring in `_webref/cli.py`. None near any cap.
 
 ## §9 Open questions for `/elidex-plan-review`
 
@@ -364,7 +399,9 @@ Verified 2026-07-27 (`wc -l`). The earlier version of this section was **false**
 |---|---|---|
 | **`#11-citation-anchor-level-verification`** | **NEW** (from §9-Q1) | (1) Real gap? yes — §3.1's detectors verify section *numbers* and concepts, not the `#anchor` within a section; a cite can name the right section and the wrong dfn. (2) Blocked by structure? no, but it needs a per-site `body html <anchor>` pass that would roughly double this PR. (3) Non-regressing to defer? yes — no cite gets *worse*. (4) Durable home? `project_open-defer-slots.md`. **Trigger**: the next citation sweep, or a review finding a wrong-anchor cite. **Date**: 2026-11. |
 
-**Per-PR budget**: **1 new slot** (≤3 ✓). The earlier draft claimed "zero deferred work" while §9-Q1 was open — corrected.
+| **`#11-unattributed-spec-citations`** | **NEW** (from §4.0) | (1) Real gap? yes — **6931 cites** tree-wide carry a bare `§` whose spec a reader cannot determine from its comment block (234 inside `§4.10.x` alone). A citation a reader cannot attribute is a defect independent of resolution. (2) Blocked by structure? no, but it spans every spec and every crate — sweeping it here would collide with every active lane, and it is a different concept axis from this cluster. (3) Non-regressing to defer? yes — pre-existing, and `cite-audit` now *reports* the count so it cannot go quiet again. (4) Durable home? `project_open-defer-slots.md`. **Trigger**: the next cross-spec citation pass, or a review mis-attributing a bare cite. **Date**: 2026-12. |
+
+**Per-PR budget**: **2 new slots** (≤3 ✓, one slot of headroom). Draft 2 claimed "zero deferred work" while §9-Q1 was open — corrected.
 
 ### §10.1 Out-of-cluster inventory — a deliverable, not a silence
 
@@ -412,5 +449,5 @@ Re-derived at authoring time 2026-07-27 (`git worktree list`; `git rev-list --co
 **Carried edits:**
 1. **`docs/plans/2026-07-form-derived-state-reconciliation.md` §6** — **add PR-A0 and PR-A to the umbrella's slicing table** (neither appears in it today) and add an umbrella link to this memo's §0, as Slice-1's memo has. This is what makes CLAUDE.md's edge-dense **base case** apply: a terminal single PR must be *an approved umbrella's* narrowly-scoped slice, and an unlisted PR cannot claim that. §2 concedes the discovery half is edge-dense, so the base case — not §3's breadth metric — is what carries the single-PR shape. (Draft 2 answered the split obligation with breadth; those are different tests.)
 2. **`memory/project_html-section-renumber-sweep.md`** — per-bullet discharge + the §10.1 out-of-cluster inventory (§10).
-3. **Slice-1 §6-C** — reciprocal per-site rows from §4.6, **including the correction** that `matching.rs:299` carries no `§` (verified 2026-07-27).
+3. **Slice-1 §6-C** — reciprocal per-site rows from §4.6. Three things, not one: (a) **add** rows for `src/selector/tests/matching.rs:767`/`:788`/`:839`, which §4.6 assigns to Slice 1 on the semantic-inversion rule and which §6-C lists **nowhere** today — without them the sites are orphaned by both memos; (b) **correct** the existing row that names `matching.rs:299`, which carries **no `§` at all** (verified 2026-07-27); (c) record that `:715`/`:727` are PR-A0-owned. If Slice 1 declines (a), all five flip to IN here and PR-A0 sweeps them.
 4. **PR-A §4.4** — reciprocal rows for the two sites PR-A0 now owns outright (`submit.rs:276-279`, `validity_state.rs:152`/`:154`), and removal of PR-A's duplicate claim on the first.

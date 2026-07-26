@@ -37,13 +37,84 @@ from ..resolver import lookup_section
 # no digits (rare, e.g. prose "§ of the spec") is not a citation.
 _CITE_RE = re.compile(r"§\s*(\d+(?:\.\d+)*)")
 
+# --- Spec attribution -------------------------------------------------
+#
+# A bare `§N.N` means nothing on its own: `§2.2.2` is WHATWG Fetch in
+# `elidex-net`, and `§0.5` is a *plan-memo* section pointer that is not a
+# spec citation at all. Resolving every bare number against one spec
+# reports correct work as drift and non-citations as citations, so the
+# headline count cannot be trusted without attribution. Three buckets:
+#
+#   (a) EXPLICIT    — a spec label immediately precedes the `§`
+#   (b) INHERITED   — bare, but a labelled cite appears earlier in the
+#                     SAME comment block (a run of comment lines; any
+#                     non-comment line ends the block)
+#   (c) UNATTRIBUTED— neither. Reported as its own class, because a `§`
+#                     a reader cannot attribute is a defect regardless
+#                     of whether it happens to resolve somewhere.
+#
+# Label → shortname. Mirrors `commands/coverage_map.py::_SPEC_LABEL_MAP`
+# (kept in sync by hand; it is a display map there and a parse map here),
+# plus the bare aliases that appear in real comments.
+_LABEL_TO_SHORTNAME = {
+    "ecma-262": "ecma262", "ecma262": "ecma262",
+    "ecma-402": "ecma402", "ecma402": "ecma402",
+    "whatwg html": "html", "html": "html",
+    "whatwg dom": "dom", "dom": "dom",
+    "whatwg url": "url", "url": "url",
+    "whatwg fetch": "fetch", "fetch": "fetch",
+    "whatwg streams": "streams", "streams": "streams",
+    "whatwg xhr": "xhr", "xhr": "xhr",
+    "web cryptography api": "webcrypto", "webcrypto": "webcrypto",
+    "web idl": "webidl", "webidl": "webidl",
+    "css selectors l4": "selectors-4", "selectors-4": "selectors-4",
+    "geometry interfaces l1": "geometry-1", "geometry-1": "geometry-1",
+}
+
+# Longest labels first so "WHATWG HTML" wins over "HTML".
+_LABEL_ALT = "|".join(
+    re.escape(k) for k in sorted(_LABEL_TO_SHORTNAME, key=len, reverse=True)
+)
+# A label attached to this cite: `<label> [spec] §`, allowing an
+# intervening word like "spec" ("HTML spec §4.10.5").
+_ATTRIBUTED_RE = re.compile(
+    rf"({_LABEL_ALT})(?:\s+spec)?\s*§\s*(\d+(?:\.\d+)*)", re.IGNORECASE
+)
+_COMMENT_RE = re.compile(r"^\s*(///|//!|//|\*|/\*)")
+
+
+def _attribute(lines: list[str]) -> dict[tuple[int, int], str | None]:
+    """Map (lineno, match-start) → shortname, or None if unattributed.
+
+    Walks the file once, tracking the current comment block and the last
+    spec label seen inside it.
+    """
+    out: dict[tuple[int, int], str | None] = {}
+    block_spec: str | None = None
+    for lineno, line in enumerate(lines, start=1):
+        if not _COMMENT_RE.match(line):
+            block_spec = None  # a non-comment line ends the block
+        explicit: dict[int, str] = {}
+        for m in _ATTRIBUTED_RE.finditer(line):
+            short = _LABEL_TO_SHORTNAME[m.group(1).lower()]
+            explicit[m.end() - len(m.group(2)) - 1] = short
+            block_spec = short
+        for m in _CITE_RE.finditer(line):
+            # An explicit label on this same cite wins; else inherit.
+            hit = next(
+                (sn for pos, sn in explicit.items() if abs(pos - m.start()) <= 2),
+                None,
+            )
+            out[(lineno, m.start())] = hit if hit else block_spec
+    return out
+
 # Default scan root is elidex policy, not generic behavior.
 _DEFAULT_ROOT = "crates"
 _DEFAULT_GLOB = "*.rs"
 
 
 def _iter_cites(root: Path, glob: str):
-    """Yield (section, path, lineno, line_text) for every citation found."""
+    """Yield (section, spec_or_None, path, lineno, line_text) per citation."""
     for path in sorted(root.rglob(glob)):
         if "target" in path.parts:
             continue
@@ -53,9 +124,17 @@ def _iter_cites(root: Path, glob: str):
             continue
         if "§" not in text:
             continue
-        for lineno, line in enumerate(text.splitlines(), start=1):
+        lines = text.splitlines()
+        attribution = _attribute(lines)
+        for lineno, line in enumerate(lines, start=1):
             for m in _CITE_RE.finditer(line):
-                yield m.group(1), path, lineno, line.strip()
+                yield (
+                    m.group(1),
+                    attribution.get((lineno, m.start())),
+                    path,
+                    lineno,
+                    line.strip(),
+                )
 
 
 def cmd_cite_audit(args: argparse.Namespace) -> int:
@@ -65,7 +144,15 @@ def cmd_cite_audit(args: argparse.Namespace) -> int:
         return 1
 
     by_section: dict[str, list[tuple[Path, int, str]]] = defaultdict(list)
-    for section, path, lineno, line in _iter_cites(root, args.glob):
+    unattributed: list[tuple[Path, int, str]] = []
+    other_spec = 0
+    for section, spec, path, lineno, line in _iter_cites(root, args.glob):
+        if spec is None:
+            unattributed.append((path, lineno, line))
+            continue
+        if spec != args.spec:
+            other_spec += 1
+            continue
         by_section[section].append((path, lineno, line))
 
     if args.prefix:
@@ -110,6 +197,12 @@ def cmd_cite_audit(args: argparse.Namespace) -> int:
             "total_cites": total_cites,
             "unresolved_sections": len(unresolved),
             "unresolved_cites": unresolved_cites,
+            "other_spec_cites": other_spec,
+            "unattributed_cites": len(unattributed),
+            "unattributed": [
+                {"file": str(p_), "line": n_, "text": t_}
+                for p_, n_, t_ in unattributed
+            ],
             "sections": [
                 {
                     "section": s,
@@ -132,10 +225,20 @@ def cmd_cite_audit(args: argparse.Namespace) -> int:
 
     print(f"# cite-audit — spec={args.spec} root={root} glob={args.glob}"
           + (f" prefix=§{args.prefix}" if args.prefix else ""))
-    print(f"# distinct sections: {len(sections)}   total cites: {total_cites}")
+    print(f"# attributed to {args.spec}: {len(sections)} distinct sections, "
+          f"{total_cites} cites")
     print(f"# UNRESOLVED sections: {len(unresolved)}   "
           f"cites carrying them: {unresolved_cites}")
+    print(f"# attributed to another spec (not audited here): {other_spec} cites")
+    print(f"# UNATTRIBUTED (bare § with no spec in its comment block): "
+          f"{len(unattributed)} cites")
     print()
+    if unattributed and args.show_unattributed:
+        print("## UNATTRIBUTED cites — a reader cannot tell which spec these "
+              "name. A defect independent of resolution.")
+        for p_, n_, t_ in unattributed:
+            print(f"    {p_}:{n_}: {t_[:150]}")
+        print()
     for s in sections:
         title = resolved[s]
         label = title if title else "*** UNRESOLVED ***"
@@ -182,6 +285,9 @@ def register(sub) -> None:
                     help="section lines only, omit per-cite detail")
     ca.add_argument("--format", choices=("text", "json"), default="text",
                     help="output format (default: text)")
+    ca.add_argument("--show-unattributed", action="store_true",
+                    help="list the UNATTRIBUTED cites (bare § with no spec "
+                         "label in their comment block)")
     ca.add_argument("--strict", action="store_true",
                     help="exit 1 if any cited section fails to resolve")
     ca.set_defaults(func=cmd_cite_audit)
