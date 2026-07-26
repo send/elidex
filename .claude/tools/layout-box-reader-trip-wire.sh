@@ -57,22 +57,30 @@ strip_comments() { sed -E '/^[^:]*:[0-9]+:[[:space:]]*(\/\/|\*|\/\*)/d'; }
 # The live reader set as `path<TAB>content`, line-number-insensitive (so MOVING a
 # reader doesn't churn the allowlist) but content-sensitive (so EDITING one forces
 # re-classification). Strips comment lines and leading indentation; excludes
-# wholly-test files (any path segment containing `test` — `/tests/`, `tests.rs`,
-# `test_helpers.rs`, `paint/tests.rs`: these hold no production reader, so excluding
-# them opens no coverage gap). Inline `#[cfg(test)]` module lines in production-named
-# files are kept and classified `test` in the allowlist (safe: no gap, bounded noise).
+# WHOLLY-TEST files only — a `/tests/` dir segment, or a test-convention BASENAME
+# (`tests.rs` / `test_*.rs` / `tests_*.rs`). ⚠ This is a SEGMENT/BASENAME match, not
+# a `test`-substring match: a substring match wrongly drops PRODUCTION files like
+# `hit_test.rs` (a real `get::<&LayoutBox>` reader), leaving a delete-enabling gate
+# with a false exhaustiveness claim (the exact grep-hole design memo §4 forbids).
+# Inline `#[cfg(test)]` module lines in production-named files are kept and classified
+# `test` in the allowlist (safe: no coverage gap, bounded noise).
 live_readers() {
   cd "$ROOT"
   git grep -nwE 'LayoutBox|BoxModel' -- 'crates/**/*.rs' \
     | strip_comments \
-    | grep -vE '^[^:]*test[^:]*:' \
+    | grep -vE '(/tests?/|/tests\.rs:|/test_[^/:]*\.rs:|/tests_[^/:]*\.rs:)' \
     | sed -E 's/^([^:]+):[0-9]+:[[:space:]]*(.*)$/\1\t\2/' \
     | sed -E 's/[[:space:]]+$//' \
     | sort -u
 }
 
 # The committed allowlist's `path<TAB>content` set (columns 2-3; column 1 =
-# classification: producer|seam|pending-migration|type-def).
+# classification: producer|seam|pending-migration|type-def|import|test).
+# NB: the gate keys on unique `(path, content)` — identical-content reader lines in
+# ONE file (e.g. `form.rs`'s eight `lb: &LayoutBox` helpers) collapse to one entry.
+# This fires on any NOVEL-content reader and, at C-4, on any surviving
+# `pending-migration` entry (full migration removes it); per-SITE precision (the ×8
+# tally) is the audit doc's job. See the audit "Counting basis" note.
 committed_readers() {
   grep -vE '^[[:space:]]*(#|$)' "$ALLOWLIST" | cut -f2,3 | sort -u
 }
@@ -137,7 +145,7 @@ else
 fi
 
 echo "wire #3: no unreviewed macro_rules! in a reader-token file (token-hiding-macro guard)"
-reader_files="$(cd "$ROOT" && git grep -lwE 'LayoutBox|BoxModel' -- 'crates/**/*.rs' | grep -vE '/tests?/' || true)"
+reader_files="$(cd "$ROOT" && git grep -lwE 'LayoutBox|BoxModel' -- 'crates/**/*.rs' | grep -vE '(/tests?/|/tests\.rs$|/test_[^/]*\.rs$|/tests_[^/]*\.rs$)' || true)"
 macro_hits=""
 if [ -n "$reader_files" ]; then
   # shellcheck disable=SC2086

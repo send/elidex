@@ -169,9 +169,9 @@ treats the full set as crate-level producer entries.
 |---|---|---|
 | `&mut LayoutBox` read-modify-write | `block/children/shift.rs:164` (probe-lag shift, I-phase fact 1), `layout/mod.rs:112` (layout_generation stamp), `positioned/mod.rs:101` (`apply_relative_offset` param) | producer |
 | multicol committer read (feeds store) | `multicol/fill.rs:76` (`snapshot_box` get<&LayoutBox>) + `:77` `BoxFragment::from`, `multicol/fill.rs:421` (monolithic block extent) | producer |
-| in-layout presence check | `block/inline/pack/boxes.rs:62` (`get<&LayoutBox>.is_ok()` — "skip if already laid") | producer |
+| in-layout presence check | `inline/pack/boxes.rs:62` (`get<&LayoutBox>.is_ok()` — "skip if already laid") | producer |
 | in-layout derived-value helper (LOCAL box) | `table/helpers.rs:23` `box_total_height`, `table/lib.rs:61` `cell_baseline` | producer |
-| construction + `insert_one` (one per algorithm) | `block/mod.rs:624`, `block/lib.rs:363`, `block/children/helpers.rs:355` (display:contents/anon — axis 3), `block/inline/pack/boxes.rs:88`, `positioned/layout.rs:515,523`, `flex/lib.rs:491,504`, `flex/algo.rs:519`, `grid/lib.rs:619`, `multicol/lib.rs:329`, `table/lib.rs:394,785`, `layout/mod.rs:130` | producer |
+| construction + `insert_one` (one per algorithm) | `block/mod.rs:624`, `block/lib.rs:363`, `block/children/helpers.rs:355` (display:contents/anon — axis 3), `inline/pack/boxes.rs:88`, `positioned/layout.rs:515,523`, `flex/lib.rs:491,504`, `flex/algo.rs:519`, `grid/lib.rs:619`, `multicol/lib.rs:329`, `table/lib.rs:394,785`, `layout/mod.rs:130` | producer |
 | struct field / result holder | `block/lib.rs:57` `pub layout_box: LayoutBox`, `layout/mod.rs:144` `PageFragment.layout_box`, `table/lib.rs:493` `Vec<LayoutBox>` | producer |
 | producer field-read | `multicol/lib.rs:269` `outcome.layout_box.margin_box()` | producer |
 
@@ -358,22 +358,24 @@ must account for them, and must NOT treat them as inert:
 | site | why its meaning flips under `clear()` | axis |
 |---|---|---|
 | `block/children/shift.rs:164` (&mut) | THE probe-lag site (I-phase fact 1): `lb.content.origin += delta` is **unguarded in probes** while `shift_entity`/`push_box` are `!is_probe`-gated — so during a 2-pass flex·grid·table re-measure the component holds the working value and the store holds the prior definitive pass. | 2 (in-layout, probe) |
-| `block/inline/pack/boxes.rs:62` (presence) | "skip entities that already have a `LayoutBox`" — after `clear()` (of the component, were it ever cleared) nothing is skipped → double-lay. A pure control-flow presence read whose meaning is the store's population state. | 5 (presence) |
+| `inline/pack/boxes.rs:62` (presence) | "skip entities that already have a `LayoutBox`" — after `clear()` (of the component, were it ever cleared) nothing is skipped → double-lay. A pure control-flow presence read whose meaning is the store's population state. | 5 (presence) |
 | `multicol/fill.rs:76` (`snapshot_box`) | the committer read that snapshots `LayoutBox → BoxFragment` into the store; it reads the *component* to *write* the store that `clear()` resets — the read is the store's own source of truth. | 2/5 |
 | `multicol/fill.rs:421` (monolithic extent) | reads a child's `content.size` mid-fill to size columns — an in-layout store read. | 2 |
 | `layout/mod.rs:112` (&mut) | stamps `layout_generation` only when `> 0` (paged) — a paged-path mutation whose read/write is meaningless on the (never-cleared) paged store. | 2 (paged) |
-| `flex/lib.rs:474`, `grid/position.rs:444`, `block/inline/pack/mod.rs:613` (baseline) | in-layout reads of a **child's** store box to compute the parent's baseline — classified pending-migration/C-3c (the slice owns the decision), but they ARE producer-crate in-layout reads that C-4 gate 2b tracks: they need a **probe-visible geometry source** or keep `LayoutBox` (hand-off row 2). | 2 (in-layout) |
+| `flex/lib.rs:474`, `grid/position.rs:444`, `inline/pack/mod.rs:613` (baseline) | in-layout reads of a **child's** store box to compute the parent's baseline — classified pending-migration/C-3c (the slice owns the decision), but they ARE producer-crate in-layout reads that C-4 gate 2b tracks: they need a **probe-visible geometry source** or keep `LayoutBox` (hand-off row 2). | 2 (in-layout) |
 | `table/helpers.rs:23`, `table/lib.rs:61` (derived-value helpers) | in-layout, but read a **LOCAL** `LayoutBox`/`Vec<LayoutBox>` (never the ECS store) → `clear()`-**independent**. Listed for completeness; not a store-state hazard. | 2 (in-layout, local) |
 
 The `display:contents` / anon-box **producer defect** the audit must record (axis 3): the producer
 commit sites that leave a `LayoutBox` on a spec-boxless element — `block/children/helpers.rs:355`
-(the anon-box / flattened-`contents` insert) and `block/inline/pack/boxes.rs:88` — plus the
+(the anon-box / flattened-`contents` insert) and `inline/pack/boxes.rs:88` — plus the
 **detached-element** path (`find_roots`/`root_entities` re-lays a parentless-but-styled element against
 the viewport, hand-off row 12). C-3 **inherits** these (no regression); the seam reports their presence
 faithfully — "presence" is a mechanical store fact, not a "has an associated CSS box" verdict (memo §1
-req 5). Live comments at `layout/mod.rs:71` and `helpers.rs:355` cite CSS Display 3 **§2.8** where the
-box-generation rule is **§2.5** (§2.8 = "The Root Element's Principal Box") — a citation drift the
-axis records rather than trusts.
+req 5). Live comments at `elidex-layout/src/layout/mod.rs:71` and `elidex-style/src/resolve/mod.rs:497`
+(+ `:212`) cite CSS Display 3 **§2.8** where the box-generation rule is **§2.5** (§2.8 = "The Root
+Element's Principal Box") — a citation drift the axis records rather than trusts. (The producer commit
+site `block/children/helpers.rs:355` carries no such comment; the drifted citations live in the
+layout-dispatch + style-resolution comments named here.)
 
 ---
 
@@ -413,5 +415,15 @@ no token). This is a load-bearing exhaustiveness check for the C-3d layering dec
 
 **Pending-migration consumer readers: 36 non-test lines** → C-3b (4), C-3c (5), C-3d (5), C-3e (22).
 **Seam: a single site** (`dom/geometry.rs`), the only non-producer `LayoutBox` read. All 9 memo §4
-seed edges located + classified. See the machine-checked allowlist
-(`.claude/tools/layout-box-reader-allowlist.tsv`) for the exhaustive per-line set.
+seed edges located + classified.
+
+⚠ **Counting basis — this doc vs the machine allowlist** (`.claude/tools/layout-box-reader-allowlist.tsv`):
+this document counts **logical readers** (a reader whose geometry read spans an `use` import + a `get`
++ a helper-param is ONE reader here); the allowlist counts **unique `(path, content)` token lines**, so
+its per-slice tallies differ (a logical reader contributes an import row + a get row; identical-content
+lines in one file — e.g. `form.rs`'s eight `lb: &LayoutBox` helpers — dedup to one via `sort -u`). The
+allowlist is the **freshness/exhaustiveness gate** (it fires on any *novel-content* reader line and, at
+C-4, on any surviving `pending-migration` row); per-**site** precision (form ×8, the offsetParent
+handlers) is THIS document's job. A partial migration (7 of 8 identical-content readers) does not clear
+the allowlist row until the last copy is gone — correct for C-4's "zero pending-migration" check, which
+needs *full* migration. The two artifacts are consistent by design, not by equal counts.

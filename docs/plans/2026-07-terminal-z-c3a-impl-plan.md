@@ -325,7 +325,7 @@ Pointer, not restatement — memo §1 is the home:
 - `principal_fragment` = first fragment (or the N=1 box); box-absent → `None`.
 - `union_border_boxes` = the **plain axis-aligned union** of fragment border boxes; box-absent → `None`. **NOT**
   the CSSOM-View "get the bounding box" 4-step reduction (`cssom-view-1 §6`, `#element-get-the-bounding-box`:
-  that drops fully-degenerate 0×0 rects and returns-first when all-degenerate) — C-3b builds its own spec-shaped
+  that drops rects with zero width or height and returns-first when all-degenerate) — C-3b builds its own spec-shaped
   reduction ON this, not by reusing it.
 - C-3a ships **NO** `content_rect_local` relocation, **NO** CSSOM-View algorithm, **NO** RO-specific helper,
   **NO** frame-baking / source-choosing / transform-composing fold (memo §1 + §2 I-frame/I-transform). Those are

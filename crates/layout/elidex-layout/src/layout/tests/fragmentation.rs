@@ -92,6 +92,43 @@ fn layout_fragmented_invalidates_screen_geometry_provenance() {
 }
 
 #[test]
+fn layout_paged_invalidates_screen_geometry_provenance() {
+    // The OTHER paged entry (plan §2 "BOTH paged entries"): `layout_paged` (the
+    // layout-crate paged public fn) reaches `layout_fragmented_with_tokens` via
+    // `layout_fragmented`, so it too must invalidate a prior screen pass. Guards the
+    // path a future non-interleaved-driver caller of `layout_paged` would take.
+    let mut dom = EcsDom::new();
+    let div = dom.create_element("div", Attributes::default());
+    dom.world_mut().insert_one(
+        div,
+        ComputedStyle {
+            display: Display::Block,
+            height: Dimension::Length(50.0),
+            ..Default::default()
+        },
+    );
+    dom.fragment_tree_mut().publish_completed_screen();
+    assert!(
+        dom.screen_geometry().is_some(),
+        "precondition: completed screen"
+    );
+
+    let font_db = FontDatabase::new();
+    let page_ctx = elidex_plugin::PagedMediaContext {
+        page_width: 400.0,
+        page_height: 600.0,
+        page_margins: elidex_plugin::EdgeSizes::uniform(10.0),
+        page_rules: Vec::new(),
+    };
+    let _ = layout_paged(&mut dom, &page_ctx, &font_db);
+
+    assert!(
+        dom.screen_geometry().is_none(),
+        "layout_paged (the layout-crate paged entry) invalidated the stale CompletedScreen"
+    );
+}
+
+#[test]
 fn layout_fragmented_two_fragments_on_overflow() {
     let mut dom = EcsDom::new();
     let parent = dom.create_element("div", Attributes::default());

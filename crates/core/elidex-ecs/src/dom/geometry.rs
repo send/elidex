@@ -117,7 +117,7 @@ impl ScreenGeometry<'_> {
     /// The **plain axis-aligned union** of the fragment border boxes; box-absent →
     /// `None`. A generic per-entity building block — deliberately **NOT** the
     /// CSSOM-View "get the bounding box" 4-step reduction (`cssom-view-1 §6`, which
-    /// drops fully-degenerate 0×0 rects and returns-first when all are degenerate);
+    /// drops rects with zero width *or* height and returns-first when all are degenerate);
     /// a downstream slice builds that spec-shaped reduction *on* this fold rather
     /// than reusing it (plan-memo §1/§4).
     #[must_use]
