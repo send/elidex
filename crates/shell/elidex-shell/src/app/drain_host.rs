@@ -142,7 +142,22 @@ impl App {
         if self.interactive.is_none() {
             return DrainOutcome::default();
         }
-        DrainCoordinator::drain_same_turn(self)
+        let outcome = DrainCoordinator::drain_same_turn(self);
+        // Plan §4.4 premise 5 ("no app-mode apply body synchronously drives the
+        // coordinator's Phase-1 partition") is what makes Phase 2's bounded
+        // snapshot equal the whole queue. Its observable consequence is that the
+        // queue is EMPTY here: a re-partition mid-apply would enqueue behind the
+        // snapshot and strand (app-mode has no pump to catch it). This guards a
+        // future CODE change to an apply body, not an unreachable state — which is
+        // why the plan's rejection of an end-of-handler *re-drain* as dead code
+        // does not cover it (a `debug_assert` re-drains nothing).
+        debug_assert!(
+            self.traversal_queue().is_empty(),
+            "app-mode drain left a residual traversal step — an apply body re-entered \
+             the Phase-1 partition, breaking plan §4.4 premise 5 (app-mode has no pump \
+             to drain the residual)"
+        );
+        outcome
     }
 }
 
