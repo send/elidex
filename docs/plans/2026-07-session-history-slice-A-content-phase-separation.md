@@ -114,7 +114,8 @@ substrate bug (umbrella §5 Slice-2 CARRY + CARRY-EXT (A)).
 > suppresses from **enqueue** time: a deliberate divergence, and a strict superset of the spec's
 > during-the-apply window under today's synchronous, non-yielding apply. The *landing* conclusion survives on
 > a different mechanism — a still-in-flight cross-document `location.*` is abandoned once the traversal's
-> apply reaches step 8.4, per step 20's note. The canonical statement now lives on the
+> apply reaches step 8.4 — the operative step being **step 24.2** (*"if navigable's ongoing navigation is no
+> longer navigationId … Abort these steps"*), which step 20's note describes. The canonical statement now lives on the
 > `DrainHost::handle_navigation` contract in `elidex-navigation`.
 
 So the issue-order-**earlier** traversal wins over a later same-turn `location.*`: a navigation is ignored
@@ -133,7 +134,7 @@ Phase 2. This eliminates the double-apply defect (no `/b` network load + flash, 
 target). **Target-landing is correct in BOTH same-turn orders (E2):** for `back(); location.href='/b'` and
 for `location.href='/b'; back()` alike, the spec lands on the **traversal** target — but via step 8.4 +
 step 20's note (the cross-document `/b` is still in flight when the traversal's apply sets *ongoing
-navigation* to "traversal", which abandons it), **not** via step 19, which never fires for a nav issued
+navigation* to "traversal", after which **step 24.2** aborts it — the effect step 20's note describes), **not** via step 19, which never fires for a nav issued
 before the apply (correction box above). So elidex's "an in-range traversal wins regardless of
 cross-channel issue order" is **already
 spec-correct for the landing** in both orders; the plan **over-fences in the safe direction**. The genuine
@@ -416,7 +417,7 @@ multi-navigable fan-out OUT/B1). Section labels use the webref **section titles*
 
 | Spec section | Step | Branch | Touch (compile/dispatch site) | Full enum? | User-input flow |
 |---|---|---|---|---|---|
-| WHATWG HTML §7.4.2.2 Beginning navigation | 19 | ongoing navigation is "traversal" ⇒ navigate ignored | **DIVERGENT (deliberate)** — Resolution A: Phase-1c nav-suppression when a `Traversal` step is **queued** (`traversal_queue.rs` `run_synchronous_phase_body` predicate). Step 19's gate is set ONLY by the §7.4.6.1 step-8.4 APPLY, so a nav issued before the apply is never step-19-ignored; elidex's enqueue-time window is a strict superset (§2 correction box, retagged 2026-07-26) | ✗ (divergence — `#11-nav-supersede-window-vs-ongoing-navigation`) | yes (`location.*`) |
+| WHATWG HTML §7.4.2.2 Beginning navigation | 19 | ongoing navigation is "traversal" ⇒ navigate ignored | **DIVERGENT (deliberate)** — Resolution A: Phase-1c nav-suppression when a `Traversal` step is **queued** (`traversal_queue.rs` `run_synchronous_phase_body` predicate). Step 19's gate is set ONLY by the §7.4.6.1 step-8.4 APPLY, so a nav issued before the apply is never step-19-ignored; elidex's enqueue-time window is a strict superset **under today's synchronous, non-yielding apply only** — the planned task-queued apply breaks containment, so narrowing work must re-derive it (§2 correction box, retagged 2026-07-26) | ✗ (divergence — `#11-nav-supersede-window-vs-ongoing-navigation`) | yes (`location.*`) |
 | WHATWG HTML §7.4.2.2 Beginning navigation | 20 | later navigation aborts other *navigations* (not a traversal) | IN — Resolution A: traversal wins the same-turn straddle; exact cross-channel issue order fenced | ✗ (bounded — `#11-sync-navigation-steps-queue-tagging`) | yes (`location.*`) |
 | WHATWG HTML §7.4.3 Reloading and traversing | 4 | append traversal steps to traversable → resolve `targetStepIndex` | IN — Phase-1b enqueue via new `classify_traversal` seam | ✓ | yes (back/forward/go) |
 | WHATWG HTML §7.4.3 Reloading and traversing | 4.4 | `allSteps[targetStepIndex]` does not exist ⇒ abort (no-op) | IN — Resolution E peek-classify: `peek_*` → `None` = no barrier, falls through | ✓ | yes (back/forward/go) |

@@ -389,8 +389,9 @@ pub trait DrainHost {
     /// **T** when `back()` is called; §7.4.4 *Non-fragment synchronous
     /// "navigations"* (*URL and history update steps*) step 13 appends the
     /// *synchronous navigation steps* **S** BEHIND them, and the entries-list
-    /// mutation lives only in §7.4.2.3.3 *finalize a same-document navigation*
-    /// (step 5.1.4, "Append targetEntry to targetEntries"), i.e. inside **S**.
+    /// mutation lives only in §7.4.2.3.3 *Fragment navigations* (*finalize a
+    /// same-document navigation* step 5.4, "Append targetEntry to targetEntries"),
+    /// i.e. inside **S**.
     /// §7.4.1.3 *Centralized modifications of session history* states this for its
     /// own worked example: the synchronous URL change *"does not yet update the
     /// current session history entry, current session history step, or the session
@@ -506,7 +507,8 @@ pub trait DrainHost {
     /// moment `navigate` runs**, and the ONLY thing that sets that value is §7.4.6.1
     /// *Updating the traversable* **step 8.4** (*"Set the ongoing navigation for
     /// navigable to "traversal"."*), inside the APPLY; three sites reset it to null
-    /// (the same-document branch — *apply the history step* step 12.10.1; the
+    /// (the same-document branch — *apply the history step* step 14.10.1, inside the
+    /// step-14 *"While completedChangeJobs does not equal totalChangeJobs"* loop; the
     /// pageswap/unload branch — *deactivate a document for a cross-document
     /// navigation* step 5.2, which **precedes** the `pageswap` fire because 5.1 only
     /// *defines* `firePageSwapBeforeUnload` and the event fires inside 5.3's unload;
@@ -884,7 +886,7 @@ impl DrainCoordinator {
         // NOT the loop bound. The reachable reentrancy window (an SW-controlled page
         // re-dispatching a nav-mutating `BrowserToContent` from the SW-fetch wait
         // loop DURING a Phase-2 apply) is closed for this slice by the shell's
-        // INTERIM buffer-during-apply guard (`content/navigation.rs`
+        // INTERIM buffer-during-apply guard (`content/drain_host.rs`
         // `dispatch_or_buffer_reentrant`): while `is_applying()` holds, such a
         // message is buffered, not dispatched, so it cannot mutate the cursor under
         // the held peek. Content's own `apply_traversal` does not re-enqueue (plan §1

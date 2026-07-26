@@ -343,16 +343,35 @@ fn app_go_zero_is_an_in_range_barrier_that_rebuilds() {
 /// and **the traversal wins in both orders under the spec too** (§7.4.2.2 step 20's
 /// "aborting other ongoing navigations" aborts *navigations*, not the traversal).
 ///
-/// ⚠ *Wins*, not *lands identically.* The two orders do NOT reach the same URL or
-/// entry count in the spec, because `#b` here is a **fragment** navigation that
-/// appends its entry synchronously (§7.4.4 → §7.4.2.3.3 *finalize a same-document
-/// navigation*). From `[base, /a]` on `/a`: order 1 (`back(); assign('#b')`) lands
-/// `base` with 2 entries; order 2 (`assign('#b'); back()`) appends `/a#b` first and
-/// then traverses to step 1, landing `/a` with 3 entries. What is common to both is
-/// that the traversal, not the navigation, decides the landing — which is what this
-/// test pins. elidex collapses the two because staging discards cross-channel issue
-/// order (§7.4.1.3 exact-ordering fidelity is fenced to
-/// `#11-sync-navigation-steps-queue-tagging`).
+/// ⚠ *Wins the landing*, but elidex still **loses an entry the spec keeps — in BOTH
+/// orders.** (Corrected 2026-07-26; an earlier revision of this note claimed the
+/// fragment entry is appended *synchronously* and that order 1 yields 2 entries. Both
+/// were wrong, and the first contradicted the §7.4.1.3 quote on the
+/// [`DrainHost::classify_traversal`] contract.)
+///
+/// `location.assign('#b')` is a **fragment** navigation: §7.4.2.2 *Beginning
+/// navigation* **step 15** dispatches *navigate to a fragment* (§7.4.2.3.3 *Fragment
+/// navigations*), whose **step 13** synchronously sets only the *active session
+/// history entry*, while **step 17** *appends* the session history synchronous
+/// navigation steps — so the entries-list append (*finalize a same-document
+/// navigation* step 5.4) is **queued, not synchronous**, exactly as §7.4.1.3 says.
+///
+/// §7.4.1.3's worked example **is order 1** (`history.back(); location.href = '#foo'`
+/// from step 1 of `[/a, /b]`). Its stated desired result **adds** the `/b#foo` entry
+/// (step 2 = "the current session history step (i.e., 1) plus 1") *and* finishes
+/// moving to step 0. So from `[base, /a]` on `/a` the spec gives **3 entries in both
+/// orders**, differing only in the landing: order 1 (`back(); assign('#b')`) lands
+/// `base`, order 2 (`assign('#b'); back()`) lands `/a`.
+///
+/// elidex produces **2 entries and a `base` landing in both** — so the divergence is
+/// not merely the cross-channel *ordering* (order 2's landing) but a **dropped
+/// fragment entry in order 1 as well**, where the ordering question does not even
+/// arise. Root: Phase 1c drain-and-DISCARDs the navigation outright, so `#b` never
+/// runs and never appends. That is upstream of the queue-tagging work — the VM
+/// destroys the cross-channel order at *staging* (`vm/host/navigation.rs` single-slot
+/// `pending_navigation` vs the `pending_history` FIFO), so recovering it additionally
+/// requires reopening Q-VM-MODEL (Slice-A memo §2). Fenced with that prerequisite
+/// named at `#11-nav-supersede-window-vs-ongoing-navigation`.
 ///
 /// **The discard is a deliberate DIVERGENCE, not §7.4.2.2 step 19** (webref-verified
 /// 2026-07-26; slot `#11-nav-supersede-window-vs-ongoing-navigation`). Step 19's
@@ -1009,5 +1028,107 @@ fn app_failed_traversal_does_not_cancel_trailing_sync_update() {
         history_len(&app),
         3,
         "the pushState appended after /a → [base, /a, /kept]"
+    );
+}
+
+/// **Pins the ESCALATED facet of `#11-app-mode-turn-completion-drain`: not late, but
+/// DESTRUCTIVE.** Codex `/external-converge` R5/R8 + the R10 fix-delta gate.
+///
+/// The sibling pin
+/// [`app_popstate_staged_action_defers_to_the_next_drain_not_the_current_queue`]
+/// covers only the *latency* facet (the staged intent is not settled by the drain
+/// that fired `popstate`). This one covers the consequence that made the slot's
+/// severity rise from "unbounded latency" to **wrong-entry mutation**: because the
+/// non-drain cursor movers bypass the coordinator entirely, the cursor can move
+/// between the staging and the settling, and `push_entry`'s
+/// `entries.truncate(current_index + 1)` then **destroys live forward entries**.
+///
+/// `App::handle_chrome_action` (toolbar Back/Forward → `App::traverse_to`) and
+/// `app/inline.rs`'s Alt+←/→ are the traversal movers; `ChromeAction::Navigate` (the
+/// address bar, on its same-document arm) and `Reload` move/restamp the same SoT the
+/// same way. **None** of them routes through `App::process_pending_navigation`, so
+/// none drains the VM's `pending_history` first.
+///
+/// Sequence from `[base, /a, /b]` on `/b`: `history.back()` applies → cursor `/a` →
+/// `popstate` fires → the handler stages `pushState('/from-popstate')`, which this
+/// turn does NOT settle → the user presses toolbar **Back** → cursor `base`, still
+/// unsettled → the next drive that is actually reached finally applies the staged
+/// push **against `base`**, truncating and destroying BOTH `/a` and `/b`.
+///
+/// Per WHATWG HTML §7.4.6.1 *Updating the traversable* step 14's note, the
+/// synchronous navigation steps "jump the queue … before this traversal potentially
+/// unloads their document", i.e. the push belongs to the entry whose handler issued
+/// it (`/a`), which would leave `/b` intact. This test asserts elidex's divergent
+/// outcome and flips when `#11-app-mode-turn-completion-drain` lands.
+///
+/// (The handler guards on a flag rather than `removeEventListener` so exactly one
+/// `pushState` is staged: the later chrome traversal fires `popstate` again, and
+/// relying on removal made the outcome depend on listener-removal semantics that are
+/// not what this test is about.)
+#[test]
+fn app_popstate_staged_push_destroys_forward_entries_after_an_interleaved_chrome_traversal() {
+    let mut app = app_at(
+        "<p>doc</p>\
+         <script>window.__staged = false;\
+         window.addEventListener('popstate', function () {\
+           if (window.__staged) { return; }\
+           window.__staged = true;\
+           history.pushState(null, '', '/from-popstate');\
+         });</script>",
+        base(),
+    );
+    // Seed [base, /a, /b] sharing one document_sequence, cursor on /b.
+    let a = url("https://example.com/a");
+    let b = url("https://example.com/b");
+    app.interactive
+        .as_mut()
+        .unwrap()
+        .nav_controller
+        .push_same_document(a);
+    app.interactive
+        .as_mut()
+        .unwrap()
+        .nav_controller
+        .push_same_document(b.clone());
+    activate_seeded_entry(&mut app, b);
+
+    eval(&mut app, "history.back();");
+    let _ = app.process_pending_navigation();
+
+    assert_eq!(
+        (entry_url(&app, 1).as_deref(), entry_url(&app, 2).as_deref()),
+        (Some("https://example.com/a"), Some("https://example.com/b")),
+        "the popstate-staged pushState is NOT settled by the drain that fired popstate, \
+         so the entry list is still intact at this point"
+    );
+
+    // The toolbar Back — bypasses `process_pending_navigation` entirely, so the
+    // staged push is still pending while the cursor moves out from under it.
+    app.handle_chrome_action(crate::chrome::ChromeAction::Back);
+    assert_eq!(
+        current_url(&app).as_deref(),
+        Some("https://example.com/"),
+        "chrome Back moved the cursor to base without draining the staged update"
+    );
+
+    // The next drive that is reached finally settles it — against `base`.
+    let _ = app.process_pending_navigation();
+
+    assert_eq!(
+        entry_url(&app, 1).as_deref(),
+        Some("https://example.com/from-popstate"),
+        "DIVERGENCE (pinned): the staged push applied against the chrome-moved cursor"
+    );
+    assert!(
+        (1..history_len(&app))
+            .all(|i| entry_url(&app, i).as_deref() != Some("https://example.com/a")),
+        "DIVERGENCE (pinned): /a — the entry whose popstate handler issued the push, and \
+         the one §7.4.6.1 step 14's note says the push belongs to — was DESTROYED"
+    );
+    assert!(
+        (1..history_len(&app))
+            .all(|i| entry_url(&app, i).as_deref() != Some("https://example.com/b")),
+        "DIVERGENCE (pinned): /b — a live forward entry unrelated to the push — was \
+         destroyed too, by `push_entry`'s entries.truncate(current_index + 1)"
     );
 }

@@ -97,9 +97,11 @@ fn phase_sep_pushstate_then_back_orders_across_task_boundary() {
 /// staging discards cross-channel issue order, and the **traversal wins in both
 /// orders** under the spec too: `/b` is cross-document here, so it is still in
 /// flight when the queued traversal's apply sets *ongoing navigation* to
-/// "traversal" (§7.4.6.1 *Updating the traversable* step 8.4), which per §7.4.2.2
-/// step 20's note abandons it. Uses a same-document back() so Phase 2 applies in
-/// the harness.
+/// "traversal" (§7.4.6.1 *Updating the traversable* step 8.4). The step that then
+/// abandons it is §7.4.2.2 **step 24.2** (*"if navigable's ongoing navigation is no
+/// longer navigationId … Abort these steps"*) — step 20's note *describes* that
+/// effect but is not the operative step. Uses a same-document back() so Phase 2
+/// applies in the harness.
 ///
 /// **Not a §7.4.2.2 step-19 derivation** (webref-verified 2026-07-26; slot
 /// `#11-nav-supersede-window-vs-ongoing-navigation`). Step 19 gates on *ongoing
@@ -108,6 +110,13 @@ fn phase_sep_pushstate_then_back_orders_across_task_boundary() {
 /// `location.*` is step-19-ignored. What elidex does differently is discard `/b`
 /// at Phase 1c so it never starts at all (no fetch, no flash), an enqueue-time
 /// window that is a strict superset of the spec's during-the-apply one.
+///
+/// ⚠ That containment is a property of **TODAY's** synchronous, non-yielding apply,
+/// not a permanent one — under the planned task-queued apply
+/// (`#11-session-history-task-queue-model`) the apply may yield and containment stops
+/// being one-directional, so narrowing work must **re-derive** the relation rather
+/// than inherit this sentence. Full statement on the shared
+/// `DrainHost::handle_navigation` contract in `elidex-navigation`.
 #[test]
 fn nav_vs_traversal_supersede_lands_on_back_target() {
     for script in [

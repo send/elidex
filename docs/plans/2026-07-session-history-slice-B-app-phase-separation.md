@@ -311,9 +311,15 @@ matching §4.4 (`:419`) and the pin's own docstring; "bounded" here previously s
 ⚠ **And the residual is WRONG-ENTRY MUTATION, not merely a late effect** (severity raised 2026-07-26 by the
 PR #487 converge round; slot `#11-app-mode-turn-completion-drain`). The staged §7.4.4 intent is applied by
 whichever LATER drain arrives — and **the cursor can move in between**, because the non-drain cursor movers
-never touch the coordinator: `app/navigation.rs::handle_chrome_action` (toolbar Back/Forward, via
-`App::traverse_to`) and `app/inline.rs`'s Alt+←/→ both traverse directly and return, with no
-`process_pending_navigation` on either path. Sequence: a same-document traversal fires `popstate` → the handler
+never touch the coordinator. The **traversal** movers are `app/navigation.rs::handle_chrome_action`
+(toolbar Back/Forward, via `App::traverse_to`) and `app/inline.rs`'s Alt+←/→, both of which traverse directly
+and return. They are **not the only out-of-band SoT movers**: the same `handle_chrome_action` also carries
+`ChromeAction::Navigate` (the address bar — its *same-document* arm reaches `push_same_document` /
+`replace_same_document` without a rebuild, so the VM survives and the staged intent is preserved while the
+cursor and entries move) and `ChromeAction::Reload` (`restamp_current_document`, which rewrites the
+`document_sequence` the stranded update is later classified against). **None** of the four routes through
+`process_pending_navigation`, so none drains the VM `pending_history` first — and "the user types a URL" is a
+far more common action than "the user presses toolbar Back". Sequence: a same-document traversal fires `popstate` → the handler
 stages `pushState`/`replaceState` → the drive returns without settling it → the user presses the toolbar Back
 button → the next drive that IS reached applies the staged update against the **post-traversal** cursor. Both
 §7.4.4 arms then corrupt the entry list: the replace arm (`NavigationController::replace_same_document`)
@@ -759,6 +765,10 @@ anti-gaming clause live with the defer-cap policy). Slice B's own-deferral count
 
 ### `#11-app-mode-turn-completion-drain` — **the slice's OWN deferral**
 
+- **Severity**: **wrong-entry mutation**, not merely a late effect — the staged update settles against
+  whatever cursor an interleaved out-of-band mover left, and `push_entry`'s `entries.truncate(current_index + 1)`
+  **destroys live forward entries** (§4.2). Pinned by
+  `app_history_drain_tests::app_popstate_staged_push_destroys_forward_entries_after_an_interleaved_chrome_traversal`.
 - **Why deferred**: the app-mode input-handler turn is not run to quiescence — a §7.4.4 intent staged during
   Phase 2 (canonically a `pushState` from a `popstate` handler a same-document traversal fired) waits for the
   next drive that is actually reached, which is **unbounded** (§4.2, §4.4). The correct fix is
@@ -779,8 +789,13 @@ anti-gaming clause live with the defer-cap policy). Slice B's own-deferral count
   and the predicate is shared — `run_synchronous_phase_body` computes `suppress` once and feeds it BOTH to
   `handle_navigation` (Resolution A) AND into `DrainOutcome::suppress_default` (Resolution B), so the nav window
   cannot be narrowed without simultaneously deciding the default-suppression window ⇒ edge-dense, own PR. The
-  citation debt is paid (§2 correction box); what remains is the behavior decision.
-- **Re-evaluation trigger**: `#11-pushstate-must-not-suppress-link-default` landing, the Slice-4 canonical
+  citation debt is paid (the **Slice-A** memo's §2 correction box — this memo has none); what remains is the
+  behavior decision.
+- ⚠ **Containment caveat**: "strict superset" holds only under TODAY's *synchronous, non-yielding* apply;
+  under the planned task-queued apply containment stops being one-directional and must be **re-derived**, not
+  inherited (stated at the `DrainHost::handle_navigation` contract and its five sibling sites).
+- **Re-evaluation trigger**: `#11-sync-navigation-steps-queue-tagging` (both re-derive the same `suppress` /
+  `suppress_default` surface), `#11-pushstate-must-not-suppress-link-default` landing, the Slice-4 canonical
   nav-mutating-step serialization, or a WPT/site issuing `location.*` in the same handler as `back()`/`go()`.
 - **Re-evaluation date**: **2026-10-31**.
 
@@ -814,3 +829,68 @@ anti-gaming clause live with the defer-cap policy). Slice B's own-deferral count
   straddle-fidelity WPT/site.
 - **Re-evaluation date**: **2026-10-31**.
 - **Pinned-not-silent**: `app_history_drain_tests::app_multi_traversal_snapshot_lands_popstate_staged_update_on_the_wrong_entry`.
+
+### `#11-traversal-delta-resolve-at-apply-time` — **CLOSED by this slice** (lifecycle record)
+
+Registered from a Codex R1 finding, then **retired on 2026-07-26 as *merge-with-related*** after the premise
+was shown false: the §7.4.3 sub-step 4.1–4.4 issue-time hoist has **no reachable divergence** (§7.4.4 step 13
+queues the sync-nav steps *behind* the traversal steps, and the entries-list append lives in §7.4.2.3.3
+*Fragment navigations* — *finalize a same-document navigation* step 5.4 — inside them, so the spec's traversal
+also resolves against the pre-sync-nav list and aborts at 4.4). The surviving constraint — the §7.4.3 peek and
+the in-task §7.4.4 commit are a **coupled pair**, neither moves alone — was folded into
+`#11-sync-navigation-steps-queue-tagging` as a precondition, and its full statement lives in-repo on the
+`DrainHost::classify_traversal` contract. Recorded here so an in-repo-only reader can learn a slot was retired
+and why, rather than finding the provenance only in the defer ledger.
+
+### Cross-channel issue-order fidelity — fence corrected
+
+The same-turn pair `history.back()` / `location.assign('#b')` diverges in **entry count in BOTH orders** (spec
+keeps the fragment entry, elidex drops it — §7.4.1.3's worked example *is* order 1) and in landing URL in order
+2. This was previously fenced to `#11-sync-navigation-steps-queue-tagging`, which **cannot own it**: that slot's
+work is shell-side tagging of the one traversal queue, whereas the order is destroyed *upstream*, at VM staging
+(`vm/host/navigation.rs` — single-slot last-wins `pending_navigation` vs the `pending_history` FIFO). Recovering
+it additionally requires reopening **Q-VM-MODEL** (Slice-A memo §2). Re-fenced to
+`#11-nav-supersede-window-vs-ongoing-navigation` with that prerequisite named, since the discard *is* the
+Resolution-A supersede. Note the engine has already ruled on this shape once — `vm/host/navigation.rs`'s
+`pending_window_open` is deliberately "a single ordered FIFO … two separate queues would let a later `_blank`
+surface before an earlier named MISS and reverse the order the page issued them" — so the eventual fix is
+channel unification, not a second queue (One-issue-one-way).
+
+### Own-vs-pre-existing: why the R7 straddle is classified pre-existing
+
+`#11-sync-navigation-steps-queue-tagging`'s multi-traversal facet is counted as **enriched, not own**, even
+though this slice makes it **newly reachable in app-mode** — the branch's own code note says exactly that. The
+mechanism (a `popstate`-staged sync-nav step settling against the wrong entry) is pre-existing and already
+carried by that slot from #469's content-mode R16 round; what this slice changes is that the second traversal
+now *runs* (`origin/main` dropped it — the #259 truncation this slice fixes), so the latent defect becomes
+observable. Recorded explicitly per the cap policy's requirement that the own/pre-existing call be written down
+rather than re-litigated later. **Either reading stays within per-PR ≤3** (own = 1 or 2).
+
+### 1000-line touch-time split — committed follow-up, both files
+
+Not a defer slot: scheduled work with the seams mapped, landing as **one standalone split PR immediately next
+on this lane** (`CLAUDE.md`: *"feature PR に bundle しない — split は単独 PR / 単独 commit"*; non-blocking per
+the prereq-split workflow). §5's earlier 1000-line assessment scoped itself to `app/navigation.rs` (which ended
+at 690) and did not anticipate these two.
+
+| File | `origin/main` | HEAD | Seam |
+|---|---|---|---|
+| `crates/shell/elidex-navigation/src/traversal_queue.rs` | 854 | >1000 | value types / `TraversalQueue`+`DrainOutcome` / the `DrainHost` contract / `DrainCoordinator` |
+| `crates/shell/elidex-shell/src/app_history_drain_tests.rs` | absent (created here) | >1000 | phase ordering·I2 / nav suppression·Res. A / click default·Res. B / traversal apply·residual·popstate |
+
+⚠ The test file was **created by this branch** over the line, so it has no "already large at touch time"
+defence; the compliant moment was while writing it. ⚠ The defer ledger anchors tests as
+`app_history_drain_tests::<name>` — re-anchor those references in the split commit.
+
+### Slice-boundary check (defer-accumulation Q2b)
+
+`#11-sync-navigation-steps-queue-tagging` now carries several accretions across #469/#487, and the recorded
+lesson is that repeated deferrals onto one mechanism can signal a **mis-drawn slice** rather than a series of
+well-reasoned fences (precedent: this umbrella's Slice-1, PR #464, was re-sliced for exactly that). Verdict for
+Slice B: **clean extension gap, boundary holds.** Slice B's charter is *drive the shared coordinator from the
+app shell* (adopt `DrainHost`, drive `drain_same_turn`); every deferred item above is a property of the
+**coordinator's** queue semantics or of the **VM's** staging channels, i.e. of layers Slice B deliberately does
+not modify — its `elidex-navigation` diff is comment-only and its `content/` diff is empty. Folding any of them
+in would mean editing shared behavior from a shell-adoption PR, which is what the umbrella split exists to
+prevent. The accumulation is therefore evidence that the *tagged-queue slice* is large and should be planned as
+its own program — not that Slice B's boundary is wrong.
