@@ -312,10 +312,24 @@ impl DrainHost for App {
     /// click, Alt+arrow, chrome toolbar). Every path that reaches this seam has
     /// already run one of those bodies, so a `set_title` here would be redundant.
     ///
-    /// **Ship-once.** This seam is drain-only — no non-drain caller can reach it —
-    /// so it cannot join the dispatch layer's existing per-input `request_redraw`
-    /// (`app/inline.rs`) with a second redraw of theirs, and `DrainOutcome::shipped`
-    /// keeps the coordinator from calling it after an apply body already shipped.
+    /// **Ship-once.** Two properties, both structural:
+    /// - *Within a drain*, the coordinator's own `DrainOutcome::shipped` bookkeeping
+    ///   keeps it from calling this after an apply body already shipped, and its
+    ///   single trailing ship-decision fires at most one `ship_frame` per
+    ///   `drain_same_turn`.
+    /// - *Outside a drain*, this seam is unreachable — nothing but the coordinator
+    ///   calls it, and the shared navigation bodies (which DO serve the non-drain
+    ///   `<a href>` / Alt+arrow / chrome callers) deliberately gained no
+    ///   `request_redraw` of their own. So the non-drain callers still issue exactly
+    ///   the ONE dispatch-layer repaint they always did (`app/inline.rs`).
+    ///
+    /// On a drain turn the dispatch layer redraws too — it always has, and it covers
+    /// the input handler's own effects (hover/active state, the dispatched event's
+    /// re-render, the `<a href>` default navigation), not the drain's. winit
+    /// coalesces concurrent requests into one `RedrawRequested`, so that is a second
+    /// *request*, never a second frame; keeping the seam's own output here is what
+    /// makes the drain self-sufficient instead of dependent on its caller's dispatch
+    /// layer — the property `ContentState::ship_frame` has via `send_display_list`.
     fn ship_frame(&mut self) {
         if let Some(state) = &self.render_state {
             state.window.request_redraw();
@@ -336,7 +350,7 @@ impl DrainHost for App {
 /// the document, so the coordinator marks no own-context action and the caller's
 /// default is not over-suppressed.
 ///
-/// **One body, two entry points — no duplication.** `traverse_to` stays index-keyed
+/// **One body, three entry points — no duplication.** `traverse_to` stays index-keyed
 /// because it also serves the two **non-drain** traversal callers, which already
 /// hold a resolved `(index, url)` and are fenced OUT of the coordinator this slice:
 /// the chrome toolbar Back/Forward (`navigation.rs::handle_chrome_action`) and
