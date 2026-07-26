@@ -18,17 +18,24 @@
 //! [`DrainCoordinator::drain_same_turn`].
 //!
 //! **What differs is the SCHEDULE — and the two schedules are not mirror images.**
-//! Content-mode makes THREE coordinator calls per event-loop turn
-//! (`content/event_loop.rs:205` `run_deferred_traversals` → `:206`
-//! `drain_synchronous_updates` → `:497` `drain_synchronous_phase`); app-mode makes
-//! ONE ([`drain_same_turn`](DrainCoordinator::drain_same_turn), at
-//! end-of-input-handler). The *headline* difference is WHEN Phase 2 is pumped —
-//! content-mode on a later async-pump turn
+//! Content-mode drives the coordinator from FIVE sites, in two groups. Three belong
+//! to its async pump, in per-turn order (`content/event_loop.rs`:
+//! `run_deferred_traversals` → `drain_synchronous_updates` → the bottom
+//! `drain_synchronous_phase`). The other two are IN-input-handler drains
+//! (`content/event_handlers.rs`, one per handler, each `drain_synchronous_phase`) —
+//! and **those** are the structural counterpart of app-mode's single
+//! end-of-input-handler drain: the click one consumes
+//! [`suppress_default`](DrainOutcome::suppress_default) as an early return exactly
+//! as `app/events.rs::handle_click` does. What app-mode has is that counterpart and
+//! nothing else — ONE [`drain_same_turn`](DrainCoordinator::drain_same_turn) per
+//! input event, no pump. The *headline* difference is therefore WHEN Phase 2 is
+//! pumped — content-mode on a later async-pump turn
 //! ([`run_deferred_traversals`](DrainCoordinator::run_deferred_traversals)),
 //! app-mode back-to-back inside the input handler, so its Phase 2 is a
 //! *degenerate* later task (Q-SCHED option (i)). But app-mode also has **no
-//! post-Phase-2 synchronous settle**, the counterpart of content's `:206` top
-//! drain — a bounded gap documented at the drive site
+//! post-Phase-2 synchronous settle**, the counterpart of content's pump-turn
+//! `drain_synchronous_updates` top drain — a bounded gap documented at the drive
+//! site
 //! ([`App::process_pending_navigation`]) and fenced to
 //! `#11-app-mode-turn-completion-drain`. That
 //! degenerate collapse still delivers WHATWG HTML §7.4.6.1 *Updating the
@@ -42,8 +49,12 @@
 //!
 //! Content-mode's Phase 2 drains a **bounded snapshot** and leans on its every-turn
 //! async pump for liveness — a step serialized mid-apply drains next turn. App-mode
-//! has no pump, so a mid-apply-serialized step would strand until the next input
-//! event. It cannot happen here, because the inline path has **no reentrancy
+//! has no pump, so a mid-apply-serialized step would strand for an UNBOUNDED time:
+//! not merely "until the next input event" — the next input event need not drain at
+//! all, since `events::handle_click` returns early on a hit-test miss / a chrome-band
+//! click / an unset `cursor_pos`, and `events::handle_keyboard` on an unfocused
+//! document, all of them BEFORE the drive site is reached. It cannot happen here,
+//! because the inline path has **no reentrancy
 //! vector at all**:
 //!
 //! 1. This drive runs EXCLUSIVELY on the legacy-inline `InteractiveState` path
@@ -69,13 +80,20 @@
 //!    [`App::process_pending_navigation`]. A popstate handler, or a freshly-rebuilt
 //!    page's initial scripts, may **stage** new history actions onto the VM
 //!    `pending_history` FIFO — but staging is not partitioning: those actions reach
-//!    the [`TraversalQueue`] only on the NEXT drain (the next input turn), never
+//!    the [`TraversalQueue`] only on the NEXT drain (whenever an input turn next
+//!    reaches this drive — see the unbounded-latency note above), never
 //!    re-entering the current one. Any future change to an apply body MUST preserve
 //!    this — eagerly re-draining pending nav from inside an apply would re-open the
 //!    mid-apply re-enqueue vector. Machine-guarded at the drive site by the
-//!    [`App::process_pending_navigation`] `debug_assert` PAIR (entry `!is_applying()`
-//!    catches a re-drive, exit `is_empty()` catches a residual step), which between
-//!    them cover both shapes this premise forbids.
+//!    [`App::process_pending_navigation`] `debug_assert` PAIR: the ENTRY assert reads
+//!    the host's own [`InteractiveState::drain_in_progress`](super::InteractiveState)
+//!    re-entry flag, which brackets the WHOLE drive — every `DrainHost` seam body,
+//!    every Phase-2 apply body, and the reinstatement tail — so a re-drive from ANY
+//!    of them is caught; the EXIT assert (`is_empty()`) catches a residual step. The
+//!    queue's own [`TraversalQueue::is_applying`] would NOT do for the entry assert:
+//!    it brackets `apply_traversal` alone, so it is blind to the most natural
+//!    regression shape (a re-drain at the end of `navigate`, which app-mode reaches
+//!    from Phase 1c).
 //!
 //! Consequently the bounded snapshot captured at Phase-2 drain-start **equals the
 //! entire queue**, the drain is complete-and-terminating by construction, and
@@ -130,8 +148,15 @@ impl App {
     /// `pending_history` FIFO afterwards. So a §7.4.4 intent staged **during**
     /// Phase 2 — the canonical case being a `pushState` from the `popstate` handler
     /// a same-document traversal fires synchronously — is not applied on the turn
-    /// that fired it; it waits for the NEXT input event (pinned by
-    /// `app_history_drain_tests::app_popstate_staged_action_defers_to_the_next_drain_not_the_current_queue`).
+    /// that fired it; it waits for the next input event **that actually reaches this
+    /// drive**, which is NOT the same as "the next input event": `events::handle_click`
+    /// returns early on a hit-test miss, a chrome-band click, or an unset
+    /// `cursor_pos`, and `events::handle_keyboard` on an unfocused document — all
+    /// before this call. So the residual latency is **unbounded**, not
+    /// next-input-bounded; a user clicking blank space forever never drains it.
+    /// (Pinned at one-turn latency by
+    /// `app_history_drain_tests::app_popstate_staged_action_defers_to_the_next_drain_not_the_current_queue`,
+    /// which drives the drain directly and so measures the best case.)
     /// Content-mode fixed exactly this shape in Slice A (Codex #469 R9) by calling
     /// [`DrainCoordinator::drain_synchronous_updates`] immediately after
     /// `run_deferred_traversals` (`content/event_loop.rs:206`, pinned by
@@ -175,34 +200,92 @@ impl App {
         // equal the whole queue. It has TWO failure shapes and takes one assert each
         // — the pair is complete, neither alone is.
         //
-        // ENTRY (this one) — a **re-drive**: an apply body calls
+        // ENTRY (this one) — a **re-drive**: some body this drive runs calls
         // `process_pending_navigation` / `DrainCoordinator::drain_same_turn` itself,
         // the most natural future regression ("just re-drain at the end of
-        // `navigate`"). The coordinator brackets every apply in
-        // `enter_nested_apply`/`exit_nested_apply`, so a drive reached from inside an
-        // apply body observes `is_applying() == true` — exactly this condition. The
-        // EXIT assert below is BLIND to it: the nested `drain_traversal_queue`
-        // recomputes `pending_len()` and drains the OUTER pass's un-popped steps too,
-        // so the outer `pop_next()` then returns `None` and breaks, leaving the queue
-        // EMPTY — while issue ordering (I2) and the per-drain Resolution-D
-        // `traversal_applied` latch have already been violated silently.
+        // `navigate`"). The signal is the host's OWN `drain_in_progress` flag, set
+        // immediately below and cleared at exit, because the guard must cover EVERY
+        // body — not just an apply body. `TraversalQueue::is_applying()` cannot do
+        // that job: the coordinator brackets `enter_nested_apply` /
+        // `exit_nested_apply` around `DrainHost::apply_traversal` ALONE
+        // (`traversal_queue.rs::drain_traversal_queue`), so a re-drive from
+        // `route_window_opens` / `handle_history_action` / `handle_navigation` /
+        // `ship_frame` / the reinstatement tail observes `is_applying() == false` and
+        // passes — and the headline `navigate` case is one of those, reached from
+        // Phase 1c, outside the bracket. The EXIT assert below is BLIND to a re-drive
+        // too: the nested `drain_traversal_queue` recomputes `pending_len()` and
+        // drains the OUTER pass's un-popped steps, so the outer `pop_next()` then
+        // returns `None` and breaks, leaving the queue EMPTY — while issue ordering
+        // (I2) and the per-drain Resolution-D `traversal_applied` latch have already
+        // been violated silently.
         debug_assert!(
-            !self.traversal_queue().is_applying(),
-            "app-mode drove the coordinator from INSIDE a Phase-2 apply body \
-             (`is_applying()` holds), breaking plan §4.4 premise 5 — the nested drain \
-             consumes the outer pass's un-popped steps, violating issue ordering (I2) \
-             and the per-drain Resolution-D `traversal_applied` latch while leaving the \
-             queue deceptively empty"
+            !self.inline_state().drain_in_progress,
+            "app-mode re-drove the coordinator from INSIDE its own drive (a `DrainHost` \
+             seam body, a Phase-2 apply body, or the reinstatement tail), breaking plan \
+             §4.4 premise 5 — the nested drain consumes the outer pass's un-popped steps, \
+             violating issue ordering (I2) and the per-drain Resolution-D \
+             `traversal_applied` latch while leaving the queue deceptively empty"
         );
-        let outcome = DrainCoordinator::drain_same_turn(self);
+        self.inline_state_mut().drain_in_progress = true;
+        let mut outcome = DrainCoordinator::drain_same_turn(self);
+        // **Reinstate a step-19 suppression this turn REFUTED** — the §7.4.2 leg of the
+        // coordinator's Resolution-D rule, and the app-mode half of the fix for the
+        // §7.4.2.2-vs-§7.4.6.1 timing gap.
+        //
+        // Phase 1c suppresses the own-context navigation whenever a `Traversal` step is
+        // pending, citing WHATWG HTML §7.4.2.2 *Beginning navigation* step 19 ("If
+        // navigable's ongoing navigation is "traversal": … Return", noted "Any attempts
+        // to navigate a navigable that is currently traversing are ignored"). But
+        // *ongoing navigation* (§7.4.2.5 *Aborting navigation* — "a navigation ID,
+        // "traversal", or null, initially null") is set to "traversal" only by §7.4.6.1
+        // *Updating the traversable* step 8.4, i.e. when the APPLY runs, and back to
+        // null when it completes; §7.4.3's enqueue sets nothing. So suppressing on a
+        // merely-QUEUED traversal is a **prediction** that the navigable will traverse,
+        // and Phase 1c must make it before Phase 2 can settle it.
+        //
+        // App-mode's Phase 2 runs back-to-back in the same turn, so the prediction IS
+        // settled before the turn ends: [`apply_traversal`](DrainHost::apply_traversal)
+        // cancels the held request the moment a traversal MOVES THE CURSOR — the same
+        // "cursor-moved" condition the coordinator's `traversal_applied` latch uses to
+        // cancel a deferred `SyncUpdate`, applied to the §7.4.2 leg instead of the
+        // §7.4.4 one. What reaches here is therefore a suppression whose premise this
+        // turn REFUTED: every queued traversal was a no-op or a failed load, the
+        // navigable never traversed, and step 19 never applied — so the navigation
+        // still applies, in the turn that issued it. (Not "a turn late": Phase 1c
+        // already drained the VM slot, and the request has been held on the host ever
+        // since, so it cannot re-fire on a later turn.)
+        //
+        // This restores the contract origin/main's hand-rolled drain had on the §7.4.2
+        // leg — "a no-target / failed-load traversal returns `false` … so the loop
+        // CONTINUES and trailing same-turn intents still apply (Codex R1 P2 / R2)" —
+        // which Slice B otherwise kept only for the deferred `SyncUpdate` leg (pinned
+        // by `app_failed_traversal_does_not_cancel_trailing_sync_update`).
+        //
+        // Content-mode deliberately has NO mirror of this tail: its Phase 2 is a
+        // genuinely later task, so by the time the prediction settles, applying the
+        // request WOULD be the fire-a-turn-late that drain-and-discard exists to
+        // prevent. Its fix is the tagged queue that carries the navigation as a queued
+        // step (`#11-sync-navigation-steps-queue-tagging`), not a copy of this.
+        if let Some((url, nav_type)) = self.inline_state_mut().deferred_navigation.take() {
+            self.navigate(&url, nav_type);
+            // Mirror the Phase-1c leg exactly — `handle_navigation`'s unconditional
+            // `true`, known applied/shipped conflation included
+            // (`#11-nav-applied-shipped-decouple`). `suppress_default` needs no update:
+            // it is `own_context_action || suppress`, and a held request exists only
+            // when `suppress` was true, so it is already `true`.
+            outcome.own_context_action = true;
+            outcome.shipped = true;
+        }
+        // Every body this drive runs has now returned, so the re-entry window closes
+        // here — BEFORE the exit assert, so a debug panic there cannot leave the flag
+        // latched and turn the next drive's entry assert into a false positive.
+        self.inline_state_mut().drain_in_progress = false;
         // EXIT — a **residual step**: this drain left Phase-2 work behind. Reached
         // when something enqueued onto the queue without re-driving the coordinator —
         // an apply body calling `TraversalQueue::enqueue_traversal` directly (the shape
         // `MockHost::apply_traversal` models in `elidex-navigation`'s
         // `traversal_queue_tests.rs`), or a future drive site appending a Phase-1-only
-        // pass that classifies a traversal with no Phase 2 behind it. Either way the
-        // step sits behind the bounded snapshot and strands — app-mode has no pump to
-        // catch it.
+        // pass that classifies a traversal with no Phase 2 behind it.
         //
         // Both asserts guard a future CODE change, not an unreachable state — which is
         // why the plan's rejection of an end-of-handler *re-drain* as dead code does
@@ -211,8 +294,13 @@ impl App {
             self.traversal_queue().is_empty(),
             "app-mode drain left a residual traversal step — something enqueued onto \
              the queue that this drain did not drain (an apply-body `enqueue_traversal`, \
-             or a Phase-1 pass with no Phase 2 behind it), and app-mode has no pump to \
-             drain the residual"
+             or a Phase-1 pass with no Phase 2 behind it). It does not strand \
+             permanently — the NEXT `drain_same_turn` seeds `seen_traversal` from it and \
+             its Phase-2 bounded snapshot drains it — but nothing bounds WHEN that turn \
+             arrives (app-mode pumps only on input, `#11-app-mode-turn-completion-drain`), \
+             and until then the residual acts as a full partition barrier: it defers every \
+             fresh `pushState` behind it and latches `suppress_default`, killing an \
+             unrelated default for a traversal that may have gone out of range meanwhile"
         );
         outcome
     }
@@ -353,11 +441,19 @@ impl DrainHost for App {
     /// **Phase 1c** — the last-wins own-context navigation (`location.*`, §7.4.2).
     ///
     /// On `suppress` (an in-range traversal pending this turn or still queued from
-    /// an earlier one), **drain-and-DISCARD**: the slot IS drained (this is its only
-    /// drain) so a suppressed `location.*` cannot re-fire a turn late, but the
-    /// request is dropped without applying — a queued traversal supersedes it
-    /// (§7.4.2.2 *Beginning navigation* step 19, "Any attempts to navigate a
-    /// navigable that is currently traversing are ignored").
+    /// an earlier one), **drain-and-HOLD**: the slot IS drained (this is its only
+    /// drain) so a suppressed `location.*` cannot re-fire a turn late, and the
+    /// request is not applied here — a queued traversal supersedes it (§7.4.2.2
+    /// *Beginning navigation* step 19, "Any attempts to navigate a navigable that is
+    /// currently traversing are ignored"). App-mode does not DROP it on the floor,
+    /// though: step 19's gate is *ongoing navigation* = "traversal", which §7.4.6.1
+    /// step 8.4 sets only when the apply RUNS, so at Phase-1c time the suppression is
+    /// a prediction. The request is held on
+    /// [`InteractiveState::deferred_navigation`](super::InteractiveState) for the
+    /// turn; Phase 2's [`apply_traversal`](Self::apply_traversal) cancels it iff a
+    /// traversal moves the cursor, and [`App::process_pending_navigation`] reinstates
+    /// whatever survives before the drive returns (full rationale there). The `Some`
+    /// is therefore always consumed within one drive — never carried across turns.
     ///
     /// Returns `true` iff a navigation applied. This is where the retired
     /// hand-rolled drain's `nav-applied` early `return true` now lives: "a
@@ -391,13 +487,18 @@ impl DrainHost for App {
         let Some(nav_req) = interactive.pipeline.runtime.take_pending_navigation() else {
             return false;
         };
-        if suppress {
-            return false;
-        }
+        // Resolve BEFORE branching on `suppress`, so both legs drop an unresolvable /
+        // blocked-scheme request identically, and so a reinstated request navigates to
+        // exactly the URL the unsuppressed leg would have — resolved against the
+        // Phase-1c document URL, not a Phase-2-mutated one.
         let Some(target_url) = resolve_nav_url(interactive.pipeline.url.as_ref(), &nav_req.url)
         else {
             return false;
         };
+        if suppress {
+            interactive.deferred_navigation = Some((target_url, nav_req.nav_type));
+            return false;
+        }
         self.navigate(&target_url, nav_req.nav_type);
         true
     }
@@ -406,8 +507,21 @@ impl DrainHost for App {
     /// traversable*) via the shared peek-then-commit body, returning `true` iff it
     /// applied and shipped. Called inside the coordinator's nested-apply guard
     /// bracket (inert in app-mode — module doc).
+    ///
+    /// A traversal that MOVED THE CURSOR also **cancels the navigation Phase 1c
+    /// held** ([`handle_navigation`](Self::handle_navigation)): the navigable really
+    /// did traverse, so §7.4.2.2 step 19's "ignored" stands. That is the §7.4.2 leg
+    /// of the identical rule the coordinator applies to the §7.4.4 leg — its
+    /// `traversal_applied` latch cancels a deferred `SyncUpdate` on exactly this
+    /// condition — so both classes of same-turn intent deferred behind a barrier are
+    /// governed by ONE predicate ("did the barrier move the cursor"), evaluated in
+    /// one place.
     fn apply_traversal(&mut self, traversal: &PendingTraversal) -> bool {
-        apply_traversal_delta(self, traversal.delta)
+        let moved_cursor = apply_traversal_delta(self, traversal.delta);
+        if moved_cursor {
+            self.inline_state_mut().deferred_navigation = None;
+        }
+        moved_cursor
     }
 
     /// Ship the frame — app-mode's OUTPUT seam, the mirror of

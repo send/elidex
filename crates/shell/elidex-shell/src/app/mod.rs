@@ -46,6 +46,7 @@ use winit::window::{Window, WindowId};
 use elidex_ecs::Entity;
 use elidex_navigation::{NavigationController, TraversalQueue};
 use elidex_plugin::{Point, Size};
+use elidex_script_session::NavigationType;
 use wgpu::util::TextureBlitter;
 use wgpu::{Instance, Surface};
 
@@ -244,6 +245,35 @@ pub(super) struct InteractiveState {
     /// documents unload"). CLAUDE.md side-store exception (b)
     /// (browsing-context/session-level state, not a per-entity ECS component).
     pub(super) traversal_queue: TraversalQueue,
+    /// The §7.4.2 own-context navigation that Phase 1c **drained but HELD** under
+    /// the §7.4.2.2 *Beginning navigation* step-19 traversal suppression, already
+    /// resolved against the Phase-1c document URL (so a reinstatement navigates to
+    /// exactly the URL the unsuppressed leg would have).
+    ///
+    /// Lives for the span of ONE [`App::process_pending_navigation`] drive and
+    /// **never across turns**: Phase 2's
+    /// [`DrainHost::apply_traversal`](elidex_navigation::DrainHost::apply_traversal)
+    /// clears it the moment a traversal MOVES THE CURSOR (the §7.4.2 leg of the
+    /// coordinator's Resolution-D cancel), and whatever survives that is reinstated
+    /// — and `take`n — by the drive site's tail. So the "a suppressed `location.*`
+    /// can never re-fire a turn late" contract holds by construction: the slot is
+    /// drained in Phase 1c, and the held request is either applied or dropped
+    /// before the same drive returns.
+    pub(super) deferred_navigation: Option<(url::Url, NavigationType)>,
+    /// Re-entry guard for [`App::process_pending_navigation`] — `true` for exactly
+    /// the span of one app-mode drive. Plan §4.4 premise 5 forbids **any** body the
+    /// drive runs (a `DrainHost` seam, a Phase-2 apply body, the reinstatement
+    /// tail) from synchronously re-driving the coordinator; this is the flag that
+    /// drive's entry `debug_assert` reads.
+    ///
+    /// Host-side **because it must bracket the WHOLE drive**:
+    /// [`TraversalQueue::is_applying`] brackets only
+    /// [`DrainHost::apply_traversal`](elidex_navigation::DrainHost::apply_traversal)
+    /// (`traversal_queue.rs`'s `enter_nested_apply` / `exit_nested_apply` pair), so
+    /// it cannot see a re-drive from a Phase-1 seam body — including the headline
+    /// "just re-drain at the end of `navigate`" case, which app-mode reaches from
+    /// Phase 1c, outside that bracket.
+    pub(super) drain_in_progress: bool,
     pub(super) window_title: String,
     pub(super) chrome: crate::chrome::ChromeState,
     /// The window's current device facts (dppx / color-scheme / reduced-motion) —
@@ -550,6 +580,8 @@ impl App {
                 modifiers: Modifiers::default(),
                 nav_controller,
                 traversal_queue: TraversalQueue::new(),
+                deferred_navigation: None,
+                drain_in_progress: false,
                 window_title: title,
                 // Inline pipelines are built with default facts (1× / Light); no
                 // window → no dynamic writer, so this static seed IS parity (B20).
