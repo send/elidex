@@ -35,13 +35,10 @@ use elidex_script_session::HistoryAction;
 
 use super::drain_host::apply_traversal_delta;
 use super::navigation::{handle_history_action, handle_navigate, HistoryCursorOp};
-use super::test_support::build_test_content_state_with_url;
+use super::test_support::{
+    base, build_test_content_state_with_url, count_display_lists, drain_browser,
+};
 use crate::ipc::{BrowserToContent, ContentToBrowser, LocalChannel};
-
-/// The top-level document URL every test builds against.
-fn base() -> url::Url {
-    url::Url::parse("https://example.com/").unwrap()
-}
 
 fn push_state(path: &str) -> HistoryAction {
     HistoryAction::PushState {
@@ -49,23 +46,6 @@ fn push_state(path: &str) -> HistoryAction {
         title: String::new(),
         serialized_state: None,
     }
-}
-
-/// Discard every message currently queued on the browser channel end so a later
-/// [`count_display_lists`] measures only the post-drain sends.
-fn drain_browser(browser: &LocalChannel<BrowserToContent, ContentToBrowser>) {
-    while browser.try_recv().is_ok() {}
-}
-
-/// Count the `DisplayListReady` messages currently queued on the browser channel.
-fn count_display_lists(browser: &LocalChannel<BrowserToContent, ContentToBrowser>) -> usize {
-    let mut n = 0;
-    while let Ok(msg) = browser.try_recv() {
-        if matches!(msg, ContentToBrowser::DisplayListReady(_)) {
-            n += 1;
-        }
-    }
-    n
 }
 
 /// Count the `NavigationState` (chrome `can_go_back`/`can_go_forward`) messages

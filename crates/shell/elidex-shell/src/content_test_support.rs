@@ -1,7 +1,8 @@
-//! Shared test helpers for the content-thread test modules
-//! (`content_tests`, `viewport_tests`) — spawning a content thread over a test
-//! network broker, and building a `ContentState` to drive on the test thread.
-//! Kept in one place so neither test module owns the scaffolding.
+//! Shared test helpers for the content-thread test modules — spawning a content
+//! thread over a test network broker, building a `ContentState` to drive on the
+//! test thread, and the browser-channel observers / DOM probes those modules
+//! assert against. This is the single canonical home: a sibling content test
+//! module imports from here rather than re-declaring its own copy.
 
 use elidex_script_session::HostDriver;
 
@@ -201,7 +202,7 @@ fn finalize_test_content_state(
     state
 }
 
-/// The top-level document URL the history/pump-turn test modules build against.
+/// The top-level document URL the content test modules build against.
 pub(super) fn base() -> url::Url {
     url::Url::parse("https://example.com/").unwrap()
 }
@@ -210,6 +211,21 @@ pub(super) fn base() -> url::Url {
 /// measurement observes only post-drain sends.
 pub(super) fn drain_browser(browser: &LocalChannel<BrowserToContent, ContentToBrowser>) {
     while browser.try_recv().is_ok() {}
+}
+
+/// Count the `DisplayListReady` messages currently queued on the browser channel
+/// — the "did the (possibly torn-down) pipeline ship a frame?" witness the
+/// history drain / phase-separation / pump-turn modules measure after a drain.
+pub(super) fn count_display_lists(
+    browser: &LocalChannel<BrowserToContent, ContentToBrowser>,
+) -> usize {
+    let mut n = 0;
+    while let Ok(msg) = browser.try_recv() {
+        if matches!(msg, ContentToBrowser::DisplayListReady(_)) {
+            n += 1;
+        }
+    }
+    n
 }
 
 /// Two same-document entries `[base, /a]` (shared `document_sequence`), cursor on
@@ -234,6 +250,21 @@ pub(super) fn seed_same_document_pair(state: &mut ContentState) {
         state.nav_controller.current_index(),
         state.nav_controller.len(),
     );
+}
+
+/// The single `<iframe>` entity in the parent DOM (the one carrying `IframeData`)
+/// — the shared handle both iframe-driving test modules resolve before asserting
+/// on the loaded entry / lazy-pending state.
+pub(super) fn iframe_entity(state: &ContentState) -> elidex_ecs::Entity {
+    (&mut state
+        .pipeline
+        .dom
+        .world()
+        .query::<(elidex_ecs::Entity, &elidex_ecs::IframeData)>())
+        .into_iter()
+        .next()
+        .map(|(e, _)| e)
+        .expect("an <iframe> entity carrying IframeData should exist")
 }
 
 /// Read the value of an attribute on the `<div>` with the given `id` — the shared

@@ -25,9 +25,10 @@ use elidex_navigation::{DrainCoordinator, DrainHost};
 use elidex_script_session::HostDriver;
 
 use super::test_support::{
-    base, build_test_content_state_with_url, drain_browser, seed_same_document_pair,
+    base, build_test_content_state_with_url, count_display_lists, drain_browser,
+    seed_same_document_pair,
 };
-use crate::ipc::{BrowserToContent, ContentToBrowser, LocalChannel};
+use crate::ipc::{BrowserToContent, ContentToBrowser};
 
 /// A primary-button `MouseClickEvent` at viewport point `(x, y)` — drives the
 /// `handle_click` path for the F3 frame-ship regression.
@@ -39,17 +40,6 @@ fn click_at(x: f32, y: f32) -> crate::ipc::MouseClickEvent {
         mods: crate::ipc::ModifierState::default(),
         placement_seq: 0,
     }
-}
-
-/// Count the `DisplayListReady` messages currently queued on the browser channel.
-fn count_display_lists(browser: &LocalChannel<BrowserToContent, ContentToBrowser>) -> usize {
-    let mut n = 0;
-    while let Ok(msg) = browser.try_recv() {
-        if matches!(msg, ContentToBrowser::DisplayListReady(_)) {
-            n += 1;
-        }
-    }
-    n
 }
 
 /// I1 (ordering across the task boundary): `pushState('/a'); history.back()` in one
