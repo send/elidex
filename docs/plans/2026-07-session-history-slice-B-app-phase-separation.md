@@ -746,3 +746,71 @@ synchronous settle) has no app-mode counterpart, because app-mode has no such se
 OPPOSITE behavior (the popstate-staged intent drains on the next drive that is reached — one turn in the
 test, unbounded in production), fenced to
 `#11-app-mode-turn-completion-drain` (§4.2).
+
+## §9 Defer ledger — slots this slice registers
+
+Axis-3 metadata (`Why deferred` / `Re-evaluation trigger` / `Re-evaluation date`) for every slot the slice
+registers or enriches. The slot bodies live in the defer SoT; this section is the in-repo record so a reader of
+the plan does not have to leave it to learn when each gap is revisited.
+
+**Cap accounting**: per-PR ≤3 counts a slice's **own** deferrals — defects it introduces or declines to finish.
+Gate-/converge-surfaced **pre-existing** defects are a distinct category and are not counted (the rule and its
+anti-gaming clause live with the defer-cap policy). Slice B's own-deferral count is **1**.
+
+### `#11-app-mode-turn-completion-drain` — **the slice's OWN deferral**
+
+- **Why deferred**: the app-mode input-handler turn is not run to quiescence — a §7.4.4 intent staged during
+  Phase 2 (canonically a `pushState` from a `popstate` handler a same-document traversal fired) waits for the
+  next drive that is actually reached, which is **unbounded** (§4.2, §4.4). The correct fix is
+  loop-until-quiescent turn completion, **not** a trailing `drain_synchronous_updates` — that would freeze the
+  in-range classification a turn early and break the over-suppression contract (§4.3). It couples turn-completion
+  looping × I1 ordering × I2 partition × the Phase-2 bounded snapshot resting on §4.4 premise 5 ⇒ **edge-dense,
+  `/elidex-plan-review` mandatory, own PR**. Distinct concern from this slice's fork-close, and the gap pre-dates
+  the slice (app-mode never had a settle).
+- **Re-evaluation trigger**: the next app-mode drive-schedule / session-history PR, or a WPT/site exercising a
+  `popstate` handler that mutates session history.
+- **Re-evaluation date**: **2026-10-31** (with the `#11-session-history-task-queue-model` cluster).
+- **Pinned-not-silent**: `app_history_drain_tests::app_popstate_staged_action_defers_to_the_next_drain_not_the_current_queue`,
+  which flips to the content shape when the fix lands.
+
+### `#11-nav-supersede-window-vs-ongoing-navigation` — pre-existing (Resolution A, PR #469)
+
+- **Why deferred**: narrowing the suppression window is `elidex-navigation` **behavior** affecting both shells,
+  and the predicate is shared — `run_synchronous_phase_body` computes `suppress` once and feeds it BOTH to
+  `handle_navigation` (Resolution A) AND into `DrainOutcome::suppress_default` (Resolution B), so the nav window
+  cannot be narrowed without simultaneously deciding the default-suppression window ⇒ edge-dense, own PR. The
+  citation debt is paid (§2 correction box); what remains is the behavior decision.
+- **Re-evaluation trigger**: `#11-pushstate-must-not-suppress-link-default` landing, the Slice-4 canonical
+  nav-mutating-step serialization, or a WPT/site issuing `location.*` in the same handler as `back()`/`go()`.
+- **Re-evaluation date**: **2026-10-31**.
+
+### `#11-pushstate-must-not-suppress-link-default` — pre-existing, engine-wide
+
+- **Why deferred**: `origin/main`'s app path produced the same effect via
+  `history_applied = !pending_history.is_empty()`; the fix re-derives a predicate two consumers share, so it
+  lands with the Resolution-B work rather than inside this slice.
+- **Re-evaluation trigger**: the next PR touching `DrainOutcome::suppress_default` or the `<a href>`-default
+  consumers.
+- **Re-evaluation date**: **2026-10-31**.
+
+### `#11-stale-entity-across-document-swap` — pre-existing, live in the CONTENT shell
+
+- **Why deferred**: a shell-held `Entity` straddles a synchronous document swap; `EcsDom::new()` starts a fresh
+  `hecs::World`, so the stale entity aliases a live different node. This branch touches zero content files, and
+  both shells' harnesses use `NetworkHandle::disconnected()`, which is why no test reaches it today.
+- **Re-evaluation trigger**: the next content-shell document-swap / form-submit PR, or a harness gaining a
+  connected `NetworkHandle`.
+- **Re-evaluation date**: **2026-10-31**.
+
+### `#11-sync-navigation-steps-queue-tagging` — **enriched, not newly registered**
+
+- **Why deferred**: this slice unlocks the R16 *multi-traversal snapshot* facet in app-mode (see §4.2 and the
+  code note at the `drain_traversal_queue` apply site): `origin/main`'s hand-rolled drain returned after the
+  FIRST traversal, so the second was dropped (#259); applying every queued traversal exposes the straddle
+  underneath, where a `popstate`-staged §7.4.4 intent settles against the entry the LAST traversal reached
+  instead of the one whose handler issued it (§7.4.6.1 step 14's note). The fix is per-task finalization with
+  call-time entry association (§7.4.1.3) — edge-dense, `/elidex-plan-review` mandatory, own PR.
+- **Re-evaluation trigger**: B1 multi-navigable landing, the Slice-4 canonical serialization, or a
+  straddle-fidelity WPT/site.
+- **Re-evaluation date**: **2026-10-31**.
+- **Pinned-not-silent**: `app_history_drain_tests::app_multi_traversal_snapshot_lands_popstate_staged_update_on_the_wrong_entry`.
