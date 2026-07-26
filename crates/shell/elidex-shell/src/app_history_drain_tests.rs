@@ -2,13 +2,27 @@
 //! conformance
 //! (`docs/plans/2026-07-session-history-slice-B-app-phase-separation.md` §8).
 //!
-//! The app-mode leg of the SAME scenario table `content_history_drain_tests` /
-//! `content_history_phase_sep_tests` run against the content shell — that parity IS
-//! the axis-c pin: both shells drive the identical shared `DrainCoordinator` and
-//! differ ONLY in when Phase 2 is pumped (content on a later async-pump turn via
-//! `run_deferred_traversals`; app-mode back-to-back inside the input handler via
-//! `drain_same_turn`, its *degenerate* later task). One-issue-one-way is
-//! test-enforced across the two entry points, not merely asserted.
+//! The app-mode leg of the scenario table `content_history_drain_tests` /
+//! `content_history_phase_sep_tests` run against the content shell. The axis-c pin
+//! is that both shells drive the identical shared `DrainCoordinator`, so everything
+//! the coordinator OWNS — the I2 partition, the Resolution A supersede, the
+//! Resolution D `SyncUpdate` cancel, the Resolution E no-op peek-classify — lands
+//! the same way on both, test-enforced across the two entry points rather than
+//! merely asserted.
+//!
+//! **The two tables are not identical, because the two schedules are not.**
+//! Content-mode makes THREE coordinator calls per event-loop turn
+//! (`content/event_loop.rs:205` / `:206` / `:497`); app-mode makes ONE
+//! (`drain_same_turn`, at end-of-input-handler). The headline difference is
+//! Phase-2 pump timing — content on a later async-pump turn via
+//! `run_deferred_traversals`, app-mode back-to-back inside the input handler as its
+//! *degenerate* later task — but app-mode also has **no post-Phase-2 synchronous
+//! settle**, so content's R9 pin
+//! (`content_history_phase_sep_tests::pump_drains_popstate_staged_pushstate_this_turn`)
+//! has no app-mode twin: its counterpart below
+//! (`app_popstate_staged_action_defers_to_the_next_drain_not_the_current_queue`)
+//! pins the opposite, bounded behavior, fenced to
+//! `#11-app-mode-turn-completion-drain`.
 //!
 //! **Harness reachability.** These tests build an `App` via
 //! [`App::new_interactive_with_url`] (no winit — `render_state` is `None`) over a
@@ -206,13 +220,21 @@ fn app_trailing_syncupdate_canceled_behind_cursor_moving_traversal() {
     assert!(app.traversal_queue().is_empty(), "the queue drained");
 }
 
-/// A `go(0)` reload is an IN-RANGE traversal (it resolves to the current entry, so
-/// `peek_delta` yields `Some` — History.go step 4), and it classifies **`Rebuild`**,
-/// not same-document: `resolve_traversal` returns `Rebuild` whenever the target IS
-/// the current index. So it enqueues as a partition barrier and Phase 2 attempts a
-/// document rebuild — which FAILS over the disconnected harness, leaving the cursor
-/// and entry list untouched and reporting no own-context action. Had it wrongly
-/// taken the same-document path it would have applied in place and shipped.
+/// A `go(0)` **reload**. The spec never routes it through a traversal at all:
+/// `go(delta)`'s method steps are "delta traverse this given delta", and *delta
+/// traverse* (WHATWG HTML §7.2.5 *The History interface*) **step 4** short-circuits
+/// — "If delta is 0, then reload document's node navigable, and return" — taking
+/// the §7.4.3 *Reloading and traversing* reload path and never entering *traverse
+/// the history by a delta*.
+///
+/// elidex reaches the same OUTCOME (a reload) by a different route, which is what
+/// this test pins: `peek_delta(Go(0))` resolves to the current entry, so the step is
+/// IN-RANGE and enqueues as a partition barrier, and `resolve_traversal` returns
+/// **`Rebuild`** — not same-document — whenever the target IS the current index. So
+/// Phase 2 attempts a document rebuild, i.e. the reload. That rebuild FAILS over the
+/// disconnected harness, leaving the cursor and entry list untouched and reporting no
+/// own-context action. Had it wrongly taken the same-document path it would have
+/// applied in place and shipped.
 #[test]
 fn app_go_zero_is_an_in_range_barrier_that_rebuilds() {
     let mut app = app_at("<p>doc</p>", base());
@@ -515,13 +537,30 @@ fn app_drain_same_turn_leaves_no_residual_and_applies_every_queued_traversal() {
     );
 }
 
-/// The root invariant behind the by-construction proof (plan §4.4 premise 5): no
-/// app-mode apply body synchronously drives Phase 1, so history actions STAGED
-/// during a Phase-2 apply — here a `pushState` from the synchronously-fired
-/// `popstate` handler of a same-document traversal — are NOT partitioned into the
-/// current drain's queue. They stay on the VM FIFO and drain on the NEXT turn
-/// (app-mode's degenerate later task), which is exactly what makes the bounded
-/// snapshot complete.
+/// **Pins app-mode's CURRENT BOUNDED behavior, not a correct-by-design one** — slot
+/// `#11-app-mode-turn-completion-drain`.
+///
+/// Two facts are entangled here and only the first is by design. **(1)** The root
+/// invariant behind the by-construction proof (plan §4.4 premise 5): no app-mode
+/// apply body synchronously drives Phase 1, so a history action STAGED during a
+/// Phase-2 apply — here a `pushState` from the synchronously-fired `popstate`
+/// handler of a same-document traversal — is NOT partitioned into the CURRENT
+/// drain's queue, which is exactly what makes the bounded snapshot complete.
+/// **(2)** But nothing settles it either: `drain_same_turn` has no post-Phase-2
+/// synchronous drain, so the staged `pushState` sits on the VM FIFO until the NEXT
+/// input event. That is the shape Slice A describes as "firing much too late" and
+/// FIXED for content mode (Codex #469 R9) by running
+/// `DrainCoordinator::drain_synchronous_updates` immediately after
+/// `run_deferred_traversals` — pinned by the content counterpart
+/// `content_history_phase_sep_tests::pump_drains_popstate_staged_pushstate_this_turn`,
+/// which asserts the popstate-staged `pushState` lands on the SAME turn. App-mode
+/// has no such counterpart, so the assertions below describe the status quo.
+///
+/// The fix is **loop-until-quiescent turn completion**, not a trailing
+/// `drain_synchronous_updates`: that would settle a popstate-staged `pushState` but
+/// leave a popstate-staged `back()` enqueued with no Phase 2 behind it to drain,
+/// trading one stranding for another. Edge-dense ⇒ its own plan-reviewed PR, at
+/// which point this test flips to the content shape.
 #[test]
 fn app_popstate_staged_action_defers_to_the_next_drain_not_the_current_queue() {
     let mut app = app_at(
