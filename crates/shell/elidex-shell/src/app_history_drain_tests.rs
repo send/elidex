@@ -23,76 +23,68 @@
 //! [`DrainOutcome::own_context_action`]), which is what gates
 //! `DrainHost::ship_frame`.
 //!
-//! **App-local helpers on purpose.** `content_test_support` is content-thread
-//! specific (it spawns content threads over a test broker, builds `ContentState`,
-//! and its `drain_browser` consumes a browser IPC channel an inline `App` does not
-//! have — inline mode is synchronous). Folding these three-line helpers there would
-//! couple app-mode tests to that scaffolding for no gain (plan §5: a FALSE
-//! unification target).
+//! The `App`-building + history/URL probes live in `app_test_support` (shared with
+//! `app_fragment_nav_tests`); the drain-specific seeds and probes are below.
 
 use elidex_navigation::{DrainHost, TraversalDelta};
 use elidex_script_session::HostDriver;
 
 use super::drain_host::apply_traversal_delta;
+use super::test_support::{app_at, base, history_len, pipeline_url, url};
 use super::App;
-
-/// The top-level document URL every test builds against.
-fn base() -> url::Url {
-    url::Url::parse("https://example.com/").unwrap()
-}
-
-fn url(s: &str) -> url::Url {
-    url::Url::parse(s).unwrap()
-}
-
-/// Build an app-mode `App` at `url` over a disconnected network, laid out (so hit
-/// testing and fragment scroll-resolution see `LayoutBox`es).
-/// `new_interactive_with_url` seeds the initial history entry from `pipeline.url`
-/// (so `len` starts at 1, cursor at index 0).
-fn app_at(html: &str, url: url::Url) -> App {
-    let pipeline = crate::build_pipeline_interactive_shared(
-        html,
-        Some(url),
-        std::sync::Arc::new(elidex_text::FontDatabase::new()),
-        std::rc::Rc::new(elidex_net::broker::NetworkHandle::disconnected()),
-        std::sync::Arc::new(crate::create_css_property_registry()),
-        None,
-        None, // No WebStorageManager (drain test → in-memory fallback).
-        elidex_plugin::Size::new(1024.0, 768.0),
-        crate::ipc::DeviceFacts::default(),
-        None,
-    );
-    let mut app = App::new_interactive_with_url(pipeline, "elidex".to_string());
-    crate::re_render(&mut app.interactive.as_mut().unwrap().pipeline);
-    app
-}
 
 /// Seed `[base, /a]` sharing ONE `document_sequence`, cursor on `/a` — the
 /// same-document pair whose `back()` applies in the disconnected harness (no fetch).
 /// The app-mode mirror of `content_test_support::seed_same_document_pair`.
 fn seed_same_document_pair(app: &mut App) {
     let a = url("https://example.com/a");
-    let interactive = app.interactive.as_mut().unwrap();
     // index 0 = base was seeded by `new_interactive_with_url`; index 1 = /a inherits
     // its `document_sequence`, so a traversal between them is SameDocument.
-    interactive.nav_controller.push_same_document(a.clone());
-    interactive.pipeline.url = Some(a.clone());
-    interactive.pipeline.runtime.set_current_url(Some(a));
-    interactive.pipeline.runtime.set_session_history(
-        interactive.nav_controller.current_index(),
-        interactive.nav_controller.len(),
-    );
+    app.interactive
+        .as_mut()
+        .unwrap()
+        .nav_controller
+        .push_same_document(a.clone());
+    activate_seeded_entry(app, a);
 }
 
 /// Seed `[base, /a]` as two DISTINCT documents (fresh `document_sequence`s), cursor
 /// on `/a` — a `back()` here classifies `Rebuild`, and its cross-document load FAILS
 /// in the disconnected harness (the failed-load / cursor-atomicity path).
+///
+/// The ONLY difference from [`seed_same_document_pair`] is `push` vs
+/// `push_same_document`; everything downstream of the cursor move is the shared
+/// [`activate_seeded_entry`] tail.
 fn seed_cross_document_pair(app: &mut App) {
     let a = url("https://example.com/a");
+    app.interactive
+        .as_mut()
+        .unwrap()
+        .nav_controller
+        .push(a.clone());
+    activate_seeded_entry(app, a);
+}
+
+/// The shared tail of the two seeds: point the ACTIVE-DOCUMENT facts at the entry
+/// the cursor was just moved onto — pipeline URL + VM current-URL + VM
+/// session-history `(index, length)`.
+///
+/// Mirrors what production does on every cursor move (`navigate` /
+/// `same_document_step` / `navigate_to_history_url` / `apply_state_change` all
+/// end in `set_session_history`), so neither seed leaves the
+/// production-impossible state where `history.length` still describes the
+/// pre-push list while the cursor sits on `/a`. Factored out because the
+/// cross-document seed silently OMITTED the `set_session_history` call — the exact
+/// bug shape Codex fixed in `content_test_support::seed_same_document_pair` on
+/// PR #469 R18, where a controller-only seed let spurious passes through.
+fn activate_seeded_entry(app: &mut App, url: url::Url) {
     let interactive = app.interactive.as_mut().unwrap();
-    interactive.nav_controller.push(a.clone());
-    interactive.pipeline.url = Some(a.clone());
-    interactive.pipeline.runtime.set_current_url(Some(a));
+    interactive.pipeline.url = Some(url.clone());
+    interactive.pipeline.runtime.set_current_url(Some(url));
+    interactive.pipeline.runtime.set_session_history(
+        interactive.nav_controller.current_index(),
+        interactive.nav_controller.len(),
+    );
 }
 
 fn eval(app: &mut App, script: &str) {
@@ -106,26 +98,15 @@ fn eval(app: &mut App, script: &str) {
         .eval(script);
 }
 
-fn history_len(app: &App) -> usize {
-    app.interactive.as_ref().unwrap().nav_controller.len()
-}
-
+/// The history CURSOR's entry URL — the drain-specific complement of
+/// `test_support::pipeline_url` (the active document's URL): a traversal that moved
+/// the cursor but whose document load failed leaves the two disagreeing.
 fn current_url(app: &App) -> Option<String> {
     app.interactive
         .as_ref()
         .unwrap()
         .nav_controller
         .current_url()
-        .map(|u| u.as_str().to_string())
-}
-
-fn pipeline_url(app: &App) -> Option<String> {
-    app.interactive
-        .as_ref()
-        .unwrap()
-        .pipeline
-        .url
-        .as_ref()
         .map(|u| u.as_str().to_string())
 }
 
@@ -263,7 +244,8 @@ fn app_go_zero_is_an_in_range_barrier_that_rebuilds() {
 }
 
 // ---------------------------------------------------------------------------
-// Nav-vs-traversal supersede (Resolution A) + the `:73` supersede-return removal
+// Nav-vs-traversal supersede (Resolution A) + the removal of the retired
+// hand-rolled `process_pending_navigation` traversal-supersede `return`
 // ---------------------------------------------------------------------------
 
 /// Resolution A: a same-turn `history.back(); location.assign(...)` lands on the
@@ -275,8 +257,9 @@ fn app_go_zero_is_an_in_range_barrier_that_rebuilds() {
 /// the traversal target in both orders anyway (step 20's "aborting other ongoing
 /// navigations" aborts *navigations*, not the traversal).
 ///
-/// **FLIP of the retired `app/navigation.rs:73` supersede-`return`.** The old
-/// hand-rolled drain applied the traversal INSIDE the history-FIFO loop and returned
+/// **FLIP of the retired hand-rolled
+/// `app/navigation.rs::process_pending_navigation` traversal-supersede `return`.**
+/// That drain applied the traversal INSIDE the history-FIFO loop and returned
 /// immediately, so `take_pending_navigation()` never ran and the `location.*` request
 /// stayed **stranded** on the runtime — re-firing a turn late (a spurious deferred
 /// navigation). Phase-1c now drains the slot and drops the request, so a second drain
@@ -311,7 +294,7 @@ fn app_nav_vs_traversal_supersede_discards_and_does_not_strand() {
         );
 
         // The discarded slot was DRAINED, not skipped: a later turn must not
-        // resurrect it (the retired `:73` return left it staged to fire late).
+        // resurrect it (the retired supersede `return` left it staged to fire late).
         let later = app.process_pending_navigation();
         assert!(
             !later.own_context_action,
@@ -330,7 +313,8 @@ fn app_nav_vs_traversal_supersede_discards_and_does_not_strand() {
     }
 }
 
-/// #259 (app leg) — the retired `:73` supersede no longer truncates the FIFO replay:
+/// #259 (app leg) — the retired hand-rolled `process_pending_navigation`
+/// traversal-supersede `return` no longer truncates the FIFO replay:
 /// `pushState; pushState; back()` keeps BOTH pushes (Phase 1 applies every
 /// synchronous update issued before the barrier, in issue order) and the traversal
 /// applies afterwards in Phase 2.

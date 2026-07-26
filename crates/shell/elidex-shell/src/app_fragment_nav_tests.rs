@@ -14,51 +14,8 @@
 
 use elidex_script_session::NavigationType;
 
+use super::test_support::{app_at, base, history_len, pipeline_url, url};
 use super::App;
-
-fn base() -> url::Url {
-    url::Url::parse("https://example.com/").unwrap()
-}
-
-fn url(s: &str) -> url::Url {
-    url::Url::parse(s).unwrap()
-}
-
-/// Build an app-mode `App` at `url` over a disconnected network, laid out (so
-/// fragment scroll-resolution finds `LayoutBox`es). `new_interactive_with_url`
-/// seeds the initial history entry from `pipeline.url` (so `len` starts at 1).
-fn app_at(html: &str, url: url::Url) -> App {
-    let pipeline = crate::build_pipeline_interactive_shared(
-        html,
-        Some(url),
-        std::sync::Arc::new(elidex_text::FontDatabase::new()),
-        std::rc::Rc::new(elidex_net::broker::NetworkHandle::disconnected()),
-        std::sync::Arc::new(crate::create_css_property_registry()),
-        None,
-        None, // No WebStorageManager (fragment-nav test → in-memory fallback).
-        elidex_plugin::Size::new(1024.0, 768.0),
-        crate::ipc::DeviceFacts::default(),
-        None,
-    );
-    let mut app = App::new_interactive_with_url(pipeline, "elidex".to_string());
-    // Ensure layout has run so the fragment scroll-resolver sees LayoutBoxes.
-    crate::re_render(&mut app.interactive.as_mut().unwrap().pipeline);
-    app
-}
-
-fn history_len(app: &App) -> usize {
-    app.interactive.as_ref().unwrap().nav_controller.len()
-}
-
-fn pipeline_url(app: &App) -> Option<String> {
-    app.interactive
-        .as_ref()
-        .unwrap()
-        .pipeline
-        .url
-        .as_ref()
-        .map(|u| u.as_str().to_string())
-}
 
 fn scroll_y(app: &App) -> f32 {
     app.interactive.as_ref().unwrap().pipeline.scroll_offset.y

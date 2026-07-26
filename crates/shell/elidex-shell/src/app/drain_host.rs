@@ -82,19 +82,6 @@ use elidex_script_session::{HistoryAction, HostDriver};
 use super::navigation::{handle_history_action, resolve_nav_url};
 use super::App;
 
-/// The `.expect()` message for every per-seam reach-through to
-/// [`App::interactive`](super::App::interactive).
-///
-/// An **unreachable panic**, not a fallible unwrap: the sole drive site
-/// ([`App::process_pending_navigation`]) enters only when `interactive.is_some()`,
-/// and nothing in the crate ever clears the field afterwards (see its
-/// never-cleared invariant in `app/mod.rs`). Reaching it would mean a second,
-/// unguarded coordinator drive was introduced — which must fail loudly rather than
-/// silently no-op half a drain.
-pub(super) const INTERACTIVE_DRIVE_ONLY: &str =
-    "the DrainCoordinator is driven only from process_pending_navigation, which enters \
-     behind an `interactive.is_some()` guard, and `interactive` is never cleared";
-
 impl App {
     /// Drive one **whole-turn** session-history / navigation drain for the
     /// legacy-inline shell — the app-mode leg of the shared phase-partition.
@@ -112,7 +99,8 @@ impl App {
     ///
     /// **This is the SOLE site that drives the coordinator in app-mode** — the
     /// `interactive.is_some()` guard here is what makes every per-seam
-    /// [`INTERACTIVE_DRIVE_ONLY`] `expect` an unreachable panic.
+    /// [`App::inline_state`] / [`App::inline_state_mut`] reach-through an
+    /// unreachable panic ([`INTERACTIVE_DRIVE_ONLY`](super::INTERACTIVE_DRIVE_ONLY)).
     ///
     /// Returns the coordinator's [`DrainOutcome`] (the shared summary both shells
     /// return) rather than the retired ad-hoc `bool`. Callers read the field they
@@ -149,8 +137,10 @@ impl App {
 ///
 /// The one cost is that the queue + controller are homed on `interactive` (an
 /// `Option` on `App`), so the per-drain seams reach through
-/// `self.interactive.as_mut().expect(`[`INTERACTIVE_DRIVE_ONLY`]`)` — a bounded,
-/// provably-safe wrinkle (unreachable panic), not an ownership gap.
+/// [`App::inline_state`] / [`App::inline_state_mut`] — a bounded, provably-safe
+/// wrinkle (an unreachable panic, see
+/// [`INTERACTIVE_DRIVE_ONLY`](super::INTERACTIVE_DRIVE_ONLY)), not an ownership
+/// gap.
 ///
 /// **Layering.** The coordinator owns the phase ordering + the I1/I2/I3 invariants;
 /// these seams own the irreducibly shell-specific bodies. `App` /
@@ -165,11 +155,7 @@ impl App {
 /// against — adding one would be a guard for an unreachable state.
 impl DrainHost for App {
     fn traversal_queue(&mut self) -> &mut TraversalQueue {
-        &mut self
-            .interactive
-            .as_mut()
-            .expect(INTERACTIVE_DRIVE_ONLY)
-            .traversal_queue
+        &mut self.inline_state_mut().traversal_queue
     }
 
     /// **Phase 1a** — drain the `window.open` back-channel (§7.2.2.1) and DROP it.
@@ -184,9 +170,7 @@ impl DrainHost for App {
     /// the seam contract.
     fn route_window_opens(&mut self) {
         let _ = self
-            .interactive
-            .as_mut()
-            .expect(INTERACTIVE_DRIVE_ONLY)
+            .inline_state_mut()
             .pipeline
             .runtime
             .take_pending_window_opens();
@@ -198,9 +182,7 @@ impl DrainHost for App {
         // `Back`/`Forward`/`Go` staged as enqueue-only). Q-VM-MODEL: the staging
         // model is unchanged and identical to content's — only the shell drain
         // re-times.
-        self.interactive
-            .as_mut()
-            .expect(INTERACTIVE_DRIVE_ONLY)
+        self.inline_state_mut()
             .pipeline
             .runtime
             .take_pending_history()
@@ -216,9 +198,7 @@ impl DrainHost for App {
     /// [`pending_traversal`](Self::pending_traversal) directly.
     fn classify_traversal(&mut self, delta: TraversalDelta) -> Option<PendingTraversal> {
         let in_range = self
-            .interactive
-            .as_ref()
-            .expect(INTERACTIVE_DRIVE_ONLY)
+            .inline_state()
             .nav_controller
             .peek_delta(delta)
             .is_some();
@@ -272,7 +252,7 @@ impl DrainHost for App {
     /// coordinator's trailing [`ship_frame`](Self::ship_frame) is correctly
     /// suppressed for it.
     fn handle_navigation(&mut self, suppress: bool) -> bool {
-        let interactive = self.interactive.as_mut().expect(INTERACTIVE_DRIVE_ONLY);
+        let interactive = self.inline_state_mut();
         let Some(nav_req) = interactive.pipeline.runtime.take_pending_navigation() else {
             return false;
         };
@@ -350,20 +330,23 @@ impl DrainHost for App {
 /// the document, so the coordinator marks no own-context action and the caller's
 /// default is not over-suppressed.
 ///
-/// **One body, three entry points — no duplication.** `traverse_to` stays index-keyed
-/// because it also serves the two **non-drain** traversal callers, which already
-/// hold a resolved `(index, url)` and are fenced OUT of the coordinator this slice:
-/// the chrome toolbar Back/Forward (`navigation.rs::handle_chrome_action`) and
-/// Alt+←/→ (`inline.rs::handle_keyboard_inline`). This is the exact shape of the
-/// content mirror, where the delta-keyed `apply_traversal_delta` resolves and then
-/// calls the shared index/op-keyed `handle_navigate`.
+/// **One body, three entry points.** `traverse_to` stays index-keyed because it also
+/// serves the two **non-drain** traversal callers, which pass an `(index, url)` pair
+/// and are fenced OUT of the coordinator this slice: the chrome toolbar Back/Forward
+/// (`navigation.rs::handle_chrome_action`) and Alt+←/→
+/// (`inline.rs::handle_keyboard_inline`). This is the exact shape of the content
+/// mirror, where the delta-keyed `apply_traversal_delta` resolves and then calls the
+/// shared index/op-keyed `handle_navigate`.
+///
+/// **What is shared is `traverse_to`, NOT the resolve prologue.** Those two callers
+/// hand-roll their own `peek_back`/`peek_forward` + clone per key/button arm, so the
+/// peek→clone resolve is genuinely triplicated today (this function being the third).
+/// Left in place deliberately: both callers are fenced out of this slice, and Slice
+/// 4's canonical DIRECT-nav serialization
+/// (`#11-session-history-task-queue-model`) restructures them — unifying the
+/// prologue now would edit exactly the bodies the fence exists to hold still.
 pub(super) fn apply_traversal_delta(app: &mut App, delta: TraversalDelta) -> bool {
-    let peeked = app
-        .interactive
-        .as_ref()
-        .expect(INTERACTIVE_DRIVE_ONLY)
-        .nav_controller
-        .peek_delta(delta);
+    let peeked = app.inline_state().nav_controller.peek_delta(delta);
     // Clone the URL to drop the `nav_controller` borrow before the `&mut app` apply.
     let Some((target_index, url)) = peeked.map(|(i, u)| (i, u.clone())) else {
         return false;

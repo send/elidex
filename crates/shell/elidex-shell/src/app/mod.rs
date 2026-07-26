@@ -25,6 +25,10 @@ mod threaded;
 mod viewport;
 
 #[cfg(test)]
+#[path = "../app_test_support.rs"]
+mod test_support;
+
+#[cfg(test)]
 #[path = "../app_fragment_nav_tests.rs"]
 mod fragment_nav_tests;
 
@@ -323,7 +327,46 @@ pub struct App {
     viewport: viewport::ViewportProducer,
 }
 
+/// The `.expect()` message for every inline-only reach-through to
+/// [`App::interactive`] — the panic behind [`App::inline_state`] /
+/// [`App::inline_state_mut`].
+///
+/// An **unreachable panic**, not a fallible unwrap: the sole drive site
+/// ([`App::process_pending_navigation`]) enters only when `interactive.is_some()`,
+/// and nothing in the crate ever clears the field afterwards (its never-cleared
+/// invariant, documented on the field just above). Reaching it would mean a
+/// second, unguarded coordinator drive was introduced — which must fail loudly
+/// rather than silently no-op half a drain.
+///
+/// Homed here, beside the field and its invariant, so the invariant has ONE home:
+/// stated once, enforced once (by the two accessors below).
+const INTERACTIVE_DRIVE_ONLY: &str =
+    "the DrainCoordinator is driven only from process_pending_navigation, which enters \
+     behind an `interactive.is_some()` guard, and `interactive` is never cleared";
+
 impl App {
+    /// The legacy-inline state, on a path that runs **only** in inline mode.
+    ///
+    /// The single enforcement point of the [`interactive`](Self::interactive)
+    /// never-cleared invariant for shared borrows: panics with
+    /// [`INTERACTIVE_DRIVE_ONLY`] (unreachable — see its docs). Every
+    /// [`DrainHost`](elidex_navigation::DrainHost) seam in `app/drain_host.rs`
+    /// reaches through this instead of open-coding the `expect`.
+    pub(super) fn inline_state(&self) -> &InteractiveState {
+        self.interactive.as_ref().expect(INTERACTIVE_DRIVE_ONLY)
+    }
+
+    /// [`Self::inline_state`] for mutable borrows.
+    ///
+    /// Borrows all of `*self`, so a body that must ALSO touch a **disjoint**
+    /// `App` field while holding this borrow (e.g. reading `render_state` to set
+    /// the window title) cannot use it — the borrow checker splits disjoint field
+    /// borrows only at a direct field access. `navigation.rs::handle_history_action`
+    /// is the one such site and keeps its direct `self.interactive` borrow.
+    pub(super) fn inline_state_mut(&mut self) -> &mut InteractiveState {
+        self.interactive.as_mut().expect(INTERACTIVE_DRIVE_ONLY)
+    }
+
     /// Build a content-thread wake closure from a clone of the event-loop proxy.
     /// The single way a [`crate::WakeHandle`] is minted (used by both the
     /// `new_threaded*` initial-tab spawn and [`App::wake_or_noop`] for later tabs).

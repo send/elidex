@@ -252,9 +252,15 @@ impl App {
 
     /// Navigate to a URL from the history (back/forward). Returns `true` iff the
     /// pipeline was **replaced (the load succeeded)** — the inline mirror of
-    /// `content/navigation.rs::handle_navigate`'s success signal, so a
-    /// failed-load traversal does NOT supersede the same-turn history drain
-    /// (Codex R2).
+    /// `content/navigation.rs::handle_navigate`'s success signal (Codex R2).
+    ///
+    /// That `bool` flows out through [`Self::traverse_to`] as
+    /// [`DrainHost::apply_traversal`](elidex_navigation::DrainHost::apply_traversal)'s
+    /// `shipped`, which gates the coordinator's Resolution-D **cursor-moved
+    /// latch**: a FAILED load never moved the cursor, so it sets no latch, marks no
+    /// own-context action, and a trailing straddle `SyncUpdate` still applies
+    /// coherently against the (still-active) call-time entry instead of being
+    /// canceled.
     pub(super) fn navigate_to_history_url(&mut self, url: &url::Url) -> bool {
         if !self.load_url_into_pipeline(url) {
             return false;
@@ -328,7 +334,9 @@ impl App {
                     // on a cross-document traversal (its value is flip-inert — boa
                     // passes `None` on every pushState; the seed-threading lands
                     // only on the content thread, plan §5.5). Same-document
-                    // traversals still restore + fire in place (`handle_history_action`).
+                    // traversals never reach here at all: they restore + fire in
+                    // place in `same_document_step` (via `traverse_to`, which routes
+                    // them there instead of rebuilding).
                     None,
                 );
                 interactive.pipeline = new_pipeline;
@@ -361,8 +369,8 @@ impl App {
     /// `content/navigation.rs::handle_navigate`'s Commit arm.
     ///
     /// **The single traversal-apply body, reached by three entry points** — it stays
-    /// **index-keyed** because two of them already hold a resolved `(index, url)`
-    /// and are fenced OUT of the coordinator this slice:
+    /// **index-keyed** because two of them resolve their own `(index, url)` pair and
+    /// are fenced OUT of the coordinator this slice:
     /// 1. the deferred Phase-2 apply
     ///    (`drain_host::apply_traversal_delta`, which resolves the queued
     ///    [`TraversalDelta`](elidex_navigation::TraversalDelta) via `peek_delta`
@@ -375,7 +383,9 @@ impl App {
     /// are NOT routed through the traversal queue in this slice — they collapse into
     /// Slice 4's canonical DIRECT-nav serialization
     /// (`#11-session-history-task-queue-model`), the same fence content-mode's
-    /// chrome-direct traversal sits behind.
+    /// chrome-direct traversal sits behind. What they share with (1) is THIS body,
+    /// not the resolve prologue: each hand-rolls its own `peek_back`/`peek_forward`
+    /// + clone, so that prologue is triplicated until Slice 4 restructures them.
     pub(super) fn traverse_to(&mut self, target_index: usize, target: &url::Url) -> bool {
         // Scoped borrow: capture scroll-on-leave, then classify the traversal by
         // DOCUMENT IDENTITY (`resolve_traversal`, §7.4.6.1 step 14.10 — NOT URL, so
@@ -547,10 +557,16 @@ pub(super) fn handle_history_action(app: &mut App, action: &elidex_script_sessio
                 action,
                 elidex_script_session::HistoryAction::ReplaceState { .. }
             );
+            // The one inline-only reach-through that CANNOT go through
+            // `App::inline_state_mut`: the `set_title` tail below reads
+            // `app.render_state` while this `&mut` is still live, which the borrow
+            // checker allows only for DISJOINT FIELD borrows — through a method the
+            // whole `*app` is borrowed and it is `E0502`. Same invariant, same
+            // message ([`super::INTERACTIVE_DRIVE_ONLY`]), open-coded here alone.
             let interactive = app
                 .interactive
                 .as_mut()
-                .expect(super::drain_host::INTERACTIVE_DRIVE_ONLY);
+                .expect(super::INTERACTIVE_DRIVE_ONLY);
             let Some(resolved_url) =
                 resolve_state_url(interactive.pipeline.url.as_ref(), url.as_deref())
             else {
