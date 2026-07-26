@@ -85,8 +85,20 @@ impl App {
             (button_num, click_prevented, hit_entity)
         };
 
-        // Process any pending JS navigation or history action.
-        if self.process_pending_navigation() {
+        // Drain this turn's staged navigation / history intents (Phase 1 in-task,
+        // then Phase 2's deferred traversal apply — `DrainCoordinator::drain_same_turn`).
+        //
+        // `suppress_default` is the ONE shared default-suppression signal, computed
+        // once by the coordinator at the END of Phase 1 as "an own-context effect
+        // happened this turn OR a `Traversal` step is pending/in flight". Read the
+        // field rather than re-deriving the queue query (One-issue-one-way with the
+        // content shell's click path). Note the app-mode subtlety: `drain_same_turn`
+        // has ALSO already applied the traversal by the time this reads the outcome,
+        // but the field's value was fixed while the traversal was still
+        // enqueued-but-unapplied — identical semantics in both shells. A no-op
+        // `go(999)` never enqueues a `Traversal` step (§7.4.3 step 4.4 peek-classify),
+        // so it does not over-suppress a legitimate link default.
+        if self.process_pending_navigation().suppress_default {
             return;
         }
 
@@ -127,7 +139,9 @@ impl App {
 
         crate::re_render(pipeline);
 
-        // Process any pending JS navigation or history action.
+        // Drain this turn's staged navigation / history intents. Called for effect
+        // only: a keyboard turn has no caller-owned default action to suppress, so
+        // the `DrainOutcome` is ignored (unlike the click path above).
         self.process_pending_navigation();
     }
 }

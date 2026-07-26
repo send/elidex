@@ -11,6 +11,7 @@
 //!   thread (used by `build_pipeline` test API).
 
 mod content_messages;
+mod drain_host;
 pub(crate) mod events;
 pub(crate) mod hover;
 mod inline;
@@ -35,7 +36,7 @@ use winit::event_loop::ActiveEventLoop;
 use winit::window::{Window, WindowId};
 
 use elidex_ecs::Entity;
-use elidex_navigation::NavigationController;
+use elidex_navigation::{NavigationController, TraversalQueue};
 use elidex_plugin::{Point, Size};
 use wgpu::util::TextureBlitter;
 use wgpu::{Instance, Surface};
@@ -219,6 +220,22 @@ pub(super) struct InteractiveState {
     pub(super) active_chain: Vec<Entity>,
     pub(super) modifiers: Modifiers,
     pub(super) nav_controller: NavigationController,
+    /// The traversable's **session history traversal queue** (WHATWG HTML
+    /// §7.3.1.1 *Traversable navigables*) — the deferred Phase-2 traversal-apply
+    /// queue the [`DrainCoordinator`](elidex_navigation::DrainCoordinator) drives
+    /// through [`App`]'s [`DrainHost`](elidex_navigation::DrainHost) impl
+    /// (`app/drain_host.rs`). Homed here beside `nav_controller` (Q-OWNER —
+    /// engine-agnostic traversable proxy state, and both survive a pipeline
+    /// rebuild), exactly as content mode homes it beside its own controller.
+    ///
+    /// App-mode has **no async pump**, so its Phase 2 drains at the END of the
+    /// same input handler (`DrainCoordinator::drain_same_turn`), strictly after
+    /// Phase 1 — the *degenerate* two-phase that still realizes §7.4.6.1
+    /// *Updating the traversable* step 12's ordering ("This set of steps are split
+    /// into two parts to allow synchronous navigations to be processed before
+    /// documents unload"). CLAUDE.md side-store exception (b)
+    /// (browsing-context/session-level state, not a per-entity ECS component).
+    pub(super) traversal_queue: TraversalQueue,
     pub(super) window_title: String,
     pub(super) chrome: crate::chrome::ChromeState,
     /// The window's current device facts (dppx / color-scheme / reduced-motion) —
@@ -254,6 +271,17 @@ pub struct App {
     /// Used to send exactly one `CursorLeft` when the cursor moves into the chrome area.
     cursor_in_content: bool,
     /// Legacy inline interactive state.
+    ///
+    /// **Never-cleared invariant** (relied on by every `DrainHost` seam in
+    /// `app/drain_host.rs`): the ONLY writes to this field are at construction —
+    /// `None` in [`Self::from_tab_manager`] (threaded mode), `Some(..)` in
+    /// [`Self::new_interactive`] / [`Self::new_interactive_with_url`] (inline
+    /// mode). Nothing clears it afterwards: the navigation bodies
+    /// (`navigate` / `navigate_to_history_url` / `load_url_into_pipeline`) replace
+    /// `interactive.pipeline` **in place**, never the `Option`. So once the sole
+    /// drain site (`drain_host::App::process_pending_navigation`) has checked
+    /// `is_some()`, every per-seam `self.interactive.as_mut().expect(..)` inside
+    /// that drain is an **unreachable panic**.
     pub(super) interactive: Option<InteractiveState>,
     /// Pending window focus request from `window.focus()`.
     pub(super) pending_focus: bool,
@@ -469,6 +497,7 @@ impl App {
                 active_chain: Vec::new(),
                 modifiers: Modifiers::default(),
                 nav_controller: NavigationController::new(),
+                traversal_queue: TraversalQueue::new(),
                 window_title: "elidex".to_string(),
                 // Inline pipelines are built with default facts (1× / Light); no
                 // window → no dynamic writer, so this static seed IS parity (B20).
@@ -516,6 +545,7 @@ impl App {
                 active_chain: Vec::new(),
                 modifiers: Modifiers::default(),
                 nav_controller,
+                traversal_queue: TraversalQueue::new(),
                 window_title: title,
                 // Inline pipelines are built with default facts (1× / Light); no
                 // window → no dynamic writer, so this static seed IS parity (B20).
