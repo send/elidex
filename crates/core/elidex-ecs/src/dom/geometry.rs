@@ -48,6 +48,14 @@ use crate::fragment_tree::{BoxFragment, FragmentContent};
 pub struct FragmentView {
     /// Fragmentainer index this fragment lives in (multicol column; 0 for the
     /// non-fragmented N=1 box).
+    ///
+    /// ⚠ Authoritative **only for store-sourced (N>1) fragments**. The store carries
+    /// a fragmentainer only for entities it fragments (spanning mid-breaks); a
+    /// **non-spanning** child wholly inside a later multicol column has no store
+    /// fragment, so the N=1 fallback reports `0` even though it physically lies in
+    /// column N>0. A per-column-keyed consumer (C-3c hit-test, C-3d iframe routing)
+    /// must treat `0` on a fallback fragment as "column unknown", not "column 0".
+    /// (The `box_model` geometry is always correct — it is absolute doc-space.)
     pub fragmentainer: u32,
     /// The box-model geometry for this `(entity, fragmentainer)` fragment.
     pub box_model: BoxFragment,
@@ -122,18 +130,10 @@ impl ScreenGeometry<'_> {
     /// than reusing it (plan-memo §1/§4).
     #[must_use]
     pub fn union_border_boxes(&self, entity: Entity) -> Option<Rect> {
-        let frags = self.collect(entity);
-        let mut boxes = frags.iter().map(|fv| fv.box_model.border_box());
-        let first = boxes.next()?;
-        let (mut min_x, mut min_y) = (first.origin.x, first.origin.y);
-        let (mut max_x, mut max_y) = (first.right(), first.bottom());
-        for r in boxes {
-            min_x = min_x.min(r.origin.x);
-            min_y = min_y.min(r.origin.y);
-            max_x = max_x.max(r.right());
-            max_y = max_y.max(r.bottom());
-        }
-        Some(Rect::new(min_x, min_y, max_x - min_x, max_y - min_y))
+        self.collect(entity)
+            .iter()
+            .map(|fv| fv.box_model.border_box())
+            .reduce(|a, b| a.union(&b))
     }
 
     /// Shared collection for the primitive + folds. Applies the liveness guard,
@@ -266,11 +266,12 @@ mod tests {
     fn n_gt_1_yields_all_columns_with_their_own_fragmentainer_ids() {
         let mut dom = EcsDom::new();
         let e = spawn(&mut dom);
-        // A 2-column mid-break: first column at x=0, second at x=300.
+        // A 2-column mid-break: col 0 at (x=0,y=0,100×50), col 1 at (x=300,y=20,100×60).
+        // The DIFFERING y exercises the union's min_y/max_y fold (not just x/right).
         dom.fragment_tree_mut()
             .push_box(e, 0, box_fragment(0.0, 0.0, 100.0, 50.0), false);
         dom.fragment_tree_mut()
-            .push_box(e, 1, box_fragment(300.0, 0.0, 100.0, 50.0), false);
+            .push_box(e, 1, box_fragment(300.0, 20.0, 100.0, 60.0), false);
         dom.fragment_tree_mut().publish_completed_screen();
         let geom = dom.screen_geometry().unwrap();
 
@@ -290,7 +291,12 @@ mod tests {
         assert_eq!(
             (u.origin.x, u.right()),
             (0.0, 400.0),
-            "union spans both columns"
+            "union spans both columns (x: min origin, max right)"
+        );
+        assert_eq!(
+            (u.origin.y, u.bottom()),
+            (0.0, 80.0),
+            "union spans both columns (y: min 0, max 20+60=80 — exercises min_y/max_y)"
         );
     }
 

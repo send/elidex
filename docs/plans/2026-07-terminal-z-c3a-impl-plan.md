@@ -217,10 +217,14 @@ existing store methods are unchanged, and the paint walk runs after `layout_tree
 no `FragmentTree` construction site relies on field-exhaustive literals (it is constructed via `::default()`),
 so the new field is backward-safe.
 
-**Defense-in-depth (optional, plan-review call).** Having `clear()` also set `Invalid` would make a cleared
-store intrinsically non-completed. I recommend **keeping `clear()` single-responsibility (arena only)** and
-driving phase *only* at the entries, so the provenance protocol has exactly one auditable locus per entry rather
-than two coupled mechanisms — but this is a minor call the review may overturn.
+**Defense-in-depth (adopted — `/code-review` overturned the initial call).** `clear()` **also** sets
+`Invalid`, making a cleared store intrinsically non-completed. The initial draft kept `clear()`
+arena-only (one auditable locus per entry); `/code-review` flagged that this rests the "cleared store ≠
+completed pass" invariant on caller ordering (a future teardown/navigation `clear()` without a preceding
+`invalidate()` would strand a stale `CompletedScreen`). Coupling the invalidate into `clear()` closes it
+**by construction** (*Security by structure*) and does not weaken the single-publisher rule — only
+`layout_tree` re-`publish`es, after clearing + laying out. The entries still `invalidate()` explicitly
+(entry-level protocol); `clear()`'s invalidate is the backstop.
 
 ---
 

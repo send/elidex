@@ -116,9 +116,6 @@ producer	crates/layout/elidex-layout/src/layout/mod.rs	if let Ok(mut lb) = dom.w
 import	crates/layout/elidex-layout/src/layout/mod.rs	pub layout_box: LayoutBox,
 pending-migration:C-3d	crates/script/elidex-js/src/vm/host/intersection_observer.rs	let lb = d.world().get::<&elidex_plugin::LayoutBox>(entity).ok()?;
 pending-migration:C-3d	crates/script/elidex-js/src/vm/host/resize_observer.rs	let lb = d.world().get::<&elidex_plugin::LayoutBox>(entity).ok()?;
-test	crates/shell/elidex-shell/src/content_fragment_nav_tests.rs	.expect("laid-out element has a LayoutBox")
-producer	crates/shell/elidex-shell/src/content_fragment_nav_tests.rs	.get::<&elidex_plugin::LayoutBox>(entity)
-producer	crates/shell/elidex-shell/src/content_tests.rs	.get::<&elidex_plugin::LayoutBox>(f)
 pending-migration:C-3d	crates/shell/elidex-shell/src/content/event_handlers.rs	.get::<&elidex_plugin::LayoutBox>(hit_entity)
 import	crates/shell/elidex-shell/src/content/event_handlers.rs	use elidex_plugin::{ComputedStyle, LayoutBox};
 pending-migration:C-3d	crates/shell/elidex-shell/src/content/event_handlers.rs	w.get::<&LayoutBox>(target).ok().and_then(|lb| {

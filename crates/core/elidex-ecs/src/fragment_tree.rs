@@ -197,14 +197,16 @@ impl FragmentTree {
     /// Remove all nodes — called at the start of each layout pass (the tree is
     /// rebuilt from scratch every pass; full-from-root relayout is the reconcile).
     ///
-    /// Does **not** touch the `phase` guard: provenance is driven explicitly by
-    /// the layout entries (`invalidate` before laying out, `publish_completed_screen`
-    /// at screen completion) so there is exactly one auditable locus per entry, not a
-    /// second mechanism coupled to `clear`. (`layout_tree` invalidates immediately
-    /// before it calls `clear`, so a cleared store is already `Invalid` regardless.)
+    /// Also `invalidate()`s the `phase` guard **by construction**: an emptied store
+    /// is definitionally not a completed screen pass, so a cleared store can never
+    /// read as valid screen geometry regardless of caller ordering (a future
+    /// teardown/navigation `clear()` without a preceding `invalidate()` is safe).
+    /// This does not weaken the single-publisher rule — only `layout_tree` ever
+    /// re-`publish`es after clearing + laying out (plan-memo §2).
     pub fn clear(&mut self) {
         self.nodes.clear();
         self.index.clear();
+        self.phase = StorePhase::Invalid;
     }
 
     // ---- Provenance guard (terminal-Z C-3a screen-geometry seam) ----
@@ -659,13 +661,14 @@ mod tests {
             "invalidate() before laying out clears a stale CompletedScreen"
         );
 
-        // clear() is arena-only: it does not itself publish (provenance is
-        // entry-driven), so a clear on a published store leaves the phase as-is.
+        // clear() invalidates by construction: an emptied store is definitionally
+        // not a completed pass, so a clear on a published store is safe regardless of
+        // caller ordering (only layout_tree re-publishes, after clearing + laying out).
         tree.publish_completed_screen();
         tree.clear();
         assert!(
-            tree.is_completed_screen(),
-            "clear() touches only the arena, not the phase (entries drive provenance)"
+            !tree.is_completed_screen(),
+            "clear() invalidates the phase — a cleared store is never a completed pass"
         );
     }
 }

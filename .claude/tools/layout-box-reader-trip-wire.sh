@@ -50,39 +50,47 @@ green() { printf '\033[32m%s\033[0m\n' "$*"; }
 ALLOWED_MACROS='impl_layout_handler|impl_string_map'
 
 # Strip grep `-n` output lines whose content (after the `path:line:` prefix) is a
-# comment / docstring — a `LayoutBox` mention in prose is not a reader. Same idiom
-# as the sibling `.claude/tools/*-trip-wire.sh`.
-strip_comments() { sed -E '/^[^:]*:[0-9]+:[[:space:]]*(\/\/|\*|\/\*)/d'; }
+# LINE comment / docstring — a `LayoutBox` mention in prose is not a reader. Matches
+# ONLY `//` (covers `///`/`//!`), exactly the sibling `.claude/tools/*-trip-wire.sh`
+# idiom: a bare-`*` match would drop a `*deref = LayoutBox{}` reader line (the
+# dangerous under-inclusion direction); over-including a rare `/* */` block-comment
+# line is the safe direction for an exhaustiveness gate.
+strip_comments() { sed -E '/^[^:]*:[0-9]+:[[:space:]]*\/\//d'; }
 
 # The live reader set as `path<TAB>content`, line-number-insensitive (so MOVING a
 # reader doesn't churn the allowlist) but content-sensitive (so EDITING one forces
 # re-classification). Strips comment lines and leading indentation; excludes
 # WHOLLY-TEST files only — a `/tests/` dir segment, or a test-convention BASENAME
-# (`tests.rs` / `test_*.rs` / `tests_*.rs`). ⚠ This is a SEGMENT/BASENAME match, not
-# a `test`-substring match: a substring match wrongly drops PRODUCTION files like
-# `hit_test.rs` (a real `get::<&LayoutBox>` reader), leaving a delete-enabling gate
-# with a false exhaustiveness claim (the exact grep-hole design memo §4 forbids).
+# (`tests.rs` / `test_*.rs` / `tests_*.rs` / `*_tests.rs`). ⚠ This is a
+# SEGMENT/BASENAME match, not a `test`-substring match: a substring match wrongly
+# drops PRODUCTION files like `hit_test.rs` (`*_test.rs` singular, a real
+# `get::<&LayoutBox>` reader), leaving a delete-enabling gate with a false
+# exhaustiveness claim (the exact grep-hole design memo §4 forbids). Only the plural
+# `*_tests.rs` suffix is a test convention; `*_test.rs` singular stays included.
 # Inline `#[cfg(test)]` module lines in production-named files are kept and classified
-# `test` in the allowlist (safe: no coverage gap, bounded noise).
+# `test` in the allowlist (safe: no coverage gap, bounded noise). `|| true` keeps a
+# fully-filtered (impossible-while-meaningful) result from aborting under pipefail.
 live_readers() {
   cd "$ROOT"
-  git grep -nwE 'LayoutBox|BoxModel' -- 'crates/**/*.rs' \
+  { git grep -nwE 'LayoutBox|BoxModel' -- 'crates/**/*.rs' || true; } \
     | strip_comments \
-    | grep -vE '(/tests?/|/tests\.rs:|/test_[^/:]*\.rs:|/tests_[^/:]*\.rs:)' \
+    | { grep -vE '(/tests?/|/tests\.rs:|/test_[^/:]*\.rs:|/tests_[^/:]*\.rs:|_tests\.rs:)' || true; } \
     | sed -E 's/^([^:]+):[0-9]+:[[:space:]]*(.*)$/\1\t\2/' \
     | sed -E 's/[[:space:]]+$//' \
     | sort -u
 }
 
-# The committed allowlist's `path<TAB>content` set (columns 2-3; column 1 =
-# classification: producer|seam|pending-migration|type-def|import|test).
+# The committed allowlist's `path<TAB>content` set (columns 2+; column 1 =
+# classification: producer|seam|pending-migration|type-def|import|test). `cut -f2-`
+# (not `-f2,3`) keeps ALL content columns so a reader line containing a literal TAB
+# round-trips identically to `live_readers` (no permanent churn).
 # NB: the gate keys on unique `(path, content)` — identical-content reader lines in
 # ONE file (e.g. `form.rs`'s eight `lb: &LayoutBox` helpers) collapse to one entry.
 # This fires on any NOVEL-content reader and, at C-4, on any surviving
 # `pending-migration` entry (full migration removes it); per-SITE precision (the ×8
 # tally) is the audit doc's job. See the audit "Counting basis" note.
 committed_readers() {
-  grep -vE '^[[:space:]]*(#|$)' "$ALLOWLIST" | cut -f2,3 | sort -u
+  grep -vE '^[[:space:]]*(#|$)' "$ALLOWLIST" | cut -f2- | sort -u
 }
 
 if [ "${1:-}" = "--regenerate" ]; then
@@ -145,11 +153,13 @@ else
 fi
 
 echo "wire #3: no unreviewed macro_rules! in a reader-token file (token-hiding-macro guard)"
-reader_files="$(cd "$ROOT" && git grep -lwE 'LayoutBox|BoxModel' -- 'crates/**/*.rs' | grep -vE '(/tests?/|/tests\.rs$|/test_[^/]*\.rs$|/tests_[^/]*\.rs$)' || true)"
+reader_files="$(cd "$ROOT" && git grep -lwE 'LayoutBox|BoxModel' -- 'crates/**/*.rs' | grep -vE '(/tests?/|/tests\.rs$|/test_[^/]*\.rs$|/tests_[^/]*\.rs$|_tests\.rs$)' || true)"
 macro_hits=""
 if [ -n "$reader_files" ]; then
   # shellcheck disable=SC2086
-  macro_hits="$(cd "$ROOT" && grep -nE 'macro_rules!' $reader_files 2>/dev/null | grep -vE "macro_rules![[:space:]]+($ALLOWED_MACROS)\b" || true)"
+  # strip_comments (like wires #1/#2) so a prose mention of `macro_rules!` in a
+  # doc-comment is not a false positive.
+  macro_hits="$(cd "$ROOT" && grep -nE 'macro_rules!' $reader_files 2>/dev/null | strip_comments | grep -vE "macro_rules![[:space:]]+($ALLOWED_MACROS)\b" || true)"
 fi
 if [ -n "$macro_hits" ]; then
   red "FAIL: a new macro_rules! landed in a LayoutBox/BoxModel-reading file. Verify it does NOT expand to a token-less geometry read, then add it to ALLOWED_MACROS (or escalate D4 to a dylint HIR lint):"
