@@ -237,9 +237,21 @@ impl FragmentTree {
     }
 
     /// Mark the store as reflecting a **completed screen** layout pass. **Single
-    /// publisher**: only the screen `layout_tree` entry may call this, at completion
-    /// (after all roots are laid). No paged/probe path publishes, so a page-relative
+    /// publisher**, now structurally: this is `pub(crate)`, and the only caller is
+    /// [`EcsDom::screen_layout_pass`](crate::EcsDom::screen_layout_pass) — the
+    /// clear→lay-out→publish bracket. No paged/probe path publishes, so a page-relative
     /// or mid-pass store can never read as screen geometry (plan-memo §2).
+    ///
+    /// It was `pub` until Codex PR#488 R6 observed that `FragmentTree` and
+    /// `EcsDom::fragment_tree_mut()` are both public, so "only `layout_tree` publishes"
+    /// was a review convention sitting inside a PR whose whole argument is that such
+    /// conventions must become structure. ⚠ The bracket **narrows** rather than seals:
+    /// `screen_layout_pass(|_| {})` still publishes an emptied store. A true seal is not
+    /// reachable — the legitimate publisher (`elidex_layout::layout_tree`) is DOWNSTREAM
+    /// of this crate, so no capability token minted here could be given to it and
+    /// withheld from everyone else. What the bracket does buy: publication is no longer
+    /// reachable without clearing first, there is exactly one named site, and the raw
+    /// `fragment_tree_mut().publish…()` path is gone from every other crate.
     ///
     /// The single-publisher rule is not load-bearing on its own — a publish survives
     /// only until the next write to EITHER of the seam's two geometry sources, and both
@@ -265,7 +277,7 @@ impl FragmentTree {
     /// direction was testable while it stood; both are pinned now
     /// (`a_write_that_bypasses_the_dispatcher_still_invalidates`,
     /// `a_boxless_dispatch_after_publish_leaves_the_phase_alone`).
-    pub fn publish_completed_screen(&mut self) {
+    pub(crate) fn publish_completed_screen(&mut self) {
         self.phase = StorePhase::CompletedScreen;
     }
 

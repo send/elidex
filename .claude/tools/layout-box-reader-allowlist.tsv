@@ -12,10 +12,10 @@ test	crates/core/elidex-ecs/src/dom/geometry.rs	assert_eq!(geom.box_fragments(e)
 test	crates/core/elidex-ecs/src/dom/geometry.rs	fn layout_box(x: f32, y: f32, w: f32, h: f32) -> LayoutBox {
 seam	crates/core/elidex-ecs/src/dom/geometry.rs	if let Ok(lb) = self.dom.world().get::<&LayoutBox>(entity) {
 test	crates/core/elidex-ecs/src/dom/geometry.rs	let e = spawn(&mut dom); // no LayoutBox, no fragments
+seam	crates/core/elidex-ecs/src/dom/geometry.rs	let handle = self.world.get::<&mut LayoutBox>(entity).ok()?;
 test	crates/core/elidex-ecs/src/dom/geometry.rs	let lb = LayoutBox {
 seam	crates/core/elidex-ecs/src/dom/geometry.rs	pub fn layout_box_mut(&mut self, entity: Entity) -> Option<hecs::RefMut<'_, LayoutBox>> {
 seam	crates/core/elidex-ecs/src/dom/geometry.rs	pub fn set_layout_box(&mut self, entity: Entity, layout_box: LayoutBox) {
-seam	crates/core/elidex-ecs/src/dom/geometry.rs	self.world_mut().get::<&mut LayoutBox>(entity).ok()
 import	crates/core/elidex-ecs/src/dom/geometry.rs	use elidex_plugin::{BoxModel, LayoutBox, Rect};
 test	crates/core/elidex-ecs/src/fragment_tree.rs	"box-fragment presence without a carrier ⇒ NOT consumable (rides LayoutBox arm)"
 type-def	crates/core/elidex-ecs/src/fragment_tree.rs	fn from(lb: &elidex_plugin::LayoutBox) -> Self {

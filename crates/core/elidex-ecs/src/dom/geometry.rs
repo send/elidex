@@ -96,6 +96,22 @@ impl EcsDom {
             .then_some(ScreenGeometry { dom: self })
     }
 
+    /// The screen-layout bracket — the **only** path that can publish
+    /// `CompletedScreen` (plan §2 single-publisher).
+    ///
+    /// Clears the fragment store, runs `lay_out`, then publishes. `layout_tree` is its
+    /// one production caller. `FragmentTree::publish_completed_screen` is `pub(crate)`,
+    /// so no other crate can reach the phase's promoting edge at all — see that method
+    /// for why this narrows rather than seals, and why a true seal is not reachable.
+    pub fn screen_layout_pass<R>(&mut self, lay_out: impl FnOnce(&mut Self) -> R) -> R {
+        // Clearing is what makes the pass honest: an emptied store is definitionally not
+        // a completed pass, so the phase is `Invalid` for the whole window below.
+        self.fragment_tree.clear();
+        let result = lay_out(self);
+        self.fragment_tree.publish_completed_screen();
+        result
+    }
+
     /// The **`LayoutBox` write chokepoint** — the component half of the seam's
     /// provenance rule (plan §2), and the write-side counterpart of
     /// [`screen_geometry`](Self::screen_geometry).
@@ -115,8 +131,13 @@ impl EcsDom {
     /// nothing). Both are the same root: the guard was not where the write is
     /// (Codex PR#488 R3+R4). Here it is exact in both directions.
     pub fn set_layout_box(&mut self, entity: Entity, layout_box: LayoutBox) {
-        self.fragment_tree_mut().invalidate();
-        let _ = self.world_mut().insert_one(entity, layout_box);
+        // Invalidate only on a write that ACTUALLY HAPPENED. `insert_one` fails for a
+        // despawned entity, and demoting there would be the spurious demotion this
+        // branch removed from `remove_entity` and from the paged early returns
+        // (Codex PR#488 R6).
+        if self.world.insert_one(entity, layout_box).is_ok() {
+            self.fragment_tree.invalidate();
+        }
     }
 
     /// Read-modify-write access to an entity's [`LayoutBox`], through the same
@@ -125,12 +146,21 @@ impl EcsDom {
     /// Invalidates on **acquire**, not on drop: a caller that takes the handle has
     /// announced a write, and demoting early is the safe direction (the alternative
     /// needs a guard type whose `Drop` runs before any read — more machinery for a
-    /// strictly weaker guarantee). `None` if the entity has no `LayoutBox`, in which
-    /// case nothing was written — but the phase is still demoted, the one conservative
-    /// edge this shape keeps.
+    /// strictly weaker guarantee).
+    ///
+    /// ⚠ But only when there is something to acquire. An earlier revision demoted
+    /// *before* the lookup, so a miss demoted having changed nothing — and that case is
+    /// live, not theoretical: `dispatch_layout_child`'s paged `layout_generation` stamp
+    /// calls this on entities that may carry no `LayoutBox` (the `display: contents` arm
+    /// inserts none), so a paged pass over a boxless element closed `screen_geometry()`
+    /// engine-wide. That is the same defect the guard was moved off the dispatch bracket
+    /// to fix, reintroduced one layer down (Codex PR#488 R6). The lookup now precedes the
+    /// demotion; `world` and `fragment_tree` are disjoint fields, so this costs no second
+    /// lookup.
     pub fn layout_box_mut(&mut self, entity: Entity) -> Option<hecs::RefMut<'_, LayoutBox>> {
-        self.fragment_tree_mut().invalidate();
-        self.world_mut().get::<&mut LayoutBox>(entity).ok()
+        let handle = self.world.get::<&mut LayoutBox>(entity).ok()?;
+        self.fragment_tree.invalidate();
+        Some(handle)
     }
 }
 

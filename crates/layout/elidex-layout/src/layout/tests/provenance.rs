@@ -115,6 +115,58 @@ fn a_boxless_dispatch_after_publish_leaves_the_phase_alone() {
 }
 
 #[test]
+fn a_boxless_layout_generation_stamp_leaves_the_phase_alone() {
+    // Codex PR#488 R6, and the LIVE instance of it. `dispatch_layout_child`'s paged
+    // `layout_generation` stamp calls `EcsDom::layout_box_mut` on the dispatched entity,
+    // but the `display: contents` arm inserts no `LayoutBox` — so the handle is `None`
+    // and nothing is written. An earlier revision of the chokepoint demoted BEFORE the
+    // lookup, which closed `screen_geometry()` engine-wide for a paged pass over a
+    // boxless element: the same defect that moved the guard off the dispatch bracket,
+    // reintroduced one layer down. `layout_generation: 1` is what makes it reachable —
+    // `a_boxless_dispatch_after_publish_leaves_the_phase_alone` above uses 0, so it
+    // never enters the stamp and cannot catch this.
+    let (mut dom, _root, _html, body) = build_styled_dom();
+    let contents = dom.create_element("div", Attributes::default());
+    dom.append_child(body, contents);
+    dom.world_mut().insert_one(
+        contents,
+        ComputedStyle {
+            display: Display::Contents,
+            ..Default::default()
+        },
+    );
+
+    let font_db = FontDatabase::new();
+    layout_tree(&mut dom, Size::new(800.0, 600.0), &font_db);
+    assert!(dom.screen_geometry().is_some(), "full pass published");
+    assert!(
+        dom.world().get::<&LayoutBox>(contents).is_err(),
+        "precondition: display:contents carries no LayoutBox, so the stamp finds nothing"
+    );
+
+    let input = LayoutInput {
+        containing: CssSize::definite(800.0, 600.0),
+        containing_inline_size: 800.0,
+        offset: elidex_plugin::Point::ZERO,
+        font_db: &font_db,
+        depth: 0,
+        float_ctx: None,
+        viewport: Some(Size::new(800.0, 600.0)),
+        fragmentainer: None,
+        break_token: None,
+        subgrid: None,
+        layout_generation: 1,
+        is_probe: false,
+    };
+    dispatch_layout_child(&mut dom, contents, &input);
+
+    assert!(
+        dom.screen_geometry().is_some(),
+        "the stamp found no LayoutBox, wrote nothing, and must not demote"
+    );
+}
+
+#[test]
 fn a_write_that_bypasses_the_dispatcher_still_invalidates() {
     // Codex PR#488 R4 (the BYPASSABLE direction). The layout algorithms below
     // `dispatch_layout_child` are `pub` and are called directly cross-crate, so a guard
@@ -169,7 +221,7 @@ fn layout_fragmented_invalidates_screen_geometry_provenance() {
         },
     );
     // A prior screen pass completed.
-    dom.fragment_tree_mut().publish_completed_screen();
+    dom.screen_layout_pass(|_| {});
     assert!(
         dom.screen_geometry().is_some(),
         "precondition: completed screen"
@@ -218,7 +270,7 @@ fn layout_paged_invalidates_screen_geometry_provenance() {
             ..Default::default()
         },
     );
-    dom.fragment_tree_mut().publish_completed_screen();
+    dom.screen_layout_pass(|_| {});
     assert!(
         dom.screen_geometry().is_some(),
         "precondition: completed screen"
@@ -276,7 +328,7 @@ fn a_zero_write_paged_early_return_leaves_the_phase_alone() {
             ..Default::default()
         },
     );
-    dom.fragment_tree_mut().publish_completed_screen();
+    dom.screen_layout_pass(|_| {});
 
     let font_db = FontDatabase::new();
     // Margins exceed the page box ⇒ content_width/height <= 0 ⇒ the early return.
@@ -298,7 +350,7 @@ fn a_zero_write_paged_early_return_leaves_the_phase_alone() {
     // non-positive-area arm would leave the decision half-covered, and a "fix" that
     // added the invalidate to this arm alone would pass.
     let mut empty_dom = EcsDom::new();
-    empty_dom.fragment_tree_mut().publish_completed_screen();
+    empty_dom.screen_layout_pass(|_| {});
     let sane = elidex_plugin::PagedMediaContext {
         page_width: 400.0,
         page_height: 600.0,

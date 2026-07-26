@@ -47,10 +47,10 @@ fn single_page_display_list() {
 #[test]
 fn interleaved_paged_driver_leaves_screen_geometry_invalid() {
     // Provenance (terminal-Z C-3a §2), production path end-to-end: the interleaved
-    // driver's Phase 1 (`layout_fragmented_with_tokens`) demotes the phase via the
-    // `dispatch_layout_child` bracket its fragmentainer loop runs, and Phase 2 — a
-    // per-page direct `dispatch_layout_child` — hits that same bracket; nothing on the
-    // paged path publishes. So a prior screen pass's `CompletedScreen` cannot survive a
+    // driver's Phase 1 (`layout_fragmented_with_tokens`) demotes the phase because the
+    // boxes its fragmentainer loop lays out are written through `EcsDom::set_layout_box`,
+    // and Phase 2's per-page direct `dispatch_layout_child` writes through the same
+    // chokepoint; nothing on the paged path publishes. So a prior screen pass's `CompletedScreen` cannot survive a
     // paged render that lays anything out — a reader can never see a page-relative store
     // as screen geometry.
     let (mut dom, _elem) = setup_block_element(
@@ -64,7 +64,7 @@ fn interleaved_paged_driver_leaves_screen_geometry_invalid() {
         },
     );
     // A prior screen pass completed.
-    dom.fragment_tree_mut().publish_completed_screen();
+    dom.screen_layout_pass(|_| {});
     assert!(
         dom.screen_geometry().is_some(),
         "precondition: completed screen"

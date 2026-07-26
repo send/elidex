@@ -348,22 +348,22 @@ pub fn layout_tree(dom: &mut EcsDom, viewport: Size, font_db: &FontDatabase) {
     // `FragmentNode::fragmentainer` docstring.
     // Provenance (terminal-Z C-3a §2): a stale `CompletedScreen` from a prior pass must
     // not be readable while this pass's store is empty/partial (the re-entrant-screen
-    // soundness hole), and `clear()` below establishes that by construction — an emptied
-    // store is definitionally not a completed pass, so it invalidates. There is
-    // deliberately no separate entry mark here or on the paged entry: the phase is driven
-    // by the WRITERS, under one rule — any write to either geometry source invalidates
-    // (`clear()` + the `FragmentTree` mutators for the store,
-    // `EcsDom::set_layout_box`/`layout_box_mut` for the `LayoutBox` component) — and
-    // `layout_tree` is the sole publisher, at completion below.
-    dom.fragment_tree_mut().clear();
-    let roots = find_roots(dom);
-    for root in roots {
-        layout_root(dom, root, viewport, font_db);
-    }
-    // Single publisher: `layout_tree` is the ONLY site that marks the store a
-    // completed screen pass, and only here at completion (after all roots are laid).
-    // Probes run inside this window (before this line), so they read `Invalid`.
-    dom.fragment_tree_mut().publish_completed_screen();
+    // soundness hole). `screen_layout_pass` owns the whole window — it clears (which
+    // invalidates by construction: an emptied store is definitionally not a completed
+    // pass), runs the closure, and publishes at completion. There is deliberately no
+    // entry mark here or on the paged entry: the phase is driven by the WRITERS, under
+    // one rule — any write to either geometry source invalidates (`clear()` + the
+    // `FragmentTree` mutators for the store, `EcsDom::set_layout_box`/`layout_box_mut`
+    // for the `LayoutBox` component). Probes run inside this window, so they read
+    // `Invalid`. The bracket is also the ONLY path that can publish, since
+    // `FragmentTree::publish_completed_screen` is `pub(crate)` to `elidex-ecs`
+    // (Codex PR#488 R6).
+    dom.screen_layout_pass(|dom| {
+        let roots = find_roots(dom);
+        for root in roots {
+            layout_root(dom, root, viewport, font_db);
+        }
+    });
 }
 
 /// Find root entities for layout: parentless entities with styles or children.
