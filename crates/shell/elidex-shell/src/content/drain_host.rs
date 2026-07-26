@@ -262,7 +262,18 @@ impl DrainHost for ContentState {
     /// On `suppress` (a pending in-range traversal), drain-and-DISCARD: the slot IS
     /// drained (its only drain, `take_pending_navigation`) so it cannot re-fire a
     /// turn late, but the request is dropped without applying — a queued traversal
-    /// supersedes it (§7.4.2.2 step 19 "ignored"; plan §1 A / F1).
+    /// supersedes it (plan §1 A / F1).
+    ///
+    /// **That enqueue-time supersede is a deliberate DIVERGENCE, NOT an application
+    /// of §7.4.2.2 *Beginning navigation* step 19** (webref-verified 2026-07-26;
+    /// slot `#11-nav-supersede-window-vs-ongoing-navigation`). Step 19's gate is
+    /// *ongoing navigation* == "traversal", read when `navigate` RUNS, and only
+    /// §7.4.6.1 *Updating the traversable* step 8.4 sets it — inside the APPLY.
+    /// §7.4.3's enqueue sets nothing, so a `location.*` issued before the apply is
+    /// never step-19-ignored. Content-mode DROPS the request (unlike app-mode's
+    /// drain-and-HOLD, which settles the prediction in the same turn) because its
+    /// Phase 2 is a genuinely later task; the full statement lives on the shared
+    /// [`DrainHost::handle_navigation`] contract in `elidex-navigation`.
     fn handle_navigation(&mut self, suppress: bool) -> bool {
         let Some(nav_req) = self.pipeline.runtime.take_pending_navigation() else {
             return false;

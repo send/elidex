@@ -245,7 +245,10 @@ impl App {
         // navigable to start, whereas during the traversal they were blocked").
         // §7.4.3's enqueue sets nothing. So a `location.*` issued before the apply is
         // NEVER step-19-ignored, however the queued traversal later resolves —
-        // elidex's window is a strict superset of the spec's.
+        // elidex's window is a strict superset of the spec's. (That containment is a
+        // property of TODAY's synchronous, non-yielding apply and is not permanent —
+        // see the `DrainHost::handle_navigation` contract for why the planned
+        // task-queued apply, `#11-session-history-task-queue-model`, breaks it.)
         //
         // App-mode narrows the superset back down within the turn.
         // [`apply_traversal`](DrainHost::apply_traversal) cancels the held request the
@@ -407,9 +410,11 @@ impl DrainHost for App {
     /// [`pending_traversal`](Self::pending_traversal) directly.
     ///
     /// ⚠ Evaluating that sub-step-4.4 bail-out HERE (issue time) rather than when the
-    /// appended steps run is a known engine-wide, pre-existing divergence — both
-    /// shells carry this predicate. See the [`DrainHost::classify_traversal`]
-    /// contract note (`#11-traversal-delta-resolve-at-apply-time`).
+    /// appended steps run is an engine-wide, pre-existing **hoist** — both shells
+    /// carry this predicate. It has no reachable divergence today, but it is sound
+    /// only as half of a coupled pair with the in-task §7.4.4 commit, so neither
+    /// half moves to the queue alone. See the [`DrainHost::classify_traversal`]
+    /// contract note (`#11-sync-navigation-steps-queue-tagging`).
     fn classify_traversal(&mut self, delta: TraversalDelta) -> Option<PendingTraversal> {
         let in_range = self
             .inline_state()

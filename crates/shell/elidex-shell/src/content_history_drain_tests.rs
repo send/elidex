@@ -401,12 +401,19 @@ fn failed_traversal_load_leaves_cursor_unmoved() {
 /// FLIP (#283 re-anchor — plan §5): under phase-separation the same-turn
 /// `history.back(); location.assign('/b')` no longer "falls through and drains
 /// /b." An **in-range** back() is peek-classified into the traversal queue in
-/// Phase 1b, so Phase 1c **drain-and-DISCARDS** the /b navigation (§7.4.2.2 step
-/// 19 "any attempts to navigate a navigable that is currently traversing are
-/// ignored"; §7.4.6.1 step 12 splits the traversal onto a later task). The /b nav
-/// is dropped WITHOUT applying (and WITHOUT stranding to re-fire a turn late,
-/// F1); the traversal defers to Phase 2. The old-model "the /b navigation drained
-/// (1 display list)" flips to "the /b nav is discarded (0 display lists)."
+/// Phase 1b, so Phase 1c **drain-and-DISCARDS** the /b navigation (§7.4.6.1 step
+/// 12 splits the traversal onto a later task). The /b nav is dropped WITHOUT
+/// applying (and WITHOUT stranding to re-fire a turn late, F1); the traversal
+/// defers to Phase 2. The old-model "the /b navigation drained (1 display list)"
+/// flips to "the /b nav is discarded (0 display lists)."
+///
+/// **The discard is a deliberate DIVERGENCE, not §7.4.2.2 step 19**
+/// (webref-verified 2026-07-26; slot
+/// `#11-nav-supersede-window-vs-ongoing-navigation`). Step 19's gate — *ongoing
+/// navigation* == "traversal" — is read when `navigate` runs and is set only by
+/// the §7.4.6.1 step-8.4 APPLY, so a `location.*` issued while the traversal is
+/// merely QUEUED never meets it. This test pins elidex's enqueue-time behavior
+/// (unchanged), not a step-19 derivation of it.
 ///
 /// The Phase-2 back() here is CROSS-document ([base, /a] via `push`, distinct
 /// `document_sequence`s), so its `load_document` fails over the disconnected

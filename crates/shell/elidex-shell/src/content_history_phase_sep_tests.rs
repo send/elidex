@@ -94,10 +94,20 @@ fn phase_sep_pushstate_then_back_orders_across_task_boundary() {
 /// A (nav-vs-traversal supersede): a same-turn `history.back(); location.assign('/b')`
 /// lands on the **back target**, the nav drain-and-discarded. The reverse
 /// cross-channel order `location.assign('/b'); history.back()` lands the SAME way —
-/// staging discards cross-channel issue order, and the spec lands on the traversal
-/// target in BOTH orders (§7.4.2.2 step 19 ignores a nav issued while traversing;
-/// step 20 — a later same-turn navigation aborts other *navigations* but NOT a
-/// traversal). Uses a same-document back() so Phase 2 applies in the harness.
+/// staging discards cross-channel issue order, and the **traversal wins in both
+/// orders** under the spec too: `/b` is cross-document here, so it is still in
+/// flight when the queued traversal's apply sets *ongoing navigation* to
+/// "traversal" (§7.4.6.1 *Updating the traversable* step 8.4), which per §7.4.2.2
+/// step 20's note abandons it. Uses a same-document back() so Phase 2 applies in
+/// the harness.
+///
+/// **Not a §7.4.2.2 step-19 derivation** (webref-verified 2026-07-26; slot
+/// `#11-nav-supersede-window-vs-ongoing-navigation`). Step 19 gates on *ongoing
+/// navigation* == "traversal" **at the moment `navigate` runs**, and only the
+/// step-8.4 APPLY sets that — §7.4.3's enqueue sets nothing — so neither order's
+/// `location.*` is step-19-ignored. What elidex does differently is discard `/b`
+/// at Phase 1c so it never starts at all (no fetch, no flash), an enqueue-time
+/// window that is a strict superset of the spec's during-the-apply one.
 #[test]
 fn nav_vs_traversal_supersede_lands_on_back_target() {
     for script in [

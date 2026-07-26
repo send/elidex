@@ -369,39 +369,91 @@ pub trait DrainHost {
     /// `self.peek_delta(delta).map(|_| self.pending_traversal(delta))` (the peek
     /// decides `Some`/`None`; `pending_traversal` builds the value).
     ///
-    /// ⚠ **KNOWN DIVERGENCE — this range check runs at ENQUEUE time; the spec
-    /// resolves the delta at DEQUEUE time** (`#11-traversal-delta-resolve-at-apply-time`).
-    /// WHATWG HTML §7.4.3 *Reloading and traversing* ("traverse the history by a
-    /// delta") step 4 **appends** the traversal steps to the traversable
-    /// UNCONDITIONALLY: `allSteps` / `currentStepIndex` / `targetStepIndex`
-    /// (sub-steps 4.1–4.3) and the "If `allSteps[targetStepIndex]` does not exist,
-    /// then abort these steps" bail-out (sub-step 4.4) all live INSIDE those
-    /// appended steps, so they are evaluated when the queued steps RUN. This seam
-    /// hoists 4.1–4.4 to *issue* time instead. Concretely, from `[base]` with the
-    /// cursor on `base`, `history.back(); history.pushState({}, '', '/x')` peeks
-    /// index −1 → `None`, the coordinator DISCARDS the traversal (no barrier,
-    /// nothing queued), Phase 1 commits `/x`, and the `back()` is silently lost —
-    /// yet by the time Phase 2 would run, the list is `[base, /x]` with the cursor
-    /// on `/x`, where delta −1 is in range and resolves back to `base`.
+    /// ⚠ **ISSUE-TIME HOIST of §7.4.3 sub-steps 4.1–4.4 — half of a coupled pair**
+    /// (`#11-sync-navigation-steps-queue-tagging`). WHATWG HTML §7.4.3
+    /// *Reloading and traversing* ("traverse the history by a delta") step 4
+    /// **appends** the traversal steps to the traversable UNCONDITIONALLY:
+    /// `allSteps` / `currentStepIndex` / `targetStepIndex` (sub-steps 4.1–4.3) and
+    /// the "If `allSteps[targetStepIndex]` does not exist, then abort these steps"
+    /// bail-out (sub-step 4.4) all live INSIDE those appended steps, so the spec
+    /// evaluates them when the queued steps RUN. This seam evaluates them at
+    /// *issue* time instead.
+    ///
+    /// **The hoist has no reachable divergence today** (webref-verified
+    /// 2026-07-26), and the scenario earlier revisions of this note called one is
+    /// not. From `[base]` with the cursor on `base`,
+    /// `history.back(); history.pushState({}, '', '/x')` peeks index −1 → `None`,
+    /// the coordinator DISCARDS the traversal (no barrier, nothing queued), Phase 1
+    /// commits `/x`, and the list ends `[base, /x]` with the cursor on `/x`. **The
+    /// spec lands in the same place.** §7.4.3 step 4 appends the traversal steps
+    /// **T** when `back()` is called; §7.4.4 *Non-fragment synchronous
+    /// "navigations"* (*URL and history update steps*) step 13 appends the
+    /// *synchronous navigation steps* **S** BEHIND them, and the entries-list
+    /// mutation lives only in §7.4.2.3.3 *finalize a same-document navigation*
+    /// (step 5.1.4, "Append targetEntry to targetEntries"), i.e. inside **S**.
+    /// §7.4.1.3 *Centralized modifications of session history* states this for its
+    /// own worked example: the synchronous URL change *"does not yet update the
+    /// current session history entry, current session history step, or the session
+    /// history entries list; those updates cannot be done synchronously, and
+    /// instead must be done as part of the queued steps"*, and it resolves the
+    /// traversal against *"the current session history step (i.e., 1) plus the
+    /// intended delta of −1"* — the PRE-sync-navigation step. So **T** dequeues
+    /// first, its 4.1 *get all used history steps* (§7.4.1.4 *Low-level operations
+    /// on session history*) walks the still-`[base]` entries list, `targetStepIndex`
+    /// is −1, and 4.4 aborts. A spec-faithful dequeue-time implementation drops that
+    /// `back()` exactly as this one does.
+    ///
+    /// **Why the hoist is sound in general, and what it rests on.** The peek is
+    /// reached ONLY when the queue holds no pending `Traversal` and no apply is in
+    /// flight (`run_synchronous_updates_body` seeds `seen_traversal` from
+    /// [`has_pending_traversal`](TraversalQueue::has_pending_traversal) `||`
+    /// [`is_applying`](TraversalQueue::is_applying)), and the moment it returns
+    /// `Some` the barrier defers every later step of the turn. Everything that could
+    /// still grow the entry list before this traversal would dequeue is therefore
+    /// issued LATER in the same task — and the spec queues those steps BEHIND
+    /// **T** for exactly that reason. Phase 1 applies §7.4.4 updates in-task in
+    /// issue order, reproducing the spec queue's relative order step for step, so a
+    /// DISCARDED traversal is followed by precisely the spec's post-abort
+    /// continuation. The one shape that would break the equivalence is a
+    /// `SyncUpdate` step already sitting in the queue AHEAD of a freshly-peeked
+    /// first traversal (only a `Traversal` seeds the barrier — a `SyncUpdate` does
+    /// not): the spec would run it first and grow the list. That needs a step to
+    /// survive a drain, which is the same cross-drain-boundary carry
+    /// `DrainCoordinator::drain_traversal_queue` argues
+    /// unreachable (content-mode: the interim buffer guard plus a `pending_len()`
+    /// snapshot that never splits a `[Traversal, SyncUpdate]` pair; app-mode:
+    /// structurally void, no reentrant Phase 1), and it belongs to
+    /// `#11-sync-navigation-steps-queue-tagging`.
+    ///
+    /// **The two issue-time hoists are a COUPLED PAIR — neither moves alone.**
+    /// elidex hoists §7.4.3 4.1–4.4 to issue time *and* commits the §7.4.4 update
+    /// in-task ([`handle_history_action`](Self::handle_history_action)) where the
+    /// spec queues its entries-list mutation. Those are what make each other safe.
+    /// Making this seam unconditional turns every traversal into a partition
+    /// barrier, which reintroduces the Resolution-E over-suppression the seam exists
+    /// to prevent: an out-of-range `go(999)` would enqueue a `Traversal` step,
+    /// making [`TraversalQueue::has_pending_traversal`] true, which latches
+    /// [`DrainOutcome::suppress_default`] and kills a legitimate `<a href>` default;
+    /// in content-mode it would additionally drain-and-DISCARD a same-turn
+    /// `location.*`, and it would defer a trailing `pushState` — including the
+    /// §7.4.4 steps 3–11 the spec really does run synchronously — onto a later turn.
+    /// So moving the classification to apply time has to move the §7.4.4 commit onto
+    /// the queue and re-derive `suppress_default` from apply-time state in the SAME
+    /// change. That is `elidex-navigation` **behavior** affecting BOTH shells and
+    /// couples Resolution E × Resolution B × the I2 partition × apply-time
+    /// resolution, so it is edge-dense (`/elidex-plan-review` mandatory) and lands
+    /// with the tagged queue rather than on its own; the deferred plan-review owns
+    /// the final shape.
     ///
     /// **Engine-wide and pre-existing**, not a property of any one shell: the
     /// identical predicate is `app/drain_host.rs`'s and `content/drain_host.rs`'s
-    /// `classify_traversal`, which is why the note lives here at the CONTRACT.
-    /// It is the **first**-traversal instance of exactly the class
-    /// [`pending_traversal`](Self::pending_traversal)'s doc already documents for
-    /// SUBSEQUENT traversals (F4, `back(); forward()`) — peek-classifying against a
-    /// still-unmoved cursor wrongly DROPS a traversal whose target only becomes
-    /// in-range later.
-    ///
-    /// **Do NOT "fix" it by dropping the peek.** That reintroduces the Resolution-E
-    /// over-suppression this seam exists to prevent: an out-of-range `go(999)` would
-    /// enqueue a `Traversal` step, making [`TraversalQueue::has_pending_traversal`]
-    /// true, which latches [`DrainOutcome::suppress_default`] and kills a legitimate
-    /// `<a href>` default. The correct fix moves the no-op classification to
-    /// **apply** time and re-derives `suppress_default` from apply-time state —
-    /// `elidex-navigation` behavior affecting BOTH shells and coupling Resolution E ×
-    /// Resolution B × the I2 partition × apply-time resolution, so it is edge-dense
-    /// (`/elidex-plan-review` mandatory) and lands as its own PR.
+    /// `classify_traversal`, which is why the note lives here at the CONTRACT. It is
+    /// the **first**-traversal counterpart of the shape
+    /// [`pending_traversal`](Self::pending_traversal)'s doc records for SUBSEQUENT
+    /// traversals (F4, `back(); forward()`) — but only the counterpart, not the same
+    /// defect: the F4 case IS reachable because an earlier queued traversal really
+    /// does move the cursor before the later one applies, whereas nothing can move
+    /// it ahead of the FIRST traversal of a turn.
     fn classify_traversal(&mut self, delta: TraversalDelta) -> Option<PendingTraversal>;
 
     /// **Phase 1b — construct a pending traversal WITHOUT a peek** (plan §1 F4).
@@ -454,14 +506,32 @@ pub trait DrainHost {
     /// moment `navigate` runs**, and the ONLY thing that sets that value is §7.4.6.1
     /// *Updating the traversable* **step 8.4** (*"Set the ongoing navigation for
     /// navigable to "traversal"."*), inside the APPLY; three sites reset it to null
-    /// (the same-document branch, after `pageswap`, and in the appended steps), each
-    /// annotated *"This allows new navigations of navigable to start, whereas during
-    /// the traversal they were blocked."* §7.4.3's **enqueue** sets nothing. So the
-    /// spec's blocking window is strictly *during the apply*: a `location.*` issued
-    /// BEFORE it — `history.back(); location.assign('/b')` in one handler — never
-    /// meets step 19's condition, **whether or not the queued traversal later
-    /// applies**. elidex suppresses from **enqueue** time instead, a strict superset
-    /// of the spec's window.
+    /// (the same-document branch — *apply the history step* step 12.10.1; the
+    /// pageswap/unload branch — *deactivate a document for a cross-document
+    /// navigation* step 5.2, which **precedes** the `pageswap` fire because 5.1 only
+    /// *defines* `firePageSwapBeforeUnload` and the event fires inside 5.3's unload;
+    /// and the appended session history traversal steps of that algorithm's
+    /// view-transition branch), each annotated *"This allows new navigations of
+    /// navigable to start, whereas during the traversal they were blocked."*
+    /// §7.4.3's **enqueue** sets nothing. So the spec's blocking window is strictly
+    /// *during the apply*: a `location.*` issued BEFORE it —
+    /// `history.back(); location.assign('/b')` in one handler — never meets step
+    /// 19's condition, **whether or not the queued traversal later applies**. elidex
+    /// suppresses from **enqueue** time instead, a strict superset of the spec's
+    /// window.
+    ///
+    /// ⚠ **"Strict superset" is a property of TODAY's apply schedule, not a
+    /// permanent one.** It holds because the apply is *synchronous and
+    /// non-yielding*: once a traversal is enqueued, elidex's suppression window runs
+    /// unbroken from enqueue through the apply, so it contains the spec's
+    /// during-the-apply window. Under the planned task-queued apply
+    /// (`#11-session-history-task-queue-model`) the apply may yield — a nav issued
+    /// *during* a yielded apply would be step-19-ignored by the spec while elidex,
+    /// which re-derives `suppress` per drain from
+    /// [`has_pending_traversal`](TraversalQueue::has_pending_traversal) `||`
+    /// [`is_applying`](TraversalQueue::is_applying), may or may not still be
+    /// suppressing. Containment then stops being one-directional, so any narrowing
+    /// work must re-derive the relation rather than inherit this sentence.
     ///
     /// The divergence is engine-wide and **pre-existing** (Resolution A, PR #469;
     /// `content/drain_host.rs` carries the same rule) and its predicate is shared
@@ -875,7 +945,7 @@ impl DrainCoordinator {
                     // reachable vector is the SW-fetch reentrant message pump: while
                     // this bracket holds, `handle_navigate`'s SW-wait loop consults
                     // `is_applying()` and BUFFERS a re-dispatched nav-mutating message
-                    // (`content/navigation.rs` `dispatch_or_buffer_reentrant`, the
+                    // (`content/drain_host.rs` `dispatch_or_buffer_reentrant`, the
                     // shell's INTERIM guard) instead of mutating the cursor between
                     // this peek and its commit. NOTE (T4 → Slice 4): the FULL
                     // canonical serialization — routing EVERY nav-mutating step

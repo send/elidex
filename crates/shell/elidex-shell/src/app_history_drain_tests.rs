@@ -340,17 +340,31 @@ fn app_go_zero_is_an_in_range_barrier_that_rebuilds() {
 /// **back target**, the navigation drain-and-DISCARDED. The reverse cross-channel
 /// order lands the same way: the VM stages traversals and `location.*` on two
 /// separate channels, so their relative issue order is not observable to the drain,
-/// and the spec lands on the traversal target in both orders anyway (§7.4.2.2 step
-/// 20's "aborting other ongoing navigations" aborts *navigations*, not the
-/// traversal).
+/// and **the traversal wins in both orders under the spec too** (§7.4.2.2 step 20's
+/// "aborting other ongoing navigations" aborts *navigations*, not the traversal).
+///
+/// ⚠ *Wins*, not *lands identically.* The two orders do NOT reach the same URL or
+/// entry count in the spec, because `#b` here is a **fragment** navigation that
+/// appends its entry synchronously (§7.4.4 → §7.4.2.3.3 *finalize a same-document
+/// navigation*). From `[base, /a]` on `/a`: order 1 (`back(); assign('#b')`) lands
+/// `base` with 2 entries; order 2 (`assign('#b'); back()`) appends `/a#b` first and
+/// then traverses to step 1, landing `/a` with 3 entries. What is common to both is
+/// that the traversal, not the navigation, decides the landing — which is what this
+/// test pins. elidex collapses the two because staging discards cross-channel issue
+/// order (§7.4.1.3 exact-ordering fidelity is fenced to
+/// `#11-sync-navigation-steps-queue-tagging`).
 ///
 /// **The discard is a deliberate DIVERGENCE, not §7.4.2.2 step 19** (webref-verified
 /// 2026-07-26; slot `#11-nav-supersede-window-vs-ongoing-navigation`). Step 19's
 /// gate — *ongoing navigation* == "traversal" — is read when `navigate` runs and is
 /// set only by the §7.4.6.1 step-8.4 APPLY, so a `location.*` issued while the
-/// traversal is merely QUEUED never meets it. elidex suppresses from enqueue time,
-/// a strict superset of the spec's window; this test pins that behavior (unchanged),
-/// not a step-19 derivation of it.
+/// traversal is merely QUEUED never meets it. **A second, independent reason step 19
+/// is the wrong citation for THIS pin**: `location.assign('#b')` is a fragment
+/// navigation, and §7.4.2.2 **step 15** dispatches *Navigate to a fragment* and
+/// **Returns** before step 19 is ever reached — so step 19 could not gate it even
+/// with *ongoing navigation* == "traversal". elidex suppresses from enqueue time, a
+/// strict superset of the spec's window (under today's synchronous, non-yielding
+/// apply); this test pins that behavior (unchanged), not a step-19 derivation of it.
 ///
 /// **FLIP of the retired hand-rolled
 /// `app/navigation.rs::process_pending_navigation` traversal-supersede `return`.**
@@ -467,7 +481,10 @@ fn app_full_fifo_survives_an_applied_traversal_mid_stream() {
 /// `#11-nav-supersede-window-vs-ongoing-navigation`): step 19's gate is *ongoing
 /// navigation* == "traversal" (§7.4.2.5 *Aborting navigation*), which only §7.4.6.1
 /// *Updating the traversable* step 8.4 sets, inside the APPLY — §7.4.3's enqueue sets
-/// nothing. App-mode's Phase 2 runs in the same turn, so
+/// nothing. And independently of that, the `location.assign('#b')` this pin uses is a
+/// **fragment** navigation, which §7.4.2.2 **step 15** dispatches and `Return`s from
+/// **before step 19 is reached** — so step 19 never gated this scenario on either
+/// count. App-mode's Phase 2 runs in the same turn, so
 /// `App::process_pending_navigation` reinstates a suppression the turn refuted,
 /// narrowing the superset back to "a traversal that really moved the cursor".
 ///
@@ -748,6 +765,23 @@ fn app_drain_same_turn_leaves_no_residual_and_applies_every_queued_traversal() {
 /// `content_history_phase_sep_tests::pump_drains_popstate_staged_pushstate_this_turn`,
 /// which asserts the popstate-staged `pushState` lands on the SAME turn. App-mode
 /// has no such counterpart, so the assertions below describe the status quo.
+///
+/// ⚠ **The residual is WRONG-ENTRY MUTATION, not merely a late effect** (severity
+/// raised 2026-07-26; the slot carries the full statement). The staged update is
+/// applied by whichever LATER drive arrives, and **the cursor can move in between**
+/// — the non-drain cursor movers never touch the coordinator:
+/// `app/navigation.rs::handle_chrome_action` (toolbar Back/Forward) and
+/// `app/inline.rs`'s Alt+←/→ both call `App::traverse_to`
+/// directly and return, with no `process_pending_navigation` on either path. So:
+/// popstate stages a `pushState` → the drive returns without settling it → the user
+/// presses toolbar Back → the next drive that IS reached applies the update against
+/// the **post-traversal** cursor. The replace arm then overwrites the *current*
+/// entry (now the traversal target, not the entry whose handler staged the update),
+/// and the push arm reaches `push_entry`'s `entries.truncate(current_index + 1)`,
+/// **destroying the forward entries the user just traversed away from**. This test
+/// drives the drain directly and therefore pins only the LATENCY facet; the
+/// corruption facet has no pin (it needs an interleaved chrome traversal) and lands
+/// with the fix.
 ///
 /// The fix is **loop-until-quiescent turn completion**, NOT a trailing
 /// `drain_synchronous_updates` — that trailing drain is not merely insufficient, it

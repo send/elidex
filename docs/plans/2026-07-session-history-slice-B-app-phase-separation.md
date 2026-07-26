@@ -213,9 +213,10 @@ anchors webref-verified **2026-07-26** — no drift; anchors: `#navigate-non-fra
 |---|---|---|---|---|---|
 | WHATWG HTML §7.4.4 Non-fragment synchronous "navigations" | 3–11 | *URL and history update steps*: build `newEntry`, on push bump index+length, set URL/active entry | IN — Phase-1b sync updates (`PushState`/`ReplaceState`) applied in-task via the `handle_history_action` seam (app body = `apply_state_change`) | ✓ | yes (pushState/replaceState/`location.*`) |
 | WHATWG HTML §7.4.4 Non-fragment synchronous "navigations" | 12–13 | append *synchronous navigation steps* onto the ONE tagged queue | PARTIAL — Resolution D (inherited): a `SyncUpdate` deferred behind ANY same-turn traversal is CANCELED (bounded); full call-time-entry jump-the-queue fenced | ✗ (bounded — `#11-sync-navigation-steps-queue-tagging`) | yes |
-| WHATWG HTML §7.4.3 Reloading and traversing | 4 | *"Append the following session history traversal steps to traversable"* | IN — Phase-1b enqueue via `classify_traversal` peek seam | ✓ | yes (back/forward/go) |
-| WHATWG HTML §7.4.3 Reloading and traversing | 4.4 | *"If allSteps[targetStepIndex] does not exist, then abort these steps"* (no-op) | IN — Resolution E peek-classify: `peek_delta → None` = no barrier, falls through | ✓ | yes (back/forward/go) |
-| WHATWG HTML §7.4.2.2 Beginning navigation | 19 | ongoing navigation is "traversal" ⇒ *"Any attempts to navigate a navigable that is currently traversing are ignored"* | **DIVERGENT (deliberate)** — Resolution A: Phase-1c drains the nav slot and does not apply while a `Traversal` step is **queued**. Step 19's gate is *ongoing navigation* == "traversal", set ONLY by the §7.4.6.1 step-8.4 APPLY, so a nav issued before the apply is never step-19-ignored and elidex's window is a strict **superset** of the spec's (slot `#11-nav-supersede-window-vs-ongoing-navigation`). **App-mode drain-and-HOLD, not discard** (§4.3) narrows the superset back to "a traversal that really moved the cursor": same-turn Phase 2 settles it and reinstates the nav if none did | ✗ (divergence — `#11-nav-supersede-window-vs-ongoing-navigation`) | yes (`location.*`) |
+| WHATWG HTML §7.4.3 Reloading and traversing | 4 | *"Append the following session history traversal steps to traversable"* | IN — Phase-1b enqueue via `classify_traversal` peek seam. **Sub-steps 4.1–4.4 are HOISTED to issue time** where the spec evaluates them at dequeue; re-verified 2026-07-26 as having **no reachable divergence** (see the 4.4 row), but sound only as half of a coupled pair with the in-task §7.4.4 commit — `#11-sync-navigation-steps-queue-tagging` | ✓ | yes (back/forward/go) |
+| WHATWG HTML §7.4.3 Reloading and traversing | 4.4 | *"If allSteps[targetStepIndex] does not exist, then abort these steps"* (no-op) | IN — Resolution E peek-classify: `peek_delta → None` = no barrier, falls through. **The ✓ is a re-verified verdict, not an assumption** (2026-07-26): the peek runs only with no `Traversal` queued and no apply in flight, and everything that could still grow the entry list is issued LATER in the task — which the spec also queues BEHIND these steps (§7.4.4 step 13 → §7.4.2.3.3 *finalize a same-document navigation*; §7.4.1.3's worked example is explicit that the synchronous URL change *"does not yet update … the session history entries list"*). So `back(); pushState('/x')` from `[base]` drops the `back()` under the spec too. Fix-direction warning + the single unreachable vector → `#11-sync-navigation-steps-queue-tagging` | ✓ | yes (back/forward/go) |
+| WHATWG HTML §7.4.2.2 Beginning navigation | 15 | *"documentResource is null; response is null; url equals navigable's active session history entry's URL with exclude fragments set to true; and url's fragment is non-null"* ⇒ *Navigate to a fragment* + **Return** | IN — the fragment branch (`classify_navigation` → `handle_navigate`'s Fragment arm, S5-5b). **Second, independent reason the app-mode pins are not step-19 cases**: they use `location.assign('#b')`, so `navigate` returns at step 15 and **never reaches step 19** — step 19 could not have gated them even if *ongoing navigation* WERE "traversal" | ✓ | yes (`location.*` to a fragment) |
+| WHATWG HTML §7.4.2.2 Beginning navigation | 19 | ongoing navigation is "traversal" ⇒ *"Any attempts to navigate a navigable that is currently traversing are ignored"* | **DIVERGENT (deliberate)** — Resolution A: Phase-1c drains the nav slot and does not apply while a `Traversal` step is **queued**. Step 19's gate is *ongoing navigation* == "traversal", set ONLY by the §7.4.6.1 step-8.4 APPLY, so a nav issued before the apply is never step-19-ignored and elidex's window is a strict **superset** of the spec's — under today's *synchronous, non-yielding* apply; the planned task-queued apply (`#11-session-history-task-queue-model`) breaks that containment, so the relation must be re-derived there, not inherited (slot `#11-nav-supersede-window-vs-ongoing-navigation`). **App-mode drain-and-HOLD, not discard** (§4.3) narrows the superset back to "a traversal that really moved the cursor": same-turn Phase 2 settles it and reinstates the nav if none did | ✗ (divergence — `#11-nav-supersede-window-vs-ongoing-navigation`) | yes (`location.*`) |
 | WHATWG HTML §7.4.2.2 Beginning navigation | 20 | *"aborting other ongoing navigations"* (not a traversal) | IN — Resolution A: traversal wins the same-turn straddle; exact cross-channel issue order fenced | ✗ (bounded — `#11-sync-navigation-steps-queue-tagging`) | yes (`location.*`) |
 | WHATWG HTML §7.4.6.1 Updating the traversable | 1 | *apply the history step*: assert running within the traversal queue | IN — the queue-serialized Phase-2 apply (guard observational this slice) | ✓ | no |
 | WHATWG HTML §7.4.6.1 Updating the traversable | 3/4/6/7 | initiator sandbox / cross-doc navigable set / `changingNavigables` / nonchanging siblings | OUT (B1) — always `{top-level}` | n/a (B1) | no |
@@ -225,7 +226,7 @@ anchors webref-verified **2026-07-26** — no drift; anchors: `#navigate-non-fra
 | WHATWG HTML §7.3.1.1 Traversable navigables | queue obj | session history traversal **queue** object | IN — `TraversalQueue` on `NavigationController` (cooperative deferred; app-mode drains it synchronously via `drain_same_turn`) | ✓ | no |
 | WHATWG HTML §7.3.1.1 Traversable navigables | queue obj | **"running nested apply history step" boolean** (init false) | PARTIAL — present + observational; canonical wiring is Slice 4. **App-mode's reentrancy vector is absent by construction (§4.4), so the guard is inert here — no interim buffer needed** | ✗ (Slice 4) | no |
 
-**Breadth**: K=1 spec (html), M=13 rows. Split decision: spec-breadth reads single-PR; the umbrella's split
+**Breadth**: K=1 spec (html), M=14 rows. Split decision: spec-breadth reads single-PR; the umbrella's split
 driver is the **edge-dense / canonical-algorithm-absent** rule (§2, ≥3 intersecting axes), so the split is by
 **implementation slice under the approved umbrella** — this memo is the terminal app-mode Slice B (umbrella §5,
 old Slice 3).
@@ -296,16 +297,36 @@ whole point of One-issue-one-way: same coordinator, same phase bodies, same I1/I
 Resolution A/B/D/E machinery — the shells share the primitive and differ in their ENTRY POINTS (which realize
 WHEN Phase 2 pumps).**
 
-**The entry-point sets are NOT symmetric, and the asymmetry is a real bounded gap.** Content-mode drives THREE
+**The entry-point sets are NOT symmetric, and the asymmetry is a real gap.** Content-mode drives THREE
 coordinator calls per pump turn (`content/event_loop.rs`: `run_deferred_traversals` → `drain_synchronous_updates`
 → `drain_synchronous_phase`); app-mode drives ONE. The missing counterpart is content's **post-Phase-2
 synchronous settle** — the `drain_synchronous_updates` that runs immediately after `run_deferred_traversals` so a
 §7.4.4 intent staged by the `popstate` handler a Phase-2 traversal fired (`pushState`, `location.*`) completes on
-the SAME turn. App-mode's `drain_same_turn` returns straight after Phase 2, so such an intent waits for the NEXT
-input event. **Bounded, pinned-not-silent** (`app_history_drain_tests::app_popstate_staged_action_defers_to_the_next_drain_not_the_current_queue`),
-fenced to `#11-app-mode-turn-completion-drain`. The correct fix is **loop-until-quiescent turn completion**, not
-a trailing `drain_synchronous_updates` — that would settle a popstate-staged `pushState` but strand a
-popstate-staged `back()` with no Phase 2 behind it — so it is edge-dense and lands as its own plan-reviewed PR.
+the SAME turn. App-mode's `drain_same_turn` returns straight after Phase 2, so such an intent waits for the next
+input event **that actually reaches the drive site — which is not every input event** (`events::handle_click`
+returns early on a hit-test miss / a chrome-band click / an unset `cursor_pos`; `events::handle_keyboard` on an
+unfocused document — all before `process_pending_navigation`). The residual latency is therefore **UNBOUNDED**,
+matching §4.4 (`:419`) and the pin's own docstring; "bounded" here previously said otherwise and was wrong.
+
+⚠ **And the residual is WRONG-ENTRY MUTATION, not merely a late effect** (severity raised 2026-07-26 by the
+PR #487 converge round; slot `#11-app-mode-turn-completion-drain`). The staged §7.4.4 intent is applied by
+whichever LATER drain arrives — and **the cursor can move in between**, because the non-drain cursor movers
+never touch the coordinator: `app/navigation.rs::handle_chrome_action` (toolbar Back/Forward, via
+`App::traverse_to`) and `app/inline.rs`'s Alt+←/→ both traverse directly and return, with no
+`process_pending_navigation` on either path. Sequence: a same-document traversal fires `popstate` → the handler
+stages `pushState`/`replaceState` → the drive returns without settling it → the user presses the toolbar Back
+button → the next drive that IS reached applies the staged update against the **post-traversal** cursor. Both
+§7.4.4 arms then corrupt the entry list: the replace arm (`NavigationController::replace_same_document`)
+overwrites the *current* entry — now the traversal target, not the entry whose handler staged the update — and
+the push arm (`push_same_document` → `push_entry`) runs `entries.truncate(current_index + 1)`, **destroying the
+forward entries the user just traversed away from** before inserting at the wrong point.
+
+**Pinned-not-silent** (`app_history_drain_tests::app_popstate_staged_action_defers_to_the_next_drain_not_the_current_queue`),
+fenced to `#11-app-mode-turn-completion-drain`. The fix is unchanged — **loop-until-quiescent turn completion**,
+not a trailing `drain_synchronous_updates` (that would settle a popstate-staged `pushState` but freeze a
+popstate-staged `back()`'s in-range classification a turn early, leaving it resident as a full partition
+barrier) — so it is edge-dense and lands as its own plan-reviewed PR. What the escalation changes is the
+priority and the failure story a future implementer must pin.
 
 The I2 partition, the `SyncUpdate` cancel (Resolution D), the no-op peek-classify (Resolution E), and the
 nav-suppression (Resolution A) are all **inherited from the shared coordinator** with zero app-specific logic
@@ -326,8 +347,19 @@ only once the apply RUNS — §7.4.3's enqueue sets nothing, and the three null-
 allows new navigations of navigable to start, whereas during the traversal they were blocked."* So the spec's
 blocking window is strictly *during the apply*, and a `location.*` issued before it — `history.back();
 location.assign('/b')` in one handler — is never step-19-ignored, **however the queued traversal later
-resolves**. Resolution A suppresses from **enqueue** time: a strict superset of the spec's window,
-engine-wide (shipped in Slice A, PR #469; content-mode carries the same rule) and NOT introduced here.
+resolves**. And for the app-mode pins specifically there is a **second, independent** reason: they use
+`location.assign('#b')`, a *fragment* navigation, which §7.4.2.2 **step 15** dispatches (*Navigate to a
+fragment*) and `Return`s from **before step 19 is ever reached**. Resolution A suppresses from **enqueue**
+time: a strict superset of the spec's window, engine-wide (shipped in Slice A, PR #469; content-mode carries
+the same rule) and NOT introduced here.
+
+⚠ **"Strict superset" is scoped to TODAY's synchronous, non-yielding apply.** Containment holds because
+elidex's suppression runs unbroken from enqueue through the apply, so it *contains* the spec's
+during-the-apply window. Under the planned task-queued apply (`#11-session-history-task-queue-model`) the
+apply may yield, and a nav issued *during* a yielded apply would be step-19-ignored by the spec while
+elidex's `has_pending_traversal() || is_applying()` predicate may or may not still be suppressing —
+containment stops being one-directional. Narrowing work must re-derive the relation rather than inherit this
+sentence.
 
 **Suppression is HOLD-then-settle, not discard (the §7.4.2 leg of Resolution D)** — which narrows the
 superset back to "a traversal that really moved the cursor", the closest app-mode gets to the spec window
