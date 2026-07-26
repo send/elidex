@@ -23,6 +23,7 @@ from tempfile import TemporaryDirectory
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from _webref.commands import cite_audit  # noqa: E402
+from _webref import spec_labels  # noqa: E402
 
 
 def _args(**kw):
@@ -136,6 +137,47 @@ class TestStrictExitCode(_TreeCase):
         td = self._tree({"a.rs": "/// HTML §4.10.20.3 bogus\n"})
         _, code = self._run(td, strict=False)
         self.assertEqual(code, 0)
+
+
+class TestSharedSpecLabelMap(unittest.TestCase):
+    """`spec_labels` is the single source for three consumers.
+
+    It replaced three hand-maintained copies (`coverage_map`,
+    `cite_audit`, and the plan-review `preflight.py`) that could drift
+    apart — the same partial-enumeration failure `cite-audit` exists to
+    detect, so a duplicate here would be self-refuting.
+    """
+
+    def test_both_directions_round_trip(self):
+        for short, label in spec_labels.SHORTNAME_TO_LABEL.items():
+            self.assertEqual(spec_labels.shortname_for(label), short)
+            self.assertEqual(spec_labels.label_for(short), label)
+
+    def test_every_shortname_is_its_own_alias(self):
+        for short in spec_labels.SHORTNAME_TO_LABEL:
+            self.assertEqual(spec_labels.shortname_for(short), short)
+
+    def test_lookup_is_case_and_space_insensitive(self):
+        self.assertEqual(spec_labels.shortname_for("  whatwg html "), "html")
+        self.assertEqual(spec_labels.shortname_for("HTML"), "html")
+
+    def test_unknown_label_is_none_not_a_guess(self):
+        self.assertIsNone(spec_labels.shortname_for("WHATWG Nonesuch"))
+        self.assertIsNone(spec_labels.label_for("nonesuch"))
+
+    def test_aliases_do_not_collide_across_specs(self):
+        """A label must map to exactly one shortname."""
+        seen: dict[str, str] = {}
+        for entry in spec_labels.SPECS:
+            for label in entry[1:]:
+                key = label.lower()
+                self.assertNotIn(key, seen, f"{label} claimed by two specs")
+                seen[key] = entry[0]
+
+    def test_cite_audit_consumes_the_shared_map(self):
+        """Regression: the attribution map must not be re-inlined."""
+        self.assertIs(cite_audit.LABEL_TO_SHORTNAME,
+                      spec_labels.LABEL_TO_SHORTNAME)
 
 
 class TestResolverExactness(_TreeCase):

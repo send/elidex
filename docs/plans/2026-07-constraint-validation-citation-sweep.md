@@ -163,7 +163,19 @@ Run 2026-07-27 via `.claude/tools/webref cite-audit html --prefix 4.10`.
 
 **The `§4.10` cluster, attributed to HTML**: **74 distinct sections / 497 cites**; **24 unresolved / 92 cites**.
 
-⚠ **Three corrections these supersede.** (1) Draft 2's 81 / 632 came from a grep that required a digit after `4.10.`, so it missed **bare `§4.10` (99 cites)**. (2) Draft 3's 82 / 731 was right about the *space* but counted unattributed cites as HTML. (3) The audit set is therefore **74 / 497**, and the 25-number table below is 24 numbers under attribution — the one that drops out is cited only from comment blocks that never name a spec.
+### The measurement has been wrong in three successive directions — and only the third is measured
+
+This provenance is the memo's most transferable content, because it is the **third instance of the one lesson the tool now exists to prevent**: a hand-authored enumeration reports what its author already suspected.
+
+| # | Figure for the `§4.10` set | Method | Why it was wrong | Direction of error |
+|---|---|---|---|---|
+| 1 | **81 / 632** | hand-written grep `§4\.10\.[0-9]+(\.[0-9]+)*` | required a digit after `4.10.`, so it **could not match bare `§4.10`** — 99 cites, the single largest family in the tree | **under**-counted the space |
+| 2 | **82 / 731** | `cite-audit`, pre-attribution | correct about the *space*, but resolved **every** bare `§N.N` against HTML, so cites belonging to other specs (and non-spec pointers) were counted as HTML | **over**-counted the audit set |
+| 3 | **74 / 497** | `cite-audit` with spec attribution (§3.1) | — | **measured** |
+
+Both earlier figures are **superseded**. Each was produced by a method that could not see its own blind spot, and each blind spot was invisible from inside the method that had it — which is precisely why discovery is now a tested tool (§6 item 5) rather than a paragraph.
+
+Consequently the 25-number table below is **24** numbers under attribution: the one that drops out is cited only from comment blocks that never name a spec, so it is UNATTRIBUTED rather than HTML.
 
 **UNATTRIBUTED is a finding, not noise.** 6931 cites tree-wide (234 within `§4.10.x`) carry a bare `§` whose spec a reader cannot determine from its comment block. That is a defect *independent of whether the number happens to resolve*, and it is the largest single citation-hygiene gap the tool exposes. **Out of scope here** (it spans every spec and every crate) → queued in §10.1 as `#11-unattributed-spec-citations`.
 
@@ -259,6 +271,16 @@ Likewise the "step 8.4 / 8.5" family (5 sites, verified 2026-07-27 — §4.2) �
    ⚠ **Do not simply delete the sentence.** It is currently the tree's signal at the *consuming* site that `FormControlKind` has no image-button variant — so `form.requestSubmit(imageInput)` throws `TypeError` where HTML requires submission. The gap is named twice elsewhere (`crates/dom/elidex-form-core/src/input.rs:814-819` routes around it deliberately; `input_tests.rs:618` calls it a pre-existing `FormControlKind` coverage gap). The repaired comment must **point explicitly at `#11-input-image-state`**, or the repair removes the last in-tree warning at the place that would break.
 2. **`validity_state.rs:152`/`:154`**: the § number is at `:152`, the bar list at `:154`. PR-A0 fixes the number **and** completes the list — it is currently missing the **`readonly`** bar that `is_constraint_validation_candidate` actually applies (`validation/mod.rs:40`), a pre-existing prose defect no other PR owns (PR-A only adds bars from its *own* new behavior). ⚠ The `readonly` bar is **conditional** — `state.readonly && state.kind.readonly_applies()` (`validation/mod.rs:40`) — so writing it flat would re-create the divergence this repair exists to close. **Alternative on the table (§9-Q5)**: collapse the duplicated list to an intra-doc reference to `is_constraint_validation_candidate` so it cannot drift again.
 
+### §4.7 Collapsing the spec-label map — the memo's own thesis, applied to itself
+
+`cite-audit`'s attribution needs a label → shortname map. It was authored as a **hand-maintained copy** carrying a "Mirrors `coverage_map.py::_SPEC_LABEL_MAP`" comment — i.e. a partial, hand-maintained enumeration with a sync note instead of a mechanism, inside the PR whose thesis is that exactly that shape self-seeds. Shipping it would have been self-refuting.
+
+**A third copy existed and was not in the brief**: `.claude/skills/elidex-plan-review/preflight.py:51` `SPEC_LABEL_REVERSE` — the plan-review preflight's own label parser, with its own hand-written case-insensitive fallback loop. Three copies, three lifecycles, no mechanism keeping them equal; adding a spec to one reached neither other.
+
+**Collapsed to one source**: `.claude/tools/_webref/spec_labels.py` (NEW). A single `SPECS` tuple of `(shortname, canonical label, *aliases)`; **both directions and every alias are derived from it**, so it is direction-agnostic and a new spec reaches all three consumers by construction. All three now import it; the sync comment is deleted because it became untrue, and `preflight.py`'s two-pass case-insensitive lookup collapses to one lower-cased-key `get`.
+
+Guarded by `TestSharedSpecLabelMap` (§6 item 5), including an **identity assertion** that `cite_audit`'s map *is* the shared object — so re-inlining a copy fails the suite rather than drifting quietly.
+
 ### §4.5 Inclusion rule — ONE rule, stated once
 
 > **A site is IN iff the concept its comment describes belongs to the constraint-validation + form-submission cluster.** Not its file, not its crate, not its pattern.
@@ -338,7 +360,11 @@ There is nothing to assert — the deliverable is prose. Verification is procedu
    - **`TestSpecAttribution`** (7 tests) — explicit label selects that spec; longest label wins (`WHATWG HTML` is not parsed as the bare `HTML` alias); bare cites inherit within a comment block; a non-comment line ends the block; `§0.5`-style plan-memo pointers land in UNATTRIBUTED rather than being audited as HTML; `--show-unattributed` lists them.
    - **`TestResolverExactness`** — a cited `§4.10.20.3` reports UNRESOLVED rather than passing because `§4.10.2` exists. *(`lookup_section` is prefix-tolerant and has **no** `exact` parameter — the first commit called it with `exact=True`, which Pyright flagged; the shipped guard is `hit[0] == section`.)*
 
-   Verified green 2026-07-27: `python3 .claude/tools/_webref/test_cite_audit.py` → 13 tests OK, and the three sibling test files still OK.
+   - **`TestSharedSpecLabelMap`** (6 tests) — both directions round-trip; every shortname is its own alias; lookup is case/space-insensitive; an unknown label returns `None` rather than a guess; **no alias is claimed by two specs**; and `cite_audit.LABEL_TO_SHORTNAME` **is** `spec_labels.LABEL_TO_SHORTNAME` (an identity assertion, so re-inlining the map fails the suite).
+
+   Verified green 2026-07-27: `python3 .claude/tools/_webref/test_cite_audit.py` → **19 tests OK**, and the three sibling test files still OK.
+
+   *(Note for future readers: the `sys.path.insert` at the top of the test file is the same shim `test_inventory_diff.py` / `test_agent_brief.py` / `test_refresh.py` already use to import `_webref` as a package from a script. Pyright flags it; it is the established precedent in this directory, **not** a defect to "fix".)*
 
 **Gate**: `mise run ci`, then `/pre-push`, then **`/external-converge` from round 1**. The reactive escalation trigger ([[feedback_gate-miss-on-edge-dense-escalate-to-converge]]) has already fired twice on this memo — two gaps found pre-dispatch, then 1 CRIT / 28 IMP at review — and the #483 precedent this PR invokes did **not** converge in a single pass (it left three open carves). §2's honest re-statement (discovery is not canonical) is the same conclusion from the design side.
 
@@ -399,9 +425,9 @@ Full derivation over **every** file this memo names as a touch site (verified 20
 |---|---|---|
 | **`#11-citation-anchor-level-verification`** | **NEW** (from §9-Q1) | (1) Real gap? yes — §3.1's detectors verify section *numbers* and concepts, not the `#anchor` within a section; a cite can name the right section and the wrong dfn. (2) Blocked by structure? no, but it needs a per-site `body html <anchor>` pass that would roughly double this PR. (3) Non-regressing to defer? yes — no cite gets *worse*. (4) Durable home? `project_open-defer-slots.md`. **Trigger**: the next citation sweep, or a review finding a wrong-anchor cite. **Date**: 2026-11. |
 
-| **`#11-unattributed-spec-citations`** | **NEW** (from §4.0) | (1) Real gap? yes — **6931 cites** tree-wide carry a bare `§` whose spec a reader cannot determine from its comment block (234 inside `§4.10.x` alone). A citation a reader cannot attribute is a defect independent of resolution. (2) Blocked by structure? no, but it spans every spec and every crate — sweeping it here would collide with every active lane, and it is a different concept axis from this cluster. (3) Non-regressing to defer? yes — pre-existing, and `cite-audit` now *reports* the count so it cannot go quiet again. (4) Durable home? `project_open-defer-slots.md`. **Trigger**: the next cross-spec citation pass, or a review mis-attributing a bare cite. **Date**: 2026-12. |
+| **`#11-unattributed-spec-citations`** | **NEW** (from §4.0) | (1) Real gap? yes — **6931 cites** tree-wide carry a bare `§` whose spec a reader cannot determine from its comment block (234 inside `§4.10.x` alone). A citation a reader cannot attribute is a defect independent of resolution. (2) Blocked by structure? no, but it spans every spec and every crate — sweeping it here would collide with every active lane, and it is a different concept axis from this cluster. (3) Non-regressing to defer? yes — pre-existing, and `cite-audit` now *reports* the count so it cannot go quiet again. (4) Durable home? `project_open-defer-slots.md`. **Re-derive, don't re-discover** — the measurement is one command: `.claude/tools/webref cite-audit html --show-unattributed` (whole tree) or `--prefix 4.10 --show-unattributed` (this cluster). The count is printed in the header of every run, so the next toucher gets the current number rather than this memo's snapshot. **Trigger**: the next cross-spec citation pass, or a review mis-attributing a bare cite. **Date**: 2026-12. |
 
-**Per-PR budget**: **2 new slots** (≤3 ✓, one slot of headroom). Draft 2 claimed "zero deferred work" while §9-Q1 was open — corrected.
+**Per-PR budget — re-audited 2026-07-27**: **2 new slots**, `#11-citation-anchor-level-verification` (§9-Q1) and `#11-unattributed-spec-citations` (§4.0), against the ≤3 cap — **one slot of headroom**. Nothing else in this round created deferred work: the shared-spec-label collapse (§4.7) is *done here*, not slotted, and the §4.10.12-15 cascade remainder goes to an existing tracked program (§10.1) rather than a new slot. Draft 2 claimed "zero deferred work" while §9-Q1 was open — corrected.
 
 ### §10.1 Out-of-cluster inventory — a deliverable, not a silence
 

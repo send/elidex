@@ -32,6 +32,7 @@ from collections import defaultdict
 from pathlib import Path
 
 from ..resolver import lookup_section
+from ..spec_labels import LABEL_TO_SHORTNAME
 
 # A citation is a section mark followed by a dotted number. Bare `§` with
 # no digits (rare, e.g. prose "§ of the spec") is not a citation.
@@ -53,27 +54,12 @@ _CITE_RE = re.compile(r"§\s*(\d+(?:\.\d+)*)")
 #                     a reader cannot attribute is a defect regardless
 #                     of whether it happens to resolve somewhere.
 #
-# Label → shortname. Mirrors `commands/coverage_map.py::_SPEC_LABEL_MAP`
-# (kept in sync by hand; it is a display map there and a parse map here),
-# plus the bare aliases that appear in real comments.
-_LABEL_TO_SHORTNAME = {
-    "ecma-262": "ecma262", "ecma262": "ecma262",
-    "ecma-402": "ecma402", "ecma402": "ecma402",
-    "whatwg html": "html", "html": "html",
-    "whatwg dom": "dom", "dom": "dom",
-    "whatwg url": "url", "url": "url",
-    "whatwg fetch": "fetch", "fetch": "fetch",
-    "whatwg streams": "streams", "streams": "streams",
-    "whatwg xhr": "xhr", "xhr": "xhr",
-    "web cryptography api": "webcrypto", "webcrypto": "webcrypto",
-    "web idl": "webidl", "webidl": "webidl",
-    "css selectors l4": "selectors-4", "selectors-4": "selectors-4",
-    "geometry interfaces l1": "geometry-1", "geometry-1": "geometry-1",
-}
+# Label → shortname comes from `_webref.spec_labels`, the single source
+# shared with `coverage_map` and the plan-review preflight.
 
 # Longest labels first so "WHATWG HTML" wins over "HTML".
 _LABEL_ALT = "|".join(
-    re.escape(k) for k in sorted(_LABEL_TO_SHORTNAME, key=len, reverse=True)
+    re.escape(k) for k in sorted(LABEL_TO_SHORTNAME, key=len, reverse=True)
 )
 # A label attached to this cite: `<label> [spec] §`, allowing an
 # intervening word like "spec" ("HTML spec §4.10.5").
@@ -96,7 +82,7 @@ def _attribute(lines: list[str]) -> dict[tuple[int, int], str | None]:
             block_spec = None  # a non-comment line ends the block
         explicit: dict[int, str] = {}
         for m in _ATTRIBUTED_RE.finditer(line):
-            short = _LABEL_TO_SHORTNAME[m.group(1).lower()]
+            short = LABEL_TO_SHORTNAME[m.group(1).lower()]
             explicit[m.end() - len(m.group(2)) - 1] = short
             block_spec = short
         for m in _CITE_RE.finditer(line):
