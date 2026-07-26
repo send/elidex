@@ -7,8 +7,9 @@
 //! synchronous pass (window-opens → history FIFO → last-wins navigation),
 //! collapsing the spec's two task-timing classes onto a single synchronous
 //! return (plan §1). This module introduces, in its **final phase-separated
-//! shape**, the primitive both shells (`content/navigation.rs`,
-//! `app/navigation.rs`) will adopt (Slices 2/3):
+//! shape**, the primitive **both shells now drive** — content mode from
+//! `content/event_loop.rs` through `content/drain_host.rs` (Slice A), app mode
+//! from `app/drain_host.rs` (Slice B):
 //!
 //! - a [`TraversalQueue`] — the WHATWG HTML §7.3.1.1 *session history traversal
 //!   queue* (`#tn-session-history-traversal-queue`) carrying the
@@ -27,8 +28,10 @@
 //! straddle sync behind ANY traversal, Resolution D generalized) seams are each
 //! designed **correct against the real shell state** the inert substrate lacked
 //! (`docs/plans/2026-07-session-history-slice-A-content-phase-separation.md`).
-//! The isolation unit tests below still pin the coordinator in isolation; content
-//! mode drives it (`content/navigation.rs`). App mode = Slice B.
+//! The isolation unit tests below still pin the coordinator in isolation; **both
+//! shells now drive it** — content mode from `content/event_loop.rs` (Slice A,
+//! the split entry points) and app mode from `app/drain_host.rs` (Slice B, the
+//! single same-turn entry point).
 //!
 //! ## The task-timing partition (plan §4.2)
 //!
@@ -47,13 +50,16 @@
 //! boundary: [`DrainCoordinator::drain_synchronous_phase`] runs Phase 1 (window-
 //! opens + sync updates + last-wins navigation) and enqueues traversals **without
 //! applying them**; [`DrainCoordinator::run_deferred_traversals`] runs Phase 2
-//! (the deferred traversal apply) on a **later turn** — content-mode schedules it
-//! on a subsequent async-pump turn, app-mode drains it at end-of-input-handler,
-//! strictly after Phase 1 (Slices 2/3). [`DrainCoordinator::drain_same_turn`] is a
-//! **same-turn convenience** that combines both phases in one call (the app-mode-
-//! degenerate path + the isolation tests); adopting it wholesale would collapse
-//! the very task boundary this substrate exists to remove, so content-mode drives
-//! the two entry points separately (see each method's doc).
+//! (the deferred traversal apply) on a **later turn**. Content-mode drives that
+//! split pair (Phase 2 on a subsequent async-pump turn), plus
+//! [`DrainCoordinator::drain_synchronous_updates`] as its top-of-turn settle.
+//! **App-mode calls none of those three**: it has no async pump, so it drains
+//! Phase 1 and Phase 2 back-to-back inside the input handler through
+//! [`DrainCoordinator::drain_same_turn`], the **same-turn** entry point that
+//! combines both phases in one call and ships once (the app-mode-degenerate path
+//! plus the isolation tests). Content-mode adopting `drain_same_turn` wholesale
+//! would collapse the very task boundary this substrate exists to remove, so it
+//! drives the split entry points separately (see each method's doc).
 //!
 //! The **scope fence** (plan §0) is single-traversable (top-level) only: the
 //! §7.4.6.1 multi-navigable fan-out (steps 3/4/6/7 + the per-navigable global
@@ -119,20 +125,26 @@ pub enum UserInvolvement {
 /// The *fuller* §7.4.3 steps-1–3 **source snapshot** (source document / initiator
 /// — consumed by §7.4.6.1 for the sandbox check and cross-document target
 /// population) is **NOT** captured here: it references the shell's document
-/// identity, a type the engine-agnostic substrate does not have. Slice 2/3 threads
-/// it at wire time (the same document-identity boundary as a deferred `SyncUpdate`,
-/// Codex PR#464 R3-D → slot `#11-sync-navigation-steps-queue-tagging`), so until
-/// then a deferred traversal's apply must read live document state, not an
-/// issue-time source snapshot. Only the `Copy` `UserInvolvement` input (no shell
-/// type) is capturable in Slice 1.
+/// identity, a type the engine-agnostic substrate does not have. **Neither shell
+/// slice threads it** — content (Slice A) and app (Slice B) both wire
+/// `UserInvolvement` alone; the wire-time capture stays fenced to
+/// `#11-sync-navigation-steps-queue-tagging` (the same document-identity boundary
+/// as a deferred `SyncUpdate`, Codex PR#464 R3-D). So a deferred traversal's apply
+/// reads live document state, not an issue-time source snapshot. Only the `Copy`
+/// `UserInvolvement` input (no shell type) is capturable here.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct PendingTraversal {
     /// The resolved traversal delta (`Back` / `Forward` / `Go(delta)`).
     pub delta: TraversalDelta,
-    /// The §7.4.3 step-2 [`UserInvolvement`] snapshot. Slice 1 defaults this
-    /// (the VM staging carries no involvement fact today, Q-VM-MODEL =
-    /// shell-drain-only); Slices 2/3 thread the real issue-time snapshot (a
-    /// chrome-button traversal is [`UserInvolvement::BrowserUi`]).
+    /// The §7.4.3 step-2 [`UserInvolvement`] snapshot. **Both shells supply
+    /// [`UserInvolvement::None`]**: only *scripted* `history.back()` /
+    /// `forward()` / `go()` reaches the coordinator (§7.4.3 step 3.3 — a given
+    /// sourceDocument overrides step 2's "browser UI" default), and the VM
+    /// staging carries no involvement fact (Q-VM-MODEL = shell-drain-only). The
+    /// [`UserInvolvement::BrowserUi`] traversals (chrome toolbar Back/Forward,
+    /// Alt+←/→) bypass the queue entirely in BOTH shells — they call the shell's
+    /// traversal body directly — and are fenced to Slice 4's canonical DIRECT-nav
+    /// serialization (`#11-session-history-task-queue-model`).
     pub user_involvement: UserInvolvement,
 }
 
@@ -425,11 +437,14 @@ pub trait DrainHost {
 /// state lives on the host (§7.3.1.1's traversable owns its queue), reached
 /// through [`DrainHost::traversal_queue`].
 ///
-/// Slices 2/3 adopt this by implementing [`DrainHost`] on each shell and driving
-/// the two phases via [`DrainCoordinator::drain_synchronous_phase`] (in-task) +
-/// [`DrainCoordinator::run_deferred_traversals`] (a later turn) — the seam that
-/// realizes the task boundary. [`DrainCoordinator::drain_same_turn`] is the same-turn
-/// convenience combining both (the app-mode-degenerate path + the isolation tests).
+/// Both shells implement [`DrainHost`]. **Content-mode** drives the two phases
+/// separately — [`DrainCoordinator::drain_synchronous_phase`] (in-task) +
+/// [`DrainCoordinator::run_deferred_traversals`] (a later pump turn), the seam
+/// that realizes the task boundary — plus
+/// [`DrainCoordinator::drain_synchronous_updates`] as its top-of-turn settle.
+/// **App-mode** has no pump and drives the single same-turn
+/// [`DrainCoordinator::drain_same_turn`] (the app-mode-degenerate path + the
+/// isolation tests).
 pub struct DrainCoordinator;
 
 impl DrainCoordinator {
@@ -593,10 +608,12 @@ impl DrainCoordinator {
     /// `ship_if_needed` tail: window-opens (§7.2.2.1) → synchronous history
     /// *updates* (§7.4.4) → last-wins own-context navigation (§7.4.2), enqueuing
     /// each `Back` / `Forward` / `Go` *traversal* (§7.4.3) without applying it. The
-    /// caller runs Phase 2 via [`run_deferred_traversals`] **separately**:
-    /// content-mode on a later async-pump turn, app-mode at end-of-input-handler,
-    /// realizing §7.4.6.1 *apply the history step* step-12's task boundary (plan
-    /// §4.5 I1). The caller checks [`TraversalQueue::is_empty`] (via
+    /// caller runs Phase 2 via [`run_deferred_traversals`] **separately**, on a
+    /// later async-pump turn, realizing §7.4.6.1 *apply the history step*
+    /// step-12's task boundary (plan §4.5 I1). **This split pair is content-mode's
+    /// entry point; app-mode drives neither half** — its end-of-input-handler
+    /// drain runs both phases inside [`drain_same_turn`](Self::drain_same_turn).
+    /// The caller checks [`TraversalQueue::is_empty`] (via
     /// [`DrainHost::traversal_queue`]) to know whether Phase-2 work is pending.
     ///
     /// **Ships Phase 1's own-context effect on Phase 1's own turn** (own-context
@@ -651,9 +668,11 @@ impl DrainCoordinator {
     /// Run **Phase 2** — apply the deferred traversal(s) queued by
     /// [`drain_synchronous_phase`](Self::drain_synchronous_phase) — as a **later
     /// task**: WHATWG HTML §7.4.6.1 *apply the history step* (plan §4.2). Call
-    /// this **after** `drain_synchronous_phase`, on a later turn (content-mode's
-    /// async pump) or at end-of-input-handler (app-mode), so the traversal apply
-    /// reads the entry list only after Phase 1's updates have landed (I1).
+    /// this **after** `drain_synchronous_phase`, on a later turn, so the traversal
+    /// apply reads the entry list only after Phase 1's updates have landed (I1).
+    /// **Content-mode's async pump is its only caller** — app-mode's
+    /// end-of-input-handler Phase 2 runs inside
+    /// [`drain_same_turn`](Self::drain_same_turn), not here.
     ///
     /// - **I3 (guard bracket).** The [`TraversalQueue`]'s "running nested apply
     ///   history step" boolean (observable via [`TraversalQueue::is_applying`]) is
@@ -768,9 +787,14 @@ impl DrainCoordinator {
         // (`content/drain_host.rs::dispatch_or_buffer_reentrant`) buffers EVERY reentrant
         // message while `is_applying()`, so no reentrant Phase-1 drain runs mid-apply, and
         // `pending_len()` counts ALL steps so a Phase-1-enqueued `[Traversal, SyncUpdate]`
-        // pair is always captured whole in one snapshot (cancelled here). The app-mode /
-        // canonical reentrant-Phase-1-under-apply case that WOULD need the cross-drain
-        // carry lands with the tagged queue (`#11-sync-navigation-steps-queue-tagging`).
+        // pair is always captured whole in one snapshot (cancelled here). It is likewise
+        // unreachable in app-mode Slice-B — but BY CONSTRUCTION rather than by a guard
+        // (`app/drain_host.rs` module doc, plan §4.4): the inline path has no message pump
+        // and no SW-wait, so no apply body re-enters `run_synchronous_phase_body` mid-drain
+        // and the app-mode R18 carry is structurally VOID, not deferred. What still lands
+        // with the tagged queue (`#11-sync-navigation-steps-queue-tagging`) is the CANONICAL
+        // reentrant-Phase-1-under-apply case — a shell that really does re-partition the
+        // FIFO mid-apply.
         let mut remaining = host.traversal_queue().pending_len();
         let mut traversal_applied = false;
         while remaining > 0 {
