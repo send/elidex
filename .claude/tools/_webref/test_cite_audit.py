@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import io
+import json
 import sys
 import unittest
 from contextlib import redirect_stdout
@@ -223,9 +224,14 @@ class TestSharedSpecLabelMap(unittest.TestCase):
         """A label must map to exactly one shortname."""
         seen: dict[str, str] = {}
         for entry in spec_labels.SPECS:
-            for label in entry[1:]:
+            # index 2 is the cli help blurb, not a parse key — skip it.
+            for label in (entry[0], entry[1], *entry[3:]):
                 key = label.lower()
-                self.assertNotIn(key, seen, f"{label} claimed by two specs")
+                # A key repeating within ONE spec is fine and expected —
+                # `html`'s shortname and its `HTML` alias fold to the same
+                # key. Only a key claimed by two DIFFERENT specs is a bug.
+                self.assertEqual(seen.get(key, entry[0]), entry[0],
+                                 f"{label!r} claimed by two specs")
                 seen[key] = entry[0]
 
     def test_module_leaves_no_temporaries_to_delete(self):
@@ -240,8 +246,9 @@ class TestSharedSpecLabelMap(unittest.TestCase):
         preflight gate, so one bad edit would take out all three.
         """
         leftovers = [
-            n for n in vars(spec_labels)
+            n for n, v in vars(spec_labels).items()
             if n.startswith("_") and not n.startswith("__")
+            and not callable(v)  # private helpers are fine; bound loop vars are not
         ]
         self.assertEqual(leftovers, [], f"module-level temporaries: {leftovers}")
 
@@ -255,10 +262,99 @@ class TestSharedSpecLabelMap(unittest.TestCase):
         }
         self.assertEqual(rebuilt, {})
 
-    def test_cite_audit_consumes_the_shared_map(self):
-        """Regression: the attribution map must not be re-inlined."""
-        self.assertIs(cite_audit.LABEL_TO_SHORTNAME,
-                      spec_labels.LABEL_TO_SHORTNAME)
+    def test_all_three_consumers_derive_from_specs(self):
+        """Derivation test — mechanism-agnostic, covers all three consumers.
+
+        The earlier guard asserted `cite_audit.LABEL_TO_SHORTNAME is
+        spec_labels.LABEL_TO_SHORTNAME`, which is true by construction of
+        `from … import` and therefore only caught a literal re-inline in
+        `cite_audit` — while `preflight` is the copy that empirically
+        drifted, and no test imported it at all, so its `sys.path` shim
+        was never exercised. This asserts the OUTPUT of each consumer
+        instead, so any re-inlining or fallback drift fails regardless of
+        mechanism. It also pins finding 2's round-trip break
+        (`coverage_map`'s old `.upper().replace("-", " ")` fallback
+        emitted labels `shortname_for` could not read back).
+        """
+        sys.path.insert(
+            0, str(Path(__file__).resolve().parents[2] / "skills"
+                   / "elidex-plan-review")
+        )
+        import importlib
+
+        coverage_map = importlib.import_module("_webref.commands.coverage_map")
+        preflight = importlib.import_module("preflight")
+
+        for entry in spec_labels.SPECS:
+            short, label = entry[0], entry[1]
+            self.assertEqual(coverage_map._spec_label(short), label,
+                             f"coverage_map drifted for {short}")
+            self.assertEqual(preflight.shortname_from_label(label), short,
+                             f"preflight drifted for {label}")
+
+    def test_coverage_map_fallback_round_trips(self):
+        """A label the generator emits must be one the gate can read back."""
+        for short in ("css-text-3", "css-values-4"):
+            label = coverage_map_label(short)
+            self.assertIsNotNone(spec_labels.shortname_for(label),
+                                 f"{short} -> {label!r} does not round-trip")
+
+
+def coverage_map_label(short: str) -> str:
+    import importlib
+
+    return importlib.import_module("_webref.commands.coverage_map")._spec_label(short)
+
+
+class TestAnnexGrammar(_TreeCase):
+    """Finding 1: the detector must see annex citations, not only digits.
+
+    Real ones exist — `elidex-api-crypto/src/rsa.rs` cites RFC 3447
+    `§A.1.1` (a cross-spec mis-attribution, the class this tool
+    advertises) and `events_modern/mod.rs` cites a plan-memo `§F.2` (the
+    UNATTRIBUTED class). A digits-only grammar made both invisible.
+    """
+
+    def test_annex_cite_is_discovered(self):
+        td = self._tree({"a.rs": "/// HTML §A.1.1 annex\n"})
+        out, _ = self._run(td)
+        self.assertIn("attributed to html: 1 distinct sections, 1 cites", out)
+
+    def test_bare_annex_lands_in_unattributed(self):
+        td = self._tree({"a.rs": "// plan-memo §F.2\n"})
+        out, _ = self._run(td)
+        self.assertIn("UNATTRIBUTED (bare § with no spec in its comment "
+                      "block): 1 cites", out)
+
+    def test_annex_sorts_without_raising(self):
+        """`sec_number_key` handles annexes; `tuple(int(p) …)` would raise."""
+        td = self._tree({"a.rs": "/// HTML §4.10.5 and §A.1 and §B.2.1\n"})
+        out, _ = self._run(td)
+        self.assertIn("attributed to html: 3 distinct sections", out)
+
+
+class TestMissingRootExits(_TreeCase):
+    def test_not_a_directory_exits_nonzero(self):
+        """Finding 4: the same `return 1` defect `--strict` had, one site on."""
+        _, code = self._run(Path("/nonexistent-cite-audit-root"))
+        self.assertEqual(code, 1)
+
+
+class TestJsonOutput(_TreeCase):
+    def test_section_mark_is_not_escaped(self):
+        """Finding 5: a tool about `§` must not emit `\u00a7`."""
+        td = self._tree({"a.rs": "/// HTML §4.10.5 input\n"})
+        out, _ = self._run(td, format="json", summary=False)
+        self.assertNotIn("u00a7", out)
+        self.assertIn("§", out)
+
+    def test_json_records_carry_relative_paths_for_both_classes(self):
+        """Finding 11: only one of the two renderers relativized before."""
+        td = self._tree({"a.rs": "/// HTML §4.10.5\n", "b.rs": "// bare §9.1\n"})
+        out, _ = self._run(td, format="json", summary=False)
+        payload = json.loads(out)
+        self.assertEqual(payload["unattributed_cites"], 1)
+        self.assertEqual(payload["distinct_sections"], 1)
 
 
 class TestResolverExactness(_TreeCase):

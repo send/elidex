@@ -13,7 +13,7 @@ from .commands.aoid import cmd_aoid
 from .commands.agent_brief import cmd_agent_brief
 from .commands.agent_policy import cmd_agent_policy
 from .commands.body import cmd_body
-from .commands.cite_audit import register as register_cite_audit
+from .commands.cite_audit import cmd_cite_audit
 from .commands.coverage_map import cmd_coverage_map
 from .commands.css import cmd_css
 from .commands.dfn import cmd_dfn
@@ -24,24 +24,22 @@ from .commands.idl import cmd_idl
 from .commands.refresh import cmd_refresh
 from .commands.snapshot import cmd_snapshot
 from .commands.specs import cmd_specs
+from .spec_labels import SHORTNAME_TO_BLURB
 
-COMMON_SHORTNAMES = """\
+# Derived from `spec_labels.SPECS`, which also backs `coverage-map`,
+# `cite-audit` and the plan-review preflight. This blurb was a fourth
+# hand-maintained copy of the same enumeration.
+_SHORTNAME_LINES = "\n".join(
+    f"  {short:<12} {SHORTNAME_TO_BLURB[short]}" for short in SHORTNAME_TO_BLURB
+)
+
+COMMON_SHORTNAMES = f"""\
 Common shortnames:
-  html         HTML LS (Custom Elements / Canvas / Workers / Form / Events — monolithic)
-  dom          DOM LS
-  selectors-4  CSS Selectors L4
-  geometry-1   Geometry Interfaces (DOMRect / DOMMatrix)
-  url          URL LS
-  fetch        Fetch LS
-  streams      Streams LS
-  webcrypto    Web Cryptography API (series → current spec webcrypto-2)
-  xhr          XMLHttpRequest LS
-  webidl       Web IDL
-  ecma262      ECMAScript Language Specification (tc39, biblio.json)
-  ecma402      ECMAScript Internationalization API (tc39, biblio.json)
+{_SHORTNAME_LINES}
 
 Examples:
   .claude/tools/webref heading html 4.13                     # all §4.13.x sections
+  .claude/tools/webref cite-audit html --prefix 4.10 --summary  # citation audit
   .claude/tools/webref heading ecma262 25.5.2                # §25.5.2 JSON.parse
   .claude/tools/webref aoid ecma262 ToNumber                 # AO → §7.1.4 + anchor
   .claude/tools/webref dfn html 'reaction queue'             # term → §heading + anchor
@@ -195,7 +193,36 @@ def build_parser() -> argparse.ArgumentParser:
     )
     diff.set_defaults(func=cmd_diff)
 
-    register_cite_audit(sub)
+    ca = sub.add_parser(
+        "cite-audit",
+        help="repo citation inventory: every §number cited + title + sites",
+        description=(
+            "Scan a source tree for §<number> citations and resolve each "
+            "against the spec. Emits the complete candidate set WITH the "
+            "context needed to classify each cite by concept — so a "
+            "citation sweep's discovery step is a detector, not a "
+            "hand-authored pattern list."
+        ),
+    )
+    ca.add_argument("spec", help="spec shortname (e.g. html, dom, ecma262)")
+    ca.add_argument("--root", default="crates",
+                    help="tree to scan (default: crates)")
+    ca.add_argument("--glob", default="*.rs",
+                    help="file glob (default: *.rs)")
+    ca.add_argument("--prefix", default=None,
+                    help="restrict to sections under this dotted prefix "
+                         "(e.g. 4.10); component-wise, so 4.10.2 excludes "
+                         "4.10.20.3")
+    ca.add_argument("--summary", action="store_true",
+                    help="section lines only, omit per-cite detail")
+    ca.add_argument("--format", choices=("text", "json"), default="text",
+                    help="output format (default: text)")
+    ca.add_argument("--show-unattributed", action="store_true",
+                    help="list the UNATTRIBUTED cites (bare § with no spec "
+                         "label in their comment block)")
+    ca.add_argument("--strict", action="store_true",
+                    help="exit 1 if any cited section fails to resolve")
+    ca.set_defaults(func=cmd_cite_audit)
 
     policy = sub.add_parser(
         "agent-policy",

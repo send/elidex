@@ -49,8 +49,15 @@ WEBREF = REPO_ROOT / ".claude" / "tools" / "webref"
 # aliases derived) — previously a third hand-maintained copy that drifted
 # from the two in `_webref/commands/`. Import via the tools path since
 # preflight runs as a standalone script from the skill directory.
+# Degrade the same way the pre-existing `WEBREF.is_file()` check does: a
+# missing/unimportable tools tree must not take down grep-pass (which
+# needs no webref at all) or a `--no-verify --no-grep-pass` structural
+# run. A hard top-level import would die with a traceback on this gate.
 sys.path.insert(0, str(REPO_ROOT / ".claude" / "tools"))
-from _webref.spec_labels import LABEL_TO_SHORTNAME  # noqa: E402
+try:
+    from _webref.spec_labels import shortname_for as _shortname_for
+except Exception:  # noqa: BLE001 — tools tree absent/broken; keep the gate up
+    _shortname_for = None
 
 # Require a §-number marker in the heading so a section titled e.g.
 # "Quick Reference: spec coverage map" doesn't accidentally pick up.
@@ -225,9 +232,9 @@ def parse_spec_cell(cell: str) -> tuple[str | None, str | None]:
 def shortname_from_label(label: str | None) -> str | None:
     if not label:
         return None
-    # `LABEL_TO_SHORTNAME` keys are lower-cased, so this is the
-    # case-insensitive lookup the old two-pass form implemented by hand.
-    return LABEL_TO_SHORTNAME.get(label.strip().lower())
+    if _shortname_for is None:
+        return None  # tools tree unavailable — soft-warn, same as unmapped
+    return _shortname_for(label)
 
 
 def verify_citation(shortname: str, section: str) -> tuple[bool, str]:

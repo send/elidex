@@ -5,7 +5,7 @@ import argparse
 import sys
 
 from ..resolver import lookup_section
-from ..spec_labels import SHORTNAME_TO_LABEL
+from ..spec_labels import label_for
 
 # Human-readable spec label for the first column of §3 table rows. The
 # mapping is canonical in `_webref.spec_labels` (one source, both
@@ -13,9 +13,17 @@ from ..spec_labels import SHORTNAME_TO_LABEL
 
 
 def _spec_label(shortname: str) -> str:
-    if shortname in SHORTNAME_TO_LABEL:
-        return SHORTNAME_TO_LABEL[shortname]
-    return shortname.upper().replace("-", " ")
+    """Display label for a §3 table row's first column.
+
+    Delegates to `spec_labels.label_for`, which consults `SPECS` and then
+    upstream's catalog. The old fallback was `shortname.upper().replace(
+    "-", " ")`, which emitted a label the shared map could not read back
+    (`coverage-map css-text-3` → `CSS TEXT 3`; `shortname_for("CSS TEXT
+    3")` → `None`) — generator and plan-review gate out of round-trip for
+    every spec outside the pinned set. The last-resort now returns the
+    shortname itself, which `shortname_for` DOES round-trip.
+    """
+    return label_for(shortname) or shortname
 
 
 def cmd_coverage_map(args: argparse.Namespace) -> None:
