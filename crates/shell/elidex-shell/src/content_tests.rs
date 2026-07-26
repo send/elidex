@@ -1,4 +1,6 @@
-use super::test_support::{build_test_content_state, probe_attr, spawn_test_content, test_network};
+use super::test_support::{
+    build_test_content_state, iframe_entity, probe_attr, spawn_test_content, test_network,
+};
 use super::*;
 use crate::ipc::{self, BrowserToContent, ContentToBrowser, ModifierState};
 use elidex_plugin::Point;
@@ -511,19 +513,6 @@ fn content_thread_viewport_resize_updates_scroll() {
 // `eval_script` mutations left is the scan's whole input: connectedness (the old
 // `is_connected` gate) is structural — a detached iframe simply is not reached by
 // the walk — and lazy re-deferral is preserved.
-
-/// The single `<iframe>` entity in the parent DOM (the one carrying `IframeData`).
-fn iframe_entity(state: &ContentState) -> elidex_ecs::Entity {
-    (&mut state
-        .pipeline
-        .dom
-        .world()
-        .query::<(elidex_ecs::Entity, &elidex_ecs::IframeData)>())
-        .into_iter()
-        .next()
-        .map(|(e, _)| e)
-        .expect("a createElement('iframe') entity carrying IframeData should exist")
-}
 
 /// Whether `entity` is queued for lazy load.
 fn is_lazy_pending(state: &ContentState, entity: elidex_ecs::Entity) -> bool {

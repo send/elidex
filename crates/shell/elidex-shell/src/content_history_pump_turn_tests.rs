@@ -35,22 +35,10 @@ use elidex_navigation::{DrainCoordinator, DrainHost};
 use elidex_script_session::HostDriver;
 
 use super::test_support::{
-    base, build_test_content_state_with_url, drain_browser, seed_same_document_pair,
+    base, build_test_content_state_with_url, count_display_lists, drain_browser,
+    seed_same_document_pair,
 };
-use crate::ipc::{BrowserToContent, ContentToBrowser, LocalChannel};
-
-/// Count the `DisplayListReady` messages currently queued on the browser channel —
-/// the "did the (possibly torn-down) pipeline ship a frame?" witness for the R14
-/// seam-guard tests (mirrors the sibling `content_history_drain_tests` helper).
-fn count_display_lists(browser: &LocalChannel<BrowserToContent, ContentToBrowser>) -> usize {
-    let mut n = 0;
-    while let Ok(msg) = browser.try_recv() {
-        if matches!(msg, ContentToBrowser::DisplayListReady(_)) {
-            n += 1;
-        }
-    }
-    n
-}
+use crate::ipc::BrowserToContent;
 
 /// **:416 — a queued traversal applies BEFORE a held direct navigate.** A prior turn
 /// queued a same-document `back()`; a direct `Navigate` is HELD this turn. The pump

@@ -74,23 +74,10 @@ use super::iframe::{
     InProcessIframe,
 };
 use super::test_support::{
-    build_test_content_state, build_test_content_state_with_url, probe_attr,
+    build_test_content_state, build_test_content_state_with_url, iframe_entity, probe_attr,
 };
 use super::ContentState;
 use elidex_script_session::HostDriver;
-
-/// The single `<iframe>` entity in the parent DOM.
-fn iframe_entity(state: &ContentState) -> elidex_ecs::Entity {
-    (&mut state
-        .pipeline
-        .dom
-        .world()
-        .query::<(elidex_ecs::Entity, &elidex_ecs::IframeData)>())
-        .into_iter()
-        .next()
-        .map(|(e, _)| e)
-        .expect("an <iframe> entity carrying IframeData should exist")
-}
 
 /// The loaded entry for the single iframe, which must be in-process.
 fn in_process_entry(state: &ContentState) -> &InProcessIframe {

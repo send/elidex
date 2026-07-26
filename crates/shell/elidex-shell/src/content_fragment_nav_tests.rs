@@ -22,22 +22,12 @@ use elidex_script_session::HostDriver;
 use elidex_navigation::DrainCoordinator;
 
 use super::navigation::{handle_navigate, HistoryCursorOp};
-use super::test_support::build_test_content_state_with_url;
+use super::test_support::{base, build_test_content_state_with_url, drain_browser};
 use super::ContentState;
 use crate::ipc::{BrowserToContent, ContentToBrowser, LocalChannel};
 
-/// The top-level document URL most tests build against.
-fn base() -> url::Url {
-    url::Url::parse("https://example.com/").unwrap()
-}
-
 fn url(s: &str) -> url::Url {
     url::Url::parse(s).unwrap()
-}
-
-/// Discard every message currently queued on the browser channel end.
-fn drain_browser(browser: &LocalChannel<BrowserToContent, ContentToBrowser>) {
-    while browser.try_recv().is_ok() {}
 }
 
 /// Whether a `NavigationFailed` was shipped — the disconnected-network signature
