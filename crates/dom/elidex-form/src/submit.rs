@@ -130,7 +130,7 @@ pub fn read_form_attrs(dom: &EcsDom, form_entity: Entity) -> FormAttrs {
 ///
 /// The submitter's name/value is appended to the entry list for the
 /// navigate case per HTML §4.10.22.3 step 7 → §4.10.22.4 "Constructing
-/// the entry list" step 5 (a submit button is included iff it is the
+/// the entry list" step 5.1 (a submit button is included iff it is the
 /// submitter).
 #[must_use]
 pub fn build_form_submission(
@@ -358,11 +358,11 @@ fn collect_control_entry(dom: &EcsDom, entity: Entity, entries: &mut Vec<FormDat
     match fcs.kind {
         FormControlKind::Checkbox | FormControlKind::Radio => {
             if fcs.checked {
-                // HTML §4.10.22.4 "Constructing the entry list" step 7: a
+                // HTML §4.10.22.4 "Constructing the entry list" step 5.7: a
                 // checkbox/radio submits the value of its `value` CONTENT
                 // ATTRIBUTE **if specified** (including an explicitly empty
                 // `value=""`), otherwise the string "on" — NOT the live value
-                // (step 10's "value of the field element", used for
+                // (step 5.10's "value of the field element", used for
                 // hidden/text).  The decision keys on attribute PRESENCE, so
                 // it reads the attribute directly rather than the
                 // `default_value` mirror (which cannot distinguish an absent
@@ -392,19 +392,19 @@ fn collect_control_entry(dom: &EcsDom, entity: Entity, entries: &mut Vec<FormDat
             }
         }
         FormControlKind::File => {
-            // HTML §4.10.22.4 "Constructing the entry list" step 8: a file
+            // HTML §4.10.22.4 "Constructing the entry list" step 5.8: a file
             // control submits its SELECTED FILES as `File` objects — NOT the
-            // live value (step 10) and NOT the `value` content attribute,
+            // live value (step 5.10) and NOT the `value` content attribute,
             // which is inert in filename mode.  Routing file inputs through
             // the general `fcs.value` arm would emit a stale string backing
             // (e.g. `<input type=file value=secret>` seeds `fcs.value` at
             // creation), so submission is carved out here.
             //
             // The selected-files list is not yet modeled
-            // (`#11-input-file-shell-staging`); step 8.1 ("no selected files")
-            // creates an entry with an empty-name `File`, which this
+            // (`#11-input-file-shell-staging`); step 5.8.1 ("no selected
+            // files") creates an entry with an empty-name `File`, which this
             // string-valued stopgap represents as an empty value.  When real
-            // `File` objects land this extends to step 8.2 (one entry per
+            // `File` objects land this extends to step 5.8.2 (one entry per
             // selected file).
             entries.push(FormDataEntry {
                 name: fcs.name.clone(),
@@ -412,7 +412,7 @@ fn collect_control_entry(dom: &EcsDom, entity: Entity, entries: &mut Vec<FormDat
             });
         }
         _ => {
-            // HTML §4.10.22.4 "Constructing the entry list" step 10: a
+            // HTML §4.10.22.4 "Constructing the entry list" step 5.10: a
             // general control (text, hidden, …) submits "the value of the
             // field element" — the control's VALUE, i.e. its internal state
             // (`fcs.value`), per §4.10.18.1 "A form control's value".
@@ -425,7 +425,7 @@ fn collect_control_entry(dom: &EcsDom, entity: Entity, entries: &mut Vec<FormDat
             // content attribute (and the IDL getter) while the submitted value
             // stays the dirty live value — getter ≠ submission is intended.
             // (Checkbox/radio are the deliberate exception, handled above per
-            // step 7 = the content attribute.)
+            // step 5.7 = the content attribute.)
             entries.push(FormDataEntry {
                 name: fcs.name.clone(),
                 value: fcs.value.clone(),

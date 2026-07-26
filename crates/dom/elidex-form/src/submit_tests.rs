@@ -77,11 +77,11 @@ fn collect_form_data_basic() {
     assert_eq!(data[0].value, "hello");
 }
 
-/// §4.10.22.4 step 8: a file control submits its selected files, NOT the live
+/// §4.10.22.4 step 5.8: a file control submits its selected files, NOT the live
 /// value / `value` content attribute (inert in filename mode).  Guards the
 /// stale-backing leak Codex flagged — `<input type=file value=secret>` seeds
 /// `fcs.value` at creation, but submission must emit the empty-file entry
-/// (step 8.1, no selected files modeled), not `secret`.
+/// (step 5.8.1, no selected files modeled), not `secret`.
 #[test]
 fn collect_form_data_file_does_not_submit_value_attribute() {
     let mut dom = EcsDom::new();
@@ -163,8 +163,8 @@ fn checkbox_only_submitted_when_checked() {
 
 #[test]
 fn checkbox_submits_value_content_attribute_not_stale_live_value() {
-    // HTML §4.10.22.4 step 7: a checkbox submits the value of its
-    // `value` content attribute, NOT the live value (step 10's "value of
+    // HTML §4.10.22.4 step 5.7: a checkbox submits the value of its
+    // `value` content attribute, NOT the live value (step 5.10's "value of
     // the field element", used for hidden/text).  A dirty value-mode →
     // checkbox/default-on type change decouples the two — the live value
     // is frozen by the dirty flag while the default/on IDL setter updates
@@ -195,7 +195,7 @@ fn checkbox_submits_value_content_attribute_not_stale_live_value() {
 
 #[test]
 fn checkbox_present_empty_value_attribute_submits_empty_not_on() {
-    // HTML §4.10.22.4 step 7: a present-but-empty `value=""` is a
+    // HTML §4.10.22.4 step 5.7.1: a present-but-empty `value=""` is a
     // *specified* attribute, so it submits "" — NOT the "on" fallback
     // (which applies only when the attribute is absent).
     let mut dom = EcsDom::new();
@@ -222,7 +222,7 @@ fn checkbox_present_empty_value_attribute_submits_empty_not_on() {
 fn clear_file_value_empties_live_backing() {
     // `file.value = ""` (the filename-mode empty setter → `clear_file_value`)
     // empties the live value backing.  Form submission is now independently
-    // decoupled from this backing (§4.10.22.4 step 8 — see
+    // decoupled from this backing (§4.10.22.4 step 5.8 — see
     // `collect_form_data_file_does_not_submit_value_attribute`), so this
     // asserts `clear_file_value`'s remaining job directly on the state.
     let mut attrs = Attributes::default();
