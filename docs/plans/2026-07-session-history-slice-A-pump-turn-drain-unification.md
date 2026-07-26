@@ -197,7 +197,7 @@ step 1, neither of which gates dispatch order: `traversal_queue.is_empty()` is f
 `next_timer_deadline` timeout inputs, `event_loop.rs:90-106`), and `deferred_reentrant_messages.is_empty()`
 picks the intake **source** (buffer-first `pop_front` vs `recv_timeout`). One sets how long step 1 waits, the
 other where step 1's single message comes from; both feed the SAME one held-message intake and leave the 1→6
-order fixed. `TraversalQueue::is_empty()` (`traversal_queue.rs:226`) already exists on `ContentState`; no new
+order fixed. `TraversalQueue::is_empty()` (`traversal_queue/queue.rs`) already exists on `ContentState`; no new
 accessor.
 
 **IMP-2 (no message loss) — resolved by construction.** Step 1 is the SOLE intake: one `recv_timeout` (or one
@@ -351,11 +351,11 @@ Existing symbols grep-verified against `crates/shell/elidex-shell/src`; NEW anno
   single held-message intake, not batch-replayed; the `Shutdown`-never-buffered invariant is unchanged and no
   longer relies on a `ControlFlow` replay exit).
 - `crates/shell/elidex-shell/src/content/mod.rs` — `deferred_reentrant_messages` field (KEPT; drained via the single intake), `shutdown_requested` (KEPT).
-- `crates/shell/elidex-navigation/src/traversal_queue.rs` — `TraversalQueue::is_empty` (`:226`, EXISTING; read
-  by the timeout). **NEW public seam `DrainCoordinator::drain_synchronous_updates`** (draft-2 correction, axis
-  d) = the shared 1a/1b body (`run_synchronous_updates_body`, factored OUT of `run_synchronous_phase_body`
-  which now composes `updates_body` + Phase 1c) + `ship_if_needed`. The full `drain_synchronous_phase` is
-  unchanged in behavior. No copy-paste (the difference is only whether 1c runs); the FIFO-partition logic
+- `crates/shell/elidex-navigation/src/traversal_queue/` — `TraversalQueue::is_empty` (`queue.rs`, EXISTING;
+  read by the timeout). **NEW public seam `DrainCoordinator::drain_synchronous_updates`** (`coordinator.rs`,
+  draft-2 correction, axis d) = the shared 1a/1b body (`run_synchronous_updates_body`, factored OUT of
+  `run_synchronous_phase_body` which now composes `updates_body` + Phase 1c) + `ship_if_needed` — all four in
+  `coordinator.rs`. The full `drain_synchronous_phase` (also `coordinator.rs`) is unchanged in behavior. No copy-paste (the difference is only whether 1c runs); the FIFO-partition logic
   stays engine-agnostic in `elidex-navigation`.
 - `crates/shell/elidex-shell/src/content_history_pump_turn_tests.rs` — three NEW R13 conformance tests +
   the NEW `popstate_cross_document_navigation_deferred_below_held_input` regression (axis d), which uses
