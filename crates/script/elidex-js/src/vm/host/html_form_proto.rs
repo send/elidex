@@ -39,9 +39,10 @@
 //!   each form control back to its `default_value` /
 //!   `default_checked` (Group β F-7 + F-8 fold).
 //! - `checkValidity()` / `reportValidity()` — iterate the listed
-//!   elements, run `validate_control` on each candidate (skipping
-//!   disabled / `<input type=hidden>`, which HTML §4.10.21.1 bars
-//!   from constraint validation), fire the synthetic `invalid` event
+//!   elements, run `validate_control` on each candidate (skipping the
+//!   controls [`elidex_form::is_constraint_validation_candidate`] bars —
+//!   §4.10.21.1 defines the *concept*; the individual rules live with
+//!   their attributes), fire the synthetic `invalid` event
 //!   on every failing control, and return `false` if any control
 //!   failed.  Form-level methods are
 //!   NOT installed via the `install_constraint_validation_mixin`
@@ -641,13 +642,35 @@ fn native_form_reset(
 // `#dom-form-checkvalidity` / `#dom-form-reportvalidity`)
 // ---------------------------------------------------------------------------
 
-/// Walk every listed-element descendant of the form, calling
-/// `validate_control()` on each that is a candidate for constraint
-/// validation.  This is HTML §4.10.21.2's "statically validate the
-/// constraints", whose step 6 fires `invalid` at EVERY element in
-/// the invalid-controls list before the method returns; we therefore
-/// iterate the full set, dispatch the synthetic event on each
-/// failure, and return `false` if any control failed.  Mirrors the
+/// Walk the form's listed-element descendants, calling
+/// `validate_control()` on each candidate for constraint validation and
+/// dispatching a synthetic `invalid` event on each failure; returns
+/// `false` if any control failed.
+///
+/// **elidex's approximation of HTML §4.10.21.2 "statically validate the
+/// constraints" — NOT a faithful implementation.** Two deviations, both
+/// script-observable, stated here rather than papered over:
+///
+/// 1. **Fused pass.** The spec collects first and fires second: step 3
+///    classifies *every* control, step 6 then fires `invalid` at each
+///    member of the invalid-controls list. This loop validates and
+///    dispatches in the same iteration, and `dispatch_simple_event` runs
+///    listener script mid-walk — so an `invalid` handler on control #1
+///    can mutate control #2 before #2 is classified. The spec's ordering
+///    makes that impossible.
+/// 2. **Descendants, not form owners.** Step 1 is "submittable elements
+///    **whose form owner is** form"; `LiveCollection(FormControls)` walks
+///    descendants only, and cross-tree `form="id"` association is not
+///    modelled (`live_collection/mod.rs`). So `<input form="f" required>`
+///    outside the form is skipped by this gate yet **included** by
+///    `build_form_data_from_form` a few statements later in
+///    `native_form_request_submit`.
+///
+/// Both are code-level gaps, out of scope for a citation repair. The
+/// canonical fix is the pure §4.10.21.2 steps 1-4 walk that PR-A part 4
+/// hoists into `elidex_form::statically_validate_constraints`, leaving
+/// only steps 5-7 (event dispatch) here — see
+/// `docs/plans/2026-07-form-submittable-category-repair.md` §4.5.  Mirrors the
 /// per-control `checkValidity()` shape installed by the
 /// ConstraintValidation mixin but iterates the form's submittable
 /// element set rather than a single entity.

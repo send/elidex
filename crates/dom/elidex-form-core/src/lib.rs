@@ -428,7 +428,9 @@ pub struct FormControlState {
     /// `customError = false`.
     pub custom_validity_message: Option<String>,
     /// IDL-only `indeterminate` bit for `<input type=checkbox>`
-    /// (HTML §4.10.5.1.16).  Independent of `checked`; observable
+    /// (HTML §4.10.5 `#dom-input-indeterminate`; §4.10.5.1.16 is the
+    /// Radio Button *state*, not this IDL attribute).  Independent of
+    /// `checked`; observable
     /// via the `:indeterminate` CSS pseudo-class once styling lands.
     pub indeterminate: bool,
 }

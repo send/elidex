@@ -63,8 +63,22 @@ _LABEL_ALT = "|".join(
 # invisible. `preflight.SECTION_REF_RE` already accepts annexes — with a
 # comment explaining that enumerating annex letters drifts — and
 # `resolver.lookup_section` already resolves them; this aligns with both.
+# ⚠ `re.IGNORECASE` applies to the WHOLE pattern, so a naive
+# `[\dA-Z]+` number half also matched lowercase and turned anchor-style
+# refs into phantom sections: `§attr-fs-method` → section `attr`,
+# `§dom-document-title` → `dom`, and internal markers like `§Deferred` /
+# `§C1` → `D` / `C`. Those were reported UNRESOLVED, so `--strict` failed
+# partly on citations that do not exist. The number half is therefore
+# case-SCOPED with `(?-i:…)` while the label alternation stays
+# case-insensitive, and it admits exactly two shapes:
+#   - numeric sections  `4.10.5.1`
+#   - single-letter annexes with numeric subsections  `A.1.1`, `F.2`
+# The trailing `(?![\w-])` rejects `§C1` and `§attr-fs-method`, which
+# would otherwise match a one-character prefix. Annex support (the
+# finding-1 widening) is preserved — `sec_number_key` orders them.
 _CITE_RE = re.compile(
-    rf"(?:({_LABEL_ALT})(?:\s+spec)?\s*)?§\s*([\dA-Z]+(?:\.[\dA-Z]+)*)",
+    rf"(?:({_LABEL_ALT})(?:\s+spec)?\s*)?"
+    r"§\s*(?-i:(\d+(?:\.\d+)*|[A-Z](?:\.\d+)*))(?![\w-])",
     re.IGNORECASE,
 )
 

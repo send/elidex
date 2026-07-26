@@ -149,10 +149,15 @@ fn require_validity_receiver(
 }
 
 /// Run `validate_control` on the owner's `FormControlState` and pass
-/// the validity to `f`.  Per HTML §4.10.21.1 the constraint-
-/// validation algorithm is skipped on controls that are barred from
-/// validation (no FormControlState, `!is_submittable()`, `disabled`,
-/// `<input type=hidden>`, descendant of disabled `<fieldset>`).
+/// the validity to `f`.  Per HTML §4.10.21.1 the constraint-validation
+/// algorithm is skipped on controls that are barred from validation.
+/// The bar set is NOT restated here — it is
+/// [`elidex_form::is_constraint_validation_candidate`], whose own doc
+/// carries the per-bar citations (disabled §4.10.19.5, `<input
+/// type=hidden>` §4.10.5.1.1, `readonly` §4.10.5.3.3 *when it applies to
+/// the kind*, disabled-`<fieldset>` ancestry §4.10.19.5, datalist
+/// ancestry §4.10.8).  A hand-copied list here drifted from the
+/// predicate once already — it omitted the readonly bar entirely.
 /// For barred controls the spec leaves the stored ValidityState
 /// bits at their initialised values (all false), so this getter
 /// returns `default_when_no_state` — `false` for the anchor flags

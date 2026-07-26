@@ -10,11 +10,21 @@ use crate::input::{
 };
 use crate::{FormControlKind, FormControlState};
 
-/// HTML §4.10.21.1 "candidate for constraint validation" predicate
-/// — a form control is considered a candidate when it is
-/// submittable, not disabled, not `<input type=hidden>`, not
-/// readonly (when `readonly` applies to the control kind), and not
-/// a descendant of a disabled `<fieldset>`.  Used by ValidityState
+/// HTML §4.10.21.1 "candidate for constraint validation" predicate.
+///
+/// §4.10.21.1 defines the *concept* — a submittable element that no
+/// condition has barred — and its only illustration is the datalist
+/// ancestor; the individual barring RULES live with their attributes, so
+/// each is cited on its own branch below rather than all attributed to
+/// §4.10.21.1. **This doc is the canonical bar list**: `vm/host/
+/// validity_state.rs` and `vm/host/html_form_proto.rs` reference it
+/// instead of restating it, because a hand-copied restatement drifted
+/// (it silently omitted the readonly bar).
+///
+/// Barred when the control is: not submittable (§4.10.2 category);
+/// disabled (§4.10.19.5); `<input type=hidden>` (§4.10.5.1.1);
+/// `readonly` **and** `readonly` applies to the kind (§4.10.5.3.3); or a
+/// descendant of a disabled `<fieldset>` (§4.10.19.5).  Used by ValidityState
 /// accessors and `checkValidity()` to bypass the validation
 /// algorithm for barred controls (whose stored bits stay at their
 /// initialised all-false values per the spec).
@@ -27,9 +37,11 @@ pub fn is_constraint_validation_candidate(
     if !state.kind.is_submittable() {
         return false;
     }
+    // HTML §4.10.19.5 "Enabling and disabling form controls".
     if state.disabled {
         return false;
     }
+    // HTML §4.10.5.1.1 "Hidden state (type=hidden)": barred.
     if matches!(state.kind, FormControlKind::Hidden) {
         return false;
     }

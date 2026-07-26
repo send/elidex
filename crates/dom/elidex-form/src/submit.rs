@@ -274,9 +274,15 @@ pub fn find_form_ancestor(dom: &EcsDom, entity: Entity) -> Option<Entity> {
 }
 
 /// WHATWG HTML §4.10.3 `#dom-form-requestsubmit` step 1.1:
-/// a non-null submitter must be a submit button — `<button type=submit>`,
-/// `<input type=submit>`, or `<input type=image>` (all classified as
-/// `FormControlKind::SubmitButton` by `from_element`).
+/// a non-null submitter must be a submit button — `<button type=submit>`
+/// and `<input type=submit>`, which `from_element` classifies as
+/// `FormControlKind::SubmitButton`.
+///
+/// ⚠ `<input type=image>` is a submit button per §4.10.5.1.19 but is NOT
+/// modelled: `from_type_str` has no `"image"` arm, so it becomes
+/// `TextInput` and this predicate returns `false` — `requestSubmit(img)`
+/// throws `TypeError` where the spec requires submission. Slot
+/// `#11-input-image-state`.
 ///
 /// Caller maps `false` to `TypeError` per spec.
 #[must_use]
@@ -292,7 +298,7 @@ pub fn is_submit_button(dom: &EcsDom, submitter: Entity) -> bool {
 /// ([`resolve_form_owner_public`](crate::radio::resolve_form_owner_public)),
 /// which combines the `form="..."` IDREF lookup with the tree-ancestor
 /// fallback.  The empty-id edge case (`form` has no `id` or `id=""`)
-/// is handled by `find_form_by_id`'s WHATWG DOM §4.2.5 / HTML §3.2.5
+/// is handled by `find_form_by_id`'s WHATWG DOM §4.2.4 `#dom-nonelementparentnode-getelementbyid` / HTML §3.2.6
 /// empty-IDREF short-circuit.
 ///
 /// Caller maps `false` to `NotFoundError` `DOMException` per spec.
@@ -322,7 +328,8 @@ pub fn collect_form_data(dom: &EcsDom, form_entity: Entity) -> Vec<FormDataEntry
     // Collect controls associated via `form` attribute (HTML
     // §4.10.18.3 "Association of controls and forms").  Empty `id=""` is
     // filtered for symmetry with the
-    // submitter-side lookup (WHATWG DOM §4.2.5 / HTML §3.2.5 —
+    // submitter-side lookup (WHATWG DOM §4.2.4 `getElementById` /
+    // HTML §3.2.6 "Global attributes" —
     // empty IDREF is unreachable),
     // so a `<form id="">` does not silently sweep up cross-tree
     // controls that happen to carry `form_owner = Some(String::new())`.
@@ -456,9 +463,15 @@ fn walk_form_descendants(
 }
 
 /// Reset all form controls within a form to their default values
-/// (HTML §4.10.23 "Resetting a form" step 2 — step 1 fires the
-/// `reset` event, which the caller owns; this is the step-2 half that
-/// invokes each resettable element's reset algorithm).
+/// elidex's approximation of HTML §4.10.23 "Resetting a form" step 2
+/// (step 1 fires the `reset` event, which the caller owns).
+///
+/// ⚠ Step 2 is "invoke the reset algorithm of each **resettable element
+/// whose form owner is** form". `collect_form_entities` walks
+/// **descendants** with no form-owner resolution and no resettable-element
+/// filter, so: a cross-tree `form="id"` control is submitted but never
+/// reset, and `<button>` — not a resettable element (§4.10.2) — is reset.
+/// Code-level gaps, out of scope for a citation repair.
 ///
 /// `<output>` reset (HTML §4.10.12 "The output element", its reset
 /// algorithm): clears the

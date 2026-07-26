@@ -30,7 +30,8 @@
 //!
 //! ## Implemented
 //!
-//! - `new FormData(form?)` (WHATWG XHR §4.3 constructor, whose step
+//! - `new FormData(form?)` (WHATWG XHR §4 "Interface FormData"
+//!   constructor, whose step
 //!   1.2 runs HTML §4.10.22.4 "constructing the entry list").  The
 //!   optional `form` argument:
 //!   - missing / `undefined` / `null` → empty FormData.
@@ -180,7 +181,8 @@ impl VmInner {
 // Constructor
 // ---------------------------------------------------------------------------
 
-/// `new FormData(form?)` — WHATWG XHR §4.3 constructor, whose step 1.2
+/// `new FormData(form?)` — WHATWG XHR §4 "Interface FormData"
+/// constructor, whose step 1.2
 /// runs WHATWG HTML §4.10.22.4 "constructing the entry list" for the
 /// `form` argument.
 ///

@@ -355,7 +355,8 @@ fn email_rejects_multiple_at() {
 
 #[test]
 fn email_allows_dotless_domain() {
-    // WHATWG HTML §4.10.5.1.6: user@localhost is valid (dot in domain not required).
+    // WHATWG HTML §4.10.5.1.5 "Email state (type=email)": user@localhost
+    // is valid (dot in domain not required).  (§4.10.5.1.6 is Password.)
     let state = FormControlState {
         kind: FormControlKind::Email,
         value: "user@localhost".to_string(),
@@ -475,7 +476,8 @@ fn select_required_placeholder() {
 
 #[test]
 fn textarea_ignores_pattern() {
-    // WHATWG §4.10.7.3.1: textarea does not support the pattern attribute.
+    // WHATWG HTML §4.10.11 "The textarea element": textarea does not
+    // support the pattern attribute.
     let mut state = FormControlState {
         kind: FormControlKind::TextArea,
         value: "wrong".to_string(),
@@ -709,7 +711,8 @@ fn candidate_readonly_textarea_barred() {
 
 #[test]
 fn candidate_readonly_checkbox_still_candidate() {
-    // `readonly` does not apply to checkbox per HTML §4.10.5.1.4,
+    // `readonly` does not apply to checkbox per HTML §4.10.5.3.3
+    // "The readonly attribute" (§4.10.5.1.4 is the URL state),
     // so setting it must not bar the control from validation.
     let mut dom = elidex_ecs::EcsDom::new();
     let entity = dom.create_element("input", Attributes::default());

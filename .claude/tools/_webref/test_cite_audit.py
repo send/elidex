@@ -253,14 +253,24 @@ class TestSharedSpecLabelMap(unittest.TestCase):
         self.assertEqual(leftovers, [], f"module-level temporaries: {leftovers}")
 
     def test_empty_specs_would_still_import(self):
-        """The comprehension form is total over an empty `SPECS`."""
-        empty: tuple[tuple[str, ...], ...] = ()
-        rebuilt = {
-            key.lower(): entry[0]
-            for entry in empty
-            for key in (entry[0], *entry[1:])
-        }
-        self.assertEqual(rebuilt, {})
+        """Re-exec the REAL module source with `SPECS` emptied.
+
+        The earlier form re-implemented the comprehension inside the test,
+        so it passed even if `spec_labels.py` were deleted — a test that
+        survives the deletion of its subject is worse than no test,
+        because it reads as coverage. This executes the shipped source.
+        """
+        src = Path(spec_labels.__file__).read_text(encoding="utf-8")
+        # Neutralise the `SPECS = (...)` literal without touching anything
+        # else, then run the module top-level exactly as import would.
+        start = src.index("SPECS: tuple[tuple[str, ...], ...] = (")
+        end = src.index("\n)\n", start) + len("\n)\n")
+        src = src[:start] + "SPECS: tuple[tuple[str, ...], ...] = ()\n" + src[end:]
+        ns: dict = {"__name__": "spec_labels_empty"}
+        exec(compile(src, spec_labels.__file__, "exec"), ns)  # noqa: S102
+        self.assertEqual(ns["LABEL_TO_SHORTNAME"], {})
+        self.assertEqual(ns["SHORTNAME_TO_LABEL"], {})
+        self.assertEqual(ns["SHORTNAME_TO_BLURB"], {})
 
     def test_all_three_consumers_derive_from_specs(self):
         """Derivation test — mechanism-agnostic, covers all three consumers.
@@ -329,6 +339,33 @@ class TestAnnexGrammar(_TreeCase):
     def test_annex_sorts_without_raising(self):
         """`sec_number_key` handles annexes; `tuple(int(p) …)` would raise."""
         td = self._tree({"a.rs": "/// HTML §4.10.5 and §A.1 and §B.2.1\n"})
+        out, _ = self._run(td)
+        self.assertIn("attributed to html: 3 distinct sections", out)
+
+
+class TestAnchorRefsAreNotPhantomSections(_TreeCase):
+    """`re.IGNORECASE` applies to the whole pattern, so a naive `[\\dA-Z]+`
+    number half turned anchor-style refs into phantom sections
+    (`§attr-fs-method` → `attr`) and internal markers into one-letter ones
+    (`§Deferred` → `D`). They were reported UNRESOLVED, so `--strict`
+    failed partly on citations that do not exist.
+    """
+
+    def test_anchor_style_ref_is_not_a_section(self):
+        td = self._tree({"a.rs": "/// HTML §attr-fs-method and §dom-document-title\n"})
+        out, _ = self._run(td)
+        self.assertIn("attributed to html: 0 distinct sections", out)
+
+    def test_internal_marker_is_not_a_one_letter_section(self):
+        td = self._tree({"a.rs": "// see §Deferred and §C1 and §C7\n"})
+        out, _ = self._run(td)
+        self.assertIn("attributed to html: 0 distinct sections", out)
+        self.assertIn("UNATTRIBUTED (bare § with no spec in its comment "
+                      "block): 0 cites", out)
+
+    def test_real_annexes_still_parse(self):
+        """The finding-1 widening must survive the case-scoping."""
+        td = self._tree({"a.rs": "/// HTML §A.1.1 and §F.2 and §4.10.5\n"})
         out, _ = self._run(td)
         self.assertIn("attributed to html: 3 distinct sections", out)
 
