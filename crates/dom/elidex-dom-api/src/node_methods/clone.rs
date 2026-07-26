@@ -7,10 +7,12 @@
 //! traversal, AssociatedDocument propagation, ShadowRoot exclusion)
 //! live in `elidex-ecs` so layout / parser / WPT runner consumers
 //! see the same WHATWG §4.4 semantics through one entry point.  This
-//! module owns the two per-pair post-passes the ECS cloner cannot
+//! module owns the four per-pair post-passes the ECS cloner cannot
 //! perform itself (see the clone-policy table in
 //! `elidex_ecs`'s `tree_clone` module): `CustomElementState` identity
-//! propagation and clonable-shadow-root replication.
+//! propagation, `ClonedFrom` marking for the form-control cloning
+//! steps, `<template>` content-fragment replication, and
+//! clonable-shadow-root replication.
 
 use elidex_custom_elements::CustomElementState;
 use elidex_ecs::{EcsDom, Entity, NodeKind, ShadowHost, ShadowInit, ShadowRoot};
@@ -165,7 +167,7 @@ impl DomApiHandler for CloneNode {
 }
 
 /// Engine-indep `Node.cloneNode(deep?)` algorithm — WHATWG DOM §4.4
-/// "clone a node" with the two per-pair post-passes layered over the
+/// "clone a node" with the four per-pair post-passes layered over the
 /// ECS cloners:
 ///
 /// 1. **`CustomElementState` identity propagation** ("clone a single
@@ -186,7 +188,24 @@ impl DomApiHandler for CloneNode {
 ///    null is value per spec — and, matching that, no source
 ///    component — so its clone is correctly left unmarked.
 ///
-/// 2. **Clonable-shadow-root replication** (step 6, which step 5's
+/// 2. **`ClonedFrom` marking for the form-control cloning steps**
+///    (DOM §4.4 step 3, dispatching to HTML §4.10.5 `<input>` /
+///    §4.10.11 `<textarea>`): tag-gated, so a large deep clone does not
+///    spray a marker onto every node.  Each cloned form control receives
+///    a transient `ClonedFrom` recording its source, which the
+///    engine-independent `elidex_form::apply_clone_form_state` resolves
+///    and removes within the *same* synchronous clone operation.  This
+///    crate cannot read `FormControlState` — the dependency edge runs
+///    `elidex-form → elidex-dom-api`, never the reverse — so it records
+///    the src→dst *link* rather than copying the value itself.
+///
+/// 3. **`<template>` content-fragment replication** (HTML §4.12.3
+///    cloning steps): a `<template>` clone gets its own *fresh* content
+///    fragment — never the source's, which a verbatim copy would alias —
+///    populated from the source fragment's children only when the
+///    clone-children flag is set.
+///
+/// 4. **Clonable-shadow-root replication** (step 6, which step 5's
 ///    per-child re-entry applies to *every* cloned node, not just the
 ///    root): for each pair whose source is a shadow host with
 ///    `clonable = true`, attach a fresh shadow root on the clone with
@@ -196,8 +215,8 @@ impl DomApiHandler for CloneNode {
 ///    a shadow host still replicates its (shallowly-cloned) shadow
 ///    tree, while light-tree children are skipped entirely.
 ///
-/// Both passes run off one worklist of `(src, dst)` pairs seeded by
-/// the ECS cloner; shadow children cloned by pass 2 push their own
+/// All four passes run off one worklist of `(src, dst)` pairs seeded by
+/// the ECS cloner; shadow children cloned by pass 4 push their own
 /// pairs onto the same worklist, so arbitrarily nested shadow trees
 /// converge without recursion.
 ///
@@ -222,7 +241,9 @@ pub fn clone_node_with_shadow_honor(src: Entity, dom: &mut EcsDom, deep: bool) -
     } else {
         dom.owner_document(src)
     };
-    // Index-based worklist: pass 2 appends pairs while we iterate.
+    // Index-based worklist: passes 3 and 4 append pairs while we iterate
+    // (`replicate_template_contents` pushes the content fragment's deep-clone
+    // pairs; the shadow-replication block pushes the shadow children's).
     let mut idx = 0;
     while idx < pairs.len() {
         let (s, d) = pairs[idx];
@@ -239,6 +260,9 @@ pub fn clone_node_with_shadow_honor(src: Entity, dom: &mut EcsDom, deep: bool) -
         // onto this same worklist, so templates nested inside template content
         // converge here too.
         replicate_template_contents(s, d, dom, deep, shadow_doc, &mut pairs);
+        // Pass 4 (DOM §4.4 "clone a node" step 6): a clonable shadow host's
+        // shadow root is replicated onto the clone. Pushes the shadow children's
+        // pairs onto this same worklist, so nested shadow trees converge here.
         let Some((init, src_shadow_root)) = read_clonable_shadow_init(s, dom) else {
             continue;
         };
@@ -341,7 +365,8 @@ fn propagate_ce_identity(src: Entity, dst: Entity, dom: &mut EcsDom) {
     );
 }
 
-/// Record the src→dst link for the form-control cloning steps by attaching a
+/// Pass 2 of [`clone_node_with_shadow_honor`]: record the src→dst link for the
+/// form-control cloning steps by attaching a
 /// [`ClonedFrom`] marker on `dst` — but only when `src` is an `<input>` or
 /// `<textarea>` (the two elements HTML defines cloning steps for). The gate
 /// mirrors [`propagate_ce_identity`]'s "attach only when it applies" shape, so a
