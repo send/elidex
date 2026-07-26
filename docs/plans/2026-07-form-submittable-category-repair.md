@@ -280,6 +280,15 @@ pub fn statically_validate_constraints(dom: &EcsDom, form: Entity) -> Vec<Entity
 
 **Citation note**: PR-A0 renumbers the comments in these files; part 4 lands **on top of** the corrected numbers and adds only the prose describing its own new behavior.
 
+**Reciprocal rows from PR-A0 §4.6** (so neither memo can silently drop a site):
+
+| Site | Owner | Why |
+|---|---|---|
+| `crates/dom/elidex-form/src/submit.rs:276-279` (the false `<input type=image>` → `SubmitButton` claim) | **PR-A0** | it is a citation/prose repair, not PR-A behavior; previously double-claimed |
+| `crates/script/elidex-js/src/vm/host/validity_state.rs:152` (§ number) + `:154` (bar list, incl. the **missing `readonly` bar**) | **PR-A0** | pre-existing prose defect; PR-A only adds bars arising from *its own* new behavior |
+| `crates/dom/elidex-form-core/src/validation/mod.rs:12` — the § number | **PR-A0** | — |
+| `crates/dom/elidex-form-core/src/validation/mod.rs:12` — **the new-bar prose** (non-submit buttons, datalist ancestor) | **PR-A** | describes part 3's behavior, which does not exist until this PR |
+
 ## §5 Behavior deltas
 
 ### §5.1 What changes
@@ -409,7 +418,7 @@ No file crosses 1000. `validation/tests.rs` (745 → ~800) is the one to watch a
 |---|---|---|
 | **`#11-submitter-entry-tree-order`** | **NEW** (surfaced by part 2; **widened** per §4.3) | Scope = **submitter representation in the entry list**, both facets: (a) *placement* — §4.10.22.4 step 5.1 keeps the submitter's entry in tree order, elidex appends it (`crates/dom/elidex-form/src/submit.rs:158-180`); (b) *membership* — the `FormDataEvent.formData` payload (`form_data.rs:281` → `html_form_proto.rs:570`) omits the submitter entirely, though §4.10.22.3 constructs that entry list *with* it. (1) Real gap? yes, both observable. (2) Blocked by structure? yes — needs `submitter` threaded through with in-pass emission. (3) Non-regressing to defer? yes — pre-existing; §4.3 preserves today's list. (4) Durable home? `project_open-defer-slots.md`. **Trigger**: a form-submission WPT asserting entry order, or the `#11-input-image-state` work. **Date**: 2026-11. |
 | **`#11-shell-submit-interactive-validation`** | **NEW** (surfaced by §7; replaces the earlier refactor-named slot) | (1) Real gap? yes, and it is a **defect**, not a refactor: the shell click/Enter path (`crates/shell/elidex-shell/src/content/event_handlers.rs:155`/`:580` → `crates/shell/elidex-shell/src/content/form_input.rs:126-162`) omits §4.10.22.3 step 5.4 entirely, so a form with an empty `<input required>` navigates on click; and it carries an independent second copy of the submission event sequence (dispatches `submit`, never `formdata`). Both facets, one slot. (2) Blocked by structure? **cross-lane** — L4 owns shell; no active L4 worktree touches these. (3) Non-regressing to defer? yes — pre-existing; part 4 makes the fix *available* by exporting the algorithm. (4) Durable home? `project_open-defer-slots.md`, **L4 cluster**. **Trigger**: an L4 shell pass, or a click-submit validation report. **Date**: 2026-11. |
-| `#11-input-image-state` | pre-existing | covers the image-button submitter's `name.x`/`name.y` entries **and** `from_type_str`'s missing `"image"` arm — which §3's Image Button row shows also makes `<input type=image>` a candidate running *text* constraints. Referenced, not created; PR-A corrects the false `submit.rs:276-279` docstring and points it here. |
+| `#11-input-image-state` | pre-existing | covers the image-button submitter's `name.x`/`name.y` entries **and** `from_type_str`'s missing `"image"` arm — which §3's Image Button row shows also makes `<input type=image>` a candidate running *text* constraints. Referenced, not created. **The false `submit.rs:276-279` docstring is repaired by PR-A0** (its §4.4 item 1), not here — the claim was double-held and is now assigned once. |
 
 **Per-PR budget**: **2 new slots** (≤3 ✓, one slot of headroom).
 

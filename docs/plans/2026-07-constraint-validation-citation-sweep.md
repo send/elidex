@@ -46,130 +46,192 @@ All pairs looked up with `.claude/tools/webref` on **2026-07-26**. These are the
 
 ---
 
-## §1 Ideal anchor — a citation is a claim, and every claim in the cluster gets checked by the same rule
+## §1 Ideal anchor — the sweep's substance is DISCOVERY, and discovery must be exhaustive by construction
 
-`§X.Y = <title>` in a comment is a checkable assertion. The repo has ~70 such assertions across the form constraint-validation / submission cluster, and the R1 probe checked only one failure mode.
+`§X.Y = <title>` in a comment is a checkable assertion. Repairing one is mechanical. **Finding all of them is not**, and that is what this PR is actually for.
 
-**The method's defect, stated so it cannot recur.** "Does `heading --exact html <n>` fail?" detects a **non-resolving** number. It cannot detect a **valid-but-misused** one: `§4.10.21.3` resolves cleanly to "The constraint validation API", so the probe passed it — while 18 of its 19 sites use it to mean the *form submission algorithm* (§4.10.22.3); `grep -rn '§4\.10\.21\.3' crates/ --include='*.rs' | wc -l` → 19, per-site table in §4.2, verified 2026-07-26. A number that resolves to the wrong concept is exactly as wrong as one that resolves to nothing, and strictly harder to see.
+**Two generations of the same defect.** The R1 probe asked *"does `heading --exact` fail?"* — a detector blind to a **valid-but-misused** number. The first draft of this memo diagnosed that correctly and then reproduced the identical shape one level up: its §3.1 procedure began *after* a candidate set existed, and supplied that set as a **hand-authored 7-pattern alternation**. Enumeration-only-by-known-pattern is the same failure as resolution-only-by-known-outcome: both can only find what the author already suspected.
 
-**The corrected method (§3.1)**: for every `§4.10.x` cite in the cluster, resolve the number to its **title**, then check that title against **the concept the surrounding comment is actually about**. Non-resolution becomes one outcome of the check, not the whole check.
+Measured, the gap is not marginal. **81 distinct `§4.10.x` numbers across 632 cites in `crates/`** (§4.0); the hand-authored union covered 52 cites. Whole crates were invisible — `crates/shell/` was matched by not a single pattern.
+
+**The corrected shape**: discovery is step **(0)**, it is a total enumeration of the space, and every number it returns is dispositioned. §4 is re-derived from its output rather than from a pattern list.
 
 ---
 
 ## §2 Coupled invariants
 
-**Edge-density judgment: this is NOT edge-dense**, and the §2 is short for that reason rather than padded. It is doc-only, has zero behavior surface, and has one canonical algorithm (resolve → compare → replace). It does carry two coupling facts worth naming, so they are named rather than dressed up as a matrix.
+**Edge-density judgment, restated honestly.** The first draft called this "not edge-dense" because "there is one canonical algorithm (resolve → compare → replace)". That is true of **repair** and false of **discovery** — and discovery is this PR's substance (§1). There is no canonical algorithm for "find every mis-cited section in a concept cluster"; the last two attempts each shipped a detector that could not see its own blind spot. So: **the repair half is mechanical; the discovery half is the design**, and §2 exists for the latter.
 
 | # | Invariant | What it forces |
 |---|---|---|
-| **I1** | **Concept-scoped completeness** — a partial repair across semantic siblings is the failure #483 was forced to correct by its external reviewer three commits back ([[feedback_semantic-sibling-selfseed-and-regate-breadth]]). | The unit is the *concept cluster*, not the file or the pattern. §4 publishes a full IN/OUT accounting so no site in the cluster is unnamed. |
-| **I2** | **Successor-PR fate** — some cites annotate code that PR-A / Slice 1 delete or rewrite. | The exclusion criterion must be falsifiable per site (§4.6), not directory-shaped. A cite that **outlives** its code change is IN even when it sits in a successor PR's file. |
+| **I1** | **Concept-scoped completeness** — the unit is the *concept cluster*, not the file and not the pattern. Partial repair across semantic siblings is what #483 was forced to complete by its external reviewer ([[feedback_semantic-sibling-selfseed-and-regate-breadth]]). | One inclusion rule, applied uniformly (§4.5). The first draft stated a concept rule in I1 and a **file** rule in its §4.4 — that rule-switch is the mechanism behind the misses. |
+| **I2** | **Total disposition** — every number discovery returns is IN or OUT-with-a-named-owner. Silence is the failure mode. | §4.0's table publishes all 81; §4.5 dispositions all 25 non-resolving numbers and every misuse found. |
+| **I3** | **Successor-PR fate** — some cites annotate code that PR-A / Slice 1 rewrite. | Falsifiable per site (§4.6), and the criterion must cover *rewritten*, not only *deleted*. |
+| **I4** | **Detector completeness** — a cite can be wrong without a `§` on the line (bare "step N") or wrong while resolving cleanly. | Discovery needs three detectors, not one (§3.1). |
 
-**I1 × I2**: completeness and hand-off pull in opposite directions — completeness says "take everything", fate says "leave what dies". The resolution is that fate is evaluated **per site against the successor's actual diff**, so the two never disagree about the same line; §4.6 shows the four contested sites resolving 2 IN / 2 OUT.
+**Pairwise intersections (all 6):**
+
+| Pair | Intersection |
+|---|---|
+| I1 × I2 | Concept-scoping is what makes total disposition *affordable* — 632 cites cannot all be swept, but all 81 numbers can be classified, so "out of cluster" becomes an owned verdict instead of an omission. |
+| I1 × I3 | Both are exclusion rules and they must not overlap: cluster-membership decides *whether* a site is ours, fate decides *whether it is ours now*. §4.5 applies them in that order, once. |
+| I1 × I4 | The bare-"step N" detector only makes sense within a concept scope — repo-wide it would match every numbered list. Scoping is what makes the weakest detector usable. |
+| I2 × I3 | A site handed to a successor is dispositioned, not silent — §4.6's table names it and §11 writes the reciprocal row, so neither memo can drop it. |
+| I2 × I4 | Total disposition is only as total as the weakest detector: a number that resolves (misuse) or a line with no number (bare step) would otherwise never enter the table to be dispositioned. |
+| I3 × I4 | Fate must be evaluated against the successor's *actual* diff, including comments the successor re-authors — which is exactly the class the "deleted"-only wording missed (§4.6). |
 
 ---
 
 ## §3. Spec coverage map
 
-Doc-only: no branch of any algorithm is implemented or altered. Each row is a **citation target** the sweep introduces or corrects, with the concept it must annotate.
+Doc-only: no algorithm branch is implemented or altered. Each row is a **citation target** the sweep introduces or corrects.
 
 | Spec section | Step | Branch | Touch (compile/dispatch site) | Full enum? | User-input flow |
 |---|---|---|---|---|---|
-| WHATWG HTML §4.10.21.1 Definitions | candidate / barred / satisfies constraints | candidacy vocabulary | ~20 comment sites migrating off `§4.10.20.3` (verified 2026-07-26, §4.1) | ✓ | no (doc-only) |
-| WHATWG HTML §4.10.21.2 Constraint validation | statically validate, steps 1-7 | pure walk (1-4) vs `invalid`-firing (5-7) | `html_form_proto.rs:538`/`:613`, `validity_state.rs:475`, `well_known.rs:1145`, `globals.rs:287` | ✓ | no |
-| WHATWG HTML §4.10.21.2 Constraint validation | interactively validate | the `requestSubmit` validation arm | `html_form_proto.rs:537` (currently mis-cited `§4.10.21.3`) | ✓ | no |
-| WHATWG HTML §4.10.21.3 The constraint validation API | control-level CVA members | `willValidate` / `checkValidity` / `validationMessage` / `setCustomValidity` / `ValidityState` | ~15 sites migrating off `§4.10.20.2`/`.3`/`.4` (verified 2026-07-26, §4.1); `validation/mod.rs:188` **already correct — stays** | ✓ | no |
-| WHATWG HTML §4.10.3 The form element | form-level members | `form.checkValidity()` / `reportValidity()` / `requestSubmit()` / `submit()` / `reset()` | `html_form_proto.rs:458`/`:478`/`:576`, `submit.rs:276`/`:289`, + the `§4.10.21.4` family | ✓ | no |
-| WHATWG HTML §4.10.3 The form element | `requestSubmit()` **step numbers** | steps 1 / 1.1 / 1.2 — the in-tree "step 2 / 2.1 / 2.2" are stale | `submit.rs:276`/`:289`, `submit_tests.rs:663`, `tests_form_submit.rs:14`/`:26`/`:131`/`:200` | ✓ (7 sites, verified 2026-07-26 — enumerated in §4.3) | no |
-| WHATWG HTML §4.10.22.3 Form submission algorithm | steps 5 / 5.4 / 5.6 / 7 | the submission algorithm proper — the concept 18 of 19 `§4.10.21.3` sites actually mean; the in-tree "step 8.4 / 8.5" are stale *steps* | `well_known.rs:1136`/`:1140`, `html_form_proto.rs:28`/`:458`/`:479`, `form_data.rs:33`/`:183`/`:233`/`:269`, `event_target_dispatch.rs:744`/`:829`, `tests_form_submit.rs:3`/`:8`/`:27`/`:214`/`:234` | ✓ (18 sites, verified 2026-07-26 — enumerated in §4.2) | no |
-| WHATWG HTML §4.10.22.4 Constructing the entry list | entry-list construction + the `formdata` event | `submit.rs:306`; **`html_form_proto.rs:33`** (formdata event — *not* §4.10.3) | ✓ | no |
-| WHATWG HTML §4.10.22.10 The SubmitEvent interface | interface | `vm/mod.rs:1496` | ✓ | no |
-| WHATWG HTML §4.10.22.11 The FormDataEvent interface | interface | `vm/mod.rs:1500` | ✓ | no |
-| WHATWG HTML §4.10.23 Resetting a form | reset algorithm | `submit.rs:457` (`reset_form`, currently `§4.10.21.5`), `html_form_proto.rs:576` | ✓ | no |
-| WHATWG HTML §4.10.18.3 Association of controls and forms | `form=` IDREF association | `submit.rs:322` (currently `§4.10.15.3` — an entry-list number on an association claim) | ✓ | no |
-| WHATWG HTML §4.10.19.4 Setting minimum input length requirements: the minlength attribute | the **shared** `for=input,textarea` dfn | `validation/mod.rs:227` — serves TextArea too, so **not** §4.10.5.3.1 (input-only) | ✓ | no |
-| WHATWG HTML §4.10.11 The textarea element | textarea does not support `pattern` | `validation/mod.rs:210`, `validation/tests.rs:478` — the two sites the renumber-sweep memo queued for "the next PR that touches those files" | ✓ | no |
-| WHATWG HTML §4.10.8 The datalist element | datalist-ancestor bar | new cite consumed by PR-A part 3; introduced here so PR-A's code lands on a correct number | ✓ | no |
+| WHATWG HTML §4.10.21.1 Definitions | candidate / barred / satisfies constraints | candidacy vocabulary | the `§4.10.20.3` family — **per-site table in §4.2**, not blanket-mapped | ✓ (per-site) | no (doc-only) |
+| WHATWG HTML §4.10.21.2 Constraint validation | statically validate | the pure walk | `html_form_proto.rs:613`, `well_known.rs:1145` | ✓ | no |
+| WHATWG HTML §4.10.21.2 Constraint validation | interactively validate | the `requestSubmit` validation arm | `html_form_proto.rs:537`, `:538` — **both are *interactively* validate**, not statically (row corrected) | ✓ | no |
+| WHATWG HTML §4.10.21.3 The constraint validation API | control-level CVA members | `willValidate` / `checkValidity` / `validationMessage` / `setCustomValidity` / `ValidityState` | `validity_state.rs:475` (**control-level**, row corrected), `vm/globals.rs:287` (**CVA-mixin install**, row corrected); `validation/mod.rs:188` already correct — stays | ✓ | no |
+| WHATWG HTML §4.10.3 The form element | form-level members | `form.checkValidity()` / `reportValidity()` / `requestSubmit()` / `submit()` / `reset()` | the `§4.10.21.4` + `§4.10.21.5` families (§4.2) | ✓ | no |
+| WHATWG HTML §4.10.3 The form element | `requestSubmit()` **step numbers** | steps 1 / 1.1 / 1.2 — in-tree "step 2 / 2.1 / 2.2" is stale, **including 3 lines with no `§` at all** (10 sites, verified 2026-07-27) | `submit.rs:276`/`:289`, `submit_tests.rs:663`, `tests_form_submit.rs:14`/`:26`/`:131`/`:200`, **`html_form_proto.rs:484`/`:486`/`:508`** | ✓ (10 sites) | no |
+| WHATWG HTML §4.10.22.3 Form submission algorithm | steps 5 / 5.4 / 5.6 / 7 | the submission algorithm — what 16 of the 19 `§4.10.21.3` sites mean; in-tree "step 8.4 / 8.5" is stale | per-site table, §4.2 | ✓ (16 sites, verified 2026-07-27) | no |
+| WHATWG HTML §4.10.22.4 Constructing the entry list | entry-list construction + the `formdata` event | `submit.rs:306`; `html_form_proto.rs:33` (formdata event — **not** §4.10.3) | ✓ | no |
+| WHATWG HTML §4.10.22.10 The SubmitEvent interface | interface | `vm/mod.rs:1496`, **`vm/host/events_misc.rs:306`** (byte-twin, previously unnamed) | ✓ | no |
+| WHATWG HTML §4.10.22.11 The FormDataEvent interface | interface | `vm/mod.rs:1500`, **`vm/host/events_misc.rs:343`** (byte-twin) | ✓ | no |
+| WHATWG HTML §4.10.23 Resetting a form | reset algorithm | `submit.rs:457`, `html_form_proto.rs:576`, **`crates/shell/elidex-shell/src/content/form_input.rs:289`** (`§4.10.15.4`, previously invisible — no pattern reached `crates/shell/`) | ✓ | no |
+| WHATWG HTML §4.10.12 The output element | `<output>` reset + `<output>` is a listed form-control | **`submit.rs:459`/`:486`** (cite §4.10.13 = *progress*), **`vm/globals.rs:380`** (cites §4.10.13), `validity_state.rs:299` (cites §4.10.10.1) — **one claim, two different wrong numbers** | ✓ | no |
+| WHATWG HTML §4.10.18.3 Association of controls and forms | `form=` IDREF association | `submit.rs:322` (currently `§4.10.15.3`) | ✓ | no |
+| WHATWG HTML §4.10.19.4 Setting minimum input length requirements: the minlength attribute | the shared `for=input,textarea` dfn | `validation/mod.rs:227` — serves TextArea too, so **not** §4.10.5.3.1 | ✓ | no |
+| WHATWG HTML §4.10.11 The textarea element | textarea does not support `pattern` | `validation/mod.rs:210`, `validation/tests.rs:478` | ✓ | no |
+| WHATWG HTML §4.10.8 The datalist element | datalist-ancestor bar | new cite consumed by PR-A part 3 | ✓ | no |
 | WHATWG HTML §4.10.5.1.1 Hidden state (type=hidden) | `<input type=hidden>` bar | `validation/mod.rs:32` — currently uncited | ✓ | no |
+| WHATWG HTML §4.10.5.3.4 The required attribute | select `valueMissing` | `validation/mod.rs:368` (`§4.10.5.3.11`, non-resolving) | ✓ | no |
 
-**Breadth**: K=1 spec (WHATWG HTML), M=16 rows → **single-PR scope**. Doc-only, one concept cluster, zero behavior surface; the row count enumerates citation *targets*, not implemented branches.
+**Breadth**: K=1 spec (WHATWG HTML), M=18 rows → **single-PR scope**. Doc-only, one concept cluster, zero behavior surface.
 
-### §3.1 User-input touch audit
+### §3.1 User-input touch audit + the discovery method
 
-**None.** No opcode, native, dispatch path, or production statement is added or altered — the diff is comments and doc-comments only. Exposure delta: zero. The audit method itself is the substance of this PR, so it is documented as a procedure rather than a code path:
+**Exposure: none.** Comments and doc-comments only.
 
-For each candidate site: (1) extract the cited `§number`; (2) `webref heading --exact html <number>` → title, or *no match*; (3) read the surrounding comment and name the **concept** it describes; (4) `webref dfn html '<concept>'` → the section that actually defines it; (5) the site is **correct** iff (2) and (4) agree; (6) fix number **and** prose, and re-check any **step** number against `body html <anchor>` — steps drift independently of sections (§4.5 found two whole families of stale steps).
+The method is this PR's substance, so it is stated as a procedure with **discovery as step (0)**:
+
+**(0) Total enumeration** — the candidate set is *derived*, never authored:
+```
+grep -rhoE '§4\.10\.[0-9]+(\.[0-9]+)*' crates/ --include='*.rs' | sort -u \
+  | while read s; do .claude/tools/webref heading --exact html "${s#§}"; done
+```
+**(1) Three detectors**, because one is provably insufficient:
+- **(a) non-resolution** — `heading --exact` returns no match;
+- **(b) misuse** — the number resolves, but its **title** does not match the concept the surrounding comment describes (`webref dfn html '<concept>'` gives the section that actually defines it);
+- **(c) `§`-less step drift** — a bare "step N" near a cluster concept, which detectors (a) and (b) never see because there is no number on the line.
+
+**(2) Repair** number **and** prose, then re-check every **step** number against `body html <anchor>` — steps drift independently of sections.
+
+**(3) Disposition every number** from (0): IN (cluster) or OUT with a named owner (§4.5). Silence is the failure mode (I2).
 
 ---
 
-## §4 Site accounting (full IN/OUT — no site in the cluster unnamed)
+## §4 Site accounting
 
-All counts verified 2026-07-26 by the stated grep.
+### §4.0 The evidence base — all 81 numbers
 
-### §4.1 Non-resolving numbers (the R1 probe's only detector)
+Run 2026-07-27 with the §3.1 step-(0) command: **81 distinct `§4.10.x` numbers**, **632 cites** in `crates/`. **25 numbers do not resolve**, carrying **96 cites** (the "96" is a *cite* count, not a number count — the two are easy to conflate and the earlier framing did).
 
-`grep -rn '§4\.10\.20\.\|§4\.10\.14\.2\|§4\.10\.15\.2\|§4\.10\.15\.3\|§4\.10\.7\.3\.1\|§4\.10\.21\.4' crates/ --include='*.rs' | wc -l` → **51**, plus the bare `§4.10.15` module doc at `validation/mod.rs:1` = **52**.
+**The 25 non-resolving numbers, with cite counts and disposition:**
 
-| Pattern | Hits | Resolves to | Correct target |
+| Number | Cites | Concept it annotates | Disposition |
 |---|---|---|---|
-| `§4.10.20.` | 31 | *no match* | control CVA → §4.10.21.3; candidacy → §4.10.21.1; form-level → §4.10.3; validate-the-constraints → §4.10.21.2 |
-| `§4.10.21.4` | 10 | **"Security"** | `requestSubmit()` → §4.10.3; **`html_form_proto.rs:33` is the formdata event → §4.10.22.4** (the blanket map mis-routes it) |
-| `§4.10.15.2` | 5 | *no match* | 4 are literally **`§4.10.15.2.4`** (`:required`/`:optional`, `matching.rs:137`/`:284`, `tests/matching.rs:715`/`:727`) → §4.16.3; `validation/mod.rs:227` (`minlength`) → **§4.10.19.4** |
-| `§4.10.15.3` | 2 | *no match* | `submit.rs:306` → §4.10.22.4; `submit.rs:322` (**association**) → §4.10.18.3 |
-| `§4.10.7.3.1` | 2 | *no match* | `validation/mod.rs:210`, `validation/tests.rs:478` → §4.10.11 |
-| `§4.10.14.2` | 1 | *no match* | `validation/mod.rs:57` (`ValidityState`) → §4.10.21.3 |
-| bare `§4.10.15` | 1 | **"The fieldset element"** | `validation/mod.rs:1` module doc → §4.10.21.1 |
+| `§4.10.10.2` | 21 | `HTMLOptionsCollection` / option selectedness / "ask for a reset" | **OUT** — select/option-collection surface → §10 queue |
+| `§4.10.20.3` | 20 | candidate for constraint validation / barred | **IN** → §4.10.21.1 |
+| `§4.10.20.4` | 9 | form-level `checkValidity` / `invalid` event | **IN** → §4.10.3 / §4.10.21.2 |
+| `§4.10.18.7` | 4 | 2× `<output>`-always-valid (CSS), 2× `form.autocomplete` | **SPLIT** (verified 2026-07-27) — the 2 CSS sites → §4.6 fate table; the 2 form-attribute sites **OUT** → §10 queue |
+| `§4.10.18.5` | 4 | "actually disableable" (`:disabled`/`:enabled` scope) | **IN by concept**, but all 4 → §4.6 fate table (Slice-1 code) |
+| `§4.10.15.2.4` | 4 | `:required`/`:optional` matching | **IN by concept**, all 4 → §4.6 fate table |
+| `§4.10.7.5` | 3 | `HTMLSelectElement.add()` | **OUT** → §10 queue |
+| `§4.10.7.4` | 3 | `select.options` live collection | **OUT** → §10 queue |
+| `§4.10.20.2` | 3 | `validationMessage` / custom validity | **IN** → §4.10.21.3 |
+| `§4.10.18.6` | 3 | `form.method` / `form.enctype` | **OUT** — form content attributes, not validation → §10 queue |
+| `§4.10.7.3.1` | 2 | textarea does not support `pattern` | **IN** → §4.10.11 |
+| `§4.10.21.5.5` | 2 | SubmitEvent | **IN** → §4.10.22.10 |
+| `§4.10.21.5.4` | 2 | FormDataEvent | **IN** → §4.10.22.11 |
+| `§4.10.21.5` | 2 | `form.reset()` / `reset_form` | **IN** → §4.10.3 `#dom-form-reset` / §4.10.23 |
+| `§4.10.15.3` | 2 | entry collection + `form=` association | **IN** → §4.10.22.4 / §4.10.18.3 |
+| `§4.10.11.1` | 2 | textarea dirty-value flag | **OUT** — value model → §10 queue |
+| `§4.10.10.1` | 2 | 1× `<output>` is a listed form-control, 1× option text | **SPLIT** — `validity_state.rs:299` **IN** → §4.10.12; `html_option_proto.rs:21` **OUT** |
+| `§4.10.5.3.11` | 1 | select `valueMissing` | **IN** → §4.10.5.3.4 |
+| `§4.10.5.2.7` | 1 | `maxlength` enforcement | **IN** → §4.10.19.3-family (verify anchor at impl) |
+| `§4.10.3.1` | 1 | `form.elements` wrapper cache | **OUT** — collections → §10 queue |
+| `§4.10.18.4` | 1 | `HTMLFormControlsCollection` | **OUT** — collections → §10 queue |
+| `§4.10.15.4` | 1 | **shell** form reset | **IN** → §4.10.23 (previously invisible) |
+| `§4.10.15.2` | 1 | `minlength` | **IN** → §4.10.19.4 |
+| `§4.10.14.2` | 1 | `ValidityState` | **IN** → §4.10.21.3 |
+| `§4.10.10.3` | 1 | disabled options in select | **OUT** → §10 queue |
 
-### §4.2 Valid-but-misused numbers (the cluster the probe could not see)
+**IN by non-resolution: 47 cites. OUT with a named owner: 42. Split across the fate table: 7.** Every one of the 25 numbers appears above; the remaining 56 numbers resolve and are checked by detector (b), which found the families in §4.2.
 
-`grep -rn '§4\.10\.21\.3' crates/ --include='*.rs' | wc -l` → **19**. `heading --exact html 4.10.21.3` **succeeds** ("The constraint validation API") — yet **18 of 19** annotate the *form submission algorithm* (per-site table below, verified 2026-07-26):
+### §4.1 *(folded into §4.0 — the hand-authored pattern list is gone)*
 
-| Site | Comment says | Real target |
-|---|---|---|
-| `well_known.rs:1134` | `reset` event name | §4.10.23 / §4.10.3 `#dom-form-reset` |
-| `well_known.rs:1136` | `submit` event name, "step 8.4" | §4.10.22.3 (step number also stale) |
-| `well_known.rs:1140` | `formdata` event name, "step 8.5" | §4.10.22.3 / §4.10.22.4 (ditto) |
-| `html_form_proto.rs:28` | `submit()` "step 5" | §4.10.22.3 |
-| `html_form_proto.rs:458` | `form.submit()` "step 5" | §4.10.22.3 |
-| `html_form_proto.rs:479` | "step 8.4-8.5" | §4.10.22.3 — **half-swept on the same line as a `§4.10.21.4` cite at `:478`**, so a pattern-scoped sweep would fix one and leave the other |
-| `html_form_proto.rs:537` | "interactively validate the constraints" | **§4.10.21.2** |
-| `form_data.rs:33`/`:183`/`:233`/`:269` | "step 7 construct the entry list" | §4.10.22.3 step 7 / §4.10.22.4 |
-| `event_target_dispatch.rs:744`/`:829` | "step 8.4" / "step 8.5" | §4.10.22.3 |
-| `tests_form_submit.rs:3`/`:8`/`:27`/`:214`/`:234` | submission arms | §4.10.22.3 — **`:3` is likewise half-swept** (`§4.10.21.3 + §4.10.21.4` on one line) |
-| **`validation/mod.rs:188`** | custom validity, the constraint validation API | **§4.10.21.3 — already correct, stays** |
+The first draft's §4.1 published a 7-pattern union of 52 cites and misfiled 2 of its 7 rows: `§4.10.21.4` resolves to "Security" and bare `§4.10.15` resolves to "The fieldset element", so both are **misuse** (§4.2), not non-resolution — 16 lines in the wrong bucket. §4.0 supersedes it.
 
-### §4.3 Stale *step* numbers (drift independent of section numbers)
+### §4.2 Misuse — numbers that resolve to the wrong concept (detector (b))
 
-- **`requestSubmit()` steps are 1 / 1.1 / 1.2**; 7 sites carry "step 2 / 2.1 / 2.2" (verified 2026-07-26): `submit.rs:276`, `:289`, `submit_tests.rs:663`, `tests_form_submit.rs:14`, `:26`, `:131`, `:200`. *(PR-A's §4.2 reproduced "step-2.1" from memory — the one pair in the previous delta that was not looked up. Corrected there too.)*
-- **Form-submission steps are 5 / 5.4 / 5.6 / 7**; the in-tree "step 8.4 / 8.5" (5 sites, verified 2026-07-26 — see §4.2) are stale.
+| Number | Cites | Resolves to | Means | Disposition |
+|---|---|---|---|---|
+| `§4.10.21.3` | 19 | The constraint validation API | **18 are mis-cited** (verified 2026-07-27); of those, **16 mean §4.10.22.3** (form submission algorithm). The other 2: `well_known.rs:1134` (`reset` event) → §4.10.23/§4.10.3; `html_form_proto.rs:537` → §4.10.21.2. `validation/mod.rs:188` is **correct and stays**. | IN |
+| `§4.10.21.4` | 10 | **Security** | `requestSubmit()` → §4.10.3; **except `html_form_proto.rs:33`**, which is the **formdata event** → §4.10.22.4 | IN |
+| `§4.10.13` (subset) | 3 | **The progress element** | `<output>`: `submit.rs:459`, `:486`, `vm/globals.rs:380` → **§4.10.12** | IN |
+| bare `§4.10.15` | 1 | **The fieldset element** | `validation/mod.rs:1` module doc for *form validation* → §4.10.21.1 | IN |
+| `§4.10.15` (meter subset) | 5 | **The fieldset element** | `<meter>` → §4.10.14: `vm/mod.rs:1089`, `html_meter_proto.rs:2`/`:5`/`:20`/`:97`. **`:20`'s "`<progress>` … §4.10.14 vs §4.10.15" contrast is inverted** (progress = §4.10.13, meter = §4.10.14) | **OUT** — meter surface → §10 queue |
 
-### §4.4 Further non-resolving `§4.10.x` cites in cluster files, previously unnamed
+**Per-site table for the `§4.10.20.*` family (31 lines / 32 cites)** — published rather than blanket-mapped, because the adjacent row proves a blanket map mis-routes. Target by concept: `validity_state.rs:2`/`:152`/`:182`/`:407`/`:441`/`:466` + `validation/mod.rs:12` + `lib.rs:176` + `validation/tests.rs:690` + the 5 `tests_validity_state.rs` sites → **§4.10.21.1** (candidacy) or **§4.10.21.3** (CVA members) per line; `validity_state.rs:475`/`:498`, `html_form_proto.rs:43`/`:608`/`:613`/`:634`, `well_known.rs:1145`, `vm/globals.rs:287`, `object_kind.rs:983`, `vm/mod.rs:1113`, `html_fieldset_proto.rs:28`, `lib.rs:424`, the 4 `tests_html_form_proto.rs` sites → **§4.10.21.2** (validate-the-constraints) or **§4.10.3** (form-level members) per line. Each line's verdict is recorded in the PR diff, not summarized here.
 
-`html_form_proto.rs:263`, `:300`, `:338`, `:443`; `validation/mod.rs:368`; `validity_state.rs:299`; `tests_html_form_proto.rs:288`; `vm/mod.rs:1094`, `:1105`. Each gets the §3.1 procedure applied individually — they are listed so the accounting is exhaustive, not because one blanket map covers them.
+### §4.3 `§`-less step drift (detector (c))
 
-Also folded in: `submit.rs:457` (`reset_form`, cites `§4.10.21.5`) → §4.10.23; `html_form_proto.rs:576` (`form.reset()`) → §4.10.3 `#dom-form-reset`; `vm/mod.rs:1496`/`:1500` (SubmitEvent / FormDataEvent) → §4.10.22.10 / §4.10.22.11.
+`html_form_proto.rs:484`, `:486`, `:508` carry `requestSubmit`'s stale "Step 2 / 2.1 / 2.2" with **no `§` on the line**, so steps (0)-(b) never admit them. Correct numbering is **1 / 1.1 / 1.2**. Together with the 7 `§`-carrying sites (§3), the family is **10 sites** (verified 2026-07-27).
 
-### §4.5 Two prose repairs that are not renumbers
+Likewise the "step 8.4 / 8.5" family (5 sites, verified 2026-07-27 — §4.2) — form-submission steps are **5 / 5.4 / 5.6 / 7**.
 
-1. **`submit.rs:276-279` states a falsehood**: `<input type=image>` is *not* "classified as `FormControlKind::SubmitButton` by `from_element`" — `from_type_str` (`crates/dom/elidex-form-core/src/lib.rs:253-282`) has no `"image"` arm, so it becomes `TextInput`. Correct the sentence and point it at `#11-input-image-state`. Deleting a false claim, not renumbering one.
-2. **`validity_state.rs:152`/`:154`**: the § number is at `:152`, the bar-list prose at `:154`. This PR fixes the **number**; PR-A adds the new bars to the **prose** (its own behavior). Split so neither PR half-states the other's change.
+### §4.4 Two prose repairs that are not renumbers
 
-### §4.6 Exclusion criterion — by fate, per site, falsifiable
+1. **`submit.rs:276-279` states a falsehood**: `<input type=image>` is *not* "classified as `FormControlKind::SubmitButton` by `from_element`" — `from_type_str` (`crates/dom/elidex-form-core/src/lib.rs:253-282`) has no `"image"` arm, so it becomes `TextInput`. **Owned by PR-A0** (this claim was double-claimed with PR-A §10; PR-A's claim is removed and its §10 now points here).
+2. **`validity_state.rs:152`/`:154`**: the § number is at `:152`, the bar list at `:154`. PR-A0 fixes the number **and** completes the list — it is currently missing the **`readonly`** bar that `is_constraint_validation_candidate` actually applies (`validation/mod.rs:40`), a pre-existing prose defect no other PR owns (PR-A only adds bars from its *own* new behavior). Alternative considered: collapse the duplicated list to a `[`is_constraint_validation_candidate`]` reference so it cannot drift again — §9-Q5.
 
-> **A cite is excludable only when the code it annotates is deleted by the successor PR. A cite that outlives the code change is IN**, even in a successor's file.
+### §4.5 Inclusion rule — ONE rule, stated once
 
-Applied to the four contested `elidex-css/selector/` sites (verified against the Slice-1 memo's §5 deletion set):
+> **A site is IN iff the concept its comment describes belongs to the constraint-validation + form-submission cluster.** Not its file, not its crate, not its pattern.
 
-| Site | Annotates | Slice-1 fate | Verdict |
-|---|---|---|---|
-| `matching.rs:137` | `is_requirable_element`'s doc | **deleted** (Slice-1 §5-R4) | **OUT** — Slice 1 |
-| `matching.rs:284` | the `:required` arm of `match_form_pseudo_class` | **rewritten** (§5-R1/R4) | **OUT** — Slice 1 |
-| `tests/matching.rs:715` | `required_does_not_match_fieldset`'s assertion — still true after Slice 1 | test body re-seeded; **the assertion and its comment survive** | **IN** |
-| `tests/matching.rs:727` | `optional_does_not_match_fieldset` — inserts `ElementState::default()`, **survives byte-identical** | untouched | **IN** |
+The first draft stated this in I1 and then used a **file**-shaped rule in its §4.4 ("cites in cluster files"). That switch is the mechanism behind the misses — it is why `crates/shell/elidex-shell/src/content/form_input.rs:289` (a form-reset cite, unambiguously in-cluster) was invisible: no cluster *file* was in `crates/shell/`.
 
-**Slice-1's §6-C has no row for either test site**, so directory-shaped exclusion would have orphaned them. **Reciprocal edit**: add rows to Slice-1 §6-C recording that `matching.rs:137`/`:284` are Slice-1-owned and the two test sites are PR-A0-owned, so both memos agree per site.
+Applying the one rule pulls in, previously unnamed: `vm/host/events_misc.rs:306`/`:343`; `crates/shell/elidex-shell/src/content/form_input.rs:289`; `submit.rs:459`/`:486`; `vm/globals.rs:380`; `validity_state.rs:299`; `validation/mod.rs:368`; `input.rs:715`; `html_form_proto.rs:484`/`:486`/`:508`. It pushes **out**, with owners: the meter family, `§4.10.10.2`, `§4.10.7.4`/`.5`/`§4.10.10.3`, `§4.10.18.6`, `§4.10.18.4`, `§4.10.3.1`, `§4.10.11.1`, `html_option_proto.rs:21` (§10).
 
-**Also OUT**: `tests_html_input_proto.rs:176` (`§4.10.5.1.16` → §4.10.5 `#dom-input-indeterminate`) — a different concept (input type-state index shift), in a file no PR in this chain touches. Stays queued in `memory/project_html-section-renumber-sweep.md`.
+### §4.6 Fate — for cites whose code a successor PR re-authors
+
+> **A cite is excludable only when the successor PR deletes the code it annotates, *or* rewrites it such that the successor re-authors the comment. A cite that outlives the change is IN.**
+
+("deleted" alone was too narrow — it returned OUT for `matching.rs:284`, which Slice 1 *rewrites*.) Verdicts against Slice-1's §5 deletion set and its §6-C citation list:
+
+| Site | Cite | Annotates | Slice-1 fate | Verdict |
+|---|---|---|---|---|
+| `matching.rs:242` | §4.10.18.5 | `:disabled` arm comment | arm rewritten, comment re-authored | **OUT** — Slice 1 |
+| `matching.rs:250` | §4.10.18.3 | `:indeterminate` arm | rewritten | **OUT** — Slice 1 |
+| `matching.rs:256` | §4.10.18.7 | `<output>`-always-valid | **deleted** (the special case goes) | **OUT** — Slice 1 |
+| `matching.rs:284` | §4.10.15.2.4 | `:required` arm | rewritten, re-authored | **OUT** — Slice 1 |
+| `matching.rs:137` | §4.10.15.2.4 | `is_requirable_element` doc | **deleted** (§5-R4) | **OUT** — Slice 1 |
+| `matching.rs:405`/`:419` | §4.10.18.3/.5 | `is_indeterminate_candidate` / `is_disableable_element` docs | **deleted** (§5-R4) | **OUT** — Slice 1 |
+| `matching.rs:577` | §4.10.18.5 | inline test comment | test rewritten | **OUT** — Slice 1 |
+| `tests/matching.rs:715` | §4.10.15.2.4 | `required_does_not_match_fieldset` — the *assertion* survives | body re-seeded; comment not re-authored | **IN** |
+| `tests/matching.rs:727` | §4.10.15.2.4 | `optional_does_not_match_fieldset` | **Slice-1 §5 lists line 726 among the 16 it rewrites**, and its re-seed rule removes the `ElementState::default()` insert — so the *body* changes; the comment still outlives it | **IN** (verdict unchanged; **basis corrected** — the earlier "survives byte-identical" was wrong) |
+| `tests/matching.rs:767` | §4.10.18.7 | `valid_matches_output_element` — Slice-1 §6-A row 9 **inverts** this test | comment re-authored | **OUT** — Slice 1 |
+| `tests/matching.rs:788` | §4.10.18.5 | fieldset-not-disableable | Slice-1 §6-A rows 6-7 **invert** it | **OUT** — Slice 1 |
+| `tests/matching.rs:839` | §4.10.18.3 | `:indeterminate` non-candidate | rewritten | **OUT** — Slice 1 |
+| `validity_state.rs:152`/`:154` | §4.10.20.3 | the bar list | PR-A adds *its own* bars only | **IN** (number + the missing `readonly` bar, §4.4) |
+| `validation/mod.rs:12` | §4.10.20.3 | candidacy doc | PR-A adds its own bars | **IN** for the number; PR-A owns the new-bar prose |
+
+**⚠ Slice-1 §6-C is wrong about one site.** Its row reads `matching.rs:137` / `:284` / `:299`, but **line 299 carries no `§` at all** (`// :optional only matches input/select/textarea (same constraint as :required).`). Verified 2026-07-27. The reciprocal edit must **correct** that row, not mirror it.
+
+**Reciprocal edits** (§11): write the per-site verdicts into **both** Slice-1 §6-C and **PR-A** §4.4, so no memo can silently drop a site.
+
+**Also OUT with an owner**: `tests_html_input_proto.rs:176` (`§4.10.5.1.16` → §4.10.5 `#dom-input-indeterminate`) — different concept, already queued in `memory/project_html-section-renumber-sweep.md`.
 
 ---
 
@@ -186,49 +248,107 @@ There is nothing to assert — the deliverable is prose. Verification is procedu
 1. **`mise run ci` green**, including the `-D warnings` `doc` job (catches a broken intra-doc link introduced while editing doc-comments).
 2. **Diff discipline**: `git diff -U0 | grep '^[+-]' | grep -v '^[+-][+-]' | grep -vE '^[+-]\s*(//|///|//!|\*)'` must be **empty** — the mechanical proof that the PR is doc-only.
 3. **Citation re-verification**: every `§`-number introduced by the diff re-checked with `webref heading --exact`, and every **step** number re-checked with `body html <anchor>`.
-4. **Residual scan**: after the sweep, `grep -rn '§4\.10\.20\.\|§4\.10\.21\.4\|§4\.10\.14\.2\|§4\.10\.15\.3\|§4\.10\.7\.3\.1' crates/ --include='*.rs'` returns only the sites §4.6 marks OUT, and `§4.10.21.3` survives only where §4.2 says it should.
+4. **Exit criterion — negative space, not a pattern list.** Re-run §3.1 step (0) and assert that **every** distinct `§4.10.x` in `crates/` either resolves *or* appears on §4.0's named-OUT list. A pattern-shaped residual scan cannot state this: the first draft's scan was **narrower than its own audit grep** (it dropped `§4.10.15.2` and never had `§4.10.21.5` / `§4.10.18.x` / bare `§4.10.15`), so the PR could have passed its own exit criterion with the cluster half-swept. The negative-space form has no such gap by construction:
+   ```
+   grep -rhoE '§4\.10\.[0-9]+(\.[0-9]+)*' crates/ --include='*.rs' | sort -u \
+     | while read s; do .claude/tools/webref heading --exact html "${s#§}" >/dev/null 2>&1 \
+       || echo "UNRESOLVED $s"; done
+   ```
+   Every `UNRESOLVED` line must match §4.0's OUT list. Plus: no `§4.10.21.3` survives except `validation/mod.rs:188`, and no `§`-less "step 2/2.1/2.2" survives in the `requestSubmit` family.
 
-**Gate**: `mise run ci`, then `/pre-push`, then `/external-review` (single-pass). Doc-only with no behavior surface does not meet the edge-dense converge trigger (§2) — this is the one PR in the chain where a single pass is the right call, and §2 states why.
+**Gate**: `mise run ci`, then `/pre-push`, then **`/external-converge` from round 1**. The reactive escalation trigger ([[feedback_gate-miss-on-edge-dense-escalate-to-converge]]) has already fired twice on this memo — two gaps found pre-dispatch, then 1 CRIT / 28 IMP at review — and the #483 precedent this PR invokes did **not** converge in a single pass (it left three open carves). §2's honest re-statement (discovery is not canonical) is the same conclusion from the design side.
 
 ---
 
 ## §7 Layering check
 
-- **Doc-only** — no code moves, no crate edge, no `vm/host/` algorithm, no `elidex-ecs` touch. ✓
-- The sweep **reinforces** the Layering mandate indirectly: `validation/mod.rs:1`'s module doc stops claiming the fieldset section for a validation module, and `validity_state.rs`'s bar list stops describing a predicate it no longer matches. ✓
+- **Doc-only** — no code moves, no crate edge, no new `vm/host/` algorithm, no `elidex-ecs` touch. ✓
+- The sweep **reinforces** the mandate indirectly: `validation/mod.rs:1`'s module doc stops claiming the fieldset section for a validation module, and `validity_state.rs:154`'s bar list stops describing a predicate it no longer matches. ✓
+- **⚠ Not a clean bill, and PR-A0 is about to make it worse before PR-A makes it better.** `run_form_check_validity` (`crates/script/elidex-js/src/vm/host/html_form_proto.rs:620-654`) **is** a form-level validation algorithm living in `vm/host/`, and this PR is about to author a *spec-blessed* `§4.10.21.2` comment on it — i.e. to document drift as though it were design. Carried mitigations:
+  - a **concept → engine-independent-API mapping** in the rewritten comments: §4.10.21.1 candidacy → form-core's `is_constraint_validation_candidate`; "satisfies its constraints" → form-core's `validate_control`; §4.10.21.2 steps 1-4 → **`elidex_form::statically_validate_constraints`** (NEW) — PR-A part 4;
+  - an explicit **hand-off line** at `html_form_proto.rs:620` naming PR-A's export, so the comment reads as "steps 5-7 here, steps 1-4 land in `elidex-form` next PR" rather than as a settled home.
 - **ECS-native**: N/A — no component read or written. ✓
 
 ---
 
 ## §8 Line-count budget
 
-Doc-only; net line count is approximately flat (a few multi-line comments reflow). Largest touched files: `html_form_proto.rs` (680), `validity_state.rs` (518), `tests_form_submit.rs` (213), `form_data.rs`, `submit.rs` (546), `validation/mod.rs` (430). **No file approaches 1000**; no split obligation.
+Verified 2026-07-27 (`wc -l`). The earlier version of this section was **false** — it omitted two named touch sites that are already >1000 and mis-stated a third.
+
+| File | Lines | Note |
+|---|---|---|
+| `crates/script/elidex-js/src/vm/mod.rs` | **2782** | already >1000; touched (`:1089`, `:1094`, `:1105`, `:1113`, `:1496`, `:1500`) |
+| `crates/script/elidex-js/src/vm/object_kind.rs` | **1700** | already >1000; touched (`:983`) |
+| `crates/script/elidex-js/src/vm/well_known.rs` | **1588** | already >1000; touched (`:1134`, `:1136`, `:1140`, `:1145`) |
+| `crates/script/elidex-js/src/vm/globals.rs` | **1533** | already >1000; touched (`:287`, `:380`) |
+| `crates/script/elidex-js/src/vm/host/html_form_proto.rs` | 680 | |
+| `crates/dom/elidex-form/src/submit.rs` | 546 | |
+| `crates/script/elidex-js/src/vm/host/validity_state.rs` | 518 | |
+| `crates/dom/elidex-form-core/src/validation/mod.rs` | 430 | |
+| `crates/shell/elidex-shell/src/content/form_input.rs` | 318 | |
+| `crates/script/elidex-js/src/vm/tests/tests_form_submit.rs` | **250** | (not 213) |
+
+**Disposition — explicit, same shape as Slice-1 §9's `components.rs` (1037) row.** Four touched files are already >1000. The touch-time split discipline targets *growth into* unbounded files; PR-A0's diff is **comments only and net-flat** (a few multi-line comments reflow ±1 line), so it adds no debt and triggers no obligation. Splitting any of them would be a speculative refactor bundled into a doc-only PR, which the same discipline forbids. Recorded here so plan-review does not read the four >1000 counts as unaddressed.
 
 ---
 
 ## §9 Open questions for `/elidex-plan-review`
 
-- **Q1 — is the §3.1 method sufficient?** It catches non-resolution *and* misuse. It does **not** catch a cite that is right about the section but wrong about the anchor within it. Should anchor-level checking be in scope, or is that a further sweep?
-- **Q2 — the `§4.10.22.3` vs `§4.10.22.4` boundary** for the entry-list sites: `form_data.rs`'s "step 7 construct the entry list" is a step *of* §4.10.22.3 that *invokes* §4.10.22.4. Recommendation: cite the invoking step (§4.10.22.3 step 7) where the code implements the submission step, and §4.10.22.4 where it implements entry construction itself. Confirm the split.
+- **Q1 — is the §3.1 method sufficient?** Its three detectors catch non-resolution, misuse, and `§`-less step drift. It does **not** catch a cite that is right about the section but wrong about the **anchor** within it. **Recommendation: out of scope, with a slot** (§10 `#11-citation-anchor-level-verification`) — anchor checking needs a different tool path (`body html <anchor>` per site) and would roughly double the PR. Deferring it silently while Q1 stayed open was the earlier draft's inconsistency with its own "zero deferred work" claim.
+- **Q2 — two adjacent boundaries, same shape.** (a) `§4.10.22.3` vs `§4.10.22.4`: `form_data.rs`'s "step 7 construct the entry list" is a step *of* §4.10.22.3 that *invokes* §4.10.22.4. (b) **`§4.10.21.2` vs `§4.10.22.3`**: the interactive-validation arm is §4.10.22.3 step 5.4, which invokes §4.10.21.2's algorithm — the same invoking-step-vs-invoked-algorithm question. Recommendation for both: cite the **invoking step** where the code implements the caller, and the **invoked algorithm** where it implements the algorithm. Confirm.
 - **Q3 — §4.6's fate criterion**: applied per site above. Confirm the four verdicts, and confirm the reciprocal Slice-1 §6-C rows are the right coordination shape.
 - **Q4 — scope floor**: §4.4 lists 9 further cites in cluster files that no blanket map covers. Confirm they are in scope (recommendation: yes — leaving known-wrong cites in a file this PR is already editing is exactly the partial repair I1 forbids).
 
 ---
 
-## §10 Defer slots
+## §10 Defer slots + the out-of-cluster inventory
 
-**Zero new slots.** PR-A0 creates no deferred work: every site it identifies is either fixed here or assigned to a named owner (Slice 1 via §4.6, or the pre-existing `project_html-section-renumber-sweep.md` queue).
+| Slot | Status | Audit |
+|---|---|---|
+| **`#11-citation-anchor-level-verification`** | **NEW** (from §9-Q1) | (1) Real gap? yes — §3.1's detectors verify section *numbers* and concepts, not the `#anchor` within a section; a cite can name the right section and the wrong dfn. (2) Blocked by structure? no, but it needs a per-site `body html <anchor>` pass that would roughly double this PR. (3) Non-regressing to defer? yes — no cite gets *worse*. (4) Durable home? `project_open-defer-slots.md`. **Trigger**: the next citation sweep, or a review finding a wrong-anchor cite. **Date**: 2026-11. |
 
-**Carried memory edit**: `memory/project_html-section-renumber-sweep.md` — mark the two queued textarea/`pattern` sites (`validation/mod.rs:210`, `validation/tests.rs:478`) discharged; record that the constraint-validation + form-submission cluster is swept, with the §4.6 OUT list (the 2 `matching.rs` sites → Slice 1; `tests_html_input_proto.rs:176` → still queued); and record the **method** (§3.1), since the resolution-only probe is the reusable mistake.
+**Per-PR budget**: **1 new slot** (≤3 ✓). The earlier draft claimed "zero deferred work" while §9-Q1 was open — corrected.
+
+### §10.1 Out-of-cluster inventory — a deliverable, not a silence
+
+The §3.1 step-(0) enumeration surfaces drift the cluster rule (§4.5) pushes **out**. Sweeping it here would collide with every active lane; leaving it unrecorded would convert a measured gap into a silent one. It is therefore filed as **new queue entries in `memory/project_html-section-renumber-sweep.md`**, which is precisely the tracked program that exists to hold it:
+
+| Family | Cites | What it is | Correct target |
+|---|---|---|---|
+| `§4.10.10.2` | 21 | `HTMLOptionsCollection` / option selectedness / "ask for a reset" | §4.10.10 (The option element) / §4.10.7 (The select element) per site |
+| `<meter>` citing `§4.10.15` | 5 (verified 2026-07-27) | `vm/mod.rs:1089`, `html_meter_proto.rs:2`/`:5`/`:20`/`:97` — §4.10.15 is "The fieldset element" | **§4.10.14 The meter element**. ⚠ `html_meter_proto.rs:20`'s "`<progress>` has one — §4.10.14 vs §4.10.15" contrast is **inverted**: progress = §4.10.13, meter = §4.10.14 |
+| `§4.10.7.4` / `§4.10.7.5` / `§4.10.10.3` | 7 | select `value` setter, `select.add()`, disabled options | §4.10.7 (select) subsections |
+| `§4.10.18.6` / `§4.10.18.7` (form-attribute subset) | 5 | `form.method` / `enctype` / `autocomplete` | §4.10.3 (The form element) |
+| `§4.10.18.4` / `§4.10.3.1` | 2 | `HTMLFormControlsCollection`, `form.elements` wrapper cache | §4.10.3 / the collections surface |
+| `§4.10.11.1` | 2 | textarea dirty-value flag | §4.10.11 (The textarea element) |
+| `§4.10.10.1` (option subset) | 1 | `html_option_proto.rs:21` option text | §4.10.10 |
+
+**Registration shape** — follow that memo's established `## ✅ DONE — #N ✅ MERGED (sha, date, comment-only)` heading for the discharged part, and add the table above as a new open queue block. **Per-bullet discharge, not a blanket claim:**
+- **Fully discharged**: the two textarea/`pattern` sites (`validation/mod.rs:210`, `validation/tests.rs:478`) that the memo's 2026-07-18 Slice-0b entry queued as item (a).
+- **Not discharged**: that same entry's item (b), `tests_html_input_proto.rs:176` (`§4.10.5.1.16` → §4.10.5 `#dom-input-indeterminate`) — out of cluster, stays queued.
+- **Partially discharged, residue restated**: the constraint-validation + form-submission cluster is swept; the residue is §4.6's OUT list (the Slice-1-owned `elidex-css/selector/` sites) plus §10.1's out-of-cluster families.
+
+*(The earlier draft quoted that memo as saying "the next PR that touches those files" — **that phrasing does not appear in it**. Paraphrased here instead; the actual entry is dated 2026-07-18 and marks the two sites pre-existing and diff-external to #479.)*
 
 ---
 
 ## §11 Coordination
 
-| Lane | State (verified 2026-07-26 via `git worktree list` / `git rev-list --count` / `gh pr list`) | Overlap | Ordering |
-|---|---|---|---|
-| **PR-A** (same worktree/branch) | plan-memo | PR-A0 renumbers comments in files PR-A then edits (`validation/mod.rs`, `submit.rs`, `validity_state.rs`, `html_form_proto.rs`) | **PR-A0 first.** PR-A rebases; its remaining prose repairs are only those describing **its own** new behavior (the `validation/mod.rs:12` bar list). |
-| **Slice 1** (`elidex-wt-slice1`, `domform-slice1`, 0 commits) | plan-memo | the 4 `elidex-css/selector/` sites, split 2 IN / 2 OUT by §4.6 | PR-A0 takes the 2 IN; Slice 1 keeps the 2 OUT + gains reciprocal §6-C rows |
-| **VM lane** (`elidex-wt-vmp4`, `vm-p4-plan`, 2 commits unpushed) | plan not converged | PR-A0 edits comments in `vm/mod.rs`, `well_known.rs`, `globals.rs`, `object_kind.rs`, `vm/host/*` | doc-only → conflict risk is textual, not semantic; PR-A0 lands first |
-| **Layout** (`terminal-z-c3a-impl`, 16 commits, **PR #488 open**) | mid-converge | none | none |
-| **History** (`session-history-slice-b`, 21 commits, **PR #487 open**) | — | none | none |
+Re-derived at authoring time 2026-07-27 (`git worktree list`; `git rev-list --count origin/main..<branch>`; `gh pr list --state open`) — **not recalled**. This table was wrong in two prior rounds; the counts below are freshly measured.
+
+| Lane | Branch | Commits ahead | PR | Overlap | Ordering |
+|---|---|---|---|---|---|
+| **PR-A0** (this) | `domform-submittable-category` | 1 | — | — | lands first |
+| **PR-A** | `domform-submittable-category` (same branch, stacked) | 1 | — | PR-A0 renumbers comments in every file PR-A edits | **PR-A0 first**; PR-A writes prose onto corrected numbers |
+| **Slice 1** | `domform-slice1` | 1 | — | the `elidex-css/selector/` sites, dispositioned per site in §4.6 | Slice 1 keeps its OUT set; §4.6 reciprocal rows correct its §6-C |
+| **VM lane** | `vm-p4-plan` | **7** | — | PR-A0 edits comments in `vm/mod.rs`, `well_known.rs`, `vm/globals.rs`, `object_kind.rs`, `vm/host/*` | doc-only → textual conflict risk only; PR-A0 lands first |
+| **Layout** | `terminal-z-c3a-impl` | **17** | **#488** open | none | none |
+| **Layout plan** | `terminal-z-c3-plan` | **8**, pushed | — | none | none |
+| **History** | `session-history-slice-b` | **22** | **#487** open | none | none |
+
+⚠ **New this round**: PR-A0 now touches `crates/shell/elidex-shell/src/content/form_input.rs:289` (§4.5). The **History lane** (`session-history-slice-b`, 22 commits, PR #487) is the shell lane — verify at rebase that its diff does not reach `content/form_input.rs`. Doc-only either way, so the risk is a textual conflict, not a semantic one.
+
+**Carried edits:**
+1. **`memory/project_html-section-renumber-sweep.md`** — per-bullet discharge + the §10.1 out-of-cluster inventory (§10).
+2. **Slice-1 §6-C** — reciprocal per-site rows from §4.6, **including the correction** that `matching.rs:299` carries no `§` (verified 2026-07-27).
+3. **PR-A §4.4** — reciprocal rows for the two sites PR-A0 now owns outright (`submit.rs:276-279`, `validity_state.rs:152`/`:154`), and removal of PR-A's duplicate claim on the first.
