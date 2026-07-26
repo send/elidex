@@ -373,7 +373,9 @@ app-mode analog of content's R4/R16 SW-reachability analysis):
 
 **1. The app-mode `DrainHost` drive runs EXCLUSIVELY on the legacy-inline `InteractiveState` path.**
 `process_pending_navigation` (→ `drain_same_turn`) is reached only from `handle_click` / `handle_keyboard`
-(`app/events.rs`), which are called only from the **inline** dispatch (`app/inline.rs::handle_window_event_inline`). Threaded mode uses a **different** method set
+(`app/events.rs`), which are called only from the **inline** dispatch — `app/inline.rs`'s
+`handle_mouse_press_inline` and `handle_keyboard_inline`, both reached from
+`handle_window_event_inline`. Threaded mode uses a **different** method set
 (`handle_keyboard_threaded`, `app/threaded.rs:400`) that *messages the content thread* — which runs its own
 content-mode `DrainHost`. So `drain_same_turn` never runs in threaded mode.
 
