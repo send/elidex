@@ -879,7 +879,19 @@ at 690) and did not anticipate these two.
 | `crates/shell/elidex-shell/src/app_history_drain_tests.rs` | absent (created here) | >1000 | phase ordering·I2 / nav suppression·Res. A / click default·Res. B / traversal apply·residual·popstate |
 
 ⚠ The test file was **created by this branch** over the line, so it has no "already large at touch time"
-defence; the compliant moment was while writing it. ⚠ The defer ledger anchors tests as
+defence; the compliant moment was while writing it. It then grew **further** during the converge loop — 1,013 → **1,134**
+lines at `c35e094f`, when the gate pass added the wrong-entry pin — so the branch kept enlarging a file it had
+already put over the line.
+
+**Sequencing decision (maintainer-ratified 2026-07-26, recorded as a deviation).** Codex raised this seven
+times and is **right on the principle**: `CLAUDE.md` prescribes the split *"feature 着手前に"* — before the
+work. The rule conflicts with itself only because this PR created the over-line files (*"defer しない"* says
+land it first; *"feature PR に bundle しない"* says land it separately) and does not rank the two. "Ideal over
+pragmatic" does not break the tie either, since the end state is identical in both orderings — nothing is
+scoped out. The call was therefore made on sequencing grounds: **merge #487, then land the split immediately
+next as its own PR**, because this branch is eleven review rounds deep with converged semantics and re-churning
+every line anchor (several re-anchored to symbol names by the gate pass itself) buys nothing the follow-up does
+not. Recorded as an acknowledged deviation, not a refutation. ⚠ The defer ledger anchors tests as
 `app_history_drain_tests::<name>` — re-anchor those references in the split commit.
 
 ### Slice-boundary check (defer-accumulation Q2b)
