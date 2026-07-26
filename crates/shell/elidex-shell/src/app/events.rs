@@ -123,10 +123,30 @@ impl App {
             //     `traversal_queue.rs`) — independent of whether the apply then
             //     succeeded, and true for a cross-turn queued traversal too.
             // No test can pin it: the app-mode harness's disconnected network makes a
-            // SUCCESSFUL rebuild-during-click unreachable. Any change that lets a
-            // drain rebuild WITHOUT setting `suppress_default` — the
-            // `#11-nav-applied-shipped-decouple` slot edits exactly that field — must
-            // re-hit-test here instead of reusing `hit_entity`.
+            // SUCCESSFUL rebuild-during-click unreachable.
+            //
+            // ⚠ SCOPE — this invariant covers **rebuilds performed by the drain
+            // above, and nothing else.** It is NOT a general "a handler may hold an
+            // `Entity` across a document swap" clearance: `suppress_default` reports
+            // only what the COORDINATOR did, so a HANDLER-initiated rebuild is outside
+            // it entirely. The content shell has a LIVE instance of exactly that shape
+            // — `content/event_handlers.rs` captures `hit_entity`, then
+            // `handle_form_submit` (`:155`) synchronously replaces the whole pipeline
+            // (form submission never enters the coordinator, so the `:180`
+            // `suppress_default` guard does not cover it) and the stale entity is still
+            // used at `handle_label_click` (`:168`) and
+            // `perform_link_default_navigation` (`:200`). Registered as its own class
+            // slot, `#11-stale-entity-across-document-swap` — a PRE-EXISTING
+            // content-shell defect on the production path, not an app-mode one.
+            //
+            // ⚠ TRAJECTORY — the safety argued above is coupled to a value that is
+            // deliberately being changed. `handle_navigation` returns `true`
+            // UNCONDITIONALLY today (`app/drain_host.rs`), and that `true` is what
+            // feeds `own_context_action` → `suppress_default` on the Phase-1c leg;
+            // `#11-nav-applied-shipped-decouple` is scheduled to stop it. Any change
+            // that lets a drain rebuild WITHOUT setting `suppress_default` — that slot
+            // edits exactly this field — must re-hit-test here instead of reusing
+            // `hit_entity`.
             let nav_target = {
                 let Some(interactive) = &self.interactive else {
                     return;
