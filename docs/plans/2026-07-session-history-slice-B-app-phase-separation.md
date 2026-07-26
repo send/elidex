@@ -329,8 +329,15 @@ shells:** `suppress_default` is computed at the END OF PHASE 1 (inside `run_sync
 identical semantics; the only difference is that Phase 2 has *also already run* by the time the field is read.
 **One-issue-one-way: one field, one consumer rule, both shells.** Resolution E guarantees a no-op `go(999)`
 never enqueues a `Traversal` step, so it never over-suppresses a legitimate link default — the app-mode
-consumer inherits that correctness. Peek→commit atomicity (a failed cross-document load leaves the cursor and
-ships nothing → `shipped = false` → `suppress_default` false for that leg) is likewise inherited.
+consumer inherits that correctness. Peek→commit atomicity is likewise inherited — but it does **NOT** reach
+`suppress_default`, and the earlier draft of this sentence claimed it did. `suppress_default` is latched at the
+END of Phase 1 as `own_context_action || has_pending_traversal() || is_applying()`, **before any Phase-2 apply
+runs**, so an in-range traversal whose Phase-2 cross-document load later FAILS still yields
+`suppress_default = true`; only `shipped` / `own_context_action` stay `false` (from the apply body's `false`
+return). `app_history_drain_tests::app_go_zero_is_an_in_range_barrier_that_rebuilds` pins exactly that shape —
+`suppress_default` true, `!shipped`, failing rebuild. The `suppress_default = false` case is the **no-op /
+out-of-range** traversal, which the preceding sentence already covers (Resolution E enqueues no `Traversal`
+step at all, so nothing is pending to latch on).
 
 ### 4.4 THE CRUX — I3 app-mode liveness: **the reentrancy vector is DEAD by construction** (resolution (b))
 
