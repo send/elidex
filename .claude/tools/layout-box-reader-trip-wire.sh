@@ -451,7 +451,7 @@ echo "wire #5: no TOKEN-BEARING raw LayoutBox component write outside the EcsDom
 # Test code is excluded on the same basis as wire #1 (tests own their fixtures and never
 # feed the seam). The chokepoint's own body is excluded by path — it IS the sanctioned write.
 CHOKEPOINT_PATH='crates/core/elidex-ecs/src/dom/geometry.rs'
-raw_write_hits="$( { cd "$ROOT" && git grep -nE 'get::<&mut[[:space:]]+(elidex_plugin::)?LayoutBox>|insert_one\([^;]*,[[:space:]]*(elidex_plugin::)?LayoutBox[[:space:]]*\{' -- 'crates/**/*.rs' || true; } \
+raw_write_hits="$( { cd "$ROOT" && git grep -nE 'get::<&mut[[:space:]]+(elidex_plugin::)?LayoutBox>|insert_one\([^;]*,[[:space:]]*(elidex_plugin::)?LayoutBox[[:space:]]*\{|remove_one::<(elidex_plugin::)?LayoutBox>' -- 'crates/**/*.rs' || true; } \
   | strip_comments \
   | { grep -vE "$(test_path_re ':')" || true; } \
   | { grep -vE "^$CHOKEPOINT_PATH:" || true; } )"
@@ -467,9 +467,10 @@ else
   # indistinguishable from a clean tree, so prove both shapes hit before reporting OK.
   w5_control_ok=0
   for probe in 'let _ = dom.world_mut().insert_one(e, LayoutBox { content: r });' \
-               'if let Ok(mut lb) = dom.world_mut().get::<&mut LayoutBox>(e) {'; do
+               'if let Ok(mut lb) = dom.world_mut().get::<&mut LayoutBox>(e) {' \
+               'let _ = dom.world_mut().remove_one::<LayoutBox>(e);'; do
     printf '%s\n' "$probe" \
-      | grep -qE 'get::<&mut[[:space:]]+(elidex_plugin::)?LayoutBox>|insert_one\([^;]*,[[:space:]]*(elidex_plugin::)?LayoutBox[[:space:]]*\{' \
+      | grep -qE 'get::<&mut[[:space:]]+(elidex_plugin::)?LayoutBox>|insert_one\([^;]*,[[:space:]]*(elidex_plugin::)?LayoutBox[[:space:]]*\{|remove_one::<(elidex_plugin::)?LayoutBox>' \
       || { red "FAIL: wire #5 self-test — a known raw write was NOT matched: $probe"; w5_control_ok=1; }
   done
   if [ "$w5_control_ok" -ne 0 ]; then

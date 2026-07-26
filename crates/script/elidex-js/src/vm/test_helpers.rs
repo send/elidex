@@ -158,14 +158,22 @@ pub fn set_layout_box(vm: &mut crate::vm::Vm, entity: Entity, content: Rect) {
         .host_data()
         .expect("set_layout_box: HostData must be installed (call bind_vm first)")
         .dom();
-    let _ = dom.world_mut().remove_one::<LayoutBox>(entity);
+    // Routed through the terminal-Z C-3a write chokepoint so the screen-geometry
+    // phase is invalidated (plan §2). This module is `#[cfg(feature = "engine")]`, NOT
+    // `#[cfg(test)]` — it is production-compiled, so a raw write here would leave
+    // `CompletedScreen` standing over a replaced component and `screen_geometry()`
+    // would serve a MIXED GENERATION (Codex PR#488 R7). The old `remove_one` is dropped
+    // with it: `insert_one` already upserts, so the removal was a no-op that also made
+    // this the only LayoutBox-removal site in shipped code.
     let lb = LayoutBox {
         content,
         ..LayoutBox::default()
     };
-    dom.world_mut()
-        .insert_one(entity, lb)
-        .expect("set_layout_box: failed to insert LayoutBox (entity despawned?)");
+    dom.set_layout_box(entity, lb);
+    assert!(
+        dom.world().get::<&LayoutBox>(entity).is_ok(),
+        "set_layout_box: failed to insert LayoutBox (entity despawned?)"
+    );
 }
 
 /// Evaluate `src` against `vm` and expect a string result, returning

@@ -119,9 +119,9 @@ producer	crates/layout/elidex-layout/src/layout/mod.rs	Display::Contents => Layo
 producer	crates/layout/elidex-layout/src/layout/mod.rs	pub layout_box: LayoutBox,
 pending-migration:C-3d	crates/script/elidex-js/src/vm/host/intersection_observer.rs	let lb = d.world().get::<&elidex_plugin::LayoutBox>(entity).ok()?;
 pending-migration:C-3d	crates/script/elidex-js/src/vm/host/resize_observer.rs	let lb = d.world().get::<&elidex_plugin::LayoutBox>(entity).ok()?;
+test	crates/script/elidex-js/src/vm/test_helpers.rs	"set_layout_box: failed to insert LayoutBox (entity despawned?)"
 pending-migration:C-4	crates/script/elidex-js/src/vm/test_helpers.rs	..LayoutBox::default()
-pending-migration:C-4	crates/script/elidex-js/src/vm/test_helpers.rs	.expect("set_layout_box: failed to insert LayoutBox (entity despawned?)");
-pending-migration:C-4	crates/script/elidex-js/src/vm/test_helpers.rs	let _ = dom.world_mut().remove_one::<LayoutBox>(entity);
+test	crates/script/elidex-js/src/vm/test_helpers.rs	dom.world().get::<&LayoutBox>(entity).is_ok(),
 pending-migration:C-4	crates/script/elidex-js/src/vm/test_helpers.rs	let lb = LayoutBox {
 import	crates/script/elidex-js/src/vm/test_helpers.rs	use elidex_plugin::{EventPayload, EventPhase, LayoutBox, Rect};
 pending-migration:C-3d	crates/shell/elidex-shell/src/content/event_handlers.rs	.get::<&elidex_plugin::LayoutBox>(hit_entity)
