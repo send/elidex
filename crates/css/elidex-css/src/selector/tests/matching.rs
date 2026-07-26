@@ -712,7 +712,10 @@ fn checked_does_not_match_option_without_selected() {
 
 #[test]
 fn required_does_not_match_fieldset() {
-    // :required excludes <fieldset> per HTML spec §4.10.15.2.4.
+    // :required excludes <fieldset> per HTML §4.16.3 "Pseudo-classes"
+    // (`#selector-required`): the three matching categories are input
+    // elements that are required, select with a `required` attribute, and
+    // textarea with a `required` attribute — <fieldset> is in none.
     let mut dom = EcsDom::new();
     let fs = dom.create_element("fieldset", Attributes::default());
     let mut es = ElementState::default();
@@ -724,7 +727,11 @@ fn required_does_not_match_fieldset() {
 
 #[test]
 fn optional_does_not_match_fieldset() {
-    // :optional excludes <fieldset> per HTML spec §4.10.15.2.4.
+    // :optional excludes <fieldset> per HTML §4.16.3 "Pseudo-classes"
+    // (`#selector-optional`): the three matching categories are input
+    // elements to which `required` applies and that are not required,
+    // select without `required`, and textarea without `required` —
+    // <fieldset> is in none.
     let mut dom = EcsDom::new();
     let fs = dom.create_element("fieldset", Attributes::default());
     let _ = dom.world_mut().insert_one(fs, ElementState::default());
