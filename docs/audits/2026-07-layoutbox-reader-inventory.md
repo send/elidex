@@ -23,7 +23,9 @@ then refined with reader-shape greps (`get::<&(mut )?LayoutBox>`, `query::<(..La
 type-defs, and `insert_one`/`&mut` producer-write sites), and classified against the live code.
 
 **Exhaustiveness is proven by the D4 trip-wire (impl §3), not by this document.** The trip-wire
-(`.claude/tools/layout-box-reader-trip-wire.sh`, in `mise run trip-wires` ⊂ `mise run ci`) greps
+(`.claude/tools/layout-box-reader-trip-wire.sh`, in `mise run trip-wires` ⊂ the **local** `mise run ci`
+— it is NOT in any GitHub workflow, see the impl plan §6 and slot
+`#11-layoutbox-trip-wire-not-in-ci`) greps
 bare `git grep -nw LayoutBox` + `git grep -nw BoxModel` (the broadened `-nw BoxModel` grep catches
 generic `T: BoxModel` bounds the narrow `dyn|impl` grep misses), diffs live reads against the
 committed allowlist sibling of this doc (`.claude/tools/layout-box-reader-allowlist.tsv`), adds a
@@ -462,7 +464,8 @@ side rather than the store side).
 
 The `display:contents` / anon-box **producer defect** the audit must record (axis 3): the producer
 commit sites that leave a `LayoutBox` on a spec-boxless element — `block/children/helpers.rs:355`
-(the anon-box / flattened-`contents` insert) and `inline/pack/boxes.rs:88` — plus the
+(a bare `insert_one(child, lb)` in child-box positioning — see the ⚠ below; it is NOT the
+anon-box / flattened-`contents` insert) and `inline/pack/boxes.rs:88` — plus the
 **detached-element** path (`find_roots`/`root_entities` re-lays a parentless-but-styled element against
 the viewport, hand-off row 12). C-3 **inherits** these (no regression); the seam reports their presence
 faithfully — "presence" is a mechanical store fact, not a "has an associated CSS box" verdict (memo §1

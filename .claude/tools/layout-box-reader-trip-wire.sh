@@ -32,8 +32,9 @@
 #     `#11-layoutbox-field-typed-reader-coverage` owns closing the gap.
 #     ⚠ Do NOT restate this as "the family is bounded". A revision of this script
 #     shipped a wire #5 claiming exactly that; it was withdrawn when a focused
-#     re-check showed (i) its regex missed `&'a LayoutBox`, so the third live field
-#     above went unseen, and (ii) a new field in an already-listed FILE passed all
+#     re-check showed (i) its regex required the type to start right after `name:`, so
+#     `InlineRunContext.lb` (`&'a LayoutBox`, listed above) went unseen, and (ii) a
+#     new field in an already-listed FILE passed all
 #     wires green. A gate that overclaims its bound is worse than an honest slot,
 #     because C-4's delete decision is taken against the claim.
 #   * Bare trait bounds `<T: BoxModel>` / `where T: BoxModel` are NOT `dyn`/`impl`,
@@ -46,7 +47,12 @@
 #     genuinely token-hiding macro ever lands, escalate D4 to a dylint HIR lint.
 #
 # Usage:
-#   layout-box-reader-trip-wire.sh              # CHECK (CI / pre-push); exits non-zero on drift
+#   layout-box-reader-trip-wire.sh              # CHECK (local `mise run ci` / pre-push)
+#                                               #   exits non-zero on drift
+# ⚠ LOCAL ONLY. `.github/workflows/ci.yml` runs cargo fmt/clippy/nextest/doc/deny — it
+# invokes no `mise` task, so this gate NEVER runs on a PR or on main. Its verdict is
+# therefore enforced by the pre-push habit, not by CI, and a lane that skips /pre-push
+# drifts the allowlist silently. Slot `#11-layoutbox-trip-wire-not-in-ci`.
 #   layout-box-reader-trip-wire.sh --regenerate # rewrite the allowlist from the live tree
 #                                               #   (keeps existing classification columns by path+content)
 #
@@ -121,7 +127,10 @@ live_readers() {
 # `pending-migration` entry (full migration removes it); per-SITE precision (the ×8
 # tally) is the audit doc's job. See the audit "Counting basis" note.
 committed_readers() {
-  grep -vE '^[[:space:]]*(#|$)' "$ALLOWLIST" | cut -f2- | sort -u
+  # `|| true` on the filter stage, exactly like `live_readers`: a comments-only allowlist
+  # makes `grep -v` exit 1, which pipefail propagates into the caller's `$(…)` assignment
+  # and `set -e` then aborts the script with NO diagnostic at all.
+  { grep -vE '^[[:space:]]*(#|$)' "$ALLOWLIST" || true; } | cut -f2- | sort -u
 }
 
 # The classification vocabulary — the SINGLE machine-readable definition. Wire #4 validates
@@ -132,7 +141,11 @@ committed_readers() {
 # own FAIL message prescribes `--regenerate`, so without this an author following the tool's
 # instructions after a refactor would silently absorb a genuinely-new reader as unclassified
 # and turn the gate green — a structural gate degraded to a review convention.
-CLASSES='producer|seam|type-def|import|test|pending-migration:C-3[b-e]'
+# `pending-migration:C-[0-9]+[a-z]*` keeps the slice suffix OPEN, matching the form the
+# .tsv header and the audit legend document (`pending-migration:<slice>`). A closed
+# `C-3[b-e]` made wire #4 reject a correctly-classified row the moment a slice split or
+# was renamed, with a message telling the author to classify what they just classified.
+CLASSES='producer|seam|type-def|import|test|pending-migration:C-[0-9]+[a-z]*'
 
 if [ "${1:-}" = "--regenerate" ]; then
   # Preserve any existing classification for a (path, content) still present;
@@ -197,7 +210,17 @@ echo "wire #2: no LayoutBox/BoxModel NAME-INTRODUCTION (keeps the grep exhaustiv
 # closed BAN_ALIAS with `as[[:space:]]+[A-Za-z_]`, whose match ends mid-identifier (`… as L`
 # inside `LB`), and `-w` then discarded it — the positive control below caught that too.
 BAN_ALIAS='(LayoutBox|BoxModel)[[:space:]]+as'
-BAN_TYPEALIAS='type[[:space:]]+[A-Za-z_][A-Za-z0-9_]*[[:space:]]*=[^;]*(LayoutBox|BoxModel)'
+# `([[:space:]]*<[^=]*>)?` admits generic / lifetime parameters between the alias name
+# and the `=`: without it `type BoxRef<'a> = &'a elidex_plugin::LayoutBox;` slipped
+# through (demonstrated live — the alias plus a token-less `get::<&BoxRef>(e)` read left
+# every wire green).
+BAN_TYPEALIAS='type[[:space:]]+[A-Za-z_][A-Za-z0-9_]*([[:space:]]*<[^=]*>)?[[:space:]]*=[^;]*(LayoutBox|BoxModel)'
+# grep is LINE-based, so an alias rustfmt wrapped across two lines carries the token on
+# a line with no `type` and the `type` on a line with no token — invisible to the two
+# patterns above. Rather than attempt multi-line matching, ban the wrap itself: an alias
+# whose RHS starts on the next line must be written on one line so the gate can see it.
+# Narrow by construction (only fires on a `type X … =` line with nothing after the `=`).
+BAN_TYPEALIAS_WRAP='^[[:space:]]*type[[:space:]]+[A-Za-z_][A-Za-z0-9_]*([[:space:]]*<[^=]*>)?[[:space:]]*=[[:space:]]*$'
 
 # Positive control — the STRUCTURAL fix for the class, not just the regex. A ban wire that
 # cannot match is indistinguishable from a clean tree, so trusting its verdict requires first
@@ -208,7 +231,14 @@ ban_control() { # $1 = pattern, $2 = sample line that MUST match, $3 = shape lab
   # Run from INSIDE the scratch dir with a relative pathspec: `git grep --no-index` refuses
   # an absolute path pointing outside the enclosing repository, which would make every
   # control silently "fail" for the wrong reason and mask a pattern that is actually fine.
-  local dir rc; dir="$(mktemp -d)"
+  local dir rc
+  # Distinguish an environment failure from a dead pattern: with `dir` empty the control
+  # would grep the caller's cwd for a nonexistent file, fail, and blame the regex.
+  if ! dir="$(mktemp -d)" || [ -z "$dir" ] || [ ! -d "$dir" ]; then
+    red "FAIL: wire #2 self-test could not create a scratch dir (TMPDIR/disk?) — the ban"
+    red "      patterns were NOT validated, so this run's verdict is not trustworthy."
+    return 1
+  fi
   printf '%s\n' "$2" > "$dir/control.rs"
   ( cd "$dir" && git grep --no-index -qnwE "$1" -- control.rs ) 2>/dev/null
   rc=$?
@@ -221,13 +251,33 @@ ban_control() { # $1 = pattern, $2 = sample line that MUST match, $3 = shape lab
   fi
   return 0
 }
+# ⚠ Every ban_control call MUST be part of an `|| …` list. `set -e` is suspended only
+# inside a command that is an operand of `||`, so a bare `ban_control …` statement would
+# abort the script at the first non-zero step instead of reporting the diagnostic above.
 control_ok=0
 ban_control "$BAN_ALIAS" 'use elidex_plugin::LayoutBox as LB;' 'import/re-export alias' || control_ok=1
 ban_control "$BAN_TYPEALIAS" 'type MyBox = elidex_plugin::LayoutBox;' 'type alias' || control_ok=1
+ban_control "$BAN_TYPEALIAS" "type BoxRef<'a> = &'a elidex_plugin::LayoutBox;" 'generic/lifetime type alias' || control_ok=1
+ban_control "$BAN_ALIAS" 'use elidex_plugin::{LayoutBox as LB, Rect};' 'braced alias' || control_ok=1
+ban_control "$BAN_TYPEALIAS_WRAP" 'type MyBox =' 'wrapped type alias' || control_ok=1
 if [ "$control_ok" -ne 0 ]; then
   fail=1
 else
-  ban_hits="$(cd "$ROOT" && git grep -nwE "$BAN_ALIAS|$BAN_TYPEALIAS" -- 'crates/**/*.rs' | strip_comments || true)"
+    # `-w` would reject the wrap ban (its match ends at `=`, a non-word char, but starts at
+  # `type` which is fine — it is the ANCHORED `^…$` form that `-w` cannot help), so the
+  # wrap pattern is scanned separately without `-w`.
+  # The wrap ban is scoped to files that CARRY a token: a wrapped alias only hides a
+  # reference if its continuation line names the type, so such a file always matches the
+  # token grep. Scanning the whole tree instead fired on unrelated wrapped aliases
+  # (`subtle_crypto/ops.rs` `type CipherOp =`) — a gate that reds CI on code with no
+  # `LayoutBox` in it teaches people to ignore it.
+  token_files="$(cd "$ROOT" && git grep -lwE 'LayoutBox|BoxModel' -- 'crates/**/*.rs' || true)"
+  wrap_hits=""
+  if [ -n "$token_files" ]; then
+    # shellcheck disable=SC2086
+    wrap_hits="$(cd "$ROOT" && grep -nH -E "$BAN_TYPEALIAS_WRAP" -- $token_files 2>/dev/null || true)"
+  fi
+  ban_hits="$( { cd "$ROOT" && git grep -nwE "$BAN_ALIAS|$BAN_TYPEALIAS" -- 'crates/**/*.rs'; printf '%s' "$wrap_hits"; } | strip_comments || true)"
   if [ -n "$ban_hits" ]; then
     red "FAIL: a LayoutBox/BoxModel alias / type-alias was introduced — it drops the token at use-sites and defeats the grep. Use the type directly:"
     printf '%s\n' "$ban_hits" | sed 's/^/  /'
@@ -244,7 +294,12 @@ if [ -n "$reader_files" ]; then
   # shellcheck disable=SC2086
   # strip_comments (like wires #1/#2) so a prose mention of `macro_rules!` in a
   # doc-comment is not a false positive.
-  macro_hits="$(cd "$ROOT" && grep -nE 'macro_rules!' $reader_files 2>/dev/null | strip_comments | grep -vE "macro_rules![[:space:]]+($ALLOWED_MACROS)\b" || true)"
+    # `-H --`: without `-H`, grep omits the `path:` prefix when handed exactly ONE file,
+  # and `strip_comments`' `^[^:]*:[0-9]+:` anchor then stops matching — every doc-comment
+  # mention of `macro_rules!` in that file becomes a false FAIL. Reachable precisely as
+  # the C-3 migration shrinks the reader-file set toward one. `--` stops a path that
+  # begins with `-` being read as an option.
+  macro_hits="$(cd "$ROOT" && grep -nH -E 'macro_rules!' -- $reader_files 2>/dev/null | strip_comments | grep -vE "macro_rules![[:space:]]+($ALLOWED_MACROS)\b" || true)"
 fi
 if [ -n "$macro_hits" ]; then
   red "FAIL: a new macro_rules! landed in a LayoutBox/BoxModel-reading file. Verify it does NOT expand to a token-less geometry read, then add it to ALLOWED_MACROS (or escalate D4 to a dylint HIR lint):"

@@ -164,6 +164,19 @@ impl ScreenGeometry<'_> {
                 }
             })
             .collect();
+        // Order by fragmentainer, ASCENDING — the seam's contract, not the store's.
+        // `fragments_for` yields the `index` Vec in `push_box` APPEND order
+        // (`fragment_tree.rs`: `index.entry(entity).or_default().push(id)`), i.e.
+        // producer call order, NOT column order. `principal_fragment` promises the
+        // FIRST-COLUMN box — that being the whole multicol fix this migration exists
+        // for, since the raw component holds the G11 last-column box — so leaving the
+        // order to producers would make the seam's headline guarantee depend on every
+        // current and future producer's loop order, and the documented
+        // `remove_entity` + re-push re-commit path can already reorder them. Sorting
+        // here makes the guarantee hold by construction and keeps the folds mutually
+        // consistent: an order-independent reduction (the union) would otherwise
+        // silently disagree with the one that takes `.next()`.
+        out.sort_by_key(|fv| fv.fragmentainer);
         if out.is_empty() {
             // N=1 fallback: the single `LayoutBox` as one fragment with NO
             // fragmentainer — the store knows of none, and inventing `0` would be
@@ -332,6 +345,46 @@ mod tests {
             (u.origin.y, u.bottom()),
             (0.0, 80.0),
             "union spans both columns (y: min 0, max 20+60=80 — exercises min_y/max_y)"
+        );
+    }
+
+    #[test]
+    fn fragments_are_column_ordered_regardless_of_push_order() {
+        // Regression pin for the `collect` sort. Verified to FAIL without it:
+        // `left: [Some(1), Some(0)]` — `fragments_for` returns the index Vec in
+        // `push_box` append order, so `principal_fragment` would hand back the
+        // column-1 box while claiming to be "the FIRST-COLUMN box (not the G11
+        // last-column box the raw component holds)", which is the exact promise
+        // C-3b (clientTop/scrollIntoView) and C-3d (ResizeObserver) migrate onto.
+        // Producers happen to commit ascending today; the documented `remove_entity`
+        // + re-push re-commit path does not have to, so the guarantee must not rest
+        // on producer loop order.
+        let mut dom = EcsDom::new();
+        let e = spawn(&mut dom);
+        dom.fragment_tree_mut()
+            .push_box(e, 1, box_fragment(300.0, 20.0, 100.0, 60.0), false);
+        dom.fragment_tree_mut()
+            .push_box(e, 0, box_fragment(0.0, 0.0, 100.0, 50.0), false);
+        dom.fragment_tree_mut().publish_completed_screen();
+        let geom = dom.screen_geometry().unwrap();
+
+        assert_eq!(
+            geom.box_fragments(e)
+                .map(|f| f.fragmentainer)
+                .collect::<Vec<_>>(),
+            vec![Some(0), Some(1)],
+            "yielded in ascending fragmentainer order, not push order"
+        );
+        assert_eq!(
+            geom.principal_fragment(e).unwrap().content.origin.x,
+            0.0,
+            "principal == the FIRST COLUMN even though column 1 was pushed first"
+        );
+        // The order-independent fold must agree with the order-dependent one.
+        assert_eq!(
+            geom.union_border_boxes(e).map(|u| (u.origin.x, u.right())),
+            Some((0.0, 400.0)),
+            "union is unchanged by ordering — the two folds stay consistent"
         );
     }
 

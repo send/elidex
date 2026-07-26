@@ -230,10 +230,14 @@ impl FragmentTree {
     ///
     /// The single-publisher rule is not load-bearing on its own: every content
     /// mutator invalidates on write (`invalidate_on_write`, private), so a publish
-    /// survives only until the next write. A caller that publishes too early therefore
-    /// cannot leave a stale green phase over subsequently-written geometry — the worst
-    /// it can do is publish over a store it did not build, which the *entry* marks
-    /// cover.
+    /// survives only until the next STORE write.
+    ///
+    /// ⚠ Scope: that covers the store half of the seam only. `screen_geometry`'s N=1
+    /// arm reads the `LayoutBox` **component**, and none of its ~12 writers touch this
+    /// phase — so an incremental relayout of a non-multicol subtree performs zero store
+    /// writes and leaves `CompletedScreen` standing while those `LayoutBox`es are
+    /// rewritten. The component half is still covered only by the layout entries'
+    /// explicit `invalidate()`, i.e. by protocol rather than by construction.
     pub fn publish_completed_screen(&mut self) {
         self.phase = StorePhase::CompletedScreen;
     }
@@ -290,8 +294,16 @@ impl FragmentTree {
     /// [`clear`](Self::clear) (a Vec-arena compaction would invalidate other
     /// `FragmentId`s, so de-indexing is the safe removal).
     pub fn remove_entity(&mut self, entity: Entity) {
-        self.invalidate_on_write();
-        self.index.remove(&entity);
+        // Invalidate only if something is actually dropped — same rule as
+        // `shift_entity`: a mutator that writes nothing must not demote a published
+        // store. This is not hypothetical bookkeeping: `elidex-layout-multicol`'s
+        // committer calls this for EVERY direct child and documents it as "a cheap
+        // no-op for the non-store ones", so an unconditional invalidate would make
+        // any post-publish caller (teardown/despawn cleanup, incremental relayout)
+        // close `screen_geometry()` engine-wide for a frame that really did complete.
+        if self.index.remove(&entity).is_some() {
+            self.invalidate_on_write();
+        }
     }
 
     /// Upsert a root box fragment for `entity` in fragmentainer `fragmentainer`,
@@ -739,14 +751,23 @@ mod tests {
             "remove_entity invalidates — it drops committed geometry"
         );
 
-        // ...but a mutator that writes NOTHING must not invalidate: `shift_entity` on an
-        // entity with no fragments returns before touching anything, and demoting a
-        // legitimately-published store there would be a spurious phase failure.
+        // ...but a mutator that writes NOTHING must not invalidate: demoting a
+        // legitimately-published store there would be a spurious phase failure that
+        // closes `screen_geometry()` engine-wide for a frame that really did complete.
+        // Both no-op mutators are pinned — `remove_entity` matters most in practice
+        // because `elidex-layout-multicol`'s committer calls it for every direct child.
         tree.publish_completed_screen();
         tree.shift_entity(f, Vector::new(1.0, 1.0));
         assert!(
             tree.is_completed_screen(),
             "a no-op shift_entity (entity has no fragments) leaves the phase alone"
+        );
+
+        tree.publish_completed_screen();
+        tree.remove_entity(f);
+        assert!(
+            tree.is_completed_screen(),
+            "a no-op remove_entity (entity has no fragments) leaves the phase alone"
         );
     }
 }

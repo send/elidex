@@ -301,7 +301,7 @@ bounds are **not** in this residual — the broadened `-nw BoxModel` grep catche
 | 1. `pub(crate)` rejects producers too | the allowlist is **data, not crate-visibility** — `elidex-layout-*` **producer** reads are listed as `producer` entries (excluded like `native-ctor-guard`'s SoT/test exclusions), so external-crate producers are permitted without weakening privacy anywhere |
 | 2. allowlisting `elidex-ecs` wholesale | the seam's own N=1 `LayoutBox` read (§1 req 2) is a **single** allowlisted line in `dom/geometry.rs`, tagged `seam` — NOT a blanket `elidex-ecs` exclusion, so a *future* low-level reader still trips |
 | 3. a single compiler run hides dep-blocked crates | **does not apply to grep** — the trip-wire reads source files directly, independent of compilation order, so there is no first-error-layer masking (a strict improvement over any compile-error / dylint mechanism, which *would* need `--keep-going` + a fixed point) |
-| 4. runs once then rots | the trip-wire is **standing** in `mise run trip-wires` (⊂ `mise run ci`, the pre-push + CI gate), diffs live `LayoutBox`/`BoxModel` reads against the committed allowlist, and **exits non-zero on any read not in it** — a new reader forces a classification. Not a per-slice re-run (the review convention the memo rejects); it is `git`-enforced on every push |
+| 4. runs once then rots | the trip-wire is **standing** in `mise run trip-wires` (⊂ `mise run ci` — the pre-push gate; NOT GitHub CI, see §6), diffs live `LayoutBox`/`BoxModel` reads against the committed allowlist, and **exits non-zero on any read not in it** — a new reader forces a classification. Not a per-slice re-run (the review convention the memo rejects); it is `git`-enforced on every push |
 
 **Allowlist shape** (committed alongside the audit doc; the doc is the human record, this its machine-checked sibling):
 ```
@@ -436,7 +436,7 @@ completed by PM at registration (C-3a landing) … Until then they are notes, no
   "api-observers untouched" (that pre-empts C-3d's option (c), memo §6.2).
 - **Verify row 11** — MEMORY.md Layout-lane line (already done per handoff memo).
 
-**New hand-off created by C-3a — TWO slots + one cross-lane obligation.** (An earlier draft said "none";
+**New hand-off created by C-3a — THREE slots + one cross-lane obligation.** (An earlier draft said "none";
 that was written before the second `/elidex-review` pass, and is withdrawn.) The audit *produces* the
 classified inventory downstream slices cite, and beyond the memo's §6.4 pre-enumerated set it surfaces:
 
@@ -452,7 +452,12 @@ classified inventory downstream slices cite, and beyond the memo's §6.4 pre-enu
    bound the family was written and then withdrawn — its regex missed `&'a LayoutBox` and a new field in an
    already-listed file passed every wire — so this is genuinely unmachined. Resolution trigger = C-4, which
    must not read a green gate as covering it.
-*(A third candidate — the fallback fragment reporting a fabricated column `0` — was **fixed in-slice**
+3. **`#11-layoutbox-trip-wire-not-in-ci`** — the D4 gate runs only in the local `mise run ci`; no GitHub
+   workflow invokes it (see the ⚠ below). Until it is in a workflow its verdict is a pre-push habit rather
+   than an enforced invariant, which is load-bearing because C-4's delete decision reads it. Resolution
+   trigger = before C-4, or the next `.github/workflows` touch.
+
+*(A further candidate — the fallback fragment reporting a fabricated column `0` — was **fixed in-slice**
 rather than slotted: `FragmentView::fragmentainer` is now `Option<u32>`, so "unknown" is unrepresentable
 as a column index. It was a now-or-never call — the type has zero production consumers today, and the
 same change after C-3b–e adopt the seam would be a breaking one.)*
@@ -460,8 +465,17 @@ same change after C-3b–e adopt the seam would be a breaking one.)*
 **Cross-lane obligation (not a slot — a standing CI fact PM must carry into the campaign SoT):** the D4
 trip-wire is wired into `mise run ci` and greps **all** of `crates/**/*.rs`. Any PR in any lane that adds or
 edits a non-test `LayoutBox`/`BoxModel` line must now update the allowlist *and* this audit. That blast
-radius is **semantic, not textual** — a concurrent PR can conflict with no line yet red CI on main — so §0's
-file-overlap parallel-safety analysis does not cover it.
+radius is **semantic, not textual** — a concurrent PR can conflict with no line — so §0's file-overlap
+parallel-safety analysis does not cover it.
+
+⚠ **And the gate cannot catch it either: it does not run in CI.** `.github/workflows/ci.yml` runs only
+cargo fmt/clippy/nextest/doc/deny; its sole `mise` reference is the string `'mise.toml'` inside the
+paths-filter list. So a lane that adds a reader merges all-green and main carries a stale allowlist until
+someone happens to run `mise run ci` locally. An earlier draft of this paragraph claimed such a PR would
+"red CI on main" — false, and withdrawn. Until the gate is in a workflow its verdict is a pre-push habit,
+not an enforced invariant, which matters because C-4's delete decision is taken against it. New slot
+**`#11-layoutbox-trip-wire-not-in-ci`** (resolution trigger: before C-4, or the next `.github/workflows`
+touch).
 
 ---
 
