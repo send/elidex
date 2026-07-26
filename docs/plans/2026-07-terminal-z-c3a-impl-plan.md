@@ -502,7 +502,17 @@ ships no scroll-subtracting reader, so it is out of this matrix.)
   `LayoutBox`-component half, §2) + `publish_completed_screen()` after `layout_tree`'s root loop. No entry
   marks: `layout_tree` relies on `clear()`, `layout_fragmented_with_tokens` on the bracket its loop reaches.
   Both entry docstrings carry the *why*, since the deletion is behaviour-identical and so not test-pinnable.
-  Layout-side driver + zero-write integration tests.
+- `crates/core/elidex-ecs/src/dom/geometry.rs` — **`EcsDom::set_layout_box` / `layout_box_mut`**, the
+  `LayoutBox` write chokepoint the phase guard hangs off (§2), plus the seam itself.
+- `crates/layout/elidex-layout{,-block,-flex,-grid,-table,-multicol}` — the 19 producer write sites routed
+  through that chokepoint.
+- `crates/layout/elidex-layout/src/layout/tests/provenance.rs` **(NEW)** — the §5 items 6-9 acceptance
+  matrix, carved out of `basic.rs` + `fragmentation.rs`. **Touch-time split** (CLAUDE.md 1000-line
+  discipline, which names test files as prime candidates): the provenance tests took `basic.rs` from 862 to
+  1001 lines, and the scenario is a real cohesion seam — the rule is ONE rule over BOTH geometry sources, so
+  its counter-pins (write⇒demote vs no-write⇒no-demote, on each source) only read as pairs. Splitting on the
+  screen/paged file boundary would have separated each pair. `basic.rs` returns to 862, `fragmentation.rs`
+  608 → 444.
 - `crates/core/elidex-plugin/src/layout_types/rect.rs` — `Rect::union` (the generic smallest-enclosing-rect
   primitive). No `LayoutBox`/`BoxModel` surface change — see the §0 constraint.
 - `crates/core/elidex-render/src/builder/walk.rs` — the local `union_rect` helper deleted, its paged-multicol
