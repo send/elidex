@@ -215,7 +215,7 @@ anchors webref-verified **2026-07-26** — no drift; anchors: `#navigate-non-fra
 | WHATWG HTML §7.4.4 Non-fragment synchronous "navigations" | 12–13 | append *synchronous navigation steps* onto the ONE tagged queue | PARTIAL — Resolution D (inherited): a `SyncUpdate` deferred behind ANY same-turn traversal is CANCELED (bounded); full call-time-entry jump-the-queue fenced | ✗ (bounded — `#11-sync-navigation-steps-queue-tagging`) | yes |
 | WHATWG HTML §7.4.3 Reloading and traversing | 4 | *"Append the following session history traversal steps to traversable"* | IN — Phase-1b enqueue via `classify_traversal` peek seam | ✓ | yes (back/forward/go) |
 | WHATWG HTML §7.4.3 Reloading and traversing | 4.4 | *"If allSteps[targetStepIndex] does not exist, then abort these steps"* (no-op) | IN — Resolution E peek-classify: `peek_delta → None` = no barrier, falls through | ✓ | yes (back/forward/go) |
-| WHATWG HTML §7.4.2.2 Beginning navigation | 19 | ongoing navigation is "traversal" ⇒ *"Any attempts to navigate a navigable that is currently traversing are ignored"* | IN — Resolution A: Phase-1c drains the nav slot and does not apply while a `Traversal` step is pending. **App-mode drain-and-HOLD, not discard** (§4.3): step 19's gate is *ongoing navigation* = "traversal", which §7.4.6.1 step 8.4 sets only when the APPLY runs, so a Phase-1c suppression on a merely-QUEUED traversal is a prediction; app-mode's same-turn Phase 2 settles it and reinstates the nav if no traversal moved the cursor | ✓ | yes (`location.*`) |
+| WHATWG HTML §7.4.2.2 Beginning navigation | 19 | ongoing navigation is "traversal" ⇒ *"Any attempts to navigate a navigable that is currently traversing are ignored"* | **DIVERGENT (deliberate)** — Resolution A: Phase-1c drains the nav slot and does not apply while a `Traversal` step is **queued**. Step 19's gate is *ongoing navigation* == "traversal", set ONLY by the §7.4.6.1 step-8.4 APPLY, so a nav issued before the apply is never step-19-ignored and elidex's window is a strict **superset** of the spec's (slot `#11-nav-supersede-window-vs-ongoing-navigation`). **App-mode drain-and-HOLD, not discard** (§4.3) narrows the superset back to "a traversal that really moved the cursor": same-turn Phase 2 settles it and reinstates the nav if none did | ✗ (divergence — `#11-nav-supersede-window-vs-ongoing-navigation`) | yes (`location.*`) |
 | WHATWG HTML §7.4.2.2 Beginning navigation | 20 | *"aborting other ongoing navigations"* (not a traversal) | IN — Resolution A: traversal wins the same-turn straddle; exact cross-channel issue order fenced | ✗ (bounded — `#11-sync-navigation-steps-queue-tagging`) | yes (`location.*`) |
 | WHATWG HTML §7.4.6.1 Updating the traversable | 1 | *apply the history step*: assert running within the traversal queue | IN — the queue-serialized Phase-2 apply (guard observational this slice) | ✓ | no |
 | WHATWG HTML §7.4.6.1 Updating the traversable | 3/4/6/7 | initiator sandbox / cross-doc navigable set / `changingNavigables` / nonchanging siblings | OUT (B1) — always `{top-level}` | n/a (B1) | no |
@@ -317,13 +317,22 @@ of seams**, not **re-implementation of policy**.
 **Supersede removal** — §4.1 above (`:73` deleted, `:93` relocated). Post-removal, a same-turn
 `pushState('/a'); back()` keeps `/a` (Phase 1) and applies the traversal (Phase 2), and a
 `back(); location.href='/b'` suppresses the later `location.*` nav (Resolution A — the in-range traversal
-wins, §7.4.2.2 step 19 "ignored"), landing on the back target with no `/b` load/flash.
+wins), landing on the back target with no `/b` load/flash.
 
-**Suppression is HOLD-then-settle, not discard (the §7.4.2 leg of Resolution D).** Step 19's gate is
-*ongoing navigation* = "traversal" (§7.4.2.5), which §7.4.6.1 *Updating the traversable* **step 8.4** sets
-only once the apply RUNS — §7.4.3's enqueue sets nothing. So a Phase-1c suppression keyed on a merely-QUEUED
-traversal is a **prediction** that the navigable will traverse. App-mode's Phase 2 runs in the same turn and
-therefore settles it: `handle_navigation` drains the VM slot (so nothing can re-fire a turn late) but HOLDS
+**The enqueue-time supersede is a deliberate DIVERGENCE from §7.4.2.2 step 19, not an application of it**
+(webref-verified 2026-07-26; slot `#11-nav-supersede-window-vs-ongoing-navigation`). Step 19's gate is
+*ongoing navigation* == "traversal" (§7.4.2.5), which §7.4.6.1 *Updating the traversable* **step 8.4** sets
+only once the apply RUNS — §7.4.3's enqueue sets nothing, and the three null-resets are each annotated *"This
+allows new navigations of navigable to start, whereas during the traversal they were blocked."* So the spec's
+blocking window is strictly *during the apply*, and a `location.*` issued before it — `history.back();
+location.assign('/b')` in one handler — is never step-19-ignored, **however the queued traversal later
+resolves**. Resolution A suppresses from **enqueue** time: a strict superset of the spec's window,
+engine-wide (shipped in Slice A, PR #469; content-mode carries the same rule) and NOT introduced here.
+
+**Suppression is HOLD-then-settle, not discard (the §7.4.2 leg of Resolution D)** — which narrows the
+superset back to "a traversal that really moved the cursor", the closest app-mode gets to the spec window
+without a behavior change. App-mode's Phase 2 runs in the same turn and therefore settles it:
+`handle_navigation` drains the VM slot (so nothing can re-fire a turn late) but HOLDS
 the resolved request on `InteractiveState::deferred_navigation`; `apply_traversal` CANCELS it the moment a
 traversal moves the cursor — the same "cursor-moved" predicate the coordinator's `traversal_applied` latch
 uses for a deferred `SyncUpdate` — and `process_pending_navigation`'s tail reinstates whatever survives.

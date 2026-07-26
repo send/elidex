@@ -243,7 +243,8 @@ impl TraversalQueue {
     /// `SyncUpdate`-only steps) — the ONE shared default-suppression signal
     /// (plan §1 B / Resolution E). Consulted by BOTH the coordinator's Phase-1c
     /// nav-suppression decision (drain-and-discard a same-turn `location.*` while
-    /// a traversal is pending — §7.4.2.2 step 19 "ignored") AND the content
+    /// a traversal is pending — a deliberate **divergence** from §7.4.2.2 step 19,
+    /// stated in full at [`DrainHost::handle_navigation`]) AND the content
     /// shell's `<a href>`-default suppression site. Cross-turn-robust by
     /// construction: a Turn-1 traversal still queued in Turn-2 (Phase 2 not yet
     /// pumped) is seen, so the default is suppressed until the traversal applies
@@ -442,8 +443,30 @@ pub trait DrainHost {
     /// `pending_navigation` slot (its only drain) but **drop** the request
     /// without applying, returning `false`. Skipping the drain would strand the
     /// slot so the suppressed `location.*` fires **a turn late** (a spurious
-    /// deferred nav). This matches §7.4.2.2 step-19 "ignored" (= discarded, not
-    /// deferred) — a navigation issued while a traversal is ongoing is dropped.
+    /// deferred nav).
+    ///
+    /// **Spec basis — this is a deliberate DIVERGENCE, NOT an application of
+    /// §7.4.2.2 step 19** (webref-verified 2026-07-26; slot
+    /// `#11-nav-supersede-window-vs-ongoing-navigation`). Earlier revisions of this
+    /// contract cited step 19's *"Any attempts to navigate a navigable that is
+    /// currently traversing are ignored"* as the rule being implemented. It is not.
+    /// Step 19 gates on *ongoing navigation* == `"traversal"` **evaluated at the
+    /// moment `navigate` runs**, and the ONLY thing that sets that value is §7.4.6.1
+    /// *Updating the traversable* **step 8.4** (*"Set the ongoing navigation for
+    /// navigable to "traversal"."*), inside the APPLY; three sites reset it to null
+    /// (the same-document branch, after `pageswap`, and in the appended steps), each
+    /// annotated *"This allows new navigations of navigable to start, whereas during
+    /// the traversal they were blocked."* §7.4.3's **enqueue** sets nothing. So the
+    /// spec's blocking window is strictly *during the apply*: a `location.*` issued
+    /// BEFORE it — `history.back(); location.assign('/b')` in one handler — never
+    /// meets step 19's condition, **whether or not the queued traversal later
+    /// applies**. elidex suppresses from **enqueue** time instead, a strict superset
+    /// of the spec's window.
+    ///
+    /// The divergence is engine-wide and **pre-existing** (Resolution A, PR #469;
+    /// `content/drain_host.rs` carries the same rule) and its predicate is shared
+    /// with [`DrainOutcome::suppress_default`], so narrowing it is edge-dense and
+    /// lands as its own plan-reviewed PR under the slot above — not here.
     fn handle_navigation(&mut self, suppress: bool) -> bool;
 
     /// **Phase 2** — apply ONE deferred [`PendingTraversal`] (§7.4.6.1 *apply the
@@ -602,9 +625,12 @@ impl DrainCoordinator {
         // is pending (this turn, still-queued cross-turn) OR a traversal apply is
         // IN FLIGHT (`is_applying()` — a reentrant Phase 1 nested inside Phase 2,
         // F1) the navigation is SUPPRESSED: drain-and-DISCARD the
-        // `pending_navigation` slot so it cannot re-fire a turn late (§7.4.2.2 step
-        // 19 "ignored"; plan §1 A / F1). No-ops never enqueue a `Traversal` step
-        // (Resolution E), so they never suppress.
+        // `pending_navigation` slot so it cannot re-fire a turn late (plan §1 A /
+        // F1). Suppressing on a *queued* traversal is a deliberate DIVERGENCE from
+        // §7.4.2.2 step 19 — whose gate is *ongoing navigation* == "traversal", set
+        // only by the §7.4.6.1 step-8.4 APPLY — not an application of it; the full
+        // statement lives on the `DrainHost::handle_navigation` contract. No-ops
+        // never enqueue a `Traversal` step (Resolution E), so they never suppress.
         let suppress =
             host.traversal_queue().has_pending_traversal() || host.traversal_queue().is_applying();
         if host.handle_navigation(suppress) {

@@ -228,32 +228,37 @@ impl App {
         );
         self.inline_state_mut().drain_in_progress = true;
         let mut outcome = DrainCoordinator::drain_same_turn(self);
-        // **Reinstate a step-19 suppression this turn REFUTED** — the §7.4.2 leg of the
-        // coordinator's Resolution-D rule, and the app-mode half of the fix for the
-        // §7.4.2.2-vs-§7.4.6.1 timing gap.
+        // **Reinstate a suppression this turn REFUTED** — the §7.4.2 leg of the
+        // coordinator's Resolution-D rule, and the app-mode half of what keeps elidex's
+        // enqueue-time nav-suppression from over-reaching.
         //
         // Phase 1c suppresses the own-context navigation whenever a `Traversal` step is
-        // pending, citing WHATWG HTML §7.4.2.2 *Beginning navigation* step 19 ("If
-        // navigable's ongoing navigation is "traversal": … Return", noted "Any attempts
-        // to navigate a navigable that is currently traversing are ignored"). But
-        // *ongoing navigation* (§7.4.2.5 *Aborting navigation* — "a navigation ID,
-        // "traversal", or null, initially null") is set to "traversal" only by §7.4.6.1
-        // *Updating the traversable* step 8.4, i.e. when the APPLY runs, and back to
-        // null when it completes; §7.4.3's enqueue sets nothing. So suppressing on a
-        // merely-QUEUED traversal is a **prediction** that the navigable will traverse,
-        // and Phase 1c must make it before Phase 2 can settle it.
+        // QUEUED. That is a deliberate **divergence** from WHATWG HTML §7.4.2.2
+        // *Beginning navigation* step 19, not an application of it (webref-verified
+        // 2026-07-26; slot `#11-nav-supersede-window-vs-ongoing-navigation`, and the
+        // full statement lives on the `DrainHost::handle_navigation` contract in
+        // `elidex-navigation`). Step 19's gate — *ongoing navigation* == "traversal"
+        // (§7.4.2.5 *Aborting navigation*: "a navigation ID, "traversal", or null,
+        // initially null") — is evaluated when `navigate` RUNS, and only §7.4.6.1
+        // *Updating the traversable* step 8.4 ever sets that value, inside the APPLY
+        // (three sites reset it to null, each noting "This allows new navigations of
+        // navigable to start, whereas during the traversal they were blocked").
+        // §7.4.3's enqueue sets nothing. So a `location.*` issued before the apply is
+        // NEVER step-19-ignored, however the queued traversal later resolves —
+        // elidex's window is a strict superset of the spec's.
         //
-        // App-mode's Phase 2 runs back-to-back in the same turn, so the prediction IS
-        // settled before the turn ends: [`apply_traversal`](DrainHost::apply_traversal)
-        // cancels the held request the moment a traversal MOVES THE CURSOR — the same
-        // "cursor-moved" condition the coordinator's `traversal_applied` latch uses to
-        // cancel a deferred `SyncUpdate`, applied to the §7.4.2 leg instead of the
-        // §7.4.4 one. What reaches here is therefore a suppression whose premise this
-        // turn REFUTED: every queued traversal was a no-op or a failed load, the
-        // navigable never traversed, and step 19 never applied — so the navigation
-        // still applies, in the turn that issued it. (Not "a turn late": Phase 1c
-        // already drained the VM slot, and the request has been held on the host ever
-        // since, so it cannot re-fire on a later turn.)
+        // App-mode narrows the superset back down within the turn.
+        // [`apply_traversal`](DrainHost::apply_traversal) cancels the held request the
+        // moment a traversal MOVES THE CURSOR — the same "cursor-moved" condition the
+        // coordinator's `traversal_applied` latch uses to cancel a deferred
+        // `SyncUpdate`, applied to the §7.4.2 leg instead of the §7.4.4 one. What
+        // reaches here is therefore a suppression whose premise this turn REFUTED:
+        // every queued traversal was a no-op or a failed load and the navigable never
+        // traversed at all — so the navigation still applies, in the turn that issued
+        // it. (Not "a turn late": Phase 1c already drained the VM slot, and the request
+        // has been held on the host ever since, so it cannot re-fire on a later turn.)
+        // The residual divergence — a traversal that DOES move the cursor still drops a
+        // navigation the spec would have let start — is the slot's, not this tail's.
         //
         // This restores the contract origin/main's hand-rolled drain had on the §7.4.2
         // leg — "a no-target / failed-load traversal returns `false` … so the loop
@@ -448,12 +453,14 @@ impl DrainHost for App {
     /// On `suppress` (an in-range traversal pending this turn or still queued from
     /// an earlier one), **drain-and-HOLD**: the slot IS drained (this is its only
     /// drain) so a suppressed `location.*` cannot re-fire a turn late, and the
-    /// request is not applied here — a queued traversal supersedes it (§7.4.2.2
-    /// *Beginning navigation* step 19, "Any attempts to navigate a navigable that is
-    /// currently traversing are ignored"). App-mode does not DROP it on the floor,
-    /// though: step 19's gate is *ongoing navigation* = "traversal", which §7.4.6.1
-    /// step 8.4 sets only when the apply RUNS, so at Phase-1c time the suppression is
-    /// a prediction. The request is held on
+    /// request is not applied here — a queued traversal supersedes it. That
+    /// enqueue-time supersede is a deliberate **divergence** from §7.4.2.2
+    /// *Beginning navigation* step 19, whose gate (*ongoing navigation* =
+    /// "traversal") only §7.4.6.1 step 8.4 sets, inside the APPLY — see the
+    /// `DrainHost::handle_navigation` contract and slot
+    /// `#11-nav-supersede-window-vs-ongoing-navigation`. App-mode does not DROP the
+    /// request on the floor, which narrows the superset back to "a traversal that
+    /// really moved the cursor": the request is held on
     /// [`InteractiveState::deferred_navigation`](super::InteractiveState) for the
     /// turn; Phase 2's [`apply_traversal`](Self::apply_traversal) cancels it iff a
     /// traversal moves the cursor, and [`App::process_pending_navigation`] reinstates
@@ -515,7 +522,10 @@ impl DrainHost for App {
     ///
     /// A traversal that MOVED THE CURSOR also **cancels the navigation Phase 1c
     /// held** ([`handle_navigation`](Self::handle_navigation)): the navigable really
-    /// did traverse, so §7.4.2.2 step 19's "ignored" stands. That is the §7.4.2 leg
+    /// did traverse, so elidex's enqueue-time supersede stands. (It stands as a
+    /// deliberate divergence — the navigation was issued BEFORE the apply, so
+    /// §7.4.2.2 step 19 never gated it either way; slot
+    /// `#11-nav-supersede-window-vs-ongoing-navigation`.) That is the §7.4.2 leg
     /// of the identical rule the coordinator applies to the §7.4.4 leg — its
     /// `traversal_applied` latch cancels a deferred `SyncUpdate` on exactly this
     /// condition — so both classes of same-turn intent deferred behind a barrier are

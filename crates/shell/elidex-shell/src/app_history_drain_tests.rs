@@ -337,13 +337,20 @@ fn app_go_zero_is_an_in_range_barrier_that_rebuilds() {
 // ---------------------------------------------------------------------------
 
 /// Resolution A: a same-turn `history.back(); location.assign(...)` lands on the
-/// **back target**, the navigation drain-and-DISCARDED — WHATWG HTML §7.4.2.2
-/// *Beginning navigation* step 19 ("Any attempts to navigate a navigable that is
-/// currently traversing are ignored"). The reverse cross-channel order lands the
-/// same way: the VM stages traversals and `location.*` on two separate channels, so
-/// their relative issue order is not observable to the drain, and the spec lands on
-/// the traversal target in both orders anyway (step 20's "aborting other ongoing
-/// navigations" aborts *navigations*, not the traversal).
+/// **back target**, the navigation drain-and-DISCARDED. The reverse cross-channel
+/// order lands the same way: the VM stages traversals and `location.*` on two
+/// separate channels, so their relative issue order is not observable to the drain,
+/// and the spec lands on the traversal target in both orders anyway (§7.4.2.2 step
+/// 20's "aborting other ongoing navigations" aborts *navigations*, not the
+/// traversal).
+///
+/// **The discard is a deliberate DIVERGENCE, not §7.4.2.2 step 19** (webref-verified
+/// 2026-07-26; slot `#11-nav-supersede-window-vs-ongoing-navigation`). Step 19's
+/// gate — *ongoing navigation* == "traversal" — is read when `navigate` runs and is
+/// set only by the §7.4.6.1 step-8.4 APPLY, so a `location.*` issued while the
+/// traversal is merely QUEUED never meets it. elidex suppresses from enqueue time,
+/// a strict superset of the spec's window; this test pins that behavior (unchanged),
+/// not a step-19 derivation of it.
 ///
 /// **FLIP of the retired hand-rolled
 /// `app/navigation.rs::process_pending_navigation` traversal-supersede `return`.**
@@ -454,13 +461,15 @@ fn app_full_fifo_survives_an_applied_traversal_mid_stream() {
 /// navigable never traversed and the same-turn `location.*` it superseded still
 /// applies — in the turn that issued it.
 ///
-/// Phase 1c's suppression cites WHATWG HTML §7.4.2.2 *Beginning navigation* step 19
-/// ("Any attempts to navigate a navigable that is currently traversing are
-/// ignored"), whose gate is *ongoing navigation* = "traversal" (§7.4.2.5 *Aborting
-/// navigation*). §7.4.6.1 *Updating the traversable* step 8.4 sets that only when the
-/// APPLY runs — §7.4.3's enqueue sets nothing — so suppressing on a merely-QUEUED
-/// traversal is a **prediction**. App-mode's Phase 2 settles it in the same turn, so
-/// `App::process_pending_navigation` reinstates a suppression the turn refuted.
+/// Phase 1c suppresses on a merely-QUEUED traversal, which is a deliberate
+/// **divergence** from WHATWG HTML §7.4.2.2 *Beginning navigation* step 19 rather
+/// than an application of it (webref-verified 2026-07-26; slot
+/// `#11-nav-supersede-window-vs-ongoing-navigation`): step 19's gate is *ongoing
+/// navigation* == "traversal" (§7.4.2.5 *Aborting navigation*), which only §7.4.6.1
+/// *Updating the traversable* step 8.4 sets, inside the APPLY — §7.4.3's enqueue sets
+/// nothing. App-mode's Phase 2 runs in the same turn, so
+/// `App::process_pending_navigation` reinstates a suppression the turn refuted,
+/// narrowing the superset back to "a traversal that really moved the cursor".
 ///
 /// **Regression pin.** The retired hand-rolled drain kept this by falling through:
 /// "a no-target / failed-load traversal returns `false` … so the loop CONTINUES and

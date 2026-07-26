@@ -267,8 +267,10 @@ fn i1_full_phase1_precedes_phase2_and_nav_suppressed() {
     // model is retired. A Phase-1 sync update precedes the Phase-2 traversal apply
     // (I1), and the same-turn last-wins navigation is now SUPPRESSED
     // (drain-and-discard) because an in-range traversal is pending — the nav is
-    // discarded, not applied (§7.4.2.2 step 19 "ignored"; the old shell
-    // `return true` supersede's phase-separated form).
+    // discarded, not applied (the old shell `return true` supersede's
+    // phase-separated form). Suppressing on a *queued* traversal is a deliberate
+    // divergence from §7.4.2.2 step 19, not an application of it — see the
+    // `DrainHost::handle_navigation` contract.
     let mut host = MockHost::new(vec![push("/a"), back()]).with_navigation();
     let _ = DrainCoordinator::drain_same_turn(&mut host);
 

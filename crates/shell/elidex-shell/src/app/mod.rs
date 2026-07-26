@@ -246,9 +246,12 @@ pub(super) struct InteractiveState {
     /// (browsing-context/session-level state, not a per-entity ECS component).
     pub(super) traversal_queue: TraversalQueue,
     /// The §7.4.2 own-context navigation that Phase 1c **drained but HELD** under
-    /// the §7.4.2.2 *Beginning navigation* step-19 traversal suppression, already
-    /// resolved against the Phase-1c document URL (so a reinstatement navigates to
-    /// exactly the URL the unsuppressed leg would have).
+    /// the queued-traversal suppression (elidex's enqueue-time supersede — a
+    /// deliberate divergence from §7.4.2.2 *Beginning navigation* step 19, whose
+    /// gate the §7.4.6.1 step-8.4 apply sets; slot
+    /// `#11-nav-supersede-window-vs-ongoing-navigation`), already resolved against
+    /// the Phase-1c document URL (so a reinstatement navigates to exactly the URL
+    /// the unsuppressed leg would have).
     ///
     /// Lives for the span of ONE [`App::process_pending_navigation`] drive and
     /// **never across turns**: Phase 2's
