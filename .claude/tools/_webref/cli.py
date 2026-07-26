@@ -13,6 +13,7 @@ from .commands.aoid import cmd_aoid
 from .commands.agent_brief import cmd_agent_brief
 from .commands.agent_policy import cmd_agent_policy
 from .commands.body import cmd_body
+from .commands.cite_audit import register as register_cite_audit
 from .commands.coverage_map import cmd_coverage_map
 from .commands.css import cmd_css
 from .commands.dfn import cmd_dfn
@@ -193,6 +194,8 @@ def build_parser() -> argparse.ArgumentParser:
         help="output format (default: text)",
     )
     diff.set_defaults(func=cmd_diff)
+
+    register_cite_audit(sub)
 
     policy = sub.add_parser(
         "agent-policy",
