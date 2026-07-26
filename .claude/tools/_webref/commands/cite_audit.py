@@ -67,6 +67,12 @@ _ATTRIBUTED_RE = re.compile(
     rf"({_LABEL_ALT})(?:\s+spec)?\s*§\s*(\d+(?:\.\d+)*)", re.IGNORECASE
 )
 _COMMENT_RE = re.compile(r"^\s*(///|//!|//|\*|/\*)")
+# A spec label at end-of-line with no `§` after it: the citation wrapped
+# to the next comment line ("… + WHATWG HTML\n/// §4.10.21.3 step 7").
+# Without this the next line inherits whatever spec was named EARLIER on
+# the wrapped line — a false negative *inside* an audited set, which is
+# worse than an unattributed cite because nothing reports it.
+_DANGLING_LABEL_RE = re.compile(rf"({_LABEL_ALT})\s*$", re.IGNORECASE)
 
 
 def _attribute(lines: list[str]) -> dict[tuple[int, int], str | None]:
@@ -77,6 +83,7 @@ def _attribute(lines: list[str]) -> dict[tuple[int, int], str | None]:
     """
     out: dict[tuple[int, int], str | None] = {}
     block_spec: str | None = None
+    carried: str | None = None  # label dangling at the end of the prior line
     for lineno, line in enumerate(lines, start=1):
         if not _COMMENT_RE.match(line):
             block_spec = None  # a non-comment line ends the block
@@ -85,13 +92,27 @@ def _attribute(lines: list[str]) -> dict[tuple[int, int], str | None]:
             short = LABEL_TO_SHORTNAME[m.group(1).lower()]
             explicit[m.end() - len(m.group(2)) - 1] = short
             block_spec = short
+        # A label left dangling at end-of-line attributes the FIRST cite
+        # on the next comment line, and wins over `block_spec` there.
+        first_of_line = True
         for m in _CITE_RE.finditer(line):
             # An explicit label on this same cite wins; else inherit.
             hit = next(
                 (sn for pos, sn in explicit.items() if abs(pos - m.start()) <= 2),
                 None,
             )
+            if hit is None and first_of_line and carried is not None:
+                hit = carried
             out[(lineno, m.start())] = hit if hit else block_spec
+            if hit:
+                block_spec = hit
+            first_of_line = False
+        # Compute the carry AFTER this line's cites, so it applies to the
+        # next line only.
+        dangling = _DANGLING_LABEL_RE.search(line)
+        carried = (
+            LABEL_TO_SHORTNAME[dangling.group(1).lower()] if dangling else None
+        )
     return out
 
 # Default scan root is elidex policy, not generic behavior.
@@ -132,7 +153,13 @@ def cmd_cite_audit(args: argparse.Namespace) -> int:
     by_section: dict[str, list[tuple[Path, int, str]]] = defaultdict(list)
     unattributed: list[tuple[Path, int, str]] = []
     other_spec = 0
+    want = args.prefix.split(".") if args.prefix else None
     for section, spec, path, lineno, line in _iter_cites(root, args.glob):
+        # `--prefix` scopes EVERY reported class, not just `by_section` —
+        # an unattributed cite still carries a section number, so a
+        # `--prefix`-scoped run must not dump the whole tree's list.
+        if want and section.split(".")[: len(want)] != want:
+            continue
         if spec is None:
             unattributed.append((path, lineno, line))
             continue
@@ -141,17 +168,11 @@ def cmd_cite_audit(args: argparse.Namespace) -> int:
             continue
         by_section[section].append((path, lineno, line))
 
-    if args.prefix:
-        # Dotted-COMPONENT prefix, not string prefix: `4.10.2` must match
-        # `4.10.2` and `4.10.2.7`, but NOT `4.10.20.3`. A bare
-        # `str.startswith` silently widens the filter by an order of
-        # magnitude — the same class of quiet over-match the `heading`
-        # command guards with `--exact`.
-        want = args.prefix.split(".")
-        by_section = {
-            s: v for s, v in by_section.items()
-            if s.split(".")[: len(want)] == want
-        }
+    # (`--prefix` is applied in the scan loop above — dotted-COMPONENT,
+    # not string prefix: `4.10.2` matches `4.10.2` and `4.10.2.7` but NOT
+    # `4.10.20.3`. A bare `str.startswith` silently widens the filter by
+    # an order of magnitude — the quiet over-match `heading --exact`
+    # guards against.)
 
     total_cites = sum(len(v) for v in by_section.values())
     # `lookup_section` returns (number, title, anchor) or None. It is

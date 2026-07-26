@@ -1,4 +1,4 @@
-# Plan — constraint-validation + form-submission citation sweep (doc-only, PR-A0)
+# Plan — a citation detector, and the sweep it can verify (PR-A0)
 
 ## §0 Status
 
@@ -6,7 +6,11 @@
 **Base**: `f7d9b5ce` (`origin/main`). **Lands FIRST**, before PR-A.
 **Blocks**: `docs/plans/2026-07-form-submittable-category-repair.md` (PR-A) → `docs/plans/2026-07-form-elementstate-cache-deletion-slice-1.md` (Slice 1).
 **Status**: plan-memo draft — `/elidex-plan-review` before implementation.
-**Nature**: **doc-only**. Zero behavior change, zero production logic touched. Precedent = #483 (`9fe42b48`), a doc-only CORS-preflight citation sweep landed as its own PR.
+**Nature**: **authors a detector and sweeps what the detector can verify.** Two parts, and the framing matters:
+- **`.claude/tools/webref cite-audit` (NEW) is the headline deliverable** — a tested tool that measures citation drift across the whole tree. It is durable and reusable; the sweep is downstream of it.
+- **The sweep repairs what the tool attributes to HTML in the `§4.10` set**, and **measures** — rather than claims — the classes the tool cannot see (§4.8).
+
+**This PR makes no completeness claim about "the cluster".** Four successive drafts asserted one and were wrong four times (§1); the assertion has been replaced by a bounded, checkable gate (§6) plus named, measured slots (§10). **Not doc-only**: the `crates/**` diff is comment-only, but the PR also adds tool code + tests (§5).
 
 **Why it is its own PR rather than a rider on PR-A.** It was a rider until the Step-4.5 re-check proved the sweep needs its own *method*: the original probe asked "does `heading --exact` fail?", which is structurally blind to a **valid-but-misused** section number. That blindness hid a 19-site cluster (§4.5). A sweep whose detector is wrong is not a rider — it is a design problem, and it gets a PR.
 
@@ -50,19 +54,24 @@ All pairs looked up with `.claude/tools/webref` on **2026-07-26**. These are the
 
 `§X.Y = <title>` in a comment is a checkable assertion. Repairing one is mechanical. **Finding all of them is not**, and that is what this PR is actually for.
 
-**Three generations of the same defect.** Each fix moved the blind spot up one altitude rather than removing it:
+**The blind spot recedes; that is the finding.** Every round the detector improved and the blind spot moved to whatever the *new* detector could not see:
 
-| # | Detector | Blind to |
+| Class | How it hides | Status |
 |---|---|---|
-| R1 probe | resolution-only-by-known-**outcome** | a number that resolves to the *wrong concept* |
-| draft 1 | enumeration-only-by-known-**pattern** | anything the hand-authored alternation did not match |
-| draft 2 | triage-only-by-known-**suspicion** | misuse the author had not already guessed — detector (a) got a published total evidence base; (b) and (c) did not |
+| (a) non-resolving numbers | — | **tool** ✓ |
+| (b) resolves, wrong concept | title matches the number, not the comment | judgment over tool output ✓ |
+| (c) `§`-less step numbers | `_CITE_RE` requires a `§`; **structurally invisible** to the tool | **measured slot** (§4.8) |
+| (d) right section, right title, **wrong step** | invisible to (b) — the title matches; invisible to (c) — a `§` is present | **measured slot** (§4.8) |
+| (e) org-only labels (`WHATWG §4.10.7.3.1`) | names an org, not a spec; fits no bucket cleanly | **measured slot** (§4.8) |
+| (f) the "attributed to another spec" bucket | audited by nothing | **measured slot** (§4.8) |
 
-Draft 2's proof is a **systematic off-by-one cascade across four adjacent element sections** that it never named (§4.2): `<output>` cited as §4.10.13 (**9 of 9 wrong**), `<progress>` as §4.10.14 (**9 of 9**), `<meter>` as §4.10.15 (**11 of 16**), and §4.10.10 used for `<select>`/`<datalist>` (**8 wrong**). It dispositioned 8 of ~37 and wrote "(subset)" on a row where **no correct sibling exists**.
+Each class was found **by looking**, not by a detector — so an exhaustiveness banner over "the cluster" will always recede one class ahead of whatever is currently checkable.
 
-**The principle that ends the regress: triage is necessarily total; repair is scoped.** A cite's concept is knowable only by reading it, so the misuse class cannot be bounded by concept *a priori* — only the **repair** set can. §4.0 already did this for the 25 non-resolving numbers; §4.2 now does it for all 82.
+**So the claim is re-scoped, and the work is kept.** §1's thesis is no longer "sweep the cluster completely". It is:
 
-**And the root fix is a tool, not a paragraph.** Prose cannot hold a detector: every draft's discovery step decayed into the author's suspicion. `.claude/tools/webref cite-audit` (NEW, §3.1) emits every distinct `§number` cited in a tree, its resolved title, and **every cite line with its text** — the complete candidate set *with the context needed to classify it*. The script owns discovery; the memo owns classification; §6's exit criterion re-runs the script.
+> **The detector is the deliverable; its boundary is stated, not hidden.** PR-A0 repairs what the tool can verify, and converts every class it cannot verify into a slot with a current count and the command to re-derive it. Measured-and-owned beats claimed-and-wrong.
+
+That is the One-issue-one-way answer — one canonical detector, honest about where it stops — rather than a fifth completeness assertion.
 
 **The corrected shape**: discovery is step **(0)**, it is a total enumeration of the space, and every number it returns is dispositioned. §4 is re-derived from its output rather than from a pattern list.
 
@@ -75,7 +84,7 @@ Draft 2's proof is a **systematic off-by-one cascade across four adjacent elemen
 | # | Invariant | What it forces |
 |---|---|---|
 | **I1** | **Concept-scoped completeness** — the unit is the *concept cluster*, not the file and not the pattern. Partial repair across semantic siblings is what #483 was forced to complete by its external reviewer ([[feedback_semantic-sibling-selfseed-and-regate-breadth]]). | One inclusion rule, applied uniformly (§4.5). The first draft stated a concept rule in I1 and a **file** rule in its §4.4 — that rule-switch is the mechanism behind the misses. |
-| **I2** | **Total disposition** — every number discovery returns is IN or OUT-with-a-named-owner. Silence is the failure mode. | §4.0's table publishes all 81; §4.5 dispositions all 25 non-resolving numbers and every misuse found. |
+| **I2** | **Total disposition *within the detector's reach*** — every number the tool returns is IN or OUT-with-a-named-owner. Classes the tool cannot see are measured (§4.8), not claimed. | §4.0's table publishes all 81; §4.5 dispositions all 25 non-resolving numbers and every misuse found. |
 | **I3** | **Successor-PR fate** — some cites annotate code that PR-A / Slice 1 rewrite. | Falsifiable per site (§4.6), and the criterion must cover *rewritten*, not only *deleted*. |
 | **I4** | **Detector completeness** — a cite can be wrong without a `§` on the line (bare "step N"), wrong while resolving cleanly (misuse), or invisible to a hand-written regex. | Discovery needs three detectors **and a checked-in implementation** — prose decayed three times (§1). `cite-audit` (NEW) owns detector (0)+(a); (b) and (c) stay author-judgment over the script's output. |
 
@@ -94,11 +103,11 @@ Draft 2's proof is a **systematic off-by-one cascade across four adjacent elemen
 
 ## §3. Spec coverage map
 
-Doc-only: no algorithm branch is implemented or altered. Each row is a **citation target** the sweep introduces or corrects.
+No algorithm branch is implemented or altered **in `crates/**`** — the engine diff is comments only (the PR also adds tool code, §5). Each row is a **citation target** the sweep introduces or corrects.
 
 | Spec section | Step | Branch | Touch (compile/dispatch site) | Full enum? | User-input flow |
 |---|---|---|---|---|---|
-| WHATWG HTML §4.10.21.1 Definitions | candidate / barred / satisfies constraints | candidacy vocabulary | the `§4.10.20.3` family — **per-site table in §4.2**, not blanket-mapped | ✓ (per-site) | no (doc-only) |
+| WHATWG HTML §4.10.21.1 Definitions | candidate / barred / satisfies constraints | candidacy vocabulary | the `§4.10.20.3` family — **per-site table in §4.2**, not blanket-mapped | ✓ (per-site) | no (comment-only in `crates/**`) |
 | WHATWG HTML §4.10.21.2 Constraint validation | statically validate | the pure walk | `html_form_proto.rs:613`, `well_known.rs:1145` | ✓ | no |
 | WHATWG HTML §4.10.21.2 Constraint validation | interactively validate | the `requestSubmit` validation arm | `html_form_proto.rs:537`, `:538` — **both are *interactively* validate**, not statically (row corrected) | ✓ | no |
 | WHATWG HTML §4.10.21.3 The constraint validation API | control-level CVA members | `willValidate` / `checkValidity` / `validationMessage` / `setCustomValidity` / `ValidityState` | `validity_state.rs:475` (**control-level**, row corrected), `vm/globals.rs:287` (**CVA-mixin install**, row corrected); `validation/mod.rs:188` already correct — stays | ✓ | no |
@@ -117,7 +126,7 @@ Doc-only: no algorithm branch is implemented or altered. Each row is a **citatio
 | WHATWG HTML §4.10.5.1.1 Hidden state (type=hidden) | `<input type=hidden>` bar | `validation/mod.rs:32` — currently uncited | ✓ | no |
 | WHATWG HTML §4.10.7 The select element | select `required` / `valueMissing` (`#attr-select-required`) | `validation/mod.rs:368` (`§4.10.5.3.11`, non-resolving). **Not §4.10.5.3.4** — that is the *input* attribute | ✓ | no |
 
-**Breadth**: K=1 spec (WHATWG HTML), M=18 rows → **single-PR scope**. Doc-only, one concept cluster, zero behavior surface.
+**Breadth**: K=1 spec (WHATWG HTML), M=18 rows → **single-PR scope** on the breadth metric. ⚠ **Breadth is not the split test that matters here.** §2 concedes the discovery half is edge-dense, so the single-PR shape rests on CLAUDE.md's **base case** — an approved umbrella's narrowly-scoped slice — which is why §11's carried edit adds PR-A0 to the umbrella §6 slicing table. Without that row the base case does not apply and breadth alone cannot carry it.
 
 ### §3.1 User-input touch audit + the discovery method
 
@@ -146,7 +155,7 @@ It emits, per distinct number: the resolved title (or `*** UNRESOLVED ***`), the
 
 ---
 
-## §4 Site accounting
+## §4 Site accounting — bounded by what the detector verifies
 
 ### §4.0 The evidence base — all 81 numbers
 
@@ -161,7 +170,11 @@ Run 2026-07-27 via `.claude/tools/webref cite-audit html --prefix 4.10`.
 | attributed to another spec | — | 2663 cites |
 | **UNATTRIBUTED** | — | **6931 cites** |
 
-**The `§4.10` cluster, attributed to HTML**: **74 distinct sections / 497 cites**; **24 unresolved / 92 cites**.
+**The `§4.10` cluster, attributed to HTML**: **75 distinct sections / 518 cites**; **24 unresolved / 94 cites**; 47 cites attributed elsewhere; **166 unattributed**.
+
+⚠ **A fourth measurement, and why**: 74/497 became 75/518 when the attributor learned to carry a spec label across a **comment-line wrap** (§6 item 5). `form_data.rs:181-182` reads "… WHATWG XHR §4.3 constructor + WHATWG HTML / §4.10.21.3 step 7", so the wrapped cite was bucketed to `xhr` — a false negative *inside the audited set*, which is worse than an unattributed cite because nothing reports it. 21 cites recovered.
+
+**Which measure each table uses.** §4.0's 25-number table is **raw-grep** (spec-agnostic, so it includes cites later attributed elsewhere); everything downstream is **attributed**. The 96-vs-94 delta is exactly that: `§4.10.10.2` 21 raw / 20 attributed, `§4.10.15.3` 2 / 1, `§4.10.7.3.1` 2 / 0. Stated so the two are not read as a contradiction.
 
 ### The measurement has been wrong in three successive directions — and only the third is measured
 
@@ -175,7 +188,7 @@ This provenance is the memo's most transferable content, because it is the **thi
 
 Both earlier figures are **superseded**. Each was produced by a method that could not see its own blind spot, and each blind spot was invisible from inside the method that had it — which is precisely why discovery is now a tested tool (§6 item 5) rather than a paragraph.
 
-Consequently the 25-number table below is **24** numbers under attribution: the one that drops out is cited only from comment blocks that never name a spec, so it is UNATTRIBUTED rather than HTML.
+Consequently the 25-number table below is **24** numbers under attribution (`§4.10.7.3.1` drops out — both its cites are unattributed). **Under attribution the resolving count is 75 − 24 = 51**, the denominator §4.2 uses; earlier drafts' 81 / 82 / "all 57 resolving" are superseded.
 
 **UNATTRIBUTED is a finding, not noise.** 6931 cites tree-wide (234 within `§4.10.x`) carry a bare `§` whose spec a reader cannot determine from its comment block. That is a defect *independent of whether the number happens to resolve*, and it is the largest single citation-hygiene gap the tool exposes. **Out of scope here** (it spans every spec and every crate) → queued in §10.1 as `#11-unattributed-spec-citations`.
 
@@ -215,9 +228,9 @@ Every one of the 25 numbers appears above. *(Draft 2 published "47 IN / 42 OUT /
 
 The first draft's §4.1 published a 7-pattern union of 52 cites and misfiled 2 of its 7 rows: `§4.10.21.4` resolves to "Security" and bare `§4.10.15` resolves to "The fieldset element", so both are **misuse** (§4.2), not non-resolution — 16 lines in the wrong bucket. §4.0 supersedes it.
 
-### §4.2 Misuse — total triage of all 57 resolving numbers (detector (b))
+### §4.2 Misuse — triage of all 51 attributed-and-resolving numbers (detector (b))
 
-Applied to **every** resolving number, per §1's principle. Numbers whose title matches their cite text throughout are correct and omitted; every number with ≥1 mis-cited site appears below with a per-number verdict.
+Applied to all **51** numbers the tool resolves under attribution — the bound §1 states, not a claim about the cluster. Numbers whose title matches their cite text throughout are correct and omitted; every number with ≥1 mis-cited site appears below with a per-number verdict.
 
 **Cluster-IN misuse:**
 
@@ -334,6 +347,30 @@ Verdicts against Slice-1's §5 deletion set and its §6-A inversion rows:
 
 ---
 
+### §4.8 What the detector cannot see — measured, not claimed
+
+All counts from `.claude/tools/webref cite-audit html` on 2026-07-27. Each becomes a slot (§10) with its command, so the next toucher re-derives rather than re-discovers.
+
+| Class | Count | Why the tool cannot see it | Re-derive |
+|---|---|---|---|
+| (c) `§`-less step numbers | ≥3 known (`html_form_proto.rs:484`/`:486`/`:508`) | `_CITE_RE` requires a `§`; a bare "Step 2.1" has none | `grep -rnE '[Ss]tep [0-9]' crates/ --include='*.rs'` then read for a nearby spec concept |
+| (d) right section, wrong **step** | ≥21 known (§4.3 + the entry-list family below) | the number resolves *and* its title matches the concept; only the step is stale | per-anchor `webref body html <anchor>` |
+| (e) org-only labels (`WHATWG §…`) | 334 cites | "WHATWG" names an org, not a spec — no shortname to resolve against | `grep -rn 'WHATWG §' crates/ --include='*.rs' \| wc -l` |
+| (f) attributed to another spec | 47 in the `§4.10` set, 2750 tree-wide | audited against *their* spec by nothing here | `webref cite-audit <shortname>` per spec |
+| unattributed bare `§` | **166** in the `§4.10` set, **6733** tree-wide | no spec nameable from the comment block | `webref cite-audit html --prefix 4.10 --show-unattributed` |
+
+### §4.9 Repairs found by looking — real, and not provably exhaustive
+
+Each is verified; none is claimed to complete a class.
+
+1. **`§4.10.23` has only TWO steps** (`body html resetting-a-form`): step 1 fires `reset`, step 2 invokes each resettable element's reset algorithm. **§7's earlier "step 4 → `elidex_form::reset_form`" would have authored a *new wrong citation* in a citation-repair PR** — the sharpest finding of the pass. `crates/dom/elidex-form/src/submit.rs:464` `reset_form` implements **step 2**.
+2. **The `§4.10.22.4` entry-list step family (14 sites, verified 2026-07-27)**: the tree says "step 7 / 8 / 8.1 / 8.2 / 10". Verified against `body html constructing-form-data-set`: top-level steps are **1..9** with the per-control arms as **substeps of step 5** (5.6 select, 5.7 checkbox/radio, 5.8 file, …), and **top-level step 10 does not exist**. Sites: `submit.rs:359`/`:363`/`:393`/`:395`/`:402`/`:405`/`:413`/`:426`; `submit_tests.rs:80`/`:84`/`:166`/`:167`/`:198`/`:225`. Both files already in the touch set; re-verify each arm against the prose before writing.
+3. **Email cited as Password**: `validation/mod.rs:46` and `validation/tests.rs:358` cite **§4.10.5.1.6 = "Password state"**; email is **§4.10.5.1.5 "Email state (type=email)"**. In-cluster, in touched files.
+4. **`tests_html_form_proto.rs:144`** cites **§4.10.21 = "Constraints"** for form submission → §4.10.22.3 / §4.10.3.
+5. **The local "Algorithm 1..5" block is wider than §4.3 said**: `html_form_proto.rs:537`, `:558`, `:568` continue the same narration as `:483`/`:484`/`:486`/`:508`. Renumbering part of it increases incoherence. ⚠ The doc list and the code comments are **already off by one from each other** — §9-Q6's decision must cover the whole block and reconcile the two, or leave both as local narration with the spec-step claims stripped.
+6. **`<output>` IN/OUT re-verdicted under one rule.** §4.2 swept `components.rs:601`/`:607` but queued `vm/mod.rs:1075`, though all three describe the same `OutputDefaultValue` state machine — the line was drawn by comment *wording*, not by §4.5's concept rule. Under that rule all three are the same concept (`<output>` default-value state, reached from the reset algorithm): **all three are IN**, all → §4.10.12.
+
+
 ## §5 Behavior deltas
 
 **No `crates/**` behavior change.** Within the engine the diff is comments and doc-comments only — no production statement, signature, or test assertion changes.
@@ -354,7 +391,7 @@ There is nothing to assert — the deliverable is prose. Verification is procedu
    ```
    **Scoped to attributed-HTML cites in the cluster** — the assertion cannot cover bare cites whose spec is unknown (§4.0), so unattributed cites are *reported as a count*, not asserted on. **Per-cite over the concept axis, not per-number over resolution**: (i) `--strict` exits 0, or every remaining `*** UNRESOLVED ***` number matches §4.0's OUT list exactly; (ii) each cite in the full output carries a disposition — swept, or on §4.6's fate list, or on §10.1's queue. A pattern-shaped scan cannot state (ii); draft 2's residual scan was in fact **narrower than its own audit grep** (dropping `§4.10.15.2`, never having `§4.10.21.5` / `§4.10.18.x` / bare `§4.10.15`), so the PR could have passed its own exit criterion with the cluster half-swept. Plus: no `§4.10.21.3` survives except `validation/mod.rs:188`; no `§`-less "step 2/2.1/2.2" in the `requestSubmit` family; `§4.10.12` cite count > 0.
 
-5. **The tool is code, so it is unit-tested** — `.claude/tools/_webref/test_cite_audit.py` (NEW, 13 tests, `unittest`, following the `test_inventory_diff.py` / `test_agent_brief.py` / `test_refresh.py` shape already in `_webref/`). It is outside the cargo workspace, so `mise run ci` does not run it; the gate runs it explicitly alongside its three siblings. Coverage maps 1:1 onto the defects that made it necessary:
+5. **The tool is code, so it is unit-tested** — `.claude/tools/_webref/test_cite_audit.py` (NEW, 13 tests, `unittest`, following the `test_inventory_diff.py` / `test_agent_brief.py` / `test_refresh.py` shape already in `_webref/`). It is outside the cargo workspace, so `mise run ci` does not run it; the gate runs it explicitly alongside its three siblings. ⚠ Same caveat for the type check: **Pyright is the only checker reaching `.claude/tools/**`**, it is on PATH locally (`/opt/homebrew/bin/pyright`) but `npx --no-install pyright` **fails** (package not cached) — so any hook or CI invoking it via `npx` will silently not run. Coverage maps 1:1 onto the defects that made it necessary:
    - **`TestStrictExitCode`** — `--strict` exits non-zero on an unresolved cite, zero when all resolve, and zero without the flag. *(`--strict` was a no-op: `cli.main` calls `args.func(args)` and discards the return value, so the bare `return 1` was dropped.)*
    - **`TestPrefixIsDottedComponent`** — `--prefix 4.10.2` matches `4.10.2` and `4.10.2.7` but **not** `4.10.20.3`. *(It used `str.startswith`, silently sweeping the whole `4.10.2x` range.)*
    - **`TestSpecAttribution`** (7 tests) — explicit label selects that spec; longest label wins (`WHATWG HTML` is not parsed as the bare `HTML` alias); bare cites inherit within a comment block; a non-comment line ends the block; `§0.5`-style plan-memo pointers land in UNATTRIBUTED rather than being audited as HTML; `--show-unattributed` lists them.
@@ -362,7 +399,9 @@ There is nothing to assert — the deliverable is prose. Verification is procedu
 
    - **`TestSharedSpecLabelMap`** (6 tests) — both directions round-trip; every shortname is its own alias; lookup is case/space-insensitive; an unknown label returns `None` rather than a guess; **no alias is claimed by two specs**; and `cite_audit.LABEL_TO_SHORTNAME` **is** `spec_labels.LABEL_TO_SHORTNAME` (an identity assertion, so re-inlining the map fails the suite).
 
-   Verified green 2026-07-27: `python3 .claude/tools/_webref/test_cite_audit.py` → **19 tests OK**, and the three sibling test files still OK.
+   - **`TestLabelWrapCarry`** (3) + **`TestPrefixScopesEveryReportedClass`** (2) — the label-wrap false negative (§4.0) and `--prefix` scoping the unattributed/other-spec counts, not just `by_section`.
+
+   Verified green 2026-07-27: `python3 .claude/tools/_webref/test_cite_audit.py` → **26 tests OK**; full `_webref` suite **38** (26 + 6 + 5 + 1). *(Counts are re-measured each round, not recalled — an item whose job is proving the tool is checked must not itself be checked-by-recall; two earlier drafts of this line were stale.)*
 
    *(Note for future readers: the `sys.path.insert` at the top of the test file is the same shim `test_inventory_diff.py` / `test_agent_brief.py` / `test_refresh.py` already use to import `_webref` as a package from a script. Pyright flags it; it is the established precedent in this directory, **not** a defect to "fix".)*
 
@@ -372,12 +411,12 @@ There is nothing to assert — the deliverable is prose. Verification is procedu
 
 ## §7 Layering check
 
-- **Doc-only** — no code moves, no crate edge, no new `vm/host/` algorithm, no `elidex-ecs` touch. ✓
+- **No engine code moves** — no crate edge, no new `vm/host/` algorithm, no `elidex-ecs` touch; the `crates/**` diff is comments only. The PR *does* add tool code under `.claude/tools/`, outside the cargo workspace with no engine consumer (§5). ✓
 - The sweep **reinforces** the mandate indirectly: `validation/mod.rs:1`'s module doc stops claiming the fieldset section for a validation module, and `validity_state.rs:154`'s bar list stops describing a predicate it no longer matches. ✓
 - **⚠ Not a clean bill, and PR-A0 is about to make it worse before PR-A makes it better.** `run_form_check_validity` (`crates/script/elidex-js/src/vm/host/html_form_proto.rs:620-654`) **is** a form-level validation algorithm living in `vm/host/`, and this PR is about to author a *spec-blessed* `§4.10.21.2` comment on it — i.e. to document drift as though it were design. Carried mitigations:
   - a **concept → engine-independent-API mapping** in the rewritten comments: §4.10.21.1 candidacy → form-core's `is_constraint_validation_candidate`; "satisfies its constraints" → form-core's `validate_control`; §4.10.21.2 steps 1-4 → **`elidex_form::statically_validate_constraints`** (NEW) — PR-A part 4;
   - an explicit **hand-off line** at `html_form_proto.rs:620` naming PR-A's export, so the comment reads as "steps 5-7 here, steps 1-4 land in `elidex-form` next PR" rather than as a settled home.
-- **⚠ The same treatment is owed to §4.10.23's twin.** "Resetting a form" spans **three** copies: `elidex_form::reset_form` (`crates/dom/elidex-form/src/submit.rs:464`, the correct engine-independent home for step 4) plus the fire-`reset`/honor-`preventDefault` half duplicated in `crates/script/elidex-js/src/vm/host/html_form_proto.rs:592-605` **and** `crates/shell/elidex-shell/src/content/form_input.rs:290-302`. PR-A0 is about to stamp §4.10.23 authority on all three. Same mitigation as §4.10.21.2: each repaired comment carries the concept → engine-indep-API mapping (§4.10.23 step 4 → `elidex_form::reset_form`) and names the duplication rather than blessing it. **The shell copy folds into PR-A's `#11-shell-submit-interactive-validation`** (its second facet is already "an independent second copy of the submission event sequence" — the reset sequence is the same defect).
+- **⚠ The same treatment is owed to §4.10.23's twin.** "Resetting a form" spans **three** copies: `elidex_form::reset_form` (`crates/dom/elidex-form/src/submit.rs:464`, the correct engine-independent home for step 4) plus the fire-`reset`/honor-`preventDefault` half duplicated in `crates/script/elidex-js/src/vm/host/html_form_proto.rs:592-605` **and** `crates/shell/elidex-shell/src/content/form_input.rs:290-302`. PR-A0 is about to stamp §4.10.23 authority on all three. Same mitigation as §4.10.21.2: each repaired comment carries the concept → engine-indep-API mapping (**§4.10.23 step 2** → `elidex_form::reset_form` — §4.10.23 has only two steps; an earlier draft of this line said "step 4", which would have authored a *new wrong citation* inside a citation-repair PR, §4.9 item 1) and names the duplication rather than blessing it. **The shell copy folds into PR-A's `#11-shell-submit-interactive-validation`** (its second facet is already "an independent second copy of the submission event sequence" — the reset sequence is the same defect).
 - **ECS-native**: N/A — no component read or written. ✓
 
 ---
@@ -425,7 +464,7 @@ Full derivation over **every** file this memo names as a touch site (verified 20
 |---|---|---|
 | **`#11-citation-anchor-level-verification`** | **NEW** (from §9-Q1) | (1) Real gap? yes — §3.1's detectors verify section *numbers* and concepts, not the `#anchor` within a section; a cite can name the right section and the wrong dfn. (2) Blocked by structure? no, but it needs a per-site `body html <anchor>` pass that would roughly double this PR. (3) Non-regressing to defer? yes — no cite gets *worse*. (4) Durable home? `project_open-defer-slots.md`. **Trigger**: the next citation sweep, or a review finding a wrong-anchor cite. **Date**: 2026-11. |
 
-| **`#11-unattributed-spec-citations`** | **NEW** (from §4.0) | (1) Real gap? yes — **6931 cites** tree-wide carry a bare `§` whose spec a reader cannot determine from its comment block (234 inside `§4.10.x` alone). A citation a reader cannot attribute is a defect independent of resolution. (2) Blocked by structure? no, but it spans every spec and every crate — sweeping it here would collide with every active lane, and it is a different concept axis from this cluster. (3) Non-regressing to defer? yes — pre-existing, and `cite-audit` now *reports* the count so it cannot go quiet again. (4) Durable home? `project_open-defer-slots.md`. **Re-derive, don't re-discover** — the measurement is one command: `.claude/tools/webref cite-audit html --show-unattributed` (whole tree) or `--prefix 4.10 --show-unattributed` (this cluster). The count is printed in the header of every run, so the next toucher gets the current number rather than this memo's snapshot. **Trigger**: the next cross-spec citation pass, or a review mis-attributing a bare cite. **Date**: 2026-12. |
+| **`#11-unattributed-spec-citations`** | **NEW** (from §4.0) | (1) Real gap? yes — **6733 cites** tree-wide carry a bare `§` whose spec a reader cannot determine from its comment block (**166** inside the `§4.10` set; earlier drafts said 234, which wrongly folded in the 47 other-spec cites). A citation a reader cannot attribute is a defect independent of resolution. (2) Blocked by structure? no, but it spans every spec and every crate — sweeping it here would collide with every active lane, and it is a different concept axis from this cluster. (3) Non-regressing to defer? yes — pre-existing, and `cite-audit` now *reports* the count so it cannot go quiet again. (4) Durable home? `project_open-defer-slots.md`. **Re-derive, don't re-discover** — the measurement is one command: `.claude/tools/webref cite-audit html --show-unattributed` (whole tree) or `.claude/tools/webref cite-audit html --prefix 4.10 --show-unattributed` (this set — `--prefix` now scopes the unattributed list too; it previously filtered only `by_section`, so a scoped run still dumped the whole tree). The count is printed in every run's header, so the next toucher gets the current number rather than this memo's snapshot. **Trigger**: the next cross-spec citation pass, or a review mis-attributing a bare cite. **Date**: 2026-12. |
 
 **Per-PR budget — re-audited 2026-07-27**: **2 new slots**, `#11-citation-anchor-level-verification` (§9-Q1) and `#11-unattributed-spec-citations` (§4.0), against the ≤3 cap — **one slot of headroom**. Nothing else in this round created deferred work: the shared-spec-label collapse (§4.7) is *done here*, not slotted, and the §4.10.12-15 cascade remainder goes to an existing tracked program (§10.1) rather than a new slot. Draft 2 claimed "zero deferred work" while §9-Q1 was open — corrected.
 

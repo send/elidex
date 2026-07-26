@@ -109,6 +109,60 @@ class TestSpecAttribution(_TreeCase):
         self.assertIn("a.rs:1", out)
 
 
+class TestLabelWrapCarry(_TreeCase):
+    """A label left dangling at end-of-line attributes the next line.
+
+    Regression for a false negative found *inside* an audited set:
+    `form_data.rs:181-182` reads "… WHATWG XHR §4.3 constructor + WHATWG
+    HTML\n/// §4.10.21.3 step 7", so the wrapped cite inherited `xhr`
+    from earlier on the previous line. A mis-bucketed cite is worse than
+    an unattributed one, because nothing reports it.
+    """
+
+    def test_dangling_label_attributes_the_next_line(self):
+        td = self._tree({"a.rs": "/// WHATWG XHR §4.3 ctor + WHATWG HTML\n"
+                                 "/// §4.10.21.3 step 7\n"})
+        out, _ = self._run(td)
+        self.assertIn("attributed to html: 1 distinct sections, 1 cites", out)
+        self.assertIn("attributed to another spec (not audited here): 1", out)
+
+    def test_carry_applies_to_the_first_cite_only(self):
+        """A second cite on the carried line falls back to the block."""
+        td = self._tree({"a.rs": "/// see WHATWG HTML\n"
+                                 "/// §4.10.5 and §4.10.6\n"})
+        out, _ = self._run(td)
+        # First inherits the carry; the second inherits it via block_spec.
+        self.assertIn("attributed to html: 2 distinct sections, 2 cites", out)
+
+    def test_carry_does_not_leak_two_lines_down(self):
+        td = self._tree({"a.rs": "/// WHATWG HTML\n/// prose only\n"
+                                 "/// §4.10.5\n"})
+        out, _ = self._run(td)
+        # Line 2 clears the carry; line 3 still inherits block_spec=None.
+        self.assertIn("UNATTRIBUTED (bare § with no spec in its comment "
+                      "block): 1 cites", out)
+
+
+class TestPrefixScopesEveryReportedClass(_TreeCase):
+    """`--prefix` must scope the UNATTRIBUTED list too, not just sections.
+
+    It previously filtered `by_section` only, so a `--prefix`-scoped run
+    still dumped the whole tree's unattributed cites.
+    """
+
+    def test_prefix_scopes_the_unattributed_count(self):
+        td = self._tree({"a.rs": "// bare §4.10.5\n// bare §9.9.9\n"})
+        out, _ = self._run(td, prefix="4.10")
+        self.assertIn("UNATTRIBUTED (bare § with no spec in its comment "
+                      "block): 1 cites", out)
+
+    def test_prefix_scopes_the_other_spec_count(self):
+        td = self._tree({"a.rs": "// WHATWG Fetch §4.10.5\n"
+                                 "// WHATWG Fetch §9.9.9\n"})
+        out, _ = self._run(td, prefix="4.10")
+        self.assertIn("attributed to another spec (not audited here): 1", out)
+
+
 class TestPrefixIsDottedComponent(_TreeCase):
     def test_prefix_does_not_string_match_across_components(self):
         td = self._tree({"a.rs": "/// HTML §4.10.2 and §4.10.20.3 and §4.10.2.7\n"})
