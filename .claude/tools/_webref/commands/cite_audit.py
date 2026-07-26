@@ -69,8 +69,15 @@ def cmd_cite_audit(args: argparse.Namespace) -> int:
         by_section[section].append((path, lineno, line))
 
     if args.prefix:
+        # Dotted-COMPONENT prefix, not string prefix: `4.10.2` must match
+        # `4.10.2` and `4.10.2.7`, but NOT `4.10.20.3`. A bare
+        # `str.startswith` silently widens the filter by an order of
+        # magnitude — the same class of quiet over-match the `heading`
+        # command guards with `--exact`.
+        want = args.prefix.split(".")
         by_section = {
-            s: v for s, v in by_section.items() if s.startswith(args.prefix)
+            s: v for s, v in by_section.items()
+            if s.split(".")[: len(want)] == want
         }
 
     total_cites = sum(len(v) for v in by_section.values())
@@ -119,6 +126,8 @@ def cmd_cite_audit(args: argparse.Namespace) -> int:
         }
         json.dump(out, sys.stdout, indent=2)
         print()
+        if args.strict and unresolved:
+            sys.exit(1)
         return 0
 
     print(f"# cite-audit — spec={args.spec} root={root} glob={args.glob}"
@@ -139,7 +148,13 @@ def cmd_cite_audit(args: argparse.Namespace) -> int:
                     rel = p
                 print(f"    {rel}:{n}: {t[:150]}")
             print()
-    return 1 if (args.strict and unresolved) else 0
+    # `cli.main` calls `args.func(args)` and DISCARDS the return value —
+    # every command signals failure via `sys.exit`, not by returning. A
+    # bare `return 1` here would be silently dropped, making `--strict`
+    # a no-op. Follow the established convention.
+    if args.strict and unresolved:
+        sys.exit(1)
+    return 0
 
 
 def register(sub) -> None:

@@ -305,7 +305,11 @@ There is nothing to assert — the deliverable is prose. Verification is procedu
    ```
    **Per-cite over the concept axis, not per-number over resolution**: (i) `--strict` exits 0, or every remaining `*** UNRESOLVED ***` number matches §4.0's OUT list exactly; (ii) each cite in the full output carries a disposition — swept, or on §4.6's fate list, or on §10.1's queue. A pattern-shaped scan cannot state (ii); draft 2's residual scan was in fact **narrower than its own audit grep** (dropping `§4.10.15.2`, never having `§4.10.21.5` / `§4.10.18.x` / bare `§4.10.15`), so the PR could have passed its own exit criterion with the cluster half-swept. Plus: no `§4.10.21.3` survives except `validation/mod.rs:188`; no `§`-less "step 2/2.1/2.2" in the `requestSubmit` family; `§4.10.12` cite count > 0.
 
-5. **The new tool is itself verified**: `cite-audit` round-trips against `heading --exact` on a sample (same resolved/unresolved verdict per number), and `--strict` exits non-zero on a tree with a known-bad cite. It is a `.claude/tools/` adapter command, outside the cargo workspace, so `mise run ci` does not cover it.
+5. **The new tool is itself verified** — it is a `.claude/tools/` adapter command, outside the cargo workspace, so `mise run ci` does not cover it. Two defects were already found and fixed by exercising it rather than reading it, which is the argument for the checks:
+   - `--strict` was a **no-op**: `cli.main` calls `args.func(args)` and discards the return value (every command signals via `sys.exit`), so a bare `return 1` was dropped. Now `sys.exit(1)`, matching the convention.
+   - `--prefix` used **string** matching, so `4.10.2` also matched `4.10.20.3` — a silent order-of-magnitude widening, the same quiet-over-match class `heading --exact` exists to guard. Now dotted-component matching.
+
+   Checks: `--strict` exits **1** on `--prefix 4.10` (unresolved present) and **0** on `--prefix 4.10.2` (clean subtree); `--prefix` component-boundary cases (`4.10.2` → 1 section, not 8); and per-number verdicts round-trip against `heading --exact`.
 
 **Gate**: `mise run ci`, then `/pre-push`, then **`/external-converge` from round 1**. The reactive escalation trigger ([[feedback_gate-miss-on-edge-dense-escalate-to-converge]]) has already fired twice on this memo — two gaps found pre-dispatch, then 1 CRIT / 28 IMP at review — and the #483 precedent this PR invokes did **not** converge in a single pass (it left three open carves). §2's honest re-statement (discovery is not canonical) is the same conclusion from the design side.
 
