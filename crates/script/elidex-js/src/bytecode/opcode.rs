@@ -33,6 +33,24 @@ pub enum Op {
     Pop,
     /// `[a b -- b a]`
     Swap,
+    /// `[a b -- a b a b]` Duplicate the top *pair*.
+    ///
+    /// Emitted for compound/logical assignment to a **computed** member
+    /// (`obj[key] += v`, `obj[key] ??= v`). ECMA-262 §13.15.2 evaluates the
+    /// LeftHandSideExpression once (step 1) and reuses that reference for both
+    /// `GetValue` (step 3) and `PutValue` (step 9), so the `[object key]` pair
+    /// is preserved across the load rather than re-emitting the operand
+    /// expressions — a side-effecting *key expression* therefore runs once.
+    ///
+    /// ⚠ **Known divergence** (`#11-vm-element-ref-single-key-conversion`): this
+    /// duplicates the **raw** key, so the subsequent `GetElem` and `SetElem`
+    /// each run their own `ToPropertyKey`. ECMA-262 §6.2.5.5 GetValue step 3.c
+    /// *memoizes* the converted key into the Reference Record, so the spec runs
+    /// user `toString`/`@@toPrimitive` **once**. With a stateful key object the
+    /// read and the write can therefore target *different* properties. The
+    /// pre-existing `Op::IncElem`/`DecElem` share the root; fixing it needs a
+    /// converted-key representation and is tracked as its own unit.
+    Dup2,
 
     // ── Local variable access ───────────────────────────────────────
     /// Operand: u16 (local index). `[ -- value]`
@@ -342,6 +360,7 @@ impl Op {
             | Self::Dup
             | Self::Pop
             | Self::Swap
+            | Self::Dup2
             | Self::GetElem
             | Self::SetElem
             | Self::DeleteElem

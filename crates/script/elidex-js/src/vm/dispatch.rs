@@ -116,6 +116,20 @@ impl VmInner {
                     }
                     self.stack.swap(len - 1, len - 2);
                 }
+                Op::Dup2 => {
+                    // `[a b -- a b a b]` — preserves a computed member's
+                    // `[object key]` reference pair across the GetValue in a
+                    // compound/logical assignment (ECMA-262 §13.15.2 step 1
+                    // evaluates the LHS reference once).
+                    let len = self.stack.len();
+                    if len < 2 {
+                        return Err(VmError::internal("stack underflow on Dup2"));
+                    }
+                    let a = self.stack[len - 2];
+                    let b = self.stack[len - 1];
+                    self.stack.push(a);
+                    self.stack.push(b);
+                }
 
                 // ── Local access ────────────────────────────────────
                 Op::GetLocal => {
