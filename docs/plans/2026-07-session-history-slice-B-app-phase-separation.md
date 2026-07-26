@@ -35,9 +35,13 @@ navigation drains** over one shared `NavigationController`: content-mode drives 
 (`app/navigation.rs::process_pending_navigation:34`, with a traversal-supersede `return true` at `:73`). That
 fork is the exact strangler middle-state One-issue-one-way forbids (umbrella §2 axis c). **Slice B closes it:
 `impl DrainHost for` the app-mode shell and drive `DrainCoordinator::drain_same_turn` at end-of-input-handler.
-Both shells then drive the *identical* shared queue primitive; they differ ONLY in WHEN Phase 2 is pumped** —
-content-mode on a later async-pump turn (`run_deferred_traversals`), app-mode back-to-back inside the input
-handler (`drain_same_turn`). **That uniformity IS the design contribution.** The `process_pending_navigation`
+Both shells then drive the *identical* shared queue primitive; what remains different is the SCHEDULE, most
+visibly WHEN Phase 2 is pumped** — content-mode on a later async-pump turn (`run_deferred_traversals`), app-mode
+back-to-back inside the input handler (`drain_same_turn`). The two schedules are *not* mirror images: content-mode
+makes THREE coordinator calls per pump turn (`run_deferred_traversals` → `drain_synchronous_updates` →
+`drain_synchronous_phase`) and app-mode makes ONE, so app-mode has no counterpart to content's post-Phase-2
+synchronous settle (§4.2, slot `#11-app-mode-turn-completion-drain`). **That uniformity of the primitive IS the
+design contribution.** The `process_pending_navigation`
 hand-rolled body — its window-open drop, its history FIFO, its two `return`s — dissolves into the
 coordinator's phase partition; the app-specific *bodies* (pipeline rebuild, same-document step, frame render)
 stay **behind the `DrainHost` trait**, never crossing into `elidex-navigation`.
@@ -66,12 +70,18 @@ slice consciously accepts (umbrella §7 Q-SCHED "re-eval at the B1 multi-navigab
   need the interim SW-wait buffer guard content-mode carries (`dispatch_or_buffer_reentrant`) because its
   reentrancy vector is **absent by construction** (§4.4) — so app-mode adds **nothing** to Slice 4's canonical
   work. Slice 4 stays a separate later PR.
-- **OUT → `#11-session-history-task-queue-model` (fenced):** **chrome-traverse.**
-  `app/navigation.rs::handle_chrome_action:596` (toolbar Back/Forward + address-bar Navigate + Reload) bypasses
-  the `DrainCoordinator`, peeking `nav_controller` and calling `traverse_to` directly (`:608`–`:627`). Slice B
-  does **NOT** route it through the queue — it collapses into Slice 4's canonical DIRECT-nav serialization when
-  M4-10 async-SW-fetch lands (the same fence content-mode's chrome-direct traversal sits behind,
-  `content/drain_host.rs:64`–`:70`). Pulling chrome-traverse into the queue now is the failure mode to avoid.
+- **OUT → `#11-session-history-task-queue-model` (fenced):** the **two DIRECT user-input traversal entry
+  points**, both of which bypass the `DrainCoordinator` by peeking `nav_controller` and calling `traverse_to`
+  directly:
+  1. **chrome-traverse** — `app/navigation.rs::handle_chrome_action:596` (toolbar Back/Forward + address-bar
+     Navigate + Reload), `:608`–`:627`;
+  2. **Alt+←/→** — `app/inline.rs::handle_keyboard_inline`, which peeks `peek_back`/`peek_forward` and calls
+     `traverse_to` **then `return`s before `handle_keyboard` runs**, so that turn never drains the coordinator
+     at all.
+
+  Slice B does **NOT** route either through the queue — both collapse into Slice 4's canonical DIRECT-nav
+  serialization when M4-10 async-SW-fetch lands (the same fence content-mode's chrome-direct traversal sits
+  behind, `content/drain_host.rs:64`–`:70`). Pulling them into the queue now is the failure mode to avoid.
 - **OUT → `#11-sync-navigation-steps-queue-tagging` (fenced):** reentrant `SyncUpdate` straddle /
   jump-the-queue (§7.4.1.3) full reconciliation, inherited unchanged from Slice A (Resolution D ships the
   bounded *cancel*, not the call-time-entry jump-the-queue). App-mode inherits this bounded behavior verbatim
@@ -223,6 +233,11 @@ old Slice 3).
 - **Chrome-button traversals** (`app/navigation.rs:596` `handle_chrome_action`) reach the same
   `peek_*`/`traverse_to` path with `UserInvolvement::BrowserUi` — **FENCED OUT of Slice B** (§0), collapses
   into Slice 4's canonical DIRECT-nav serialization. NOT routed through the coordinator here.
+- **Alt+←/→ keyboard traversals** (`app/inline.rs::handle_keyboard_inline`) — the **second** user-input
+  traversal entry point, same `peek_back`/`peek_forward` → `traverse_to` shape with
+  `UserInvolvement::BrowserUi`, and it `return`s before `handle_keyboard`, so no coordinator drain runs on that
+  turn. **FENCED OUT of Slice B** on the same terms as chrome-traverse (§0) — the fence was always real; this
+  audit bullet was the incomplete part.
 
 ---
 
@@ -246,7 +261,7 @@ reached from the `App` `DrainHost` receiver through `self.interactive.as_mut().e
 | `pending_traversal` (no-peek, subsequent) | `PendingTraversal { delta, user_involvement: UserInvolvement::None }` (scripted; chrome `BrowserUi` is the fenced chrome path) |
 | `handle_navigation` | the Phase-1c `take_pending_navigation` + `resolve_nav_url` + `self.navigate(...)` block (`:89`–`:95`), all `&mut App` bodies (set_title co-located, §4.5); on `suppress`, take-and-drop `pending_navigation` without applying (Resolution A / F1) |
 | `apply_traversal` | reshape `traverse_to` (`:514`) into a **delta-keyed** `&mut App` body: `peek_delta(delta) → (target_index, url)`, then the existing peek-then-commit `resolve_traversal`/`same_document_step`/`navigate_to_history_url`+`commit_index`, returning `bool` (shipped). The app-mode mirror of content's `apply_traversal_delta:337` |
-| `ship_frame` | performs `render_state.window.set_title(&interactive.window_title)` + `request_redraw()` **inside the seam** — the App-owned OS-window output, the precise mirror of content's `send_display_list` (`content/drain_host.rs:305`–`:314`). `render_state` is reached because the receiver is `App` (`mod.rs:246`); the coordinator touches the window only BEHIND the trait (§4.5, Q-SHIP resolved) |
+| `ship_frame` | performs `render_state.window.request_redraw()` **inside the seam** — the App-owned OS-window output, the mirror of content's `send_display_list` (`content/drain_host.rs:305`–`:314`). **`set_title` is NOT in the seam** (as built — §4.5 "Residual impl note"): it stays co-located in the nav / sync-update bodies, which also serve the non-drain callers, and every path that reaches this seam has already run one of those bodies, so a seam-level `set_title` would be redundant. `render_state` is reached because the receiver is `App` (`mod.rs:246`); the coordinator touches the window only BEHIND the trait (§4.5, Q-SHIP resolved) |
 
 **Drain rewiring.** Replace `process_pending_navigation`'s hand-rolled body (`:34`–`:98`) with a single
 `DrainCoordinator::drain_same_turn(self)` call (`self` = `App`), keeping the `interactive.is_some()` guard
@@ -269,7 +284,19 @@ end-of-input-handler, strictly after Phase 1." Content-mode does NOT use this me
 phases across separate turns (`drain_synchronous_phase` in-task + `run_deferred_traversals` on the async pump).
 `drain_same_turn` is the degenerate collapse of that schedule for a shell with no task boundary. **This is the
 whole point of One-issue-one-way: same coordinator, same phase bodies, same I1/I2/I3 invariants, same
-Resolution A/B/D/E machinery — the shells differ only in the ENTRY POINT (which realizes WHEN Phase 2 pumps).**
+Resolution A/B/D/E machinery — the shells share the primitive and differ in their ENTRY POINTS (which realize
+WHEN Phase 2 pumps).**
+
+**The entry-point sets are NOT symmetric, and the asymmetry is a real bounded gap.** Content-mode drives THREE
+coordinator calls per pump turn (`content/event_loop.rs`: `run_deferred_traversals` → `drain_synchronous_updates`
+→ `drain_synchronous_phase`); app-mode drives ONE. The missing counterpart is content's **post-Phase-2
+synchronous settle** — the `drain_synchronous_updates` that runs immediately after `run_deferred_traversals` so a
+§7.4.4 intent staged by the `popstate` handler a Phase-2 traversal fired (`pushState`, `location.*`) completes on
+the SAME turn. App-mode's `drain_same_turn` returns straight after Phase 2, so such an intent waits for the NEXT
+input event. **Bounded, pinned-not-silent** (`app_history_drain_tests::app_popstate_staged_action_defers_to_the_next_drain_not_the_current_queue`),
+fenced to `#11-app-mode-turn-completion-drain`. The correct fix is **loop-until-quiescent turn completion**, not
+a trailing `drain_synchronous_updates` — that would settle a popstate-staged `pushState` but strand a
+popstate-staged `back()` with no Phase 2 behind it — so it is edge-dense and lands as its own plan-reviewed PR.
 
 The I2 partition, the `SyncUpdate` cancel (Resolution D), the no-op peek-classify (Resolution E), and the
 nav-suppression (Resolution A) are all **inherited from the shared coordinator** with zero app-specific logic
@@ -414,8 +441,9 @@ This memo **RESOLVES** both design decisions (§7) on **design merit (One-issue-
   1. **ship_frame-output symmetry (decisive).** `ContentState::ship_frame` (`content/drain_host.rs:305`–`:314`)
      performs the shell's OUTPUT *inside the seam* via `send_display_list()` — the output mechanism `ContentState`
      owns. The faithful mirror keeps `ship_frame` doing output: app-mode's `ship_frame` performs
-     `render_state.window.set_title(&interactive.window_title)` + `request_redraw()` **inside the seam**, via the
-     winit window `App` owns. Under `InteractiveState` (no window handle / no output path) the seam **cannot
+     `render_state.window.request_redraw()` **inside the seam**, via the winit window `App` owns (as built, the
+     *frame ship* is the seam's alone; `set_title` stays in the nav bodies — Residual impl note below). Under
+     `InteractiveState` (no window handle / no output path) the seam **cannot
      ship** — an asymmetry with content at the very seam that defines the pattern; `App` preserves the symmetric
      ship-once realization.
   2. **Self-containment.** `App` owns EVERYTHING the drain needs (`interactive` + `render_state` + `web_storage`),
@@ -424,7 +452,7 @@ This memo **RESOLVES** both design decisions (§7) on **design merit (One-issue-
      shared cross-cutting browser-level state must not live on per-inline actor state) **plus** an external output
      escape hatch. `App` needs neither.
   3. **The `expect` cost is an acceptable, provably-safe wrinkle** (the never-cleared-`interactive` invariant
-     above) — every per-drain seam `.expect()` is an unreachable-panic. `ship_frame` doing `set_title` +
+     above) — every per-drain seam `.expect()` is an unreachable-panic. `ship_frame` doing the
      `request_redraw` is layering-clean: OS-window I/O inside the app-mode shell's OWN `DrainHost` impl (same
      crate `elidex-shell`), the precise mirror of content's `send_display_list`; the coordinator touches the
      window only BEHIND the trait.
@@ -433,11 +461,14 @@ This memo **RESOLVES** both design decisions (§7) on **design merit (One-issue-
   stays co-located in the bodies (`navigation.rs:174`/`:320`/`:341`/`:499`) serving BOTH the drain and the
   non-drain callers (`<a href>` click `events.rs:105`, Alt+arrow `inline.rs:258`, chrome
   `navigation.rs:604`/`:625`/`:639`) — **NO set_title lift, NO web_storage clone, non-drain callers unaffected.**
-- **Q-SHIP — RESOLVED: `ship_frame` performs the output in the seam.** `ship_frame` performs
-  `render_state.window.set_title(&interactive.window_title)` + `request_redraw()` inside the seam (the App-owned
-  output, the mirror of content's `send_display_list`), off the `DrainOutcome.shipped` signal. A pure `pushState`
-  turn changes no layout but DOES change the chrome URL bar, so `ship_frame` still issues the `request_redraw`
-  (repaint chrome).
+- **Q-SHIP — RESOLVED: `ship_frame` performs the frame ship in the seam.** `ship_frame` performs
+  `render_state.window.request_redraw()` inside the seam (the App-owned output, the mirror of content's
+  `send_display_list`), off the `DrainOutcome.shipped` signal. A pure `pushState` turn changes no layout but DOES
+  change the chrome URL bar, so `ship_frame` still issues the `request_redraw` (repaint chrome). **`set_title` is
+  deliberately NOT lifted into the seam** (as built, per the Residual impl note below): every path that reaches
+  `ship_frame` has already run a nav / sync-update body that wrote `window_title` AND pushed it to the window, so
+  a seam-level `set_title` would be redundant — and those bodies must keep it regardless, since they also serve
+  the non-drain callers.
 
   **Residual impl note (a flagged Slice-B impl detail, not a blocker) — request_redraw ship-once consolidation.**
   For the faithful mirror, prefer the drain path's repaint to flow through `ship_frame` + the apply-bodies
@@ -450,9 +481,27 @@ This memo **RESOLVES** both design decisions (§7) on **design merit (One-issue-
 `InteractiveState` / `App` / pipeline / `EcsDom` stay behind the `DrainHost` trait (never cross the crate
 boundary). Single-writer discipline is preserved — app-mode Phase 2 is a **synchronous end-of-handler segment**
 of the sole renderer thread, not an OS thread. **Side-store exception (b) (mirror Slice A §4 F4):**
-`NavigationController.entries`/`index` + `traversal_queue` + `DrainOutcome` + the VM `pending_history`/
-`pending_navigation` channels are CLAUDE.md **side-store exception (b)** — browsing-context/session-level state,
-NOT per-entity ECS components (`#11-browsing-context-state-ecs-components` owns any wholesale migration).
+`NavigationController.entries`/`index` + `traversal_queue` + the VM `pending_history`/`pending_navigation`
+channels are CLAUDE.md **side-store exception (b)** — browsing-context/session-level state of the single
+top-level traversable, not per-entity facts, so not ECS components. (`DrainOutcome` is deliberately **not** in
+that set: it is a by-value function return, not a store at all, so the side-store question does not arise for
+it.)
+
+**No existing slot owns a migration of these, and none should be implied.**
+`#11-browsing-context-state-ecs-components` scopes the **VM's per-document state cluster**
+(`NavigationState.current_url` + `HostData.{document_origin_override, sandbox_flags, iframe_depth,
+fallback_opaque_origin}`), and it **explicitly excludes** `pending_navigation` / `pending_history` as intent
+buffers (`pending_navigation`/`pending_history` は intent buffer ゆえ移行対象外); it never scoped the shell-side
+`NavigationController` / `TraversalQueue` at all. So exception (b) here is a **standing classification**, not a
+deferral parked on that slot.
+
+**B1 re-derivation trigger (recorded here so it is not inherited silently).** Exception (b) holds *because*
+`changingNavigables` is always `{top-level}` (§0 fence): one traversable ⇒ one queue ⇒ session-level state. The
+B1 multi-navigable fan-out kills that premise — a per-navigable queue is per-**navigable** state, and the
+tempting `HashMap<NavigableId, TraversalQueue>` is exactly the entity-keyed side-store the CLAUDE.md rule
+forbids (`Send + Sync`, not a per-VM identity handle ⇒ the ECS-native answer is a component on the navigable's
+entity, with despawn doing the cleanup). B1 must therefore **re-derive** this classification from first
+principles rather than carry this paragraph forward.
 
 ---
 
@@ -540,10 +589,12 @@ pressure — the carve, if triggered, is orthogonal to it, per CLAUDE.md.)
   (`navigation.rs:174`/`:320`/`:341`/`:499`) serving BOTH drain and non-drain callers (`events.rs:105`,
   `inline.rs:258`, chrome `navigation.rs:604`/`:625`/`:639`) — **no set_title lift, no web_storage clone.**
   Plan-review ratifies the resolved target.
-- **Q-SHIP — RESOLVED: `ship_frame` performs `set_title` + `request_redraw` in the seam** (the App-owned output,
+- **Q-SHIP — RESOLVED: `ship_frame` performs the `request_redraw` in the seam** (the App-owned output,
   the mirror of content's `send_display_list`), off the `DrainOutcome.shipped` signal. A pure `pushState` turn
   changes no layout but DOES change the chrome URL bar, so `ship_frame` still issues the `request_redraw` (repaint
-  chrome). **Residual impl note (flagged, not a blocker) — request_redraw ship-once:** consolidate the drain
+  chrome). **`set_title` stays OUT of the seam** (as built — every path reaching `ship_frame` already ran a nav /
+  sync-update body that set the title, and those bodies serve the non-drain callers too).
+  **Residual impl note (flagged, not a blocker) — request_redraw ship-once:** consolidate the drain
   path's repaint through `ship_frame` + the apply-bodies (ship-once), leaving `set_title` in the nav bodies (they
   serve all callers) and the non-drain callers' existing dispatch-layer `request_redraw`
   (`inline.rs:201`/`:259`/`:298`) untouched — the impl must not double-redraw those. App-only feasible; flag it
@@ -600,6 +651,10 @@ in a new `app_history_drain_tests.rs` (§5 boundary — app-local helpers, NOT f
   (`traverse_to:579`–`:592` peek-then-commit) — a failed cross-document load leaves the cursor + reports
   `shipped = false` (no default over-suppression).
 
-**Two-shell parity (axis c).** The scenario table is the SAME as content's `content_history_drain_tests.rs`
-run against the app-mode shell — One-issue-one-way is test-enforced across the two entry points
-(`run_deferred_traversals` vs `drain_same_turn`), pinning that they differ only in Phase-2 pump timing.
+**Two-shell parity (axis c).** The scenario table mirrors content's `content_history_drain_tests.rs` run against
+the app-mode shell — One-issue-one-way is test-enforced across the two entry points (`run_deferred_traversals`
+vs `drain_same_turn`) **for everything the shared coordinator owns**. Parity is deliberately NOT total: content's
+R9 pin (`content_history_phase_sep_tests::pump_drains_popstate_staged_pushstate_this_turn` — the post-Phase-2
+synchronous settle) has no app-mode counterpart, because app-mode has no such settle. Its app-mode twin pins the
+OPPOSITE, bounded behavior (the popstate-staged intent drains on the next input), fenced to
+`#11-app-mode-turn-completion-drain` (§4.2).
