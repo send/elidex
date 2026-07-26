@@ -174,28 +174,20 @@ impl ScreenGeometry<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::EcsDom;
-    use elidex_plugin::{EdgeSizes, Point, Rect, Size};
 
     fn layout_box(x: f32, y: f32, w: f32, h: f32) -> LayoutBox {
         LayoutBox {
             content: Rect::new(x, y, w, h),
-            padding: EdgeSizes::default(),
-            border: EdgeSizes::default(),
-            margin: EdgeSizes::default(),
-            first_baseline: None,
-            layout_generation: 0,
+            ..Default::default()
         }
     }
 
+    /// The store-side fixture. Built through the `From<&LayoutBox>` correspondence
+    /// (the seam's single field mapping) rather than re-spelling the fields, so the
+    /// two fixtures cannot drift; the conversion itself is asserted separately by
+    /// [`n1_is_behavior_neutral_with_the_layoutbox`].
     fn box_fragment(x: f32, y: f32, w: f32, h: f32) -> BoxFragment {
-        BoxFragment {
-            content: Rect::from_origin_size(Point::new(x, y), Size::new(w, h)),
-            padding: EdgeSizes::default(),
-            border: EdgeSizes::default(),
-            margin: EdgeSizes::default(),
-            first_baseline: None,
-        }
+        BoxFragment::from(&layout_box(x, y, w, h))
     }
 
     /// Spawn a bare entity (no DOM tree wiring needed for a geometry read).

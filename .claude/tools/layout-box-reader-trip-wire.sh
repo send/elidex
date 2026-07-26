@@ -57,6 +57,20 @@ ALLOWED_MACROS='impl_layout_handler|impl_string_map'
 # line is the safe direction for an exhaustiveness gate.
 strip_comments() { sed -E '/^[^:]*:[0-9]+:[[:space:]]*\/\//d'; }
 
+# The wholly-test path convention — the SINGLE definition, shared by wires #1 and #3.
+# `$1` is the terminator that ends a path in the caller's input: `:` for `git grep -n`
+# lines (`path:line:content`), `$` for `git grep -l` bare paths. A test DIRECTORY
+# segment needs no terminator; the four test-convention BASENAMES do.
+# ⚠ One definition on purpose: the wires previously carried hand-synced copies of this
+# regex which had already drifted (`[^/:]*` here vs `[^/]*` there). This predicate is
+# what scopes the whole exhaustiveness claim, so a silent divergence between the wires
+# is the same false-exhaustiveness hazard the paragraph on `live_readers` describes.
+# `[^/:]*` is correct for both inputs — a tracked path never contains `:`.
+test_path_re() {
+  printf '(/tests?/|/tests\\.rs%s|/test_[^/:]*\\.rs%s|/tests_[^/:]*\\.rs%s|_tests\\.rs%s)' \
+    "$1" "$1" "$1" "$1"
+}
+
 # The live reader set as `path<TAB>content`, line-number-insensitive (so MOVING a
 # reader doesn't churn the allowlist) but content-sensitive (so EDITING one forces
 # re-classification). Strips comment lines and leading indentation; excludes
@@ -74,14 +88,14 @@ live_readers() {
   cd "$ROOT"
   { git grep -nwE 'LayoutBox|BoxModel' -- 'crates/**/*.rs' || true; } \
     | strip_comments \
-    | { grep -vE '(/tests?/|/tests\.rs:|/test_[^/:]*\.rs:|/tests_[^/:]*\.rs:|_tests\.rs:)' || true; } \
+    | { grep -vE "$(test_path_re ':')" || true; } \
     | sed -E 's/^([^:]+):[0-9]+:[[:space:]]*(.*)$/\1\t\2/' \
     | sed -E 's/[[:space:]]+$//' \
     | sort -u
 }
 
 # The committed allowlist's `path<TAB>content` set (columns 2+; column 1 =
-# classification: producer|seam|pending-migration|type-def|import|test). `cut -f2-`
+# classification: producer|seam|pending-migration:<slice>|type-def|import|test). `cut -f2-`
 # (not `-f2,3`) keeps ALL content columns so a reader line containing a literal TAB
 # round-trips identically to `live_readers` (no permanent churn).
 # NB: the gate keys on unique `(path, content)` — identical-content reader lines in
@@ -108,7 +122,9 @@ if [ "${1:-}" = "--regenerate" ]; then
     echo "# terminal-Z LayoutBox/BoxModel reader allowlist — machine-checked sibling of"
     echo "# docs/audits/2026-07-layoutbox-reader-inventory.md (the human record)."
     echo "# Format: <classification>\t<path>\t<content>"
-    echo "#   classification ∈ {producer, seam, pending-migration, type-def}"
+    echo "#   classification ∈ {producer, seam, pending-migration:<slice>, type-def, import, test}"
+    echo "#   (the audit doc's 8-axis table is the vocabulary's definition; a"
+    echo "#    pending-migration row names its owning slice, e.g. pending-migration:C-3e)"
     echo "# Regenerate: .claude/tools/layout-box-reader-trip-wire.sh --regenerate"
     while IFS=$'\t' read -r path content; do
       key="$path"$'\t'"$content"
@@ -153,7 +169,7 @@ else
 fi
 
 echo "wire #3: no unreviewed macro_rules! in a reader-token file (token-hiding-macro guard)"
-reader_files="$(cd "$ROOT" && git grep -lwE 'LayoutBox|BoxModel' -- 'crates/**/*.rs' | grep -vE '(/tests?/|/tests\.rs$|/test_[^/]*\.rs$|/tests_[^/]*\.rs$|_tests\.rs$)' || true)"
+reader_files="$(cd "$ROOT" && git grep -lwE 'LayoutBox|BoxModel' -- 'crates/**/*.rs' | grep -vE "$(test_path_re '$')" || true)"
 macro_hits=""
 if [ -n "$reader_files" ]; then
   # shellcheck disable=SC2086

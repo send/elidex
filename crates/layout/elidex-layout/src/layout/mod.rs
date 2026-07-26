@@ -335,8 +335,11 @@ pub fn layout_tree(dom: &mut EcsDom, viewport: Size, font_db: &FontDatabase) {
     // `FragmentNode::fragmentainer` docstring.
     // Provenance (terminal-Z C-3a §2): invalidate BEFORE laying out, so a stale
     // `CompletedScreen` from a prior pass cannot be read while this pass's store is
-    // empty/partial (the re-entrant-screen soundness hole). `clear()` below is
-    // arena-only and does not touch the phase.
+    // empty/partial (the re-entrant-screen soundness hole). This is the screen
+    // entry's explicit half of the "every entry invalidates" protocol, symmetric
+    // with the paged entry's. `clear()` below *also* invalidates by construction
+    // (an emptied store is definitionally not a completed pass), so the guard holds
+    // even if either call is later moved — belt-and-braces, not one enforcer.
     dom.fragment_tree_mut().invalidate();
     dom.fragment_tree_mut().clear();
     let roots = find_roots(dom);

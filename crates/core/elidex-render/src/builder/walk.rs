@@ -282,13 +282,14 @@ pub(crate) fn walk(
             && !ctx.dom.fragment_tree().is_empty()
             && ctx.dom.fragment_tree().is_consumable(entity)
         {
-            let mut boxes = ctx.dom.fragment_tree().fragments_for(entity).map(|node| {
-                let FragmentContent::Box(bf) = &node.content;
-                bf.padding_box()
-            });
-            boxes
-                .next()
-                .map(|first| boxes.fold(first, |a, b| a.union(&b)))
+            ctx.dom
+                .fragment_tree()
+                .fragments_for(entity)
+                .map(|node| {
+                    let FragmentContent::Box(bf) = &node.content;
+                    bf.padding_box()
+                })
+                .reduce(|a, b| a.union(&b))
         } else {
             None
         };

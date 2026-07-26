@@ -1,7 +1,9 @@
 # terminal-Z LayoutBox/BoxModel reader allowlist — machine-checked sibling of
 # docs/audits/2026-07-layoutbox-reader-inventory.md (the human record).
 # Format: <classification>\t<path>\t<content>
-#   classification ∈ {producer, seam, pending-migration, type-def}
+#   classification ∈ {producer, seam, pending-migration:<slice>, type-def, import, test}
+#   (the audit doc's 8-axis table is the vocabulary's definition; a
+#    pending-migration row names its owning slice, e.g. pending-migration:C-3e)
 # Regenerate: .claude/tools/layout-box-reader-trip-wire.sh --regenerate
 test	crates/core/elidex-ecs/src/dom/geometry.rs	"bit-for-bit From<&LayoutBox>"
 test	crates/core/elidex-ecs/src/dom/geometry.rs	assert_eq!(geom.box_fragments(e).count(), 1, "e has its LayoutBox");
