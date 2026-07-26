@@ -22,7 +22,7 @@
 > `crates/shell/elidex-navigation/src/traversal_queue.rs` — `TraversalDelta` / `UserInvolvement` /
 > `PendingTraversal` / `PendingHistoryStep` / `TraversalQueue` / `DrainOutcome` / `DrainHost` /
 > `DrainCoordinator`. The `DrainCoordinator::drain_same_turn` method is **already documented as "the
-> app-mode-degenerate / atomic same-turn drain"** (`traversal_queue.rs:678`) — Slice B is its first real
+> app-mode-degenerate / atomic same-turn drain"** (on `DrainCoordinator::drain_same_turn` itself) — Slice B is its first real
 > consumer.
 
 ---
@@ -32,22 +32,24 @@
 **Thesis (the ideal — anchor the whole memo on this).** After Slice A, elidex runs **two divergent
 navigation drains** over one shared `NavigationController`: content-mode drives the shared `DrainCoordinator`
 (`content/drain_host.rs`), while app-mode still runs a **hand-rolled synchronous single-drain**
-(`app/navigation.rs::process_pending_navigation:34`, with a traversal-supersede `return true` at `:73`). That
+(`app/navigation.rs::process_pending_navigation`, with a traversal-supersede `return true` mid-FIFO). That
 fork is the exact strangler middle-state One-issue-one-way forbids (umbrella §2 axis c). **Slice B closes it:
 `impl DrainHost for` the app-mode shell and drive `DrainCoordinator::drain_same_turn` at end-of-input-handler.
 Both shells then drive the *identical* shared queue primitive; what remains different is the SCHEDULE, most
 visibly WHEN Phase 2 is pumped** — content-mode on a later async-pump turn (`run_deferred_traversals`), app-mode
 back-to-back inside the input handler (`drain_same_turn`). The two schedules are *not* mirror images: content-mode
-makes THREE coordinator calls per pump turn (`run_deferred_traversals` → `drain_synchronous_updates` →
-`drain_synchronous_phase`) and app-mode makes ONE, so app-mode has no counterpart to content's post-Phase-2
+drives the coordinator from FIVE sites — three on its async pump (`run_deferred_traversals` →
+`drain_synchronous_updates` → the bottom `drain_synchronous_phase`) plus one INSIDE each input handler
+(`content/event_handlers.rs`) — while app-mode has only the in-handler one. So what app-mode lacks is the
+PUMP, and with it any counterpart to content's post-Phase-2
 synchronous settle (§4.2, slot `#11-app-mode-turn-completion-drain`). **That uniformity of the primitive IS the
 design contribution.** The `process_pending_navigation`
 hand-rolled body — its window-open drop, its history FIFO, its two `return`s — dissolves into the
 coordinator's phase partition; the app-specific *bodies* (pipeline rebuild, same-document step, frame render)
 stay **behind the `DrainHost` trait**, never crossing into `elidex-navigation`.
 
-**Q-SCHED is RATIFIED — do not re-open (umbrella §7).** App-mode has **no async pump** (`app/events.rs:89`/
-`:131` call `process_pending_navigation` synchronously right after event dispatch; there is no
+**Q-SCHED is RATIFIED — do not re-open (umbrella §7).** App-mode has **no async pump** (`app/events.rs::handle_click` /
+`::handle_keyboard` call `process_pending_navigation` synchronously right after event dispatch; there is no
 `run_event_loop` equivalent). The ratified resolution is **option (i): app-mode drains its Phase-2 traversal
 queue at the END of the same input handler, strictly AFTER Phase-1 synchronous updates complete** — a
 *degenerate* two-phase. What §7.4.6.1 *apply the history step* step 12 needs for a **single top-level
@@ -73,8 +75,8 @@ slice consciously accepts (umbrella §7 Q-SCHED "re-eval at the B1 multi-navigab
 - **OUT → `#11-session-history-task-queue-model` (fenced):** the **two DIRECT user-input traversal entry
   points**, both of which bypass the `DrainCoordinator` by peeking `nav_controller` and calling `traverse_to`
   directly:
-  1. **chrome-traverse** — `app/navigation.rs::handle_chrome_action:596` (toolbar Back/Forward + address-bar
-     Navigate + Reload), `:608`–`:627`;
+  1. **chrome-traverse** — `app/navigation.rs::handle_chrome_action` (its `Back`/`Forward` peek→`traverse_to`
+     arm, plus address-bar Navigate and Reload);
   2. **Alt+←/→** — `app/inline.rs::handle_keyboard_inline`, which peeks `peek_back`/`peek_forward` and calls
      `traverse_to` **then `return`s before `handle_keyboard` runs**, so that turn never drains the coordinator
      at all.
@@ -92,8 +94,8 @@ slice consciously accepts (umbrella §7 Q-SCHED "re-eval at the B1 multi-navigab
 
 **Deployment-shell note (why the fork is bounded, not a runtime bug — mirror Slice A §0).** Content and
 app-mode are **distinct deployment shells, never both active at runtime**. The app-mode `InteractiveState`
-drive runs **only** on the legacy-inline path (`App::new_interactive*`, both `#[allow(dead_code)]` /
-test-support today; `app/mod.rs:456`/`:498`); production entry points (`new_threaded*`) use only the content
+drive runs **only** on the legacy-inline path (`App::new_interactive_with_url`, `#[allow(dead_code)]` /
+test-support today — the unused `new_interactive` sibling was deleted with this slice); production entry points (`new_threaded*`) use only the content
 path. So the Slice-A→Slice-B window where content drives the queue and app still forks is a **bounded
 code-duplication strangler confined to legacy/test-only code, NOT a live production runtime fork** (Slice A
 §0 E3). Slice B lands in close succession per the umbrella §5 landing-proximity constraint (axis c leg-1);
@@ -119,7 +121,7 @@ structural-by-construction, umbrella §4.5). **App-mode has no such turn.** Its 
 > by-construction property of the primitive the way content-mode's async-pump leg is. This is the **F1
 > residual the Q-SCHED resolution explicitly accepts** (umbrella §4.5 I1 app-mode leg). Because the shared
 > primitive gives both shells one drain-then-apply shape, the app-mode contract is a **one-line invariant**
-> (call `drain_same_turn`, whose documented body sequences Phase 1 before Phase 2 — `traversal_queue.rs:705`),
+> (call `drain_same_turn`, whose documented body sequences Phase 1 before Phase 2),
 > not a per-shell re-derivation.
 
 The decisive spec anchor (webref-verified, §3): §7.4.6.1 *apply the history step* step-12 note — *"This set of
@@ -130,7 +132,14 @@ ordering without a real deferral — which is *why* option (i) is spec-adequate 
 and *why* the B1 multi-navigable landing is the documented re-eval trigger (multiple navigables reintroduce a
 real cross-navigable unload sequence that a synchronous end-of-handler collapse cannot honor).
 
-**How today's app-mode violates it (the removal target).** `process_pending_navigation` (`app/navigation.rs:34`)
+**How today's app-mode violates it (the removal target).**
+
+> **Reading note — the `app/navigation.rs:NN` pointers in this subsection and in §4.1 name the
+> PRE-Slice-B file** (`origin/main`, i.e. `git show origin/main:crates/shell/elidex-shell/src/app/navigation.rs`).
+> They describe the body this slice DELETED, so they deliberately do not resolve against the working tree;
+> every pointer to code that still exists was rewritten to a symbol name instead, so it cannot rot.
+
+`process_pending_navigation` (`app/navigation.rs:34`)
 drains everything in one pass: window-opens dropped (`:50`) → history FIFO (`:59`–`:75`) with a **traversal
 `return true` supersede at `:73`** (a traversal in the FIFO stops replaying trailing intents AND short-circuits
 the navigation phase) → last-wins navigation (`:89`–`:95`). The `:73` supersede is the **collapsed
@@ -154,7 +163,7 @@ plan-review are **(a) sync/traversal ordering × (b) app-no-pump-liveness × (c)
 - **(b) App-no-pump-liveness (reentrancy / bounded-snapshot).** Content-mode's Phase-2 drains a **bounded
   snapshot** (steps present at drain-start) and relies on the **every-turn async pump** for liveness: a step
   serialized mid-apply drains on the *next* pump turn. **App-mode has no pump**, so a mid-apply-serialized
-  step would strand until the next input event. **This axis is the crux — §4.4 proves the reentrancy vector is
+  step would strand indefinitely (app-mode pumps only when an input turn reaches the drive site). **This axis is the crux — §4.4 proves the reentrancy vector is
   DEAD by construction in app-mode, so the bounded snapshot drains completely every turn and nothing strands.**
   *Failure mode:* blindly adopting content's bounded drain *without* establishing the vector is absent, then a
   stranded step never applying.
@@ -171,7 +180,7 @@ plan-review are **(a) sync/traversal ordering × (b) app-no-pump-liveness × (c)
 - **(e) No-op-vs-in-range (peek-classify / cursor atomicity).** Resolution E: app-mode's `classify_traversal`
   peeks `nav_controller` — an **in-range** traversal is a partition barrier; a **no-op** (`go(999)`
   out-of-range → `peek_delta` returns `None`) falls through (no barrier, no default-suppression). Peek→commit
-  atomicity (a failed load never moves the cursor — `traverse_to:579`–`:592` commits only on load success)
+  atomicity (a failed load never moves the cursor — `traverse_to` commits only on load success)
   survives unchanged. *Failure mode:* a no-op traversal wrongly deferring trailing sync or suppressing a link
   default.
 
@@ -202,11 +211,11 @@ anchors webref-verified **2026-07-26** — no drift; anchors: `#navigate-non-fra
 
 | Spec section (webref title) | Step | Branch | App-mode touch (this slice) | Full enum? | User-input flow |
 |---|---|---|---|---|---|
-| WHATWG HTML §7.4.4 Non-fragment synchronous "navigations" | 3–11 | *URL and history update steps*: build `newEntry`, on push bump index+length, set URL/active entry | IN — Phase-1b sync updates (`PushState`/`ReplaceState`) applied in-task via the `handle_history_action` seam (app body = `apply_state_change:676`) | ✓ | yes (pushState/replaceState/`location.*`) |
+| WHATWG HTML §7.4.4 Non-fragment synchronous "navigations" | 3–11 | *URL and history update steps*: build `newEntry`, on push bump index+length, set URL/active entry | IN — Phase-1b sync updates (`PushState`/`ReplaceState`) applied in-task via the `handle_history_action` seam (app body = `apply_state_change`) | ✓ | yes (pushState/replaceState/`location.*`) |
 | WHATWG HTML §7.4.4 Non-fragment synchronous "navigations" | 12–13 | append *synchronous navigation steps* onto the ONE tagged queue | PARTIAL — Resolution D (inherited): a `SyncUpdate` deferred behind ANY same-turn traversal is CANCELED (bounded); full call-time-entry jump-the-queue fenced | ✗ (bounded — `#11-sync-navigation-steps-queue-tagging`) | yes |
 | WHATWG HTML §7.4.3 Reloading and traversing | 4 | *"Append the following session history traversal steps to traversable"* | IN — Phase-1b enqueue via `classify_traversal` peek seam | ✓ | yes (back/forward/go) |
 | WHATWG HTML §7.4.3 Reloading and traversing | 4.4 | *"If allSteps[targetStepIndex] does not exist, then abort these steps"* (no-op) | IN — Resolution E peek-classify: `peek_delta → None` = no barrier, falls through | ✓ | yes (back/forward/go) |
-| WHATWG HTML §7.4.2.2 Beginning navigation | 19 | ongoing navigation is "traversal" ⇒ *"Any attempts to navigate a navigable that is currently traversing are ignored"* | IN — Resolution A: Phase-1c nav drain-and-DISCARD when a `Traversal` step is pending | ✓ | yes (`location.*`) |
+| WHATWG HTML §7.4.2.2 Beginning navigation | 19 | ongoing navigation is "traversal" ⇒ *"Any attempts to navigate a navigable that is currently traversing are ignored"* | IN — Resolution A: Phase-1c drains the nav slot and does not apply while a `Traversal` step is pending. **App-mode drain-and-HOLD, not discard** (§4.3): step 19's gate is *ongoing navigation* = "traversal", which §7.4.6.1 step 8.4 sets only when the APPLY runs, so a Phase-1c suppression on a merely-QUEUED traversal is a prediction; app-mode's same-turn Phase 2 settles it and reinstates the nav if no traversal moved the cursor | ✓ | yes (`location.*`) |
 | WHATWG HTML §7.4.2.2 Beginning navigation | 20 | *"aborting other ongoing navigations"* (not a traversal) | IN — Resolution A: traversal wins the same-turn straddle; exact cross-channel issue order fenced | ✗ (bounded — `#11-sync-navigation-steps-queue-tagging`) | yes (`location.*`) |
 | WHATWG HTML §7.4.6.1 Updating the traversable | 1 | *apply the history step*: assert running within the traversal queue | IN — the queue-serialized Phase-2 apply (guard observational this slice) | ✓ | no |
 | WHATWG HTML §7.4.6.1 Updating the traversable | 3/4/6/7 | initiator sandbox / cross-doc navigable set / `changingNavigables` / nonchanging siblings | OUT (B1) — always `{top-level}` | n/a (B1) | no |
@@ -230,7 +239,7 @@ old Slice 3).
 - **Traversals (§7.4.3 → §7.4.6.1, Phase 2 deferred within the handler):** `history.back()` /
   `history.forward()` / `history.go(delta)` — staged to `pending_history` as `Back`/`Forward`/`Go`, classified
   by the new `classify_traversal` peek seam (in-range = barrier; no-op falls through).
-- **Chrome-button traversals** (`app/navigation.rs:596` `handle_chrome_action`) reach the same
+- **Chrome-button traversals** (`app/navigation.rs::handle_chrome_action`) reach the same
   `peek_*`/`traverse_to` path with `UserInvolvement::BrowserUi` — **FENCED OUT of Slice B** (§0), collapses
   into Slice 4's canonical DIRECT-nav serialization. NOT routed through the coordinator here.
 - **Alt+←/→ keyboard traversals** (`app/inline.rs::handle_keyboard_inline`) — the **second** user-input
@@ -256,12 +265,12 @@ reached from the `App` `DrainHost` receiver through `self.interactive.as_mut().e
 | `traversal_queue` | `&mut self.interactive.as_mut().expect(...).traversal_queue` — homed on `interactive` next to `nav_controller`; the `expect` is an unreachable-panic (never-cleared `interactive` invariant, §4.5) |
 | `route_window_opens` | the `take_pending_window_opens()` drop (`process_pending_navigation:50`) — legacy inline has no new-tab / iframe, so drain-and-drop (unchanged behavior) |
 | `take_pending_history` | `self.interactive.as_mut().expect(...).pipeline.runtime.take_pending_history()` (`:59`) — `App` receiver reaches the VM staging through `interactive` |
-| `handle_history_action` | the **sync-update-only** arm — `PushState`/`ReplaceState` → `apply_state_change:676` (the `Back`/`Forward`/`Go` arms move OUT to `apply_traversal`) |
+| `handle_history_action` | the **sync-update-only** arm — `PushState`/`ReplaceState` → `apply_state_change` (the `Back`/`Forward`/`Go` arms move OUT to `apply_traversal`) |
 | `classify_traversal` (peek-gated, first traversal) | `nav_controller.peek_delta(delta).is_some().then(\|\| self.pending_traversal(delta))` — mirrors `content/drain_host.rs:236` exactly |
 | `pending_traversal` (no-peek, subsequent) | `PendingTraversal { delta, user_involvement: UserInvolvement::None }` (scripted; chrome `BrowserUi` is the fenced chrome path) |
-| `handle_navigation` | the Phase-1c `take_pending_navigation` + `resolve_nav_url` + `self.navigate(...)` block (`:89`–`:95`), all `&mut App` bodies (set_title co-located, §4.5); on `suppress`, take-and-drop `pending_navigation` without applying (Resolution A / F1) |
-| `apply_traversal` | reshape `traverse_to` (`:514`) into a **delta-keyed** `&mut App` body: `peek_delta(delta) → (target_index, url)`, then the existing peek-then-commit `resolve_traversal`/`same_document_step`/`navigate_to_history_url`+`commit_index`, returning `bool` (shipped). The app-mode mirror of content's `apply_traversal_delta:337` |
-| `ship_frame` | performs `render_state.window.request_redraw()` **inside the seam** — the App-owned OS-window output, the mirror of content's `send_display_list` (`content/drain_host.rs:305`–`:314`). **`set_title` is NOT in the seam** (as built — §4.5 "Residual impl note"): it stays co-located in the nav / sync-update bodies, which also serve the non-drain callers, and every path that reaches this seam has already run one of those bodies, so a seam-level `set_title` would be redundant. `render_state` is reached because the receiver is `App` (`mod.rs:246`); the coordinator touches the window only BEHIND the trait (§4.5, Q-SHIP resolved) |
+| `handle_navigation` | the Phase-1c `take_pending_navigation` + `resolve_nav_url` + `self.navigate(...)` block (`:89`–`:95`), all `&mut App` bodies (set_title co-located, §4.5); on `suppress`, take `pending_navigation` and HOLD it on `InteractiveState::deferred_navigation` without applying (Resolution A / F1 — §4.3's hold-then-settle, not a drop) |
+| `apply_traversal` | reshape `traverse_to` into a **delta-keyed** `&mut App` body: `peek_delta(delta) → (target_index, url)`, then the existing peek-then-commit `resolve_traversal`/`same_document_step`/`navigate_to_history_url`+`commit_index`, returning `bool` (shipped). The app-mode mirror of content's `apply_traversal_delta:337` |
+| `ship_frame` | performs `render_state.window.request_redraw()` **inside the seam** — the App-owned OS-window output, the mirror of content's `send_display_list` (`content/drain_host.rs:305`–`:314`). **`set_title` is NOT in the seam** (as built — §4.5 "Residual impl note"): it stays co-located in the nav / sync-update bodies, which also serve the non-drain callers, and every path that reaches this seam has already run one of those bodies, so a seam-level `set_title` would be redundant. `render_state` is reached because the receiver is `App` (the `App::render_state` field); the coordinator touches the window only BEHIND the trait (§4.5, Q-SHIP resolved) |
 
 **Drain rewiring.** Replace `process_pending_navigation`'s hand-rolled body (`:34`–`:98`) with a single
 `DrainCoordinator::drain_same_turn(self)` call (`self` = `App`), keeping the `interactive.is_some()` guard
@@ -278,7 +287,7 @@ per-seam `.expect()` an unreachable-panic (§4.5). The two `return true`s (`:73`
 ### 4.2 Why `drain_same_turn` (the ratified Q-SCHED (i) shape)
 
 The substrate provides `drain_same_turn` **explicitly** as "the app-mode-degenerate / atomic same-turn drain"
-(`traversal_queue.rs:678`–`:710`): it runs `run_synchronous_phase_body` (Phase 1) then `drain_traversal_queue`
+(`DrainCoordinator::drain_same_turn`): it runs `run_synchronous_phase_body` (Phase 1) then `drain_traversal_queue`
 (Phase 2) back-to-back and ships **exactly once** at the end. That IS Q-SCHED option (i): "drain Phase 2 at
 end-of-input-handler, strictly after Phase 1." Content-mode does NOT use this method — it schedules the two
 phases across separate turns (`drain_synchronous_phase` in-task + `run_deferred_traversals` on the async pump).
@@ -307,15 +316,29 @@ of seams**, not **re-implementation of policy**.
 
 **Supersede removal** — §4.1 above (`:73` deleted, `:93` relocated). Post-removal, a same-turn
 `pushState('/a'); back()` keeps `/a` (Phase 1) and applies the traversal (Phase 2), and a
-`back(); location.href='/b'` suppresses the later `location.*` nav (Resolution A drain-and-discard — the
-in-range traversal wins, §7.4.2.2 step 19 "ignored"), landing on the back target with no `/b` load/flash.
+`back(); location.href='/b'` suppresses the later `location.*` nav (Resolution A — the in-range traversal
+wins, §7.4.2.2 step 19 "ignored"), landing on the back target with no `/b` load/flash.
 
-**Default-suppression consumer refinement (the `handle_click` bool consumer).** Today `handle_click:89` reads
+**Suppression is HOLD-then-settle, not discard (the §7.4.2 leg of Resolution D).** Step 19's gate is
+*ongoing navigation* = "traversal" (§7.4.2.5), which §7.4.6.1 *Updating the traversable* **step 8.4** sets
+only once the apply RUNS — §7.4.3's enqueue sets nothing. So a Phase-1c suppression keyed on a merely-QUEUED
+traversal is a **prediction** that the navigable will traverse. App-mode's Phase 2 runs in the same turn and
+therefore settles it: `handle_navigation` drains the VM slot (so nothing can re-fire a turn late) but HOLDS
+the resolved request on `InteractiveState::deferred_navigation`; `apply_traversal` CANCELS it the moment a
+traversal moves the cursor — the same "cursor-moved" predicate the coordinator's `traversal_applied` latch
+uses for a deferred `SyncUpdate` — and `process_pending_navigation`'s tail reinstates whatever survives.
+This preserves, on the §7.4.2 leg, the contract the retired drain had ("a no-target / failed-load traversal
+returns `false`, so the loop CONTINUES and trailing same-turn intents still apply" — Codex R1 P2 / R2), which
+the sync-update leg keeps via Resolution D's re-check gate. **Content-mode has no mirror**: its Phase 2 is a
+genuinely later task, so reinstating there WOULD be the fire-a-turn-late that draining exists to prevent; its
+fix is the tagged queue (`#11-sync-navigation-steps-queue-tagging`).
+
+**Default-suppression consumer refinement (the `handle_click` bool consumer).** Today `handle_click` reads
 `if self.process_pending_navigation() { return; }` — the `true` suppresses the `<a href>` default navigation
 (`:94`–`:107`). Post-restructure the consumer reads **`DrainCoordinator::drain_same_turn(self).suppress_default`**
 — the `DrainOutcome.suppress_default` field the coordinator already computes as
-`own_context_action || <queue holds a Traversal step>` (`traversal_queue.rs:568`), the ONE shared
-default-suppression signal (Slice A Resolution B/E1). `handle_keyboard:131` calls it for effect and ignores the
+`own_context_action || <queue holds a Traversal step>` (at the end of `run_synchronous_phase_body`), the ONE shared
+default-suppression signal (Slice A Resolution B/E1). `handle_keyboard` calls it for effect and ignores the
 result (unchanged — no default to suppress there).
 
 **The app-mode subtlety (the "pending-but-not-yet-applied traversal" the task flags).** Content-mode's
@@ -349,18 +372,17 @@ is rejected as dead code defending against a vector that cannot fire.** The by-c
 app-mode analog of content's R4/R16 SW-reachability analysis):
 
 **1. The app-mode `DrainHost` drive runs EXCLUSIVELY on the legacy-inline `InteractiveState` path.**
-`process_pending_navigation` (→ `drain_same_turn`) is reached only from `handle_click:89` / `handle_keyboard:131`
-(`app/events.rs`), which are called only from the **inline** dispatch (`app/inline.rs:200`
-`handle_click` / `:296` `handle_keyboard`). Threaded mode uses a **different** method set
+`process_pending_navigation` (→ `drain_same_turn`) is reached only from `handle_click` / `handle_keyboard`
+(`app/events.rs`), which are called only from the **inline** dispatch (`app/inline.rs::handle_window_event_inline`). Threaded mode uses a **different** method set
 (`handle_keyboard_threaded`, `app/threaded.rs:400`) that *messages the content thread* — which runs its own
 content-mode `DrainHost`. So `drain_same_turn` never runs in threaded mode.
 
-**2. The inline `InteractiveState` path has NO service-worker machinery at all.** `App::new_interactive*` sets
-`network_process: None` and `origin_storage: None` (`app/mod.rs:478`/`:481`/`:525`/`:528`, verbatim comments
+**2. The inline `InteractiveState` path has NO service-worker machinery at all.** `App::new_interactive_with_url` sets
+`network_process: None` and `origin_storage: None` (`app/mod.rs`, verbatim comments
 "Legacy mode — no broker" / "Inline/legacy mode — no SW, no per-origin storage").
 
 **3. The inline navigation body issues a DIRECT blocking fetch with no SW hook.** `load_url_into_pipeline`
-(`app/navigation.rs:350`) → `elidex_navigation::load_document(url, &network_handle, None)` (`:360`) →
+(`app/navigation.rs`) → `elidex_navigation::load_document(url, &network_handle, None)` →
 `network_handle.fetch_blocking(req)` (`loader.rs:188`). `load_document`'s third parameter is `Option<Request>`
 (a request override, **not** an SW hook — `loader.rs:181`–`:185`); there is **no** `sw_controller_scope()`
 consultation, **no** SW-fetch wait loop, **no** `BrowserToContent` message re-dispatch. Contrast content-mode's
@@ -372,8 +394,8 @@ the ENTIRE content-mode reentrancy vector, and app-mode's inline path structural
 drive.** `SwCoordinator` (`app/sw_coordinator.rs`) and `SwFetchRelay` (`app/sw_fetch_relay.rs`) are
 **browser-thread** facilities operating over **content-thread** channels (`TabId`,
 `LocalChannel<BrowserToContent, …>`); they never touch `InteractiveState`. `SwFetchRelay` is moreover
-`#[allow(dead_code)]` / **unwired** (`app/mod.rs:20`; its only call site is a `TODO(M4-10)` in the *threaded*
-`content_messages.rs:235`). Neither can re-dispatch a nav-mutating message during an inline `apply_traversal`.
+`#[allow(dead_code)]` / **unwired** (the `mod sw_fetch_relay` declaration in `app/mod.rs` carries the attribute; its only call site is a `TODO(M4-10)` in the *threaded*
+`content_messages.rs`). Neither can re-dispatch a nav-mutating message during an inline `apply_traversal`.
 
 **5. No other mid-apply queue-growth vector exists.** The only way the `TraversalQueue` grows mid-apply is a
 **reentrant re-partition of the VM `pending_history` FIFO** during `drain_traversal_queue` — which requires
@@ -381,12 +403,24 @@ re-entering `run_synchronous_phase_body` mid-drain (content's SW-pump-message ve
 guard). App-mode's `drain_same_turn` is a straight synchronous body with no message-recv loop; nothing
 re-enters Phase 1 during Phase 2. A popstate handler or a freshly-rebuilt page's initial script may *stage*
 new history actions onto the VM `pending_history`, but those are NOT partitioned into the `TraversalQueue`
-until the next `process_pending_navigation` (next input) — they do **not** re-enter the current drain's queue.
+until the next `process_pending_navigation` — they do **not** re-enter the current drain's queue.
+(That "next" is unbounded, not next-input-bounded: `events::handle_click` returns early on a hit-test miss /
+a chrome-band click / an unset `cursor_pos`, and `events::handle_keyboard` on an unfocused document, all
+before the drive site — see `#11-app-mode-turn-completion-drain`.)
 **Root invariant (premise 5 rests on THIS, not merely on the staging-not-partitioning consequence):** *No
 app-mode apply body synchronously drives the coordinator's Phase-1 partition (`run_synchronous_phase_body`); a
 reshaped `apply_traversal` MUST preserve this — a body that eagerly re-drained pending nav would re-open the
 mid-apply re-enqueue vector.* The staging-not-partitioning above holds only **because** this invariant does,
 which hardens the by-construction proof against a future apply-body change.
+
+**As-built trip-wire (machine-guarding premise 5).** The premise has two failure shapes, and
+`process_pending_navigation` takes one `debug_assert` each. ENTRY = a **re-drive** from any body the drive
+runs; its signal is a host-side `InteractiveState::drain_in_progress` flag set for the whole drive, NOT
+`TraversalQueue::is_applying()` — the coordinator's `enter_nested_apply`/`exit_nested_apply` bracket wraps
+`DrainHost::apply_traversal` ALONE, so `is_applying()` is blind to a re-drive from a Phase-1 seam body,
+including the headline "re-drain at the end of `navigate`" shape (app-mode reaches `navigate` from Phase 1c).
+EXIT = a **residual step** left on the queue; it does not strand permanently (the next drive's Phase-1 seed +
+bounded snapshot drain it) but its latency is unbounded and it acts as a full partition barrier meanwhile.
 
 **Conclusion.** In app-mode the `TraversalQueue` cannot grow during `drain_traversal_queue`, so the **bounded
 snapshot captured at Phase-2 drain-start equals the entire queue** (everything Phase 1 partitioned this turn),
@@ -422,12 +456,12 @@ including its output channel (`send_display_list`), so `impl DrainHost for Conte
 receiver that is self-contained the *same* way — owning **everything the drain needs** — is **`App`**, not
 `InteractiveState`:
 
-- **`interactive`** (`Option<InteractiveState>`, `mod.rs:215`–`:229`) carries the pipeline + `nav_controller` +
+- **`interactive`** (`App::interactive`, `Option<InteractiveState>`) carries the pipeline + `nav_controller` +
   `window_title` + the new `traversal_queue`, but has **no window handle and no output path**, and is itself
-  documented legacy/test state (`mod.rs:212`–`:214`).
-- **`render_state`** (the winit window — the OUTPUT path) lives on `App` (`mod.rs:246`), NOT on `InteractiveState`.
-- **`web_storage`** (`Arc<WebStorageManager>`, `mod.rs:278`) lives on `App`; the drain reads it via
-  `load_url_into_pipeline:352`–`:354` to re-install the rebuilt pipeline's `localStorage` backend.
+  documented legacy/test state (see the `InteractiveState` doc comment).
+- **`render_state`** (the winit window — the OUTPUT path) lives on `App` (`App::render_state`), NOT on `InteractiveState`.
+- **`web_storage`** (`Arc<WebStorageManager>`, `App::web_storage`) lives on `App`; the drain reads it via
+  `load_url_into_pipeline` to re-install the rebuilt pipeline's `localStorage` backend.
 
 Only `App` owns all three, so the One-issue-one-way structural mirror of `impl DrainHost for ContentState` is
 **`impl DrainHost for App`** (§7 Q-IMPL-TARGET) — the receiver self-contained the way `ContentState` is.
@@ -438,8 +472,8 @@ are homed on `interactive` (an `Option` on `App`), every per-drain seam reaches
 entire `drain_same_turn`**: the sole drive site `process_pending_navigation` enters behind
 `let Some(interactive) = &mut self.interactive else { return false }` (`navigation.rs:35`), and there is **no
 `self.interactive = None` anywhere in the crate** — `navigate` / `navigate_to_history_url` /
-`load_url_into_pipeline` replace `interactive.pipeline` **in place** (`navigation.rs:405`), never the `Option`
-(the `navigation.rs:79`–`:83` never-cleared invariant). So the `expect` is a bounded, provably-safe wrinkle, not
+`load_url_into_pipeline` replace `interactive.pipeline` **in place**, never the `Option`
+(the never-cleared invariant documented on the `App::interactive` field). So the `expect` is a bounded, provably-safe wrinkle, not
 an ownership gap — and it is the ONLY cost, because `App` already owns every field the drain touches (no
 bolted-on clone, no external output escape hatch).
 
@@ -579,13 +613,13 @@ pressure — the carve, if triggered, is orthogonal to it, per CLAUDE.md.)
   `ContentState` does). Chosen on **design merit, NOT churn**, on three converging reasons (§4.5):
   1. **ship_frame-output symmetry (decisive).** `ContentState::ship_frame` performs the shell's output *inside
      the seam* (`send_display_list`, `content/drain_host.rs:305`–`:314`); the faithful mirror keeps `ship_frame`
-     doing output via the winit window `App` owns (`render_state`, `mod.rs:246`). `InteractiveState` has no
-     window handle / no output path (`mod.rs:215`–`:229`), so under it the seam CANNOT ship — asymmetry at the
+     doing output via the winit window `App` owns (the `App::render_state` field). `InteractiveState` has no
+     window handle / no output path (see the `InteractiveState` field list), so under it the seam CANNOT ship — asymmetry at the
      very seam that defines the pattern.
-  2. **Self-containment.** `App` owns `interactive` + `render_state` + `web_storage` (`mod.rs:278`);
+  2. **Self-containment.** `App` owns `interactive` + `render_state` + `web_storage`;
      `InteractiveState` would need a bolted-on `web_storage` clone (violating CLAUDE.md side-store exception (b))
      **plus** an external output escape hatch. (`InteractiveState` is itself documented legacy/test state,
-     `mod.rs:212`–`:214`; `App` is the real driver object.)
+     the `InteractiveState` doc comment; `App` is the real driver object.)
   3. **The `expect` cost is provably safe.** Seams reach `self.interactive.as_mut().expect(...)`; the `expect` is
      an unreachable-panic — the drive site guards
      `let Some(interactive) = &mut self.interactive else { return false }` (`navigation.rs:35`) and there is **no
@@ -639,9 +673,12 @@ in a new `app_history_drain_tests.rs` (§5 boundary — app-local helpers, NOT f
   committed to `NavigationController` (Phase 1) THEN the traversal applies against the updated list (Phase 2).
   `history.back(); pushState('/x')` ⇒ the trailing sync defers and is **canceled** behind the cursor-moving
   traversal (Resolution D inherited — pins the coherent-state cancel). `go(0)` reload still rebuilds.
-- **Nav-vs-traversal supersede (Resolution A):** `history.back(); location.href='/b'` ⇒ Phase-1c nav
-  drain-and-discarded, no `/b` load, land on the back target; document the reverse cross-channel order
-  (bounded divergence, pinned-not-silent).
+- **Nav-vs-traversal supersede (Resolution A):** `history.back(); location.href='/b'` ⇒ Phase-1c drains
+  the nav slot and holds it, the applied traversal cancels it, no `/b` load, land on the back target;
+  document the reverse cross-channel order (bounded divergence, pinned-not-silent). Its **complement** pins
+  §4.3's hold-then-settle: when the `back()`'s cross-document load FAILS the navigable never traversed, so
+  the held `location.*` is reinstated in the same turn
+  (`app_failed_traversal_reinstates_the_superseded_navigation`).
 - **No-op peek-classify (Resolution E):** `go(999); pushState('/x')` at end-of-history ⇒ the no-op does NOT
   defer the trailing push (it applies in-handler) and does NOT suppress a same-turn link default.
 - **Default-suppression consumer (Resolution B, app-mode form):** a click whose handler runs a valid
@@ -663,5 +700,6 @@ the app-mode shell — One-issue-one-way is test-enforced across the two entry p
 vs `drain_same_turn`) **for everything the shared coordinator owns**. Parity is deliberately NOT total: content's
 R9 pin (`content_history_phase_sep_tests::pump_drains_popstate_staged_pushstate_this_turn` — the post-Phase-2
 synchronous settle) has no app-mode counterpart, because app-mode has no such settle. Its app-mode twin pins the
-OPPOSITE, bounded behavior (the popstate-staged intent drains on the next input), fenced to
+OPPOSITE behavior (the popstate-staged intent drains on the next drive that is reached — one turn in the
+test, unbounded in production), fenced to
 `#11-app-mode-turn-completion-drain` (§4.2).
