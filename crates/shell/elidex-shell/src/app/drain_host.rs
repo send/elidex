@@ -400,6 +400,11 @@ impl DrainHost for App {
     /// sync updates + navigation stay in-task. Only the FIRST traversal of a turn
     /// is peek-gated this way; once a barrier exists the coordinator calls
     /// [`pending_traversal`](Self::pending_traversal) directly.
+    ///
+    /// ⚠ Evaluating that sub-step-4.4 bail-out HERE (issue time) rather than when the
+    /// appended steps run is a known engine-wide, pre-existing divergence — both
+    /// shells carry this predicate. See the [`DrainHost::classify_traversal`]
+    /// contract note (`#11-traversal-delta-resolve-at-apply-time`).
     fn classify_traversal(&mut self, delta: TraversalDelta) -> Option<PendingTraversal> {
         let in_range = self
             .inline_state()

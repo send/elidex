@@ -367,6 +367,40 @@ pub trait DrainHost {
     /// unconditionally (F4) — so an impl should keep this equal to
     /// `self.peek_delta(delta).map(|_| self.pending_traversal(delta))` (the peek
     /// decides `Some`/`None`; `pending_traversal` builds the value).
+    ///
+    /// ⚠ **KNOWN DIVERGENCE — this range check runs at ENQUEUE time; the spec
+    /// resolves the delta at DEQUEUE time** (`#11-traversal-delta-resolve-at-apply-time`).
+    /// WHATWG HTML §7.4.3 *Reloading and traversing* ("traverse the history by a
+    /// delta") step 4 **appends** the traversal steps to the traversable
+    /// UNCONDITIONALLY: `allSteps` / `currentStepIndex` / `targetStepIndex`
+    /// (sub-steps 4.1–4.3) and the "If `allSteps[targetStepIndex]` does not exist,
+    /// then abort these steps" bail-out (sub-step 4.4) all live INSIDE those
+    /// appended steps, so they are evaluated when the queued steps RUN. This seam
+    /// hoists 4.1–4.4 to *issue* time instead. Concretely, from `[base]` with the
+    /// cursor on `base`, `history.back(); history.pushState({}, '', '/x')` peeks
+    /// index −1 → `None`, the coordinator DISCARDS the traversal (no barrier,
+    /// nothing queued), Phase 1 commits `/x`, and the `back()` is silently lost —
+    /// yet by the time Phase 2 would run, the list is `[base, /x]` with the cursor
+    /// on `/x`, where delta −1 is in range and resolves back to `base`.
+    ///
+    /// **Engine-wide and pre-existing**, not a property of any one shell: the
+    /// identical predicate is `app/drain_host.rs`'s and `content/drain_host.rs`'s
+    /// `classify_traversal`, which is why the note lives here at the CONTRACT.
+    /// It is the **first**-traversal instance of exactly the class
+    /// [`pending_traversal`](Self::pending_traversal)'s doc already documents for
+    /// SUBSEQUENT traversals (F4, `back(); forward()`) — peek-classifying against a
+    /// still-unmoved cursor wrongly DROPS a traversal whose target only becomes
+    /// in-range later.
+    ///
+    /// **Do NOT "fix" it by dropping the peek.** That reintroduces the Resolution-E
+    /// over-suppression this seam exists to prevent: an out-of-range `go(999)` would
+    /// enqueue a `Traversal` step, making [`TraversalQueue::has_pending_traversal`]
+    /// true, which latches [`DrainOutcome::suppress_default`] and kills a legitimate
+    /// `<a href>` default. The correct fix moves the no-op classification to
+    /// **apply** time and re-derives `suppress_default` from apply-time state —
+    /// `elidex-navigation` behavior affecting BOTH shells and coupling Resolution E ×
+    /// Resolution B × the I2 partition × apply-time resolution, so it is edge-dense
+    /// (`/elidex-plan-review` mandatory) and lands as its own PR.
     fn classify_traversal(&mut self, delta: TraversalDelta) -> Option<PendingTraversal>;
 
     /// **Phase 1b — construct a pending traversal WITHOUT a peek** (plan §1 F4).
