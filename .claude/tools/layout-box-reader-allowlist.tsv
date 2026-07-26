@@ -2,8 +2,9 @@
 # docs/audits/2026-07-layoutbox-reader-inventory.md (the human record).
 # Format: <classification>\t<path>\t<content>
 #   classification ∈ {producer, seam, pending-migration:<slice>, type-def, import, test}
-#   (the audit doc's 8-axis table is the vocabulary's definition; a
-#    pending-migration row names its owning slice, e.g. pending-migration:C-3e)
+#   Machine SoT = the trip-wire's $CLASSES (enforced by wire #4). Prose definition =
+#   the audit doc's "## Classification legend" section. A pending-migration row names
+#   its owning slice, e.g. pending-migration:C-3e.
 # Regenerate: .claude/tools/layout-box-reader-trip-wire.sh --regenerate
 test	crates/core/elidex-ecs/src/dom/geometry.rs	"bit-for-bit From<&LayoutBox>"
 test	crates/core/elidex-ecs/src/dom/geometry.rs	assert_eq!(geom.box_fragments(e).count(), 1, "e has its LayoutBox");
@@ -33,8 +34,8 @@ import	crates/core/elidex-plugin/src/traits.rs	use crate::{EdgeSizes, LayoutBox,
 pending-migration:C-3e	crates/core/elidex-render/src/builder/form.rs	lb: &LayoutBox,
 import	crates/core/elidex-render/src/builder/form.rs	use elidex_plugin::{ComputedStyle, CssColor, LayoutBox, Rect};
 import	crates/core/elidex-render/src/builder/inline.rs	ComputedStyle, CssColor, Direction, Display, FontStyle as PluginFontStyle, LayoutBox, Point,
-producer	crates/core/elidex-render/src/builder/inline.rs	pub(crate) lb: &'a LayoutBox,
-producer	crates/core/elidex-render/src/builder/mod.rs	dom.world().get::<&elidex_plugin::LayoutBox>(e).is_ok()
+pending-migration:C-3e	crates/core/elidex-render/src/builder/inline.rs	pub(crate) lb: &'a LayoutBox,
+pending-migration:C-3e	crates/core/elidex-render/src/builder/mod.rs	dom.world().get::<&elidex_plugin::LayoutBox>(e).is_ok()
 import	crates/core/elidex-render/src/builder/paint/mod.rs	BorderStyle, BoxModel, ComputedStyle, CssColor, LayoutBox, ListStyleType, Point, Rect, Size,
 pending-migration:C-3e	crates/core/elidex-render/src/builder/paint/mod.rs	if let Ok(lb) = dom.world().get::<&LayoutBox>(current) {
 pending-migration:C-3e	crates/core/elidex-render/src/builder/paint/mod.rs	lb: &dyn BoxModel,
@@ -57,8 +58,8 @@ pending-migration:C-3e	crates/core/elidex-render/src/builder/walk.rs	let paint_b
 pending-migration:C-3c	crates/dom/elidex-a11y/src/tree.rs	if let Ok(lb) = world.get::<&LayoutBox>(entity) {
 import	crates/dom/elidex-a11y/src/tree.rs	use elidex_plugin::LayoutBox;
 pending-migration:C-3b	crates/dom/elidex-dom-api/src/element/layout_query.rs	.get::<&LayoutBox>(entity)
-pending-migration:C-3b	crates/dom/elidex-dom-api/src/element/layout_query.rs	LayoutBox {
-pending-migration:C-3b	crates/dom/elidex-dom-api/src/element/layout_query.rs	let lb = LayoutBox {
+test	crates/dom/elidex-dom-api/src/element/layout_query.rs	LayoutBox {
+test	crates/dom/elidex-dom-api/src/element/layout_query.rs	let lb = LayoutBox {
 import	crates/dom/elidex-dom-api/src/element/layout_query.rs	use elidex_plugin::{ComputedStyle, JsValue, LayoutBox, Position};
 import	crates/layout/elidex-layout-block/src/block/children/helpers.rs	BoxSizing, Dimension, Display, EdgeSizes, Float, LayoutBox, Point, WritingModeContext,
 producer	crates/layout/elidex-layout-block/src/block/children/helpers.rs	let lb = LayoutBox {
@@ -110,7 +111,7 @@ producer	crates/layout/elidex-layout-table/src/lib.rs	fn cell_baseline(cell_lb: 
 producer	crates/layout/elidex-layout-table/src/lib.rs	let mut cell_layout_boxes: Vec<LayoutBox> = Vec::with_capacity(cells.len());
 producer	crates/layout/elidex-layout-table/src/lib.rs	return LayoutBox::default().into();
 pending-migration:C-3c	crates/layout/elidex-layout/src/hit_test.rs	let layout_box_opt = dom.world().get::<&LayoutBox>(entity).ok();
-pending-migration:C-3c	crates/layout/elidex-layout/src/hit_test.rs	let lb = LayoutBox {
+test	crates/layout/elidex-layout/src/hit_test.rs	let lb = LayoutBox {
 import	crates/layout/elidex-layout/src/hit_test.rs	use elidex_plugin::{ComputedStyle, Display, LayoutBox, Point, Vector};
 import	crates/layout/elidex-layout/src/layout/mod.rs	ComputedStyle, CssSize, Display, LayoutBox, PageSelector, PagedMediaContext, Position, Size,
 producer	crates/layout/elidex-layout/src/layout/mod.rs	Display::Contents => LayoutBox {
@@ -125,6 +126,6 @@ pending-migration:C-3d	crates/shell/elidex-shell/src/content/iframe/lifecycle.rs
 test	crates/shell/elidex-shell/src/content/scroll.rs	..LayoutBox::default()
 pending-migration:C-3d	crates/shell/elidex-shell/src/content/scroll.rs	.query::<(Entity, (&LayoutBox, &ComputedStyle))>()
 pending-migration:C-3d	crates/shell/elidex-shell/src/content/scroll.rs	let border_box = dom.world().get::<&LayoutBox>(element).ok()?.border_box();
-pending-migration:C-3d	crates/shell/elidex-shell/src/content/scroll.rs	let lb = LayoutBox {
+test	crates/shell/elidex-shell/src/content/scroll.rs	let lb = LayoutBox {
 import	crates/shell/elidex-shell/src/content/scroll.rs	use elidex_plugin::{ComputedStyle, Display, LayoutBox, Point, Rect, Vector};
 import	crates/shell/elidex-shell/src/content/scroll.rs	use elidex_plugin::{ComputedStyle, LayoutBox, Point, Rect, Size};

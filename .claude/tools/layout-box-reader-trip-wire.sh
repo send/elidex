@@ -107,6 +107,16 @@ committed_readers() {
   grep -vE '^[[:space:]]*(#|$)' "$ALLOWLIST" | cut -f2- | sort -u
 }
 
+# The classification vocabulary — the SINGLE machine-readable definition. Wire #4 validates
+# column 1 against it, which is what makes the vocabulary an enforced contract instead of a
+# comment three files restate (the .tsv header, the `--regenerate` emitter, and the audit
+# doc's legend had all drifted apart from each other AND from the data). It is also what
+# stops `--regenerate`'s `UNCLASSIFIED` placeholder from riding into a green run: wire #1's
+# own FAIL message prescribes `--regenerate`, so without this an author following the tool's
+# instructions after a refactor would silently absorb a genuinely-new reader as unclassified
+# and turn the gate green — a structural gate degraded to a review convention.
+CLASSES='producer|seam|type-def|import|test|pending-migration:C-3[b-e]'
+
 if [ "${1:-}" = "--regenerate" ]; then
   # Preserve any existing classification for a (path, content) still present;
   # new lines get `UNCLASSIFIED` for the author to triage against the audit doc.
@@ -123,8 +133,9 @@ if [ "${1:-}" = "--regenerate" ]; then
     echo "# docs/audits/2026-07-layoutbox-reader-inventory.md (the human record)."
     echo "# Format: <classification>\t<path>\t<content>"
     echo "#   classification ∈ {producer, seam, pending-migration:<slice>, type-def, import, test}"
-    echo "#   (the audit doc's 8-axis table is the vocabulary's definition; a"
-    echo "#    pending-migration row names its owning slice, e.g. pending-migration:C-3e)"
+    echo "#   Machine SoT = this script's \$CLASSES (enforced by wire #4). Prose definition ="
+    echo "#   the audit doc's '## Classification legend' section. A pending-migration row"
+    echo "#   names its owning slice, e.g. pending-migration:C-3e."
     echo "# Regenerate: .claude/tools/layout-box-reader-trip-wire.sh --regenerate"
     while IFS=$'\t' read -r path content; do
       key="$path"$'\t'"$content"
@@ -159,13 +170,54 @@ fi
 echo "wire #2: no LayoutBox/BoxModel NAME-INTRODUCTION (keeps the grep exhaustive)"
 # Bans: `X as` aliases, `type X = …Token`, aliased re-exports. The canonical
 # `pub use …{…, LayoutBox, …}` re-export (no `as`) keeps the token, so it is fine.
-ban_hits="$(cd "$ROOT" && git grep -nE '\b(LayoutBox|BoxModel)[[:space:]]+as[[:space:]]|type[[:space:]]+[A-Za-z_][A-Za-z0-9_]*[[:space:]]*=[^;]*\b(LayoutBox|BoxModel)\b' -- 'crates/**/*.rs' | strip_comments || true)"
-if [ -n "$ban_hits" ]; then
-  red "FAIL: a LayoutBox/BoxModel alias / type-alias was introduced — it drops the token at use-sites and defeats the grep. Use the type directly:"
-  printf '%s\n' "$ban_hits" | sed 's/^/  /'
+#
+# ⚠ Word boundaries come from `git grep -w`, NOT from `\b`. `git grep -E` is POSIX ERE and
+# silently accepts-but-never-matches `\b` — the original pattern used it and this wire was
+# therefore DEAD from the day it shipped, printing OK unconditionally. Since wire #2 is the
+# entire reason the memo-§4 compiler check was downgraded to grep (see the header), a dead
+# wire #2 means the exhaustiveness claim rests on nothing.
+# ⚠ Both patterns must END on a word boundary or `-w` rejects the hit: an earlier draft
+# closed BAN_ALIAS with `as[[:space:]]+[A-Za-z_]`, whose match ends mid-identifier (`… as L`
+# inside `LB`), and `-w` then discarded it — the positive control below caught that too.
+BAN_ALIAS='(LayoutBox|BoxModel)[[:space:]]+as'
+BAN_TYPEALIAS='type[[:space:]]+[A-Za-z_][A-Za-z0-9_]*[[:space:]]*=[^;]*(LayoutBox|BoxModel)'
+
+# Positive control — the STRUCTURAL fix for the class, not just the regex. A ban wire that
+# cannot match is indistinguishable from a clean tree, so trusting its verdict requires first
+# proving it fires. Each banned shape is matched against a synthetic violation using the SAME
+# engine and flags as the real scan (`git grep --no-index -nwE`); a control that fails to hit
+# means the pattern is dead and the wire aborts instead of reporting a false all-clear.
+ban_control() { # $1 = pattern, $2 = sample line that MUST match, $3 = shape label
+  # Run from INSIDE the scratch dir with a relative pathspec: `git grep --no-index` refuses
+  # an absolute path pointing outside the enclosing repository, which would make every
+  # control silently "fail" for the wrong reason and mask a pattern that is actually fine.
+  local dir rc; dir="$(mktemp -d)"
+  printf '%s\n' "$2" > "$dir/control.rs"
+  ( cd "$dir" && git grep --no-index -qnwE "$1" -- control.rs ) 2>/dev/null
+  rc=$?
+  rm -rf "$dir"
+  if [ "$rc" -ne 0 ]; then
+    red "FAIL: wire #2 self-test — the '$3' ban pattern matched nothing on a known violation."
+    red "      The wire cannot fire, so its OK verdict would be meaningless. Fix the pattern"
+    red "      (POSIX ERE has no \\b; and with -w the match must END on a word boundary)."
+    return 1
+  fi
+  return 0
+}
+control_ok=0
+ban_control "$BAN_ALIAS" 'use elidex_plugin::LayoutBox as LB;' 'import/re-export alias' || control_ok=1
+ban_control "$BAN_TYPEALIAS" 'type MyBox = elidex_plugin::LayoutBox;' 'type alias' || control_ok=1
+if [ "$control_ok" -ne 0 ]; then
   fail=1
 else
-  green "OK (no aliases)"
+  ban_hits="$(cd "$ROOT" && git grep -nwE "$BAN_ALIAS|$BAN_TYPEALIAS" -- 'crates/**/*.rs' | strip_comments || true)"
+  if [ -n "$ban_hits" ]; then
+    red "FAIL: a LayoutBox/BoxModel alias / type-alias was introduced — it drops the token at use-sites and defeats the grep. Use the type directly:"
+    printf '%s\n' "$ban_hits" | sed 's/^/  /'
+    fail=1
+  else
+    green "OK (no aliases; both ban patterns verified live against a positive control)"
+  fi
 fi
 
 echo "wire #3: no unreviewed macro_rules! in a reader-token file (token-hiding-macro guard)"
@@ -183,6 +235,21 @@ if [ -n "$macro_hits" ]; then
   fail=1
 else
   green "OK (only the verified non-hiding macros)"
+fi
+
+echo "wire #4: every allowlist row carries a classification from the declared vocabulary"
+# Without this the classification column is never read by anything (`committed_readers`
+# does `cut -f2-`), so it is documentation the machine ignores — including
+# `--regenerate`'s `UNCLASSIFIED`, the one value that means "nobody has triaged this yet".
+bad_class="$(grep -vE '^[[:space:]]*(#|$)' "$ALLOWLIST" | grep -vE "^($CLASSES)"$'\t' || true)"
+if [ -n "$bad_class" ]; then
+  red "FAIL: allowlist row(s) whose classification is outside the declared vocabulary"
+  red "      ($CLASSES). An UNCLASSIFIED row means --regenerate found a reader nobody has"
+  red "      triaged — classify it against docs/audits/2026-07-layoutbox-reader-inventory.md:"
+  printf '%s\n' "$bad_class" | sed 's/^/  /'
+  fail=1
+else
+  green "OK ($(committed_readers | wc -l | tr -d ' ') rows, every classification in vocabulary)"
 fi
 
 if [ "$fail" -ne 0 ]; then
