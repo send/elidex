@@ -52,7 +52,7 @@
 //!   installed by the `Response` ctor (and by `Response.error()` /
 //!   `.redirect()` / `.json()`, and by `fetch()` when wrapping a
 //!   broker response).
-//! - `Request` — silent no-op for WHATWG Fetch §4.6 forbidden
+//! - `Request` — silent no-op for WHATWG Fetch §2.2.2 forbidden
 //!   request header names (`Cookie`, `Host`, `Origin`, `Referer`,
 //!   `Set-Cookie`, the `Sec-` / `Proxy-` prefixes, …); mutations
 //!   on non-forbidden names succeed normally.  Installed on the
@@ -118,14 +118,14 @@ use validation::validate_and_normalise_name;
 ///
 /// Gates mutation.  `None` is fully mutable; `Immutable` rejects
 /// every modifying method with `TypeError`.  `Request` rejects
-/// **silently** (no throw) for WHATWG Fetch §4.6 forbidden request
+/// **silently** (no throw) for WHATWG Fetch §2.2.2 forbidden request
 /// header names; mutations on non-forbidden names succeed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum HeadersGuard {
     /// Fully mutable (standalone `new Headers(...)` default).
     None,
     /// Companion Headers of a `Request` instance (WHATWG Fetch
-    /// §5.3).  Mutating methods that target a §4.6 forbidden
+    /// §5.3).  Mutating methods that target a §2.2.2 forbidden
     /// request header name silently return without modifying the
     /// list — the spec says these are "ignored", not "throw".
     /// Non-forbidden names mutate normally.  Switching guard from
@@ -329,7 +329,7 @@ pub(super) fn require_mutable(
 /// Look up the guard on `headers_id` and return `true` if the
 /// already-lowercased `name_sid` should be silently ignored under
 /// that guard.  Currently only `HeadersGuard::Request` short-
-/// circuits (forbidden request header names per WHATWG Fetch §4.6);
+/// circuits (forbidden request header names per WHATWG Fetch §2.2.2);
 /// other guards return `false` so existing append/set/delete
 /// behaviour is unchanged.
 ///
@@ -406,7 +406,7 @@ pub(super) fn append_entry(
     // safe because (a) `copy_headers_entries` only ever copies from
     // an already-filtered Request-guarded source, and (b)
     // `ensure_content_type` only adds the `content-type` header,
-    // which is not in WHATWG Fetch §4.6's forbidden list.  Routing
+    // which is not in WHATWG Fetch §2.2.2's forbidden list.  Routing
     // those through `append_entry` would be redundant work on a
     // hot Request-clone path.
     if is_blocked_by_guard(ctx, headers_id, name_sid) {

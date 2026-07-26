@@ -362,7 +362,7 @@ fn attach_default_origin(request: &mut elidex_net::Request) {
 /// Attach the `Referer` header that WHATWG Fetch's default referrer
 /// policy (`strict-origin-when-cross-origin`) would produce.
 /// Script-initiated fetches no longer reach the early-return branch
-/// because §4.6 forbidden-header enforcement strips user-set
+/// because §2.2.2 forbidden-header enforcement strips user-set
 /// `Referer` upstream — see [`attach_default_origin`] for the
 /// matching analysis.  The pre-existing-entry guard is retained as
 /// a belt-and-braces for future internal callers that pre-populate
@@ -667,7 +667,7 @@ fn parse_init_overrides(
                         headers_val,
                         "Failed to execute 'fetch'",
                     )?;
-                    // WHATWG Fetch §4.6 forbidden-request-header
+                    // WHATWG Fetch §2.2.2 forbidden-request-header
                     // filter applies to the URL-input path too.
                     // The Request-input path filters via the
                     // companion Headers' `Request` guard during

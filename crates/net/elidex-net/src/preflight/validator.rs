@@ -1,6 +1,7 @@
-//! Preflight response validation (WHATWG Fetch §4.8 steps 11-21)
-//! and the cache-hit re-validator
-//! ([`validate_actual_against_allowance`]).
+//! Preflight response validation (WHATWG Fetch §4.8 CORS-preflight
+//! fetch step 7 — substeps 7.1–7.10 — plus the §4.10 CORS check for
+//! `Access-Control-Allow-Origin` / `-Allow-Credentials`) and the
+//! cache-hit re-validator ([`validate_actual_against_allowance`]).
 
 use std::time::Duration;
 
@@ -12,7 +13,8 @@ use crate::error::{NetError, NetErrorKind};
 use crate::{CredentialsMode, Request, Response};
 
 /// Validate the OPTIONS preflight response per WHATWG Fetch §4.8
-/// steps 11-21.  Returns a [`PreflightAllowance`] on success, or
+/// CORS-preflight fetch step 7 (+ the §4.10 CORS check for ACAO /
+/// ACAC).  Returns a [`PreflightAllowance`] on success, or
 /// `NetError(CorsBlocked)` on any spec-required failure.
 pub fn validate_preflight_response(
     orig: &Request,
@@ -60,9 +62,12 @@ pub fn validate_preflight_response(
         }
     }
 
-    // ACAC check (case-insensitive ASCII comparison per WHATWG
-    // Fetch §4.8 step 14 + parity with `sse/connect.rs::EventSource`
-    // header parsing — Copilot R1; single-valued — Copilot R2).
+    // ACAC check.  Fetch §4.10 CORS check step 7 succeeds only on
+    // the exact byte value `true`; elidex deliberately accepts a
+    // case-insensitive `true` (`TRUE` / `True`) as a lenient
+    // extension (Copilot R1), in parity with
+    // `sse/connect.rs::EventSource` header parsing.  Single-valued
+    // — Copilot R2.
     let allow_credentials_raw =
         header_value_single(&resp.headers, "access-control-allow-credentials");
     let allow_credentials = allow_credentials_raw
@@ -96,10 +101,11 @@ pub fn validate_preflight_response(
     let allowed_headers = parse_header_list(allow_headers_raw.as_deref(), credentialed)?;
     headers_must_be_allowed(&orig.headers, allowed_headers.as_ref())?;
 
-    // Max-Age (single-valued integer per WHATWG Fetch §4.8 step 19).
-    // Duplicate / comma-list / malformed → network error per the
-    // §4.8 step 19 "extracting header list values returning
-    // failure" contract (Copilot R4 + R5 PR #134).
+    // Max-Age (single-valued integer, extracted per WHATWG Fetch
+    // §4.8 step 7.8 "extracting header list values").  elidex fails
+    // closed — duplicate / comma-list / malformed → network error —
+    // rather than applying the step 7.9 "failure or null → 5"
+    // default (Copilot R4 + R5 PR #134).
     let max_age_raw =
         extract_single_header_or_fail_closed(&resp.headers, "access-control-max-age")?;
     let max_age_raw = match max_age_raw {
@@ -148,8 +154,8 @@ pub fn validate_actual_against_allowance(
 /// CORS-sensitive headers must not silently merge duplicate
 /// occurrences (Copilot R2).  Servers that emit ACAO/ACAC/etc.
 /// twice (whether by misconfiguration or deliberate cache-key
-/// confusion) must fail the §4.8 validation rather than be
-/// accepted with first-match semantics.
+/// confusion) must fail preflight validation (§4.8 step 7 / §4.10
+/// CORS check) rather than be accepted with first-match semantics.
 pub(super) fn header_value(headers: &[(String, String)], name: &str) -> Option<String> {
     let mut matches = headers.iter().filter(|(k, _)| k.eq_ignore_ascii_case(name));
     let value = matches.next()?.1.trim().to_string();
@@ -175,8 +181,9 @@ fn header_value_single(headers: &[(String, String)], name: &str) -> Option<Strin
 
 /// Distinguish "header absent" from "header present but
 /// duplicate" and surface the latter as a `CorsBlocked` network
-/// error per WHATWG Fetch §4.8 step 19 "extracting header list
-/// values returning failure".  Returns:
+/// error per WHATWG Fetch §4.8 step 7 "extracting header list
+/// values" (step 7.3 returns a network error on failure for
+/// Access-Control-Allow-Methods / -Headers).  Returns:
 ///
 /// - `Ok(None)` — header is absent (caller may apply spec default)
 /// - `Ok(Some(value))` — exactly one occurrence; trimmed value
@@ -213,7 +220,7 @@ fn parse_method_list(
     credentialed: bool,
 ) -> Result<Option<Vec<String>>, NetError> {
     let Some(raw) = raw else {
-        // §4.8 step 16 — no ACAM means no extra methods beyond
+        // §4.8 step 7.5 — no ACAM means no extra methods beyond
         // safelisted ones; an empty list rejects non-safelisted
         // methods (the typical preflight trigger).
         return Ok(Some(Vec::new()));
@@ -269,7 +276,7 @@ fn parse_header_list(
 /// Check that the actual method is in the parsed allow-methods
 /// list (or the list is `None`, i.e. wildcard).  CORS-safelisted
 /// methods are always allowed regardless of ACAM (spec §4.8
-/// step 17).
+/// step 7.5; CORS-safelisted method per §2.2.1).
 fn method_must_be_allowed(
     method: &str,
     allowed_methods: Option<&Vec<String>>,
@@ -293,7 +300,7 @@ fn method_must_be_allowed(
 /// Check that every author-specified non-safelisted header is in
 /// the parsed allow-headers list (or the list is `None`).
 /// Safelisted headers are always allowed regardless of ACAH (spec
-/// §4.8 step 18).
+/// §4.8 step 7.7).
 fn headers_must_be_allowed(
     actual_headers: &[(String, String)],
     allowed_headers: Option<&Vec<String>>,
@@ -302,7 +309,7 @@ fn headers_must_be_allowed(
         return Ok(());
     };
     for (name, value) in actual_headers {
-        // Skip safelisted headers (always allowed, §4.8 step 18)
+        // Skip safelisted headers (always allowed, §4.8 step 7.7)
         // AND broker-injected ones (`Origin` / `Referer` etc. —
         // not author-specified, so they don't participate in the
         // ACAH allow-list check).  Otherwise compliant servers
@@ -322,7 +329,7 @@ fn headers_must_be_allowed(
     Ok(())
 }
 
-/// Parse `Access-Control-Max-Age` per §4.8 step 19.
+/// Parse `Access-Control-Max-Age` per §4.8 steps 7.8–7.10.
 ///
 /// - Missing → [`DEFAULT_MAX_AGE_SECONDS`]
 /// - Negative or non-numeric → `Duration::ZERO` (don't cache)
@@ -674,11 +681,13 @@ mod tests {
         assert_eq!(err.kind, NetErrorKind::CorsBlocked);
     }
 
-    /// Regression for Copilot R4 finding 2: per WHATWG Fetch
-    /// §4.8 step 19, "extracting header list values" returning
-    /// failure (which covers duplicate occurrence of a single-
-    /// valued header) must surface as a network error — NOT
-    /// silently fall back to the missing-header 5s default.
+    /// Regression for Copilot R4 finding 2: a duplicate occurrence
+    /// of the single-valued `Access-Control-Max-Age` makes the §4.8
+    /// step 7.8 "extracting header list values" step return failure.
+    /// Fetch step 7.9 would map that to the 5s default; elidex
+    /// instead **fails closed** with a network error (an elidex
+    /// extension, not a Fetch requirement) — NOT silently falling
+    /// back to 5s.
     /// The earlier R3 fix only renamed the test; R4 requires
     /// the actual behaviour to fail closed.
     #[test]

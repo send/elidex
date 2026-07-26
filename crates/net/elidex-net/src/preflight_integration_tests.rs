@@ -289,11 +289,11 @@ async fn cors_redirect_with_include_downgrades_credentials_for_set_cookie_storag
 }
 
 /// Regression for Copilot R5 finding 2: a SIMPLE cors-mode
-/// GET (no preflight needed per §4.8.1) with `origin=None`
+/// GET (no preflight needed per §4.4 step 4.1) with `origin=None`
 /// must STILL fail closed — pre-R5 the broker entry only
 /// gated through `requires_preflight`, so simple cors GET
-/// without origin context bypassed the §4.4 / §4.8 fail-
-/// closed gate entirely.  Closed at the broker entry now,
+/// without origin context bypassed the §4.10 CORS check / §4.8
+/// preflight fail-closed gate entirely.  Closed at the broker entry now,
 /// before middleware / preflight detection / dispatch.
 #[tokio::test]
 async fn simple_cors_mode_without_origin_fails_closed() {
@@ -304,7 +304,7 @@ async fn simple_cors_mode_without_origin_fails_closed() {
     let client = test_client();
     let request = Request {
         // Simple safelisted-method request — would NOT trigger
-        // preflight under §4.8.1, so the R2 origin-None gate
+        // preflight under §4.4 step 4.1, so the R2 origin-None gate
         // inside `run_preflight` doesn't catch it.
         method: "GET".to_string(),
         url: url::Url::parse(&format!("http://127.0.0.1:{port}/data")).unwrap(),
@@ -677,7 +677,7 @@ async fn cors_redirect_tainted_chain_blocks_cookie_storage() {
 /// redirect hop within a cross-origin server (e.g.
 /// `https://api.other.com/start` → `/dest`, both on the same
 /// cross-origin host) must still re-issue OPTIONS against
-/// `/dest` because the §4.8 preflight cache is keyed
+/// `/dest` because the §4.9 preflight cache is keyed
 /// per-URL.  Without this the broker would skip the
 /// per-URL preflight and dispatch the actual non-simple
 /// request without a fresh allowance for `/dest`.

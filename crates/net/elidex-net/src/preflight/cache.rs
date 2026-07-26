@@ -1,4 +1,5 @@
-//! CORS preflight cache (WHATWG Fetch §4.8 step 19 + step 22).
+//! CORS preflight cache (WHATWG Fetch §4.9 CORS-preflight cache),
+//! populated by §4.8 CORS-preflight fetch step 7 (steps 7.12–7.15).
 //!
 //! Caches the [`super::PreflightAllowance`] result of a successful
 //! preflight, keyed on `(origin, url, method, header-name-set)`.
@@ -18,7 +19,7 @@ use elidex_plugin::SecurityOrigin;
 use super::{is_broker_injected_header, is_cors_safelisted_request_header, PreflightAllowance};
 use crate::Request;
 
-/// Cache key for a preflight result (WHATWG Fetch §4.8 step 22).
+/// Cache key for a preflight result (WHATWG Fetch §4.9 cache entry).
 ///
 /// The key includes the actual request's method + the set of
 /// non-safelisted header names, so a request that adds a new
