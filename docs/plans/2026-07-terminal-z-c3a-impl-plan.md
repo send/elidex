@@ -181,10 +181,33 @@ enum StorePhase {
 **Driver writes (the indivisible cross-crate tail, memo §1 (4) / §6.3).** Every layout entry **invalidates
 before laying out**; **only the screen entry publishes completed-screen at completion**:
 
+⚠ **This section originally specified an ENTRY-mark protocol (an explicit `invalidate()` at each layout
+entry). That mechanism was superseded mid-review and the entry marks are gone** — Codex PR#488 R1 showed the
+protocol left the `LayoutBox` **component** half uncovered (a direct post-publish `dispatch_layout_child`
+rewrote components while `CompletedScreen` stood, so the projection served a mixed generation), and the fix
+for that — a mark at the `dispatch_layout_child` bracket — subsumes every entry mark, since every layout
+entry reaches the algorithms only through it. Keeping both would be the "new seam + N legacy
+implementations" strangler state CLAUDE.md *One issue, one way* forbids, and it demonstrably cost a round:
+the entry-mark framing is what led R2 to ask for an invalidate before the paged entry's zero-write early
+returns. The rows below are kept as the **historical decision record**; the shipped mechanism is the one
+rule stated immediately after.
+
+**The shipped rule — one sentence.** *Any write to either geometry source invalidates the phase; only
+`layout_tree` publishes, at completion.* Realised in exactly four places, no others:
+
+| Source | Site | Mechanism |
+|---|---|---|
+| store contents | `FragmentTree::clear` | invalidates — an emptied store is definitionally not a completed pass |
+| store contents | `push_box` / `remove_entity` / `shift_entity` | `invalidate_on_write()`, and **only when they actually write** (a no-op must not demote a published store) |
+| `LayoutBox` component | `elidex_layout::dispatch_layout_child` | invalidates at its bracket — the single entry every layout algorithm is reached through, covering all 14 `insert_one` sites across 6 crates |
+| — | `layout_tree`, after its root loop | the sole `publish_completed_screen()` |
+
+*Superseded entry-mark rows (historical):*
+
 | Entry | Crate / site | Write |
 |---|---|---|
-| **screen** | `elidex-layout` `layout_tree` (`layout/mod.rs:324`) | `invalidate()` at top (before the existing `clear()` at :346); `publish_completed_screen()` after the root loop (:354) |
-| **paged** | `elidex-layout` `layout_fragmented_with_tokens` (`layout/mod.rs:272`) | `invalidate()` at top — the shared layout-side paged entry; **complete** coverage (below) |
+| **screen** | `elidex-layout` `layout_tree` | ~~`invalidate()` at top~~ — dropped; `clear()` on the next line invalidates by construction. `publish_completed_screen()` after the root loop remains |
+| **paged** | `elidex-layout` `layout_fragmented_with_tokens` | ~~`invalidate()` at top~~ — dropped; its fragmentainer loop calls `dispatch_layout_child`, so the bracket covers it |
 
 **Why `layout_fragmented_with_tokens` is the COMPLETE paged locus (plan-review re-check — verified live).** The
 paged store has **three** writers, and this one fn covers all three:

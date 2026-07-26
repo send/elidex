@@ -299,17 +299,16 @@ pub fn layout_fragmented_with_tokens(
     Vec<elidex_layout_block::LayoutOutcome>,
     Vec<Option<elidex_layout_block::BreakToken>>,
 ) {
-    // Provenance (terminal-Z C-3a §2): this is the COMPLETE paged store-write locus.
-    // The interleaved driver's Phase 1 calls it directly, `layout_paged` reaches it
-    // via `layout_fragmented`, and the driver's Phase-2 per-page direct dispatch
-    // writes AFTER Phase 1 so it inherits this `Invalid` (Phase 1 computes the page
-    // count Phase 2 loops over — a structural dependency, not incidental ordering).
-    // A paged store is page-relative, never a completed screen pass, and nothing
-    // here publishes, so `screen_geometry()` correctly reads `None` over it — even a
-    // zero-write page (this fires before any `push_box`). Not on the screen path
-    // (screen multicol commits via `elidex-layout-multicol`, not `layout_fragmented`).
-    dom.fragment_tree_mut().invalidate();
-
+    // Provenance (terminal-Z C-3a §2): NO explicit mark here. Every iteration below
+    // calls `dispatch_layout_child`, which invalidates at its bracket, and every store
+    // write goes through a `FragmentTree` mutator, which invalidates on write — so a
+    // paged pass is `Invalid` by construction, and nothing on this path publishes.
+    // An earlier revision marked the entry explicitly; that was the pre-bracket
+    // mechanism, and keeping both is the strangler middle state CLAUDE.md
+    // *One issue, one way* forbids. It already cost a review round: the plan described
+    // the entry mark as load-bearing, which led a reviewer to ask for an invalidate
+    // before the entry's zero-write early returns — where demoting a published screen
+    // pass would be plain wrong (see `a_zero_write_paged_early_return_leaves_the_phase_alone`).
     let mut fragments = Vec::new();
     let mut tokens = Vec::new();
     let mut current_token: Option<elidex_layout_block::BreakToken> = None;
@@ -356,16 +355,13 @@ pub fn layout_tree(dom: &mut EcsDom, viewport: Size, font_db: &FontDatabase) {
     // `FragmentNode::fragmentainer` docstring.
     // Provenance (terminal-Z C-3a §2): invalidate BEFORE laying out, so a stale
     // `CompletedScreen` from a prior pass cannot be read while this pass's store is
-    // empty/partial (the re-entrant-screen soundness hole). This is the screen
-    // entry's explicit half of the "every entry invalidates" protocol, symmetric
-    // with the paged entry's. On THIS path it is redundant three times over — `clear()`
-    // on the next line invalidates by construction, every content mutator
-    // (`push_box`/`remove_entity`/`shift_entity`) invalidates on write, and
-    // `dispatch_layout_child` invalidates at its bracket. It is kept for protocol
-    // symmetry with the paged entry, where the mark IS load-bearing: that entry never
-    // clears, so a paged pass writing nothing (an empty page reaches no mutator and no
-    // dispatch) would otherwise leave a prior `CompletedScreen` standing.
-    dom.fragment_tree_mut().invalidate();
+    // empty/partial (the re-entrant-screen soundness hole) — and `clear()` below is
+    // what establishes that, by construction: an emptied store is definitionally not a
+    // completed pass, so it invalidates. There is deliberately no separate entry mark
+    // (see the paged entry): the ONE rule is *any write to either geometry source
+    // invalidates* — `clear()` and the `FragmentTree` mutators for the store,
+    // `dispatch_layout_child`'s bracket for the `LayoutBox` component — and
+    // `layout_tree` is the sole publisher, at completion below.
     dom.fragment_tree_mut().clear();
     let roots = find_roots(dom);
     for root in roots {
