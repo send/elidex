@@ -48,13 +48,18 @@ SHORTNAME_TO_LABEL: dict[str, str] = {
 #: second scan; the shortname itself is accepted as its own alias so
 #: `"selectors-4"` resolves whether a comment writes the label or the
 #: shortname.
-LABEL_TO_SHORTNAME: dict[str, str] = {}
-for _entry in SPECS:
-    _short, _labels = _entry[0], _entry[1:]
-    LABEL_TO_SHORTNAME[_short.lower()] = _short
-    for _label in _labels:
-        LABEL_TO_SHORTNAME[_label.lower()] = _short
-del _entry, _short, _labels, _label
+#:
+#: Built as a comprehension rather than an accumulating loop so no
+#: module-level temporaries exist to `del`. An earlier form ended with
+#: `del _entry, _short, _labels, _label`, which raises `NameError` **at
+#: import** if `SPECS` is ever empty — and this module is imported at
+#: load time by `cite-audit`, `coverage-map`, and the plan-review
+#: preflight gate, so that failure would take all three out at once.
+LABEL_TO_SHORTNAME: dict[str, str] = {
+    key.lower(): entry[0]
+    for entry in SPECS
+    for key in (entry[0], *entry[1:])
+}
 
 
 def label_for(shortname: str) -> str | None:

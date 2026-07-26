@@ -174,6 +174,33 @@ class TestSharedSpecLabelMap(unittest.TestCase):
                 self.assertNotIn(key, seen, f"{label} claimed by two specs")
                 seen[key] = entry[0]
 
+    def test_module_leaves_no_temporaries_to_delete(self):
+        """Regression: the map is built by comprehension, not a loop.
+
+        An earlier form accumulated into a dict with `for _entry in
+        SPECS:` and ended `del _entry, _short, _labels, _label`. Pyright
+        flagged all four as possibly-unbound, correctly: with an empty
+        `SPECS` the loop never binds them and the `del` raises
+        `NameError` **at import** — and this module is imported at load
+        time by `cite-audit`, `coverage-map`, and the plan-review
+        preflight gate, so one bad edit would take out all three.
+        """
+        leftovers = [
+            n for n in vars(spec_labels)
+            if n.startswith("_") and not n.startswith("__")
+        ]
+        self.assertEqual(leftovers, [], f"module-level temporaries: {leftovers}")
+
+    def test_empty_specs_would_still_import(self):
+        """The comprehension form is total over an empty `SPECS`."""
+        empty: tuple[tuple[str, ...], ...] = ()
+        rebuilt = {
+            key.lower(): entry[0]
+            for entry in empty
+            for key in (entry[0], *entry[1:])
+        }
+        self.assertEqual(rebuilt, {})
+
     def test_cite_audit_consumes_the_shared_map(self):
         """Regression: the attribution map must not be re-inlined."""
         self.assertIs(cite_audit.LABEL_TO_SHORTNAME,
