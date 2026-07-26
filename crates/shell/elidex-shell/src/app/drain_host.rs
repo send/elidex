@@ -72,7 +72,10 @@
 //!    the [`TraversalQueue`] only on the NEXT drain (the next input turn), never
 //!    re-entering the current one. Any future change to an apply body MUST preserve
 //!    this — eagerly re-draining pending nav from inside an apply would re-open the
-//!    mid-apply re-enqueue vector.
+//!    mid-apply re-enqueue vector. Machine-guarded at the drive site by the
+//!    [`App::process_pending_navigation`] `debug_assert` PAIR (entry `!is_applying()`
+//!    catches a re-drive, exit `is_empty()` catches a residual step), which between
+//!    them cover both shapes this premise forbids.
 //!
 //! Consequently the bounded snapshot captured at Phase-2 drain-start **equals the
 //! entire queue**, the drain is complete-and-terminating by construction, and
@@ -133,29 +136,83 @@ impl App {
     /// [`DrainCoordinator::drain_synchronous_updates`] immediately after
     /// `run_deferred_traversals` (`content/event_loop.rs:206`, pinned by
     /// `content_history_phase_sep_tests::pump_drains_popstate_staged_pushstate_this_turn`);
-    /// app-mode has no counterpart. The correct fix is **loop-until-quiescent turn
-    /// completion**, not a trailing `drain_synchronous_updates` — that would settle
-    /// a popstate-staged `pushState` but leave a popstate-staged `back()` enqueued
-    /// with no Phase 2 behind it to drain, trading one stranding for another. It is
-    /// therefore edge-dense and lands as its own plan-reviewed PR.
+    /// app-mode has no counterpart.
+    ///
+    /// The correct fix is **loop-until-quiescent turn completion**, NOT a trailing
+    /// [`DrainCoordinator::drain_synchronous_updates`] — that trailing drain is not
+    /// merely insufficient, it is **wrong**. It would settle a popstate-staged
+    /// `pushState`, but a popstate-staged `back()` would be peek-classified
+    /// (Resolution E) and left **resident on the [`TraversalQueue`] across the turn
+    /// boundary**. Such a step is NOT stranded: turn N+1's `drain_same_turn` seeds
+    /// `seen_traversal` from [`TraversalQueue::has_pending_traversal`] and its Phase 2
+    /// drains it, at exactly the latency it has today. What the trailing drain does is
+    /// **freeze the in-range classification a turn early**, voiding the queue's own
+    /// contract that "Resolution E's peek-classify guarantees a no-op `go(999)` never
+    /// leaves a `Traversal` step here, so it does not over-suppress"
+    /// ([`TraversalQueue::has_pending_traversal`]) — the **non-drain** cursor movers
+    /// run between turns (the chrome toolbar Back/Forward and Alt+←/→ call
+    /// [`App::traverse_to`](super::App::traverse_to) directly; an `<a href>` default
+    /// calls [`App::navigate`](super::App::navigate)), so the resident step can be a
+    /// no-op by turn N+1 while still acting as a FULL barrier: it seeds
+    /// `seen_traversal` at Phase-1 **entry** (deferring every fresh `pushState` behind
+    /// it) and latches [`suppress_default`](DrainOutcome::suppress_default) **true** at
+    /// Phase-1 **exit**, killing an unrelated `<a href>` default for a traversal whose
+    /// Phase-2 re-peek then finds it out of range and no-ops. And when the resident
+    /// step IS still in range, its apply ships, so the Resolution-D
+    /// `traversal_applied` latch **cancels** every `pushState` deferred behind it.
+    /// (That last cancel is *today's* behavior too — a `back()` parked on the VM
+    /// `pending_history` FIFO leads the same FIFO on turn N+1, pinned by
+    /// `app_history_drain_tests::app_trailing_syncupdate_canceled_behind_cursor_moving_traversal`;
+    /// the **over-suppression** is what the trailing drain newly breaks.) It would also
+    /// contradict this site's premise-5 exit assert by construction — the queue would
+    /// be deliberately non-empty at drain exit. Edge-dense ⇒ its own plan-reviewed PR.
     pub(super) fn process_pending_navigation(&mut self) -> DrainOutcome {
         if self.interactive.is_none() {
             return DrainOutcome::default();
         }
+        // Plan §4.4 premise 5 ("no app-mode apply body may synchronously drive the
+        // coordinator's Phase-1 partition") is what makes Phase 2's bounded snapshot
+        // equal the whole queue. It has TWO failure shapes and takes one assert each
+        // — the pair is complete, neither alone is.
+        //
+        // ENTRY (this one) — a **re-drive**: an apply body calls
+        // `process_pending_navigation` / `DrainCoordinator::drain_same_turn` itself,
+        // the most natural future regression ("just re-drain at the end of
+        // `navigate`"). The coordinator brackets every apply in
+        // `enter_nested_apply`/`exit_nested_apply`, so a drive reached from inside an
+        // apply body observes `is_applying() == true` — exactly this condition. The
+        // EXIT assert below is BLIND to it: the nested `drain_traversal_queue`
+        // recomputes `pending_len()` and drains the OUTER pass's un-popped steps too,
+        // so the outer `pop_next()` then returns `None` and breaks, leaving the queue
+        // EMPTY — while issue ordering (I2) and the per-drain Resolution-D
+        // `traversal_applied` latch have already been violated silently.
+        debug_assert!(
+            !self.traversal_queue().is_applying(),
+            "app-mode drove the coordinator from INSIDE a Phase-2 apply body \
+             (`is_applying()` holds), breaking plan §4.4 premise 5 — the nested drain \
+             consumes the outer pass's un-popped steps, violating issue ordering (I2) \
+             and the per-drain Resolution-D `traversal_applied` latch while leaving the \
+             queue deceptively empty"
+        );
         let outcome = DrainCoordinator::drain_same_turn(self);
-        // Plan §4.4 premise 5 ("no app-mode apply body synchronously drives the
-        // coordinator's Phase-1 partition") is what makes Phase 2's bounded
-        // snapshot equal the whole queue. Its observable consequence is that the
-        // queue is EMPTY here: a re-partition mid-apply would enqueue behind the
-        // snapshot and strand (app-mode has no pump to catch it). This guards a
-        // future CODE change to an apply body, not an unreachable state — which is
-        // why the plan's rejection of an end-of-handler *re-drain* as dead code
-        // does not cover it (a `debug_assert` re-drains nothing).
+        // EXIT — a **residual step**: this drain left Phase-2 work behind. Reached
+        // when something enqueued onto the queue without re-driving the coordinator —
+        // an apply body calling `TraversalQueue::enqueue_traversal` directly (the shape
+        // `MockHost::apply_traversal` models in `elidex-navigation`'s
+        // `traversal_queue_tests.rs`), or a future drive site appending a Phase-1-only
+        // pass that classifies a traversal with no Phase 2 behind it. Either way the
+        // step sits behind the bounded snapshot and strands — app-mode has no pump to
+        // catch it.
+        //
+        // Both asserts guard a future CODE change, not an unreachable state — which is
+        // why the plan's rejection of an end-of-handler *re-drain* as dead code does
+        // not cover them (a `debug_assert` re-drains nothing).
         debug_assert!(
             self.traversal_queue().is_empty(),
-            "app-mode drain left a residual traversal step — an apply body re-entered \
-             the Phase-1 partition, breaking plan §4.4 premise 5 (app-mode has no pump \
-             to drain the residual)"
+            "app-mode drain left a residual traversal step — something enqueued onto \
+             the queue that this drain did not drain (an apply-body `enqueue_traversal`, \
+             or a Phase-1 pass with no Phase 2 behind it), and app-mode has no pump to \
+             drain the residual"
         );
         outcome
     }

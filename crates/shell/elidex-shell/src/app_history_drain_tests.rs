@@ -556,11 +556,30 @@ fn app_drain_same_turn_leaves_no_residual_and_applies_every_queued_traversal() {
 /// which asserts the popstate-staged `pushState` lands on the SAME turn. App-mode
 /// has no such counterpart, so the assertions below describe the status quo.
 ///
-/// The fix is **loop-until-quiescent turn completion**, not a trailing
-/// `drain_synchronous_updates`: that would settle a popstate-staged `pushState` but
-/// leave a popstate-staged `back()` enqueued with no Phase 2 behind it to drain,
-/// trading one stranding for another. Edge-dense ⇒ its own plan-reviewed PR, at
-/// which point this test flips to the content shape.
+/// The fix is **loop-until-quiescent turn completion**, NOT a trailing
+/// `drain_synchronous_updates` — that trailing drain is not merely insufficient, it
+/// is **wrong**. It would settle a popstate-staged `pushState`, but a popstate-staged
+/// `back()` would be peek-classified (Resolution E) and left **resident on the
+/// `TraversalQueue` across the turn boundary**. Such a step is NOT stranded: the next
+/// turn's `drain_same_turn` seeds `seen_traversal` from `has_pending_traversal()` and
+/// its Phase 2 drains it, at exactly the latency it has today. What the trailing drain
+/// does is **freeze the in-range classification a turn early**, voiding the queue's
+/// own contract that Resolution E "leaves no `Traversal` step for a no-op, so it never
+/// over-suppresses": the **non-drain** cursor movers run between turns (chrome toolbar
+/// Back/Forward and Alt+←/→ call `traverse_to` directly; an `<a href>` default calls
+/// `navigate`), so the resident step can be a no-op by the next turn while still acting
+/// as a FULL barrier — seeding `seen_traversal` at Phase-1 ENTRY (deferring every fresh
+/// `pushState` behind it) and latching `suppress_default` true at Phase-1 EXIT, killing
+/// an unrelated `<a href>` default for a traversal whose Phase-2 re-peek then finds it
+/// out of range and no-ops. When the resident step IS still in range its apply ships,
+/// so the Resolution-D `traversal_applied` latch CANCELS every `pushState` deferred
+/// behind it — that specific cancel is *today's* behavior too (a parked `back()` leads
+/// the same VM FIFO on the next turn, pinned by
+/// [`app_trailing_syncupdate_canceled_behind_cursor_moving_traversal`]), so the
+/// over-suppression above is what the trailing drain newly breaks. It would also
+/// contradict `process_pending_navigation`'s premise-5 exit assert by construction
+/// (the queue would be deliberately non-empty at drain exit). Edge-dense ⇒ its own
+/// plan-reviewed PR, at which point this test flips to the content shape.
 #[test]
 fn app_popstate_staged_action_defers_to_the_next_drain_not_the_current_queue() {
     let mut app = app_at(
