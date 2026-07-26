@@ -11,6 +11,7 @@
 //!   thread (used by `build_pipeline` test API).
 
 mod content_messages;
+mod drain_host;
 pub(crate) mod events;
 pub(crate) mod hover;
 mod inline;
@@ -24,8 +25,16 @@ mod threaded;
 mod viewport;
 
 #[cfg(test)]
+#[path = "../app_test_support.rs"]
+mod test_support;
+
+#[cfg(test)]
 #[path = "../app_fragment_nav_tests.rs"]
 mod fragment_nav_tests;
+
+#[cfg(test)]
+#[path = "../app_history_drain_tests.rs"]
+mod history_drain_tests;
 
 use std::sync::Arc;
 
@@ -35,8 +44,9 @@ use winit::event_loop::ActiveEventLoop;
 use winit::window::{Window, WindowId};
 
 use elidex_ecs::Entity;
-use elidex_navigation::NavigationController;
+use elidex_navigation::{NavigationController, TraversalQueue};
 use elidex_plugin::{Point, Size};
+use elidex_script_session::NavigationType;
 use wgpu::util::TextureBlitter;
 use wgpu::{Instance, Surface};
 
@@ -219,6 +229,54 @@ pub(super) struct InteractiveState {
     pub(super) active_chain: Vec<Entity>,
     pub(super) modifiers: Modifiers,
     pub(super) nav_controller: NavigationController,
+    /// The traversable's **session history traversal queue** (WHATWG HTML
+    /// §7.3.1.1 *Traversable navigables*) — the deferred Phase-2 traversal-apply
+    /// queue the [`DrainCoordinator`](elidex_navigation::DrainCoordinator) drives
+    /// through [`App`]'s [`DrainHost`](elidex_navigation::DrainHost) impl
+    /// (`app/drain_host.rs`). Homed here beside `nav_controller` (Q-OWNER —
+    /// engine-agnostic traversable proxy state, and both survive a pipeline
+    /// rebuild), exactly as content mode homes it beside its own controller.
+    ///
+    /// App-mode has **no async pump**, so its Phase 2 drains at the END of the
+    /// same input handler (`DrainCoordinator::drain_same_turn`), strictly after
+    /// Phase 1 — the *degenerate* two-phase that still realizes §7.4.6.1
+    /// *Updating the traversable* step 12's ordering ("This set of steps are split
+    /// into two parts to allow synchronous navigations to be processed before
+    /// documents unload"). CLAUDE.md side-store exception (b)
+    /// (browsing-context/session-level state, not a per-entity ECS component).
+    pub(super) traversal_queue: TraversalQueue,
+    /// The §7.4.2 own-context navigation that Phase 1c **drained but HELD** under
+    /// the queued-traversal suppression (elidex's enqueue-time supersede — a
+    /// deliberate divergence from §7.4.2.2 *Beginning navigation* step 19, whose
+    /// gate the §7.4.6.1 step-8.4 apply sets; slot
+    /// `#11-nav-supersede-window-vs-ongoing-navigation`), already resolved against
+    /// the Phase-1c document URL (so a reinstatement navigates to exactly the URL
+    /// the unsuppressed leg would have).
+    ///
+    /// Lives for the span of ONE [`App::process_pending_navigation`] drive and
+    /// **never across turns**: Phase 2's
+    /// [`DrainHost::apply_traversal`](elidex_navigation::DrainHost::apply_traversal)
+    /// clears it the moment a traversal MOVES THE CURSOR (the §7.4.2 leg of the
+    /// coordinator's Resolution-D cancel), and whatever survives that is reinstated
+    /// — and `take`n — by the drive site's tail. So the "a suppressed `location.*`
+    /// can never re-fire a turn late" contract holds by construction: the slot is
+    /// drained in Phase 1c, and the held request is either applied or dropped
+    /// before the same drive returns.
+    pub(super) deferred_navigation: Option<(url::Url, NavigationType)>,
+    /// Re-entry guard for [`App::process_pending_navigation`] — `true` for exactly
+    /// the span of one app-mode drive. Plan §4.4 premise 5 forbids **any** body the
+    /// drive runs (a `DrainHost` seam, a Phase-2 apply body, the reinstatement
+    /// tail) from synchronously re-driving the coordinator; this is the flag that
+    /// drive's entry `debug_assert` reads.
+    ///
+    /// Host-side **because it must bracket the WHOLE drive**:
+    /// [`TraversalQueue::is_applying`] brackets only
+    /// [`DrainHost::apply_traversal`](elidex_navigation::DrainHost::apply_traversal)
+    /// (`traversal_queue.rs`'s `enter_nested_apply` / `exit_nested_apply` pair), so
+    /// it cannot see a re-drive from a Phase-1 seam body — including the headline
+    /// "just re-drain at the end of `navigate`" case, which app-mode reaches from
+    /// Phase 1c, outside that bracket.
+    pub(super) drain_in_progress: bool,
     pub(super) window_title: String,
     pub(super) chrome: crate::chrome::ChromeState,
     /// The window's current device facts (dppx / color-scheme / reduced-motion) —
@@ -254,6 +312,17 @@ pub struct App {
     /// Used to send exactly one `CursorLeft` when the cursor moves into the chrome area.
     cursor_in_content: bool,
     /// Legacy inline interactive state.
+    ///
+    /// **Never-cleared invariant** (relied on by every `DrainHost` seam in
+    /// `app/drain_host.rs`): the ONLY writes to this field are at construction —
+    /// `None` in [`Self::from_tab_manager`] (threaded mode), `Some(..)` in
+    /// [`Self::new_interactive_with_url`] (inline mode, the sole inline
+    /// constructor). Nothing clears it afterwards: the navigation bodies
+    /// (`navigate` / `navigate_to_history_url` / `load_url_into_pipeline`) replace
+    /// `interactive.pipeline` **in place**, never the `Option`. So once the sole
+    /// drain site (`drain_host::App::process_pending_navigation`) has checked
+    /// `is_some()`, every per-seam `self.interactive.as_mut().expect(..)` inside
+    /// that drain is an **unreachable panic**.
     pub(super) interactive: Option<InteractiveState>,
     /// Pending window focus request from `window.focus()`.
     pub(super) pending_focus: bool,
@@ -291,7 +360,46 @@ pub struct App {
     viewport: viewport::ViewportProducer,
 }
 
+/// The `.expect()` message for every inline-only reach-through to
+/// [`App::interactive`] — the panic behind [`App::inline_state`] /
+/// [`App::inline_state_mut`].
+///
+/// An **unreachable panic**, not a fallible unwrap: the sole drive site
+/// ([`App::process_pending_navigation`]) enters only when `interactive.is_some()`,
+/// and nothing in the crate ever clears the field afterwards (its never-cleared
+/// invariant, documented on the field just above). Reaching it would mean a
+/// second, unguarded coordinator drive was introduced — which must fail loudly
+/// rather than silently no-op half a drain.
+///
+/// Homed here, beside the field and its invariant, so the invariant has ONE home:
+/// stated once, enforced once (by the two accessors below).
+const INTERACTIVE_DRIVE_ONLY: &str =
+    "the DrainCoordinator is driven only from process_pending_navigation, which enters \
+     behind an `interactive.is_some()` guard, and `interactive` is never cleared";
+
 impl App {
+    /// The legacy-inline state, on a path that runs **only** in inline mode.
+    ///
+    /// The single enforcement point of the [`interactive`](Self::interactive)
+    /// never-cleared invariant for shared borrows: panics with
+    /// [`INTERACTIVE_DRIVE_ONLY`] (unreachable — see its docs). Every
+    /// [`DrainHost`](elidex_navigation::DrainHost) seam in `app/drain_host.rs`
+    /// reaches through this instead of open-coding the `expect`.
+    pub(super) fn inline_state(&self) -> &InteractiveState {
+        self.interactive.as_ref().expect(INTERACTIVE_DRIVE_ONLY)
+    }
+
+    /// [`Self::inline_state`] for mutable borrows.
+    ///
+    /// Borrows all of `*self`, so a body that must ALSO touch a **disjoint**
+    /// `App` field while holding this borrow (e.g. reading `render_state` to set
+    /// the window title) cannot use it — the borrow checker splits disjoint field
+    /// borrows only at a direct field access. `navigation.rs::handle_history_action`
+    /// is the one such site and keeps its direct `self.interactive` borrow.
+    pub(super) fn inline_state_mut(&mut self) -> &mut InteractiveState {
+        self.interactive.as_mut().expect(INTERACTIVE_DRIVE_ONLY)
+    }
+
     /// Build a content-thread wake closure from a clone of the event-loop proxy.
     /// The single way a [`crate::WakeHandle`] is minted (used by both the
     /// `new_threaded*` initial-tab spawn and [`App::wake_or_noop`] for later tabs).
@@ -452,48 +560,6 @@ impl App {
         app
     }
 
-    /// Create a new legacy (inline) interactive application from a pipeline result.
-    #[allow(dead_code)]
-    pub fn new_interactive(pipeline: crate::PipelineResult) -> Self {
-        Self {
-            render_state: None,
-            tab_manager: None,
-            cursor_pos: None,
-            modifiers: Modifiers::default(),
-            cursor_in_content: false,
-            interactive: Some(InteractiveState {
-                chrome: crate::chrome::ChromeState::new(None),
-                pipeline,
-                cursor_pos: None,
-                hover_chain: Vec::new(),
-                active_chain: Vec::new(),
-                modifiers: Modifiers::default(),
-                nav_controller: NavigationController::new(),
-                window_title: "elidex".to_string(),
-                // Inline pipelines are built with default facts (1× / Light); no
-                // window → no dynamic writer, so this static seed IS parity (B20).
-                device_facts: crate::ipc::DeviceFacts::default(),
-            }),
-            pending_focus: false,
-            network_process: None, // Legacy mode — no broker.
-            sw_coordinator: sw_coordinator::SwCoordinator::new(),
-            browser_db: None,
-            origin_storage: None, // Inline/legacy mode — no SW, no per-origin storage.
-            // Inline/legacy mode has no content thread, but its in-app navigation
-            // rebuild (`load_url_into_pipeline`) still constructs pipelines that
-            // must persist `localStorage` — own one disk-backed manager here too.
-            web_storage: std::sync::Arc::new(
-                elidex_storage_core::WebStorageManager::with_default_profile(),
-            ),
-            cookie_gen: 0,
-            wake_proxy: None, // Inline mode is synchronous — nothing to wake.
-            viewport: viewport::ViewportProducer::new(
-                crate::DEFAULT_VIEWPORT_WIDTH,
-                crate::DEFAULT_VIEWPORT_HEIGHT,
-            ),
-        }
-    }
-
     /// Create a new legacy (inline) interactive application from a URL-loaded pipeline result.
     #[allow(dead_code)]
     pub fn new_interactive_with_url(pipeline: crate::PipelineResult, title: String) -> Self {
@@ -516,6 +582,9 @@ impl App {
                 active_chain: Vec::new(),
                 modifiers: Modifiers::default(),
                 nav_controller,
+                traversal_queue: TraversalQueue::new(),
+                deferred_navigation: None,
+                drain_in_progress: false,
                 window_title: title,
                 // Inline pipelines are built with default facts (1× / Light); no
                 // window → no dynamic writer, so this static seed IS parity (B20).

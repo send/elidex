@@ -26,77 +26,6 @@ enum AppSameDocStep {
 }
 
 impl App {
-    /// Check for and process any pending JS navigation or history action.
-    ///
-    /// Called after event dispatch + re-render. Returns `true` if a navigation
-    /// or history action was processed, so the caller can skip further default
-    /// actions (e.g. link navigation).
-    pub(super) fn process_pending_navigation(&mut self) -> bool {
-        let Some(interactive) = &mut self.interactive else {
-            return false;
-        };
-
-        // Drain the `window.open` back-channel FIRST so it cannot leak across a
-        // navigation (a queue left un-drained would surface on the next task).
-        // Legacy inline mode has no new-tab capability (`ChromeAction::NewTab`
-        // is threaded-mode only, see `handle_chrome_action`) and no iframe
-        // registry (`InteractiveState` carries no iframes — iframes are a
-        // content-thread facility), so the whole ordered window.open queue is
-        // drained-and-dropped here. Draining first (unconditional, mirroring the
-        // content thread's `process_pending_actions`) also closes the prior leak
-        // where an early navigation/history return skipped the drop. Threaded
-        // content mode does the real routing in
-        // `content/navigation.rs::process_pending_actions`.
-        let _ = interactive.pipeline.runtime.take_pending_window_opens();
-
-        // Own-context HISTORY drain BEFORE navigation (WHATWG HTML §7.4.4), FIFO
-        // — mirrors the content thread: a synchronous `pushState`/`replaceState`
-        // must commit its session-history entry before an async
-        // pipeline-replacing navigation supersedes, else a same-turn
-        // `pushState('/a'); location.href='/b'` strands `/a`. boa yields a
-        // 0/1-element Vec; the VM yields every action of the turn (type-stable
-        // across the S5-6 flip).
-        let pending_history = interactive.pipeline.runtime.take_pending_history();
-        let history_applied = !pending_history.is_empty();
-        for action in &pending_history {
-            if self.handle_history_action(action) {
-                // A traversal handled the turn — a cross-document rebuild that
-                // loaded, OR a same-document traversal applied in place (restored +
-                // fired popstate). Return IMMEDIATELY rather than falling through to
-                // `take_pending_navigation()` below, which (on the rebuild path)
-                // would drain a `location.*` the freshly-loaded page's initial
-                // scripts queued onto the FRESH runtime (Codex #283). A no-target /
-                // failed-load traversal returns `false` and does NOT reach
-                // here, so the loop CONTINUES and trailing same-turn intents still
-                // apply (Codex R1 P2 / R2). Mirrors
-                // `content/navigation.rs::process_pending_actions`.
-                return true;
-            }
-        }
-
-        // Re-borrow required by the borrow-checker: the loop above called
-        // `handle_history_action` (`&mut self`), so `self.interactive` needs a
-        // fresh borrow here. It stays `Some` — no path ever clears it
-        // (`navigate`/`navigate_to_history_url`/`load_url_into_pipeline` replace
-        // `interactive.pipeline` IN PLACE, never `self.interactive = None`) — so
-        // the `else` is an unreachable destructuring formality, not a real
-        // "interactive was dropped" path.
-        let Some(interactive) = &mut self.interactive else {
-            return history_applied;
-        };
-
-        // Own-context navigation — AFTER the history above.
-        if let Some(nav_req) = interactive.pipeline.runtime.take_pending_navigation() {
-            let resolved = resolve_nav_url(interactive.pipeline.url.as_ref(), &nav_req.url);
-            if let Some(target_url) = resolved {
-                self.navigate(&target_url, nav_req.nav_type);
-                return true;
-            }
-        }
-
-        history_applied
-    }
-
     /// Navigate to a new URL, rebuilding the current pipeline.
     ///
     /// App-mode **honors** the [`NavigationType`] (unlike thread-mode, whose
@@ -323,9 +252,15 @@ impl App {
 
     /// Navigate to a URL from the history (back/forward). Returns `true` iff the
     /// pipeline was **replaced (the load succeeded)** — the inline mirror of
-    /// `content/navigation.rs::handle_navigate`'s success signal, so a
-    /// failed-load traversal does NOT supersede the same-turn history drain
-    /// (Codex R2).
+    /// `content/navigation.rs::handle_navigate`'s success signal (Codex R2).
+    ///
+    /// That `bool` flows out through [`Self::traverse_to`] as
+    /// [`DrainHost::apply_traversal`](elidex_navigation::DrainHost::apply_traversal)'s
+    /// `shipped`, which gates the coordinator's Resolution-D **cursor-moved
+    /// latch**: a FAILED load never moved the cursor, so it sets no latch, marks no
+    /// own-context action, and a trailing straddle `SyncUpdate` still applies
+    /// coherently against the (still-active) call-time entry instead of being
+    /// canceled.
     pub(super) fn navigate_to_history_url(&mut self, url: &url::Url) -> bool {
         if !self.load_url_into_pipeline(url) {
             return false;
@@ -399,7 +334,9 @@ impl App {
                     // on a cross-document traversal (its value is flip-inert — boa
                     // passes `None` on every pushState; the seed-threading lands
                     // only on the content thread, plan §5.5). Same-document
-                    // traversals still restore + fire in place (`handle_history_action`).
+                    // traversals never reach here at all: they restore + fire in
+                    // place in `same_document_step` (via `traverse_to`, which routes
+                    // them there instead of rebuilding).
                     None,
                 );
                 interactive.pipeline = new_pipeline;
@@ -422,95 +359,38 @@ impl App {
         }
     }
 
-    /// Handle a pending history action from JS. Returns `true` iff it
-    /// **superseded the document via a pipeline-rebuilding traversal that
-    /// LOADED** — a `Back`/`Forward`/`Go` whose `NavigationController` peek
-    /// yielded a target AND whose `navigate_to_history_url` load succeeded
-    /// (replaced the pipeline). Returns `false` for `PushState`/`ReplaceState`,
-    /// for a no-op traversal (no target), and for a traversal whose load FAILED
-    /// (old document still active). Mirrors
-    /// `content/navigation.rs::handle_history_action`: the drain loop returns
-    /// only on a genuine rebuild, so a no-op / failed-load traversal leaves the
-    /// current document active and the remaining same-turn intents still apply
-    /// (Codex R1 P2 / R2). The traversal is atomic by construction
-    /// (peek-then-commit — Codex R3): the cursor is committed (`commit_index`)
-    /// only after the load succeeds, so a failed load never moves it (no rollback
-    /// path).
-    pub(super) fn handle_history_action(
-        &mut self,
-        action: &elidex_script_session::HistoryAction,
-    ) -> bool {
-        let Some(interactive) = &mut self.interactive else {
-            return false;
-        };
-
-        match action {
-            elidex_script_session::HistoryAction::Back
-            | elidex_script_session::HistoryAction::Forward => {
-                // Peek the target WITHOUT moving the cursor; `traverse_to` commits
-                // it only after a successful cross-document load, or restores +
-                // fires in place for a same-document target. Clone the URL to drop
-                // the `interactive` borrow before the `&mut self` traversal below.
-                let peeked = if matches!(action, elidex_script_session::HistoryAction::Back) {
-                    interactive.nav_controller.peek_back()
-                } else {
-                    interactive.nav_controller.peek_forward()
-                };
-                let Some((target_index, url)) = peeked.map(|(i, u)| (i, u.clone())) else {
-                    return false;
-                };
-                self.traverse_to(target_index, &url)
-            }
-            elidex_script_session::HistoryAction::Go(delta) => {
-                let Some((target_index, url)) = interactive
-                    .nav_controller
-                    .peek_go(*delta)
-                    .map(|(i, u)| (i, u.clone()))
-                else {
-                    return false;
-                };
-                self.traverse_to(target_index, &url)
-            }
-            elidex_script_session::HistoryAction::PushState {
-                url,
-                serialized_state,
-                ..
-            }
-            | elidex_script_session::HistoryAction::ReplaceState {
-                url,
-                serialized_state,
-                ..
-            } => {
-                let replace = matches!(
-                    action,
-                    elidex_script_session::HistoryAction::ReplaceState { .. }
-                );
-                if let Some(resolved_url) =
-                    resolve_state_url(interactive.pipeline.url.as_ref(), url.as_deref())
-                {
-                    apply_state_change(
-                        interactive,
-                        &resolved_url,
-                        replace,
-                        serialized_state.clone(),
-                    );
-                    interactive.window_title = format!("elidex \u{2014} {resolved_url}");
-                    if let Some(state) = &self.render_state {
-                        state.window.set_title(&interactive.window_title);
-                    }
-                }
-                false
-            }
-        }
-    }
-
-    /// Apply a session-history traversal to `target_index` (WHATWG HTML §7.4.6.1),
-    /// classified by document identity (`resolve_traversal`). Returns `true` iff it
-    /// handled the turn — a cross-document rebuild that loaded (cursor committed;
-    /// a `go(0)` reload is this arm), OR a same-document traversal applied in place.
-    /// Returns `false` only on a cross-document load FAILURE (old document still
-    /// active, no rollback — the cursor never moved). Mirrors
+    /// Apply a session-history traversal to an already-resolved `target_index`
+    /// (WHATWG HTML §7.4.6.1 *Updating the traversable*), classified by document
+    /// identity (`resolve_traversal`). Returns `true` iff it handled the turn — a
+    /// cross-document rebuild that loaded (cursor committed; a `go(0)` reload is
+    /// this arm), OR a same-document traversal applied in place. Returns `false`
+    /// only on a cross-document load FAILURE (old document still active, no
+    /// rollback — the cursor never moved). Mirrors
     /// `content/navigation.rs::handle_navigate`'s Commit arm.
+    ///
+    /// **The single traversal-apply body, reached by three entry points** — it stays
+    /// **index-keyed** because two of them resolve their own `(index, url)` pair and
+    /// are fenced OUT of the coordinator this slice:
+    /// 1. the deferred Phase-2 apply
+    ///    (`drain_host::apply_traversal_delta`, which resolves the queued
+    ///    [`TraversalDelta`](elidex_navigation::TraversalDelta) via `peek_delta`
+    ///    first — the delta is carried un-resolved because the delta→index
+    ///    arithmetic belongs to the *queued* §7.4.3 *traverse the history by a
+    ///    delta* steps 4.1–4.3 ("Let allSteps be…" / "Let currentStepIndex be…" /
+    ///    "Let targetStepIndex be currentStepIndex plus delta"), which run against
+    ///    the possibly-Phase-1-mutated list; §7.4.6.1 *apply the history step* is
+    ///    downstream and takes an already-resolved non-negative integer step, which
+    ///    is what THIS function receives);
+    /// 2. the chrome toolbar Back/Forward ([`Self::handle_chrome_action`]);
+    /// 3. Alt+←/→ (`inline.rs::handle_keyboard_inline`).
+    ///
+    /// (2) and (3) call it directly with `UserInvolvement::BrowserUi` semantics and
+    /// are NOT routed through the traversal queue in this slice — they collapse into
+    /// Slice 4's canonical DIRECT-nav serialization
+    /// (`#11-session-history-task-queue-model`), the same fence content-mode's
+    /// chrome-direct traversal sits behind. What they share with (1) is THIS body,
+    /// not the resolve prologue: each hand-rolls its own `peek_back`/`peek_forward`
+    /// + clone, so that prologue is triplicated until Slice 4 restructures them.
     pub(super) fn traverse_to(&mut self, target_index: usize, target: &url::Url) -> bool {
         // Scoped borrow: capture scroll-on-leave, then classify the traversal by
         // DOCUMENT IDENTITY (`resolve_traversal`, §7.4.6.1 step 14.10 — NOT URL, so
@@ -643,6 +523,79 @@ impl App {
             crate::chrome::ChromeAction::NewTab
             | crate::chrome::ChromeAction::CloseTab(_)
             | crate::chrome::ChromeAction::SwitchTab(_) => {}
+        }
+    }
+}
+
+/// Apply ONE **synchronous history update** (WHATWG HTML §7.4.4 *Non-fragment
+/// synchronous "navigations"* — the *URL and history update steps*): a
+/// `pushState`/`replaceState` committed to the session history **in the current
+/// task**. App-mode's mirror of `content/navigation.rs::handle_history_action`, and
+/// the body behind the [`DrainHost::handle_history_action`](elidex_navigation::DrainHost::handle_history_action)
+/// seam — reached in Phase 1b (issued before any same-turn traversal) and in the
+/// Phase-2 `SyncUpdate` tail (issued after a traversal that then did not move the
+/// cursor).
+///
+/// It does NOT ship its own frame — the coordinator ships once at the end of the
+/// drain (`DrainHost::ship_frame`) — but it DOES keep the window title in sync,
+/// co-located with the `window_title` write it derives from.
+///
+/// **Sync-update-only.** Traversals are never routed here: `Back`/`Forward`/`Go` are
+/// peek-classified in Phase 1b (`DrainHost::classify_traversal`) and applied in
+/// Phase 2 (`drain_host::apply_traversal_delta`). A traversal reaching this function
+/// means the coordinator mis-partitioned a step — a routing regression, which must
+/// fail loudly rather than silently apply a traversal inside the synchronous phase
+/// (the collapsed §7.4.3-vs-§7.4.4 boundary this slice removed).
+pub(super) fn handle_history_action(app: &mut App, action: &elidex_script_session::HistoryAction) {
+    match action {
+        elidex_script_session::HistoryAction::PushState {
+            url,
+            serialized_state,
+            ..
+        }
+        | elidex_script_session::HistoryAction::ReplaceState {
+            url,
+            serialized_state,
+            ..
+        } => {
+            let replace = matches!(
+                action,
+                elidex_script_session::HistoryAction::ReplaceState { .. }
+            );
+            // The one inline-only reach-through that CANNOT go through
+            // `App::inline_state_mut`: the `set_title` tail below reads
+            // `app.render_state` while this `&mut` is still live, which the borrow
+            // checker allows only for DISJOINT FIELD borrows — through a method the
+            // whole `*app` is borrowed and it is `E0502`. Same invariant, same
+            // message ([`super::INTERACTIVE_DRIVE_ONLY`]), open-coded here alone.
+            let interactive = app
+                .interactive
+                .as_mut()
+                .expect(super::INTERACTIVE_DRIVE_ONLY);
+            let Some(resolved_url) =
+                resolve_state_url(interactive.pipeline.url.as_ref(), url.as_deref())
+            else {
+                return;
+            };
+            apply_state_change(
+                interactive,
+                &resolved_url,
+                replace,
+                serialized_state.clone(),
+            );
+            interactive.window_title = format!("elidex \u{2014} {resolved_url}");
+            if let Some(state) = &app.render_state {
+                state.window.set_title(&interactive.window_title);
+            }
+        }
+        elidex_script_session::HistoryAction::Back
+        | elidex_script_session::HistoryAction::Forward
+        | elidex_script_session::HistoryAction::Go(_) => {
+            debug_assert!(
+                false,
+                "a traversal reached the sync-update handle_history_action — it must route \
+                 through apply_traversal_delta (Phase 2)"
+            );
         }
     }
 }

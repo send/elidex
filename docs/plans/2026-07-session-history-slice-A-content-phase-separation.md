@@ -104,8 +104,23 @@ substrate bug (umbrella §5 Slice-2 CARRY + CARRY-EXT (A)).
   have the effect of aborting other ongoing **navigations** of navigable…"* (aborts other *navigations*,
   NOT a traversal).
 
+> **⚠ CORRECTED 2026-07-26 (PR #487 design re-gate; slot `#11-nav-supersede-window-vs-ongoing-navigation`) —
+> read every "step 19" in this memo through this box.** The derivation below treats step 19 as the rule
+> Resolution A implements. **It is not.** Step 19's gate — *ongoing navigation* == "traversal" — is evaluated
+> **at the moment `navigate` runs**, and the ONLY setter is §7.4.6.1 *Updating the traversable* **step 8.4**,
+> inside the APPLY; §7.4.3's **enqueue** sets nothing (the three null-reset sites are each annotated *"This
+> allows new navigations of navigable to start, whereas during the traversal they were blocked."*). So a
+> `location.*` issued while a traversal is merely QUEUED is **never** step-19-ignored. Resolution A
+> suppresses from **enqueue** time: a deliberate divergence, and a strict superset of the spec's
+> during-the-apply window under today's synchronous, non-yielding apply. The *landing* conclusion survives on
+> a different mechanism — a still-in-flight cross-document `location.*` is abandoned once the traversal's
+> apply reaches step 8.4 — the operative step being **step 24.2** (*"if navigable's ongoing navigation is no
+> longer navigationId … Abort these steps"*), which step 20's note describes. The canonical statement now lives on the
+> `DrainHost::handle_navigation` contract in `elidex-navigation`.
+
 So the issue-order-**earlier** traversal wins over a later same-turn `location.*`: a navigation is ignored
-while a traversal is ongoing (step 19), and a later navigation aborts other navigations but not a traversal
+while a traversal is ongoing (step 19 — see the correction box: read as "abandoned at step 8.4 per step 20's
+note", not "ignored at step 19"), and a later navigation aborts other navigations but not a traversal
 (step 20). **Caveat honestly stated:** elidex's VM staging keeps `pending_navigation` (single-slot last-wins,
 `vm/host/navigation.rs:143`) as a **separate channel** from `pending_history` FIFO (`:159`); the cross-channel
 *issue order* between a `location.href=` and a `history.back()` is **DISCARDED by staging** (the shell always
@@ -117,9 +132,11 @@ phase-separated: **when an in-range traversal is enqueued this turn (Resolution 
 `handle_navigation` is SUPPRESSED** — the same-turn `location.*` nav is dropped, the traversal applies in
 Phase 2. This eliminates the double-apply defect (no `/b` network load + flash, land on the traversal
 target). **Target-landing is correct in BOTH same-turn orders (E2):** for `back(); location.href='/b'` and
-for `location.href='/b'; back()` alike, the spec lands on the **traversal** target — step 19 ignores a
-navigation issued while a traversal is ongoing, and step 20 has a later traversal abort the earlier
-navigation. So elidex's "an in-range traversal wins regardless of cross-channel issue order" is **already
+for `location.href='/b'; back()` alike, the spec lands on the **traversal** target — but via step 8.4 +
+step 20's note (the cross-document `/b` is still in flight when the traversal's apply sets *ongoing
+navigation* to "traversal", after which **step 24.2** aborts it — the effect step 20's note describes), **not** via step 19, which never fires for a nav issued
+before the apply (correction box above). So elidex's "an in-range traversal wins regardless of
+cross-channel issue order" is **already
 spec-correct for the landing** in both orders; the plan **over-fences in the safe direction**. The genuine
 **bounded divergence** fenced to `#11-sync-navigation-steps-queue-tagging` is the *fuller* reconciliation
 (deferred `SyncUpdate` interleaving, multi-nav sequences, involvement threading) — NOT the target-landing,
@@ -130,8 +147,10 @@ which is correct both orders. The fence is conservative/honest, not a landing bu
 `go(999)` does not suppress the nav), Phase-1c must still **drain the `pending_navigation` slot and discard
 it** — NOT skip the call. The VM `pending_navigation` slot's ONLY drain is `take_pending_navigation()` inside
 `handle_navigation`; skipping the call would strand the slot so the suppressed `location.*` nav fires **a turn
-late** (a spurious deferred nav). Matching §7.4.2.2 step-19 "ignored" (= discarded, NOT deferred), the seam
-takes-and-drops without applying. Recommend either `DrainHost::discard_pending_navigation()` (take-and-drop)
+late** (a spurious deferred nav). elidex's enqueue-time supersede is DISCARD, not defer — the shape §7.4.2.2
+step 19 uses for the window it *does* govern (during the apply), adopted here for the wider enqueue-time
+window elidex chose (correction box in §2 — step 19 itself never fires for a nav issued before the apply).
+The seam takes-and-drops without applying. Recommend either `DrainHost::discard_pending_navigation()` (take-and-drop)
 OR `handle_navigation(suppress: bool)` that still calls `take_pending_navigation()` but does not apply when
 `suppress`. Exact seam-shape choice → §6 Q-shape. **Cross-turn variant:** a Turn-1 queued traversal seeds
 `seen_traversal` in Turn-2 (`traversal_queue.rs:388`) and would strand Turn-2's nav identically — the
@@ -204,6 +223,12 @@ default. Step 19 gates strictly on *ongoing* navigation; the *pending* (deferred
 case elidex handles here is A's **bounded approximation** (a queued in-range traversal treated as
 supersede-eligible), not a direct step-19 mandate — cross-reference Resolution A.
 
+> **⚠ SHARPENED 2026-07-26 (PR #487 re-gate).** This caveat was right in direction and short of the mark: the
+> *pending*-vs-*ongoing* gap is not merely an approximation, it is a **deliberate divergence**, because the
+> only setter of *ongoing navigation* == "traversal" is §7.4.6.1 step 8.4 **inside the apply** and §7.4.3's
+> enqueue sets nothing — so step 19 does not fire at all for the case Resolution B covers. Read the §2
+> correction box; slot `#11-nav-supersede-window-vs-ongoing-navigation`.
+
 **Decision (cross-turn-robust — E1).** The shell's own-context signal becomes **applied OR a traversal is
 pending in the queue after Phase 1**. The suppression predicate must read the **queue's Traversal-pending
 state (this-turn OR still-queued cross-turn)**, not a this-turn-only enqueue bool. The naive
@@ -214,7 +239,8 @@ whose handler runs `location.href='/c'` while a **Turn-1 traversal is still queu
 still-pending traversal should supersede everything this turn. **Robust predicate:** suppress the default
 **iff `own_context_action || <the queue holds a `Traversal` step after `drain_synchronous_phase`>`**. This
 closes the gap **by construction** (a queue query robust across turns) rather than by pump-timing
-reachability — defensible under §7.4.2.2 step-19 (a nav/default is ignored while a traversal is pending).
+reachability — a deliberate widening of §7.4.2.2 step 19's *ongoing*-traversal window to the *pending* one
+(step 19 itself never fires here — the §2 correction box).
 Resolution E's peek-classify guarantees a no-op `go(999)` never leaves a `Traversal` step in the queue, so it
 does NOT over-suppress a legitimate default. This refines B to be **cross-turn-robust**.
 
@@ -391,7 +417,7 @@ multi-navigable fan-out OUT/B1). Section labels use the webref **section titles*
 
 | Spec section | Step | Branch | Touch (compile/dispatch site) | Full enum? | User-input flow |
 |---|---|---|---|---|---|
-| WHATWG HTML §7.4.2.2 Beginning navigation | 19 | ongoing navigation is "traversal" ⇒ navigate ignored | IN — Resolution A: Phase-1c nav-suppression when a `Traversal` step is pending (`traversal_queue.rs:418` predicate change) | ✓ | yes (`location.*`) |
+| WHATWG HTML §7.4.2.2 Beginning navigation | 19 | ongoing navigation is "traversal" ⇒ navigate ignored | **DIVERGENT (deliberate)** — Resolution A: Phase-1c nav-suppression when a `Traversal` step is **queued** (`traversal_queue.rs` `run_synchronous_phase_body` predicate). Step 19's gate is set ONLY by the §7.4.6.1 step-8.4 APPLY, so a nav issued before the apply is never step-19-ignored; elidex's enqueue-time window is a strict superset **under today's synchronous, non-yielding apply only** — the planned task-queued apply breaks containment, so narrowing work must re-derive it (§2 correction box, retagged 2026-07-26) | ✗ (divergence — `#11-nav-supersede-window-vs-ongoing-navigation`) | yes (`location.*`) |
 | WHATWG HTML §7.4.2.2 Beginning navigation | 20 | later navigation aborts other *navigations* (not a traversal) | IN — Resolution A: traversal wins the same-turn straddle; exact cross-channel issue order fenced | ✗ (bounded — `#11-sync-navigation-steps-queue-tagging`) | yes (`location.*`) |
 | WHATWG HTML §7.4.3 Reloading and traversing | 4 | append traversal steps to traversable → resolve `targetStepIndex` | IN — Phase-1b enqueue via new `classify_traversal` seam | ✓ | yes (back/forward/go) |
 | WHATWG HTML §7.4.3 Reloading and traversing | 4.4 | `allSteps[targetStepIndex]` does not exist ⇒ abort (no-op) | IN — Resolution E peek-classify: `peek_*` → `None` = no barrier, falls through | ✓ | yes (back/forward/go) |
@@ -499,7 +525,8 @@ justified in-plan (`#11-browsing-context-state-ecs-components` owns any wholesal
 - **NEW cross-turn default-suppression conformance test (B cross-turn-robust, E1):** a Turn-1 `history.back()`
   left queued (no intervening Phase-2 pump), then a Turn-2 `<a href>` click whose handler runs
   `location.href='/c'` ⇒ the link default is **suppressed** (the still-pending traversal supersedes; F1 drops
-  `/c`) — pins the queue-Traversal-pending predicate across turns (§7.4.2.2 step-19).
+  `/c`) — pins the queue-Traversal-pending predicate across turns (elidex's enqueue-time widening of
+  §7.4.2.2 step 19's *ongoing*-traversal window; the §2 correction box).
 - **NEW stacked-traversal conformance test (E divergence, F5):** `back(); back()` ⇒ pins the bounded
   behavior where the 2nd traversal peeks the unmoved cursor and may over-set `deferred_own_context` while its
   Phase-2 apply is a no-op that ships nothing — documenting the accepted divergence (pinned-not-silent, no

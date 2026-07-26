@@ -85,13 +85,68 @@ impl App {
             (button_num, click_prevented, hit_entity)
         };
 
-        // Process any pending JS navigation or history action.
-        if self.process_pending_navigation() {
+        // Drain this turn's staged navigation / history intents (Phase 1 in-task,
+        // then Phase 2's deferred traversal apply — `DrainCoordinator::drain_same_turn`).
+        //
+        // `suppress_default` is the ONE shared default-suppression signal, computed
+        // once by the coordinator at the END of Phase 1 as "an own-context effect
+        // happened this turn OR a `Traversal` step is pending/in flight". Read the
+        // field rather than re-deriving the queue query (One-issue-one-way with the
+        // content shell's click path). Note the app-mode subtlety: `drain_same_turn`
+        // has ALSO already applied the traversal by the time this reads the outcome,
+        // but the field's value was fixed while the traversal was still
+        // enqueued-but-unapplied — identical semantics in both shells. A no-op
+        // `go(999)` never enqueues a `Traversal` step (§7.4.3 step 4.4 peek-classify),
+        // so it does not over-suppress a legitimate link default.
+        if self.process_pending_navigation().suppress_default {
             return;
         }
 
         // Link navigation: if click was not prevented, check for <a href>.
         if button_num == 0 && !click_prevented {
+            // ⚠ LOAD-BEARING CROSS-CRATE INVARIANT — `hit_entity` is captured BEFORE
+            // the drain above and resolved AFTER it, and a drain can replace the
+            // whole `EcsDom`: `load_url_into_pipeline`'s `Ok` arm runs
+            // `teardown_document()` and then `interactive.pipeline = new_pipeline`,
+            // and `EcsDom::new()` builds a FRESH `hecs::World`, so entity ids and
+            // generations restart. A stale `Entity` would not dangle — it would
+            // ALIAS a live one and resolve a DIFFERENT element's `href`.
+            //
+            // This is unreachable today only because every rebuild path also latched
+            // `DrainOutcome::suppress_default`, on which the caller already returned:
+            //   · Phase 1c — `handle_navigation` → `App::navigate` → rebuild reports
+            //     `true`, so `own_context_action` (hence `suppress_default`) is set.
+            //   · Phase 2 — `apply_traversal` can only rebuild for a traversal that
+            //     was ENQUEUED in Phase 1b, so `has_pending_traversal()` was already
+            //     true when the coordinator latched `suppress` at the end of
+            //     `run_synchronous_phase_body` (`elidex-navigation`
+            //     `traversal_queue.rs`) — independent of whether the apply then
+            //     succeeded, and true for a cross-turn queued traversal too.
+            // No test can pin it: the app-mode harness's disconnected network makes a
+            // SUCCESSFUL rebuild-during-click unreachable.
+            //
+            // ⚠ SCOPE — this invariant covers **rebuilds performed by the drain
+            // above, and nothing else.** It is NOT a general "a handler may hold an
+            // `Entity` across a document swap" clearance: `suppress_default` reports
+            // only what the COORDINATOR did, so a HANDLER-initiated rebuild is outside
+            // it entirely. The content shell has a LIVE instance of exactly that shape
+            // — `content/event_handlers.rs` captures `hit_entity`, then
+            // `handle_form_submit` (`:155`) synchronously replaces the whole pipeline
+            // (form submission never enters the coordinator, so the `:180`
+            // `suppress_default` guard does not cover it) and the stale entity is still
+            // used at `handle_label_click` (`:168`) and
+            // `perform_link_default_navigation` (`:200`). Registered as its own class
+            // slot, `#11-stale-entity-across-document-swap` — a PRE-EXISTING
+            // content-shell defect on the production path, not an app-mode one.
+            //
+            // ⚠ TRAJECTORY — the safety argued above is coupled to a value that is
+            // deliberately being changed. `handle_navigation` returns `true`
+            // UNCONDITIONALLY today (`app/drain_host.rs`), and that `true` is what
+            // feeds `own_context_action` → `suppress_default` on the Phase-1c leg;
+            // `#11-nav-applied-shipped-decouple` is scheduled to stop it. Any change
+            // that lets a drain rebuild WITHOUT setting `suppress_default` — that slot
+            // edits exactly this field — must re-hit-test here instead of reusing
+            // `hit_entity`.
             let nav_target = {
                 let Some(interactive) = &self.interactive else {
                     return;
@@ -127,7 +182,9 @@ impl App {
 
         crate::re_render(pipeline);
 
-        // Process any pending JS navigation or history action.
+        // Drain this turn's staged navigation / history intents. Called for effect
+        // only: a keyboard turn has no caller-owned default action to suppress, so
+        // the `DrainOutcome` is ignored (unlike the click path above).
         self.process_pending_navigation();
     }
 }

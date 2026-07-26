@@ -7,8 +7,9 @@
 //! synchronous pass (window-opens → history FIFO → last-wins navigation),
 //! collapsing the spec's two task-timing classes onto a single synchronous
 //! return (plan §1). This module introduces, in its **final phase-separated
-//! shape**, the primitive both shells (`content/navigation.rs`,
-//! `app/navigation.rs`) will adopt (Slices 2/3):
+//! shape**, the primitive **both shells now drive** — content mode from
+//! `content/event_loop.rs` through `content/drain_host.rs` (Slice A), app mode
+//! from `app/drain_host.rs` (Slice B):
 //!
 //! - a [`TraversalQueue`] — the WHATWG HTML §7.3.1.1 *session history traversal
 //!   queue* (`#tn-session-history-traversal-queue`) carrying the
@@ -27,8 +28,10 @@
 //! straddle sync behind ANY traversal, Resolution D generalized) seams are each
 //! designed **correct against the real shell state** the inert substrate lacked
 //! (`docs/plans/2026-07-session-history-slice-A-content-phase-separation.md`).
-//! The isolation unit tests below still pin the coordinator in isolation; content
-//! mode drives it (`content/navigation.rs`). App mode = Slice B.
+//! The isolation unit tests below still pin the coordinator in isolation; **both
+//! shells now drive it** — content mode from `content/event_loop.rs` (Slice A,
+//! the split entry points) and app mode from `app/drain_host.rs` (Slice B, the
+//! single same-turn entry point).
 //!
 //! ## The task-timing partition (plan §4.2)
 //!
@@ -47,13 +50,16 @@
 //! boundary: [`DrainCoordinator::drain_synchronous_phase`] runs Phase 1 (window-
 //! opens + sync updates + last-wins navigation) and enqueues traversals **without
 //! applying them**; [`DrainCoordinator::run_deferred_traversals`] runs Phase 2
-//! (the deferred traversal apply) on a **later turn** — content-mode schedules it
-//! on a subsequent async-pump turn, app-mode drains it at end-of-input-handler,
-//! strictly after Phase 1 (Slices 2/3). [`DrainCoordinator::drain_same_turn`] is a
-//! **same-turn convenience** that combines both phases in one call (the app-mode-
-//! degenerate path + the isolation tests); adopting it wholesale would collapse
-//! the very task boundary this substrate exists to remove, so content-mode drives
-//! the two entry points separately (see each method's doc).
+//! (the deferred traversal apply) on a **later turn**. Content-mode drives that
+//! split pair (Phase 2 on a subsequent async-pump turn), plus
+//! [`DrainCoordinator::drain_synchronous_updates`] as its top-of-turn settle.
+//! **App-mode calls none of those three**: it has no async pump, so it drains
+//! Phase 1 and Phase 2 back-to-back inside the input handler through
+//! [`DrainCoordinator::drain_same_turn`], the **same-turn** entry point that
+//! combines both phases in one call and ships once (the app-mode-degenerate path
+//! plus the isolation tests). Content-mode adopting `drain_same_turn` wholesale
+//! would collapse the very task boundary this substrate exists to remove, so it
+//! drives the split entry points separately (see each method's doc).
 //!
 //! The **scope fence** (plan §0) is single-traversable (top-level) only: the
 //! §7.4.6.1 multi-navigable fan-out (steps 3/4/6/7 + the per-navigable global
@@ -119,20 +125,26 @@ pub enum UserInvolvement {
 /// The *fuller* §7.4.3 steps-1–3 **source snapshot** (source document / initiator
 /// — consumed by §7.4.6.1 for the sandbox check and cross-document target
 /// population) is **NOT** captured here: it references the shell's document
-/// identity, a type the engine-agnostic substrate does not have. Slice 2/3 threads
-/// it at wire time (the same document-identity boundary as a deferred `SyncUpdate`,
-/// Codex PR#464 R3-D → slot `#11-sync-navigation-steps-queue-tagging`), so until
-/// then a deferred traversal's apply must read live document state, not an
-/// issue-time source snapshot. Only the `Copy` `UserInvolvement` input (no shell
-/// type) is capturable in Slice 1.
+/// identity, a type the engine-agnostic substrate does not have. **Neither shell
+/// slice threads it** — content (Slice A) and app (Slice B) both wire
+/// `UserInvolvement` alone; the wire-time capture stays fenced to
+/// `#11-sync-navigation-steps-queue-tagging` (the same document-identity boundary
+/// as a deferred `SyncUpdate`, Codex PR#464 R3-D). So a deferred traversal's apply
+/// reads live document state, not an issue-time source snapshot. Only the `Copy`
+/// `UserInvolvement` input (no shell type) is capturable here.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct PendingTraversal {
     /// The resolved traversal delta (`Back` / `Forward` / `Go(delta)`).
     pub delta: TraversalDelta,
-    /// The §7.4.3 step-2 [`UserInvolvement`] snapshot. Slice 1 defaults this
-    /// (the VM staging carries no involvement fact today, Q-VM-MODEL =
-    /// shell-drain-only); Slices 2/3 thread the real issue-time snapshot (a
-    /// chrome-button traversal is [`UserInvolvement::BrowserUi`]).
+    /// The §7.4.3 step-2 [`UserInvolvement`] snapshot. **Both shells supply
+    /// [`UserInvolvement::None`]**: only *scripted* `history.back()` /
+    /// `forward()` / `go()` reaches the coordinator (§7.4.3 step 3.3 — a given
+    /// sourceDocument overrides step 2's "browser UI" default), and the VM
+    /// staging carries no involvement fact (Q-VM-MODEL = shell-drain-only). The
+    /// [`UserInvolvement::BrowserUi`] traversals (chrome toolbar Back/Forward,
+    /// Alt+←/→) bypass the queue entirely in BOTH shells — they call the shell's
+    /// traversal body directly — and are fenced to Slice 4's canonical DIRECT-nav
+    /// serialization (`#11-session-history-task-queue-model`).
     pub user_involvement: UserInvolvement,
 }
 
@@ -231,7 +243,8 @@ impl TraversalQueue {
     /// `SyncUpdate`-only steps) — the ONE shared default-suppression signal
     /// (plan §1 B / Resolution E). Consulted by BOTH the coordinator's Phase-1c
     /// nav-suppression decision (drain-and-discard a same-turn `location.*` while
-    /// a traversal is pending — §7.4.2.2 step 19 "ignored") AND the content
+    /// a traversal is pending — a deliberate **divergence** from §7.4.2.2 step 19,
+    /// stated in full at [`DrainHost::handle_navigation`]) AND the content
     /// shell's `<a href>`-default suppression site. Cross-turn-robust by
     /// construction: a Turn-1 traversal still queued in Turn-2 (Phase 2 not yet
     /// pumped) is seen, so the default is suppressed until the traversal applies
@@ -291,8 +304,12 @@ pub struct DrainOutcome {
     /// suppressed (no redundant double-send).
     pub shipped: bool,
     /// Whether the shell must **suppress a caller's fallback/default action** this
-    /// turn — an `<a href>` default navigation (click path) or a keyboard turn's
-    /// own render. Computed ONCE at the end of [`drain_synchronous_phase`] as
+    /// turn — in practice exactly one consumer per shell: the `<a href>` default
+    /// navigation on the click path (`content/event_handlers.rs`,
+    /// `app/events.rs::handle_click`). It is deliberately NOT a render gate:
+    /// content's keyboard turn keys its own render on `!shipped` (see its comment
+    /// there), and app-mode's keyboard turn discards this outcome entirely.
+    /// Computed ONCE at the end of [`drain_synchronous_phase`] as
     /// `own_context_action || <the queue holds a pending `Traversal` step>` (plan
     /// §1 B/E1), so the "own-context effect OR a pending traversal supersedes"
     /// rule has a **single home** and both content call sites read one field
@@ -351,6 +368,93 @@ pub trait DrainHost {
     /// unconditionally (F4) — so an impl should keep this equal to
     /// `self.peek_delta(delta).map(|_| self.pending_traversal(delta))` (the peek
     /// decides `Some`/`None`; `pending_traversal` builds the value).
+    ///
+    /// ⚠ **ISSUE-TIME HOIST of §7.4.3 sub-steps 4.1–4.4 — half of a coupled pair**
+    /// (`#11-sync-navigation-steps-queue-tagging`). WHATWG HTML §7.4.3
+    /// *Reloading and traversing* ("traverse the history by a delta") step 4
+    /// **appends** the traversal steps to the traversable UNCONDITIONALLY:
+    /// `allSteps` / `currentStepIndex` / `targetStepIndex` (sub-steps 4.1–4.3) and
+    /// the "If `allSteps[targetStepIndex]` does not exist, then abort these steps"
+    /// bail-out (sub-step 4.4) all live INSIDE those appended steps, so the spec
+    /// evaluates them when the queued steps RUN. This seam evaluates them at
+    /// *issue* time instead.
+    ///
+    /// **The hoist has no reachable divergence today** (webref-verified
+    /// 2026-07-26), and the scenario earlier revisions of this note called one is
+    /// not. From `[base]` with the cursor on `base`,
+    /// `history.back(); history.pushState({}, '', '/x')` peeks index −1 → `None`,
+    /// the coordinator DISCARDS the traversal (no barrier, nothing queued), Phase 1
+    /// commits `/x`, and the list ends `[base, /x]` with the cursor on `/x`. **The
+    /// spec lands in the same place.** §7.4.3 step 4 appends the traversal steps
+    /// **T** when `back()` is called; §7.4.4 *Non-fragment synchronous
+    /// "navigations"* (*URL and history update steps*) step 13 appends the
+    /// *synchronous navigation steps* **S** BEHIND them, and the entries-list
+    /// mutation lives only in §7.4.2.3.3 *Fragment navigations* (*finalize a
+    /// same-document navigation* step 5.4, "Append targetEntry to targetEntries"),
+    /// i.e. inside **S**.
+    /// §7.4.1.3 *Centralized modifications of session history* states this for its
+    /// own worked example: the synchronous URL change *"does not yet update the
+    /// current session history entry, current session history step, or the session
+    /// history entries list; those updates cannot be done synchronously, and
+    /// instead must be done as part of the queued steps"*, and it resolves the
+    /// traversal against *"the current session history step (i.e., 1) plus the
+    /// intended delta of −1"* — the PRE-sync-navigation step. So **T** dequeues
+    /// first, its 4.1 *get all used history steps* (§7.4.1.4 *Low-level operations
+    /// on session history*) walks the still-`[base]` entries list, `targetStepIndex`
+    /// is −1, and 4.4 aborts. A spec-faithful dequeue-time implementation drops that
+    /// `back()` exactly as this one does.
+    ///
+    /// **Why the hoist is sound in general, and what it rests on.** The peek is
+    /// reached ONLY when the queue holds no pending `Traversal` and no apply is in
+    /// flight (`run_synchronous_updates_body` seeds `seen_traversal` from
+    /// [`has_pending_traversal`](TraversalQueue::has_pending_traversal) `||`
+    /// [`is_applying`](TraversalQueue::is_applying)), and the moment it returns
+    /// `Some` the barrier defers every later step of the turn. Everything that could
+    /// still grow the entry list before this traversal would dequeue is therefore
+    /// issued LATER in the same task — and the spec queues those steps BEHIND
+    /// **T** for exactly that reason. Phase 1 applies §7.4.4 updates in-task in
+    /// issue order, reproducing the spec queue's relative order step for step, so a
+    /// DISCARDED traversal is followed by precisely the spec's post-abort
+    /// continuation. The one shape that would break the equivalence is a
+    /// `SyncUpdate` step already sitting in the queue AHEAD of a freshly-peeked
+    /// first traversal (only a `Traversal` seeds the barrier — a `SyncUpdate` does
+    /// not): the spec would run it first and grow the list. That needs a step to
+    /// survive a drain, which is the same cross-drain-boundary carry
+    /// `DrainCoordinator::drain_traversal_queue` argues
+    /// unreachable (content-mode: the interim buffer guard plus a `pending_len()`
+    /// snapshot that never splits a `[Traversal, SyncUpdate]` pair; app-mode:
+    /// structurally void, no reentrant Phase 1), and it belongs to
+    /// `#11-sync-navigation-steps-queue-tagging`.
+    ///
+    /// **The two issue-time hoists are a COUPLED PAIR — neither moves alone.**
+    /// elidex hoists §7.4.3 4.1–4.4 to issue time *and* commits the §7.4.4 update
+    /// in-task ([`handle_history_action`](Self::handle_history_action)) where the
+    /// spec queues its entries-list mutation. Those are what make each other safe.
+    /// Making this seam unconditional turns every traversal into a partition
+    /// barrier, which reintroduces the Resolution-E over-suppression the seam exists
+    /// to prevent: an out-of-range `go(999)` would enqueue a `Traversal` step,
+    /// making [`TraversalQueue::has_pending_traversal`] true, which latches
+    /// [`DrainOutcome::suppress_default`] and kills a legitimate `<a href>` default;
+    /// in content-mode it would additionally drain-and-DISCARD a same-turn
+    /// `location.*`, and it would defer a trailing `pushState` — including the
+    /// §7.4.4 steps 3–11 the spec really does run synchronously — onto a later turn.
+    /// So moving the classification to apply time has to move the §7.4.4 commit onto
+    /// the queue and re-derive `suppress_default` from apply-time state in the SAME
+    /// change. That is `elidex-navigation` **behavior** affecting BOTH shells and
+    /// couples Resolution E × Resolution B × the I2 partition × apply-time
+    /// resolution, so it is edge-dense (`/elidex-plan-review` mandatory) and lands
+    /// with the tagged queue rather than on its own; the deferred plan-review owns
+    /// the final shape.
+    ///
+    /// **Engine-wide and pre-existing**, not a property of any one shell: the
+    /// identical predicate is `app/drain_host.rs`'s and `content/drain_host.rs`'s
+    /// `classify_traversal`, which is why the note lives here at the CONTRACT. It is
+    /// the **first**-traversal counterpart of the shape
+    /// [`pending_traversal`](Self::pending_traversal)'s doc records for SUBSEQUENT
+    /// traversals (F4, `back(); forward()`) — but only the counterpart, not the same
+    /// defect: the F4 case IS reachable because an earlier queued traversal really
+    /// does move the cursor before the later one applies, whereas nothing can move
+    /// it ahead of the FIRST traversal of a turn.
     fn classify_traversal(&mut self, delta: TraversalDelta) -> Option<PendingTraversal>;
 
     /// **Phase 1b — construct a pending traversal WITHOUT a peek** (plan §1 F4).
@@ -392,8 +496,49 @@ pub trait DrainHost {
     /// `pending_navigation` slot (its only drain) but **drop** the request
     /// without applying, returning `false`. Skipping the drain would strand the
     /// slot so the suppressed `location.*` fires **a turn late** (a spurious
-    /// deferred nav). This matches §7.4.2.2 step-19 "ignored" (= discarded, not
-    /// deferred) — a navigation issued while a traversal is ongoing is dropped.
+    /// deferred nav).
+    ///
+    /// **Spec basis — this is a deliberate DIVERGENCE, NOT an application of
+    /// §7.4.2.2 step 19** (webref-verified 2026-07-26; slot
+    /// `#11-nav-supersede-window-vs-ongoing-navigation`). Earlier revisions of this
+    /// contract cited step 19's *"Any attempts to navigate a navigable that is
+    /// currently traversing are ignored"* as the rule being implemented. It is not.
+    /// Step 19 gates on *ongoing navigation* == `"traversal"` **evaluated at the
+    /// moment `navigate` runs**, and the ONLY thing that sets that value is §7.4.6.1
+    /// *Updating the traversable* **step 8.4** (*"Set the ongoing navigation for
+    /// navigable to "traversal"."*), inside the APPLY; three sites reset it to null
+    /// (the same-document branch — *apply the history step* step 14.10.1, inside the
+    /// step-14 *"While completedChangeJobs does not equal totalChangeJobs"* loop; the
+    /// pageswap/unload branch — *deactivate a document for a cross-document
+    /// navigation* step 5.2, which **precedes** the `pageswap` fire because 5.1 only
+    /// *defines* `firePageSwapBeforeUnload` and the event fires inside 5.3's unload;
+    /// and the appended session history traversal steps of that algorithm's
+    /// view-transition branch), each annotated *"This allows new navigations of
+    /// navigable to start, whereas during the traversal they were blocked."*
+    /// §7.4.3's **enqueue** sets nothing. So the spec's blocking window is strictly
+    /// *during the apply*: a `location.*` issued BEFORE it —
+    /// `history.back(); location.assign('/b')` in one handler — never meets step
+    /// 19's condition, **whether or not the queued traversal later applies**. elidex
+    /// suppresses from **enqueue** time instead, a strict superset of the spec's
+    /// window.
+    ///
+    /// ⚠ **"Strict superset" is a property of TODAY's apply schedule, not a
+    /// permanent one.** It holds because the apply is *synchronous and
+    /// non-yielding*: once a traversal is enqueued, elidex's suppression window runs
+    /// unbroken from enqueue through the apply, so it contains the spec's
+    /// during-the-apply window. Under the planned task-queued apply
+    /// (`#11-session-history-task-queue-model`) the apply may yield — a nav issued
+    /// *during* a yielded apply would be step-19-ignored by the spec while elidex,
+    /// which re-derives `suppress` per drain from
+    /// [`has_pending_traversal`](TraversalQueue::has_pending_traversal) `||`
+    /// [`is_applying`](TraversalQueue::is_applying), may or may not still be
+    /// suppressing. Containment then stops being one-directional, so any narrowing
+    /// work must re-derive the relation rather than inherit this sentence.
+    ///
+    /// The divergence is engine-wide and **pre-existing** (Resolution A, PR #469;
+    /// `content/drain_host.rs` carries the same rule) and its predicate is shared
+    /// with [`DrainOutcome::suppress_default`], so narrowing it is edge-dense and
+    /// lands as its own plan-reviewed PR under the slot above — not here.
     fn handle_navigation(&mut self, suppress: bool) -> bool;
 
     /// **Phase 2** — apply ONE deferred [`PendingTraversal`] (§7.4.6.1 *apply the
@@ -425,11 +570,14 @@ pub trait DrainHost {
 /// state lives on the host (§7.3.1.1's traversable owns its queue), reached
 /// through [`DrainHost::traversal_queue`].
 ///
-/// Slices 2/3 adopt this by implementing [`DrainHost`] on each shell and driving
-/// the two phases via [`DrainCoordinator::drain_synchronous_phase`] (in-task) +
-/// [`DrainCoordinator::run_deferred_traversals`] (a later turn) — the seam that
-/// realizes the task boundary. [`DrainCoordinator::drain_same_turn`] is the same-turn
-/// convenience combining both (the app-mode-degenerate path + the isolation tests).
+/// Both shells implement [`DrainHost`]. **Content-mode** drives the two phases
+/// separately — [`DrainCoordinator::drain_synchronous_phase`] (in-task) +
+/// [`DrainCoordinator::run_deferred_traversals`] (a later pump turn), the seam
+/// that realizes the task boundary — plus
+/// [`DrainCoordinator::drain_synchronous_updates`] as its top-of-turn settle.
+/// **App-mode** has no pump and drives the single same-turn
+/// [`DrainCoordinator::drain_same_turn`] (the app-mode-degenerate path + the
+/// isolation tests).
 pub struct DrainCoordinator;
 
 impl DrainCoordinator {
@@ -549,9 +697,12 @@ impl DrainCoordinator {
         // is pending (this turn, still-queued cross-turn) OR a traversal apply is
         // IN FLIGHT (`is_applying()` — a reentrant Phase 1 nested inside Phase 2,
         // F1) the navigation is SUPPRESSED: drain-and-DISCARD the
-        // `pending_navigation` slot so it cannot re-fire a turn late (§7.4.2.2 step
-        // 19 "ignored"; plan §1 A / F1). No-ops never enqueue a `Traversal` step
-        // (Resolution E), so they never suppress.
+        // `pending_navigation` slot so it cannot re-fire a turn late (plan §1 A /
+        // F1). Suppressing on a *queued* traversal is a deliberate DIVERGENCE from
+        // §7.4.2.2 step 19 — whose gate is *ongoing navigation* == "traversal", set
+        // only by the §7.4.6.1 step-8.4 APPLY — not an application of it; the full
+        // statement lives on the `DrainHost::handle_navigation` contract. No-ops
+        // never enqueue a `Traversal` step (Resolution E), so they never suppress.
         let suppress =
             host.traversal_queue().has_pending_traversal() || host.traversal_queue().is_applying();
         if host.handle_navigation(suppress) {
@@ -593,10 +744,12 @@ impl DrainCoordinator {
     /// `ship_if_needed` tail: window-opens (§7.2.2.1) → synchronous history
     /// *updates* (§7.4.4) → last-wins own-context navigation (§7.4.2), enqueuing
     /// each `Back` / `Forward` / `Go` *traversal* (§7.4.3) without applying it. The
-    /// caller runs Phase 2 via [`run_deferred_traversals`] **separately**:
-    /// content-mode on a later async-pump turn, app-mode at end-of-input-handler,
-    /// realizing §7.4.6.1 *apply the history step* step-12's task boundary (plan
-    /// §4.5 I1). The caller checks [`TraversalQueue::is_empty`] (via
+    /// caller runs Phase 2 via [`run_deferred_traversals`] **separately**, on a
+    /// later async-pump turn, realizing §7.4.6.1 *apply the history step*
+    /// step-12's task boundary (plan §4.5 I1). **This split pair is content-mode's
+    /// entry point; app-mode drives neither half** — its end-of-input-handler
+    /// drain runs both phases inside [`drain_same_turn`](Self::drain_same_turn).
+    /// The caller checks [`TraversalQueue::is_empty`] (via
     /// [`DrainHost::traversal_queue`]) to know whether Phase-2 work is pending.
     ///
     /// **Ships Phase 1's own-context effect on Phase 1's own turn** (own-context
@@ -651,9 +804,11 @@ impl DrainCoordinator {
     /// Run **Phase 2** — apply the deferred traversal(s) queued by
     /// [`drain_synchronous_phase`](Self::drain_synchronous_phase) — as a **later
     /// task**: WHATWG HTML §7.4.6.1 *apply the history step* (plan §4.2). Call
-    /// this **after** `drain_synchronous_phase`, on a later turn (content-mode's
-    /// async pump) or at end-of-input-handler (app-mode), so the traversal apply
-    /// reads the entry list only after Phase 1's updates have landed (I1).
+    /// this **after** `drain_synchronous_phase`, on a later turn, so the traversal
+    /// apply reads the entry list only after Phase 1's updates have landed (I1).
+    /// **Content-mode's async pump is its only caller** — app-mode's
+    /// end-of-input-handler Phase 2 runs inside
+    /// [`drain_same_turn`](Self::drain_same_turn), not here.
     ///
     /// - **I3 (guard bracket).** The [`TraversalQueue`]'s "running nested apply
     ///   history step" boolean (observable via [`TraversalQueue::is_applying`]) is
@@ -731,7 +886,7 @@ impl DrainCoordinator {
         // NOT the loop bound. The reachable reentrancy window (an SW-controlled page
         // re-dispatching a nav-mutating `BrowserToContent` from the SW-fetch wait
         // loop DURING a Phase-2 apply) is closed for this slice by the shell's
-        // INTERIM buffer-during-apply guard (`content/navigation.rs`
+        // INTERIM buffer-during-apply guard (`content/drain_host.rs`
         // `dispatch_or_buffer_reentrant`): while `is_applying()` holds, such a
         // message is buffered, not dispatched, so it cannot mutate the cursor under
         // the held peek. Content's own `apply_traversal` does not re-enqueue (plan §1
@@ -768,9 +923,14 @@ impl DrainCoordinator {
         // (`content/drain_host.rs::dispatch_or_buffer_reentrant`) buffers EVERY reentrant
         // message while `is_applying()`, so no reentrant Phase-1 drain runs mid-apply, and
         // `pending_len()` counts ALL steps so a Phase-1-enqueued `[Traversal, SyncUpdate]`
-        // pair is always captured whole in one snapshot (cancelled here). The app-mode /
-        // canonical reentrant-Phase-1-under-apply case that WOULD need the cross-drain
-        // carry lands with the tagged queue (`#11-sync-navigation-steps-queue-tagging`).
+        // pair is always captured whole in one snapshot (cancelled here). It is likewise
+        // unreachable in app-mode Slice-B — but BY CONSTRUCTION rather than by a guard
+        // (`app/drain_host.rs` module doc, plan §4.4): the inline path has no message pump
+        // and no SW-wait, so no apply body re-enters `run_synchronous_phase_body` mid-drain
+        // and the app-mode R18 carry is structurally VOID, not deferred. What still lands
+        // with the tagged queue (`#11-sync-navigation-steps-queue-tagging`) is the CANONICAL
+        // reentrant-Phase-1-under-apply case — a shell that really does re-partition the
+        // FIFO mid-apply.
         let mut remaining = host.traversal_queue().pending_len();
         let mut traversal_applied = false;
         while remaining > 0 {
@@ -787,7 +947,7 @@ impl DrainCoordinator {
                     // reachable vector is the SW-fetch reentrant message pump: while
                     // this bracket holds, `handle_navigate`'s SW-wait loop consults
                     // `is_applying()` and BUFFERS a re-dispatched nav-mutating message
-                    // (`content/navigation.rs` `dispatch_or_buffer_reentrant`, the
+                    // (`content/drain_host.rs` `dispatch_or_buffer_reentrant`, the
                     // shell's INTERIM guard) instead of mutating the cursor between
                     // this peek and its commit. NOTE (T4 → Slice 4): the FULL
                     // canonical serialization — routing EVERY nav-mutating step
@@ -801,6 +961,27 @@ impl DrainCoordinator {
                     host.traversal_queue().enter_nested_apply();
                     let shipped = host.apply_traversal(&traversal);
                     host.traversal_queue().exit_nested_apply();
+                    // ⚠ KNOWN DIVERGENCE — a §7.4.4 intent staged by a `popstate`
+                    // handler THIS apply just fired is NOT consumed before the next
+                    // queued traversal runs (`#11-sync-navigation-steps-queue-tagging`,
+                    // its R16 multi-traversal-snapshot facet). Such an intent lands on
+                    // the host's own pending-history channel — Phase 1b has already
+                    // run, so it does not reach `enqueue_sync_update` and Resolution
+                    // D's `traversal_applied` cancel below never sees it. The
+                    // traversals that follow keep moving the cursor underneath it, and
+                    // the NEXT Phase 1b applies it wherever the cursor stopped.
+                    // §7.4.6.1 *Updating the traversable* step 14's note requires the
+                    // opposite: synchronous navigations "jump the queue … before this
+                    // traversal potentially unloads their document", i.e. they settle
+                    // against the entry whose handler issued them. Pinned (app-mode)
+                    // by `app_multi_traversal_snapshot_lands_popstate_staged_update_on_the_wrong_entry`.
+                    // NEWLY REACHABLE in app-mode via Slice B, deliberately: the
+                    // retired hand-rolled drain returned after the FIRST traversal
+                    // (dropping the second — the #259 truncation this slice fixes), so
+                    // unlocking multi-traversal application exposes the straddle that
+                    // was underneath it. The fix is per-task finalization with
+                    // call-time entry association (§7.4.1.3) — edge-dense, its own
+                    // plan-reviewed PR.
                     // A traversal that MOVED THE CURSOR turns any trailing deferred
                     // `SyncUpdate` in this snapshot into a straddle behind it, CANCELED
                     // below (Resolution D generalized, R6). Set only when the traversal
