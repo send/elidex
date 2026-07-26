@@ -404,14 +404,34 @@ fn app_noop_traversal_does_not_defer_trailing_sync_update() {
 /// click listener runs `script` — the harness for the two default-suppression legs.
 /// The fragment href keeps the DEFAULT navigation observable in the disconnected
 /// harness (a same-document fragment nav needs no fetch).
+///
+/// The handler also stamps `data-ran` so each test can assert the listener actually
+/// fired: without that control the "the default DID fire" leg would pass even if the
+/// handler never ran (a silently-dead listener looks the same as a no-op traversal).
 fn link_with_click_handler(script: &str) -> String {
     format!(
         "<a href=\"#frag\" style=\"display:block;width:200px;height:100px\">link</a>\
          <div id=\"frag\" style=\"height:2000px\"></div>\
          <script>\
-           document.querySelector('a').addEventListener('click', function () {{ {script} }});\
+           document.querySelector('a').addEventListener('click', function () {{\
+             document.querySelector('a').setAttribute('data-ran', '1'); {script}\
+           }});\
          </script>"
     )
+}
+
+/// Whether the `link_with_click_handler` listener ran (its `data-ran` stamp reached
+/// the DOM). The click path's `re_render` flushes the script session, so the
+/// attribute is committed by assertion time.
+fn click_handler_ran(app: &App) -> bool {
+    let pipeline = &app.interactive.as_ref().unwrap().pipeline;
+    pipeline.dom.query_by_tag("a").into_iter().any(|e| {
+        pipeline
+            .dom
+            .world()
+            .get::<&elidex_ecs::Attributes>(e)
+            .is_ok_and(|a| a.get("data-ran") == Some("1"))
+    })
 }
 
 /// Resolution B (app-mode form): a click whose handler runs a VALID `history.back()`
@@ -431,6 +451,7 @@ fn app_click_default_suppressed_by_valid_back() {
 
     app.handle_click(winit::event::MouseButton::Left);
 
+    assert!(click_handler_ran(&app), "the click listener fired");
     assert_eq!(
         pipeline_url(&app).as_deref(),
         Some("https://example.com/"),
@@ -456,6 +477,10 @@ fn app_click_default_fires_after_noop_traversal() {
 
     app.handle_click(winit::event::MouseButton::Left);
 
+    assert!(
+        click_handler_ran(&app),
+        "the click listener fired — so the go(999) really was staged and classified, not skipped"
+    );
     assert_eq!(
         pipeline_url(&app).as_deref(),
         Some("https://example.com/#frag"),
