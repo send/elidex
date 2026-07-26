@@ -284,8 +284,9 @@ impl VmInner {
             // ValidityState.prototype + ConstraintValidation mixin
             // install on the 5 form-control prototypes that already
             // exist above (Input / Select / TextArea / Button /
-            // FieldSet).  HTML §4.10.20.4 — must run after each
-            // host-element prototype is allocated.
+            // FieldSet).  HTML §4.10.21.3 "The constraint validation
+            // API" — must run after each host-element prototype is
+            // allocated.
             self.register_validity_state_prototype();
             if let Some(input_proto) = self.html_input_prototype {
                 self.install_constraint_validation_mixin(input_proto);

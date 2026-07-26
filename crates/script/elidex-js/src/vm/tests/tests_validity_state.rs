@@ -322,7 +322,8 @@ fn validity_valid_defaults_to_true_when_no_form_control_state() {
 fn validation_message_empty_for_barred_controls() {
     // R16 F1 regression — `validationMessage` is empty for any
     // control barred from constraint validation, mirroring the
-    // `validity.*` and `willValidate` gating (HTML §4.10.20.2).
+    // `validity.*` and `willValidate` gating (HTML §4.10.21.3,
+    // `validationMessage` getter step 1).
     let out = run("var i = document.createElement('input'); \
          i.required = true; \
          i.disabled = true; \
@@ -332,7 +333,7 @@ fn validation_message_empty_for_barred_controls() {
 
 #[test]
 fn validity_anchor_flags_false_for_barred_controls() {
-    // R15 F1 regression — HTML §4.10.20.3: barred controls
+    // R15 F1 regression — HTML §4.10.21.1: barred controls
     // (disabled / hidden / disabled-fieldset descendant) skip the
     // constraint-validation algorithm, so the stored ValidityState
     // bits stay at their initial all-false values.  Browsers
@@ -350,7 +351,7 @@ fn validity_anchor_flags_false_for_barred_controls() {
 
 #[test]
 fn check_validity_returns_true_when_inside_disabled_fieldset() {
-    // R7 F1 regression — HTML §4.10.20.3: a control inside a
+    // R7 F1 regression — HTML §4.10.21.1: a control inside a
     // disabled `<fieldset>` is barred from constraint validation,
     // so checkValidity returns true and no `invalid` event fires
     // even when the control would otherwise fail (required+empty).
@@ -368,7 +369,7 @@ fn check_validity_returns_true_when_inside_disabled_fieldset() {
 
 #[test]
 fn check_validity_returns_true_for_hidden_input_even_when_required() {
-    // F9 regression — HTML §4.10.20.3 bars `<input type=hidden>`
+    // F9 regression — HTML §4.10.21.1 bars `<input type=hidden>`
     // from constraint validation regardless of `required`.
     // checkValidity must return true (no candidate, no validation
     // ran), and no `invalid` event must be dispatched.
@@ -384,7 +385,7 @@ fn check_validity_returns_true_for_hidden_input_even_when_required() {
 
 #[test]
 fn check_validity_returns_true_for_readonly_text_input() {
-    // R21 regression — HTML §4.10.20.3: `readonly` bars constraint
+    // R21 regression — HTML §4.10.21.1: `readonly` bars constraint
     // validation when the attribute applies to the kind (text /
     // textarea / etc), so a readonly required-empty text input
     // returns `checkValidity() == true` and `willValidate == false`,

@@ -210,7 +210,7 @@ Consequently the 25-number table below is **24** numbers under attribution (`§4
 | `§4.10.21.5.5` | 2 | SubmitEvent | **IN** → §4.10.22.10 |
 | `§4.10.21.5.4` | 2 | FormDataEvent | **IN** → §4.10.22.11 |
 | `§4.10.21.5` | 2 | `form.reset()` / `reset_form` | **IN** → §4.10.3 `#dom-form-reset` / §4.10.23 |
-| `§4.10.15.3` | 2 | entry collection + `form=` association | **IN** → §4.10.22.4 / §4.10.18.3 |
+| `§4.10.15.3` | 2 | entry collection + `form=` association | **IN, SPLIT** (verified 2026-07-27) — one number, **two** concepts, per site: `submit.rs:306` (`collect_form_data` doc) → **§4.10.22.4** "Constructing the entry list"; `submit.rs:322` (the `form=` IDREF arm) → **§4.10.18.3** "Association of controls and forms". The row read as a single target through four drafts; both sites are repaired in batch 1 (`19f23d57`). |
 | `§4.10.11.1` | 2 | textarea dirty-value flag | **OUT** — value model → §10 queue |
 | `§4.10.10.1` | 2 | 1× `<output>` is a listed form-control, 1× option text | **SPLIT** — `validity_state.rs:299` **IN** → §4.10.12; `html_option_proto.rs:21` **OUT** |
 | `§4.10.5.3.11` | 1 | select `valueMissing` | **IN** → **§4.10.7 The select element** (`#attr-select-required`). *Not* §4.10.5.3.4 — that is the **input** `required` attribute; draft 2 routed it there and was wrong. |

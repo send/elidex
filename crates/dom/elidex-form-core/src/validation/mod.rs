@@ -10,7 +10,7 @@ use crate::input::{
 };
 use crate::{FormControlKind, FormControlState};
 
-/// HTML §4.10.20.3 "candidate for constraint validation" predicate
+/// HTML §4.10.21.1 "candidate for constraint validation" predicate
 /// — a form control is considered a candidate when it is
 /// submittable, not disabled, not `<input type=hidden>`, not
 /// readonly (when `readonly` applies to the control kind), and not

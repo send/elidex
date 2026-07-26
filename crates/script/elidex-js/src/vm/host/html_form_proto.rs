@@ -25,7 +25,7 @@
 //!   `elements.length`).
 //!
 //! Methods:
-//! - `submit()` — no-op per WHATWG HTML §4.10.21.3 step 5
+//! - `submit()` — no-op per WHATWG HTML §4.10.22.3 step 5
 //!   (from-submit-method=true skips event dispatch); navigation
 //!   deferred to slot `#11-form-navigation` (D-33 paired sweep).
 //! - `requestSubmit(submitter?)` — fires cancelable `submit` event
@@ -40,9 +40,10 @@
 //!   `default_checked` (Group β F-7 + F-8 fold).
 //! - `checkValidity()` / `reportValidity()` — iterate the listed
 //!   elements, run `validate_control` on each candidate (skipping
-//!   disabled / `<input type=hidden>` per HTML §4.10.20.3), fire
-//!   the synthetic `invalid` event on every failing control, and
-//!   return `false` if any control failed.  Form-level methods are
+//!   disabled / `<input type=hidden>`, which HTML §4.10.21.1 bars
+//!   from constraint validation), fire the synthetic `invalid` event
+//!   on every failing control, and return `false` if any control
+//!   failed.  Form-level methods are
 //!   NOT installed via the `install_constraint_validation_mixin`
 //!   helper because the form's behaviour is delegate-to-children
 //!   rather than the per-control single-state shape.
@@ -455,10 +456,13 @@ fn native_form_get_elements(
 // submit / requestSubmit / reset
 // ---------------------------------------------------------------------------
 
-/// `form.submit()` — WHATWG HTML §4.10.21.3 step 5
-/// (from-submit-method=true): no submit event, no formdata event
-/// fired (the spec algorithm sets a flag that short-circuits the
-/// event-dispatch arm and proceeds directly to navigation).
+/// `form.submit()` — WHATWG HTML §4.10.3 `#dom-form-submit`, which
+/// runs the §4.10.22.3 form submission algorithm with "submitted
+/// from submit() method" true.  Step 5 is guarded by "If submitted
+/// from submit() method is false", so the whole event-dispatch arm
+/// is skipped — no `submit` event (step 5.6), no interactive
+/// validation (step 5.4) — and the algorithm proceeds to the entry
+/// list (step 7) and navigation.
 ///
 /// Navigation deferred to slot `#11-form-navigation` (D-33 paired
 /// sweep) — until that slot lands, this is observably a no-op:
@@ -475,8 +479,12 @@ fn native_form_submit(
     Ok(JsValue::Undefined)
 }
 
-/// `form.requestSubmit(submitter?)` — WHATWG HTML §4.10.3 `#dom-form-requestsubmit`, whose §4.10.21.4 +
-/// §4.10.21.3 step 8.4-8.5.
+/// `form.requestSubmit(submitter?)` — WHATWG HTML §4.10.3
+/// `#dom-form-requestsubmit`, whose step 3 submits the form via the
+/// §4.10.22.3 form submission algorithm: the `submit` event is
+/// step 5.6, and the `formdata` event is step 7 of §4.10.22.4
+/// "Constructing the entry list", which step 7 of §4.10.22.3
+/// invokes.
 ///
 /// Algorithm:
 /// 1. Brand check (require form receiver).
@@ -534,13 +542,13 @@ fn native_form_request_submit(
         }
     };
 
-    // Step 3 (HTML §4.10.21.3 invokes the "interactively validate
-    // the constraints" substep defined in §4.10.20.3): if neither
-    // the form's `novalidate` nor the submitter's `formnovalidate`
-    // override the validation step,
-    // walk every submittable descendant via [`run_form_check_validity`]
-    // (which also fires synthetic `invalid` events on failing
-    // controls).  Validation failure aborts before any `submit`
+    // Step 3 (HTML §4.10.22.3 step 5.4 invokes the "interactively
+    // validate the constraints" algorithm defined in §4.10.21.2):
+    // if neither the form's `novalidate` nor the submitter's
+    // `formnovalidate` makes the submitter's "no-validate state"
+    // (§4.10.19.6) true, walk every submittable descendant via
+    // [`run_form_check_validity`] (which also fires synthetic
+    // `invalid` events on failing controls).  Validation failure aborts before any `submit`
     // event fires — listeners on `submit` must NOT observe a request
     // whose constraints failed.
     let skip_validation = {
@@ -607,13 +615,15 @@ fn native_form_reset(
 }
 
 // ---------------------------------------------------------------------------
-// checkValidity / reportValidity (HTML §4.10.20.4)
+// checkValidity / reportValidity (HTML §4.10.3
+// `#dom-form-checkvalidity` / `#dom-form-reportvalidity`)
 // ---------------------------------------------------------------------------
 
 /// Walk every listed-element descendant of the form, calling
 /// `validate_control()` on each that is a candidate for constraint
-/// validation.  Per HTML §4.10.20.4 step 1, `invalid` must fire on
-/// EVERY failing control before the method returns; we therefore
+/// validation.  This is HTML §4.10.21.2's "statically validate the
+/// constraints", whose step 6 fires `invalid` at EVERY element in
+/// the invalid-controls list before the method returns; we therefore
 /// iterate the full set, dispatch the synthetic event on each
 /// failure, and return `false` if any control failed.  Mirrors the
 /// per-control `checkValidity()` shape installed by the
@@ -633,7 +643,8 @@ fn run_form_check_validity(ctx: &mut NativeContext<'_>, entity: Entity) -> Resul
         let Some(state) = dom.world().get::<&FormControlState>(control).ok() else {
             continue;
         };
-        // HTML §4.10.20.3 — bar non-candidates from validation,
+        // HTML §4.10.21.2 step 3.1 skips elements that are not
+        // "candidates for constraint validation" (§4.10.21.1);
         // centralised in `elidex_form::is_constraint_validation_candidate`.
         if !elidex_form::is_constraint_validation_candidate(&state, control, dom) {
             continue;

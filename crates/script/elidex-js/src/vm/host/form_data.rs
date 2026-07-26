@@ -30,8 +30,9 @@
 //!
 //! ## Implemented
 //!
-//! - `new FormData(form?)` (WHATWG XHR §4.3 + HTML §4.10.21.3 step 7
-//!   "construct the entry list").  Optional `form` argument:
+//! - `new FormData(form?)` (WHATWG XHR §4.3 constructor, whose step
+//!   1.2 runs HTML §4.10.22.4 "constructing the entry list").  The
+//!   optional `form` argument:
 //!   - missing / `undefined` / `null` → empty FormData.
 //!   - `<form>` element wrapper → entry list populated from the
 //!     form's submittable controls (delegates to
@@ -179,8 +180,9 @@ impl VmInner {
 // Constructor
 // ---------------------------------------------------------------------------
 
-/// `new FormData(form?)` — WHATWG XHR §4.3 constructor + WHATWG HTML
-/// §4.10.21.3 step 7 "construct the entry list" for the `form` argument.
+/// `new FormData(form?)` — WHATWG XHR §4.3 constructor, whose step 1.2
+/// runs WHATWG HTML §4.10.22.4 "constructing the entry list" for the
+/// `form` argument.
 ///
 /// The `form` argument, when an `<form>` element wrapper, populates
 /// the entry list by walking submittable controls (descendants AND
@@ -230,7 +232,8 @@ fn native_form_data_constructor(
 }
 
 /// Populate the `FormData` instance at `id` by walking `form_entity`'s
-/// submittable controls per WHATWG HTML §4.10.21.3 step 7.
+/// submittable controls per WHATWG HTML §4.10.22.4 steps 3-5 (the
+/// submittable-element list and the per-control entry loop).
 ///
 /// Delegates the form-walk to [`elidex_form::collect_form_data`] (which
 /// handles tree descendants + cross-tree `form` IDREF association) and
@@ -266,7 +269,8 @@ pub(super) fn populate_form_data_from_form(
 }
 
 /// Allocate a fresh `FormData` instance backed by the entry list
-/// constructed from `form_entity` per WHATWG HTML §4.10.21.3 step 7.
+/// constructed from `form_entity` per WHATWG HTML §4.10.22.4
+/// "Constructing the entry list".
 ///
 /// Used by `form.requestSubmit()` (vm/host/html_form_proto.rs) to
 /// build the `FormDataEvent.formData` payload BEFORE the formdata

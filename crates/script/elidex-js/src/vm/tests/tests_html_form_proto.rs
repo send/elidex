@@ -196,7 +196,8 @@ fn form_reset_event_cancellable_via_prevent_default() {
 
 #[test]
 fn form_check_validity_returns_true_when_all_controls_valid() {
-    // R2 F2 regression — HTML §4.10.20.4 form.checkValidity()
+    // R2 F2 regression — HTML §4.10.3 `#dom-form-checkvalidity`:
+    // form.checkValidity() statically validates the constraints and
     // returns true when every listed element is a valid candidate.
     let out = run("var f = document.createElement('form'); \
          var i = document.createElement('input'); \
@@ -220,8 +221,8 @@ fn form_check_validity_returns_false_when_a_control_is_invalid() {
 #[test]
 fn form_check_validity_fires_invalid_on_each_invalid_control() {
     // R2 F2 regression — per-control `invalid` event fires for
-    // every invalid candidate, even after the first failure
-    // (HTML §4.10.20.4 step 2).
+    // every invalid candidate, even after the first failure — HTML
+    // §4.10.21.2 step 6 loops the whole invalid-controls list.
     let out = run("var f = document.createElement('form'); \
          var i1 = document.createElement('input'); i1.required = true; \
          var i2 = document.createElement('input'); i2.required = true; \
@@ -246,7 +247,7 @@ fn form_report_validity_aliases_check_validity_in_headless_mode() {
 #[test]
 fn form_check_validity_skips_controls_in_disabled_fieldset() {
     // R7 F2 regression — controls inside a disabled `<fieldset>`
-    // are barred from constraint validation per HTML §4.10.20.3.
+    // are barred from constraint validation per HTML §4.10.21.1.
     // The form-level checkValidity must skip them: `invalid` event
     // does not fire and the form aggregates as valid.
     let out = run("var f = document.createElement('form'); \
@@ -262,7 +263,7 @@ fn form_check_validity_skips_controls_in_disabled_fieldset() {
 
 #[test]
 fn form_check_validity_skips_disabled_controls() {
-    // HTML §4.10.20.3 — disabled controls are barred from
+    // HTML §4.10.21.1 — disabled controls are barred from
     // constraint validation; the form's check must skip them.
     let out = run("var f = document.createElement('form'); \
          var i = document.createElement('input'); \

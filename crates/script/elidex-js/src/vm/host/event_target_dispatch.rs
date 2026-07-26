@@ -741,7 +741,7 @@ pub(super) fn dispatch_toggle_event(
 
 /// Dispatch a `submit` `SubmitEvent` at `target_entity` (the `<form>`)
 /// from the UA — used by `form.requestSubmit(submitter?)` per WHATWG
-/// HTML §4.10.21.3 step 8.4.
+/// HTML §4.10.22.3 step 5.6.
 ///
 /// Per spec the `submit` event is `bubbles=true`, `cancelable=true`
 /// (a listener calling `preventDefault()` cancels the submission and
@@ -826,7 +826,8 @@ pub(super) fn dispatch_submit_event(
 
 /// Dispatch a `formdata` `FormDataEvent` at `target_entity` (the
 /// `<form>`) from the UA — used by `form.requestSubmit()` per WHATWG
-/// HTML §4.10.21.3 step 8.5 after a non-cancelled `submit` event.
+/// HTML §4.10.22.4 step 7 ("Constructing the entry list"), reached
+/// from §4.10.22.3 step 7 after a non-cancelled `submit` event.
 ///
 /// Per spec the `formdata` event is `bubbles=true`, `cancelable=false`
 /// (listeners receive a chance to mutate the carried `FormData` but

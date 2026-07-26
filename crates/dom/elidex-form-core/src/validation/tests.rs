@@ -687,7 +687,7 @@ fn candidate_hidden_input_barred() {
 
 #[test]
 fn candidate_readonly_text_input_barred() {
-    // HTML §4.10.20.3: readonly bars constraint validation when
+    // HTML §4.10.21.1: readonly bars constraint validation when
     // the attribute applies to the kind (text/textarea/etc).
     let mut dom = elidex_ecs::EcsDom::new();
     let entity = dom.create_element("input", Attributes::default());

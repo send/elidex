@@ -173,7 +173,7 @@ impl FormControlKind {
     /// non-applicable kinds (`checkbox`, `radio`, `range`, `color`,
     /// `file`, `hidden`, button-typed) the attribute exists but has
     /// no effect — including for the constraint-validation barring
-    /// rule of §4.10.20.3.
+    /// rule of §4.10.21.1 ("barred from constraint validation").
     #[must_use]
     pub fn readonly_applies(self) -> bool {
         matches!(
@@ -420,10 +420,12 @@ pub struct FormControlState {
     /// - `Some(None)` — pattern set but regex compilation failed (invalid or too long).
     /// - `Some(Some(re))` — valid compiled regex.
     pub cached_pattern_regex: Option<Option<Arc<regex::Regex>>>,
-    /// Custom validity message set via `setCustomValidity(message)`
-    /// (HTML §4.10.20.2).  `None` means no custom error;
-    /// `Some(empty)` is also "no custom error" per spec — both
-    /// trigger `customError = false`.
+    /// The spec's "custom validity error message" (HTML §4.10.21.1),
+    /// set via `setCustomValidity(message)` (§4.10.21.3).  `None`
+    /// means no custom error; `Some(empty)` is also "no custom error"
+    /// per §4.10.21.1 ("When its value is not the empty string, the
+    /// element is suffering from a custom error") — both trigger
+    /// `customError = false`.
     pub custom_validity_message: Option<String>,
     /// IDL-only `indeterminate` bit for `<input type=checkbox>`
     /// (HTML §4.10.5.1.16).  Independent of `checked`; observable

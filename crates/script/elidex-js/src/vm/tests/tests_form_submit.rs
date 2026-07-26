@@ -1,11 +1,12 @@
 //! Slot `#11-form-submission-dispatcher` (D-29) — `form.submit()` /
 //! `form.requestSubmit(submitter?)` coverage per WHATWG HTML
-//! §4.10.21.3 + §4.10.21.4.
+//! §4.10.3 (`#dom-form-submit` / `#dom-form-requestsubmit`) and the
+//! §4.10.22.3 form submission algorithm they invoke.
 //!
 //! Test catalogue (JS-observable surface):
 //!
 //! - E-1 `form.submit()` fires neither `submit` nor `formdata` event
-//!   (HTML §4.10.21.3 step 5: from-submit-method=true).
+//!   (HTML §4.10.22.3 step 5: from-submit-method=true).
 //! - E-2 `form.requestSubmit()` (no submitter) fires `submit` event
 //!   (`submitter === null`) then `formdata` event.
 //! - E-3 `form.requestSubmit(button)` propagates the submitter into
@@ -23,8 +24,9 @@
 //!   form's controls via the §C-3 single-source-of-truth path
 //!   (existing FormData ctor TODO closed).
 //! - E-8 `form.requestSubmit(divEl)` with a non-submit-button
-//!   wrapper throws `TypeError` per HTML §4.10.3 `#dom-form-requestsubmit` step 2.1.
-//! - E-9 Interactive validation arm (§4.10.21.3 substep): a form
+//!   wrapper throws `TypeError` per HTML §4.10.3
+//!   `#dom-form-requestsubmit` step 1.1.
+//! - E-9 Interactive validation arm (§4.10.22.3 step 5.4): a form
 //!   with a single `<input required>` empty control fires `invalid`
 //!   on the control and aborts before `submit` / `formdata`.
 //! - E-10 `form.noValidate = true` (and `submitter.formNoValidate`)
@@ -127,9 +129,10 @@ fn request_submit_with_valid_submitter_propagates_to_event() {
     assert_eq!(out, "same");
 }
 
-// E-4 — requestSubmit(otherFormButton) → NotFoundError per
-// §4.10.21.4 step 2.2.  Tree-ancestor of `btn` is form `b`, not `a`,
-// and the button has no `form` IDREF — both ownership paths fail.
+// E-4 — requestSubmit(otherFormButton) → NotFoundError per §4.10.3
+// `#dom-form-requestsubmit` step 1.2.  Tree-ancestor of `btn` is form
+// `b`, not `a`, and the button has no `form` IDREF — both ownership
+// paths fail.
 #[test]
 fn request_submit_wrong_form_throws_not_found_error() {
     let out = run("var a = document.createElement('form'); \
@@ -211,9 +214,10 @@ fn request_submit_non_submit_button_throws_type_error() {
 
 // E-9 — Interactive validation arm: a form with `<input required>`
 // empty must NOT fire `submit` / `formdata`, and must fire `invalid`
-// on the failing control.  Per HTML §4.10.21.3 the "interactively
-// validate the constraints" substep runs before `submit` and aborts
-// on failure.
+// on the failing control.  Per HTML §4.10.22.3 step 5.4 the
+// "interactively validate the constraints" algorithm (§4.10.21.2)
+// runs before the `submit` event of step 5.6 and returns from the
+// submission on a negative result.
 #[test]
 fn request_submit_invalid_form_skips_submit_and_fires_invalid() {
     let out = run("var f = document.createElement('form'); \
@@ -231,8 +235,10 @@ fn request_submit_invalid_form_skips_submit_and_fires_invalid() {
 
 // E-10 — `form.noValidate = true` skips the interactive-validation
 // substep so `submit` / `formdata` still fire even when constraints
-// would otherwise fail.  Matches HTML §4.10.21.3 "if form's
-// no-validate state is true" carve-out.
+// would otherwise fail.  Matches HTML §4.10.22.3 step 5.4, which
+// validates only "if the submitter element's no-validate state is
+// false" — and §4.10.19.6 makes that state true for either the form
+// owner's `novalidate` or a submit button's `formnovalidate`.
 #[test]
 fn request_submit_novalidate_skips_validation() {
     let out = run("var f = document.createElement('form'); \

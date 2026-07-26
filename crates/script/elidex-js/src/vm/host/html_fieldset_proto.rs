@@ -25,7 +25,8 @@
 //!   `VmInner::install_constraint_validation_mixin` from Phase 9.
 //!   `<fieldset>` is a candidate for the mixin even though it is
 //!   not itself "submittable" — `willValidate` returns `false` and
-//!   the methods short-circuit per HTML §4.10.20.3.
+//!   the methods short-circuit because HTML §4.10.21.1 makes only
+//!   submittable elements candidates for constraint validation.
 
 #![cfg(feature = "engine")]
 
