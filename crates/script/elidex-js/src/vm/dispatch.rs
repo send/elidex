@@ -93,6 +93,12 @@ impl VmInner {
                     self.stack.push(val);
                 }
                 Op::Pop => {
+                    // A pure discard — see `Op::PopCompletion` for the recording
+                    // variant.  Internal housekeeping must not write
+                    // `completion_value`: it is not this stack slot's owner.
+                    self.pop()?;
+                }
+                Op::PopCompletion => {
                     let val = self.pop()?;
                     // Capture the last ExpressionStatement value into
                     // `completion_value` only for script/`eval` bodies
@@ -116,19 +122,22 @@ impl VmInner {
                     }
                     self.stack.swap(len - 1, len - 2);
                 }
-                Op::Dup2 => {
-                    // `[a b -- a b a b]` — preserves a computed member's
-                    // `[object key]` reference pair across the GetValue in a
-                    // compound/logical assignment (ECMA-262 §13.15.2 step 1
-                    // evaluates the LHS reference once).
+                Op::PopUnder => {
+                    // `[a1 … an v -- v]` — drop a member target's reference
+                    // slots when a logical assignment short-circuits.  Unlike
+                    // `Op::Pop` this does NOT write `completion_value`: only an
+                    // ExpressionStatement's value belongs there (§14.5.1), and
+                    // recording internal housekeeping there made
+                    // `eval("if (globalThis.Math ||= 2) {}")` return the global
+                    // object instead of `undefined`.
+                    let n = self.read_u8_op() as usize;
                     let len = self.stack.len();
-                    if len < 2 {
-                        return Err(VmError::internal("stack underflow on Dup2"));
+                    if len < n + 1 {
+                        return Err(VmError::internal("stack underflow on PopUnder"));
                     }
-                    let a = self.stack[len - 2];
-                    let b = self.stack[len - 1];
-                    self.stack.push(a);
-                    self.stack.push(b);
+                    let top = self.stack[len - 1];
+                    self.stack.truncate(len - n - 1);
+                    self.stack.push(top);
                 }
 
                 // ── Local access ────────────────────────────────────
@@ -469,10 +478,15 @@ impl VmInner {
                 }
                 Op::IncElem | Op::DecElem => {
                     let prefix = self.read_u8_op() != 0;
-                    let key = self.pop()?;
+                    let raw_key = self.pop()?;
                     let obj_val = self.pop()?;
-                    let old = match self.get_element(obj_val, key) {
-                        Ok(v) => v,
+                    // `o[k]++` reuses one reference for GetValue and PutValue
+                    // (§13.4.4.1 steps 1/5), so the key is converted once —
+                    // §6.2.5.5 step 3.c.i.  Passing the raw key to both accessors
+                    // ran a stateful `toString` twice, reading one property and
+                    // writing another.
+                    let (key, old) = match self.get_element_keeping_key(obj_val, raw_key) {
+                        Ok(pair) => pair,
                         Err(e) => {
                             self.throw_error(e, entry_frame_depth)?;
                             continue;
@@ -605,6 +619,24 @@ impl VmInner {
                     let obj = self.pop()?;
                     match self.get_element(obj, key) {
                         Ok(val) => self.stack.push(val),
+                        Err(e) => {
+                            self.throw_error(e, entry_frame_depth)?;
+                        }
+                    }
+                }
+                Op::GetElemRef => {
+                    // `[object key -- object key' value]` — keep the reference
+                    // for the store of a compound/logical assignment, with the
+                    // key converted exactly once (ECMA-262 §6.2.5.5 step 3.c.i
+                    // memoizes it into the Reference Record).
+                    let key = self.pop()?;
+                    let obj = self.pop()?;
+                    match self.get_element_keeping_key(obj, key) {
+                        Ok((key, val)) => {
+                            self.stack.push(obj);
+                            self.stack.push(key);
+                            self.stack.push(val);
+                        }
                         Err(e) => {
                             self.throw_error(e, entry_frame_depth)?;
                         }

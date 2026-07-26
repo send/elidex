@@ -13,7 +13,8 @@
 //! `PutValue` (step 9).  The logical forms evaluate the RHS only when the
 //! short-circuit test fails.
 
-use super::{eval_number, eval_string, eval_throws};
+use super::{eval, eval_number, eval_string, eval_throws};
+use crate::vm::JsValue;
 
 // ── Computed compound: `obj[key] op= v` ──────────────────────────────
 
@@ -127,16 +128,32 @@ fn assignment_forms_are_stack_balanced() {
 
 // ── Regressions found by the pre-push review ─────────────────────────
 
-/// A logical operator on a **private** name used to reach
-/// `compound_op_to_opcode`'s `unreachable!` and abort the process — the guard
-/// matched only `MemberProp::Identifier`, not `PrivateIdentifier`.  Until Slice 5
-/// gives `#x` a store path it must be a loud `CompileError`, never a panic and
-/// never a silently-lost write.
+/// No store to a private name is compilable until Slice 5
+/// (`#11-vm-class-private-fields`) gives `#x` a store opcode, so **every** form
+/// must be a loud `CompileError` — never a panic, never a silently-lost write.
+///
+/// The two failure modes are different, which is why the guard is not per-form:
+/// the *logical* ops reached `compound_op_to_opcode`'s `unreachable!` and aborted
+/// the process, while the *plain* and *compound* ops emitted a store that fell to
+/// an `Op::Pop` tail — discarding the write and leaving the **object** as the
+/// expression's value (`return A.#x += 5` evaluated to `A`).
 #[test]
-fn private_name_logical_assign_is_rejected_not_a_panic() {
-    for op in ["||=", "&&=", "??="] {
+fn private_name_assign_is_rejected_not_a_panic_and_not_silent() {
+    for op in [
+        "=", "+=", "-=", "*=", "/=", "%=", "**=", "&=", "|=", "^=", "<<=", ">>=", ">>>=", "||=",
+        "&&=", "??=",
+    ] {
         eval_throws(&format!(
             "class C{{#x=0; m(){{ this.#x {op} 1 }}}}; new C().m()"
+        ));
+        // A static receiver (`A.#x`) reaches the same store path as `this.#x`.
+        eval_throws(&format!(
+            "class A{{ static #x=0; static m(){{ A.#x {op} 1 }} }} A.m()"
+        ));
+        // The silent loss was observable without reading the field back, because
+        // the expression's value was the object rather than the stored value.
+        eval_throws(&format!(
+            "class A{{ static #x=0; static m(){{ return A.#x {op} 1 }} }} A.m()"
         ));
     }
 }
@@ -166,32 +183,126 @@ fn identifier_nullish_assign_is_stack_balanced() {
     );
 }
 
-/// ⚠ KNOWN SPEC-DIVERGENCE (`#11-vm-element-ref-single-key-conversion`).
-///
-/// ECMA-262 §6.2.5.5 GetValue step 3.c memoizes `ToPropertyKey` into the
-/// Reference Record, so a stateful key's `toString` runs **once** and the read
-/// and write hit the same property.  `Op::Dup2` copies the raw key, so
-/// `GetElem` and `SetElem` convert independently.  These assertions pin the
-/// *current* behaviour so the divergence cannot widen unnoticed; flip them when
-/// the slot lands.
+/// ECMA-262 §6.2.5.5 GetValue step 3.c.i sets `[[ReferencedName]]` to
+/// `ToPropertyKey`'s result **on the Reference Record**, so §13.15.2's single
+/// LHS evaluation converts a stateful key exactly once and the read and the
+/// write hit the same property.  `Op::GetElemRef` carries the converted key
+/// forward to the store.
 #[test]
-fn computed_compound_converts_key_twice_known_divergence() {
-    // Spec: 1.  Current: 2.
+fn computed_compound_converts_key_once() {
     assert_eq!(
         eval_number("var n=0; var k={toString(){n++;return 'p'}}; var o={p:1}; o[k]+=2; n"),
-        2.0
+        1.0
     );
-    // Spec: reads and writes `p1` → {"p1":6,"p2":0}.  Current: reads `p1`, writes `p2`.
+    // A key whose conversion is *observable* must not read one property and
+    // write another.
     assert_eq!(
         eval_string(
             "var n=0; var k={toString(){n++;return 'p'+n}}; var o={p1:1,p2:0}; \
              o[k]+=5; JSON.stringify(o)"
         ),
-        r#"{"p1":1,"p2":6}"#
+        r#"{"p1":6,"p2":0}"#
     );
-    // Plain assignment is unaffected — it converts once.
+    // Plain assignment evaluates the reference once and stores through it, so
+    // `SetElem`'s own conversion is already the single conversion.
     assert_eq!(
         eval_number("var n=0; var k={toString(){n++;return 'p'}}; var o={p:1}; o[k]=2; n"),
         1.0
     );
+    // The logical forms share the same reference.
+    assert_eq!(
+        eval_number("var n=0; var k={toString(){n++;return 'p'}}; var o={p:0}; o[k]||=2; n"),
+        1.0
+    );
+    // `o[k]++` (§13.4.4.1 steps 1/5) reuses one reference too — the same root,
+    // fixed with it rather than left as a second answer to one question.
+    assert_eq!(
+        eval_number("var n=0; var k={toString(){n++;return 'p'}}; var o={p:1}; o[k]++; n"),
+        1.0
+    );
+    assert_eq!(
+        eval_string(
+            "var n=0; var k={toString(){n++;return 'p'+n}}; var o={p1:1,p2:0}; \
+             o[k]++; JSON.stringify(o)"
+        ),
+        r#"{"p1":2,"p2":0}"#
+    );
+}
+
+/// §6.2.5.5 step 3.a (base coercion) precedes step 3.c (key conversion), so a
+/// throwing key `toString` must not pre-empt the base's `TypeError`.  Emitting
+/// the conversion inside `Op::GetElemRef` rather than at a separate site is what
+/// preserves the order.
+#[test]
+fn computed_compound_base_coercion_precedes_key_conversion() {
+    assert_eq!(
+        eval_string(
+            "var log=''; var k={toString(){log+='k'; return 'p'}}; \
+             try { null[k] += 1 } catch(e) { log += (e instanceof TypeError) ? 'T' : 'X' } log"
+        ),
+        "T"
+    );
+}
+
+// ── Completion value ownership ───────────────────────────────────────
+
+/// `Op::Pop` used to record **every** value it discarded as the script's
+/// completion value, so internal stack housekeeping overwrote it.  Only an
+/// ExpressionStatement's value belongs there (ECMA-262 §14.5.1), which is now
+/// `Op::PopCompletion`'s sole job.
+#[test]
+fn completion_value_is_not_written_by_internal_housekeeping() {
+    // Reference cleanup on a short-circuiting member assignment leaked the base
+    // object out as the completion value.
+    assert!(
+        matches!(
+            eval("if (globalThis.Math ||= 2) {}").unwrap(),
+            JsValue::Undefined
+        ),
+        "reference cleanup must not write completion_value"
+    );
+    // A VariableStatement's evaluation is EMPTY (§14.3.2.1), not its initializer.
+    assert!(
+        matches!(eval("var x = 5;").unwrap(), JsValue::Undefined),
+        "a declaration must not write completion_value"
+    );
+    // ...and an EMPTY completion leaves the preceding statement's value in
+    // place (§14.5.1 `UpdateEmpty`).
+    assert_eq!(eval_number("42; var x = 1;"), 42.0);
+}
+
+/// The ExpressionStatement path still records — the split must not cost the
+/// completion values that already worked.
+#[test]
+fn completion_value_still_records_expression_statements() {
+    assert_eq!(eval_number("42;"), 42.0);
+    assert_eq!(eval_number("if (true) { 1 }"), 1.0);
+    assert_eq!(eval_number("switch(1){case 1: 42}"), 42.0);
+    assert_eq!(eval_number("for(var i=0;i<3;i++){ i }"), 2.0);
+    assert_eq!(eval_number("try { 7 } finally { }"), 7.0);
+    assert_eq!(eval_number("var o={p:0}; o.p ||= 9;"), 9.0);
+    assert_eq!(eval_number("var a=[1]; a[0] += 2;"), 3.0);
+}
+
+// ── One lowering for every logical-assignment target ─────────────────
+
+/// The identifier form routes through `emit_logical_assign_tail` like the member
+/// forms; these pin the semantics across the re-routing.
+#[test]
+fn identifier_logical_assign_semantics() {
+    assert_eq!(eval_number("var x=1; x ||= 9; x"), 1.0);
+    assert_eq!(eval_number("var x=0; x ||= 9; x"), 9.0);
+    assert_eq!(eval_number("var x=1; x &&= 9; x"), 9.0);
+    assert_eq!(eval_number("var x=0; x &&= 9; x"), 0.0);
+    assert_eq!(eval_number("var x=null; x ??= 9; x"), 9.0);
+    // `0` is falsy but not nullish.
+    assert_eq!(eval_number("var x=0; x ??= 9; x"), 0.0);
+    // The RHS is not evaluated when the assignment short-circuits.
+    assert_eq!(
+        eval_number("var n=0; function r(){n++; return 9} var x=1; x ||= r(); n"),
+        0.0
+    );
+    // The expression's value on both paths.
+    assert_eq!(eval_number("var x=0; var r=(x ||= 9); r"), 9.0);
+    assert_eq!(eval_number("var x=1; var r=(x ||= 9); r"), 1.0);
 }

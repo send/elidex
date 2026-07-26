@@ -195,7 +195,11 @@ pub fn compile_stmt(
 
         StmtKind::Expression(expr_id) => {
             compile_expr(fc, prog, analysis, func_scopes, *expr_id)?;
-            fc.emit(Op::Pop); // statement expressions discard their value
+            // The ONLY completion-recording discard: ECMA-262 §14.5.1 makes an
+            // ExpressionStatement's value the statement's completion.  Every
+            // other `Op::Pop` the compiler emits is internal housekeeping and
+            // must stay a pure discard.
+            fc.emit(Op::PopCompletion);
         }
 
         StmtKind::VariableDeclaration { kind, declarators } => {

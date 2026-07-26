@@ -29,28 +29,46 @@ pub enum Op {
     PushConst,
     /// `[v -- v v]`
     Dup,
-    /// `[v -- ]`
+    /// `[v -- ]` Discard the top of the stack.
+    ///
+    /// A pure stack operation: it does **not** touch `completion_value`. Use
+    /// [`Op::PopCompletion`] for the one place a discarded value is observable.
     Pop,
+    /// `[v -- ]` Discard the top of the stack and record it as the script's
+    /// completion value.
+    ///
+    /// Emitted for an `ExpressionStatement` only — ECMA-262 §14.5.1 makes its
+    /// expression's value the statement's completion, and §16.1.6 step 13.a /
+    /// §19.2.1.1 step 29.a return the script's/`eval`'s last such value.
+    /// Function, class-constructor, generator and async bodies discard instead
+    /// (§10.2.1.4 OrdinaryCallEvaluateBody + §15.2.3 step 4 yield
+    /// `ReturnCompletion(undefined)` regardless of a trailing expression), which
+    /// is why the dispatch arm also gates on the entry frame being `Eval`.
+    ///
+    /// Splitting this out of [`Op::Pop`] is what keeps internal stack
+    /// housekeeping — reference cleanup, hoisting stores, destructuring
+    /// scratch — from writing a completion value it does not own: `var x = 5;`
+    /// evaluated to `5` instead of `undefined` because the declaration's store
+    /// discarded through the recording opcode.
+    PopCompletion,
     /// `[a b -- b a]`
     Swap,
-    /// `[a b -- a b a b]` Duplicate the top *pair*.
+    /// Operand: u8 (count `n`). `[a1 … an v -- v]` Discard `n` slots from
+    /// **beneath** the top, keeping the top.
     ///
-    /// Emitted for compound/logical assignment to a **computed** member
-    /// (`obj[key] += v`, `obj[key] ??= v`). ECMA-262 §13.15.2 evaluates the
-    /// LeftHandSideExpression once (step 1) and reuses that reference for both
-    /// `GetValue` (step 3) and `PutValue` (step 9), so the `[object key]` pair
-    /// is preserved across the load rather than re-emitting the operand
-    /// expressions — a side-effecting *key expression* therefore runs once.
+    /// Emitted to drop a member target's reference slots when a logical
+    /// assignment short-circuits: `obj[key] ??= v` keeps the old value and must
+    /// leave the `[object key]` pair behind.
     ///
-    /// ⚠ **Known divergence** (`#11-vm-element-ref-single-key-conversion`): this
-    /// duplicates the **raw** key, so the subsequent `GetElem` and `SetElem`
-    /// each run their own `ToPropertyKey`. ECMA-262 §6.2.5.5 GetValue step 3.c
-    /// *memoizes* the converted key into the Reference Record, so the spec runs
-    /// user `toString`/`@@toPrimitive` **once**. With a stateful key object the
-    /// read and the write can therefore target *different* properties. The
-    /// pre-existing `Op::IncElem`/`DecElem` share the root; fixing it needs a
-    /// converted-key representation and is tracked as its own unit.
-    Dup2,
+    /// Deliberately **not** `Swap; Pop`. `Op::Pop` records every value it
+    /// discards into `completion_value` at entry-`Eval` frame depth (see its
+    /// dispatch arm), which is right for an ExpressionStatement's value
+    /// (ECMA-262 §14.5.1) but corrupts the script's completion value when used
+    /// for internal stack housekeeping — `eval("if (globalThis.Math ||= 2) {}")`
+    /// returned the global object instead of `undefined`.  `PopUnder` carries no
+    /// completion-tracking side effect, so reference cleanup cannot corrupt the
+    /// completion value by construction.
+    PopUnder,
 
     // ── Local variable access ───────────────────────────────────────
     /// Operand: u16 (local index). `[ -- value]`
@@ -83,6 +101,24 @@ pub enum Op {
     SetProp,
     /// `[object key -- value]`
     GetElem,
+    /// `[object key -- object key' value]` Load through a computed member
+    /// reference, keeping the reference for a following store.
+    ///
+    /// Emitted for compound and logical assignment to a computed member
+    /// (`obj[key] += v`, `obj[key] ??= v`). ECMA-262 §13.15.2 evaluates the
+    /// LeftHandSideExpression **once** (step 1) and reuses that reference for
+    /// both `GetValue` (step 3) and `PutValue` (step 9), so the operand
+    /// expressions are not re-emitted — a side-effecting *key expression* runs
+    /// once.
+    ///
+    /// `key'` is the **converted** key: §6.2.5.5 GetValue step 3.c.i writes
+    /// `ToPropertyKey`'s result back into the Reference Record, so a later
+    /// `PutValue` through the same reference does not re-run user
+    /// `toString`/`@@toPrimitive`. Emitting the conversion here rather than at a
+    /// separate site also preserves step 3.a's ordering — base coercion throws
+    /// before the key is converted (`null[k] += 1` must be a `TypeError` even
+    /// when `k.toString()` also throws).
+    GetElemRef,
     /// `[object key value -- value]`
     SetElem,
     /// Operand: u16 (constant index). `[object -- bool]`
@@ -359,9 +395,10 @@ impl Op {
             | Self::PushFalse
             | Self::Dup
             | Self::Pop
+            | Self::PopCompletion
             | Self::Swap
-            | Self::Dup2
             | Self::GetElem
+            | Self::GetElemRef
             | Self::SetElem
             | Self::DeleteElem
             | Self::GetSuperElem
@@ -433,6 +470,7 @@ impl Op {
 
             // 1-byte operand (u8 or i8)
             Self::PushI8
+            | Self::PopUnder
             | Self::New
             | Self::SuperCall
             | Self::TaggedTemplate

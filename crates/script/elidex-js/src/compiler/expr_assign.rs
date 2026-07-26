@@ -124,6 +124,8 @@ fn logical_assign_jump(op: AssignOp) -> Option<Op> {
 /// many reference slots sit under the old value on the stack.
 #[derive(Clone, Copy)]
 enum LogicalStore {
+    /// Identifier: `[value -- value]`, no reference slots.
+    Ident(Atom),
     /// Computed member: `[object key value -- value]`, 2 reference slots.
     Elem,
     /// Named member: `[object value -- value]`, 1 reference slot.
@@ -133,16 +135,21 @@ enum LogicalStore {
 impl LogicalStore {
     /// Reference slots beneath the old value that the short-circuit path must
     /// discard to leave the assignment's value alone on the stack.
-    fn ref_slots(self) -> usize {
+    fn ref_slots(self) -> u8 {
         match self {
+            Self::Ident(_) => 0,
             Self::Elem => 2,
             Self::Prop { .. } => 1,
         }
     }
 }
 
-/// Emit the short-circuit tail of a logical assignment (`&&=`, `||=`, `??=`)
-/// to a member target.
+/// Emit the short-circuit tail of a logical assignment (`&&=`, `||=`, `??=`).
+///
+/// This is the single lowering for **every** target shape — identifier, named
+/// member and computed member.  The pop-versus-peek rule below is subtle enough
+/// that a second copy diverged from it once already, so the identifier form
+/// routes here rather than encoding the sequence again.
 ///
 /// On entry the stack is `[<ref slots> old]`; on exit exactly one value remains
 /// on **both** paths — the value of the `AssignmentExpression` per ECMA-262
@@ -158,7 +165,8 @@ fn emit_logical_assign_tail(
     store: LogicalStore,
 ) -> Result<(), CompileError> {
     // `JumpIfFalse`/`JumpIfTrue` pop their condition; `JumpIfNotNullish` peeks.
-    // Dup only for the popping variants so both paths leave `[<refs> old]`.
+    // Dup only for the popping variants so both paths leave `[<refs> old]`; an
+    // unconditional `Dup` leaks a slot per evaluation under `??=`.
     if jump_op != Op::JumpIfNotNullish {
         fc.emit(Op::Dup);
     }
@@ -167,17 +175,26 @@ fn emit_logical_assign_tail(
     fc.emit(Op::Pop);
     compile_expr(fc, prog, analysis, func_scopes, right)?;
     match store {
+        LogicalStore::Ident(atom) => {
+            compile_identifier_store(fc, prog, analysis, func_scopes, atom)?;
+        }
         LogicalStore::Elem => fc.emit(Op::SetElem),
         LogicalStore::Prop { name_idx, ic } => fc.emit_u16_u16(Op::SetProp, name_idx, ic),
     }
-    let end = fc.emit_jump(Op::Jump);
     // Short-circuit path: drop the reference slots under the retained value.
+    // `Op::PopUnder`, not `Swap; Pop` — the latter discards through the
+    // completion-recording opcode and would overwrite the script's completion
+    // value with the base object.  An identifier target has no reference slots,
+    // so it needs neither the cleanup nor a jump over it.
+    let refs = store.ref_slots();
+    let end = (refs > 0).then(|| fc.emit_jump(Op::Jump));
     fc.patch_jump(short_circuit);
-    for _ in 0..store.ref_slots() {
-        fc.emit(Op::Swap);
-        fc.emit(Op::Pop);
+    if refs > 0 {
+        fc.emit_u8(Op::PopUnder, refs);
     }
-    fc.patch_jump(end);
+    if let Some(end) = end {
+        fc.patch_jump(end);
+    }
     Ok(())
 }
 
@@ -196,33 +213,19 @@ pub(super) fn compile_assignment(
             let target = prog.exprs.get(*target_id);
             match &target.kind {
                 ExprKind::Identifier(atom) => {
-                    // Handle logical assignment operators with short-circuit (ECMA-262 §13.15.2).
-                    if matches!(
-                        op,
-                        AssignOp::AndAssign | AssignOp::OrAssign | AssignOp::NullCoalAssign
-                    ) {
+                    // Logical assignment short-circuits (ECMA-262 §13.15.2) —
+                    // one lowering for every target shape.
+                    if let Some(jump_op) = logical_assign_jump(op) {
                         compile_identifier_load(fc, prog, analysis, func_scopes, *atom);
-                        let jump_op = match op {
-                            AssignOp::AndAssign => Op::JumpIfFalse,
-                            AssignOp::OrAssign => Op::JumpIfTrue,
-                            AssignOp::NullCoalAssign => Op::JumpIfNotNullish,
-                            _ => unreachable!(),
-                        };
-                        // `JumpIfFalse`/`JumpIfTrue` pop their condition;
-                        // `JumpIfNotNullish` peeks.  Dup only for the popping
-                        // variants, else the short-circuit path leaves a stray
-                        // value beneath the result (observable: `f(x ??= 1)`
-                        // read the stray as the callee).  Same rule as
-                        // `emit_logical_assign_tail`.
-                        if jump_op != Op::JumpIfNotNullish {
-                            fc.emit(Op::Dup);
-                        }
-                        let patch = fc.emit_jump(jump_op);
-                        fc.emit(Op::Pop); // discard old value
-                        compile_expr(fc, prog, analysis, func_scopes, right)?;
-                        compile_identifier_store(fc, prog, analysis, func_scopes, *atom)?;
-                        fc.patch_jump(patch);
-                        return Ok(());
+                        return emit_logical_assign_tail(
+                            fc,
+                            prog,
+                            analysis,
+                            func_scopes,
+                            right,
+                            jump_op,
+                            LogicalStore::Ident(*atom),
+                        );
                     }
 
                     if op != AssignOp::Assign {
@@ -292,10 +295,13 @@ fn compile_member_assignment(
         if let MemberProp::Expression(key_expr) = property {
             compile_expr(fc, prog, analysis, func_scopes, *key_expr)?;
         }
+        // `Op::GetElemRef` turns `[obj key]` into `[obj key' old]`, keeping the
+        // reference for the store and memoizing the converted key (§6.2.5.5
+        // step 3.c.i) so a stateful key's `toString` runs once.  Plain `=` needs
+        // neither: it evaluates the reference once and stores through it, and
+        // `Op::SetElem`'s own conversion is then the single conversion.
         if let Some(jump_op) = logical_assign_jump(op) {
-            // `[obj key]` → `[obj key old]`
-            fc.emit(Op::Dup2);
-            fc.emit(Op::GetElem);
+            fc.emit(Op::GetElemRef);
             return emit_logical_assign_tail(
                 fc,
                 prog,
@@ -307,8 +313,7 @@ fn compile_member_assignment(
             );
         }
         if op != AssignOp::Assign {
-            fc.emit(Op::Dup2);
-            fc.emit(Op::GetElem);
+            fc.emit(Op::GetElemRef);
         }
         compile_expr(fc, prog, analysis, func_scopes, right)?;
         if op != AssignOp::Assign {
@@ -318,15 +323,24 @@ fn compile_member_assignment(
         return Ok(());
     }
 
-    // A logical operator on a **private** name would fall through to the named
-    // path below and reach `compound_op_to_opcode`'s `unreachable!`, aborting
-    // the process on valid JS (`this.#x ??= 1`).  There is no `Op::SetPrivate`
-    // emit path yet (Slice 5 / `#11-vm-class-private-fields`), so emitting the
-    // store would silently lose the write instead — banned by the umbrella's
-    // no-silent-stub invariant.  Reject loudly until Slice 5 lands.
-    if logical_assign_jump(op).is_some() && matches!(property, MemberProp::PrivateIdentifier(_)) {
+    // There is no `Op::SetPrivate` emit path yet (Slice 5 /
+    // `#11-vm-class-private-fields`), so **no** store to a private name can be
+    // compiled — and the failure mode differs per form, which is why this is one
+    // guard rather than a per-form check:
+    //
+    //   `this.#x ??= 1`  reached `compound_op_to_opcode`'s `unreachable!` and
+    //                    aborted the process;
+    //   `this.#x += 1`   emitted `GetPrivate`, computed the sum, then discarded
+    //                    it at the `Op::Pop` tail below — the write was silently
+    //                    lost and the expression evaluated to the *object*;
+    //   `this.#x = 1`    same silent loss, without the arithmetic.
+    //
+    // Both outcomes are banned by the umbrella's no-silent-stub invariant (I-1:
+    // connect or reject, never a silently-wrong path), so reject every form
+    // loudly until Slice 5 gives `#x` a store opcode.
+    if matches!(property, MemberProp::PrivateIdentifier(_)) {
         return Err(CompileError {
-            message: "logical assignment to a private name is not yet supported \
+            message: "assignment to a private name is not yet supported \
                       (#11-vm-class-private-fields)"
                 .into(),
         });
@@ -364,10 +378,15 @@ fn compile_member_assignment(
             let ic = fc.alloc_ic_slot();
             fc.emit_u16_u16(Op::SetProp, idx, ic);
         }
+        // `PrivateIdentifier` is rejected above and `Expression` only reaches
+        // this function with `computed`, handled in the branch at the top.  A
+        // future `MemberProp` variant must not silently reach the old
+        // `Op::Pop` tail, which discarded the write and left the *object* as
+        // the expression's value, so refuse rather than emit.
         _ => {
-            // PrivateIdentifier (computed is handled above). `#x = v` has no
-            // `Op::SetPrivate` emit path yet — pop to keep the stack balanced.
-            fc.emit(Op::Pop);
+            return Err(CompileError {
+                message: "unsupported assignment target".into(),
+            })
         }
     }
     Ok(())
