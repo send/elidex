@@ -540,4 +540,9 @@ Re-derived at authoring time 2026-07-27 (`git worktree list`; `git rev-list --co
    - Heading shape: `## ✅ DONE — #N ✅ MERGED (sha, date, comment-only)`.
 5. **`memory/project_open-defer-slots.md`** — register the two new slots (`#11-citation-anchor-level-verification`, `#11-unattributed-spec-citations`) in the L3 cluster, each with **its re-derivation command rather than a count** — same reason as above.
 
-Items 4-5 are listed explicitly here **so they cannot evaporate between merge and follow-up** ([[reference_spawn-task-chips-not-durable]]).
+6. **Two `/simplify` Tier-3 items, deliberately not taken mid-gate** (they are behaviour-neutral and would have expanded an already-large diff):
+   - **`test_cite_audit.py`'s prose coupling** — 18 cases assert header strings verbatim (10× "attributed to html: N distinct sections") while `--format json` exists and is barely used. A table-driven runner over parsed JSON removes the coupling and collapses ~130 lines to ~40.
+   - **`test_empty_specs_would_still_import` asserts nothing about its subject** — it re-implements the comprehension *inside the test*, so it passes even if `spec_labels.py` is deleted. **Take this one first**: a test that survives the deletion of what it tests is worse than no test, because it reads as coverage. Rewrite it to exercise the real module (e.g. re-exec the module source with `SPECS` emptied).
+   *(Tier-3 item 15 needs no follow-up — `first_of_line` disappeared as a side effect of the dangling-carry fix.)*
+
+Items 4-6 are listed explicitly here **so they cannot evaporate between merge and follow-up** ([[reference_spawn-task-chips-not-durable]]).
