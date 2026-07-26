@@ -83,7 +83,9 @@ Producer-crate test-only reads are noted separately in the appendix.
   `pending-migration:<slice>` rows do.
 - **slice** (pending-migration only): C-3b (CSSOM geometry, `elidex-dom-api`) / C-3c (hit-test +
   a11y + flex·grid·inline baseline, in-layout) / C-3d (observers IO·RO + shell scroll·nav) / C-3e
-  (render residual: inline-text anchor, paged-gen gate, paint/form helpers).
+  (render residual: inline-text anchor, paged-gen gate, paint/form helpers) / **C-4** (a `LayoutBox`
+  WRITE that no C-3 consumer slice touches — only the delete itself forces it; see the
+  `test_helpers.rs` note below).
 
 ---
 
@@ -525,6 +527,17 @@ do not gate C-4 (the trip-wire excludes test paths).
 `elidex-wasm-runtime`, and `elidex-api-observers`) — confirming observer geometry is read **only**
 via the `elidex-js` DI closures, never in `api-observers` (whose `RectProvider`/`SizeProvider` carry
 no token). This is a load-bearing exhaustiveness check for the C-3d layering decision.
+
+⚠ **`elidex-js/src/vm/test_helpers.rs` — a `test_`-prefixed file that is NOT test-only.** It is
+`#[cfg(feature = "engine")] #[doc(hidden)] pub mod` (`vm/mod.rs:84`), i.e. production-compiled shipped
+code, and `set_layout_box` (`:161-168`) *writes* `LayoutBox`: `remove_one::<LayoutBox>`, a
+`LayoutBox { .. }` literal with `..LayoutBox::default()`, and an `insert`. The gate originally excluded
+it by basename — the same false-exhaustiveness hazard the Method section describes for `hit_test.rs`,
+reintroduced through the `test_*` PREFIX rather than the `*_test.rs` suffix. The prefix is no longer
+excluded (it was the only token-carrying `test_*.rs` in the tree), and its four non-import token lines
+are classified **`pending-migration:C-4`**: they are writes, so no C-3 consumer slice migrates them —
+only the delete does. They are deliberately NOT counted in the consumer tally below, which counts
+consumer *reads*.
 
 **Pending-migration consumer readers: 42 non-test sites** → C-3b (4), C-3c (5), C-3d (7), C-3e (26).
 (C-3e's 26 sites live in 18 table rows: `form.rs` is one row for 8 sites and `builder/mod.rs:482`+`:998`

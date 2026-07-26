@@ -89,9 +89,15 @@ strip_comments() { sed -E '/^[^:]*:[0-9]+:[[:space:]]*\/\//d'; }
 # what scopes the whole exhaustiveness claim, so a silent divergence between the wires
 # is the same false-exhaustiveness hazard the paragraph on `live_readers` describes.
 # `[^/:]*` is correct for both inputs — a tracked path never contains `:`.
+# ⚠ The `test_*.rs` PREFIX is deliberately NOT excluded — the same reasoning given below
+# for keeping singular `*_test.rs`. A `test_`-prefixed basename does not imply `cfg(test)`:
+# `elidex-js/src/vm/test_helpers.rs` is `#[cfg(feature = "engine")] #[doc(hidden)] pub mod`,
+# i.e. PRODUCTION-compiled shipped code, and it WRITES `LayoutBox` (a `remove_one`, an
+# `insert`, a `LayoutBox { .. }` literal). Excluding it kept real writes out of the
+# inventory C-4 deletes against. It is the only token-carrying `test_*.rs` in the tree, so
+# including the prefix costs a few allowlist rows and closes the hole.
 test_path_re() {
-  printf '(/tests?/|/tests\\.rs%s|/test_[^/:]*\\.rs%s|/tests_[^/:]*\\.rs%s|_tests\\.rs%s)' \
-    "$1" "$1" "$1" "$1"
+  printf '(/tests?/|/tests\\.rs%s|/tests_[^/:]*\\.rs%s|_tests\\.rs%s)' "$1" "$1" "$1"
 }
 
 # The live reader set as `path<TAB>content`, line-number-insensitive (so MOVING a
@@ -150,14 +156,18 @@ CLASSES='producer|seam|type-def|import|test|pending-migration:C-[0-9]+[a-z]*'
 if [ "${1:-}" = "--regenerate" ]; then
   # Preserve any existing classification for a (path, content) still present;
   # new lines get `UNCLASSIFIED` for the author to triage against the audit doc.
-  declare -A CLASS
+  # NB: no `declare -A`. Associative arrays need bash >= 4 and macOS ships /bin/bash 3.2,
+  # so on a stock checkout the very command wire #1's FAIL message prescribes would abort
+  # under `set -e` before writing anything. The prior classification is instead looked up
+  # per line out of the committed file (124 rows — the O(n^2) is irrelevant here).
+  PREV=""
   if [ -f "$ALLOWLIST" ]; then
-    while IFS=$'\t' read -r cls path content; do
-      [ -z "${cls:-}" ] && continue
-      case "$cls" in \#*) continue;; esac
-      CLASS["$path"$'\t'"$content"]="$cls"
-    done < <(grep -vE '^[[:space:]]*(#|$)' "$ALLOWLIST" || true)
+    PREV="$(grep -vE '^[[:space:]]*(#|$)' "$ALLOWLIST" || true)"
   fi
+  prev_class() { # $1 = path, $2 = content
+    printf '%s\n' "$PREV" | awk -F'\t' -v p="$1" -v c="$2" \
+      '$2 == p && substr($0, index($0, "\t") + length($2) + 2) == c { print $1; exit }'
+  }
   {
     echo "# terminal-Z LayoutBox/BoxModel reader allowlist — machine-checked sibling of"
     echo "# docs/audits/2026-07-layoutbox-reader-inventory.md (the human record)."
@@ -168,8 +178,8 @@ if [ "${1:-}" = "--regenerate" ]; then
     echo "#   names its owning slice, e.g. pending-migration:C-3e."
     echo "# Regenerate: .claude/tools/layout-box-reader-trip-wire.sh --regenerate"
     while IFS=$'\t' read -r path content; do
-      key="$path"$'\t'"$content"
-      printf '%s\t%s\t%s\n' "${CLASS[$key]:-UNCLASSIFIED}" "$path" "$content"
+      cls="$(prev_class "$path" "$content")"
+      printf '%s\t%s\t%s\n' "${cls:-UNCLASSIFIED}" "$path" "$content"
     done < <(live_readers)
   } > "$ALLOWLIST"
   green "regenerated $ALLOWLIST ($(committed_readers | wc -l | tr -d ' ') readers)"
@@ -321,7 +331,20 @@ if [ -n "$bad_class" ]; then
   printf '%s\n' "$bad_class" | sed 's/^/  /'
   fail=1
 else
-  green "OK ($(committed_readers | wc -l | tr -d ' ') rows, every classification in vocabulary)"
+  # A duplicate `(path, content)` key carrying a DIFFERENT classification survives wire #1
+  # (`committed_readers` does `sort -u`, so the two sets compare equal) and survives the
+  # membership test above (both values are legal). At C-4 the "no surviving
+  # pending-migration" proof could then be satisfied by whichever copy the author reads.
+  dup_keys="$( { grep -vE '^[[:space:]]*(#|$)' "$ALLOWLIST" || true; } | cut -f2- | sort | uniq -d)"
+  if [ -n "$dup_keys" ]; then
+    red "FAIL: duplicate (path, content) allowlist key(s) — wire #1 dedups them, so a second"
+    red "      row with a different classification would be invisible. Keep exactly one row:"
+    printf '%s\n' "$dup_keys" | sed 's/^/  /'
+    fail=1
+  else
+    rows="$(grep -cvE '^[[:space:]]*(#|$)' "$ALLOWLIST" || true)"
+    green "OK ($rows rows, every classification in vocabulary, no duplicate keys)"
+  fi
 fi
 
 if [ "$fail" -ne 0 ]; then

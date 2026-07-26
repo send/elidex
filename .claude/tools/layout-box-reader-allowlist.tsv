@@ -2,17 +2,17 @@
 # docs/audits/2026-07-layoutbox-reader-inventory.md (the human record).
 # Format: <classification>\t<path>\t<content>
 #   classification ∈ {producer, seam, pending-migration:<slice>, type-def, import, test}
-#   Machine SoT = the trip-wire's $CLASSES (enforced by wire #4). Prose definition =
-#   the audit doc's "## Classification legend" section. A pending-migration row names
-#   its owning slice, e.g. pending-migration:C-3e.
+#   Machine SoT = this script's $CLASSES (enforced by wire #4). Prose definition =
+#   the audit doc's '## Classification legend' section. A pending-migration row
+#   names its owning slice, e.g. pending-migration:C-3e.
 # Regenerate: .claude/tools/layout-box-reader-trip-wire.sh --regenerate
 test	crates/core/elidex-ecs/src/dom/geometry.rs	"bit-for-bit From<&LayoutBox>"
+test	crates/core/elidex-ecs/src/dom/geometry.rs	LayoutBox {
 test	crates/core/elidex-ecs/src/dom/geometry.rs	assert_eq!(geom.box_fragments(e).count(), 1, "e has its LayoutBox");
 test	crates/core/elidex-ecs/src/dom/geometry.rs	fn layout_box(x: f32, y: f32, w: f32, h: f32) -> LayoutBox {
 seam	crates/core/elidex-ecs/src/dom/geometry.rs	if let Ok(lb) = self.dom.world().get::<&LayoutBox>(entity) {
-test	crates/core/elidex-ecs/src/dom/geometry.rs	LayoutBox {
-test	crates/core/elidex-ecs/src/dom/geometry.rs	let lb = LayoutBox {
 test	crates/core/elidex-ecs/src/dom/geometry.rs	let e = spawn(&mut dom); // no LayoutBox, no fragments
+test	crates/core/elidex-ecs/src/dom/geometry.rs	let lb = LayoutBox {
 import	crates/core/elidex-ecs/src/dom/geometry.rs	use elidex_plugin::{BoxModel, LayoutBox, Rect};
 test	crates/core/elidex-ecs/src/fragment_tree.rs	"box-fragment presence without a carrier ⇒ NOT consumable (rides LayoutBox arm)"
 type-def	crates/core/elidex-ecs/src/fragment_tree.rs	fn from(lb: &elidex_plugin::LayoutBox) -> Self {
@@ -39,8 +39,8 @@ pending-migration:C-3e	crates/core/elidex-render/src/builder/inline.rs	pub(crate
 pending-migration:C-3e	crates/core/elidex-render/src/builder/mod.rs	dom.world().get::<&elidex_plugin::LayoutBox>(e).is_ok()
 import	crates/core/elidex-render/src/builder/paint/mod.rs	BorderStyle, BoxModel, ComputedStyle, CssColor, LayoutBox, ListStyleType, Point, Rect, Size,
 pending-migration:C-3e	crates/core/elidex-render/src/builder/paint/mod.rs	if let Ok(lb) = dom.world().get::<&LayoutBox>(current) {
-pending-migration:C-3e	crates/core/elidex-render/src/builder/paint/mod.rs	lb: &dyn BoxModel,
 pending-migration:C-3e	crates/core/elidex-render/src/builder/paint/mod.rs	lb: &LayoutBox,
+pending-migration:C-3e	crates/core/elidex-render/src/builder/paint/mod.rs	lb: &dyn BoxModel,
 pending-migration:C-3e	crates/core/elidex-render/src/builder/paint/mod.rs	pub(crate) fn find_nearest_layout_box(dom: &EcsDom, entity: Entity) -> Option<LayoutBox> {
 type-def	crates/core/elidex-render/src/builder/slice.rs	impl BoxModel for SlicedBox {
 type-def	crates/core/elidex-render/src/builder/slice.rs	impl BoxModel for TestBox {
@@ -120,6 +120,11 @@ producer	crates/layout/elidex-layout/src/layout/mod.rs	if let Ok(mut lb) = dom.w
 producer	crates/layout/elidex-layout/src/layout/mod.rs	pub layout_box: LayoutBox,
 pending-migration:C-3d	crates/script/elidex-js/src/vm/host/intersection_observer.rs	let lb = d.world().get::<&elidex_plugin::LayoutBox>(entity).ok()?;
 pending-migration:C-3d	crates/script/elidex-js/src/vm/host/resize_observer.rs	let lb = d.world().get::<&elidex_plugin::LayoutBox>(entity).ok()?;
+pending-migration:C-4	crates/script/elidex-js/src/vm/test_helpers.rs	..LayoutBox::default()
+pending-migration:C-4	crates/script/elidex-js/src/vm/test_helpers.rs	.expect("set_layout_box: failed to insert LayoutBox (entity despawned?)");
+pending-migration:C-4	crates/script/elidex-js/src/vm/test_helpers.rs	let _ = dom.world_mut().remove_one::<LayoutBox>(entity);
+pending-migration:C-4	crates/script/elidex-js/src/vm/test_helpers.rs	let lb = LayoutBox {
+import	crates/script/elidex-js/src/vm/test_helpers.rs	use elidex_plugin::{EventPayload, EventPhase, LayoutBox, Rect};
 pending-migration:C-3d	crates/shell/elidex-shell/src/content/event_handlers.rs	.get::<&elidex_plugin::LayoutBox>(hit_entity)
 import	crates/shell/elidex-shell/src/content/event_handlers.rs	use elidex_plugin::{ComputedStyle, LayoutBox};
 pending-migration:C-3d	crates/shell/elidex-shell/src/content/event_handlers.rs	w.get::<&LayoutBox>(target).ok().and_then(|lb| {
