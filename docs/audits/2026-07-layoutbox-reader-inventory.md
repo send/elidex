@@ -34,16 +34,21 @@ trip-wire is the machine gate.
 
 ⚠ **What "exhaustive" does and does not mean here** (do not read the sentence above more strongly
 than the gate supports — the design memo §4 warned that a grep cannot prove exhaustiveness, and the
-five wires narrow that gap rather than closing it):
+four wires narrow that gap rather than closing it):
 
 1. **Token-carrying reads** — wire #1 sees them all, and wire #2 keeps them token-carrying by banning
    the alias forms (with a positive control, so the wire cannot silently stop firing).
-2. **Token-LESS reads through a `LayoutBox`-typed struct field** — wire #1 structurally cannot see
-   these. Wire #5 bounds the family instead: the two production field declarations are allowlisted
-   and a third cannot land silently, and this doc enumerates the reads of each by hand
-   (`LayoutOutcome.layout_box` → `builder/mod.rs:367-372`, in the C-3e table;
-   `PageFragment.layout_box` → producer-internal). **Slot `#11-layoutbox-field-typed-reader-coverage`**
-   records that the *reads* of an allowlisted field are human-enumerated, not machine-checked.
+2. **Token-LESS reads through a `LayoutBox`-typed BINDING** (struct field or fn param) — the
+   *declaration* carries the token, so wire #1 does force a row + a classification for a new binding;
+   the *reads through it* carry none and are enumerated **by hand** in the tables below
+   (`LayoutOutcome.layout_box` → `builder/mod.rs:367-372`; `InlineRunContext.lb` → six reads at
+   `builder/inline.rs:268…456`; `PageFragment.layout_box` → producer-internal; the `&LayoutBox` /
+   `&dyn BoxModel` helper params in `paint/mod.rs`, `form.rs`, `transform.rs`). This is the weakest
+   link and it is **not machine-checked** — **slot `#11-layoutbox-field-typed-reader-coverage`** owns
+   closing it, and C-4 must not read a green gate as covering it.
+   ⚠ An earlier revision of this doc claimed a "wire #5" *bounded* this family. It did not — its
+   regex missed `&'a LayoutBox` (so `inline.rs:73` went unseen) and a new field in an
+   already-listed file passed every wire. The wire was withdrawn rather than left overclaiming.
 3. **Duplicate-content reads in one file** — the gate keys on unique `(path, content)`, so a *second*
    line identical to an already-allowlisted one in the same file does not fire (see "Counting basis").
    Per-site precision is this document's job, not the gate's.
@@ -136,7 +141,7 @@ are in the **`elidex-js` host closures** — this is the current live observer-g
 | `elidex-shell/.../content/event_handlers.rs:807` `try_route_click_to_iframe` | get<&LayoutBox> → `.content.origin` | iframe click-routing offset (parent→child point translation) | screen-post-layout | pending-migration | C-3d |
 | `elidex-shell/.../content/iframe/lifecycle.rs:267` `check_lazy_iframes` | get<&LayoutBox> → `.content.origin`/`.size` | lazy-iframe viewport-proximity (200px margin) | screen-post-layout | pending-migration | C-3d |
 
-### `elidex-render` — render residual → **C-3e** (22 reader lines)
+### `elidex-render` — render residual → **C-3e** (26 reader sites, 18 rows)
 
 Render is a **consumer** (paints from geometry), not a producer. It **already** consumes the
 fragment store for consumable multicol on the **screen** path (C-1, `walk.rs:207–218`); the
@@ -156,6 +161,8 @@ the per-page `LayoutBox` path "until paged×multicol store unification" — so C
 | `builder/walk.rs:108` paged-gen gate | get<&LayoutBox> → `.layout_generation` | **NOT geometry** — page-membership gate (seed 6) | needs re-home; `BoxFragment` drops `layout_generation` (hand-off row 4) | pending-migration | C-3e→C-4 |
 | `builder/walk.rs:701` `is_block_child` | get<&LayoutBox>`.is_err()` | **NOT geometry** — presence predicate (block vs inline) | axis 5 presence | pending-migration | C-3e |
 | `builder/mod.rs:367-372` paged blank-page test + `PageFragment` move | **field-read** `outcome.layout_box.content.size.{h,w}` (TOKEN-LESS — reached through `LayoutOutcome.layout_box`, `elidex-layout-block/src/lib.rs:57`) | is-blank-page predicate; the box then moves into `PageFragment` | screen-post-layout (paged Phase 2) | pending-migration | C-3e |
+| `builder/inline.rs:73` `InlineRunContext.lb` | **binding-read** `pub(crate) lb: &'a LayoutBox` — the declaration carries the token, its SIX reads do not (`:268`, `:278`, `:294`, `:438`, `:455`, `:456`, via the `let InlineRunContext { .. lb .. } = *ctx;` destructure at `:251`/`:427`) | inline-run origin/extent + centring (`content.origin.{x,y}`, `content.size.{width,height}`, `content.center().x`) | screen-post-layout | pending-migration | C-3e |
+| `builder/mod.rs:482` + `:998` `find_roots{,_mut}` | get<&LayoutBox>`.is_ok()` | **NOT geometry** — a presence predicate (axis 5), the render-walk root filter. Deduped to one allowlist row by identical content | screen-post-layout | pending-migration | C-3e |
 | `builder/walk.rs:767` list marker | get<&LayoutBox> → `&child_lb` | passes to `emit_list_marker_with_counter` | | pending-migration | C-3e |
 | `builder/paint/mod.rs:789-792` `find_nearest_layout_box` | fn→`Option<LayoutBox>`, get<&LayoutBox> | inline-text anchor (seed 5) | **selection problem, no store signal** — `box_fragments(ancestor)` yields N; nothing maps an inline run to its column (I-lines) | pending-migration | C-3e |
 | `builder/transform.rs:19` `element_transform` | helper-param `&LayoutBox` → `.border_box()` | computes the PushTransform basis | render is the transform *producer*; reads pre-transform (correct) | pending-migration | C-3e |
@@ -411,7 +418,7 @@ transform wrapper from `border_box()` (`transform.rs:19`, perspective `walk.rs:3
 
 C-4 gate item 1 requires "producers" be defined **precisely**: some producer-crate `LayoutBox` reads
 are **in-layout** or **presence checks** (axes 2/5) whose meaning **flips** under a `clear()`ed store
-(`clear()` runs at the top of `layout_tree`, `layout/mod.rs:344`; the paged path never clears). These
+(`clear()` runs at the top of `layout_tree`, `layout/mod.rs:346`; the paged path never clears). These
 survive C-4 but their semantics are store-state-dependent — C-4's "zero reads outside producers" proof
 must account for them, and must NOT treat them as inert:
 
@@ -431,7 +438,7 @@ leaves a `LayoutBox` on an element with no associated CSS box; the sites below a
 half. The *removal* half is empty: `git grep -nE 'remove(_one)?::<[^>]*LayoutBox'` over `crates/**`
 finds only two **test** helpers doing remove-then-insert replacement
 (`elidex-js/src/vm/test_helpers.rs:161`, `.../tests/tests_resize_observer.rs:293`). Layout **skips**
-`display:none` subtrees (`elidex-layout/src/layout/mod.rs:393`,
+`display:none` subtrees (`elidex-layout/src/layout/mod.rs:395`,
 `elidex-layout-block/src/block/children/helpers.rs:133`, `.../stack.rs:137`) without clearing the
 component, whereas `FragmentTree::clear()` drops store fragments every pass. So the seam's two
 sources have **different staleness models** — store = fresh-this-pass, component = **ever-laid** —
@@ -516,7 +523,10 @@ do not gate C-4 (the trip-wire excludes test paths).
 via the `elidex-js` DI closures, never in `api-observers` (whose `RectProvider`/`SizeProvider` carry
 no token). This is a load-bearing exhaustiveness check for the C-3d layering decision.
 
-**Pending-migration consumer readers: 38 non-test sites** → C-3b (4), C-3c (5), C-3d (7), C-3e (22).
+**Pending-migration consumer readers: 42 non-test sites** → C-3b (4), C-3c (5), C-3d (7), C-3e (26).
+(C-3e's 26 sites live in 18 table rows: `form.rs` is one row for 8 sites and `builder/mod.rs:482`+`:998`
+one row for 2 — the allowlist collapses each group to a single `(path, content)` key, so ROWS and SITES
+differ by construction. See "Counting basis".)
 **Seam: a single site** (`dom/geometry.rs`), the only non-producer `LayoutBox` read. All 9 memo §4
 seed edges located + classified.
 

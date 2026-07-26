@@ -17,17 +17,25 @@
 #       (a) import aliases     `use …LayoutBox as X;`   → `X` has no token
 #       (b) type aliases       `type X = …LayoutBox;`   → `X` has no token
 #       (c) aliased re-exports  `pub use … as X;`       → `X` has no token
-#       (d) a `LayoutBox`-TYPED STRUCT FIELD — the declaration carries the token,
-#           every `v.the_field.content…` read does not (`elidex-render`
-#           `builder/mod.rs:367` is a live consumer geometry read of exactly this
-#           shape).
-#     (a)-(c) are NAME INTRODUCTIONS wire #2 BANS. (d) cannot be banned outright —
-#     two production fields legitimately exist — so wire #5 instead BOUNDS the
-#     family: the set of `LayoutBox`-typed field declarations is allowlisted, and
-#     the audit enumerates the reads of each allowlisted field name by hand. A new
-#     field therefore cannot introduce an un-audited token-less reader silently.
-#     With (a)-(c) absent and (d) bounded, every reference is either token-carrying
-#     or reached through a named, enumerated field.
+#       (d) a `LayoutBox`-TYPED BINDING (struct field or fn param) — the
+#           DECLARATION carries the token, but every `v.the_binding.content…` read
+#           through it does not. Live: `elidex-render` `builder/mod.rs:367-372` (via
+#           `LayoutOutcome.layout_box`) and `builder/inline.rs:268…456` — six reads
+#           via `InlineRunContext.lb`, declared `pub(crate) lb: &'a LayoutBox` at
+#           `inline.rs:73`.
+#     (a)-(c) are NAME INTRODUCTIONS wire #2 BANS, so they cannot occur.
+#     (d) CANNOT be banned — such bindings legitimately exist — and this gate does
+#     **NOT** bound it. What wire #1 does give is weaker but real: the *declaration*
+#     line carries the token, so a NEW binding forces an allowlist row and a
+#     classification. What is not machine-checked is the set of *reads through* an
+#     already-allowlisted binding; the audit enumerates those by hand and slot
+#     `#11-layoutbox-field-typed-reader-coverage` owns closing the gap.
+#     ⚠ Do NOT restate this as "the family is bounded". A revision of this script
+#     shipped a wire #5 claiming exactly that; it was withdrawn when a focused
+#     re-check showed (i) its regex missed `&'a LayoutBox`, so the third live field
+#     above went unseen, and (ii) a new field in an already-listed FILE passed all
+#     wires green. A gate that overclaims its bound is worse than an honest slot,
+#     because C-4's delete decision is taken against the claim.
 #   * Bare trait bounds `<T: BoxModel>` / `where T: BoxModel` are NOT `dyn`/`impl`,
 #     so the gate greps bare `-w BoxModel` (not `dyn|impl BoxModel`) — accepting
 #     allowlist noise (the trait def + impls) in exchange for catching every
@@ -259,25 +267,6 @@ if [ -n "$bad_class" ]; then
   fail=1
 else
   green "OK ($(committed_readers | wc -l | tr -d ' ') rows, every classification in vocabulary)"
-fi
-
-echo "wire #5: the LayoutBox-typed struct-field family stays bounded (token-less-read guard)"
-# Mechanism (d) in the header: the declaration carries the token, the reads do not. Banning
-# the shape is not an option (two production fields legitimately exist), so the FAMILY is
-# bounded instead — every declaration must be listed here, and the audit enumerates each
-# listed field name's reads by hand. Production fields only: `*_tests.rs` / inline test
-# fixtures are dropped by the same test-path predicate wires #1/#3 use.
-KNOWN_BOX_FIELDS='crates/layout/elidex-layout-block/src/lib.rs|crates/layout/elidex-layout/src/layout/mod.rs'
-field_decls="$(cd "$ROOT" && git grep -nwE '[A-Za-z_][A-Za-z0-9_]*:[[:space:]]*(elidex_plugin::)?LayoutBox[,[:space:]]*$' -- 'crates/**/*.rs' \
-  | strip_comments | { grep -vE "$(test_path_re ':')" || true; } | { grep -vE "^($KNOWN_BOX_FIELDS):" || true; })"
-if [ -n "$field_decls" ]; then
-  red "FAIL: a NEW LayoutBox-typed struct field — its reads (\`v.<field>.content…\`) carry no token, so"
-  red "      wire #1 cannot see them. Add the file to KNOWN_BOX_FIELDS *and* enumerate the field's reads"
-  red "      in docs/audits/2026-07-layoutbox-reader-inventory.md before landing it:"
-  printf '%s\n' "$field_decls" | sed 's/^/  /'
-  fail=1
-else
-  green "OK (field family bounded to the 2 audited declarations)"
 fi
 
 if [ "$fail" -ne 0 ]; then

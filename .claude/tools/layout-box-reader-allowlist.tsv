@@ -11,6 +11,7 @@ test	crates/core/elidex-ecs/src/dom/geometry.rs	assert_eq!(geom.box_fragments(e)
 test	crates/core/elidex-ecs/src/dom/geometry.rs	fn layout_box(x: f32, y: f32, w: f32, h: f32) -> LayoutBox {
 seam	crates/core/elidex-ecs/src/dom/geometry.rs	if let Ok(lb) = self.dom.world().get::<&LayoutBox>(entity) {
 test	crates/core/elidex-ecs/src/dom/geometry.rs	LayoutBox {
+test	crates/core/elidex-ecs/src/dom/geometry.rs	let lb = LayoutBox {
 test	crates/core/elidex-ecs/src/dom/geometry.rs	let e = spawn(&mut dom); // no LayoutBox, no fragments
 import	crates/core/elidex-ecs/src/dom/geometry.rs	use elidex_plugin::{BoxModel, LayoutBox, Rect};
 test	crates/core/elidex-ecs/src/fragment_tree.rs	"box-fragment presence without a carrier ⇒ NOT consumable (rides LayoutBox arm)"
@@ -81,7 +82,7 @@ type-def	crates/layout/elidex-layout-block/src/lib.rs	impl From<LayoutBox> for L
 producer	crates/layout/elidex-layout-block/src/lib.rs	let lb = LayoutBox {
 producer	crates/layout/elidex-layout-block/src/lib.rs	let lb = LayoutBox::default();
 producer	crates/layout/elidex-layout-block/src/lib.rs	let outcome = LayoutOutcome::from(LayoutBox::default());
-import	crates/layout/elidex-layout-block/src/lib.rs	pub layout_box: LayoutBox,
+producer	crates/layout/elidex-layout-block/src/lib.rs	pub layout_box: LayoutBox,
 import	crates/layout/elidex-layout-block/src/lib.rs	use elidex_plugin::{CssSize, EdgeSizes, LayoutBox, Point, Size};
 import	crates/layout/elidex-layout-block/src/lib.rs	use elidex_plugin::{Direction, LayoutBox, WritingMode, WritingModeContext};
 producer	crates/layout/elidex-layout-block/src/positioned/layout.rs	let lb = elidex_plugin::LayoutBox {
@@ -116,7 +117,7 @@ import	crates/layout/elidex-layout/src/hit_test.rs	use elidex_plugin::{ComputedS
 import	crates/layout/elidex-layout/src/layout/mod.rs	ComputedStyle, CssSize, Display, LayoutBox, PageSelector, PagedMediaContext, Position, Size,
 producer	crates/layout/elidex-layout/src/layout/mod.rs	Display::Contents => LayoutBox {
 producer	crates/layout/elidex-layout/src/layout/mod.rs	if let Ok(mut lb) = dom.world_mut().get::<&mut LayoutBox>(entity) {
-import	crates/layout/elidex-layout/src/layout/mod.rs	pub layout_box: LayoutBox,
+producer	crates/layout/elidex-layout/src/layout/mod.rs	pub layout_box: LayoutBox,
 pending-migration:C-3d	crates/script/elidex-js/src/vm/host/intersection_observer.rs	let lb = d.world().get::<&elidex_plugin::LayoutBox>(entity).ok()?;
 pending-migration:C-3d	crates/script/elidex-js/src/vm/host/resize_observer.rs	let lb = d.world().get::<&elidex_plugin::LayoutBox>(entity).ok()?;
 pending-migration:C-3d	crates/shell/elidex-shell/src/content/event_handlers.rs	.get::<&elidex_plugin::LayoutBox>(hit_entity)

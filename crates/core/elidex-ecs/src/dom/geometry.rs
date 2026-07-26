@@ -103,7 +103,8 @@ impl ScreenGeometry<'_> {
     ///
     /// - **Router = presence** (plan-memo §2 I-router): store-authoritative when the
     ///   entity has fragments; otherwise the single `LayoutBox` component as one
-    ///   fragment `(fragmentainer 0, From<&LayoutBox>)`. Never routes on
+    ///   fragment `(fragmentainer None, From<&LayoutBox>)` — see [`FragmentView::fragmentainer`]
+    ///   for why the fallback reports no column rather than `0`. Never routes on
     ///   `LayoutBox`-absence, never on `is_consumable` (a paint-only signal).
     /// - **Box-absence** (empty result) is a mechanical store fact: the entity has
     ///   neither store fragments nor a `LayoutBox` (plan-memo §1 req 5) — the seam
@@ -182,6 +183,8 @@ impl ScreenGeometry<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    // Not re-exported through `super::*` — only the field-correspondence test needs it.
+    use elidex_plugin::EdgeSizes;
 
     fn layout_box(x: f32, y: f32, w: f32, h: f32) -> LayoutBox {
         LayoutBox {
@@ -192,10 +195,39 @@ mod tests {
 
     /// The store-side fixture. Built through the `From<&LayoutBox>` correspondence
     /// (the seam's single field mapping) rather than re-spelling the fields, so the
-    /// two fixtures cannot drift; the conversion itself is asserted separately by
-    /// [`n1_is_behavior_neutral_with_the_layoutbox`].
+    /// two fixtures cannot drift. The conversion itself is pinned **field by field**
+    /// against a literal by [`from_layoutbox_maps_every_field`] — which is what makes
+    /// routing the fixture through `From` safe: the seam's N=1 arm uses the same
+    /// conversion, so without that test both sides of every N=1 assertion would run
+    /// through it and a dropped field would be invisible.
     fn box_fragment(x: f32, y: f32, w: f32, h: f32) -> BoxFragment {
         BoxFragment::from(&layout_box(x, y, w, h))
+    }
+
+    #[test]
+    fn from_layoutbox_maps_every_field() {
+        // The ONE non-tautological check of `From<&LayoutBox> for BoxFragment`. Every
+        // other N=1 assertion in this module compares `From(lb)` against `From(lb)`, so
+        // a conversion that silently dropped `margin` or `first_baseline` would pass
+        // them all. Distinct non-default values per field so a mis-wired mapping (e.g.
+        // padding copied into border) cannot coincide.
+        let lb = LayoutBox {
+            content: Rect::new(1.0, 2.0, 3.0, 4.0),
+            padding: EdgeSizes::new(5.0, 6.0, 7.0, 8.0),
+            border: EdgeSizes::new(9.0, 10.0, 11.0, 12.0),
+            margin: EdgeSizes::new(13.0, 14.0, 15.0, 16.0),
+            first_baseline: Some(17.0),
+            layout_generation: 18,
+        };
+        let bf = BoxFragment::from(&lb);
+        assert_eq!(bf.content, lb.content, "content");
+        assert_eq!(bf.padding, lb.padding, "padding");
+        assert_eq!(bf.border, lb.border, "border");
+        assert_eq!(bf.margin, lb.margin, "margin");
+        assert_eq!(bf.first_baseline, lb.first_baseline, "first_baseline");
+        // `layout_generation` is deliberately NOT carried: it is a paged-render gate
+        // stamp on the component, not fragment geometry (hand-off row 4,
+        // `#11-layout-generation-rehome`). `BoxFragment` has no such field.
     }
 
     /// Spawn a bare entity (no DOM tree wiring needed for a geometry read).

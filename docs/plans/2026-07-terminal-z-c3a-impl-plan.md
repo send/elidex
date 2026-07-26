@@ -120,7 +120,7 @@ not a phantom. Liveness is per-entity (inside `box_fragments`), distinct from th
 
 **Router = presence (memo §2 I-router / §1 req 2).** Inside a valid projection, `box_fragments(e)` routes on
 `fragment_tree.fragments_for(e)` being non-empty → yield those N `FragmentView`s; else → the single `LayoutBox`
-component as one fragment `(fragmentainer 0, BoxFragment::from(&lb))`. Never routes on `LayoutBox`-absence, never
+component as one fragment `(fragmentainer None, BoxFragment::from(&lb))`. Never routes on `LayoutBox`-absence, never
 on `is_consumable` (a paint-only signal).
 
 **Fragment identity (memo §1 req 1).** Each yielded `FragmentView` **carries** its `fragmentainer` id (yielded,
@@ -148,7 +148,7 @@ pub struct FragmentView {
 machinery** (memo §1 "Why on `EcsDom`" pt 2). The folds are pure `Rect`/size math over `FragmentView` (memo §1).
 
 **N=1 behavior-neutral gate (memo §1 "The N=1 behavior-neutral invariant").** For a non-fragmented entity,
-`box_fragments` yields exactly one `FragmentView { fragmentainer: 0, box_model: From<&LayoutBox> }`, and both
+`box_fragments` yields exactly one `FragmentView { fragmentainer: None, box_model: From<&LayoutBox> }`, and both
 folds reduce to that single box's facet **bit-for-bit** (union == first == the one box). Regression-pinned in §5.
 ⚠ Strictly N=1 only: at N>1 every fold changes value (the single `LayoutBox` is the G11 last-column box) — that
 is the migration's point, and each N>1 consumer is C-3b–e's own test, not C-3a's.
@@ -183,7 +183,7 @@ before laying out**; **only the screen entry publishes completed-screen at compl
 
 | Entry | Crate / site | Write |
 |---|---|---|
-| **screen** | `elidex-layout` `layout_tree` (`layout/mod.rs:324`) | `invalidate()` at top (before the existing `clear()` at :325); `publish_completed_screen()` after the root loop (:329) |
+| **screen** | `elidex-layout` `layout_tree` (`layout/mod.rs:324`) | `invalidate()` at top (before the existing `clear()` at :346); `publish_completed_screen()` after the root loop (:354) |
 | **paged** | `elidex-layout` `layout_fragmented_with_tokens` (`layout/mod.rs:272`) | `invalidate()` at top — the shared layout-side paged entry; **complete** coverage (below) |
 
 **Why `layout_fragmented_with_tokens` is the COMPLETE paged locus (plan-review re-check — verified live).** The
@@ -446,9 +446,12 @@ classified inventory downstream slices cite, and beyond the memo's §6.4 pre-enu
    makes the audit's per-reader axis-3 rows describe a state today's engine cannot produce for a once-laid
    target — IO/RO are the exposed readers. Resolution trigger = C-4, or any slice needing a truthful
    box-absent signal. Same missing fact as §6.4 row 1 from the component side.
-2. **`#11-layoutbox-field-typed-reader-coverage`** — wire #5 bounds the `LayoutBox`-typed struct-field
-   family, but the *reads* of an allowlisted field are enumerated by hand, not machine-checked. Resolution
-   trigger = C-4 (which must not delete `LayoutBox` on a machine-green gate that never saw these).
+2. **`#11-layoutbox-field-typed-reader-coverage`** — a `LayoutBox`-typed BINDING (struct field or fn
+   param) carries the token at its declaration but not at any read through it. Wire #1 forces a row for a
+   NEW binding; the *reads through* an existing one are enumerated by hand only. A wire #5 that claimed to
+   bound the family was written and then withdrawn — its regex missed `&'a LayoutBox` and a new field in an
+   already-listed file passed every wire — so this is genuinely unmachined. Resolution trigger = C-4, which
+   must not read a green gate as covering it.
 *(A third candidate — the fallback fragment reporting a fabricated column `0` — was **fixed in-slice**
 rather than slotted: `FragmentView::fragmentainer` is now `Option<u32>`, so "unknown" is unrepresentable
 as a column index. It was a now-or-never call — the type has zero production consumers today, and the
