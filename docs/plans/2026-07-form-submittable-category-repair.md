@@ -288,6 +288,7 @@ pub fn statically_validate_constraints(dom: &EcsDom, form: Entity) -> Vec<Entity
 | `crates/script/elidex-js/src/vm/host/validity_state.rs:152` (§ number) + `:154` (bar list, incl. the **missing `readonly` bar**) | **PR-A0** | pre-existing prose defect; PR-A only adds bars arising from *its own* new behavior |
 | `crates/dom/elidex-form-core/src/validation/mod.rs:12` — the § number | **PR-A0** | — |
 | `crates/dom/elidex-form-core/src/validation/mod.rs:12` — **the new-bar prose** (non-submit buttons, datalist ancestor) | **PR-A** | describes part 3's behavior, which does not exist until this PR |
+| the `§4.10.20.x` / `§4.10.21.3` / `§4.10.21.4` / `§4.10.21.5` families in `validation/mod.rs`, `submit.rs`, `validity_state.rs`, `html_form_proto.rs` | **PR-A0 — already swept** (landed on this branch) | PR-A rebases onto the corrected numbers and must not re-cite the old ones; its own comments cite §4.10.21.1 / §4.10.21.2 / §4.10.21.3 / §4.10.22.3 as §0.5 records |
 
 ## §5 Behavior deltas
 

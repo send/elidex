@@ -486,20 +486,39 @@ fn native_form_submit(
 /// "Constructing the entry list", which step 7 of §4.10.22.3
 /// invokes.
 ///
-/// Algorithm:
-/// 1. Brand check (require form receiver).
-/// 2. If `submitter` argument is provided (non-null, non-undefined):
-///    - Step 2.1: must be a submit button (`is_submit_button`) →
-///      otherwise throw `TypeError`.
-///    - Step 2.2: must be owned by this form (`is_form_owner`) →
-///      otherwise throw `NotFoundError` `DOMException`.
-/// 3. Dispatch cancelable `submit` event with `submitter` slot.
-///    If a listener calls `preventDefault()` the submission is
-///    cancelled and `requestSubmit` returns `undefined` without
-///    firing the `formdata` event.
-/// 4. Construct `FormData` from this form's controls via the same
-///    code path as `new FormData(form)` ([`build_form_data_from_form`]).
-/// 5. Dispatch non-cancelable `formdata` event with the FormData.
+/// **Algorithm (engine-local numbering — these are NOT spec steps).**
+/// The list below narrates this function; item 1 is a brand check, which
+/// has no spec counterpart at all. Where a local step *does* implement a
+/// spec step, that step is cited on the item and repeated verbatim on the
+/// corresponding code comment:
+///
+/// - Algorithm step 1 — brand check (require form receiver). No spec
+///   counterpart.
+/// - Algorithm step 2 — if `submitter` is provided (non-null,
+///   non-undefined), validate it per §4.10.3 `#dom-form-requestsubmit`
+///   step 1:
+///   - step 1.1 — must be a submit button (`is_submit_button`) →
+///     otherwise throw `TypeError`;
+///   - step 1.2 — must be owned by this form (`is_form_owner`) →
+///     otherwise throw `NotFoundError` `DOMException`.
+/// - Algorithm step 3 — constraint validation. §4.10.22.3 step 5.4: if
+///   the submitter's no-validate state (§4.10.19.6) is false,
+///   interactively validate the constraints (§4.10.21.2) and abort on a
+///   negative result.
+/// - Algorithm step 4 — dispatch the cancelable `submit` event with the
+///   `submitter` slot (§4.10.22.3 step 5.6). If a listener calls
+///   `preventDefault()` the submission is cancelled and `requestSubmit`
+///   returns `undefined` without firing `formdata`.
+/// - Algorithm step 5 — construct `FormData` from this form's controls
+///   via the same code path as `new FormData(form)`
+///   ([`build_form_data_from_form`]); §4.10.22.3 step 7 invokes
+///   §4.10.22.4 "Constructing the entry list".
+/// - Algorithm step 6 — dispatch the non-cancelable `formdata` event
+///   with the FormData (§4.10.22.4 step 7).
+///
+/// (This list previously omitted constraint validation entirely, so the
+/// doc numbering and the code comments were off by one from each other
+/// from `Step 3` onward — the defect underneath the ambiguity.)
 ///
 /// Navigation / network submission deferred to slot
 /// `#11-form-navigation` (D-33 paired sweep) — `submit` + `formdata`
@@ -513,7 +532,8 @@ fn native_form_request_submit(
         return Ok(JsValue::Undefined);
     };
 
-    // Step 2: validate optional submitter argument.
+    // Algorithm step 2 (engine-local) — §4.10.3 `#dom-form-requestsubmit`
+    // step 1: validate the optional submitter argument.
     let submitter_arg = args.first().copied().unwrap_or(JsValue::Undefined);
     let submitter_entity = match submitter_arg {
         JsValue::Undefined | JsValue::Null => None,
@@ -542,15 +562,15 @@ fn native_form_request_submit(
         }
     };
 
-    // Step 3 (HTML §4.10.22.3 step 5.4 invokes the "interactively
-    // validate the constraints" algorithm defined in §4.10.21.2):
-    // if neither the form's `novalidate` nor the submitter's
+    // Algorithm step 3 (engine-local) — HTML §4.10.22.3 step 5.4 invokes
+    // the "interactively validate the constraints" algorithm defined in
+    // §4.10.21.2: if neither the form's `novalidate` nor the submitter's
     // `formnovalidate` makes the submitter's "no-validate state"
     // (§4.10.19.6) true, walk every submittable descendant via
-    // [`run_form_check_validity`] (which also fires synthetic
-    // `invalid` events on failing controls).  Validation failure aborts before any `submit`
-    // event fires — listeners on `submit` must NOT observe a request
-    // whose constraints failed.
+    // [`run_form_check_validity`] (which also fires synthetic `invalid`
+    // events on failing controls).  Validation failure aborts before any
+    // `submit` event fires — listeners on `submit` must NOT observe a
+    // request whose constraints failed.
     let skip_validation = {
         let dom = ctx.host().dom();
         dom.has_attribute(form_entity, "novalidate")
@@ -563,7 +583,8 @@ fn native_form_request_submit(
         }
     }
 
-    // Step 4: dispatch submit event.
+    // Algorithm step 4 (engine-local) — §4.10.22.3 step 5.6: fire the
+    // cancelable `submit` event using SubmitEvent.
     let submitter_value = submitter_entity.map_or(JsValue::Null, |e| {
         JsValue::Object(ctx.vm.create_element_wrapper(e))
     });
@@ -573,8 +594,9 @@ fn native_form_request_submit(
         return Ok(JsValue::Undefined);
     }
 
-    // Step 5 + 6: build FormData from form controls + dispatch
-    // formdata event.
+    // Algorithm steps 5 + 6 (engine-local) — §4.10.22.3 step 7 invokes
+    // §4.10.22.4 "Constructing the entry list", whose step 7 fires the
+    // `formdata` event.
     let form_data_id = super::form_data::build_form_data_from_form(ctx, form_entity);
     let _ = super::event_target_dispatch::dispatch_formdata_event(ctx, form_entity, form_data_id)?;
 
