@@ -228,16 +228,19 @@ impl FragmentTree {
     /// (after all roots are laid). No paged/probe path publishes, so a page-relative
     /// or mid-pass store can never read as screen geometry (plan-memo §2).
     ///
-    /// The single-publisher rule is not load-bearing on its own: every content
-    /// mutator invalidates on write (`invalidate_on_write`, private), so a publish
-    /// survives only until the next STORE write.
+    /// The single-publisher rule is not load-bearing on its own — a publish survives
+    /// only until the next write to EITHER of the seam's two geometry sources, and both
+    /// are covered by construction:
     ///
-    /// ⚠ Scope: that covers the store half of the seam only. `screen_geometry`'s N=1
-    /// arm reads the `LayoutBox` **component**, and none of its ~12 writers touch this
-    /// phase — so an incremental relayout of a non-multicol subtree performs zero store
-    /// writes and leaves `CompletedScreen` standing while those `LayoutBox`es are
-    /// rewritten. The component half is still covered only by the layout entries'
-    /// explicit `invalidate()`, i.e. by protocol rather than by construction.
+    /// * **store** — every content mutator here calls `invalidate_on_write` (private).
+    /// * **`LayoutBox` component** — `elidex_layout::dispatch_layout_child` invalidates
+    ///   on entry. That is the single bracket every layout algorithm is reached through,
+    ///   so none of the ~14 `insert_one` sites across the layout crates has to remember.
+    ///
+    /// Without the second, a dirty-subtree or probe relayout of an ordinary non-multicol
+    /// box would rewrite components while leaving `CompletedScreen` standing, and the
+    /// projection would serve a MIXED GENERATION — this pass's component geometry beside
+    /// the previous pass's fragments (Codex PR#488 R1).
     pub fn publish_completed_screen(&mut self) {
         self.phase = StorePhase::CompletedScreen;
     }

@@ -109,17 +109,28 @@ offsetT/L via `offset_from_parent` :384, clientW/H :122/:129, scrollW/H :161/:16
 (`getClientRects` also reads `InlineClientRects` at :219 — the *line* source — making it two-source,
 seed 3. `offsetParent` :108 and `scrollTop/Left` :175/:185 read no `LayoutBox`; not listed.)
 
-### `elidex-a11y` + `elidex-layout` (hit-test) + flex·grid·inline baseline → **C-3c** (5 readers)
+### `elidex-a11y` + `elidex-layout` (hit-test) + flex·grid·inline baseline → **C-3c** (6 readers)
 
 | file:line | reader-kind | reads | phase | CLASS | slice |
 |---|---|---|---|---|---|
 | `elidex-a11y/src/tree.rs:122` | get<&LayoutBox> → `.border_box()` | a11y node bounds | screen-post-layout | pending-migration | C-3c |
 | `elidex-layout/src/hit_test.rs:130` | get<&LayoutBox> → `.border_box()` (+ self-composed transform) | point-in-box hit test | screen-post-layout | pending-migration | C-3c |
 | `elidex-layout-flex/src/lib.rs:474` | get<&LayoutBox> → `.first_baseline`,`.content.origin.y` | container baseline fallback | **in-layout** | pending-migration | C-3c |
+| `elidex-layout-flex/src/baseline.rs:18` `read_item_baselines` | get<&LayoutBox> → `.padding`,`.border`,`.first_baseline` of the CHILD | per-item baseline offset for `align-items: baseline` | **in-layout** | pending-migration | C-3c |
 | `elidex-layout-grid/src/position.rs:444` | get<&LayoutBox> → `.first_baseline`,`.content.origin.y` | grid baseline fallback | **in-layout** | pending-migration | C-3c |
 | `elidex-layout-block/src/inline/pack/mod.rs:613` | get<&LayoutBox> → atomic `.first_baseline`+edges | inline-run baseline from atomic | **in-layout** | pending-migration | C-3c |
 
-⚠ The three baseline readers are in **producer crates** and run **in-layout** — `box_fragments` is
+⚠ **`flex/baseline.rs:18` was first classified `producer`** (Codex PR#488 R1) because it lives in a
+layout crate — but the `producer` clause is "a write, or an in-layout producer read *of geometry this
+algorithm itself produced*", and this reads **another entity's** committed box, exactly like its sibling
+`flex/lib.rs:474` two rows up. `producer` is the class that SURVIVES C-4, so the delete-enabling gate
+would have gone green over a live read that then silently loses item baselines. It is the third instance
+of this same mislabel (after `render/builder/inline.rs:73` and `builder/mod.rs:482`/`:998`): being in a
+producer crate is not the test — reading someone else's committed geometry is. A sweep of all 31
+`producer` rows found no fourth: the remainder are writes (`insert_one` / `&mut` / literals), local
+result-holders, or reads of geometry the same algorithm just produced (recorded in section (d)).
+
+⚠ The four baseline readers are in **producer crates** and run **in-layout** — `box_fragments` is
 by contract unusable mid-pass (memo §2). C-3c's disposition is **not** "route through the seam":
 per C-4 gate item 2b / hand-off row 2 (`#11-in-layout-probe-visible-geometry`), they either **keep
 live `LayoutBox`** or get a **probe-visible accessor**. They are listed pending-migration/C-3c
@@ -281,7 +292,7 @@ hit entity and C-3d's iframe click-routing consumes the hit **fragment**, so it 
 `clear()`-invalidated, so only the key survives). 8 **transform-basis** reads pre-transform `border_box`
 and composes the transform itself → `box_fragments` (pre-transform) is **correct**.
 
-### C-3c — flex/grid/inline baseline (`flex/lib.rs:474`, `grid/position.rs:444`, `inline/pack/mod.rs:613`)
+### C-3c — flex/grid/inline baseline (`flex/lib.rs:474`, `flex/baseline.rs:18`, `grid/position.rs:444`, `inline/pack/mod.rs:613`)
 
 1 **frame** **LOCAL** — container-content-relative *difference* (`lb.content.origin.y −
 container_origin.y + first_baseline`); distinct per site (memo §2 I-frame). 2 **phase** **IN-LAYOUT**
@@ -539,7 +550,7 @@ are classified **`pending-migration:C-4`**: they are writes, so no C-3 consumer 
 only the delete does. They are deliberately NOT counted in the consumer tally below, which counts
 consumer *reads*.
 
-**Pending-migration consumer readers: 42 non-test sites** → C-3b (4), C-3c (5), C-3d (7), C-3e (26).
+**Pending-migration consumer readers: 43 non-test sites** → C-3b (4), C-3c (6), C-3d (7), C-3e (26).
 (C-3e's 26 sites live in 18 table rows: `form.rs` is one row for 8 sites and `builder/mod.rs:482`+`:998`
 one row for 2 — the allowlist collapses each group to a single `(path, content)` key, so ROWS and SITES
 differ by construction. See "Counting basis".)

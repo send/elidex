@@ -20,11 +20,32 @@ use elidex_text::FontDatabase;
 /// This is the [`ChildLayoutFn`](elidex_layout_block::ChildLayoutFn) provided
 /// to all layout algorithms, routing flex/grid containers to their respective
 /// crates and everything else to block layout.
+///
+/// **Provenance bracket (terminal-Z C-3a §2).** This is the single entry through
+/// which every layout algorithm — and therefore every `LayoutBox` component write —
+/// is reached: `layout_root` calls it directly for a styled root and otherwise passes
+/// it as the `ChildLayoutFn` to `stack_block_children`, and `compute_intrinsic_sizes`
+/// threads it through `LayoutEnv`. It is also `pub` and re-exported, and is already
+/// called cross-crate (`elidex-render`'s paged Phase 2). So invalidating here is what
+/// makes the seam's phase guard cover the **component** half of its two sources, not
+/// just the store half:
+///
+/// `EcsDom::screen_geometry` routes N=1 entities to the `LayoutBox` component and
+/// fragmented ones to the store. The `FragmentTree` mutators invalidate on write, but
+/// no `LayoutBox` writer touches the phase — so a dirty-subtree / probe relayout of an
+/// ordinary non-multicol box after `layout_tree` published would rewrite components
+/// while leaving `CompletedScreen` standing, and the projection would serve a MIXED
+/// GENERATION: this pass's component geometry beside the previous pass's fragments,
+/// while promising a completed screen pass. Invalidating at this bracket makes that
+/// unrepresentable for any caller, present or future, without asking 14 `insert_one`
+/// sites across 6 crates to remember. `layout_tree` re-publishes after its root loop,
+/// so the full screen pass still ends `CompletedScreen`.
 pub fn dispatch_layout_child(
     dom: &mut EcsDom,
     entity: Entity,
     input: &LayoutInput<'_>,
 ) -> elidex_layout_block::LayoutOutcome {
+    dom.fragment_tree_mut().invalidate();
     let style = elidex_layout_block::get_style(dom, entity);
 
     // CSS 2.1 §10.3.5: Inline-level containers (inline-flex, inline-grid,
@@ -337,12 +358,13 @@ pub fn layout_tree(dom: &mut EcsDom, viewport: Size, font_db: &FontDatabase) {
     // `CompletedScreen` from a prior pass cannot be read while this pass's store is
     // empty/partial (the re-entrant-screen soundness hole). This is the screen
     // entry's explicit half of the "every entry invalidates" protocol, symmetric
-    // with the paged entry's. On THIS path it is fully redundant — `clear()` on the
-    // next line invalidates by construction, and every content mutator
-    // (`push_box`/`remove_entity`/`shift_entity`) invalidates on write. It is kept for
-    // protocol symmetry with the paged entry, where the mark IS load-bearing: that
-    // entry never clears, so a paged pass writing nothing (an empty page reaches no
-    // mutator) would otherwise leave a prior `CompletedScreen` standing.
+    // with the paged entry's. On THIS path it is redundant three times over — `clear()`
+    // on the next line invalidates by construction, every content mutator
+    // (`push_box`/`remove_entity`/`shift_entity`) invalidates on write, and
+    // `dispatch_layout_child` invalidates at its bracket. It is kept for protocol
+    // symmetry with the paged entry, where the mark IS load-bearing: that entry never
+    // clears, so a paged pass writing nothing (an empty page reaches no mutator and no
+    // dispatch) would otherwise leave a prior `CompletedScreen` standing.
     dom.fragment_tree_mut().invalidate();
     dom.fragment_tree_mut().clear();
     let roots = find_roots(dom);
