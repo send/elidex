@@ -197,7 +197,7 @@ impl FragmentTree {
     /// Remove all nodes — called at the start of each layout pass (the tree is
     /// rebuilt from scratch every pass; full-from-root relayout is the reconcile).
     ///
-    /// Does **not** touch [`phase`](Self::phase): provenance is driven explicitly by
+    /// Does **not** touch the `phase` guard: provenance is driven explicitly by
     /// the layout entries (`invalidate` before laying out, `publish_completed_screen`
     /// at screen completion) so there is exactly one auditable locus per entry, not a
     /// second mechanism coupled to `clear`. (`layout_tree` invalidates immediately
@@ -212,7 +212,7 @@ impl FragmentTree {
     /// Mark the store as **not** a completed screen pass. Called at the top of every
     /// layout entry, before it lays anything out (screen `layout_tree`, and the paged
     /// `layout_fragmented_with_tokens` which covers all paged store writers). Makes a
-    /// stale [`CompletedScreen`](StorePhase::CompletedScreen) from a prior pass
+    /// stale `CompletedScreen` from a prior pass
     /// unreadable as screen geometry the instant a new (or paged) pass begins — the
     /// soundness requirement the seam's phase guard rests on (plan-memo §2).
     /// Idempotent; redundant calls are harmless (only `publish_completed_screen` moves
