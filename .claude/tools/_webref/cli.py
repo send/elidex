@@ -13,7 +13,7 @@ from .commands.aoid import cmd_aoid
 from .commands.agent_brief import cmd_agent_brief
 from .commands.agent_policy import cmd_agent_policy
 from .commands.body import cmd_body
-from .commands.cite_audit import cmd_cite_audit
+from .commands.cite_audit import DEFAULT_GLOB, DEFAULT_ROOT, cmd_cite_audit
 from .commands.coverage_map import cmd_coverage_map
 from .commands.css import cmd_css
 from .commands.dfn import cmd_dfn
@@ -205,10 +205,10 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     ca.add_argument("spec", help="spec shortname (e.g. html, dom, ecma262)")
-    ca.add_argument("--root", default="crates",
-                    help="tree to scan (default: crates)")
-    ca.add_argument("--glob", default="*.rs",
-                    help="file glob (default: *.rs)")
+    ca.add_argument("--root", default=DEFAULT_ROOT,
+                    help=f"tree to scan (default: {DEFAULT_ROOT})")
+    ca.add_argument("--glob", default=DEFAULT_GLOB,
+                    help=f"file glob (default: {DEFAULT_GLOB})")
     ca.add_argument("--prefix", default=None,
                     help="restrict to sections under this dotted prefix "
                          "(e.g. 4.10); component-wise, so 4.10.2 excludes "

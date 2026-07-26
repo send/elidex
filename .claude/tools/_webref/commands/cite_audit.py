@@ -35,9 +35,13 @@ from ..resolver import lookup_section
 from ..section_sort import sec_number_key
 from ..spec_labels import LABEL_TO_SHORTNAME
 
-# Default scan root is elidex policy, not generic behavior.
-_DEFAULT_ROOT = "crates"
-_DEFAULT_GLOB = "*.rs"
+# Default scan root/glob are elidex POLICY, not generic CLI behavior, so
+# they live with the adapter command and `cli.py` imports them. Restating
+# them as literals in the CLI wiring would give the defaults two homes —
+# the duplication class this PR exists to remove — and would park elidex
+# policy in the generic core, against DESIGN.md's generic/adapter split.
+DEFAULT_ROOT = "crates"
+DEFAULT_GLOB = "*.rs"
 
 # Longest labels first so "WHATWG HTML" wins over the bare "HTML" alias.
 _LABEL_ALT = "|".join(
