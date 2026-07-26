@@ -860,7 +860,7 @@ fn fetch_strips_userinfo_and_fragment_from_referer() {
 
 #[test]
 fn fetch_user_set_referer_is_dropped_by_forbidden_header_filter() {
-    // M4-12 PR5-async-fetch: WHATWG Fetch §4.6 forbidden-request-
+    // M4-12 PR5-async-fetch: WHATWG Fetch §2.2.2 forbidden-request-
     // header enforcement silently drops a caller-set `Referer`
     // before the auto-attach step runs, so the outgoing Request
     // carries the policy-derived value (cross-origin → source

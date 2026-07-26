@@ -62,10 +62,12 @@ pub fn validate_preflight_response(
         }
     }
 
-    // ACAC check (case-insensitive ASCII comparison per WHATWG
-    // Fetch §4.10 CORS check steps 6-7 + parity with
-    // `sse/connect.rs::EventSource` header parsing — Copilot R1;
-    // single-valued — Copilot R2).
+    // ACAC check.  Fetch §4.10 CORS check step 7 succeeds only on
+    // the exact byte value `true`; elidex deliberately accepts a
+    // case-insensitive `true` (`TRUE` / `True`) as a lenient
+    // extension (Copilot R1), in parity with
+    // `sse/connect.rs::EventSource` header parsing.  Single-valued
+    // — Copilot R2.
     let allow_credentials_raw =
         header_value_single(&resp.headers, "access-control-allow-credentials");
     let allow_credentials = allow_credentials_raw
@@ -679,11 +681,13 @@ mod tests {
         assert_eq!(err.kind, NetErrorKind::CorsBlocked);
     }
 
-    /// Regression for Copilot R4 finding 2: per WHATWG Fetch
-    /// §4.8 step 7.8, "extracting header list values" returning
-    /// failure (which covers duplicate occurrence of a single-
-    /// valued header) must surface as a network error — NOT
-    /// silently fall back to the step 7.9 5s default.
+    /// Regression for Copilot R4 finding 2: a duplicate occurrence
+    /// of the single-valued `Access-Control-Max-Age` makes the §4.8
+    /// step 7.8 "extracting header list values" step return failure.
+    /// Fetch step 7.9 would map that to the 5s default; elidex
+    /// instead **fails closed** with a network error (an elidex
+    /// extension, not a Fetch requirement) — NOT silently falling
+    /// back to 5s.
     /// The earlier R3 fix only renamed the test; R4 requires
     /// the actual behaviour to fail closed.
     #[test]

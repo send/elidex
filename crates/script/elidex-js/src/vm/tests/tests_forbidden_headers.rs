@@ -1,9 +1,9 @@
-//! M4-12 PR5-async-fetch: WHATWG Fetch §4.6 forbidden-request-
+//! M4-12 PR5-async-fetch: WHATWG Fetch §2.2.2 forbidden-request-
 //! header enforcement.
 //!
 //! The Request-companion `Headers` carries the `Request` guard,
 //! which silently no-ops every mutation that targets a name in
-//! the §4.6 list (Cookie / Host / Origin / Referer / Set-Cookie /
+//! the §2.2.2 list (Cookie / Host / Origin / Referer / Set-Cookie /
 //! Connection / Content-Length / etc., plus the `Sec-` and
 //! `Proxy-` byte-prefixes).  Standalone `new Headers()` retains
 //! the `None` guard and accepts forbidden names — they are part
@@ -49,7 +49,7 @@ fn header_value(headers: &[(String, String)], name: &str) -> Option<String> {
 
 #[test]
 fn standalone_headers_accept_forbidden_names() {
-    // No guard on a bare `new Headers(...)` — the §4.6 filter is a
+    // No guard on a bare `new Headers(...)` — the §2.2.2 filter is a
     // per-Request gate, not a global ban.  The user can build a
     // Headers with any name and inspect it freely; the filter only
     // fires when the Headers becomes a Request's companion.
@@ -153,7 +153,7 @@ fn request_headers_delete_forbidden_silently_noops() {
 
 #[test]
 fn request_headers_drop_sec_prefix() {
-    // Per §4.6, every name starting with the case-insensitive
+    // Per §2.2.2, every name starting with the case-insensitive
     // `Sec-` byte-prefix is forbidden.  Includes `Sec-Fetch-*`,
     // `Sec-WebSocket-*`, etc.
     let mut vm = Vm::new();
@@ -220,7 +220,7 @@ fn fetch_url_input_init_headers_drop_forbidden_names() {
 
 #[test]
 fn fetch_user_set_origin_dropped_in_favour_of_auto_attach() {
-    // §4.6 forbids user-set `Origin`.  Cross-origin fetch attaches
+    // §2.2.2 forbids user-set `Origin`.  Cross-origin fetch attaches
     // its own Origin via `attach_default_origin` — the user value
     // is silently dropped first and the policy value wins.
     let url = url::Url::parse("http://other.example/api").expect("valid");

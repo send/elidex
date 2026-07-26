@@ -125,7 +125,7 @@ pub(super) fn native_request_constructor(
     // Allocate companion Headers under the `Request` guard
     // (WHATWG Fetch §5.3 step 31): forbidden-name mutations from
     // both init.headers parse and post-ctor `req.headers.append`
-    // silently no-op per §4.6.
+    // silently no-op per §2.2.2.
     //
     // Root `headers_id` across `fill_headers_like` / `copy_headers_
     // entries` / `body_data.insert` / `request_states.insert`:
@@ -379,7 +379,7 @@ fn parse_request_init(
     }
 }
 
-/// WHATWG §5.3 step 23 + §4.6 forbidden-method filter.
+/// WHATWG §5.3 step 23 + §2.2.1 forbidden-method filter.
 /// Uppercases canonical method names; rejects `CONNECT` / `TRACE` /
 /// `TRACK` (forbidden).  Other tokens pass through verbatim — spec
 /// also requires them to match RFC 7230 token syntax, which

@@ -656,7 +656,7 @@ fn request_method_unknown_extension_preserves_case() {
 
 #[test]
 fn request_forbidden_method_rejects_case_insensitively() {
-    // The §4.6 forbidden-method filter must run on the
+    // The §2.2.1 forbidden-method filter must run on the
     // uppercased token so `connect` / `Trace` / `track` all
     // reject regardless of input casing — even though unknown
     // tokens preserve their case on success.

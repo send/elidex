@@ -63,7 +63,7 @@ fn request_ctor_method_override_uppercases() {
 #[test]
 fn request_ctor_forbidden_method_throws() {
     let mut vm = Vm::new();
-    // `CONNECT` / `TRACE` / `TRACK` are forbidden per §4.6.
+    // `CONNECT` / `TRACE` / `TRACK` are forbidden per §2.2.1.
     assert!(eval_bool(
         &mut vm,
         "var r = false; \
