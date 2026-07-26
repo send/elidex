@@ -47,10 +47,12 @@ fn single_page_display_list() {
 #[test]
 fn interleaved_paged_driver_leaves_screen_geometry_invalid() {
     // Provenance (terminal-Z C-3a §2), production path end-to-end: the interleaved
-    // driver's Phase 1 (`layout_fragmented_with_tokens`) invalidates the store and
-    // its Phase 2 inherits that `Invalid`; nothing on the paged path publishes. So a
-    // prior screen pass's `CompletedScreen` cannot survive a paged render — a reader
-    // can never see a page-relative store as screen geometry.
+    // driver's Phase 1 (`layout_fragmented_with_tokens`) demotes the phase via the
+    // `dispatch_layout_child` bracket its fragmentainer loop runs, and Phase 2 — a
+    // per-page direct `dispatch_layout_child` — hits that same bracket; nothing on the
+    // paged path publishes. So a prior screen pass's `CompletedScreen` cannot survive a
+    // paged render that lays anything out — a reader can never see a page-relative store
+    // as screen geometry.
     let (mut dom, _elem) = setup_block_element(
         elidex_plugin::ComputedStyle {
             display: elidex_plugin::Display::Block,
@@ -74,7 +76,7 @@ fn interleaved_paged_driver_leaves_screen_geometry_invalid() {
 
     assert!(
         dom.screen_geometry().is_none(),
-        "the interleaved paged driver leaves phase Invalid (Phase 1 invalidates, no publish)"
+        "the interleaved paged driver leaves phase Invalid (both phases dispatch, none publishes)"
     );
 }
 

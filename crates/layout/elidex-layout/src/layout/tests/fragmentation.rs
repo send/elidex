@@ -42,11 +42,12 @@ fn layout_fragmented_single_fragment_when_content_fits() {
 
 #[test]
 fn layout_fragmented_invalidates_screen_geometry_provenance() {
-    // Provenance (terminal-Z C-3a §2): `layout_fragmented_with_tokens` is the
-    // COMPLETE paged store-write locus, and entering it must invalidate a prior
-    // screen pass's `CompletedScreen` — else `screen_geometry()` would read a
-    // page-relative store as screen geometry (soundness hole 1). Fires before any
-    // `push_box`, so it holds even for a zero-write page.
+    // Provenance (terminal-Z C-3a §2): a paged pass that lays anything out must leave a
+    // prior screen pass's `CompletedScreen` demoted — else `screen_geometry()` would read
+    // a page-relative store as screen geometry (soundness hole 1). It holds without any
+    // entry mark: the fragmentainer loop reaches `dispatch_layout_child`, whose bracket
+    // invalidates. (A paged attempt that lays out NOTHING is the opposite case and must
+    // NOT demote — `a_zero_write_paged_early_return_leaves_the_phase_alone` below.)
     let mut dom = EcsDom::new();
     let div = dom.create_element("div", Attributes::default());
     dom.world_mut().insert_one(
@@ -87,16 +88,16 @@ fn layout_fragmented_invalidates_screen_geometry_provenance() {
 
     assert!(
         dom.screen_geometry().is_none(),
-        "the paged layout locus invalidated the stale CompletedScreen"
+        "the paged pass's dispatch bracket invalidated the stale CompletedScreen"
     );
 }
 
 #[test]
 fn layout_paged_invalidates_screen_geometry_provenance() {
-    // The OTHER paged entry (plan §2 "BOTH paged entries"): `layout_paged` (the
-    // layout-crate paged public fn) reaches `layout_fragmented_with_tokens` via
-    // `layout_fragmented`, so it too must invalidate a prior screen pass. Guards the
-    // path a future non-interleaved-driver caller of `layout_paged` would take.
+    // The OTHER layout-crate paged public fn: `layout_paged` reaches
+    // `layout_fragmented_with_tokens` via `layout_fragmented`, so it too demotes a prior
+    // screen pass once it lays anything out. Guards the path a future
+    // non-interleaved-driver caller of `layout_paged` would take.
     let mut dom = EcsDom::new();
     let div = dom.create_element("div", Attributes::default());
     dom.world_mut().insert_one(
@@ -124,13 +125,13 @@ fn layout_paged_invalidates_screen_geometry_provenance() {
 
     assert!(
         dom.screen_geometry().is_none(),
-        "layout_paged (the layout-crate paged entry) invalidated the stale CompletedScreen"
+        "layout_paged laid content out, so the dispatch bracket cleared CompletedScreen"
     );
 }
 
 #[test]
 fn a_zero_write_paged_early_return_leaves_the_phase_alone() {
-    // Codex PR#488 R2 asked for an `invalidate()` *before* the paged entries'
+    // Codex PR#488 R2 asked for an `invalidate()` *before* the paged fns'
     // validation returns, so that entering paged mode always clears
     // `CompletedScreen`. Deliberately NOT done — the invariant is about the store's
     // CONTENTS, not about which mode is executing. `CompletedScreen` means "the store
@@ -147,9 +148,14 @@ fn a_zero_write_paged_early_return_leaves_the_phase_alone() {
     // screen-geometry read whenever a print attempt no-ops.
     //
     // The plan's §2 wording ("BOTH paged entries leave phase `Invalid`") was the real
-    // defect here — stated at ENTRY granularity where the mechanism is WRITE
-    // granularity — and is corrected there. This test pins the decision so a future
-    // reader of that section cannot "fix" the code back.
+    // defect here — it stated the guarantee at MODE granularity ("a paged fn was
+    // called"), whereas what actually demotes is the pass reaching a store writer or a
+    // dispatch bracket; an attempt that returns before both reaches neither. §2 is
+    // corrected there. The correction is NOT "the mechanism is uniformly write-granular"
+    // — the component half demotes unconditionally at `dispatch_layout_child`'s bracket,
+    // write or no write. It is that ENTERING a mode is not itself a demotion event.
+    // This test pins the decision so a future reader of that section cannot "fix" the
+    // code back.
     let mut dom = EcsDom::new();
     let div = dom.create_element("div", Attributes::default());
     dom.world_mut().insert_one(
@@ -176,6 +182,25 @@ fn a_zero_write_paged_early_return_leaves_the_phase_alone() {
     assert!(
         dom.screen_geometry().is_some(),
         "a zero-write paged early return must not demote the published screen pass"
+    );
+
+    // The SECOND zero-write arm of the same fn — `roots.is_empty()`. Pinning only the
+    // non-positive-area arm would leave the decision half-covered, and a "fix" that
+    // added the invalidate to this arm alone would pass.
+    let mut empty_dom = EcsDom::new();
+    empty_dom.fragment_tree_mut().publish_completed_screen();
+    let sane = elidex_plugin::PagedMediaContext {
+        page_width: 400.0,
+        page_height: 600.0,
+        page_margins: elidex_plugin::EdgeSizes::uniform(10.0),
+        page_rules: Vec::new(),
+    };
+    let pages = layout_paged(&mut empty_dom, &sane, &font_db);
+
+    assert!(pages.is_empty(), "no layout roots ⇒ nothing laid out");
+    assert!(
+        empty_dom.screen_geometry().is_some(),
+        "the roots.is_empty() early return is a zero-write path too — no demotion"
     );
 }
 

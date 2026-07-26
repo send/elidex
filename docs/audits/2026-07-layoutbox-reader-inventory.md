@@ -126,9 +126,10 @@ algorithm itself produced*", and this reads **another entity's** committed box, 
 `flex/lib.rs:474` two rows up. `producer` is the class that SURVIVES C-4, so the delete-enabling gate
 would have gone green over a live read that then silently loses item baselines. It is the third instance
 of this same mislabel (after `render/builder/inline.rs:73` and `builder/mod.rs:482`/`:998`): being in a
-producer crate is not the test — reading someone else's committed geometry is. A sweep of all 31
-`producer` rows found no fourth: the remainder are writes (`insert_one` / `&mut` / literals), local
-result-holders, or reads of geometry the same algorithm just produced (recorded in section (d)).
+producer crate is not the test — reading someone else's committed geometry is. A sweep of the 31 rows
+classified `producer` *before* this reclassification found no fourth, so the live allowlist holds **30**:
+the remainder are writes (`insert_one` / `&mut` / literals), local result-holders, or reads of geometry
+the same algorithm just produced (recorded in section (d)).
 
 ⚠ The four baseline readers are in **producer crates** and run **in-layout** — `box_fragments` is
 by contract unusable mid-pass (memo §2). C-3c's disposition is **not** "route through the seam":
@@ -221,12 +222,12 @@ treats the full set as crate-level producer entries.
 
 | kind | representative sites | CLASS |
 |---|---|---|
-| `&mut LayoutBox` read-modify-write | `block/children/shift.rs:164` (probe-lag shift, I-phase fact 1), `layout/mod.rs:112` (layout_generation stamp), `positioned/mod.rs:101` (`apply_relative_offset` param) | producer |
+| `&mut LayoutBox` read-modify-write | `block/children/shift.rs:164` (probe-lag shift, I-phase fact 1), `layout/mod.rs:157` (layout_generation stamp), `positioned/mod.rs:101` (`apply_relative_offset` param) | producer |
 | multicol committer read (feeds store) | `multicol/fill.rs:76` (`snapshot_box` get<&LayoutBox>) + `:77` `BoxFragment::from`, `multicol/fill.rs:421` (monolithic block extent) | producer |
 | in-layout presence check | `inline/pack/boxes.rs:62` (`get<&LayoutBox>.is_ok()` — "skip if already laid") | producer |
 | in-layout derived-value helper (LOCAL box) | `table/helpers.rs:23` `box_total_height`, `table/lib.rs:61` `cell_baseline` | producer |
-| construction + `insert_one` (one per algorithm) | `block/mod.rs:624`, `block/lib.rs:363`, `block/children/helpers.rs:355` (display:contents/anon — axis 3), `inline/pack/boxes.rs:88`, `positioned/layout.rs:515,523`, `flex/lib.rs:491,504`, `flex/algo.rs:519`, `grid/lib.rs:619`, `multicol/lib.rs:329`, `table/lib.rs:394,785`, `layout/mod.rs:130` | producer |
-| struct field / result holder | `block/lib.rs:57` `pub layout_box: LayoutBox`, `layout/mod.rs:144` `PageFragment.layout_box`, `table/lib.rs:493` `Vec<LayoutBox>` | producer |
+| construction + `insert_one` (one per algorithm) | `block/mod.rs:624`, `block/lib.rs:363`, `block/children/helpers.rs:355` (display:contents/anon — axis 3), `inline/pack/boxes.rs:88`, `positioned/layout.rs:515,523`, `flex/lib.rs:491,504`, `flex/algo.rs:519`, `grid/lib.rs:619`, `multicol/lib.rs:329`, `table/lib.rs:394,785`, `layout/mod.rs:175` | producer |
+| struct field / result holder | `block/lib.rs:57` `pub layout_box: LayoutBox`, `layout/mod.rs:189` `PageFragment.layout_box`, `table/lib.rs:493` `Vec<LayoutBox>` | producer |
 | producer field-read | `multicol/lib.rs:269` `outcome.layout_box.margin_box()` | producer |
 
 ---
@@ -294,15 +295,22 @@ and composes the transform itself → `box_fragments` (pre-transform) is **corre
 
 ### C-3c — flex/grid/inline baseline (`flex/lib.rs:474`, `flex/baseline.rs:18`, `grid/position.rs:444`, `inline/pack/mod.rs:613`)
 
-1 **frame** **LOCAL** — container-content-relative *difference* (`lb.content.origin.y −
-container_origin.y + first_baseline`); distinct per site (memo §2 I-frame). 2 **phase** **IN-LAYOUT**
-(the defining constraint — MUST NOT use `box_fragments`; the store is unusable mid-pass). 3 **boxless**
-box-absent → `None` baseline → other fallback. 4 **source-vs-routing** reads a child's `first_baseline`;
-routing-delta (children laid before the parent's baseline; effectively N=1 in practice). 5 **reduction**
-**first** (first flex item / first row-0 item / first atomic). 6 **home+shape** `elidex-layout-flex` /
-`-grid` / `-block`; per-entity read of a child during parent layout. 7 **identity/lifetime** none
-(reads a scalar). 8 **transform-basis** pre-transform (a layout metric); but moot — **stays on live
-`LayoutBox`** or gets a probe-visible accessor (C-4 gate 2b / hand-off row 2), not the screen-only seam.
+1 **frame** **LOCAL**, and **not one formula** — the three container-baseline sites take a
+container-content-relative *difference* (`lb.content.origin.y − container_origin.y + first_baseline`),
+whereas `flex/baseline.rs:18` is **margin-box-cross-start-relative** (`item.margin_cross_start +
+padding/border on the cross-start side + first_baseline`) and writing-mode-dependent (`ctx.horizontal`
+selects `.top` vs `.left`). Distinct per site (memo §2 I-frame) — do not pin the family to one frame.
+2 **phase** **IN-LAYOUT** (the defining constraint — MUST NOT use `box_fragments`; the store is unusable
+mid-pass). 3 **boxless** box-absent → `None` baseline → other fallback. 4 **source-vs-routing** reads a
+child's `first_baseline`; routing-delta (children laid before the parent's baseline; effectively N=1 in
+practice). 5 **reduction** **MIXED** — the three container sites reduce **first** (first flex item / first
+row-0 item / first atomic), but `flex/baseline.rs:18` is not a reduction at all: it is a **per-item map**
+(one `first_baseline` written per baseline-aligned item), whose consumer `compute_line_baselines` then
+reduces **per line with `.fold(0.0, f32::max)` = MAX** (CSS Flexbox §9.4 baseline alignment). A seam that
+offered only a first-reduction fold would not serve it. 6 **home+shape** `elidex-layout-flex` / `-grid` /
+`-block`; per-entity read of a child during parent layout. 7 **identity/lifetime** none (reads a scalar).
+8 **transform-basis** pre-transform (a layout metric); but moot — **stays on live `LayoutBox`** or gets a
+probe-visible accessor (C-4 gate 2b / hand-off row 2), not the screen-only seam.
 
 ### C-3d — IntersectionObserver (`intersection_observer.rs:489`, `rect_fn`)
 
@@ -433,7 +441,7 @@ transform wrapper from `border_box()` (`transform.rs:19`, perspective `walk.rs:3
 
 C-4 gate item 1 requires "producers" be defined **precisely**: some producer-crate `LayoutBox` reads
 are **in-layout** or **presence checks** (axes 2/5) whose meaning **flips** under a `clear()`ed store
-(`clear()` runs at the top of `layout_tree`, `layout/mod.rs:346`; the paged path never clears). These
+(`clear()` runs at the top of `layout_tree`, `layout/mod.rs:392`; the paged path never clears). These
 survive C-4 but their semantics are store-state-dependent — C-4's "zero reads outside producers" proof
 must account for them, and must NOT treat them as inert:
 
@@ -443,8 +451,8 @@ must account for them, and must NOT treat them as inert:
 | `inline/pack/boxes.rs:62` (presence) | "skip entities that already have a `LayoutBox`" — after `clear()` (of the component, were it ever cleared) nothing is skipped → double-lay. A pure control-flow presence read whose meaning is the store's population state. | 5 (presence) |
 | `multicol/fill.rs:76` (`snapshot_box`) | the committer read that snapshots `LayoutBox → BoxFragment` into the store; it reads the *component* to *write* the store that `clear()` resets — the read is the store's own source of truth. | 2/5 |
 | `multicol/fill.rs:421` (monolithic extent) | reads a child's `content.size` mid-fill to size columns — an in-layout store read. | 2 |
-| `layout/mod.rs:112` (&mut) | stamps `layout_generation` only when `> 0` (paged) — a paged-path mutation whose read/write is meaningless on the (never-cleared) paged store. | 2 (paged) |
-| `flex/lib.rs:474`, `grid/position.rs:444`, `inline/pack/mod.rs:613` (baseline) | in-layout reads of a **child's** store box to compute the parent's baseline — classified pending-migration/C-3c (the slice owns the decision), but they ARE producer-crate in-layout reads that C-4 gate 2b tracks: they need a **probe-visible geometry source** or keep `LayoutBox` (hand-off row 2). | 2 (in-layout) |
+| `layout/mod.rs:157` (&mut) | stamps `layout_generation` only when `> 0` (paged) — a paged-path mutation whose read/write is meaningless on the (never-cleared) paged store. | 2 (paged) |
+| `flex/lib.rs:474`, `flex/baseline.rs:18`, `grid/position.rs:444`, `inline/pack/mod.rs:613` (baseline) | in-layout reads of a **child's** store box to compute the parent's baseline — classified pending-migration/C-3c (the slice owns the decision), but they ARE producer-crate in-layout reads that C-4 gate 2b tracks: they need a **probe-visible geometry source** or keep `LayoutBox` (hand-off row 2). All **four** (`baseline.rs:18` was reclassified out of `producer` in Codex PR#488 R1 — see the ⚠ above the C-3c table). | 2 (in-layout) |
 | `table/helpers.rs:23`, `table/lib.rs:61` (derived-value helpers) | in-layout, but read a **LOCAL** `LayoutBox`/`Vec<LayoutBox>` (never the ECS store) → `clear()`-**independent**. Listed for completeness; not a store-state hazard. | 2 (in-layout, local) |
 
 ⚠ **Axis 3's other half — there is no `LayoutBox` REMOVAL path, so "box-absent" is not reachable for
@@ -453,7 +461,7 @@ leaves a `LayoutBox` on an element with no associated CSS box; the sites below a
 half. The *removal* half is empty: `git grep -nE 'remove(_one)?::<[^>]*LayoutBox'` over `crates/**`
 finds only two **test** helpers doing remove-then-insert replacement
 (`elidex-js/src/vm/test_helpers.rs:161`, `.../tests/tests_resize_observer.rs:293`). Layout **skips**
-`display:none` subtrees (`elidex-layout/src/layout/mod.rs:395`,
+`display:none` subtrees (`elidex-layout/src/layout/mod.rs:441`,
 `elidex-layout-block/src/block/children/helpers.rs:133`, `.../stack.rs:137`) without clearing the
 component, whereas `FragmentTree::clear()` drops store fragments every pass. So the seam's two
 sources have **different staleness models** — store = fresh-this-pass, component = **ever-laid** —
@@ -488,7 +496,7 @@ about the root element — and the four do **not** all take the same correction:
 
 | site | what the comment actually states | correct anchor |
 |---|---|---|
-| `elidex-layout/src/layout/mod.rs:71` | `display: contents` generates no box | **§2.5** "Box Generation: the none and contents keywords" |
+| `elidex-layout/src/layout/mod.rs:116` | `display: contents` generates no box | **§2.5** "Box Generation: the none and contents keywords" |
 | `elidex-style/src/resolve/mod.rs:497` | same box-generation rule | **§2.5** |
 | `elidex-layout-block/src/helpers.rs:355` (`flatten_contents` docstring; also drops the `§`) | same box-generation rule | **§2.5** |
 | `elidex-style/src/resolve/mod.rs:212` | **blockification** — maps inline-level display to block-level when floated / absolutely positioned (the CSS 2.1 §9.7 co-cite confirms) | **§2.7** "Automatic Box Type Transformations" — *not* §2.5 |
@@ -516,7 +524,7 @@ citation (so it is *not* "the anon-box / flattened-`contents` insert" either).
 | 5 | render inline-text anchor | `paint/mod.rs:789-792` `find_nearest_layout_box` | selection problem, no store signal (axis 5, I-lines) | C-3e |
 | 6 | render paged-gen gate | `walk.rs:108-109` — `lb.layout_generation` | NOT a geometry read (axis 5); re-home (hand-off row 4) | C-3e→C-4 |
 | 7 | shell scroll-extent | `scroll.rs:133-149` `compute_content_extent` (`query<(Entity,(&LayoutBox,&ComputedStyle))>`) | cross-entity aggregate (axis 6) | C-3d |
-| 8 | flex/grid baseline in-layout | `flex/lib.rs:474`, `grid/position.rs:444` (+ sweep sibling `inline/pack/mod.rs:613`) | in-layout (axis 2) + local frames (axis 1) → stay on `LayoutBox` | C-3c |
+| 8 | flex/grid baseline in-layout | `flex/lib.rs:474`, `flex/baseline.rs:18`, `grid/position.rs:444` (+ sweep sibling `inline/pack/mod.rs:613`) — **four** sites | in-layout (axis 2) + local frames (axis 1) → stay on `LayoutBox` | C-3c |
 | 9 | ScrollIntoView == URL-fragment nav | `layout_query.rs:257-276` `ScrollIntoView` + `scroll.rs:210-246` `scroll_offset_for_fragment` | same algorithm (cssom-view "scroll a target into view") — one shared helper | C-3b + C-3d |
 
 ## Appendix — producer-crate test-only reads (noted, not in the CONSUMER classification)
