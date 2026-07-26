@@ -11,9 +11,14 @@
 //! merely asserted.
 //!
 //! **The two tables are not identical, because the two schedules are not.**
-//! Content-mode makes THREE coordinator calls per event-loop turn
-//! (`content/event_loop.rs:205` / `:206` / `:497`); app-mode makes ONE
-//! (`drain_same_turn`, at end-of-input-handler). The headline difference is
+//! Content-mode drives the coordinator from FIVE sites: three on its async pump
+//! (`content/event_loop.rs` — `run_deferred_traversals` → `drain_synchronous_updates`
+//! → the bottom `drain_synchronous_phase`) and two INSIDE its input handlers
+//! (`content/event_handlers.rs`, one per handler). That in-handler pair is the
+//! structural counterpart of app-mode's single end-of-input-handler
+//! `drain_same_turn` — the click one consumes `suppress_default` as an early return
+//! exactly as `app/events.rs::handle_click` does — so what app-mode lacks is the
+//! PUMP, not the in-handler drain. The headline difference is
 //! Phase-2 pump timing — content on a later async-pump turn via
 //! `run_deferred_traversals`, app-mode back-to-back inside the input handler as its
 //! *degenerate* later task — but app-mode also has **no post-Phase-2 synchronous
@@ -101,15 +106,22 @@ fn activate_seeded_entry(app: &mut App, url: url::Url) {
     );
 }
 
+/// Run `script` in the page's VM, **failing loudly on a thrown script**. Discarding
+/// the `Result` (the earlier shape) made "the intent was staged" and "the script
+/// threw before staging anything" indistinguishable — every assertion below about a
+/// *drained* intent silently degrades into an assertion about an empty drain.
 fn eval(app: &mut App, script: &str) {
-    let _ = app
+    if let Err(e) = app
         .interactive
         .as_mut()
         .unwrap()
         .pipeline
         .runtime
         .vm()
-        .eval(script);
+        .eval(script)
+    {
+        panic!("test script threw, so nothing was staged: {script}\n  {e:?}");
+    }
 }
 
 /// The history CURSOR's entry URL — the drain-specific complement of
@@ -122,6 +134,42 @@ fn current_url(app: &App) -> Option<String> {
         .nav_controller
         .current_url()
         .map(|u| u.as_str().to_string())
+}
+
+/// The URL of session-history ENTRY `index`. The discriminating probe wherever
+/// `history_len` is not: a same-document `pushState`/fragment nav from a
+/// cursor-moved position TRUNCATES the forward entries and appends its own, so a
+/// counterfactual that applied one lands at the *same length* with a *different*
+/// entry list.
+fn entry_url(app: &App, index: usize) -> Option<String> {
+    app.interactive
+        .as_ref()
+        .unwrap()
+        .nav_controller
+        .entry(index)
+        .map(|e| e.url.as_str().to_string())
+}
+
+/// Whether any `<tag>` element carries `attr="1"` — the shared shape of the
+/// listener-ran probes below (a handler stamps an attribute, the assertion reads it
+/// back). Every path that fires a listener also `re_render`s, which flushes the
+/// script session, so the stamp is committed by assertion time.
+fn stamped(app: &App, tag: &str, attr: &str) -> bool {
+    let pipeline = &app.interactive.as_ref().unwrap().pipeline;
+    pipeline.dom.query_by_tag(tag).into_iter().any(|e| {
+        pipeline
+            .dom
+            .world()
+            .get::<&elidex_ecs::Attributes>(e)
+            .is_ok_and(|a| a.get(attr) == Some("1"))
+    })
+}
+
+/// Whether a `popstate` listener ran — the direct probe for "the SAME-DOCUMENT
+/// traversal arm was taken" (§7.4.6.2 step 6.3 fires popstate in place; the
+/// cross-document rebuild arm does not).
+fn popstate_fired(app: &App) -> bool {
+    stamped(app, "p", "data-popstate")
 }
 
 /// Place the inline cursor over content-area point `(x, y)` (winit client coords
@@ -163,13 +211,8 @@ fn app_phase_sep_pushstate_then_back_orders_within_the_handler() {
          by the traversal — the retired supersede-return would have to run first to drop it)"
     );
     assert_eq!(
-        app.interactive
-            .as_ref()
-            .unwrap()
-            .nav_controller
-            .entry(1)
-            .map(|e| e.url.as_str().to_string()),
-        Some("https://example.com/a".to_string()),
+        entry_url(&app, 1).as_deref(),
+        Some("https://example.com/a"),
         "entry 1 is the Phase-1 pushState /a"
     );
     assert_eq!(
@@ -207,11 +250,16 @@ fn app_trailing_syncupdate_canceled_behind_cursor_moving_traversal() {
     );
     let _ = app.process_pending_navigation();
 
+    // `history_len` cannot say this: an APPLIED straddle would `push_same_document`
+    // from the post-traversal cursor (index 0), truncating the forward `/a` and
+    // appending `/x` — still 2 entries. The entry list is what tells them apart.
     assert_eq!(
-        history_len(&app),
-        2,
-        "the straddle pushState /x was CANCELED (no third entry) — Resolution D"
+        entry_url(&app, 1).as_deref(),
+        Some("https://example.com/a"),
+        "the straddle pushState /x was CANCELED — Resolution D. Had it applied it would \
+         have truncated the forward /a and appended /x in its place, at the same length"
     );
+    assert_eq!(history_len(&app), 2, "no third entry either");
     assert_eq!(
         current_url(&app).as_deref(),
         Some("https://example.com/"),
@@ -233,11 +281,22 @@ fn app_trailing_syncupdate_canceled_behind_cursor_moving_traversal() {
 /// **`Rebuild`** — not same-document — whenever the target IS the current index. So
 /// Phase 2 attempts a document rebuild, i.e. the reload. That rebuild FAILS over the
 /// disconnected harness, leaving the cursor and entry list untouched and reporting no
-/// own-context action. Had it wrongly taken the same-document path it would have
-/// applied in place and shipped.
+/// own-context action.
+///
+/// **Which arm ran is the whole point, so it is asserted directly.** `history_len`
+/// and `current_url` are *invariants of both arms* — a same-document `go(0)` commits
+/// the index it already has and rewrites `pipeline.url` to the URL it already has —
+/// so neither can tell the arms apart. Two facts can: the same-document arm fires
+/// **popstate** (§7.4.6.2 step 6.3) and **ships**, the rebuild arm does neither.
 #[test]
 fn app_go_zero_is_an_in_range_barrier_that_rebuilds() {
-    let mut app = app_at("<p>doc</p>", base());
+    let mut app = app_at(
+        "<p>doc</p>\
+         <script>window.addEventListener('popstate', function () {\
+           document.querySelector('p').setAttribute('data-popstate', '1');\
+         });</script>",
+        base(),
+    );
     seed_same_document_pair(&mut app); // [base, /a], cursor on /a
 
     eval(&mut app, "history.go(0);");
@@ -247,11 +306,18 @@ fn app_go_zero_is_an_in_range_barrier_that_rebuilds() {
         outcome.suppress_default,
         "an in-range go(0) is a barrier → the caller's default is suppressed"
     );
+    // DISCRIMINATOR (1): only the same-document arm fires popstate.
+    assert!(
+        !popstate_fired(&app),
+        "go(0) took the REBUILD arm — no popstate. A same-document apply would have \
+         restored state and fired popstate in place"
+    );
+    // DISCRIMINATOR (2): only the same-document arm ships (the rebuild's load fails).
     assert!(
         !outcome.shipped,
-        "go(0) took the REBUILD arm, whose load fails in the harness → nothing shipped \
-         (a same-document apply would have shipped)"
+        "the rebuild's load fails in the disconnected harness → nothing shipped"
     );
+    // Invariants of BOTH arms — they pin the reload's no-op-ness, not the arm.
     assert_eq!(
         history_len(&app),
         2,
@@ -336,16 +402,27 @@ fn app_nav_vs_traversal_supersede_discards_and_does_not_strand() {
 }
 
 /// #259 (app leg) — the retired hand-rolled `process_pending_navigation`
-/// traversal-supersede `return` no longer truncates the FIFO replay:
-/// `pushState; pushState; back()` keeps BOTH pushes (Phase 1 applies every
-/// synchronous update issued before the barrier, in issue order) and the traversal
-/// applies afterwards in Phase 2.
+/// traversal-supersede `return` no longer **truncates the FIFO replay**: every step
+/// the turn staged runs, whatever it is and however many traversals precede it.
+///
+/// **What actually discriminates the removal.** The obvious shape
+/// (`pushState; pushState; back()`) does NOT: the retired drain applied traversals
+/// INSIDE the FIFO loop, so its `return` fired on the LAST step and both pushes had
+/// already committed — byte-identical to the phase-separated result. Nor does
+/// `back(); pushState; pushState`: the retired `return` dropped both trailing pushes,
+/// and the coordinator's Resolution-D cancel drops them too (the barrier moved the
+/// cursor). The one class the retired `return` truly lost is a **step after the
+/// first traversal that the new code still runs** — i.e. a SECOND traversal. So this
+/// pins the full FIFO: two pushes before the barrier (Phase 1, in issue order) and
+/// two traversals after it (Phase 2, both applied), where the retired drain stopped
+/// dead at the first.
 #[test]
-fn app_multiple_pushstates_survive_a_trailing_traversal() {
+fn app_full_fifo_survives_an_applied_traversal_mid_stream() {
     let mut app = app_at("<p>doc</p>", base());
     eval(
         &mut app,
-        "history.pushState(null, '', '/a'); history.pushState(null, '', '/b'); history.back();",
+        "history.pushState(null, '', '/a'); history.pushState(null, '', '/b'); \
+         history.back(); history.back();",
     );
 
     let _ = app.process_pending_navigation();
@@ -356,9 +433,81 @@ fn app_multiple_pushstates_survive_a_trailing_traversal() {
         "both pushStates committed in Phase 1 → [base, /a, /b]"
     );
     assert_eq!(
+        entry_url(&app, 2).as_deref(),
+        Some("https://example.com/b"),
+        "in issue order — /b is the second push, not the first"
+    );
+    assert_eq!(
         current_url(&app).as_deref(),
+        Some("https://example.com/"),
+        "BOTH deferred back()s applied against the fully-replayed list: /b → /a → base. \
+         The retired supersede `return` fired on the first one and never reached the \
+         second, leaving the cursor on /a"
+    );
+    assert!(app.traversal_queue().is_empty(), "the queue drained");
+}
+
+/// The **failed-load complement** of
+/// [`app_nav_vs_traversal_supersede_discards_and_does_not_strand`], and the §7.4.2
+/// twin of [`app_failed_traversal_does_not_cancel_trailing_sync_update`]: a barrier
+/// traversal whose cross-document load FAILED never moved the cursor, so the
+/// navigable never traversed and the same-turn `location.*` it superseded still
+/// applies — in the turn that issued it.
+///
+/// Phase 1c's suppression cites WHATWG HTML §7.4.2.2 *Beginning navigation* step 19
+/// ("Any attempts to navigate a navigable that is currently traversing are
+/// ignored"), whose gate is *ongoing navigation* = "traversal" (§7.4.2.5 *Aborting
+/// navigation*). §7.4.6.1 *Updating the traversable* step 8.4 sets that only when the
+/// APPLY runs — §7.4.3's enqueue sets nothing — so suppressing on a merely-QUEUED
+/// traversal is a **prediction**. App-mode's Phase 2 settles it in the same turn, so
+/// `App::process_pending_navigation` reinstates a suppression the turn refuted.
+///
+/// **Regression pin.** The retired hand-rolled drain kept this by falling through:
+/// "a no-target / failed-load traversal returns `false` … so the loop CONTINUES and
+/// trailing same-turn intents still apply (Codex R1 P2 / R2)". Slice B's first cut
+/// kept that contract only for the deferred `SyncUpdate` leg — the §7.4.2 leg
+/// drain-and-DISCARDED, stranding the user on the old document with the request gone.
+#[test]
+fn app_failed_traversal_reinstates_the_superseded_navigation() {
+    let mut app = app_at("<p>doc</p>", base());
+    seed_cross_document_pair(&mut app); // [base, /a] as two documents → back() rebuilds + fails
+
+    eval(&mut app, "history.back(); location.assign('#b');");
+    let outcome = app.process_pending_navigation();
+
+    assert_eq!(
+        pipeline_url(&app).as_deref(),
+        Some("https://example.com/a#b"),
+        "the back()'s cross-document load FAILED, so the navigable never traversed and the \
+         superseded location.assign('#b') applied (a DISCARD leaves the document on /a)"
+    );
+    assert_eq!(
+        current_url(&app).as_deref(),
+        Some("https://example.com/a#b"),
+        "the reinstated fragment navigation moved the cursor onto its own entry"
+    );
+    assert_eq!(
+        entry_url(&app, 1).as_deref(),
         Some("https://example.com/a"),
-        "the Phase-2 back() moved /b → /a against the fully-replayed list"
+        "the failed back() left the entry list intact; #b was pushed after /a"
+    );
+    assert_eq!(history_len(&app), 3, "[base, /a, /a#b]");
+    assert!(
+        outcome.own_context_action,
+        "the reinstated navigation is an own-context effect"
+    );
+
+    // Reinstated IN-TURN, never a turn late: Phase 1c drained the VM slot and the
+    // request was held on the host, so a later drain finds nothing to re-fire.
+    let later = app.process_pending_navigation();
+    assert!(
+        !later.own_context_action,
+        "nothing left staged — the reinstatement consumed the held request"
+    );
+    assert_eq!(
+        history_len(&app),
+        3,
+        "no second #b entry on the following turn"
     );
 }
 
@@ -371,10 +520,44 @@ fn app_multiple_pushstates_survive_a_trailing_traversal() {
 /// `allSteps[targetStepIndex]` does not exist, then abort these steps"), so it is NOT
 /// a partition barrier: it enqueues no `Traversal` step and the trailing
 /// `pushState('/x')` applies IN-TASK rather than deferring behind it.
+///
+/// **The two legs are not interchangeable — leg (1) is the whole discriminator.**
+/// A no-op traversal mutates nothing, so promoting it to a barrier does not change
+/// leg (2)'s *end state* at all: the trailing update merely rides the queue as a
+/// `SyncUpdate` and is applied by Phase 2's `traversal_applied == false` arm instead
+/// of by Phase 1b, landing on the same entry with the same cursor. (Mutation-checked:
+/// forcing `classify_traversal` to classify every delta in-range leaves leg (2)
+/// byte-identically green.) What a wrong barrier DOES change is
+/// [`DrainOutcome::suppress_default`](elidex_navigation::DrainOutcome::suppress_default)
+/// — latched at Phase-1 exit for a pending `Traversal` step — and that is observable
+/// only on a turn with no other own-context effect, which is why leg (1) drains the
+/// bare `go(999)` on its own.
 #[test]
 fn app_noop_traversal_does_not_defer_trailing_sync_update() {
     let mut app = app_at("<p>doc</p>", base()); // [base] only → go(999) is out of range
 
+    // (1) NOT A BARRIER. A bare no-op turn must leave every outcome field clear: no
+    //     `Traversal` step was enqueued, so nothing latches `suppress_default`.
+    eval(&mut app, "history.go(999);");
+    let noop_only = app.process_pending_navigation();
+
+    assert!(
+        !noop_only.suppress_default,
+        "the out-of-range go(999) enqueued no Traversal step, so nothing latched \
+         suppress_default — an in-range classification would have"
+    );
+    assert!(
+        !noop_only.own_context_action,
+        "a no-op traversal applies nothing"
+    );
+    assert!(
+        app.traversal_queue().is_empty(),
+        "the no-op left no step on the queue"
+    );
+    assert_eq!(history_len(&app), 1, "the entry list is untouched");
+
+    // (2) THEREFORE the trailing synchronous update is not deferred behind it — it
+    //     applies in Phase 1, in-task.
     eval(
         &mut app,
         "history.go(999); history.pushState(null, '', '/x');",
@@ -382,17 +565,13 @@ fn app_noop_traversal_does_not_defer_trailing_sync_update() {
     let _ = app.process_pending_navigation();
 
     assert!(
-        !app.traversal_queue().has_pending_traversal(),
-        "the no-op go(999) enqueued no Traversal step (not a barrier)"
-    );
-    assert!(
         app.traversal_queue().is_empty(),
         "nothing was deferred by the no-op"
     );
     assert_eq!(
         history_len(&app),
         2,
-        "the trailing pushState /x applied IN-TASK (the no-op did not defer it)"
+        "the trailing pushState /x applied (the no-op did not defer it)"
     );
     assert_eq!(
         current_url(&app).as_deref(),
@@ -427,17 +606,9 @@ fn link_with_click_handler(script: &str) -> String {
 }
 
 /// Whether the `link_with_click_handler` listener ran (its `data-ran` stamp reached
-/// the DOM). The click path's `re_render` flushes the script session, so the
-/// attribute is committed by assertion time.
+/// the DOM).
 fn click_handler_ran(app: &App) -> bool {
-    let pipeline = &app.interactive.as_ref().unwrap().pipeline;
-    pipeline.dom.query_by_tag("a").into_iter().any(|e| {
-        pipeline
-            .dom
-            .world()
-            .get::<&elidex_ecs::Attributes>(e)
-            .is_ok_and(|a| a.get("data-ran") == Some("1"))
-    })
+    stamped(app, "a", "data-ran")
 }
 
 /// Resolution B (app-mode form): a click whose handler runs a VALID `history.back()`
@@ -461,14 +632,20 @@ fn app_click_default_suppressed_by_valid_back() {
     assert_eq!(
         pipeline_url(&app).as_deref(),
         Some("https://example.com/"),
-        "the handler's back() applied and the <a href=\"#frag\"> default was SUPPRESSED \
-         (an unsuppressed default would have landed .../a#frag)"
+        "the handler's back() applied and the <a href=\"#frag\"> default was SUPPRESSED. \
+         The counterfactual is https://example.com/#frag, NOT .../a#frag: Phase 2 has \
+         already moved pipeline.url to base by the time the default would resolve #frag"
     );
+    // `history_len` cannot say this: the counterfactual default resolves `#frag`
+    // against the post-traversal base and `push_same_document`s from index 0,
+    // truncating the forward `/a` — [base, /#frag], still 2 entries.
     assert_eq!(
-        history_len(&app),
-        2,
-        "the suppressed default pushed no fragment entry"
+        entry_url(&app, 1).as_deref(),
+        Some("https://example.com/a"),
+        "the suppressed default left the entry list intact — an unsuppressed one would \
+         have replaced the forward /a with /#frag at the same length"
     );
+    assert_eq!(history_len(&app), 2, "and appended nothing");
 }
 
 /// Resolution E at the consumer: a click whose handler runs a NO-OP
@@ -509,8 +686,10 @@ fn app_click_default_fires_after_noop_traversal() {
 /// drain leaves **no residual**. This matters more in app-mode than in content mode:
 /// content leans on its every-turn async pump for liveness (a step serialized
 /// mid-apply drains next turn), while app-mode has no pump — a stranded step would
-/// wait for the next input event. Two traversals queued by one turn both apply in
-/// that turn.
+/// wait for the next input event **that reaches the drive site at all**, and the
+/// early returns in `events::handle_click` / `events::handle_keyboard` mean that is
+/// unbounded, not next-input-bounded. Two traversals queued by one turn both apply
+/// in that turn.
 ///
 /// `back(); forward()` also pins the no-peek enqueue of the SECOND traversal: the
 /// `forward()` is peeked nowhere at enqueue time (a peek against the still-unmoved
@@ -547,8 +726,13 @@ fn app_drain_same_turn_leaves_no_residual_and_applies_every_queued_traversal() {
 /// handler of a same-document traversal — is NOT partitioned into the CURRENT
 /// drain's queue, which is exactly what makes the bounded snapshot complete.
 /// **(2)** But nothing settles it either: `drain_same_turn` has no post-Phase-2
-/// synchronous drain, so the staged `pushState` sits on the VM FIFO until the NEXT
-/// input event. That is the shape Slice A describes as "firing much too late" and
+/// synchronous drain, so the staged `pushState` sits on the VM FIFO until the next
+/// input event **that actually reaches the drive site** — which is NOT every input
+/// event: `events::handle_click` returns early on a hit-test miss / a chrome-band
+/// click / an unset `cursor_pos`, and `events::handle_keyboard` on an unfocused
+/// document, all before the drain. The residual latency is therefore **unbounded**;
+/// the second drive below measures the BEST case (one turn), not a guarantee. That
+/// is the shape Slice A describes as "firing much too late" and
 /// FIXED for content mode (Codex #469 R9) by running
 /// `DrainCoordinator::drain_synchronous_updates` immediately after
 /// `run_deferred_traversals` — pinned by the content counterpart
@@ -598,10 +782,14 @@ fn app_popstate_staged_action_defers_to_the_next_drain_not_the_current_queue() {
         app.traversal_queue().is_empty(),
         "the popstate handler's pushState did not re-enter this drain's partition"
     );
+    // `history_len` cannot say this: had the drain applied the staged pushState it
+    // would have pushed from the post-traversal cursor (index 0), truncating the
+    // forward `/a` — [base, /from-popstate], still 2 entries.
     assert_eq!(
-        history_len(&app),
-        2,
-        "the popstate-staged pushState is NOT applied by the drain that fired popstate"
+        entry_url(&app, 1).as_deref(),
+        Some("https://example.com/a"),
+        "the popstate-staged pushState is NOT applied by the drain that fired popstate — \
+         the forward /a is still there, not replaced by /from-popstate"
     );
     assert_eq!(
         current_url(&app).as_deref(),
@@ -612,14 +800,20 @@ fn app_popstate_staged_action_defers_to_the_next_drain_not_the_current_queue() {
     // The next turn's drain partitions it — the degenerate later task.
     let _ = app.process_pending_navigation();
     assert_eq!(
+        entry_url(&app, 1).as_deref(),
+        Some("https://example.com/from-popstate"),
+        "the staged pushState applied on the NEXT drain, truncating the forward /a and \
+         appending itself in its place"
+    );
+    assert_eq!(
         history_len(&app),
         2,
-        "the popstate pushState truncated the forward entry and appended its own → still 2"
+        "truncate-then-append keeps the length"
     );
     assert_eq!(
         current_url(&app).as_deref(),
         Some("https://example.com/from-popstate"),
-        "the staged pushState applied on the NEXT drain"
+        "and the cursor moved onto it"
     );
 }
 
