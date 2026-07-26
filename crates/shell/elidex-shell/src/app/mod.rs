@@ -28,6 +28,10 @@ mod viewport;
 #[path = "../app_fragment_nav_tests.rs"]
 mod fragment_nav_tests;
 
+#[cfg(test)]
+#[path = "../app_history_drain_tests.rs"]
+mod history_drain_tests;
+
 use std::sync::Arc;
 
 use winit::application::ApplicationHandler;
