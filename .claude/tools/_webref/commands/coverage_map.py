@@ -5,31 +5,25 @@ import argparse
 import sys
 
 from ..resolver import lookup_section
+from ..spec_labels import label_for
 
-# Human-readable spec label for the first column of §3 table rows. Falls back
-# to UPPER(shortname-with-dashes-as-spaces) for unmapped shortnames — extend
-# the map when a new spec becomes frequently cited (cosmetic only, not load-
-# bearing for verification).
-_SPEC_LABEL_MAP = {
-    "ecma262": "ECMA-262",
-    "ecma402": "ECMA-402",
-    "html": "WHATWG HTML",
-    "dom": "WHATWG DOM",
-    "url": "WHATWG URL",
-    "fetch": "WHATWG Fetch",
-    "streams": "WHATWG Streams",
-    "xhr": "WHATWG XHR",
-    "webcrypto": "Web Cryptography API",
-    "webidl": "Web IDL",
-    "selectors-4": "CSS Selectors L4",
-    "geometry-1": "Geometry Interfaces L1",
-}
+# Human-readable spec label for the first column of §3 table rows. The
+# mapping is canonical in `_webref.spec_labels` (one source, both
+# directions) — see that module for why it is not inlined here.
 
 
 def _spec_label(shortname: str) -> str:
-    if shortname in _SPEC_LABEL_MAP:
-        return _SPEC_LABEL_MAP[shortname]
-    return shortname.upper().replace("-", " ")
+    """Display label for a §3 table row's first column.
+
+    Delegates to `spec_labels.label_for`, which consults `SPECS` and then
+    upstream's catalog. The old fallback was `shortname.upper().replace(
+    "-", " ")`, which emitted a label the shared map could not read back
+    (`coverage-map css-text-3` → `CSS TEXT 3`; `shortname_for("CSS TEXT
+    3")` → `None`) — generator and plan-review gate out of round-trip for
+    every spec outside the pinned set. The last-resort now returns the
+    shortname itself, which `shortname_for` DOES round-trip.
+    """
+    return label_for(shortname) or shortname
 
 
 def cmd_coverage_map(args: argparse.Namespace) -> None:

@@ -44,27 +44,20 @@ from grep_pass import run_grep_pass
 REPO_ROOT = Path(__file__).resolve().parents[3]
 WEBREF = REPO_ROOT / ".claude" / "tools" / "webref"
 
-# Maps plan-memo spec-label text → webref shortname. Mirror of
-# `.claude/tools/webref` `_SPEC_LABEL_MAP` but reversed; keep in sync when
-# adding new specs to that map. Aliases (e.g. "HTML" without "WHATWG") are
-# tolerated for plan-memos that abbreviate.
-SPEC_LABEL_REVERSE = {
-    "ECMA-262": "ecma262",
-    "ECMA-402": "ecma402",
-    "WHATWG HTML": "html",
-    "WHATWG DOM": "dom",
-    "WHATWG URL": "url",
-    "WHATWG Fetch": "fetch",
-    "WHATWG Streams": "streams",
-    "WHATWG XHR": "xhr",
-    "Web Cryptography API": "webcrypto",
-    "Web IDL": "webidl",
-    "CSS Selectors L4": "selectors-4",
-    "Geometry Interfaces L1": "geometry-1",
-    "HTML": "html",
-    "DOM": "dom",
-    "URL": "url",
-}
+# Plan-memo spec-label text → webref shortname. Canonical in
+# `.claude/tools/_webref/spec_labels.py` (one source, both directions,
+# aliases derived) — previously a third hand-maintained copy that drifted
+# from the two in `_webref/commands/`. Import via the tools path since
+# preflight runs as a standalone script from the skill directory.
+# Degrade the same way the pre-existing `WEBREF.is_file()` check does: a
+# missing/unimportable tools tree must not take down grep-pass (which
+# needs no webref at all) or a `--no-verify --no-grep-pass` structural
+# run. A hard top-level import would die with a traceback on this gate.
+sys.path.insert(0, str(REPO_ROOT / ".claude" / "tools"))
+try:
+    from _webref.spec_labels import shortname_for as _shortname_for
+except Exception:  # noqa: BLE001 — tools tree absent/broken; keep the gate up
+    _shortname_for = None
 
 # Require a §-number marker in the heading so a section titled e.g.
 # "Quick Reference: spec coverage map" doesn't accidentally pick up.
@@ -239,12 +232,9 @@ def parse_spec_cell(cell: str) -> tuple[str | None, str | None]:
 def shortname_from_label(label: str | None) -> str | None:
     if not label:
         return None
-    if label in SPEC_LABEL_REVERSE:
-        return SPEC_LABEL_REVERSE[label]
-    for k, v in SPEC_LABEL_REVERSE.items():
-        if k.lower() == label.lower():
-            return v
-    return None
+    if _shortname_for is None:
+        return None  # tools tree unavailable — soft-warn, same as unmapped
+    return _shortname_for(label)
 
 
 def verify_citation(shortname: str, section: str) -> tuple[bool, str]:
@@ -339,7 +329,7 @@ def main() -> int:
     #   - malformed:  row has no `§<number>` reference at all → hard-fail
     #     candidate (truly malformed §3 cell)
     #   - unmapped:   row has `§<number>` but the label isn't in
-    #     SPEC_LABEL_REVERSE → soft-warn (verify skipped, but row still
+    #     the shared spec-label map → soft-warn (verify skipped, but row still
     #     counts toward breadth so author intent isn't masked)
     specs_seen: dict[str, int] = {}
     malformed_rows = 0
@@ -406,7 +396,7 @@ def main() -> int:
     print(f"  total entries  (M):   {M}  (data rows, breadth basis)")
     print(f"  parsed citations:     {parsed_count}")
     print(f"  malformed rows:       {malformed_rows}  (no §<number> reference)")
-    print(f"  unmapped-label rows:  {unmapped_rows}  (has §<number>, label not in SPEC_LABEL_REVERSE)")
+    print(f"  unmapped-label rows:  {unmapped_rows}  (has §<number>, label not in the shared spec-label map)")
     displayed_specs = sorted(specs_seen)
     if unrecognized_labels:
         displayed_specs.extend(f"<{lbl}>" for lbl in sorted(set(unrecognized_labels)))
@@ -419,7 +409,7 @@ def main() -> int:
         # consumers that just want the summary).
         print(f"  ⚠ unrecognized labels: {sorted(set(unrecognized_labels))}",
               file=sys.stderr)
-        print("    (extend SPEC_LABEL_REVERSE in preflight.py to add coverage)",
+        print("    (add the spec to .claude/tools/_webref/spec_labels.py::SPECS)",
               file=sys.stderr)
 
     breadth_hard_fail = False

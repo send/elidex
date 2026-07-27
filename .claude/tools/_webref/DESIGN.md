@@ -48,6 +48,19 @@ Current generic modules:
   semantic diff.
 - `commands/refresh.py` captures a new snapshot and compares it with the prior
   saved snapshot.
+- `spec_labels.py` is the single source for spec shortname ↔ display label.
+  `SPECS` pins only what upstream cannot supply (the tc39 pair, this repo's
+  `"WHATWG "` display prefix); every other lookup falls through to the
+  memoized catalog in `sources/webref_data.py`, so adding a W3C/WHATWG spec
+  is a no-op. It replaced four hand-maintained copies (`commands/
+  coverage_map.py`, `commands/cite_audit.py`, `cli.py`'s help blurb, and the
+  plan-review `preflight.py`) that had drifted apart.
+- `commands/cite_audit.py` is an **elidex adapter**, not generic core: it
+  scans a repository tree (`crates`, `*.rs` by default — the defaults live
+  with the adapter and `cli.py` imports them, so elidex policy stays out of
+  the generic wiring) and attributes each `§` citation to a spec before
+  resolving it. Its purpose is to make citation *discovery* a checked-in
+  detector rather than a hand-authored pattern list.
 
 ## Commands
 
@@ -61,7 +74,17 @@ Current:
 .claude/tools/webref agent-policy
 .claude/tools/webref agent-brief /tmp/html-old.json /tmp/html-new.json --paths docs crates
 .claude/tools/webref refresh html
+.claude/tools/webref cite-audit html --prefix 4.10 --summary
+.claude/tools/webref cite-audit html --prefix 4.10 --show-unattributed
+.claude/tools/webref cite-audit html --strict          # exit 1 on any unresolved
 ```
+
+`cite-audit` reports three attribution buckets — explicit label, inherited
+from the enclosing comment block, and UNATTRIBUTED — because a bare `§N.N`
+means nothing on its own (`§2.2.2` is WHATWG Fetch in `elidex-net`; `§0.5`
+is a plan-memo pointer, not a spec citation). Resolving every bare number
+against one spec reports correct work as drift, so attribution precedes
+resolution. Discovery is the tool's job; classification stays the author's.
 
 The first `agent-brief` implementation intentionally uses conservative
 substring matching over selected text files. That keeps it dependency-free and
