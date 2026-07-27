@@ -15,7 +15,7 @@ test	crates/core/elidex-ecs/src/dom/geometry.rs	let e = spawn(&mut dom); // no L
 seam	crates/core/elidex-ecs/src/dom/geometry.rs	let handle = self.world.get::<&mut LayoutBox>(entity).ok()?;
 test	crates/core/elidex-ecs/src/dom/geometry.rs	let lb = LayoutBox {
 seam	crates/core/elidex-ecs/src/dom/geometry.rs	pub fn layout_box_mut(&mut self, entity: Entity) -> Option<hecs::RefMut<'_, LayoutBox>> {
-seam	crates/core/elidex-ecs/src/dom/geometry.rs	pub fn set_layout_box(&mut self, entity: Entity, layout_box: LayoutBox) {
+seam	crates/core/elidex-ecs/src/dom/geometry.rs	pub fn set_layout_box(&mut self, entity: Entity, layout_box: LayoutBox) -> bool {
 import	crates/core/elidex-ecs/src/dom/geometry.rs	use elidex_plugin::{BoxModel, LayoutBox, Rect};
 test	crates/core/elidex-ecs/src/fragment_tree.rs	"box-fragment presence without a carrier ⇒ NOT consumable (rides LayoutBox arm)"
 type-def	crates/core/elidex-ecs/src/fragment_tree.rs	fn from(lb: &elidex_plugin::LayoutBox) -> Self {
@@ -119,9 +119,7 @@ producer	crates/layout/elidex-layout/src/layout/mod.rs	Display::Contents => Layo
 producer	crates/layout/elidex-layout/src/layout/mod.rs	pub layout_box: LayoutBox,
 pending-migration:C-3d	crates/script/elidex-js/src/vm/host/intersection_observer.rs	let lb = d.world().get::<&elidex_plugin::LayoutBox>(entity).ok()?;
 pending-migration:C-3d	crates/script/elidex-js/src/vm/host/resize_observer.rs	let lb = d.world().get::<&elidex_plugin::LayoutBox>(entity).ok()?;
-test	crates/script/elidex-js/src/vm/test_helpers.rs	"set_layout_box: failed to insert LayoutBox (entity despawned?)"
 pending-migration:C-4	crates/script/elidex-js/src/vm/test_helpers.rs	..LayoutBox::default()
-test	crates/script/elidex-js/src/vm/test_helpers.rs	dom.world().get::<&LayoutBox>(entity).is_ok(),
 pending-migration:C-4	crates/script/elidex-js/src/vm/test_helpers.rs	let lb = LayoutBox {
 import	crates/script/elidex-js/src/vm/test_helpers.rs	use elidex_plugin::{EventPayload, EventPhase, LayoutBox, Rect};
 pending-migration:C-3d	crates/shell/elidex-shell/src/content/event_handlers.rs	.get::<&elidex_plugin::LayoutBox>(hit_entity)

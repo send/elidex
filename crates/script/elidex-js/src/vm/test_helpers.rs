@@ -169,10 +169,14 @@ pub fn set_layout_box(vm: &mut crate::vm::Vm, entity: Entity, content: Rect) {
         content,
         ..LayoutBox::default()
     };
-    dom.set_layout_box(entity, lb);
+    // Take the chokepoint's own write signal rather than reading the component back.
+    // A read-back here would be a raw geometry reader in PRODUCTION-compiled code
+    // (this module is `#[cfg(feature = "engine")]`, not `#[cfg(test)]`), i.e. one more
+    // site for C-4's "zero reads outside producers" gate — the exact debt the seam
+    // exists to retire.
     assert!(
-        dom.world().get::<&LayoutBox>(entity).is_ok(),
-        "set_layout_box: failed to insert LayoutBox (entity despawned?)"
+        dom.set_layout_box(entity, lb),
+        "set_layout_box: write rejected (entity despawned?)"
     );
 }
 
