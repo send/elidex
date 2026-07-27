@@ -27,6 +27,23 @@ CLAUDE.md § "Design discipline": *"Edge-dense work = multi-PR program + 実装�
 
 Slices A–C are engine-wide tooling; D–F are the L3 form program. The join is real but one-directional: D's exit criterion is a command that B must make trustworthy.
 
+### Slice memos (re-sliced 2026-07-28)
+
+The 785-line single-PR memo `2026-07-webref-cite-audit-detector.md` has been partitioned. Nothing is
+summarised across memos — each concern is stated once, in one slice's memo, and the others link to it.
+
+| Slice | Memo | Gate state |
+|---|---|---|
+| A | `2026-07-citation-hygiene-A-enforcement-plumbing.md` | **review-ready**; `preflight` EXIT 0 (K=1, M=2, 2 citations verified, 0 hard grep-pass) |
+| B | `2026-07-citation-hygiene-B-detector-correctness.md` (`git mv` of the 785-line memo, so its provenance survives) | draft; `preflight` EXIT 0. §4.0-§4.1 / §4.6 / §5 carried verbatim; §0-§2 and §7-§13 rewritten to the slice boundary |
+| C | `2026-07-citation-hygiene-C-policy-retirement.md` | draft; `preflight` EXIT **1** by design — no `§3` table until C's kickoff, a pre-existing hard-fail mode unrelated to slice A |
+
+**Two corrections the re-slice produced**, both by executing rather than reading, and both recorded at
+their site in A: the fail-closed tri-state does **not** work where the pre-slice memo sited it (a memo
+whose `§3` rows carry no spec label still exits 0 — measured against the proposed patch), and wiring the
+suites into CI takes a **live-network dependency** the pre-slice memo never surfaced (the 48-test
+`_webref` suite fetches 2 URLs from `raw.githubusercontent.com` and there is no offline mode).
+
 ## Constraints each slice inherits
 
 - **A slice may not carry another slice's concern.** Specifically: A may not change detector semantics; B may not edit review policy; C may not repair citations.
