@@ -45,11 +45,12 @@ impl VmInner {
                 // Fell off the end → implicit ReturnUndefined.
                 if frame_idx == entry_frame_depth {
                     let completion = match self.frames[frame_idx].kind {
-                        // ECMA-262 §16.1.6 ScriptEvaluation step 13.a + 13.b +
+                        // ECMA-262 §16.1.6 ScriptEvaluation step 13.a + 13.b.i +
                         // 17 / §19.2.1.1 PerformEval step 29.a + 30.a + 33 —
                         // script/eval bodies surface the last
                         // ExpressionStatement value captured by the entry-
-                        // gated `Op::Pop` arm.
+                        // gated `Op::PopCompletion` arm (13.b.i / 30.a are the
+                        // empty→`undefined` normalization).
                         FrameKind::Eval => {
                             let v = self.completion_value;
                             self.completion_value = JsValue::Undefined;
@@ -123,24 +124,9 @@ impl VmInner {
                     self.stack.swap(len - 1, len - 2);
                 }
                 Op::PopUnder => {
-                    // `[a1 … an v -- v]` — drop a member target's reference
-                    // slots when a logical assignment short-circuits.  Unlike
-                    // `Op::Pop` this does NOT write `completion_value`: only an
-                    // ExpressionStatement's value belongs there (§14.5.1), and
-                    // recording internal housekeeping there made
-                    // `eval("if (globalThis.Math ||= 2) {}")` return the global
-                    // object instead of `undefined`.
-                    let n = self.read_u8_op() as usize;
-                    let len = self.stack.len();
-                    if len < n + 1 {
-                        return Err(VmError::internal("stack underflow on PopUnder"));
-                    }
-                    let top = self.stack[len - 1];
-                    self.stack.truncate(len - n - 1);
-                    self.stack.push(top);
+                    // Body in `dispatch_helpers.rs` — see `op_pop_under`.
+                    self.op_pop_under()?;
                 }
-
-                // ── Local access ────────────────────────────────────
                 Op::GetLocal => {
                     let slot = self.read_u16_op() as usize;
                     let base = self.frames[frame_idx].base;
@@ -480,11 +466,13 @@ impl VmInner {
                     let prefix = self.read_u8_op() != 0;
                     let raw_key = self.pop()?;
                     let obj_val = self.pop()?;
-                    // `o[k]++` reuses one reference for GetValue and PutValue
-                    // (§13.4.4.1 steps 1/5), so the key is converted once —
-                    // §6.2.5.5 step 3.c.i.  Passing the raw key to both accessors
-                    // ran a stateful `toString` twice, reading one property and
-                    // writing another.
+                    // `o[k]++` evaluates its reference once (§13.4.2.1 step 1)
+                    // and reuses it for GetValue (step 3) and PutValue (step 6),
+                    // so the key is converted once — §6.2.5.5 step 3.c.i.  All
+                    // four update productions this arm serves share that shape
+                    // (§13.4.2.1/§13.4.3.1 postfix, §13.4.4.1/§13.4.5.1 prefix).
+                    // Passing the raw key to both accessors ran a stateful
+                    // `toString` twice, reading one property and writing another.
                     let (key, old) = match self.get_element_keeping_key(obj_val, raw_key) {
                         Ok(pair) => pair,
                         Err(e) => {
@@ -561,10 +549,10 @@ impl VmInner {
                     if frame_idx == entry_frame_depth {
                         let return_val = match self.frames[frame_idx].kind {
                             // ECMA-262 §16.1.6 ScriptEvaluation step 13.a +
-                            // 13.b + 17 / §19.2.1.1 PerformEval step 29.a +
+                            // 13.b.i + 17 / §19.2.1.1 PerformEval step 29.a +
                             // 30.a + 33 — script/`eval` bodies surface the
                             // last ExpressionStatement value captured by
-                            // the entry-gated `Op::Pop` arm.
+                            // the entry-gated `Op::PopCompletion` arm.
                             FrameKind::Eval => {
                                 let v = self.completion_value;
                                 self.completion_value = JsValue::Undefined;
@@ -625,21 +613,9 @@ impl VmInner {
                     }
                 }
                 Op::GetElemRef => {
-                    // `[object key -- object key' value]` — keep the reference
-                    // for the store of a compound/logical assignment, with the
-                    // key converted exactly once (ECMA-262 §6.2.5.5 step 3.c.i
-                    // memoizes it into the Reference Record).
-                    let key = self.pop()?;
-                    let obj = self.pop()?;
-                    match self.get_element_keeping_key(obj, key) {
-                        Ok((key, val)) => {
-                            self.stack.push(obj);
-                            self.stack.push(key);
-                            self.stack.push(val);
-                        }
-                        Err(e) => {
-                            self.throw_error(e, entry_frame_depth)?;
-                        }
+                    // Body in `dispatch_helpers.rs` — see `op_get_elem_ref`.
+                    if let Err(e) = self.op_get_elem_ref() {
+                        self.throw_error(e, entry_frame_depth)?;
                     }
                 }
                 Op::SetElem => {
@@ -826,6 +802,11 @@ impl VmInner {
                 Op::PopExceptionHandler => {
                     let frame = self.frames.last_mut().unwrap();
                     frame.exception_handlers.pop();
+                }
+                Op::ThrowUnsupported => {
+                    // Body in `dispatch_helpers.rs` — see `op_throw_unsupported`.
+                    let err = self.op_throw_unsupported(func_id);
+                    self.throw_error(err, entry_frame_depth)?;
                 }
                 Op::Throw => {
                     let val = self.pop()?;

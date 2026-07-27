@@ -4,6 +4,7 @@ use crate::arena::NodeId;
 #[allow(clippy::wildcard_imports)]
 use crate::ast::*;
 use crate::atom::Atom;
+use crate::bytecode::compiled::Constant;
 use crate::bytecode::opcode::Op;
 use crate::scope::{BindingKind, ScopeAnalysis};
 
@@ -181,11 +182,10 @@ fn emit_logical_assign_tail(
         LogicalStore::Elem => fc.emit(Op::SetElem),
         LogicalStore::Prop { name_idx, ic } => fc.emit_u16_u16(Op::SetProp, name_idx, ic),
     }
-    // Short-circuit path: drop the reference slots under the retained value.
-    // `Op::PopUnder`, not `Swap; Pop` — the latter discards through the
-    // completion-recording opcode and would overwrite the script's completion
-    // value with the base object.  An identifier target has no reference slots,
-    // so it needs neither the cleanup nor a jump over it.
+    // Short-circuit path: drop the reference slots under the retained value in
+    // one instruction rather than an `n`-fold `Swap; Pop` dance.  An identifier
+    // target has no reference slots, so it needs neither the cleanup nor a jump
+    // over it.
     let refs = store.ref_slots();
     let end = (refs > 0).then(|| fc.emit_jump(Op::Jump));
     fc.patch_jump(short_circuit);
@@ -255,16 +255,38 @@ pub(super) fn compile_assignment(
                         right,
                     )?;
                 }
+                // Parenthesized and call targets (`(x) += 1`, `f() = v`).  The
+                // arm used to compile the RHS and emit no store at all, so the
+                // assignment silently did nothing and evaluated to the RHS —
+                // the same silent-wrong shape the private-name guard below
+                // rejects.  Loud and scoped until `#11-vm-assignment-target-
+                // completeness` normalises `ExprKind::Paren` away.
                 _ => {
-                    compile_expr(fc, prog, analysis, func_scopes, right)?;
+                    let msg = fc.add_constant(Constant::Wtf16(
+                        "assignment to this target is not yet supported \
+                         (#11-vm-assignment-target-completeness)"
+                            .encode_utf16()
+                            .collect(),
+                    ));
+                    fc.emit_u16(Op::ThrowUnsupported, msg);
                 }
             }
         }
         AssignTarget::Pattern(_pattern_id) => {
-            // Destructuring assignment not yet implemented — pop RHS to keep
-            // stack balanced and fail explicitly.
-            compile_expr(fc, prog, analysis, func_scopes, right)?;
-            fc.emit(Op::Pop);
+            // Destructuring assignment (`[a,b] = [b,a]`, `({x} = o)`) is not
+            // lowered yet.  This used to compile the RHS and `Op::Pop` it,
+            // which the comment called "fail explicitly" while in fact failing
+            // silently — and left ZERO values where every other expression
+            // leaves one, so a statement-position destructure underflowed the
+            // following discard.  Owned by `#11-vm-assignment-target-
+            // completeness`.
+            let msg = fc.add_constant(Constant::Wtf16(
+                "destructuring assignment is not yet supported \
+                 (#11-vm-assignment-target-completeness)"
+                    .encode_utf16()
+                    .collect(),
+            ));
+            fc.emit_u16(Op::ThrowUnsupported, msg);
         }
     }
     Ok(())
@@ -272,11 +294,12 @@ pub(super) fn compile_assignment(
 
 /// Compile assignment to a member target (`o.p = v`, `o[k] += v`, `o.p ??= v`).
 ///
-/// ECMA-262 §13.15.2 evaluates the LeftHandSideExpression **once** (step 1) and
-/// reuses that reference for both `GetValue` (step 3) and `PutValue` (step 9),
-/// so compound and logical forms duplicate the reference on the stack rather
-/// than re-evaluating the object or key — re-evaluation would run user getters
-/// and `valueOf` twice.
+/// Every ECMA-262 §13.15.2 production evaluates the LeftHandSideExpression
+/// **once** and reuses that reference for both `GetValue` and `PutValue`, so
+/// compound and logical forms keep the reference on the stack rather than
+/// re-evaluating the object or key — re-evaluation would run user getters and
+/// `valueOf` twice. Step indices differ per production: `LHS AssignmentOperator
+/// AssignmentExpression` is steps 1 / 3 / 9, the logical forms steps 1 / 2 / 6.
 #[allow(clippy::too_many_arguments)]
 fn compile_member_assignment(
     fc: &mut FunctionCompiler,
@@ -325,29 +348,75 @@ fn compile_member_assignment(
 
     // There is no `Op::SetPrivate` emit path yet (Slice 5 /
     // `#11-vm-class-private-fields`), so **no** store to a private name can be
-    // compiled — and the failure mode differs per form, which is why this is one
+    // compiled — and the failure mode differed per form, which is why this is one
     // guard rather than a per-form check:
     //
     //   `this.#x ??= 1`  reached `compound_op_to_opcode`'s `unreachable!` and
     //                    aborted the process;
     //   `this.#x += 1`   emitted `GetPrivate`, computed the sum, then discarded
-    //                    it at the `Op::Pop` tail below — the write was silently
-    //                    lost and the expression evaluated to the *object*;
+    //                    it at the `Op::Pop` tail — the write was silently lost
+    //                    and the expression evaluated to the *object*;
     //   `this.#x = 1`    same silent loss, without the arithmetic.
     //
-    // Both outcomes are banned by the umbrella's no-silent-stub invariant (I-1:
-    // connect or reject, never a silently-wrong path), so reject every form
-    // loudly until Slice 5 gives `#x` a store opcode.
+    // Both are banned by the umbrella's I-1 (connect or reject, never a
+    // silently-wrong path).  I-1 asks for a **scoped** error and §9 decision 5
+    // picks a runtime throw for unimplemented *expressions*, reserving
+    // `CompileError` for what the compiler already rejects — so this emits
+    // `Op::ThrowUnsupported` rather than failing the compile.  The distinction is
+    // not cosmetic: a `CompileError` yields no bytecode for the whole script, so
+    // one `this.#x = 1` anywhere would take every unrelated statement in the file
+    // down with it — strictly worse than the pre-slice behaviour for `=` and
+    // `+=`, which at least let the rest of the script run.
+    //
+    // The throw precedes the operand evaluation: the construct is unsupported in
+    // full, so running half its side effects first would be a second, subtler
+    // divergence to reason about.
     if matches!(property, MemberProp::PrivateIdentifier(_)) {
-        return Err(CompileError {
-            message: "assignment to a private name is not yet supported \
-                      (#11-vm-class-private-fields)"
-                .into(),
-        });
+        let msg = fc.add_constant(Constant::Wtf16(
+            "assignment to a private name is not yet supported \
+             (#11-vm-class-private-fields)"
+                .encode_utf16()
+                .collect(),
+        ));
+        fc.emit_u16(Op::ThrowUnsupported, msg);
+        return Ok(());
     }
 
+    // Everything below lowers the base with `compile_expr`, which turns
+    // `ExprKind::Super` into `Op::PushUndefined` — there is no `SetSuperProp`
+    // emit path yet, so `super.x = v` would store onto `undefined` and report a
+    // misleading "cannot read property of undefined".  Reject it under its own
+    // slot instead.  (`super[k]` reaches the computed branch above, which has
+    // the same gap; both are `#11-step9-class-extras`.)
+    if matches!(prog.exprs.get(object).kind, ExprKind::Super) {
+        let msg = fc.add_constant(Constant::Wtf16(
+            "assignment to a super property is not yet supported \
+             (#11-step9-class-extras)"
+                .encode_utf16()
+                .collect(),
+        ));
+        fc.emit_u16(Op::ThrowUnsupported, msg);
+        return Ok(());
+    }
+
+    // Discriminate on the property BEFORE any emit: the compound path below
+    // calls `compound_op_to_opcode`, which still has an `unreachable!` for the
+    // logical operators, so a `MemberProp` that reaches it with `&&=`/`||=`/`??=`
+    // would panic the process.  Only `Identifier` has a store path here —
+    // `PrivateIdentifier` returned above, and `Expression` reaches this function
+    // only with `computed`, handled in the branch at the top.
+    let MemberProp::Identifier(prop_name) = property else {
+        let msg = fc.add_constant(Constant::Wtf16(
+            "assignment to this member target is not yet supported"
+                .encode_utf16()
+                .collect(),
+        ));
+        fc.emit_u16(Op::ThrowUnsupported, msg);
+        return Ok(());
+    };
+
     // Named-member logical assignment: `o.p ||= v`. `[obj]` → `[obj old]`.
-    if let (Some(jump_op), MemberProp::Identifier(name)) = (logical_assign_jump(op), property) {
+    if let (Some(jump_op), name) = (logical_assign_jump(op), prop_name) {
         compile_expr(fc, prog, analysis, func_scopes, object)?;
         fc.emit(Op::Dup);
         let name_u16 = prog.interner.get(*name);
@@ -371,23 +440,9 @@ fn compile_member_assignment(
     if op != AssignOp::Assign {
         fc.emit(compound_op_to_opcode(op));
     }
-    match property {
-        MemberProp::Identifier(name) => {
-            let name_u16 = prog.interner.get(*name);
-            let idx = fc.add_name_u16(name_u16);
-            let ic = fc.alloc_ic_slot();
-            fc.emit_u16_u16(Op::SetProp, idx, ic);
-        }
-        // `PrivateIdentifier` is rejected above and `Expression` only reaches
-        // this function with `computed`, handled in the branch at the top.  A
-        // future `MemberProp` variant must not silently reach the old
-        // `Op::Pop` tail, which discarded the write and left the *object* as
-        // the expression's value, so refuse rather than emit.
-        _ => {
-            return Err(CompileError {
-                message: "unsupported assignment target".into(),
-            })
-        }
-    }
+    let name_u16 = prog.interner.get(*prop_name);
+    let idx = fc.add_name_u16(name_u16);
+    let ic = fc.alloc_ic_slot();
+    fc.emit_u16_u16(Op::SetProp, idx, ic);
     Ok(())
 }

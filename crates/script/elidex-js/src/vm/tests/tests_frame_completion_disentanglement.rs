@@ -37,8 +37,8 @@ use super::super::Vm;
 fn eval_returns_last_expression_value() {
     // §16.1.6 step 13.a + 17 — the last ExpressionStatement value is
     // surfaced as the script completion. `1+1; 2+2` evaluates the
-    // first statement (discarded by the next Op::Pop) and the second
-    // is the script's final completion value.
+    // first statement (recorded by the next Op::PopCompletion, then
+    // superseded) and the second is the script's final completion value.
     let mut vm = Vm::new();
     let v = vm.eval("1+1; 2+2").unwrap();
     assert_eq!(v, JsValue::Number(4.0));
@@ -49,7 +49,7 @@ fn eval_returns_undefined_for_empty_source() {
     // §16.1.6 step 13.b — when the body's `result.[[Value]]` is empty
     // the script completion is `NormalCompletion(undefined)`. An empty
     // source produces no runtime statements, so no entry-frame
-    // `Op::Pop` write ever fires and the script falls off the
+    // `Op::PopCompletion` write ever fires and the script falls off the
     // bytecode end with `completion_value` still at its initial
     // `JsValue::Undefined`.
     let mut vm = Vm::new();
@@ -68,8 +68,8 @@ fn function_returns_undefined_on_implicit_fall_through() {
     // off the end without an explicit `return` yields
     // `ReturnCompletion(undefined)`, observed at the call site as the
     // call's value. Trailing `42;` is an ExpressionStatement that is
-    // discarded by Op::Pop (Function-kind frame; the entry-frame
-    // gated Op::Pop write is confined to Eval-kind).
+    // discarded by Op::PopCompletion (Function-kind frame; the entry-frame
+    // gated Op::PopCompletion write is confined to Eval-kind).
     //
     // Pre-D-17b-r2: this returned Undefined accidentally because
     // `call_internal` reset `completion_value = Undefined` before the
@@ -170,7 +170,7 @@ fn function_called_via_vm_call_returns_undefined_on_fall_through() {
     // Compile + bind the function, then expose it as the script's
     // completion value so we can retrieve its `ObjectId` for
     // `vm.call`. The trailing `f` ExpressionStatement leaves the
-    // closure on completion_value (Eval-kind Op::Pop entry write).
+    // closure on completion_value (Eval-kind Op::PopCompletion entry write).
     let closure = vm.eval("function f() { 7; } f").unwrap();
     let JsValue::Object(closure_id) = closure else {
         panic!("expected function object, got {closure:?}");
@@ -204,7 +204,7 @@ fn function_called_via_vm_call_returns_undefined_on_fall_through() {
 
 #[test]
 fn inner_function_expressions_do_not_leak_to_outer_completion() {
-    // Function-kind frames never write `completion_value` (Op::Pop
+    // Function-kind frames never write `completion_value` (Op::PopCompletion
     // gates on Eval-kind only), so the trailing `'end'` at the
     // script's top level is the only entry-frame write that survives
     // — the inner function's `99` ExpressionStatement runs at
@@ -231,7 +231,7 @@ fn inner_function_expressions_do_not_leak_to_outer_completion() {
 // save/restore lives in `VmInner::saved_completion_stack` (walked by
 // `gc/roots.rs::mark_roots`), not a Rust local, so a heap Object
 // displaced from `self.completion_value` by an inner Eval body's
-// `Op::Pop` survives a mid-closure GC. Verified directly at the
+// `Op::PopCompletion` survives a mid-closure GC. Verified directly at the
 // VmInner level — pure-JS exercise is not viable because elidex-js
 // does not expose a JS-level `eval()` global (per design doc §14.1
 // strict-only baseline), so an inner Eval body can only be entered
@@ -296,7 +296,7 @@ fn empty_source_eval_does_not_leak_outer_completion_value() {
     // `NormalCompletion(undefined)`. Pre-fix, `run_function` did not
     // reset `self.completion_value` on entry; a host-level re-entry
     // pattern (outer code populates `completion_value` via its own
-    // Op::Pop entry-Eval write, then a native callback calls
+    // Op::PopCompletion entry-Eval write, then a native callback calls
     // `Vm::eval("")` while the outer is still running) would leak
     // the outer value as the inner script's completion.
     //

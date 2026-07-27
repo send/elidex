@@ -176,7 +176,8 @@ impl VmInner {
         obj: JsValue,
         key: JsValue,
     ) -> Result<(JsValue, JsValue), VmError> {
-        // §6.2.4.5 RequireObjectCoercible — step 3.a's ordering guarantee.
+        // §7.2.1 RequireObjectCoercible rejects the same nullish bases as
+        // §6.2.5.5 step 3.a's `ToObject` — that step's ordering guarantee.
         super::coerce::require_object_coercible(obj)?;
         let key = if matches!(key, JsValue::Object(_)) {
             match self.make_property_key(key)? {
@@ -192,7 +193,7 @@ impl VmInner {
 
     #[allow(clippy::too_many_lines)]
     pub(crate) fn get_element(&mut self, obj: JsValue, key: JsValue) -> Result<JsValue, VmError> {
-        // §6.2.4.5 RequireObjectCoercible: `null[key]` / `undefined[key]` throw.
+        // §7.2.1 RequireObjectCoercible: `null[key]` / `undefined[key]` throw.
         super::coerce::require_object_coercible(obj)?;
         if let JsValue::Object(id) = obj {
             // TypedArray integer-indexed get (ECMA-262 §10.4.5.17).  Must
@@ -685,7 +686,7 @@ impl VmInner {
         key: JsValue,
         val: JsValue,
     ) -> Result<(), VmError> {
-        // §6.2.4.5 RequireObjectCoercible: `null[k] = v` / `undefined[k] = v` throw.
+        // §7.2.1 RequireObjectCoercible: `null[k] = v` / `undefined[k] = v` throw.
         super::coerce::require_object_coercible(obj)?;
         if let JsValue::Object(id) = obj {
             // TypedArray integer-indexed write dispatches ahead of
@@ -799,7 +800,7 @@ impl VmInner {
         }
 
         // Primitive base (after RequireObjectCoercible): box for descriptor
-        // lookup per §6.2.4.8 PutValue step 5.a, keeping the original base
+        // lookup per §6.2.5.6 PutValue step 3.a, keeping the original base
         // as Receiver so `ordinary_set` rejects data writes via §10.1.9.2
         // step 2.b.  (Array-style fast paths don't apply: primitive
         // wrappers are never `ObjectKind::Array`.)

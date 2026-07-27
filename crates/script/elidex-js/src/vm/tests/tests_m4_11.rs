@@ -491,7 +491,7 @@ fn new_arrow_function_throws() {
     eval_throws("var f = () => {}; new f();");
 }
 
-// ─── §6.2.4.5 RequireObjectCoercible for null/undefined base ─────────────
+// ─── §7.2.1 RequireObjectCoercible for null/undefined base ───────────────
 
 #[test]
 fn get_prop_null_throws() {

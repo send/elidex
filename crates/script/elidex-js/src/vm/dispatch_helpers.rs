@@ -235,3 +235,91 @@ impl VmInner {
         }
     }
 }
+
+// ── Stack + member-reference opcode bodies ───────────────────────────
+//
+// Extracted rather than written inline: `dispatch.rs` is over the 1000-line
+// threshold, and the umbrella's forward rule for slices that add arms is to put
+// the body in a `dispatch_*.rs` sibling so the dispatch loop stays a table.
+
+impl VmInner {
+    /// `Op::PopUnder` — `[a1 … an v -- v]`, discard `n` slots from beneath the
+    /// top while keeping the top.
+    ///
+    /// Drops a member target's reference slots when a logical assignment
+    /// short-circuits, in one instruction rather than an `n`-fold `Swap; Pop`
+    /// dance. Like `Op::Pop`, and unlike `Op::PopCompletion`, it does not write
+    /// `completion_value`: only an ExpressionStatement's value belongs there
+    /// (ECMA-262 §14.5.1), and recording internal housekeeping there made
+    /// `eval("if (globalThis.Math ||= 2) {}")` return the global object instead
+    /// of `undefined`.
+    pub(super) fn op_pop_under(&mut self) -> Result<(), VmError> {
+        let count = self.read_u8_op() as usize;
+        let len = self.stack.len();
+        if len < count + 1 {
+            return Err(VmError::internal("stack underflow on PopUnder"));
+        }
+        let top = self.stack[len - 1];
+        self.stack.truncate(len - count - 1);
+        self.stack.push(top);
+        Ok(())
+    }
+
+    /// `Op::GetElemRef` — `[object key -- object key' value]`, load through a
+    /// computed member reference while keeping the reference for a later store.
+    ///
+    /// Reads the `[object key]` pair **in place** rather than popping it. The
+    /// key conversion runs user `toString`/`@@toPrimitive`, which can allocate
+    /// enough to trigger a collection, and the GC roots the VM stack
+    /// (`gc/roots.rs`) but not Rust locals. Popping first would let a temporary
+    /// base be collected mid-conversion and then hand a dangling `ObjectId` to
+    /// the `SetElem` that follows — a store into a recycled slot, or
+    /// `get_object_mut`'s "object already freed" panic. Keeping both slots on
+    /// the stack makes this opcode rooted **by construction**. The read-side
+    /// element opcodes still pop and remain exposed (pre-existing;
+    /// `#11-vm-element-access-base-rooting`).
+    ///
+    /// `key'` is the **converted** key: §6.2.5.5 GetValue step 3.c.i writes
+    /// `ToPropertyKey`'s result back into the Reference Record, so a later
+    /// `PutValue` through the same reference does not re-run user code.
+    pub(super) fn op_get_elem_ref(&mut self) -> Result<(), VmError> {
+        let len = self.stack.len();
+        if len < 2 {
+            return Err(VmError::internal("stack underflow on GetElemRef"));
+        }
+        let obj = self.stack[len - 2];
+        let key = self.stack[len - 1];
+        match self.get_element_keeping_key(obj, key) {
+            Ok((key, val)) => {
+                // The base slot is already correct; overwrite only the key with
+                // its converted form, then push the value.
+                self.stack[len - 1] = key;
+                self.stack.push(val);
+                Ok(())
+            }
+            Err(e) => {
+                // Consume the reference slots, as every other element opcode
+                // does, before the caller unwinds.
+                self.stack.truncate(len - 2);
+                Err(e)
+            }
+        }
+    }
+
+    /// `Op::ThrowUnsupported` — build the `TypeError` for a construct the
+    /// compiler cannot lower yet. Always throws; control never falls through.
+    ///
+    /// Throwing here rather than refusing to compile keeps the failure scoped to
+    /// the statement that runs it (umbrella I-1: loud **and** scoped) and
+    /// catchable, mirroring how `Op::CheckTdz` raises the TDZ `ReferenceError`.
+    pub(super) fn op_throw_unsupported(&mut self, func_id: FuncId) -> VmError {
+        let idx = self.read_u16_op();
+        match self.load_constant(func_id, idx) {
+            Ok(JsValue::String(id)) => {
+                VmError::type_error(String::from_utf16_lossy(self.strings.get(id)))
+            }
+            Ok(other) => VmError::type_error(format!("unsupported construct ({other:?})")),
+            Err(e) => e,
+        }
+    }
+}

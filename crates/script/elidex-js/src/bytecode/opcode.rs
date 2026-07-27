@@ -32,14 +32,16 @@ pub enum Op {
     /// `[v -- ]` Discard the top of the stack.
     ///
     /// A pure stack operation: it does **not** touch `completion_value`. Use
-    /// [`Op::PopCompletion`] for the one place a discarded value is observable.
+    /// [`Op::PopCompletion`] for the one discard whose value is observable.
     Pop,
     /// `[v -- ]` Discard the top of the stack and record it as the script's
     /// completion value.
     ///
     /// Emitted for an `ExpressionStatement` only — ECMA-262 §14.5.1 makes its
-    /// expression's value the statement's completion, and §16.1.6 step 13.a /
-    /// §19.2.1.1 step 29.a return the script's/`eval`'s last such value.
+    /// expression's value the statement's completion, and §16.1.6 steps 13.a +
+    /// 13.b.i + 17 / §19.2.1.1 steps 29.a + 30.a + 33 surface the script's or
+    /// `eval`'s last such value (13.b.i / 30.a normalise an empty completion to
+    /// `undefined`).
     /// Function, class-constructor, generator and async bodies discard instead
     /// (§10.2.1.4 OrdinaryCallEvaluateBody + §15.2.3 step 4 yield
     /// `ReturnCompletion(undefined)` regardless of a trailing expression), which
@@ -50,6 +52,17 @@ pub enum Op {
     /// scratch — from writing a completion value it does not own: `var x = 5;`
     /// evaluated to `5` instead of `undefined` because the declaration's store
     /// discarded through the recording opcode.
+    ///
+    /// ⚠ This is the only site that records an **expression's** value, which is
+    /// not the same as being the only legitimate writer. §14.2.2 threads
+    /// completions through `UpdateEmpty` (AO §6.2.4.4), and several statements
+    /// yield a *non-empty* `undefined` that must overwrite the accumulated value
+    /// — §14.6.2 step 3 / step 5 for `if`, and likewise iteration, `switch`,
+    /// labelled and `try` statements. The VM has no `UpdateEmpty` equivalent, so
+    /// the register is sticky across them and `42; if (false) {}` yields `42`
+    /// where the spec says `undefined`. Carved as
+    /// `#11-vm-statement-completion-updateempty`, pinned by
+    /// `statement_completion_is_sticky_known_divergence`.
     PopCompletion,
     /// `[a b -- b a]`
     Swap,
@@ -60,14 +73,12 @@ pub enum Op {
     /// assignment short-circuits: `obj[key] ??= v` keeps the old value and must
     /// leave the `[object key]` pair behind.
     ///
-    /// Deliberately **not** `Swap; Pop`. `Op::Pop` records every value it
-    /// discards into `completion_value` at entry-`Eval` frame depth (see its
-    /// dispatch arm), which is right for an ExpressionStatement's value
-    /// (ECMA-262 §14.5.1) but corrupts the script's completion value when used
-    /// for internal stack housekeeping — `eval("if (globalThis.Math ||= 2) {}")`
-    /// returned the global object instead of `undefined`.  `PopUnder` carries no
-    /// completion-tracking side effect, so reference cleanup cannot corrupt the
-    /// completion value by construction.
+    /// One instruction for the whole cleanup: `Swap; Pop` repeated `n` times is
+    /// an emulation of it, and interleaving a swap dance with the pops is how the
+    /// short-circuit tail's stack effect went wrong twice before. `n` is the
+    /// target's reference-slot count (0 identifier / 1 named member / 2 computed
+    /// member), so the retained value ends up alone on the stack whatever shape
+    /// the target had.
     PopUnder,
 
     // ── Local variable access ───────────────────────────────────────
@@ -105,11 +116,13 @@ pub enum Op {
     /// reference, keeping the reference for a following store.
     ///
     /// Emitted for compound and logical assignment to a computed member
-    /// (`obj[key] += v`, `obj[key] ??= v`). ECMA-262 §13.15.2 evaluates the
-    /// LeftHandSideExpression **once** (step 1) and reuses that reference for
-    /// both `GetValue` (step 3) and `PutValue` (step 9), so the operand
-    /// expressions are not re-emitted — a side-effecting *key expression* runs
-    /// once.
+    /// (`obj[key] += v`, `obj[key] ??= v`). Every ECMA-262 §13.15.2 production
+    /// evaluates the LeftHandSideExpression **once** and reuses that reference
+    /// for both `GetValue` and `PutValue`, so the operand expressions are not
+    /// re-emitted — a side-effecting *key expression* runs once. The step
+    /// indices are per-production: `LHS AssignmentOperator AssignmentExpression`
+    /// is steps 1 / 3 / 9, while the logical forms (`&&=` `||=` `??=`) are steps
+    /// 1 / 2 / 6.
     ///
     /// `key'` is the **converted** key: §6.2.5.5 GetValue step 3.c.i writes
     /// `ToPropertyKey`'s result back into the Reference Record, so a later
@@ -287,6 +300,18 @@ pub enum Op {
     PopExceptionHandler,
     /// `[value -- ]`
     Throw,
+    /// Operand: u16 (constant index of the message). `[ -- ]` Always throws a
+    /// `TypeError` carrying that message; control never falls through.
+    ///
+    /// The emit path for a construct the compiler cannot yet lower. The umbrella's
+    /// **I-1** requires such a path to raise a *loud, **scoped*** error, and a
+    /// `CompileError` is loud but not scoped — it fails the whole script, so one
+    /// unsupported construct anywhere costs every other statement in the file.
+    /// This keeps the failure local to the statement that executes it, and
+    /// catchable, exactly as `Op::CheckTdz` does for the TDZ `ReferenceError`.
+    /// Reserve it for constructs that are genuinely unimplemented; a construct the
+    /// *language* rejects belongs in the parser or a `CompileError`.
+    ThrowUnsupported,
     /// `[ -- exception]`
     PushException,
     /// End-of-finally-body marker.  Consults `frame.pending_completion`
@@ -507,6 +532,7 @@ impl Op {
             | Self::DefaultIfUndefined
             | Self::CreateClass
             | Self::GetModuleVar
+            | Self::ThrowUnsupported
             | Self::SwitchJump => 2,
 
             // 3-byte operand (u8 + u16 call IC index, or u16 + u8)

@@ -969,9 +969,9 @@ pub enum UpvalueState {
 /// `ReturnCompletion(undefined)`).
 ///
 /// Frames with `kind = Eval` write the last ExpressionStatement value to
-/// `VmInner::completion_value` via the entry-gated `Op::Pop` arm and
+/// `VmInner::completion_value` via the entry-gated `Op::PopCompletion` arm and
 /// return that value on implicit fall-through; frames with
-/// `kind = Function` never touch `completion_value` (Op::Pop discards,
+/// `kind = Function` never touch `completion_value` (Op::PopCompletion discards,
 /// Op::ReturnUndefined returns literal Undefined). The type-level split
 /// dissolves the pre-D-17b-r2 `is_class_ctor` carve-out and the
 /// `CallFrame::saved_completion` save/restore plumbing.
@@ -982,7 +982,7 @@ pub enum UpvalueState {
 /// observe `completion_value`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FrameKind {
-    /// Top-level script body or `eval` body — the entry-gated `Op::Pop`
+    /// Top-level script body or `eval` body — the entry-gated `Op::PopCompletion`
     /// captures the last ExpressionStatement value into
     /// `completion_value`, returned on implicit fall-through.
     Eval,
@@ -1045,7 +1045,7 @@ pub struct CallFrame {
     /// trips a SyntaxError fallback rather than consuming wrong data.
     pub home_class: Option<ObjectId>,
     /// Frame-kind discriminator (Eval / Function); see [`FrameKind`].
-    /// Drives the entry-frame `Op::Pop` gate and `Op::ReturnUndefined`
+    /// Drives the entry-frame `Op::PopCompletion` gate and `Op::ReturnUndefined`
     /// branch so script/`eval` completion-value semantics stay confined
     /// to `Eval` frames; the only `Eval` push site is the private
     /// `VmInner::run_function`, reached via the public `Vm::eval` /
