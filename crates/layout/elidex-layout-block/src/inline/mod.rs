@@ -1270,7 +1270,7 @@ pub fn reposition_atomic_box(
     }
     let children = dom.composed_children(atomic);
     crate::block::shift_descendants(dom, &children, delta, is_probe);
-    if let Ok(mut lb) = dom.world_mut().get::<&mut elidex_plugin::LayoutBox>(atomic) {
+    if let Some(mut lb) = dom.layout_box_mut(atomic) {
         lb.content.origin += delta;
     }
 }

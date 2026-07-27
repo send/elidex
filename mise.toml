@@ -97,8 +97,8 @@ description = "Hard-cap target/ size to bound incremental cache growth (cargo-sw
 run = "bash scripts/ci-sweep.sh"
 
 [tasks.trip-wires]
-description = "Run layering trip-wires (engine-bridge + VM-side wasm + native-ctor-guard discipline)."
-# Three scripts cover disjoint layering / discipline surfaces:
+description = "Run layering trip-wires (engine-bridge + VM-side wasm + native-ctor-guard + LayoutBox-reader-audit discipline)."
+# Four scripts cover disjoint layering / discipline surfaces:
 #   - wasm-runtime-trip-wire.sh: elidex-wasm-runtime tier A-E discipline
 #     + elidex-js-boa wasmtime-free post-F1
 #   - wasm-vm-trip-wire.sh: elidex-js (VM) host/wasm + wasm_payload + crate
@@ -106,12 +106,17 @@ description = "Run layering trip-wires (engine-bridge + VM-side wasm + native-ct
 #   - native-ctor-guard-trip-wire.sh: per-ctor `if !ctx.is_construct()`
 #     literal-guard + `check_construct(ctx)` helper-call re-introduction
 #     post-`#11-vm-native-constructor-only-flag` (Stage 3c)
+#   - layout-box-reader-trip-wire.sh: terminal-Z C-3 LayoutBox/BoxModel reader
+#     inventory (allowlist diff) + name-introduction ban — keeps the reader audit
+#     (docs/audits/2026-07-layoutbox-reader-inventory.md) exhaustive + current so
+#     C-4 can delete `LayoutBox`.
 # A single `trip-wires` task collapses the decision surface so no wire
 # can be skipped on a busy PR.
 run = """
 bash .claude/tools/wasm-runtime-trip-wire.sh
 bash .claude/tools/wasm-vm-trip-wire.sh
 bash .claude/tools/native-ctor-guard-trip-wire.sh
+bash .claude/tools/layout-box-reader-trip-wire.sh
 """
 
 [tasks.ci]

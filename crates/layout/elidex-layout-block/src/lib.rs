@@ -360,7 +360,7 @@ pub fn empty_container_box(
         first_baseline: None,
         layout_generation: params.layout_generation,
     };
-    let _ = dom.world_mut().insert_one(entity, lb.clone());
+    dom.set_layout_box(entity, lb.clone());
     lb
 }
 

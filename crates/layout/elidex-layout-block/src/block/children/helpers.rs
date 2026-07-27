@@ -352,7 +352,7 @@ pub(super) fn layout_float(
         first_baseline: child_box.first_baseline,
         layout_generation: input.layout_generation,
     };
-    let _ = dom.world_mut().insert_one(child, lb);
+    dom.set_layout_box(child, lb);
 
     // Reposition descendants relative to the new origin.
     let delta_x = final_x - child_box.content.origin.x;

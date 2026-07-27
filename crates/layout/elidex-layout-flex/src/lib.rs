@@ -501,7 +501,7 @@ pub fn layout_flex(
         first_baseline,
         layout_generation: 0,
     };
-    let _ = dom.world_mut().insert_one(entity, lb.clone());
+    dom.set_layout_box(entity, lb.clone());
 
     // Layout positioned descendants owned by this containing block.
     // CSS Flexbox §4.1: the flex container establishes a CB for absolute children
