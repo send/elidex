@@ -536,3 +536,52 @@ fn unlowerable_assignment_targets_throw_rather_than_silently_doing_nothing() {
     // does not stop unrelated statements from running.
     assert_eq!(eval_number("function f(){ var x=1; (x) += 1 } 42"), 42.0);
 }
+
+/// The admissibility gate is one decision site evaluated **before** the
+/// computed/non-computed split, so a target's rejection cannot depend on which
+/// lowering it would have taken.
+///
+/// Every guard this slice added was first written inside one branch and was
+/// wrong for its sibling: the private-name check started as
+/// `MemberProp::Identifier`-only (so `this.#x ??= 1` still aborted the process),
+/// its replacement sat below the computed branch, and the `super` guard sat
+/// below it too — so `super.x = v` threw the scoped error while `super[k] = v`
+/// fell through to `Op::PushUndefined` and a misleading "cannot read property of
+/// undefined", *after* evaluating both operands. These pin both members of each
+/// pair, and that the throw precedes operand side effects.
+#[test]
+fn unsupported_member_targets_are_rejected_by_shape_not_by_lowering() {
+    let in_class =
+        |body: &str| format!("class B{{}}; class D extends B{{ m(){{ {body} }} }}; new D().m()");
+
+    for op in ["=", "+=", "??=", "||=", "&&="] {
+        // Named and computed super targets must behave identically.
+        eval_throws(&in_class(&format!("super.x {op} 1")));
+        eval_throws(&in_class(&format!("super['x'] {op} 1")));
+        eval_throws(&in_class(&format!("super[k()] {op} 1")));
+        // Private names, both receivers.
+        eval_throws(&format!(
+            "class C{{#x=0; m(){{ this.#x {op} 1 }}}}; new C().m()"
+        ));
+    }
+
+    // The throw precedes operand evaluation: neither the key expression nor the
+    // RHS runs. `super[k()] = r()` previously evaluated BOTH before failing.
+    for src in [
+        "super[k()] = r()",
+        "super[k()] += r()",
+        "super.x = r()",
+        "super[k()] ??= r()",
+    ] {
+        let program = format!(
+            "var log=''; function k(){{log+='k'; return 'x'}} function r(){{log+='r'; return 1}} \
+             class B{{}}; class D extends B{{ m(){{ {src} }} }} \
+             try {{ new D().m() }} catch (e) {{ log += '!' }} log"
+        );
+        assert_eq!(
+            eval_string(&program),
+            "!",
+            "side effects ran before the throw in: {src}"
+        );
+    }
+}

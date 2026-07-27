@@ -292,6 +292,60 @@ pub(super) fn compile_assignment(
     Ok(())
 }
 
+/// The single admissibility gate for a member-assignment target: the message
+/// for [`Op::ThrowUnsupported`] when the target has no store path yet, or `None`
+/// when it can be lowered.
+///
+/// Deliberately **one** decision site, evaluated *before* the
+/// computed/non-computed split. Deciding admissibility inside a lowering branch
+/// has been wrong three times in this slice alone: a `MemberProp::Identifier`-only
+/// check let `this.#x ??= 1` reach `compound_op_to_opcode`'s `unreachable!` and
+/// abort the process; the private-name guard that replaced it sat below the
+/// computed branch, so `this.#x` was rejected while a computed private target was
+/// not; and the `super` guard sat below it too, so `super.x = v` threw the scoped
+/// error while `super[k] = v` fell through to `PushUndefined` and a misleading
+/// "cannot read property of undefined" *after* running both operands. Whether a
+/// target can be lowered does not depend on which lowering it would take, so it
+/// must not be decided inside one.
+///
+/// Rejection is a scoped runtime throw, not a `CompileError`: umbrella I-1 wants
+/// loud **and scoped**, and §9 decision 5 reserves `CompileError` for what the
+/// compiler already rejects. A `CompileError` emits no bytecode for the whole
+/// script, so one `this.#x = 1` would take every unrelated statement down with
+/// it. The throw precedes operand evaluation — the construct is unsupported in
+/// full, so running half its side effects first would be a second, subtler
+/// divergence.
+fn unsupported_member_target(
+    prog: &Program,
+    object: NodeId<Expr>,
+    property: &MemberProp,
+    computed: bool,
+) -> Option<&'static str> {
+    // No `Op::SetPrivate` emit path yet, and every form failed differently:
+    // `this.#x ??= 1` aborted the process, while `this.#x = 1` / `+= 1` emitted a
+    // store that fell to an `Op::Pop` tail — the write silently lost and the
+    // expression evaluating to the *object*.
+    if matches!(property, MemberProp::PrivateIdentifier(_)) {
+        return Some(
+            "assignment to a private name is not yet supported (#11-vm-class-private-fields)",
+        );
+    }
+    // Both lowerings emit the base with `compile_expr`, which turns
+    // `ExprKind::Super` into `Op::PushUndefined`; there is no `SetSuperProp` or
+    // `SetSuperElem` emit path, so the store would go to `undefined`.
+    if matches!(prog.exprs.get(object).kind, ExprKind::Super) {
+        return Some(
+            "assignment to a super property is not yet supported (#11-step9-class-extras)",
+        );
+    }
+    // Shape/flag mismatches: each lowering below is total on exactly one
+    // `MemberProp` variant, so anything else would silently mis-lower.
+    match (computed, property) {
+        (true, MemberProp::Expression(_)) | (false, MemberProp::Identifier(_)) => None,
+        _ => Some("assignment to this member target is not yet supported"),
+    }
+}
+
 /// Compile assignment to a member target (`o.p = v`, `o[k] += v`, `o.p ??= v`).
 ///
 /// Every ECMA-262 §13.15.2 production evaluates the LeftHandSideExpression
@@ -312,6 +366,13 @@ fn compile_member_assignment(
     op: AssignOp,
     right: NodeId<Expr>,
 ) -> Result<(), CompileError> {
+    // ONE admissibility decision, before the computed/non-computed split.
+    if let Some(message) = unsupported_member_target(prog, object, property, computed) {
+        let idx = fc.add_constant(Constant::Wtf16(message.encode_utf16().collect()));
+        fc.emit_u16(Op::ThrowUnsupported, idx);
+        return Ok(());
+    }
+
     if computed {
         // `Op::SetElem` consumes `[object key value -- value]`.
         compile_expr(fc, prog, analysis, func_scopes, object)?;
@@ -346,73 +407,13 @@ fn compile_member_assignment(
         return Ok(());
     }
 
-    // There is no `Op::SetPrivate` emit path yet (Slice 5 /
-    // `#11-vm-class-private-fields`), so **no** store to a private name can be
-    // compiled — and the failure mode differed per form, which is why this is one
-    // guard rather than a per-form check:
-    //
-    //   `this.#x ??= 1`  reached `compound_op_to_opcode`'s `unreachable!` and
-    //                    aborted the process;
-    //   `this.#x += 1`   emitted `GetPrivate`, computed the sum, then discarded
-    //                    it at the `Op::Pop` tail — the write was silently lost
-    //                    and the expression evaluated to the *object*;
-    //   `this.#x = 1`    same silent loss, without the arithmetic.
-    //
-    // Both are banned by the umbrella's I-1 (connect or reject, never a
-    // silently-wrong path).  I-1 asks for a **scoped** error and §9 decision 5
-    // picks a runtime throw for unimplemented *expressions*, reserving
-    // `CompileError` for what the compiler already rejects — so this emits
-    // `Op::ThrowUnsupported` rather than failing the compile.  The distinction is
-    // not cosmetic: a `CompileError` yields no bytecode for the whole script, so
-    // one `this.#x = 1` anywhere would take every unrelated statement in the file
-    // down with it — strictly worse than the pre-slice behaviour for `=` and
-    // `+=`, which at least let the rest of the script run.
-    //
-    // The throw precedes the operand evaluation: the construct is unsupported in
-    // full, so running half its side effects first would be a second, subtler
-    // divergence to reason about.
-    if matches!(property, MemberProp::PrivateIdentifier(_)) {
-        let msg = fc.add_constant(Constant::Wtf16(
-            "assignment to a private name is not yet supported \
-             (#11-vm-class-private-fields)"
-                .encode_utf16()
-                .collect(),
-        ));
-        fc.emit_u16(Op::ThrowUnsupported, msg);
-        return Ok(());
-    }
-
-    // Everything below lowers the base with `compile_expr`, which turns
-    // `ExprKind::Super` into `Op::PushUndefined` — there is no `SetSuperProp`
-    // emit path yet, so `super.x = v` would store onto `undefined` and report a
-    // misleading "cannot read property of undefined".  Reject it under its own
-    // slot instead.  (`super[k]` reaches the computed branch above, which has
-    // the same gap; both are `#11-step9-class-extras`.)
-    if matches!(prog.exprs.get(object).kind, ExprKind::Super) {
-        let msg = fc.add_constant(Constant::Wtf16(
-            "assignment to a super property is not yet supported \
-             (#11-step9-class-extras)"
-                .encode_utf16()
-                .collect(),
-        ));
-        fc.emit_u16(Op::ThrowUnsupported, msg);
-        return Ok(());
-    }
-
-    // Discriminate on the property BEFORE any emit: the compound path below
-    // calls `compound_op_to_opcode`, which still has an `unreachable!` for the
-    // logical operators, so a `MemberProp` that reaches it with `&&=`/`||=`/`??=`
-    // would panic the process.  Only `Identifier` has a store path here —
-    // `PrivateIdentifier` returned above, and `Expression` reaches this function
-    // only with `computed`, handled in the branch at the top.
+    // Only `Identifier` reaches here — every other shape was rejected by the
+    // admissibility gate above.
     let MemberProp::Identifier(prop_name) = property else {
-        let msg = fc.add_constant(Constant::Wtf16(
-            "assignment to this member target is not yet supported"
-                .encode_utf16()
-                .collect(),
-        ));
-        fc.emit_u16(Op::ThrowUnsupported, msg);
-        return Ok(());
+        return Err(CompileError {
+            message: "member assignment target passed the admissibility gate but has no lowering"
+                .into(),
+        });
     };
 
     // Named-member logical assignment: `o.p ||= v`. `[obj]` → `[obj old]`.
