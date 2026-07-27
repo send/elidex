@@ -6,8 +6,10 @@ use num_bigint::BigInt;
 
 use crate::bytecode::compiled::Constant;
 
+use super::coerce::to_number;
+use super::ops::{parse_array_index_u16, try_as_array_index};
 use super::value::{
-    FuncId, JsValue, Object, ObjectKind, PropertyKey, PropertyValue, StringId, VmError,
+    FuncId, JsValue, Object, ObjectId, ObjectKind, PropertyKey, PropertyValue, StringId, VmError,
 };
 use super::VmInner;
 
@@ -236,11 +238,27 @@ impl VmInner {
     }
 }
 
-// ── Stack + member-reference opcode bodies ───────────────────────────
+// ── Stack + member-access opcode bodies ──────────────────────────────
 //
 // Extracted rather than written inline: `dispatch.rs` is over the 1000-line
-// threshold, and the umbrella's forward rule for slices that add arms is to put
-// the body in a `dispatch_*.rs` sibling so the dispatch loop stays a table.
+// threshold, and the umbrella's forward rule for slices that add or edit arms is
+// to put the body in a `dispatch_*.rs` sibling so the dispatch loop stays a
+// table.
+
+/// §12.5.3.2 DeleteExpression: strict-mode TypeError message when
+/// `[[Delete]]` returns `false`.
+pub(super) const NON_CONFIGURABLE_DELETE_MSG: &str =
+    "Cannot delete property: property is not configurable";
+
+/// §12.5.3.2 DeleteExpression step 6 `? ToObject(ref.[[Base]])`.  Null/undefined
+/// throw TypeError (via ToObject); other primitives are boxed to their
+/// wrapper so their [[Delete]] applies to the (temporary) wrapper.
+pub(super) fn resolve_delete_base(vm: &mut VmInner, obj: JsValue) -> Result<ObjectId, VmError> {
+    match obj {
+        JsValue::Object(id) => Ok(id),
+        _ => super::coerce::to_object(vm, obj),
+    }
+}
 
 impl VmInner {
     /// `Op::PopUnder` — `[a1 … an v -- v]`, discard `n` slots from beneath the
@@ -275,9 +293,8 @@ impl VmInner {
     /// base be collected mid-conversion and then hand a dangling `ObjectId` to
     /// the `SetElem` that follows — a store into a recycled slot, or
     /// `get_object_mut`'s "object already freed" panic. Keeping both slots on
-    /// the stack makes this opcode rooted **by construction**. The read-side
-    /// element opcodes still pop and remain exposed (pre-existing;
-    /// `#11-vm-element-access-base-rooting`).
+    /// the stack makes this opcode rooted **by construction** — the shape the
+    /// rest of the element-access family below now shares.
     ///
     /// `key'` is the **converted** key: §6.2.5.5 GetValue step 3.c.i writes
     /// `ToPropertyKey`'s result back into the Reference Record, so a later
@@ -304,6 +321,172 @@ impl VmInner {
                 Err(e)
             }
         }
+    }
+
+    /// `Op::GetElem` — `[object key -- value]`, ordinary computed member read.
+    ///
+    /// Reads the operand pair **in place** for the same reason as
+    /// [`Self::op_get_elem_ref`]: `ToPropertyKey` on an object key runs user
+    /// `toString`/`@@toPrimitive`, which can allocate enough to collect, and the
+    /// GC roots the VM stack but not Rust locals. The slots are dropped only
+    /// once the access has finished, so a temporary base cannot be collected out
+    /// from under it and yield a value read from a recycled object.
+    pub(super) fn op_get_elem(&mut self) -> Result<(), VmError> {
+        let len = self.stack.len();
+        if len < 2 {
+            return Err(VmError::internal("stack underflow on GetElem"));
+        }
+        let obj = self.stack[len - 2];
+        let key = self.stack[len - 1];
+        let result = self.get_element(obj, key);
+        // Consume the operands on both paths: `[object key -- value]` on
+        // success, `[object key -- ]` before the caller's `throw_error`.
+        self.stack.truncate(len - 2);
+        let val = result?;
+        self.stack.push(val);
+        Ok(())
+    }
+
+    /// `Op::SetElem` — `[object key value -- value]`, computed member store.
+    ///
+    /// Reads all three operands **in place**, which matters more here than on
+    /// the read side: `set_element` hand-rolls `ToPropertyKey`, so a base popped
+    /// into a (non-rooted) Rust local could be collected by an allocating user
+    /// `toString` and the store would then go through a dangling `ObjectId` —
+    /// into whatever object recycled the slot, or `get_object_mut`'s "object
+    /// already freed" panic. Leaving the slots in place also roots `value`,
+    /// which is otherwise equally exposed to the key conversion.
+    pub(super) fn op_set_elem(&mut self) -> Result<(), VmError> {
+        let len = self.stack.len();
+        if len < 3 {
+            return Err(VmError::internal("stack underflow on SetElem"));
+        }
+        let obj = self.stack[len - 3];
+        let key = self.stack[len - 2];
+        let val = self.stack[len - 1];
+        let result = self.set_element(obj, key, val);
+        // `[object key value -- value]` on success; all three consumed and
+        // nothing pushed before the caller's `throw_error`.
+        self.stack.truncate(len - 3);
+        result?;
+        self.stack.push(val);
+        Ok(())
+    }
+
+    /// `Op::DeleteElem` — `[object key -- boolean]`, `delete object[key]`.
+    ///
+    /// Reads the operand pair **in place** because this arm *mutates*:
+    /// `make_property_key` runs user `toString`/`@@toPrimitive` and
+    /// `try_delete_property` then deletes through the base, so a base held only
+    /// in a Rust local could be collected mid-conversion and the delete would
+    /// hit a recycled object (or panic in `get_object_mut`). The boxed wrapper a
+    /// primitive base coerces to is written back into the base slot for the same
+    /// reason — after `resolve_delete_base` *it* is the object being mutated,
+    /// and nothing else references it.
+    pub(super) fn op_delete_elem(&mut self) -> Result<(), VmError> {
+        let len = self.stack.len();
+        if len < 2 {
+            return Err(VmError::internal("stack underflow on DeleteElem"));
+        }
+        let obj_val = self.stack[len - 2];
+        let key = self.stack[len - 1];
+        let id = match resolve_delete_base(self, obj_val) {
+            Ok(id) => id,
+            Err(e) => {
+                self.stack.truncate(len - 2);
+                return Err(e);
+            }
+        };
+        // Root the resolved base in the slot it came from — for a primitive base
+        // this is a wrapper nothing else holds.  Both slots are dropped below,
+        // so the arm's stack effect is unchanged.
+        self.stack[len - 2] = JsValue::Object(id);
+        // Resolve array index from Number or String key.
+        let arr_idx = match key {
+            JsValue::Number(n) => try_as_array_index(n),
+            JsValue::String(sid) => parse_array_index_u16(self.strings.get(sid)),
+            _ => None,
+        };
+        // Fast path: array element present → set to Empty.
+        let fast = arr_idx.and_then(|idx| match &self.get_object(id).kind {
+            ObjectKind::Array { elements } if idx < elements.len() && !elements[idx].is_empty() => {
+                Some(idx)
+            }
+            _ => None,
+        });
+        let deleted = if let Some(idx) = fast {
+            if let ObjectKind::Array { elements } = &mut self.get_object_mut(id).kind {
+                elements[idx] = JsValue::Empty;
+            }
+            Ok(true)
+        } else {
+            self.make_property_key(key)
+                .and_then(|pk| self.try_delete_property(id, pk))
+        };
+        self.stack.truncate(len - 2);
+        if deleted? {
+            self.stack.push(JsValue::Boolean(true));
+            Ok(())
+        } else {
+            // §12.5.3.2: `delete` throws TypeError in strict mode when
+            // [[Delete]] returns false.  All code is strict, so we always throw.
+            Err(VmError::type_error(NON_CONFIGURABLE_DELETE_MSG))
+        }
+    }
+
+    /// `Op::IncElem` / `Op::DecElem` — `[object key -- number]`, plus a `prefix`
+    /// operand byte read from the bytecode.
+    ///
+    /// Reads the operand pair **in place** because this arm runs user code
+    /// twice before it stores: `ToPropertyKey` on the key and `ToNumber` on the
+    /// old value can each allocate enough to collect, and the following
+    /// `set_element` writes through the *same* base. A base popped into a Rust
+    /// local — which the GC does not root — would make that a store through a
+    /// dangling `ObjectId`; keeping both slots on the stack makes the whole
+    /// read-modify-write rooted by construction.
+    pub(super) fn op_inc_dec_elem(&mut self, increment: bool) -> Result<(), VmError> {
+        let prefix = self.read_u8_op() != 0;
+        let len = self.stack.len();
+        if len < 2 {
+            return Err(VmError::internal("stack underflow on IncElem/DecElem"));
+        }
+        let obj_val = self.stack[len - 2];
+        let raw_key = self.stack[len - 1];
+        let result = self.inc_dec_elem_value(obj_val, raw_key, increment, prefix);
+        // `[object key -- number]` on success; both consumed and nothing pushed
+        // before the caller's `throw_error`.
+        self.stack.truncate(len - 2);
+        let val = result?;
+        self.stack.push(val);
+        Ok(())
+    }
+
+    /// Read-modify-write body of [`Self::op_inc_dec_elem`], split out so the
+    /// caller drops the operand slots on exactly one path — they must stay
+    /// rooted for the whole of this function.
+    ///
+    /// `o[k]++` evaluates its reference once (§13.4.2.1 step 1) and reuses it
+    /// for GetValue (step 3) and PutValue (step 6), so the key is converted
+    /// once — §6.2.5.5 step 3.c.i.  All four update productions this arm serves
+    /// share that shape (§13.4.2.1/§13.4.3.1 postfix, §13.4.4.1/§13.4.5.1
+    /// prefix).  Passing the raw key to both accessors ran a stateful
+    /// `toString` twice, reading one property and writing another.
+    fn inc_dec_elem_value(
+        &mut self,
+        obj: JsValue,
+        raw_key: JsValue,
+        increment: bool,
+        prefix: bool,
+    ) -> Result<JsValue, VmError> {
+        let (key, old) = self.get_element_keeping_key(obj, raw_key)?;
+        let old_num = to_number(self, old)?;
+        let new_num = if increment {
+            old_num + 1.0
+        } else {
+            old_num - 1.0
+        };
+        self.set_element(obj, key, JsValue::Number(new_num))?;
+        Ok(JsValue::Number(if prefix { new_num } else { old_num }))
     }
 
     /// `Op::ThrowUnsupported` — build the `TypeError` for a construct the

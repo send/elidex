@@ -7,23 +7,10 @@ use crate::bytecode::opcode::Op;
 
 use super::coerce::{abstract_eq, strict_eq, to_boolean, to_number, typeof_str};
 use super::coerce_ops::{op_bitnot, op_neg, op_not, op_pos, op_void, BitwiseOp, NumericBinaryOp};
-use super::ops::{parse_array_index_u16, try_as_array_index, EndFinallyAction};
+use super::dispatch_helpers::{resolve_delete_base, NON_CONFIGURABLE_DELETE_MSG};
+use super::ops::EndFinallyAction;
 use super::value::{FrameKind, JsValue, ObjectId, ObjectKind, PropertyKey, VmError, VmErrorKind};
 use super::VmInner;
-
-/// §12.5.3.2 DeleteExpression: strict-mode TypeError message when
-/// `[[Delete]]` returns `false`.
-const NON_CONFIGURABLE_DELETE_MSG: &str = "Cannot delete property: property is not configurable";
-
-/// §12.5.3.2 DeleteExpression step 6 `? ToObject(ref.[[Base]])`.  Null/undefined
-/// throw TypeError (via ToObject); other primitives are boxed to their
-/// wrapper so their [[Delete]] applies to the (temporary) wrapper.
-fn resolve_delete_base(vm: &mut VmInner, obj: JsValue) -> Result<super::value::ObjectId, VmError> {
-    match obj {
-        JsValue::Object(id) => Ok(id),
-        _ => super::coerce::to_object(vm, obj),
-    }
-}
 
 // ---------------------------------------------------------------------------
 // Main dispatch loop
@@ -463,42 +450,9 @@ impl VmInner {
                     }
                 }
                 Op::IncElem | Op::DecElem => {
-                    let prefix = self.read_u8_op() != 0;
-                    let raw_key = self.pop()?;
-                    let obj_val = self.pop()?;
-                    // `o[k]++` evaluates its reference once (§13.4.2.1 step 1)
-                    // and reuses it for GetValue (step 3) and PutValue (step 6),
-                    // so the key is converted once — §6.2.5.5 step 3.c.i.  All
-                    // four update productions this arm serves share that shape
-                    // (§13.4.2.1/§13.4.3.1 postfix, §13.4.4.1/§13.4.5.1 prefix).
-                    // Passing the raw key to both accessors ran a stateful
-                    // `toString` twice, reading one property and writing another.
-                    let (key, old) = match self.get_element_keeping_key(obj_val, raw_key) {
-                        Ok(pair) => pair,
-                        Err(e) => {
-                            self.throw_error(e, entry_frame_depth)?;
-                            continue;
-                        }
-                    };
-                    match to_number(self, old) {
-                        Ok(old_num) => {
-                            let new_num = if op == Op::IncElem {
-                                old_num + 1.0
-                            } else {
-                                old_num - 1.0
-                            };
-                            if let Err(e) = self.set_element(obj_val, key, JsValue::Number(new_num))
-                            {
-                                self.throw_error(e, entry_frame_depth)?;
-                                continue;
-                            }
-                            self.stack.push(JsValue::Number(if prefix {
-                                new_num
-                            } else {
-                                old_num
-                            }));
-                        }
-                        Err(e) => self.throw_error(e, entry_frame_depth)?,
+                    // Body in `dispatch_helpers.rs` — see `op_inc_dec_elem`.
+                    if let Err(e) = self.op_inc_dec_elem(op == Op::IncElem) {
+                        self.throw_error(e, entry_frame_depth)?;
                     }
                 }
 
@@ -603,13 +557,9 @@ impl VmInner {
                     }
                 }
                 Op::GetElem => {
-                    let key = self.pop()?;
-                    let obj = self.pop()?;
-                    match self.get_element(obj, key) {
-                        Ok(val) => self.stack.push(val),
-                        Err(e) => {
-                            self.throw_error(e, entry_frame_depth)?;
-                        }
+                    // Body in `dispatch_helpers.rs` — see `op_get_elem`.
+                    if let Err(e) = self.op_get_elem() {
+                        self.throw_error(e, entry_frame_depth)?;
                     }
                 }
                 Op::GetElemRef => {
@@ -619,14 +569,10 @@ impl VmInner {
                     }
                 }
                 Op::SetElem => {
-                    let val = self.pop()?;
-                    let key = self.pop()?;
-                    let obj = self.pop()?;
-                    if let Err(e) = self.set_element(obj, key, val) {
+                    // Body in `dispatch_helpers.rs` — see `op_set_elem`.
+                    if let Err(e) = self.op_set_elem() {
                         self.throw_error(e, entry_frame_depth)?;
-                        continue;
                     }
-                    self.stack.push(val);
                 }
                 Op::DeleteProp => {
                     let name_idx = self.read_u16_op();
@@ -653,49 +599,9 @@ impl VmInner {
                     }
                 }
                 Op::DeleteElem => {
-                    let key = self.pop()?;
-                    let obj_val = self.pop()?;
-                    let id = match resolve_delete_base(self, obj_val) {
-                        Ok(id) => id,
-                        Err(e) => {
-                            self.throw_error(e, entry_frame_depth)?;
-                            continue;
-                        }
-                    };
-                    // Resolve array index from Number or String key.
-                    let arr_idx = match key {
-                        JsValue::Number(n) => try_as_array_index(n),
-                        JsValue::String(sid) => parse_array_index_u16(self.strings.get(sid)),
-                        _ => None,
-                    };
-                    // Fast path: array element present → set to Empty.
-                    let fast = arr_idx.and_then(|idx| match &self.get_object(id).kind {
-                        ObjectKind::Array { elements }
-                            if idx < elements.len() && !elements[idx].is_empty() =>
-                        {
-                            Some(idx)
-                        }
-                        _ => None,
-                    });
-                    if let Some(idx) = fast {
-                        if let ObjectKind::Array { elements } = &mut self.get_object_mut(id).kind {
-                            elements[idx] = JsValue::Empty;
-                        }
-                        self.stack.push(JsValue::Boolean(true));
-                    } else {
-                        match self
-                            .make_property_key(key)
-                            .and_then(|pk| self.try_delete_property(id, pk))
-                        {
-                            Ok(true) => self.stack.push(JsValue::Boolean(true)),
-                            // §12.5.3.2: strict-mode throw when [[Delete]]
-                            // returns false.
-                            Ok(false) => self.throw_error(
-                                VmError::type_error(NON_CONFIGURABLE_DELETE_MSG),
-                                entry_frame_depth,
-                            )?,
-                            Err(e) => self.throw_error(e, entry_frame_depth)?,
-                        }
+                    // Body in `dispatch_helpers.rs` — see `op_delete_elem`.
+                    if let Err(e) = self.op_delete_elem() {
+                        self.throw_error(e, entry_frame_depth)?;
                     }
                 }
 

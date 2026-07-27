@@ -13,7 +13,7 @@
 //! `PutValue` (step 9).  The logical forms evaluate the RHS only when the
 //! short-circuit test fails.
 
-use super::{eval, eval_number, eval_string, eval_throws};
+use super::{eval, eval_bool, eval_number, eval_string, eval_throws};
 use crate::vm::JsValue;
 
 // ── Computed compound: `obj[key] op= v` ──────────────────────────────
@@ -247,8 +247,10 @@ fn computed_compound_converts_key_once() {
         eval_number("var n=0; var k={toString(){n++;return 'p'}}; var o={p:0}; o[k]||=2; n"),
         1.0
     );
-    // `o[k]++` (§13.4.4.1 steps 1/5) reuses one reference too — the same root,
-    // fixed with it rather than left as a second answer to one question.
+    // `o[k]++` reuses one reference too — §13.4.2.1 (postfix) evaluates it at
+    // step 1 and reuses it for `GetValue` (step 3) and `PutValue` (step 6).
+    // Same root, fixed with it rather than left as a second answer to one
+    // question.
     assert_eq!(
         eval_number("var n=0; var k={toString(){n++;return 'p'}}; var o={p:1}; o[k]++; n"),
         1.0
@@ -429,37 +431,77 @@ fn computed_compound_keeps_temporary_base_rooted() {
     assert_eq!(eval_number(&format!("{temp_base}[{key}] ||= 9")), 1.0);
 }
 
-/// ⚠ CARVED: `#11-vm-element-access-base-rooting`.
+/// The whole element-access family is rooted **by construction**: every arm
+/// reads its operands in place by index instead of popping them into Rust
+/// locals, so the base stays on the GC-rooted VM stack while the key conversion
+/// — and, for `++`, the `ToNumber` of the old value — runs user code. The three
+/// mutating members are why it matters: a base collected mid-conversion would
+/// make their store or delete go through a dangling `ObjectId`, into whatever
+/// object recycled the slot.
 ///
-/// The **read-only** element opcodes still pop base and key into Rust locals
-/// before the key conversion runs, and those locals are not GC roots, so a key
-/// whose `toString` allocates enough to collect can have the base collected out
-/// from under the access.
+/// A store or delete through a temporary base leaves nothing to read back, so
+/// each mutating case carries its own witness: an accessor whose setter is
+/// reachable from the base alone (it cannot run if the base was collected), and
+/// a non-configurable property whose deletion must throw (a recycled object
+/// would report success instead).
 ///
-/// Verified pre-existing — both cases below are already wrong on `main`, which
-/// is why they are carved rather than patched here; `Op::GetElemRef` above is
-/// the one member this slice introduces, and it is fixed in place. The slot
-/// unifies the remaining family (`GetElem` / `SetElem` / `DeleteElem` /
-/// `IncElem` / `DecElem`) onto one rooted primitive.
+/// The allocation count below has to actually provoke a collection for this to
+/// be a real guard; if a GC-threshold change ever makes it stop provoking one,
+/// this test passes vacuously rather than failing loudly.
 #[test]
-fn read_side_temporary_base_rooting_known_divergence() {
+fn element_access_keeps_temporary_base_rooted() {
     let key = "{toString(){var a=[]; for(var i=0;i<2000;i++) a.push({x:i}); return 'p'}}";
     let temp_base = "(function(){return {p:1}})()";
 
-    // Spec: 1.  Current: `undefined` — `Op::GetElem`.
-    assert!(matches!(
-        eval(&format!("{temp_base}[{key}]")).unwrap(),
-        JsValue::Undefined
+    // `Op::GetElem` — read-only; a collected base read as `undefined`.
+    assert_eq!(eval_number(&format!("{temp_base}[{key}]")), 1.0);
+    // `Op::IncElem` — read-modify-write; postfix yields the old value, so a
+    // collected base surfaced as `NaN`.
+    assert_eq!(eval_number(&format!("{temp_base}[{key}]++")), 1.0);
+    // `Op::DecElem` — same arm, opposite direction.
+    assert_eq!(eval_number(&format!("--{temp_base}[{key}]")), 0.0);
+    // `Op::SetElem` — the store has to land on the *intended* object.
+    assert_eq!(
+        eval_number(&format!(
+            "var seen=0; (function(){{return {{set p(v){{seen=v}}}}}})()[{key}] = 7; seen"
+        )),
+        7.0
+    );
+    assert_eq!(eval_number(&format!("{temp_base}[{key}] = 7")), 7.0);
+    // `Op::DeleteElem` — mutating; the frozen base is the sharp witness.
+    assert!(eval_bool(&format!("delete {temp_base}[{key}]")));
+    eval_throws(&format!(
+        "delete (function(){{return Object.freeze({{p:1}})}})()[{key}]"
     ));
-    // Spec: 1.  Current: NaN — `Op::IncElem`.
-    assert!(eval(&format!("{temp_base}[{key}]++"))
-        .unwrap()
-        .as_number()
-        .is_some_and(f64::is_nan));
-    // A base held by a variable IS rooted, so the same programs are correct —
-    // which is what identifies the defect as rooting rather than lowering.
+
+    // Control: a base bound to a variable lives in the frame's stack slots, so
+    // it was rooted even before the fix.  These pin that reading the operands in
+    // place left the ordinary path — including `DeleteElem`'s array-index fast
+    // path — alone.
     assert_eq!(eval_number(&format!("var o={{p:1}}; o[{key}]")), 1.0);
     assert_eq!(eval_number(&format!("var o={{p:1}}; o[{key}]++")), 1.0);
+    assert_eq!(
+        eval_number(&format!("var o={{p:1}}; o[{key}] = 7; o.p")),
+        7.0
+    );
+    assert!(matches!(
+        eval(&format!("var o={{p:1}}; delete o[{key}]; o.p")).unwrap(),
+        JsValue::Undefined
+    ));
+    // `DeleteElem`'s array-index fast path: it keys off the *raw* operand, so a
+    // Number or already-string key reaches it and punches a hole in the dense
+    // storage.  (An object key that stringifies to an index does not — it takes
+    // the generic path, which does not see dense elements at all.  Pre-existing
+    // and unchanged here: `delete a[{toString(){return '0'}}]` reports success
+    // while leaving `a[0]` intact, on both sides of this fix.)
+    assert!(matches!(
+        eval("var a=[1,2,3]; delete a['0']; a[0]").unwrap(),
+        JsValue::Undefined
+    ));
+    assert!(matches!(
+        eval("var a=[1,2,3]; delete a[0]; a[0]").unwrap(),
+        JsValue::Undefined
+    ));
 }
 
 /// Sibling targets in the same `match` the private-name guard hardened. Each
