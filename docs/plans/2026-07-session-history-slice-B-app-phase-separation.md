@@ -19,7 +19,7 @@
 > **same-turn** entry point. If anything in this memo proposes a substrate change, it is a mistake — flag it.
 >
 > **Substrate this drives (DO NOT modify):**
-> `crates/shell/elidex-navigation/src/traversal_queue.rs` — `TraversalDelta` / `UserInvolvement` /
+> `crates/shell/elidex-navigation/src/traversal_queue/` — `TraversalDelta` / `UserInvolvement` /
 > `PendingTraversal` / `PendingHistoryStep` / `TraversalQueue` / `DrainOutcome` / `DrainHost` /
 > `DrainCoordinator`. The `DrainCoordinator::drain_same_turn` method is **already documented as "the
 > app-mode-degenerate / atomic same-turn drain"** (on `DrainCoordinator::drain_same_turn` itself) — Slice B is its first real
@@ -327,7 +327,7 @@ overwrites the *current* entry — now the traversal target, not the entry whose
 the push arm (`push_same_document` → `push_entry`) runs `entries.truncate(current_index + 1)`, **destroying the
 forward entries the user just traversed away from** before inserting at the wrong point.
 
-**Pinned-not-silent** (`app_history_drain_tests::app_popstate_staged_action_defers_to_the_next_drain_not_the_current_queue`),
+**Pinned-not-silent** (`app_history_phase_sep_tests::app_popstate_staged_action_defers_to_the_next_drain_not_the_current_queue`),
 fenced to `#11-app-mode-turn-completion-drain`. The fix is unchanged — **loop-until-quiescent turn completion**,
 not a trailing `drain_synchronous_updates` (that would settle a popstate-staged `pushState` but freeze a
 popstate-staged `back()`'s in-range classification a turn early, leaving it resident as a full partition
@@ -404,7 +404,7 @@ consumer inherits that correctness. Peek→commit atomicity is likewise inherite
 END of Phase 1 as `own_context_action || has_pending_traversal() || is_applying()`, **before any Phase-2 apply
 runs**, so an in-range traversal whose Phase-2 cross-document load later FAILS still yields
 `suppress_default = true`; only `shipped` / `own_context_action` stay `false` (from the apply body's `false`
-return). `app_history_drain_tests::app_go_zero_is_an_in_range_barrier_that_rebuilds` pins exactly that shape —
+return). `app_history_phase_sep_tests::app_go_zero_is_an_in_range_barrier_that_rebuilds` pins exactly that shape —
 `suppress_default` true, `!shipped`, failing rebuild. The `suppress_default = false` case is the **no-op /
 out-of-range** traversal, which the preceding sentence already covers (Resolution E enqueues no `Traversal`
 step at all, so nothing is pending to latch on).
@@ -768,7 +768,7 @@ anti-gaming clause live with the defer-cap policy). Slice B's own-deferral count
 - **Severity**: **wrong-entry mutation**, not merely a late effect — the staged update settles against
   whatever cursor an interleaved out-of-band mover left, and `push_entry`'s `entries.truncate(current_index + 1)`
   **destroys live forward entries** (§4.2). Pinned by
-  `app_history_drain_tests::app_popstate_staged_push_destroys_forward_entries_after_an_interleaved_chrome_traversal`.
+  `app_history_phase_sep_tests::app_popstate_staged_push_destroys_forward_entries_after_an_interleaved_chrome_traversal`.
 - **Why deferred**: the app-mode input-handler turn is not run to quiescence — a §7.4.4 intent staged during
   Phase 2 (canonically a `pushState` from a `popstate` handler a same-document traversal fired) waits for the
   next drive that is actually reached, which is **unbounded** (§4.2, §4.4). The correct fix is
@@ -780,7 +780,7 @@ anti-gaming clause live with the defer-cap policy). Slice B's own-deferral count
 - **Re-evaluation trigger**: the next app-mode drive-schedule / session-history PR, or a WPT/site exercising a
   `popstate` handler that mutates session history.
 - **Re-evaluation date**: **2026-10-31** (with the `#11-session-history-task-queue-model` cluster).
-- **Pinned-not-silent**: `app_history_drain_tests::app_popstate_staged_action_defers_to_the_next_drain_not_the_current_queue`,
+- **Pinned-not-silent**: `app_history_phase_sep_tests::app_popstate_staged_action_defers_to_the_next_drain_not_the_current_queue`,
   which flips to the content shape when the fix lands.
 
 ### `#11-nav-supersede-window-vs-ongoing-navigation` — pre-existing (Resolution A, PR #469)
@@ -828,7 +828,7 @@ anti-gaming clause live with the defer-cap policy). Slice B's own-deferral count
 - **Re-evaluation trigger**: B1 multi-navigable landing, the Slice-4 canonical serialization, or a
   straddle-fidelity WPT/site.
 - **Re-evaluation date**: **2026-10-31**.
-- **Pinned-not-silent**: `app_history_drain_tests::app_multi_traversal_snapshot_lands_popstate_staged_update_on_the_wrong_entry`.
+- **Pinned-not-silent**: `app_history_phase_sep_tests::app_multi_traversal_snapshot_lands_popstate_staged_update_on_the_wrong_entry`.
 
 ### `#11-traversal-delta-resolve-at-apply-time` — **CLOSED by this slice** (lifecycle record)
 
@@ -866,22 +866,57 @@ now *runs* (`origin/main` dropped it — the #259 truncation this slice fixes), 
 observable. Recorded explicitly per the cap policy's requirement that the own/pre-existing call be written down
 rather than re-litigated later. **Either reading stays within per-PR ≤3** (own = 1 or 2).
 
-### 1000-line touch-time split — committed follow-up, both files
+### 1000-line touch-time split — ✅ DONE (standalone follow-up PR, branch `session-history-split`)
 
-Not a defer slot: scheduled work with the seams mapped, landing as **one standalone split PR immediately next
+Not a defer slot: scheduled work with the seams mapped, landed as **one standalone split PR immediately next
 on this lane** (`CLAUDE.md`: *"feature PR に bundle しない — split は単独 PR / 単独 commit"*; non-blocking per
 the prereq-split workflow). §5's earlier 1000-line assessment scoped itself to `app/navigation.rs` (which ended
 at 690) and did not anticipate these two.
 
-| File | `origin/main` | HEAD | Seam |
+| File | pre-#487 main | at #487 merge (`6b33854d`) | Landed as |
 |---|---|---|---|
-| `crates/shell/elidex-navigation/src/traversal_queue.rs` | 854 | >1000 | value types / `TraversalQueue`+`DrainOutcome` / the `DrainHost` contract / `DrainCoordinator` |
-| `crates/shell/elidex-shell/src/app_history_drain_tests.rs` | absent (created here) | >1000 | phase ordering·I2 / nav suppression·Res. A / click default·Res. B / traversal apply·residual·popstate |
+| `crates/shell/elidex-navigation/src/traversal_queue.rs` | 854 | 1,035 | `traversal_queue/` — `step.rs` 133 (the step vocabulary + the traversal-vs-update discriminator) / `queue.rs` 158 (the §7.3.1.1 FIFO + guard, state only) / `host.rs` 284 (the `DrainHost` contract, incl. both divergence statements) / `coordinator.rs` 527 (`DrainCoordinator` + `DrainOutcome`) / `mod.rs` 110 (doc + facade) |
+| `crates/shell/elidex-shell/src/app_history_drain_tests.rs` | absent (created by Slice B) | 1,134 | `app_history_drain_tests.rs` 338 (Res.-A supersede + cursor atomicity, 6 tests) / `app_history_phase_sep_tests.rs` 756 (I1 ordering · Res.-E peek-classify · Res.-B default-suppression · I3 bounded snapshot · both turn-completion pins, 10 tests) / shared seeds+probes hoisted to `app_test_support.rs` 183 |
 
-⚠ The test file was **created by this branch** over the line, so it has no "already large at touch time"
+The source split keeps every public path unchanged (private submodules + a `pub use` facade in `mod.rs`), so
+`traversal_queue::DrainHost` and `elidex_navigation::DrainHost` still resolve and no call site moved; the only
+code change is the four drain-cursor methods (`pop_next` / `pending_len` / `enter_nested_apply` /
+`exit_nested_apply`), private → `pub(super)`, because the coordinator now drives them from a sibling module.
+**Exactly five pre-existing lines differ** from their pre-split form — those four signatures plus the test
+module's `#[path = "traversal_queue_tests.rs"]` → `"../traversal_queue_tests.rs"` (the test files stayed at
+`src/`, matching the `#[path = "../…"]` convention `app/mod.rs` and `content/mod.rs` already use). Every other
+moved line is byte-identical, verified by reassembling the submodules and diffing against the pre-split file;
+the remaining additions are new module headers, `use` blocks, and rustdoc link-reference definitions for the
+links that now cross a module boundary.
+
+The test split follows the boundary the **content** leg already uses — `content_history_drain_tests` (core
+same-turn drain) vs `content_history_phase_sep_tests` (cross-boundary partition conformance) — carved at the
+app file's own authored section separators, so the two shells' test tables stay structurally parallel. One
+test moved against its authored section: `app_popstate_staged_push_destroys_forward_entries_after_an_interleaved_chrome_traversal`
+sat under "Cursor atomicity" but pins the *destructive* facet of `#11-app-mode-turn-completion-drain`, whose
+*latency* sibling is in the phase-sep half; the two are facets of one slot and flip together. (Content-mode is
+**not** a precedent here, contrary to an earlier draft of this paragraph: it has *three* popstate-staged pins
+and deliberately spread them across two files, the third being
+`content_history_pump_turn_tests::popstate_staged_pushstate_applied_with_held_navigate_fresh_and_buffered`,
+carved out at a later touch-time split. Whoever flips the app pins should check that third one too.)
+Co-locating them also repaired a stale claim the two files would otherwise have separated from its refutation
+("the corruption facet has no pin" — it has had one since #487). One partition pin stays in the drain half on
+purpose: `app_full_fifo_survives_an_applied_traversal_mid_stream` is the #259 truncation guard, which is that
+half's charter, so partition work must audit both files.
+`app_history_phase_sep_tests.rs` was not carved further because its four sections state **one** thing — how a
+turn partitions into the two phases — and cutting inside that would split the axis-a/axis-b/axis-e conformance
+of a single mechanism across files, which is the cohesion the content leg keeps together too. Its size (in the
+table above) is a consequence of that boundary, not the reason for it; for calibration, its direct counterpart
+`content_history_phase_sep_tests.rs` sits at 889 lines on the same seam. No crate-relative rank is quoted here
+on purpose — an earlier draft did, and got the denominator wrong by globbing `src/*.rs src/*/*.rs` (48) instead
+of asking git (55, the difference being `src/content/iframe/`), which is exactly the
+enumerate-by-inspection failure this block elsewhere claims to have avoided.
+
+⚠ The test file was **created by this branch** over the line, so it had no "already large at touch time"
 defence; the compliant moment was while writing it. It then grew **further** during the converge loop — 1,013 → **1,134**
 lines at `c35e094f`, when the gate pass added the wrong-entry pin — so the branch kept enlarging a file it had
-already put over the line.
+already put over the line. The durable lesson is that touch-time split is a discipline of the *authoring* pass,
+not of review.
 
 **Sequencing decision (maintainer-ratified 2026-07-26, recorded as a deviation).** Codex raised this seven
 times and is **right on the principle**: `CLAUDE.md` prescribes the split *"feature 着手前に"* — before the
@@ -891,8 +926,38 @@ pragmatic" does not break the tie either, since the end state is identical in bo
 scoped out. The call was therefore made on sequencing grounds: **merge #487, then land the split immediately
 next as its own PR**, because this branch is eleven review rounds deep with converged semantics and re-churning
 every line anchor (several re-anchored to symbol names by the gate pass itself) buys nothing the follow-up does
-not. Recorded as an acknowledged deviation, not a refutation. ⚠ The defer ledger anchors tests as
-`app_history_drain_tests::<name>` — re-anchor those references in the split commit.
+not. Recorded as an acknowledged deviation, not a refutation.
+
+✅ **Anchor re-set, as that decision required.** Of the 16 tests, **10 moved** to `app_history_phase_sep_tests`
+and **6 stayed** (counts derived by `grep -c '^#\[test\]'`, not by inspection). Every `app_history_drain_tests::`
+citation of a moved test was retargeted — in this memo, in `app/drain_host.rs`, and in the slot bodies that
+actually carry such anchors: `#11-app-mode-turn-completion-drain`, `#11-sync-navigation-steps-queue-tagging`,
+and the closed `#11-traversal-delta-resolve-at-apply-time` (`#11-nav-supersede-window-vs-ongoing-navigation`
+carries none — its pins are content-side). No `app_history_drain_tests::<moved-test>` reference survives
+anywhere in the repo or the ledger.
+
+`traversal_queue.rs` path citations were retargeted at the submodule that now owns each symbol — the four
+in-code sites (`app/events.rs`, `app/mod.rs`, `app/drain_host.rs`, `content/event_loop.rs`) **and** the ten
+sites in the Slice-A memos plus this memo's own §0 substrate pointer. Retargeting the memos rather than
+treating them as frozen history follows the precedent #487 itself set when its design re-gate swept the same
+Slice-A memo for a different reframe.
+
+Every line number that rode one of those citations was **dropped**, not re-derived — including the *bare*
+follow-on `:NNN` refs later in the same sentences, which inherit the file from the citation ahead of them and so
+would have silently re-pointed into a much shorter submodule (`coordinator.rs` is 525 lines where the pre-split
+file was 1,035; `step.rs` is 133). A first pass retargeted only the prefixed anchors and left five such bare
+siblings behind; the max-effort `/code-review` caught them, which is why the rule is stated here as
+*all* anchors on a retargeted sentence rather than *the ones that look like anchors*. Verification is
+`grep -nE '`:[0-9]+`' docs/plans/2026-07-session-history-slice-A-*.md` — every remaining hit inherits a file
+this split did not move.
+
+Not fixed here, and worth knowing before anyone strengthens the `doc` job: `cargo doc
+--document-private-items` has **six** unresolved intra-doc links in this crate, all bare associated-fn names in
+moved docstrings (`run_synchronous_phase_body`, `drain_synchronous_phase`, `drain_same_turn`,
+`drain_synchronous_updates`, `run_synchronous_updates_body`). All six predate this split — verified by running
+the same command against `6b33854d` — and the split introduced two more (`TraversalQueue` in `coordinator.rs`,
+`DrainCoordinator` in `queue.rs`) which **are** fixed here, restoring exact parity. CI does not see any of them
+because the `doc` job omits `--document-private-items` and the items are private.
 
 ### Slice-boundary check (defer-accumulation Q2b)
 

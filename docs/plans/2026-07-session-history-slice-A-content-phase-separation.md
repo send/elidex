@@ -12,7 +12,7 @@
 > for all shared background.
 >
 > **Substrate this co-designs ON (EXTEND, do not rewrite):**
-> `crates/shell/elidex-navigation/src/traversal_queue.rs` + `traversal_queue_tests.rs` — the 5-round-reviewed
+> `crates/shell/elidex-navigation/src/traversal_queue/` + `traversal_queue_tests.rs` — the 5-round-reviewed
 > `TraversalDelta` / `UserInvolvement` / `PendingTraversal` / `PendingHistoryStep` / `TraversalQueue` /
 > `DrainOutcome` / `DrainHost` / `DrainCoordinator`. Currently wired into **no shell**.
 
@@ -73,7 +73,7 @@ conscious Slice-4 fence.
   re-delivered ONE per turn through the single held-message intake (buffer-first) of a later `pump_turn`, so it
   cannot mutate the cursor under the held peek — retiring the old top-of-turn replay batch). Slice 4 only swaps
   that interim guard for the canonical serialization. (Matches the honest code comment at
-  `crates/shell/elidex-navigation/src/traversal_queue.rs` drain-loop reentrancy note.)
+  `crates/shell/elidex-navigation/src/traversal_queue/coordinator.rs` drain-loop reentrancy note.)
 - **OUT → B1:** multi-navigable fan-out (§7.4.6.1 steps 3/4/6/7 + per-navigable global-task of 8/12).
   `changingNavigables` is always `{top-level}` under the single-traversable reality (umbrella §0 fence).
 
@@ -88,8 +88,8 @@ substrate/coordinator/shell change · (A/D) the bounded divergence + named fence
 
 **Defect.** The coordinator runs Phase-1c `handle_navigation` (`pending_navigation` last-wins) **and** then
 applies a deferred traversal in Phase 2 — `DrainOutcome::shipped` only gates the coordinator's *final*
-`ship_frame`, NOT the two apply bodies (`traversal_queue.rs:418` runs `handle_navigation` unconditionally;
-`:550` runs `apply_traversal`). So a same-turn `history.back(); location.href='/b'` runs BOTH: Phase-1c
+`ship_frame`, NOT the two apply bodies (`traversal_queue/coordinator.rs` runs `handle_navigation` unconditionally;
+`apply_traversal` runs there too). So a same-turn `history.back(); location.href='/b'` runs BOTH: Phase-1c
 loads `/b` over the network and paints it, THEN Phase 2 repaints the back target — a **wasted network load +
 visible flash**, and it lands on the *traversal* target even though `location.href` was issued **later**
 (issue-order last-wins would land on `/b`). The old shells avoided the fall-through with the `:593`/`:73`
@@ -153,7 +153,7 @@ window elidex chose (correction box in §2 — step 19 itself never fires for a 
 The seam takes-and-drops without applying. Recommend either `DrainHost::discard_pending_navigation()` (take-and-drop)
 OR `handle_navigation(suppress: bool)` that still calls `take_pending_navigation()` but does not apply when
 `suppress`. Exact seam-shape choice → §6 Q-shape. **Cross-turn variant:** a Turn-1 queued traversal seeds
-`seen_traversal` in Turn-2 (`traversal_queue.rs:388`) and would strand Turn-2's nav identically — the
+`seen_traversal` in Turn-2 (`traversal_queue/coordinator.rs`) and would strand Turn-2's nav identically — the
 drain-and-discard MUST apply there too (the predicate is "queue holds a `Traversal` step", which is true
 across turns until Phase 2 drains it).
 
@@ -168,9 +168,9 @@ a Q-VM-MODEL reopen, not silently orphaned. **Conformance test** documents which
 
 ### Resolution E — no-op traversal peek-classify at enqueue (the partition-barrier bug)
 
-**Defect.** The substrate's `TraversalDelta::from_history_action` (`traversal_queue.rs:84`) classifies
+**Defect.** The substrate's `TraversalDelta::from_history_action` (`traversal_queue/step.rs`) classifies
 **syntactically** (`Back`/`Forward`/`Go → traversal`), so a no-op `go(999)` at end-of-history flips
-`seen_traversal` (`:391`), defers trailing sync updates onto the queue (`:404`), and — with Resolution A —
+`seen_traversal`, defers trailing sync updates onto the queue, and — with Resolution A —
 would wrongly suppress the same-turn nav (Resolution B: would wrongly suppress the default) even though it
 resolves to **no target**. The substrate cannot tell in-range from no-op: that needs the
 `NavigationController` entry list = shell state (umbrella §5 CARRY-EXT-2 (E)). **Traceability (F9):** this
@@ -199,7 +199,7 @@ the existing engine-agnostic `NavigationController::resolve_traversal(target_ind
 `navigation.rs:344`, which the content impl itself calls** — F3) — that consults
 `NavigationController::peek_*` and returns `Some` (in-range, with the host-filled `UserInvolvement` — scripted
 = `None`, chrome = `BrowserUi`) or `None` (no-op). Phase-1b calls it: `Some` → enqueue + barrier; `None` →
-fall through (no barrier). This moves `PendingTraversal` construction from the coordinator (`:393`, which
+fall through (no barrier). This moves `PendingTraversal` construction from the coordinator (which
 defaults involvement) to the host, which also lets the host supply real involvement (partially retiring the
 R4 involvement-default residual). **Bounded imperfection to flag (§6 Q-E):** peek-classify runs at *enqueue*
 against the pre-traversal list, but a *stacked* same-turn traversal (`back(); back()`) peeks the unmoved
@@ -255,7 +255,7 @@ queue-Traversal-pending) at the suppression site. Alternatively expose a `DrainH
 
 **Defect.** A `SyncUpdate` deferred behind a same-turn **document-changing** traversal (`back();
 pushState('/x')`) is replayed in Phase 2 as a bare `HistoryAction` via `handle_history_action`
-(`traversal_queue.rs:565`); the content `apply_push_replace_state` path (`content/navigation.rs`) reads/writes
+(`traversal_queue/coordinator.rs`); the content `apply_push_replace_state` path (`content/navigation.rs`) reads/writes
 `state.pipeline.url` + the active runtime = the **active** pipeline. After a document-changing (Rebuild)
 traversal rebuilt `state.pipeline`, the OLD document's `pushState` mutates the **NEW** document's identity =
 bug (umbrella §5 CARRY-EXT-2 (D)).
@@ -327,9 +327,9 @@ latch by hand-sequencing the two host calls.
 
 ### Resolution (loop-bound) — BOUNDED SNAPSHOT shipped (Codex PR#469 R3 T1); reentrancy-guard wiring stays Slice 4
 
-`drain_traversal_queue` (`traversal_queue.rs` `fn drain_traversal_queue` ~`:719`) drains a **bounded snapshot**,
+`drain_traversal_queue` (`traversal_queue/coordinator.rs` `fn drain_traversal_queue`) drains a **bounded snapshot**,
 not a re-check-until-empty loop: it captures `let mut remaining = host.traversal_queue().pending_len();` once and
-runs `while remaining > 0 { remaining -= 1; … pop_next() … }` (`:745`), processing **only** the steps present at
+runs `while remaining > 0 { remaining -= 1; … pop_next() … }` , processing **only** the steps present at
 drain-start. A step enqueued **during** the drain — a reentrant SW-pump message serialized onto the back of the
 queue — is left for the **next** `run_deferred_traversals` turn, so the loop **terminates by construction** even
 against a host that re-enqueues on every apply. Liveness is preserved because **content-mode's async pump drains
@@ -380,13 +380,13 @@ DOM/selector/form/algorithm logic crosses into `elidex-navigation` — only orde
    `run_synchronous_phase_body` calls `host.classify_traversal(delta)`: `Some(pt)` → `enqueue_traversal(pt)` +
    `seen_traversal = true` + set `deferred_own_context`; `None` → **fall through** (no enqueue, no barrier,
    subsequent same-turn sync/nav stay in-task). Cross-turn `seen_traversal` seed from a non-empty queue
-   (`:388`) is preserved.
+   is preserved.
 3. **Phase-1c nav-suppression (A) — drain-and-DISCARD (F1).** After Phase-1b, when the queue holds a pending
    `Traversal` step, the coordinator does **NOT skip** Phase-1c — it drains the `pending_navigation` slot and
    **discards** it (via `DrainHost::discard_pending_navigation()` or `handle_navigation(suppress: true)` — §6
    Q-shape), so the VM slot never strands and re-fires a turn late. Otherwise `handle_navigation()` applies
    normally. No-ops never enqueue (E), so they never suppress. The discard also covers the cross-turn seed
-   (a Turn-1 traversal still queued in Turn-2, `:388`).
+   (a Turn-1 traversal still queued in Turn-2).
 4. **`DrainOutcome.deferred_own_context: bool` (B).** New field, distinct from `own_context_action` /
    `shipped`. Set when `classify_traversal` returns `Some`. Consumed by the content default-suppression site.
 5. **Phase-2 `SyncUpdate` cancellation behind a cursor-MOVING traversal (D — GENERALIZED, R6; re-check-gated on
@@ -417,7 +417,7 @@ multi-navigable fan-out OUT/B1). Section labels use the webref **section titles*
 
 | Spec section | Step | Branch | Touch (compile/dispatch site) | Full enum? | User-input flow |
 |---|---|---|---|---|---|
-| WHATWG HTML §7.4.2.2 Beginning navigation | 19 | ongoing navigation is "traversal" ⇒ navigate ignored | **DIVERGENT (deliberate)** — Resolution A: Phase-1c nav-suppression when a `Traversal` step is **queued** (`traversal_queue.rs` `run_synchronous_phase_body` predicate). Step 19's gate is set ONLY by the §7.4.6.1 step-8.4 APPLY, so a nav issued before the apply is never step-19-ignored; elidex's enqueue-time window is a strict superset **under today's synchronous, non-yielding apply only** — the planned task-queued apply breaks containment, so narrowing work must re-derive it (§2 correction box, retagged 2026-07-26) | ✗ (divergence — `#11-nav-supersede-window-vs-ongoing-navigation`) | yes (`location.*`) |
+| WHATWG HTML §7.4.2.2 Beginning navigation | 19 | ongoing navigation is "traversal" ⇒ navigate ignored | **DIVERGENT (deliberate)** — Resolution A: Phase-1c nav-suppression when a `Traversal` step is **queued** (`traversal_queue/coordinator.rs` `run_synchronous_phase_body` predicate). Step 19's gate is set ONLY by the §7.4.6.1 step-8.4 APPLY, so a nav issued before the apply is never step-19-ignored; elidex's enqueue-time window is a strict superset **under today's synchronous, non-yielding apply only** — the planned task-queued apply breaks containment, so narrowing work must re-derive it (§2 correction box, retagged 2026-07-26) | ✗ (divergence — `#11-nav-supersede-window-vs-ongoing-navigation`) | yes (`location.*`) |
 | WHATWG HTML §7.4.2.2 Beginning navigation | 20 | later navigation aborts other *navigations* (not a traversal) | IN — Resolution A: traversal wins the same-turn straddle; exact cross-channel issue order fenced | ✗ (bounded — `#11-sync-navigation-steps-queue-tagging`) | yes (`location.*`) |
 | WHATWG HTML §7.4.3 Reloading and traversing | 4 | append traversal steps to traversable → resolve `targetStepIndex` | IN — Phase-1b enqueue via new `classify_traversal` seam | ✓ | yes (back/forward/go) |
 | WHATWG HTML §7.4.3 Reloading and traversing | 4.4 | `allSteps[targetStepIndex]` does not exist ⇒ abort (no-op) | IN — Resolution E peek-classify: `peek_*` → `None` = no barrier, falls through | ✓ | yes (back/forward/go) |
