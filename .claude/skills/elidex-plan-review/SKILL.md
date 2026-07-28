@@ -156,7 +156,7 @@ Plan-memo size > 1000 行なら user 確認 (通常 ~200-500 行)。
 
 ### Step 5 (plan-review specific) — Plan-memo edit + re-review
 
-User が Fix decisions を accept した場合:
+Step 4 通過後 (lens 収束 → そのまま進行 / genuinely user-owned な fork があった場合はその回答後):
 
 1. Plan-memo edit (Step 3.5 block の `Concrete action` に従って)
 2. 適用した各 fix を `workflow.md` § "Step 4.5" の 2 trigger (A: design-affecting / B: symptom-shaped) で screen。**plan-stage は blast-radius 最大ゆえ即時** (workflow.md "Placement" 節参照、plan fix は後続 design 判断が乗って compound する)。
@@ -173,6 +173,6 @@ User が Fix decisions を accept した場合:
 - **CRIT**: fix plan-memo BEFORE implementation start (implementation で必ず後悔する architectural error)
 - **IMP**: plan-memo 修正推奨 (implementation 段階発覚は revert / re-plan cost 高、特に Axis 2 sub-check 2b data-flow integrity)
 - **MIN**: judgment (plan-memo 修正 OR implementation 段階で監視)
-- **FP**: ignore (user 確認後)
+- **FP**: reject — report に one-line citation を添えて (user 承認不要)
 
-**Pre-impl gate**: 0 CRIT + 0 IMP → implementation start 推奨 / 1+ CRIT → plan-memo 修正 mandatory (implementation 着手前) / 1+ IMP → user 判断。
+**Pre-impl gate**: 0 CRIT + 0 IMP → implementation start / 1+ CRIT → plan-memo 修正 mandatory (implementation 着手前) / 1+ IMP → Step 3.5 disposition に従い修正して進行 (lens 収束済みなら user 承認不要、workflow.md Step 4)。
