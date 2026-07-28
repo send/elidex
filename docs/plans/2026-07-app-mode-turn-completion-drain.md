@@ -238,9 +238,11 @@ Every row above is reachable from ordinary user input, because the drive site *i
   and it may do so **unconditionally**, which is exactly the non-termination vector §4.3 bounds.
 - Exposure delta: the loop adds no new entry point on the input path; the same script surface runs up to
   N (= the §4.3 cap) times per turn instead of once. The residue follow-up (§4.3) adds **three
-  flag-gated call sites of the existing drive** — the inline redraw arm plus the two input-handler
-  entries (`handle_click`/`handle_keyboard`, before their early returns and before any
-  `dispatch_event`) — new call sites of an existing drive, not a new script surface.
+  flag-gated call sites of the existing drive, all at the winit dispatch layer** — the inline redraw arm
+  (`app/inline.rs:56`) plus the two inline input dispatch entries (`handle_mouse_press_inline`, `:185`;
+  `handle_keyboard_inline`, `:224`), each driving before any `dispatch_event` and before the mover
+  branches those dispatch functions contain — new call sites of an existing drive, not a new script
+  surface.
 
 ---
 
@@ -357,21 +359,45 @@ no exit leaves staged work behind without flagging it.
 - **Degradation with a guaranteed next drive** (the part "no worse than today" cannot supply, since today
   *is* wrong-entry mutation): on any non-quiescent exit, set a `turn_completion_residue: bool` on
   `InteractiveState`, call `request_redraw()`, and drive `process_pending_navigation` when the flag is set
-  (clearing it first; the drive re-runs the loop with a fresh cap). **Delivery premise, made explicit**:
-  winit's `request_redraw` → `RedrawRequested` contract is "eventually delivered while the window lives" —
-  platform variance under occlusion/minimize is outside the guarantee. The design therefore does not hang
-  off that premise alone: the flag has **three readers**, each driving before doing anything else — (1) the
-  inline redraw arm (`WindowEvent::RedrawRequested` → `handle_redraw_inline`, `app/inline.rs:56`), (2) the
-  `handle_click` entry (`app/events.rs:17`), (3) the `handle_keyboard` entry (`:166`) — the input entries
-  **before** their early returns (`:22`-`:35`, `:168`/`:175`), so a click on blank space now drains the
-  residue it used to strand. The residue is thus **(frame ∨ next-input)-bounded** — the
-  `MAX_DRAIN_PER_TAB` shape ("drained on the next frame") strengthened by the input arm. The input-entry
-  drive touches no `dispatch_event` path — it is a drain schedule point, not a script surface, so this is
-  not Q6's withdrawn concern returning. And since every §4.1 non-drain cursor mover is reached via user
-  input, the input-entry drive **precedes the mover** within its turn — structurally shrinking the Q3
-  residual window (§7). An adversarial re-stager thus degrades to one capped loop per frame/input: bounded
-  per-turn work, no hang, no unbounded residue window for the §1 movers. This adds three call sites of the
-  existing drive (premise-5 impact: §4.7); it does not add a script surface (§3.1).
+  (clearing it first; the drive re-runs the loop with a fresh cap). **Delivery premise, with its source**:
+  the winit 0.30.13 rustdoc for `Window`'s `request_redraw` — *"Queues a `WindowEvent::RedrawRequested`
+  event to be emitted that aligns with the windowing system drawing loop"*, with *"no strong guarantees
+  about when exactly a `RedrawRequest` event will be emitted"* relative to other events (it *"may not
+  arrive in same or even next event loop iteration"*); the in-tree image of the same contract is the
+  `ship_frame` doc's coalescing note (`app/drain_host.rs:589-591`: *"winit coalesces concurrent requests
+  into one `RedrawRequested`"*). Platform variance under occlusion/minimize is outside that guarantee —
+  but an occluded/minimized window also receives none of the input or chrome interactions that drive the
+  §4.1 movers, so no path exists on which residue is applied to a mover-moved cursor before a drain: the
+  delivery premise affects only latency, never the wrong-entry window. The design still does not hang off
+  delivery alone: the flag has **three readers, all at the winit dispatch layer** — the layer where the
+  §4.1 movers actually branch — each driving before doing anything else in its dispatch: (1) the
+  `WindowEvent::RedrawRequested` arm entry (`app/inline.rs:56`, before `handle_redraw_inline` runs — and
+  before its tail executes any chrome action, `:177`); (2) the `handle_keyboard_inline` entry (`:224`, at
+  the top of the body `:229`, **before the Alt+←/→ branch** `:235-264` — that branch calls `traverse_to`
+  at `:258` and returns at `:262` without ever reaching the DOM keyboard path, `handle_keyboard`,
+  `app/events.rs:166`); (3) the `handle_mouse_press_inline` entry (`:185`, before the active-chain update
+  and before the `handle_click` call at `:200`). A click on blank space now drains the residue it used to
+  strand — `handle_click`'s early returns (`events.rs:22`-`:35`) are all downstream of reader (3). The
+  residue is thus **(frame ∨ next-input)-bounded** — the `MAX_DRAIN_PER_TAB` shape ("drained on the next
+  frame") strengthened by the input arms. The dispatch-entry drive touches no `dispatch_event` path — it
+  is a drain schedule point, not a script surface, so this is not Q6's withdrawn concern returning.
+
+  **Mover coverage — every §4.1 mover is preceded by its own dispatch's entry drive** (routing verified
+  by `grep -rn 'handle_chrome_action\|\.handle_click(\|\.handle_keyboard(' crates/shell/elidex-shell/src`:
+  `handle_chrome_action`'s sole app-mode caller is `handle_redraw_inline`'s tail, `inline.rs:177`
+  [threaded mode has a separate `handle_chrome_action_threaded`]; `handle_click`'s sole caller is
+  `inline.rs:200`; `handle_keyboard`'s sole caller is `inline.rs:296`): chrome toolbar Back/Forward
+  (`app/navigation.rs:505`), the address bar (`:484`), and chrome Reload (`:519`) all execute inside
+  `handle_redraw_inline`'s tail (`inline.rs:177`), so reader (1) precedes them in the same dispatch —
+  including chrome interactions whose originating input event egui consumed (`inline.rs:59`), since the
+  resulting action only materializes at a later `RedrawRequested`; Alt+←/→ (`inline.rs:258`) is preceded
+  by reader (2); the `<a href>` default (`events.rs:160`) is preceded by reader (3). The only residual
+  window is therefore: **within one dispatch, the entry drive itself re-hits the cap (adversarial
+  re-stager only), and a mover later in that same dispatch then moves the cursor** — §7 Q3's accepted
+  residual, in exactly that form. An adversarial re-stager thus degrades to one capped loop per
+  frame/input: bounded per-turn work, no hang, no unbounded residue window for the §1 movers. This adds
+  three call sites of the existing drive (premise-5 impact: §4.7); it does not add a script surface
+  (§3.1).
 
 Truncation-without-a-scheduled-next-drive — v1's shape — is rejected: it leaves the §1 wrong-entry window
 open for exactly the adversarial case, and "never worse than today" is not an acceptable invariant when
@@ -446,6 +472,13 @@ consumed loops to the cap on work no iteration can drain (cap-loop); predicate �
   load-bearing for the `hit_entity` staleness invariant in `events.rs:107-149`, which reasons "every
   rebuild path also latched `suppress_default`": OR-latching keeps that reasoning valid across
   iterations.)
+  The latch's scope is the **turn**, and an entry residue drive is a DIFFERENT turn: when a
+  dispatch-layer reader ((2)/(3), §4.3) drains a *previous* turn's residue at its entry, that residue
+  drive's `DrainOutcome` is **discarded**, never merged into the outcome of the in-turn drive that
+  follows — the same different-turn semantics as the §4.5 (c) swap exit. Merging would let the previous
+  turn's residue latch `suppress_default` and over-suppress the new click's `<a href>` default. This
+  matches the existing discard shape the coordinator already documents for app-mode's keyboard turn
+  (`coordinator.rs:42-44`; triaged in §5.2).
 - **(b) `deferred_navigation` never crosses an iteration.** The tail runs per-iteration (§4.2), so the
   single slot's existing one-drive lifetime contract (`app/mod.rs:260-268`: cleared by a cursor-moving
   apply, else reinstated-and-taken before the drive returns) becomes a one-**iteration** lifetime. There
@@ -467,6 +500,11 @@ consumed loops to the cap on work no iteration can drain (cap-loop); predicate �
   `app/navigation.rs:79-90`), read via `nav_controller`; exact seam to plan-review. Same-document applies
   (fragment nav, same-document traversal) do not restamp, so they do not end the loop — correct, since
   their staged follow-ups are precisely this turn's work.
+  Correctness on the load-failure path: if a mid-loop navigate's load FAILS, nothing restamps — the
+  `document_sequence` stamp sits past the load-success gate (`navigate` early-returns at
+  `app/navigation.rs:68-70` before any `push`/`replace`/`restamp_current_document`) — so the marker is
+  unchanged and the swap exit does not fire; the loop continues. That is the correct semantics: the old
+  pipeline and its FIFO are intact, so the turn's remaining staged work is still this turn's work.
   **The swap exit is not a bare break — it sets `turn_completion_residue`** (§4.3's one residue
   mechanism, shared with cap-hit). A rebuild always ships a frame, so the `RedrawRequested` follow-up is
   already scheduled; the flag-gated drive then drains whatever the NEW document's initial scripts staged
@@ -508,9 +546,12 @@ lifetime via "app-mode pumps only on input, `#11-app-mode-turn-completion-drain`
 slot is closed and the lifetime is frame-bounded; the message joins the §5.2 sweep.
 
 The **"SOLE site" language** (`drain_host.rs:131-134`) gains three callers: the residue-flagged drives
-from the redraw arm and the two input-handler entries (`handle_click`/`handle_keyboard`, §4.3). The
-property that matters — every drive goes through `process_pending_navigation`'s guard pair — is
-preserved; the doc is updated to name all callers.
+from the three winit dispatch-layer entries (§4.3) — the `RedrawRequested` arm (`app/inline.rs:56`),
+`handle_keyboard_inline` (`:224`), and `handle_mouse_press_inline` (`:185`). All three are top-level
+arms/targets of the winit dispatch (`handle_window_event_inline`), with no synchronous path from any
+drain body back into them — so the premise-5 re-entrancy argument above is unchanged in substance; only
+the named call sites change. The property that matters — every drive goes through
+`process_pending_navigation`'s guard pair — is preserved; the doc is updated to name all callers.
 
 ### 4.8 OO→ECS / layer map (umbrella plan §4.5 style — reviewer verification without re-deriving §4)
 
@@ -611,8 +652,9 @@ Derived by `grep -rn '11-app-mode-turn-completion-drain' crates/ --include='*.rs
   policy (§4.5 (a)), outside this doc's scope.
 - `coordinator.rs:42-44` (`suppress_default` "consumed at most once per turn … app-mode's keyboard turn
   discards this outcome entirely") — both survive: the drive site OR-merges per-iteration outcomes into
-  the ONE value the click path consumes (§4.5 (a)), and the keyboard entry's residue drive discards its
-  outcome exactly as the keyboard turn always has.
+  the ONE value the click path consumes (§4.5 (a)), and every dispatch-entry residue drive ((1)/(2)/(3),
+  §4.3) discards its outcome under §4.5 (a)'s different-turn rule — exactly as the keyboard turn always
+  has.
 - `coordinator.rs:300-302` (`run_deferred_traversals`: "**Content-mode's async pump is its only
   caller**") — the loop iterates `drain_same_turn`, never this, so the only-caller claim survives intact.
 - `coordinator.rs:460-480` (the Phase-2 apply-site KNOWN-DIVERGENCE comment and its app-mode pin
@@ -655,9 +697,11 @@ owned by `#11-sync-navigation-steps-queue-tagging`). Read against the test body:
 traversal-granularity settle, per §0), `#11-nav-supersede-window-vs-ongoing-navigation`,
 `#11-nav-applied-shipped-decouple`.
 
-**Closing note**: records the Q3 residual decision (accept + pin, §7 Q3 / §8), and the Slice-4 slot body
-(`#11-session-history-task-queue-model`, the DIRECT-nav serialization question) gets a **pointer to that
-decision record** — migrating to the memory side when that slot closes.
+**Closing note**: records the Q3 residual decision (accept + pin, §7 Q3 / §8). Where the decision record
+lives, by stage: **at plan stage**, this memo's §7 Q3 is the record; **at implementation-PR landing**, the
+record is restated in the landing memo, and the Slice-4 slot body (`#11-session-history-task-queue-model`,
+the DIRECT-nav serialization question, in `project_open-defer-slots`) gains a pointer to that landing
+memo; **when Slice 4 closes**, its own landing record absorbs the pointer's content.
 
 ---
 
@@ -672,18 +716,20 @@ staged on those turns — the early returns delay *draining*, which the §4.3 fo
   ownership mints a one-consumer drive shape. Ratify or overturn (overturning to coordinator ⇒ re-slice,
   §5).
 - **Q2 — bound parameters** (§4.3): ratify cap value (8) and the degrade shape (residue flag +
-  `request_redraw` + the three flag-gated drives: redraw arm + both input-handler entries). The
-  *structure* (constant cap, `eprintln` observability, (frame ∨ next-input)-bounded residue) is design,
-  not open.
-- **Q3 — the bound-degradation residual window: RESOLVED, accept + pin (no longer open)**. On the
-  degraded path, a non-drain cursor mover (§4.1 table) can still run between the capped turn and its
-  follow-up drive, reproducing §1's wrong-entry shape for adversarial pages only. Decision: **accept as
-  this slice's bounded residual, and PIN it** — a docstring-fenced test of the `:691` shape on the degraded path
-  (capped turn → interleaved chrome Back → follow-up drive applies against the moved cursor) goes into §8,
-  fenced to Slice 4's mover routing. The §4.3 input-entry drives make every *user-input* mover drain the
-  residue before moving the cursor, structurally shrinking the window to chrome-driven movers racing the
-  redraw — but **no zero claim**: a reachable path remains and is fixed at implementation. The decision
-  record lives in the §6 closing note with a pointer from the Slice-4 slot body.
+  `request_redraw` + the three flag-gated dispatch-layer drives: the `RedrawRequested` arm +
+  `handle_mouse_press_inline` + `handle_keyboard_inline` entries). The *structure* (constant cap,
+  `eprintln` observability, (frame ∨ next-input)-bounded residue) is design, not open.
+- **Q3 — the bound-degradation residual window: RESOLVED, accept + pin (no longer open)**. The residual,
+  stated exactly (§4.3 mover coverage): **within one dispatch, the entry drive itself re-hits the cap
+  (adversarial re-stager only), and a mover later in that same dispatch then moves the cursor**; the
+  follow-up drive then applies the staged intent against the moved cursor, reproducing §1's wrong-entry
+  shape for adversarial pages only. Decision: **accept as this slice's bounded residual, and PIN it** — a
+  docstring-fenced test of the `:691` shape on the degraded path (redraw-entry drive re-caps →
+  same-dispatch chrome Back → next drive applies against the moved cursor) goes into §8, fenced to
+  Slice 4's mover routing. The §4.3 dispatch-entry drives put a drain in front of every §4.1 mover within
+  its own dispatch — but **no zero claim**: the same-dispatch re-cap path above remains reachable and is
+  pinned at implementation. The decision record lives in the §6 closing note (which names its location at
+  each stage) with a pointer from the Slice-4 slot body.
 
 ---
 
@@ -703,22 +749,27 @@ All new/flipped turn-completion tests live in `app_turn_completion_tests.rs` (§
 - **New (termination + degrade)**: a handler that re-stages unconditionally terminates at the cap with
   the residue still staged and `turn_completion_residue` set; a subsequent redraw-path drive picks it up,
   **and** a cap-hit turn followed by an input (a click on blank space) drains the residue at the input
-  entry, before any dispatch ((frame ∨ next-input)-bounded, §4.3). Assert per-turn iteration count never
-  exceeds the cap.
-- **New (Q3 residual pin, §7)**: the accepted degraded-path residual — capped turn → interleaved chrome
-  Back (a non-input mover, so no input-entry drain precedes it) → follow-up drive applies the staged
-  intent against the moved cursor — pinned as a docstring-fenced test of the `:691` shape, fenced to
-  Slice 4's mover routing (`#11-session-history-task-queue-model`); its docstring names it an ACCEPTED
-  residual, not a defect regression.
+  dispatch entry (reader (3), `handle_mouse_press_inline`), before any dispatch ((frame ∨
+  next-input)-bounded, §4.3). Assert per-turn iteration count never exceeds the cap.
+- **New (Q3 residual pin, §7)**: the accepted degraded-path residual — the redraw-entry drive itself
+  re-hits the cap (adversarial re-stager) → the same dispatch's chrome Back moves the cursor → the next
+  drive applies the staged intent against the moved cursor — pinned as a docstring-fenced test of the
+  `:691` shape, fenced to Slice 4's mover routing (`#11-session-history-task-queue-model`); its docstring
+  names it an ACCEPTED residual, not a defect regression. If the test invokes `handle_chrome_action`
+  directly, its docstring must note the production routing (the sole app-mode caller is
+  `handle_redraw_inline`'s tail, `inline.rs:177`, downstream of reader (1)'s capped drive — §4.3).
 - **Accumulation (axis (g))**: a turn whose iteration 1 latches `suppress_default` and whose iteration 2
   is a quiet settle still suppresses the `<a href>` default (OR-latch; through the real click path).
-- **New (swap-exit partial pin)**: a mid-loop navigate reaching the rebuild path sets
-  `turn_completion_residue` — pinnable in the disconnected harness up to the point of the navigate
-  attempt (no successful rebuild required). The **full** swap-exit E2E (successful rebuild → residue
-  drive drains the new document's staging as a new turn) stays unreachable: same limitation the
-  `hit_entity` invariant records (`events.rs:125-126`); pinned instead at the unit the marker uses
-  (`document_sequence` restamp on rebuild, `elidex-navigation/src/navigation_tests.rs` already covers the
-  restamp). The E2E pin itself is this plan's own-deferral — §9.
+- **Swap-exit coverage — honest statement (no in-harness pin)**: the swap-exit branch cannot be pinned
+  in the disconnected harness even partially — the `document_sequence` restamp sits past the
+  load-success gate (`navigate` early-returns at `app/navigation.rs:68-70` before any
+  `push`/`replace`/`restamp_current_document`), so a mid-loop navigate in the harness leaves the marker
+  unchanged and the swap-exit branch never fires (which is itself the correct semantics, §4.5 (c)'s
+  load-failure note). Coverage is therefore only the existing unit-level restamp pin
+  (`elidex-navigation/src/navigation_tests.rs` already covers `document_sequence` restamp on the rebuild
+  paths); the end-to-end swap-exit residue behavior (successful rebuild → residue set → residue drive
+  drains the new document's staging as a new turn) stays unverified in this harness — same limitation
+  the `hit_entity` invariant records (`events.rs:125-126`) — and is this plan's own-deferral, §9.
 - **Unchanged**: `app_trailing_syncupdate_canceled_behind_cursor_moving_traversal`,
   `app_drain_same_turn_leaves_no_residual_…`, all content-mode tests, all `elidex-navigation` isolation
   tests (no coordinator behavior change under §4.4 lean).
@@ -729,12 +780,17 @@ All new/flipped turn-completion tests live in `app_turn_completion_tests.rs` (§
 
 Own-deferral budget: expected **1**.
 
-- **The swap-exit E2E pin** (§8). *Why deferred*: the disconnected harness cannot reach a successful
-  mid-loop rebuild (`events.rs:125-126`, the known limitation the `hit_entity` invariant records), so the
-  end-to-end "swap exit → residue drive drains the new document's staging as a new turn" cannot be
-  pinned; the §8 partial pin covers up to residue-set. *Re-evaluation trigger*: a threaded harness
-  landing, or any observed regression in the marker comparison. *Re-evaluation date*: at umbrella
-  `#11-session-history-task-queue-model` close.
+- **End-to-end verification of the swap-exit residue behavior — the whole behavior, not just one pin**
+  (§8). The harness reaches no part of the branch (marker move, residue set, residue drive as a new
+  turn), so the swap exit ships verified only at the unit level (`document_sequence` restamp,
+  `elidex-navigation/src/navigation_tests.rs`). *Why deferred*: the disconnected harness cannot reach a
+  successful mid-loop rebuild (`events.rs:125-126`, the known limitation the `hit_entity` invariant
+  records), and the restamp sits past the load-success gate (`app/navigation.rs:68-70`), so not even a
+  partial in-harness pin exists (§8). *Re-evaluation trigger*: a threaded harness landing, or any
+  observed regression in the marker comparison. *Re-evaluation date*: at umbrella
+  `#11-session-history-task-queue-model` close — and no later than **2026-10-31** (the
+  `#11-session-history-task-queue-model` cluster's re-evaluation date, per the ledger). *Registration*:
+  recorded as a slot in `project_open-defer-slots` at landing time.
 
 The §7 Q3 residual (resolved: accept + pin) is NOT a new slot — it is pinned in §8, recorded in the §6
 closing note with a pointer from the Slice-4 slot body, and subsumed by Slice 4's mover routing. Anything
