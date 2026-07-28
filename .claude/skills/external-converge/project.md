@@ -69,16 +69,13 @@ Historical **Copilot** R-loop incidents that calibrated the loop's defensive rul
 
 ## wakeup_surface_threshold
 
-`~45min` — surface-to-user sanity cap (SKILL.md Step 5.5 (2)), measured **from your own `@codex review` trigger** — never from PR creation or push. Deliberately set **well above** Codex's typical review latency so a normal-but-slow review is never cut off mid-flight. This is the single source of truth for the cap — it overrides the generic SKILL.md `~15 min` default (which is far too aggressive for this reviewer).
+`~45min` — how long one `@codex review` trigger is given before you treat it as dropped (SKILL.md Step 5.5 (2)). It counts **from the trigger comment**, never from PR creation or push; see § "Never wait on auto-review" below for what to do when it expires. Deliberately set **well above** Codex's typical review latency so a normal-but-slow review is never cut off mid-flight, and it overrides the generic SKILL.md `~15 min` default (far too aggressive for this reviewer).
 
 ### Never wait on auto-review — always fire one trigger
 
-> **CANONICAL SITE.** This section is the single home of the trigger/retry policy for **both** elidex review workflows. `external-review/project.md` and both global `SKILL.md` files reference it and state only what genuinely differs (single-pass fires once and stops; it runs no window loop). Do not restate the condition, the window, or the retry count anywhere else — a second statement is how #492 R1–R3 kept generating findings.
+> **CANONICAL SITE.** The single home of the trigger policy for both elidex review workflows. `external-review/project.md` and both global `SKILL.md` files reference it instead of restating it.
 
-**Do not trust auto-review. Every round begins with a trigger.** The governing state is per-head, not per-actor:
-
-- **Trigger condition** — the head you want reviewed is current and **no trigger has been posted for that head yet, by anyone**. Whether the head arrived with the initial push, a fix push, or was already current when you entered the loop, it is *one* occasion. Entering the loop right after the initial push posts one `@codex review`, not two.
-- **Clock origin** — the window starts at **the most recent trigger for the current head, whoever posted it**. Adopting a trigger someone else (or an earlier session) already posted is a supported entry path and it has a clock: that trigger's timestamp. PR creation and pushes are *not* triggers and never start the clock.
+**Do not trust auto-review. Post `@codex review` yourself for the head you want reviewed, and time everything from that comment.** PR creation and pushes are not triggers. If a trigger for the current head already exists — posted by an earlier session or by anyone else — that one counts; adopt its timestamp rather than posting a second.
 
 Auto-review is not guaranteed to arm and gives no signal when it doesn't: `#333` sat at zero ~50 min; `#491` sat at zero for **17 hours** on a fresh PR while Codex reviewed a sibling PR in the same repo 1 min after the cap. There is no way to distinguish "unarmed" from "slow" by observation, so waiting to find out is a pure loss.
 
@@ -90,14 +87,9 @@ This is *One issue, one way* (CLAUDE.md): the rule removes the "is it slow or un
 
 - **~30 min is NORMAL, not stuck** — *once you have triggered*, do **not** re-trigger or "surface as slow" anywhere in the ~15–30 min window after that trigger. The review is almost certainly still running, and a second trigger interrupts/duplicates a live review rather than recovering a stuck one (#390 re-triggered at ~14 min into a still-running review — premature; this early-give-up is the failure this window protects against). This window is about the **second** trigger; it never justifies withholding the **first** one.
 - **Poll patiently** — 300s cadence is fine (not-spamming the reviewer matters more than cache warmth here; a ~30 min wait needs only a handful of polls, so widen toward 600s if preferred). `ScheduleWakeup` IS the poll.
-- **`wakeup_surface_threshold` (~45 min) is a per-TRIGGER window, not a per-loop budget.** Every trigger opens a fresh window from the clock origin above. The window is silent when it ends with zero Codex activity on head (no formal review, no marker-bearing issue-comment, no inline thread) since the trigger that opened it. Silence when no trigger has been posted for this head is not a stall to report; it is a trigger nobody has fired yet.
-- **Silent-window recovery is this procedure, and only this** — stated once, exhaustively, so there is no second phrasing to disagree with it:
+- **`wakeup_surface_threshold` (~45 min) counts from the trigger, and a trigger that draws nothing by then has most likely been dropped.** Silent trigger-fail is a known Codex failure mode and its recovery is simply to post the trigger again (`#331`: 3 in a row inside one loop, every one recovered by re-posting). So re-post and keep polling; if repeated triggers keep drawing nothing, say so to the user and let them decide.
 
-  1. Post the trigger. This opens a window.
-  2. Codex responds within the window → classify the round. **Done.**
-  3. Window ends silent → increment the silent count. **If it is now 5, surface to the user and stop. Otherwise go to 1.**
-
-  **Why 5 and not 3**: the stop must sit strictly above the longest run the loop is *known* to recover from by itself, or it halts inside a demonstrated-recoverable case. `#331` hit **3** consecutive silent trigger-fails in one loop and mechanically re-posting recovered *every* one — so a threshold of 3 would have stopped exactly where the evidence says to keep going. 5 clears the observed maximum with margin. Raise it if a longer self-recovering run is ever observed; that observation, not intuition, is what moves this number.
+  **This is deliberately guidance, not a counted state machine.** No evidence distinguishes stopping at 3 re-posts from 5 from "keep going", so a codified counter would be inventing precision the observations do not support — and the earlier attempt to codify one (exact threshold, reset rules, an admission condition for retry triggers) is what generated 6 of this PR's 9 review findings. Judge it in the moment and keep the user informed.
 
 **⚠ The ~30 min figure above is `@codex review`-to-verdict latency measured with auto-review in the mix. Manually-triggered rounds measured on 2026-07-28 were far faster — 2m25s, 3m31s, 2m23s (#491 R1/R2, #492 R1), i.e. every sample under 4 min.** Three samples is thin and the ~30 min number is user-confirmed, so the threshold is deliberately left at ~45 min rather than retuned here; but if further manual-trigger rounds stay in the minutes range, the window is ~10× the real latency and shortening it (which also speeds the re-post recovery above) is worth raising with the user. Do not silently retune it on this data alone.
 
