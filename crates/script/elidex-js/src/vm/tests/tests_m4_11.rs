@@ -535,7 +535,7 @@ fn set_elem_undefined_throws() {
 
 #[test]
 fn delete_prop_null_throws() {
-    // §12.5.3.2 step 6: ToObject(null) throws.
+    // §13.5.1.2 step 4.c: ToObject(null) throws.
     eval_throws("var v = null; delete v.x;");
 }
 

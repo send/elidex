@@ -10,6 +10,7 @@ use super::coerce::to_number;
 use super::ops::{parse_array_index_u16, try_as_array_index};
 use super::value::{
     FuncId, JsValue, Object, ObjectId, ObjectKind, PropertyKey, PropertyValue, StringId, VmError,
+    VmErrorKind,
 };
 use super::VmInner;
 
@@ -99,19 +100,45 @@ pub(super) fn regress_flags_from_str(flags: &str) -> regress::Flags {
 // ---------------------------------------------------------------------------
 
 impl VmInner {
-    /// `Op::TemplateConcat`: pop `count` values from the stack, `ToString`
-    /// each, concatenate their WTF-16 units, intern the result, and push
-    /// the resulting `JsValue::String` back.  Extracted from the dispatch
-    /// loop so the opcode arm stays compact.
+    /// `Op::TemplateConcat` — `[p1 … pn -- string]`, `ToString` each part
+    /// (ECMA-262 §13.2.8.6 `SubstitutionTemplate` step 4) and concatenate.
+    ///
+    /// Reads the parts **in place** and truncates only once every conversion has
+    /// finished, for the same reason as the element-access family below: user
+    /// `toString` / `@@toPrimitive` can allocate enough to trigger a collection,
+    /// and the GC roots the VM stack (`gc/roots.rs`) but not Rust locals.
+    /// Copying the parts into a `Vec` and truncating first left every part after
+    /// the one being converted reachable **only** from that `Vec` — so a
+    /// temporary object part was collected mid-loop and its `ToString` then ran
+    /// against a recycled slot (or panicked in `get_object`).
     pub(crate) fn op_template_concat(&mut self, count: usize) -> Result<(), super::value::VmError> {
-        let start = self.stack.len() - count;
-        let parts: Vec<super::value::JsValue> = self.stack[start..].to_vec();
-        self.stack.truncate(start);
-        let mut result: Vec<u16> = Vec::new();
-        for val in parts {
-            let sid = super::coerce::to_string(self, val)?;
-            result.extend_from_slice(self.strings.get(sid));
+        let len = self.stack.len();
+        if len < count {
+            return Err(VmError::internal("stack underflow on TemplateConcat"));
         }
+        let start = len - count;
+        let mut result: Vec<u16> = Vec::new();
+        // Converted eagerly into the accumulator rather than collected into a
+        // `Vec<StringId>`: interned string ids are never collected (the GC sweeps
+        // objects and upvalues only), so the accumulator needs no rooting.
+        let mut outcome = Ok(());
+        for i in 0..count {
+            // Re-read each part by index: the slots stay on the stack for the
+            // whole loop, so a part not yet converted cannot be collected by an
+            // earlier part's user code.
+            let val = self.stack[start + i];
+            match super::coerce::to_string(self, val) {
+                Ok(sid) => result.extend_from_slice(self.strings.get(sid)),
+                Err(e) => {
+                    outcome = Err(e);
+                    break;
+                }
+            }
+        }
+        // Consume the parts on both paths: `[p1 … pn -- string]` on success,
+        // `[p1 … pn -- ]` before the caller's error routing.
+        self.stack.truncate(start);
+        outcome?;
         let id = self.strings.intern_utf16(&result);
         self.stack.push(super::value::JsValue::String(id));
         Ok(())
@@ -245,14 +272,16 @@ impl VmInner {
 // to put the body in a `dispatch_*.rs` sibling so the dispatch loop stays a
 // table.
 
-/// §12.5.3.2 DeleteExpression: strict-mode TypeError message when
-/// `[[Delete]]` returns `false`.
+/// ECMA-262 §13.5.1.2 Runtime Semantics: Evaluation, `UnaryExpression : delete
+/// UnaryExpression` step 4.f: strict-mode TypeError message when `[[Delete]]`
+/// returns `false`.
 pub(super) const NON_CONFIGURABLE_DELETE_MSG: &str =
     "Cannot delete property: property is not configurable";
 
-/// §12.5.3.2 DeleteExpression step 6 `? ToObject(ref.[[Base]])`.  Null/undefined
-/// throw TypeError (via ToObject); other primitives are boxed to their
-/// wrapper so their [[Delete]] applies to the (temporary) wrapper.
+/// ECMA-262 §13.5.1.2 `UnaryExpression : delete UnaryExpression` step 4.c
+/// `? ToObject(ref.[[Base]])`.  Null/undefined throw TypeError (via ToObject);
+/// other primitives are boxed to their wrapper so their [[Delete]] applies to
+/// the (temporary) wrapper.
 pub(super) fn resolve_delete_base(vm: &mut VmInner, obj: JsValue) -> Result<ObjectId, VmError> {
     match obj {
         JsValue::Object(id) => Ok(id),
@@ -261,6 +290,80 @@ pub(super) fn resolve_delete_base(vm: &mut VmInner, obj: JsValue) -> Result<Obje
 }
 
 impl VmInner {
+    /// Route an opcode body's error out of the dispatch loop.
+    ///
+    /// Two dispositions, chosen by the error's own kind rather than by which arm
+    /// noticed it:
+    ///
+    /// - [`VmErrorKind::InternalError`] reports a **broken VM invariant** —
+    ///   `error.rs` documents it as "should not occur in correct programs", and
+    ///   every producer in the dispatch path is a stack-shape guard or a
+    ///   malformed-bytecode check. Handing it to
+    ///   [`VmInner::throw_error`](super::VmInner::throw_error) would materialise
+    ///   a plain, catchable JS `Error`, so a user `try`/`catch` could swallow
+    ///   the evidence and execution would carry on over a stack the VM has
+    ///   already agreed is wrong. It leaves by the hard path instead, straight
+    ///   out of `run()`, matching what `Op::Swap` has always done inline for the
+    ///   identical condition.
+    /// - Everything else is a JS-level error (a `TypeError` from a coercion, a
+    ///   `ReferenceError`, a user `throw` value) and goes to `throw_error` so
+    ///   handler search and `catch` work normally. `Op::ThrowUnsupported` is the
+    ///   pointed case: it reports an unimplemented *language construct*, not a
+    ///   broken invariant, so its `TypeError` stays catchable.
+    pub(super) fn raise(
+        &mut self,
+        error: VmError,
+        entry_frame_depth: usize,
+    ) -> Result<(), VmError> {
+        if matches!(error.kind, VmErrorKind::InternalError) {
+            return Err(error);
+        }
+        self.throw_error(error, entry_frame_depth)
+    }
+
+    /// Run a two-operand opcode over the top two stack slots **in place**.
+    ///
+    /// The shared rooting primitive for every binary arm whose body takes
+    /// `&mut VmInner` and can therefore reach user JS: `ToPrimitive` /
+    /// `ToPropertyKey` / `ToNumber` on an operand, or an accessor on one of
+    /// them, can allocate enough to trigger a collection. The GC roots the VM
+    /// stack (`gc/roots.rs`) but **not** Rust locals, so popping the pair first
+    /// leaves the operand that has not been consumed yet reachable from nowhere
+    /// — it can be collected mid-op and the rest of the op then runs against a
+    /// recycled slot, or panics in `get_object`'s "object already freed".
+    ///
+    /// The test for "does this arm need it" is deliberately mechanical — *is the
+    /// callee `&mut` and can it reach user JS* — not "does some operand
+    /// demonstrably outlive the user-code window". The latter has to be redone
+    /// from scratch every time a callee changes, and got the boundary wrong
+    /// twice already in this PR. `Op::StrictEq` / `Op::StrictNotEq` stay on
+    /// `pop()` because `strict_eq` takes `&VmInner`: the compiler, not a
+    /// reviewer, proves they run no user code.
+    ///
+    /// Both slots are consumed on the success path and on every error path, so
+    /// the arm's stack effect is `[lhs rhs -- result]` / `[lhs rhs -- ]`
+    /// exactly as it was under `pop()`.
+    pub(super) fn binary_op_rooted(
+        &mut self,
+        what: &'static str,
+        op: impl FnOnce(&mut Self, JsValue, JsValue) -> Result<JsValue, VmError>,
+    ) -> Result<(), VmError> {
+        let len = self.stack.len();
+        if len < 2 {
+            return Err(VmError::internal(format!("stack underflow on {what}")));
+        }
+        let lhs = self.stack[len - 2];
+        let rhs = self.stack[len - 1];
+        let result = op(self, lhs, rhs);
+        self.stack.truncate(len - 2);
+        let val = result?;
+        // Nothing between the truncate and the push allocates, so `val` — which
+        // the op produced before the operands were dropped — cannot be collected
+        // in the gap.
+        self.stack.push(val);
+        Ok(())
+    }
+
     /// `Op::PopUnder` — `[a1 … an v -- v]`, discard `n` slots from beneath the
     /// top while keeping the top.
     ///
@@ -428,7 +531,7 @@ impl VmInner {
             self.stack.push(JsValue::Boolean(true));
             Ok(())
         } else {
-            // §12.5.3.2: `delete` throws TypeError in strict mode when
+            // §13.5.1.2 step 4.f: `delete` throws TypeError in strict mode when
             // [[Delete]] returns false.  All code is strict, so we always throw.
             Err(VmError::type_error(NON_CONFIGURABLE_DELETE_MSG))
         }
@@ -486,6 +589,76 @@ impl VmInner {
             old_num - 1.0
         };
         self.set_element(obj, key, JsValue::Number(new_num))?;
+        Ok(JsValue::Number(if prefix { new_num } else { old_num }))
+    }
+
+    /// `Op::IncProp` / `Op::DecProp` — `[object -- number]`, plus a name-constant
+    /// index and a `prefix` operand byte read from the bytecode.
+    ///
+    /// The static-key sibling of [`Self::op_inc_dec_elem`], and rooted the same
+    /// way for a strictly worse reason: this arm crosses **two** user-code
+    /// windows before it stores. `get_property_val` may run a user **getter**
+    /// and `to_number` a user `valueOf`, and the `set_property_val` that follows
+    /// writes through the *same* base. Held in a Rust local — which the GC does
+    /// not root — that base could be collected by either window, making the
+    /// store land in whatever object recycled the slot or panic in
+    /// `get_object_mut`. Reading the operand in place makes the whole
+    /// read-modify-write rooted by construction.
+    ///
+    /// One reference, evaluated once: §13.4.2.1 (postfix `++`) step 1 evaluates
+    /// it and reuses it for `GetValue` (§6.2.5.5) at step 3 and `PutValue`
+    /// (§6.2.5.6) at step 6; §13.4.3.1 / §13.4.4.1 / §13.4.5.1 are the same
+    /// shape for the other three update productions this arm serves.
+    pub(super) fn op_inc_dec_prop(
+        &mut self,
+        func_id: FuncId,
+        increment: bool,
+    ) -> Result<(), VmError> {
+        let name_idx = self.read_u16_op();
+        let prefix = self.read_u8_op() != 0;
+        // Ahead of the operand read, as it was under `pop()`: a bad constant
+        // index is a malformed-bytecode invariant break, and leaving the operand
+        // in place for it keeps that path's stack shape unchanged.
+        let name_id = self.constant_to_string_id(func_id, name_idx)?;
+        let len = self.stack.len();
+        if len < 1 {
+            return Err(VmError::internal("stack underflow on IncProp/DecProp"));
+        }
+        let obj_val = self.stack[len - 1];
+        let result = self.inc_dec_prop_value(obj_val, name_id, increment, prefix);
+        // `[object -- number]` on success; consumed and nothing pushed before
+        // the caller's error routing.
+        self.stack.truncate(len - 1);
+        let val = result?;
+        self.stack.push(val);
+        Ok(())
+    }
+
+    /// Read-modify-write body of [`Self::op_inc_dec_prop`], split out so the
+    /// caller drops the operand slot on exactly one path — it must stay rooted
+    /// for the whole of this function.
+    ///
+    /// The primitive-base store is skipped rather than thrown, preserving the
+    /// behaviour this arm had before the operand was rooted. (§6.2.5.6 PutValue
+    /// step 5.e would `throw` for a strict primitive base; that divergence is
+    /// pre-existing and orthogonal to rooting.)
+    fn inc_dec_prop_value(
+        &mut self,
+        obj: JsValue,
+        name_id: StringId,
+        increment: bool,
+        prefix: bool,
+    ) -> Result<JsValue, VmError> {
+        let old = self.get_property_val(obj, name_id)?;
+        let old_num = to_number(self, old)?;
+        let new_num = if increment {
+            old_num + 1.0
+        } else {
+            old_num - 1.0
+        };
+        if matches!(obj, JsValue::Object(_)) {
+            self.set_property_val(obj, name_id, JsValue::Number(new_num))?;
+        }
         Ok(JsValue::Number(if prefix { new_num } else { old_num }))
     }
 

@@ -262,13 +262,11 @@ pub(super) fn compile_assignment(
                 // rejects.  Loud and scoped until `#11-vm-assignment-target-
                 // completeness` normalises `ExprKind::Paren` away.
                 _ => {
-                    let msg = fc.add_constant(Constant::Wtf16(
+                    emit_unsupported(
+                        fc,
                         "assignment to this target is not yet supported \
-                         (#11-vm-assignment-target-completeness)"
-                            .encode_utf16()
-                            .collect(),
-                    ));
-                    fc.emit_u16(Op::ThrowUnsupported, msg);
+                         (#11-vm-assignment-target-completeness)",
+                    );
                 }
             }
         }
@@ -280,13 +278,11 @@ pub(super) fn compile_assignment(
             // leaves one, so a statement-position destructure underflowed the
             // following discard.  Owned by `#11-vm-assignment-target-
             // completeness`.
-            let msg = fc.add_constant(Constant::Wtf16(
+            emit_unsupported(
+                fc,
                 "destructuring assignment is not yet supported \
-                 (#11-vm-assignment-target-completeness)"
-                    .encode_utf16()
-                    .collect(),
-            ));
-            fc.emit_u16(Op::ThrowUnsupported, msg);
+                 (#11-vm-assignment-target-completeness)",
+            );
         }
     }
     Ok(())
@@ -298,15 +294,22 @@ pub(super) fn compile_assignment(
 ///
 /// Deliberately **one** decision site, evaluated *before* the
 /// computed/non-computed split. Deciding admissibility inside a lowering branch
-/// has been wrong three times in this slice alone: a `MemberProp::Identifier`-only
-/// check let `this.#x ??= 1` reach `compound_op_to_opcode`'s `unreachable!` and
-/// abort the process; the private-name guard that replaced it sat below the
-/// computed branch, so `this.#x` was rejected while a computed private target was
-/// not; and the `super` guard sat below it too, so `super.x = v` threw the scoped
-/// error while `super[k] = v` fell through to `PushUndefined` and a misleading
-/// "cannot read property of undefined" *after* running both operands. Whether a
-/// target can be lowered does not depend on which lowering it would take, so it
-/// must not be decided inside one.
+/// has been wrong twice in this slice, and once more one file away:
+///
+///   1. the private-name check was gated on `logical_assign_jump(op).is_some()`,
+///      so `this.#x ??= 1` was rejected while `this.#x = 1` and `+= 1` emitted a
+///      store that fell to an `Op::Pop` tail — the write silently lost and the
+///      expression evaluating to the *object*;
+///   2. the `super` guard sat below the computed branch, so `super.x = v` threw
+///      the scoped error while `super[k] = v` fell through to `PushUndefined`
+///      and a misleading "cannot read property of undefined" — *after* running
+///      both operands;
+///   3. `compile_update_expr` decided separately again, so `this.#x++` stayed a
+///      silent no-op after (1) was fixed. It now calls this gate.
+///
+/// Whether a target can be lowered does not depend on which lowering it would
+/// take, so it must not be decided inside one — which is also why update
+/// expressions share this gate rather than carrying their own.
 ///
 /// Rejection is a scoped runtime throw, not a `CompileError`: umbrella I-1 wants
 /// loud **and scoped**, and §9 decision 5 reserves `CompileError` for what the
@@ -315,7 +318,7 @@ pub(super) fn compile_assignment(
 /// it. The throw precedes operand evaluation — the construct is unsupported in
 /// full, so running half its side effects first would be a second, subtler
 /// divergence.
-fn unsupported_member_target(
+pub(super) fn unsupported_member_target(
     prog: &Program,
     object: NodeId<Expr>,
     property: &MemberProp,
@@ -346,6 +349,16 @@ fn unsupported_member_target(
     }
 }
 
+/// Emit a scoped runtime rejection for a construct the compiler cannot lower.
+///
+/// One helper so every rejection site produces the same shape — a `TypeError`
+/// carrying a slot-cited message, raised where the construct executes rather
+/// than failing the whole compile.
+pub(super) fn emit_unsupported(fc: &mut FunctionCompiler, message: &str) {
+    let idx = fc.add_constant(Constant::Wtf16(message.encode_utf16().collect()));
+    fc.emit_u16(Op::ThrowUnsupported, idx);
+}
+
 /// Compile assignment to a member target (`o.p = v`, `o[k] += v`, `o.p ??= v`).
 ///
 /// Every ECMA-262 §13.15.2 production evaluates the LeftHandSideExpression
@@ -368,8 +381,7 @@ fn compile_member_assignment(
 ) -> Result<(), CompileError> {
     // ONE admissibility decision, before the computed/non-computed split.
     if let Some(message) = unsupported_member_target(prog, object, property, computed) {
-        let idx = fc.add_constant(Constant::Wtf16(message.encode_utf16().collect()));
-        fc.emit_u16(Op::ThrowUnsupported, idx);
+        emit_unsupported(fc, message);
         return Ok(());
     }
 

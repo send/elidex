@@ -13,7 +13,9 @@
 //! `PutValue` (step 9).  The logical forms evaluate the RHS only when the
 //! short-circuit test fails.
 
-use super::{eval, eval_bool, eval_number, eval_string, eval_throws};
+use super::{
+    eval, eval_bool, eval_number, eval_string, eval_throws, gc_in_window, gc_number, pool_setup,
+};
 use crate::vm::JsValue;
 
 // ── Computed compound: `obj[key] op= v` ──────────────────────────────
@@ -407,101 +409,58 @@ fn symbol_from_toprimitive_key_throws_known_divergence() {
     eval_throws(&src("o[k]"));
 }
 
-/// `Op::GetElemRef` is rooted **by construction** — it reads the `[object key]`
-/// pair in place rather than popping it, so the base stays on the GC-rooted VM
-/// stack while the key conversion runs user code.
-///
-/// This matters beyond a wrong read: `GetElemRef` hands its base to the
-/// following `SetElem`, so a base collected mid-conversion would be a **store
-/// through a dangling `ObjectId`** — a write into whatever object recycled the
-/// slot, or `get_object_mut`'s "object already freed" panic. The read-side
-/// members of the family only return a wrong value; this is the one path that
-/// writes, which is why it is fixed here rather than carried to the slot.
-///
-/// The allocation count below has to actually provoke a collection for this to
-/// be a real guard; if a GC-threshold change ever makes it stop provoking one,
-/// this test passes vacuously rather than failing loudly.
-#[test]
-fn computed_compound_keeps_temporary_base_rooted() {
-    let key = "{toString(){var a=[]; for(var i=0;i<2000;i++) a.push({x:i}); return 'p'}}";
-    let temp_base = "(function(){return {p:1}})()";
-
-    assert_eq!(eval_number(&format!("{temp_base}[{key}] += 2")), 3.0);
-    assert_eq!(eval_number(&format!("{temp_base}[{key}] ??= 9")), 1.0);
-    assert_eq!(eval_number(&format!("{temp_base}[{key}] ||= 9")), 1.0);
-}
-
 /// The whole element-access family is rooted **by construction**: every arm
 /// reads its operands in place by index instead of popping them into Rust
 /// locals, so the base stays on the GC-rooted VM stack while the key conversion
-/// — and, for `++`, the `ToNumber` of the old value — runs user code. The three
-/// mutating members are why it matters: a base collected mid-conversion would
-/// make their store or delete go through a dangling `ObjectId`, into whatever
-/// object recycled the slot.
+/// — and, for `++`, the `ToNumber` of the old value — runs user code. Four of
+/// the five mutate (`SetElem`, `DeleteElem`, `IncElem`, `DecElem`; only
+/// `GetElem` is read-only), which is why it matters: a base collected
+/// mid-conversion would make their store or delete go through a dangling
+/// `ObjectId`, into whatever object recycled the slot.
 ///
-/// A store or delete through a temporary base leaves nothing to read back, so
-/// each mutating case carries its own witness: an accessor whose setter is
-/// reachable from the base alone (it cannot run if the base was collected), and
-/// a non-configurable property whose deletion must throw (a recycled object
-/// would report success instead).
-///
-/// The allocation count below has to actually provoke a collection for this to
-/// be a real guard; if a GC-threshold change ever makes it stop provoking one,
-/// this test passes vacuously rather than failing loudly.
+/// `gc_in_window` places the collection deterministically and asserts it fired,
+/// so these cannot decay into vacuous passes.
 #[test]
 fn element_access_keeps_temporary_base_rooted() {
-    let key = "{toString(){var a=[]; for(var i=0;i<2000;i++) a.push({x:i}); return 'p'}}";
-    let temp_base = "(function(){return {p:1}})()";
+    // The base and the key are allocated in setup; `mk()` hands the base out
+    // while removing the pool's reference, so the operand slot is the only thing
+    // holding it. The first allocation in the expression is the `var t = {}`
+    // inside the key's `toString` — i.e. inside the user-code window.
+    let setup = |n: usize| {
+        pool_setup(&format!(
+            "for (var i = 0; i < {n}; i++) pool.push({{p: 1}});              globalThis.k = {{toString(){{ var t = {{}}; return 'p' }}}};"
+        ))
+    };
 
-    // `Op::GetElem` — read-only; a collected base read as `undefined`.
-    assert_eq!(eval_number(&format!("{temp_base}[{key}]")), 1.0);
-    // `Op::IncElem` — read-modify-write; postfix yields the old value, so a
-    // collected base surfaced as `NaN`.
-    assert_eq!(eval_number(&format!("{temp_base}[{key}]++")), 1.0);
-    // `Op::DecElem` — same arm, opposite direction.
-    assert_eq!(eval_number(&format!("--{temp_base}[{key}]")), 0.0);
-    // `Op::SetElem` — the store has to land on the *intended* object.
+    // Read (`GetElem`) — the only read-only member.
+    assert_eq!(gc_number(&setup(1), "mk()[k]"), 1.0);
+    // Read-modify-write through `GetElemRef` (compound and logical assignment).
+    assert_eq!(gc_number(&setup(1), "mk()[k] += 2"), 3.0);
+    assert_eq!(gc_number(&setup(1), "mk()[k] ??= 9"), 1.0);
+    assert_eq!(gc_number(&setup(1), "mk()[k] ||= 9"), 1.0);
+    // `IncElem` / `DecElem`.
+    assert_eq!(gc_number(&setup(1), "mk()[k]++"), 1.0);
+    assert_eq!(gc_number(&setup(1), "--mk()[k]"), 0.0);
+    // `SetElem` — a store leaves nothing to read back, so the witness is a
+    // setter on the base that records having run.
     assert_eq!(
-        eval_number(&format!(
-            "var seen=0; (function(){{return {{set p(v){{seen=v}}}}}})()[{key}] = 7; seen"
-        )),
+        gc_number(
+            &pool_setup(
+                "globalThis.seen = 0;                  pool.push({set p(v){ globalThis.seen = v }});                  globalThis.k = {toString(){ var t = {}; return 'p' }};"
+            ),
+            "mk()[k] = 7; seen"
+        ),
         7.0
     );
-    assert_eq!(eval_number(&format!("{temp_base}[{key}] = 7")), 7.0);
-    // `Op::DeleteElem` — mutating; the frozen base is the sharp witness.
-    assert!(eval_bool(&format!("delete {temp_base}[{key}]")));
-    eval_throws(&format!(
-        "delete (function(){{return Object.freeze({{p:1}})}})()[{key}]"
-    ));
-
-    // Control: a base bound to a variable lives in the frame's stack slots, so
-    // it was rooted even before the fix.  These pin that reading the operands in
-    // place left the ordinary path — including `DeleteElem`'s array-index fast
-    // path — alone.
-    assert_eq!(eval_number(&format!("var o={{p:1}}; o[{key}]")), 1.0);
-    assert_eq!(eval_number(&format!("var o={{p:1}}; o[{key}]++")), 1.0);
-    assert_eq!(
-        eval_number(&format!("var o={{p:1}}; o[{key}] = 7; o.p")),
-        7.0
-    );
-    assert!(matches!(
-        eval(&format!("var o={{p:1}}; delete o[{key}]; o.p")).unwrap(),
-        JsValue::Undefined
-    ));
-    // `DeleteElem`'s array-index fast path: it keys off the *raw* operand, so a
-    // Number or already-string key reaches it and punches a hole in the dense
-    // storage.  (An object key that stringifies to an index does not — it takes
-    // the generic path, which does not see dense elements at all.  Pre-existing
-    // and unchanged here: `delete a[{toString(){return '0'}}]` reports success
-    // while leaving `a[0]` intact, on both sides of this fix.)
-    assert!(matches!(
-        eval("var a=[1,2,3]; delete a['0']; a[0]").unwrap(),
-        JsValue::Undefined
-    ));
-    assert!(matches!(
-        eval("var a=[1,2,3]; delete a[0]; a[0]").unwrap(),
-        JsValue::Undefined
-    ));
+    // `DeleteElem` — a frozen target must still throw, which it cannot do if the
+    // base was collected out from under it.
+    assert!(gc_in_window(
+        &pool_setup(
+            "pool.push(Object.freeze({p: 1}));              globalThis.k = {toString(){ var t = {}; return 'p' }};"
+        ),
+        "delete mk()[k]"
+    )
+    .is_err());
 }
 
 /// Sibling targets in the same `match` the private-name guard hardened. Each
@@ -547,7 +506,10 @@ fn unlowerable_assignment_targets_throw_rather_than_silently_doing_nothing() {
 /// its replacement sat below the computed branch, and the `super` guard sat
 /// below it too — so `super.x = v` threw the scoped error while `super[k] = v`
 /// fell through to `Op::PushUndefined` and a misleading "cannot read property of
-/// undefined", *after* evaluating both operands. These pin both members of each
+/// undefined", *after* evaluating both operands. The `eval_throws` loop is a
+/// shape sweep — several of its cases threw before the fix too, for the wrong
+/// reason — so the sharp assertions are the side-effect-log block below, which
+/// fails on the pre-fix compiler.
 /// pair, and that the throw precedes operand side effects.
 #[test]
 fn unsupported_member_targets_are_rejected_by_shape_not_by_lowering() {
@@ -559,7 +521,7 @@ fn unsupported_member_targets_are_rejected_by_shape_not_by_lowering() {
         eval_throws(&in_class(&format!("super.x {op} 1")));
         eval_throws(&in_class(&format!("super['x'] {op} 1")));
         eval_throws(&in_class(&format!("super[k()] {op} 1")));
-        // Private names, both receivers.
+        // Private names.
         eval_throws(&format!(
             "class C{{#x=0; m(){{ this.#x {op} 1 }}}}; new C().m()"
         ));
@@ -584,4 +546,66 @@ fn unsupported_member_targets_are_rejected_by_shape_not_by_lowering() {
             "side effects ran before the throw in: {src}"
         );
     }
+}
+
+/// Update expressions are a second *lowering* of the same targets, not a second
+/// set of targets, so they share `unsupported_member_target` rather than
+/// re-deciding admissibility.
+///
+/// Before they did: `this.#x++` emitted only the base, so the update was
+/// silently lost and the expression evaluated to the **object** — the exact mode
+/// the gate exists to ban, still live one file away after the assignment forms
+/// were fixed. `super.x++` lowered its base to `Op::PushUndefined` and gave the
+/// misleading "cannot read property of undefined" that `super[k] = v` had.
+#[test]
+fn update_expressions_share_the_assignment_admissibility_gate() {
+    for form in ["{t}++", "++{t}", "{t}--", "--{t}"] {
+        for target in ["this.#x", "super.x", "super['x']", "super[k()]"] {
+            let expr = form.replace("{t}", target);
+            eval_throws(&format!(
+                "function k(){{return 'x'}} class B{{}} \
+                 class D extends B{{ #x=0; m(){{ {expr} }} }}; new D().m()"
+            ));
+        }
+    }
+    // Parenthesized and call targets took the outer `else`, which compiled the
+    // operand for side effects and emitted no update at all.
+    eval_throws("var x = 1; (x)++");
+    eval_throws("var a = [1]; (a[0])++");
+    // The rejection stays scoped — an unreachable one does not fail the script.
+    assert_eq!(eval_number("class C{#x=0; m(){ this.#x++ }}; 42"), 42.0);
+}
+
+/// ⚠ CARVED: `#11-vm-delete-elem-raw-key-array-fast-path`.
+///
+/// `Op::DeleteElem` derives its array-index fast path from the **raw** operand,
+/// so an object key that stringifies to an index skips it — and the generic
+/// `try_delete_property` path never consults `ObjectKind::Array { elements }`,
+/// so it reports success without clearing the dense element.
+///
+/// Same root as `#11-vm-topropertykey-symbol-from-toprimitive`: a fast path keyed
+/// on the raw value rather than the `ToPropertyKey` *result*. Both are discharged
+/// by the canonical computed-member-reference primitive. Pre-existing — probed
+/// byte-identical against the pre-rooting-fix tree.
+#[test]
+fn delete_elem_object_key_misses_dense_element_known_divergence() {
+    // Spec: deletes the element, so `a[0]` is `undefined`.  Current: reports
+    // `true` and leaves it in place.
+    assert!(eval_bool(
+        "var a=[1,2,3]; delete a[{toString(){return '0'}}]"
+    ));
+    assert_eq!(
+        eval_number("var a=[1,2,3]; delete a[{toString(){return '0'}}]; a[0]"),
+        1.0
+    );
+    // A raw string or number key takes the fast path and IS correct — which is
+    // what identifies the defect as the raw-vs-converted key, not `delete`.
+    assert_eq!(
+        eval_string("var a=[1,2,3]; delete a['0']; String(a[0])"),
+        "undefined"
+    );
+    assert_eq!(
+        eval_string("var a=[1,2,3]; delete a[0]; String(a[0])"),
+        "undefined"
+    );
 }

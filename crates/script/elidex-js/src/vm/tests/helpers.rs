@@ -33,6 +33,50 @@ pub(crate) fn eval(source: &str) -> Result<JsValue, VmError> {
     vm.eval(source)
 }
 
+/// Run `setup` (every allocation the case needs), arm the one-shot GC, then run
+/// `expr` — whose first allocation is the one inside the user-code window.
+///
+/// The one-shot **clears itself when it fires**, so the assertion below is a
+/// witness that a collection was actually placed in the window. That is what an
+/// allocation-volume heuristic cannot give you: if a GC-threshold change ever
+/// stops the pressure from provoking a collection, a volume-based rooting test
+/// passes *vacuously* — the guard disappears silently instead of failing.
+///
+/// (Pinning `gc_threshold` low does NOT work: `collect_garbage` ends by resetting
+/// it to `(live_count * 128).max(32768)`, so a low threshold buys exactly one
+/// collection, at the script's first allocation — nowhere near the window.)
+pub(crate) fn gc_in_window(setup: &str, expr: &str) -> Result<JsValue, VmError> {
+    let mut vm = Vm::new();
+    vm.eval(setup).expect("probe setup must succeed");
+    vm.inner.force_gc_before_next_alloc = true;
+    let result = vm.eval(expr);
+    assert!(
+        !vm.inner.force_gc_before_next_alloc,
+        "no collection was placed in the window — `{expr}` never allocated, so \
+         this case proves nothing about rooting"
+    );
+    result
+}
+
+pub(crate) fn gc_number(setup: &str, expr: &str) -> f64 {
+    match gc_in_window(setup, expr).unwrap() {
+        JsValue::Number(n) => n,
+        other => panic!("expected number, got {other:?}"),
+    }
+}
+
+pub(crate) fn gc_bool(setup: &str, expr: &str) -> bool {
+    match gc_in_window(setup, expr).unwrap() {
+        JsValue::Boolean(b) => b,
+        other => panic!("expected boolean, got {other:?}"),
+    }
+}
+
+/// `pool` hands out a base whose only remaining reference is the operand slot.
+pub(crate) fn pool_setup(push: &str) -> String {
+    format!("globalThis.pool = []; globalThis.mk = function () {{ return pool.pop() }}; {push}")
+}
+
 pub(crate) fn eval_throws(source: &str) {
     let result = eval(source);
     assert!(result.is_err(), "expected error, got {result:?}");

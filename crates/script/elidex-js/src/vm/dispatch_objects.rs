@@ -339,7 +339,8 @@ impl VmInner {
         Ok(())
     }
 
-    /// `instanceof` operator (§12.10.4).
+    /// `instanceof` operator — ECMA-262 §13.10.1 Runtime Semantics: Evaluation,
+    /// via §13.10.2 `InstanceofOperator`.  (§12.10 is Automatic Semicolon Insertion.)
     pub(crate) fn op_instanceof(&mut self, lhs: JsValue, rhs: JsValue) -> Result<bool, VmError> {
         let JsValue::Object(rhs_id) = rhs else {
             return Err(VmError::type_error(

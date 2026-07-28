@@ -7,6 +7,7 @@ use crate::bytecode::opcode::Op;
 use crate::scope::ScopeAnalysis;
 
 use super::expr::compile_expr;
+use super::expr_assign::{emit_unsupported, unsupported_member_target};
 use super::function::FunctionCompiler;
 use super::resolve::{resolve_identifier, FunctionScope, VarLocation};
 use super::CompileError;
@@ -234,21 +235,24 @@ pub(super) fn compile_update_expr(
         computed,
     } = &arg.kind
     {
+        // The SAME admissibility gate the assignment forms use, for the same
+        // reason: `this.#x++` used to emit only the base, so the update was
+        // silently lost and the expression evaluated to the *object* — the exact
+        // failure mode `unsupported_member_target` exists to ban — and
+        // `super.x++` lowered its base to `Op::PushUndefined` and reported a
+        // misleading "cannot read property of undefined".  Update expressions
+        // are a second *lowering* of the same targets, not a second set of
+        // targets, so they must not re-decide admissibility (ECMA-262 §13.4
+        // evaluates the same LeftHandSideExpression reference §13.15.2 does).
+        if let Some(message) = unsupported_member_target(prog, *object, property, *computed) {
+            emit_unsupported(fc, message);
+            return Ok(());
+        }
         compile_expr(fc, prog, analysis, func_scopes, *object)?;
-        if !computed {
-            if let MemberProp::Identifier(prop_atom) = property {
-                // Static property: use IncProp/DecProp.
-                let prop_name = prog.interner.get(*prop_atom);
-                let name_idx = fc.add_name_u16(prop_name);
-                let inc_op = match op {
-                    UpdateOp::Increment => Op::IncProp,
-                    UpdateOp::Decrement => Op::DecProp,
-                };
-                fc.emit_u16_u8(inc_op, name_idx, u8::from(prefix));
-            } else {
-                // PrivateIdentifier — unsupported for now, just keep value.
-            }
-        } else if let MemberProp::Expression(prop_expr_id) = property {
+        if *computed {
+            let MemberProp::Expression(prop_expr_id) = property else {
+                unreachable!("gate admits only Expression for a computed target")
+            };
             // Computed property: use IncElem/DecElem.
             compile_expr(fc, prog, analysis, func_scopes, *prop_expr_id)?;
             let inc_op = match op {
@@ -256,10 +260,28 @@ pub(super) fn compile_update_expr(
                 UpdateOp::Decrement => Op::DecElem,
             };
             fc.emit_u8(inc_op, u8::from(prefix));
+        } else {
+            let MemberProp::Identifier(prop_atom) = property else {
+                unreachable!("gate admits only Identifier for a non-computed target")
+            };
+            // Static property: use IncProp/DecProp.
+            let prop_name = prog.interner.get(*prop_atom);
+            let name_idx = fc.add_name_u16(prop_name);
+            let inc_op = match op {
+                UpdateOp::Increment => Op::IncProp,
+                UpdateOp::Decrement => Op::DecProp,
+            };
+            fc.emit_u16_u8(inc_op, name_idx, u8::from(prefix));
         }
     } else {
-        // Unsupported update target — just evaluate for side effects.
-        compile_expr(fc, prog, analysis, func_scopes, argument)?;
+        // A parenthesized or call target (`(x)++`, `f()++`).  Previously this
+        // compiled the operand for side effects and emitted no update at all —
+        // the same silent-no-op shape the member gate above rejects.
+        emit_unsupported(
+            fc,
+            "update of this target is not yet supported \
+             (#11-vm-assignment-target-completeness)",
+        );
     }
     Ok(())
 }
