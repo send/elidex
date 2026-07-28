@@ -507,26 +507,15 @@ impl VmInner {
 
                 // ── Property access (Step 4 stubs) ──────────────────
                 Op::GetProp => {
-                    let name_idx = self.read_u16_op();
-                    let ic_idx = self.read_u16_op() as usize;
-                    let obj_val = self.pop()?;
-                    match self.ic_get_prop(func_id, name_idx, ic_idx, obj_val) {
-                        Ok(val) => self.stack.push(val),
-                        Err(e) => {
-                            self.raise(e, entry_frame_depth)?;
-                        }
+                    // Body in `dispatch_helpers.rs` — see `op_get_prop`.
+                    if let Err(e) = self.op_get_prop(func_id) {
+                        self.raise(e, entry_frame_depth)?;
                     }
                 }
                 Op::SetProp => {
-                    let name_idx = self.read_u16_op();
-                    let ic_idx = self.read_u16_op() as usize;
-                    let val = self.pop()?;
-                    let obj_val = self.pop()?;
-                    match self.ic_set_prop(func_id, name_idx, ic_idx, obj_val, val) {
-                        Ok(v) => self.stack.push(v),
-                        Err(e) => {
-                            self.raise(e, entry_frame_depth)?;
-                        }
+                    // Body in `dispatch_helpers.rs` — see `op_set_prop`.
+                    if let Err(e) = self.op_set_prop(func_id) {
+                        self.raise(e, entry_frame_depth)?;
                     }
                 }
                 Op::GetElem => {

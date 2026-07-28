@@ -375,41 +375,49 @@ impl VmInner {
 // Operator helpers
 // ---------------------------------------------------------------------------
 
+// Every operator body below hands its operand pair to
+// [`VmInner::binary_op_rooted`] rather than popping it.  Each one coerces one
+// operand before the other — ECMA-262 §13.15.3
+// `ApplyStringOrNumericBinaryOperator` steps 3-4 (`ToNumeric` on the left, then
+// the right) for the arithmetic and bitwise groups, §7.2.12 `IsLessThan` steps
+// 1.a-1.b / 2.b-2.c (`ToPrimitive`, in `leftFirst` order) for the relational
+// group — and that first coercion runs user `valueOf` /
+// `@@toPrimitive`.  Popped, the second operand spends that window in a Rust
+// local, which `gc/roots.rs` does not walk.  `binary_op_rooted` owns the
+// read-in-place / truncate / push sequence for all of them, so the stack effect
+// (`[lhs rhs -- result]`, `[lhs rhs -- ]` on error) is stated once.
 impl VmInner {
     pub(crate) fn binary_numeric(&mut self, op: NumericBinaryOp) -> Result<(), VmError> {
-        let b = self.pop()?;
-        let a = self.pop()?;
-        let r = op_numeric_binary(self, a, b, op)?;
-        self.stack.push(r);
-        Ok(())
+        self.binary_op_rooted(op.opcode_name(), |vm, a, b| op_numeric_binary(vm, a, b, op))
     }
 
     pub(crate) fn binary_bitwise(&mut self, op: BitwiseOp) -> Result<(), VmError> {
-        let b = self.pop()?;
-        let a = self.pop()?;
-        let r = op_bitwise(self, a, b, op)?;
-        self.stack.push(r);
-        Ok(())
+        self.binary_op_rooted(op.opcode_name(), |vm, a, b| op_bitwise(vm, a, b, op))
     }
 
     pub(crate) fn relational_op(&mut self, swap: bool, eq: bool) -> Result<(), VmError> {
-        let b = self.pop()?;
-        let a = self.pop()?;
-        let result = if eq {
-            // x <= y  ===  !(y < x)
-            // x >= y  ===  !(x < y)  (with swap)
-            let (lhs, rhs) = if swap { (a, b) } else { (b, a) };
-            match abstract_relational(self, lhs, rhs, swap)? {
-                Some(false) => true,        // !(y < x) → <=
-                Some(true) | None => false, // y < x, or NaN
-            }
-        } else {
-            // x < y  or  x > y (with swap)
-            let (lhs, rhs) = if swap { (b, a) } else { (a, b) };
-            abstract_relational(self, lhs, rhs, !swap)?.unwrap_or(false)
+        let what = match (swap, eq) {
+            (false, false) => "Lt",
+            (false, true) => "LtEq",
+            (true, false) => "Gt",
+            (true, true) => "GtEq",
         };
-        self.stack.push(JsValue::Boolean(result));
-        Ok(())
+        self.binary_op_rooted(what, |vm, a, b| {
+            let result = if eq {
+                // x <= y  ===  !(y < x)
+                // x >= y  ===  !(x < y)  (with swap)
+                let (lhs, rhs) = if swap { (a, b) } else { (b, a) };
+                match abstract_relational(vm, lhs, rhs, swap)? {
+                    Some(false) => true,        // !(y < x) → <=
+                    Some(true) | None => false, // y < x, or NaN
+                }
+            } else {
+                // x < y  or  x > y (with swap)
+                let (lhs, rhs) = if swap { (b, a) } else { (a, b) };
+                abstract_relational(vm, lhs, rhs, !swap)?.unwrap_or(false)
+            };
+            Ok(JsValue::Boolean(result))
+        })
     }
 }
 

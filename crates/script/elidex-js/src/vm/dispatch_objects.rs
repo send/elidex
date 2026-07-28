@@ -41,52 +41,71 @@ impl VmInner {
         &mut self,
         entry_frame_depth: usize,
     ) -> Result<(), VmError> {
-        let val = self.pop()?;
-        let key = self.pop()?;
-        let obj_val = self.peek()?;
-        if let JsValue::Object(id) = obj_val {
-            match self.make_property_key(key) {
-                Ok(pk) => {
-                    // Sync global object writes to globals HashMap.
-                    if id == self.global_object {
-                        if let PropertyKey::String(sid) = pk {
-                            self.globals.insert(sid, val);
-                        }
-                    }
-                    self.upsert_data_property(id, pk, val, super::shape::PropertyAttrs::DATA);
-                }
-                Err(e) => {
-                    self.throw_error(e, entry_frame_depth)?;
-                }
-            }
-        }
-        Ok(())
+        self.define_computed_data_property(super::shape::PropertyAttrs::DATA, entry_frame_depth)
     }
 
-    /// `DefineComputedMethod` — like `DefineComputedProperty` but non-enumerable (section 14.3.8).
+    /// `DefineComputedMethod` — like `DefineComputedProperty` but
+    /// non-enumerable: ECMA-262 §15.4.5 MethodDefinitionEvaluation defines the
+    /// method with its `enumerable` argument, and §15.7.14
+    /// ClassDefinitionEvaluation (the only producer of this opcode) passes
+    /// `false`.
     pub(crate) fn op_define_computed_method(
         &mut self,
         entry_frame_depth: usize,
     ) -> Result<(), VmError> {
-        let val = self.pop()?;
-        let key = self.pop()?;
-        let obj_val = self.peek()?;
-        if let JsValue::Object(id) = obj_val {
-            match self.make_property_key(key) {
-                Ok(pk) => {
-                    if id == self.global_object {
-                        if let PropertyKey::String(sid) = pk {
-                            self.globals.insert(sid, val);
-                        }
-                    }
-                    self.upsert_data_property(id, pk, val, super::shape::PropertyAttrs::METHOD);
-                }
-                Err(e) => {
-                    self.throw_error(e, entry_frame_depth)?;
-                }
-            }
+        self.define_computed_data_property(super::shape::PropertyAttrs::METHOD, entry_frame_depth)
+    }
+
+    /// Shared body of the two computed-key **data** definitions —
+    /// `[object key value -- object]`, differing only in the attributes.
+    ///
+    /// Reads all three operands **in place**. §13.2.5.6
+    /// PropertyDefinitionEvaluation evaluates the key, then the value, and only
+    /// then converts the key with `ToPropertyKey` (§7.1.20) — so by the time the
+    /// key's user `toString` / `@@toPrimitive` runs, the value is already
+    /// computed and, popped, held nowhere but a Rust local, which
+    /// `gc/roots.rs` does not walk. This one is worse than a transient
+    /// mis-read: the collected id is then **stored**, so the object keeps a
+    /// dangling reference long after the opcode returns.
+    ///
+    /// The non-object-target check stays ahead of the conversion, as it was
+    /// under `pop()`: a target that is not an Object must not run the key's
+    /// user code at all.
+    fn define_computed_data_property(
+        &mut self,
+        attrs: super::shape::PropertyAttrs,
+        entry_frame_depth: usize,
+    ) -> Result<(), VmError> {
+        let len = self.stack.len();
+        if len < 3 {
+            return Err(VmError::internal(
+                "stack underflow on DefineComputedProperty/DefineComputedMethod",
+            ));
         }
-        Ok(())
+        let obj_val = self.stack[len - 3];
+        let key = self.stack[len - 2];
+        let val = self.stack[len - 1];
+        let resolved = match obj_val {
+            JsValue::Object(id) => self.make_property_key(key).map(|pk| Some((id, pk))),
+            _ => Ok(None),
+        };
+        // `[object key value -- object]` on both paths: the key and the value
+        // are consumed, the target stays for the next definition.
+        self.stack.truncate(len - 2);
+        match resolved {
+            Ok(Some((id, pk))) => {
+                // Sync global object writes to the globals HashMap.
+                if id == self.global_object {
+                    if let PropertyKey::String(sid) = pk {
+                        self.globals.insert(sid, val);
+                    }
+                }
+                self.upsert_data_property(id, pk, val, attrs);
+                Ok(())
+            }
+            Ok(None) => Ok(()),
+            Err(e) => self.throw_error(e, entry_frame_depth),
+        }
     }
 
     /// `CreateArray` — allocate an array with `Array.prototype`.
@@ -124,14 +143,37 @@ impl VmInner {
         Ok(())
     }
 
-    /// `SpreadObject` — copy all enumerable own properties from source to target.
-    /// Accessor properties invoke their getter via Get (§12.2.6.8).
+    /// `SpreadObject` — `[target source -- target]`, copy all enumerable own
+    /// properties from source to target. Accessor properties invoke their getter
+    /// via Get (ECMA-262 §7.3.25 `CopyDataProperties` step 4.c.ii.1).
+    ///
+    /// Reads both operands **in place**. The copy loop runs a user getter per
+    /// key and dereferences the *source* again on every key that follows, so the
+    /// source must stay rooted across all of them. The getter's own receiver is
+    /// the source, which looks like it covers the case — but only for a method
+    /// getter: an arrow (or bound) getter takes its `this` from elsewhere, so
+    /// nothing roots a popped source and the remaining keys are then read out of
+    /// whatever recycled its slot.
     pub(crate) fn op_spread_object(&mut self) -> Result<(), VmError> {
-        let source = self.pop()?;
-        let obj_val = self.peek()?;
+        let len = self.stack.len();
+        if len < 2 {
+            return Err(VmError::internal("stack underflow on SpreadObject"));
+        }
+        let obj_val = self.stack[len - 2];
+        let source = self.stack[len - 1];
+        let result = self.spread_object_into(source, obj_val);
+        // Consume the source on both paths; the target stays.
+        self.stack.truncate(len - 1);
+        result
+    }
+
+    /// Copy body of [`Self::op_spread_object`], split out so the caller drops
+    /// the source slot on exactly one path — it must stay rooted for the whole
+    /// of this function.
+    fn spread_object_into(&mut self, source: JsValue, obj_val: JsValue) -> Result<(), VmError> {
         if let (JsValue::Object(src_id), JsValue::Object(dst_id)) = (source, obj_val) {
             let is_global = dst_id == self.global_object;
-            // §12.2.6.8 CopyDataProperties: snapshot keys in ES order, then Get per key.
+            // §7.3.25 CopyDataProperties: snapshot keys in ES order, then Get per key.
             // Array element indices (ascending) come before string keys.
             let keys: Vec<PropertyKey> = {
                 let elem_indices: Vec<usize> = match &self.get_object(src_id).kind {
@@ -215,15 +257,39 @@ impl VmInner {
         Ok(())
     }
 
-    /// Define a computed-key getter or setter accessor (class accessor §14.3.8).
+    /// Define a computed-key getter or setter accessor (class accessor,
+    /// ECMA-262 §15.4.5 MethodDefinitionEvaluation `get` / `set` productions).
     /// Stack: `[object key closure]` → `[object]`.
+    ///
+    /// Reads all three operands **in place**, for the same reason as
+    /// [`Self::define_computed_data_property`] and with the same durability: the
+    /// exposed operand is the accessor closure `Op::Closure` allocated one
+    /// instruction earlier, which nothing else references, and `ToPropertyKey`
+    /// (§7.1.20) on the key runs user code before it is installed. Popped, a
+    /// collection there left the property holding a dangling function id — an
+    /// "object already freed" panic on the first read of the accessor.
     pub(crate) fn op_define_computed_accessor(&mut self, is_getter: bool) -> Result<(), VmError> {
-        let closure = self.pop()?;
-        let key_val = self.pop()?;
-        let obj_val = self.peek()?;
-        if let (JsValue::Object(obj_id), JsValue::Object(fn_id)) = (obj_val, closure) {
-            let pk = self.make_property_key(key_val)?;
-            // Class accessors are non-enumerable (§14.3.8).
+        let len = self.stack.len();
+        if len < 3 {
+            return Err(VmError::internal(
+                "stack underflow on DefineComputedGetter/DefineComputedSetter",
+            ));
+        }
+        let obj_val = self.stack[len - 3];
+        let key_val = self.stack[len - 2];
+        let closure = self.stack[len - 1];
+        let resolved = match (obj_val, closure) {
+            (JsValue::Object(obj_id), JsValue::Object(fn_id)) => self
+                .make_property_key(key_val)
+                .map(|pk| Some((obj_id, pk, fn_id))),
+            _ => Ok(None),
+        };
+        // `[object key closure -- object]`, on the success path and on both
+        // error paths below.
+        self.stack.truncate(len - 2);
+        if let Some((obj_id, pk, fn_id)) = resolved? {
+            // Class elements are non-enumerable: §15.4.5 takes `enumerable` as
+            // an argument and §15.7.14 ClassDefinitionEvaluation passes `false`.
             self.define_accessor_impl(obj_id, pk, fn_id, is_getter, false)?;
         }
         Ok(())

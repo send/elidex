@@ -8,8 +8,25 @@
 //! and then runs user JS before reading or mutating through it is exposed, since
 //! `gc/roots.rs` walks the VM stack but not Rust locals. This module covers the
 //! rest of that set — `IncProp` / `DecProp`, `In`, `Instanceof`, `Add`,
-//! `TemplateConcat` — plus the controls for the two arms deliberately left on
-//! `pop()`.
+//! `TemplateConcat`, the arithmetic / bitwise / relational operator groups, the
+//! computed-key definitions, `SpreadObject`, `ArraySpread`, `IteratorRest`, and
+//! `GetProp` / `SetProp`.
+//!
+//! ## The boundary, and why it kept moving
+//!
+//! It was drawn at "element access" first, then at "dispatch arms", and both
+//! were too narrow: the exposed operand is often popped one or two layers deeper
+//! (`ops.rs`'s operator helpers, `dispatch_objects.rs`'s definition bodies), and
+//! sometimes it is not a compiler-placed operand at all — `ArraySpread`'s
+//! iterator is created *by* the opcode and never touches the stack.
+//!
+//! The re-derived per-arm safety arguments were the other failure mode. Three of
+//! them turned on "the operand is re-rooted as the receiver of the user code
+//! that runs", which quietly stops being true for an **arrow or bound** callee:
+//! its `this` comes from elsewhere. `SetProp`'s value had a second such
+//! argument ("it is rooted as the setter's argument"), which fails for a
+//! **zero-parameter** setter, since `call_internal` copies only
+//! `args[..min(argc, param_count)]` onto the stack. Both are witnessed below.
 //!
 //! ## Why not `eval_gc_stressed`
 //!
@@ -30,7 +47,7 @@
 
 use super::super::value::JsValue;
 use super::Vm;
-use super::{gc_bool, gc_number, pool_setup};
+use super::{gc_armed_number, gc_bool, gc_number, pool_setup};
 use crate::bytecode::compiled::{CompiledFunction, CompiledScript, Constant};
 use crate::bytecode::opcode::Op;
 use crate::vm::value::VmErrorKind;
@@ -39,6 +56,12 @@ use crate::vm::value::VmErrorKind;
 /// Under the armed one-shot a single allocation is a *guaranteed* collection,
 /// so there is no allocation-volume heuristic to go stale.
 const ALLOC: &str = "var t = {};";
+
+/// The same body for windows the Rust-side one-shot cannot reach, because the
+/// opcode's target object is allocated before the window opens. `__armGc()` is a
+/// `cfg(test)` global (`vm/globals.rs`) that arms the identical one-shot from
+/// script; the allocation that follows is what actually collects.
+const ARM_ALLOC: &str = "__armGc(); var t = {};";
 
 // ── Rooted arms ──────────────────────────────────────────────────────
 
@@ -156,21 +179,207 @@ fn template_concat_keeps_later_parts_rooted() {
     assert_eq!(vm.get_string(id), "AB");
 }
 
-// ── Arms deliberately left on `pop()` ────────────────────────────────
-
-/// `Op::GetProp` / `Op::SetProp` need no rooting, verified rather than assumed.
+/// `Op::Sub` / `Op::Mul` / `Op::Div` / `Op::Mod` / `Op::Exp` read their operands
+/// in place.
 ///
-/// Their base *is* handed to user code — as the accessor's receiver — but it is
-/// re-rooted there as the callee frame's `this`, and neither `get_prop_slow` nor
-/// `set_prop_slow` dereferences it again afterwards: both collect their IC info
-/// *before* the accessor runs and touch only `compiled_functions` after it. The
-/// stored value is likewise rooted for the duration, as the setter's argument.
-///
-/// These cases pass on both sides of the rooting change; they are here so the
-/// verdict is a test rather than a claim, and so a future edit that starts
-/// dereferencing the base after the accessor fails here.
+/// ECMA-262 §13.15.3 `ApplyStringOrNumericBinaryOperator` steps 3-4 run
+/// `ToNumeric` (§7.1.3) on the left operand and only then on the right, so the
+/// right operand spends the whole of the left one's user `valueOf` /
+/// `@@toPrimitive` in a Rust local.
 #[test]
-fn static_property_access_needs_no_rooting() {
+fn numeric_binary_keeps_second_operand_rooted() {
+    let setup = pool_setup(&format!(
+        "globalThis.lhs = {{ valueOf() {{ {ALLOC} return 6 }} }}; \
+         pool.push({{ valueOf() {{ return 3 }} }});"
+    ));
+    // Pre-fix: NaN — the recycled slot is a bare `{}`, so ToNumber gives NaN.
+    assert_eq!(gc_number(&setup, "lhs - mk()"), 3.0);
+    assert_eq!(gc_number(&setup, "lhs * mk()"), 18.0);
+    assert_eq!(gc_number(&setup, "lhs / mk()"), 2.0);
+    assert_eq!(gc_number(&setup, "lhs % mk()"), 0.0);
+    assert_eq!(gc_number(&setup, "lhs ** mk()"), 216.0);
+}
+
+/// `Op::BitAnd` / `BitOr` / `BitXor` / `Shl` / `Shr` / `UShr` read their operands
+/// in place — the bitwise half of §13.15.3, where the same left-then-right
+/// `ToNumeric` order exposes the right operand.
+#[test]
+fn bitwise_binary_keeps_second_operand_rooted() {
+    let setup = pool_setup(&format!(
+        "globalThis.lhs = {{ valueOf() {{ {ALLOC} return 6 }} }}; \
+         pool.push({{ valueOf() {{ return 3 }} }});"
+    ));
+    // Pre-fix: the recycled `{}` coerces to NaN → 0, so every case degenerates
+    // to the identity (`6 & 0` = 0, `6 | 0` = 6, `6 << 0` = 6, …).
+    assert_eq!(gc_number(&setup, "lhs & mk()"), 2.0);
+    assert_eq!(gc_number(&setup, "lhs | mk()"), 7.0);
+    assert_eq!(gc_number(&setup, "lhs ^ mk()"), 5.0);
+    assert_eq!(gc_number(&setup, "lhs << mk()"), 48.0);
+    assert_eq!(gc_number(&setup, "lhs >> mk()"), 0.0);
+    assert_eq!(gc_number(&setup, "lhs >>> mk()"), 0.0);
+}
+
+/// `Op::Lt` / `LtEq` / `Gt` / `GtEq` read their operands in place.
+///
+/// All four productions of ECMA-262 §13.10.1 Runtime Semantics: Evaluation
+/// reach §7.2.12 `IsLessThan` with `leftFirst` set so that the **left source
+/// operand** is coerced first (`<` / `>=` pass it as `x` with `leftFirst` true;
+/// `>` / `<=` pass it as `y` with `leftFirst` false). The right one is therefore
+/// always the operand held across the other's user code.
+#[test]
+fn relational_keeps_second_operand_rooted() {
+    let ascending = pool_setup(&format!(
+        "globalThis.lhs = {{ valueOf() {{ {ALLOC} return 1 }} }}; \
+         pool.push({{ valueOf() {{ return 2 }} }});"
+    ));
+    // Pre-fix: `false` — the recycled slot coerces to NaN, and every comparison
+    // against NaN is false.
+    assert!(gc_bool(&ascending, "lhs < mk()"));
+    assert!(gc_bool(&ascending, "lhs <= mk()"));
+
+    let descending = pool_setup(&format!(
+        "globalThis.lhs = {{ valueOf() {{ {ALLOC} return 2 }} }}; \
+         pool.push({{ valueOf() {{ return 1 }} }});"
+    ));
+    assert!(gc_bool(&descending, "lhs > mk()"));
+    assert!(gc_bool(&descending, "lhs >= mk()"));
+}
+
+/// `Op::DefineComputedProperty` reads `[object key value]` in place.
+///
+/// §13.2.5.6 PropertyDefinitionEvaluation evaluates the key, then the value,
+/// then converts the key with `ToPropertyKey` (§7.1.20) — so the already-
+/// evaluated value is what sits unrooted across the key's user `toString`, and
+/// it is then *stored*, making a dangling id durable rather than transient.
+#[test]
+fn computed_property_definition_keeps_value_rooted() {
+    let setup = pool_setup(&format!(
+        "globalThis.k = {{ toString() {{ {ARM_ALLOC} return 'p' }} }}; pool.push({{ tag: 7 }});"
+    ));
+    // `.p` exists only if the key's `toString` ran, so the window is witnessed
+    // by the assertion itself.  Pre-fix: the property holds the object that
+    // recycled the collected slot, which has no `tag`.
+    assert_eq!(gc_armed_number(&setup, "({ [k]: mk() }).p.tag"), 7.0);
+}
+
+/// `Op::DefineComputedMethod` — the same read for class computed methods
+/// (§15.4.5 MethodDefinitionEvaluation), where the exposed value is the closure
+/// `Op::Closure` just allocated and nothing else references.
+#[test]
+fn computed_method_definition_keeps_closure_rooted() {
+    let setup = format!(
+        "globalThis.k = {{ toString() {{ {ARM_ALLOC} return 'p' }} }};\
+         globalThis.mkClass = function () {{ return class {{ [k]() {{ return 7 }} }} }};"
+    );
+    // Pre-fix: the installed method id points at whatever recycled the
+    // collected closure's slot, so the call is not a function.
+    assert_eq!(gc_armed_number(&setup, "mkClass().prototype.p()"), 7.0);
+}
+
+/// `Op::DefineComputedGetter` / `Op::DefineComputedSetter` — same again for
+/// class computed accessors, with the accessor closure as the exposed operand.
+#[test]
+fn computed_accessor_definition_keeps_closure_rooted() {
+    let setup = format!(
+        "globalThis.k = {{ toString() {{ {ARM_ALLOC} return 'p' }} }};\
+         globalThis.mkClass = function () {{ return class {{ get [k]() {{ return 7 }} }} }};"
+    );
+    assert_eq!(gc_armed_number(&setup, "mkClass().prototype.p"), 7.0);
+}
+
+/// `Op::SpreadObject` reads `[target source]` in place.
+///
+/// §7.3.25 `CopyDataProperties` step 4.c.ii.1 `Get(from, nextKey)` runs a user
+/// getter once per key, and the loop dereferences the *source* again on every
+/// following key. An arrow-function getter is the pointed case: the source is
+/// not its receiver, so nothing else roots it while it runs.
+#[test]
+fn object_spread_keeps_source_rooted() {
+    let setup = pool_setup(&format!(
+        "globalThis.mkSrc = function () {{ \
+           var o = {{}}; \
+           Object.defineProperty(o, 'a', \
+             {{ get: () => {{ {ARM_ALLOC} return 1 }}, enumerable: true, configurable: true }}); \
+           o.b = 7; \
+           return o \
+         }}; pool.push(mkSrc());"
+    ));
+    // `a` is copied first, so `b` is read after the getter's collection.
+    // Pre-fix: the source id now names the object that recycled its slot.
+    assert_eq!(gc_armed_number(&setup, "({ ...mk() }).b"), 7.0);
+}
+
+/// The iterator returned by `@@iterator` is a fresh object no root holds but
+/// the operand stack.
+///
+/// §7.4.4 `GetIterator` calls the method with the *iterable* as receiver, so
+/// what comes back is rooted nowhere; §7.4.10 `IteratorStepValue` then calls
+/// `next()` once per element. When `next` is an arrow (or bound) function the
+/// iterator is not its receiver either, so a Rust-local iterator is unrooted for
+/// the whole of the first `next()` and dereferenced again on the second.
+const ARROW_NEXT_ITERABLE: &str = "globalThis.src = { [Symbol.iterator]: function () { \
+     var i = 0; \
+     return { next: () => { \
+        if (i === 0) { i = 1; __armGc(); var t = {}; return { value: 5, done: false } } \
+        return { value: undefined, done: true } \
+     } } \
+   } };";
+
+/// `Op::ArraySpread` keeps the iterator rooted for the iteration.
+#[test]
+fn array_spread_keeps_iterator_rooted() {
+    // Pre-fix: the second `next()` lookup hits the recycled slot — "iterator.next
+    // is not defined", or a panic in `get_object` if the slot is still free.
+    assert_eq!(gc_armed_number(ARROW_NEXT_ITERABLE, "[...src][0]"), 5.0);
+}
+
+/// `Op::IteratorRest` (`var [...rest] = it`) keeps the iterator rooted too —
+/// the sibling of `collect_iterator`, which already pushes it.
+#[test]
+fn iterator_rest_keeps_iterator_rooted() {
+    assert_eq!(
+        gc_armed_number(ARROW_NEXT_ITERABLE, "var [...rest] = src; rest[0]"),
+        5.0
+    );
+}
+
+/// `Op::SetProp` reads `[object value]` in place.
+///
+/// The stored value is handed to the setter as its argument, which roots it —
+/// but only when the setter *declares a parameter*: `call_internal` copies
+/// `args[..min(argc, param_count)]` into the frame's stack slots, so a
+/// zero-parameter setter copies nothing. Combine that with an arrow setter
+/// (receiver is lexical, so the base is unrooted too) and both operands spend
+/// the setter's body in Rust locals — after which the arm pushes the value as
+/// the assignment's result.
+#[test]
+fn static_property_store_keeps_value_rooted() {
+    let setup = pool_setup(&format!(
+        "globalThis.o = {{}}; \
+         Object.defineProperty(o, 'p', {{ set: () => {{ {ARM_ALLOC} }}, configurable: true }}); \
+         pool.push({{ tag: 9 }});"
+    ));
+    // Pre-fix: `r` names whatever recycled the collected slot — no `tag`.
+    assert_eq!(gc_armed_number(&setup, "var r = (o.p = mk()); r.tag"), 9.0);
+}
+
+// ── Arms deliberately left on `pop()` ────────────────────────────────
+//
+// Only `Op::StrictEq` / `Op::StrictNotEq` remain, and not by a derived argument:
+// `strict_eq` takes `&VmInner`, so the compiler — not a reviewer — proves they
+// run no user code and open no window to root against.
+
+/// The ordinary `Op::GetProp` / `Op::SetProp` accessor paths, which were rooted
+/// even before the arms were.
+///
+/// A **method** accessor takes the base as its receiver and a **one-parameter**
+/// setter puts the value in a callee stack slot, so these cases pass on both
+/// sides of the change. They are kept as the control for
+/// [`static_property_store_keeps_value_rooted`]: together they show the fix is
+/// what closes the arrow / zero-parameter hole and not something that merely
+/// perturbs the common path.
+#[test]
+fn static_property_access_via_method_accessors() {
     let own_get = pool_setup(&format!("pool.push({{ get p() {{ {ALLOC} return 5 }} }});"));
     assert_eq!(gc_number(&own_get, "mk().p"), 5.0);
 

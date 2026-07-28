@@ -335,10 +335,22 @@ impl VmInner {
     /// The test for "does this arm need it" is deliberately mechanical — *is the
     /// callee `&mut` and can it reach user JS* — not "does some operand
     /// demonstrably outlive the user-code window". The latter has to be redone
-    /// from scratch every time a callee changes, and got the boundary wrong
-    /// twice already in this PR. `Op::StrictEq` / `Op::StrictNotEq` stay on
-    /// `pop()` because `strict_eq` takes `&VmInner`: the compiler, not a
-    /// reviewer, proves they run no user code.
+    /// from scratch every time a callee changes, it got the boundary wrong
+    /// twice already in this PR, and the two per-arm arguments that survived
+    /// those rounds were both false:
+    ///
+    /// - *"the operand is re-rooted as the receiver of the user code that
+    ///   runs"* — not for an **arrow or bound** callee, whose `this` comes from
+    ///   its closure or its binding rather than from the caller. This is what
+    ///   exposed `SpreadObject`'s source and `ArraySpread`'s iterator.
+    /// - *"the value is rooted as the callee's argument"* — not for a
+    ///   **zero-parameter** callee: `call_internal` copies only
+    ///   `args[..min(argc, param_count)]` into the callee's stack slots. This is
+    ///   what exposed `Op::SetProp`'s stored value.
+    ///
+    /// `Op::StrictEq` / `Op::StrictNotEq` stay on `pop()`, and not by a derived
+    /// argument: `strict_eq` takes `&VmInner`, so the compiler — not a reviewer
+    /// — proves they run no user code.
     ///
     /// Both slots are consumed on the success path and on every error path, so
     /// the arm's stack effect is `[lhs rhs -- result]` / `[lhs rhs -- ]`
@@ -383,6 +395,63 @@ impl VmInner {
         let top = self.stack[len - 1];
         self.stack.truncate(len - count - 1);
         self.stack.push(top);
+        Ok(())
+    }
+
+    /// `Op::GetProp` — `[object -- value]`, static-key member read, plus a
+    /// name-constant index and an IC slot index read from the bytecode.
+    ///
+    /// Reads the operand **in place** by the same mechanical test as the rest of
+    /// the family — `ic_get_prop` is `&mut` and reaches a user getter. This arm
+    /// used to be documented as a proven exception ("the base is re-rooted as
+    /// the accessor's receiver"), and for the read side that argument does hold
+    /// today: `get_prop_slow` collects its IC info *before* the accessor runs
+    /// and touches only `compiled_functions` after it. The argument was wrong
+    /// for its sibling [`Self::op_set_prop`], though, and it has to be re-derived
+    /// from scratch on every edit to either callee — so the arm now satisfies
+    /// the rule structurally instead, at the cost of one index read.
+    pub(super) fn op_get_prop(&mut self, func_id: FuncId) -> Result<(), VmError> {
+        let name_idx = self.read_u16_op();
+        let ic_idx = self.read_u16_op() as usize;
+        let len = self.stack.len();
+        if len < 1 {
+            return Err(VmError::internal("stack underflow on GetProp"));
+        }
+        let obj_val = self.stack[len - 1];
+        let result = self.ic_get_prop(func_id, name_idx, ic_idx, obj_val);
+        // `[object -- value]` on success; consumed and nothing pushed before the
+        // caller's error routing.
+        self.stack.truncate(len - 1);
+        let val = result?;
+        self.stack.push(val);
+        Ok(())
+    }
+
+    /// `Op::SetProp` — `[object value -- value]`, static-key member store.
+    ///
+    /// Reads both operands **in place**. The stored value is handed to a user
+    /// setter as its argument, which is where it was previously argued to be
+    /// rooted — but `call_internal` copies only `args[..min(argc, param_count)]`
+    /// into the callee's stack slots, so a **zero-parameter** setter copies
+    /// nothing and the value spends the whole body in a Rust local. Pair that
+    /// with an arrow setter (its `this` is lexical, so the base is unrooted too)
+    /// and both operands are exposed; the arm then pushes the value back as the
+    /// assignment's result, publishing a dangling id to the rest of the program.
+    pub(super) fn op_set_prop(&mut self, func_id: FuncId) -> Result<(), VmError> {
+        let name_idx = self.read_u16_op();
+        let ic_idx = self.read_u16_op() as usize;
+        let len = self.stack.len();
+        if len < 2 {
+            return Err(VmError::internal("stack underflow on SetProp"));
+        }
+        let obj_val = self.stack[len - 2];
+        let val = self.stack[len - 1];
+        let result = self.ic_set_prop(func_id, name_idx, ic_idx, obj_val, val);
+        // `[object value -- value]` on success; both consumed and nothing
+        // pushed before the caller's error routing.
+        self.stack.truncate(len - 2);
+        let stored = result?;
+        self.stack.push(stored);
         Ok(())
     }
 

@@ -58,6 +58,41 @@ pub(crate) fn gc_in_window(setup: &str, expr: &str) -> Result<JsValue, VmError> 
     result
 }
 
+/// Sibling of [`gc_in_window`] for opcodes whose *target* object is allocated
+/// before the operand window they expose.
+///
+/// `Op::CreateObject` / `Op::CreateArray` run before `DefineComputedProperty` /
+/// `SpreadObject` / `ArraySpread`, so a Rust-side arm is spent on the literal
+/// and the window that matters never collects. Here `expr` places the collection
+/// itself: the user code inside the window calls `__armGc()` (registered under
+/// `cfg(test)` in `vm/globals.rs`) and then allocates, so the collection lands at
+/// a real `alloc_object` in a JS frame — the same shape [`gc_in_window`] produces,
+/// just aimed later.
+///
+/// The trailing assertion is the same witness: an armed one-shot that never
+/// fired means the window stopped allocating. It cannot witness a window that
+/// never *ran*, so each caller's assertion must depend on the window's own
+/// output (the computed key it returns, a counter it bumps) rather than on a
+/// value that would be produced either way.
+pub(crate) fn gc_armed_by_script(setup: &str, expr: &str) -> Result<JsValue, VmError> {
+    let mut vm = Vm::new();
+    vm.eval(setup).expect("probe setup must succeed");
+    let result = vm.eval(expr);
+    assert!(
+        !vm.inner.force_gc_before_next_alloc,
+        "`__armGc()` armed the one-shot but nothing allocated afterwards — \
+         `{expr}` proves nothing about rooting"
+    );
+    result
+}
+
+pub(crate) fn gc_armed_number(setup: &str, expr: &str) -> f64 {
+    match gc_armed_by_script(setup, expr).unwrap() {
+        JsValue::Number(n) => n,
+        other => panic!("expected number, got {other:?}"),
+    }
+}
+
 pub(crate) fn gc_number(setup: &str, expr: &str) -> f64 {
     match gc_in_window(setup, expr).unwrap() {
         JsValue::Number(n) => n,
