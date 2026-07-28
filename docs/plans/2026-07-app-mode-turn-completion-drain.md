@@ -57,6 +57,13 @@ sibling-passage sweep (§5.2); the test-file placement decision (§5.1).
   spec-shaped settle — running the new document's staged work as its own load-time task rather than at
   the next dispatch entry. Owner: the umbrella `#11-session-history-task-queue-model`'s schedule work
   (Slice-4-adjacent), not this plan.
+- **Old-runtime staged-work drop across a mid-turn pipeline swap.** Work a handler stages onto the
+  current runtime's channels mid-iteration is dropped when a later apply rebuilds the pipeline
+  (`teardown_document`, §4.5 (c)) — spec-wise those staged sync-nav steps live on the
+  **traversable-scoped** §7.3.1.1 session history traversal queue and survive document unload; elidex's
+  FIFO is **runtime-scoped**, so they do not. Pre-existing (today's single drain + reinstatement tail
+  exhibits the identical drop); this plan does not change the behavior. Owner: the umbrella
+  `#11-session-history-task-queue-model`'s queue substrate (traversable-scoping).
 - The §7.4.2.2-step-19 suppression divergence (`#11-nav-supersede-window-vs-ongoing-navigation`) and the
   applied/shipped conflation (`#11-nav-applied-shipped-decouple`) — both pre-existing, both untouched.
 - **Non-drain cursor-mover routing.** Whether chrome Back/Forward, Alt+←/→, the address bar, and Reload
@@ -174,15 +181,15 @@ coordinator's existing invariants that a repeated drive can break.
   modes:* iteration 2's all-false outcome **clearing** iteration 1's `suppress_default` (breaking the
   single-home contract and firing an `<a href>` default that must stay suppressed); a held navigation
   leaking across iterations; the loop continuing across a **pipeline swap** and running a new document's
-  staged intents inside the old document's input turn (§4.5 — the swap exit breaks the loop; the
-  rebuild's shipped frame schedules a redraw whose dispatch-entry peek (§4.3) drains the new document's
-  staged work as a NEW turn).
+  staged intents inside the old document's input turn (§4.5 — the swap exit breaks the loop; the §4.3
+  unified exit rule requests a redraw iff the exit-time peek still reads true, and that dispatch's
+  entry peek drains the new document's staged work as a NEW turn).
 
 **Pairwise intersections** (cell → where this memo pins it):
 
 | × | (b) I1 | (c) I2 | (d) I3/premise-5 | (e) Res-E freshness | (f) Res-D latch | (g) accumulation |
 |---|---|---|---|---|---|---|
-| **(a) turn completion** | each iteration is a whole `drain_same_turn` + tail, never a partial phase (§4.2) | iteration N+1 handles only intents issued *during* N, so FIFO order across iterations is issue order (§4.2) | the loop is **site-driven**, not body-driven — the distinction premise 5 guards (§4.7) | every traversal is classified and applied in the same iteration (§4.2) — the property the trailing drain loses | a `[Traversal, SyncUpdate]` pair cannot split across iterations (§4.6) | quiescent ⇒ nothing left to mis-accumulate; both non-quiescent exits (cap-hit, swap) leave the staged work on the channels for the next dispatch-entry peek drive (§4.3) |
+| **(a) turn completion** | each iteration is a whole `drain_same_turn` + tail, never a partial phase (§4.2) | iteration N+1 handles only intents issued *during* N, so FIFO order across iterations is issue order (§4.2) | the loop is **site-driven**, not body-driven — the distinction premise 5 guards (§4.7) | every traversal is classified and applied in the same iteration (§4.2) — the property the trailing drain loses | a `[Traversal, SyncUpdate]` pair cannot split across iterations (§4.6) | quiescent ⇒ nothing left to mis-accumulate; both non-quiescent exits (cap-hit, swap) leave the staged work on the **surviving runtime's** channels for the next dispatch-entry peek drive (§4.3; old-runtime residue drops — §4.5 (c)) |
 | **(b) I1** | — | partition runs per iteration, on a FIFO empty of prior-iteration steps | Phase 2 bounded per iteration | classify → apply within one iteration | latch scoped to one iteration's Phase 2 | outcome merged only at iteration boundaries |
 | **(c) I2** | — | — | the queue is empty at each iteration's end (exit assert holds) | no resident step to freeze | cancel decisions are made on one iteration's steps | the reinstatement tail runs *inside* the iteration, before the next Phase 1 (§4.2) |
 | **(d) I3/premise-5** | — | — | — | premise 5 keeps partitions non-interleaved | latch integrity depends on non-interleaving | `drain_in_progress` brackets the whole loop (§4.7) |
@@ -305,11 +312,13 @@ for round in 0..MAX_TURN_COMPLETION_ROUNDS {
     let iter = self.reinstate_deferred_navigation(iter);   // the tail, now per-iteration
     outcome.merge(iter);                                   // field-wise OR — §4.5 (a)
     if current_document_marker() != doc_marker {           // pipeline swap ends the turn — §4.5 (c)
-        break  // rebuild shipped a frame; that redraw's entry peek drains the NEW doc's staging — §4.3
+        break  // frame leg = the unified exit rule below — §4.3
     }
-    if !self.staged_work_pending() { break }               // §4.4 predicate
-    if round == MAX_TURN_COMPLETION_ROUNDS - 1 { /* §4.3 degrade */ }
+    if !self.staged_work_pending() { break }               // §4.4 predicate — quiescent exit
+    if round == MAX_TURN_COMPLETION_ROUNDS - 1 { /* cap-hit: eprintln — §4.3 degrade */ }
 }
+// unified exit rule (§4.3): ANY exit where the §4.4 peek still reads true ⇒ request_redraw()
+if self.staged_work_pending() { request_redraw() }         // ≈0 cost — winit coalesces
 ```
 
 Every property the trailing drain loses is preserved *because the unit of iteration is a whole cycle*:
@@ -353,9 +362,18 @@ The in-tree bound idioms, both command-verified (`grep -rn 'MAX_[A-Z_]*' crates/
 **Exit paths, fully enumerated** (there are exactly three, and the two non-quiescent ones share ONE
 follow-up mechanism — the dispatch-entry peek): (1) **quiescent** — the §4.4 predicate is false; (2)
 **cap-hit** — this section's bound; (3) **pipeline swap** — the §4.5 (c) marker diff. Neither
-non-quiescent exit records any state: the staged work itself stays visible on the `HostDriver` channels,
-and the next dispatch's entry peek (below) finds it there — "is work left?" has exactly one home, the
-§4.4 predicate, with no flag shadowing it.
+non-quiescent exit records any state: work staged **on the surviving (current) runtime** stays visible
+on its `HostDriver` channels, and the next dispatch's entry peek (below) finds it there — "is work
+left?" has exactly one home, the §4.4 predicate, with no flag shadowing it. (Work staged onto the OLD
+runtime mid-iteration on the swap path is torn down with it — the pre-existing drop §4.5 (c) documents
+and fences.) **Unified exit rule — the frame leg of every exit: any loop exit where the §4.4 peek
+still reads true ⇒ `request_redraw()`.** Cap-hit keeps its unconditional `request_redraw()` +
+`eprintln!` (the peek necessarily reads true there — the loop only reaches the cap past a true
+predicate check — so the rule and the unconditional form coincide); the swap exit is covered by the
+same rule reading the NEW runtime — a fresh document that staged nothing needs no redraw, and one that
+did gets its wakeup. Cost is ≈0 (winit coalesces concurrent requests into one `RedrawRequested`,
+`app/drain_host.rs:589-591`), and the rule is symmetric with the cap side — no exit path depends on a
+frame being "already" scheduled (§4.5 (c): no rebuild guarantees one).
 
 **Design** (all three parameters concrete; §7 Q2 ratifies the values):
 
@@ -368,7 +386,8 @@ and the next dispatch's entry peek (below) finds it there — "is work left?" ha
   `debug_assert`: an adversarial-but-legal page must not panic a debug build.
 - **Degradation with a scheduled next drive** (the part "no worse than today" cannot supply, since today
   *is* wrong-entry mutation): a cap-hit exit does `eprintln!` + `request_redraw()` and **nothing else** —
-  no flag is set (the swap exit needs not even the `request_redraw`: a rebuild always ships a frame,
+  no flag is set (the swap exit takes the same unified exit rule's `request_redraw()` iff the exit-time
+  peek — now reading the NEW runtime — is true; a rebuild does NOT by itself schedule a frame,
   §4.5 (c)). The staged work simply remains on the current `pipeline.runtime`'s channels, and the
   dispatch-entry readers below drive `process_pending_navigation` whenever the §4.4 peek
   (`has_pending_session_history_work`) reads true — the drive re-runs the loop with a fresh cap.
@@ -405,11 +424,16 @@ and the next dispatch's entry peek (below) finds it there — "is work left?" ha
   `popstate` in place on its same-document arm (`traverse_to` → `same_document_step`,
   `app/navigation.rs:412-431`; the synchronous fire is `same_document_step`'s
   `deliver_history_step_events` call, `:219-228`, and chrome Back/Forward deliberately routes there,
-  `:488-494`), and what that handler stages has no loop behind it at all; **(c)** plain-navigation
+  `:488-494`; equally `navigate()`'s same-document **fragment arm**, `app/navigation.rs:53-66` — the
+  gate takes `same_document_step` at `:62`, reached by the `<a href="#frag">` click default,
+  `events.rs:160`, and the address bar's `ChromeAction::Navigate` — which routes to the same in-place
+  fire, plus the synchronous `hashchange` delivery there, `navigation.rs:243-246`, whose handler is an
+  equal staging vector), and what those handlers stage has no loop behind it at all; **(c)** plain-navigation
   load-time staging (§0 OUT). A residue *flag* set at loop exits would cover only (a) — (b) and (c)
   never pass through the loop, so flag-gated readers would never see their staging and the §1 unbounded
   window would survive for them; and the flag would be a second decision surface over the one fact the
-  channels already hold (One issue, one way). The peek reads the channels themselves, so all three
+  channels already hold (One issue, one way). The peek reads the channels themselves — the surviving
+  (current) runtime's channels, §4.5 (c) — so all three
   sources drain identically: **at the next dispatch's entry, before any of that dispatch's movers —
   (next-dispatch ∨ frame)-bounded**.
 
@@ -488,7 +512,8 @@ orthogonal decisions**:
   dispatch-entry readers reach the peek through the **current** `interactive.pipeline.runtime` — a swap
   replaces the pipeline, and with it the runtime, wholesale (`app/navigation.rs:322` `teardown_document`
   + `:342` `interactive.pipeline = new_pipeline`), so an entry peek can only ever see the current
-  document's staged work, never a torn-down document's residue.
+  document's staged work, never a torn-down document's residue (which is not merely invisible — it is
+  dropped with the old runtime; the pre-existing structural divergence §4.5 (c) documents and fences).
 
 **The predicate invariant (goes into the peek's doc contract verbatim)**: *predicate set ≡ the channel
 set the §4.2 iteration unit's Phase 1 consumes.* Either direction of breach is a defect: predicate ⊃
@@ -527,7 +552,11 @@ consumed loops to the cap on work no iteration can drain (cap-loop); predicate �
   follows — the same different-turn semantics as the §4.5 (c) swap exit. Merging would let the previous
   turn's residue latch `suppress_default` and over-suppress the new click's `<a href>` default. This
   matches the existing discard shape the coordinator already documents for app-mode's keyboard turn
-  (`coordinator.rs:42-44`; triaged in §5.2).
+  (`coordinator.rs:42-44`; triaged in §5.2). One limitation, stated exactly: on a **non-quiescent
+  entry exit**, the surviving residue is then consumed by the same dispatch's in-turn drive through the
+  channels and shapes THAT turn's own `suppress_default` — on the over-suppression side, the same
+  conservative shape as the documented cross-turn-robust suppression (`coordinator.rs:49-52`). The
+  outcome-object discard rule guarantees isolation only when the entry drive reached quiescence.
 - **(b) `deferred_navigation` never crosses an iteration.** The tail runs per-iteration (§4.2), so the
   single slot's existing one-drive lifetime contract (`app/mod.rs:260-268`: cleared by a cursor-moving
   apply, else reinstated-and-taken before the drive returns) becomes a one-**iteration** lifetime. There
@@ -554,10 +583,31 @@ consumed loops to the cap on work no iteration can drain (cap-loop); predicate �
   `app/navigation.rs:68-70` before any `push`/`replace`/`restamp_current_document`) — so the marker is
   unchanged and the swap exit does not fire; the loop continues. That is the correct semantics: the old
   pipeline and its FIFO are intact, so the turn's remaining staged work is still this turn's work.
-  **The swap exit is a plain break — no state is recorded.** A rebuild always ships a frame, so the
-  `RedrawRequested` follow-up is already scheduled; that dispatch's entry peek (§4.3) reads the NEW
-  document's runtime and drains whatever its initial scripts staged **as a new turn** — exactly reason
-  2's §7.4.6.1 step 14.12.5 later-task mapping — and skips the drive entirely when nothing is staged.
+  **Work staged onto the OLD runtime mid-iteration is DROPPED at teardown — pre-existing, fenced.**
+  Reachable within one iteration: a Phase-2 snapshot holds [same-document T1, cross-document T2]; T1's
+  `popstate` handler stages a `pushState` onto the current runtime's FIFO; T2's apply then rebuilds —
+  `teardown_document()` (`app/navigation.rs:322`) followed by the wholesale pipeline replacement
+  (`:342`) — and the staged intent vanishes with the old runtime. Observable: `nav_controller` (the
+  session-history entries list) survives the swap, and spec-wise the §7.4.4 step 13 sync-nav steps are
+  appended to the **traversable-scoped** §7.3.1.1 session history traversal queue — they survive a
+  document unload and still execute — so the drop diverges (e.g. `history.length`). This is a
+  structural consequence of elidex's FIFO being **runtime-scoped** rather than traversable-scoped, and
+  it is PRE-EXISTING: today's single drain + reinstatement-tail navigate exhibits the identical drop.
+  This plan neither introduces nor changes it; traversable-scoping the staged-sync-nav queue is the
+  umbrella `#11-session-history-task-queue-model`'s queue-substrate work — fenced there (§0 OUT).
+  **The swap exit is a plain break — no state is recorded; its frame leg is the §4.3 unified exit
+  rule.** A rebuild does NOT imply a scheduled frame — `shipped` does not mean "a frame was requested"
+  (`#11-nav-applied-shipped-decouple`'s conflation): the app-mode nav bodies request no repaint of
+  their own (`ship_frame` doc, `app/drain_host.rs:580-584`: *"the drain requests **no repaint at
+  all**; the repaint comes from the dispatch layer's unconditional redraw"*; the shipped-untrusted
+  note is `:594-597`), that unconditional redraw exists only on readers (2)/(3)'s dispatches
+  (`inline.rs:202`, `:298`), and the redraw arm requests a follow-up redraw only when a chrome action
+  ran (`inline.rs:176-181`) — so a swap during a redraw-entry peek drive would otherwise exit with the
+  new document's staged work and NO scheduled wakeup. The explicit exit-time `request_redraw()` (§4.3
+  rule: any exit with the peek reading true) owns the swap-exit frame leg; the follow-up dispatch's
+  entry peek then reads the NEW document's runtime and drains whatever its initial scripts staged
+  **as a new turn** — exactly reason 2's §7.4.6.1 step 14.12.5 later-task mapping — and when the new
+  document staged nothing, the exit peek reads false: no redraw is requested and no drive runs.
   The swap-exit also composes with the §4.3 cap: a handler chain that keeps *navigating* terminates at
   the first rebuild, independent of the cap.
 
@@ -766,9 +816,10 @@ staged on those turns — the early returns delay *draining*, which the §4.3 fo
   drive-site loop. (A) is refuted, not merely disfavored; (B) costs 3 implementors to (D)'s 1; coordinator
   ownership mints a one-consumer drive shape. Ratify or overturn (overturning to coordinator ⇒ re-slice,
   §5).
-- **Q2 — bound parameters** (§4.3): ratify cap value (8) and the degrade shape (`eprintln` +
-  `request_redraw` + the three peek-gated dispatch-entry drives: the `RedrawRequested` arm +
-  `handle_mouse_press_inline` + `handle_keyboard_inline` entries). The *structure* (constant cap,
+- **Q2 — bound parameters** (§4.3): ratify cap value (8) and the degrade shape (`eprintln` + the
+  unified exit rule [any peek-true loop exit ⇒ `request_redraw`] + the three peek-gated dispatch-entry
+  drives: the `RedrawRequested` arm + `handle_mouse_press_inline` + `handle_keyboard_inline` entries).
+  The *structure* (constant cap,
   `eprintln` observability, (next-dispatch ∨ frame)-bounded residue) is design, not open.
 - **Q3 — the non-quiescent-exit residual window: RESOLVED, accept + pin (no longer open)**. The residual,
   stated exactly (§4.3 mover coverage): **within one dispatch, the entry drive exits non-quiescent — cap
@@ -810,7 +861,10 @@ All new/flipped turn-completion tests live in `app_turn_completion_tests.rs` (§
   subsequent dispatch-entry drive (the redraw path) picks it up, **and** a cap-hit turn followed by an
   input (a click on blank space) drains the residue at the input dispatch entry (reader (3),
   `handle_mouse_press_inline`), before any dispatch ((next-dispatch ∨ frame)-bounded, §4.3). Assert
-  per-turn iteration count never exceeds the cap.
+  per-turn iteration count never exceeds the cap, **and assert the §4.3 unified exit rule's frame
+  leg: any exit where the peek still reads true issued a `request_redraw`** (cap-hit here; the same
+  assert shape covers a peek-true swap exit, whose firing path the harness cannot reach — see the
+  swap-exit coverage bullet).
 - **New (mover-fired staging is entry-drained — §4.3 staging source (b), pinned CLOSED)**: a chrome Back
   over a same-document boundary — `handle_chrome_action(Back)` called directly, harness-reachable
   because the same-document arm needs no load — fires `popstate` in place (`traverse_to` →
@@ -819,7 +873,10 @@ All new/flipped turn-completion tests live in `app_turn_completion_tests.rs` (§
   and applies it against the entry the handler ran on. This pins the round-4 vector — the staging window
   flag-gating could never see — as CLOSED (bounded, not residual). The docstring notes the production
   routing (sole app-mode caller of `handle_chrome_action` = `handle_redraw_inline`'s tail,
-  `inline.rs:177`, downstream of reader (1)'s entry drive — §4.3).
+  `inline.rs:177`, downstream of reader (1)'s entry drive — §4.3), and its scope note names the
+  **fragment-nav variant** of source (b): a `<a href="#frag">` / address-bar same-document `navigate`
+  fires `popstate` + `hashchange` in place through the same `same_document_step`
+  (`navigation.rs:53-66`, `:243-246`) and is drained by the same entry peek.
 - **New (Q3 residual pin, §7)**: the accepted degraded-path residual — the redraw-entry drive itself
   re-hits the cap (adversarial re-stager) → the same dispatch's chrome Back moves the cursor → the next
   drive applies the staged intent against the moved cursor — pinned as a docstring-fenced test of the
@@ -849,7 +906,8 @@ All new/flipped turn-completion tests live in `app_turn_completion_tests.rs` (§
   unchanged and the swap-exit branch never fires (which is itself the correct semantics, §4.5 (c)'s
   load-failure note). Coverage is therefore only the existing unit-level restamp pin
   (`elidex-navigation/src/navigation_tests.rs` already covers `document_sequence` restamp on the rebuild
-  paths); the end-to-end swap-exit residue behavior (successful rebuild → loop exit → the follow-up
+  paths); the end-to-end swap-exit residue behavior (successful rebuild → loop exit → the §4.3 exit
+  rule's peek-true `request_redraw` → the follow-up
   dispatch's entry-peek drive drains the new document's staging as a new turn) stays unverified in this
   harness — same limitation
   the `hit_entity` invariant records (`events.rs:125-126`) — and is this plan's own-deferral, §9.
@@ -864,7 +922,8 @@ All new/flipped turn-completion tests live in `app_turn_completion_tests.rs` (§
 Own-deferral budget: expected **1**.
 
 - **End-to-end verification of the swap-exit residue behavior — the whole behavior, not just one pin**
-  (§8). The harness reaches no part of the branch (marker move, loop exit, the follow-up entry-peek
+  (§8). The harness reaches no part of the branch (marker move, loop exit, the §4.3 exit rule's redraw
+  leg, the follow-up entry-peek
   drive as a new turn), so the swap exit ships verified only at the unit level (`document_sequence` restamp,
   `elidex-navigation/src/navigation_tests.rs`). *Why deferred*: the disconnected harness cannot reach a
   successful mid-loop rebuild (`events.rs:125-126`, the known limitation the `hit_entity` invariant
