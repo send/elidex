@@ -23,7 +23,7 @@ loop needs to decide "is this turn finished?"; the two premise-5 `debug_assert`s
 **OUT (fenced, each with its owner)**:
 - The **multi-traversal straddle** — a popstate-staged intent from traversal-1 still settles after traversal-2
   when both are in one Phase-2 snapshot. Owned by `#11-sync-navigation-steps-queue-tagging` (R16 facet);
-  `app_history_phase_sep_tests::app_multi_traversal_snapshot_lands_popstate_staged_update_on_the_wrong_entry`
+  `app_history_phase_sep_tests::app_multi_traversal_snapshot_lands_popstate_staged_update_on_the_wrong_entry` (verified 2026-07-27: `grep -rn "fn app_multi_traversal_snapshot_lands_popstate_staged_update_on_the_wrong_entry" crates/` → `app_history_phase_sep_tests.rs`)
   stays as-is. **This plan must not silently narrow that pin.**
 - **Content-mode's schedule.** Content already settles this via `drain_synchronous_updates` after
   `run_deferred_traversals` (`content/event_loop.rs`) and its task boundary is deliberate; nothing here changes
@@ -107,17 +107,35 @@ existing invariants that a repeated drive can break.
 
 ## §3 Spec coverage map
 
-| Spec | Section (webref-verified) | This plan |
-|---|---|---|
-| HTML | §8.1.7.3 *Processing model* (`#event-loop-processing-model`) | **Frame** — a task runs to completion including synchronously-staged follow-on work |
-| HTML | §7.4.4 *Non-fragment synchronous "navigations"* | The staged intent that currently strands |
-| HTML | §7.4.3 *Reloading and traversing* | Traversals a `popstate` handler may stage during Phase 2 |
-| HTML | §7.4.6.1 *Updating the traversable* | The Phase-2 apply that fires `popstate` |
-| HTML | §7.4.6.1 step 14 note | **Fenced OUT** — sync navs jumping the queue between traversals is `#11-sync-navigation-steps-queue-tagging` |
-| HTML | §7.3.1.1 *Traversable navigables* | The queue + nested-apply guard the loop must leave empty |
+Generated with `.claude/tools/webref coverage-map html 8.1.7.3 html 7.4.4 html 7.4.3 html 7.4.6.1 html 7.3.1.1
+html 7.4.2.2` (all §↔title pairs webref-verified at authoring time).
 
-*(All §↔title pairs re-verified with `.claude/tools/webref` at authoring time; §8.1.7.3 = "Processing model",
-§8.1.7.1 = "Definitions", §8.1.7.2 = "Queuing tasks".)*
+| Spec section | Step | Branch | Touch (compile/dispatch site) | Full enum? | User-input flow |
+|---|---|---|---|---|---|
+| WHATWG HTML §8.1.7.3 Processing model | step 1 (task runs to completion) | the whole task, incl. synchronously-fired handlers | `App::process_pending_navigation` — the loop's frame of reference | ✓ | yes (every input turn) |
+| WHATWG HTML §7.4.4 Non-fragment synchronous "navigations" | steps 3–11 (in-task) | (i) staged BEFORE Phase 2 — already applied today | `DrainHost::handle_history_action` via Phase 1b | ✓ | yes (`pushState`/`replaceState`) |
+| WHATWG HTML §7.4.4 Non-fragment synchronous "navigations" | steps 3–11 (in-task) | (ii) staged DURING Phase 2 by a `popstate` handler — **the defect** | next loop iteration's Phase 1b | ✓ | yes |
+| WHATWG HTML §7.4.3 Reloading and traversing | step 4 (append traversal steps) | (i) in-range → barrier + enqueue | `DrainHost::classify_traversal` per iteration | ✓ | yes (`back`/`forward`/`go`) |
+| WHATWG HTML §7.4.3 Reloading and traversing | step 4 sub-step 4.4 | (ii) out-of-range → no-op, no barrier (Resolution E) | same; **must stay per-iteration** — §4.1 | ✓ | yes |
+| WHATWG HTML §7.4.6.1 Updating the traversable | step 12 (two-part split) | Phase 2 apply, once per iteration | `DrainCoordinator::drain_traversal_queue` | ✓ | yes |
+| WHATWG HTML §7.4.6.1 Updating the traversable | step 14 note (sync navs jump the queue) | **FENCED OUT** — multi-traversal straddle | `#11-sync-navigation-steps-queue-tagging` | ✗ (deliberate) | yes |
+| WHATWG HTML §7.3.1.1 Traversable navigables | "running nested apply history step" | guard bracket + queue emptiness at turn exit | `TraversalQueue`, exit `debug_assert` | ✓ | no |
+| WHATWG HTML §7.4.2.2 Beginning navigation | step 19 (ongoing navigation == "traversal") | **FENCED OUT** — enqueue-time suppression divergence | `#11-nav-supersede-window-vs-ongoing-navigation` | ✗ (pre-existing) | yes (`location.*`) |
+
+**Breadth**: K=1 spec, M=9 entries (verified 2026-07-27 — 9 data rows in the table directly above; `coverage-map` reported the same) → single-PR scope (below the K≥4 / M≥20 split-recommended threshold).
+
+### §3.1 User-input touch audit
+
+Every row above is reachable from ordinary user input, because the drive site *is* the input handler:
+
+- `App::process_pending_navigation` is called from `app/events.rs::handle_click` (`:101`) and
+  `handle_keyboard` (`:188`) — so any script the page runs on click/keydown reaches every row.
+- The page-controlled surface is the `popstate` handler body: it may call `pushState` / `replaceState`
+  (§7.4.4 row ii), `back`/`forward`/`go` (§7.4.3 rows), or `location.*` (§7.4.2.2 row) — and it may do so
+  **unconditionally**, which is exactly the non-termination vector §4.3 must bound.
+- Adjacent pre-existing code whose exposure this plan changes: **none** — the loop adds no new entry point;
+  it repeats an existing one. Exposure delta: the same script surface runs up to N times per turn instead of
+  once, which is the point of §4.3's bound.
 
 ---
 
@@ -253,7 +271,7 @@ can still traverse between two input turns). Whether that pin's docstring needs 
 
 ## §7 Open questions for `/elidex-plan-review` (decision-level)
 
-- **Q1 — quiescence predicate**: (A) `DrainOutcome`-derived / (B) new `DrainHost::has_pending_work` / (C)
+- **Q1 — quiescence predicate**: (A) `DrainOutcome`-derived / (B) new `DrainHost::has_pending_work` (NEW) / (C)
   coordinator-side `drain_to_quiescence`. Author leans (B); (A) should be explicitly refuted.
 - **Q2 — the bound**: value, unit (iterations vs applied steps), and observability on hit.
 - **Q3 — ship-once across iterations**: one frame per turn, or one per iteration that did work?
