@@ -111,6 +111,6 @@ Diff-stage 特記事項のみ: Step 4.5 (fix-delta re-verification) の placemen
 - **CRIT**: fix BEFORE push (post-push の single-pass external review (Codex) でほぼ確実に flag される。loop が無くなった分、ここで取り切る重要度が上がっている)
 - **IMP**: push 前 fix 推奨 (single-pass external review (Codex) で flag される可能性が高い)
 - **MIN**: judgment (defer 可、landing memo で justify)
-- **FP**: ignore (user 確認後)
+- **FP**: reject — report に one-line citation を添えて (user 承認不要)
 
-**Pre-push gate**: 0 CRIT + 0 IMP → push 推奨 / 1+ CRIT → push 前 fix mandatory / 1+ IMP → user 判断 (fix or defer with justification)。
+**Pre-push gate**: 0 CRIT + 0 IMP → push / 1+ CRIT → push 前 fix mandatory / 1+ IMP → Step 3.5 disposition に従う (real → fix; defer は explicit-slot 条件を満たす時のみ)。gate 判定は report — lens 収束済みなら user 承認は不要 (workflow.md Step 4)。

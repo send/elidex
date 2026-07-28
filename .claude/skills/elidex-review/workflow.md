@@ -130,7 +130,7 @@ For each fix-tier finding, produce a user-visible decision record using these pr
 2. **Symptom vs root?** — Symptom: rename / const / doc / accept-as-is / debug_assert.  Root: drop dead code / replace with existing abstraction / use ECS-native pattern / restructure caller / **carve out prerequisite PR**.  Default root unless concrete cost overrides.
 3. **Subsumption check?** — Can one structural fix close multiple findings?  Look for cross-finding root cause before fixing each in isolation.
 4. **Polish-domination smell?** — If your fix-option list is mostly polish with no structural option, **suspect the framing**.  Re-read through ECS-native + ideal-over-pragmatic lens.
-5. **Fix-scope sibling sweep (when the fix adds a gate/invariant)?** — If the chosen fix introduces a *new gate / invariant / predicate*, `grep` for sibling **sites** expressing the same semantic class (esp. the adjacent fns you just read while making the fix) and **scope the `Proposed fix` / `Concrete action` to cover ALL of them**, so that when the fix is applied — *after Step 4 acceptance; **Auto-fix NG** still holds, no edits during Step 3.5* — it closes the whole class in one commit.  Distinct from the subsumption check (point 3 closes multiple *findings*): here you proactively fold in sibling *sites the reviewer hasn't flagged yet*, so it can't surface them one-per-round (`feedback_gate-fix-sweep-sibling-sites-one-pass.md`, #339 — a namespace gate added at one site over 3 rounds when one sweep would have closed it).  The fix-scope/code-level analogue of Step 1.6's citation sibling-scan.
+5. **Fix-scope sibling sweep (when the fix adds a gate/invariant)?** — If the chosen fix introduces a *new gate / invariant / predicate*, `grep` for sibling **sites** expressing the same semantic class (esp. the adjacent fns you just read while making the fix) and **scope the `Proposed fix` / `Concrete action` to cover ALL of them**, so that when the fix is applied — *after Step 4 passes; **Auto-fix NG** still holds, no edits during Step 3.5* — it closes the whole class in one commit.  Distinct from the subsumption check (point 3 closes multiple *findings*): here you proactively fold in sibling *sites the reviewer hasn't flagged yet*, so it can't surface them one-per-round (`feedback_gate-fix-sweep-sibling-sites-one-pass.md`, #339 — a namespace gate added at one site over 3 rounds when one sweep would have closed it).  The fix-scope/code-level analogue of Step 1.6's citation sibling-scan.
 
 Emit one block per fix-tier finding:
 
@@ -165,17 +165,15 @@ This is the **operative SSoT** for finding-disposition (git-tracked here; the `m
 
 Loop-specific convergence (stop = real-gap exhaustion, not round-count) → `memory/feedback_review-loop-convergence-merit-not-fatigue.md`, enforced as the `/external-converge` Step-4 **attestation gate** (the skill embeds the unskippable trip-wire; this section is the SSoT for the rules).
 
-## Step 4 — User confirmation
+## Step 4 — Disposition gate (report + proceed; ask only a genuinely user-owned fork)
 
-**Zero fix-tier short-circuit**: if CRIT/IMP/MIN all 0 (FP only or no findings), skip Step 3.5 block emission; confirm "0 fix-tier findings; FP <N> 件 ignore で進行可" and exit.
+**Zero fix-tier short-circuit**: if CRIT/IMP/MIN all 0 (FP only or no findings), skip Step 3.5 block emission; report "0 fix-tier findings; FP <N> 件 reject" and exit.
 
-**≥1 fix-tier**: reference the concrete fix-tier ID list (e.g. `F1, F3, F4` when F2 is FP — NOT `F1..F4`).  Ask:
+**≥1 fix-tier**: reference the concrete fix-tier ID list (e.g. `F1, F3, F4` when F2 is FP — NOT `F1..F4`).  The Step 3.5 blocks ARE the decision record — when every block's disposition converged under the lens (real → fix / FP → reject-with-citation) and no block contains a genuinely user-owned fork, **proceed without asking**: report the block IDs, apply their Proposed fixes, and state the gate impact (push gate / impl gate / escalation if CRIT held).  収束後に聞くのは decision offload (`feedback_decide-via-philosophy-before-asking` — 7 再発、うち 3 回は本節の旧文言 "user decision drives" / "1+ IMP → user 判断" を ask の根拠にした)。
 
-- 「全 Fix decision (`F<list>`) で進めますか?」 (apply every block's Proposed fix)
-- 「特定 Fix decision `F<X>` は accept-as-is でいいですか?」 (override individual block)
-- 「gate にどう影響しますか?」 (push gate / impl gate / escalation if CRIT held)
+**Ask only when** a Step 3.5 block genuinely fails to converge — the fix requires a deviation opt-in from the ideal default, or a roadmap/scope/business tradeoff philosophy cannot decide, or options remain equally defensible after the full lens pass.  Then ask about THAT block only, with the lens analysis + recommendation attached (収束しなかった理由を添えて — hook の lens-attest はこの記録であって、収束を自認したまま聞く免罪符ではない)。
 
-Auto-fix NG — user decision drives.  ≥1 fix-tier without Step 3.5 block = gate violation, return to Step 3.5.
+≥1 fix-tier without Step 3.5 block = gate violation, return to Step 3.5.  "Auto-fix NG" の射程は Anti-patterns 参照 — *unaligned* な編集の禁止であって、lens 収束済み disposition の実行を user 承認に回す license ではない。
 
 ## Step 4.5 — Fix-delta re-verification (classify every fix; re-check is conditional)
 
@@ -202,7 +200,7 @@ A finding is **symptom-shaped** if it prescribes a *local mechanism* ("add a gua
 When a fix responds to a symptom-shaped finding, run a **root-cause re-derivation** *regardless of its Trigger-A tier* (this **overrides clerical-skip**):
 - **Scope**: NOT the changed hunk — the **surrounding design** the symptom lives in (root causes usually sit *outside* the hunk; that's why the surface fix was reachable).  Zooms **out**.
 - **Independence + adversarial brief**: a fresh sub-agent told *"the review framed this as `<finding>` and the applied fix was `<fix>`; ignore that framing — what is the root cause, and is this hunk even the right place to fix it, or should the invariant hold by construction upstream?"*
-- **Detect-only**: a root-level alternative → surface as a new Step 3.5 Fix decision (orchestrator + user choose root-fix vs. accept-surface-with-explicit-justification).
+- **Detect-only**: a root-level alternative → surface as a new Step 3.5 Fix decision (disposition は fresh な Step 3.5 lens pass で — root-fix vs. accept-surface-with-explicit-justification; user に回すのは genuinely user-owned な時のみ).
 
 > v1 heuristic (calibrate with use): when unsure whether a finding is symptom-shaped, run B.  Process can't fully kill the symptom-vs-root miss (root scope is context-dependent, the fixer is convergence-biased) — B reduces it via independence + zoom-out + anti-framing.
 
@@ -218,7 +216,7 @@ When every fix is clerical under A **and** none answered a symptom-shaped findin
 - **5-agent 同時起動必須**: sequential = ~5x slow.  All 5 Agent tool calls in a single message.
 - **Self-review ≠ multi-agent review**: 1 agent / inline self-evaluation skips parallel independent perspectives → single-perspective blind spot remains (2026-05-19 D-29 trial precedent: self-review missed Axis 2 sub-check 2b → 場当たり cascade).
 - **Step 1.5 mental dry-run skip NG**: Sub-check 2b uniquely depends on it.
-- **Auto-fix NG**: detection only; user-driven (matches `/code-review` / `/review` convention).
+- **Auto-fix NG (正しい射程)**: (a) review agent 自身に編集させない、(b) agent の raw suggestion を Step 3.5 philosophy alignment 抜きで適用しない — の 2 点のみ。lens 収束済み disposition の実行まで user 承認に回す license ではない (Step 4)。
 - **Step 3.5 user-visible mandatory**: blocks cannot live as internal reasoning — Step 4 references IDs.
 - **Skip post-Step-3.5 re-review when root fix changes input shape NG**: root fix で input (plan-memo の §section 構造 / diff の大幅 restructure) が変わったら再 review 必須。D-29 plan-review trial precedent — F3 root fix accepted, plan structure shifted, no re-review → Sub-check 2b data-flow gap still missed (両 skill 適用、diff review でも root fix 適用後の diff 変化を再 scan)。
 - **Generic `/review` との重複避ける**: `/review` (built-in) は一般 PR 観点。本 skill 群は elidex 専門 axis 限定。重複指摘は context-aware な本 skill finding 優先。
