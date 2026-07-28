@@ -130,14 +130,23 @@ impl EcsDom {
     /// cross-crate) *and* over-eager (it demoted on `display: contents`, which writes
     /// nothing). Both are the same root: the guard was not where the write is
     /// (Codex PR#488 R3+R4). Here it is exact in both directions.
-    pub fn set_layout_box(&mut self, entity: Entity, layout_box: LayoutBox) {
+    /// Returns whether the component was actually written — `false` iff `entity` is
+    /// despawned. Producers ignore it (a vanished entity mid-layout is not actionable
+    /// there), but it exists so a caller that DOES care can check without reading
+    /// `LayoutBox` back: a read-back would be a fresh raw reader for C-4's
+    /// "zero reads outside producers" gate to account for, which is precisely the debt
+    /// this seam exists to retire. Deliberately not `#[must_use]` — the 16 producer
+    /// sites legitimately discard it.
+    pub fn set_layout_box(&mut self, entity: Entity, layout_box: LayoutBox) -> bool {
         // Invalidate only on a write that ACTUALLY HAPPENED. `insert_one` fails for a
         // despawned entity, and demoting there would be the spurious demotion this
         // branch removed from `remove_entity` and from the paged early returns
         // (Codex PR#488 R6).
-        if self.world.insert_one(entity, layout_box).is_ok() {
+        let written = self.world.insert_one(entity, layout_box).is_ok();
+        if written {
             self.fragment_tree.invalidate();
         }
+        written
     }
 
     /// Read-modify-write access to an entity's [`LayoutBox`], through the same

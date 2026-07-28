@@ -476,8 +476,11 @@ must account for them, and must NOT treat them as inert:
 any previously-laid entity.** The memo §4 axis-3 mandate is to enumerate every producer path that
 leaves a `LayoutBox` on an element with no associated CSS box; the sites below are the *commit*
 half. The *removal* half is empty: `git grep -nE 'remove(_one)?::<[^>]*LayoutBox'` over `crates/**`
-finds only two **test** helpers doing remove-then-insert replacement
-(`elidex-js/src/vm/test_helpers.rs:161`, `.../tests/tests_resize_observer.rs:293`). Layout **skips**
+finds exactly **one** site, in a genuinely test-only path
+(`.../vm/tests/tests_resize_observer.rs:293`). ⚠ It was two until PR #488: the
+`remove_one::<LayoutBox>` in the production-compiled `vm/test_helpers.rs` was dropped when that
+writer moved onto `EcsDom::set_layout_box` (the removal was a no-op — `insert_one` already upserts).
+So "the removal half is empty" now holds **without** a `#[cfg(feature)]` caveat. Layout **skips**
 `display:none` subtrees (`elidex-layout/src/layout/mod.rs:441`,
 `elidex-layout-block/src/block/children/helpers.rs:133`, `.../stack.rs:137`) without clearing the
 component, whereas `FragmentTree::clear()` drops store fragments every pass. So the seam's two
@@ -566,13 +569,24 @@ no token). This is a load-bearing exhaustiveness check for the C-3d layering dec
 
 ⚠ **`elidex-js/src/vm/test_helpers.rs` — a `test_`-prefixed file that is NOT test-only.** It is
 `#[cfg(feature = "engine")] #[doc(hidden)] pub mod` (`vm/mod.rs:84`), i.e. production-compiled shipped
-code, and `set_layout_box` (`:161-168`) *writes* `LayoutBox`: `remove_one::<LayoutBox>`, a
-`LayoutBox { .. }` literal with `..LayoutBox::default()`, and an `insert`. The gate originally excluded
-it by basename — the same false-exhaustiveness hazard the Method section describes for `hit_test.rs`,
-reintroduced through the `test_*` PREFIX rather than the `*_test.rs` suffix. The prefix is no longer
-excluded (it was the only token-carrying `test_*.rs` in the tree), and its four non-import token lines
-are classified **`pending-migration:C-4`**: they are writes, so no C-3 consumer slice migrates them —
-only the delete does. They are deliberately NOT counted in the consumer tally below, which counts
+code, and `set_layout_box` *writes* `LayoutBox`. The gate originally excluded it by basename — the
+same false-exhaustiveness hazard the Method section describes for `hit_test.rs`, reintroduced through
+the `test_*` PREFIX rather than the `*_test.rs` suffix. The prefix is no longer excluded (it was the
+only token-carrying `test_*.rs` in the tree), and its **two** non-import token lines (the
+`LayoutBox { .. }` literal and `..LayoutBox::default()`) are classified
+**`pending-migration:C-4`**: they are writes, so no C-3 consumer slice migrates them — only the
+delete does.
+
+⚠ **It was four lines until this slice, and the two that went away are the point.** PR #488 routed
+this writer through `EcsDom::set_layout_box` but preserved its panic-on-despawned-entity contract with
+`assert!(dom.world().get::<&LayoutBox>(entity).is_ok(), …)` — which introduced a **fresh raw
+`LayoutBox` read in production-compiled code**, and it was classified `test` (this file's basename
+still looks test-shaped), so **C-4's "zero reads outside producers" gate would not have seen it**. That
+is the exact failure this ⚠ exists to prevent, reintroduced by the change that strengthened the gate.
+The fix is not a re-label: `set_layout_box` now **returns whether it wrote**, so the caller asserts on
+the chokepoint's own signal and reads nothing back. A write-signal return is strictly better than a
+read-back here — it reports the write rather than inferring it, and it adds no reader for C-4 to
+account for. They are deliberately NOT counted in the consumer tally below, which counts
 consumer *reads*.
 
 **Pending-migration consumer readers: 43 non-test sites** → C-3b (4), C-3c (6), C-3d (7), C-3e (26).
