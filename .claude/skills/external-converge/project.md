@@ -73,7 +73,9 @@ Historical **Copilot** R-loop incidents that calibrated the loop's defensive rul
 
 ### Never wait on auto-review — always fire one trigger
 
-**Do not trust auto-review. Post `@codex review` once when you enter the loop (bootstrap included) and once after every push, then start the clock.** Auto-review is not guaranteed to arm and gives no signal when it doesn't: `#333` sat at zero ~50 min; `#491` sat at zero for **17 hours** on a fresh PR while Codex reviewed a sibling PR in the same repo 1 min after the cap. There is no way to distinguish "unarmed" from "slow" by observation, so waiting to find out is a pure loss.
+**Do not trust auto-review. Every round begins with a trigger you post.** A round's trigger is posted on exactly one occasion: **the head you want reviewed became current and no trigger has been posted for it yet** — whether that head arrived with the initial push, a fix push, or was already there when you entered the loop. Entering the loop straight after the initial push is therefore **one** occasion, not two, and posts one `@codex review`.
+
+Auto-review is not guaranteed to arm and gives no signal when it doesn't: `#333` sat at zero ~50 min; `#491` sat at zero for **17 hours** on a fresh PR while Codex reviewed a sibling PR in the same repo 1 min after the cap. There is no way to distinguish "unarmed" from "slow" by observation, so waiting to find out is a pure loss.
 
 The duplicate-trigger cost is negligible and empirically harmless — `#488`/`#489` both received manual triggers on top of already-completed auto-reviews with no ill effect. The asymmetry is decisive: a redundant review costs one wasted Codex run, an unarmed review costs unbounded wall-clock. Always trigger.
 
@@ -84,9 +86,13 @@ This is *One issue, one way* (CLAUDE.md): the rule removes the "is it slow or un
 - **~30 min is NORMAL, not stuck** — *once you have triggered*, do **not** re-trigger or "surface as slow" anywhere in the ~15–30 min window after that trigger. The review is almost certainly still running, and a second trigger interrupts/duplicates a live review rather than recovering a stuck one (#390 re-triggered at ~14 min into a still-running review — premature; this early-give-up is the failure this window protects against). This window is about the **second** trigger; it never justifies withholding the **first** one.
 - **Poll patiently** — 300s cadence is fine (not-spamming the reviewer matters more than cache warmth here; a ~30 min wait needs only a handful of polls, so widen toward 600s if preferred). `ScheduleWakeup` IS the poll.
 - **`wakeup_surface_threshold` (~45 min) is a per-TRIGGER window, not a per-loop budget.** Every trigger — the first one or a re-post — opens a fresh window, measured from that trigger. The window is silent when it ends with zero Codex activity on head (no formal review, no marker-bearing issue-comment, no inline thread) since the trigger that opened it. Silence before any trigger is not a stall to report; it is a trigger you have not fired yet.
-- **A silent window produces exactly one re-post, which opens the next window. Surface to the user after 3 consecutive silent windows.** Not after the first or second: `#331` hit 3 consecutive silent trigger-fails inside one loop and *every* one recovered by mechanical re-post, so surfacing earlier hands the user a problem the loop can still solve itself. The full sequence is mechanical, with no operator judgement anywhere in it:
+- **Silent-window recovery is this procedure, and only this** — stated once, exhaustively, so there is no second phrasing to disagree with it:
 
-  `trigger → window → silent? → re-post → window → silent? → re-post → window → silent? → surface`
+  1. Post the trigger. This opens a window.
+  2. Codex responds within the window → classify the round. **Done.**
+  3. Window ends silent → increment the silent count. **If it is now 3, surface to the user and stop. Otherwise go to 1.**
+
+  So the 1st and 2nd silent windows each produce a re-post; the 3rd produces the surface instead. Surfacing earlier than the 3rd would be premature: `#331` hit 3 consecutive silent trigger-fails inside one loop and *every* one recovered by mechanical re-post, so stopping at the 1st or 2nd hands the user a problem the loop can still solve itself. No step here takes operator judgement.
 
 **⚠ The ~30 min figure above is `@codex review`-to-verdict latency measured with auto-review in the mix. Manually-triggered rounds measured on 2026-07-28 were far faster — 2m25s, 3m31s, 2m23s (#491 R1/R2, #492 R1), i.e. every sample under 4 min.** Three samples is thin and the ~30 min number is user-confirmed, so the threshold is deliberately left at ~45 min rather than retuned here; but if further manual-trigger rounds stay in the minutes range, the window is ~10× the real latency and shortening it (which also speeds the re-post recovery above) is worth raising with the user. Do not silently retune it on this data alone.
 
