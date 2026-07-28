@@ -69,15 +69,23 @@ Historical **Copilot** R-loop incidents that calibrated the loop's defensive rul
 
 ## wakeup_surface_threshold
 
-`~45min` — surface-to-user sanity cap (SKILL.md Step 5.5 (2)). Deliberately set **well above** Codex's typical review latency so a normal-but-slow review is never cut off mid-flight. This is the single source of truth for the cap — it overrides the generic SKILL.md `~15 min` default (which is far too aggressive for this reviewer).
+`~45min` — surface-to-user sanity cap (SKILL.md Step 5.5 (2)), measured **from your own `@codex review` trigger** — never from PR creation or push. Deliberately set **well above** Codex's typical review latency so a normal-but-slow review is never cut off mid-flight. This is the single source of truth for the cap — it overrides the generic SKILL.md `~15 min` default (which is far too aggressive for this reviewer).
+
+### Never wait on auto-review — always fire one trigger
+
+**Do not trust auto-review. Post `@codex review` once when you enter the loop (bootstrap included) and once after every push, then start the clock.** Auto-review is not guaranteed to arm and gives no signal when it doesn't: `#333` sat at zero ~50 min; `#491` sat at zero for **17 hours** on a fresh PR while Codex reviewed a sibling PR in the same repo 1 min after the cap. There is no way to distinguish "unarmed" from "slow" by observation, so waiting to find out is a pure loss.
+
+The duplicate-trigger cost is negligible and empirically harmless — `#488`/`#489` both received manual triggers on top of already-completed auto-reviews with no ill effect. The asymmetry is decisive: a redundant review costs one wasted Codex run, an unarmed review costs unbounded wall-clock. Always trigger.
+
+This is *One issue, one way* (CLAUDE.md): the rule removes the "is it slow or unarmed?" branch entirely rather than moving the decision to a threshold.
 
 **Observed latency (user-confirmed 2026-07-18): a Codex review commonly takes ~30 minutes to land — and the loop was giving up around ~15 min far too often.** Range ≈ ~15–30 min, sometimes longer; the earlier "~15 min normal" [#390, 2026-06-21] was the *low* end (one review), the prior "~2 min" [#288] a *manual-trigger one-off*, and #295's ~30–90 min round gaps were *fix-time between rounds* [Claude fixing], not review latency. So:
 
-- **~30 min is NORMAL, not stuck** — do **not** re-trigger or "surface as slow" anywhere in the ~15–30 min window. The first review is almost certainly still running, and re-triggering interrupts/duplicates a live review rather than recovering a stuck one (#390 re-triggered at ~14 min into a still-running first review — premature; this early-give-up is exactly the failure being fixed here).
+- **~30 min is NORMAL, not stuck** — *once you have triggered*, do **not** re-trigger or "surface as slow" anywhere in the ~15–30 min window after that trigger. The review is almost certainly still running, and a second trigger interrupts/duplicates a live review rather than recovering a stuck one (#390 re-triggered at ~14 min into a still-running review — premature; this early-give-up is the failure this window protects against). This window is about the **second** trigger; it never justifies withholding the **first** one.
 - **Poll patiently** — 300s cadence is fine (not-spamming the reviewer matters more than cache warmth here; a ~30 min wait needs only a handful of polls, so widen toward 600s if preferred). `ScheduleWakeup` IS the poll.
-- **Surface threshold = `wakeup_surface_threshold` (~45 min)** of zero Codex activity on head (no formal review, no marker-bearing issue-comment, no inline thread). Only then treat it as queued/slow/trigger-not-taken and **surface to the user** — do **not** auto-re-trigger, since a review this slow may still be running.
+- **Surface threshold = `wakeup_surface_threshold` (~45 min)** of zero Codex activity on head (no formal review, no marker-bearing issue-comment, no inline thread) **measured from your own trigger**. Silence after *your* trigger is the real stall signal — that is when to re-post once, and to surface to the user if the re-post also yields nothing. Silence before any trigger is not a stall to report; it is a trigger you have not fired yet.
 
-→ `memory/feedback_external-converge-codex-latency.md`.
+→ `memory/feedback_external-converge-codex-latency.md` (latency) + `memory/feedback_codex-dry-verdict-is-issue-comment.md` §追補 #331/#333 (unarmed auto-review + silent trigger-fail; mechanical re-post is the recovery).
 
 ## reviewer
 

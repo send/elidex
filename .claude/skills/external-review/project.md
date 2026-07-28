@@ -57,7 +57,7 @@ elidex's non-Claude diversity reviewer (Step 1 fetch filter / head-staleness / r
 
 - `bot_login`: `chatgpt-codex-connector[bot]` (REST form). **GraphQL `reviewThreads` author.login is the BARE `chatgpt-codex-connector`** (no `[bot]`) — Step 1 must normalize (strip `[bot]`) for GraphQL or it false-negatives every inline finding (`#316`/`#337`).
 - `name`: Codex (genuine OpenAI Codex Cloud, ChatGPT **Pro** — loop-affordable, no per-credit cost; *not* GitHub Copilot credits)
-- `trigger`: `@codex review` (or Codex auto-review, enabled at chatgpt.com/codex)
+- `trigger`: `@codex review`, posted as a PR comment. **Always fire it — never wait on Codex's auto-review.** Auto-review (enabled at chatgpt.com/codex) is not guaranteed to arm and gives no signal when it doesn't (`#333` zero for ~50 min; `#491` zero for **17 hours** while Codex reviewed a sibling PR in the same repo). "Unarmed" is indistinguishable from "slow" by observation, and a redundant trigger is harmless (`#488`/`#489` took manual triggers on top of completed auto-reviews), so the trigger is unconditional. Same rule + rationale in `external-converge/project.md` § "Never wait on auto-review".
 - `assessed_commit_marker`: `Reviewed commit:` — in BOTH formal-review bodies AND the dry-verdict issue-comment, followed by `` `<sha>` ``; Step 1 reads the latest assessed commit from this marker across reviews + issue-comments.
 - `dry_verdict_match`: `Didn't find any major issues` — Codex's no-findings verdict, posted as a **plain PR issue-comment**, not a formal review. A dry-verdict comment on head = clean pass; keying the head check on `pulls/{n}/reviews` alone false-reports "stale review" (`#322`/`#337` — see `memory/feedback_codex-dry-verdict-is-issue-comment.md`).
 
