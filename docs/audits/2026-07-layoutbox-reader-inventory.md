@@ -239,7 +239,7 @@ writes; see plan §2 for what it does and does not bound.
 
 | kind | representative sites | CLASS |
 |---|---|---|
-| `&mut LayoutBox` read-modify-write (**via `EcsDom::layout_box_mut`**) | `block/children/shift.rs:164` (probe-lag shift, I-phase fact 1), `inline/mod.rs:1273` (atomic reposition), `layout/mod.rs:157` (layout_generation stamp), `positioned/mod.rs:101` (`apply_relative_offset` param) | producer |
+| `&mut LayoutBox` read-modify-write (**via `EcsDom::layout_box_mut`**) | `block/children/shift.rs:164` (probe-lag shift, I-phase fact 1), `inline/mod.rs:705` (atomic reposition), `layout/mod.rs:157` (layout_generation stamp), `positioned/mod.rs:101` (`apply_relative_offset` param) | producer |
 | multicol committer read (feeds store) | `multicol/fill.rs:76` (`snapshot_box` get<&LayoutBox>) + `:77` `BoxFragment::from`, `multicol/fill.rs:421` (monolithic block extent) | producer |
 | in-layout presence check | `inline/pack/boxes.rs:62` (`get<&LayoutBox>.is_ok()` — "skip if already laid") | producer |
 | in-layout derived-value helper (LOCAL box) | `table/helpers.rs:23` `box_total_height`, `table/lib.rs:61` `cell_baseline` | producer |
