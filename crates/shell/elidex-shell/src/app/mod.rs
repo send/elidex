@@ -906,6 +906,6 @@ impl ApplicationHandler<crate::WakeEvent> for App {
         }
 
         // ---- Legacy inline mode ----
-        self.handle_window_event_inline(event_loop, event);
+        self.handle_window_event_inline(event);
     }
 }

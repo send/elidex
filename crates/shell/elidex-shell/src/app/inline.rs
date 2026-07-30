@@ -3,7 +3,6 @@
 //! All processing runs on the main thread (used by `build_pipeline` test API).
 
 use winit::event::{ElementState, WindowEvent};
-use winit::event_loop::ActiveEventLoop;
 
 use elidex_ecs::ElementState as DomElementState;
 use elidex_plugin::{Point, Vector};
@@ -14,11 +13,34 @@ use super::render::handle_redraw;
 use super::App;
 
 impl App {
-    pub(super) fn handle_window_event_inline(
-        &mut self,
-        _event_loop: &ActiveEventLoop,
-        event: WindowEvent,
-    ) {
+    pub(super) fn handle_window_event_inline(&mut self, event: WindowEvent) {
+        // **The dispatch-entry drive** — the peek-gated settle of whatever a
+        // PREVIOUS turn left staged, ahead of everything this dispatch does. See
+        // `App::drive_staged_session_history_work` for why it exists and why it is
+        // gated on the channel peek rather than a residue flag.
+        //
+        // ONE call, here, because this function DOMINATES every arm below — the
+        // `RedrawRequested` arm (whose tail runs chrome Back/Forward, the address
+        // bar and Reload), `handle_keyboard_inline` (whose Alt+←/→ branch traverses
+        // and returns without ever reaching `events::handle_keyboard`), and
+        // `handle_mouse_press_inline` (ahead of `events::handle_click` and its
+        // `<a href>` default). Driving at each mover-carrying arm instead would make
+        // "every mover is preceded by a drive in its own dispatch" an ENUMERATION:
+        // add a fourth mover-carrying arm, or move a mover into
+        // `handle_mouse_release_inline`, and nothing fails — coverage just silently
+        // regresses. At the dominator it is structural.
+        //
+        // The winit dispatch layer is the load-bearing part (plan §4.3): the
+        // `App::handle_*` layer is too low, because the Alt+←/→ branch never reaches
+        // it. Hoisting within that layer costs a peek — three loads, no allocation —
+        // on the arms that gain it (`CursorMoved`, `CursorLeft`,
+        // `ModifiersChanged`, `MouseInput::Released`, the egui-consumed arm). Each
+        // is safe, and the state-tracking arms are safer than before: a drive that
+        // rebuilds clears `hover_chain`/`active_chain` (`app/navigation.rs`), so the
+        // hit-test in `handle_cursor_move_inline` below now runs against the NEW
+        // document rather than building a chain a later drive invalidates.
+        self.drive_staged_session_history_work();
+
         // Always process state-tracking events before egui routing.
         match &event {
             WindowEvent::ModifiersChanged(new_modifiers) => {
@@ -54,15 +76,6 @@ impl App {
 
         match event {
             WindowEvent::RedrawRequested => {
-                // Dispatch-entry drive (1 of 3) — see
-                // `App::drive_staged_session_history_work`. Ahead of
-                // `handle_redraw_inline` because its TAIL runs the chrome action
-                // this frame produced (`handle_chrome_action`: toolbar
-                // Back/Forward, the address bar, Reload — all non-drain cursor
-                // movers), including chrome interactions whose originating input
-                // event egui consumed, which only materialize at a later
-                // `RedrawRequested`.
-                self.drive_staged_session_history_work();
                 self.handle_redraw_inline();
             }
             _ if egui_consumed => {}
@@ -192,21 +205,11 @@ impl App {
 
     /// Handle `MouseInput::Pressed` in legacy inline mode.
     ///
-    /// `pub(super)` so `app_turn_completion_tests` can pin dispatch-entry drive (3)
-    /// at its REAL call site rather than through the shared reader body — the layer
-    /// distinction is exactly what the drive placement turns on.
-    pub(super) fn handle_mouse_press_inline(&mut self, button: winit::event::MouseButton) {
-        // Dispatch-entry drive (3 of 3) — see
-        // `App::drive_staged_session_history_work`. Ahead of the active-chain
-        // update AND of `handle_click` (whose `<a href>` default is a non-drain
-        // mover, and whose four early returns are all downstream of here, so a
-        // click on blank space now drains residue instead of stranding it).
-        //
-        // Placing it BEFORE the active-chain clone is what keeps it safe against
-        // the `events.rs` stale-entity class: a drive that rebuilds clears
-        // `hover_chain`/`active_chain` (`app/navigation.rs`), so the clone below
-        // is empty — never an entity aliasing a fresh `EcsDom`'s.
-        self.drive_staged_session_history_work();
+    /// The dispatch entry above has already drained any staged session-history
+    /// work, so `handle_click`'s four early returns no longer strand it — and the
+    /// active-chain clone below cannot alias a fresh `EcsDom`'s entities, because a
+    /// drive that rebuilt cleared both chains first.
+    fn handle_mouse_press_inline(&mut self, button: winit::event::MouseButton) {
         if let Some(interactive) = &mut self.interactive {
             // Clear stale ACTIVE from a previous press.
             for &e in &interactive.active_chain {
@@ -250,13 +253,6 @@ impl App {
         key_event: &winit::event::KeyEvent,
         address_focused: bool,
     ) {
-        // Dispatch-entry drive (2 of 3) — see
-        // `App::drive_staged_session_history_work`. Ahead of the Alt+←/→ branch
-        // below, which calls `traverse_to` (a non-drain cursor mover) and RETURNS
-        // without ever reaching the DOM keyboard path `events::handle_keyboard` —
-        // so the drive at the `App::handle_keyboard` layer does not cover it. This
-        // is the winit dispatch layer, where the movers actually branch.
-        self.drive_staged_session_history_work();
         if key_event.state == ElementState::Pressed {
             let mods = self
                 .interactive

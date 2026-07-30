@@ -420,8 +420,34 @@ cap-hit's unconditional one included — is issued via this seam.
   drain at that dispatch's entry before any mover runs — so redraw-delivery variance affects only settle
   latency, never the wrong-entry window (an occluded/minimized window also typically receives no input or
   chrome interaction, but that is a platform observation, not the argument). The load-bearing guarantee
-  is structural — a reader precedes every mover-carrying dispatch — not temporal delivery: the peek has
-  **three readers, all at the winit dispatch layer** — the layer where the
+  is structural — a reader precedes every mover-carrying dispatch — not temporal delivery.
+
+  **⚠ IMPLEMENTED AS ONE READER, NOT THREE — the one design change made after plan-review, and why.**
+  `/simplify`'s altitude pass observed that all three sites named below are dominated by a single
+  function, `app/inline.rs::handle_window_event_inline`: the `RedrawRequested` arm is one of its match
+  arms, and `handle_keyboard_inline` / `handle_mouse_press_inline` are targets of that same match with
+  exactly one caller each. Plan-review argued (and R2 CRIT-fixed) **which layer** the readers belong to;
+  it never posed **why three sites within that layer**. One drive at the dominator's entry keeps the
+  ratified layer exactly — that function IS the winit dispatch layer — while replacing an *enumeration*
+  ("these three arms drive") with a *structural* guarantee: a fourth mover-carrying arm, or a mover moved
+  into `handle_mouse_release_inline`, can no longer silently escape coverage. It also drops the
+  `pub(super)` widening the three-site form needed on `handle_mouse_press_inline` for testing, and lets
+  the pin drive a real `WindowEvent` through the real dispatch (`DeviceId::dummy()`), which the
+  three-site form could not.
+  The cost is that the drive now also runs on arms reaching no mover — `CursorMoved`, `CursorLeft`,
+  `ModifiersChanged`, `MouseInput::Released`, the egui-consumed arm. Each was checked: `ModifiersChanged`
+  touches no DOM; `CursorLeft` / `MouseInput::Released` iterate chains a rebuild already cleared;
+  `on_window_event` is pipeline-independent; and `CursorMoved` is **safer** than before, because a drive
+  that rebuilds clears `hover_chain`/`active_chain` *before* the hit-test rather than after it. Cost per
+  arm is the peek — three loads, no allocation (`runtime` is a concrete `ElidexJsEngine`, so the call
+  inlines). The only real delta: an adversarial re-stager's capped loop also runs on mouse-move
+  dispatches — a marginal widening of a degradation that is already continuous (the §4.3 re-arm note
+  above). Pinned by `app_residue_drains_on_a_dispatch_arm_that_carries_no_mover`, which is exactly the
+  property the three-site form did not have.
+
+  The enumeration below is kept as authored, because it is the record of the reader-LAYER argument —
+  unchanged, still load-bearing, and still what the single drive's placement rests on: the peek's reader
+  sits **at the winit dispatch layer** — the layer where the
   §4.1 movers actually branch — each driving before doing anything else in its dispatch: (1) the
   `WindowEvent::RedrawRequested` arm entry (`app/inline.rs:56`, before `handle_redraw_inline` runs — and
   before its tail executes any chrome action, `:177`); (2) the `handle_keyboard_inline` entry (`:224`, at

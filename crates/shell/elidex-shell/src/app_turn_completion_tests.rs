@@ -373,13 +373,15 @@ fn app_turn_completion_terminates_at_the_cap_and_defers_the_residue() {
 /// used to strand the residue forever, since `events::handle_click` returns early
 /// on an unset `cursor_pos` BEFORE the drive — now drains it at the dispatch entry.
 ///
-/// Driven through the REAL `handle_mouse_press_inline`, not the shared reader body:
-/// the whole point of placing the readers at the winit dispatch layer is that the
-/// `App::handle_*` layer is too low (reader (2)'s Alt+←/→ branch never reaches
-/// `events::handle_keyboard` at all), so the pin has to exercise the layer that
-/// carries the drive.
+/// Driven through the REAL winit dispatch — a `WindowEvent::MouseInput` handed to
+/// `handle_window_event_inline`, not a call to the shared reader body or to an
+/// inner `handle_*_inline`. That is the whole point of the drive's placement: it
+/// sits at the dispatch entry because the `App::handle_*` layer is too low (the
+/// Alt+←/→ branch traverses and returns without ever reaching
+/// `events::handle_keyboard`), so a pin that skipped the dispatch would not be
+/// exercising the layer that carries the drive.
 #[test]
-fn app_cap_residue_drains_at_the_mouse_press_dispatch_entry() {
+fn app_cap_residue_drains_at_the_next_dispatch_entry() {
     let mut app = app_at(&popstate_every(PING_PONG), base());
     seed_same_document_pair(&mut app);
 
@@ -388,19 +390,64 @@ fn app_cap_residue_drains_at_the_mouse_press_dispatch_entry() {
     assert_eq!(popstate_fires(&app), 8, "the first drive capped");
 
     // No `cursor_pos` — `handle_click` returns at its first early return, so the
-    // ONLY thing that can drain here is the dispatch-entry drive ahead of it.
+    // ONLY thing that can drain on this dispatch is the entry drive ahead of it.
     assert!(
         app.interactive.as_ref().unwrap().cursor_pos.is_none(),
         "blank-space precondition: handle_click cannot reach its own drive"
     );
-    app.handle_mouse_press_inline(winit::event::MouseButton::Left);
+    app.handle_window_event_inline(winit::event::WindowEvent::MouseInput {
+        device_id: winit::event::DeviceId::dummy(),
+        state: winit::event::ElementState::Pressed,
+        button: winit::event::MouseButton::Left,
+    });
 
     assert_eq!(
         popstate_fires(&app),
         16,
-        "the mouse-press dispatch ENTRY drove the loop again (a second capped run), \
-         so the residue is next-dispatch-bounded — not stranded behind handle_click's \
+        "the dispatch ENTRY drove the loop again (a second capped run), so the \
+         residue is next-dispatch-bounded — not stranded behind handle_click's \
          early return"
+    );
+}
+
+/// The entry drive is at the **dominator**, so an arm that carries no mover at all
+/// still drains — the property that makes coverage structural rather than an
+/// enumeration of mover-carrying arms.
+///
+/// `CursorMoved` is the sharpest case: it is the highest-frequency arm, it reaches
+/// no mover, and under a per-mover-arm placement it would drain nothing. It also
+/// pins the ordering that makes the hoist safe — the drive runs BEFORE
+/// `handle_cursor_move_inline`'s hit-test, so a drive that rebuilt cannot leave a
+/// hover chain built against the old `EcsDom`.
+#[test]
+fn app_residue_drains_on_a_dispatch_arm_that_carries_no_mover() {
+    let mut app = app_at(
+        &popstate_once("history.pushState(null, '', '/from-popstate');"),
+        base(),
+    );
+    seed_same_document_pair(&mut app); // [base, /a], cursor on /a
+
+    // Stage via a mover, which never enters the loop (staging source (b)).
+    app.handle_chrome_action(crate::chrome::ChromeAction::Back);
+    assert!(
+        staged_session_history_work(&app),
+        "precondition: the mover-fired popstate staged work with no loop behind it"
+    );
+
+    app.handle_window_event_inline(winit::event::WindowEvent::CursorMoved {
+        device_id: winit::event::DeviceId::dummy(),
+        position: winit::dpi::PhysicalPosition::new(10.0, 10.0),
+    });
+
+    assert!(
+        !staged_session_history_work(&app),
+        "a plain cursor move drained it — the drive is at the dispatch entry, not \
+         attached to the arms that happen to carry movers today"
+    );
+    assert_eq!(
+        entry_url(&app, 1).as_deref(),
+        Some("https://example.com/from-popstate"),
+        "and it settled against base, the entry the handler ran on"
     );
 }
 

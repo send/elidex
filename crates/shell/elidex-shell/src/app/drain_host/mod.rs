@@ -155,7 +155,7 @@ impl App {
     ///
     /// Called at the end of an input handler (`events::handle_click` /
     /// `events::handle_keyboard`), after event dispatch + re-render, and at the
-    /// three winit dispatch entries (below). Each ITERATION runs
+    /// winit dispatch entry (below). Each ITERATION runs
     /// [`DrainCoordinator::drain_same_turn`], whose body sequences **Phase 1**
     /// (window-opens §7.2.2.1 → §7.4.4 synchronous `pushState`/`replaceState`
     /// updates applied in-task, with §7.4.3 `Back`/`Forward`/`Go` traversals merely
@@ -170,11 +170,11 @@ impl App {
     /// `interactive.is_some()` guard here is what makes every per-seam
     /// [`App::inline_state`] / [`App::inline_state_mut`] reach-through an
     /// unreachable panic ([`INTERACTIVE_DRIVE_ONLY`](super::INTERACTIVE_DRIVE_ONLY)).
-    /// It has FIVE callers, all top-level arms/targets of the winit dispatch with
-    /// no synchronous path from any drain body back into them (so the premise-5
-    /// argument is unchanged in substance — only the named call sites grew): the
-    /// two in-handler drives (`events::handle_click` `handle_keyboard`) and the
-    /// three peek-gated dispatch-entry drives routed through
+    /// It has THREE callers, none of them reachable synchronously from any drain
+    /// body (so the premise-5 argument is unchanged in substance — only the named
+    /// call sites grew): the two in-handler drives (`events::handle_click`,
+    /// `events::handle_keyboard`) and the peek-gated dispatch-entry drive at
+    /// `app/inline.rs::handle_window_event_inline`, routed through
     /// [`Self::drive_staged_session_history_work`].
     ///
     /// Returns the turn's [`DrainOutcome`] (the shared summary both shells return)
@@ -308,17 +308,17 @@ impl App {
     /// (`#11-session-history-task-queue-model`).
     ///
     /// That redraw is a *wakeup*, not the correctness argument. What bounds the
-    /// residue is structural: the SAME peek is read at the three winit **dispatch
-    /// entries** (`app/inline.rs` — the `RedrawRequested` arm,
-    /// `handle_keyboard_inline`, `handle_mouse_press_inline`), each driving this
-    /// method before anything else in its dispatch and therefore before every
-    /// non-drain mover that dispatch can reach (chrome actions run in the redraw
-    /// arm's tail; Alt+←/→ in the keyboard dispatch's own branch, which never
-    /// reaches `events::handle_keyboard`; the `<a href>` default in
-    /// `handle_click`). Residue is therefore **(next-dispatch ∨ frame)-bounded**,
-    /// and a click on blank space now drains what it used to strand —
-    /// `handle_click`'s early returns are all downstream of the mouse-press entry
-    /// drive. Peek-gating rather than flag-gating is load-bearing: staged work has
+    /// residue is structural: the SAME peek is read at the **winit dispatch entry**
+    /// (`app/inline.rs::handle_window_event_inline`), which DOMINATES every arm of
+    /// the dispatch and therefore precedes every non-drain mover any of them can
+    /// reach — chrome actions in the `RedrawRequested` arm's tail, Alt+←/→ in the
+    /// keyboard dispatch's own branch (which never reaches
+    /// `events::handle_keyboard`), the `<a href>` default in `handle_click`. Being
+    /// at the dominator rather than at each mover-carrying arm is what makes that
+    /// coverage structural instead of an enumeration that silently regresses when
+    /// a mover moves. Residue is therefore **(next-dispatch ∨ frame)-bounded**, and
+    /// a click on blank space now drains what it used to strand —
+    /// `handle_click`'s early returns are all downstream of the entry drive. Peek-gating rather than flag-gating is load-bearing: staged work has
     /// three sources — this loop's non-quiescent exits, a **mover-fired**
     /// synchronous `popstate`/`hashchange` whose handler stages (that mover never
     /// enters the loop at all), and a fresh document's load-time staging — and a
@@ -516,13 +516,21 @@ impl App {
     /// staged — the peek-gated reader that makes a previous turn's residue
     /// **(next-dispatch ∨ frame)-bounded** instead of unbounded.
     ///
-    /// Called at the top of each of the three dispatch bodies that can reach a
-    /// non-drain cursor mover (`app/inline.rs`: the `WindowEvent::RedrawRequested`
-    /// arm, whose tail runs chrome actions; `handle_keyboard_inline`, whose Alt+←/→
-    /// branch traverses and returns without ever reaching
-    /// `events::handle_keyboard`; `handle_mouse_press_inline`, ahead of
-    /// `events::handle_click` and its `<a href>` default) — so every mover is
-    /// preceded, in its own dispatch, by a drain of whatever was staged before it.
+    /// Called ONCE, at the top of `app/inline.rs::handle_window_event_inline` —
+    /// the function that DOMINATES every arm of the inline winit dispatch. So every
+    /// non-drain cursor mover is preceded, in its own dispatch, by a drain of
+    /// whatever was staged before it: chrome Back/Forward, the address bar and
+    /// Reload (the `RedrawRequested` arm's tail), Alt+←/→ (the keyboard dispatch's
+    /// own branch, which returns without ever reaching `events::handle_keyboard`),
+    /// and the `<a href>` default (inside `events::handle_click`).
+    ///
+    /// **At the dominator, not at each mover-carrying arm** — that is the
+    /// difference between a structural guarantee and an enumeration. Per-arm
+    /// placement would hold only for the arms that carry a mover *today*: add a
+    /// fourth, or move one into `handle_mouse_release_inline`, and nothing fails
+    /// while coverage silently regresses. The winit dispatch layer itself is
+    /// load-bearing and is NOT a free choice (plan §4.3): the `App::handle_*` layer
+    /// below it is too low, because the Alt+←/→ branch never reaches it.
     ///
     /// Gated on the peek rather than on a residue flag because the loop's
     /// non-quiescent exits are only ONE of three staging sources: a mover that
