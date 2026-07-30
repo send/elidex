@@ -40,59 +40,19 @@
 use elidex_navigation::DrainHost;
 
 use super::test_support::{
-    app_at, base, current_url, cursor_over_content, document_marker, entry_url, eval,
-    followup_dispatches, history_len, pipeline_url, seed_same_document_pair,
-    staged_session_history_work, stamped, url,
+    app_at, base, current_index, current_url, cursor_over_content, document_marker, entry_url,
+    eval, followup_dispatches, history_len, pipeline_url, popstate_every, popstate_fires,
+    popstate_once, seed_same_document_pair, seed_same_document_triple, staged_session_history_work,
+    stamped,
 };
-use super::App;
 
-/// A page whose `popstate` listener runs `script` **once** (guarded by a flag, not
-/// `removeEventListener`, so a later traversal's popstate re-entering the handler
-/// is a no-op rather than a listener-removal-semantics question).
-fn popstate_once(script: &str) -> String {
-    format!(
-        "<p>doc</p>\
-         <script>window.__staged = false;\
-         window.addEventListener('popstate', function () {{\
-           if (window.__staged) {{ return; }}\
-           window.__staged = true; {script}\
-         }});</script>"
-    )
-}
-
-/// A page whose `popstate` listener runs `script` on EVERY fire and stamps the fire
-/// count onto `<p data-n>` — the adversarial re-stager shape, plus the probe that
-/// counts loop iterations (each iteration of the turn-completion loop applies
-/// exactly one traversal, and every same-document apply fires popstate once).
-fn popstate_every(script: &str) -> String {
-    format!(
-        "<p>doc</p>\
-         <script>window.__n = 0;\
-         window.addEventListener('popstate', function () {{\
-           window.__n++;\
-           document.querySelector('p').setAttribute('data-n', String(window.__n));\
-           {script}\
-         }});</script>"
-    )
-}
-
-/// The `data-n` stamp of [`popstate_every`] — how many times `popstate` fired.
-fn popstate_fires(app: &App) -> usize {
-    let pipeline = &app.interactive.as_ref().unwrap().pipeline;
-    pipeline
-        .dom
-        .query_by_tag("p")
-        .into_iter()
-        .find_map(|e| {
-            pipeline
-                .dom
-                .world()
-                .get::<&elidex_ecs::Attributes>(e)
-                .ok()
-                .and_then(|a| a.get("data-n").and_then(|v| v.parse().ok()))
-        })
-        .unwrap_or(0)
-}
+/// The adversarial re-stager body: ping-pong `forward()`/`back()` between two
+/// same-document entries, so every loop iteration applies exactly one traversal
+/// and fires exactly one `popstate` — which is what makes
+/// [`popstate_fires`](super::test_support::popstate_fires) a direct count of the
+/// loop's iterations. Shared so the cap tests and the residual pin cannot drift
+/// apart on the shape that makes that counting valid.
+const PING_PONG: &str = "if (window.__n % 2 === 1) { history.forward(); } else { history.back(); }";
 
 // ---------------------------------------------------------------------------
 // The two flipped slot pins
@@ -189,19 +149,7 @@ fn app_popstate_staged_push_lands_on_the_issuing_entry_across_an_interleaved_chr
         base(),
     );
     // Seed [base, /a, /b] sharing one document_sequence, cursor on /b.
-    let a = url("https://example.com/a");
-    let b = url("https://example.com/b");
-    app.interactive
-        .as_mut()
-        .unwrap()
-        .nav_controller
-        .push_same_document(a);
-    app.interactive
-        .as_mut()
-        .unwrap()
-        .nav_controller
-        .push_same_document(b.clone());
-    super::test_support::activate_seeded_entry(&mut app, b);
+    seed_same_document_triple(&mut app);
 
     eval(&mut app, "history.back();");
     let _ = app.process_pending_navigation();
@@ -280,19 +228,7 @@ fn app_popstate_staged_traversal_applies_within_the_same_turn() {
         base(),
     );
     // [base, /a, /b] one document, cursor on /b — so the staged back() is in range.
-    let a = url("https://example.com/a");
-    let b = url("https://example.com/b");
-    app.interactive
-        .as_mut()
-        .unwrap()
-        .nav_controller
-        .push_same_document(a);
-    app.interactive
-        .as_mut()
-        .unwrap()
-        .nav_controller
-        .push_same_document(b.clone());
-    super::test_support::activate_seeded_entry(&mut app, b);
+    seed_same_document_triple(&mut app);
 
     eval(&mut app, "history.back();");
     let _ = app.process_pending_navigation();
@@ -407,12 +343,7 @@ fn app_turn_outcome_or_latches_suppress_default_across_iterations() {
 /// real `request_redraw` is `render_state`-gated and silently no-ops here.
 #[test]
 fn app_turn_completion_terminates_at_the_cap_and_defers_the_residue() {
-    let mut app = app_at(
-        &popstate_every(
-            "if (window.__n % 2 === 1) { history.forward(); } else { history.back(); }",
-        ),
-        base(),
-    );
+    let mut app = app_at(&popstate_every(PING_PONG), base());
     seed_same_document_pair(&mut app); // [base, /a], cursor on /a
 
     eval(&mut app, "history.back();");
@@ -449,12 +380,7 @@ fn app_turn_completion_terminates_at_the_cap_and_defers_the_residue() {
 /// carries the drive.
 #[test]
 fn app_cap_residue_drains_at_the_mouse_press_dispatch_entry() {
-    let mut app = app_at(
-        &popstate_every(
-            "if (window.__n % 2 === 1) { history.forward(); } else { history.back(); }",
-        ),
-        base(),
-    );
+    let mut app = app_at(&popstate_every(PING_PONG), base());
     seed_same_document_pair(&mut app);
 
     eval(&mut app, "history.back();");
@@ -570,27 +496,14 @@ fn app_mover_fired_popstate_staging_is_drained_at_the_next_dispatch_entry() {
 #[test]
 fn app_accepted_residual_from_a_non_quiescent_entry_drive_then_same_dispatch_mover() {
     let mut app = app_at(
-        &popstate_every(
-            "history.replaceState(null, '', '/r' + window.__n);\
-             if (window.__n % 2 === 1) { history.forward(); } else { history.back(); }",
-        ),
+        &popstate_every(&format!(
+            "history.replaceState(null, '', '/r' + window.__n); {PING_PONG}"
+        )),
         base(),
     );
     // [base, /a, /b] one document, cursor on /b. `replaceState` never truncates, so
     // the ping-pong keeps all three entries alive and chrome Back has somewhere to go.
-    let a = url("https://example.com/a");
-    let b = url("https://example.com/b");
-    app.interactive
-        .as_mut()
-        .unwrap()
-        .nav_controller
-        .push_same_document(a);
-    app.interactive
-        .as_mut()
-        .unwrap()
-        .nav_controller
-        .push_same_document(b.clone());
-    super::test_support::activate_seeded_entry(&mut app, b);
+    seed_same_document_triple(&mut app);
 
     eval(&mut app, "history.back();");
     let _ = app.process_pending_navigation();
@@ -600,22 +513,12 @@ fn app_accepted_residual_from_a_non_quiescent_entry_drive_then_same_dispatch_mov
         "precondition: the entry drive exited NON-quiescent (cap re-hit), leaving a \
          replaceState staged by the handler that ran on the current entry"
     );
-    let issuing_index = app
-        .interactive
-        .as_ref()
-        .unwrap()
-        .nav_controller
-        .current_index();
+    let issuing_index = current_index(&app);
     let issuing_entry = entry_url(&app, issuing_index);
 
     // The mover, later in the SAME dispatch.
     app.handle_chrome_action(crate::chrome::ChromeAction::Back);
-    let moved_index = app
-        .interactive
-        .as_ref()
-        .unwrap()
-        .nav_controller
-        .current_index();
+    let moved_index = current_index(&app);
     assert_ne!(
         moved_index, issuing_index,
         "the mover moved the cursor off the staging entry"

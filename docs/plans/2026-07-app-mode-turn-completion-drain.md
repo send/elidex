@@ -374,9 +374,18 @@ still reads true ⇒ `request_redraw()`.** Cap-hit keeps its unconditional `requ
 `eprintln!` (the peek necessarily reads true there — the loop only reaches the cap past a true
 predicate check — so the rule and the unconditional form coincide); the swap exit is covered by the
 same rule reading the NEW runtime — a fresh document that staged nothing needs no redraw, and one that
-did gets its wakeup. Cost is ≈0 (winit coalesces concurrent requests into one `RedrawRequested`,
-`app/drain_host.rs:589-591`), and the rule is symmetric with the cap side — no exit path depends on a
-frame being "already" scheduled (§4.5 (c): no rebuild guarantees one). **Observability seam**: the
+did gets its wakeup. The rule's GENERALITY costs ≈0 (a request issued where one was already pending
+coalesces into the same `RedrawRequested`, `app/drain_host.rs:589-591`), and it is symmetric with the cap
+side — no exit path depends on a frame being "already" scheduled (§4.5 (c): no rebuild guarantees one).
+**⚠ Corrected in implementation — "cost is ≈0" is a claim about the rule's generality, NOT about the
+follow-up frame.** A genuinely new frame is a whole frame, and on the adversarial re-stager the cap
+exists for, the re-arm is **self-sustaining**: cap → follow-up dispatch → that dispatch's entry drive →
+cap again, i.e. a capped loop plus a paint (incl. `handle_redraw_inline`'s a11y tree rebuild) every
+frame for as long as the page keeps re-staging. That is the accepted degradation this section already
+names ("degrades to one capped loop per frame/input: bounded per-turn work, no hang") — but it is a
+permanent full-rate loop, not a stop, and the memo must not let "≈0" imply otherwise. Stopping the
+re-arm would need a consecutive-cap counter — exactly the drive-schedule state R4 deleted — so it is
+Slice 4's to revisit with the mover routing, not this slice's. **Observability seam**: the
 exit rule's redraw is issued through one named seam (e.g. `App::schedule_followup_dispatch()` (NEW))
 rather than a bare `request_redraw()` call, because the real redraw is `render_state`-gated
 (`app/drain_host.rs:598-602`) and thus a silent no-op in the disconnected harness — the seam carries a

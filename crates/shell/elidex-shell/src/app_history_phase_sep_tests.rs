@@ -49,8 +49,8 @@
 use elidex_navigation::DrainHost;
 
 use super::test_support::{
-    app_at, base, current_url, cursor_over_content, entry_url, eval, history_len, pipeline_url,
-    seed_same_document_pair, stamped,
+    app_at, base, current_index, current_url, cursor_over_content, entry_url, eval, history_len,
+    pipeline_url, popstate_once, seed_same_document_pair, staged_session_history_work, stamped,
 };
 use super::App;
 
@@ -463,11 +463,7 @@ fn app_drain_same_turn_leaves_no_residual_and_applies_every_queued_traversal() {
 #[test]
 fn app_multi_traversal_snapshot_lands_popstate_staged_update_on_the_wrong_entry() {
     let mut app = app_at(
-        "<p>doc</p>\
-         <script>window.addEventListener('popstate', function once() {\
-           window.removeEventListener('popstate', once);\
-           history.replaceState(null, '', '/from-popstate');\
-         });</script>",
+        &popstate_once("history.replaceState(null, '', '/from-popstate');"),
         base(),
     );
     seed_same_document_pair(&mut app); // [base, /a], cursor on /a
@@ -480,17 +476,13 @@ fn app_multi_traversal_snapshot_lands_popstate_staged_update_on_the_wrong_entry(
         "both queued traversals drained in the one snapshot (the Slice-B unlock)"
     );
     assert!(
-        !super::test_support::staged_session_history_work(&app),
+        !staged_session_history_work(&app),
         "the ONE drive ran the turn to quiescence — the staged replace was consumed \
          by a later ITERATION, so the divergence below is no longer entangled with \
          cross-drive latency (`#11-app-mode-turn-completion-drain`)"
     );
     assert_eq!(
-        app.interactive
-            .as_ref()
-            .unwrap()
-            .nav_controller
-            .current_index(),
+        current_index(&app),
         1,
         "back() then forward() both applied, netting the CURSOR back onto entry 1 — \
          the entry the replace then rewrote (so `current_url` reads /from-popstate, \

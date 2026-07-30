@@ -63,19 +63,29 @@ pub(super) fn app_at(html: &str, url: url::Url) -> App {
     app
 }
 
-/// Whether any `<tag>` element carries `attr="1"` — the shared shape of the
-/// listener-ran probes (a handler stamps an attribute, the assertion reads it
-/// back). Every path that fires a listener also `re_render`s, which flushes the
-/// script session, so the stamp is committed by assertion time.
-pub(super) fn stamped(app: &App, tag: &str, attr: &str) -> bool {
+/// The value of `attr` on the first `<tag>` element carrying it — the one DOM
+/// reach-through behind every "did the listener run?" probe (a handler stamps an
+/// attribute, the assertion reads it back). App-mode's mirror of
+/// `content_test_support::probe_attr`.
+///
+/// Every path that fires a listener also `re_render`s, which flushes the script
+/// session, so a stamp is committed by assertion time.
+pub(super) fn attr_value(app: &App, tag: &str, attr: &str) -> Option<String> {
     let pipeline = &app.interactive.as_ref().unwrap().pipeline;
-    pipeline.dom.query_by_tag(tag).into_iter().any(|e| {
+    pipeline.dom.query_by_tag(tag).into_iter().find_map(|e| {
         pipeline
             .dom
             .world()
             .get::<&elidex_ecs::Attributes>(e)
-            .is_ok_and(|a| a.get(attr) == Some("1"))
+            .ok()
+            .and_then(|a| a.get(attr).map(String::from))
     })
+}
+
+/// Whether any `<tag>` element carries `attr="1"` — the boolean "the listener
+/// ran" case of [`attr_value`].
+pub(super) fn stamped(app: &App, tag: &str, attr: &str) -> bool {
+    attr_value(app, tag, attr).as_deref() == Some("1")
 }
 
 /// Place the inline cursor over content-area point `(x, y)` (winit client coords
@@ -124,6 +134,23 @@ pub(super) fn seed_same_document_pair(app: &mut App) {
     activate_seeded_entry(app, a);
 }
 
+/// Seed `[base, /a, /b]` sharing ONE `document_sequence`, cursor on `/b` — the
+/// three-entry extension of [`seed_same_document_pair`], for the scenarios that
+/// need a forward entry to destroy (or a third entry for a mover to land on) as
+/// well as a back target.
+pub(super) fn seed_same_document_triple(app: &mut App) {
+    let a = url("https://example.com/a");
+    let b = url("https://example.com/b");
+    for entry in [a, b.clone()] {
+        app.interactive
+            .as_mut()
+            .unwrap()
+            .nav_controller
+            .push_same_document(entry);
+    }
+    activate_seeded_entry(app, b);
+}
+
 /// Seed `[base, /a]` as two DISTINCT documents (fresh `document_sequence`s), cursor
 /// on `/a` — a `back()` here classifies `Rebuild`, and its cross-document load FAILS
 /// in the disconnected harness (the failed-load / cursor-atomicity path).
@@ -163,6 +190,52 @@ pub(super) fn activate_seeded_entry(app: &mut App, url: url::Url) {
     );
 }
 
+// ---------------------------------------------------------------------------
+// popstate page builders (the staging fixtures the drain suite runs on)
+// ---------------------------------------------------------------------------
+
+/// A page whose `popstate` listener runs `script` **once**.
+///
+/// Guarded by a flag rather than `removeEventListener`, so a later traversal's
+/// `popstate` re-entering the handler is a plain no-op: with removal, the outcome
+/// depends on listener-removal semantics, which is never what these tests are
+/// about.
+pub(super) fn popstate_once(script: &str) -> String {
+    format!(
+        "<p>doc</p>\
+         <script>window.__staged = false;\
+         window.addEventListener('popstate', function () {{\
+           if (window.__staged) {{ return; }}\
+           window.__staged = true; {script}\
+         }});</script>"
+    )
+}
+
+/// A page whose `popstate` listener runs `script` on EVERY fire and stamps the
+/// fire count onto `<p data-n>` — the adversarial re-stager shape, plus the probe
+/// that counts turn-completion loop iterations (each iteration applies exactly one
+/// traversal, and every same-document apply fires `popstate` once).
+///
+/// Read the stamp back with [`popstate_fires`].
+pub(super) fn popstate_every(script: &str) -> String {
+    format!(
+        "<p>doc</p>\
+         <script>window.__n = 0;\
+         window.addEventListener('popstate', function () {{\
+           window.__n++;\
+           document.querySelector('p').setAttribute('data-n', String(window.__n));\
+           {script}\
+         }});</script>"
+    )
+}
+
+/// How many times [`popstate_every`]'s listener fired.
+pub(super) fn popstate_fires(app: &App) -> usize {
+    attr_value(app, "p", "data-n")
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(0)
+}
+
 /// Run `script` in the page's VM, **failing loudly on a thrown script**. Discarding
 /// the `Result` (the earlier shape) made "the intent was staged" and "the script
 /// threw before staging anything" indistinguishable — every caller's assertion about
@@ -193,20 +266,15 @@ pub(super) fn current_url(app: &App) -> Option<String> {
         .map(|u| u.as_str().to_string())
 }
 
-/// The §4.4 quiescence predicate as the tests read it — the same non-consuming
-/// [`HostDriver::has_pending_session_history_work`] peek the turn-completion loop
-/// and its dispatch-entry drives are gated on (`app/drain_host.rs`).
+/// The §4.4 quiescence predicate as the tests read it — **forwarded to the drive
+/// site's own `App::staged_work_pending`**, not a copy of its reach-through, so an
+/// assertion can never keep passing against a path the loop no longer takes.
 ///
 /// The probe for "did the drive reach quiescence?" — and for the degraded exits,
 /// where the assertion must be "work is still STAGED", never "a flag was set"
 /// (there is no flag; the channels are the SoT).
 pub(super) fn staged_session_history_work(app: &App) -> bool {
-    app.interactive
-        .as_ref()
-        .unwrap()
-        .pipeline
-        .runtime
-        .has_pending_session_history_work()
+    app.staged_work_pending()
 }
 
 /// How many times the unified exit rule has issued a follow-up dispatch through
@@ -218,15 +286,24 @@ pub(super) fn followup_dispatches(app: &App) -> usize {
     app.interactive.as_ref().unwrap().followup_dispatches
 }
 
-/// The current entry's `document_sequence` — the loop's **document-swap marker**
-/// (`App::current_document_marker`). Its stability across a FAILED mid-loop load is
-/// what keeps the swap exit from firing on a navigate *attempt*.
+/// The loop's **document-swap marker** — forwarded to `App::current_document_marker`
+/// itself, because the pin that reads it is a regression guard ON the swap exit and
+/// must therefore read the exact function that exit reads. Its stability across a
+/// FAILED mid-loop load is what keeps the swap exit from firing on a navigate
+/// *attempt*.
 pub(super) fn document_marker(app: &App) -> Option<u64> {
+    app.current_document_marker()
+}
+
+/// The session-history CURSOR's 0-based index — the probe that survives an
+/// assertion the entry-URL probes cannot make, namely "the cursor did not move,
+/// the entry under it changed".
+pub(super) fn current_index(app: &App) -> usize {
     app.interactive
         .as_ref()
         .unwrap()
         .nav_controller
-        .current_document_sequence()
+        .current_index()
 }
 
 /// The URL of session-history ENTRY `index`. The discriminating probe wherever
