@@ -60,8 +60,11 @@ sibling-passage sweep (§5.2); the test-file placement decision (§5.1).
 - **Old-runtime staged-work drop across a mid-turn pipeline swap.** Work a handler stages onto the
   current runtime's channels mid-iteration is dropped when a later apply rebuilds the pipeline
   (`teardown_document`, §4.5 (c)) — spec-wise those staged sync-nav steps live on the
-  **traversable-scoped** §7.3.1.1 session history traversal queue and survive document unload; elidex's
-  FIFO is **runtime-scoped**, so they do not. Pre-existing (today's single drain + reinstatement tail
+  **traversable-scoped** §7.3.1.1 session history traversal queue and are settled by the §7.4.6.1
+  step-14.1.1 queue jump *before* the traversal unloads their document (the spec note §1 quotes; a step
+  that runs late is no-op'd by *finalize a same-document navigation* §7.4.2.3.3 step 2's guard);
+  elidex's FIFO is **runtime-scoped**, so the queue-jump-eligible steps are dropped instead of settled.
+  Pre-existing (today's single drain + reinstatement tail
   exhibits the identical drop); this plan does not change the behavior. Owner: the umbrella
   `#11-session-history-task-queue-model`'s queue substrate (traversable-scoping).
 - The §7.4.2.2-step-19 suppression divergence (`#11-nav-supersede-window-vs-ongoing-navigation`) and the
@@ -373,7 +376,12 @@ predicate check — so the rule and the unconditional form coincide); the swap e
 same rule reading the NEW runtime — a fresh document that staged nothing needs no redraw, and one that
 did gets its wakeup. Cost is ≈0 (winit coalesces concurrent requests into one `RedrawRequested`,
 `app/drain_host.rs:589-591`), and the rule is symmetric with the cap side — no exit path depends on a
-frame being "already" scheduled (§4.5 (c): no rebuild guarantees one).
+frame being "already" scheduled (§4.5 (c): no rebuild guarantees one). **Observability seam**: the
+exit rule's redraw is issued through one named seam (e.g. `App::schedule_followup_dispatch()` (NEW))
+rather than a bare `request_redraw()` call, because the real redraw is `render_state`-gated
+(`app/drain_host.rs:598-602`) and thus a silent no-op in the disconnected harness — the seam carries a
+test-only issuance counter (`cfg(test)` observation point, not control state, so "records no state"
+stands) that §8's degrade test asserts against.
 
 **Design** (all three parameters concrete; §7 Q2 ratifies the values):
 
@@ -451,8 +459,8 @@ frame being "already" scheduled (§4.5 (c): no rebuild guarantees one).
   the inline `handle_redraw` returns `Option<crate::chrome::ChromeAction>` — at most ONE chrome action
   per redraw, `app/render.rs:335-347`; the `Vec`-returning `handle_redraw_with_tabs`, `:306-328`, is
   threaded-mode only — and `handle_redraw_inline` follows the single `handle_chrome_action` call only
-  with `request_redraw`, `inline.rs:176-181`; the Alt branch returns immediately after `traverse_to`,
-  `inline.rs:257-263`; the click path's only mover, the `<a href>` `navigate` at `events.rs:160`, is
+  with `request_redraw`, `inline.rs:176-181`; the Alt branch requests a redraw (`inline.rs:260`) and
+  returns (`:262`) with no second mover; the click path's only mover, the `<a href>` `navigate` at `events.rs:160`, is
   `handle_click`'s final statement, `:159-162`, and `handle_mouse_press_inline` follows it only with
   `request_redraw`, `inline.rs:200-203`) — so no window of the form "mover A's popstate staging crossed
   by mover B in the same dispatch" exists. The only residual
@@ -589,8 +597,14 @@ consumed loops to the cap on work no iteration can drain (cap-loop); predicate �
   `teardown_document()` (`app/navigation.rs:322`) followed by the wholesale pipeline replacement
   (`:342`) — and the staged intent vanishes with the old runtime. Observable: `nav_controller` (the
   session-history entries list) survives the swap, and spec-wise the §7.4.4 step 13 sync-nav steps are
-  appended to the **traversable-scoped** §7.3.1.1 session history traversal queue — they survive a
-  document unload and still execute — so the drop diverges (e.g. `history.length`). This is a
+  appended to the **traversable-scoped** §7.3.1.1 session history traversal queue and settled by the
+  §7.4.6.1 step-14.1.1 queue jump *before* the traversal unloads their document — the spec's own note
+  (§1): *"so they can be added to the correct place … before this traversal potentially unloads their
+  document"*. (A step that genuinely ran late would be no-op'd by *finalize a same-document navigation*
+  §7.4.2.3.3 **step 2** — *"If targetNavigable's active session history entry is not targetEntry, then
+  return."* — the race guard; on the queue-jump path the active entry is still the staging entry, so the
+  guard passes and the step settles.) elidex drops what the queue jump would have settled, so the drop
+  diverges on that path (e.g. `history.length`). This is a
   structural consequence of elidex's FIFO being **runtime-scoped** rather than traversable-scoped, and
   it is PRE-EXISTING: today's single drain + reinstatement-tail navigate exhibits the identical drop.
   This plan neither introduces nor changes it; traversable-scoping the staged-sync-nav queue is the
@@ -607,7 +621,9 @@ consumed loops to the cap on work no iteration can drain (cap-loop); predicate �
   rule: any exit with the peek reading true) owns the swap-exit frame leg; the follow-up dispatch's
   entry peek then reads the NEW document's runtime and drains whatever its initial scripts staged
   **as a new turn** — exactly reason 2's §7.4.6.1 step 14.12.5 later-task mapping — and when the new
-  document staged nothing, the exit peek reads false: no redraw is requested and no drive runs.
+  document staged nothing, the exit peek reads false: no redraw is requested *by the exit rule*, and
+  the next entry peek skips the drive (the dispatch-layer tail redraws of readers (2)/(3),
+  `inline.rs:202`/`:298`, fire regardless — they are the dispatch's own, not the rule's).
   The swap-exit also composes with the §4.3 cap: a handler chain that keeps *navigating* terminates at
   the first rebuild, independent of the cap.
 
@@ -862,8 +878,10 @@ All new/flipped turn-completion tests live in `app_turn_completion_tests.rs` (§
   input (a click on blank space) drains the residue at the input dispatch entry (reader (3),
   `handle_mouse_press_inline`), before any dispatch ((next-dispatch ∨ frame)-bounded, §4.3). Assert
   per-turn iteration count never exceeds the cap, **and assert the §4.3 unified exit rule's frame
-  leg: any exit where the peek still reads true issued a `request_redraw`** (cap-hit here; the same
-  assert shape covers a peek-true swap exit, whose firing path the harness cannot reach — see the
+  leg via the observability seam: the test-only issuance counter on `App::schedule_followup_dispatch()`
+  (NEW) incremented on the peek-true exit** (a bare `request_redraw` assert would be vacuous — the real
+  call is `render_state`-gated, `drain_host.rs:598-602`, and silently no-ops in the harness; cap-hit
+  here; the same seam covers a peek-true swap exit, whose firing path the harness cannot reach — see the
   swap-exit coverage bullet).
 - **New (mover-fired staging is entry-drained — §4.3 staging source (b), pinned CLOSED)**: a chrome Back
   over a same-document boundary — `handle_chrome_action(Back)` called directly, harness-reachable
@@ -923,7 +941,9 @@ Own-deferral budget: expected **1**.
 
 - **End-to-end verification of the swap-exit residue behavior — the whole behavior, not just one pin**
   (§8). The harness reaches no part of the branch (marker move, loop exit, the §4.3 exit rule's redraw
-  leg, the follow-up entry-peek
+  leg — whose *issuance* is seam-observable in principle (§4.3 counter, as the cap-hit test does) but
+  unreachable here because the branch never fires, delivery being winit's domain either way — the
+  follow-up entry-peek
   drive as a new turn), so the swap exit ships verified only at the unit level (`document_sequence` restamp,
   `elidex-navigation/src/navigation_tests.rs`). *Why deferred*: the disconnected harness cannot reach a
   successful mid-loop rebuild (`events.rs:125-126`, the known limitation the `hit_entity` invariant
