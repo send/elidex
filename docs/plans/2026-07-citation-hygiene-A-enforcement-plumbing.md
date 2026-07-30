@@ -5,7 +5,7 @@
 **Umbrella**: `docs/plans/2026-07-citation-hygiene-umbrella.md`, slice **A**. Under that umbrella's approval
 boundary this is a **terminal unit** (§9). **Branch**: `webref-cite-audit-tool`, after the §4.0 re-carve.
 **Nature**: developer tooling + CI topology + one gate-contract change (§4.2.5). Zero `crates/**` diff.
-**Status**: plan-memo, **draft 7**. `/elidex-plan-review` **required before implementation**.
+**Status**: plan-memo, **draft 8**. `/elidex-plan-review` **required before implementation**.
 
 **This memo carries no measured digits of its own.** Every quantity is printed by a function in
 `docs/plans/2026-07-citation-hygiene-A-rederive.sh`, which ships on this branch; the memo cites the function
@@ -16,6 +16,17 @@ Axis 4 stated the diagnosis exactly — *every measured value re-derived correct
 whose stated derivation does not derive them*. A description of an executable is not a check. So the
 derivation is now an executable, and the §6 fixture bodies live in it, so the memos a reviewer measures are
 byte-identical to the ones the test plan ships.
+
+⚠ **Draft 8 extends that from the memo's *digits* to its *control flow*, because the digits were never the
+whole defect.** §4.2.3 specifies the control flow of code that does not exist yet. Prose was the only
+medium, so a **review round was the only thing executing it** — and it inverted twice consecutively: round
+6 found draft 6's reporting arm False in the one row it exists for, and round 7 found that draft 7's fix
+made it True in six rows where it must be False. Two inversions in a row is a method failure, not an
+attention failure. **The fix**: `rederive armmatrix` grafts §4.2.3 and §4.2.5 onto a copy of `preflight.py`
+in a scratch worktree and runs all 17 §5 rows *plus 7 untabulated states* with **three candidate predicates
+instrumented side by side**. Every §4.2.3 claim below now cites a measured row rather than an argument. The
+implementation PR lands that control flow; the harness is not shipped code. **This changed four decisions
+and added three edits nobody had proposed** — items 5, 7b, 7c and §4.2.5's grep-pass sentence.
 
 ### §0.1 What Slice A is
 
@@ -226,15 +237,33 @@ concern by file while justifying by nature): **a gate's contract of record trave
 
 ### §4.2 A1 — land the capability fail-closed
 
-#### §4.2.1 The measured asymmetry
+#### §4.2.1 The measured asymmetry — and the instrument that measures it
 
-Three cases, one dependency removed per case, in a sandbox skeleton so `REPO_ROOT` resolves, with
-`--no-grep-pass` throughout (the sandbox's `REPO_ROOT` is the sandbox, so grep-pass reports artefact hard
-findings). Input: `elidex-wt-submittable/docs/plans/2026-07-form-submittable-category-repair.md`. Removing
-the CLI hard-fails; removing the **new import** leaves every row unmapped, nothing verified, **exit 0**, and
-a wrong-cause remedy naming the file that failed to import. **Case C does not exist on `origin/main`** —
-there `shortname_from_label` reads a module-local dict with no import to fail. The asymmetry is created by
-moving the map, which is why the slice that moves it owns it. → `rederive remedies`
+Removing the CLI hard-fails; removing the **new import** leaves every row unmapped, nothing verified,
+**exit 0**, and a wrong-cause remedy naming the file that failed to import. **Case C does not exist on
+`origin/main`** — there `shortname_from_label` reads a module-local dict with no import to fail. The
+asymmetry is created by moving the map, which is why the slice that moves it owns it. → `rederive remedies`
+
+⚠ **Drafts 1-7 measured the map axis with the wrong instrument, so every row taken with it is re-derived
+here.** `mv .claude/tools/_webref` — what `rederive remedies` used — flips **neither** §5 axis.
+`.claude/tools/webref` is a *separate* 16-line shim, so `WEBREF.is_file()` stays **True** while the CLI dies
+`rc 1` (`ModuleNotFoundError`) at invocation: a state §5 has no row for, in which A's static verdict names
+only the map and the CLI is in fact broken. The two axes are flipped by different things, and only these:
+
+| instrument | `WEBREF.is_file()` | map import | child `webref` rc | is it a §5 state? |
+|---|---|---|---|---|
+| `mv .claude/tools/_webref` (drafts 1-7) | True | FAIL | **1** | **no** |
+| in-process `sys.meta_path` block | True | FAIL | **0** | **yes** — the map axis (rows 6/7/8/14) |
+| `mv .claude/tools/webref` (the shim) | **False** | OK | 2 | **yes** — the CLI axis (rows 3/4/5) |
+
+The block leaves the tree on disk, so the *child* process the gate spawns still resolves — which is what
+"CLI ✓ / map ✗" means and what tree removal cannot produce. → `rederive instruments`
+
+⚠ **The same class, once more, in the fixture set.** `allunmapped.md` is all-unmapped under `origin/main`'s
+15-key dict and under A's pinned map — but **not at the carve**, where `shortname_for` consults the catalog
+and resolves `CSSOM VIEW` → `cssom-view-1`, verifying the row it exists to leave unverified. So the harness
+pins the resolver to the pinned map for every after-A measurement. A fixture is named for a *state*, and the
+state is a property of the resolver it is run against.
 
 #### §4.2.2 The tri-state cannot live in `shortname_from_label`
 
@@ -270,23 +299,56 @@ of the reviewed memo's cell formatting** — J1 restated as a defect.
    and `citations` is empty, which *is* §4.2.1's case C. So it widens to
    **`not args.no_verify and (citations or (unavailable and data_rows))`**. Unavailable + verification
    requested → HARD FAIL naming each absent cause and `--no-verify` as the suppressor; unavailable +
-   `--no-verify` → exit 0 (J3). A no-spec-surface memo has no `data_rows`, so the third arm cannot fire there.
-5. **Act-site 2 — the reporting arm, which is NOT item 4's predicate.** ⚠ Draft 6 routed the new
-   `citation verify:` line through item 4's condition, and in the one row it exists for — map present, every
-   row unmapped — that condition is **False** (`citations` empty, `unavailable` False), so the line would
-   never print and its pin would be red. Independently found by two review axes. The reporting arm is
-   **`not args.no_verify and data_rows and not seen_pairs`** → `citation verify: n/a (0 of N rows
-   resolvable)`, where **N = `len(data_rows)`**, malformed rows included, because `malformed_hard_fail` is
-   decided separately and the reader is being told what the denominator was.
+   `--no-verify` → exit 0 (J3, measured rows 5/8). On a no-spec-surface memo the third arm is not merely
+   False — §4.2.5's path **returns before `data_rows` is computed at all**, so the arm is unreachable, which
+   is the property §4.2.5 actually needs and a weaker claim than draft 7's. Measured rows 12/14/x3.
+5. **Act-site 2 — the reporting arm, whose guard is the capability verdict and NOT the stage's entry
+   predicate.** This is the clause that inverted in draft 6 and again in draft 7. It is now **measured**:
+   `rederive armmatrix` runs three candidates over 24 states. Required truth set = **exactly rows 11 and
+   11b** (capabilities present, no row resolvable).
+
+   | candidate | expression | measured True in | verdict |
+   |---|---|---|---|
+   | draft 6 | routed through item 4's predicate | — (never, incl. 11) | red, found by 2 axes |
+   | draft 7 | `not no_verify and data_rows and not seen_pairs` | 3, 4, 6, 7, 9, **11, 11b**, x1, x2, x4 | **8 false positives** |
+   | *flag* | `verify_ran` set where the loop is entered | **nothing, incl. 11 and 11b** | **red** |
+   | **A ships** | `not no_verify and data_rows and not unavailable and not seen_pairs` | **11, 11b only** | ✓ |
+
+   Two things the table settles that no amount of prose did. **(a)** Draft 7's arm is not merely noisy: in
+   **row 3** it prints `n/a (0 of 2 rows resolvable)` when **2 of 2 rows resolved** and only the CLI was
+   missing — a false statement about the memo under review, which is §1's own failure shape. **(b)** The
+   obvious repair — a flag set when the verify loop is entered — is **worse**, and for a structural reason
+   worth stating once: *any* flag set inside the verification stage inherits item 4's entry predicate, which
+   is False in exactly the row the reporting arm exists for. **The guard must be the process-level verdict
+   (`unavailable`), never the stage's entry condition.** That is §1's corollary applied to the reporting
+   layer, and it is why drafts 6 and 7 failed in opposite directions from the same mistake.
+
+   The line is `citation verify: n/a (0 of N rows resolvable)`, **N = `len(data_rows)`**, malformed rows
+   included, because `malformed_hard_fail` is decided separately and the reader is being told what the
+   denominator was. → `rederive armmatrix`
 6. **Every other summary line states its basis too.** The breadth line reads
    `K=<n> (<u> of <N> counted by label spelling)` whenever `unmapped_rows > 0` — draft 6's
    "(unresolved — counted by label spelling)" misdescribes the *partial* case, where `unique_specs` mixes
    shortname and label keys. The soft-warn remedy stops naming `SPEC_LABEL_REVERSE`, a symbol A deletes.
-7. **The per-row soft-warn is suppressed when the capability is absent.** ⚠ Measured: with the map removed
+7. **The per-row soft-warn is suppressed when the capability is absent.** ⚠ Measured: with the map absent
    the existing `if unrecognized_labels:` block still prints *"add the spec to …`::SPECS`"* — remedy 1
    co-printing with remedy 3's case, i.e. the founding wrong-cause defect of §1 item 1 surviving A's own fix.
    Draft 6's P5 asserted each remedy appears "for its own cause and no other" and would have been red.
    → `rederive remedies`
+7b. **The row loop must partition the unmapped bucket, or remedies 1 and 2 cannot be per-cause.**
+   ⚠ **Unstated through draft 7, and it makes §4.2.4's table unimplementable.** `origin/main` appends
+   `label or "<empty>"` to **one** list, so a label-less row and an unknown-label row are indistinguishable
+   downstream and any `if unrecognized_labels:` block fires remedy 1 at both. A splits them at the point of
+   classification — `unrecognized_labels` keeps only *labelled-but-unknown*, a separate `labelless_rows`
+   counts the rest. Measured with the split: row 11 prints **remedy 1 only**, row 11b **remedy 2 only**, and
+   P5's "and no other" becomes satisfiable. → `rederive armmatrix`
+7c. **J1 binds the reporting layer too, not only the classification.** ⚠ Also unstated through draft 7, and
+   it is J1's own words turned on A's own output: *a row is unmapped only if the mapper ran and declined*.
+   With the capability absent the mapper never ran, yet the summary still prints `unmapped-label rows: 2`
+   (measured, row 6) — a datum the process could not establish, which is precisely what item 1 forbids one
+   return value from carrying. Under item 6's standard the counter states its basis: when `unavailable`, the
+   line reads **`unclassified rows: <n>  (label map unavailable)`**. Item 3 keeps the loop's two arms for
+   *control flow*; this is about what the arms are then allowed to assert.
 8. No third key space is introduced, so `K` and the spec list it prints cannot disagree.
 
 **This also collapses a duplication in the other direction.** `WEBREF.is_file()` is re-tested inside
@@ -300,6 +362,14 @@ and a direct caller would get exactly the silent non-zero this change removes.
 **Four** strings, currently one. ⚠ Remedy 3 says "the import error", which the guard
 `except Exception: _shortname_for = None` **discards** — so A must capture it (`_shortname_for_error`)
 alongside the sentinel, or the string cannot be produced. Draft 6 asserted the remedy without a write-path.
+
+⚠ **And the capture must be initialised *before* the `try`, or it goes stale across a reload.** Round 7's
+finding, measured: a module global assigned only in the `except` arm keeps its previous value when a later
+`importlib.reload` **succeeds** — the arm simply does not run. §4.5 item 2 reloads between tests, so a
+map-absent pin would poison every later pin's remedy text, method-order-dependently. One line fixes it
+(`_shortname_for_error: Exception | None = None` above the `try`), and it is stated here because the
+symmetric-looking `_shortname_for = None` **is** re-established on reload, which is what makes the asymmetry
+easy to miss. → `rederive reloadstale`
 
 | Condition | Remedy |
 |---|---|
@@ -321,9 +391,21 @@ contract.
   anything weaker turns the marker into the silent bypass this section argues it is not: **line-anchored**
   (first non-whitespace content is the literal `**No spec surface**`), **fence-aware** (`fence_state`-gated),
   **§3-scoped** (between `body_start` and `body_end`). `fenced-marker.md` pins the second.
-- **Hard-fail on ambiguity**: marker **and** a table, with or without data rows; or the marker twice.
+- **Hard-fail on ambiguity**: marker **and** a table, with or without data rows; or the marker twice. ⚠ §5
+  rows 12b and 13 are **one code path**, not two: `find_table` returns non-`None` for a header-only table,
+  so `table is not None` covers both and one diagnostic serves both. P11b's two fixtures pin one branch
+  against two inputs; draft 7 read the two rows as two behaviours. Measured.
+- **The marker suppresses citation verification, not grep-pass.** ⚠ **Unstated through draft 7**, and it
+  decides an edit: a slice with no *spec* surface still has §4-§7 structural references, so the
+  no-spec-surface path must reach the same grep-pass stage the table path does. Since that path returns
+  early, grep-pass moves into a `grep_pass_stage(args, plan_path) -> bool` called from both — the one
+  structural change §4.2.5 forces on `main` beyond the branch itself.
 - **Verdict**: `citation verify: n/a (no spec surface declared)` and `breadth: n/a (no spec surface
-  declared)` — not `ok`, not `0`.
+  declared)` — not `ok`, not `0`. ⚠ **The summary is *reduced*, not merely re-worded.** Round 7 found draft 7
+  implying the marker path prints the usual block while skipping the writer for ~12 of the variables in it.
+  The resolution is that the path branches **before the data loop**, so those variables have no value to
+  print and none is printed: the marker verdict is the heading line plus the two `n/a` lines, full stop.
+  That is also what makes item 4's third arm unreachable rather than merely False.
 - **Capability interaction**: with the capability absent the verdict cannot hard-fail here (`data_rows` is
   empty, so item 4's third arm cannot fire) — but the printed line **names the absent capability** rather
   than reusing the plain string, so a run that *could not have verified* is distinguishable from one that
@@ -424,15 +506,30 @@ survives inside any test method. ⚠ §4.3.3 therefore must not say the 8 moved 
    against `subprocess.run`, which `importlib.reload` does **not** restore because it lives in another
    module. Draft 4's `webref_data._INDEX` and `try_fetch_data.cache_clear()` both leave with the widening,
    and the second never existed on `origin/main`.
+4. **`verify_citation` is stubbed by a shared `setUp`, for every pin that runs `main`, or T-net(a) is red by
+   construction.** ⚠ Round 7's second CRIT, now measured rather than argued. Draft 7 stated the stub in
+   **P1b alone** while T-net(a) ranged over the whole suite. `rederive armmatrix`'s spy counts webref
+   subprocesses per row: **5 calls across 4 rows** — row 1 ×2, row 2b ×1, row 10 ×1, row 15 ×1 — i.e. pins
+   **P1b, P1c, P4, P10, P11d**, every one of them a `main` run in default mode with a resolvable row. Zero
+   for all 20 other states. Measured with the stub installed at module level instead: the count is **0**
+   while every observable assertion survives (`ok (2 unique citation(s) checked)`, `ok (1 unique …)`), which
+   is what makes §12(1) attainable. `verify_citation` is the single seam between the gate and the CLI —
+   preflight has exactly one `subprocess.run` call site — so the stub is complete by enumeration, not by
+   hope. **No pin loses coverage**: P6's "reported once, not per citation" is about the *hoisted* verdict,
+   which never enters the loop, and the `python3 -O` explicit-raise guard (§4.2.3) is pinned by calling
+   `verify_citation` directly with `WEBREF` pointed at a nonexistent path — which reaches no subprocess.
 
 ---
 
 ## §5 Behaviour deltas
 
-**Baseline is `origin/main`**, produced by `rederive column`; the *After A* column is predicted by
-construction. **On `origin/main` the "map" axis does not exist** — the map is a module-local dict with no
-import to fail — so those rows read `n/a`. Every measured row ran `--no-grep-pass`. The two capability causes
-are a **union**, so any combination of absent causes yields one verdict; what differs is the **diagnostic**.
+**Both columns are now measured, and by different harness blocks.** Baseline = `rederive column`, which
+draft 8 extends to vary the CLI axis (rows 3/4/5 need it and draft 6's version never varied it). *After A* =
+`rederive armmatrix`, running the grafted control flow; through draft 7 that column was **predicted by
+construction**, and prediction is what inverted twice. **On `origin/main` the "map" axis does not exist** —
+the map is a module-local dict with no import to fail — so those rows read `n/a`. Every row ran
+`--no-grep-pass`. The two capability causes are a **union**, so any combination of absent causes yields one
+verdict; what differs is the **diagnostic**.
 
 ⚠ **This table has no Pin column.** Rounds 4-6 each found §5's Pin column, §6's prose and §12(2)'s ✓-list
 disagreeing — three views of one thing. §6 is now the single pin table and names the rows it covers.
@@ -451,14 +548,23 @@ disagreeing — three views of one thing. §6 is now the single pin table and na
 | 9 | ✗ | ✗ | default | any | n/a | **1**, diagnostic names **both** causes |
 | 10 | ✓ | ✓ | default | **alias spelling** | **0**, unmapped soft-warn, **no verify line** | **0**, mapped and verified |
 | 11 | ✓ | ✓ | default | **all rows unmapped** | **0**, **no `citation verify:` line at all** | **0** + `citation verify: n/a (0 of N rows resolvable)` |
+| 11b | ✓ | ✓ | default | **label-less** | **0**, no verify line | **0** + the same `n/a` line, + remedy 2 |
 | 12 | ✓ | ✓ | default | **marker, no table** | **1** (no-table hard-fail) | **0**, `verify: n/a` |
 | 12b | ✓ | ✓ | default | **marker + header-only table** | **1** (0-data-rows hard-fail) | **1** — ambiguous declaration |
-| 13 | ✓ | ✓ | default | **marker + populated table** | **0** (the marker is inert prose; the table verifies) | **1** — ambiguous declaration |
+| 13 | ✓ | ✓ | default | **marker + populated table** | **0** (the marker is inert prose; the table verifies) | **1** — ambiguous declaration, *same branch as 12b* |
 | 14 | ✓ | ✗ | default | **marker** | n/a | **0**, and the line names the absent capability |
 | 15 | ✓ | ✓ | default | **marker quoted inside a fence** | **0** (table verifies) | **0**, unchanged — rule (b) |
 
 **Newly-red**: 4, 6, 7, 9, 13. **1 → 0**: row 12 only, where the red was the gate rejecting a valid input
-shape. **1 → 1 with a changed diagnostic**: 3, 12b. **Exit unchanged, output changed**: 10, 11, 14.
+shape. **1 → 1 with a changed diagnostic**: 3, 12b. **Exit unchanged, output changed**: 10, 11, 11b, 14.
+
+⚠ **Row 11b is new in draft 8 and was not deducible from the table it is missing from.** It is the *second*
+state in which item 5's line must print, and the only one at the available end that P4 (label-shape
+independence) can compare against — draft 7 tabulated the label-less shape only in capability-absent rows
+(4, 7), where the hard fail dominates and the arm's correctness is untestable. `rederive armmatrix` also
+runs seven further states §5 does not tabulate (x1-x7, both axes × the label-less and all-unmapped shapes ×
+`--no-verify`); **none diverges between the three candidate predicates**, which is the evidence that §5's
+row set plus 11b is complete for the property, rather than merely large.
 
 ---
 
@@ -467,27 +573,43 @@ shape. **1 → 1 with a changed diagnostic**: 3, 12b. **Exit unchanged, output c
 Each pin names what it **executes**; §5 owns the expected values, stated once. "Fails at the carve?" is what
 §12 (2) reads — no second list.
 
+**Two suite-level fixtures, stated here rather than inside a pin, because a per-pin clause is what made
+draft 7's pin set unsatisfiable** (§4.5 item 4): a shared `setUp` stubs **`preflight.verify_citation` →
+`(True, "")`** for every pin that runs `main`, and restores the four pieces of process state in `tearDown`.
+The capability axes are flipped by §4.2.1's two instruments — never by removing the tools tree.
+
 | Pin | What it executes | §5 rows | Fails at the carve? |
 |---|---|---|---|
 | **P1** | `shortname_from_label(label) == short` over `SPECS`, no `sys.path` mutation in the body, `setUp` asserts the module un-poisoned | — | no |
-| **P1b** | `main` on `labelled.md`, default **and** `--no-verify`, both capabilities present, `verify_citation` stubbed `(True, "")` | 1, 2 | no |
+| **P1b** | `main` on `labelled.md`, default **and** `--no-verify`, both capabilities present | 1, 2 | no |
 | **P1c** | `main` on `dedup.md`; asserts `1 unique citation(s) checked` from 2 rows — the dedup arm | 2b | no |
 | **P2** | map unimportable via `importlib.reload` under an import hook | 6 | **yes** |
 | **P2b** | the same via subprocess; mutation check — deleting the `except Exception` clause must turn P2b red, P2 alone leaves it green | 6 | **yes** |
 | **P3** | `--no-verify --no-grep-pass`, **map absent** — exit 0 and the breadth-basis qualifier | 8 | **yes** |
 | **P3b** | `--no-verify`, **CLI absent, map present** — exit 0, capability unused | 5 | no |
 | **P4** | label-shape independence: `labelled.md` and `unlabelled.md` give the *same* exit code in every capability state | 4, 7 | **yes** |
-| **P5** | each of the four remedy strings appears for its own cause **and no other** — including that the per-row soft-warn is suppressed when the capability is absent (§4.2.3 item 7) | 3, 6, 7, 9 | **yes** |
+| **P5** | each of the four remedy strings appears for its own cause **and no other** — the per-row soft-warn suppressed when the capability is absent (item 7), **and** remedy 1 vs remedy 2 separated by the partition of item 7b (row 11 → remedy 1 only, row 11b → remedy 2 only) | 3, 6, 7, 9, 11, 11b | **yes** |
+| **P5b** | with the capability absent the summary reads `unclassified rows`, not `unmapped-label rows` (item 7c) | 6, 9 | **yes** |
 | **P6** | CLI missing reported once, not per citation; **and** that row 9's diagnostic names both causes | 3, 9 | **yes** |
 | **P10** | `main` on `alias.md`; asserts the row is MAPPED and verified | 10 | **no** — the carve already resolves it (measured) |
 | **P11** | `nospec.md` → exit 0, asserting the `n/a` strings, not just the code | 12 | **yes** |
-| **P11b** | `nospec-and-table.md` and `nospec-and-header.md` → exit 1 naming the ambiguity | 12b, 13 | **yes** |
+| **P11b** | `nospec-and-table.md` and `nospec-and-header.md` → exit 1 naming the ambiguity — **two fixtures, one branch** (§4.2.5) | 12b, 13 | **yes** |
+| **P11e** | a no-spec-surface memo still runs grep-pass: `nospec.md` with a bad `crates/…` path → exit 1 **naming the grep-pass finding** (§4.2.5) | 12 | **yes**, on the diagnostic |
 | **P11c** | `nospec.md` with the map absent → exit 0, and the line names the absent capability | 14 | **yes** |
-| **P11d** | `fenced-marker.md` → the fenced quotation is **not** recognised | 15 | **yes** |
+| **P11d** | `fenced-marker.md` → the fenced quotation is **not** recognised, asserted on `find_markers(...) == []` **and** the absence of any `n/a (no spec surface…)` line — *not* on the exit code | 15 | **yes**, on those assertions |
 | **P12** | `shortname_from_label` agrees with `origin/main`'s 15 `SPEC_LABEL_REVERSE` pairs, vendored as a literal — correct here precisely because the point is to freeze the *old* table | — | no |
-| **P13** | `allunmapped.md` default → exit 0 **and** the `citation verify: n/a (0 of N rows resolvable)` line present | 11 | **yes** |
+| **P13** | `allunmapped.md` **and** `unlabelled.md`, default, both capabilities present → exit 0 **and** the `n/a (0 of N rows resolvable)` line present; **and its negative half** — the line absent in rows 3/6/9, which is what separates the shipped predicate from draft 7's | 11, 11b, 3, 6, 9 | **yes** |
 | **P14** | `coverage_map._spec_label` over the 12 pinned shortnames **and** a non-pinned sample exercising the `.upper().replace("-", " ")` last-resort — the branch A **does** take | — | **yes** |
-| **T-net** | J5 at the level the fetch happens: (a) across A's whole suite set `subprocess.run` is never called with `WEBREF` in argv; (b) `bash python-suites.sh` runs green in a child with `http_proxy`/`https_proxy` at a closed port | — | **yes** |
+| **T-net** | J5 at the level the fetch happens: (a) across A's whole suite set `subprocess.run` is never called with **the `WEBREF` path** in argv — the resolved path, *not* a `"webref"` substring, because `grep_pass` also calls `subprocess.run` with author symbols in argv and this memo is full of the string; (b) `bash python-suites.sh` runs green in a child with `http_proxy`/`https_proxy` at a closed port | — | **yes** |
+
+⚠ **An exit-code-only assertion is not a discriminator when the carve reaches the same code by another
+route** — round 7's H6, generalised, and it bites exactly twice. `rederive carvecolumn` now runs all nine
+fixtures (draft 7's ran three): at the carve `fenced-marker.md` **exits 0** with the table verified, because
+the marker is inert prose there — identical to A's expected outcome — so P11d's "fails at the carve = yes"
+was **false as written**. Same shape for P11e: the carve exits 1 on `nospec.md` already, via the no-table
+hard fail. Both pins now assert on the mechanism (`find_markers`, the grep-pass diagnostic), which is what
+makes §12 (2) a real red baseline rather than an accidental one. Every other "yes" re-derives from that
+block's exit codes.
 
 Sited in `test_preflight.py` except P12/P14 and `test_spec_labels.py`'s 8 moved tests. **UNCHECKED, marked
 not omitted**: the interpreter floor on `SKILL.md`'s direct `preflight.py` path; that a red `tools` job
@@ -550,10 +672,27 @@ subprocess while reaching `spec_labels` in-process — is §11's constraint.
 
 ## §8 Line-count budget
 
-→ `rederive budget`. The largest file in the touch set is `preflight.py` at ~500 → ~540, half the threshold,
-and it is one cohesive gate whose seam (structure / breadth / citation / grep-pass) is already four ordered
-blocks. Nothing is near a split. The memo itself and the re-derivation script are also printed by that block,
-since draft 6's §8 omitted the largest file the branch actually touches.
+→ `rederive budget`. The largest file in the touch set is `preflight.py`, and it is one cohesive gate whose
+seam (structure / breadth / citation / grep-pass) is already four ordered blocks. Nothing is near a split.
+The memo and the re-derivation harness are printed by the same block, since draft 6's §8 omitted the largest
+file the branch actually touches.
+
+⚠ **Draft 7's "~500 → ~540" was an invented digit, and the honest measure is not line count at all.**
+`wc -l` on the `armmatrix` proto comes out *shorter* than the file it grows, because the proto trims argparse
+help and abbreviates diagnostics — so a line-count estimate here is noise in either direction. `budget` now
+reports **statement count** (`ast`): A's edit set is roughly **statement-neutral**, because the hoisted
+capability verdict deletes the per-citation `WEBREF.is_file()` re-test and §4.2.5's branch replaces work
+rather than adding it. The block prints its own caveat (collapsed diagnostics make the shipped delta somewhat
+larger). The load-bearing claim survives either measure: **A restructures a 499-line file; it does not grow
+one toward the threshold.**
+
+⚠ **This memo is 925 lines and is itself the largest thing the branch carries.** It is not split, and the
+reason is the discipline's own cohesion test rather than an exemption: a plan-memo's sections are one
+decision surface, and CLAUDE.md's *one-issue-one-way* is the rule that would be violated by splitting it —
+§4.2.3 and §5 and §6 are three views of one control flow, and rounds 4-6 each produced a defect from those
+views drifting apart while they were in the *same* file. The re-derivation harness is the split that
+actually applies here, and it has been taken: every executable claim now lives in
+`…-A-rederive.sh` rather than in prose beside the decision.
 
 ---
 
@@ -572,8 +711,16 @@ one function's control flow with one primary observable (an exit code) and one s
 lines), and §5 publishes the outcome-distinct rows with a pin apiece. J4 (three files of configuration) and
 J5 (one offline run) are **independent surfaces, not additional intersections**, which is what the conjunct
 is about: an independent surface adds review area, not edge density. The gate-contract change (§4.2.5) is
-additive — one input shape, five rows, four pins. So the conjunct holds on the reading that matters, and the
+additive — one input shape, five rows, five pins. So the conjunct holds on the reading that matters, and the
 memo now says which reading.
+
+⚠ **Draft 8's harness is evidence *for* the conjunct, not against it.** Three of §4.2.3's items changed
+under measurement, which could be read as "the intersection is denser than claimed". It is not: all three
+changes live in the same function's control flow with the same two observables §5 already publishes, and the
+harness enumerates that space **exhaustively** — 24 states, four capability combinations × the fixture
+shapes × both modes — with no predicate divergence outside it. An axis whose state space can be enumerated
+and run in one command is bounded, which is what the conjunct asks for. What the harness removes is the
+review-round-as-interpreter cost that made this intersection *look* unbounded across rounds 5-7.
 
 **Draft 5 removed a capability cause, not an invariant axis.** Draft 4's third cause was dynamic and forced
 the aggregated verdict, the tri-state and five pins. Dropping it takes *causes* three → two; J1/J2/J3 remain
@@ -736,7 +883,7 @@ fork — extend it, or add a second job.
 
 ## §14 Review-round index
 
-Six rounds; every live correction is stated once, inline, at the section that acts on it.
+Seven rounds; every live correction is stated once, inline, at the section that acts on it.
 
 **R1 → d2.** Evidence measured on the branch, not `origin/main`. **R2 → d3.** The fix opened a new failure
 and disabled a neighbouring gate. **R3 → d4.** Section-contradicts-section; `K` not capability-independent.
@@ -749,6 +896,23 @@ items · **G4** four pins that could not check what they claimed, incl. row 10's
 aliases) and P5's "and no other" (the per-row soft-warn survives) · **G5** the marker's recognition rule
 unstated on anchoring/fences/scope; row 13's `origin/main` value wrong · **G6** the executable-described-in-
 prose class — §15's blocks — answered by the committed script.
+
+**R7 → d8** (Axis 2 alone: 2 CRIT / 7 IMP / 4 MIN / 0 FP; draft 7 is structural, so R7 is a full re-review
+from Step 1): **H1** the fix to R6's CRIT **inverted it** — draft 7's reporting arm is True in six rows where
+it must be False, incl. one printing `0 of 2 rows resolvable` about a memo whose 2 of 2 rows resolved ·
+**H2** the pin set is **mutually unsatisfiable** — T-net(a) ranges over the whole suite while only P1b states
+the stub, and four other pins reach `subprocess.run` · **H3** the capability instrument is wrong: tree
+removal leaves `WEBREF.is_file()` True, so the diagnostics P5/P6 pin were never in the state they claim ·
+**H4** §4.2.5's marker path skips the writer for ~12 variables it then prints · **H5** remedy 3's
+`_shortname_for_error` is not cleared by `importlib.reload` · **H6** P11d's "fails at the carve = yes" is
+false (measured exit 0) · **H7** remedy 2 has no §5 row.
+
+**What R7 changed about the method, not just the content.** H1 is R6's CRIT returning with the sign
+flipped, and H3 means the evidence for several rows was taken in a state that does not exist. Both are
+symptoms of one thing: §4.2.3 governs code that does not exist yet, so **prose was the only medium and a
+review round was the only interpreter**. Draft 8's answer is `rederive armmatrix` (§0). It confirmed H1,
+falsified the obvious repair (a `verify_ran` flag — measured True in *zero* states, including the two it
+exists for), and surfaced three edits no round had proposed: items 7b, 7c and §4.2.5's grep-pass sentence.
 
 **Re-derived and rejected**: r1's "`coverage_map_label` has more than one caller"; r2's
 "`elidex-wt-c4fix/docs/plans/` is empty" (the substance held); r4's decisive-finding *consequence*,
@@ -767,5 +931,12 @@ fixture bodies live there so reviewer and test read byte-identical files.
 bash docs/plans/2026-07-citation-hygiene-A-rederive.sh all      # or one name
 ```
 
-`citations partition keysets column carvecolumn remedies suites anchors regions offline couplings suiteset
-marker budget filters ruleset timing lanes bmemo staleclaims`
+`citations partition keysets column carvecolumn instruments remedies reloadstale armmatrix suites anchors
+regions offline couplings suiteset marker budget filters ruleset timing lanes bmemo staleclaims`
+
+**Draft 8's four additions, and what each stopped being an argument about.** `instruments` — the three
+candidate capability instruments on all three signals (§4.2.1); drafts 1-7 used one that flips neither axis.
+`armmatrix` — §4.2.3 and §4.2.5 grafted onto a copy of `preflight.py` in a scratch worktree, run over 24
+states with three candidate predicates side by side (§4.2.3 item 5); this is the one that ends the
+prose-as-control-flow class. `reloadstale` — the except-arm/reload asymmetry behind §4.2.4. And `column` and
+`carvecolumn` now vary the axis and the fixture set their claims range over, rather than a sample of them.
