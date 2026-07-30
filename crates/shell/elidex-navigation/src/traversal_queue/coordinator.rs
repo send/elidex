@@ -75,7 +75,7 @@ pub struct DrainOutcome {
 /// [`DrainCoordinator::drain_same_turn`] (the app-mode-degenerate path + the
 /// isolation tests) as the **iteration unit of its drive-site quiescence loop** —
 /// once per turn in the common case, repeated while the turn's handlers keep
-/// staging (`elidex-shell` `app/drain_host.rs`). The loop is a shell schedule
+/// staging (`elidex-shell` `app/drain_host/mod.rs`). The loop is a shell schedule
 /// policy: this coordinator stays a stateless phase driver, and every invariant
 /// below is stated per call.
 pub struct DrainCoordinator;
@@ -347,7 +347,7 @@ impl DrainCoordinator {
     /// frame per turn. It is also the isolation-test convenience.
     ///
     /// **It is app-mode's ITERATION UNIT, not its whole turn.** The drive site
-    /// (`elidex-shell` `app/drain_host.rs`) repeats this call plus its own
+    /// (`elidex-shell` `app/drain_host/mod.rs`) repeats this call plus its own
     /// reinstatement tail until the turn is quiescent, because a `popstate`
     /// handler this call's Phase 2 fires can stage work Phase 1b has already run
     /// past. Everything stated here is therefore per call, and holds unchanged: N
@@ -442,7 +442,7 @@ impl DrainCoordinator {
         // `pending_len()` counts ALL steps so a Phase-1-enqueued `[Traversal, SyncUpdate]`
         // pair is always captured whole in one snapshot (cancelled here). It is likewise
         // unreachable in app-mode Slice-B — but BY CONSTRUCTION rather than by a guard
-        // (`app/drain_host.rs` module doc, plan §4.4): the inline path has no message pump
+        // (`app/drain_host/mod.rs` module doc, plan §4.4): the inline path has no message pump
         // and no SW-wait, so no apply body re-enters `run_synchronous_phase_body` mid-drain
         // and the app-mode R18 carry is structurally VOID, not deferred. App-mode's
         // drive-site quiescence LOOP does not weaken that: it is site-driven and

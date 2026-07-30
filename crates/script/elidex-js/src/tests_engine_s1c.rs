@@ -268,7 +268,7 @@ fn eval_push_state_gate_uses_document_url_not_inherited_origin() {
 //
 // The predicate invariant on the trait contract is *predicate set ≡ the channel
 // set the drain loop's Phase 1 consumes*, and its consumer (the app-mode
-// turn-completion loop, `elidex-shell` `app/drain_host.rs`) cannot pin either
+// turn-completion loop, `elidex-shell` `app/drain_host/mod.rs`) cannot pin either
 // direction from the shell: the peek is also how a shell test would ASK whether
 // work is staged, so a predicate that wrongly omits a channel reads "quiescent"
 // to the assertion as well as to the loop. These tests pin the membership

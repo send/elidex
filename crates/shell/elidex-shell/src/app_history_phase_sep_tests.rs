@@ -167,7 +167,7 @@ fn app_trailing_syncupdate_canceled_behind_cursor_moving_traversal() {
 /// and `current_url` are *invariants of both arms* — a same-document `go(0)` commits
 /// the index it already has and rewrites `pipeline.url` to the URL it already has —
 /// so neither can tell the arms apart. Two facts can: the same-document arm fires
-/// **popstate** (§7.4.6.2 step 6.3) and **ships**, the rebuild arm does neither.
+/// **popstate** (§7.4.6.2 step 6.4.3) and **ships**, the rebuild arm does neither.
 #[test]
 fn app_go_zero_is_an_in_range_barrier_that_rebuilds() {
     let mut app = app_at(

@@ -4,7 +4,7 @@
 //! Implementing it keeps `ContentState` / `InteractiveState` / the pipeline /
 //! `EcsDom` **behind the trait**, so no shell type crosses the `elidex-navigation`
 //! crate boundary (plan §4.5 "OO→ECS / layer map"). Both shells implement it:
-//! `content/drain_host.rs` (Slice A) and `app/drain_host.rs` (Slice B).
+//! `content/drain_host.rs` (Slice A) and `app/drain_host/host.rs` (Slice B).
 //!
 //! This is also where the substrate's two **contract-level spec divergences** live
 //! — at the contract that binds both shells rather than duplicated at either impl:
@@ -161,7 +161,7 @@ pub trait DrainHost {
     /// the final shape.
     ///
     /// **Engine-wide and pre-existing**, not a property of any one shell: the
-    /// identical predicate is `app/drain_host.rs`'s and `content/drain_host.rs`'s
+    /// identical predicate is `app/drain_host/host.rs`'s and `content/drain_host.rs`'s
     /// `classify_traversal`, which is why the note lives here at the CONTRACT. It is
     /// the **first**-traversal counterpart of the shape
     /// [`pending_traversal`](Self::pending_traversal)'s doc records for SUBSEQUENT

@@ -397,7 +397,7 @@ pub trait HostDriver {
     /// **peek, don't consume** — the shell's drain remains the single drain point.
     ///
     /// A shell whose drain is a *loop* (app-mode's turn-completion drive,
-    /// `elidex-shell` `app/drain_host.rs`) needs "is anything still staged?" as a
+    /// `elidex-shell` `app/drain_host/mod.rs`) needs "is anything still staged?" as a
     /// question, and all three drains above answer it only by destroying it. It has
     /// two reader classes there: the loop's quiescence predicate, and the
     /// dispatch-entry drives that bound a previous turn's residue.

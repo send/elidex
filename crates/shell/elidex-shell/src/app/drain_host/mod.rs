@@ -57,7 +57,7 @@
 //! drives [`App::process_pending_navigation`]'s turn-completion loop schedules do
 //! **not** bound this shape: they are gated on the VM staging peek
 //! [`HostDriver::has_pending_session_history_work`], which reads the engine's
-//! channels — a step already serialized onto the [`TraversalQueue`] is invisible to
+//! channels — a step already serialized onto the [`TraversalQueue`](elidex_navigation::TraversalQueue) is invisible to
 //! it. That is the exit `debug_assert`'s residual, not the loop's.) It cannot
 //! happen here, because the inline path has **no reentrancy
 //! vector at all**:
@@ -85,7 +85,7 @@
 //!    [`App::process_pending_navigation`]. A popstate handler, or a freshly-rebuilt
 //!    page's initial scripts, may **stage** new history actions onto the VM
 //!    `pending_history` FIFO — but staging is not partitioning: those actions reach
-//!    the [`TraversalQueue`] only on the NEXT ITERATION of the drive site's
+//!    the [`TraversalQueue`](elidex_navigation::TraversalQueue) only on the NEXT ITERATION of the drive site's
 //!    turn-completion loop, never re-entering the current one.
 //!
 //!    **A site-driven loop is not a re-entry — the distinction this invariant
@@ -108,7 +108,7 @@
 //!    re-entry flag, which brackets the WHOLE drive — every `DrainHost` seam body,
 //!    every Phase-2 apply body, and the reinstatement tail — so a re-drive from ANY
 //!    of them is caught; the EXIT assert (`is_empty()`) catches a residual step. The
-//!    queue's own [`TraversalQueue::is_applying`] would NOT do for the entry assert:
+//!    queue's own [`TraversalQueue::is_applying`](elidex_navigation::TraversalQueue::is_applying) would NOT do for the entry assert:
 //!    it brackets `apply_traversal` alone, so it is blind to the most natural
 //!    regression shape (a re-drain at the end of `navigate`, which app-mode reaches
 //!    from Phase 1c).
@@ -124,9 +124,6 @@
 
 use elidex_navigation::{DrainCoordinator, DrainHost, DrainOutcome};
 use elidex_script_session::HostDriver;
-
-#[allow(unused_imports)] // doc-link only (the premise-5 / exit-assert prose).
-use elidex_navigation::TraversalQueue;
 
 use super::App;
 
@@ -236,15 +233,15 @@ impl App {
     /// `content_history_phase_sep_tests::pump_drains_popstate_staged_pushstate_this_turn`).
     /// That trailing drain is not merely insufficient, it is **wrong**. It would
     /// settle a popstate-staged `pushState`, but a popstate-staged `back()` would be
-    /// peek-classified (Resolution E) and left **resident on the [`TraversalQueue`]
+    /// peek-classified (Resolution E) and left **resident on the [`TraversalQueue`](elidex_navigation::TraversalQueue)
     /// across the turn boundary**. Such a step is NOT stranded: the next
     /// `drain_same_turn` seeds
-    /// `seen_traversal` from [`TraversalQueue::has_pending_traversal`] and its Phase 2
+    /// `seen_traversal` from [`TraversalQueue::has_pending_traversal`](elidex_navigation::TraversalQueue::has_pending_traversal) and its Phase 2
     /// drains it. What the trailing drain does is
     /// **freeze the in-range classification a turn early**, voiding the queue's own
     /// contract that "Resolution E's peek-classify guarantees a no-op `go(999)` never
     /// leaves a `Traversal` step here, so it does not over-suppress"
-    /// ([`TraversalQueue::has_pending_traversal`]) — the **non-drain** cursor movers
+    /// ([`TraversalQueue::has_pending_traversal`](elidex_navigation::TraversalQueue::has_pending_traversal)) — the **non-drain** cursor movers
     /// run in between, so the resident step can be a
     /// no-op by the next turn while still acting as a FULL barrier: it seeds
     /// `seen_traversal` at Phase-1 **entry** (deferring every fresh `pushState` behind
@@ -547,9 +544,41 @@ impl App {
     /// in-turn drive and shapes THAT turn's `suppress_default` — the same
     /// conservative over-suppression shape the coordinator's cross-turn-robust
     /// `suppress_default` already documents.
+    /// **The entry drive must present its own output** — unlike the two in-handler
+    /// drives, it has no dispatch-layer redraw behind it.
+    ///
+    /// `events::handle_click` and `events::handle_keyboard` are each followed by an
+    /// unconditional `request_redraw` in their dispatch (`app/inline.rs`), which is
+    /// what lets the nav bodies issue none of their own
+    /// ([`ship_frame`](DrainHost::ship_frame)'s "division of labour with the
+    /// caller"). The dispatch ENTRY has no such backstop: it runs ahead of arms
+    /// that repaint only conditionally (`CursorMoved` only on a hover change,
+    /// `CursorLeft` only if a chain was non-empty, the egui arm only on
+    /// `response.repaint`) or not at all (`ModifiersChanged`, the `_` catch-all —
+    /// `MouseWheel` / `Focused` / `Touch` / `Ime`).
+    ///
+    /// The coordinator's own ship covers only half the cases: `ship_if_needed`
+    /// fires [`ship_frame`](DrainHost::ship_frame) when
+    /// `own_context_action && !shipped`, so a pure §7.4.4 `pushState` settled here
+    /// DOES repaint — but a navigation or traversal sets `shipped = true`, the ship
+    /// is skipped, and the app-mode nav bodies request no repaint of their own. So
+    /// a staged `back()` drained at a `ModifiersChanged` entry would move the
+    /// cursor, fire `popstate`, rewrite the chrome URL and re-render, and none of
+    /// it would reach the screen until something else happened to ask for a frame.
+    ///
+    /// Hence: gate on `own_context_action` — precisely "the drive changed
+    /// user-visible state" (it deliberately excludes `window.open`, which is an
+    /// effect on OTHER browsing contexts and needs no frame here). Where the
+    /// coordinator already shipped, the second request coalesces into the same
+    /// `RedrawRequested`; where it did not, this is the only one.
     pub(super) fn drive_staged_session_history_work(&mut self) {
         if self.staged_work_pending() {
-            let _ = self.process_pending_navigation();
+            // The OUTCOME is discarded (above) but its `own_context_action` is not:
+            // discarding it is about not letting a previous turn's suppression latch
+            // the next turn's default, and says nothing about presenting a frame.
+            if self.process_pending_navigation().own_context_action {
+                self.schedule_followup_dispatch();
+            }
         }
     }
 
@@ -599,8 +628,17 @@ impl App {
             .current_document_sequence()
     }
 
-    /// The §4.3 unified-exit-rule seam: request the follow-up dispatch whose entry
-    /// drive will take the work this turn left staged.
+    /// The drive site's single "ask winit for another frame" seam, with **two**
+    /// callers and two distinct reasons:
+    ///
+    /// 1. the §4.3 **unified exit rule** — the loop exited with the peek still
+    ///    reading true, so a follow-up dispatch is needed to take the residue;
+    /// 2. the **dispatch-entry drive** — it changed user-visible state and, unlike
+    ///    the in-handler drives, has no dispatch-layer redraw behind it
+    ///    ([`Self::drive_staged_session_history_work`]).
+    ///
+    /// Both reduce to `request_redraw`, and winit coalesces, so they share one seam
+    /// rather than two spellings of the same call.
     ///
     /// A named seam rather than a bare `request_redraw()` because the real request
     /// is `render_state`-gated (see [`ship_frame`](DrainHost::ship_frame)) and so a
@@ -608,6 +646,15 @@ impl App {
     /// below is the observation point the degrade test asserts against. It is an
     /// observation point, not control state: nothing reads it outside tests, so the
     /// "no exit records any state" property stands.
+    ///
+    /// ⚠ **What the counter does and does NOT witness.** It records that this seam
+    /// was CALLED — not that a repaint was requested. Deleting the
+    /// `request_redraw()` below would leave every test green, because
+    /// `render_state` is `None` in the app-mode harness and the call is already a
+    /// no-op there. That is a harness limit, not a testing shortcut: the identical
+    /// untestable shape is pre-existing on [`ship_frame`](DrainHost::ship_frame).
+    /// Stated so the counter is not mistaken for coverage of the frame leg itself
+    /// (plan §9 records the end-to-end gap).
     fn schedule_followup_dispatch(&mut self) {
         #[cfg(test)]
         {

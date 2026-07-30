@@ -451,6 +451,55 @@ fn app_residue_drains_on_a_dispatch_arm_that_carries_no_mover() {
     );
 }
 
+/// **The entry drive presents its own output** — the half of the dominator hoist
+/// that does NOT come for free.
+///
+/// The two in-handler drives are each followed by an unconditional `request_redraw`
+/// in their dispatch, which is why the app-mode nav bodies issue none of their own
+/// (`DrainHost::ship_frame`'s "division of labour with the caller"). The dispatch
+/// ENTRY has no such backstop, and the coordinator's own ship covers only half the
+/// cases: `ship_if_needed` fires only when `own_context_action && !shipped`, so a
+/// pure `pushState` repaints — but a TRAVERSAL sets `shipped = true`, the ship is
+/// skipped, and nothing else asks for a frame.
+///
+/// So this drives a staged `back()` from `ModifiersChanged` — an arm that repaints
+/// on no path whatsoever. Without the entry drive's own `own_context_action`-gated
+/// request, the cursor would move, `popstate` would fire and the chrome URL would
+/// change with none of it reaching the screen until some unrelated event happened
+/// to ask for a frame.
+#[test]
+fn app_entry_drive_requests_a_frame_for_its_own_output() {
+    let mut app = app_at(&popstate_once("history.back();"), base());
+    seed_same_document_triple(&mut app); // [base, /a, /b], cursor on /b
+
+    // Stage a TRAVERSAL (not a pushState) via a mover, so the drive that settles it
+    // reports `shipped` and the coordinator's own ship is skipped.
+    app.handle_chrome_action(crate::chrome::ChromeAction::Back);
+    assert!(
+        staged_session_history_work(&app),
+        "precondition: the mover-fired popstate staged a back()"
+    );
+    let frames_before = followup_dispatches(&app);
+
+    // `ModifiersChanged` repaints on NO path — the entry drive is the only thing
+    // here that can ask for a frame.
+    app.handle_window_event_inline(winit::event::WindowEvent::ModifiersChanged(
+        winit::event::Modifiers::default(),
+    ));
+
+    assert_eq!(
+        current_url(&app).as_deref(),
+        Some("https://example.com/"),
+        "the staged back() applied at the entry drive: /a → base"
+    );
+    assert_eq!(
+        followup_dispatches(&app),
+        frames_before + 1,
+        "and the drive asked for a frame to present it — on this arm nothing else \
+         would have, and the traversal's `shipped` suppressed the coordinator's ship"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // Mover-fired staging — staging source (b), pinned CLOSED
 // ---------------------------------------------------------------------------

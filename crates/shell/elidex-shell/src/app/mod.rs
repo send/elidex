@@ -241,7 +241,7 @@ pub(super) struct InteractiveState {
     /// §7.3.1.1 *Traversable navigables*) — the deferred Phase-2 traversal-apply
     /// queue the [`DrainCoordinator`](elidex_navigation::DrainCoordinator) drives
     /// through [`App`]'s [`DrainHost`](elidex_navigation::DrainHost) impl
-    /// (`app/drain_host.rs`). Homed here beside `nav_controller` (Q-OWNER —
+    /// (`app/drain_host/host.rs`). Homed here beside `nav_controller` (Q-OWNER —
     /// engine-agnostic traversable proxy state, and both survive a pipeline
     /// rebuild), exactly as content mode homes it beside its own controller.
     ///
@@ -251,7 +251,7 @@ pub(super) struct InteractiveState {
     /// *Updating the traversable* step 12's ordering ("This set of steps are split
     /// into two parts to allow synchronous navigations to be processed before
     /// documents unload"). That pair is the **iteration unit** of the drive site's
-    /// bounded turn-completion loop (`app/drain_host.rs`), which repeats it until
+    /// bounded turn-completion loop (`app/drain_host/mod.rs`), which repeats it until
     /// the turn is quiescent — so this queue is emptied by EVERY iteration's Phase
     /// 2, not merely once per turn. CLAUDE.md side-store exception (b)
     /// (browsing-context/session-level state, not a per-entity ECS component).
@@ -284,7 +284,7 @@ pub(super) struct InteractiveState {
     /// tail) from synchronously re-driving the coordinator; this is the flag that
     /// drive's entry `debug_assert` reads. The loop is NOT such a re-drive — it is
     /// site-driven and sequential, so it lives inside the bracket by design
-    /// (`app/drain_host.rs` module doc, premise 5).
+    /// (`app/drain_host/mod.rs` module doc, premise 5).
     ///
     /// Host-side **because it must bracket the WHOLE drive**:
     /// [`TraversalQueue::is_applying`] brackets only
@@ -297,7 +297,7 @@ pub(super) struct InteractiveState {
     /// Test-only issuance counter for `App::schedule_followup_dispatch` — the
     /// observation point for the turn-completion loop's unified exit rule ("any
     /// loop exit whose peek still reads true schedules a follow-up dispatch",
-    /// `app/drain_host.rs`). The real request is `render_state`-gated and therefore
+    /// `app/drain_host/mod.rs`). The real request is `render_state`-gated and therefore
     /// a silent no-op in the disconnected app-mode harness, so a bare
     /// `request_redraw` assertion would be vacuous.
     ///
@@ -343,7 +343,7 @@ pub struct App {
     /// Legacy inline interactive state.
     ///
     /// **Never-cleared invariant** (relied on by every `DrainHost` seam in
-    /// `app/drain_host.rs`): the ONLY writes to this field are at construction —
+    /// `app/drain_host/`): the ONLY writes to this field are at construction —
     /// `None` in [`Self::from_tab_manager`] (threaded mode), `Some(..)` in
     /// [`Self::new_interactive_with_url`] (inline mode, the sole inline
     /// constructor). Nothing clears it afterwards: the navigation bodies
@@ -412,7 +412,7 @@ impl App {
     /// The single enforcement point of the [`interactive`](Self::interactive)
     /// never-cleared invariant for shared borrows: panics with
     /// [`INTERACTIVE_DRIVE_ONLY`] (unreachable — see its docs). Every
-    /// [`DrainHost`](elidex_navigation::DrainHost) seam in `app/drain_host.rs`
+    /// [`DrainHost`](elidex_navigation::DrainHost) seam in `app/drain_host/host.rs`
     /// reaches through this instead of open-coding the `expect`.
     pub(super) fn inline_state(&self) -> &InteractiveState {
         self.interactive.as_ref().expect(INTERACTIVE_DRIVE_ONLY)

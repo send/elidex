@@ -14,19 +14,9 @@
 //! `debug_assert` pair — is stated once, in the parent module's doc.
 
 use elidex_navigation::{
-    // `DrainOutcome` is referenced only by the intra-doc links on the seams below;
-    // rustc's unused-import lint does not see doc usage, so it is imported under an
-    // explicit allow rather than spelling the crate path into every link.
-    DrainHost,
-    PendingTraversal,
-    TraversalDelta,
-    TraversalQueue,
-    UserInvolvement,
+    DrainHost, PendingTraversal, TraversalDelta, TraversalQueue, UserInvolvement,
 };
 use elidex_script_session::{HistoryAction, HostDriver};
-
-#[allow(unused_imports)] // doc-link only — see the import comment above.
-use elidex_navigation::DrainOutcome;
 
 use crate::app::navigation::{handle_history_action, resolve_nav_url};
 use crate::app::App;
@@ -192,16 +182,16 @@ impl DrainHost for App {
     /// Returns `true` iff a navigation applied. This is where the retired
     /// hand-rolled drain's `nav-applied` early `return true` now lives: "a
     /// navigation applied" flows through
-    /// [`DrainOutcome::own_context_action`]/[`shipped`](DrainOutcome::shipped)
+    /// [`own_context_action`](elidex_navigation::DrainOutcome::own_context_action) / [`shipped`](elidex_navigation::DrainOutcome::shipped)
     /// instead of short-circuiting the drain.
     ///
     /// **⚠ That `true` is UNCONDITIONAL — the known applied/shipped conflation**
     /// (slot `#11-nav-applied-shipped-decouple`, carved on PR #469 R15).
     /// [`App::navigate`](super::App::navigate) returns `()` and early-returns when
     /// `load_url_into_pipeline` fails, so a **failed** load still reports `true`
-    /// here — setting BOTH [`own_context_action`](DrainOutcome::own_context_action)
+    /// here — setting BOTH [`own_context_action`](elidex_navigation::DrainOutcome::own_context_action)
     /// (→ the `<a href>` click default is suppressed) AND
-    /// [`shipped`](DrainOutcome::shipped) (→ the coordinator's trailing
+    /// [`shipped`](elidex_navigation::DrainOutcome::shipped) (→ the coordinator's trailing
     /// [`ship_frame`](Self::ship_frame) is skipped) from ONE bool that overloads
     /// "moved the cursor" with "shipped a frame", against a trait contract asking
     /// for `true` iff the navigation replaced the pipeline **and** shipped its own

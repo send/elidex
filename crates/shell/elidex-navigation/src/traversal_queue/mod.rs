@@ -9,7 +9,7 @@
 //! return (plan §1). This module introduces, in its **final phase-separated
 //! shape**, the primitive **both shells now drive** — content mode from
 //! `content/event_loop.rs` through `content/drain_host.rs` (Slice A), app mode
-//! from `app/drain_host.rs` (Slice B):
+//! from `app/drain_host/host.rs` (Slice B):
 //!
 //! - a [`TraversalQueue`] — the WHATWG HTML §7.3.1.1 *session history traversal
 //!   queue* (`#tn-session-history-traversal-queue`) carrying the
@@ -30,8 +30,8 @@
 //! (`docs/plans/2026-07-session-history-slice-A-content-phase-separation.md`).
 //! The isolation unit tests below still pin the coordinator in isolation; **both
 //! shells now drive it** — content mode from `content/event_loop.rs` (Slice A,
-//! the split entry points) and app mode from `app/drain_host.rs` (Slice B, the
-//! single same-turn entry point).
+//! the split entry points) and app mode from `app/drain_host/mod.rs` (Slice B,
+//! the same-turn entry point, iterated to quiescence by that drive site).
 //!
 //! ## The task-timing partition (plan §4.2)
 //!
