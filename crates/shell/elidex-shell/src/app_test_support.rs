@@ -1,6 +1,7 @@
 //! Shared test helpers for the app-mode (legacy inline) test modules
 //! (`app_fragment_nav_tests`, `app_history_drain_tests`,
-//! `app_history_phase_sep_tests`) — building a driveable `App` over a
+//! `app_history_phase_sep_tests`, `app_turn_completion_tests`) — building a
+//! driveable `App` over a
 //! disconnected network, seeding the two-entry session histories the drain suite
 //! traverses, plus the history/URL probes those modules assert on. Kept in one
 //! place so no test module owns the scaffolding, and so the long
@@ -60,6 +61,30 @@ pub(super) fn app_at(html: &str, url: url::Url) -> App {
     let mut app = App::new_interactive_with_url(pipeline, "elidex".to_string());
     crate::re_render(&mut app.interactive.as_mut().unwrap().pipeline);
     app
+}
+
+/// Whether any `<tag>` element carries `attr="1"` — the shared shape of the
+/// listener-ran probes (a handler stamps an attribute, the assertion reads it
+/// back). Every path that fires a listener also `re_render`s, which flushes the
+/// script session, so the stamp is committed by assertion time.
+pub(super) fn stamped(app: &App, tag: &str, attr: &str) -> bool {
+    let pipeline = &app.interactive.as_ref().unwrap().pipeline;
+    pipeline.dom.query_by_tag(tag).into_iter().any(|e| {
+        pipeline
+            .dom
+            .world()
+            .get::<&elidex_ecs::Attributes>(e)
+            .is_ok_and(|a| a.get(attr) == Some("1"))
+    })
+}
+
+/// Place the inline cursor over content-area point `(x, y)` (winit client coords
+/// are chrome-inclusive, so the chrome bar height is added back).
+pub(super) fn cursor_over_content(app: &mut App, x: f64, y: f64) {
+    app.interactive.as_mut().unwrap().cursor_pos = Some(elidex_plugin::Point::new(
+        x,
+        y + f64::from(crate::chrome::CHROME_HEIGHT),
+    ));
 }
 
 /// The session-history entry count (`history.length`'s shell-side source).
@@ -166,6 +191,42 @@ pub(super) fn current_url(app: &App) -> Option<String> {
         .nav_controller
         .current_url()
         .map(|u| u.as_str().to_string())
+}
+
+/// The §4.4 quiescence predicate as the tests read it — the same non-consuming
+/// [`HostDriver::has_pending_session_history_work`] peek the turn-completion loop
+/// and its dispatch-entry drives are gated on (`app/drain_host.rs`).
+///
+/// The probe for "did the drive reach quiescence?" — and for the degraded exits,
+/// where the assertion must be "work is still STAGED", never "a flag was set"
+/// (there is no flag; the channels are the SoT).
+pub(super) fn staged_session_history_work(app: &App) -> bool {
+    app.interactive
+        .as_ref()
+        .unwrap()
+        .pipeline
+        .runtime
+        .has_pending_session_history_work()
+}
+
+/// How many times the unified exit rule has issued a follow-up dispatch through
+/// `App::schedule_followup_dispatch` — the test-only observation point for the
+/// rule's frame leg, since the real `request_redraw` is `render_state`-gated and
+/// therefore a silent no-op in this harness (so a bare redraw assertion would be
+/// vacuous).
+pub(super) fn followup_dispatches(app: &App) -> usize {
+    app.interactive.as_ref().unwrap().followup_dispatches
+}
+
+/// The current entry's `document_sequence` — the loop's **document-swap marker**
+/// (`App::current_document_marker`). Its stability across a FAILED mid-loop load is
+/// what keeps the swap exit from firing on a navigate *attempt*.
+pub(super) fn document_marker(app: &App) -> Option<u64> {
+    app.interactive
+        .as_ref()
+        .unwrap()
+        .nav_controller
+        .current_document_sequence()
 }
 
 /// The URL of session-history ENTRY `index`. The discriminating probe wherever

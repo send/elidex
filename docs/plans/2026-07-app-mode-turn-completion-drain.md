@@ -658,9 +658,19 @@ the assert.
 non-quiescent-exit path the residue lives on the **VM FIFO**, which the assert never inspects — so there is
 no exit-assert-vs-residue tension to reconcile (v1's Q4 was a phantom conflict and is retired). What DOES
 change is the assert's **message** (`:303-311`), which currently explains the residual's unbounded
-lifetime via "app-mode pumps only on input, `#11-app-mode-turn-completion-drain`" — after this PR the
-slot is closed and the lifetime is (next-dispatch ∨ frame)-bounded via the scheduled follow-up drive; the
-message joins the §5.2 sweep.
+lifetime via "app-mode pumps only on input, `#11-app-mode-turn-completion-drain`" — a slot reference that
+goes stale when this PR closes it; the message joins the §5.2 sweep.
+
+**⚠ Correction found in implementation — the replacement message must NOT say "(next-dispatch ∨
+frame)-bounded".** That bound is the peek's, and the peek
+(`HostDriver::has_pending_session_history_work`) reads the **engine's staging channels**, not the
+`TraversalQueue`. This assert's residual is a step *already on the queue*, which the peek cannot see —
+so the peek-gated dispatch-entry drives never fire for it and its lifetime stays exactly as unbounded as
+it is today. (Widening the peek to cover the queue is not the fix: it would breach the §4.4 predicate
+invariant, since Phase 1 does not consume the queue — Phase 2 does.) The shipped message states this
+plainly instead of inheriting the loop's bound. Same correction applies to the module doc's
+"UNBOUNDED time" passage (`drain_host.rs:50-58`), which is therefore still accurate and gains only a
+clarifying parenthetical.
 
 The **"SOLE site" language** (`drain_host.rs:131-134`) gains three callers: the peek-gated drives
 from the three winit dispatch-layer entries (§4.3) — the `RedrawRequested` arm (`app/inline.rs:56`),
@@ -685,7 +695,12 @@ through the peek, so there is no flag to fall out of sync with them (One issue, 
 are the SoT and the peek their only mirror); nothing here is per-entity, so no ECS component is
 warranted and no side-store registry is minted. Crate placement: the loop + cap + the peek-gated
 dispatch-entry drives = `elidex-shell` (app only); the peek = `elidex-script-session` trait +
-`elidex-js` impl; `elidex-navigation` gains **no** code, only doc-passage updates (§5.2).
+`elidex-js` impl; `elidex-navigation` gains **no new code** — the doc-passage updates of §5.2 plus
+one **visibility widening**: `NavigationController::current_document_sequence` (the private helper
+that already IS "the current entry's document identity") becomes `pub`, so the §4.5 (c) swap marker
+reads the controller's own accessor instead of open-coding `entry(current_index())` at the drive
+site with a subtly different empty-list case. No behavior, no new concept — the alternative would
+mint a second answer to a question the controller already answers (One issue, one way).
 
 ---
 
@@ -801,10 +816,17 @@ Derived by `grep -rn '11-app-mode-turn-completion-drain' crates/ --include='*.rs
 
 **Restructured but NOT flipped — the straddle pin** (`app_multi_traversal_snapshot_lands_popstate_staged_update_on_the_wrong_entry`, `:490`,
 owned by `#11-sync-navigation-steps-queue-tagging`). Read against the test body:
-- `:504-511` (both traversals drained in one snapshot; cursor nets onto `/a`) — **unchanged**.
+- `:504-507` (both traversals drained in one snapshot) — **unchanged**.
+- `:508-512` (cursor nets onto `/a`) — **this row was wrong at plan time and the implementation
+  corrected it**: the probe is `current_url`, which reads the *entry under the cursor*, and iteration
+  2's `replaceState` rewrites exactly that entry — so the assertion flips from `/a` to
+  `/from-popstate` unless it is restated. It is restated as the **cursor index** (`current_index() ==
+  1`), which is the fact the row meant and which really is unchanged; the entry's URL is asserted
+  separately below as the divergence.
 - `:513-518` — asserts the staged replace is "NOT settled by the drain that fired it (it is still on the
   VM FIFO)" — **flips**: with turn completion it IS settled by the same drive, in iteration 2, against the
-  post-`forward()` cursor.
+  post-`forward()` cursor. Replaced by a quiescence assertion (the §4.4 peek reads false), which is the
+  fact that actually changed.
 - `:521` (the second `process_pending_navigation`) — becomes a no-op; removed.
 - `:523-534` — the final wrong-entry assertions (the replace lands on `/a`, destroying it; `base`, the
   entry whose handler issued it, is untouched) — **the fence, unchanged in substance**, now asserted after
@@ -870,7 +892,10 @@ All new/flipped turn-completion tests live in `app_turn_completion_tests.rs` (§
   same way — guard against silently narrowing the queue-tagging divergence).
 - **New**: a popstate handler staging a `pushState` settles within the same
   `process_pending_navigation` call (the direct content-shape twin of
-  `pump_drains_popstate_staged_pushstate_this_turn`).
+  `pump_drains_popstate_staged_pushstate_this_turn`). **As implemented this is the SAME test as the
+  flipped `:604` pin above, not a second one** — they describe one drive of one scenario, and writing
+  both would be a copy. The single test
+  (`app_popstate_staged_pushstate_settles_within_the_same_turn`) carries both roles in its docstring.
 - **New**: a popstate handler staging a `back()` is applied within the same turn — the case the
   trailing-drain alternative gets wrong: assert the traversal queue is empty at drive exit, the cursor
   moved, and a subsequent click's `<a href>` default is NOT suppressed by any surviving latch (axis (e)).
@@ -913,11 +938,18 @@ All new/flipped turn-completion tests live in `app_turn_completion_tests.rs` (§
 - **New (negative pin — a failed mid-loop load does NOT fire the swap exit)**: a mid-loop navigate whose
   load fails — which is exactly what the disconnected harness produces — does not restamp
   `document_sequence` (`navigate` early-returns at `app/navigation.rs:68-70` before any rebuild), so the
-  marker is unchanged and the loop CONTINUES to quiescence rather than breaking early — asserted via
-  loop continuation: work staged after the failed navigate still settles within the same drive
-  (§4.5 (c)'s load-failure semantics). Its docstring states the intent: a regression guard against the
+  marker is unchanged. Its docstring states the intent: a regression guard against the
   round-2-rejected misimplementation that ended the turn on the navigate *attempt* rather than on an
   observed marker change.
+  **⚠ The stronger assertion this bullet originally specified — "loop continuation: work staged after
+  the failed navigate still settles within the same drive" — is NOT WRITABLE, and not because of the
+  harness.** A failed cross-document navigate is always the drive's LAST iteration by construction:
+  Phase 1c runs after Phase 1b, a failed load runs no script, and the only mid-drain script vector is
+  the `popstate` of a **cursor-moving** Phase-2 apply — which `DrainHost::apply_traversal` responds to
+  by CANCELLING the held navigation, so the two are mutually exclusive within an iteration. Nothing can
+  therefore be staged after the failed navigate to observe. What the implemented pin asserts is the
+  fact the swap exit actually reads (the marker did not move) plus the drive reaching quiescence; the
+  limitation is stated verbatim in the test's docstring.
 - **Swap-exit coverage — honest statement (no in-harness pin of the firing path)**: the swap-exit
   branch's *firing* side cannot be pinned in the disconnected harness even partially (the non-firing side
   is the negative pin above) — the `document_sequence` restamp sits past the

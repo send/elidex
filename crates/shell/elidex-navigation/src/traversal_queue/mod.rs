@@ -57,7 +57,11 @@
 //! Phase 1 and Phase 2 back-to-back inside the input handler through
 //! [`DrainCoordinator::drain_same_turn`], the **same-turn** entry point that
 //! combines both phases in one call and ships once (the app-mode-degenerate path
-//! plus the isolation tests). Content-mode adopting `drain_same_turn` wholesale
+//! plus the isolation tests) — **repeated to quiescence by the drive site**, which
+//! iterates that call plus its own reinstatement tail until the turn's handlers
+//! have staged nothing new. That loop is shell-side schedule policy and this
+//! substrate is unchanged by it: every statement below holds PER ITERATION.
+//! Content-mode adopting `drain_same_turn` wholesale
 //! would collapse the very task boundary this substrate exists to remove, so it
 //! drives the split entry points separately (see each method's doc).
 //!

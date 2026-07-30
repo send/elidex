@@ -12,24 +12,15 @@
 //! Resolution-B default-suppression consumer through the real click path, and the
 //! I3 liveness-inert bounded snapshot (axis b).
 //!
-//! **Both `#11-app-mode-turn-completion-drain` pins live here**, together — the
-//! *latency* facet
-//! (`app_popstate_staged_action_defers_to_the_next_drain_not_the_current_queue`) and
-//! the escalated *destructive* facet
-//! (`app_popstate_staged_push_destroys_forward_entries_after_an_interleaved_chrome_traversal`),
-//! which the pre-split file filed under "cursor atomicity" though it pins a
-//! popstate-staged straddle, not peek-then-commit. They are two facets of one slot
-//! and flip together when it lands, so the split co-locates them rather than leaving
-//! the destructive facet filed under an unrelated heading.
-//!
-//! Content-mode is **not** a precedent for co-locating these: it has *three*
-//! popstate-staged pins and deliberately spread them across two files —
-//! `content_history_phase_sep_tests::pump_drains_popstate_staged_pushstate_this_turn`
-//! and `::pump_enqueues_popstate_staged_traversal_for_next_turn_not_same_turn`, plus
-//! `content_history_pump_turn_tests::popstate_staged_pushstate_applied_with_held_navigate_fresh_and_buffered`,
-//! which was itself carved out at a later touch-time split. Anyone flipping the
-//! app-mode pins when `#11-app-mode-turn-completion-drain` lands should check the
-//! content side for that third pin too.
+//! **Both `#11-app-mode-turn-completion-drain` pins have MOVED OUT** — they flipped
+//! when the drive-site quiescence loop landed and now assert turn-completion
+//! conformance rather than the bounded-but-wrong status quo, so they live with that
+//! family in `app_turn_completion_tests` (which carries the co-location rationale
+//! and the content-side cross-check note forward). What stays here is the
+//! *traversal*-granularity divergence pin
+//! (`app_multi_traversal_snapshot_lands_popstate_staged_update_on_the_wrong_entry`),
+//! which belongs to a different slot — `#11-sync-navigation-steps-queue-tagging` —
+//! and did NOT flip.
 //!
 //! The axis-c pin is that both shells drive the identical shared
 //! `DrainCoordinator`, so everything the coordinator OWNS lands the same way on
@@ -46,13 +37,10 @@
 //! PUMP, not the in-handler drain. The headline difference is
 //! Phase-2 pump timing — content on a later async-pump turn via
 //! `run_deferred_traversals`, app-mode back-to-back inside the input handler as its
-//! *degenerate* later task — but app-mode also has **no post-Phase-2 synchronous
-//! settle**, so content's R9 pin
-//! (`content_history_phase_sep_tests::pump_drains_popstate_staged_pushstate_this_turn`)
-//! has no app-mode twin: its counterpart below
-//! (`app_popstate_staged_action_defers_to_the_next_drain_not_the_current_queue`)
-//! pins the opposite, bounded behavior, fenced to
-//! `#11-app-mode-turn-completion-drain`.
+//! *degenerate* later task. Content's post-Phase-2 settle (its R9 pin,
+//! `content_history_phase_sep_tests::pump_drains_popstate_staged_pushstate_this_turn`)
+//! DOES have an app-mode twin now — the drive-site quiescence loop, pinned in
+//! `app_turn_completion_tests`.
 //!
 //! The `App`-building seeds and history/URL probes — and the **harness
 //! reachability** contract every assertion here rests on — live in
@@ -61,40 +49,16 @@
 use elidex_navigation::DrainHost;
 
 use super::test_support::{
-    activate_seeded_entry, app_at, base, current_url, entry_url, eval, history_len, pipeline_url,
-    seed_same_document_pair, url,
+    app_at, base, current_url, cursor_over_content, entry_url, eval, history_len, pipeline_url,
+    seed_same_document_pair, stamped,
 };
 use super::App;
 
-/// Whether any `<tag>` element carries `attr="1"` — the shared shape of the
-/// listener-ran probes below (a handler stamps an attribute, the assertion reads it
-/// back). Every path that fires a listener also `re_render`s, which flushes the
-/// script session, so the stamp is committed by assertion time.
-fn stamped(app: &App, tag: &str, attr: &str) -> bool {
-    let pipeline = &app.interactive.as_ref().unwrap().pipeline;
-    pipeline.dom.query_by_tag(tag).into_iter().any(|e| {
-        pipeline
-            .dom
-            .world()
-            .get::<&elidex_ecs::Attributes>(e)
-            .is_ok_and(|a| a.get(attr) == Some("1"))
-    })
-}
-
 /// Whether a `popstate` listener ran — the direct probe for "the SAME-DOCUMENT
-/// traversal arm was taken" (§7.4.6.2 step 6.3 fires popstate in place; the
+/// traversal arm was taken" (§7.4.6.2 step 6.4.3 fires popstate in place; the
 /// cross-document rebuild arm does not).
 fn popstate_fired(app: &App) -> bool {
     stamped(app, "p", "data-popstate")
-}
-
-/// Place the inline cursor over content-area point `(x, y)` (winit client coords
-/// are chrome-inclusive, so the chrome bar height is added back).
-fn cursor_over_content(app: &mut App, x: f64, y: f64) {
-    app.interactive.as_mut().unwrap().cursor_pos = Some(elidex_plugin::Point::new(
-        x,
-        y + f64::from(crate::chrome::CHROME_HEIGHT),
-    ));
 }
 
 // ---------------------------------------------------------------------------
@@ -467,11 +431,21 @@ fn app_drain_same_turn_leaves_no_residual_and_applies_every_queued_traversal() {
 /// `replaceState('/from-popstate')`, `history.back(); history.forward()`:
 /// `back()` applies → cursor to `base` → `popstate` fires → the handler stages the
 /// replace **while `base` is current** → `forward()` applies → cursor back to `/a`
-/// → the next drain replaces **`/a`**. WHATWG HTML §7.4.6.1 *Updating the
-/// traversable* step 14's note is explicit that synchronous navigations *"jump the
-/// queue … before this traversal potentially unloads their document"*, so the spec
-/// applies the replace to the entry whose handler issued it — **`base`, entry 0**.
-/// elidex destroys `/a` instead and leaves `base` untouched: the exact inversion.
+/// → the replace settles against **`/a`**. WHATWG HTML §7.4.6.1 *Updating the
+/// traversable* step 14.1.1's note is explicit that synchronous navigations *"jump
+/// the queue … before this traversal potentially unloads their document"*, so the
+/// spec applies the replace to the entry whose handler issued it — **`base`, entry
+/// 0**. elidex destroys `/a` instead and leaves `base` untouched: the exact
+/// inversion.
+///
+/// **`#11-app-mode-turn-completion-drain` narrowed the timing, not the divergence.**
+/// Before the drive-site quiescence loop the staged replace also had to wait for a
+/// LATER DRIVE; now it settles in a later ITERATION of the same drive, so the
+/// assertions below need only one `process_pending_navigation`. That is precisely
+/// the turn-granularity / traversal-granularity split: the turn-completion loop
+/// closes the gap *between drives*, this slot owns the gap *between two traversals
+/// of one Phase-2 snapshot*. The wrong-entry outcome is unchanged, which is why the
+/// pin did not move to `app_turn_completion_tests` with the two that flipped.
 ///
 /// **NEWLY REACHABLE in app-mode because of Slice B, and that is deliberate.**
 /// `origin/main`'s hand-rolled `app/navigation.rs::process_pending_navigation`
@@ -505,252 +479,33 @@ fn app_multi_traversal_snapshot_lands_popstate_staged_update_on_the_wrong_entry(
         app.traversal_queue().is_empty(),
         "both queued traversals drained in the one snapshot (the Slice-B unlock)"
     );
-    assert_eq!(
-        current_url(&app).as_deref(),
-        Some("https://example.com/a"),
-        "back() then forward() both applied, netting onto /a"
+    assert!(
+        !super::test_support::staged_session_history_work(&app),
+        "the ONE drive ran the turn to quiescence — the staged replace was consumed \
+         by a later ITERATION, so the divergence below is no longer entangled with \
+         cross-drive latency (`#11-app-mode-turn-completion-drain`)"
     );
     assert_eq!(
-        entry_url(&app, 1).as_deref(),
-        Some("https://example.com/a"),
-        "the popstate-staged replaceState is NOT settled by the drain that fired it \
-         (it is still on the VM FIFO) — that deferral is `#11-app-mode-turn-completion-drain`"
+        app.interactive
+            .as_ref()
+            .unwrap()
+            .nav_controller
+            .current_index(),
+        1,
+        "back() then forward() both applied, netting the CURSOR back onto entry 1 — \
+         the entry the replace then rewrote (so `current_url` reads /from-popstate, \
+         not /a: the cursor did not move, the entry under it changed)"
     );
-
-    // The next drive settles it — against the cursor the SECOND traversal left.
-    let _ = app.process_pending_navigation();
-
     assert_eq!(
         entry_url(&app, 1).as_deref(),
         Some("https://example.com/from-popstate"),
-        "DIVERGENCE (pinned): the replace lands on /a — the entry the FORWARD traversal \
-         moved to — destroying it"
+        "DIVERGENCE (pinned): the replace lands on entry 1 — /a, the entry the FORWARD \
+         traversal moved to — destroying it"
     );
     assert_eq!(
         entry_url(&app, 0).as_deref(),
         Some("https://example.com/"),
         "and `base` — the entry that was current when the handler ran, i.e. the one \
-         §7.4.6.1 step 14's note says should have been replaced — is left untouched"
-    );
-}
-
-/// **Pins app-mode's CURRENT BOUNDED behavior, not a correct-by-design one** — slot
-/// `#11-app-mode-turn-completion-drain`.
-///
-/// Two facts are entangled here and only the first is by design. **(1)** The root
-/// invariant behind the by-construction proof (plan §4.4 premise 5): no app-mode
-/// apply body synchronously drives Phase 1, so a history action STAGED during a
-/// Phase-2 apply — here a `pushState` from the synchronously-fired `popstate`
-/// handler of a same-document traversal — is NOT partitioned into the CURRENT
-/// drain's queue, which is exactly what makes the bounded snapshot complete.
-/// **(2)** But nothing settles it either: `drain_same_turn` has no post-Phase-2
-/// synchronous drain, so the staged `pushState` sits on the VM FIFO until the next
-/// input event **that actually reaches the drive site** — which is NOT every input
-/// event: `events::handle_click` returns early on a hit-test miss / a chrome-band
-/// click / an unset `cursor_pos`, and `events::handle_keyboard` on an unfocused
-/// document, all before the drain. The residual latency is therefore **unbounded**;
-/// the second drive below measures the BEST case (one turn), not a guarantee. That
-/// is the shape Slice A describes as "firing much too late" and
-/// FIXED for content mode (Codex #469 R9) by running
-/// `DrainCoordinator::drain_synchronous_updates` immediately after
-/// `run_deferred_traversals` — pinned by the content counterpart
-/// `content_history_phase_sep_tests::pump_drains_popstate_staged_pushstate_this_turn`,
-/// which asserts the popstate-staged `pushState` lands on the SAME turn. App-mode
-/// has no such counterpart, so the assertions below describe the status quo.
-///
-/// ⚠ **The residual is WRONG-ENTRY MUTATION, not merely a late effect** (severity
-/// raised 2026-07-26; the slot carries the full statement). The staged update is
-/// applied by whichever LATER drive arrives, and **the cursor can move in between**
-/// — the non-drain cursor movers never touch the coordinator:
-/// `app/navigation.rs::handle_chrome_action` (toolbar Back/Forward) and
-/// `app/inline.rs`'s Alt+←/→ both call `App::traverse_to`
-/// directly and return, with no `process_pending_navigation` on either path. So:
-/// popstate stages a `pushState` → the drive returns without settling it → the user
-/// presses toolbar Back → the next drive that IS reached applies the update against
-/// the **post-traversal** cursor. The replace arm then overwrites the *current*
-/// entry (now the traversal target, not the entry whose handler staged the update),
-/// and the push arm reaches `push_entry`'s `entries.truncate(current_index + 1)`,
-/// **destroying the forward entries the user just traversed away from**. This test
-/// drives the drain directly and therefore pins only the LATENCY facet; the
-/// corruption facet needs an interleaved chrome traversal and is pinned separately
-/// by [`app_popstate_staged_push_destroys_forward_entries_after_an_interleaved_chrome_traversal`]
-/// below. Both flip when the fix lands.
-///
-/// The fix is **loop-until-quiescent turn completion**, NOT a trailing
-/// `drain_synchronous_updates` — that trailing drain is not merely insufficient, it
-/// is **wrong**. It would settle a popstate-staged `pushState`, but a popstate-staged
-/// `back()` would be peek-classified (Resolution E) and left **resident on the
-/// `TraversalQueue` across the turn boundary**. Such a step is NOT stranded: the next
-/// turn's `drain_same_turn` seeds `seen_traversal` from `has_pending_traversal()` and
-/// its Phase 2 drains it, at exactly the latency it has today. What the trailing drain
-/// does is **freeze the in-range classification a turn early**, voiding the queue's
-/// own contract that Resolution E "leaves no `Traversal` step for a no-op, so it never
-/// over-suppresses": the **non-drain** cursor movers run between turns (chrome toolbar
-/// Back/Forward and Alt+←/→ call `traverse_to` directly; an `<a href>` default calls
-/// `navigate`), so the resident step can be a no-op by the next turn while still acting
-/// as a FULL barrier — seeding `seen_traversal` at Phase-1 ENTRY (deferring every fresh
-/// `pushState` behind it) and latching `suppress_default` true at Phase-1 EXIT, killing
-/// an unrelated `<a href>` default for a traversal whose Phase-2 re-peek then finds it
-/// out of range and no-ops. When the resident step IS still in range its apply ships,
-/// so the Resolution-D `traversal_applied` latch CANCELS every `pushState` deferred
-/// behind it — that specific cancel is *today's* behavior too (a parked `back()` leads
-/// the same VM FIFO on the next turn, pinned by
-/// [`app_trailing_syncupdate_canceled_behind_cursor_moving_traversal`]), so the
-/// over-suppression above is what the trailing drain newly breaks. It would also
-/// contradict `process_pending_navigation`'s premise-5 exit assert by construction
-/// (the queue would be deliberately non-empty at drain exit). Edge-dense ⇒ its own
-/// plan-reviewed PR, at which point this test flips to the content shape.
-#[test]
-fn app_popstate_staged_action_defers_to_the_next_drain_not_the_current_queue() {
-    let mut app = app_at(
-        "<p>doc</p>\
-         <script>window.addEventListener('popstate', function () {\
-           history.pushState(null, '', '/from-popstate');\
-         });</script>",
-        base(),
-    );
-    seed_same_document_pair(&mut app); // [base, /a], cursor on /a
-
-    eval(&mut app, "history.back();");
-    let _ = app.process_pending_navigation();
-
-    assert!(
-        app.traversal_queue().is_empty(),
-        "the popstate handler's pushState did not re-enter this drain's partition"
-    );
-    // `history_len` cannot say this: had the drain applied the staged pushState it
-    // would have pushed from the post-traversal cursor (index 0), truncating the
-    // forward `/a` — [base, /from-popstate], still 2 entries.
-    assert_eq!(
-        entry_url(&app, 1).as_deref(),
-        Some("https://example.com/a"),
-        "the popstate-staged pushState is NOT applied by the drain that fired popstate — \
-         the forward /a is still there, not replaced by /from-popstate"
-    );
-    assert_eq!(
-        current_url(&app).as_deref(),
-        Some("https://example.com/"),
-        "this turn ends on the back target"
-    );
-
-    // The next turn's drain partitions it — the degenerate later task.
-    let _ = app.process_pending_navigation();
-    assert_eq!(
-        entry_url(&app, 1).as_deref(),
-        Some("https://example.com/from-popstate"),
-        "the staged pushState applied on the NEXT drain, truncating the forward /a and \
-         appending itself in its place"
-    );
-    assert_eq!(
-        history_len(&app),
-        2,
-        "truncate-then-append keeps the length"
-    );
-    assert_eq!(
-        current_url(&app).as_deref(),
-        Some("https://example.com/from-popstate"),
-        "and the cursor moved onto it"
-    );
-}
-
-/// **Pins the ESCALATED facet of `#11-app-mode-turn-completion-drain`: not late, but
-/// DESTRUCTIVE.** Codex `/external-converge` R5/R8 + the R10 fix-delta gate.
-///
-/// The sibling pin
-/// [`app_popstate_staged_action_defers_to_the_next_drain_not_the_current_queue`]
-/// covers only the *latency* facet (the staged intent is not settled by the drain
-/// that fired `popstate`). This one covers the consequence that made the slot's
-/// severity rise from "unbounded latency" to **wrong-entry mutation**: because the
-/// non-drain cursor movers bypass the coordinator entirely, the cursor can move
-/// between the staging and the settling, and `push_entry`'s
-/// `entries.truncate(current_index + 1)` then **destroys live forward entries**.
-///
-/// `App::handle_chrome_action` (toolbar Back/Forward → `App::traverse_to`) and
-/// `app/inline.rs`'s Alt+←/→ are the traversal movers; `ChromeAction::Navigate` (the
-/// address bar, on its same-document arm) and `Reload` move/restamp the same SoT the
-/// same way. **None** of them routes through `App::process_pending_navigation`, so
-/// none drains the VM's `pending_history` first.
-///
-/// Sequence from `[base, /a, /b]` on `/b`: `history.back()` applies → cursor `/a` →
-/// `popstate` fires → the handler stages `pushState('/from-popstate')`, which this
-/// turn does NOT settle → the user presses toolbar **Back** → cursor `base`, still
-/// unsettled → the next drive that is actually reached finally applies the staged
-/// push **against `base`**, truncating and destroying BOTH `/a` and `/b`.
-///
-/// Per WHATWG HTML §7.4.6.1 *Updating the traversable* step 14's note, the
-/// synchronous navigation steps "jump the queue … before this traversal potentially
-/// unloads their document", i.e. the push belongs to the entry whose handler issued
-/// it (`/a`), which would leave `/b` intact. This test asserts elidex's divergent
-/// outcome and flips when `#11-app-mode-turn-completion-drain` lands.
-///
-/// (The handler guards on a flag rather than `removeEventListener` so exactly one
-/// `pushState` is staged: the later chrome traversal fires `popstate` again, and
-/// relying on removal made the outcome depend on listener-removal semantics that are
-/// not what this test is about.)
-#[test]
-fn app_popstate_staged_push_destroys_forward_entries_after_an_interleaved_chrome_traversal() {
-    let mut app = app_at(
-        "<p>doc</p>\
-         <script>window.__staged = false;\
-         window.addEventListener('popstate', function () {\
-           if (window.__staged) { return; }\
-           window.__staged = true;\
-           history.pushState(null, '', '/from-popstate');\
-         });</script>",
-        base(),
-    );
-    // Seed [base, /a, /b] sharing one document_sequence, cursor on /b.
-    let a = url("https://example.com/a");
-    let b = url("https://example.com/b");
-    app.interactive
-        .as_mut()
-        .unwrap()
-        .nav_controller
-        .push_same_document(a);
-    app.interactive
-        .as_mut()
-        .unwrap()
-        .nav_controller
-        .push_same_document(b.clone());
-    activate_seeded_entry(&mut app, b);
-
-    eval(&mut app, "history.back();");
-    let _ = app.process_pending_navigation();
-
-    assert_eq!(
-        (entry_url(&app, 1).as_deref(), entry_url(&app, 2).as_deref()),
-        (Some("https://example.com/a"), Some("https://example.com/b")),
-        "the popstate-staged pushState is NOT settled by the drain that fired popstate, \
-         so the entry list is still intact at this point"
-    );
-
-    // The toolbar Back — bypasses `process_pending_navigation` entirely, so the
-    // staged push is still pending while the cursor moves out from under it.
-    app.handle_chrome_action(crate::chrome::ChromeAction::Back);
-    assert_eq!(
-        current_url(&app).as_deref(),
-        Some("https://example.com/"),
-        "chrome Back moved the cursor to base without draining the staged update"
-    );
-
-    // The next drive that is reached finally settles it — against `base`.
-    let _ = app.process_pending_navigation();
-
-    assert_eq!(
-        entry_url(&app, 1).as_deref(),
-        Some("https://example.com/from-popstate"),
-        "DIVERGENCE (pinned): the staged push applied against the chrome-moved cursor"
-    );
-    assert!(
-        (1..history_len(&app))
-            .all(|i| entry_url(&app, i).as_deref() != Some("https://example.com/a")),
-        "DIVERGENCE (pinned): /a — the entry whose popstate handler issued the push, and \
-         the one §7.4.6.1 step 14's note says the push belongs to — was DESTROYED"
-    );
-    assert!(
-        (1..history_len(&app))
-            .all(|i| entry_url(&app, i).as_deref() != Some("https://example.com/b")),
-        "DIVERGENCE (pinned): /b — a live forward entry unrelated to the push — was \
-         destroyed too, by `push_entry`'s entries.truncate(current_index + 1)"
+         §7.4.6.1 step 14.1.1's note says should have been replaced — is left untouched"
     );
 }

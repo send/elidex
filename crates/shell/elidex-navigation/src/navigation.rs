@@ -103,7 +103,19 @@ impl NavigationController {
     /// The `document_sequence` of the current entry, or `None` when no page is
     /// loaded — the id a [`push_same_document`](Self::push_same_document) /
     /// [`replace_same_document`](Self::replace_same_document) inherits.
-    fn current_document_sequence(&self) -> Option<u64> {
+    ///
+    /// Also the **document-swap marker** a shell compares across a step that may
+    /// rebuild the pipeline: every new-document event re-stamps it from the
+    /// monotonic allocator ([`push`](Self::push) / [`replace`](Self::replace) /
+    /// [`restamp_current_document`](Self::restamp_current_document), the latter
+    /// reached by a reload and by a cross-document traversal's commit), while every
+    /// same-document event ([`push_same_document`](Self::push_same_document) /
+    /// [`replace_same_document`](Self::replace_same_document) /
+    /// [`commit_index`](Self::commit_index) onto a document sibling) leaves it
+    /// alone. Monotonic allocation means the comparison has no ABA: a changed value
+    /// is a swap, an equal value is not.
+    #[must_use]
+    pub fn current_document_sequence(&self) -> Option<u64> {
         self.index.map(|i| self.entries[i].document_sequence)
     }
 

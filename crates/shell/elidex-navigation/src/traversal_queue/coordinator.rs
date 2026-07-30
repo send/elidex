@@ -41,12 +41,18 @@ pub struct DrainOutcome {
     /// navigation on the click path (`content/event_handlers.rs`,
     /// `app/events.rs::handle_click`). It is deliberately NOT a render gate:
     /// content's keyboard turn keys its own render on `!shipped` (see its comment
-    /// there), and app-mode's keyboard turn discards this outcome entirely.
+    /// there), and app-mode's keyboard turn discards this outcome entirely — as do
+    /// its peek-gated dispatch-entry drives, which settle a PREVIOUS turn's residue
+    /// and so must not latch the following turn's default-suppression.
     /// Computed ONCE at the end of [`drain_synchronous_phase`] as
     /// `own_context_action || <the queue holds a pending `Traversal` step>` (plan
     /// §1 B/E1), so the "own-context effect OR a pending traversal supersedes"
     /// rule has a **single home** and both content call sites read one field
-    /// rather than re-deriving the queue query. Cross-turn-robust: a Turn-1
+    /// rather than re-deriving the queue query. Where a turn's drive ITERATES
+    /// (app-mode's quiescence loop), the shell OR-latches the per-iteration values
+    /// into the one its consumer reads — the per-call derivation here is unchanged,
+    /// and "at most once per turn" is a claim about the CONSUMER, not about how
+    /// many times the value is derived. Cross-turn-robust: a Turn-1
     /// traversal still queued in Turn-2 keeps this `true` until Phase 2 drains it;
     /// Resolution E guarantees a no-op `go(999)` leaves no `Traversal` step, so it
     /// never over-suppresses a legitimate default.
@@ -65,9 +71,13 @@ pub struct DrainOutcome {
 /// [`DrainCoordinator::run_deferred_traversals`] (a later pump turn), the seam
 /// that realizes the task boundary — plus
 /// [`DrainCoordinator::drain_synchronous_updates`] as its top-of-turn settle.
-/// **App-mode** has no pump and drives the single same-turn
+/// **App-mode** has no pump and drives the same-turn
 /// [`DrainCoordinator::drain_same_turn`] (the app-mode-degenerate path + the
-/// isolation tests).
+/// isolation tests) as the **iteration unit of its drive-site quiescence loop** —
+/// once per turn in the common case, repeated while the turn's handlers keep
+/// staging (`elidex-shell` `app/drain_host.rs`). The loop is a shell schedule
+/// policy: this coordinator stays a stateless phase driver, and every invariant
+/// below is stated per call.
 pub struct DrainCoordinator;
 
 impl DrainCoordinator {
@@ -239,8 +249,9 @@ impl DrainCoordinator {
     /// caller runs Phase 2 via [`run_deferred_traversals`] **separately**, on a
     /// later async-pump turn, realizing §7.4.6.1 *apply the history step*
     /// step-12's task boundary (plan §4.5 I1). **This split pair is content-mode's
-    /// entry point; app-mode drives neither half** — its end-of-input-handler
-    /// drain runs both phases inside [`drain_same_turn`](Self::drain_same_turn).
+    /// entry point; app-mode drives neither half** — each iteration of its
+    /// end-of-input-handler drive runs both phases inside
+    /// [`drain_same_turn`](Self::drain_same_turn).
     /// The caller checks [`TraversalQueue::is_empty`] (via
     /// [`DrainHost::traversal_queue`]) to know whether Phase-2 work is pending.
     ///
@@ -301,7 +312,8 @@ impl DrainCoordinator {
     /// apply reads the entry list only after Phase 1's updates have landed (I1).
     /// **Content-mode's async pump is its only caller** — app-mode's
     /// end-of-input-handler Phase 2 runs inside
-    /// [`drain_same_turn`](Self::drain_same_turn), not here.
+    /// [`drain_same_turn`](Self::drain_same_turn), not here, and its drive-site
+    /// quiescence loop iterates THAT, never this, so the only-caller claim holds.
     ///
     /// - **I3 (guard bracket).** The [`TraversalQueue`]'s "running nested apply
     ///   history step" boolean (observable via [`TraversalQueue::is_applying`]) is
@@ -333,6 +345,15 @@ impl DrainCoordinator {
     /// §4.5 I1), so its end-of-input-handler drain collapses the two phases into a
     /// single synchronous return that renders **one** frame — not a per-phase
     /// frame per turn. It is also the isolation-test convenience.
+    ///
+    /// **It is app-mode's ITERATION UNIT, not its whole turn.** The drive site
+    /// (`elidex-shell` `app/drain_host.rs`) repeats this call plus its own
+    /// reinstatement tail until the turn is quiescent, because a `popstate`
+    /// handler this call's Phase 2 fires can stage work Phase 1b has already run
+    /// past. Everything stated here is therefore per call, and holds unchanged: N
+    /// iterations issue at most N `ship_frame`s, and since app-mode's `ship_frame`
+    /// is `Window::request_redraw` — which winit coalesces — that is still ONE
+    /// frame, with the shell OR-merging the per-iteration outcomes.
     ///
     /// **Content-mode does NOT use this path.** Content-mode has a real task
     /// boundary and schedules the two phases across *separate turns* via the split
@@ -423,7 +444,16 @@ impl DrainCoordinator {
         // unreachable in app-mode Slice-B — but BY CONSTRUCTION rather than by a guard
         // (`app/drain_host.rs` module doc, plan §4.4): the inline path has no message pump
         // and no SW-wait, so no apply body re-enters `run_synchronous_phase_body` mid-drain
-        // and the app-mode R18 carry is structurally VOID, not deferred. What still lands
+        // and the app-mode R18 carry is structurally VOID, not deferred. App-mode's
+        // drive-site quiescence LOOP does not weaken that: it is site-driven and
+        // sequential — each iteration begins only after every body of the previous one has
+        // RETURNED — so no Phase-1 partition ever runs mid-apply, and a `[Traversal,
+        // SyncUpdate]` pair enqueued by one Phase 1b is captured whole by that same
+        // iteration's `pending_len()` snapshot and cancelled here. A `SyncUpdate` a
+        // `popstate` handler stages DURING the apply is not that carry: it never reaches
+        // this queue at all (it lands on the host's channel and is partitioned by the NEXT
+        // iteration's Phase 1b), which is the turn-granularity settle the loop exists for.
+        // What still lands
         // with the tagged queue (`#11-sync-navigation-steps-queue-tagging`) is the CANONICAL
         // reentrant-Phase-1-under-apply case — a shell that really does re-partition the
         // FIFO mid-apply.

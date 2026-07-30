@@ -54,6 +54,15 @@ impl App {
 
         match event {
             WindowEvent::RedrawRequested => {
+                // Dispatch-entry drive (1 of 3) — see
+                // `App::drive_staged_session_history_work`. Ahead of
+                // `handle_redraw_inline` because its TAIL runs the chrome action
+                // this frame produced (`handle_chrome_action`: toolbar
+                // Back/Forward, the address bar, Reload — all non-drain cursor
+                // movers), including chrome interactions whose originating input
+                // event egui consumed, which only materialize at a later
+                // `RedrawRequested`.
+                self.drive_staged_session_history_work();
                 self.handle_redraw_inline();
             }
             _ if egui_consumed => {}
@@ -182,7 +191,22 @@ impl App {
     }
 
     /// Handle `MouseInput::Pressed` in legacy inline mode.
-    fn handle_mouse_press_inline(&mut self, button: winit::event::MouseButton) {
+    ///
+    /// `pub(super)` so `app_turn_completion_tests` can pin dispatch-entry drive (3)
+    /// at its REAL call site rather than through the shared reader body — the layer
+    /// distinction is exactly what the drive placement turns on.
+    pub(super) fn handle_mouse_press_inline(&mut self, button: winit::event::MouseButton) {
+        // Dispatch-entry drive (3 of 3) — see
+        // `App::drive_staged_session_history_work`. Ahead of the active-chain
+        // update AND of `handle_click` (whose `<a href>` default is a non-drain
+        // mover, and whose four early returns are all downstream of here, so a
+        // click on blank space now drains residue instead of stranding it).
+        //
+        // Placing it BEFORE the active-chain clone is what keeps it safe against
+        // the `events.rs` stale-entity class: a drive that rebuilds clears
+        // `hover_chain`/`active_chain` (`app/navigation.rs`), so the clone below
+        // is empty — never an entity aliasing a fresh `EcsDom`'s.
+        self.drive_staged_session_history_work();
         if let Some(interactive) = &mut self.interactive {
             // Clear stale ACTIVE from a previous press.
             for &e in &interactive.active_chain {
@@ -226,6 +250,13 @@ impl App {
         key_event: &winit::event::KeyEvent,
         address_focused: bool,
     ) {
+        // Dispatch-entry drive (2 of 3) — see
+        // `App::drive_staged_session_history_work`. Ahead of the Alt+←/→ branch
+        // below, which calls `traverse_to` (a non-drain cursor mover) and RETURNS
+        // without ever reaching the DOM keyboard path `events::handle_keyboard` —
+        // so the drive at the `App::handle_keyboard` layer does not cover it. This
+        // is the winit dispatch layer, where the movers actually branch.
+        self.drive_staged_session_history_work();
         if key_event.state == ElementState::Pressed {
             let mods = self
                 .interactive

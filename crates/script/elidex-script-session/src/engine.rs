@@ -386,6 +386,43 @@ pub trait HostDriver {
     /// drain only until the S5-6 flip deletes the crate.
     fn take_pending_window_opens(&mut self) -> Vec<WindowOpenIntent>;
 
+    /// Non-consuming peek at whether **session-history work is staged** on this
+    /// engine's channels — the history FIFO
+    /// ([`take_pending_history`](Self::take_pending_history)) is non-empty, OR the
+    /// own-context navigation slot
+    /// ([`take_pending_navigation`](Self::take_pending_navigation)) is occupied, OR
+    /// the `window.open` queue
+    /// ([`take_pending_window_opens`](Self::take_pending_window_opens)) is
+    /// non-empty. The [`has_pending_scroll`](Self::has_pending_scroll) shape:
+    /// **peek, don't consume** — the shell's drain remains the single drain point.
+    ///
+    /// A shell whose drain is a *loop* (app-mode's turn-completion drive,
+    /// `elidex-shell` `app/drain_host.rs`) needs "is anything still staged?" as a
+    /// question, and all three drains above answer it only by destroying it. It has
+    /// two reader classes there: the loop's quiescence predicate, and the
+    /// dispatch-entry drives that bound a previous turn's residue.
+    ///
+    /// **THE PREDICATE INVARIANT — the governance rule for every future channel
+    /// added to this trait**: *the predicate set ≡ the channel set one iteration of
+    /// the drain loop's Phase 1 consumes.* Either direction of breach is a defect:
+    /// predicate ⊃ consumed loops to the round cap on work no iteration can drain;
+    /// predicate ⊂ consumed exits "quiescent" with residue still staged. Concretely,
+    /// the channels this must **NOT** include, because a
+    /// `DrainCoordinator::drain_same_turn` Phase 1 does not consume them (each has
+    /// its own drain point elsewhere):
+    /// [`take_pending_storage_changes`](Self::take_pending_storage_changes),
+    /// [`take_pending_idb_versionchange_requests`](Self::take_pending_idb_versionchange_requests),
+    /// [`take_pending_focus`](Self::take_pending_focus),
+    /// [`take_pending_parent_messages`](Self::take_pending_parent_messages),
+    /// [`take_pending_scroll`](Self::take_pending_scroll).
+    ///
+    /// Window-opens ARE included: app-mode's settle for them is
+    /// drain-and-drop (`DrainHost::route_window_opens`), which Phase 1a performs
+    /// unconditionally — excluding them would strand opens staged during a Phase-2
+    /// apply on a pipeline the next navigation replaces.
+    #[must_use]
+    fn has_pending_session_history_work(&self) -> bool;
+
     /// Push the authoritative session-history position — the current entry's
     /// 0-based `index` and total `length` — together (so they never desync) after
     /// a navigation/traversal commit, so `history.length` reads correctly and the

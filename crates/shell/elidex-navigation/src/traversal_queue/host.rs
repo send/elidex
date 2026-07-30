@@ -134,7 +134,10 @@ pub trait DrainHost {
     /// `DrainCoordinator::drain_traversal_queue` argues
     /// unreachable (content-mode: the interim buffer guard plus a `pending_len()`
     /// snapshot that never splits a `[Traversal, SyncUpdate]` pair; app-mode:
-    /// structurally void, no reentrant Phase 1), and it belongs to
+    /// structurally void, no reentrant Phase 1 — and its drive-site quiescence
+    /// loop does not reopen it, because every ITERATION runs a Phase 2 that
+    /// empties the queue before the next Phase 1b peeks, so "survive a drain" is
+    /// no more reachable across iterations than across turns), and it belongs to
     /// `#11-sync-navigation-steps-queue-tagging`.
     ///
     /// **The two issue-time hoists are a COUPLED PAIR — neither moves alone.**
