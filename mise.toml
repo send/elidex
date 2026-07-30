@@ -112,11 +112,18 @@ description = "Run layering trip-wires (engine-bridge + VM-side wasm + native-ct
 #     C-4 can delete `LayoutBox`.
 # A single `trip-wires` task collapses the decision surface so no wire
 # can be skipped on a busy PR.
+#
+# The list above is documentation; the GLOB below is the definition. The identical
+# loop runs as the ungated `trip-wires` job in `.github/workflows/ci.yml`, so a new
+# `*-trip-wire.sh` is picked up locally and in CI without editing either site — the
+# two cannot drift into "wires that only run in one place".
 run = """
-bash .claude/tools/wasm-runtime-trip-wire.sh
-bash .claude/tools/wasm-vm-trip-wire.sh
-bash .claude/tools/native-ctor-guard-trip-wire.sh
-bash .claude/tools/layout-box-reader-trip-wire.sh
+set -e
+for w in .claude/tools/*-trip-wire.sh; do
+  [ -e "$w" ] || { echo "no trip-wire scripts matched the glob"; exit 1; }
+  echo "===== $w"
+  bash "$w"
+done
 """
 
 [tasks.ci]

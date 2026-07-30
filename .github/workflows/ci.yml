@@ -124,3 +124,31 @@ jobs:
 
       - name: Check licenses and vulnerabilities
         run: cargo deny check
+
+  # Deliberately UNGATED — no `needs: changes`, no `if:`. Every other job here is
+  # filtered because it pays for a Rust toolchain; the wires are grep-only (~1s for
+  # the whole set, no toolchain, no cache), so the filter would buy nothing and cost
+  # the one property the wires exist for. To gate them, `.claude/tools/**` would have
+  # to be listed in a filter — i.e. the tamper path of an allowlist gate would itself
+  # be an allowlist entry someone must remember to keep current, and a PR editing
+  # only `layout-box-reader-allowlist.tsv` would otherwise skip the job that reads it.
+  # Running unconditionally removes that failure mode by construction, for these wires
+  # and for any wire added later whose path coverage nobody re-derives.
+  trip-wires:
+    name: Layering trip-wires
+    timeout-minutes: 5
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      # Identical to `mise run trip-wires` (mise.toml). The GLOB is the single
+      # definition of the wire set, so a new `*-trip-wire.sh` is picked up by both
+      # without editing either list.
+      - name: Run layering trip-wires
+        run: |
+          set -e
+          for w in .claude/tools/*-trip-wire.sh; do
+            [ -e "$w" ] || { echo "no trip-wire scripts matched the glob"; exit 1; }
+            echo "===== $w"
+            bash "$w"
+          done

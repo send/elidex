@@ -585,10 +585,10 @@ classified inventory downstream slices cite, and beyond the memo's §6.4 pre-enu
    `let lb = LayoutBox { … }; … insert_one(e, lb)` — the form all 19 migrated sites use — because grep cannot
    type-infer and banning identifier-argument inserts fires on every `style`/`info` insert in the same files.
    Same root, both directions. Resolution trigger = C-4, which must not read a green gate as covering either.
-3. **`#11-layoutbox-trip-wire-not-in-ci`** — the D4 gate runs only in the local `mise run ci`; no GitHub
-   workflow invokes it (see the ⚠ below). Until it is in a workflow its verdict is a pre-push habit rather
-   than an enforced invariant, which is load-bearing because C-4's delete decision reads it. Resolution
-   trigger = before C-4, or the next `.github/workflows` touch.
+3. ~~**`#11-layoutbox-trip-wire-not-in-ci`**~~ — **RESOLVED 2026-07-31.** `.github/workflows/ci.yml` now
+   carries an ungated `trip-wires` job running the `.claude/tools/*-trip-wire.sh` glob on every push and
+   PR, so the D4 gate is an enforced invariant and C-4's delete decision reads a gate that provably runs.
+   See the ⚠ below for what the resolution changed.
 
 *(A further candidate — the fallback fragment reporting a fabricated column `0` — was **fixed in-slice**
 rather than slotted: `FragmentView::fragmentainer` is now `Option<u32>`, so "unknown" is unrepresentable
@@ -601,14 +601,19 @@ edits a non-test `LayoutBox`/`BoxModel` line must now update the allowlist *and*
 radius is **semantic, not textual** — a concurrent PR can conflict with no line — so §0's file-overlap
 parallel-safety analysis does not cover it.
 
-⚠ **And the gate cannot catch it either: it does not run in CI.** `.github/workflows/ci.yml` runs only
-cargo fmt/clippy/nextest/doc/deny; its sole `mise` reference is the string `'mise.toml'` inside the
-paths-filter list. So a lane that adds a reader merges all-green and main carries a stale allowlist until
-someone happens to run `mise run ci` locally. An earlier draft of this paragraph claimed such a PR would
-"red CI on main" — false, and withdrawn. Until the gate is in a workflow its verdict is a pre-push habit,
-not an enforced invariant, which matters because C-4's delete decision is taken against it. New slot
-**`#11-layoutbox-trip-wire-not-in-ci`** (resolution trigger: before C-4, or the next `.github/workflows`
-touch).
+⚠ **And CI now catches it — as of 2026-07-31, but not before.** This paragraph previously read "the gate
+cannot catch it either: it does not run in CI", which was accurate when C-3a landed: `ci.yml` ran only
+cargo fmt/clippy/nextest/doc/deny, and its sole `mise` reference was the string `'mise.toml'` inside the
+paths-filter list, so a lane that added a reader merged all-green and main carried a stale allowlist until
+someone happened to run `mise run ci` locally. (An even earlier draft claimed such a PR would "red CI on
+main" — false at the time, and withdrawn.) Slot `#11-layoutbox-trip-wire-not-in-ci` closed that: `ci.yml`
+now has a `trip-wires` job running the `.claude/tools/*-trip-wire.sh` glob — the same glob `mise run
+trip-wires` uses, so the two cannot drift — on every push and PR. It is deliberately **ungated** by the
+paths-filter: gating would require listing `.claude/tools/**`, which makes the tamper path of an allowlist
+gate itself an allowlist entry, and a PR editing only `layout-box-reader-allowlist.tsv` would skip the job
+that reads it. The wires are grep-only (~1s, no toolchain), so the filter bought nothing and cost the one
+property they exist for. The cross-lane obligation above is therefore now machine-enforced rather than a
+convention — a lane that adds a reader reds its own PR.
 
 ---
 

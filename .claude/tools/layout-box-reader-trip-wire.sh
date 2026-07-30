@@ -47,14 +47,19 @@
 #     genuinely token-hiding macro ever lands, escalate D4 to a dylint HIR lint.
 #
 # Usage:
-#   layout-box-reader-trip-wire.sh              # CHECK (local `mise run ci` / pre-push)
+#   layout-box-reader-trip-wire.sh              # CHECK (local `mise run ci` / pre-push, and CI)
 #                                               #   exits non-zero on drift
-# ⚠ LOCAL ONLY. `.github/workflows/ci.yml` runs cargo fmt/clippy/nextest/doc/deny — it
-# invokes no `mise` task, so this gate NEVER runs on a PR or on main. Its verdict is
-# therefore enforced by the pre-push habit, not by CI, and a lane that skips /pre-push
-# drifts the allowlist silently. Slot `#11-layoutbox-trip-wire-not-in-ci`.
 #   layout-box-reader-trip-wire.sh --regenerate # rewrite the allowlist from the live tree
 #                                               #   (keeps existing classification columns by path+content)
+#
+# Enforced in BOTH places: locally via `mise run trip-wires` (⊂ `mise run ci`), and in CI
+# via the `trip-wires` job in `.github/workflows/ci.yml`, which runs the same
+# `.claude/tools/*-trip-wire.sh` glob on every push and every PR. That job is deliberately
+# UNGATED by the paths-filter — a filter would have to list `.claude/tools/**`, making the
+# tamper path of an allowlist gate itself an allowlist entry, and a PR editing only the
+# allowlist beside this script would otherwise skip the job that reads it. So this gate's
+# verdict is an enforced invariant rather than a pre-push habit, which is what C-4's
+# `LayoutBox`-delete decision needs, since that decision is taken against these wires.
 #
 # Run from anywhere. Exits non-zero on any violation.
 
