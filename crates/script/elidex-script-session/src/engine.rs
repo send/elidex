@@ -388,12 +388,16 @@ pub trait HostDriver {
 
     /// Non-consuming peek at whether **session-history work is staged** on this
     /// engine's channels — the history FIFO
-    /// ([`take_pending_history`](Self::take_pending_history)) is non-empty, OR the
-    /// own-context navigation slot
-    /// ([`take_pending_navigation`](Self::take_pending_navigation)) is occupied, OR
-    /// the `window.open` queue
+    /// ([`take_pending_history`](Self::take_pending_history)) is non-empty (WHATWG
+    /// HTML §7.4.4 *Non-fragment synchronous "navigations"* — the *URL and history
+    /// update steps*, step 13; §7.4.3 *Reloading and traversing* for the traversal
+    /// actions on the same FIFO), OR the own-context navigation slot
+    /// ([`take_pending_navigation`](Self::take_pending_navigation)) is occupied
+    /// (§7.4.2.2 *Beginning navigation*), OR the `window.open` queue
     /// ([`take_pending_window_opens`](Self::take_pending_window_opens)) is
-    /// non-empty. The [`has_pending_scroll`](Self::has_pending_scroll) shape:
+    /// non-empty (§7.2.2.1 *Opening and closing windows*). The predicate itself has
+    /// no spec algorithm — it is a drain-schedule question about those three
+    /// staging channels. The [`has_pending_scroll`](Self::has_pending_scroll) shape:
     /// **peek, don't consume** — the shell's drain remains the single drain point.
     ///
     /// A shell whose drain is a *loop* (app-mode's turn-completion drive,

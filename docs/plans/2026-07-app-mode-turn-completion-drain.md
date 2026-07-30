@@ -241,7 +241,7 @@ while flipping the pins in that file.
 | New surface | Citation |
 |---|---|
 | the turn-completion loop `(NEW)` | §7.4.6.1 *apply the history step* step 14.1.1's **turn-granularity counterpart** (the §1 mapping); the loop's docstring cites step 14.1.1 + the granularity split |
-| `HostDriver::has_pending_session_history_work` `(NEW)` | peeks the channels whose spec sources are §7.4.4 *URL and history update steps* step 13 (history FIFO), §7.4.2.2 *navigate* (navigation slot), and the `window.open` staging; shape = the `has_pending_scroll` non-consuming-peek idiom (§4.4 (D)); read at BOTH the loop predicate (§4.2) and the three dispatch-entry readers (§4.3) |
+| `HostDriver::has_pending_session_history_work` `(NEW)` | peeks the channels whose spec sources are §7.4.4 *URL and history update steps* step 13 (history FIFO), §7.4.2.2 *navigate* (navigation slot), and the `window.open` staging; shape = the `has_pending_scroll` non-consuming-peek idiom (§4.4 (D)); read at BOTH the loop predicate (§4.2) and the dispatch-entry reader (§4.3 — ONE, at the winit dispatch dominator; see that section's supersession note) |
 | `MAX_TURN_COMPLETION_ROUNDS` + the peek-gated dispatch-entry drives `(NEW)` | no spec step of its own — the in-tree bound idiom (β), §4.3 (`MAX_CE_STABILIZATION_ROUNDS`, `lib.rs:13`; `MAX_DRAIN_PER_TAB`, `app/content_messages.rs:23`) |
 
 ### §3.1 User-input touch audit
@@ -254,12 +254,16 @@ Every row above is reachable from ordinary user input, because the drive site *i
   (§7.4.4 row ii), `back`/`forward`/`go` (§7.4.3 rows), `location.*` (§7.4.2.2 row), or `window.open` —
   and it may do so **unconditionally**, which is exactly the non-termination vector §4.3 bounds.
 - Exposure delta: the loop adds no new entry point on the input path; the same script surface runs up to
-  N (= the §4.3 cap) times per turn instead of once. The non-quiescent-exit follow-up (§4.3) adds **three
-  peek-gated call sites of the existing drive, all at the winit dispatch layer** — the inline redraw arm
-  (`app/inline.rs:56`) plus the two inline input dispatch entries (`handle_mouse_press_inline`, `:185`;
-  `handle_keyboard_inline`, `:224`), each driving before any `dispatch_event` and before the mover
-  branches those dispatch functions contain — new call sites of an existing drive, not a new script
-  surface.
+  N (= the §4.3 cap) times per turn instead of once. The non-quiescent-exit follow-up (§4.3) adds
+  **ONE peek-gated call site of the existing drive, at the winit dispatch dominator**
+  (`app/inline.rs::handle_window_event_inline`), driving before any `dispatch_event` and before every
+  mover branch the dispatch can reach — a new call site of an existing drive, not a new script surface.
+  **⚠ As implemented this is one site, not the three this audit originally listed** (the inline redraw
+  arm + `handle_mouse_press_inline` + `handle_keyboard_inline`); the single dominator drive runs on
+  strictly MORE arms than those three — it also covers `CursorMoved`, `CursorLeft`, `ModifiersChanged`,
+  `MouseInput::Released` and the egui-consumed arm. §4.3's "IMPLEMENTED AS ONE READER, NOT THREE"
+  note carries the arm-by-arm safety + cost audit for that widening; this row is its input-surface
+  counterpart and must be read with it.
 
 ---
 
@@ -416,8 +420,8 @@ cap-hit's unconditional one included — is issued via this seam.
   arrive in same or even next event loop iteration"*); the in-tree image of the same contract is the
   `ship_frame` doc's coalescing note (`app/drain_host.rs:589-591`: *"winit coalesces concurrent requests
   into one `RedrawRequested`"*). Platform variance under occlusion/minimize is outside that guarantee —
-  but correctness does not rest on delivery: even if input reaches an occluded window, readers (2)/(3)
-  drain at that dispatch's entry before any mover runs — so redraw-delivery variance affects only settle
+  but correctness does not rest on delivery: even if input reaches an occluded window, the entry reader
+  drains at that dispatch's entry before any mover runs — so redraw-delivery variance affects only settle
   latency, never the wrong-entry window (an occluded/minimized window also typically receives no input or
   chrome interaction, but that is a platform observation, not the argument). The load-bearing guarantee
   is structural — a reader precedes every mover-carrying dispatch — not temporal delivery.
@@ -550,10 +554,10 @@ orthogonal decisions**:
   that owns the channels, an existing idiom, and a single home for "what counts as staged work". Whether
   it is one composed method or three per-channel peeks is a naming-level choice for plan-review; the lean
   is one method (one decision surface). The peek has **two reader classes** — the loop's quiescence
-  predicate (§4.2) and the three dispatch-entry readers (§4.3) — both asking the identical question "is
+  predicate (§4.2) and the dispatch-entry reader (§4.3; ONE site as implemented) — both asking the identical question "is
   session-history work staged on the current runtime?", which strengthens the single-home argument: a
   drive-schedule flag would be a second, divergently-maintained answer to the same question. The
-  dispatch-entry readers reach the peek through the **current** `interactive.pipeline.runtime` — a swap
+  dispatch-entry reader reaches the peek through the **current** `interactive.pipeline.runtime` — a swap
   replaces the pipeline, and with it the runtime, wholesale (`app/navigation.rs:322` `teardown_document`
   + `:342` `interactive.pipeline = new_pipeline`), so an entry peek can only ever see the current
   document's staged work, never a torn-down document's residue (which is not merely invisible — it is
@@ -651,7 +655,7 @@ consumed loops to the cap on work no iteration can drain (cap-loop); predicate �
   (`#11-nav-applied-shipped-decouple`'s conflation): the app-mode nav bodies request no repaint of
   their own (`ship_frame` doc, `app/drain_host.rs:580-584`: *"the drain requests **no repaint at
   all**; the repaint comes from the dispatch layer's unconditional redraw"*; the shipped-untrusted
-  note is `:594-597`), that unconditional redraw exists only on readers (2)/(3)'s dispatches
+  note is `:594-597`), that unconditional redraw exists only on the click / keyboard dispatches
   (`inline.rs:202`, `:298`), and the redraw arm requests a follow-up redraw only when a chrome action
   ran (`inline.rs:176-181`) — so a swap during a redraw-entry peek drive would otherwise exit with the
   new document's staged work and NO scheduled wakeup. The explicit exit-time `request_redraw()` (§4.3
@@ -659,7 +663,7 @@ consumed loops to the cap on work no iteration can drain (cap-loop); predicate �
   entry peek then reads the NEW document's runtime and drains whatever its initial scripts staged
   **as a new turn** — exactly reason 2's §7.4.6.1 step 14.12.5 later-task mapping — and when the new
   document staged nothing, the exit peek reads false: no redraw is requested *by the exit rule*, and
-  the next entry peek skips the drive (the dispatch-layer tail redraws of readers (2)/(3),
+  the next entry peek skips the drive (the dispatch-layer tail redraws of the click / keyboard dispatches,
   `inline.rs:298`/`:202`, fire regardless — they are the dispatch's own, not the rule's).
   The swap-exit also composes with the §4.3 cap: a handler chain that keeps *navigating* terminates at
   the first rebuild, independent of the cap.
@@ -707,13 +711,15 @@ plainly instead of inheriting the loop's bound. Same correction applies to the m
 "UNBOUNDED time" passage (`drain_host.rs:50-58`), which is therefore still accurate and gains only a
 clarifying parenthetical.
 
-The **"SOLE site" language** (`drain_host.rs:131-134`) gains three callers: the peek-gated drives
-from the three winit dispatch-layer entries (§4.3) — the `RedrawRequested` arm (`app/inline.rs:56`),
-`handle_keyboard_inline` (`:224`), and `handle_mouse_press_inline` (`:185`). All three are top-level
-arms/targets of the winit dispatch (`handle_window_event_inline`), with no synchronous path from any
-drain body back into them — so the premise-5 re-entrancy argument above is unchanged in substance; only
-the named call sites change. The property that matters — every drive goes through
-`process_pending_navigation`'s guard pair — is preserved; the doc is updated to name all callers.
+The **"SOLE site" language** gains **ONE caller**: the peek-gated drive at the winit dispatch
+dominator `app/inline.rs::handle_window_event_inline` (§4.3). (This section was authored for the
+three-reader form and said "gains three callers"; the §4.3 supersession note collapsed them to the
+dominator, so the shipped total is THREE callers of `process_pending_navigation` — the two in-handler
+drives plus this one — not three NEW ones. The in-tree docstring states the shipped set.) That entry is
+a top-level winit dispatch function with no synchronous path from any drain body back into it, so the
+premise-5 re-entrancy argument above is unchanged in substance; only the named call site changes. The
+property that matters — every drive goes through `process_pending_navigation`'s guard pair — is
+preserved.
 
 ### 4.8 OO→ECS / layer map (umbrella plan §4.5 style — reviewer verification without re-deriving §4)
 
@@ -744,7 +750,12 @@ mint a second answer to a question the controller already answers (One issue, on
 Single PR under the approved umbrella (edge-dense base case: a narrowly-scoped per-PR slice that has
 passed plan-review is a terminal unit). Source files are bounded (`app/drain_host.rs` 651 lines,
 `app/events.rs` 230, `elidex-script-session/src/engine.rs` gains one trait method + one impl in
-`elidex-js`). If plan-review overturns §4.4 toward the coordinator-owned loop, that becomes an
+`elidex-js`).
+**⚠ The `drain_host.rs` half of that claim did not survive implementation** — the drive site's loop,
+cap, predicate, marker, seam and their contracts took it to 974, so it was split at its own cohesion
+seam (drive site / `impl DrainHost for App`) into `app/drain_host/{mod,host}.rs`, mirroring
+`elidex-navigation`'s `traversal_queue/{coordinator,host}.rs`. This audit ran pre-implementation and
+was not redone against the delta; §5.1's audit of the TEST file was, and held. If plan-review overturns §4.4 toward the coordinator-owned loop, that becomes an
 `elidex-navigation` behavior change touching both shells and must be re-sliced as its own prereq PR.
 
 ### §5.1 Test-file audit (touch-time split discipline — the file this PR grows)
@@ -892,8 +903,8 @@ staged on those turns — the early returns delay *draining*, which the §4.3 fo
   ownership mints a one-consumer drive shape. Ratify or overturn (overturning to coordinator ⇒ re-slice,
   §5).
 - **Q2 — bound parameters** (§4.3): ratify cap value (8) and the degrade shape (`eprintln` + the
-  unified exit rule [any peek-true loop exit ⇒ `request_redraw`] + the three peek-gated dispatch-entry
-  drives: the `RedrawRequested` arm + `handle_mouse_press_inline` + `handle_keyboard_inline` entries).
+  unified exit rule [any peek-true loop exit ⇒ `request_redraw`] + the peek-gated dispatch-entry
+  drive — ratified as three per-arm sites, IMPLEMENTED as one at the dispatch dominator, §4.3).
   The *structure* (constant cap,
   `eprintln` observability, (next-dispatch ∨ frame)-bounded residue) is design, not open.
 - **Q3 — the non-quiescent-exit residual window: RESOLVED, accept + pin (no longer open)**. The residual,
@@ -937,8 +948,8 @@ All new/flipped turn-completion tests live in `app_turn_completion_tests.rs` (§
 - **New (termination + degrade)**: a handler that re-stages unconditionally terminates at the cap with
   the work still staged — asserted via the §4.4 peek reading true at drive exit, not via any flag; a
   subsequent dispatch-entry drive (the redraw path) picks it up, **and** a cap-hit turn followed by an
-  input (a click on blank space) drains the residue at the input dispatch entry (reader (3),
-  `handle_mouse_press_inline`), before any dispatch ((next-dispatch ∨ frame)-bounded, §4.3). Assert
+  input (a click on blank space) drains the residue at the winit dispatch entry
+  (`handle_window_event_inline`), before any dispatch ((next-dispatch ∨ frame)-bounded, §4.3). Assert
   per-turn iteration count never exceeds the cap, **and assert the §4.3 unified exit rule's frame
   leg via the observability seam: the test-only issuance counter on `App::schedule_followup_dispatch()`
   (NEW) incremented on the peek-true exit** (a bare `request_redraw` assert would be vacuous — the real
