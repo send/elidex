@@ -97,34 +97,18 @@ description = "Hard-cap target/ size to bound incremental cache growth (cargo-sw
 run = "bash scripts/ci-sweep.sh"
 
 [tasks.trip-wires]
-description = "Run layering trip-wires (engine-bridge + VM-side wasm + native-ctor-guard + LayoutBox-reader-audit discipline)."
-# Four scripts cover disjoint layering / discipline surfaces:
-#   - wasm-runtime-trip-wire.sh: elidex-wasm-runtime tier A-E discipline
-#     + elidex-js-boa wasmtime-free post-F1
-#   - wasm-vm-trip-wire.sh: elidex-js (VM) host/wasm + wasm_payload + crate
-#     wasmtime-free post-D-16
-#   - native-ctor-guard-trip-wire.sh: per-ctor `if !ctx.is_construct()`
-#     literal-guard + `check_construct(ctx)` helper-call re-introduction
-#     post-`#11-vm-native-constructor-only-flag` (Stage 3c)
-#   - layout-box-reader-trip-wire.sh: terminal-Z C-3 LayoutBox/BoxModel reader
-#     inventory (allowlist diff) + name-introduction ban — keeps the reader audit
-#     (docs/audits/2026-07-layoutbox-reader-inventory.md) exhaustive + current so
-#     C-4 can delete `LayoutBox`.
-# A single `trip-wires` task collapses the decision surface so no wire
-# can be skipped on a busy PR.
+description = "Run every layering trip-wire (.claude/tools/*-trip-wire.sh)."
+# A single task collapses the decision surface so no wire can be skipped on a
+# busy PR. The wires cover disjoint layering / discipline surfaces (wasm-runtime
+# tiers, VM-side wasm, native-ctor guards, the LayoutBox reader audit); each
+# script's own header documents its surface, so there is no list here to go stale
+# when a fifth wire lands — the glob inside the driver is the definition.
 #
-# The list above is documentation; the GLOB below is the definition. The identical
-# loop runs as the ungated `trip-wires` job in `.github/workflows/ci.yml`, so a new
-# `*-trip-wire.sh` is picked up locally and in CI without editing either site — the
-# two cannot drift into "wires that only run in one place".
-run = """
-set -e
-for w in .claude/tools/*-trip-wire.sh; do
-  [ -e "$w" ] || { echo "no trip-wire scripts matched the glob"; exit 1; }
-  echo "===== $w"
-  bash "$w"
-done
-"""
+# Logic lives in `scripts/trip-wires.sh` rather than inline, per the same
+# reasoning as `[tasks.doc]` above: an explicit bash shebang, and — since the
+# ungated `trip-wires` job in `.github/workflows/ci.yml` runs the very same script
+# — one definition instead of two copies asserted to be identical.
+run = "bash scripts/trip-wires.sh"
 
 [tasks.ci]
 description = "Run all CI checks locally"

@@ -24,8 +24,9 @@ type-defs, and `insert_one`/`&mut` producer-write sites), and classified against
 
 **Exhaustiveness is proven by the D4 trip-wire (impl §3), not by this document.** The trip-wire
 (`.claude/tools/layout-box-reader-trip-wire.sh`, run both by the local `mise run trip-wires`
-⊂ `mise run ci` **and** by the ungated `trip-wires` job in `.github/workflows/ci.yml` on every
-push and PR — so a lane that adds a reader cannot merge green, see the impl plan §6) greps
+⊂ `mise run ci` **and** by the ungated `trip-wires` job in `.github/workflows/ci.yml` on every PR
+against `main` and every push to `main` — so a lane that adds a reader reds its own PR rather
+than relying on the author having run the pre-push gate, see the impl plan §6) greps
 bare `git grep -nw LayoutBox` + `git grep -nw BoxModel` (the broadened `-nw BoxModel` grep catches
 generic `T: BoxModel` bounds the narrow `dyn|impl` grep misses), diffs live reads against the
 committed allowlist sibling of this doc (`.claude/tools/layout-box-reader-allowlist.tsv`), adds a

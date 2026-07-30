@@ -52,14 +52,15 @@
 #   layout-box-reader-trip-wire.sh --regenerate # rewrite the allowlist from the live tree
 #                                               #   (keeps existing classification columns by path+content)
 #
-# Enforced in BOTH places: locally via `mise run trip-wires` (⊂ `mise run ci`), and in CI
-# via the `trip-wires` job in `.github/workflows/ci.yml`, which runs the same
-# `.claude/tools/*-trip-wire.sh` glob on every push and every PR. That job is deliberately
-# UNGATED by the paths-filter — a filter would have to list `.claude/tools/**`, making the
-# tamper path of an allowlist gate itself an allowlist entry, and a PR editing only the
-# allowlist beside this script would otherwise skip the job that reads it. So this gate's
-# verdict is an enforced invariant rather than a pre-push habit, which is what C-4's
-# `LayoutBox`-delete decision needs, since that decision is taken against these wires.
+# Run BOTH locally (`mise run trip-wires` ⊂ `mise run ci`) and in CI (the ungated
+# `trip-wires` job in `.github/workflows/ci.yml`, which is where that job's gating
+# rationale lives). So a drifted allowlist now REDS THE PR instead of depending on
+# whether the author ran the pre-push gate — which is what C-4's `LayoutBox`-delete
+# decision needs, since that decision is taken against these wires.
+# ⚠ Precisely: CI reds the PR. It does not block the merge (no required-status-check
+# rule on `main`), and the human half of the obligation — keeping
+# docs/audits/2026-07-layoutbox-reader-inventory.md in step with the allowlist — is
+# still a convention this script only nags about in its FAIL messages.
 #
 # Run from anywhere. Exits non-zero on any violation.
 

@@ -389,7 +389,7 @@ bounds are **not** in this residual — the broadened `-nw BoxModel` grep catche
 | 1. `pub(crate)` rejects producers too | the allowlist is **data, not crate-visibility** — `elidex-layout-*` **producer** reads are listed as `producer` entries (excluded like `native-ctor-guard`'s SoT/test exclusions), so external-crate producers are permitted without weakening privacy anywhere |
 | 2. allowlisting `elidex-ecs` wholesale | the seam's own N=1 `LayoutBox` read (§1 req 2) is a **single** allowlisted line in `dom/geometry.rs`, tagged `seam` — NOT a blanket `elidex-ecs` exclusion, so a *future* low-level reader still trips |
 | 3. a single compiler run hides dep-blocked crates | **does not apply to grep** — the trip-wire reads source files directly, independent of compilation order, so there is no first-error-layer masking (a strict improvement over any compile-error / dylint mechanism, which *would* need `--keep-going` + a fixed point) |
-| 4. runs once then rots | the trip-wire is **standing** in `mise run trip-wires` (⊂ `mise run ci` — the pre-push gate; NOT GitHub CI, see §6), diffs live `LayoutBox`/`BoxModel` reads against the committed allowlist, and **exits non-zero on any read not in it** — a new reader forces a classification. Not a per-slice re-run (the review convention the memo rejects); it is `git`-enforced on every push |
+| 4. runs once then rots | the trip-wire is **standing** in `mise run trip-wires` (⊂ `mise run ci` — the pre-push gate) and, since 2026-07-31, in the ungated `trip-wires` GitHub CI job as well (see §6), diffs live `LayoutBox`/`BoxModel` reads against the committed allowlist, and **exits non-zero on any read not in it** — a new reader forces a classification. Not a per-slice re-run (the review convention the memo rejects); it is `git`-enforced on every push |
 
 **Allowlist shape** (committed alongside the audit doc; the doc is the human record, this its machine-checked sibling):
 ```
@@ -586,8 +586,10 @@ classified inventory downstream slices cite, and beyond the memo's §6.4 pre-enu
    type-infer and banning identifier-argument inserts fires on every `style`/`info` insert in the same files.
    Same root, both directions. Resolution trigger = C-4, which must not read a green gate as covering either.
 3. ~~**`#11-layoutbox-trip-wire-not-in-ci`**~~ — **RESOLVED 2026-07-31.** `.github/workflows/ci.yml` now
-   carries an ungated `trip-wires` job running the `.claude/tools/*-trip-wire.sh` glob on every push and
-   PR, so the D4 gate is an enforced invariant and C-4's delete decision reads a gate that provably runs.
+   carries an ungated `trip-wires` job running `scripts/trip-wires.sh` (the same script `mise run
+   trip-wires` runs) on every PR against `main` and every push to `main`, so the D4 gate runs whether or
+   not the author ran the pre-push gate, and C-4's delete decision reads a gate that provably executes.
+   It reds the PR; it does not block the merge (no required-status-check rule on `main`).
    See the ⚠ below for what the resolution changed.
 
 *(A further candidate — the fallback fragment reporting a fabricated column `0` — was **fixed in-slice**
@@ -596,7 +598,8 @@ as a column index. It was a now-or-never call — the type has zero production c
 same change after C-3b–e adopt the seam would be a breaking one.)*
 
 **Cross-lane obligation (not a slot — a standing CI fact PM must carry into the campaign SoT):** the D4
-trip-wire is wired into `mise run ci` and greps **all** of `crates/**/*.rs`. Any PR in any lane that adds or
+trip-wire is wired into `mise run ci` **and** the ungated `trip-wires` CI job, and greps **all** of
+`crates/**/*.rs`. Any PR in any lane that adds or
 edits a non-test `LayoutBox`/`BoxModel` line must now update the allowlist *and* this audit. That blast
 radius is **semantic, not textual** — a concurrent PR can conflict with no line — so §0's file-overlap
 parallel-safety analysis does not cover it.
@@ -607,13 +610,19 @@ cargo fmt/clippy/nextest/doc/deny, and its sole `mise` reference was the string 
 paths-filter list, so a lane that added a reader merged all-green and main carried a stale allowlist until
 someone happened to run `mise run ci` locally. (An even earlier draft claimed such a PR would "red CI on
 main" — false at the time, and withdrawn.) Slot `#11-layoutbox-trip-wire-not-in-ci` closed that: `ci.yml`
-now has a `trip-wires` job running the `.claude/tools/*-trip-wire.sh` glob — the same glob `mise run
-trip-wires` uses, so the two cannot drift — on every push and PR. It is deliberately **ungated** by the
-paths-filter: gating would require listing `.claude/tools/**`, which makes the tamper path of an allowlist
-gate itself an allowlist entry, and a PR editing only `layout-box-reader-allowlist.tsv` would skip the job
-that reads it. The wires are grep-only (~1s, no toolchain), so the filter bought nothing and cost the one
-property they exist for. The cross-lane obligation above is therefore now machine-enforced rather than a
-convention — a lane that adds a reader reds its own PR.
+now has a `trip-wires` job running `scripts/trip-wires.sh` — the same script `mise run trip-wires` runs —
+on every PR against `main` and every push to `main`, deliberately **ungated** by the paths-filter
+(rationale with the job).
+
+⚠ **State the delivered property precisely** — the paragraph above is the cautionary example. Of the
+obligation's two halves, only the allowlist half is machine-checked; keeping *this audit document* in
+step is still a convention the wire merely nags about in its FAIL text. And even the checked half reds
+the PR rather than blocking it: the `main-protection` ruleset carries `deletion` / `non_fast_forward` /
+`pull_request` rules but **no required-status-check rule**, so merging still rests on the CLAUDE.md
+convention of eyeballing CI before squashing. What changed is that a drifted allowlist is now
+conspicuous on every lane's PR instead of depending on whether that lane ran the pre-push gate. That is
+a real and load-bearing improvement — it is just not "machine-enforced", and C-4 must not read it as
+more than it is.
 
 ---
 
