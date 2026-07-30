@@ -381,7 +381,8 @@ exit rule's redraw is issued through one named seam (e.g. `App::schedule_followu
 rather than a bare `request_redraw()` call, because the real redraw is `render_state`-gated
 (`app/drain_host.rs:598-602`) and thus a silent no-op in the disconnected harness — the seam carries a
 test-only issuance counter (`cfg(test)` observation point, not control state, so "records no state"
-stands) that §8's degrade test asserts against.
+stands) that §8's degrade test asserts against. Every `request_redraw()` this rule's prose names —
+cap-hit's unconditional one included — is issued via this seam.
 
 **Design** (all three parameters concrete; §7 Q2 ratifies the values):
 
@@ -602,8 +603,9 @@ consumed loops to the cap on work no iteration can drain (cap-loop); predicate �
   (§1): *"so they can be added to the correct place … before this traversal potentially unloads their
   document"*. (A step that genuinely ran late would be no-op'd by *finalize a same-document navigation*
   §7.4.2.3.3 **step 2** — *"If targetNavigable's active session history entry is not targetEntry, then
-  return."* — the race guard; on the queue-jump path the active entry is still the staging entry, so the
-  guard passes and the step settles.) elidex drops what the queue jump would have settled, so the drop
+  return."* — the race guard; on the queue-jump path, for a step not superseded by a later synchronous
+  navigation on the same navigable, the active entry is still the staging entry, so the guard passes
+  and the step settles.) elidex drops what the queue jump would have settled, so the drop
   diverges on that path (e.g. `history.length`). This is a
   structural consequence of elidex's FIFO being **runtime-scoped** rather than traversable-scoped, and
   it is PRE-EXISTING: today's single drain + reinstatement-tail navigate exhibits the identical drop.
@@ -623,7 +625,7 @@ consumed loops to the cap on work no iteration can drain (cap-loop); predicate �
   **as a new turn** — exactly reason 2's §7.4.6.1 step 14.12.5 later-task mapping — and when the new
   document staged nothing, the exit peek reads false: no redraw is requested *by the exit rule*, and
   the next entry peek skips the drive (the dispatch-layer tail redraws of readers (2)/(3),
-  `inline.rs:202`/`:298`, fire regardless — they are the dispatch's own, not the rule's).
+  `inline.rs:298`/`:202`, fire regardless — they are the dispatch's own, not the rule's).
   The swap-exit also composes with the §4.3 cap: a handler chain that keeps *navigating* terminates at
   the first rebuild, independent of the cap.
 
