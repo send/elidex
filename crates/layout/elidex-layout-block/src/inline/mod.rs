@@ -54,7 +54,8 @@ pub(in crate::inline) use whitespace::is_collapsible_space;
 pub struct InlineLayoutResult {
     /// Total block-axis dimension consumed by all line boxes.
     pub height: f32,
-    /// Static positions for absolutely positioned placeholders (CSS 2.1 §10.6.5).
+    /// Static positions for absolutely positioned placeholders
+    /// (CSS 2.1 §10.3.7 left/right / §10.6.4 top, mapped to logical axes).
     /// Positions are in content-area-relative coordinates.
     pub static_positions: HashMap<Entity, Point>,
     /// First baseline offset from content box top edge.

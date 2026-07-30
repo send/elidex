@@ -25,7 +25,8 @@ pub struct StackResult {
     pub first_child_margin_top: Option<f32>,
     /// Bottom margin of the last block child (for parent-child collapse).
     pub last_child_margin_bottom: Option<f32>,
-    /// Static positions for absolutely positioned descendants (CSS 2.1 §10.6.5).
+    /// Static positions for absolutely positioned descendants
+    /// (CSS 2.1 §10.3.7 left/right / §10.6.4 top, mapped to logical axes).
     pub static_positions: HashMap<Entity, Point>,
     /// First baseline from children (CSS 2.1 §10.8.1).
     ///

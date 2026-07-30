@@ -20,7 +20,7 @@ use super::InlineItem;
 /// intact (segment breaks stay as forced breaks).
 ///
 /// Line-edge trimming (§4.1.2 Phase II) and the "white space that collapses away
-/// generates no box" rule (CSS 2 §9.2.2.1 / §9.2.1.1) are applied at line-packing
+/// generates no box" rule (CSS 2 §9.2.2.1) are applied at line-packing
 /// time (see [`super::pack::LinePacker`]), not here.
 pub(super) fn collapse_inline_whitespace(items: &mut [InlineItem]) {
     // Cross-run collapse state: true when the previously emitted character (in any
@@ -28,7 +28,7 @@ pub(super) fn collapse_inline_whitespace(items: &mut [InlineItem]) {
     // space collapses to zero advance width (§4.1.1 step 4). Initialized to `true`
     // so leading collapsible white space at the start of the inline formatting
     // context collapses away rather than becoming a leading space that shifts
-    // content (CSS Text §4.1.2; matches `elidex-render`'s `collapse_segments`).
+    // content (CSS Text 3 §4.1.2; matches `elidex-render`'s `collapse_segments`).
     let mut prev_collapsible_space = true;
     // Index of the most recent text run, so a preserved segment break at the start
     // of a later run can remove a collapsible space left at the end of it (§4.1.1

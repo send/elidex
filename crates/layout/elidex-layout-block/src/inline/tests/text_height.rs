@@ -254,7 +254,7 @@ fn nbsp_only_line_generates_a_box() {
 
 #[test]
 fn trailing_nbsp_does_not_hang_for_overflow() {
-    // CSS Text §4.1.2 trailing-hang applies only to collapsible white space
+    // CSS Text 3 §4.1.2 trailing-hang applies only to collapsible white space
     // (ASCII space/tab). A trailing no-break space (U+00A0) is non-collapsible and
     // counts toward overflow, so trimmed_width == full width for an NBSP-terminated
     // segment, whereas an ASCII-space-terminated segment hangs (trimmed < full).
@@ -340,7 +340,7 @@ fn collapse_pre_line_preserves_newline_collapses_spaces() {
 
 #[test]
 fn collapse_normal_trims_leading_whitespace_at_ifc_start() {
-    // CSS Text §4.1.2: leading collapsible white space at the start of the inline
+    // CSS Text 3 §4.1.2: leading collapsible white space at the start of the inline
     // formatting context collapses away — it does not become a leading space that
     // shifts content.
     let Some((dom, parent, style, _font_db)) = setup_inline_test("  hello") else {

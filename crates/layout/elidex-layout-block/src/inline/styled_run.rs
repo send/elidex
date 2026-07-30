@@ -1,5 +1,6 @@
 //! `StyledRun` — a segment of text with its originating element's style, and the
-//! [`InlineItem`] enum that carries it through an inline formatting context.
+//! [`InlineItem`] enum that carries it through an inline formatting context
+//! (CSS 2 §9.4.2).
 
 use elidex_ecs::Entity;
 use elidex_plugin::{ComputedStyle, TextTransform, WhiteSpace};
@@ -34,7 +35,7 @@ pub(crate) enum InlineItem {
         positioned: bool,
     },
     /// Absolutely positioned element placeholder (zero-width, zero-height).
-    /// Used to record static position for CSS 2.1 §10.6.5.
+    /// Used to record static position for CSS 2.1 §10.3.7 / §10.6.4.
     Placeholder(Entity),
 }
 

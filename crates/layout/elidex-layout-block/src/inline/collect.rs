@@ -1,5 +1,6 @@
-//! Styled run collection — walks the inline subtree gathering text runs and
-//! atomic boxes into the ordered [`InlineItem`] list an IFC is packed from.
+//! Styled run collection (CSS 2 §9.2.2.1 Anonymous inline boxes) — walks the
+//! inline subtree gathering text runs and atomic boxes into the ordered
+//! [`InlineItem`] list an IFC is packed from.
 
 use elidex_ecs::{EcsDom, Entity, PseudoElementMarker, TextContent};
 use elidex_plugin::{ComputedStyle, Display, Position, TextTransform};
@@ -219,7 +220,8 @@ fn collect_inline_items_inner(
                 continue;
             }
             // CSS 2.1 §9.3.1/§9.6: absolutely positioned elements are removed from flow.
-            // Insert a zero-width placeholder to record static position (CSS 2.1 §10.6.5).
+            // Insert a zero-width placeholder to record static position
+            // (CSS 2.1 §10.3.7 / §10.6.4).
             if crate::positioned::is_absolutely_positioned(&style) {
                 items.push(InlineItem::Placeholder(child));
                 continue;
