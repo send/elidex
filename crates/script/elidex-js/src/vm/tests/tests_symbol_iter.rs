@@ -30,7 +30,9 @@ fn eval_computed_class_prototype_method_this() {
 
 #[test]
 fn eval_class_method_not_enumerable() {
-    // Class methods should not appear in Object.keys (enumerable: false per §14.3.8).
+    // Class methods should not appear in Object.keys: ECMA-262 §15.7.14
+    // ClassDefinitionEvaluation passes `enumerable: false` to §15.4.5
+    // MethodDefinitionEvaluation.
     // Note: constructor back-link uses DefineProperty (enumerable) — accepted for now.
     // We verify the user method 'foo' is NOT in the keys.
     assert_eq!(

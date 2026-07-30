@@ -40,44 +40,15 @@ impl VmInner {
         Ok(Some(result))
     }
 
-    /// `Op::ArraySpread` — `[array source -- array]`, spread an iterable into
-    /// the array beneath it.
-    ///
-    /// The **iterator** is the operand that needs rooting here, and it is not
-    /// one the compiler put on the stack: §7.4.4 `GetIterator` calls
-    /// `@@iterator` with the *iterable* as receiver, so what comes back is a
-    /// fresh object nothing references. Each §7.4.10 `IteratorStepValue` then
-    /// calls `next()`, and the loop dereferences the iterator again on the turn
-    /// after — plus once more on the §7.4.11 `IteratorClose` path. A `next` that
-    /// is a method makes the iterator its own receiver and hides the exposure;
-    /// an arrow or bound `next` does not, and an iterator held only in a Rust
-    /// local is then collected mid-iteration. It is written back into the
-    /// source's slot (which the source no longer needs — `resolve_iterator` is
-    /// the last read of it), so the arm's stack effect is unchanged.
+    /// `Op::ArraySpread` — spread an iterable into the array on the stack top.
     pub(super) fn op_array_spread(&mut self) -> Result<(), VmError> {
-        let len = self.stack.len();
-        if len < 2 {
-            return Err(VmError::internal("stack underflow on ArraySpread"));
-        }
-        let arr_val = self.stack[len - 2];
-        let source = self.stack[len - 1];
-        let outcome = self.array_spread_from(source, arr_val);
-        // Consume the source slot (now holding the iterator) on every path.
-        self.stack.truncate(len - 1);
-        outcome
-    }
-
-    /// Body of [`Self::op_array_spread`], split out so the caller drops the
-    /// rooted slot on exactly one path. `iter_slot` is that slot: it holds the
-    /// source on entry and the iterator for the rest of the call.
-    fn array_spread_from(&mut self, source: JsValue, arr_val: JsValue) -> Result<(), VmError> {
-        let iter_slot = self.stack.len() - 1;
+        let source = self.pop()?;
+        let arr_val = self.peek()?;
         let iterator = match self.resolve_iterator(source)? {
             Some(iter @ JsValue::Object(_)) => iter,
             Some(_) => return Err(VmError::type_error("@@iterator must return an object")),
             None => return Err(VmError::type_error("value is not iterable")),
         };
-        self.stack[iter_slot] = iterator;
         let result = self.spread_iter_loop(iterator, arr_val);
         if result.is_err() {
             // IteratorClose (§7.4.11): if .return() also throws, its error
@@ -321,27 +292,13 @@ impl VmInner {
         Ok(())
     }
 
-    /// `Op::IteratorRest` — `[iterator -- array]`, collect the remaining
-    /// iterator elements into a new array.
-    ///
-    /// Leaves the iterator **in its stack slot** for the whole drain rather than
-    /// popping it, which is what [`Self::collect_iterator`] already does for the
-    /// identical loop (it pushes the iterator itself, since its caller holds one
-    /// in a Rust local). The collected values were already rooted on the stack;
-    /// the iterator was not, and it is re-read on every turn — see
-    /// [`Self::op_array_spread`] for why `next()` being a method is not enough
-    /// to root it.
+    /// `Op::IteratorRest` — collect remaining iterator elements into a new array.
     pub(super) fn op_iterator_rest(&mut self) -> Result<(), VmError> {
-        let len = self.stack.len();
-        if len < 1 {
-            return Err(VmError::internal("stack underflow on IteratorRest"));
-        }
-        let iter_slot = len - 1;
-        // Elements collect above the iterator; both are stack roots.
-        let stack_root_base = len;
+        let iter_val = self.pop()?;
+        // Root collected elements on the stack so GC (triggered by
+        // alloc_object) can see them.
+        let stack_root_base = self.stack.len();
         loop {
-            // Re-read by index: the slot, not this copy, is what roots it.
-            let iter_val = self.stack[iter_slot];
             match self.iter_next(iter_val) {
                 Ok(Some(value)) => {
                     if self.stack.len() - stack_root_base >= DENSE_ARRAY_LEN_LIMIT {
@@ -350,7 +307,6 @@ impl VmInner {
                         // over the range-error.
                         self.stack.truncate(stack_root_base);
                         let close_result = self.iter_close(iter_val);
-                        self.stack.truncate(iter_slot);
                         return Err(close_result
                             .err()
                             .unwrap_or_else(|| VmError::range_error("Array allocation failed")));
@@ -360,7 +316,7 @@ impl VmInner {
                 Ok(None) => break,
                 Err(e) => {
                     // `.next()` threw — iterator abandoned, no close.
-                    self.stack.truncate(iter_slot);
+                    self.stack.truncate(stack_root_base);
                     return Err(e);
                 }
             }
@@ -369,8 +325,8 @@ impl VmInner {
         let elements: Vec<JsValue> = self.stack[stack_root_base..].to_vec();
         // create_array_object may trigger GC — elements are rooted on the stack.
         let arr = self.create_array_object(elements);
-        // Now safe to remove the temporary roots and the iterator.
-        self.stack.truncate(iter_slot);
+        // Now safe to remove the temporary roots.
+        self.stack.truncate(stack_root_base);
         self.stack.push(JsValue::Object(arr));
         Ok(())
     }

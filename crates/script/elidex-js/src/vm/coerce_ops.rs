@@ -121,19 +121,6 @@ pub(crate) enum NumericBinaryOp {
     Exp,
 }
 
-impl NumericBinaryOp {
-    /// Opcode name for the operand-guard diagnostic in `binary_op_rooted`.
-    pub(crate) const fn opcode_name(self) -> &'static str {
-        match self {
-            Self::Sub => "Sub",
-            Self::Mul => "Mul",
-            Self::Div => "Div",
-            Self::Rem => "Mod",
-            Self::Exp => "Exp",
-        }
-    }
-}
-
 // ---------------------------------------------------------------------------
 // Comparison operators (ECMA-262 §7.2.12 IsLessThan)
 // ---------------------------------------------------------------------------
@@ -273,20 +260,6 @@ pub(crate) enum BitwiseOp {
     Shl,
     Shr,
     UShr,
-}
-
-impl BitwiseOp {
-    /// Opcode name for the operand-guard diagnostic in `binary_op_rooted`.
-    pub(crate) const fn opcode_name(self) -> &'static str {
-        match self {
-            Self::And => "BitAnd",
-            Self::Or => "BitOr",
-            Self::Xor => "BitXor",
-            Self::Shl => "Shl",
-            Self::Shr => "Shr",
-            Self::UShr => "UShr",
-        }
-    }
 }
 
 // ---------------------------------------------------------------------------

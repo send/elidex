@@ -13,9 +13,7 @@
 //! `PutValue` (step 9).  The logical forms evaluate the RHS only when the
 //! short-circuit test fails.
 
-use super::{
-    eval, eval_bool, eval_number, eval_string, eval_throws, gc_in_window, gc_number, pool_setup,
-};
+use super::{eval, eval_bool, eval_number, eval_string, eval_throws};
 use crate::vm::JsValue;
 
 // ── Computed compound: `obj[key] op= v` ──────────────────────────────
@@ -409,60 +407,6 @@ fn symbol_from_toprimitive_key_throws_known_divergence() {
     eval_throws(&src("o[k]"));
 }
 
-/// The whole element-access family is rooted **by construction**: every arm
-/// reads its operands in place by index instead of popping them into Rust
-/// locals, so the base stays on the GC-rooted VM stack while the key conversion
-/// — and, for `++`, the `ToNumber` of the old value — runs user code. Four of
-/// the five mutate (`SetElem`, `DeleteElem`, `IncElem`, `DecElem`; only
-/// `GetElem` is read-only), which is why it matters: a base collected
-/// mid-conversion would make their store or delete go through a dangling
-/// `ObjectId`, into whatever object recycled the slot.
-///
-/// `gc_in_window` places the collection deterministically and asserts it fired,
-/// so these cannot decay into vacuous passes.
-#[test]
-fn element_access_keeps_temporary_base_rooted() {
-    // The base and the key are allocated in setup; `mk()` hands the base out
-    // while removing the pool's reference, so the operand slot is the only thing
-    // holding it. The first allocation in the expression is the `var t = {}`
-    // inside the key's `toString` — i.e. inside the user-code window.
-    let setup = |n: usize| {
-        pool_setup(&format!(
-            "for (var i = 0; i < {n}; i++) pool.push({{p: 1}});              globalThis.k = {{toString(){{ var t = {{}}; return 'p' }}}};"
-        ))
-    };
-
-    // Read (`GetElem`) — the only read-only member.
-    assert_eq!(gc_number(&setup(1), "mk()[k]"), 1.0);
-    // Read-modify-write through `GetElemRef` (compound and logical assignment).
-    assert_eq!(gc_number(&setup(1), "mk()[k] += 2"), 3.0);
-    assert_eq!(gc_number(&setup(1), "mk()[k] ??= 9"), 1.0);
-    assert_eq!(gc_number(&setup(1), "mk()[k] ||= 9"), 1.0);
-    // `IncElem` / `DecElem`.
-    assert_eq!(gc_number(&setup(1), "mk()[k]++"), 1.0);
-    assert_eq!(gc_number(&setup(1), "--mk()[k]"), 0.0);
-    // `SetElem` — a store leaves nothing to read back, so the witness is a
-    // setter on the base that records having run.
-    assert_eq!(
-        gc_number(
-            &pool_setup(
-                "globalThis.seen = 0;                  pool.push({set p(v){ globalThis.seen = v }});                  globalThis.k = {toString(){ var t = {}; return 'p' }};"
-            ),
-            "mk()[k] = 7; seen"
-        ),
-        7.0
-    );
-    // `DeleteElem` — a frozen target must still throw, which it cannot do if the
-    // base was collected out from under it.
-    assert!(gc_in_window(
-        &pool_setup(
-            "pool.push(Object.freeze({p: 1}));              globalThis.k = {toString(){ var t = {}; return 'p' }};"
-        ),
-        "delete mk()[k]"
-    )
-    .is_err());
-}
-
 /// Sibling targets in the same `match` the private-name guard hardened. Each
 /// used to be a *silent* no-op — the umbrella's I-1 bans that shape wherever it
 /// appears, not only in the arm a review happened to point at.
@@ -585,8 +529,9 @@ fn update_expressions_share_the_assignment_admissibility_gate() {
 ///
 /// Same root as `#11-vm-topropertykey-symbol-from-toprimitive`: a fast path keyed
 /// on the raw value rather than the `ToPropertyKey` *result*. Both are discharged
-/// by the canonical computed-member-reference primitive. Pre-existing — probed
-/// byte-identical against the pre-rooting-fix tree.
+/// by the canonical computed-member-reference primitive. Pre-existing — this
+/// slice does not touch `Op::DeleteElem`, and the assertions below hold
+/// byte-identically on the pre-slice tree.
 #[test]
 fn delete_elem_object_key_misses_dense_element_known_divergence() {
     // Spec: deletes the element, so `a[0]` is `undefined`.  Current: reports

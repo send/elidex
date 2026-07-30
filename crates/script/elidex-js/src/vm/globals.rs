@@ -79,33 +79,6 @@ fn native_a1_legacy_probe_getter(
     Ok(JsValue::Boolean(true))
 }
 
-/// Test-only (`__armGc`): arm the `force_gc_before_next_alloc` one-shot from
-/// **inside** running script, so the next `alloc_object` collects.
-///
-/// The Rust-side arming in `vm::tests::gc_in_window` places the collection at
-/// the *first* allocation of the evaluated expression.  That is the right place
-/// for an operator probe (`lhs + mk()` allocates first inside `lhs.valueOf`),
-/// but not for any opcode whose target object is allocated **before** the
-/// operand window it exposes: `Op::CreateObject` / `Op::CreateArray` precede
-/// `DefineComputedProperty` / `SpreadObject` / `ArraySpread`, so the one-shot is
-/// spent harmlessly on the literal and the window that matters never collects —
-/// a vacuous pass, exactly what the one-shot exists to prevent.
-///
-/// Arming rather than collecting outright keeps the collection
-/// production-shaped: it still happens at a real `alloc_object` inside a JS
-/// frame, with `gc_enabled` true and the same root set any allocation there
-/// would see.  (Natives run with `gc_enabled = false`, so this call itself never
-/// collects — the caller must allocate.)
-#[cfg(test)]
-fn native_arm_gc(
-    ctx: &mut NativeContext<'_>,
-    _this: JsValue,
-    _args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    ctx.vm.force_gc_before_next_alloc = true;
-    Ok(JsValue::Undefined)
-}
-
 impl VmInner {
     // -- Global registration -------------------------------------------------
 
@@ -175,12 +148,6 @@ impl VmInner {
         self.register_global_function("setInterval", super::natives_timer::native_set_interval);
         self.register_global_function("clearTimeout", super::natives_timer::native_clear_timeout);
         self.register_global_function("clearInterval", super::natives_timer::native_clear_interval);
-
-        // Test-only GC placement hook — see `native_arm_gc`.  Registered here
-        // (rather than in a test module) because operand-rooting probes need to
-        // arm the one-shot from *inside* the user-code window an opcode opens.
-        #[cfg(test)]
-        self.register_global_function("__armGc", native_arm_gc);
 
         // globalThis (§18.1) — points to the global object
         let global_this_name = self.strings.intern("globalThis");

@@ -7,10 +7,25 @@ use crate::bytecode::opcode::Op;
 
 use super::coerce::{abstract_eq, strict_eq, to_boolean, to_number, typeof_str};
 use super::coerce_ops::{op_bitnot, op_neg, op_not, op_pos, op_void, BitwiseOp, NumericBinaryOp};
-use super::dispatch_helpers::{resolve_delete_base, NON_CONFIGURABLE_DELETE_MSG};
-use super::ops::EndFinallyAction;
+use super::ops::{parse_array_index_u16, try_as_array_index, EndFinallyAction};
 use super::value::{FrameKind, JsValue, ObjectId, ObjectKind, PropertyKey, VmError, VmErrorKind};
 use super::VmInner;
+
+/// ECMA-262 §13.5.1.2 Runtime Semantics: Evaluation, `UnaryExpression : delete
+/// UnaryExpression` step 4.f: strict-mode TypeError message when `[[Delete]]`
+/// returns `false`.
+const NON_CONFIGURABLE_DELETE_MSG: &str = "Cannot delete property: property is not configurable";
+
+/// ECMA-262 §13.5.1.2 `UnaryExpression : delete UnaryExpression` step 4.c
+/// `? ToObject(ref.[[Base]])`.  Null/undefined throw TypeError (via ToObject);
+/// other primitives are boxed to their wrapper so their [[Delete]] applies to
+/// the (temporary) wrapper.
+fn resolve_delete_base(vm: &mut VmInner, obj: JsValue) -> Result<super::value::ObjectId, VmError> {
+    match obj {
+        JsValue::Object(id) => Ok(id),
+        _ => super::coerce::to_object(vm, obj),
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Main dispatch loop
@@ -114,6 +129,8 @@ impl VmInner {
                     // Body in `dispatch_helpers.rs` — see `op_pop_under`.
                     self.op_pop_under()?;
                 }
+
+                // ── Local access ────────────────────────────────────
                 Op::GetLocal => {
                     let slot = self.read_u16_op() as usize;
                     let base = self.frames[frame_idx].base;
@@ -132,7 +149,7 @@ impl VmInner {
                         let err = VmError::reference_error(
                             "Cannot access variable before initialization",
                         );
-                        self.raise(err, entry_frame_depth)?;
+                        self.throw_error(err, entry_frame_depth)?;
                     }
                 }
                 Op::InitLocal => {
@@ -170,14 +187,14 @@ impl VmInner {
                             match self.resolve_property(result, JsValue::Object(global_obj)) {
                                 Ok(val) => self.stack.push(val),
                                 Err(e) => {
-                                    self.raise(e, entry_frame_depth)?;
+                                    self.throw_error(e, entry_frame_depth)?;
                                 }
                             }
                         } else {
                             let name_str = self.strings.get_utf8(name_id);
                             let msg = format!("{name_str} is not defined");
                             let err = VmError::reference_error(&msg);
-                            self.raise(err, entry_frame_depth)?;
+                            self.throw_error(err, entry_frame_depth)?;
                         }
                     }
                 }
@@ -200,24 +217,25 @@ impl VmInner {
                         if let Err(e) =
                             self.set_property_val(JsValue::Object(global_obj), name_id, val)
                         {
-                            self.raise(e, entry_frame_depth)?;
+                            self.throw_error(e, entry_frame_depth)?;
                         }
                     } else {
                         let name_str = self.strings.get_utf8(name_id);
                         let msg = format!("{name_str} is not defined");
                         let err = VmError::reference_error(&msg);
-                        self.raise(err, entry_frame_depth)?;
+                        self.throw_error(err, entry_frame_depth)?;
                     }
                 }
 
                 // ── Arithmetic ──────────────────────────────────────
                 Op::Add => {
-                    // Operands read in place — `op_add` runs `ToPrimitive` on
-                    // the left before it touches the right (ECMA-262 §13.8.1),
-                    // so a popped right operand would be unrooted across user
-                    // code. See `binary_op_rooted` in `dispatch_helpers.rs`.
-                    if let Err(e) = self.binary_op_rooted("Add", Self::op_add) {
-                        self.raise(e, entry_frame_depth)?;
+                    let b = self.pop()?;
+                    let a = self.pop()?;
+                    match self.op_add(a, b) {
+                        Ok(r) => self.stack.push(r),
+                        Err(e) => {
+                            self.throw_error(e, entry_frame_depth)?;
+                        }
                     }
                 }
                 // Numeric binary ops share a common shape: pick the enum
@@ -232,7 +250,7 @@ impl VmInner {
                         _ => NumericBinaryOp::Exp,
                     };
                     if let Err(e) = self.binary_numeric(numop) {
-                        self.raise(e, entry_frame_depth)?;
+                        self.throw_error(e, entry_frame_depth)?;
                     }
                 }
 
@@ -249,40 +267,39 @@ impl VmInner {
                         _ => BitwiseOp::UShr,
                     };
                     if let Err(e) = self.binary_bitwise(bitop) {
-                        self.raise(e, entry_frame_depth)?;
+                        self.throw_error(e, entry_frame_depth)?;
                     }
                 }
 
                 // ── Comparison ──────────────────────────────────────
-                // `abstract_eq` takes `&mut VmInner` and can run a user
-                // `@@toPrimitive` / `valueOf` / `toString`, so both operands are
-                // read in place. Today the surviving operand of an `==` that
-                // coerces is never an object — `same_type` sends object/object
-                // to `strict_eq`, and strings / BigInts / symbols live in pools
-                // the GC never sweeps — but that is a fact about `abstract_eq`'s
-                // current shape, re-derived on every edit. The mechanical rule
-                // (`&mut` callee that can reach user JS ⇒ operands stay on the
-                // stack) holds without re-deriving it.
-                //
-                // Hand-rolled `vm_error_to_thrown` + `handle_exception` + jump
-                // collapsed into `raise`: it is the same three steps, and one
-                // error route per arm is one fewer thing to keep in sync.
                 Op::Eq => {
-                    if let Err(e) = self.binary_op_rooted("Eq", |vm, a, b| {
-                        abstract_eq(vm, a, b).map(JsValue::Boolean)
-                    }) {
-                        self.raise(e, entry_frame_depth)?;
+                    let b = self.pop()?;
+                    let a = self.pop()?;
+                    match abstract_eq(self, a, b) {
+                        Ok(r) => self.stack.push(JsValue::Boolean(r)),
+                        Err(e) => {
+                            let thrown = self.vm_error_to_thrown(&e);
+                            if self.handle_exception(thrown, entry_frame_depth) {
+                                continue;
+                            }
+                            return Err(e);
+                        }
                     }
                 }
                 Op::NotEq => {
-                    if let Err(e) = self.binary_op_rooted("NotEq", |vm, a, b| {
-                        abstract_eq(vm, a, b).map(|r| JsValue::Boolean(!r))
-                    }) {
-                        self.raise(e, entry_frame_depth)?;
+                    let b = self.pop()?;
+                    let a = self.pop()?;
+                    match abstract_eq(self, a, b) {
+                        Ok(r) => self.stack.push(JsValue::Boolean(!r)),
+                        Err(e) => {
+                            let thrown = self.vm_error_to_thrown(&e);
+                            if self.handle_exception(thrown, entry_frame_depth) {
+                                continue;
+                            }
+                            return Err(e);
+                        }
                     }
                 }
-                // `strict_eq` takes `&VmInner`: no user code can run, so there is
-                // no window to root against and these keep `pop()`.
                 Op::StrictEq => {
                     let b = self.pop()?;
                     let a = self.pop()?;
@@ -295,44 +312,39 @@ impl VmInner {
                 }
                 Op::Lt => {
                     if let Err(e) = self.relational_op(false, false) {
-                        self.raise(e, entry_frame_depth)?;
+                        self.throw_error(e, entry_frame_depth)?;
                     }
                 }
                 Op::LtEq => {
                     if let Err(e) = self.relational_op(false, true) {
-                        self.raise(e, entry_frame_depth)?;
+                        self.throw_error(e, entry_frame_depth)?;
                     }
                 }
                 Op::Gt => {
                     if let Err(e) = self.relational_op(true, false) {
-                        self.raise(e, entry_frame_depth)?;
+                        self.throw_error(e, entry_frame_depth)?;
                     }
                 }
                 Op::GtEq => {
                     if let Err(e) = self.relational_op(true, true) {
-                        self.raise(e, entry_frame_depth)?;
+                        self.throw_error(e, entry_frame_depth)?;
                     }
                 }
 
-                // Both read their operands in place. `op_instanceof` resolves
-                // `@@hasInstance`, which may be an **accessor** — the getter runs
-                // before `lhs` is handed to the resulting function, and `lhs` is
-                // rooted nowhere else. `op_in` converts the key with
-                // `ToPropertyKey` (§7.1.20) and only then dereferences the
-                // right-hand object, whose `get_object` is an `.unwrap()`: a
-                // collected base panics rather than answering wrongly.
                 Op::Instanceof => {
-                    if let Err(e) = self.binary_op_rooted("Instanceof", |vm, lhs, rhs| {
-                        vm.op_instanceof(lhs, rhs).map(JsValue::Boolean)
-                    }) {
-                        self.raise(e, entry_frame_depth)?;
+                    let rhs = self.pop()?;
+                    let lhs = self.pop()?;
+                    match self.op_instanceof(lhs, rhs) {
+                        Ok(result) => self.stack.push(JsValue::Boolean(result)),
+                        Err(e) => self.throw_error(e, entry_frame_depth)?,
                     }
                 }
                 Op::In => {
-                    if let Err(e) = self.binary_op_rooted("In", |vm, lhs, rhs| {
-                        vm.op_in(lhs, rhs).map(JsValue::Boolean)
-                    }) {
-                        self.raise(e, entry_frame_depth)?;
+                    let rhs = self.pop()?;
+                    let lhs = self.pop()?;
+                    match self.op_in(lhs, rhs) {
+                        Ok(result) => self.stack.push(JsValue::Boolean(result)),
+                        Err(e) => self.throw_error(e, entry_frame_depth)?,
                     }
                 }
 
@@ -341,14 +353,14 @@ impl VmInner {
                     let a = self.pop()?;
                     match op_neg(self, a) {
                         Ok(r) => self.stack.push(r),
-                        Err(e) => self.raise(e, entry_frame_depth)?,
+                        Err(e) => self.throw_error(e, entry_frame_depth)?,
                     }
                 }
                 Op::Pos => {
                     let a = self.pop()?;
                     match op_pos(self, a) {
                         Ok(r) => self.stack.push(r),
-                        Err(e) => self.raise(e, entry_frame_depth)?,
+                        Err(e) => self.throw_error(e, entry_frame_depth)?,
                     }
                 }
                 Op::Not => {
@@ -359,7 +371,7 @@ impl VmInner {
                     let a = self.pop()?;
                     match op_bitnot(self, a) {
                         Ok(r) => self.stack.push(r),
-                        Err(e) => self.raise(e, entry_frame_depth)?,
+                        Err(e) => self.throw_error(e, entry_frame_depth)?,
                     }
                 }
                 Op::TypeOf => {
@@ -381,7 +393,7 @@ impl VmInner {
                                 match self.resolve_property(result, JsValue::Object(global_obj)) {
                                     Ok(v) => v,
                                     Err(e) => {
-                                        self.raise(e, entry_frame_depth)?;
+                                        self.throw_error(e, entry_frame_depth)?;
                                         continue;
                                     }
                                 }
@@ -413,19 +425,51 @@ impl VmInner {
                             let push_val = if prefix { new } else { old };
                             self.stack.push(JsValue::Number(push_val));
                         }
-                        Err(e) => self.raise(e, entry_frame_depth)?,
+                        Err(e) => self.throw_error(e, entry_frame_depth)?,
                     }
                 }
                 Op::IncProp | Op::DecProp => {
-                    // Body in `dispatch_helpers.rs` — see `op_inc_dec_prop`.
-                    if let Err(e) = self.op_inc_dec_prop(func_id, op == Op::IncProp) {
-                        self.raise(e, entry_frame_depth)?;
+                    let name_idx = self.read_u16_op();
+                    let prefix = self.read_u8_op() != 0;
+                    let name_id = self.constant_to_string_id(func_id, name_idx)?;
+                    let obj_val = self.pop()?;
+                    let old = match self.get_property_val(obj_val, name_id) {
+                        Ok(v) => v,
+                        Err(e) => {
+                            self.throw_error(e, entry_frame_depth)?;
+                            continue;
+                        }
+                    };
+                    match to_number(self, old) {
+                        Ok(old_num) => {
+                            let new_num = if op == Op::IncProp {
+                                old_num + 1.0
+                            } else {
+                                old_num - 1.0
+                            };
+                            if let JsValue::Object(id) = obj_val {
+                                if let Err(e) = self.set_property_val(
+                                    JsValue::Object(id),
+                                    name_id,
+                                    JsValue::Number(new_num),
+                                ) {
+                                    self.throw_error(e, entry_frame_depth)?;
+                                    continue;
+                                }
+                            }
+                            self.stack.push(JsValue::Number(if prefix {
+                                new_num
+                            } else {
+                                old_num
+                            }));
+                        }
+                        Err(e) => self.throw_error(e, entry_frame_depth)?,
                     }
                 }
                 Op::IncElem | Op::DecElem => {
                     // Body in `dispatch_helpers.rs` — see `op_inc_dec_elem`.
                     if let Err(e) = self.op_inc_dec_elem(op == Op::IncElem) {
-                        self.raise(e, entry_frame_depth)?;
+                        self.throw_error(e, entry_frame_depth)?;
                     }
                 }
 
@@ -507,34 +551,53 @@ impl VmInner {
 
                 // ── Property access (Step 4 stubs) ──────────────────
                 Op::GetProp => {
-                    // Body in `dispatch_helpers.rs` — see `op_get_prop`.
-                    if let Err(e) = self.op_get_prop(func_id) {
-                        self.raise(e, entry_frame_depth)?;
+                    let name_idx = self.read_u16_op();
+                    let ic_idx = self.read_u16_op() as usize;
+                    let obj_val = self.pop()?;
+                    match self.ic_get_prop(func_id, name_idx, ic_idx, obj_val) {
+                        Ok(val) => self.stack.push(val),
+                        Err(e) => {
+                            self.throw_error(e, entry_frame_depth)?;
+                        }
                     }
                 }
                 Op::SetProp => {
-                    // Body in `dispatch_helpers.rs` — see `op_set_prop`.
-                    if let Err(e) = self.op_set_prop(func_id) {
-                        self.raise(e, entry_frame_depth)?;
+                    let name_idx = self.read_u16_op();
+                    let ic_idx = self.read_u16_op() as usize;
+                    let val = self.pop()?;
+                    let obj_val = self.pop()?;
+                    match self.ic_set_prop(func_id, name_idx, ic_idx, obj_val, val) {
+                        Ok(v) => self.stack.push(v),
+                        Err(e) => {
+                            self.throw_error(e, entry_frame_depth)?;
+                        }
                     }
                 }
                 Op::GetElem => {
-                    // Body in `dispatch_helpers.rs` — see `op_get_elem`.
-                    if let Err(e) = self.op_get_elem() {
-                        self.raise(e, entry_frame_depth)?;
+                    let key = self.pop()?;
+                    let obj = self.pop()?;
+                    match self.get_element(obj, key) {
+                        Ok(val) => self.stack.push(val),
+                        Err(e) => {
+                            self.throw_error(e, entry_frame_depth)?;
+                        }
                     }
                 }
                 Op::GetElemRef => {
                     // Body in `dispatch_helpers.rs` — see `op_get_elem_ref`.
                     if let Err(e) = self.op_get_elem_ref() {
-                        self.raise(e, entry_frame_depth)?;
+                        self.throw_error(e, entry_frame_depth)?;
                     }
                 }
                 Op::SetElem => {
-                    // Body in `dispatch_helpers.rs` — see `op_set_elem`.
-                    if let Err(e) = self.op_set_elem() {
-                        self.raise(e, entry_frame_depth)?;
+                    let val = self.pop()?;
+                    let key = self.pop()?;
+                    let obj = self.pop()?;
+                    if let Err(e) = self.set_element(obj, key, val) {
+                        self.throw_error(e, entry_frame_depth)?;
+                        continue;
                     }
+                    self.stack.push(val);
                 }
                 Op::DeleteProp => {
                     let name_idx = self.read_u16_op();
@@ -544,7 +607,7 @@ impl VmInner {
                     let id = match resolve_delete_base(self, obj_val) {
                         Ok(id) => id,
                         Err(e) => {
-                            self.raise(e, entry_frame_depth)?;
+                            self.throw_error(e, entry_frame_depth)?;
                             continue;
                         }
                     };
@@ -553,17 +616,57 @@ impl VmInner {
                         // §13.5.1.2 step 4.f: `delete` operator throws
                         // TypeError in strict mode when [[Delete]] returns
                         // false.  All code is strict, so we always throw.
-                        Ok(false) => self.raise(
+                        Ok(false) => self.throw_error(
                             VmError::type_error(NON_CONFIGURABLE_DELETE_MSG),
                             entry_frame_depth,
                         )?,
-                        Err(e) => self.raise(e, entry_frame_depth)?,
+                        Err(e) => self.throw_error(e, entry_frame_depth)?,
                     }
                 }
                 Op::DeleteElem => {
-                    // Body in `dispatch_helpers.rs` — see `op_delete_elem`.
-                    if let Err(e) = self.op_delete_elem() {
-                        self.raise(e, entry_frame_depth)?;
+                    let key = self.pop()?;
+                    let obj_val = self.pop()?;
+                    let id = match resolve_delete_base(self, obj_val) {
+                        Ok(id) => id,
+                        Err(e) => {
+                            self.throw_error(e, entry_frame_depth)?;
+                            continue;
+                        }
+                    };
+                    // Resolve array index from Number or String key.
+                    let arr_idx = match key {
+                        JsValue::Number(n) => try_as_array_index(n),
+                        JsValue::String(sid) => parse_array_index_u16(self.strings.get(sid)),
+                        _ => None,
+                    };
+                    // Fast path: array element present → set to Empty.
+                    let fast = arr_idx.and_then(|idx| match &self.get_object(id).kind {
+                        ObjectKind::Array { elements }
+                            if idx < elements.len() && !elements[idx].is_empty() =>
+                        {
+                            Some(idx)
+                        }
+                        _ => None,
+                    });
+                    if let Some(idx) = fast {
+                        if let ObjectKind::Array { elements } = &mut self.get_object_mut(id).kind {
+                            elements[idx] = JsValue::Empty;
+                        }
+                        self.stack.push(JsValue::Boolean(true));
+                    } else {
+                        match self
+                            .make_property_key(key)
+                            .and_then(|pk| self.try_delete_property(id, pk))
+                        {
+                            Ok(true) => self.stack.push(JsValue::Boolean(true)),
+                            // §13.5.1.2 step 4.f: strict-mode throw when
+                            // [[Delete]] returns false.
+                            Ok(false) => self.throw_error(
+                                VmError::type_error(NON_CONFIGURABLE_DELETE_MSG),
+                                entry_frame_depth,
+                            )?,
+                            Err(e) => self.throw_error(e, entry_frame_depth)?,
+                        }
                     }
                 }
 
@@ -585,12 +688,12 @@ impl VmInner {
                 Op::ArrayHole => self.op_array_hole()?,
                 Op::ArraySpread => {
                     if let Err(e) = self.op_array_spread() {
-                        self.raise(e, entry_frame_depth)?;
+                        self.throw_error(e, entry_frame_depth)?;
                     }
                 }
                 Op::SpreadObject => {
                     if let Err(e) = self.op_spread_object() {
-                        self.raise(e, entry_frame_depth)?;
+                        self.throw_error(e, entry_frame_depth)?;
                     }
                 }
 
@@ -598,38 +701,45 @@ impl VmInner {
                 Op::TemplateConcat => {
                     let count = self.read_u16_op() as usize;
                     if let Err(e) = self.op_template_concat(count) {
-                        self.raise(e, entry_frame_depth)?;
+                        self.throw_error(e, entry_frame_depth)?;
                     }
                 }
 
                 // ── Function call ───────────────────────────────────
-                //
-                // All three route through `raise`, which is the same
-                // `vm_error_to_thrown` + `handle_exception` + propagate these
-                // arms open-coded, plus the hard exit for
-                // `VmErrorKind::InternalError`. In particular `raise` keeps
-                // routing through `vm_error_to_thrown` — the short-cut that
-                // flattens to `JsValue::String` drops the prototype chain on
-                // DOMException / TypeError and breaks
-                // `catch (e) { e.name === '…' }`.
                 Op::Call => {
                     let argc = self.read_u8_op() as usize;
                     let call_ic_idx = self.read_u16_op() as usize;
                     if let Err(e) = self.ic_call(func_id, argc, call_ic_idx) {
-                        self.raise(e, entry_frame_depth)?;
+                        let thrown = self.vm_error_to_thrown(&e);
+                        if self.handle_exception(thrown, entry_frame_depth) {
+                            continue;
+                        }
+                        return Err(e);
                     }
                 }
                 Op::CallMethod => {
                     let argc = self.read_u8_op() as usize;
                     let call_ic_idx = self.read_u16_op() as usize;
                     if let Err(e) = self.ic_call_method(func_id, argc, call_ic_idx) {
-                        self.raise(e, entry_frame_depth)?;
+                        // Must route through `vm_error_to_thrown` —
+                        // the short-cut that flattens to `JsValue::String`
+                        // drops the prototype chain on DOMException / TypeError
+                        // and breaks `catch (e) { e.name === '…' }`.
+                        let thrown = self.vm_error_to_thrown(&e);
+                        if self.handle_exception(thrown, entry_frame_depth) {
+                            continue;
+                        }
+                        return Err(e);
                     }
                 }
                 Op::New => {
                     let argc = self.read_u8_op() as usize;
                     if let Err(e) = self.do_new(argc) {
-                        self.raise(e, entry_frame_depth)?;
+                        let thrown = self.vm_error_to_thrown(&e);
+                        if self.handle_exception(thrown, entry_frame_depth) {
+                            continue;
+                        }
+                        return Err(e);
                     }
                 }
                 Op::PushThis => {
@@ -667,7 +777,7 @@ impl VmInner {
                 Op::ThrowUnsupported => {
                     // Body in `dispatch_helpers.rs` — see `op_throw_unsupported`.
                     let err = self.op_throw_unsupported(func_id);
-                    self.raise(err, entry_frame_depth)?;
+                    self.throw_error(err, entry_frame_depth)?;
                 }
                 Op::Throw => {
                     let val = self.pop()?;
@@ -790,22 +900,22 @@ impl VmInner {
                 // ── Iteration ───────────────────────────────────────
                 Op::GetIterator => {
                     if let Err(e) = self.op_get_iterator() {
-                        self.raise(e, entry_frame_depth)?;
+                        self.throw_error(e, entry_frame_depth)?;
                     }
                 }
                 Op::IteratorNext => {
                     if let Err(e) = self.op_iterator_next() {
-                        self.raise(e, entry_frame_depth)?;
+                        self.throw_error(e, entry_frame_depth)?;
                     }
                 }
                 Op::IteratorRest => {
                     if let Err(e) = self.op_iterator_rest() {
-                        self.raise(e, entry_frame_depth)?;
+                        self.throw_error(e, entry_frame_depth)?;
                     }
                 }
                 Op::IteratorClose => {
                     if let Err(e) = self.op_iterator_close() {
-                        self.raise(e, entry_frame_depth)?;
+                        self.throw_error(e, entry_frame_depth)?;
                     }
                 }
                 Op::DestructureElem | Op::Debugger => {
@@ -853,7 +963,7 @@ impl VmInner {
                     let child = self.peek()?;
                     let JsValue::Object(child_id) = child else {
                         let e = VmError::type_error("SetPrototype: receiver must be an object");
-                        self.raise(e, entry_frame_depth)?;
+                        self.throw_error(e, entry_frame_depth)?;
                         continue;
                     };
                     let new_proto: Option<ObjectId> = match parent {
@@ -869,7 +979,7 @@ impl VmInner {
                             let e = VmError::type_error(
                                 "Class extends value is not a constructor or null",
                             );
-                            self.raise(e, entry_frame_depth)?;
+                            self.throw_error(e, entry_frame_depth)?;
                             continue;
                         }
                     };
@@ -896,7 +1006,7 @@ impl VmInner {
                     if !ok {
                         let e =
                             VmError::type_error("Class extends value is not a constructor or null");
-                        self.raise(e, entry_frame_depth)?;
+                        self.throw_error(e, entry_frame_depth)?;
                     }
                 }
 
