@@ -259,14 +259,11 @@ pub(super) fn compile_assignment(
                 // arm used to compile the RHS and emit no store at all, so the
                 // assignment silently did nothing and evaluated to the RHS —
                 // the same silent-wrong shape the private-name guard below
-                // rejects.  Loud and scoped until `#11-vm-assignment-target-
-                // completeness` normalises `ExprKind::Paren` away.
+                // rejects.  Loud and scoped until
+                // `#11-vm-assignment-target-completeness` normalises
+                // `ExprKind::Paren` away.
                 _ => {
-                    emit_unsupported(
-                        fc,
-                        "assignment to this target is not yet supported \
-                         (#11-vm-assignment-target-completeness)",
-                    );
+                    emit_unsupported(fc, "assignment to this target is not yet supported");
                 }
             }
         }
@@ -276,13 +273,9 @@ pub(super) fn compile_assignment(
             // which the comment called "fail explicitly" while in fact failing
             // silently — and left ZERO values where every other expression
             // leaves one, so a statement-position destructure underflowed the
-            // following discard.  Owned by `#11-vm-assignment-target-
-            // completeness`.
-            emit_unsupported(
-                fc,
-                "destructuring assignment is not yet supported \
-                 (#11-vm-assignment-target-completeness)",
-            );
+            // following discard.
+            // Owned by `#11-vm-assignment-target-completeness`.
+            emit_unsupported(fc, "destructuring assignment is not yet supported");
         }
     }
     Ok(())
@@ -312,8 +305,9 @@ pub(super) fn compile_assignment(
 /// expressions share this gate rather than carrying their own.
 ///
 /// Rejection is a scoped runtime throw, not a `CompileError`: umbrella I-1 wants
-/// loud **and scoped**, and §9 decision 5 reserves `CompileError` for what the
-/// compiler already rejects. A `CompileError` emits no bytecode for the whole
+/// loud **and scoped**, and the umbrella plan-memo
+/// `docs/plans/2026-07-vm-p4-es-language-completeness.md` §9 dec. 5 reserves
+/// `CompileError` for what the compiler already rejects. A `CompileError` emits no bytecode for the whole
 /// script, so one `this.#x = 1` would take every unrelated statement down with
 /// it. The throw precedes operand evaluation — the construct is unsupported in
 /// full, so running half its side effects first would be a second, subtler
@@ -328,24 +322,27 @@ pub(super) fn unsupported_member_target(
     // `this.#x ??= 1` aborted the process, while `this.#x = 1` / `+= 1` emitted a
     // store that fell to an `Op::Pop` tail — the write silently lost and the
     // expression evaluating to the *object*.
+    // Slot: `#11-vm-class-private-fields`.  Kept out of the message itself —
+    // it reaches page script as `e.message`, and a ledger rename would drift a
+    // web-observable string with no compiler signal.
     if matches!(property, MemberProp::PrivateIdentifier(_)) {
-        return Some(
-            "assignment to a private name is not yet supported (#11-vm-class-private-fields)",
-        );
+        return Some("assignment to a private name is not yet supported");
     }
     // Both lowerings emit the base with `compile_expr`, which turns
     // `ExprKind::Super` into `Op::PushUndefined`; there is no `SetSuperProp` or
     // `SetSuperElem` emit path, so the store would go to `undefined`.
+    // Slot: `#11-step9-class-extras`.
     if matches!(prog.exprs.get(object).kind, ExprKind::Super) {
-        return Some(
-            "assignment to a super property is not yet supported (#11-step9-class-extras)",
-        );
+        return Some("assignment to a super property is not yet supported");
     }
     // Shape/flag mismatches: each lowering below is total on exactly one
     // `MemberProp` variant, so anything else would silently mis-lower.
     match (computed, property) {
         (true, MemberProp::Expression(_)) | (false, MemberProp::Identifier(_)) => None,
-        _ => Some("assignment to this member target is not yet supported"),
+        // Defensive, not a deferral: the parser produces no other
+        // (computed, MemberProp) pairing, so this arm exists so a future variant
+        // cannot silently mis-lower instead of announcing itself.
+        _ => Some("this member target shape is not supported"),
     }
 }
 
@@ -361,12 +358,15 @@ pub(super) fn emit_unsupported(fc: &mut FunctionCompiler, message: &str) {
 
 /// Compile assignment to a member target (`o.p = v`, `o[k] += v`, `o.p ??= v`).
 ///
-/// Every ECMA-262 §13.15.2 production evaluates the LeftHandSideExpression
-/// **once** and reuses that reference for both `GetValue` and `PutValue`, so
-/// compound and logical forms keep the reference on the stack rather than
-/// re-evaluating the object or key — re-evaluation would run user getters and
-/// `valueOf` twice. Step indices differ per production: `LHS AssignmentOperator
-/// AssignmentExpression` is steps 1 / 3 / 9, the logical forms steps 1 / 2 / 6.
+/// The two read-modify-write ECMA-262 §13.15.2 productions evaluate the
+/// LeftHandSideExpression **once** and reuse that reference for both `GetValue`
+/// and `PutValue`, so compound and logical forms keep the reference on the stack
+/// rather than re-evaluating the object or key — re-evaluation would run user
+/// getters and `valueOf` twice. Step indices differ per production: `LHS
+/// AssignmentOperator AssignmentExpression` is steps 1 / 3 / 9, the logical
+/// forms steps 1 / 2 / 6.  Simple `=` evaluates `leftRef` at step 1.a and
+/// `PutValue`s at step 1.e without a `GetValue`, so it needs no reference kept
+/// across a load — which is why only the other two reach `Op::GetElemRef`.
 #[allow(clippy::too_many_arguments)]
 fn compile_member_assignment(
     fc: &mut FunctionCompiler,

@@ -541,7 +541,7 @@ fn emit_class_method_define(
         MethodKind::Set => Op::DefineSetter,
         // Class methods are non-enumerable: ECMA-262 §15.4.5
         // MethodDefinitionEvaluation takes `enumerable` as an argument and
-        // §15.7.14 ClassDefinitionEvaluation passes `false`.
+        // §15.7.13 ClassElementEvaluation passes `false`.
         // Use DefineMethod (u16 name + u8 flags) for the correct descriptor.
         _ => Op::DefineMethod,
     };

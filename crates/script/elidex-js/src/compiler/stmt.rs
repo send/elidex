@@ -8,6 +8,7 @@ use crate::scope::{ScopeAnalysis, ScopeKind};
 use crate::span::Span;
 
 use super::expr::{compile_class, compile_expr};
+use super::expr_assign::{emit_unsupported, unsupported_member_target};
 use super::function::FunctionCompiler;
 use super::resolve::FunctionScope;
 use super::stmt_destructure::{compile_destructure_pattern, compile_pattern_store};
@@ -883,8 +884,40 @@ fn compile_forin_left_binding(
                     }
                 }
             } else {
-                // Complex LHS (e.g. `for (obj.prop in ...)`) — not yet supported.
+                // A for-in/of head is a third *lowering* of an assignment
+                // target, not a third set of targets: ECMA-262 §14.7.5.7
+                // ForIn/OfBodyEvaluation step 8.g.ii.4.a performs the identical
+                // `PutValue(lhsRef, nextValue)` that §13.15.2 step 1.e does.
+                // Until it has one, every non-identifier head — `for (o.p in
+                // obj)`, `for (this.#x of a)`, `for (super.x of a)`,
+                // `for ([a,b] of a)` — is rejected the way the assignment forms
+                // reject theirs, rather than discarding the value through
+                // `Op::Pop`: that silent no-op is the shape umbrella I-1 bans
+                // wherever it appears, and it survived here because
+                // admissibility was decided inside each lowering.
+                //
+                // `unsupported_member_target` supplies the message whenever it
+                // recognises the target, so `for (this.#x of a)` reports the
+                // same cause as `this.#x = v`.  It returning `None` means only
+                // "the *assignment* lowering accepts this shape" — there is no
+                // for-in/of member store yet either way.
+                //
+                // Emitted at the assignment site, not at loop entry: step 8.g
+                // runs per iteration, so an empty iterable performs no
+                // assignment and must not throw.  The value is consumed first,
+                // keeping this function's documented stack effect.
+                let message = match &expr.kind {
+                    ExprKind::Member {
+                        object,
+                        property,
+                        computed,
+                    } => unsupported_member_target(prog, *object, property, *computed).unwrap_or(
+                        "assignment to a member target in a for-in/of head is not yet supported",
+                    ),
+                    _ => "this for-in/of assignment target is not yet supported",
+                };
                 fc.emit(Op::Pop);
+                emit_unsupported(fc, message);
             }
         }
     }

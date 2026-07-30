@@ -242,8 +242,11 @@ pub(super) fn compile_update_expr(
         // `super.x++` lowered its base to `Op::PushUndefined` and reported a
         // misleading "cannot read property of undefined".  Update expressions
         // are a second *lowering* of the same targets, not a second set of
-        // targets, so they must not re-decide admissibility (ECMA-262 §13.4
-        // evaluates the same LeftHandSideExpression reference §13.15.2 does).
+        // targets, so they must not re-decide admissibility.  ECMA-262 §13.4's
+        // update productions evaluate their operand to a Reference Record once
+        // and reuse it for `GetValue` / `PutValue` exactly as §13.15.2 does —
+        // postfix over a `LeftHandSideExpression` (§13.4.2.1 / §13.4.3.1),
+        // prefix over a `UnaryExpression` (§13.4.4.1 / §13.4.5.1).
         if let Some(message) = unsupported_member_target(prog, *object, property, *computed) {
             emit_unsupported(fc, message);
             return Ok(());
@@ -277,11 +280,9 @@ pub(super) fn compile_update_expr(
         // A parenthesized or call target (`(x)++`, `f()++`).  Previously this
         // compiled the operand for side effects and emitted no update at all —
         // the same silent-no-op shape the member gate above rejects.
-        emit_unsupported(
-            fc,
-            "update of this target is not yet supported \
-             (#11-vm-assignment-target-completeness)",
-        );
+        // Owned by `#11-vm-assignment-target-completeness`; the slot id stays
+        // out of the message, which page script reads as `e.message`.
+        emit_unsupported(fc, "update of this target is not yet supported");
     }
     Ok(())
 }

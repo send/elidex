@@ -14,7 +14,7 @@
 //! short-circuit test fails.
 
 use super::{eval, eval_bool, eval_number, eval_string, eval_throws};
-use crate::vm::JsValue;
+use crate::vm::{JsValue, Vm};
 
 // ── Computed compound: `obj[key] op= v` ──────────────────────────────
 
@@ -158,8 +158,9 @@ fn private_name_assign_is_rejected_not_a_panic_and_not_silent() {
     }
 }
 
-/// The rejection must be **scoped** (umbrella I-1; §9 decision 5 picks a runtime
-/// throw for unimplemented expressions).  A `CompileError` is loud but not
+/// The rejection must be **scoped** (umbrella I-1; the umbrella plan-memo
+/// `docs/plans/2026-07-vm-p4-es-language-completeness.md` §9 dec. 5 picks a
+/// runtime throw for unimplemented expressions).  A `CompileError` is loud but not
 /// scoped: it yields no bytecode for the whole script, so one unsupported store
 /// anywhere would take every unrelated statement in the file down with it —
 /// strictly worse than the pre-slice behaviour for `=` and `+=`, which at least
@@ -367,13 +368,124 @@ fn identifier_logical_assign_semantics() {
     assert_eq!(eval_number("var x=1; var r=(x ||= 9); r"), 1.0);
 }
 
+/// `Op::GetElemRef` is rooted **by construction**: it reads the `[object key]`
+/// pair in place instead of popping it, so the base stays on the GC-rooted VM
+/// stack (`gc/roots.rs` walks the stack but not Rust locals) while the key
+/// conversion runs user `toString`.  It is the one arm this slice introduces and
+/// the only one whose rooting the slice owns — `Op::IncElem`/`Op::DecElem` and
+/// the rest of the dispatch loop keep merge-base behaviour under
+/// `#11-vm-operand-rooting-by-construction`.
+///
+/// The stack effect alone would not force the property (a pop-then-repush
+/// produces the same `[object key -- object key' value]`), so it needs a pin:
+/// this test fails on a popping implementation, because the base collected
+/// mid-conversion is then stored through by the following `Op::SetElem`.
+///
+/// The collection is *placed*, not provoked: `setup` performs every allocation
+/// the case needs, the one-shot is armed, and `expr`'s first allocation is the
+/// `var t = {}` inside the key's `toString` — i.e. inside the user-code window.
+/// The one-shot clears itself when it fires, so the assertion is a witness that
+/// a collection really happened there; an allocation-volume heuristic would pass
+/// vacuously if a GC-threshold change ever stopped provoking one.  (Pinning
+/// `gc_threshold` low does NOT work: `collect_garbage` ends by resetting it to
+/// `(live_count * 128).max(32768)`, so a low threshold buys exactly one
+/// collection, at the script's *first* allocation.)
+#[test]
+fn get_elem_ref_keeps_temporary_base_rooted() {
+    // `mk()` hands out the base while dropping the pool's reference, so the
+    // operand slot is the only thing holding it.
+    let setup = "globalThis.pool = []; globalThis.mk = function () { return pool.pop() }; \
+                 pool.push({p: 1}); \
+                 globalThis.k = {toString(){ var t = {}; return 'p' }};";
+    let gc_in_window = |expr: &str| {
+        let mut vm = Vm::new();
+        vm.eval(setup).expect("probe setup must succeed");
+        vm.inner.force_gc_before_next_alloc = true;
+        let result = vm.eval(expr);
+        assert!(
+            !vm.inner.force_gc_before_next_alloc,
+            "no collection was placed in the window — `{expr}` never allocated, \
+             so this case proves nothing about rooting"
+        );
+        result
+    };
+    for expr in ["mk()[k] += 2", "mk()[k] ??= 9", "mk()[k] ||= 9"] {
+        match gc_in_window(expr) {
+            Ok(JsValue::Number(n)) => {
+                assert_eq!(n, if expr.contains("+=") { 3.0 } else { 1.0 }, "{expr}");
+            }
+            other => panic!("expected a number from `{expr}`, got {other:?}"),
+        }
+    }
+}
+
+/// The for-in/of head is the **third** lowering of an assignment target, and it
+/// was the gate's un-swept sibling: `compile_forin_left_binding` decided
+/// admissibility inside its own branch, so every non-identifier head discarded
+/// the iteration value through `Op::Pop` and ran the loop body with the target
+/// never written — the silent no-op shape the gate exists to ban, and the fourth
+/// instance of "admissibility decided inside a lowering" in this one slice.
+///
+/// ECMA-262 §14.7.5.7 ForIn/OfBodyEvaluation step 8.g.ii.4.a performs the same
+/// `PutValue(lhsRef, nextValue)` §13.15.2 step 1.e does, so the same gate
+/// governs both.  Step 8.g runs **per iteration**, which is why the rejection is
+/// emitted at the assignment site: an empty iterable performs no assignment and
+/// must not throw.
+#[test]
+fn forin_of_heads_share_the_assignment_admissibility_gate() {
+    for src in [
+        "var o={}; for (o.p in {a:1}) {}",
+        "var o={}; for (o.p of [1]) {}",
+        "var o={}, k='p'; for (o[k] of [1]) {}",
+        "var a=[],b=[]; for ([a,b] of [[1,2]]) {}",
+        "class C{#x=0; m(){ for (this.#x of [1]) {} }}; new C().m()",
+        "class B{}; class D extends B{ m(){ for (super.x of [1]) {} } }; new D().m()",
+    ] {
+        eval_throws(src);
+    }
+    // Per-iteration, not per-loop: an empty iterable never assigns, so it must
+    // not throw — and the loop still completes normally.
+    assert_eq!(eval_number("var o={}; for (o.p of []) {} 42"), 42.0);
+    assert_eq!(eval_number("var o={}; for (o.p in {}) {} 42"), 42.0);
+    // Scoped: an unlowerable head elsewhere does not stop unrelated statements.
+    assert_eq!(
+        eval_number("function f(){ var o={}; for (o.p of [1]) {} } 42"),
+        42.0
+    );
+    // The diagnosis matches the assignment forms for the targets the gate names.
+    assert_eq!(
+        eval_string(
+            "class C{#x=0; m(){ for (this.#x of [1]) {} }}; \
+             var r=''; try { new C().m() } catch (e) { r = e.message } r"
+        ),
+        "assignment to a private name is not yet supported"
+    );
+    // An identifier head still works — the gate did not widen.
+    assert_eq!(eval_number("var x=0; for (x of [7]) {} x"), 7.0);
+    assert_eq!(eval_string("var x=''; for (x in {q:1}) {} x"), "q");
+}
+
 // ── Carved divergences, pinned so they cannot widen unnoticed ─────────
 //
-// Both are **pre-existing** defects of the element-access family that this slice
-// inherits rather than introduces — each is verified below to misbehave on a
-// path that predates this slice entirely. Each gets its own plan-reviewed PR;
-// these tests assert the CURRENT (wrong) behaviour so the blast radius is
-// fenced, and flip when the slots land.
+// All three are **pre-existing** defects that this slice inherits rather than
+// introduces — each is verified below to misbehave on a path that predates this
+// slice entirely. Each gets its own plan-reviewed PR; these tests assert the
+// CURRENT (wrong) behaviour so the blast radius is fenced, and flip when the
+// slots land.
+//
+// ⚠ CARVED (no divergence test — the defect is a GC race, not an observable
+// result): `#11-vm-operand-rooting-by-construction`.  Roughly twenty dispatch
+// arms pop an operand into a Rust local and then run user JS before reading or
+// storing through it; `gc/roots.rs` walks the VM stack but not Rust locals, so a
+// collection in that window yields a value read from a recycled object, a store
+// through a dangling `ObjectId`, or a `get_object`/`get_object_mut` panic.  This
+// slice roots only `Op::GetElemRef`, the one arm it introduces
+// (`get_elem_ref_keeps_temporary_base_rooted`); `Op::IncElem`/`Op::DecElem` and
+// the rest keep merge-base behaviour.  The slot's deliverable is an invariant
+// that makes an unrooted hold unrepresentable, not another per-site sweep —
+// five successive sweeps each declared a different boundary complete and each
+// was falsified by the next round.  `#11-vm-element-access-base-rooting`, which
+// an earlier round of this PR recorded as closed, is subsumed by it.
 
 /// ⚠ CARVED: `#11-vm-topropertykey-symbol-from-toprimitive`.
 ///
@@ -453,8 +565,8 @@ fn unlowerable_assignment_targets_throw_rather_than_silently_doing_nothing() {
 /// undefined", *after* evaluating both operands. The `eval_throws` loop is a
 /// shape sweep — several of its cases threw before the fix too, for the wrong
 /// reason — so the sharp assertions are the side-effect-log block below, which
-/// fails on the pre-fix compiler.
-/// pair, and that the throw precedes operand side effects.
+/// fails on the pre-fix compiler: it pins that the same cause is reported for
+/// `super.x` and `super[k]`, and that the throw precedes operand side effects.
 #[test]
 fn unsupported_member_targets_are_rejected_by_shape_not_by_lowering() {
     let in_class =

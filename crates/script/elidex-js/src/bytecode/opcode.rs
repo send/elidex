@@ -42,10 +42,14 @@ pub enum Op {
     /// 13.b.i + 17 / §19.2.1.1 steps 29.a + 30.a + 33 surface the script's or
     /// `eval`'s last such value (13.b.i / 30.a normalise an empty completion to
     /// `undefined`).
-    /// Function, class-constructor, generator and async bodies discard instead
-    /// (§10.2.1.4 OrdinaryCallEvaluateBody + §15.2.3 step 4 yield
-    /// `ReturnCompletion(undefined)` regardless of a trailing expression), which
-    /// is why the dispatch arm also gates on the entry frame being `Eval`.
+    /// Every other body kind discards instead, which is why the dispatch arm
+    /// also gates on the entry frame being `Eval`.  §10.2.1.4
+    /// OrdinaryCallEvaluateBody dispatches per body kind and none of them
+    /// surfaces a trailing expression's value: function and class-constructor
+    /// bodies reach §15.2.3 EvaluateFunctionBody step 4
+    /// `ReturnCompletion(undefined)`, while generator (§15.5.2 step 6), async
+    /// (§15.8.4 step 5) and async-generator (§15.6.2) bodies return the
+    /// generator object or the promise instead.
     ///
     /// Splitting this out of [`Op::Pop`] is what keeps internal stack
     /// housekeeping — reference cleanup, hoisting stores, destructuring
@@ -116,13 +120,15 @@ pub enum Op {
     /// reference, keeping the reference for a following store.
     ///
     /// Emitted for compound and logical assignment to a computed member
-    /// (`obj[key] += v`, `obj[key] ??= v`). Every ECMA-262 §13.15.2 production
-    /// evaluates the LeftHandSideExpression **once** and reuses that reference
-    /// for both `GetValue` and `PutValue`, so the operand expressions are not
-    /// re-emitted — a side-effecting *key expression* runs once. The step
-    /// indices are per-production: `LHS AssignmentOperator AssignmentExpression`
-    /// is steps 1 / 3 / 9, while the logical forms (`&&=` `||=` `??=`) are steps
-    /// 1 / 2 / 6.
+    /// (`obj[key] += v`, `obj[key] ??= v`). Both read-modify-write ECMA-262
+    /// §13.15.2 productions evaluate the LeftHandSideExpression **once** and
+    /// reuse that reference for both `GetValue` and `PutValue`, so the operand
+    /// expressions are not re-emitted — a side-effecting *key expression* runs
+    /// once. The step indices are per-production: `LHS AssignmentOperator
+    /// AssignmentExpression` is steps 1 / 3 / 9, while the logical forms
+    /// (`&&=` `||=` `??=`) are steps 1 / 2 / 6.  (Simple `=` is not one of
+    /// them: its production evaluates `leftRef` at step 1.a and `PutValue`s at
+    /// step 1.e with no `GetValue`, so it needs no reference-preserving opcode.)
     ///
     /// `key'` is the **converted** key: §6.2.5.5 GetValue step 3.c.i writes
     /// `ToPropertyKey`'s result back into the Reference Record, so a later

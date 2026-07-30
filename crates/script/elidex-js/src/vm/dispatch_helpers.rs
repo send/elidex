@@ -240,9 +240,25 @@ impl VmInner {
 // ── Opcode bodies added by this slice ────────────────────────────────
 //
 // Extracted rather than written inline: `dispatch.rs` is over the 1000-line
-// threshold, and the umbrella's forward rule for slices that add or edit arms is
-// to put the body in a `dispatch_*.rs` sibling so the dispatch loop stays a
-// table.
+// threshold, so the umbrella's forward rule is to put an added arm's body in a
+// `dispatch_*.rs` sibling and leave the dispatch loop a table.  The rule covers
+// bodies that need only the VM and their own bytecode operands; `Op::PopCompletion`
+// stays inline because it reads `frame_idx` / `entry_frame_depth` — loop state
+// that is not the opcode's own — and threading both through a helper would trade
+// one line of table for two of plumbing.
+//
+// **Error disposition** is keyed on what a body can return, which the signature
+// fixes at compile time rather than leaving to whichever arm noticed:
+//
+// - `op_pop_under` can fail *only* by breaking a stack invariant, so its arm
+//   propagates with `?` and leaves `run()` by the hard path — the same exit
+//   `Op::Swap` has always taken inline for the identical condition.
+// - `op_get_elem_ref` / `op_inc_dec_elem` / `op_throw_unsupported` can also
+//   raise a JS-level error, so their arms hand everything to `throw_error` and
+//   handler search works normally.  That leaves their (unreachable-by-
+//   construction) invariant guards catchable, which is what every pre-existing
+//   `op_*` helper in this crate already does; unifying the two dispositions on
+//   the error's *kind* engine-wide is `#11-vm-internal-error-hard-exit`.
 
 impl VmInner {
     /// `Op::PopUnder` — `[a1 … an v -- v]`, discard `n` slots from beneath the
@@ -270,11 +286,22 @@ impl VmInner {
     /// `Op::GetElemRef` — `[object key -- object key' value]`, load through a
     /// computed member reference while keeping the reference for a later store.
     ///
-    /// The `[object key]` pair is read **in place** rather than popped, because
-    /// the whole point of the opcode is to leave the reference behind for the
-    /// `Op::SetElem` that follows — ECMA-262 §13.15.2 evaluates the
-    /// LeftHandSideExpression once and reuses that one reference for `GetValue`
-    /// and `PutValue`.
+    /// The `[object key]` pair is read **in place** rather than popped and
+    /// pushed back.  The stack effect alone does not force that — a
+    /// pop-then-repush produces the identical `[object key -- object key' value]`
+    /// and every test still passes — but the rooting does: key conversion runs
+    /// user `toString` / `@@toPrimitive`, which can allocate enough to trigger a
+    /// collection, and `gc/roots.rs` walks the VM stack but **not** Rust locals.
+    /// A base popped into a local could therefore be collected mid-conversion,
+    /// and this opcode hands that base straight to the following `Op::SetElem` —
+    /// a store through a dangling `ObjectId`, into whatever object recycled the
+    /// slot, or `get_object_mut`'s "object already freed" panic.  Leaving both
+    /// slots on the stack makes that unrepresentable here.  Pinned by
+    /// `get_elem_ref_keeps_temporary_base_rooted`.
+    ///
+    /// The reference is preserved for the same §13.15.2 reason the compiler
+    /// emits this opcode at all: the LeftHandSideExpression is evaluated once
+    /// and that one reference serves both `GetValue` and `PutValue`.
     ///
     /// `key'` is the **converted** key: §6.2.5.5 GetValue step 3.c.i writes
     /// `ToPropertyKey`'s result back into the Reference Record, so a later
@@ -317,6 +344,17 @@ impl VmInner {
     /// `toString` twice, reading one property and writing another — the same
     /// defect `Op::GetElemRef` removes for compound assignment, fixed here by
     /// sharing its [`Self::get_element_keeping_key`].
+    ///
+    /// ⚠ Unlike `Op::GetElemRef` this arm **pops** its operands, so `obj` spends
+    /// the key conversion and the `to_number` of the old value in a Rust local
+    /// that `gc/roots.rs` does not walk, and the `set_element` below writes
+    /// through it.  That is merge-base behaviour, unchanged by this slice and
+    /// shared with roughly twenty other arms; the boundary was drawn there
+    /// deliberately, because five successive audits each declared a different
+    /// per-site sweep complete and each was wrong.  Owned by
+    /// `#11-vm-operand-rooting-by-construction`, whose deliverable is an
+    /// invariant making an unrooted hold unrepresentable rather than a sixth
+    /// sweep.
     pub(super) fn op_inc_dec_elem(&mut self, increment: bool) -> Result<(), VmError> {
         let prefix = self.read_u8_op() != 0;
         let raw_key = self.pop()?;

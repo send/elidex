@@ -65,9 +65,10 @@ impl VmInner {
 
     /// `DefineComputedMethod` — like `DefineComputedProperty` but
     /// non-enumerable: ECMA-262 §15.4.5 MethodDefinitionEvaluation defines the
-    /// method with its `enumerable` argument, and §15.7.14
-    /// ClassDefinitionEvaluation (the only producer of this opcode) passes
-    /// `false`.
+    /// method with its `enumerable` argument, and §15.7.13 ClassElementEvaluation
+    /// passes `false` for `ClassElement : MethodDefinition` /
+    /// `static MethodDefinition`.  (`compiler/expr_class.rs` is this opcode's
+    /// only producer, so every instance is a class element.)
     pub(crate) fn op_define_computed_method(
         &mut self,
         entry_frame_depth: usize,
@@ -230,7 +231,7 @@ impl VmInner {
         if let (JsValue::Object(obj_id), JsValue::Object(fn_id)) = (obj_val, closure) {
             let pk = self.make_property_key(key_val)?;
             // Class elements are non-enumerable: §15.4.5 takes `enumerable` as
-            // an argument and §15.7.14 ClassDefinitionEvaluation passes `false`.
+            // an argument and §15.7.13 ClassElementEvaluation passes `false`.
             self.define_accessor_impl(obj_id, pk, fn_id, is_getter, false)?;
         }
         Ok(())
