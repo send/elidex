@@ -5,7 +5,7 @@
 **Umbrella**: `docs/plans/2026-07-citation-hygiene-umbrella.md`, slice **A**. Under that umbrella's approval
 boundary this is a **terminal unit** (§9). **Branch**: `webref-cite-audit-tool`, after the §4.0 re-carve.
 **Nature**: developer tooling + CI topology + one gate-contract change (§4.2.5). Zero `crates/**` diff.
-**Status**: plan-memo, **draft 8**. `/elidex-plan-review` **required before implementation**.
+**Status**: plan-memo, **draft 9**. `/elidex-plan-review` **required before implementation**.
 
 **This memo carries no measured digits of its own.** Every quantity is printed by a function in
 `docs/plans/2026-07-citation-hygiene-A-rederive.sh`, which ships on this branch; the memo cites the function
@@ -17,16 +17,28 @@ whose stated derivation does not derive them*. A description of an executable is
 derivation is now an executable, and the §6 fixture bodies live in it, so the memos a reviewer measures are
 byte-identical to the ones the test plan ships.
 
-⚠ **Draft 8 extends that from the memo's *digits* to its *control flow*, because the digits were never the
+⚠ **Draft 8 extended that from the memo's *digits* to its *control flow*, because the digits were never the
 whole defect.** §4.2.3 specifies the control flow of code that does not exist yet. Prose was the only
 medium, so a **review round was the only thing executing it** — and it inverted twice consecutively: round
 6 found draft 6's reporting arm False in the one row it exists for, and round 7 found that draft 7's fix
 made it True in six rows where it must be False. Two inversions in a row is a method failure, not an
 attention failure. **The fix**: `rederive armmatrix` grafts §4.2.3 and §4.2.5 onto a copy of `preflight.py`
-in a scratch worktree and runs all 17 §5 rows *plus 7 untabulated states* with **three candidate predicates
-instrumented side by side**. Every §4.2.3 claim below now cites a measured row rather than an argument. The
-implementation PR lands that control flow; the harness is not shipped code. **This changed four decisions
-and added three edits nobody had proposed** — items 5, 7b, 7c and §4.2.5's grep-pass sentence.
+in a scratch worktree and runs every §5 row *plus the untabulated states* with **three candidate predicates
+instrumented side by side** (the harness prints its own state totals — this memo does not carry them). Every
+§4.2.3 claim below cites a measured row rather than an argument. The implementation PR lands that control
+flow. **That changed four decisions and added three edits nobody had proposed** — items 5, 7b, 7c and
+§4.2.5's grep-pass sentence.
+
+⚠ **Round 8 found the sequel, and it is what draft 9 is for: building the executable and checking that the
+executable *covers the memo's claims* are two different things.** Draft 8 did the first and asserted the
+second. **Eleven of round 8's thirty findings were defects in the harness itself.** `_proto` had dropped
+`displayed_specs`, so the one line items 6 and 8 both legislate was the one line no state could witness —
+and item 8 turns out **false** as drafted (measured `unique specs (K): 1 (-)`). No fixture carried a
+malformed row, so item 5's denominator clause was unmeasured. `armmatrix` printed no total, so §9's coverage
+figure was hand-counted **and wrong** (24 / 17 / 20 stated; 25 / 18 / 7 measured). And two sections cited a
+block whose own grep discarded the lines they cited. The rule draft 8 lacked: **a harness must derive the
+coverage of its claims, not only their values.** `armmatrix` now prints its state totals, models the display
+line, and carries a malformed fixture; §8 and §9 cite it instead of counting.
 
 ### §0.1 What Slice A is
 
@@ -48,12 +60,24 @@ A ships **no detector** (B) and **retires no review policy** (C).
 
 ⚠ **The scope boundary stands; the reason draft 4 gave for it does not.** A takes the deduplication; the
 948-entry catalog fall-through goes to Slice B. Draft 4's reason, inherited from B §4.1.8, was that a
-level-collision makes verification *"silently run against the wrong document"*. **Falsified**: every
-level-collision pair B names returns byte-identical `webref heading` output, because webref's `ed/` extracts
-are keyed to the series' current spec. Of 203 non-round-tripping shortnames, **195 resolve to the same
-document and 8 to a different one** — all cross-series or fork cases; two of the 8 carry the label `DOM`,
-harmless not because the label is exotic but because **the pinned map wins before the catalog is
-consulted**. §10-Q1 carries the real grounds. §13 hands the correction to B. → `rederive partition`
+level-collision makes verification *"silently run against the wrong document"*. **Falsified on the pairs B names —
+and draft 8 over-generalised the falsification.** Round 8's finding; two statements, kept apart because only
+the first is true:
+
+- **Narrow (true, and it is what falsifies B's sentence)**: every level-collision pair **B actually names**
+  (`cssom-1`/`cssom`, `pointerevents4`/`3`, `wai-aria-1.3`, `webaudio-1.1`, `selectors`) returns
+  byte-identical `webref heading` output, because webref's `ed/` extracts are keyed to the series' current
+  spec. Of 203 non-round-tripping shortnames, **195 resolve to the same document and 8 to a different one**.
+- **General (draft 8 asserted it; measured FALSE)**: *"the 8 are all cross-series or fork cases."* Per pair,
+  **5 of the 8 are same-series** (`fido-client-to-authenticator-protocol` ×3, `wasm-js-api` ×2) and **all 8
+  have `forkOf = None`**; only 3 are genuinely cross-series (`rfc6265bis`, `DOM-Level-2-Style`, `DOM-Style`).
+  So **a level collision inside one series can resolve to a different document** — the mechanism B's
+  sentence describes. B's memo already carries the sound version (200 same-series / 3 cross-series); on this
+  point A's §0 was the less accurate of the two.
+
+Two of the 8 carry the label `DOM`, harmless not because the label is exotic but because **the pinned map
+wins before the catalog is consulted**. §10-Q1 carries the real grounds and none of them depends on the
+general claim. §13 hands B the **narrowed** correction. → `rederive partition`
 
 ---
 
@@ -62,10 +86,23 @@ consulted**. §10-Q1 carries the real grounds. §13 hands the correction to B. �
 This slice implements no spec logic. The two citations below are rows the `test_preflight.py` fixtures
 carry; both looked up with `.claude/tools/webref`, nothing from memory. → `rederive citations`
 
-| Cite | § | Exact title | Anchor | webref command |
+| Cite | § | Exact title | Anchor | Which fixture, and why it is load-bearing |
 |---|---|---|---|---|
-| the labelled fixture row (P1b/P2/P3) | HTML §4.10.21 | Constraints | `#constraints` | `heading --exact html 4.10.21` |
-| the second row of `dedup.md`, so `seen_pairs`' dedup arm is taken | HTML §4.10.21.2 | Constraint validation | `#constraint-validation` | `heading --exact html 4.10.21.2` |
+| `WHATWG HTML §4.10.21` | HTML §4.10.21 | Constraints | `#constraints` | row 1 of `labelled.md`, `dedup.md`, `nospec-and-table.md`, `fenced-marker.md` — the mapped row every capability state is measured against |
+| `WHATWG HTML §4.10.21.2` | HTML §4.10.21.2 | Constraint validation | `#constraint-validation` | **row 2 of `labelled.md`** — a *second distinct* pair, so P1b checks `2 unique citation(s)` |
+| `HTML §4.10.21` (alias spelling) | HTML §4.10.21 | Constraints | `#constraints` | **row 2 of `dedup.md`** — resolves to the *same* pair as row 1, which is the only shape that takes `seen_pairs`' dedup `continue` (P1c) |
+| `Fetch §2.2.5` | Fetch §2.2.5 | Requests | `#requests` | the only row of `alias.md` — **P10 asserts this verifies**, so it goes through the real resolver and a real `webref heading --exact fetch 2.2.5` |
+| `CSSOM VIEW §4.2` | CSSOM View §4.2 | The MediaQueryList Interface | `#the-mediaquerylist-interface` | `allunmapped.md` / `malformed.md` — chosen because `CSSOM VIEW` is **absent from the pinned map**; the title is the real one (see the ⚠ below) |
+
+⚠ **Draft 8 attributed §4.10.21.2 to "the second row of `dedup.md`", and that was self-refuting.**
+`dedup.md`'s second row is `HTML §4.10.21 …, again`; if it were §4.10.21.2 the two rows would be *distinct*
+pairs and the dedup `continue` would be taken zero times — which is precisely the draft-6 defect the ⚠ below
+says was fixed. Round 8's finding. The table now names the fixture and the row for every pair.
+
+⚠ **A citation-hygiene program must not author spec-shaped text with a fabricated §-title.** Draft 8's
+`allunmapped.md` carried `CSSOM VIEW §4.2 Foo`. Nothing would have caught it — `verify_citation` checks only
+that the number *exists* — and §4.2.1 measures that this row goes through the real resolver at the carve.
+Corrected to the looked-up title; the fixture's subject is the *label*, not the section.
 
 **P4 needs a *separate* fixture, not a third row.** Its §3 rows are **all** label-less (each cell opening
 with `§`); a memo containing *any* labelled row hard-fails under both the correct placement and the mis-sited
@@ -74,7 +111,7 @@ falsifies §4.2.2's placement.
 
 ⚠ **Draft 6 justified its second labelled row as exercising `seen_pairs` and it did not** — both rows were
 distinct `(shortname, section)` keys, so the dedup `continue` was taken zero times and the 21→15 figure it
-underwrites was unpinned. `dedup.md` now carries two rows resolving to **one** pair; measured, 2 rows →
+underwrites was unpinned. `dedup.md` carries two rows resolving to **one** pair; measured, 2 rows →
 `1 unique citation(s) checked`. → `rederive column`
 
 ⚠ **This table certifies fixtures, not the slice.** `origin/main` hard-fails a §3 section with no heading,
@@ -137,11 +174,17 @@ independent.
 
 | Spec section | Step | Branch | Touch (compile/dispatch site) | Full enum? | User-input flow |
 |---|---|---|---|---|---|
-| WHATWG HTML §4.10.21 Constraints | fixture | the labelled `§3` row a fail-closed run must still map | §4.4 — `test_preflight.py` fixtures | ✓ — the fixture set is authored, not discovered | no |
-| WHATWG HTML §4.10.21.2 Constraint validation | fixture | the second row of `dedup.md`, so the dedup arm is taken | §4.4 — same fixture set | ✓ | no |
+| WHATWG HTML §4.10.21 Constraints | fixture | the mapped row every capability state is measured against | §4.4 — `test_preflight.py` fixtures | ✓ — the fixture set is authored, not discovered | no |
+| WHATWG HTML §4.10.21.2 Constraint validation | fixture | `labelled.md` row 2 — a second distinct pair, so P1b checks `2 unique` | §4.4 — same fixture set | ✓ | no |
+| WHATWG Fetch §2.2.5 Requests | fixture | the alias-spelling row **P10 asserts verifies** | §4.4 — `alias.md` | ✓ | no |
+| CSSOM View §4.2 The MediaQueryList Interface | fixture | the row chosen to be **unmapped** by the pinned map | §4.4 — `allunmapped.md` / `malformed.md` | ✓ | no |
 
-**Breadth**: K=1 spec (`html`), M=2 rows → **ok (single PR scope)**. Rows here are test fixtures; a fixture
-set larger than the property under test is padding. See §0.5's ⚠ for what this does *not* certify.
+**Breadth**: measured by the gate on this memo — see §0.5. Rows here are test fixtures; a fixture set larger
+than the property under test is padding. See §0.5's ⚠ for what this does *not* certify.
+
+⚠ **Draft 8 tabled two of the four and still wrote `Full enum? ✓`.** Round 8's finding, and the omission was
+not cosmetic: `Fetch §2.2.5` is the citation **P10** turns red on if it drifts, so it is as load-bearing as
+the two that were listed. A table that certifies fixture citations must range over the fixture set.
 
 ### §3.1 User-input touch audit + discovery method
 
@@ -182,7 +225,7 @@ commit §12(3) ranges from). → `rederive lanes`
 | `skills/elidex-plan-review/preflight.py` | **A** — drops the local map, imports the shared one |
 | `_webref/commands/coverage_map.py` | **split** — the delegation to `label_for` is A; the changed last-resort is B |
 | `_webref/cli.py` | **split** — the blurb derivation is A; the `cite-audit` subparser and its import are B |
-| `_webref/DESIGN.md` | **split** — the `spec_labels.py` bullet is A minus its catalog sentence; the rest is B |
+| `_webref/DESIGN.md` | **split** — see the ⚠ below; "minus its catalog sentence" is not a separable edit and A's text is stated verbatim |
 | `_webref/test_cite_audit.py` | **split** — `TestSharedSpecLabelMap`'s first **8** tests become A's `test_spec_labels.py`; `test_coverage_map_fallback_round_trips` + the `coverage_map_label` helper are **B** (they assert the catalog round-trip); the other 10 classes are B's |
 | `_webref/commands/cite_audit.py`, `sources/webref_data.py` | **B** |
 
@@ -190,11 +233,21 @@ commit §12(3) ranges from). → `rederive lanes`
 
 | Region | Half |
 |---|---|
-| docstring drift rationale **and its closing `"""`** | **A** ("Four sites" → **three**; the `cite_audit.py` bullet is B's) |
+| docstring drift rationale **and its closing `"""`** | **A** — "Four sites" → **three** (the `cite_audit.py` bullet is B's) **and the consumer list is rewritten by role**: the `.claude/skills/elidex-plan-review/preflight.py` bullet becomes *"the plan-review gate"* |
+| `label_for`'s docstring ("…then upstream's `shortTitle`") | **B** — it describes the fall-through |
+| `shortname_for`'s docstring (the catalog paragraph, the `CSS Text 3` example, the "failed **open**" sentence) | **B** — same |
 | the *"`SPECS` is a fallback, not the source"* paragraph | **B** |
 | `SPECS` and the three derived dicts | **A**, **minus the parse aliases** (below) |
 | `_catalog()` and its `sources.webref_data` import | **B** |
-| `label_for` / `shortname_for` — the pinned lookups **A**; their catalog branches | **B** |
+| `label_for` / `shortname_for` — the pinned lookup **bodies** **A**; their catalog branches | **B** |
+
+⚠ **Draft 8 partitioned this file by code branch while §7 and §12(3) make claims about its *prose*, and the
+two do not line up.** Round 8's finding, and it is mechanical: measured, A's half at HEAD carries
+`.claude/skills/elidex-plan-review/preflight.py` at `spec_labels.py:7`, inside the docstring the table
+assigns wholly to A — so §12(3)'s fourth check ("no elidex file PATH in A's half") **could not pass** under
+the edit set as written, because no row instructed the rewrite §7 assumes. Likewise both function docstrings
+describe B's catalog while living in A's file, and §12(3)'s `_catalog\|webref_data` grep matches neither
+string. The rows above now say what happens to each piece of prose. → `rederive couplings`
 
 **A deletes the 8 parse aliases.** Measured: removing every one leaves `LABEL_TO_SHORTNAME` **byte-identical
 at 24 keys**, because each alias (`HTML`, `DOM`, `URL`, `Fetch`, `Streams`, `WebCrypto`, `XHR`, `WebIDL`)
@@ -204,6 +257,18 @@ newly-resolving spellings come from the **shortname-as-own-parse-key** rule inst
 
 `coverage_map._spec_label` keeps `origin/main`'s last-resort `shortname.upper().replace("-", " ")`
 **verbatim**; the branch's `or shortname` is only correct together with the catalog and B §4.1.8's rules.
+
+⚠ **`DESIGN.md` "minus its catalog sentence" cannot be executed, so A states its text instead.** Round 8's
+finding: the whole `spec_labels.py` bullet is **branch-new** (absent from `origin/main`), and the catalog
+clause is the second half of a semicolon-joined sentence whose *first* half — "`SPECS` pins only what
+upstream cannot supply (the tc39 pair, this repo's `"WHATWG "` display prefix)" — is **false under A**,
+where there is no fall-through and `SPECS` pins all twelve. A's verbatim bullet:
+
+> `spec_labels.py` is the single source for spec shortname ↔ display label. It replaced three
+> hand-maintained copies (`commands/coverage_map.py`, `cli.py`'s help blurb, and the plan-review gate's
+> preflight) that had drifted apart.
+
+B adds the fall-through sentence and the fourth copy when it lands the catalog.
 
 ⚠ **The prose needs its own pass.** Sites in the A column describe `commands/cite_audit.py` as extant, and it
 is **absent from `origin/main`**. A filename-only purity check passes while every one is present, which is
@@ -229,11 +294,24 @@ concern by file while justifying by nature): **a gate's contract of record trave
 | `coverage_map`'s changed last-resort, and `test_coverage_map_fallback_round_trips` | **B** | true only once the catalog and B §4.1.8's rules are in |
 | `cite_audit.py`, `test_cite_audit.py`, the `cite-audit` subparser, `webref_data.py`'s memo | **B** | the detector |
 | `spec_labels`'s public-surface reduction (`project_pr-a0-review-ledger` #25) | **B** | its stated root is `cite_audit.py` indexing `LABEL_TO_SHORTNAME` directly; reducing the surface in A would also trip the shipped `test_module_leaves_no_temporaries_to_delete` guard |
-| `SKILL.md` — the Hard-fail bullet, the Soft-warn bullet (it lists "unrecognized spec labels" as unconditionally exit-0, the sentence J1 is about), `--no-verify`'s meaning, Pre-condition #1 | **A** | the criterion above |
+| `SKILL.md` — the Hard-fail bullet, the Soft-warn bullet, the **Flags** bullet, `--no-verify`'s meaning, Pre-condition #1 | **A** | the criterion above; the required coverage is stated below as classes to grep, not as a list to read off |
 | one shared `SECTION_NUMBER_RE` across `preflight` / `cite_audit` / `section_sort` | **B** | A leaves `preflight.SECTION_REF_RE` byte-identical so B's collapse is one edit |
 | `axes.md` (2)/(4) and its Axis 4 spec-citation-table detect, which a no-spec-surface memo will draw; `CLAUDE.md` § "Spec citation"; `DESIGN.md`'s reported-class contract | **C** | review-axis requirements |
 | `grep_pass.py` reporting a wrong repo root as one HARD finding *per referenced path* | **C** | §1's class in a neighbouring gate; C already edits review tooling. Draft 5 recorded it with no home at all |
 | the `crates/**` citation repairs and the 8 newly-authored wrong citations | **D** | content, not plumbing |
+
+**`SKILL.md`'s required coverage, as classes** — ⚠ draft 8 assigned the bullets and never said what the
+replacement must cover, which is the shape draft 6's B-memo list had and review found wrong at most items
+(§14 G3). §13 already answered that class for B by switching to classes-to-grep; the same treatment applies
+here. Every sentence in `SKILL.md` matching one of these is A's to correct:
+
+| Class | Why it is false after A |
+|---|---|
+| "unrecognized spec labels" as **one** soft-warn class | item 7b makes it two (unknown label / label-less), with distinct remedies |
+| any soft-warn described as **unconditionally exit-0** | item 4 hard-fails both when verification is requested and the capability is absent |
+| "no table after the heading" as an **unconditional** hard fail | §4.2.5 makes it conditional on the marker |
+| `--strict-breadth`'s description | §4.2.5 makes it a no-op on the marker path |
+| any statement that the gate **verifies** whatever it does not hard-fail on | items 5 and 7c: it may report `n/a` with a stated basis |
 
 ### §4.2 A1 — land the capability fail-closed
 
@@ -248,13 +326,15 @@ asymmetry is created by moving the map, which is why the slice that moves it own
 here.** `mv .claude/tools/_webref` — what `rederive remedies` used — flips **neither** §5 axis.
 `.claude/tools/webref` is a *separate* 16-line shim, so `WEBREF.is_file()` stays **True** while the CLI dies
 `rc 1` (`ModuleNotFoundError`) at invocation: a state §5 has no row for, in which A's static verdict names
-only the map and the CLI is in fact broken. The two axes are flipped by different things, and only these:
+only the map and the CLI is in fact broken. The two axes are flipped by different things — and A's pins use **three** mechanisms, not the two draft 8
+enumerated as exhaustive (round 8's finding; §4.5 items 3 and 4 both reach for the third):
 
 | instrument | `WEBREF.is_file()` | map import | child `webref` rc | is it a §5 state? |
 |---|---|---|---|---|
 | `mv .claude/tools/_webref` (drafts 1-7) | True | FAIL | **1** | **no** |
 | in-process `sys.meta_path` block | True | FAIL | **0** | **yes** — the map axis (rows 6/7/8/14) |
 | `mv .claude/tools/webref` (the shim) | **False** | OK | 2 | **yes** — the CLI axis (rows 3/4/5) |
+| patch `preflight.WEBREF` to a nonexistent path | **False** | OK | n/a — never spawned | **yes** — the CLI axis, **in-process**; this is what §4.5 items 3 and 4 use, and it is why `WEBREF` is in the isolation contract |
 
 The block leaves the tree on disk, so the *child* process the gate spawns still resolves — which is what
 "CLI ✓ / map ✗" means and what tree removal cannot produce. → `rederive instruments`
@@ -304,15 +384,15 @@ of the reviewed memo's cell formatting** — J1 restated as a defect.
    is the property §4.2.5 actually needs and a weaker claim than draft 7's. Measured rows 12/14/x3.
 5. **Act-site 2 — the reporting arm, whose guard is the capability verdict and NOT the stage's entry
    predicate.** This is the clause that inverted in draft 6 and again in draft 7. It is now **measured**:
-   `rederive armmatrix` runs three candidates over 24 states. Required truth set = **exactly rows 11 and
-   11b** (capabilities present, no row resolvable).
+   `rederive armmatrix` runs three candidates over every state it prints a total for. Required truth set =
+   **exactly rows 11, 11b and 16** (capabilities present, no row resolvable).
 
    | candidate | expression | measured True in | verdict |
    |---|---|---|---|
    | draft 6 | routed through item 4's predicate | — (never, incl. 11) | red, found by 2 axes |
-   | draft 7 | `not no_verify and data_rows and not seen_pairs` | 3, 4, 6, 7, 9, **11, 11b**, x1, x2, x4 | **8 false positives** |
-   | *flag* | `verify_ran` set where the loop is entered | **nothing, incl. 11 and 11b** | **red** |
-   | **A ships** | `not no_verify and data_rows and not unavailable and not seen_pairs` | **11, 11b only** | ✓ |
+   | draft 7 | `not no_verify and data_rows and not seen_pairs` | every row where the arm must be silent, plus the three where it must fire | **false positives throughout** |
+   | *flag* | `verify_ran` set where the loop is entered | **nothing — including the rows it exists for** | **red** |
+   | **A ships** | `not no_verify and data_rows and not unavailable and not seen_pairs` | **11, 11b, 16 only** | ✓ |
 
    Two things the table settles that no amount of prose did. **(a)** Draft 7's arm is not merely noisy: in
    **row 3** it prints `n/a (0 of 2 rows resolvable)` when **2 of 2 rows resolved** and only the CLI was
@@ -325,16 +405,27 @@ of the reviewed memo's cell formatting** — J1 restated as a defect.
 
    The line is `citation verify: n/a (0 of N rows resolvable)`, **N = `len(data_rows)`**, malformed rows
    included, because `malformed_hard_fail` is decided separately and the reader is being told what the
-   denominator was. → `rederive armmatrix`
+   denominator was. ⚠ That clause was the one part of item 5 nothing measured through draft 8 — **no fixture
+   had a row without a section mark**. `malformed.md` supplies it, and row 16 measures both halves at once:
+   `n/a (0 of 2 rows resolvable)` printing alongside an exit-1 malformed hard fail. → `rederive armmatrix`
 6. **Every other summary line states its basis too.** The breadth line reads
    `K=<n> (<u> of <N> counted by label spelling)` whenever `unmapped_rows > 0` — draft 6's
    "(unresolved — counted by label spelling)" misdescribes the *partial* case, where `unique_specs` mixes
-   shortname and label keys. The soft-warn remedy stops naming `SPEC_LABEL_REVERSE`, a symbol A deletes.
-7. **The per-row soft-warn is suppressed when the capability is absent.** ⚠ Measured: with the map absent
-   the existing `if unrecognized_labels:` block still prints *"add the spec to …`::SPECS`"* — remedy 1
-   co-printing with remedy 3's case, i.e. the founding wrong-cause defect of §1 item 1 surviving A's own fix.
-   Draft 6's P5 asserted each remedy appears "for its own cause and no other" and would have been red.
-   → `rederive remedies`
+   shortname and label keys. **When the map is absent it reads `(label map unavailable — no row
+   classified)` instead**, because there is no label-spelling count to report and the `<label>` display
+   notation would present a spec the pinned map *does* know as one it does not. The soft-warn remedy stops
+   naming `SPEC_LABEL_REVERSE`, a symbol A deletes.
+7. **The per-row soft-warn is suppressed when *the map* is absent — not whenever the verdict is absent.**
+   ⚠ Measured: with the map absent the existing `if unrecognized_labels:` block still prints *"add the spec
+   to …`::SPECS`"* — remedy 1 co-printing with remedy 3's case, i.e. the founding wrong-cause defect of §1
+   item 1 surviving A's own fix. Draft 6's P5 asserted each remedy appears "for its own cause and no other"
+   and would have been red. → `rederive remedies`
+   ⚠ **Draft 8 wrote this predicate as `unavailable`, and building it that way showed it is wrong.** With
+   only the *CLI* missing the mapper ran and declined, so the row genuinely **is** unmapped and remedy 1 is
+   the correct diagnosis; suppressing it reports a capability problem the run does not have. Measured (row
+   x1): the two remedies co-print, for two independent causes, which is what P5 asks. This is item 7c's own
+   conflation — a union verdict standing in for one specific cause — one level up, and only the executable
+   found it.
 7b. **The row loop must partition the unmapped bucket, or remedies 1 and 2 cannot be per-cause.**
    ⚠ **Unstated through draft 7, and it makes §4.2.4's table unimplementable.** `origin/main` appends
    `label or "<empty>"` to **one** list, so a label-less row and an unknown-label row are indistinguishable
@@ -342,14 +433,29 @@ of the reviewed memo's cell formatting** — J1 restated as a defect.
    classification — `unrecognized_labels` keeps only *labelled-but-unknown*, a separate `labelless_rows`
    counts the rest. Measured with the split: row 11 prints **remedy 1 only**, row 11b **remedy 2 only**, and
    P5's "and no other" becomes satisfiable. → `rederive armmatrix`
-7c. **J1 binds the reporting layer too, not only the classification.** ⚠ Also unstated through draft 7, and
-   it is J1's own words turned on A's own output: *a row is unmapped only if the mapper ran and declined*.
-   With the capability absent the mapper never ran, yet the summary still prints `unmapped-label rows: 2`
-   (measured, row 6) — a datum the process could not establish, which is precisely what item 1 forbids one
-   return value from carrying. Under item 6's standard the counter states its basis: when `unavailable`, the
-   line reads **`unclassified rows: <n>  (label map unavailable)`**. Item 3 keeps the loop's two arms for
-   *control flow*; this is about what the arms are then allowed to assert.
-8. No third key space is introduced, so `K` and the spec list it prints cannot disagree.
+7c. **J1 binds the reporting layer too, not only the classification.** ⚠ Unstated through draft 7, and it is
+   J1's own words turned on A's own output: *a row is unmapped only if the mapper ran and declined*. With the
+   **map** absent the mapper never ran, yet the summary still prints `unmapped-label rows: 2` — a datum the
+   process could not establish, which is precisely what item 1 forbids one return value from carrying. Under
+   item 6's standard the counter states its basis: when `map_missing`, the line reads **`unclassified rows:
+   <n>  (label map unavailable)`**. Item 3 keeps the loop's two arms for *control flow*; this is about what
+   the arms are then allowed to assert. The `origin/main` value it corrects is measured by
+   `rederive remedies` at the carve — **not** by `armmatrix`, whose proto already implements this item and
+   therefore cannot witness the defect (draft 8 cited the wrong block; round 8's finding).
+7d. **The partition is a display concern too, or two summary lines name a label the row does not have.**
+   Measured (row 11b) with item 7b applied but the summary left merged: `unmapped-label rows: 1` for a
+   label-less row. A splits the counter as well: **`unknown-label rows` / `label-less rows`**.
+8. ⚠ **Draft 8 said "no third key space is introduced, so `K` and the spec list it prints cannot disagree."
+   Measured, item 7b makes that FALSE**, and it is the single sharpest thing round 8 found — because it is
+   the line items 6 and 8 both legislate and the line the harness had not modelled. `displayed_specs` is
+   built from `specs_seen` + `unrecognized_labels`; item 7b moves label-less rows *out* of the latter while
+   `unique_specs` still gains a `"unmapped:<empty>"` key, so a label-less row prints
+   **`unique specs (K): 1 (-)`** — K=1 against an empty list. A routes `labelless_rows` into the display as
+   `<label-less>`, and `armmatrix` now reports `item8_routed` / `item8_unrouted` per state so the claim is
+   checked rather than asserted. → `rederive armmatrix`
+   **Residual, stated not argued away**: `unique_specs` still collapses N distinct label-less rows to one
+   key while N distinct unknown labels contribute N. That is pre-existing `origin/main` behaviour A does not
+   change; it is named here because item 7b makes the two classes distinguishable *everywhere else*.
 
 **This also collapses a duplication in the other direction.** `WEBREF.is_file()` is re-tested inside
 `verify_citation` on **every unique citation**, reporting one process-level fact as *n* per-citation
@@ -370,6 +476,13 @@ map-absent pin would poison every later pin's remedy text, method-order-dependen
 (`_shortname_for_error: Exception | None = None` above the `try`), and it is stated here because the
 symmetric-looking `_shortname_for = None` **is** re-established on reload, which is what makes the asymmetry
 easy to miss. → `rederive reloadstale`
+
+⚠ **And remedy 3 must be defined for the case where there is no captured error.** §4.5 item 1 names an
+in-process `preflight._shortname_for = None` as a *precondition-pinning* form; that sets the sentinel without
+raising, so `_shortname_for_error` stays `None` while remedy 3's text is specified as "the captured import
+error and the path attempted". A states the degraded string — *"the spec-label map is unavailable (no import
+error was captured)"* — and **P5c asserts the string, not the branch**, because draft 8's proto printed a
+literal `remedy3` token and therefore no state witnessed remedy 3's specified content at all.
 
 | Condition | Remedy |
 |---|---|
@@ -395,6 +508,17 @@ contract.
   rows 12b and 13 are **one code path**, not two: `find_table` returns non-`None` for a header-only table,
   so `table is not None` covers both and one diagnostic serves both. P11b's two fixtures pin one branch
   against two inputs; draft 7 read the two rows as two behaviours. Measured.
+- **`--strict-breadth` becomes a no-op here, and that is a documented behaviour change, not a silent one.**
+  The marker path returns before the data loop, so `K` and `M` never exist and the SPLIT-* arms cannot fire.
+  That is correct — a slice with no spec surface has no breadth to split on — but `SKILL.md` documents
+  `--strict-breadth` in a **Flags** bullet §4.1 routed to no slice at all (round 8's finding), and item 3
+  cites protecting `--strict-breadth 1 → 0` as a reason to keep the row loop while this path takes it 1 → 0.
+  The Flags bullet is A's, and the reconciliation is: the flag is a *breadth* control, and this path
+  declares there is no breadth. For the same reason the verdict line is named **`breadth:`** on this path
+  and `split decision:` on the other; A uses one name — `split decision: n/a (no spec surface declared)` —
+  so one datum does not acquire two names.
+- **`verify_header_columns` is unreachable here too**, for the same structural reason, and A states it
+  rather than leaving it to be discovered: there is no header to check.
 - **The marker suppresses citation verification, not grep-pass.** ⚠ **Unstated through draft 7**, and it
   decides an edit: a slice with no *spec* surface still has §4-§7 structural references, so the
   no-spec-surface path must reach the same grep-pass stage the table path does. Since that path returns
@@ -423,14 +547,37 @@ contract.
 `ci.yml`'s `changes` filter has two sets, `rust` and `config`; **`.claude/**` is in neither**, and all three
 jobs are gated on one of the two. `ci.yml` never invokes `mise`. `codeql.yml` analyses `[actions, rust]` on
 push + a weekly cron, with no `pull_request` trigger; `audit.yml` is `cargo audit` on a cron. ⇒ a
-`.claude/**`-only pull request triggers **zero jobs**. → `rederive filters`, `rederive suites`
+`.claude/**`-only pull request triggers **zero jobs**. ⚠ **That is true of `origin/main` and has a
+lifetime**: the Layout lane's ungated trip-wire job makes it false the moment it lands, whichever of the two
+lands first. A states the baseline with its expiry rather than as a standing fact, and §12(5) is written so
+it does not depend on which order they land. → `rederive filters`, `rederive suites`, `rederive lanes`
 
 #### §4.3.2 The mechanism — one script, two callers (J4)
 
 `.claude/tools/python-suites.sh`, `set -euo pipefail`, then two `discover` lines rooted at
-`.claude/tools/_webref` and `.claude/skills/elidex-plan-review`. `mise.toml` gains `[tasks.tools-test]`
-added to `[tasks.ci].depends`; `ci.yml` gains a `tools` path-filter set (`.claude/tools/**`,
-`.claude/skills/**`, `.github/workflows/**`) and a `tools` job under the same push bypass the other jobs use.
+`.claude/tools/_webref` and `.claude/skills/elidex-plan-review`. `mise.toml` gains `[tasks.tools-test]` added
+to `[tasks.ci].depends`; `ci.yml` gains a `tools` job that is **deliberately ungated** — no `needs: changes`,
+no path-filter entry.
+
+⚠ **Drafts 1–8 specified a `tools` path-filter set (`.claude/tools/**`, `.claude/skills/**`,
+`.github/workflows/**`). A drops it, and the reason is A's own §1.** Round 8 measured that the Layout lane's
+in-flight branch already lands an ungated trip-wire job whose in-file rationale refutes the filter directly:
+*to gate them, `.claude/tools/**` would have to be listed in a filter — i.e. the tamper path of an allowlist
+gate would itself be an allowlist entry someone must remember to keep current.* That is exactly §1's shape:
+a gate whose own completeness depends on someone remembering. Three grounds, in order of weight:
+
+1. **The filter is the failure mode A exists to remove.** A PR editing only the allowlist would skip the job
+   that reads the allowlist. §1 item 2 is "nothing runs the suites"; a filter that can silently stop running
+   them is the same defect with an extra step.
+2. **The cost argument does not apply.** Every other `ci.yml` job is filtered because it pays for a Rust
+   toolchain. The Python suites need no toolchain and no cache — the filter buys nothing.
+3. **One issue, one way.** Two branches were about to ship two answers to one question. The Layout lane's is
+   better argued and already user-approved, and adopting it is entirely inside A: **A changes A's §4.3, and
+   touches no file of the Layout lane's.**
+
+This also collapses the collateral class draft 8 had to warn about — with no filter there is no
+"every dependabot GHA bump now runs the Python suites" side effect to document, because the trigger is not a
+path list at all. → `rederive lanes`
 
 **The script fails loudly when a `test_*.py` under `.claude/` is not collected by either `discover` root.**
 ⚠ Draft 6 worded this as "outside the filtered paths", which keys on the CI *filter* — strictly broader than
@@ -500,9 +647,10 @@ survives inside any test method. ⚠ §4.3.3 therefore must not say the 8 moved 
    process-global state in one file. `tearDown` restores via `importlib.reload` under the un-patched import,
    and P1 asserts the bound state at `setUp` so a leak fails loudly. `unittest` orders methods
    alphabetically, so relying on names is not a plan.
-3. **The isolation contract is four pieces of process state**: `preflight._shortname_for`, `sys.path`,
-   `preflight.WEBREF` (perturbed by every CLI-absent row), and `subprocess.run` (**T-net** installs a parent
-   spy on it). ⚠ Draft 6 named `verify_citation` on the ground that T-net asserts against it; T-net asserts
+3. **The isolation contract is five pieces of process state**: `preflight._shortname_for`,
+   `_shortname_for_error` (§4.2.4 adds it, and it is exactly the one that survives a *succeeding* reload),
+   `sys.path`, `preflight.WEBREF` (perturbed in-process by every CLI-absent row — §4.2.1's third
+   instrument), and `subprocess.run` (**T-net** installs a parent spy on it). ⚠ Draft 6 named `verify_citation` on the ground that T-net asserts against it; T-net asserts
    against `subprocess.run`, which `importlib.reload` does **not** restore because it lives in another
    module. Draft 4's `webref_data._INDEX` and `try_fetch_data.cache_clear()` both leave with the widening,
    and the second never existed on `origin/main`.
@@ -627,9 +775,17 @@ not made).
 **`DESIGN.md` generic-core / elidex-adapter split.** ⚠ **Draft 6's account of this was built on a string
 grep and is corrected here.** It claimed `origin/main`'s generic tree carried "exactly one" elidex coupling.
 That is true of the pattern `.claude/skills|elidex-plan-review` and false of the concept: measured, the
-generic tree already carries **7 plan-memo / plan-review references across 2 files** (verified 2026-07-29) (`cli.py`,
-`commands/coverage_map.py`) — including "plan-memo §3 skeleton", "plan-review gate" and "drop into plan-memo
-§0.5". → `rederive couplings`
+generic tree already carries several plan-memo / plan-review references across two files (`cli.py`,
+`commands/coverage_map.py`) — including "plan-memo §3 skeleton" and "drop into plan-memo §0.5", and, more
+sharply, **one actual elidex file *path*** (`cli.py`'s `.claude/skills/elidex-review/axes.md.`). The counts
+and the path list are printed, not carried. → `rederive couplings`
+
+⚠ **Draft 8 offered "plan-review gate" as one of the pre-existing exemplars and it is the branch's own
+instance** — zero hits on `origin/main`, two at HEAD. Round 8's finding. Corrected above, and the sharper
+consequence is stated rather than buried: `origin/main`'s generic core **already contains an elidex file
+path**, so §7's by-role-not-by-path argument is A promising not to *add* to a class that is already
+non-empty, not a claim that the class is empty. That is the honest form of the claim, and §12(3)'s check is
+a delta for the same reason.
 
 So the honest picture: **A adds instances to a pre-existing, already-saturated class, not a new class.**
 Three consequences, and draft 6 got all three wrong:
@@ -686,13 +842,19 @@ rather than adding it. The block prints its own caveat (collapsed diagnostics ma
 larger). The load-bearing claim survives either measure: **A restructures a 499-line file; it does not grow
 one toward the threshold.**
 
-⚠ **This memo is 925 lines and is itself the largest thing the branch carries.** It is not split, and the
-reason is the discipline's own cohesion test rather than an exemption: a plan-memo's sections are one
+⚠ **This memo is the largest thing the branch carries** (`rederive budget` prints its length and the
+harness's; draft 8 wrote "925 lines" one paragraph after flagging draft 7's invented digit, and measured it
+was 942 — round 8 found it on two axes independently, which is what a stored digit is *for*). It is not
+split, and the reason is the discipline's own cohesion test rather than an exemption: a plan-memo's sections are one
 decision surface, and CLAUDE.md's *one-issue-one-way* is the rule that would be violated by splitting it —
 §4.2.3 and §5 and §6 are three views of one control flow, and rounds 4-6 each produced a defect from those
 views drifting apart while they were in the *same* file. The re-derivation harness is the split that
 actually applies here, and it has been taken: every executable claim now lives in
-`…-A-rederive.sh` rather than in prose beside the decision.
+`…-A-rederive.sh` rather than in prose beside the decision. ⚠ **The harness is itself in the 700–800-line
+band `feedback_touch-time-split-means-while-writing` names**, and `budget` prints its length too. Its seams
+are already cut — one named function per quantity, plus a fixtures block and a capability-instrument block —
+so the cohesion test says the same thing about it as about the memo; it is recorded here so the next toucher
+does not have to re-derive that judgement.
 
 ---
 
@@ -700,11 +862,20 @@ actually applies here, and it has been taken: every executable claim now lives i
 
 CLAUDE.md's **base case** has two conjuncts, and draft 6 argued only the first. ⚠ Round 6's finding.
 
-**(i) An approved umbrella's per-PR slice, explicitly.** The umbrella exists, names A, and is the approval
-boundary. ⚠ One qualification A must not hide: the umbrella's Slice A **Scope** cell does not mention the
-spec-label map, the gate-contract change, or §4.2.3 item 5. §13 has A amend it — a slice amending the
-boundary it shelters under. The amendment is a *correction to match A's plan-reviewed scope*, not a
-widening, and it lands in the same commit as this memo so the boundary and the slice are reviewed together.
+**(i) An approved umbrella's per-PR slice, explicitly.** The umbrella exists and names A. ⚠ **But the
+conjunct requires the per-slice scope to be explicit in the *approved* umbrella, and it is not** — the
+Slice A **Scope** cell covers the `mise` task, the CI filter/job, the fail-closed preflight and the
+assertion move; it does not cover the three-site spec-label map extraction, the gate-contract change
+(§4.2.5), or the reporting-arm/remedy redesign. Draft 8 had A amend the cell **in its own commit**, under a
+routing criterion (§4.1's "a gate's contract of record travels with the gate") that A also authored. Round 8
+named that correctly: A would author the rule, apply it to itself, and amend its own approval boundary in
+one step, which is the recurrence-2 shape the umbrella was created to stop.
+
+**A does not self-ratify.** The umbrella amendment becomes a **separate step that precedes A's
+plan-review**: the Scope cell is corrected and put to the user as an umbrella change, and only then is A
+reviewed under it. §13's landing checklist carries the amendment as *already done*, not as A's own commit.
+The literal umbrella constraint on A ("may not change detector semantics") is not breached either way — the
+defect was that the boundary was self-supplied, and this removes that.
 
 **(ii) Scope narrowed to a single invariant-axis intersection.** J1/J2/J3 are one intersection — they live in
 one function's control flow with one primary observable (an exit code) and one secondary (the summary's
@@ -714,13 +885,22 @@ is about: an independent surface adds review area, not edge density. The gate-co
 additive — one input shape, five rows, five pins. So the conjunct holds on the reading that matters, and the
 memo now says which reading.
 
-⚠ **Draft 8's harness is evidence *for* the conjunct, not against it.** Three of §4.2.3's items changed
-under measurement, which could be read as "the intersection is denser than claimed". It is not: all three
-changes live in the same function's control flow with the same two observables §5 already publishes, and the
-harness enumerates that space **exhaustively** — 24 states, four capability combinations × the fixture
-shapes × both modes — with no predicate divergence outside it. An axis whose state space can be enumerated
-and run in one command is bounded, which is what the conjunct asks for. What the harness removes is the
-review-round-as-interpreter cost that made this intersection *look* unbounded across rounds 5-7.
+⚠ **Draft 8 argued the harness is evidence *for* the conjunct. Round 8 refuted that, and draft 9 drops the
+argument rather than repairing it.** Three defects in one paragraph: the coverage figure was hand-counted and
+wrong ("24 states, four capability combinations × the fixture shapes × both modes" describes a
+cross-product the harness does not run, and the total was 25, not 24 — `armmatrix` now prints its own); and
+the inference does not hold — **bounded is not narrow**. CLAUDE.md's rule is about review cost across
+intersecting invariants, and §14 records the cost actually paid: eight rounds, R6 = 1 CRIT / 46 IMP, R7's
+CRIT inverting the sign of R6's, R8 = 30 IMP. A harness that lowers *future* cost does not retroactively
+narrow the slice, and draft 8 changing four decisions is a symptom of density, not a refutation of it.
+
+**So the conjunct is claimed as a judgement, with its weakest point named.** J1–J3 share one function, one
+exit code and one summary; J4 and J5 are independent surfaces. §2 says J1–J3 "cannot be applied one at a
+time without transiently breaking each other", which is the definition the trigger uses, and calling that
+"one intersection" is a *reading*, not a derivation. The reading A relies on: an intersection is one axis
+when its states can be enumerated and run in a single command — which is now true and checkable — but that
+is a reason to believe the slice is *reviewable*, not a proof it is narrow. If the next round again finds a
+predicate inverted, the honest response is re-slicing, not a better harness.
 
 **Draft 5 removed a capability cause, not an invariant axis.** Draft 4's third cause was dynamic and forced
 the aggregated verdict, the tri-state and five pins. Dropping it takes *causes* three → two; J1/J2/J3 remain
@@ -755,13 +935,16 @@ suite; and draft 4's Q4 (`K`'s semantics) is answered by §4.2.3 item 6 — `K` 
   `pull_request` rule already carries `required_approving_review_count: 0` **and** a `RepositoryRole` bypass
   with `bypass_mode: always`, so adding it leaves it author-bypassable: visibility-plus-friction, not
   enforcement. **Recommendation: register, do not implement** (§11).
-- **Q3 — `#11-layoutbox-trip-wire-not-in-ci`.** Its registered trigger is "before C-4 or the next
-  `.github/workflows` touch", and **A is that touch**. ⚠ Draft 6 recommended "record the trigger firing as an
-  observation", which is not one of `feedback_defer_lifecycle_policy`'s five dispositions — a sixth option
-  smuggled in. The trigger having fired, the indicated disposition is **promote-to-PR**, and the owner is the
-  **Layout lane**, not A. A records the firing in both files that carry the slot and names the disposition;
-  A does not execute another lane's slot. Whether the Layout lane instead extends A's `tools` job or adds a
-  second is a real fork A creates and §13 hands over explicitly.
+- **Q3 — `#11-layoutbox-trip-wire-not-in-ci`. ⚠ Answered by events; A's job is now to not collide.**
+  Draft 8 concluded the disposition is **promote-to-PR**, owned by the Layout lane, and handed over a fork
+  ("extend A's `tools` job, or add a second"). Round 8 measured that all of that already happened: the
+  promotion was chosen, user-approved, the memo authored, and the fork **resolved in a third direction** —
+  ungated, no filter at all. So draft 8's hand-off would have landed stale, and the fork it offered no
+  longer exists. Two corrections of fact: the slot is carried at **five** sites, not "both files"
+  (`project_open-defer-slots`, `MEMORY.md`, `project_inline-mod-split-owed`,
+  `project_layoutbox-trip-wire-in-ci-next`, `project_c3a-impl-pr-ready`), and draft 8's checklist contained
+  **no item that executed the recording it committed to**. §13 item 8 does. The live question is not the
+  disposition but the collision, and §4.3.2 answers it by adopting the ungated shape.
 - **Q4 — the residual in §4.2.5.** The marker is artifact-resident. Four mitigations, one mechanical. The
   alternative is to require the marker to name its umbrella slice — checkable, but a coupling A has no other
   reason for. Put to review rather than closed.
@@ -770,28 +953,50 @@ suite; and draft 4's Q4 (`K`'s semantics) is answered by §4.2.3 item 6 — `K` 
 
 ## §11 Defer slots + per-PR ≤3 audit
 
-**Zero own deferrals.** Draft 4 had two, draft 6 one; both are now **constraints, not deferrals**.
+**One own deferral, registered.** Draft 4 had two, draft 6 one, draft 8 claimed zero. ⚠ **Round 8 showed the
+zero was reached by re-labelling, not by discharging**, and draft 9 registers it.
 
-⚠ **Why the last one converted.** `cleanup-webref-preflight-inprocess-resolution` recorded that
+⚠ **Why draft 8's conversion does not survive.** `#11-webref-preflight-inprocess-resolution` records that
 `verify_citation` forks a subprocess *and* an HTTP conditional-GET per citation while the same file reaches
-`spec_labels` in-process — two ways to reach one library. Round 6's finding: the cap policy admits **three**
-categories (別 milestone依存 / 別 slot依存 / genuinely 200+ LoC) and this fits none — the fix is ~15 lines,
-and the trigger is a *PR slice*, not a registered parent slot. The policy's instruction when no category fits
-is to fold in or narrow scope. Folding in would decide B's offline policy by side effect, which is the
-failure §4.2.3 exists to stop. So it becomes the same shape §4.3.3 already uses: a forward-binding umbrella
-constraint that binds B at authoring time rather than a ledger entry nobody is obliged to act on.
+`spec_labels` in-process — two ways to reach one library. Draft 8 called it pre-existing and converted it to
+an umbrella constraint. Measured: **`origin/main`'s `preflight.py` has no `_webref` import at all** — the
+in-process reach is *created by A*, so this is an **own** deferral by construction, and §7's own text already
+concedes it is "the one remaining instance of §1's class inside A's own file". Three further reasons the
+conversion was the wrong instrument: an umbrella constraint carries no trigger, no re-evaluation date and no
+lifecycle disposition, so the five-option re-classification cannot reach it; it is invisible to
+`project_open-defer-slots`; and it evaporates silently if B is descoped. Draft 8's stated reason — "a ledger
+entry nobody is obliged to act on" — is an argument that the ledger is broken, applied as a one-item
+exemption, and it creates a *second* channel where deferred obligations live. The per-PR cap is ≤3;
+recording one costs nothing.
+
+| Slot | `#11-webref-preflight-inprocess-resolution` |
+|---|---|
+| **Why deferred** | the collapse is ~15 lines, but it decides the offline contract for the resolver, which is Slice B's by §4.1 and §10-Q1. Folding it into A would settle B's policy by side effect — the failure §4.2.3 exists to stop |
+| **Re-evaluation trigger** | Slice B landing the catalog fall-through (B owns the offline contract and collapses this in the same slice) |
+| **Re-evaluation date** | 2026-10-31 |
+| **Confidence** | High — the consumer is named and the trigger is a slice already planned |
+
+The forward-binding umbrella constraint stays, as the **pointer** that binds B at authoring time rather than
+as a substitute for the ledger entry:
 
 > **The plan-review gate reaches its shared library one way.** Slice B, which lands the offline contract,
 > collapses `verify_citation`'s subprocess onto the in-process resolver in the same slice.
 
 **Pre-existing category** (not an own deferral, not counted):
-**`cleanup-elidex-ci-required-status-checks`** — the ruleset has no `required_status_checks` rule, so every
-CI job is advisory. A neither creates nor worsens it. ⚠ The cost is not "one rule": the bypass actor above
-makes the rule alone author-bypassable. **Trigger**: the Layout lane wiring the trip-wires, or the first job
-stable enough to require. **Re-eval**: 2026-11-30. **Confidence**: Medium. ⚠ Its create-time audit scores
-zero of four (`feedback_defer-slot-eligibility-audit-at-create`), which by that file's own rule makes it a
-**maintenance note, not a slot** — recorded here as such rather than registered, and merged into
-§10-Q3's hand-off, which it overlaps.
+**`#11-elidex-ci-required-status-checks`** — the ruleset has no `required_status_checks` rule, so every CI
+job is advisory. A neither creates nor worsens it. ⚠ The cost is not "one rule": the bypass actor above makes
+the rule alone author-bypassable. **Trigger**: the Layout lane wiring the trip-wires (which round 8 measured
+is **in flight now**), or the first job stable enough to require. **Re-eval**: 2026-11-30. **Confidence**:
+Medium.
+
+⚠ **Draft 8 demoted this to "a maintenance note, not a slot" on an audit it did not show, and contradicted
+itself about the outcome** (§10-Q2 said *register*; §11 said *recorded rather than registered*) — for an id
+that, measured, **exists in no ledger at all**, in the same paragraph that used the past tense "recorded".
+Round 8 also contested two of the four audit answers: the memo ships a CI job it knows cannot block
+(§4.3.4), which is the partial-mechanism shape; and `#11-layoutbox-trip-wire-not-in-ci` is a registered slot
+on the same theme whose trigger fired on this very PR, which is the repeat signal. A **registers** it, at
+§10-Q2's disposition, and §13 executes the registration. Both ids above are new registrations, which §13
+item 7 performs — neither pre-exists, and no sentence here may imply otherwise.
 
 **Explicitly NOT deferred**: the re-carve, the two-cause verdict and both act-sites, the four remedy strings
 and the soft-warn suppression, the no-spec-surface verdict and its recognition rule, the verify-line silence,
@@ -816,19 +1021,40 @@ second subject):
 git diff --name-only <step-0>..HEAD -- .claude/tools/_webref/              # only §4.0's A column
 git grep -nE 'cite.?audit' -- .claude/tools/_webref/ .claude/skills/       # → empty
 git grep -n '_catalog\|webref_data' -- .claude/tools/_webref/spec_labels.py  # → empty
-bash docs/plans/2026-07-citation-hygiene-A-rederive.sh couplings           # → no elidex file PATH in A's half
+bash docs/plans/2026-07-citation-hygiene-A-rederive.sh couplings           # → "ADDED BY A" is empty
 ```
 
-The fourth replaces draft 6's `git grep -c`, which emitted per-file line counts, could not express a total,
-and saw one of the three couplings it was offered as the check for.
+⚠ **The fourth check now computes the verdict it is credited with; draft 8's did not.** Round 8: the block
+printed one unfiltered 25-line concept-grep mixing A's files with B's and by-role prose with file paths, and
+the memo read a path claim off it by eye — the same shape as draft 6's `git grep -c`, one revision later.
+It now emits **file paths only, restricted to A's half, as a delta against `origin/main`** — and that
+immediately shows "must be 0" was the wrong criterion, because `cli.py` already carries one on
+`origin/main`. The gate is that **A adds none**; discharging the pre-existing one is not A's scope. Measured
+before the §4.0 rewrite, A added exactly one: `spec_labels.py:7`.
 
-**(4) The branch carries A's memo, the re-derivation script and the umbrella.** Sequence, because draft 6's
+**(4) The branch carries A's memo, the re-derivation script and the umbrella.** ⚠ **And the script has a
+stated lifecycle, which draft 8 gave it none of.** Round 8: `_proto` is a second spelling of
+`preflight.main()`, already divergent at birth, landing permanently on `main` while §7 claims
+"one-issue-one-way, three collapses" and §0 called the harness "not shipped code" — a claim §12(4) itself
+falsifies. Two decisions:
+
+- **`_proto` is deleted by the implementation PR.** Its whole purpose is to make §4.2.3 executable *before*
+  the control flow exists; once `preflight.py` carries it, the pins in §6 are the executable and a second
+  spelling is exactly the duplication A is otherwise removing. The implementation PR's own exit criterion
+  carries the deletion. Every other `rederive` block is a measurement of the tree and stays.
+- **The blocks that cannot run for a second reader are marked and excluded from `all`.** `staleclaims` and
+  `lanes` reach a hard-coded memory directory and sibling worktrees; §0's contract is "a reviewer runs it",
+  and §12(3) makes one of these a gate command. They are author-local by nature (the memory dir is per-user
+  and not in the repo), so they are labelled as such rather than pretended portable. Sequence, because draft 6's
 §13 and §12(4) were mutually unsatisfiable: **(i)** A applies B's edits on this branch; **(ii)** B's branch is
 cut from this head, carrying the corrected file; **(iii)** B's and C's memos are dropped from A's branch.
 Step (iii) is what makes (4) true, and it must follow (ii), not precede it.
 
 **(5) The job fires on this slice's own file class** — a `.claude/**`-only commit shows the `tools` job on
-the PR page; today the same observation yields zero jobs.
+the PR page. ⚠ Draft 8 phrased the criterion as a *delta* ("today the same observation yields zero jobs"),
+which the Layout lane's branch falsifies independently of anything A does. The criterion is the **positive**
+observation only: the `tools` job is present and green on a `.claude/**`-only commit. It holds whichever
+branch lands first.
 
 ---
 
@@ -842,8 +1068,9 @@ list "complete" and was falsified within thirteen minutes; `origin/main` moved f
 | **Slice B** | total by construction — B branches from A's landed head and takes §4.0's B column | **A first**; B's memo edits applied (below) |
 | **Slice C** | `_webref/DESIGN.md`, disjoint sections. Inherits the no-spec-surface declaration as its first real consumer, plus `axes.md`'s Axis 4 detect and `grep_pass.py`'s per-path finding | after B |
 | **PR-A0 / D** | its carve-provenance claim is **false at head** because A rebased and it did not — rebase it | after A/B/C |
-| **the open `actions/checkout` bump** | **actual `ci.yml` contention** — same `steps:` blocks §4.3.2 extends, and after A it triggers the `tools` job | whichever lands second adapts |
-| **anything touching `.claude/skills/**` or `.claude/tools/**`** | after A these trigger the `tools` job. A *class*, not a list | none |
+| **the Layout lane's `layout-trip-wire-ci`** | ⚠ **the real contention, and draft 8 could not see it.** Unpushed, so `gh pr list` misses it; its collision is in `ci.yml` / `mise.toml`, so a `docs/plans/` filter misses it too. It rewrites `[tasks.trip-wires].run` immediately above the `[tasks.ci]` key A extends, and ships an ungated job whose rationale refutes A's filter | **design pre-agreed, not left to landing order**: §4.3.2 adopts the ungated shape, so whichever lands second is a textual merge, not a decision. A touches none of that branch's files |
+| **the open `actions/checkout` bump** | `ci.yml` `steps:` contention only | whichever lands second adapts |
+| **`elidex-wt-submittable` (PR-A0)** | touches the **same seven** `_webref` files as A | after A/B/C, and it rebases |
 
 **Owed to B's memo, applied at Step 0 alongside the re-carve** (draft 5 asserted B needed no edit; draft 6
 enumerated seven items from *reading*, of which review found four wrong or incomplete — so these are stated
@@ -866,8 +1093,12 @@ fork — extend it, or add a second job.
    `cleanup-*` prefix); no-network-without-offline-degradation (§4.3.3); one-way-to-the-shared-library
    (§11). ⚠ The first is a *pointer* to `feedback_defer_cap_policy`, which declares itself SSoT for that
    distinction — not a second statement of it.
-3. Correct the "10 in-flight memos in `elidex-wt-c3-plan`" claim at **all four sites** (umbrella, `MEMORY.md`,
-   `project_citation-hygiene-program.md` ×2); true figure **1**. Same edit: the umbrella's branch-measured
+3. Correct the "10 in-flight memos in `elidex-wt-c3-plan`" claim at the **two sites that still carry it** —
+   the umbrella and `MEMORY.md`; true figure **1**. ⚠ Draft 8 said four; measured, the two
+   `project_citation-hygiene-program.md` sites already carry the *correction*, so "correct all four" would
+   re-correct two correct sites. The harness's grep is now by concept: draft 8's literal
+   `10 in-flight\|10 memos` did not match `MEMORY.md`'s Japanese `10 memo`, missing one of the two live
+   sites — in a memo whose §3.1 mandates concept-greps. → `rederive staleclaims` Same edit: the umbrella's branch-measured
    suite figures, its live-network-dependency paragraph (§4.3.3 measures zero), and its Slice A/B **Scope**
    cells, which record no owner for the spec-label map or the gate-contract change (§9).
    → `rederive staleclaims`
@@ -877,7 +1108,16 @@ fork — extend it, or add a second job.
    non-ancestor shas and a superseded next-action beyond the A-landed/B-next flip.
    → `rederive staleclaims`
 6. PR description: §4.3.3 (A adds no network; the gate's pre-existing requirement), §4.3.4 (no
-   `required_status_checks` and the bypass actor), §0.1 item 2, and the `tools`-filter collateral class.
+   `required_status_checks` and the bypass actor), §0.1 item 2, and §4.3.2's ungated decision with the
+   Layout-lane reconciliation.
+7. **Register both slots named in §11** in `project_open-defer-slots.md` —
+   `#11-webref-preflight-inprocess-resolution` (A's one own deferral) and
+   `#11-elidex-ci-required-status-checks` (pre-existing, §10-Q2's disposition). Measured: **neither exists in
+   any ledger today**, so no sentence may describe either as already recorded.
+8. **Execute §10-Q3's recording**: note at all **five** sites carrying
+   `#11-layoutbox-trip-wire-not-in-ci` that its trigger fired and that A's §4.3.2 adopts the Layout lane's
+   ungated shape, so the two jobs do not answer one question twice. Draft 8 committed to this and had no
+   checklist item for it.
 
 ---
 
@@ -914,6 +1154,17 @@ review round was the only interpreter**. Draft 8's answer is `rederive armmatrix
 falsified the obvious repair (a `verify_ran` flag — measured True in *zero* states, including the two it
 exists for), and surfaced three edits no round had proposed: items 7b, 7c and §4.2.5's grep-pass sentence.
 
+**R8 → d9** (0 CRIT / 30 IMP / 21 MIN / 5 FP across all five axes). Three roots, and the first is the one
+that matters: **J1** *the harness's coverage of its own claims was never checked* — eleven findings, incl.
+item 8 measurably **false**, item 5's denominator clause unmeasured, §9's coverage figure hand-counted and
+wrong, and two sections citing a block whose grep discarded their claim · **J2** *three discipline questions
+answered by re-labelling rather than discharge* — three coupled invariants → "one intersection", an
+A-created deferral → "a constraint", a second implementation site → "not shipped code", each with the
+corresponding artifact edited to match · **J3** *§4.0 partitions by code branch while §7/§12(3) claim things
+about prose*, so the exit criterion could not pass under the edit set as written. Plus one finding neither
+memo-internal nor foreseeable from the memo: **a live CI-topology collision** with the Layout lane, which
+draft 8's lane derivation was structurally blind to.
+
 **Re-derived and rejected**: r1's "`coverage_map_label` has more than one caller"; r2's
 "`elidex-wt-c4fix/docs/plans/` is empty" (the substance held); r4's decisive-finding *consequence*,
 falsified (§0); r5's "`python-suites.sh` carrying skill paths is a generic-core violation" (repo
@@ -933,6 +1184,9 @@ bash docs/plans/2026-07-citation-hygiene-A-rederive.sh all      # or one name
 
 `citations partition keysets column carvecolumn instruments remedies reloadstale armmatrix suites anchors
 regions offline couplings suiteset marker budget filters ruleset timing lanes bmemo staleclaims`
+
+⚠ **`lanes` and `staleclaims` are author-local** (a per-user memory directory and sibling worktrees) and are
+excluded from `all` — §12(4). Everything else runs from a clean clone; `ruleset` additionally needs `gh`.
 
 **Draft 8's four additions, and what each stopped being an argument about.** `instruments` — the three
 candidate capability instruments on all three signals (§4.2.1); drafts 1-7 used one that flips neither axis.
