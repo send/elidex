@@ -101,8 +101,9 @@ description = "Run every layering trip-wire (.claude/tools/*-trip-wire.sh)."
 # A single task collapses the decision surface so no wire can be skipped on a
 # busy PR. The wires cover disjoint layering / discipline surfaces (wasm-runtime
 # tiers, VM-side wasm, native-ctor guards, the LayoutBox reader audit); each
-# script's own header documents its surface, so there is no list here to go stale
-# when a fifth wire lands — the glob inside the driver is the definition.
+# script's own header documents its surface, so no list is duplicated here. The
+# driver owns the one registry (`REQUIRED_WIRES`) and reds if it and the live
+# tree disagree in either direction.
 #
 # Logic lives in `scripts/trip-wires.sh` rather than inline, per the same
 # reasoning as `[tasks.doc]` above: an explicit bash shebang, and — since the

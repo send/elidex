@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 #
 # `mise run trip-wires` and the `trip-wires` job in `.github/workflows/ci.yml`:
-# run every layering trip-wire. Discovery is the glob below — dropping a
-# `.claude/tools/<name>-trip-wire.sh` in enrols it in both the local gate and CI
-# with no list to update. Retention is `REQUIRED_WIRES` below; see the comment
-# there for why the two directions are deliberately asymmetric. Each wire's own
-# header documents the surface it covers.
+# run every layering trip-wire. The glob below DISCOVERS what is present;
+# `REQUIRED_WIRES` records what is supposed to be, and the two are diffed in both
+# directions — a wire that vanishes fails, and so does one that appears without
+# being registered. Adding a wire is therefore one line there, in the commit that
+# adds it. Each wire's own header documents the surface it covers.
 #
 # One script rather than the same loop inlined at both call sites: the two would
 # be a hand-kept assertion that they are identical, which is exactly what having
@@ -32,7 +32,18 @@ set -euo pipefail
 # edit that genuinely disables the gate. A gate whose diagnostic misdirects toward
 # switching it off is worse than one that simply refuses to run. `readlink -f` is
 # not portable to stock macOS, so walk the chain by hand.
+#
+# Canonicalize to an ABSOLUTE path before the `cd`, not just for the symlink case:
+# `cd scripts && bash trip-wires.sh` leaves `$0` relative, and once we chdir to the
+# root every later use of it — the self-test's `cp "$src"` — resolves against the
+# wrong directory. That form worked until the self-test made `$src` outlive the
+# chdir, and it failed with a bare `cp: trip-wires.sh: No such file or directory`
+# after running zero wires (Codex #496).
 src="$0"
+case "$src" in
+  /*) ;;
+  *) src="$(cd -P "$(dirname "$src")" && pwd)/$(basename "$src")" ;;
+esac
 while [ -L "$src" ]; do
   link_dir="$(cd -P "$(dirname "$src")" && pwd)"
   src="$(readlink "$src")"
@@ -53,20 +64,24 @@ if [ ! -d .claude/tools ]; then
   exit 1
 fi
 
-# Wires that MUST still be present. Membership is asserted in ONE direction only,
-# and the asymmetry is the point:
-#   * ADDING a wire needs no edit here — the glob enrols it. More gating is the
-#     safe direction, and a list you must remember to extend is the maintenance
-#     burden this driver exists to avoid.
-#   * REMOVING one must be deliberate. A wire that is deleted, renamed off the
-#     `*-trip-wire.sh` convention, or moved into a subdirectory would otherwise
-#     leave a SMALLER set running, exit 0, and report green — the gate quietly
-#     covering less than the docs claim. That is the same "hole in the shape of
-#     the gate's own tamper path" the ungated CI job (see
-#     `.github/workflows/ci.yml`) exists to close, one level up; a glob alone
-#     re-opens it here. It is also the shape the wires themselves already use:
-#     `layout-box-reader-trip-wire.sh` does not trust the live tree either, it
-#     diffs it against a committed allowlist.
+# The registered wire set, diffed against the live glob in BOTH directions — the same
+# shape `layout-box-reader-trip-wire.sh` uses for readers (live tree vs committed
+# allowlist, failing on `added` and on `removed` alike). Discovery finds what is there;
+# this is what is supposed to be there, and disagreement either way is a FAIL.
+#   * A wire that LEAVES the set — deleted, renamed off the `*-trip-wire.sh`
+#     convention, or moved into a subdirectory — would otherwise leave a smaller set
+#     running, exit 0, and report green: the gate quietly covering less than the docs
+#     claim. That is the "hole in the shape of the gate's own tamper path" the ungated
+#     CI job exists to close, one level up.
+#   * A wire that ARRIVES must be registered here in the same commit. An earlier
+#     revision asserted only the first direction, on the theory that auto-enrolling
+#     additions was the safe direction and a list you must extend was the burden this
+#     driver removes. That was convenience dressed as a principle: it froze protection
+#     at the four wires present the day it was written, so a fifth added next month
+#     could be deleted or renamed later with both gates green — exactly the failure
+#     this list exists to prevent, just deferred (Codex #496). Keeping discovery and
+#     retention as two sources of truth is what allowed the gap; one line per new wire,
+#     in the commit that adds it, is what closes it.
 REQUIRED_WIRES="
 layout-box-reader-trip-wire.sh
 native-ctor-guard-trip-wire.sh
@@ -151,11 +166,15 @@ if [ -z "${TRIP_WIRES_SELFTEST:-}" ]; then
   st_probe pass 'complete wire set' || st_ok=1
   mv "$st_dir/.claude/tools/layout-box-reader-trip-wire.sh" \
      "$st_dir/.claude/tools/layout-box-reader.disabled" || st_ok=1
-  st_probe fail 'a required wire renamed off the convention' \
-    'required trip-wire(s) did not run' || st_ok=1
+  st_probe fail 'a registered wire renamed off the convention' \
+    'registered trip-wire(s) did not run' || st_ok=1
   mv "$st_dir/.claude/tools/layout-box-reader.disabled" \
      "$st_dir/.claude/tools/layout-box-reader-trip-wire.sh" || st_ok=1
   st_probe pass 'wire restored' || st_ok=1
+  printf '#!/usr/bin/env bash\nexit 0\n' > "$st_dir/.claude/tools/zz-unregistered-trip-wire.sh"
+  st_probe fail 'a wire present but absent from REQUIRED_WIRES' \
+    'ran but are not registered' || st_ok=1
+  rm -f "$st_dir/.claude/tools/zz-unregistered-trip-wire.sh"
   rm -rf "$st_dir/.claude"
   st_probe fail 'a resolved root with no .claude/tools' \
     'has no .claude/tools/ directory' || st_ok=1
@@ -193,10 +212,26 @@ for req in $REQUIRED_WIRES; do
   esac
 done
 
+unregistered=""
+for got in $ran_names; do
+  case " $(printf '%s' "$REQUIRED_WIRES" | tr '\n' ' ') " in
+    *" $got "*) ;;
+    *) unregistered="$unregistered $got" ;;
+  esac
+done
+
 if [ -n "$missing" ]; then
-  echo "FAIL: required trip-wire(s) did not run:$missing" >&2
+  echo "FAIL: registered trip-wire(s) did not run:$missing" >&2
   echo "      The gate silently covers less than the docs claim when a wire leaves the" >&2
   echo "      set. If the removal is deliberate, drop it from REQUIRED_WIRES in this" >&2
   echo "      script in the SAME commit, so shrinking the gate is a visible edit." >&2
+  exit 1
+fi
+
+if [ -n "$unregistered" ]; then
+  echo "FAIL: trip-wire(s) ran but are not registered:$unregistered" >&2
+  echo "      They execute today, but nothing would notice if they were deleted or" >&2
+  echo "      renamed tomorrow. Add them to REQUIRED_WIRES in this script, in the same" >&2
+  echo "      commit that adds the wire, so the set is protected from the day it lands." >&2
   exit 1
 fi
