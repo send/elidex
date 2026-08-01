@@ -49,14 +49,14 @@ approval boundary, and each of the three is a terminal unit once it passes its o
 
 ### Slice memos (re-sliced 2026-07-28, Slice A further split 2026-08-01)
 
-The 785-line single-PR memo `2026-07-webref-cite-audit-detector.md` has been partitioned. Nothing is
+The 785-line single-PR memo `2026-07-webref-cite-audit-detector.md` was partitioned into A/B/C; the 1196-line Slice-A memo `2026-07-citation-hygiene-A-enforcement-plumbing.md` was then partitioned into A-i/A-ii/A-iii and **deleted** — keeping it would be a second statement of every decision the three now own, which is the duplication this program exists to remove. Each carved memo's §14 carries its provenance; the nine-round review history lives in `memory/project_citation-hygiene-program.md`. Nothing is
 summarised across memos — each concern is stated once, in one slice's memo, and the others link to it.
 
 | Slice | Memo | Gate state |
 |---|---|---|
-| A-i | `2026-07-citation-hygiene-Ai-spec-label-map.md` | to be carved from the A memo |
-| A-ii | `2026-07-citation-hygiene-Aii-gate-failure-semantics.md` | to be carved from the A memo |
-| A-iii | `2026-07-citation-hygiene-Aiii-suite-scheduler.md` | to be carved from the A memo |
+| A-i | `2026-07-citation-hygiene-Ai-spec-label-map.md` | **review-ready**; `preflight` EXIT 0, K=2 (`fetch`, `html`), 0 hard / 0 soft grep-pass |
+| A-ii | `2026-07-citation-hygiene-Aii-gate-failure-semantics.md` | draft; `preflight` EXIT 0, K=2 |
+| A-iii | `2026-07-citation-hygiene-Aiii-suite-scheduler.md` | draft; `preflight` EXIT **1 by design** — A-iii declares **no spec surface**, which is A-ii's §4.2.5 feature and is not landed yet. A-iii is the first real consumer of that declaration, and its plan-review therefore follows A-ii, which the ordering already requires |
 | B | `2026-07-citation-hygiene-B-detector-correctness.md` (`git mv` of the 785-line memo, so its provenance survives) | draft; `preflight` EXIT 0. §4.0-§4.1 / §4.6 / §5 carried verbatim; §0-§2 and §7-§13 rewritten to the slice boundary |
 | C | `2026-07-citation-hygiene-C-policy-retirement.md` | draft; `preflight` EXIT **1** by design — no `§3` table until C's kickoff, a pre-existing hard-fail mode unrelated to slice A |
 
