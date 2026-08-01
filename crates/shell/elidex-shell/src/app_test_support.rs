@@ -277,15 +277,6 @@ pub(super) fn staged_session_history_work(app: &App) -> bool {
     app.staged_work_pending()
 }
 
-/// How many times the unified exit rule has issued a follow-up dispatch through
-/// `App::schedule_followup_dispatch` — the test-only observation point for the
-/// rule's frame leg, since the real `request_redraw` is `render_state`-gated and
-/// therefore a silent no-op in this harness (so a bare redraw assertion would be
-/// vacuous).
-pub(super) fn followup_dispatches(app: &App) -> usize {
-    app.interactive.as_ref().unwrap().followup_dispatches
-}
-
 /// The loop's **document-swap marker** — forwarded to `App::current_document_marker`
 /// itself, because the pin that reads it is a regression guard ON the swap exit and
 /// must therefore read the exact function that exit reads. Its stability across a

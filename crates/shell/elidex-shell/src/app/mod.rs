@@ -294,18 +294,6 @@ pub(super) struct InteractiveState {
     /// "just re-drain at the end of `navigate`" case, which app-mode reaches from
     /// Phase 1c, outside that bracket.
     pub(super) drain_in_progress: bool,
-    /// Test-only issuance counter for `App::schedule_followup_dispatch` — the
-    /// observation point for the turn-completion loop's unified exit rule ("any
-    /// loop exit whose peek still reads true schedules a follow-up dispatch",
-    /// `app/drain_host/mod.rs`). The real request is `render_state`-gated and therefore
-    /// a silent no-op in the disconnected app-mode harness, so a bare
-    /// `request_redraw` assertion would be vacuous.
-    ///
-    /// An **observation point, not control state**: nothing outside `#[cfg(test)]`
-    /// reads it, and no exit path branches on it — "no exit records any state"
-    /// stands.
-    #[cfg(test)]
-    pub(super) followup_dispatches: usize,
     pub(super) window_title: String,
     pub(super) chrome: crate::chrome::ChromeState,
     /// The window's current device facts (dppx / color-scheme / reduced-motion) —
@@ -614,8 +602,6 @@ impl App {
                 traversal_queue: TraversalQueue::new(),
                 deferred_navigation: None,
                 drain_in_progress: false,
-                #[cfg(test)]
-                followup_dispatches: 0,
                 window_title: title,
                 // Inline pipelines are built with default facts (1× / Light); no
                 // window → no dynamic writer, so this static seed IS parity (B20).
@@ -906,6 +892,6 @@ impl ApplicationHandler<crate::WakeEvent> for App {
         }
 
         // ---- Legacy inline mode ----
-        self.handle_window_event_inline(event);
+        self.handle_window_event_inline(event_loop, event);
     }
 }

@@ -41,9 +41,7 @@ pub struct DrainOutcome {
     /// navigation on the click path (`content/event_handlers.rs`,
     /// `app/events.rs::handle_click`). It is deliberately NOT a render gate:
     /// content's keyboard turn keys its own render on `!shipped` (see its comment
-    /// there), and app-mode's keyboard turn discards this outcome entirely — as do
-    /// its peek-gated dispatch-entry drives, which settle a PREVIOUS turn's residue
-    /// and so must not latch the following turn's default-suppression.
+    /// there), and app-mode's keyboard turn discards this outcome entirely.
     /// Computed ONCE at the end of [`drain_synchronous_phase`] as
     /// `own_context_action || <the queue holds a pending `Traversal` step>` (plan
     /// §1 B/E1), so the "own-context effect OR a pending traversal supersedes"

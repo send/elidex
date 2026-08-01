@@ -402,9 +402,8 @@ pub trait HostDriver {
     ///
     /// A shell whose drain is a *loop* (app-mode's turn-completion drive,
     /// `elidex-shell` `app/drain_host/mod.rs`) needs "is anything still staged?" as a
-    /// question, and all three drains above answer it only by destroying it. It has
-    /// two reader classes there: the loop's quiescence predicate, and the
-    /// dispatch-entry drives that bound a previous turn's residue.
+    /// question, and all three drains above answer it only by destroying it — that
+    /// loop's quiescence predicate is the reader.
     ///
     /// **THE PREDICATE INVARIANT — the governance rule for every future channel
     /// added to this trait**: *the predicate set ≡ the channel set one iteration of

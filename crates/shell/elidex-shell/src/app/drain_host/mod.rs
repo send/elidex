@@ -53,12 +53,7 @@
 //! not merely "until the next input event" — the next input event need not drain at
 //! all, since `events::handle_click` returns early on a hit-test miss / a chrome-band
 //! click / an unset `cursor_pos`, and `events::handle_keyboard` on an unfocused
-//! document, all of them BEFORE the drive site is reached. (The dispatch-entry
-//! drives [`App::process_pending_navigation`]'s turn-completion loop schedules do
-//! **not** bound this shape: they are gated on the VM staging peek
-//! [`HostDriver::has_pending_session_history_work`], which reads the engine's
-//! channels — a step already serialized onto the [`TraversalQueue`](elidex_navigation::TraversalQueue) is invisible to
-//! it. That is the exit `debug_assert`'s residual, not the loop's.) It cannot
+//! document, all of them BEFORE the drive site is reached. It cannot
 //! happen here, because the inline path has **no reentrancy
 //! vector at all**:
 //!
@@ -152,7 +147,7 @@ impl App {
     ///
     /// Called at the end of an input handler (`events::handle_click` /
     /// `events::handle_keyboard`), after event dispatch + re-render, and at the
-    /// winit dispatch entry (below). Each ITERATION runs
+    /// after event dispatch + re-render. Each ITERATION runs
     /// [`DrainCoordinator::drain_same_turn`], whose body sequences **Phase 1**
     /// (window-opens §7.2.2.1 → §7.4.4 synchronous `pushState`/`replaceState`
     /// updates applied in-task, with §7.4.3 `Back`/`Forward`/`Go` traversals merely
@@ -167,12 +162,11 @@ impl App {
     /// `interactive.is_some()` guard here is what makes every per-seam
     /// [`App::inline_state`] / [`App::inline_state_mut`] reach-through an
     /// unreachable panic ([`INTERACTIVE_DRIVE_ONLY`](super::INTERACTIVE_DRIVE_ONLY)).
-    /// It has THREE callers, none of them reachable synchronously from any drain
-    /// body (so the premise-5 argument is unchanged in substance — only the named
-    /// call sites grew): the two in-handler drives (`events::handle_click`,
-    /// `events::handle_keyboard`) and the peek-gated dispatch-entry drive at
-    /// `app/inline.rs::handle_window_event_inline`, routed through
-    /// [`Self::drive_staged_session_history_work`].
+    /// It has TWO callers, neither reachable synchronously from any drain body:
+    /// `events::handle_click` and `events::handle_keyboard`. (A peek-gated drive at
+    /// the winit dispatch ENTRY, which would bound a previous turn's residue ahead
+    /// of the non-drain movers, was designed and implemented for this slice and then
+    /// **withdrawn** — see the residue note below.)
     ///
     /// Returns the turn's [`DrainOutcome`] (the shared summary both shells return)
     /// rather than the retired ad-hoc `bool` — the **field-wise OR** of every
@@ -181,10 +175,7 @@ impl App {
     /// need: `handle_click` consumes
     /// [`suppress_default`](DrainOutcome::suppress_default) to drop the `<a href>`
     /// default navigation; `handle_keyboard` calls for effect and ignores it; a
-    /// dispatch-entry drive DISCARDS it (it settles a *previous* turn's residue, so
-    /// merging it into the turn that follows would over-suppress that turn's `<a
-    /// href>` default — the same different-turn discard the coordinator already
-    /// documents for app-mode's keyboard turn). When
+    /// `handle_keyboard` calls for effect and ignores it. When
     /// `interactive` is absent (threaded mode) no drain runs and the default
     /// outcome — every field `false`, i.e. "nothing happened, suppress nothing" —
     /// is returned.
@@ -279,56 +270,27 @@ impl App {
     /// swap** — the document marker moved (`current_document_marker`).
     ///
     /// Neither non-quiescent exit records any state: the work stays on the
-    /// **surviving** runtime's channels, which is where the peek reads. **Unified
-    /// exit rule — any exit whose exit-time peek still reads true requests a
-    /// follow-up dispatch** ([`Self::schedule_followup_dispatch`]). One rule covers
-    /// the cap and the swap alike, so no exit path depends on a frame being
-    /// "already" scheduled — a rebuild does NOT schedule one (`shipped` does not
-    /// mean "a frame was requested", `#11-nav-applied-shipped-decouple`; the
-    /// app-mode nav bodies request no repaint of their own, see
-    /// [`ship_frame`](DrainHost::ship_frame)).
+    /// **surviving** runtime's channels, which is where the peek reads.
     ///
-    /// **What the rule's generality costs is ≈0; the follow-up frame itself is
-    /// not free — say which.** Making the rule fire on EVERY peek-true exit rather
-    /// than on the cap alone is what costs nothing, because a request issued where
-    /// one was already pending coalesces into the same `RedrawRequested`. A
-    /// genuinely new frame is a whole frame. On an ordinary page that happens at
-    /// most once per turn and then the loop is quiescent. On the adversarial
-    /// re-stager the cap exists for, it is **self-sustaining by design**: cap →
-    /// follow-up dispatch → that dispatch's entry drive → cap again, i.e. a capped
-    /// loop plus a paint every frame for as long as the page keeps re-staging. That
-    /// is the accepted degradation — bounded WORK per dispatch, no hang, and no
-    /// unbounded wrong-entry window for the §4.1 movers — not a claim that the page
-    /// stops costing anything. Stopping the re-arm instead would need a
-    /// consecutive-cap counter, i.e. exactly the drive-schedule state this design
-    /// has none of; it is Slice 4's to revisit with the mover routing
-    /// (`#11-session-history-task-queue-model`).
+    /// **⚠ What this slice does NOT do — the residue is not bounded here.** On a
+    /// non-quiescent exit the staged work waits for the next drive that is actually
+    /// REACHED, and that is not every input: `events::handle_click` returns early on
+    /// a hit-test miss / a chrome-band click / an unset `cursor_pos`, and
+    /// `events::handle_keyboard` on an unfocused document, all before this drive. So
+    /// the residual lifetime is **unbounded**, exactly as on `origin/main` — this
+    /// slice fixes the *in-turn* settle (the §1 harm) and changes nothing about it.
     ///
-    /// That redraw is a *wakeup*, not the correctness argument. What bounds the
-    /// residue is structural: the SAME peek is read at the **winit dispatch entry**
-    /// (`app/inline.rs::handle_window_event_inline`), which DOMINATES every arm of
-    /// the dispatch and therefore precedes every non-drain mover any of them can
-    /// reach — chrome actions in the `RedrawRequested` arm's tail, Alt+←/→ in the
-    /// keyboard dispatch's own branch (which never reaches
-    /// `events::handle_keyboard`), the `<a href>` default in `handle_click`. Being
-    /// at the dominator rather than at each mover-carrying arm is what makes that
-    /// coverage structural instead of an enumeration that silently regresses when
-    /// a mover moves. Residue is therefore **(next-dispatch ∨ frame)-bounded**, and
-    /// a click on blank space now drains what it used to strand —
-    /// `handle_click`'s early returns are all downstream of the entry drive. Peek-gating rather than flag-gating is load-bearing: staged work has
-    /// three sources — this loop's non-quiescent exits, a **mover-fired**
-    /// synchronous `popstate`/`hashchange` whose handler stages (that mover never
-    /// enters the loop at all), and a fresh document's load-time staging — and a
-    /// flag set at loop exits would see only the first, while the channels
-    /// themselves answer for all three (One issue, one way: the channels are the
-    /// SoT and the peek is their only mirror, so no drive-schedule flag exists to
-    /// fall out of sync with them).
+    /// A peek-gated drive at the winit dispatch entry was designed, implemented and
+    /// reviewed for this slice to close that, then **withdrawn before push**: it ran
+    /// the FULL `drain_same_turn` — Phase 1c cross-document navigation included —
+    /// ahead of the same dispatch's own input, so a click could land on a document
+    /// the drive had just swapped in. `content/event_loop.rs` documents that exact
+    /// ordering as forbidden and omits Phase 1c from its own top drain for the
+    /// reason. Closing the residue needs content-mode's shape
+    /// ([`DrainCoordinator::drain_synchronous_updates`], Phase 1a+1b only) plus an
+    /// address-bar-focus guard, which is its own plan-reviewed slice alongside
+    /// Slice 4's mover routing (`#11-session-history-task-queue-model`).
     ///
-    /// The residual this leaves is bounded and named: within ONE dispatch, an entry
-    /// drive that exits non-quiescent (cap re-hit, or the swap exit) followed by a
-    /// mover later in that same dispatch. Accepted for this slice and pinned in
-    /// `app_turn_completion_tests`; the mover routing that closes it is Slice 4's
-    /// (`#11-session-history-task-queue-model`).
     pub(super) fn process_pending_navigation(&mut self) -> DrainOutcome {
         if self.interactive.is_none() {
             return DrainOutcome::default();
@@ -382,8 +344,8 @@ impl App {
                 // queues `updateDocument` as a later task when the target document
                 // is not the displayed one, so a fresh document's initial scripts
                 // are that later task's business, not this input turn's. The
-                // unified exit rule below reads the NEW runtime and wakes the
-                // follow-up dispatch, which drains that staging as a NEW turn.
+                // new document's initial staging is then the next drive's
+                // business, as a NEW turn.
                 break;
             }
             if !self.staged_work_pending() {
@@ -392,10 +354,9 @@ impl App {
             if round == MAX_TURN_COMPLETION_ROUNDS - 1 {
                 // EXIT (2) — cap. `eprintln!`, never `debug_assert!`: an
                 // adversarial-but-legal page must degrade, not panic a debug build.
-                // The staged work stays on the current runtime's channels and the
-                // exit rule below wakes the follow-up dispatch, whose entry drive
-                // re-runs this loop with a fresh cap — bounded work per dispatch,
-                // no hang, and no unbounded window for the non-drain movers.
+                // The staged work stays on the current runtime's channels for
+                // the next drive that is reached — bounded work per turn and no
+                // hang, but NOT a bounded residue (see the method doc).
                 eprintln!(
                     "[history] app-mode turn-completion loop hit max rounds \
                      ({MAX_TURN_COMPLETION_ROUNDS}); the staged session-history work \
@@ -424,21 +385,12 @@ impl App {
              or a Phase-1 pass with no Phase 2 behind it). It does not strand \
              permanently — the NEXT `drain_same_turn` seeds `seen_traversal` from it and \
              its Phase-2 bounded snapshot drains it — but nothing bounds WHEN that turn \
-             arrives: the turn-completion loop and its peek-gated dispatch-entry drives \
-             are gated on `HostDriver::has_pending_session_history_work`, which reads the \
-             ENGINE's staging channels, so a step already sitting on this QUEUE is \
-             invisible to them. Until a drive is reached the residual acts as a full \
+             arrives (app-mode pumps only on input, and its early returns mean the \
+             next input event need not reach this drive at all). Until then the residual acts as a full \
              partition barrier: it defers every fresh `pushState` behind it and latches \
              `suppress_default`, killing an unrelated default for a traversal that may \
              have gone out of range meanwhile"
         );
-        // The unified exit rule (all three exits): the turn ends with work still
-        // staged ⇒ schedule the follow-up dispatch whose entry drive will take it.
-        // Issued through the named seam, not a bare `request_redraw`, so the
-        // issuance is observable where the real repaint is `render_state`-gated.
-        if self.staged_work_pending() {
-            self.schedule_followup_dispatch();
-        }
         outcome
     }
 
@@ -509,79 +461,6 @@ impl App {
         }
     }
 
-    /// Drive the turn-completion loop from a winit **dispatch entry** iff work is
-    /// staged — the peek-gated reader that makes a previous turn's residue
-    /// **(next-dispatch ∨ frame)-bounded** instead of unbounded.
-    ///
-    /// Called ONCE, at the top of `app/inline.rs::handle_window_event_inline` —
-    /// the function that DOMINATES every arm of the inline winit dispatch. So every
-    /// non-drain cursor mover is preceded, in its own dispatch, by a drain of
-    /// whatever was staged before it: chrome Back/Forward, the address bar and
-    /// Reload (the `RedrawRequested` arm's tail), Alt+←/→ (the keyboard dispatch's
-    /// own branch, which returns without ever reaching `events::handle_keyboard`),
-    /// and the `<a href>` default (inside `events::handle_click`).
-    ///
-    /// **At the dominator, not at each mover-carrying arm** — that is the
-    /// difference between a structural guarantee and an enumeration. Per-arm
-    /// placement would hold only for the arms that carry a mover *today*: add a
-    /// fourth, or move one into `handle_mouse_release_inline`, and nothing fails
-    /// while coverage silently regresses. The winit dispatch layer itself is
-    /// load-bearing and is NOT a free choice (plan §4.3): the `App::handle_*` layer
-    /// below it is too low, because the Alt+←/→ branch never reaches it.
-    ///
-    /// Gated on the peek rather than on a residue flag because the loop's
-    /// non-quiescent exits are only ONE of three staging sources: a mover that
-    /// fires `popstate`/`hashchange` in place never enters the loop at all, and
-    /// neither does a fresh document's load-time staging. A flag would see only the
-    /// first; the channels answer for all three
-    /// ([`process_pending_navigation`](Self::process_pending_navigation)).
-    ///
-    /// **The outcome is deliberately DISCARDED** (§4.5 (a)): this settles a
-    /// *previous* turn's residue, and merging its `suppress_default` into the turn
-    /// that follows would over-suppress that turn's `<a href>` default. That
-    /// isolation is exact when this drive reaches quiescence; when it exits
-    /// non-quiescent the surviving residue is consumed by the same dispatch's
-    /// in-turn drive and shapes THAT turn's `suppress_default` — the same
-    /// conservative over-suppression shape the coordinator's cross-turn-robust
-    /// `suppress_default` already documents.
-    /// **The entry drive must present its own output** — unlike the two in-handler
-    /// drives, it has no dispatch-layer redraw behind it.
-    ///
-    /// `events::handle_click` and `events::handle_keyboard` are each followed by an
-    /// unconditional `request_redraw` in their dispatch (`app/inline.rs`), which is
-    /// what lets the nav bodies issue none of their own
-    /// ([`ship_frame`](DrainHost::ship_frame)'s "division of labour with the
-    /// caller"). The dispatch ENTRY has no such backstop: it runs ahead of arms
-    /// that repaint only conditionally (`CursorMoved` only on a hover change,
-    /// `CursorLeft` only if a chain was non-empty, the egui arm only on
-    /// `response.repaint`) or not at all (`ModifiersChanged`, the `_` catch-all —
-    /// `MouseWheel` / `Focused` / `Touch` / `Ime`).
-    ///
-    /// The coordinator's own ship covers only half the cases: `ship_if_needed`
-    /// fires [`ship_frame`](DrainHost::ship_frame) when
-    /// `own_context_action && !shipped`, so a pure §7.4.4 `pushState` settled here
-    /// DOES repaint — but a navigation or traversal sets `shipped = true`, the ship
-    /// is skipped, and the app-mode nav bodies request no repaint of their own. So
-    /// a staged `back()` drained at a `ModifiersChanged` entry would move the
-    /// cursor, fire `popstate`, rewrite the chrome URL and re-render, and none of
-    /// it would reach the screen until something else happened to ask for a frame.
-    ///
-    /// Hence: gate on `own_context_action` — precisely "the drive changed
-    /// user-visible state" (it deliberately excludes `window.open`, which is an
-    /// effect on OTHER browsing contexts and needs no frame here). Where the
-    /// coordinator already shipped, the second request coalesces into the same
-    /// `RedrawRequested`; where it did not, this is the only one.
-    pub(super) fn drive_staged_session_history_work(&mut self) {
-        if self.staged_work_pending() {
-            // The OUTCOME is discarded (above) but its `own_context_action` is not:
-            // discarding it is about not letting a previous turn's suppression latch
-            // the next turn's default, and says nothing about presenting a frame.
-            if self.process_pending_navigation().own_context_action {
-                self.schedule_followup_dispatch();
-            }
-        }
-    }
-
     /// The §4.4 quiescence predicate — "is session-history work staged on the
     /// CURRENT runtime?", read through the non-consuming
     /// [`HostDriver::has_pending_session_history_work`] peek.
@@ -626,43 +505,6 @@ impl App {
         self.inline_state()
             .nav_controller
             .current_document_sequence()
-    }
-
-    /// The drive site's single "ask winit for another frame" seam, with **two**
-    /// callers and two distinct reasons:
-    ///
-    /// 1. the §4.3 **unified exit rule** — the loop exited with the peek still
-    ///    reading true, so a follow-up dispatch is needed to take the residue;
-    /// 2. the **dispatch-entry drive** — it changed user-visible state and, unlike
-    ///    the in-handler drives, has no dispatch-layer redraw behind it
-    ///    ([`Self::drive_staged_session_history_work`]).
-    ///
-    /// Both reduce to `request_redraw`, and winit coalesces, so they share one seam
-    /// rather than two spellings of the same call.
-    ///
-    /// A named seam rather than a bare `request_redraw()` because the real request
-    /// is `render_state`-gated (see [`ship_frame`](DrainHost::ship_frame)) and so a
-    /// silent no-op in the disconnected test harness — the `cfg(test)` counter
-    /// below is the observation point the degrade test asserts against. It is an
-    /// observation point, not control state: nothing reads it outside tests, so the
-    /// "no exit records any state" property stands.
-    ///
-    /// ⚠ **What the counter does and does NOT witness.** It records that this seam
-    /// was CALLED — not that a repaint was requested. Deleting the
-    /// `request_redraw()` below would leave every test green, because
-    /// `render_state` is `None` in the app-mode harness and the call is already a
-    /// no-op there. That is a harness limit, not a testing shortcut: the identical
-    /// untestable shape is pre-existing on [`ship_frame`](DrainHost::ship_frame).
-    /// Stated so the counter is not mistaken for coverage of the frame leg itself
-    /// (plan §9 records the end-to-end gap).
-    fn schedule_followup_dispatch(&mut self) {
-        #[cfg(test)]
-        {
-            self.inline_state_mut().followup_dispatches += 1;
-        }
-        if let Some(state) = &self.render_state {
-            state.window.request_redraw();
-        }
     }
 }
 

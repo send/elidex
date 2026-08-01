@@ -32,18 +32,16 @@
 //! Same mechanism, different granularity, different slot.
 //!
 //! Harness reachability (the disconnected network, the `render_state`-less window)
-//! is contracted in `app_test_support`; the two degraded-exit probes it adds for
-//! this module are `staged_session_history_work` (the §4.4 peek — the ONLY honest
-//! way to assert "work is still staged", since no residue flag exists) and
-//! `followup_dispatches` (the unified exit rule's issuance seam).
+//! is contracted in `app_test_support`; the degraded-exit probe it adds for this
+//! module is `staged_session_history_work` (the §4.4 peek — the ONLY honest way to
+//! assert "work is still staged", since no residue flag exists).
 
 use elidex_navigation::DrainHost;
 
 use super::test_support::{
-    app_at, base, current_index, current_url, cursor_over_content, document_marker, entry_url,
-    eval, followup_dispatches, history_len, pipeline_url, popstate_every, popstate_fires,
-    popstate_once, seed_same_document_pair, seed_same_document_triple, staged_session_history_work,
-    stamped,
+    app_at, base, current_url, cursor_over_content, document_marker, entry_url, eval, history_len,
+    pipeline_url, popstate_every, popstate_fires, popstate_once, seed_same_document_pair,
+    seed_same_document_triple, staged_session_history_work, stamped,
 };
 
 /// The adversarial re-stager body: ping-pong `forward()`/`back()` between two
@@ -71,8 +69,7 @@ const PING_PONG: &str = "if (window.__n % 2 === 1) { history.forward(); } else {
 /// The end state is the one the SECOND drive used to produce — that is the point:
 /// the fix is a schedule change, not an outcome change. So the discriminator is not
 /// the entry list but **that no second drive is needed**, asserted as quiescence at
-/// drive exit (the §4.4 peek reads false) plus the absence of a scheduled follow-up
-/// (the unified exit rule did not fire).
+/// drive exit (the §4.4 peek reads false).
 #[test]
 fn app_popstate_staged_pushstate_settles_within_the_same_turn() {
     let mut app = app_at(
@@ -88,12 +85,6 @@ fn app_popstate_staged_pushstate_settles_within_the_same_turn() {
         !staged_session_history_work(&app),
         "the drive ran the turn to QUIESCENCE — the popstate-staged pushState was \
          consumed by a later iteration of the same drive, not left on the VM FIFO"
-    );
-    assert_eq!(
-        followup_dispatches(&app),
-        0,
-        "a quiescent exit schedules no follow-up dispatch (the unified exit rule \
-         fires only when the exit-time peek still reads true)"
     );
     assert!(
         app.traversal_queue().is_empty(),
@@ -338,9 +329,7 @@ fn app_turn_outcome_or_latches_suppress_default_across_iterations() {
 /// `popstate`; `data-n` therefore counts the loop's iterations directly.
 ///
 /// The degrade is asserted the only honest way: the work is still **STAGED** (the
-/// §4.4 peek), not "a flag was set" — no residue flag exists, by design. And the
-/// unified exit rule's frame leg is asserted through the issuance seam, because the
-/// real `request_redraw` is `render_state`-gated and silently no-ops here.
+/// §4.4 peek), not "a flag was set" — no residue flag exists, by design.
 #[test]
 fn app_turn_completion_terminates_at_the_cap_and_defers_the_residue() {
     let mut app = app_at(&popstate_every(PING_PONG), base());
@@ -358,145 +347,7 @@ fn app_turn_completion_terminates_at_the_cap_and_defers_the_residue() {
     assert!(
         staged_session_history_work(&app),
         "the cap exit records NO state: the re-staged traversal simply stays on the \
-         current runtime's channels, where the next dispatch's entry peek finds it"
-    );
-    assert_eq!(
-        followup_dispatches(&app),
-        1,
-        "and the unified exit rule scheduled the follow-up dispatch, because the \
-         exit-time peek read true"
-    );
-}
-
-/// The residue a cap-hit leaves is **(next-dispatch ∨ frame)-bounded**, and the
-/// input arms are the load-bearing half: a click on blank space — the shape that
-/// used to strand the residue forever, since `events::handle_click` returns early
-/// on an unset `cursor_pos` BEFORE the drive — now drains it at the dispatch entry.
-///
-/// Driven through the REAL winit dispatch — a `WindowEvent::MouseInput` handed to
-/// `handle_window_event_inline`, not a call to the shared reader body or to an
-/// inner `handle_*_inline`. That is the whole point of the drive's placement: it
-/// sits at the dispatch entry because the `App::handle_*` layer is too low (the
-/// Alt+←/→ branch traverses and returns without ever reaching
-/// `events::handle_keyboard`), so a pin that skipped the dispatch would not be
-/// exercising the layer that carries the drive.
-#[test]
-fn app_cap_residue_drains_at_the_next_dispatch_entry() {
-    let mut app = app_at(&popstate_every(PING_PONG), base());
-    seed_same_document_pair(&mut app);
-
-    eval(&mut app, "history.back();");
-    let _ = app.process_pending_navigation();
-    assert_eq!(popstate_fires(&app), 8, "the first drive capped");
-
-    // No `cursor_pos` — `handle_click` returns at its first early return, so the
-    // ONLY thing that can drain on this dispatch is the entry drive ahead of it.
-    assert!(
-        app.interactive.as_ref().unwrap().cursor_pos.is_none(),
-        "blank-space precondition: handle_click cannot reach its own drive"
-    );
-    app.handle_window_event_inline(winit::event::WindowEvent::MouseInput {
-        device_id: winit::event::DeviceId::dummy(),
-        state: winit::event::ElementState::Pressed,
-        button: winit::event::MouseButton::Left,
-    });
-
-    assert_eq!(
-        popstate_fires(&app),
-        16,
-        "the dispatch ENTRY drove the loop again (a second capped run), so the \
-         residue is next-dispatch-bounded — not stranded behind handle_click's \
-         early return"
-    );
-}
-
-/// The entry drive is at the **dominator**, so an arm that carries no mover at all
-/// still drains — the property that makes coverage structural rather than an
-/// enumeration of mover-carrying arms.
-///
-/// `CursorMoved` is the sharpest case: it is the highest-frequency arm, it reaches
-/// no mover, and under a per-mover-arm placement it would drain nothing. It also
-/// pins the ordering that makes the hoist safe — the drive runs BEFORE
-/// `handle_cursor_move_inline`'s hit-test, so a drive that rebuilt cannot leave a
-/// hover chain built against the old `EcsDom`.
-#[test]
-fn app_residue_drains_on_a_dispatch_arm_that_carries_no_mover() {
-    let mut app = app_at(
-        &popstate_once("history.pushState(null, '', '/from-popstate');"),
-        base(),
-    );
-    seed_same_document_pair(&mut app); // [base, /a], cursor on /a
-
-    // Stage via a mover, which never enters the loop (staging source (b)).
-    app.handle_chrome_action(crate::chrome::ChromeAction::Back);
-    assert!(
-        staged_session_history_work(&app),
-        "precondition: the mover-fired popstate staged work with no loop behind it"
-    );
-
-    app.handle_window_event_inline(winit::event::WindowEvent::CursorMoved {
-        device_id: winit::event::DeviceId::dummy(),
-        position: winit::dpi::PhysicalPosition::new(10.0, 10.0),
-    });
-
-    assert!(
-        !staged_session_history_work(&app),
-        "a plain cursor move drained it — the drive is at the dispatch entry, not \
-         attached to the arms that happen to carry movers today"
-    );
-    assert_eq!(
-        entry_url(&app, 1).as_deref(),
-        Some("https://example.com/from-popstate"),
-        "and it settled against base, the entry the handler ran on"
-    );
-}
-
-/// **The entry drive presents its own output** — the half of the dominator hoist
-/// that does NOT come for free.
-///
-/// The two in-handler drives are each followed by an unconditional `request_redraw`
-/// in their dispatch, which is why the app-mode nav bodies issue none of their own
-/// (`DrainHost::ship_frame`'s "division of labour with the caller"). The dispatch
-/// ENTRY has no such backstop, and the coordinator's own ship covers only half the
-/// cases: `ship_if_needed` fires only when `own_context_action && !shipped`, so a
-/// pure `pushState` repaints — but a TRAVERSAL sets `shipped = true`, the ship is
-/// skipped, and nothing else asks for a frame.
-///
-/// So this drives a staged `back()` from `ModifiersChanged` — an arm that repaints
-/// on no path whatsoever. Without the entry drive's own `own_context_action`-gated
-/// request, the cursor would move, `popstate` would fire and the chrome URL would
-/// change with none of it reaching the screen until some unrelated event happened
-/// to ask for a frame.
-#[test]
-fn app_entry_drive_requests_a_frame_for_its_own_output() {
-    let mut app = app_at(&popstate_once("history.back();"), base());
-    seed_same_document_triple(&mut app); // [base, /a, /b], cursor on /b
-
-    // Stage a TRAVERSAL (not a pushState) via a mover, so the drive that settles it
-    // reports `shipped` and the coordinator's own ship is skipped.
-    app.handle_chrome_action(crate::chrome::ChromeAction::Back);
-    assert!(
-        staged_session_history_work(&app),
-        "precondition: the mover-fired popstate staged a back()"
-    );
-    let frames_before = followup_dispatches(&app);
-
-    // `ModifiersChanged` repaints on NO path — the entry drive is the only thing
-    // here that can ask for a frame.
-    app.handle_window_event_inline(winit::event::WindowEvent::ModifiersChanged(
-        winit::event::Modifiers::default(),
-    ));
-
-    assert_eq!(
-        current_url(&app).as_deref(),
-        Some("https://example.com/"),
-        "the staged back() applied at the entry drive: /a → base"
-    );
-    assert_eq!(
-        followup_dispatches(&app),
-        frames_before + 1,
-        "and the drive asked for a frame to present it — on this arm nothing else \
-         would have, and the traversal's `shipped` suppressed the coordinator's ship"
+         current runtime's channels for the next drive that is reached"
     );
 }
 
@@ -504,138 +355,9 @@ fn app_entry_drive_requests_a_frame_for_its_own_output() {
 // Mover-fired staging — staging source (b), pinned CLOSED
 // ---------------------------------------------------------------------------
 
-/// **Staging source (b) is bounded, not residual.** A non-drain cursor mover fires
-/// `popstate` **in place** on its same-document arm (`traverse_to` →
-/// `same_document_step`), so its handler stages history work that no loop is behind
-/// — the mover never enters `process_pending_navigation` at all. A residue *flag*
-/// set at loop exits could never see this staging; the channel peek does, so the
-/// dispatch-entry drive picks it up before that dispatch's own movers run.
-///
-/// Chrome Back is used because its same-document arm needs no load and is therefore
-/// harness-reachable. Its production routing keeps the ordering claim honest: the
-/// sole app-mode caller of `handle_chrome_action` is `handle_redraw_inline`'s tail,
-/// which is DOWNSTREAM of dispatch-entry drive (1) in the same `RedrawRequested`
-/// dispatch. The same closure covers the **fragment-nav variant** of source (b) —
-/// an `<a href="#frag">` click default or an address-bar same-document `navigate`
-/// fires popstate + hashchange in place through the same `same_document_step`, and
-/// is drained by the same entry peek.
-#[test]
-fn app_mover_fired_popstate_staging_is_drained_at_the_next_dispatch_entry() {
-    let mut app = app_at(
-        &popstate_once("history.pushState(null, '', '/from-popstate');"),
-        base(),
-    );
-    seed_same_document_pair(&mut app); // [base, /a], cursor on /a
-
-    // The mover — no drive on this path at all.
-    app.handle_chrome_action(crate::chrome::ChromeAction::Back);
-
-    assert_eq!(
-        current_url(&app).as_deref(),
-        Some("https://example.com/"),
-        "chrome Back moved the cursor to base and fired popstate in place"
-    );
-    assert!(
-        staged_session_history_work(&app),
-        "the handler's pushState is staged with NO loop behind it — the window a \
-         residue flag would be blind to"
-    );
-    assert_eq!(
-        entry_url(&app, 1).as_deref(),
-        Some("https://example.com/a"),
-        "and nothing has settled it yet"
-    );
-
-    // The next dispatch's entry peek (drive (1)/(2)/(3) share this body).
-    app.drive_staged_session_history_work();
-
-    assert!(
-        !staged_session_history_work(&app),
-        "the entry drive settled it — BEFORE any mover that dispatch could run"
-    );
-    assert_eq!(
-        entry_url(&app, 1).as_deref(),
-        Some("https://example.com/from-popstate"),
-        "and it landed on base — the entry the handler ran on — truncating the \
-         forward /a exactly as a push from base does"
-    );
-}
-
 // ---------------------------------------------------------------------------
 // The ACCEPTED residual (§7 Q3) — fenced, not a defect regression
 // ---------------------------------------------------------------------------
-
-/// **ACCEPTED RESIDUAL, not a pinned defect regression** — the bounded window this
-/// slice deliberately leaves, fenced to Slice 4's mover routing
-/// (`#11-session-history-task-queue-model`).
-///
-/// The dispatch-entry drives put a drain in front of every mover *within its own
-/// dispatch*, and no dispatch runs a second mover after the first — so the only
-/// surviving shape is: **within ONE dispatch, the entry drive exits NON-quiescent,
-/// and a mover later in that same dispatch then moves the cursor.** The staged
-/// intent is then applied by the following drive against the moved cursor,
-/// reproducing the §1 staged-against ≠ applied-against harm.
-///
-/// Two sources reach that shape and this pin's scope covers **both**: (a) the
-/// cap re-hit of an adversarial re-stager — what the body below drives — and (b) the
-/// §4.5 (c) **swap exit** on an ordinary page (a mid-loop rebuild whose new
-/// document's initial script stages history work). (b) is scope-noted here rather
-/// than given its own case because the disconnected harness cannot reach a
-/// successful mid-loop rebuild: the `document_sequence` restamp sits past the
-/// load-success gate, so the swap-exit branch never fires here (see
-/// [`app_failed_mid_loop_load_does_not_move_the_document_marker`], the negative
-/// side, and the plan's §9 own-deferral for the end-to-end gap).
-///
-/// The pin fails if the residual silently WIDENS (a mover no longer preceded by a
-/// drive) or if it silently vanishes without Slice 4 — either way the fence needs
-/// re-reading, which is what a fenced pin is for.
-#[test]
-fn app_accepted_residual_from_a_non_quiescent_entry_drive_then_same_dispatch_mover() {
-    let mut app = app_at(
-        &popstate_every(&format!(
-            "history.replaceState(null, '', '/r' + window.__n); {PING_PONG}"
-        )),
-        base(),
-    );
-    // [base, /a, /b] one document, cursor on /b. `replaceState` never truncates, so
-    // the ping-pong keeps all three entries alive and chrome Back has somewhere to go.
-    seed_same_document_triple(&mut app);
-
-    eval(&mut app, "history.back();");
-    let _ = app.process_pending_navigation();
-
-    assert!(
-        staged_session_history_work(&app),
-        "precondition: the entry drive exited NON-quiescent (cap re-hit), leaving a \
-         replaceState staged by the handler that ran on the current entry"
-    );
-    let issuing_index = current_index(&app);
-    let issuing_entry = entry_url(&app, issuing_index);
-
-    // The mover, later in the SAME dispatch.
-    app.handle_chrome_action(crate::chrome::ChromeAction::Back);
-    let moved_index = current_index(&app);
-    assert_ne!(
-        moved_index, issuing_index,
-        "the mover moved the cursor off the staging entry"
-    );
-
-    // The following drive settles the staged intent — against the moved cursor.
-    let _ = app.process_pending_navigation();
-
-    assert_ne!(
-        entry_url(&app, moved_index),
-        entry_url(&app, issuing_index),
-        "RESIDUAL (accepted): the staged replace landed on the entry chrome Back \
-         moved TO, not on the entry whose handler issued it"
-    );
-    assert_eq!(
-        entry_url(&app, issuing_index),
-        issuing_entry,
-        "and the issuing entry — the one §7.4.6.1 step 14.1.1's note says the intent \
-         belongs to — was left untouched. Slice 4's mover routing closes this"
-    );
-}
 
 // ---------------------------------------------------------------------------
 // The swap exit's negative side (§4.5 (c))
@@ -682,11 +404,6 @@ fn app_failed_mid_loop_load_does_not_move_the_document_marker() {
     assert!(
         !staged_session_history_work(&app),
         "and the drive still reached quiescence"
-    );
-    assert_eq!(
-        followup_dispatches(&app),
-        0,
-        "a quiescent exit schedules no follow-up dispatch"
     );
     assert_eq!(
         pipeline_url(&app).as_deref(),
