@@ -6,7 +6,7 @@
 Slice A). Under that umbrella's approval boundary this is a **terminal unit** (§9).
 **Branch**: `webref-cite-audit-tool`. **Nature**: pure refactor of developer tooling. **Zero `crates/**`
 diff, zero gate-semantics change, zero CI topology.**
-**Status**: plan-memo, **draft 1**. `/elidex-plan-review` **required before implementation**.
+**Status**: plan-memo, **draft 2**. `/elidex-plan-review` **required before implementation**.
 
 **This memo carries no measured digits of its own.** Every quantity is printed by a function in
 `docs/plans/2026-07-citation-hygiene-A-rederive.sh`, which ships on this branch; the memo cites the function
@@ -26,10 +26,18 @@ Three boundaries, each of which was a slice-boundary error in an earlier draft o
 1. **A-i ships no catalog fall-through.** `shortname_for` and `label_for` consult `SPECS` and stop. The
    948-entry catalog, `_catalog()`, the reverse index and the round-trip rules are **Slice B's** — B owns
    the lookup semantics that make the widening correct, and B owns its offline contract.
-2. **A-i changes no failure semantics.** Landing a shared import is what first makes label resolution
-   *failable*; hardening that failure is **Slice A-ii**, stacked directly on this. A-i leaves
-   `preflight.py`'s `except Exception: _shortname_for = None` guard exactly as the merged memo's carve left
-   it — a documented soft-warn — and A-ii replaces it. The two are one commit apart on purpose.
+2. **A-i lands the import HARD — no `except` guard — and that is a failure-semantics decision, not an
+   absence of one.** ⚠ Draft 1 said "A-i changes no failure semantics" and kept the carve's
+   `except Exception: _shortname_for = None`. Round 1 falsified both halves. Measured: `origin/main`'s
+   `shortname_from_label` reads a module-local dict (`preflight.py:242`) — **total, nothing to fail**. A-i is
+   what makes it failable, and the carve's guard routes that process failure into the per-row *unmapped*
+   bucket, so a broken tools tree gives **every row soft-warned, nothing verified, exit 0**. Keeping it would
+   have put a **fail-open plan-review gate on `main` for the whole duration of A-ii** — the state the
+   umbrella calls disqualifying when the slice doing it is B.
+   **A hard import fails loudly instead.** A missing or broken tools tree is a traceback, which is
+   fail-*closed*: no reviewer mistakes it for a pass. A-ii's job is then to turn a loud failure into a named
+   cause with a remedy and a `--no-verify` escape — genuinely its own concern rather than a hole it
+   inherits. **No window exists, so A-i opens no deferral for one.**
 3. **A-i schedules nothing.** No `mise` task, no CI job. That is **A-iii**.
 
 **A-i's spec *set* is unchanged (the same 12 pinned specs), but 9 additional *spellings* resolve** — the
@@ -47,7 +55,13 @@ up with `.claude/tools/webref` — nothing from memory. → `rederive citations`
 | Cite | § | Exact title | Anchor | Why this one |
 |---|---|---|---|---|
 | `WHATWG HTML §4.10.21` | HTML §4.10.21 | Constraints | `#constraints` | `html` is pinned by `SPECS`; the canonical-label spelling |
-| `WHATWG Fetch §2.2.5` | Fetch §2.2.5 | Requests | `#requests` | `fetch` is pinned by `SPECS`; exercises the shortname-as-parse-key rule §0.1 names |
+| `WHATWG Fetch §2.2.5` | Fetch §2.2.5 | Requests | `#requests` | a **second pinned spec**, so K=2 and the table is not one spec twice |
+
+⚠ Draft 1 justified this row as *"exercises the shortname-as-parse-key rule"*. Measured, false: `WHATWG
+Fetch` is `entry[1]`, the **canonical label**, and a key in `origin/main`'s `SPEC_LABEL_REVERSE` — it resolves
+identically before and after A-i. The spellings that exercise the rule are `Fetch` / `fetch`, which
+`origin/main` does **not** resolve (its only aliases are `HTML`, `DOM`, `URL`). Right number, wrong
+derivation — the pattern the harness exists to end.
 
 ⚠ **Both labels are ones A-i's own pinned map resolves, and that is a deliberate constraint on this
 table.** The merged memo's §3 carried a `CSSOM View §4.2` row, which resolves **only via the branch's
@@ -79,20 +93,34 @@ rewritten or explicitly assigned.
 
 - **K1 — one enumeration.** After A-i exactly one site enumerates spec label ↔ shortname. Checkable by
   construction: the other two import it.
-- **K2 — the generic core names no elidex file path.** `DESIGN.md`'s rule. ⚠ `origin/main` **already
-  carries one** (`cli.py`'s `.claude/skills/elidex-review/axes.md.`), so K2 is a **delta**: A-i adds none.
-  Discharging the pre-existing one is not A-i's scope.
+- **K2 — the generic core names no elidex file path.** `DESIGN.md`'s rule, as an **absolute**. ⚠ Draft 1
+  made it a *delta* because `origin/main` carries one (`cli.py`'s `.claude/skills/elidex-review/axes.md.`)
+  and routed that one to Slice C. Round 1 called the routing convenient and it was: A-i performs the
+  **identical by-role rewrite one file over** (`spec_labels.py:7`), already edits `cli.py` twice, and C's
+  umbrella scope is `axes.md` / `CLAUDE.md` / `DESIGN.md` — no `cli.py` mandate, so routing it there parks it
+  where nothing collects it. **A-i discharges it**, which removes the set-difference apparatus from §2, §7,
+  §12(3) and pin S8.
 - **K3 — the generic core names no Slice-B artifact.** ⚠ Three tokens, three scopes — see §12(2), which is
   where draft 1 of this memo wrote them as one pattern and thereby claimed a violation `origin/main` already
   has. `cite-audit` and `_catalog` appear **nowhere** in the tooling tree (matching `origin/main`);
   `webref_data` appears nowhere **in `spec_labels.py`** (it legitimately backs eight other command modules).
-- **K4 — no behaviour change.** Every label `origin/main` resolved, A-i resolves identically; the added
-  spellings are a strict superset over the same 12 specs. `SPEC_LABEL_REVERSE`'s 15 pairs are vendored as a
-  literal and frozen.
+- **K4 — no behaviour change *in label resolution*.** Every label `origin/main` resolved, A-i resolves
+  identically; the added spellings are a strict superset over the same 12 specs. `SPEC_LABEL_REVERSE`'s 15
+  pairs are vendored as a literal and frozen. ⚠ K4 is scoped to *resolution* on purpose: A-i does change what
+  happens when the tools tree is **absent**, from "no such state exists" to "loud death" (§0.1(2)), and §5
+  row 7 tabulates it. Draft 1 stated K4 unscoped, which made it false.
 
-K1 and K4 are independent of K2/K3 — one is about the table, the other about the text around it. They are
-listed together because a single edit set must satisfy all four, and the merged memo's edit set satisfied
-K1 and K4 while silently failing K2 and K3.
+**Pairwise intersections**, because a single edit set must satisfy all four and they cannot be applied one at
+a time. ⚠ Draft 1 asserted only a *non*-intersection and §9(ii) claimed a single intersection point; §4.4 of
+the same draft enumerated five, which is what round 1 found.
+
+| pair | intersection |
+|---|---|
+| K1 × K3 | every site asserting the copy **count** also names its **members**; after A-i the count changes *and* `cite_audit.py` stops being a member. Five sites — §4.4 |
+| K1 × K2 | the docstring's consumer list is both an enumeration (K1) and a place elidex paths appear (K2); the `LABEL_TO_SHORTNAME` comment carries a **second** such list |
+| K2 × K3 | the same prose usually carries both — `cli.py`'s blurb comment names an elidex consumer *and* a B artifact — so it is one rewrite, not two passes |
+| K1 × K4 | deleting the aliases must leave the map byte-identical, which is what makes the deletion safe in a refactor slice (`rederive keysets`) |
+| K3 × K4 | `coverage_map`'s last-resort reverts to `origin/main` verbatim — a K4 requirement, *and* the reason its branch-new docstring describing B's catalog must go |
 
 ---
 
@@ -145,7 +173,28 @@ diagnostic string, or `SECTION_REF_RE`.
 
 ### §4.2 `spec_labels.py`, by named artifact
 
-Named by content, not line number. → `rederive regions`
+**Named by content, and the rows below are *derived*.** ⚠ Draft 1 authored this table by reading, and round 1
+found it covering one of three prose sites in the moved tests, naming a copy-count site that carries no
+count, and missing two that do. **A-i's rule, against a root that has recurred four review rounds running**:
+before writing a row for a piece of state, run `rederive readers <symbol> [ref]` and assign **every** line it
+prints. The census separates code from prose because every failed edit set assigned code and left prose.
+
+Census for the three symbols A-i removes, at `origin/main`:
+
+| symbol | code readers | prose readers |
+|---|---|---|
+| `SPEC_LABEL_REVERSE` | `preflight.py` :51 :242 :243 :244 | :48 "keep in sync" · :342 classification comment · **:409 stdout summary** · **:422 stderr remedy** · **five other plan-memos**, one registering `#11-preflight-css-module-labels` |
+| `_SPEC_LABEL_MAP` | `coverage_map.py` :13 :30 :31 | `preflight.py:48` — the same sync comment from the other side |
+| `COMMON_SHORTNAMES` | `cli.py` :27 :80 | the f-string body: blurb lines **and** the `cite-audit` Examples line |
+
+⚠ **:409 and :422 are the sharp ones** — they are the gate's own *output*, and after A-i the remedy tells a
+developer to "extend `SPEC_LABEL_REVERSE` in `preflight.py`", a symbol that no longer exists, instructing
+exactly the hand-added local copy K1 abolishes. Draft 1 routed "the remedy strings" to A-ii and thereby
+shipped that. **They are A-i's**: they read state A-i deletes.
+
+⚠ **`#11-preflight-css-module-labels`** (registered, open) proposes mapping CSS modules *into*
+`SPEC_LABEL_REVERSE`. A-i moves where that work happens and B's fall-through discharges it outright; A-i
+records the redirect at the slot without closing it. → `rederive readers`, `rederive regions`
 
 | Region | Slice | A-i's instruction |
 |---|---|---|
@@ -188,7 +237,7 @@ B adds the fall-through sentence and the fourth copy when it lands the catalog.
 
 ### §4.3 Site the label-map tests where they belong
 
-The merged branch's `TestSharedSpecLabelMap` carries 10 tests. **8 are A-i's** and move to
+The merged branch's `TestSharedSpecLabelMap` carries **9** test methods (draft 1 said 10; the `coverage_map_label` helper sits outside the class). **8 are A-i's** and move to
 `.claude/tools/_webref/test_spec_labels.py`. `test_coverage_map_fallback_round_trips` and the
 `coverage_map_label` helper are **B's** — they assert the catalog round-trip.
 
@@ -197,7 +246,11 @@ inserts the *elidex skill's* directory onto `sys.path` and imports `preflight` �
 executable** edge blocking `DESIGN.md`'s goal of keeping the core movable to a standalone repository.
 
 - The `coverage_map` half stays in `test_spec_labels.py`, at module-level import.
-- The `preflight` half moves to **A-ii**'s `test_preflight.py`. A-i does not create that file.
+- ⚠ **The `preflight` half stays in A-i too.** Draft 1 sent it to A-ii and said "A-i does not create that
+  file", so **nothing asserted the preflight consumer resolved at all** between the two slices — on the very
+  read A-i makes failable. Round 1's CRIT. The deleted test's own docstring records why: *"`preflight` is the
+  copy that empirically drifted, and no test imported it at all."* A-i creates `test_preflight.py` carrying
+  exactly this assertion; A-ii grows it. With the hard import the `sys.path`-shim objection disappears.
 - **No `sys.path` mutation survives inside any test method.**
 - ⚠ The test's **name and docstring** move with the body and must be rewritten: it will assert one
   consumer, not three, and its prose names `cite_audit` twice (K3).
@@ -220,13 +273,17 @@ is not a copy that exists. → `rederive couplings`
 |---|---|---|---|
 | 1 | a canonical label (`WHATWG HTML`) | resolves | **unchanged** |
 | 2 | a lower/mixed-case canonical label | resolves | **unchanged** |
-| 3 | an alias spelling (`HTML`, `Fetch`, …) | resolves | **unchanged** — the alias key and the shortname key are the same string lower-cased |
+| 3 | an alias spelling **`origin/main` actually carries** (`HTML`, `DOM`, `URL` — the only three) | resolves | **unchanged** |
 | 4 | a **shortname** spelling (`fetch`, `selectors-4`, …) | **does not resolve** — soft-warn, verify skipped | **resolves** |
 | 5 | a label of a spec outside the pinned 12 | does not resolve | **unchanged** — no catalog in A-i |
-| 6 | `coverage_map._spec_label` on a non-pinned shortname | `.upper().replace("-", " ")` | **unchanged** — verbatim |
+| 6 | `coverage_map._spec_label` on a non-pinned shortname | `.upper().replace("-", " ")` | **unchanged** — verbatim, reached for the identical input set (both sides pin the same 12) |
+| 7 | **the tools tree absent / `spec_labels.py` unimportable** | no such state — the map is module-local | **traceback, exit non-zero** — not a silent exit 0 (§0.1(2)) |
 
 **The only newly-resolving class is row 4**, and it is 9 spellings over the same 12 specs — 0 changed, 0
-lost, no new spec. → `rederive keysets`
+lost, no new spec. ⚠ Draft 1 listed `Fetch` under row 3; measured, five of the eight deleted aliases
+(`Fetch`, `Streams`, `WebCrypto`, `XHR`, `WebIDL`) are **row 4**, because `origin/main` carries only three
+aliases. Row 7 is new — the one behaviour A-i changes outside label resolution, which is why K4 is scoped
+rather than left false. → `rederive keysets`
 
 ---
 
@@ -236,7 +293,9 @@ lost, no new spec. → `rederive keysets`
 |---|---|---|---|
 | **S1** | `shortname_for(label) == short` over `SPECS`, for canonical labels and shortnames | 1, 2, 4 | **yes** (row 4) |
 | **S2** | `label_for(shortname) == label` over `SPECS` | — | no |
-| **S3** | all three consumers derive from `SPECS` — identity assertion, `coverage_map` half only, **no `sys.path` mutation in the body** | — | **yes** |
+| **S3** | **both** consumers of the reverse direction derive from `SPECS` — `coverage_map._spec_label` and `preflight.shortname_from_label` — identity assertion, **no `sys.path` mutation in the body** | — | **yes** |
+| **S3b** | `cli.COMMON_SHORTNAMES`'s derived block reproduces `origin/main`'s hand-written literal **byte-identically** — the third consumer, which no test ever covered and draft 1 left unpinned | — | **yes** |
+| **S9** | the gate's own output carries no dangling symbol: `SPEC_LABEL_REVERSE` appears in no stdout/stderr string | — | **yes** |
 | **S4** | `LABEL_TO_SHORTNAME` is byte-identical with the 8 parse aliases deleted | — | **yes** |
 | **S5** | `shortname_for` agrees with `origin/main`'s 15 `SPEC_LABEL_REVERSE` pairs, **vendored as a literal** — correct here precisely because the point is to freeze the *old* table (K4) | 1–3 | no |
 | **S6** | `coverage_map._spec_label` over the 12 pinned shortnames **and** a non-pinned sample exercising the `.upper().replace("-", " ")` last-resort | 6 | no |
@@ -310,10 +369,9 @@ Decided rather than listed ([[feedback_no-low-value-choices]]): the aliases are 
 last-resort stays **verbatim**; the `DESIGN.md` bullet's A-i text is **stated verbatim** rather than
 described; and the pre-existing `cli.py` elidex path is **left alone** (K2 is a delta).
 
-- **Q1 — should A-i also discharge `cli.py`'s pre-existing elidex path?** It is one line, and A-i edits that
-  file anyway. **Recommendation: no.** It is `axes.md`'s path, i.e. review policy, which the umbrella routes
-  to **C**; discharging it here would decide C's boundary by side effect. Registered as a note for C, not a
-  slot.
+*(Draft 1's Q1 — whether A-i should discharge `cli.py`'s pre-existing elidex path — is **closed as yes** and
+folded into §2's K2 and §4.2.1. Round 1 established C has no `cli.py` mandate, so deferring it there was a
+park, not a boundary.)*
 
 ---
 
