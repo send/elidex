@@ -111,7 +111,6 @@ import	crates/layout/elidex-layout-table/src/lib.rs	BorderCollapse, CaptionSide,
 producer	crates/layout/elidex-layout-table/src/lib.rs	fn cell_baseline(cell_lb: &LayoutBox) -> f32 {
 producer	crates/layout/elidex-layout-table/src/lib.rs	let mut cell_layout_boxes: Vec<LayoutBox> = Vec::with_capacity(cells.len());
 producer	crates/layout/elidex-layout-table/src/lib.rs	return LayoutBox::default().into();
-pending-migration:C-3c	crates/layout/elidex-layout/src/hit_test.rs	let layout_box_opt = dom.world().get::<&LayoutBox>(entity).ok();
 test	crates/layout/elidex-layout/src/hit_test.rs	let lb = LayoutBox {
 import	crates/layout/elidex-layout/src/hit_test.rs	use elidex_plugin::{ComputedStyle, Display, LayoutBox, Point, Vector};
 import	crates/layout/elidex-layout/src/layout/mod.rs	ComputedStyle, CssSize, Display, LayoutBox, PageSelector, PagedMediaContext, Position, Size,
