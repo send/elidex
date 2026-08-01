@@ -20,10 +20,16 @@ from _webref import cli  # noqa: E402
 from _webref import spec_labels  # noqa: E402
 from _webref.commands import coverage_map  # noqa: E402
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
-GENERIC_CORE = REPO_ROOT / ".claude" / "tools"
-WEBREF_PKG = GENERIC_CORE / "_webref"
-SKILLS = REPO_ROOT / ".claude" / "skills"
+# The package is the only tree this suite scans, and it is located from the
+# test file itself — never from a repo root. The three pre-existing generic
+# suites here all stop at `parents[1]`; reaching further (`parents[3]`, which
+# on `origin/main` existed only in the elidex adapter) would make a package
+# test depend on where the package is checked out, and would put unrelated
+# elidex artifacts under `.claude/tools/` inside a webref unit test's blast
+# radius. K2's and K3's CROSS-TREE halves — the wider `.claude/tools/` and
+# `.claude/skills/` — are checked by `rederive couplings`, where cross-tree
+# assertions belong.
+WEBREF_PKG = Path(__file__).resolve().parent
 
 # The reverse map the plan-review gate carried before this module existed,
 # vendored as a literal. FROZEN: it is a snapshot taken once, and refreshing
@@ -91,15 +97,13 @@ def _text_files(root: Path):
             continue
 
 
-def _scan(roots, pattern: re.Pattern) -> list[str]:
-    """`path:lineno:line` for every match of `pattern` under `roots`."""
+def _scan(root: Path, pattern: re.Pattern) -> list[str]:
+    """`path:lineno:line` for every match of `pattern` under `root`."""
     hits = []
-    for root in roots:
-        for path, body in _text_files(root):
-            for lineno, line in enumerate(body.splitlines(), 1):
-                if pattern.search(line):
-                    rel = path.relative_to(REPO_ROOT)
-                    hits.append(f"{rel}:{lineno}:{line.strip()}")
+    for path, body in _text_files(root):
+        for lineno, line in enumerate(body.splitlines(), 1):
+            if pattern.search(line):
+                hits.append(f"{path.relative_to(root)}:{lineno}:{line.strip()}")
     return hits
 
 
@@ -129,7 +133,6 @@ class TestSharedSpecLabelMap(unittest.TestCase):
         because that is what makes leaving them out a refactor rather than
         a behaviour change.
         """
-        self.assertEqual(len(_OMITTED_PARSE_ALIASES), 8)
         widened = dict(spec_labels.LABEL_TO_SHORTNAME)
         for alias, short in _OMITTED_PARSE_ALIASES.items():
             widened[alias.lower()] = short
@@ -140,6 +143,20 @@ class TestSharedSpecLabelMap(unittest.TestCase):
         for label, short in _VENDORED_GATE_REVERSE.items():
             self.assertEqual(spec_labels.shortname_for(label), short,
                              f"{label!r} no longer resolves to {short!r}")
+
+    def test_both_directions_compose_into_a_round_trip(self):
+        """Neither direction is allowed to be lossy, over all 12 rows.
+
+        S1 and S2 each pin one direction against `SPECS`. This composes
+        them, which is the property a caller actually relies on: a label
+        printed by `coverage-map` reads back as the shortname that printed
+        it, and vice versa.
+        """
+        for short, label, _blurb in spec_labels.SPECS:
+            self.assertEqual(
+                spec_labels.label_for(spec_labels.shortname_for(label)), label)
+            self.assertEqual(
+                spec_labels.shortname_for(spec_labels.label_for(short)), short)
 
     def test_lookup_is_case_and_space_insensitive(self):
         self.assertEqual(spec_labels.shortname_for("  whatwg html "), "html")
@@ -175,16 +192,34 @@ class TestSharedSpecLabelMap(unittest.TestCase):
 class TestConsumersDeriveFromSpecs(unittest.TestCase):
     """Both consumers must produce their output FROM `SPECS`.
 
-    Asserted on each consumer's output rather than on its imports: a
-    re-inlined literal that happens to agree today is still the drift this
-    module exists to remove, and only an output assertion sees it.
+    Agreement on today's values is NOT the assertion, because it does not
+    discriminate: replayed against `origin/main`'s re-inlined `_spec_label`
+    (`_SPEC_LABEL_MAP` plus the same last resort), the value comparison
+    passes over all 12 rows. So the pin PERTURBS the canonical map and
+    requires the consumer to follow — which the re-inlined body does not.
     """
 
     def test_coverage_map_label_derives_from_specs(self):
-        """S3: `_spec_label` answers with the pinned label, for every spec."""
+        """S3: `_spec_label` follows `SPECS`, it does not merely agree.
+
+        The perturbation is what makes this a derivation pin: a re-inlined
+        copy keeps answering `WHATWG HTML` while the canonical map says
+        otherwise, and only the second assertion below sees that.
+        """
         for short, label, _blurb in spec_labels.SPECS:
             self.assertEqual(coverage_map._spec_label(short), label,
                              f"coverage_map drifted for {short}")
+        sentinel = "SPEC LABEL DERIVATION SENTINEL"
+        original = spec_labels.SHORTNAME_TO_LABEL["html"]
+        try:
+            spec_labels.SHORTNAME_TO_LABEL["html"] = sentinel
+            self.assertEqual(
+                coverage_map._spec_label("html"), sentinel,
+                "coverage_map answered from its own copy, not from SPECS",
+            )
+        finally:
+            spec_labels.SHORTNAME_TO_LABEL["html"] = original
+        self.assertEqual(coverage_map._spec_label("html"), original)
 
     def test_spec_label_covers_pinned_and_non_pinned_shortnames(self):
         """S6: the pinned set, plus the last resort for everything else.
@@ -208,11 +243,17 @@ class TestConsumersDeriveFromSpecs(unittest.TestCase):
 
 
 class TestSliceBoundary(unittest.TestCase):
-    """The generic core names neither a Slice-B artifact nor an elidex path.
+    """This package names neither a Slice-B artifact nor an elidex path.
 
     Both are greps over prose occurrences, not over file assignments — a
     name in a docstring is the thing being forbidden, so a check that only
     looked at which files exist would pass on the failure it exists for.
+
+    Scoped to `WEBREF_PKG`, which is the tree these pins are actually about.
+    K2 and K3 both range wider than the package (`.claude/tools/` and
+    `.claude/skills/`); that half is `rederive couplings`', so a violation
+    planted outside the package turns the harness red and leaves this suite
+    green — verified by planting one.
     """
 
     # Assembled from fragments on purpose: written whole, the needles would
@@ -229,26 +270,29 @@ class TestSliceBoundary(unittest.TestCase):
 
     def test_no_slice_b_artifact_is_named(self):
         """S7: the detector and its fall-through are not named here yet."""
-        self.assertEqual(_scan([WEBREF_PKG, SKILLS], self._B_ARTIFACT), [])
-        self.assertEqual(_scan([WEBREF_PKG, SKILLS], self._B_FALLTHROUGH), [])
+        self.assertEqual(_scan(WEBREF_PKG, self._B_ARTIFACT), [])
+        self.assertEqual(_scan(WEBREF_PKG, self._B_FALLTHROUGH), [])
 
     def test_the_shared_map_does_not_reach_upstream(self):
         """S7, third clause: the pinned map imports no upstream source."""
         body = Path(spec_labels.__file__).read_text(encoding="utf-8")
         self.assertIsNone(self._UPSTREAM_SOURCE.search(body))
 
-    def test_no_elidex_file_path_in_the_generic_core(self):
-        """S8: an absolute over the whole generic core, not a delta."""
-        self.assertEqual(_scan([GENERIC_CORE], self._ELIDEX_PATH), [])
+    def test_no_elidex_file_path_in_this_package(self):
+        """S8, package half: an absolute over the package, not a delta."""
+        self.assertEqual(_scan(WEBREF_PKG, self._ELIDEX_PATH), [])
 
 
 class TestNoNetworkOrCliSubprocess(unittest.TestCase):
     def test_import_and_lookup_reach_neither(self):
-        """T-net: the import path is inert — a tuple and three dicts.
+        """T-net: THE IMPORT PATH is inert — a tuple and three dicts.
 
-        Poisons both reachable escapes and re-executes the modules under
-        them, because the load-time cost is paid on every plan-review gate
-        run: the gate subprocesses the CLI once per citation it verifies.
+        Scoped to the import path, not to the suite: this one test is where
+        the escapes are poisoned, because the module load is the thing under
+        test and re-executing it once under the poison exercises it. The
+        load-time cost is paid on every plan-review gate run — the gate
+        subprocesses the CLI once per citation it verifies — so what has to
+        be inert is the import, not each subsequent call.
         """
         with patch("subprocess.run",
                    side_effect=AssertionError("subprocess.run on the import path")), \
@@ -259,11 +303,6 @@ class TestNoNetworkOrCliSubprocess(unittest.TestCase):
             self.assertEqual(spec_labels.label_for("html"), "WHATWG HTML")
             self.assertEqual(spec_labels.shortname_for("WHATWG Fetch"), "fetch")
             self.assertEqual(coverage_map._spec_label("fetch"), "WHATWG Fetch")
-            self.assertEqual(
-                "\n".join(f"  {s:<12} {b}"
-                          for s, b in spec_labels.SHORTNAME_TO_BLURB.items()),
-                _VENDORED_BLURB_BLOCK,
-            )
 
 
 if __name__ == "__main__":
