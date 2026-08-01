@@ -34,6 +34,31 @@ use hecs::Entity;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct FragmentId(pub u32);
 
+/// Provenance of the store's current contents — the phase guard the terminal-Z
+/// C-3 geometry seam reads (`EcsDom::screen_geometry`). It answers the question
+/// *"does this store reflect a COMPLETED SCREEN layout pass?"* — a **store-global**
+/// fact (not per-entity), so it lives on the store rather than as a component.
+///
+/// A geometry consumer reading box fragments as **screen** geometry needs this
+/// because `LayoutBox` and the fragment store have different authority windows: the
+/// store holds the prior pass's coords during a probe re-measure, is empty/partial
+/// mid-pass (`clear()` runs at the top of `layout_tree`), and is **page-relative**
+/// during a paged/print render. None of those is a completed screen pass, and the
+/// distinction is invisible from the node contents alone — so the **writers** stamp it,
+/// under one rule at one granularity: *any write to either geometry source invalidates
+/// the phase; only `layout_tree` publishes, at completion*. See the C-3a plan-memo §2.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+enum StorePhase {
+    /// Not trustworthy as screen geometry: mid-pass, re-entrant, probe, paged/print,
+    /// or never laid. The default — a fresh / cleared store is not a completed pass.
+    #[default]
+    Invalid,
+    /// The store reflects a COMPLETED screen layout pass. The only state
+    /// [`FragmentTree::is_completed_screen`] accepts. Published solely by the screen
+    /// `layout_tree` entry at completion (single-publisher invariant).
+    CompletedScreen,
+}
+
 /// The standalone fragment tree: an arena of [`FragmentNode`]s. Cleared and
 /// rebuilt each layout pass (full-from-root relayout is the reconcile — no
 /// incremental / staleness model). Root nodes are those with no
@@ -50,6 +75,18 @@ pub struct FragmentTree {
     /// O(1)-per-entity (the Z-1a `fragments_for` O(nodes) scan the paint walk was
     /// forbidden from calling).
     index: HashMap<Entity, Vec<FragmentId>>,
+    /// Provenance guard for the screen-geometry seam (terminal-Z C-3a). Demoted at every
+    /// write to either geometry source — [`clear`](Self::clear) / `invalidate_on_write`
+    /// (private) for the store, and [`invalidate`](Self::invalidate) from
+    /// `EcsDom::set_layout_box` / `layout_box_mut` for the `LayoutBox` component — and
+    /// promoted only by
+    /// [`publish_completed_screen`](Self::publish_completed_screen), which only
+    /// `layout_tree` calls; read by
+    /// `EcsDom::screen_geometry` via [`is_completed_screen`](Self::is_completed_screen).
+    /// `Default = Invalid`, so a freshly-constructed store is never mistaken for a
+    /// completed pass. Additive to the existing render consumers (which read
+    /// `fragments_for` / `is_consumable` directly and do not consult this).
+    phase: StorePhase,
 }
 
 /// One node of the [`FragmentTree`]. The fields are the Z-final tree shape;
@@ -114,7 +151,7 @@ pub enum FragmentContent {
 /// box-model fields of [`elidex_plugin::LayoutBox`] minus its component-era
 /// `layout_generation` (the node's [`fragmentainer`](FragmentNode::fragmentainer)
 /// replaces it).
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct BoxFragment {
     /// Content area (absolute coords).
     pub content: Rect,
@@ -163,9 +200,122 @@ impl From<&elidex_plugin::LayoutBox> for BoxFragment {
 impl FragmentTree {
     /// Remove all nodes — called at the start of each layout pass (the tree is
     /// rebuilt from scratch every pass; full-from-root relayout is the reconcile).
+    ///
+    /// Also `invalidate()`s the `phase` guard **by construction**: an emptied store
+    /// is definitionally not a completed screen pass, so a cleared store can never
+    /// read as valid screen geometry regardless of caller ordering (a future
+    /// teardown/navigation `clear()` without a preceding `invalidate()` is safe).
+    /// This does not weaken the single-publisher rule — only `layout_tree` ever
+    /// re-`publish`es after clearing + laying out (plan-memo §2).
     pub fn clear(&mut self) {
         self.nodes.clear();
         self.index.clear();
+        self.phase = StorePhase::Invalid;
+    }
+
+    // ---- Provenance guard (terminal-Z C-3a screen-geometry seam) ----
+
+    /// Mark the store as **not** a completed screen pass.
+    ///
+    /// The sole production caller is `EcsDom::set_layout_box` / `layout_box_mut` — the
+    /// `LayoutBox` **component** write chokepoint, which is the component half of the one
+    /// rule (`invalidate_on_write`, private, is the store half). Both fire *at the write*,
+    /// so the rule holds at one granularity with no caller obligation anywhere.
+    ///
+    /// No layout entry and no dispatcher marks. `layout_tree` invalidates by construction
+    /// via [`clear`](Self::clear); `layout_fragmented_with_tokens` and
+    /// `dispatch_layout_child` do nothing at all, because whatever they end up writing
+    /// invalidates itself. Two earlier revisions did otherwise — entry marks, then a
+    /// `dispatch_layout_child` bracket — and both were superseded: see plan §2 for why
+    /// each was the wrong site (the entry marks were the *One issue, one way* strangler
+    /// state; the bracket was simultaneously bypassable and over-eager).
+    ///
+    /// Idempotent; redundant calls are harmless (only `publish_completed_screen` moves
+    /// the phase the other way).
+    pub fn invalidate(&mut self) {
+        self.phase = StorePhase::Invalid;
+    }
+
+    /// Mark the store as reflecting a **completed screen** layout pass. **Single
+    /// publisher**, now structurally: this is `pub(crate)`, and the only caller is
+    /// [`EcsDom::screen_layout_pass`](crate::EcsDom::screen_layout_pass) — the
+    /// clear→lay-out→publish bracket. No paged/probe path publishes, so a page-relative
+    /// or mid-pass store can never read as screen geometry (plan-memo §2).
+    ///
+    /// It was `pub` until Codex PR#488 R6 observed that `FragmentTree` and
+    /// `EcsDom::fragment_tree_mut()` are both public, so "only `layout_tree` publishes"
+    /// was a review convention sitting inside a PR whose whole argument is that such
+    /// conventions must become structure. ⚠ The bracket **narrows** rather than seals:
+    /// `screen_layout_pass(|_| {})` still publishes an emptied store. A true seal is not
+    /// reachable — the legitimate publisher (`elidex_layout::layout_tree`) is DOWNSTREAM
+    /// of this crate, so no capability token minted here could be given to it and
+    /// withheld from everyone else. What the bracket does buy: publication is no longer
+    /// reachable without clearing first, there is exactly one named site, and the raw
+    /// `fragment_tree_mut().publish…()` path is gone from every other crate.
+    ///
+    /// The single-publisher rule is not load-bearing on its own — a publish survives
+    /// only until the next write to EITHER of the seam's two geometry sources, and both
+    /// are covered by construction:
+    ///
+    /// * **store** — every content mutator here calls `invalidate_on_write` (private).
+    /// * **`LayoutBox` component** — every write goes through `EcsDom::set_layout_box` /
+    ///   `layout_box_mut`, which call [`invalidate`](Self::invalidate). All 19 producer
+    ///   write sites across 6 crates are routed through them, and the D4 trip-wire's
+    ///   wire #5 rejects a raw `insert_one(e, LayoutBox { … })` / `get::<&mut LayoutBox>`.
+    ///
+    /// Both fire **at the write**, so neither rests on a caller remembering anything.
+    /// Without the second, a dirty-subtree or probe relayout of an ordinary non-multicol
+    /// box would rewrite components while leaving `CompletedScreen` standing, and the
+    /// projection would serve a MIXED GENERATION — this pass's component geometry beside
+    /// the previous pass's fragments (Codex PR#488 R1).
+    ///
+    /// ⚠ An intermediate revision put the component guard at
+    /// `elidex_layout::dispatch_layout_child` instead. That was wrong in *both*
+    /// directions — bypassable (the algorithms below it are `pub` and called directly
+    /// cross-crate) and over-eager (it demoted on `display: contents`, which writes
+    /// nothing). Both are one root: the guard was not where the write is. Neither
+    /// direction was testable while it stood; both are pinned now
+    /// (`a_write_that_bypasses_the_dispatcher_still_invalidates`,
+    /// `a_boxless_dispatch_after_publish_leaves_the_phase_alone`).
+    pub(crate) fn publish_completed_screen(&mut self) {
+        self.phase = StorePhase::CompletedScreen;
+    }
+
+    /// Whether the store reflects a completed screen pass — the gate
+    /// `EcsDom::screen_geometry` checks before handing out a readable projection.
+    /// `false` (mid-pass / re-entrant / probe / paged / never-laid) is a signal
+    /// **distinct** from per-entity box-absence: it fails the whole projection, not a
+    /// single entity's lookup (plan-memo §1 req 3 / §2 I-phase).
+    #[must_use]
+    pub fn is_completed_screen(&self) -> bool {
+        self.phase == StorePhase::CompletedScreen
+    }
+
+    /// Every CONTENT mutation invalidates the phase, so `CompletedScreen` means
+    /// "published after the last write" **by construction** rather than by callers
+    /// keeping their side of a protocol.
+    ///
+    /// Without this the single-publisher invariant is only as strong as the review
+    /// convention around it: `fragment_tree_mut()` is public, and
+    /// `elidex_layout::dispatch_layout_child` — which reaches
+    /// [`push_box`](Self::push_box) / [`remove_entity`](Self::remove_entity) /
+    /// [`shift_entity`](Self::shift_entity) via multicol — is `pub`, re-exported, and
+    /// already called cross-crate from `elidex-render`'s paged Phase 2. Such a caller
+    /// (incremental / dirty-subtree relayout is the obvious one) would otherwise inherit a
+    /// stale `CompletedScreen` with no compile error and no failing test. CLAUDE.md
+    /// *"Security by structure, not review convention"* — the same argument the seam's
+    /// phase guard already makes for the READ side, applied to the WRITE side.
+    ///
+    /// **Write-conditional, deliberately.** A mutator that writes nothing must NOT demote
+    /// a published store: the store still holds exactly the pass that was published, so
+    /// `Some` is the truthful answer, and demoting would force a needless full relayout
+    /// (`remove_entity`'s no-op guard here, and
+    /// `a_zero_write_paged_early_return_leaves_the_phase_alone` on the layout side). The
+    /// component half is conditional in the same sense and for the same reason — it fires
+    /// from the write chokepoint, so a pass that writes no `LayoutBox` (`display:
+    /// contents`) does not demote either.
+    fn invalidate_on_write(&mut self) {
+        self.phase = StorePhase::Invalid;
     }
 
     /// `true` if the tree has no nodes.
@@ -188,7 +338,16 @@ impl FragmentTree {
     /// [`clear`](Self::clear) (a Vec-arena compaction would invalidate other
     /// `FragmentId`s, so de-indexing is the safe removal).
     pub fn remove_entity(&mut self, entity: Entity) {
-        self.index.remove(&entity);
+        // Invalidate only if something is actually dropped — same rule as
+        // `shift_entity`: a mutator that writes nothing must not demote a published
+        // store. This is not hypothetical bookkeeping: `elidex-layout-multicol`'s
+        // committer calls this for EVERY direct child and documents it as "a cheap
+        // no-op for the non-store ones", so an unconditional invalidate would make
+        // any post-publish caller (teardown/despawn cleanup, incremental relayout)
+        // close `screen_geometry()` engine-wide for a frame that really did complete.
+        if self.index.remove(&entity).is_some() {
+            self.invalidate_on_write();
+        }
     }
 
     /// Upsert a root box fragment for `entity` in fragmentainer `fragmentainer`,
@@ -222,6 +381,7 @@ impl FragmentTree {
         box_fragment: BoxFragment,
         consumable: bool,
     ) -> FragmentId {
+        self.invalidate_on_write();
         // Replace an existing (entity, fragmentainer) node if one is present — the
         // `consumable` flag is overwritten alongside the geometry, so a re-lay that
         // drops the carrier flips the node to non-consumable (no stale latch).
@@ -290,16 +450,19 @@ impl FragmentTree {
     /// link and shift with the writing-mode-projected delta — added with that
     /// variant; Z-1a / Z-1b has box nodes only.
     pub fn shift_entity(&mut self, entity: Entity, delta: Vector) {
-        let Some(ids) = self.index.get(&entity) else {
-            return;
-        };
         // The id list is tiny (one box per spanned column); clone it so we can
         // mutate `self.nodes` without holding the `self.index` borrow. Every
         // indexed id is a box root (the index keys box-roots only), so the match
         // is irrefutable today; the committed-next `InlineLines` variant turns this
         // into a match whose lines arm applies the WM-projected delta (those nodes
         // are reached via `children`, not the index).
-        for id in ids.clone() {
+        let Some(ids) = self.index.get(&entity).cloned() else {
+            return;
+        };
+        // Only AFTER the early return — an entity with no fragments writes nothing,
+        // so it must not invalidate a legitimately-published store.
+        self.invalidate_on_write();
+        for id in ids {
             let FragmentContent::Box(bf) = &mut self.nodes[id.0 as usize].content;
             bf.content.origin += delta;
         }
@@ -564,5 +727,92 @@ mod tests {
             "the orphaned col-2 fragment is gone — no phantom column painted"
         );
         assert!(tree.is_consumable(e));
+    }
+
+    #[test]
+    fn phase_defaults_invalid_and_transitions_only_on_explicit_writes() {
+        // The provenance guard (terminal-Z C-3a). A fresh / cleared store is NOT a
+        // completed screen pass — the seam's phase gate must never mistake it for one.
+        let mut tree = FragmentTree::default();
+        assert!(
+            !tree.is_completed_screen(),
+            "Default = Invalid — a fresh store is not a completed pass"
+        );
+
+        // `layout_tree` publishes at completion — the single publisher.
+        tree.publish_completed_screen();
+        assert!(tree.is_completed_screen());
+
+        // A `LayoutBox` component write demotes it: `EcsDom::set_layout_box` /
+        // `layout_box_mut` call this, so any pass that actually writes geometry (screen
+        // re-entry, paged, probe) clears a stale `CompletedScreen` before it can be read.
+        tree.invalidate();
+        assert!(
+            !tree.is_completed_screen(),
+            "a component write clears a stale CompletedScreen"
+        );
+
+        // clear() invalidates by construction: an emptied store is definitionally
+        // not a completed pass, so a clear on a published store is safe regardless of
+        // caller ordering (only layout_tree re-publishes, after clearing + laying out).
+        tree.publish_completed_screen();
+        tree.clear();
+        assert!(
+            !tree.is_completed_screen(),
+            "clear() invalidates the phase — a cleared store is never a completed pass"
+        );
+    }
+
+    #[test]
+    fn every_content_mutator_invalidates_a_published_store() {
+        // `CompletedScreen` must mean "published after the LAST write", by construction
+        // — not "callers kept their side of a protocol". `fragment_tree_mut()` is
+        // public and `dispatch_layout_child` (which reaches these mutators via multicol)
+        // is `pub` and already called cross-crate, so a writer that forgets to
+        // invalidate must not be able to leave a stale green phase behind.
+        let mut world = hecs::World::new();
+        let e = entity(&mut world);
+        let f = entity(&mut world);
+
+        let mut tree = FragmentTree::default();
+        tree.publish_completed_screen();
+        tree.push_box(e, 0, box_at(0.0), false);
+        assert!(
+            !tree.is_completed_screen(),
+            "push_box invalidates — a written store is not a published one"
+        );
+
+        tree.publish_completed_screen();
+        tree.shift_entity(e, Vector::new(1.0, 1.0));
+        assert!(
+            !tree.is_completed_screen(),
+            "shift_entity invalidates — it moves committed geometry"
+        );
+
+        tree.publish_completed_screen();
+        tree.remove_entity(e);
+        assert!(
+            !tree.is_completed_screen(),
+            "remove_entity invalidates — it drops committed geometry"
+        );
+
+        // ...but a mutator that writes NOTHING must not invalidate: demoting a
+        // legitimately-published store there would be a spurious phase failure that
+        // closes `screen_geometry()` engine-wide for a frame that really did complete.
+        // Both no-op mutators are pinned — `remove_entity` matters most in practice
+        // because `elidex-layout-multicol`'s committer calls it for every direct child.
+        tree.publish_completed_screen();
+        tree.shift_entity(f, Vector::new(1.0, 1.0));
+        assert!(
+            tree.is_completed_screen(),
+            "a no-op shift_entity (entity has no fragments) leaves the phase alone"
+        );
+
+        tree.publish_completed_screen();
+        tree.remove_entity(f);
+        assert!(
+            tree.is_completed_screen(),
+            "a no-op remove_entity (entity has no fragments) leaves the phase alone"
+        );
     }
 }

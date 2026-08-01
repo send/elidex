@@ -1,9 +1,24 @@
 //! Shared test helpers for the app-mode (legacy inline) test modules
-//! (`app_fragment_nav_tests`, `app_history_drain_tests`) — building a driveable
-//! `App` over a disconnected network, plus the history/URL probes both modules
-//! assert on. Kept in one place so neither test module owns the scaffolding, and
-//! so the long `build_pipeline_interactive_shared` call (whose signature has
-//! churned) has ONE app-mode caller to update.
+//! (`app_fragment_nav_tests`, `app_history_drain_tests`,
+//! `app_history_phase_sep_tests`) — building a driveable `App` over a
+//! disconnected network, seeding the two-entry session histories the drain suite
+//! traverses, plus the history/URL probes those modules assert on. Kept in one
+//! place so no test module owns the scaffolding, and so the long
+//! `build_pipeline_interactive_shared` call (whose signature has churned) has ONE
+//! app-mode caller to update.
+//!
+//! **Harness reachability — the contract every drain assertion rests on.** These
+//! tests build an `App` via [`App::new_interactive_with_url`] (no winit —
+//! `render_state` is `None`) over a **disconnected** network, so a *successful*
+//! cross-document rebuild is not reachable: `load_document` always fails, leaving
+//! the pipeline + cursor unchanged. Traversals between entries that share a
+//! `document_sequence` (seeded with [`seed_same_document_pair`], or created by
+//! `pushState`) take the no-fetch `same_document_step` path, so their Phase-2
+//! apply SUCCEEDS here — that is the path every "the traversal landed" assertion
+//! uses. Because `render_state` is `None` the frame-ship is unobservable as an OS
+//! repaint, so ship-once is asserted on the coordinator's own bookkeeping
+//! (`DrainOutcome::shipped` / `DrainOutcome::own_context_action`), which is what
+//! gates `DrainHost::ship_frame`.
 //!
 //! **App-local on purpose — NOT a fold into `content_test_support`.** That module
 //! is content-thread specific: it spawns content threads over a test broker,
@@ -11,6 +26,8 @@
 //! an inline `App` does not have (inline mode is synchronous). Folding these
 //! helpers there would couple app-mode tests to that scaffolding for no gain
 //! (plan §5: a FALSE unification target).
+
+use elidex_script_session::HostDriver;
 
 use super::App;
 
@@ -61,4 +78,106 @@ pub(super) fn pipeline_url(app: &App) -> Option<String> {
         .url
         .as_ref()
         .map(|u| u.as_str().to_string())
+}
+
+// ---------------------------------------------------------------------------
+// Session-history seeds + drain probes (the history drain suite)
+// ---------------------------------------------------------------------------
+
+/// Seed `[base, /a]` sharing ONE `document_sequence`, cursor on `/a` — the
+/// same-document pair whose `back()` applies in the disconnected harness (no fetch).
+/// The app-mode mirror of `content_test_support::seed_same_document_pair`.
+pub(super) fn seed_same_document_pair(app: &mut App) {
+    let a = url("https://example.com/a");
+    // index 0 = base was seeded by `new_interactive_with_url`; index 1 = /a inherits
+    // its `document_sequence`, so a traversal between them is SameDocument.
+    app.interactive
+        .as_mut()
+        .unwrap()
+        .nav_controller
+        .push_same_document(a.clone());
+    activate_seeded_entry(app, a);
+}
+
+/// Seed `[base, /a]` as two DISTINCT documents (fresh `document_sequence`s), cursor
+/// on `/a` — a `back()` here classifies `Rebuild`, and its cross-document load FAILS
+/// in the disconnected harness (the failed-load / cursor-atomicity path).
+///
+/// The ONLY difference from [`seed_same_document_pair`] is `push` vs
+/// `push_same_document`; everything downstream of the cursor move is the shared
+/// [`activate_seeded_entry`] tail.
+pub(super) fn seed_cross_document_pair(app: &mut App) {
+    let a = url("https://example.com/a");
+    app.interactive
+        .as_mut()
+        .unwrap()
+        .nav_controller
+        .push(a.clone());
+    activate_seeded_entry(app, a);
+}
+
+/// The shared tail of the two seeds: point the ACTIVE-DOCUMENT facts at the entry
+/// the cursor was just moved onto — pipeline URL + VM current-URL + VM
+/// session-history `(index, length)`.
+///
+/// Mirrors what production does on every cursor move (`navigate` /
+/// `same_document_step` / `navigate_to_history_url` / `apply_state_change` all
+/// end in `set_session_history`), so neither seed leaves the
+/// production-impossible state where `history.length` still describes the
+/// pre-push list while the cursor sits on `/a`. Factored out because the
+/// cross-document seed silently OMITTED the `set_session_history` call — the exact
+/// bug shape Codex fixed in `content_test_support::seed_same_document_pair` on
+/// PR #469 R18, where a controller-only seed let spurious passes through.
+pub(super) fn activate_seeded_entry(app: &mut App, url: url::Url) {
+    let interactive = app.interactive.as_mut().unwrap();
+    interactive.pipeline.url = Some(url.clone());
+    interactive.pipeline.runtime.set_current_url(Some(url));
+    interactive.pipeline.runtime.set_session_history(
+        interactive.nav_controller.current_index(),
+        interactive.nav_controller.len(),
+    );
+}
+
+/// Run `script` in the page's VM, **failing loudly on a thrown script**. Discarding
+/// the `Result` (the earlier shape) made "the intent was staged" and "the script
+/// threw before staging anything" indistinguishable — every caller's assertion about
+/// a *drained* intent silently degrades into an assertion about an empty drain.
+pub(super) fn eval(app: &mut App, script: &str) {
+    if let Err(e) = app
+        .interactive
+        .as_mut()
+        .unwrap()
+        .pipeline
+        .runtime
+        .vm()
+        .eval(script)
+    {
+        panic!("test script threw, so nothing was staged: {script}\n  {e:?}");
+    }
+}
+
+/// The history CURSOR's entry URL — the drain-specific complement of
+/// [`pipeline_url`] (the active document's URL): a traversal that moved the cursor
+/// but whose document load failed leaves the two disagreeing.
+pub(super) fn current_url(app: &App) -> Option<String> {
+    app.interactive
+        .as_ref()
+        .unwrap()
+        .nav_controller
+        .current_url()
+        .map(|u| u.as_str().to_string())
+}
+
+/// The URL of session-history ENTRY `index`. The discriminating probe wherever
+/// `history_len` is not: a same-document `pushState`/fragment nav from a
+/// cursor-moved position TRUNCATES the forward entries and appends its own, so a
+/// counterfactual that applied one lands at the *same length* with a *different*
+/// entry list.
+pub(super) fn entry_url(app: &App, index: usize) -> Option<String> {
+    app.interactive
+        .as_ref()
+        .unwrap()
+        .nav_controller
+        .entry(index)
+        .map(|e| e.url.as_str().to_string())
 }

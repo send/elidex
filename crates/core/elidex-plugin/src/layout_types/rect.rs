@@ -199,6 +199,19 @@ impl Rect {
         }
     }
 
+    /// The smallest axis-aligned rectangle enclosing both `self` and `other`
+    /// (their bounding box). Unlike [`Self::intersection`] this is **total** — it
+    /// always returns a rect. The canonical "smallest enclosing rect" primitive;
+    /// fold it with [`Iterator::reduce`] for an N-way union.
+    #[must_use]
+    pub fn union(&self, other: &Self) -> Self {
+        let x = self.origin.x.min(other.origin.x);
+        let y = self.origin.y.min(other.origin.y);
+        let right = self.right().max(other.right());
+        let bottom = self.bottom().max(other.bottom());
+        Self::new(x, y, right - x, bottom - y)
+    }
+
     /// Returns the intersection of two rectangles allowing degenerate
     /// (zero-width or zero-height) overlaps — edge-adjacent rects share
     /// an edge and yield a 0-area but valid `Rect`.  Returns `None` only

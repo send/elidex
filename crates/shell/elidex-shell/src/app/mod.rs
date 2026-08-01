@@ -36,6 +36,10 @@ mod fragment_nav_tests;
 #[path = "../app_history_drain_tests.rs"]
 mod history_drain_tests;
 
+#[cfg(test)]
+#[path = "../app_history_phase_sep_tests.rs"]
+mod history_phase_sep_tests;
+
 use std::sync::Arc;
 
 use winit::application::ApplicationHandler;
@@ -272,7 +276,7 @@ pub(super) struct InteractiveState {
     /// Host-side **because it must bracket the WHOLE drive**:
     /// [`TraversalQueue::is_applying`] brackets only
     /// [`DrainHost::apply_traversal`](elidex_navigation::DrainHost::apply_traversal)
-    /// (`traversal_queue.rs`'s `enter_nested_apply` / `exit_nested_apply` pair), so
+    /// (`traversal_queue/queue.rs`'s `enter_nested_apply` / `exit_nested_apply` pair), so
     /// it cannot see a re-drive from a Phase-1 seam body — including the headline
     /// "just re-drain at the end of `navigate`" case, which app-mode reaches from
     /// Phase 1c, outside that bracket.

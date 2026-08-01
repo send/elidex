@@ -282,11 +282,14 @@ pub(crate) fn walk(
             && !ctx.dom.fragment_tree().is_empty()
             && ctx.dom.fragment_tree().is_consumable(entity)
         {
-            let mut boxes = ctx.dom.fragment_tree().fragments_for(entity).map(|node| {
-                let FragmentContent::Box(bf) = &node.content;
-                bf.padding_box()
-            });
-            boxes.next().map(|first| boxes.fold(first, union_rect))
+            ctx.dom
+                .fragment_tree()
+                .fragments_for(entity)
+                .map(|node| {
+                    let FragmentContent::Box(bf) = &node.content;
+                    bf.padding_box()
+                })
+                .reduce(|a, b| a.union(&b))
         } else {
             None
         };
@@ -502,16 +505,6 @@ fn multicol_container_writing_mode(dom: &EcsDom, entity: Entity) -> Option<Writi
         current = parent;
     }
     None
-}
-
-/// The smallest rect covering both `a` and `b` (their bounding box). Used to clip a
-/// consumable mid-break entity to its all-column extent on the paged path (R6-F2).
-fn union_rect(a: Rect, b: Rect) -> Rect {
-    let x = a.origin.x.min(b.origin.x);
-    let y = a.origin.y.min(b.origin.y);
-    let right = a.right().max(b.right());
-    let bottom = a.bottom().max(b.bottom());
-    Rect::new(x, y, right - x, bottom - y)
 }
 
 /// Dispatch an entity's children: stacking-context elements use CSS 2.1 Appendix E

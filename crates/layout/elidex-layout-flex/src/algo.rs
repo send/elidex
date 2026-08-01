@@ -516,7 +516,7 @@ fn relayout_item_at_position(
         first_baseline: child_lb.first_baseline,
         layout_generation: env.layout_generation,
     };
-    let _ = dom.world_mut().insert_one(item.entity, lb);
+    dom.set_layout_box(item.entity, lb);
 }
 
 #[allow(clippy::too_many_lines, clippy::cast_precision_loss)]

@@ -120,7 +120,7 @@ impl App {
             //     was ENQUEUED in Phase 1b, so `has_pending_traversal()` was already
             //     true when the coordinator latched `suppress` at the end of
             //     `run_synchronous_phase_body` (`elidex-navigation`
-            //     `traversal_queue.rs`) — independent of whether the apply then
+            //     `traversal_queue/coordinator.rs`) — independent of whether the apply then
             //     succeeded, and true for a cross-turn queued traversal too.
             // No test can pin it: the app-mode harness's disconnected network makes a
             // SUCCESSFUL rebuild-during-click unreachable.

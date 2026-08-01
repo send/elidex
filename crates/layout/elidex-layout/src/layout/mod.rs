@@ -20,6 +20,22 @@ use elidex_text::FontDatabase;
 /// This is the [`ChildLayoutFn`](elidex_layout_block::ChildLayoutFn) provided
 /// to all layout algorithms, routing flex/grid containers to their respective
 /// crates and everything else to block layout.
+///
+/// **Provenance (terminal-Z C-3a §2): this fn does NOT touch the phase.** An earlier
+/// revision invalidated at this bracket to cover the `LayoutBox`-**component** half of
+/// the seam's guard. That was the wrong site in *both* directions — **bypassable**,
+/// because the algorithms below it (`layout_block_only`, `stack_block_children`,
+/// `empty_container_box`, `layout_positioned_children`, the shifters, …) are `pub` and
+/// are called directly cross-crate between the layout crates; and **over-eager**,
+/// because it demoted on the `Display::Contents` arm, which writes neither geometry
+/// source. Both are one root: the guard was not where the write is (Codex PR#488 R3+R4,
+/// raising the two directions independently).
+///
+/// The guard now lives at [`EcsDom::set_layout_box`](elidex_ecs::EcsDom::set_layout_box)
+/// / [`layout_box_mut`](elidex_ecs::EcsDom::layout_box_mut) — the write chokepoint every
+/// producer goes through, enforced by the D4 trip-wire's wire #5. So the phase rule is
+/// once again ONE sentence at ONE granularity: *any write to either geometry source
+/// invalidates; only `layout_tree` publishes, at completion.*
 pub fn dispatch_layout_child(
     dom: &mut EcsDom,
     entity: Entity,
@@ -109,7 +125,7 @@ pub fn dispatch_layout_child(
     // paged media rendering. The walk skips entities whose generation
     // doesn't match the current page. Non-paged paths use generation=0.
     if input.layout_generation > 0 {
-        if let Ok(mut lb) = dom.world_mut().get::<&mut LayoutBox>(entity) {
+        if let Some(mut lb) = dom.layout_box_mut(entity) {
             lb.layout_generation = input.layout_generation;
         }
     }
@@ -127,7 +143,7 @@ pub fn dispatch_layout_child(
             input.containing.height,
         );
         let delta = offset_lb.content.origin - lb.content.origin;
-        let _ = dom.world_mut().insert_one(entity, offset_lb);
+        dom.set_layout_box(entity, offset_lb);
         if delta.x.abs() > f32::EPSILON || delta.y.abs() > f32::EPSILON {
             let children: Vec<_> = dom.children_iter(entity).collect();
             elidex_layout_block::block::shift_descendants(dom, &children, delta, input.is_probe);
@@ -278,6 +294,14 @@ pub fn layout_fragmented_with_tokens(
     Vec<elidex_layout_block::LayoutOutcome>,
     Vec<Option<elidex_layout_block::BreakToken>>,
 ) {
+    // Provenance (terminal-Z C-3a §2): NO explicit mark here, and none needed. Whatever
+    // this pass writes invalidates itself — `LayoutBox` through
+    // `EcsDom::set_layout_box`/`layout_box_mut`, store contents through a `FragmentTree`
+    // mutator — and nothing on this path publishes. A paged attempt that writes NOTHING
+    // (the early returns in `layout_paged`) correctly leaves a published screen pass
+    // standing; an earlier revision marked this entry unconditionally and got that wrong,
+    // which is what led a reviewer to ask for the mark to be pushed even earlier (see
+    // `a_zero_write_paged_early_return_leaves_the_phase_alone`).
     let mut fragments = Vec::new();
     let mut tokens = Vec::new();
     let mut current_token: Option<elidex_layout_block::BreakToken> = None;
@@ -322,11 +346,24 @@ pub fn layout_tree(dom: &mut EcsDom, viewport: Size, font_db: &FontDatabase) {
     // NOT clear here and may leave incidental dark fragments; folding paged media
     // into the store (and its hygiene) is committed-next, per the
     // `FragmentNode::fragmentainer` docstring.
-    dom.fragment_tree_mut().clear();
-    let roots = find_roots(dom);
-    for root in roots {
-        layout_root(dom, root, viewport, font_db);
-    }
+    // Provenance (terminal-Z C-3a §2): a stale `CompletedScreen` from a prior pass must
+    // not be readable while this pass's store is empty/partial (the re-entrant-screen
+    // soundness hole). `screen_layout_pass` owns the whole window — it clears (which
+    // invalidates by construction: an emptied store is definitionally not a completed
+    // pass), runs the closure, and publishes at completion. There is deliberately no
+    // entry mark here or on the paged entry: the phase is driven by the WRITERS, under
+    // one rule — any write to either geometry source invalidates (`clear()` + the
+    // `FragmentTree` mutators for the store, `EcsDom::set_layout_box`/`layout_box_mut`
+    // for the `LayoutBox` component). Probes run inside this window, so they read
+    // `Invalid`. The bracket is also the ONLY path that can publish, since
+    // `FragmentTree::publish_completed_screen` is `pub(crate)` to `elidex-ecs`
+    // (Codex PR#488 R6).
+    dom.screen_layout_pass(|dom| {
+        let roots = find_roots(dom);
+        for root in roots {
+            layout_root(dom, root, viewport, font_db);
+        }
+    });
 }
 
 /// Find root entities for layout: parentless entities with styles or children.

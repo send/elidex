@@ -223,7 +223,12 @@ pollster = "0.4"
 tiny-skia = "0.12"
 accesskit = "0.24"
 accesskit_winit = "0.33"
-wasmtime = "45"
+# Patch-level floor is load-bearing, not a style slip: RUSTSEC-2026-0222
+# ("Stores can mix up type indices between engines") is unpatched in
+# 47.0.0-47.0.2, so a bare `"47"` (= `>=47.0.0`) would let a fresh resolve
+# land back on a vulnerable version. Keep the `.0.3`. Patched ranges are
+# `>=24.0.12,<25`, `>=36.0.13,<37`, `>=46.0.2,<47`, `>=47.0.3`.
+wasmtime = "47.0.3"
 wat = "1"
 static_assertions = "1"
 rayon = "1"

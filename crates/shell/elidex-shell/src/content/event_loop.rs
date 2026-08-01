@@ -197,7 +197,7 @@ pub(super) fn pump_turn(state: &mut ContentState, last_frame: &mut Instant) -> C
         // to the session history entries BEFORE the next traversal applies — so spec-faithful
         // ordering would settle the `pushState` between the two `back()`s. This is the same
         // jump-the-queue class already PARTIAL-fenced for the cursor-MOVED straddle
-        // (`traversal_queue.rs` Resolution D), fenced to `#11-sync-navigation-steps-queue-tagging`:
+        // (`traversal_queue/coordinator.rs` Resolution D), fenced to `#11-sync-navigation-steps-queue-tagging`:
         // that slot's tagged-queue machinery finalizes the sync-nav-steps per-task BETWEEN
         // traversals. Edge-dense (I1×I2×I3 intersecting) → that slot's `/elidex-plan-review` is
         // mandatory. Do NOT reorder these two drains to patch it — the per-task interleave is

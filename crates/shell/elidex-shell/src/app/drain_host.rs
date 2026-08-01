@@ -155,7 +155,7 @@ impl App {
     /// before this call. So the residual latency is **unbounded**, not
     /// next-input-bounded; a user clicking blank space forever never drains it.
     /// (Pinned at one-turn latency by
-    /// `app_history_drain_tests::app_popstate_staged_action_defers_to_the_next_drain_not_the_current_queue`,
+    /// `app_history_phase_sep_tests::app_popstate_staged_action_defers_to_the_next_drain_not_the_current_queue`,
     /// which drives the drain directly and so measures the best case.)
     /// Content-mode fixed exactly this shape in Slice A (Codex #469 R9) by calling
     /// [`DrainCoordinator::drain_synchronous_updates`] immediately after
@@ -187,7 +187,7 @@ impl App {
     /// `traversal_applied` latch **cancels** every `pushState` deferred behind it.
     /// (That last cancel is *today's* behavior too — a `back()` parked on the VM
     /// `pending_history` FIFO leads the same FIFO on turn N+1, pinned by
-    /// `app_history_drain_tests::app_trailing_syncupdate_canceled_behind_cursor_moving_traversal`;
+    /// `app_history_phase_sep_tests::app_trailing_syncupdate_canceled_behind_cursor_moving_traversal`;
     /// the **over-suppression** is what the trailing drain newly breaks.) It would also
     /// contradict this site's premise-5 exit assert by construction — the queue would
     /// be deliberately non-empty at drain exit. Edge-dense ⇒ its own plan-reviewed PR.
@@ -208,7 +208,7 @@ impl App {
         // body — not just an apply body. `TraversalQueue::is_applying()` cannot do
         // that job: the coordinator brackets `enter_nested_apply` /
         // `exit_nested_apply` around `DrainHost::apply_traversal` ALONE
-        // (`traversal_queue.rs::drain_traversal_queue`), so a re-drive from
+        // (`traversal_queue/coordinator.rs::drain_traversal_queue`), so a re-drive from
         // `route_window_opens` / `handle_history_action` / `handle_navigation` /
         // `ship_frame` / the reinstatement tail observes `is_applying() == false` and
         // passes — and the headline `navigate` case is one of those, reached from

@@ -6,6 +6,7 @@ use elidex_plugin::{CssSize, Dimension, LayoutBox, Point, Size, TrackSection};
 
 mod basic;
 mod fragmentation;
+mod provenance;
 
 fn get_layout(dom: &EcsDom, entity: Entity) -> LayoutBox {
     dom.world()

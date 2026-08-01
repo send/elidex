@@ -616,7 +616,7 @@ pub fn layout_grid(
         first_baseline,
         layout_generation: 0,
     };
-    let _ = dom.world_mut().insert_one(entity, lb.clone());
+    dom.set_layout_box(entity, lb.clone());
 
     // --- 15. Layout positioned descendants ---
     // CSS Grid §11: Grid containers establish containing blocks for abs-pos
