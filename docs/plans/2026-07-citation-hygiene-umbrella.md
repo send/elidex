@@ -61,7 +61,7 @@ approval boundary, and each of the three is a terminal unit once it passes its o
 
 ### Slice memos (re-sliced 2026-07-28, Slice A further split 2026-08-01)
 
-The 785-line single-PR memo `2026-07-webref-cite-audit-detector.md` was partitioned into A/B/C; the 1196-line Slice-A memo `2026-07-citation-hygiene-A-enforcement-plumbing.md` was then partitioned into A-i/A-ii/A-iii and **deleted** — keeping it would be a second statement of every decision the three now own, which is the duplication this program exists to remove. Each carved memo's §14 carries its provenance. ⚠ **An earlier revision of this line said the nine-round review history lives in `memory/project_citation-hygiene-program.md`; measured, that file stops at round 7 and mentions neither round 8, round 9, nor the A-i/A-ii/A-iii split.** It was written without checking — the defect the constraint above names. That file **has since been brought current** (R7-R9 roots, the three-slice table, A-i's round results), so the ⚠ above is itself now historical rather than live. ⚠⚠ **And the recovery pointer it gave was destroyed by a rebase four commits later**: `ee2d0dc0` no longer exists (`git cat-file -e` fails). The 1196-line merged memo, including its round-by-round §14 index, is recoverable at **`git show 707b69cc^:docs/plans/2026-07-citation-hygiene-A-enforcement-plumbing.md`** — verified 1196 lines with the index intact. A deletion justified by a SHA pointer, in a branch that rebases, is a pointer with a half-life; prefer `<commit-that-deleted-it>^`, which survives rewriting. Nothing is
+The 785-line single-PR memo `2026-07-webref-cite-audit-detector.md` was partitioned into A/B/C; the 1196-line Slice-A memo `2026-07-citation-hygiene-A-enforcement-plumbing.md` was then partitioned into A-i/A-ii/A-iii and **deleted** — keeping it would be a second statement of every decision the three now own, which is the duplication this program exists to remove. Each carved memo's §14 carries its provenance. ⚠ **An earlier revision of this line said the nine-round review history lives in `memory/project_citation-hygiene-program.md`; measured, that file stops at round 7 and mentions neither round 8, round 9, nor the A-i/A-ii/A-iii split.** It was written without checking — the defect the constraint above names. That file **has since been brought current** (R7-R9 roots, the three-slice table, A-i's round results), so the ⚠ above is itself now historical rather than live. ⚠⚠ **And the recovery pointer it gave was orphaned by a rebase four commits later**: `ee2d0dc0` is **unreachable** — `git branch -a --contains ee2d0dc0` prints nothing, so no ref leads to it and it is a `gc` away from being gone. ⚠ An earlier revision of this sentence said the object "no longer exists (`git cat-file -e` fails)"; measured, `git cat-file -e ee2d0dc0` returns **0** and `git show ee2d0dc0:…-A-enforcement-plumbing.md | wc -l` prints **1196** — dangling, not absent. The conclusion is unchanged, because unreachability is the operative fact and it is what a fresh clone cannot resolve; the evidence was simply false, in the document whose own constraints are *counts are commands* and *a derivation that cannot witness the claim's negation is not a check*. The 1196-line merged memo, including its round-by-round §14 index, is recoverable at **`git show 707b69cc^:docs/plans/2026-07-citation-hygiene-A-enforcement-plumbing.md`** — verified 1196 lines with the index intact. A deletion justified by a SHA pointer, in a branch that rebases, is a pointer with a half-life; prefer `<commit-that-deleted-it>^`, which survives rewriting. Nothing is
 summarised across memos — each concern is stated once, in one slice's memo, and the others link to it.
 
 | Slice | Memo | Gate state |
@@ -106,11 +106,23 @@ contract for the fall-through it introduces**, which is a constraint below.
 - **Review cost tracks blast radius.** ⚠ Added after A-i's round 2 returned 38 IMP of which **one** was a
   defect in the change and the rest were defects in its description. A slice memo is a record of decisions,
   not a second specification: where the diff and the tests are the canonical statement of what the code does,
-  the memo links to them rather than restating them. A slice that does not trip CLAUDE.md's edge-dense
-  trigger on its own terms — A-i has one invariant, a canonical algorithm and zero `crates/**` — does not
-  inherit the apparatus of the slice it was carved from.
-- **`docs/plans/2026-07-citation-hygiene-A-rederive.sh` is shared, and owed a split.** 901 lines, ~29 blocks
-  serving four slices, routed to none. Whichever slice next touches it splits it on the slice seam first.
+  the memo links to them rather than restating them. ⚠ **This does not turn on the edge-dense trigger, and an
+  earlier revision of this bullet said it did** — it reasoned from "A-i has one invariant", which A-i's own
+  §9 does not claim and the memo falsifies (measured: `grep -cE '^- \*\*K[0-9]'` → **4** coupled invariants,
+  `grep -cE '^\| K[0-9] × K[0-9]'` → **5** pairwise intersections). The trigger **fires** on A-i's text, and
+  CLAUDE.md's prescribed remedy — *umbrella plan + PR ごとの plan に分割し各 PR を個別に full review* — has
+  been applied twice over, to the 785-line memo and then to Slice A, which is clause (c)'s base case. What
+  this constraint turns on is **blast radius** (zero `crates/**`, two consumers, a dict lookup), which is a
+  separate axis: a terminal slice under an approved umbrella does not inherit the review apparatus of the
+  slice it was carved from.
+- **`docs/plans/2026-07-citation-hygiene-A-rederive.sh` was shared and owed a split. ✅ DISCHARGED by A-i**
+  (`06e50b41`, with `3987bfbc` and `4121b667`), before A-i's implementation. It is now a **55-line dispatcher**
+  — still the only entry point, so every memo's `<block>` citation resolves through the same path — sourcing
+  five parts on the slice seam: `-common` **468**, `-Ai` **156**, `-Aii` **272**, `-B` **103**, `-Aiii` **37**;
+  **1091** lines, **29** blocks, no part past the 700-800 authoring band (`wc -l …-A-rederive*.sh`). Whichever
+  slice next touches it re-checks the band rather than re-splitting. ⚠ This bullet is a **status register**,
+  not a scope grant, which is why A-i corrected it in its own commit set rather than deferring it to landing
+  (§9's self-ratification rule covers the four scope-grant clauses in the A-i row, not this).
 
 ## Cross-lane coordination
 
