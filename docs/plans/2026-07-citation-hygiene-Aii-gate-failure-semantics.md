@@ -14,11 +14,25 @@ runs every state with the competing predicates instrumented side by side.
 
 ### §0.1 What A-ii is
 
-A-i landed a shared `spec_labels.py` and made `preflight.py` **import** it. That import is the first thing
-that can make the gate's label resolution *fail*, and A-i deliberately left the failure handled the way the
-carve left it: `except Exception: _shortname_for = None`, which routes a **process** failure into the
-per-row *unmapped* bucket — a documented soft-warn. Result: every row classified as *author cited a spec I
-do not know*, and the gate **exits 0 having verified nothing**.
+A-i landed a shared `spec_labels.py` and pointed the **two generic-tree** consumers at it.
+⚠ **`preflight.py`'s copy is A-ii's, together with the failure semantics its migration creates** (scope
+revised 2026-08-01 after A-i round 2). A-i tried to land the gate's migration twice and both attempts
+regressed it, in opposite directions — measured on `origin/main` with the tools tree absent:
+
+| | default mode | `--no-verify --no-grep-pass` |
+|---|---|---|
+| `origin/main` | exit 1 (`webref tool missing`) | **exit 0**, correct summary |
+| a **guarded** import | **exit 0** — the gate verifies nothing and says nothing | exit 0 |
+| a **hard** import | traceback | **traceback** — J3 broken |
+
+Preserving both cells requires a capability check at the verification stage suppressed by `--no-verify` —
+**act-site 1 below**. So the migration and the check are one edit and land together here. There is no
+interval in which `main` carries a fail-open gate, and none in which J3 is broken.
+
+The failure the guarded form would produce is worth naming, because it is what act-site 1 exists to stop:
+`except Exception: _shortname_for = None` routes a **process** failure into the per-row *unmapped* bucket —
+a documented soft-warn — so every row is classified as *author cited a spec I do not know* and the gate
+**exits 0 having verified nothing**.
 
 A-ii closes that, and two neighbouring holes of the same shape:
 
@@ -132,6 +146,8 @@ values** — the umbrella constraint that round 8 and round 9 both forced.
 | the no-spec-surface declaration and its recognition rule | **A-ii** | the gate's contract of record |
 | `SKILL.md` — Hard-fail, Soft-warn and **Flags** bullets, `--no-verify`'s meaning, Pre-condition #1 | **A-ii** | a gate's contract of record travels with the gate |
 | `spec_labels.py`, the three consumers, `DESIGN.md` | **A-i** | landed |
+| migrating `preflight.SPEC_LABEL_REVERSE` onto `spec_labels.py`, and the two gate-output strings that name it (`preflight.py` :409 summary, :422 remedy) | **A-ii** | ⚠ they read state the migration deletes; after it, :422 would tell a developer to extend a symbol that no longer exists — instructing the hand-added local copy K1 abolishes |
+| `SPEC_LABEL_REVERSE`'s **four** plan-memo readers, incl. the one registering `#11-preflight-css-module-labels` | **A-ii** | same class, in the ledger rather than the code → `rederive readers` |
 | the catalog fall-through and all lookup semantics | **B** | — |
 | `python-suites.sh`, `[tasks.tools-test]`, the `tools` job | **A-iii** | — |
 | `axes.md`'s Axis 4 detect, `CLAUDE.md` § "Spec citation" | **C** | review-axis requirements |
@@ -307,7 +323,8 @@ as a precondition-pinning mechanism; that sets the sentinel *without raising*, s
 ### §4.3 Test siting
 
 The 8 A-i tests already live in `test_spec_labels.py`. A-ii creates `test_preflight.py` and takes the
-`preflight` half of `test_all_three_consumers_derive_from_specs` as **P1**.
+`preflight` half of `test_all_three_consumers_derive_from_specs` as **P1** — which is now A-ii's by
+construction, since A-ii is the slice that makes `preflight` a consumer at all.
 
 **Constraints the plan states rather than discovers:**
 

@@ -18,8 +18,20 @@ CLAUDE.md § "Design discipline": *"Edge-dense work = multi-PR program + 実装�
 
 | # | Slice | Branch | Scope | Why it must precede the next |
 |---|---|---|---|---|
-| A-i | The shared spec-label map | `webref-cite-audit-tool` (current) | **(table)** Create `.claude/tools/_webref/spec_labels.py` **pinned-map-only**; collapse the three hand-maintained copies onto it; delete the 8 inert parse aliases; the `DESIGN.md` bullet; move the 8 label-map tests into a new generic-tree `test_spec_labels.py`. **(prose)** Rewrite every consumer list and rationale naming an elidex file path (by role) or a Slice-B artifact — in `spec_labels.py`, `cli.py` incl. its `--help` epilog, `coverage_map.py`, and the moved tests — and correct the copy-count claim at every site asserting it. ⚠ **The import lands hard, without an `except` guard**: draft 1 kept the carve's `except Exception: _shortname_for = None`, which would have put a **fail-open plan-review gate** on `main` for the whole duration of A-ii — the state this table calls disqualifying for Slice B. A hard import fails *loudly*, so no such window exists, and A-ii's job becomes turning a loud failure into a named cause rather than closing a hole it inherited. No CI topology. | A-ii's whole subject is the failure mode this import *creates*. If A-ii landed first there would be nothing to fail closed; if B landed the import, `main` would carry a fail-open plan-review gate for the duration of B. |
-| A-ii | The gate's failure semantics | new, stacked on A-i | `preflight.py` fail-closed: the two-cause capability verdict, both act-sites, the four remedy strings, the no-spec-surface declaration, and `SKILL.md`'s contract of record | Every lane runs this gate. It must be correct before anything downstream relies on its verdict. |
+| A-i | The shared spec-label map | `webref-cite-audit-tool` (current) | **Generic tree only — A-i touches no adapter file.** Create `.claude/tools/_webref/spec_labels.py`
+**pinned-map-only**; point `coverage_map` and `cli` at it; delete the 8 inert parse aliases; the `DESIGN.md`
+bullet; move the 8 label-map tests to a generic-tree `test_spec_labels.py`; rewrite every consumer list and
+rationale naming an elidex file path (by role) or a Slice-B artifact, and correct the copy-count claim at all
+five sites asserting it.
+
+⚠ **`preflight.py`'s copy migrates in A-ii, not here** (revised 2026-08-01 after A-i round 2). Two drafts
+tried to land it in A-i and both regressed the gate, in opposite directions — measured against `origin/main`
+with the tools tree absent: a **guarded** import takes default mode `exit 1 → exit 0` (fail-open), and a
+**hard** import takes `--no-verify` `exit 0 → traceback`. Preserving both requires a capability check at the
+verification stage suppressed by `--no-verify`, which *is* A-ii's act-site 1. **The gate's copy is not
+separable from the gate's failure semantics**, so it goes with them. A-i therefore collapses two of the three
+copies and A-ii the third; K1 completes across the pair. | A-ii's whole subject is the failure mode this import *creates*. If A-ii landed first there would be nothing to fail closed; if B landed the import, `main` would carry a fail-open plan-review gate for the duration of B. |
+| A-ii | The gate's copy **and** its failure semantics | new, stacked on A-i | Migrate `preflight.SPEC_LABEL_REVERSE` onto `spec_labels.py` **together with** the fail-closed capability verdict, both act-sites, the four remedy strings, the no-spec-surface declaration, `SKILL.md`'s contract of record, and the two gate-output strings that name the deleted symbol | Every lane runs this gate. It must be correct before anything downstream relies on its verdict. |
 | A-iii | The suite scheduler | new, stacked on A-ii | `.claude/tools/python-suites.sh`; `[tasks.tools-test]` in `[tasks.ci].depends`; an **ungated** `tools` job in `ci.yml`; the interpreter floor | Nothing downstream is guarded until the suites actually run. `.claude/**` is in **neither** `ci.yml` path filter today, so a tooling-only PR triggers zero jobs — verified. Landing it means B and C are enforced from their first commit. |
 | B | Detector correctness | new | The 948-entry catalog fall-through and its lookup semantics; the nine under-report paths; the gate-bucket and grammar findings from A's plan-review; `AuditResult`; one section-number grammar | C retires a discovery method on a supersession claim. That claim is only admissible once B has **measured** the detector's precision and reach. D re-derives a sweep against B's output — running it against today's detector means redoing it. |
 | C | Policy retirement | new | `.claude/skills/elidex-review/axes.md` requirement (2)/(4); `CLAUDE.md` § "Spec citation"; `DESIGN.md` | Retiring the alternative method while the replacement's reach is unproven converts a visible gap into an invisible one. Blocked on B's reach measurement. |
@@ -49,7 +61,7 @@ approval boundary, and each of the three is a terminal unit once it passes its o
 
 ### Slice memos (re-sliced 2026-07-28, Slice A further split 2026-08-01)
 
-The 785-line single-PR memo `2026-07-webref-cite-audit-detector.md` was partitioned into A/B/C; the 1196-line Slice-A memo `2026-07-citation-hygiene-A-enforcement-plumbing.md` was then partitioned into A-i/A-ii/A-iii and **deleted** — keeping it would be a second statement of every decision the three now own, which is the duplication this program exists to remove. Each carved memo's §14 carries its provenance. ⚠ **An earlier revision of this line said the nine-round review history lives in `memory/project_citation-hygiene-program.md`; measured, that file stops at round 7 and mentions neither round 8, round 9, nor the A-i/A-ii/A-iii split.** It was written without checking — the defect the constraint above names. That file is brought current in the change that lands this; until then the round-by-round index exists only at `git show ee2d0dc0:docs/plans/…`. Nothing is
+The 785-line single-PR memo `2026-07-webref-cite-audit-detector.md` was partitioned into A/B/C; the 1196-line Slice-A memo `2026-07-citation-hygiene-A-enforcement-plumbing.md` was then partitioned into A-i/A-ii/A-iii and **deleted** — keeping it would be a second statement of every decision the three now own, which is the duplication this program exists to remove. Each carved memo's §14 carries its provenance. ⚠ **An earlier revision of this line said the nine-round review history lives in `memory/project_citation-hygiene-program.md`; measured, that file stops at round 7 and mentions neither round 8, round 9, nor the A-i/A-ii/A-iii split.** It was written without checking — the defect the constraint above names. That file **has since been brought current** (R7-R9 roots, the three-slice table, A-i's round results), so the ⚠ above is itself now historical rather than live. ⚠⚠ **And the recovery pointer it gave was destroyed by a rebase four commits later**: `ee2d0dc0` no longer exists (`git cat-file -e` fails). The 1196-line merged memo, including its round-by-round §14 index, is recoverable at **`git show 707b69cc^:docs/plans/2026-07-citation-hygiene-A-enforcement-plumbing.md`** — verified 1196 lines with the index intact. A deletion justified by a SHA pointer, in a branch that rebases, is a pointer with a half-life; prefer `<commit-that-deleted-it>^`, which survives rewriting. Nothing is
 summarised across memos — each concern is stated once, in one slice's memo, and the others link to it.
 
 | Slice | Memo | Gate state |
@@ -87,7 +99,18 @@ contract for the fall-through it introduces**, which is a constraint below.
   unmapped is the property under test, and must be marked as such.
 - **A check must derive its own coverage, not only its values.** Round 8 and round 9 of Slice A's review both found blocks that printed a correct number while their stated derivation ranged over the wrong set — a grep that discarded the lines the memo cited it for, instrumentation sited in the branch where the defect was already fixed. A derivation that cannot witness the claim's negation is not a check.
 - **No slice may make label resolution require the network without shipping its offline degradation in the same slice.** Slice B introduces the catalog fall-through and therefore owns the offline contract for it.
-- **The plan-review gate reaches its shared library one way.** Slice B, which lands the offline contract, collapses `verify_citation`'s subprocess onto the in-process resolver in the same slice. Tracked as `#11-webref-preflight-inprocess-resolution`.
+- **The plan-review gate reaches its shared library one way.** Slice B, which lands the offline contract,
+  collapses `verify_citation`'s subprocess onto the in-process resolver in the same slice. ⚠ **To be
+  registered as `#11-webref-preflight-inprocess-resolution` by A-ii** — measured, it is in no ledger today, so
+  no memo may describe it as already tracked.
+- **Review cost tracks blast radius.** ⚠ Added after A-i's round 2 returned 38 IMP of which **one** was a
+  defect in the change and the rest were defects in its description. A slice memo is a record of decisions,
+  not a second specification: where the diff and the tests are the canonical statement of what the code does,
+  the memo links to them rather than restating them. A slice that does not trip CLAUDE.md's edge-dense
+  trigger on its own terms — A-i has one invariant, a canonical algorithm and zero `crates/**` — does not
+  inherit the apparatus of the slice it was carved from.
+- **`docs/plans/2026-07-citation-hygiene-A-rederive.sh` is shared, and owed a split.** 901 lines, ~29 blocks
+  serving four slices, routed to none. Whichever slice next touches it splits it on the slice seam first.
 
 ## Cross-lane coordination
 
