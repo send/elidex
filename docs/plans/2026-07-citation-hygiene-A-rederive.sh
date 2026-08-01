@@ -79,9 +79,19 @@ fixtures() {
 
 # --- blocks -------------------------------------------------------------------
 
-citations() {  # §0.5 / §3 — the two fixture citations
+citations() {  # §0.5 / §3 — EVERY label-§ pair the fixture set carries
+  # Draft 9 tabled four and derived two, and the two it did not derive were the
+  # two it had just changed -- including the title corrected FROM a fabrication.
+  # Nothing on the branch would have caught a second one at that same site.
   .claude/tools/webref heading --exact html 4.10.21
   .claude/tools/webref heading --exact html 4.10.21.2
+  .claude/tools/webref heading --exact fetch 2.2.5
+  .claude/tools/webref heading --exact cssom-view-1 4.2
+  echo "-- and the pairs actually present in the fixture bodies --"
+  local F; F=$(mktemp -d); fixtures "$F" >/dev/null
+  awk -F'|' '/^\| [A-Za-z§]/ && $2 !~ /Spec section/ {gsub(/^ +| +$/,"",$2); print "  "$2}' \
+    "$F"/*.md | sort -u
+  rm -rf "$F"
 }
 
 partition() {  # §0 — 203/948, and the 195/8 vs 190/13 split under both criteria
@@ -309,7 +319,7 @@ remedies() {  # §4.2.4 / P5 — which remedy strings co-print when the map is a
 # `_proto` grafts §4.2.3 + §4.2.5 onto a copy of `preflight.py` in a scratch
 # worktree, and `armmatrix` runs every §5 row against every capability state
 # with THREE candidate reporting predicates instrumented side by side. The
-# implementation PR lands this control flow; nothing here is shipped.
+# implementation PR lands this control flow AND DELETES `_proto` (memo §12(4)).
 _proto() {  # $1 = worktree; writes preflight_proto.py beside preflight.py
   python3 - "$1/$PF" "$1/${PF%/*}/preflight_proto.py" <<'PY'
 import sys
@@ -606,7 +616,7 @@ anchors() {  # §3.1 / §4.2 — origin/main by symbol, never by stored line num
 }
 
 regions() {  # §4.0 — spec_labels.py A/B region boundaries, including the intra-fn splits
-  grep -n '^"""\|^SPECS\|^def \|^#: \|_catalog\|SPECS is a fallback\|pinned = \|catalog = \|entry.get' \
+  grep -n '^"""\|^SPECS\|^def \|^#: \|_catalog\|fallback\|pinned = \|catalog = \|entry.get' \
     .claude/tools/_webref/spec_labels.py
 }
 
@@ -658,7 +668,34 @@ suiteset() {  # §4.3.2 J4 — the set the uncollected-suite check must range ov
   echo "-- discover roots --"; echo ".claude/tools/_webref"; echo ".claude/skills/elidex-plan-review"
 }
 
-marker() { git grep -nE '^[[:space:]]*\*\*No spec surface\*\*' -- docs/plans/ || echo "(none)"; }
+marker() {  # §4.2.5 residual — the census must implement the SAME three properties
+  # the gate does, or the mitigation is the looser grep the memo denies it is:
+  # line-anchored AND fence-aware AND §3-scoped. A bare grep is only the first.
+  python3 - <<'MARKERPY'
+import re, subprocess, sys
+sys.path.insert(0, ".claude/skills/elidex-plan-review")
+from preflight import _fence_state_array, find_coverage_map_section
+MARKER = re.compile(r"^\s*\*\*No spec surface\*\*")
+files = subprocess.run(["git", "ls-files", "docs/plans/"], capture_output=True,
+                       text=True).stdout.split()
+hits = loose = 0
+for f in files:
+    try: lines = open(f, encoding="utf-8").read().splitlines()
+    except OSError: continue
+    raw = [i for i, l in enumerate(lines) if MARKER.match(l)]
+    loose += len(raw)
+    if not raw: continue
+    fence = _fence_state_array(lines)
+    sec = find_coverage_map_section(lines, fence)
+    if sec is None: continue
+    _, start, end = sec
+    real = [i for i in raw if not fence[i] and start <= i < end]
+    for i in real: print(f"  {f}:{i+1}")
+    hits += len(real)
+print(f"  recognised (line-anchored + fence-aware + §3-scoped): {hits}")
+print(f"  a bare line-anchored grep would report               : {loose}")
+MARKERPY
+}
 
 budget() {
   echo "-- origin/main base, the touch set --"
@@ -791,9 +828,13 @@ staleclaims() {  # §13 — the cross-file claims this memo corrects, by concept
   done
 }
 
-all() { for f in citations partition keysets column carvecolumn instruments remedies reloadstale armmatrix suites \
-                 anchors regions offline couplings suiteset marker budget filters ruleset timing \
-                 lanes bmemo staleclaims; do
-          say "$f"; "$f"; done; }
+# AUTHOR-LOCAL: these reach a per-user memory directory and sibling worktrees, so
+# they cannot run for a second reader. `all` excludes them; run them by name.
+AUTHOR_LOCAL="lanes staleclaims"
+all() { for f in citations partition keysets column carvecolumn instruments remedies reloadstale \
+                 armmatrix suites anchors regions offline couplings suiteset marker budget \
+                 filters ruleset timing bmemo; do
+          say "$f"; "$f"; done
+        printf '\n(author-local, excluded from `all`: %s)\n' "$AUTHOR_LOCAL"; }
 
 "${1:-all}"
