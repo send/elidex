@@ -86,6 +86,84 @@ fi
 # hand-kept second copy silently stops matching the moment the convention changes.
 WIRE_GLOB='.claude/tools/*-trip-wire.sh'
 
+# Positive + negative control, the same discipline `layout-box-reader-trip-wire.sh`
+# applies to its own ban patterns: "a gate that cannot fire is indistinguishable from a
+# clean tree, so trusting its verdict requires first proving it fires." This driver
+# decides whether that wire runs AT ALL, so its two assertions — root verification and
+# wire retention — are in the same load-bearing class and get the same treatment. That
+# file also records a wire #5 that was WITHDRAWN for claiming a bound it did not have,
+# which is the precedent for not accepting hand-verification as a control: a check
+# nobody re-runs is a transcript, not a gate.
+#
+# `TRIP_WIRES_SELFTEST` stops the fixture invocations below from recursing.
+if [ -z "${TRIP_WIRES_SELFTEST:-}" ]; then
+  # Distinguish an environment failure from a dead assertion — with the dir empty the
+  # probes would exercise nothing and silently "pass".
+  if ! st_dir="$(mktemp -d)" || [ -z "$st_dir" ] || [ ! -d "$st_dir" ]; then
+    echo "FAIL: could not create a scratch dir for the driver self-test (TMPDIR/disk?)," >&2
+    echo "      so this run's assertions were never proved able to fire." >&2
+    exit 1
+  fi
+
+  # A fixture repo: this script, plus stub wires named exactly as REQUIRED_WIRES.
+  mkdir -p "$st_dir/scripts" "$st_dir/.claude/tools"
+  cp "$src" "$st_dir/scripts/trip-wires.sh"
+  for req in $REQUIRED_WIRES; do
+    printf '#!/usr/bin/env bash\nexit 0\n' > "$st_dir/.claude/tools/$req"
+  done
+
+  # $3 (a substring the diagnostic MUST contain) is not decoration: the two failing
+  # assertions produce the SAME exit code, and the retention check fires on a wrong root
+  # too (no root -> no wires -> all four missing). Keying on the status alone therefore
+  # cannot tell "root verification works" from "retention masked its absence" — verified:
+  # deleting the root check left an exit-code-only probe green. Asserting the message is
+  # what pins the property that matters, namely that a cwd problem is never reported as
+  # deleted wires.
+  st_probe() { # $1 = expected pass|fail, $2 = label, $3 = required diagnostic substring
+    local rc=0 out
+    out="$(TRIP_WIRES_SELFTEST=1 bash "$st_dir/scripts/trip-wires.sh" 2>&1)" || rc=$?
+    if [ "$1" = pass ] && [ "$rc" -ne 0 ]; then
+      echo "FAIL: driver self-test — '$2' should have passed but exited $rc. The driver" >&2
+      echo "      reds a healthy tree, which teaches people to ignore it." >&2
+      return 1
+    fi
+    if [ "$1" = fail ]; then
+      if [ "$rc" -eq 0 ]; then
+        echo "FAIL: driver self-test — '$2' was NOT caught. That assertion cannot fire, so" >&2
+        echo "      this run's OK verdict would be meaningless." >&2
+        return 1
+      fi
+      case "$out" in
+        *"$3"*) ;;
+        *)
+          echo "FAIL: driver self-test — '$2' failed for the WRONG reason: the diagnostic" >&2
+          echo "      does not contain '$3', so another check masked the one under test." >&2
+          return 1
+          ;;
+      esac
+    fi
+    return 0
+  }
+
+  # ⚠ Every st_probe call MUST be an operand of `||`: `set -e` is suspended only there,
+  # so a bare call would abort at the first failure instead of printing the diagnostic.
+  st_ok=0
+  st_probe pass 'complete wire set' || st_ok=1
+  mv "$st_dir/.claude/tools/layout-box-reader-trip-wire.sh" \
+     "$st_dir/.claude/tools/layout-box-reader.disabled" || st_ok=1
+  st_probe fail 'a required wire renamed off the convention' \
+    'required trip-wire(s) did not run' || st_ok=1
+  mv "$st_dir/.claude/tools/layout-box-reader.disabled" \
+     "$st_dir/.claude/tools/layout-box-reader-trip-wire.sh" || st_ok=1
+  st_probe pass 'wire restored' || st_ok=1
+  rm -rf "$st_dir/.claude"
+  st_probe fail 'a resolved root with no .claude/tools' \
+    'has no .claude/tools/ directory' || st_ok=1
+
+  rm -rf "$st_dir"
+  [ "$st_ok" -eq 0 ] || exit 1
+fi
+
 ran_names=""
 # shellcheck disable=SC2086  # unquoted on purpose — this is the glob expansion
 for w in $WIRE_GLOB; do
