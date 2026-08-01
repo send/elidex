@@ -93,6 +93,13 @@ couplings() {  # §7 / §12(3) — every elidex coupling in the generic tree, by
   # permits. Draft 8 offered one mixed 25-line list as the check for a claim about
   # paths in A's half -- a reviewer eyeball, not a check, and it saw one of the
   # couplings it was offered as the check for.
+  #
+  # THE PREDICATE, written down because it is otherwise implicit in the regex and
+  # stated nowhere else: an elidex file path is `.claude/skills/` or
+  # `.claude/tools/` followed by TWO further path segments, so the tool's OWN
+  # invocation path `.claude/tools/webref` -- one segment, 22 occurrences in
+  # `cli.py` on origin/main -- never matches. That exclusion is intended: an
+  # install path is not a path into elidex's tree.
   local PATHRE='\.claude/(skills|tools)/[A-Za-z0-9_-]+/[A-Za-z0-9_.-]+'
   # A's half of the split tree (§4.0's A column). cite_audit.py / test_cite_audit.py
   # / webref_data.py are B's and must not be counted against A.
@@ -113,18 +120,27 @@ couplings() {  # §7 / §12(3) — every elidex coupling in the generic tree, by
   echo "-- FILE PATHS only, origin/main (the pre-existing baseline §7 argues from) --"
   git grep -noE "$PATHRE" "$MAIN" -- .claude/tools/_webref/ | cat
   echo "   count: $(git grep -oE "$PATHRE" "$MAIN" -- .claude/tools/_webref/ | wc -l | tr -d ' ')"
-  echo "-- FILE PATHS only, HEAD, restricted to A's half — §12(3)'s actual check --"
-  git grep -noE "$PATHRE" -- "${AHALF[@]}" | cat
-  # "must be 0" would be the wrong criterion and this block is what shows it:
-  # `cli.py` already carries one on origin/main, so the honest gate is the DELTA.
-  # A must add none; discharging the pre-existing one is not A's scope.
-  local base head
-  base=$(git grep -hoE "$PATHRE" "$MAIN" -- .claude/tools/_webref/ | sort -u)
-  head=$(git grep -hoE "$PATHRE" -- "${AHALF[@]}" | sort -u)
-  echo "   pre-existing on origin/main : $(echo "$base" | grep -c . )"
-  echo "   in A's half at HEAD         : $(echo "$head" | grep -c . )"
-  echo "   ADDED BY A (must be empty)  :"
-  comm -13 <(echo "$base") <(echo "$head") | sed 's/^/     /'
+  # SUPERSEDED, A-i round 1: this block used to gate on the DELTA -- `comm -13`
+  # base against head, "ADDED BY A must be empty" -- reasoning that discharging
+  # `cli.py`'s pre-existing path was not A's scope. K2 is an ABSOLUTE now (§2,
+  # §6 pin S8, and §12(3), which names this block as its check): A-i already
+  # edits `cli.py`, and Slice C, the earlier routing target, has no `cli.py`
+  # mandate. So the gate is a plain grep over the whole generic tree, and the
+  # pre-existing instance counts against it like any other.
+  echo "-- FILE PATHS only, HEAD, the whole generic tree — §12(3)'s actual check --"
+  git grep -noE "$PATHRE" -- .claude/tools/_webref/ | cat
+  local n_head n_base n_ahalf
+  n_head=$(git grep -oE "$PATHRE" -- .claude/tools/_webref/ | wc -l | tr -d ' ')
+  n_base=$(git grep -oE "$PATHRE" "$MAIN" -- .claude/tools/_webref/ | wc -l | tr -d ' ')
+  n_ahalf=$(git grep -oE "$PATHRE" -- "${AHALF[@]}" | wc -l | tr -d ' ')
+  echo "   elidex file paths at HEAD (K2 / S8 — MUST BE 0) : $n_head"
+  echo "   of which in A's half                            : $n_ahalf"
+  echo "   pre-existing on origin/main (A-i discharges it)  : $n_base"
+  if [ "$n_head" = 0 ]; then
+    echo "   VERDICT: GREEN — the generic core names no elidex file path"
+  else
+    echo "   VERDICT: RED — K2 is an absolute; every path listed above must go"
+  fi
 }
 
 # --- §4.2.3's control flow, executable ----------------------------------------
