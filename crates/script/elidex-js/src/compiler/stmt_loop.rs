@@ -27,21 +27,22 @@ use super::stmt_destructure::{compile_destructure_pattern, compile_pattern_store
 use super::CompileError;
 
 /// `for (left in right) body` — ECMA-262 §14.7.5.
+#[allow(clippy::too_many_arguments)] // (fc, prog, analysis, func_scopes) is the compiler-wide convention
 pub(super) fn compile_for_in(
     fc: &mut FunctionCompiler,
     prog: &Program,
     analysis: &ScopeAnalysis,
     func_scopes: &mut [FunctionScope],
     left: &ForInOfLeft,
-    right: &NodeId<Expr>,
-    body: &NodeId<Stmt>,
+    right: NodeId<Expr>,
+    body: NodeId<Stmt>,
     span: Span,
 ) -> Result<(), CompileError> {
     let saved_scope = fc.current_scope_idx;
     if let Some(child_scope) = find_child_block_scope(analysis, fc.current_scope_idx, span) {
         fc.current_scope_idx = child_scope;
     }
-    compile_expr(fc, prog, analysis, func_scopes, *right)?;
+    compile_expr(fc, prog, analysis, func_scopes, right)?;
     fc.emit(Op::ForInIterator);
     let loop_start = fc.pc();
     fc.push_loop(loop_start);
@@ -49,7 +50,7 @@ pub(super) fn compile_for_in(
     let exit_patch = fc.emit_jump(Op::JumpIfTrue); // if done, exit
                                                    // Bind `left` to key (key is on stack).
     compile_forin_left_binding(fc, prog, analysis, func_scopes, left)?;
-    compile_stmt(fc, prog, analysis, func_scopes, *body)?;
+    compile_stmt(fc, prog, analysis, func_scopes, body)?;
     // Patch continue jumps to loop_start.
     fc.patch_continue_jumps_to(loop_start);
     fc.emit_jump_to(Op::Jump, loop_start);
@@ -62,21 +63,22 @@ pub(super) fn compile_for_in(
 }
 
 /// `for (left of right) body` — ECMA-262 §14.7.5.
+#[allow(clippy::too_many_arguments)] // (fc, prog, analysis, func_scopes) is the compiler-wide convention
 pub(super) fn compile_for_of(
     fc: &mut FunctionCompiler,
     prog: &Program,
     analysis: &ScopeAnalysis,
     func_scopes: &mut [FunctionScope],
     left: &ForInOfLeft,
-    right: &NodeId<Expr>,
-    body: &NodeId<Stmt>,
+    right: NodeId<Expr>,
+    body: NodeId<Stmt>,
     span: Span,
 ) -> Result<(), CompileError> {
     let saved_scope = fc.current_scope_idx;
     if let Some(child_scope) = find_child_block_scope(analysis, fc.current_scope_idx, span) {
         fc.current_scope_idx = child_scope;
     }
-    compile_expr(fc, prog, analysis, func_scopes, *right)?;
+    compile_expr(fc, prog, analysis, func_scopes, right)?;
     fc.emit(Op::GetIterator);
     // Save iterator to a temp local so return/throw can close it.
     let iter_slot = func_scopes[fc.func_scope_idx].next_local;
@@ -121,7 +123,7 @@ pub(super) fn compile_for_of(
     fc.emit(Op::Pop);
     // Bind `left` to value (value is on stack).
     compile_forin_left_binding(fc, prog, analysis, func_scopes, left)?;
-    compile_stmt(fc, prog, analysis, func_scopes, *body)?;
+    compile_stmt(fc, prog, analysis, func_scopes, body)?;
     // Patch continue jumps to loop_start.
     fc.patch_continue_jumps_to(loop_start);
     fc.emit_jump_to(Op::Jump, loop_start);
@@ -163,16 +165,16 @@ pub(super) fn compile_while(
     prog: &Program,
     analysis: &ScopeAnalysis,
     func_scopes: &mut [FunctionScope],
-    test: &NodeId<Expr>,
-    body: &NodeId<Stmt>,
+    test: NodeId<Expr>,
+    body: NodeId<Stmt>,
 ) -> Result<(), CompileError> {
     let loop_start = fc.pc();
     fc.push_loop(loop_start);
 
-    compile_expr(fc, prog, analysis, func_scopes, *test)?;
+    compile_expr(fc, prog, analysis, func_scopes, test)?;
     let exit_patch = fc.emit_jump(Op::JumpIfFalse);
 
-    compile_stmt(fc, prog, analysis, func_scopes, *body)?;
+    compile_stmt(fc, prog, analysis, func_scopes, body)?;
 
     // Patch continue jumps to loop_start (test re-evaluation).
     fc.patch_continue_jumps_to(loop_start);
@@ -189,20 +191,20 @@ pub(super) fn compile_do_while(
     prog: &Program,
     analysis: &ScopeAnalysis,
     func_scopes: &mut [FunctionScope],
-    body: &NodeId<Stmt>,
-    test: &NodeId<Expr>,
+    body: NodeId<Stmt>,
+    test: NodeId<Expr>,
 ) -> Result<(), CompileError> {
     let loop_start = fc.pc();
     // continue_target is a placeholder; actual continue jumps are
     // collected via continue_patches and patched to the test PC.
     fc.push_loop(loop_start);
 
-    compile_stmt(fc, prog, analysis, func_scopes, *body)?;
+    compile_stmt(fc, prog, analysis, func_scopes, body)?;
 
     // Patch continue jumps to here (the test evaluation).
     fc.patch_continue_jumps();
 
-    compile_expr(fc, prog, analysis, func_scopes, *test)?;
+    compile_expr(fc, prog, analysis, func_scopes, test)?;
     fc.emit_jump_to(Op::JumpIfTrue, loop_start);
     fc.pop_loop();
     Ok(())
@@ -215,10 +217,10 @@ pub(super) fn compile_for(
     prog: &Program,
     analysis: &ScopeAnalysis,
     func_scopes: &mut [FunctionScope],
-    init: &Option<ForInit>,
-    test: &Option<NodeId<Expr>>,
-    update: &Option<NodeId<Expr>>,
-    body: &NodeId<Stmt>,
+    init: Option<&ForInit>,
+    test: Option<NodeId<Expr>>,
+    update: Option<NodeId<Expr>>,
+    body: NodeId<Stmt>,
     span: Span,
 ) -> Result<(), CompileError> {
     let saved_scope = fc.current_scope_idx;
@@ -271,21 +273,21 @@ pub(super) fn compile_for(
 
     // Test.
     let exit_patch = if let Some(test_expr) = test {
-        compile_expr(fc, prog, analysis, func_scopes, *test_expr)?;
+        compile_expr(fc, prog, analysis, func_scopes, test_expr)?;
         Some(fc.emit_jump(Op::JumpIfFalse))
     } else {
         None
     };
 
     // Body.
-    compile_stmt(fc, prog, analysis, func_scopes, *body)?;
+    compile_stmt(fc, prog, analysis, func_scopes, body)?;
 
     // Patch continue jumps to here (before update expression).
     fc.patch_continue_jumps();
 
     // Update.
     if let Some(update_expr) = update {
-        compile_expr(fc, prog, analysis, func_scopes, *update_expr)?;
+        compile_expr(fc, prog, analysis, func_scopes, update_expr)?;
         fc.emit(Op::Pop);
     }
 

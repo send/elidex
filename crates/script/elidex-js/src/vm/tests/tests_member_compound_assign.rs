@@ -465,6 +465,68 @@ fn forin_of_heads_share_the_assignment_admissibility_gate() {
     assert_eq!(eval_string("var x=''; for (x in {q:1}) {} x"), "q");
 }
 
+/// ⚠ CARVED: `#11-vm-operand-rooting-by-construction`.
+///
+/// The compound operators pop both operands before coercing either, so the one
+/// that has not been consumed yet spends the other's user code in a Rust local —
+/// which `gc/roots.rs` does not walk.  ECMA-262 §13.15.3
+/// `ApplyStringOrNumericBinaryOperator` steps 3-4 coerce the **left** operand
+/// first, so it is the right operand that is exposed.
+///
+/// This is **pre-existing, not introduced or widened by this slice**, and the
+/// second case is the proof rather than an assertion: `z -= mk()` reaches
+/// `binary_numeric` through the identifier lowering that predates the slice
+/// entirely, and it fails byte-identically. The slice adds a *spelling* that
+/// reaches an already-reachable defect — `o[k] -= v` used to abort the process
+/// in the compiler, so it never got here at all.
+///
+/// An earlier revision of the `⚠ CARVED` note above claimed this slot "cannot
+/// carry a divergence test — the defect is a GC race, not an observable result".
+/// That was wrong: the one-shot makes the collection deterministic, so the race
+/// has a reproducible observable outcome and can be fenced like any other.
+#[test]
+fn compound_assign_rhs_lost_to_gc_known_divergence() {
+    // `mk()` hands out the RHS while dropping the pool's reference, so the
+    // operand is the only thing holding it.  The LHS `valueOf` allocates, and
+    // the one-shot places the collection there — inside the window where the
+    // popped RHS is unrooted.
+    let probe = |setup: &str, expr: &str| {
+        let mut vm = Vm::new();
+        vm.eval(setup).expect("probe setup must succeed");
+        vm.inner.force_gc_before_next_alloc = true;
+        let result = vm.eval(expr);
+        assert!(
+            !vm.inner.force_gc_before_next_alloc,
+            "no collection was placed in the window — `{expr}` proves nothing"
+        );
+        result
+    };
+    let pool = "globalThis.pool=[]; globalThis.mk=function(){return pool.pop()}; \
+                pool.push({valueOf(){return 2}}); ";
+    let computed = format!(
+        "{pool} globalThis.o={{p:{{valueOf(){{var t={{}}; return 1}}}}}}; globalThis.k='p';"
+    );
+    let identifier = format!("{pool} globalThis.z={{valueOf(){{var t={{}}; return 1}}}};");
+
+    // Spec: both evaluate to `-1`.  Current: the RHS is collected mid-coercion
+    // and its `valueOf` is gone, so `ToPrimitive` fails on the recycled slot.
+    for (setup, expr) in [(&computed, "o[k] -= mk()"), (&identifier, "z -= mk()")] {
+        let err = probe(setup, expr).expect_err(&format!(
+            "`{expr}` no longer loses its RHS to the collector — \
+             `#11-vm-operand-rooting-by-construction` has landed; flip this pin \
+             to assert -1"
+        ));
+        assert_eq!(
+            err.message, "Cannot convert object to primitive value",
+            "{expr} failed for an unexpected reason"
+        );
+    }
+    // Without a collection in the window both are correct, which is what
+    // identifies the defect as rooting rather than arithmetic.
+    assert_eq!(eval_number(&format!("{computed} o[k] -= mk()")), -1.0);
+    assert_eq!(eval_number(&format!("{identifier} z -= mk()")), -1.0);
+}
+
 // ── Carved divergences, pinned so they cannot widen unnoticed ─────────
 //
 // All three are **pre-existing** defects that this slice inherits rather than
@@ -473,15 +535,15 @@ fn forin_of_heads_share_the_assignment_admissibility_gate() {
 // CURRENT (wrong) behaviour so the blast radius is fenced, and flip when the
 // slots land.
 //
-// ⚠ CARVED (no divergence test — the defect is a GC race, not an observable
-// result): `#11-vm-operand-rooting-by-construction`.  Roughly twenty dispatch
+// ⚠ CARVED: `#11-vm-operand-rooting-by-construction`.  Roughly twenty dispatch
 // arms pop an operand into a Rust local and then run user JS before reading or
 // storing through it; `gc/roots.rs` walks the VM stack but not Rust locals, so a
 // collection in that window yields a value read from a recycled object, a store
 // through a dangling `ObjectId`, or a `get_object`/`get_object_mut` panic.  This
 // slice roots only `Op::GetElemRef`, the one arm it introduces
 // (`get_elem_ref_keeps_temporary_base_rooted`); `Op::IncElem`/`Op::DecElem` and
-// the rest keep merge-base behaviour.  The slot's deliverable is an invariant
+// the rest keep merge-base behaviour, pinned by
+// `compound_assign_rhs_lost_to_gc_known_divergence` below.  The slot's deliverable is an invariant
 // that makes an unrooted hold unrepresentable, not another per-site sweep —
 // five successive sweeps each declared a different boundary complete and each
 // was falsified by the next round.  `#11-vm-element-access-base-rooting`, which

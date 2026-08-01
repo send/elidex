@@ -73,7 +73,7 @@ pub fn compile_stmt(
         }
 
         StmtKind::ForIn { left, right, body } => {
-            stmt_loop::compile_for_in(fc, prog, analysis, func_scopes, left, right, body, span)?;
+            stmt_loop::compile_for_in(fc, prog, analysis, func_scopes, left, *right, *body, span)?;
         }
 
         StmtKind::ForOf {
@@ -82,7 +82,7 @@ pub fn compile_stmt(
             body,
             is_await: _,
         } => {
-            stmt_loop::compile_for_of(fc, prog, analysis, func_scopes, left, right, body, span)?;
+            stmt_loop::compile_for_of(fc, prog, analysis, func_scopes, left, *right, *body, span)?;
         }
 
         StmtKind::With { .. } => {
@@ -164,11 +164,11 @@ pub fn compile_stmt(
         }
 
         StmtKind::While { test, body } => {
-            stmt_loop::compile_while(fc, prog, analysis, func_scopes, test, body)?;
+            stmt_loop::compile_while(fc, prog, analysis, func_scopes, *test, *body)?;
         }
 
         StmtKind::DoWhile { body, test } => {
-            stmt_loop::compile_do_while(fc, prog, analysis, func_scopes, body, test)?;
+            stmt_loop::compile_do_while(fc, prog, analysis, func_scopes, *body, *test)?;
         }
 
         StmtKind::For {
@@ -182,10 +182,10 @@ pub fn compile_stmt(
                 prog,
                 analysis,
                 func_scopes,
-                init,
-                test,
-                update,
-                body,
+                init.as_ref(),
+                *test,
+                *update,
+                *body,
                 span,
             )?;
         }
