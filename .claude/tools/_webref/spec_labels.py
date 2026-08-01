@@ -11,8 +11,7 @@ construction. Both now derive from `SPECS` below, so a spec is added in
 exactly one place.
 
 The plan-review gate keeps a reversed copy of its own. That one lives
-outside this tree, behind its own failure semantics, and migrates
-separately — this module is where it lands.
+outside this tree, behind its own failure semantics.
 """
 from __future__ import annotations
 

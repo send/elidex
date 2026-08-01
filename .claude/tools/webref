@@ -2,9 +2,10 @@
 """webref CLI — see _webref/ package for implementation.
 
 Backs the Axis 4 (Spec citation discipline) verification recipe in elidex's
-code-review skill. Resolves section numbers, anchor IDs, WebIDL fragments,
-concept dfn anchors, element-to-interface mappings, CSS property metadata,
-and section prose against w3c/webref + tc39 biblio.
+pre-push design-review skill, which owns the axis definitions. Resolves
+section numbers, anchor IDs, WebIDL fragments, concept dfn anchors,
+element-to-interface mappings, CSS property metadata, and section prose
+against w3c/webref + tc39 biblio.
 """
 import sys
 from pathlib import Path

@@ -72,7 +72,7 @@ def build_parser() -> argparse.ArgumentParser:
         description=(
             "webref lookup helper — spec citation verification for elidex. "
             "Backs the Axis 4 (Spec citation discipline) recipe in elidex's "
-            "code-review skill."
+            "pre-push design-review skill, which owns the axis definitions."
         ),
         epilog=COMMON_SHORTNAMES,
         formatter_class=argparse.RawDescriptionHelpFormatter,
