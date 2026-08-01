@@ -8,22 +8,16 @@ from ..resolver import lookup_section
 from ..spec_labels import label_for
 
 # Human-readable spec label for the first column of §3 table rows. The
-# mapping is canonical in `_webref.spec_labels` (one source, both
-# directions) — see that module for why it is not inlined here.
+# enumeration is canonical in `_webref.spec_labels` — see that module for why
+# it is not inlined here. Falls back to UPPER(shortname-with-dashes-as-spaces)
+# for unmapped shortnames (cosmetic only, not load-bearing for verification).
 
 
 def _spec_label(shortname: str) -> str:
-    """Display label for a §3 table row's first column.
-
-    Delegates to `spec_labels.label_for`, which consults `SPECS` and then
-    upstream's catalog. The old fallback was `shortname.upper().replace(
-    "-", " ")`, which emitted a label the shared map could not read back
-    (`coverage-map css-text-3` → `CSS TEXT 3`; `shortname_for("CSS TEXT
-    3")` → `None`) — generator and plan-review gate out of round-trip for
-    every spec outside the pinned set. The last-resort now returns the
-    shortname itself, which `shortname_for` DOES round-trip.
-    """
-    return label_for(shortname) or shortname
+    label = label_for(shortname)
+    if label is not None:
+        return label
+    return shortname.upper().replace("-", " ")
 
 
 def cmd_coverage_map(args: argparse.Namespace) -> None:

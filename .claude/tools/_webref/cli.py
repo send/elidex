@@ -13,7 +13,6 @@ from .commands.aoid import cmd_aoid
 from .commands.agent_brief import cmd_agent_brief
 from .commands.agent_policy import cmd_agent_policy
 from .commands.body import cmd_body
-from .commands.cite_audit import DEFAULT_GLOB, DEFAULT_ROOT, cmd_cite_audit
 from .commands.coverage_map import cmd_coverage_map
 from .commands.css import cmd_css
 from .commands.dfn import cmd_dfn
@@ -26,9 +25,9 @@ from .commands.snapshot import cmd_snapshot
 from .commands.specs import cmd_specs
 from .spec_labels import SHORTNAME_TO_BLURB
 
-# Derived from `spec_labels.SPECS`, which also backs `coverage-map`,
-# `cite-audit` and the plan-review preflight. This blurb was a fourth
-# hand-maintained copy of the same enumeration.
+# Derived from `spec_labels.SPECS`, which also backs `coverage-map`. This
+# blurb was the second of the two hand-maintained copies of that same
+# enumeration, and the two had drifted apart.
 _SHORTNAME_LINES = "\n".join(
     f"  {short:<12} {SHORTNAME_TO_BLURB[short]}" for short in SHORTNAME_TO_BLURB
 )
@@ -39,7 +38,6 @@ Common shortnames:
 
 Examples:
   .claude/tools/webref heading html 4.13                     # all §4.13.x sections
-  .claude/tools/webref cite-audit html --prefix 4.10 --summary  # citation audit
   .claude/tools/webref heading ecma262 25.5.2                # §25.5.2 JSON.parse
   .claude/tools/webref aoid ecma262 ToNumber                 # AO → §7.1.4 + anchor
   .claude/tools/webref dfn html 'reaction queue'             # term → §heading + anchor
@@ -73,8 +71,8 @@ def build_parser() -> argparse.ArgumentParser:
         prog=".claude/tools/webref",
         description=(
             "webref lookup helper — spec citation verification for elidex. "
-            "Backs Axis 4 (Spec citation discipline) recipe in "
-            ".claude/skills/elidex-review/axes.md."
+            "Backs the Axis 4 (Spec citation discipline) recipe in elidex's "
+            "code-review skill."
         ),
         epilog=COMMON_SHORTNAMES,
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -192,37 +190,6 @@ def build_parser() -> argparse.ArgumentParser:
         help="output format (default: text)",
     )
     diff.set_defaults(func=cmd_diff)
-
-    ca = sub.add_parser(
-        "cite-audit",
-        help="repo citation inventory: every §number cited + title + sites",
-        description=(
-            "Scan a source tree for §<number> citations and resolve each "
-            "against the spec. Emits the complete candidate set WITH the "
-            "context needed to classify each cite by concept — so a "
-            "citation sweep's discovery step is a detector, not a "
-            "hand-authored pattern list."
-        ),
-    )
-    ca.add_argument("spec", help="spec shortname (e.g. html, dom, ecma262)")
-    ca.add_argument("--root", default=DEFAULT_ROOT,
-                    help=f"tree to scan (default: {DEFAULT_ROOT})")
-    ca.add_argument("--glob", default=DEFAULT_GLOB,
-                    help=f"file glob (default: {DEFAULT_GLOB})")
-    ca.add_argument("--prefix", default=None,
-                    help="restrict to sections under this dotted prefix "
-                         "(e.g. 4.10); component-wise, so 4.10.2 excludes "
-                         "4.10.20.3")
-    ca.add_argument("--summary", action="store_true",
-                    help="section lines only, omit per-cite detail")
-    ca.add_argument("--format", choices=("text", "json"), default="text",
-                    help="output format (default: text)")
-    ca.add_argument("--show-unattributed", action="store_true",
-                    help="list the UNATTRIBUTED cites (bare § with no spec "
-                         "label in their comment block)")
-    ca.add_argument("--strict", action="store_true",
-                    help="exit 1 if any cited section fails to resolve")
-    ca.set_defaults(func=cmd_cite_audit)
 
     policy = sub.add_parser(
         "agent-policy",
