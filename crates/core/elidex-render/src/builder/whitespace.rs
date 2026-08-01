@@ -4,7 +4,7 @@ use elidex_plugin::WhiteSpace;
 
 use super::StyledTextSegment;
 
-/// Normalize line endings per CSS Text §4.1 Phase I.
+/// Normalize line endings per CSS Text 3 §4.1 Phase I.
 ///
 /// Converts `\r\n` sequences to `\n` first, then any remaining bare `\r` to `\n`.
 pub(crate) fn normalize_line_endings(s: &str) -> String {
@@ -30,7 +30,7 @@ pub(crate) fn collapse_segments(
     );
     let collapse_newlines = matches!(white_space, WhiteSpace::Normal | WhiteSpace::NoWrap);
 
-    // Pre / PreWrap: preserve text, but still normalize \r\n → \n (CSS Text §4.1).
+    // Pre / PreWrap: preserve text, but still normalize \r\n → \n (CSS Text 3 §4.1).
     if !collapse_spaces && !collapse_newlines {
         return segments
             .iter()
@@ -46,7 +46,7 @@ pub(crate) fn collapse_segments(
     let mut result: Vec<(String, usize)> = Vec::new();
     let mut prev_was_space = true; // Leading whitespace is trimmed.
     for (idx, seg) in segments.iter().enumerate() {
-        // CSS Text §4.1 Phase I: normalize \r\n → \n, bare \r → \n.
+        // CSS Text 3 §4.1 Phase I: normalize \r\n → \n, bare \r → \n.
         let normalized = normalize_line_endings(&seg.text);
         let mut seg_text = String::new();
         for ch in normalized.chars() {
@@ -62,7 +62,7 @@ pub(crate) fn collapse_segments(
                     }
                 } else {
                     // PreLine: preserve newlines; strip spaces/tabs immediately
-                    // before the forced break (CSS Text §4).
+                    // before the forced break (CSS Text 3 §4).
                     let trimmed = seg_text.trim_end_matches([' ', '\t']);
                     seg_text.truncate(trimmed.len());
                     seg_text.push('\n');

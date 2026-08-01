@@ -1,6 +1,10 @@
-//! Styled run collection (CSS 2 §9.2.2.1 Anonymous inline boxes) — walks the
-//! inline subtree gathering text runs and atomic boxes into the ordered
-//! [`InlineItem`] list an IFC is packed from.
+//! Styled run collection — walks the inline subtree gathering text runs and
+//! atomic boxes into the ordered [`InlineItem`] list an IFC is packed from.
+//!
+//! Deliberately uncited at module level: the arms below are governed by different
+//! sections (anonymous inline boxes, anonymous-block-in-inline, atomic inlines,
+//! out-of-flow placeholders), so one section on the summary would over-claim.
+//! Each arm carries its own citation.
 
 use elidex_ecs::{EcsDom, Entity, PseudoElementMarker, TextContent};
 use elidex_plugin::{ComputedStyle, Display, Position, TextTransform};
@@ -301,7 +305,9 @@ fn collect_inline_items_inner(
                 root_horizontal,
             );
         } else if let Ok(tc) = dom.world().get::<&TextContent>(child) {
-            // Text node: produce a run with the parent element's style. Neither bidi
+            // Text node: produce a run with the parent element's style. This is the arm
+            // CSS 2 §9.2.2.1 governs — text directly contained in a block container is
+            // treated as an anonymous inline element. Neither bidi
             // nor text-transform gates persistence any more: the run persists in
             // logical order (render reorders RTL runs visually — slice 4) and
             // text-transform is applied in-place after collapse
