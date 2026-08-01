@@ -1,9 +1,14 @@
 //! App-mode (legacy inline) realization of the shared [`DrainHost`] drain adapter
 //! (`docs/plans/2026-07-session-history-slice-B-app-phase-separation.md` §4).
 //!
-//! The direct mirror of `content/drain_host.rs`: the `impl DrainHost for App`
-//! phase-drain seams plus the one free function that ONLY serves those seams — the
-//! Phase-2 traversal-apply body [`apply_traversal_delta`]. The sibling
+//! The app-mode counterpart of `content/drain_host.rs`, split in two at its own
+//! cohesion seam: **this module is the DRIVE SITE and its schedule policy** —
+//! [`App::process_pending_navigation`], the turn-completion loop,
+//! [`MAX_TURN_COMPLETION_ROUNDS`], the quiescence predicate
+//! ([`App::staged_work_pending`]), the swap marker
+//! ([`App::current_document_marker`]) and the per-turn outcome merge — while the
+//! sibling [`host`] holds the `impl DrainHost for App` phase-drain seam bodies the
+//! coordinator calls back into. The further sibling
 //! `app/navigation.rs` keeps the shell bodies these seams delegate to (the
 //! pipeline-rebuild `navigate` / `navigate_to_history_url` / `load_url_into_pipeline`,
 //! the same-document-step primitive, the index-keyed traversal apply `traverse_to`,
@@ -14,8 +19,9 @@
 //! **Both shells now drive the SAME primitive** (One-issue-one-way — the axis-c
 //! fork this slice closes). The hand-rolled synchronous app-mode drain — window-open
 //! drop → history FIFO with a traversal-supersede `return` → last-wins navigation —
-//! is retired: [`App::process_pending_navigation`] is now a thin guard over
-//! [`DrainCoordinator::drain_same_turn`].
+//! is retired: [`App::process_pending_navigation`] now drives
+//! [`DrainCoordinator::drain_same_turn`] inside a guard pair and a bounded
+//! quiescence loop, and holds no drain logic of its own.
 //!
 //! **What differs is the SCHEDULE — and the two schedules are not mirror images.**
 //! Content-mode drives the coordinator from FIVE sites, in two groups. Three belong
@@ -121,6 +127,14 @@ use elidex_navigation::{DrainCoordinator, DrainHost, DrainOutcome};
 use elidex_script_session::HostDriver;
 
 use super::App;
+
+mod host;
+
+/// Re-exported under the short `drain_host::` path the drain suite has always
+/// used. Test-only: the seam body's sole production caller is
+/// [`DrainHost::apply_traversal`], in `host` itself.
+#[cfg(test)]
+pub(super) use host::apply_traversal_delta;
 
 /// Maximum iterations of the app-mode turn-completion loop
 /// ([`App::process_pending_navigation`]) per drive.
@@ -568,10 +582,3 @@ fn merge_turn_outcome(turn: &mut DrainOutcome, iteration: DrainOutcome) {
     turn.shipped |= shipped;
     turn.suppress_default |= suppress_default;
 }
-mod host;
-
-/// Re-exported under the short `drain_host::` path the drain suite has always
-/// used. Test-only: the seam body's sole production caller is
-/// [`DrainHost::apply_traversal`], in `host` itself.
-#[cfg(test)]
-pub(super) use host::apply_traversal_delta;

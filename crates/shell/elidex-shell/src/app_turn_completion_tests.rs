@@ -449,19 +449,18 @@ fn app_failed_mid_loop_load_does_not_move_the_document_marker() {
 /// navigation inside the loop, and of `hashchange` as a staging vector.
 #[test]
 fn app_same_document_navigate_mid_loop_does_not_end_the_turn() {
+    // The popstate half is the shared one-shot builder — the fragment nav's own
+    // popstate must re-enter the handler as a plain no-op, which is exactly the
+    // guard `popstate_once` owns. Only the hashchange listener is this test's.
     let mut app = app_at(
-        "<p>doc</p>\
-         <script>\
-           window.__staged = false;\
-           window.addEventListener('popstate', function () {\
-             if (window.__staged) { return; }\
-             window.__staged = true;\
-             location.href = '#frag';\
-           });\
-           window.addEventListener('hashchange', function () {\
-             history.pushState(null, '', '/after-hash');\
-           });\
-         </script>",
+        &format!(
+            "{}<script>\
+               window.addEventListener('hashchange', function () {{\
+                 history.pushState(null, '', '/after-hash');\
+               }});\
+             </script>",
+            popstate_once("location.href = '#frag';")
+        ),
         base(),
     );
     seed_same_document_pair(&mut app); // [base, /a], cursor on /a

@@ -65,21 +65,23 @@ pub(super) fn app_at(html: &str, url: url::Url) -> App {
 
 /// The value of `attr` on the first `<tag>` element carrying it — the one DOM
 /// reach-through behind every "did the listener run?" probe (a handler stamps an
-/// attribute, the assertion reads it back). App-mode's mirror of
-/// `content_test_support::probe_attr`.
+/// attribute, the assertion reads it back).
+///
+/// Goes through [`EcsDom::get_attribute`](elidex_ecs::EcsDom::get_attribute)
+/// rather than open-coding the `Attributes` component read, so it inherits that
+/// method's stated contract — `None` means "no READABLE attribute" and folds
+/// three cases together (component absent, key absent, `World::get` failure such
+/// as a destroyed entity or a borrow conflict). The sibling
+/// `content_test_support::probe_attr` still open-codes it; that copy predates this
+/// one and is not this PR's to change.
 ///
 /// Every path that fires a listener also `re_render`s, which flushes the script
 /// session, so a stamp is committed by assertion time.
 pub(super) fn attr_value(app: &App, tag: &str, attr: &str) -> Option<String> {
-    let pipeline = &app.interactive.as_ref().unwrap().pipeline;
-    pipeline.dom.query_by_tag(tag).into_iter().find_map(|e| {
-        pipeline
-            .dom
-            .world()
-            .get::<&elidex_ecs::Attributes>(e)
-            .ok()
-            .and_then(|a| a.get(attr).map(String::from))
-    })
+    let dom = &app.interactive.as_ref().unwrap().pipeline.dom;
+    dom.query_by_tag(tag)
+        .into_iter()
+        .find_map(|e| dom.get_attribute(e, attr))
 }
 
 /// Whether the FIRST `<tag>` element carrying `attr` carries it as `"1"` — the

@@ -348,7 +348,7 @@ impl DrainHost for App {
 /// prologues is a plain local refactor the fence never covered. It is deliberately
 /// deferred *with* the routing rather than justified by it: Slice 4 restructures the
 /// same three call sites, so unifying now is work that would be redone there.
-pub(crate) fn apply_traversal_delta(app: &mut App, delta: TraversalDelta) -> bool {
+pub(in crate::app) fn apply_traversal_delta(app: &mut App, delta: TraversalDelta) -> bool {
     let peeked = app.inline_state().nav_controller.peek_delta(delta);
     // Clone the URL to drop the `nav_controller` borrow before the `&mut app` apply.
     let Some((target_index, url)) = peeked.map(|(i, u)| (i, u.clone())) else {
