@@ -186,7 +186,7 @@ The A/B region boundaries the `spec_labels.py` rows rest on → `rederive region
 | `coverage_map.py` — `_spec_label` | delegate to `label_for`; keep `origin/main`'s last-resort `.upper().replace("-", " ")` **verbatim** |
 | `DESIGN.md` — the `spec_labels.py` bullet | new bullet, verbatim below |
 | `DESIGN.md` — the `cite_audit.py` adapter paragraph + its 3 `cite-audit` example lines + the attribution-buckets paragraph | **absent in A-i**; they describe a command A-i does not ship. **B** authors them with the detector |
-| `test_spec_labels.py` | **new** — 8 tests over the pinned map (`test_coverage_map_fallback_round_trips` is B's; A-i does not author it). No prose in it names `cite_audit`, and no test asserts over parse aliases, since A-i ships none |
+| `test_spec_labels.py` | **new** — one test per §6 pin (S1, S2, S3, S3b, S4, S5, S6, S7, S8, T-net) plus the four claims A-i's own comments make: case/space tolerance, unknown → `None`, the empty-`SPECS` re-exec pinning the comprehension form, and both directions round-tripping. ⚠ **The count is derived from §6, not inherited**: drafts 1-4 said "8 tests", a residue of the dropped `TestSharedSpecLabelMap`, whose 8 A-i tests reached S1/S2/S3 only — arithmetically short of 9 pins + T-net. Under §4's lineage the suite is **authored**, so §6 governs. `test_coverage_map_fallback_round_trips` is B's; A-i does not author it. No prose in it names `cite_audit`, and no test asserts over parse aliases, since A-i ships none |
 
 Each row is scoped to **every occurrence** in the named artifact, not to a bullet list inside it.
 
