@@ -82,8 +82,11 @@ pub(super) fn attr_value(app: &App, tag: &str, attr: &str) -> Option<String> {
     })
 }
 
-/// Whether any `<tag>` element carries `attr="1"` — the boolean "the listener
-/// ran" case of [`attr_value`].
+/// Whether the FIRST `<tag>` element carrying `attr` carries it as `"1"` — the
+/// boolean "the listener ran" case of [`attr_value`], and first-match for the same
+/// reason it is: a probe that scanned for a matching value anywhere would report
+/// "the listener ran" for a page where a DIFFERENT element than the one under test
+/// carries the stamp.
 pub(super) fn stamped(app: &App, tag: &str, attr: &str) -> bool {
     attr_value(app, tag, attr).as_deref() == Some("1")
 }

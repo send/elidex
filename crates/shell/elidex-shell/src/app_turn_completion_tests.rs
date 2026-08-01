@@ -38,6 +38,7 @@
 
 use elidex_navigation::DrainHost;
 
+use super::drain_host::MAX_TURN_COMPLETION_ROUNDS;
 use super::test_support::{
     app_at, base, current_url, cursor_over_content, document_marker, entry_url, eval, history_len,
     pipeline_url, popstate_every, popstate_fires, popstate_once, seed_same_document_pair,
@@ -48,8 +49,10 @@ use super::test_support::{
 /// same-document entries, so every loop iteration applies exactly one traversal
 /// and fires exactly one `popstate` — which is what makes
 /// [`popstate_fires`](super::test_support::popstate_fires) a direct count of the
-/// loop's iterations. Shared so the cap tests and the residual pin cannot drift
-/// apart on the shape that makes that counting valid.
+/// loop's iterations. Named rather than inlined because that counting argument —
+/// one apply, one `popstate`, one iteration — is the whole reason the cap pin's
+/// `assert_eq!` is a valid iteration count, and it belongs next to the script it
+/// is an argument about.
 const PING_PONG: &str = "if (window.__n % 2 === 1) { history.forward(); } else { history.back(); }";
 
 // ---------------------------------------------------------------------------
@@ -130,9 +133,12 @@ fn app_popstate_staged_pushstate_settles_within_the_same_turn() {
 /// entry it belongs to. That is conformance, not the divergence: the divergence was
 /// destroying `/a` — the issuing entry — as well.
 ///
-/// The destruction scenario is not claimed unreachable: it survives on the
-/// non-quiescent-exit paths, pinned as an ACCEPTED residual by
-/// [`app_accepted_residual_from_a_non_quiescent_entry_drive_then_same_dispatch_mover`].
+/// The destruction scenario is **not claimed unreachable**, and nothing here pins
+/// that it is. It survives on the loop's non-quiescent exits (cap-hit, swap): the
+/// residue then waits for the next drive that is actually REACHED, and a mover can
+/// run first. Bounding that residue is a separate plan-reviewed slice alongside
+/// Slice 4's mover routing (`#11-session-history-task-queue-model`) — see the
+/// residue note on `App::process_pending_navigation`.
 #[test]
 fn app_popstate_staged_push_lands_on_the_issuing_entry_across_an_interleaved_chrome_traversal() {
     let mut app = app_at(
@@ -340,7 +346,7 @@ fn app_turn_completion_terminates_at_the_cap_and_defers_the_residue() {
 
     assert_eq!(
         popstate_fires(&app),
-        8,
+        MAX_TURN_COMPLETION_ROUNDS,
         "the loop ran exactly MAX_TURN_COMPLETION_ROUNDS iterations — one traversal \
          apply (hence one popstate) each — and then stopped instead of hanging"
     );
@@ -352,35 +358,31 @@ fn app_turn_completion_terminates_at_the_cap_and_defers_the_residue() {
 }
 
 // ---------------------------------------------------------------------------
-// Mover-fired staging — staging source (b), pinned CLOSED
+// The swap exit's negative side (§4.5 (c)) — the marker is an OBSERVED change,
+// never a navigate attempt
 // ---------------------------------------------------------------------------
 
-// ---------------------------------------------------------------------------
-// The ACCEPTED residual (§7 Q3) — fenced, not a defect regression
-// ---------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------
-// The swap exit's negative side (§4.5 (c))
-// ---------------------------------------------------------------------------
-
-/// **A FAILED mid-loop load must not fire the swap exit** — the regression guard
-/// against ending the turn on a navigate *attempt* rather than on an OBSERVED
-/// marker change (the round-2-rejected misimplementation).
-///
-/// `navigate` early-returns on a failed `load_url_into_pipeline`, BEFORE any
+/// **A FAILED mid-loop load must not move the swap marker.** `navigate`
+/// early-returns on a failed `load_url_into_pipeline`, BEFORE any
 /// `push`/`replace`/`restamp_current_document`, so `document_sequence` — the loop's
 /// swap marker — is unchanged and the old pipeline and its FIFO are intact. That is
 /// the correct semantics: the turn's remaining staged work is still this turn's.
 ///
-/// **Coverage limit, stated exactly.** The stronger assertion the plan sketches —
-/// "work staged AFTER the failed navigate still settles within the same drive" — is
-/// not writable, and not because of the harness: a failed cross-document navigate is
-/// always the drive's LAST iteration by construction. Phase 1c runs after Phase 1b,
+/// **What this test does and does not pin, stated exactly.** It pins the *input* to
+/// the swap comparison (the marker is stable across a failed load), not the
+/// comparison itself: on THIS scenario a break-on-navigate-*attempt*
+/// misimplementation would also pass, because a failed cross-document navigate is
+/// always the drive's LAST iteration by construction — Phase 1c runs after Phase 1b,
 /// a failed load runs no script, and the only mid-drain script vector is the
-/// `popstate` of a cursor-MOVING Phase-2 apply — which cancels the held navigation
-/// (`DrainHost::apply_traversal`) instead of letting it run. So nothing can be
-/// staged after the failed navigate to observe. What is asserted is the fact the
-/// swap exit actually reads: the marker did not move.
+/// `popstate` of a cursor-MOVING Phase-2 apply, which CANCELS the held navigation
+/// (`DrainHost::apply_traversal`) rather than letting it run. So nothing can be
+/// staged after the failed navigate for a continuation assertion to observe. The
+/// comparison itself — "the loop ends on an OBSERVED marker change, never on a
+/// navigate attempt" — is pinned by the sibling
+/// [`app_same_document_navigate_mid_loop_does_not_end_the_turn`], whose mid-loop
+/// navigate SUCCEEDS and stages more work behind itself. Neither pins the swap
+/// exit's *firing* side, which needs a successful cross-document rebuild the
+/// disconnected harness cannot produce (the plan's own-deferral).
 #[test]
 fn app_failed_mid_loop_load_does_not_move_the_document_marker() {
     let mut app = app_at(
@@ -409,5 +411,82 @@ fn app_failed_mid_loop_load_does_not_move_the_document_marker() {
         pipeline_url(&app).as_deref(),
         Some("https://example.com/"),
         "the old pipeline is intact — the failed load left the document in place"
+    );
+}
+
+/// **A SUCCESSFUL mid-loop navigate that is same-document must not end the turn** —
+/// the regression guard on the swap comparison itself (the round-2-rejected
+/// misimplementation that ended the loop on a navigate *attempt*).
+///
+/// The chain, one drive: `back()` applies → `popstate` stages
+/// `location.href = '#frag'` → iteration 2's Phase 1c runs it, and because it
+/// classifies `SameDocument` it takes `same_document_step` (`app/navigation.rs`) —
+/// a real, SUCCEEDING navigate that fires `hashchange` synchronously → that
+/// handler stages a `pushState` → iteration 3 applies it.
+///
+/// A same-document navigate does NOT re-stamp `document_sequence` (the fragment arm
+/// takes `push_same_document`, which INHERITS the current document identity), so the
+/// marker is unchanged and the loop correctly CONTINUES — which is right, since the
+/// staged follow-ups are this turn's own work.
+///
+/// **This is the only test in the suite that pins the swap marker's DEFINITION**,
+/// which is what the §4.5 (c) argument rests on and which no assertion about the
+/// loop itself can reach: make `same_document_step`'s fragment arm re-stamp the
+/// document identity and every other test in `elidex-shell` still passes, while the
+/// quiescence and entry assertions below fail (the loop takes the swap exit after
+/// iteration 2 and strands the `hashchange`-staged `pushState`). It also carries the
+/// only mid-loop navigate that SUCCEEDS — the failed-load sibling reaches
+/// `navigate`'s early return, so this is the only coverage of a completed Phase-1c
+/// navigation inside the loop, and of `hashchange` as a staging vector.
+#[test]
+fn app_same_document_navigate_mid_loop_does_not_end_the_turn() {
+    let mut app = app_at(
+        "<p>doc</p>\
+         <script>\
+           window.__staged = false;\
+           window.addEventListener('popstate', function () {\
+             if (window.__staged) { return; }\
+             window.__staged = true;\
+             location.href = '#frag';\
+           });\
+           window.addEventListener('hashchange', function () {\
+             history.pushState(null, '', '/after-hash');\
+           });\
+         </script>",
+        base(),
+    );
+    seed_same_document_pair(&mut app); // [base, /a], cursor on /a
+    let marker_before = document_marker(&app);
+
+    eval(&mut app, "history.back();");
+    let _ = app.process_pending_navigation();
+
+    assert_eq!(
+        document_marker(&app),
+        marker_before,
+        "a same-document navigate re-stamps nothing, so the swap marker is unchanged \
+         — the loop's exit condition is a marker CHANGE, not the navigate itself"
+    );
+    assert!(
+        !staged_session_history_work(&app),
+        "so the loop ran the third iteration and consumed what the hashchange \
+         handler staged. A break-on-navigate-attempt implementation leaves it here"
+    );
+    assert_eq!(
+        current_url(&app).as_deref(),
+        Some("https://example.com/after-hash"),
+        "the whole chain settled in ONE drive: back() → popstate → fragment nav → \
+         hashchange → pushState"
+    );
+    assert_eq!(
+        entry_url(&app, 1).as_deref(),
+        Some("https://example.com/#frag"),
+        "the fragment nav pushed from base (index 0), truncating the forward /a"
+    );
+    assert_eq!(
+        history_len(&app),
+        3,
+        "[base, base#frag, /after-hash] — the pushState appended behind the fragment \
+         entry it was issued from"
     );
 }

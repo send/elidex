@@ -138,7 +138,12 @@ use super::App;
 /// *pre-existing* work by excluding work created during it, and consuming exactly
 /// that work is this loop's entire purpose — a start-snapshot of the loop is the
 /// degenerate "one iteration", i.e. the defect it fixes.
-const MAX_TURN_COMPLETION_ROUNDS: usize = 8;
+///
+/// `pub(super)` for the same reason as [`App::staged_work_pending`]: the cap pin
+/// asserts the loop ran EXACTLY this many iterations, so it must read the cap
+/// itself — a literal `8` in the test would keep passing after this value changed,
+/// silently pinning the wrong number.
+pub(super) const MAX_TURN_COMPLETION_ROUNDS: usize = 8;
 
 impl App {
     /// Drive the input turn's session-history / navigation work **to quiescence**
@@ -146,8 +151,7 @@ impl App {
     /// counterpart of content-mode's post-Phase-2 settle.
     ///
     /// Called at the end of an input handler (`events::handle_click` /
-    /// `events::handle_keyboard`), after event dispatch + re-render, and at the
-    /// after event dispatch + re-render. Each ITERATION runs
+    /// `events::handle_keyboard`), after event dispatch + re-render. Each ITERATION runs
     /// [`DrainCoordinator::drain_same_turn`], whose body sequences **Phase 1**
     /// (window-opens §7.2.2.1 → §7.4.4 synchronous `pushState`/`replaceState`
     /// updates applied in-task, with §7.4.3 `Back`/`Forward`/`Go` traversals merely
@@ -174,8 +178,7 @@ impl App {
     /// iteration (`merge_turn_outcome`). Callers read the field they
     /// need: `handle_click` consumes
     /// [`suppress_default`](DrainOutcome::suppress_default) to drop the `<a href>`
-    /// default navigation; `handle_keyboard` calls for effect and ignores it; a
-    /// `handle_keyboard` calls for effect and ignores it. When
+    /// default navigation; `handle_keyboard` calls for effect and ignores it. When
     /// `interactive` is absent (threaded mode) no drain runs and the default
     /// outcome — every field `false`, i.e. "nothing happened, suppress nothing" —
     /// is returned.
@@ -290,7 +293,6 @@ impl App {
     /// ([`DrainCoordinator::drain_synchronous_updates`], Phase 1a+1b only) plus an
     /// address-bar-focus guard, which is its own plan-reviewed slice alongside
     /// Slice 4's mover routing (`#11-session-history-task-queue-model`).
-    ///
     pub(super) fn process_pending_navigation(&mut self) -> DrainOutcome {
         if self.interactive.is_none() {
             return DrainOutcome::default();
