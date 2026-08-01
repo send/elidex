@@ -24,7 +24,34 @@ set -euo pipefail
 # The glob is repo-root-relative, so don't inherit the caller's cwd. (No arrays or
 # `shopt` here: /bin/bash on stock macOS is 3.2, and the wires already record that
 # hazard class — see layout-box-reader-trip-wire.sh on `declare -A`.)
-cd "$(dirname "$0")/.."
+#
+# Resolve symlinks first: a bare `dirname "$0"` points at the LINK, so this script
+# symlinked onto someone's PATH would `cd` outside the repo, match no wires, and
+# report it as "required trip-wire(s) did not run" — telling the reader that four
+# wires were deleted and inviting them to edit REQUIRED_WIRES, which is the one
+# edit that genuinely disables the gate. A gate whose diagnostic misdirects toward
+# switching it off is worse than one that simply refuses to run. `readlink -f` is
+# not portable to stock macOS, so walk the chain by hand.
+src="$0"
+while [ -L "$src" ]; do
+  link_dir="$(cd -P "$(dirname "$src")" && pwd)"
+  src="$(readlink "$src")"
+  case "$src" in
+    /*) ;;
+    *) src="$link_dir/$src" ;;
+  esac
+done
+root="$(cd -P "$(dirname "$src")/.." && pwd)"
+cd "$root"
+
+# …and verify the result rather than assuming it, so "the root is wrong" can never
+# be reported as "the wires are gone".
+if [ ! -d .claude/tools ]; then
+  echo "FAIL: resolved repo root '$root' has no .claude/tools/ directory, so this" >&2
+  echo "      run gated nothing. This is a cwd/invocation problem, NOT a missing" >&2
+  echo "      wire — do not 'fix' it by editing REQUIRED_WIRES below." >&2
+  exit 1
+fi
 
 # Wires that MUST still be present. Membership is asserted in ONE direction only,
 # and the asymmetry is the point:
@@ -53,8 +80,15 @@ if [ -z "$(printf '%s' "$REQUIRED_WIRES" | tr -d '[:space:]')" ]; then
   exit 1
 fi
 
+# Written once and expanded unquoted below so it globs. Spelling the pattern a second
+# time as a literal would put the very duplication this driver exists to remove back
+# into the driver: the unmatched-glob comparison has to be the SAME pattern, and a
+# hand-kept second copy silently stops matching the moment the convention changes.
+WIRE_GLOB='.claude/tools/*-trip-wire.sh'
+
 ran_names=""
-for w in .claude/tools/*-trip-wire.sh; do
+# shellcheck disable=SC2086  # unquoted on purpose — this is the glob expansion
+for w in $WIRE_GLOB; do
   # nullglob is off, so an unmatched glob arrives as the literal pattern. `continue`,
   # not `break`: a `break` here would abandon every remaining wire on any single
   # unreadable entry (a dangling symlink, say) and — with earlier wires already run —
@@ -65,7 +99,7 @@ for w in .claude/tools/*-trip-wire.sh; do
     # missing-check below turns it into a FAIL. Anything else reaching here is a
     # real directory entry we could not stat (a dangling symlink, say); say so,
     # or this `continue` becomes the one path that drops a wire in silence.
-    [ "$w" = '.claude/tools/*-trip-wire.sh' ] || echo "WARN: skipping unreadable $w" >&2
+    [ "$w" = "$WIRE_GLOB" ] || echo "WARN: skipping unreadable $w" >&2
     continue
   fi
   echo "===== $w"
