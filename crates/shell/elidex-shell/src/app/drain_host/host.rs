@@ -5,8 +5,8 @@
 //! discipline), mirroring how `elidex-navigation` splits
 //! `traversal_queue/{coordinator,host}.rs`. The two halves run in opposite
 //! directions and have different readers: [`super`] owns the SCHEDULE (the
-//! turn-completion loop, its cap, the quiescence predicate, the follow-up
-//! dispatch) and calls INTO the coordinator; this module owns the phase-drain
+//! turn-completion loop, its cap, the quiescence predicate and the swap marker)
+//! and calls INTO the coordinator; this module owns the phase-drain
 //! BODIES the coordinator calls BACK into, plus the one free function that only
 //! serves them — the Phase-2 traversal-apply body [`apply_traversal_delta`].
 //!

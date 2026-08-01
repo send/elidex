@@ -74,11 +74,14 @@ address-bar focus guard.
 
 **OUT (fenced, each with its owner)**:
 - **The multi-traversal straddle — same mechanism, different granularity, NOT "unrelated".** The spec
-  settles staged synchronous navigations via §7.4.6.1 *apply the history step* step 14.1.1 — a bounded
-  drain loop **between traversal change-jobs, inside the apply** (bracketed by
-  `running nested apply history step`, gated per-navigable by
-  `navigablesThatMustWaitBeforeHandlingSyncNavigation`, steps 13 + 14.8). This plan implements the same
-  bounded-drain mechanism at **turn granularity** (after the whole two-phase drain, before returning to the
+  settles staged synchronous navigations via §7.4.6.1 *apply the history step* step 14.1.1 — a drain loop
+  **between traversal change-jobs, inside the apply** (bracketed by
+  `running nested apply history step`, **gated** per-navigable by
+  `navigablesThatMustWaitBeforeHandlingSyncNavigation`, steps 13 + 14.8). *Gated, not iteration-bounded*:
+  the spec's `While` has no round cap — a step it runs may re-append — so
+  `MAX_TURN_COMPLETION_ROUNDS` is elidex's own, not an image of anything in 14.1.1 (§4.3 says as much;
+  the word "bounded" must not smuggle the cap into the spec). This plan implements the same
+  drain-between-jobs mechanism at **turn granularity** (after the whole two-phase drain, before returning to the
   OS loop); the **traversal-granularity** application — consuming a popstate-staged intent *between* two
   queued traversal applies within one Phase-2 snapshot — is owned by
   `#11-sync-navigation-steps-queue-tagging` (its R16 facet). Concretely: with this plan landed, a
@@ -181,7 +184,7 @@ The spec's actual settle point for those staged steps is **§7.4.6.1 *apply the 
 (`body html updating-the-traversable`): while change jobs remain and
 `running nested apply history step` is false, repeatedly take a staged synchronous-navigation-steps item
 whose target navigable is not in `navigablesThatMustWaitBeforeHandlingSyncNavigation`, bracket it in the
-nested-apply boolean, and run it — a **bounded drain loop of staged sync-nav work, between traversal
+nested-apply boolean, and run it — a **gated drain loop of staged sync-nav work, between traversal
 change-jobs**. The spec's note on it: synchronous navigations *"jump the queue at this point, so they can
 be added to the correct place in traversable's session history entries before this traversal potentially
 unloads their document."*
@@ -203,7 +206,11 @@ coordinator's existing invariants that a repeated drive can break.
 
 - **(a) Turn completion (NEW).** The turn ends only when the handlers' staged work is settled. *Failure
   mode:* an unbounded loop on the single-writer renderer thread — a `popstate` handler that re-stages every
-  iteration.
+  iteration. **Non-invariant, named here so the matrix is not read as complete:** *residual lifetime ×
+  the five non-drain movers* (§4.1) is the one coupling this design deliberately does **not** satisfy —
+  it is what turns latency into wrong-entry mutation, and it is the whole subject of the plan's single
+  open decision, §7 Q3. It has no row below because the matrix enumerates invariants the design *holds*;
+  this pointer is how a reviewer working the matrix reaches the open question.
 - **(b) I1 phase ordering.** Phase 1 completes before Phase 2, per iteration. *Failure mode:* a loop that
   re-enters Phase 2 without a fresh Phase 1, or interleaves them.
 - **(c) I2 issue-order partition.** The single VM FIFO is the ordering SoT; from the first in-range
@@ -266,27 +273,37 @@ the tool: `#event-loop-processing-model`, `#navigate-non-frag-sync`, `#reloading
 | WHATWG HTML §7.4.3 Reloading and traversing | *traverse the history by a delta* step 4, sub-step 4.4 ("does not exist ⇒ abort") | (ii) out-of-range → no-op, no barrier (Resolution E) | same; **must stay per-iteration** — §4.1 | ✓ | yes |
 | WHATWG HTML §7.4.6.1 Updating the traversable | *apply the history step* step 12 (two-part split, "synchronous navigations … before documents unload") | Phase 2 apply, once per iteration | `DrainCoordinator::drain_traversal_queue` | ✓ | yes |
 | WHATWG HTML §7.4.6.1 Updating the traversable | *apply the history step* steps 13 + 14.8 (`navigablesThatMustWaitBeforeHandlingSyncNavigation` — init + per-navigable append) | the machinery that decides which staged sync-navs settle before vs after a given change-job | **FENCED OUT** — `#11-sync-navigation-steps-queue-tagging` (single-traversable elidex has one navigable; the per-navigable gate is the tagged-queue work) | ✗ (deliberate) | yes |
-| WHATWG HTML §7.4.6.1 Updating the traversable | *apply the history step* step 14.1.1 (nested bounded drain of staged sync-nav steps, bracketed by `running nested apply history step`) | the spec's settle point — **traversal granularity**; this plan is its **turn-granularity** counterpart (§1) | this plan's loop (turn granularity); the between-change-jobs placement is FENCED to `#11-sync-navigation-steps-queue-tagging` | ✗ (deliberate — granularity split, §0) | yes |
+| WHATWG HTML §7.4.6.1 Updating the traversable | *apply the history step* step 14.1.1 (nested drain of staged sync-nav steps — a `While` **gated** per-navigable by `navigablesThatMustWaitBeforeHandlingSyncNavigation`, bracketed by `running nested apply history step`; **gated, not iteration-bounded** — a step it runs may re-append) | the spec's settle point — **traversal granularity**; this plan is its **turn-granularity** counterpart (§1) | this plan's loop (turn granularity); the between-change-jobs placement is FENCED to `#11-sync-navigation-steps-queue-tagging` | ✗ (deliberate — granularity split, §0) | yes |
 | WHATWG HTML §7.4.6.1 Updating the traversable | *apply the history step* step 14.12.4 (targetEntry's document == displayedDocument ⇒ perform `updateDocument` synchronously; 14.12.5 queues a task otherwise) | the same-document apply is synchronous — which is why `popstate` fires *inside* Phase 2 | `apply_traversal_delta` → `traverse_to` → `same_document_step`; the 14.12.5 cross-document task is why a pipeline swap ends the loop (§4.5) | ✓ | yes |
 | WHATWG HTML §7.4.6.2 Updating the document | *update document for history step application* step 6.4.3 (fire `popstate`) | the staging vector: the handler that runs synchronously inside the Phase-2 apply | `same_document_step`'s popstate dispatch (`app/navigation.rs:129`) | ✓ | yes |
+| WHATWG HTML §7.4.6.2 Updating the document | *update document for history step application* step 6.4.5 (`hashchange` — **queue a global task** on the DOM manipulation task source when the fragment differs) | a second staging vector, and a divergence: elidex delivers it INLINE (`same_document_step`'s second `deliver_history_step_events`, which is what preserves popstate → scroll → hashchange without a task queue), so its handler stages into the same turn | `app/navigation.rs` same-document arm; pinned by `app_same_document_navigate_mid_loop_does_not_end_the_turn`, whose docstring states the divergence | ✓ | yes (`<a href="#frag">`, address bar, `location.href`) |
 | WHATWG HTML §7.3.1.1 Traversable navigables | *session history traversal queue* + *running nested apply history step* (initially false) | guard bracket + queue emptiness at turn exit | `TraversalQueue` (`traversal_queue/queue.rs`), exit `debug_assert` | ✓ | no |
+| WHATWG HTML §7.4.1.3 Centralized modifications of session history | *append session history synchronous navigation steps* (+ its note: sync-nav steps are **tagged** in the algorithm set so they can conditionally "jump the queue") | the definitional home of both the append §7.4.4 step 13 performs and the tagging the fenced slot is named for | **FENCED OUT** for the tagging — `#11-sync-navigation-steps-queue-tagging`; the append itself is what §7.4.4 step 13 does, consumed by Phase 1b | ✗ (deliberate — tagging fenced) | yes |
+| WHATWG HTML §7.4.2.3.3 Fragment navigations | *finalize a same-document navigation* step 5.1 ("Clear the forward session history of traversable") | the spec image of `push_entry`'s `entries.truncate(current_index + 1)` — the §1 severity claim and the §6 `[base, /a, /from-popstate]` flip | `NavigationController::push` / `push_same_document` | ✓ | yes (`pushState`, fragment nav) |
+| WHATWG HTML §7.4.2.3.3 Fragment navigations | *finalize a same-document navigation* step 2 ("If targetNavigable's active session history entry is not targetEntry, then return") | the race guard a late-running staged step hits — quoted by §4.5 (c) for the dropped-residue argument and by §4.6 for the cross-iteration cancel question | no in-tree image (elidex's FIFO is runtime-scoped) — part of the queue-substrate fence | ✗ (deliberate) | yes |
 | WHATWG HTML §7.4.2.2 Beginning navigation | *navigate* step 19 (ongoing navigation == "traversal") | **FENCED OUT** — enqueue-time suppression divergence | `#11-nav-supersede-window-vs-ongoing-navigation` | ✗ (pre-existing) | yes (`location.*`) |
 
-**Breadth**: K=1 spec; tool section count = 7; **M = 12 manually-expanded data rows** (the table directly
+**Breadth**: K=1 spec; tool section count = 7; **M = 16 manually-expanded data rows** (the table directly
 above) → single-PR scope (below the K≥4 / M≥20 split-recommended threshold; the tool's own verdict on the
-section-granular input was also "single PR scope").
+section-granular input was also "single PR scope"). The four rows added at v3 (§7.4.6.2 step 6.4.5,
+§7.4.1.3, and the two §7.4.2.3.3 steps) were load-bearing in §1 / §4.5 (c) / §4.6 / §6 all along and were
+missing from the map because the derivation command fed only seven sections — a systematic omission, not
+a typo, and worth remembering when the next coverage-map is derived from a section list.
 
-**In-tree citation drift found while verifying (goes into the §5.2 sweep)**:
-`app_history_phase_sep_tests.rs:85` (doc comment `:84-86`) cites "§7.4.6.2 step 6.3 fires popstate in
-place"; the fire step is **6.4.3** (step 6.3 is "Restore the history object state"). This PR corrects it
-while flipping the pins in that file.
+**In-tree citation drift found while verifying (goes into the §5.2 sweep)**: the "§7.4.6.2 step 6.3 fires
+popstate in place" citation is wrong — the fire step is **6.4.3** (6.3 is "Restore the history object
+state"). It occurs at **TWO** sites in `app_history_phase_sep_tests.rs` (`:85` and `:206` at `06e632ae`),
+not the one this section originally named; both are corrected. **The enumeration method was the defect**:
+§5.2's three derivation greps (`11-app-mode-turn-completion-drain`, `app-mode|App-mode`,
+`no post-Phase-2|ONE .drain_same_turn`) contain no pattern that could surface a §-number drift. A citation
+sweep needs a true-value-first lookup (`dfn`/`heading`) plus a bare `§7.4.6.2 step` probe.
 
 **New surfaces this PR mints × their citations** (preflight: symbols marked `(NEW)` do not exist at base):
 
 | New surface | Citation |
 |---|---|
 | the turn-completion loop `(NEW)` | §7.4.6.1 *apply the history step* step 14.1.1's **turn-granularity counterpart** (the §1 mapping); the loop's docstring cites step 14.1.1 + the granularity split |
-| `HostDriver::has_pending_session_history_work` `(NEW)` | peeks the channels whose spec sources are §7.4.4 *URL and history update steps* step 13 (history FIFO), §7.4.2.2 *navigate* (navigation slot), and the `window.open` staging; shape = the `has_pending_scroll` non-consuming-peek idiom (§4.4 (D)); **ONE reader class** — the loop's quiescence predicate (§4.2). (v2 had a second, the dispatch-entry reader; withdrawn with that mechanism, §0.) |
+| `HostDriver::has_pending_session_history_work` `(NEW)` | peeks the channels whose spec sources are §7.4.4 *URL and history update steps* step 13 (history FIFO), §7.4.2.2 *Beginning navigation* (navigation slot), and §7.2.2.1 *Opening and closing windows* (the `window.open` staging); shape = the `has_pending_scroll` non-consuming-peek idiom (§4.4 (D)); **ONE reader class** — the loop's quiescence predicate (§4.2). (v2 had a second, the dispatch-entry reader; withdrawn with that mechanism, §0.) |
 | `MAX_TURN_COMPLETION_ROUNDS` `(NEW)` | no spec step of its own — the in-tree bound idiom (β), §4.3 (`MAX_CE_STABILIZATION_ROUNDS`, `lib.rs:13`; `MAX_DRAIN_PER_TAB`, `app/content_messages.rs:23`). `pub(super)` so the cap pin reads the constant rather than a literal (§8) |
 
 ### §3.1 User-input touch audit
@@ -359,7 +376,7 @@ for round in 0..MAX_TURN_COMPLETION_ROUNDS {
     let doc_marker = current_document_marker();            // §4.5 (c)
     let iter = DrainCoordinator::drain_same_turn(self);
     let iter = self.reinstate_deferred_navigation(iter);   // the tail, now per-iteration
-    outcome.merge(iter);                                   // field-wise OR — §4.5 (a)
+    merge_turn_outcome(&mut outcome, iter);                // field-wise OR — §4.5 (a)
     if current_document_marker() != doc_marker { break }   // pipeline swap ends the turn — §4.5 (c)
     if !self.staged_work_pending() { break }               // §4.4 predicate — quiescent exit
     if round == MAX_TURN_COMPLETION_ROUNDS - 1 { /* cap-hit: eprintln — §4.3 degrade */ }
@@ -519,15 +536,56 @@ consumed loops to the cap on work no iteration can drain (cap-loop); predicate �
 `take_pending_storage_changes` (`:305`), `take_pending_idb_versionchange_requests` (`:313`),
 `take_pending_focus` (`:322`), `take_pending_parent_messages` (`:333`), `take_pending_scroll` (`:530`).
 
+**And it is TEST-PINNED, not prose-only — which is the whole reason the composed-peek shape is
+defensible.** The set membership lives in two places (the peek expression; the Phase-1 call sequence)
+reconciled by a sentence, and that would be a real "one issue, two ways" objection — the plan applies the
+structural technique to the *other* new seam 40 lines away (`merge_turn_outcome` destructures
+`DrainOutcome` so a new field is a compile error). The peek cannot get the same treatment: the three
+drains are distinct trait methods with distinct return types, so there is nothing to iterate. What is
+available, and what ships, is **direct per-channel coverage at the engine layer** —
+`elidex-js/src/tests_engine_s1c.rs` pins both directions (`peek_reports_and_does_not_consume_the_history_fifo`,
+`…_the_navigation_slot`, `peek_includes_window_opens` — the membership no shell test *can* pin, since
+window-opens are drained-and-dropped — and `peek_excludes_channels_phase_one_does_not_consume`). These
+must live at the engine layer and not in the shell, because in the shell the peek is also how a test
+would ASK, so a wrongly-narrow predicate reads "quiescent" to the assertion too. **Residual, honestly**:
+this pins today's membership in both directions, not a *future* Phase-1 channel addition — that leg
+remains the doc contract's. Whether the peek is one composed method or three per-channel peeks is
+therefore NOT the "naming-level choice" v2 called it — that framing routed a layer-ownership question
+past scrutiny. One method is chosen for one decision surface, with membership test-pinned per channel.
+
 **Decision 2 — which layer owns the loop:**
 - **Drive site** (`App::process_pending_navigation`). The policy (loop, cap, degrade) is shell schedule
   policy; the coordinator stays a stateless phase driver; content-mode is untouched by construction.
-- **Coordinator** (`drain_to_quiescence`). One-issue-one-way *if* quiescence were a shared concept — but
-  content must **not** use it (its task boundary is the point), so this mints a second drive shape with
-  exactly one consumer, and it would need the `HostDriver` peek plumbed through `DrainHost` anyway
-  (the coordinator cannot see the engine). Rejected unless plan-review finds a second consumer.
+- **Coordinator** (`drain_to_quiescence`).
 
-**Author's lean: (D) × drive-site.** This is the decision plan-review should own — §7 Q1.
+**⚠ v2 rejected coordinator ownership on two grounds that are FALSE, and they are struck.** (i) *"it
+mints a second drive shape with exactly one consumer"* — one consumer per drive shape is the crate's
+**canonical** form, not a cost: `drain_same_turn`'s only production caller is app-mode, and
+`run_deferred_traversals` / `drain_synchronous_updates`' only production callers are content-mode — a
+fact §5.2 itself quotes (`coordinator.rs:300-302`, "Content-mode's async pump is its only caller") while
+arguing against it. (ii) *"it would need the `HostDriver` peek plumbed through `DrainHost` anyway"* —
+reaching the engine through a `DrainHost` seam **is** the crate's idiom (`take_pending_history`,
+`handle_navigation`'s `take_pending_navigation`), and `App::staged_work_pending` is already that seam
+body minus the trait method. Likewise Decision 1's "(B) costs 3 implementors": a defaulted `-> false`
+seam costs `ContentState` and `MockHost` zero lines, so (B)'s real cost is 1 + 2 defaults.
+
+**The ground that survives, and is the actual reason: Slice B's own contract.** Slice B's thesis is
+*"both shells drive the SAME primitive; what differs is the SCHEDULE"* (`app/drain_host/mod.rs` module
+doc). The loop, its cap value, its `eprintln!` and its degrade are schedule — and schedule is precisely
+what the coordinator must not own, or the primitive/schedule separation the slice was built on collapses
+into a shared crate holding one shell's policy that the other must be documented not to call. That is a
+structural argument, not a cost argument, and it does not depend on either struck ground.
+
+**The cost this placement really pays, stated rather than buried**: the loop, the cap, the predicate and
+the swap marker get **no engine-independent coverage** — `elidex-navigation`'s `MockHost` isolation
+suites cannot reach them, so every pin runs through the shell's winit-coupled harness. §9's own-deferral
+**#1** (the swap exit's firing path) is downstream of exactly that: a `MockHost` modelling
+`document_sequence` has no disconnected-network limit, so coordinator ownership would plausibly
+**discharge that deferral outright** rather than merely relocate it. That is the strongest argument
+against the placement chosen here, and plan-review should weigh it against the contract argument rather
+than inherit v2's arithmetic — §7 Q1.
+
+**Author's lean: (D) × drive-site**, on the surviving ground.
 
 ### 4.5 Loop × per-turn state (the `accumulate` contract — no placeholders)
 
@@ -535,8 +593,12 @@ consumed loops to the cap on work no iteration can drain (cap-loop); predicate �
   "single home" (`coordinator.rs:39-55`), consumed by `handle_click` as an early return (`events.rs:101`).
   It describes the **turn**, not the last iteration: if iteration 1 suppressed (an own-context effect or a
   pending traversal) and iteration 2 is a quiet settle returning all-false, the `<a href>` default must
-  stay dropped. Therefore `outcome.merge(iter)` is **field-wise OR for all three fields**
-  (`own_context_action`, `shipped`, `suppress_default`) — monotone, never cleared within a turn. (Also
+  stay dropped. Therefore the merge is **field-wise OR for all three fields**
+  (`own_context_action`, `shipped`, `suppress_default`) — monotone, never cleared within a turn. It is a
+  **shell-local free fn** (`merge_turn_outcome`), not a method on `DrainOutcome`: turn-level accumulation
+  is drive-site schedule policy by §4.4's Decision 2, and putting it on the `elidex-navigation` type would
+  contradict that placement in the same PR that argues for it. It destructures `DrainOutcome` so that a
+  new field is a compile error here rather than a silently-dropped signal. (Also
   load-bearing for the `hit_entity` staleness invariant in `events.rs:107-149`, which reasons "every
   rebuild path also latched `suppress_default`": OR-latching keeps that reasoning valid across
   iterations.)
@@ -563,6 +625,16 @@ consumed loops to the cap on work no iteration can drain (cap-loop); predicate �
      document's initial scripts staging history intents are that later task's business (content-mode's
      pump picks them up on a later pump turn; app-mode's next drive does the same). Settling them inside
      the old input turn would run the new document's task inside the old one.
+     **⚠ Reason 2 is a gloss, and must not be read as the rule "a queued global task ⇒ end the turn".**
+     §7.4.6.2 step 6.4.5 also queues a global task — `hashchange` — and elidex delivers it INLINE inside
+     `same_document_step`, so the loop *does* settle what its handler stages within the same turn
+     (pinned by `app_same_document_navigate_mid_loop_does_not_end_the_turn`, whose docstring records the
+     divergence). The two are not in conflict because **reason 1 is the load-bearing one**: the exit
+     condition is *pipeline identity* — the FIFO and the runtime the predicate reads have been replaced
+     — not the task-queue category of the work. `hashchange` fires on the surviving runtime and stages
+     into the same FIFO, so it is this turn's work by reason 1; a swapped-in document's initial scripts
+     stage into a *different* runtime, so they are not. Reason 2 explains why that identity boundary
+     coincides with the spec's task boundary for the cross-document case; it is not an independent test.
   Detection: compare a pre-iteration document marker; the concrete marker is the current entry's
   `document_sequence` (stamped fresh by every rebuild path — `push`/`replace`/`restamp_current_document`,
   `app/navigation.rs:79-90`), read via `nav_controller`; exact seam to plan-review. Same-document applies
@@ -614,8 +686,16 @@ Phase 1b enqueues both in the same iteration, and that iteration's Phase-2 `pend
 *afterwards*, by the popstate handler, belongs to the next iteration's Phase 1 and **should** be applied
 in-task — that is the point of the fix, and the same outcome content-mode's `drain_synchronous_updates`
 produces. To be re-derived under plan-review, not assumed: whether any interleaving exists in which a
-cursor-moving traversal in iteration N should have cancelled an intent that iteration N+1 applies (the
-turn-granularity residue of exactly this shape is the §0 fence).
+cursor-moving traversal in iteration N should have cancelled an intent that iteration N+1 applies. **The
+spec anchors for that re-derivation, so it is not derived from in-tree invariants alone**: the spec's
+answer to "should this staged step still apply after the cursor moved?" is *finalize a same-document
+navigation* §7.4.2.3.3 **step 2** — *"If targetNavigable's active session history entry is not
+targetEntry, then return"* — i.e. a staged step is no-op'd when the entry it was staged against is no
+longer active, which is a **per-step active-entry guard**, not a per-drain latch; and §7.4.6.1 **step
+14.8**'s `navigablesThatMustWaitBeforeHandlingSyncNavigation` append is what defers a sync-nav past a
+change-job in the first place. Resolution D's `traversal_applied` is elidex's coarser stand-in for the
+former. Whether the coarseness bites across iterations is the question; the turn-granularity residue of
+exactly this shape is the §0 fence.
 
 ### 4.7 Premise 5, restated for a site-driven loop
 
@@ -682,16 +762,37 @@ mint a second answer to a question the controller already answers (One issue, on
 ## §5 Decomposition
 
 Single PR under the approved umbrella (edge-dense base case: a narrowly-scoped per-PR slice that has
-passed plan-review is a terminal unit). Source files are bounded (`app/drain_host.rs` 651 lines,
-`app/events.rs` 230, `elidex-script-session/src/engine.rs` gains one trait method + one impl in
-`elidex-js`).
-**⚠ The `drain_host.rs` half of that claim did not survive implementation** — the drive site's loop,
-cap, predicate, marker, seam and their contracts took it to 974, so it was split at its own cohesion
-seam (drive site / `impl DrainHost for App`) into `app/drain_host/{mod,host}.rs`, mirroring
-`elidex-navigation`'s `traversal_queue/{coordinator,host}.rs`. The split **stands after the
-withdrawal**: `mod.rs` is 541 lines and `host.rs` 358, so neither half is near the guideline and
-re-merging them would put the file back at ~890 with the same two-audience seam. This audit ran
-pre-implementation and was not redone against the delta; §5.1's audit of the TEST file was, and held.
+passed plan-review is a terminal unit).
+
+**⚠ The pre-implementation touch set was both wrong and incomplete, and is replaced here by the measured
+one.** v2 wrote "`app/drain_host.rs` 651 lines, `app/events.rs` 230, `elidex-script-session/src/engine.rs`
+gains one trait method + one impl in `elidex-js`" — it undercounted the drive site and omitted three files
+the PR substantively grows. Measured at HEAD (`git diff --name-only 44cd165d..HEAD`, `wc -l`):
+
+| File | Lines at HEAD | Note |
+|---|---|---|
+| `app/drain_host.rs` | *(deleted, 951 at split)* | the drive site's loop, cap, predicate, marker and contracts took the 651-line base to **951** |
+| `app/drain_host/mod.rs` | 555 | split half 1 — drive site |
+| `app/drain_host/host.rs` | 358 | split half 2 — `impl DrainHost for App` |
+| `app/events.rs` | 230 | unchanged in size |
+| `app/mod.rs` | 897 | +37, doc + test-module wiring only |
+| `app_test_support.rs` | 315 | **+134** — nine new helpers (§8's probes + the popstate page builders) |
+| `app_turn_completion_tests.rs` | 501 | new file (§5.1) |
+| `app_history_phase_sep_tests.rs` | 503 | 756 → 503 (§5.1) |
+| `elidex-script-session/src/engine.rs` | 709 | +1 trait method + contract |
+| `elidex-js/src/engine.rs` | 830 | +13, the peek impl |
+| `elidex-js/src/tests_engine_s1c.rs` | 380 | **+117** — the four engine-layer predicate-invariant pins (§4.4, §8) |
+| `elidex-navigation/**` | — | doc-only + one visibility widening (§4.8) |
+
+**Touch-time split audit over that whole set** (CLAUDE.md's discipline is touch-time and any-size, so it
+runs on every touched file, not just the one that grew): the split at `drain_host.rs` was the one real
+seam and it **stands after the withdrawal** — 555 + 358, neither near the guideline, and re-merging would
+put the file back at ~910 with the same two-audience seam. No other touched file warrants one: `app/mod.rs`
+(897) and `elidex-js/src/engine.rs` (830) sit in the ~800 band `feedback_touch-time-split-means-while-writing`
+watches, but this PR's deltas into them are +37 doc/wiring and +13 respectively — no substantive growth and
+no new seam, so splitting them here would be a line-count reflex, not a cohesion judgment. Recorded rather
+than left silent so the next toucher of either file inherits the measurement.
+
 If plan-review overturns §4.4 toward the coordinator-owned loop, that becomes an
 `elidex-navigation` behavior change touching both shells and must be re-sliced as its own prereq PR.
 
@@ -708,7 +809,8 @@ slot pins co-located at `:15-23`), so the seam is real:
 touch-time-split-means-while-writing — not a prereq split PR, since nothing is over the line today):
 - moves there: the two flipped slot pins (`app_popstate_staged_action_…`, `:604`;
   `app_popstate_staged_push_destroys_…`, `:691`) — after the flip they *are* turn-completion conformance,
-  not phase-separation pins — plus the three new §8 tests.
+  not phase-separation pins — plus the new §8 tests (v2 said "three"; the shipped set is **five**, since
+  the withdrawal removed three and added two — §8's REMOVED bullet and the marker-definition pin).
 - stays in `app_history_phase_sep_tests.rs`: the straddle pin (`:490`, it pins
   `#11-sync-navigation-steps-queue-tagging`, a partition-granularity fence) with its §6 assertion
   restructure; everything else untouched.
@@ -717,9 +819,9 @@ touch-time-split-means-while-writing — not a prereq split PR, since nothing is
   survives in the new file; the content-side third-pin cross-check note (`:25-32`) moves with them.
 
 Net, as shipped: phase-sep shrank 756 → **503** lines, and `app_turn_completion_tests.rs` starts at
-**492** (six tests) — both bounded, seams honest. The estimate above said ≈530 / ≈400; the new file
-came in larger because the §8 set changed after the withdrawal (two entry-drive tests removed, one
-marker-definition pin added — §8).
+**501** (**7** tests) — both bounded, seams honest. The estimate above said ≈530 / ≈400; the new file
+came in larger because the §8 set changed after the withdrawal (three entry-drive tests removed, the
+marker-definition pin added — §8's REMOVED bullet).
 
 ### §5.2 Sibling sweep — every passage this PR must update (command-derived)
 
@@ -773,12 +875,15 @@ residual's unbounded lifetime plainly rather than inheriting any bound:
   identically") — a per-call claim, true unchanged per iteration; the turn-level OR-latch is drive-site
   policy (§4.5 (a)), outside this doc's scope.
 - `coordinator.rs:42-44` (`suppress_default` "consumed at most once per turn … app-mode's keyboard turn
-  discards this outcome entirely") — both survive unchanged: the drive site OR-merges per-iteration
-  outcomes into the ONE value the click path consumes (§4.5 (a)), and there is still exactly one drive
-  per turn, so "at most once per turn" needs no restatement. (v2 needed one here, for the
-  dispatch-entry drive's cross-turn outcome discard; withdrawn, §0.)
+  discards this outcome entirely") — **triaged STAYS, updated anyway; the triage was wrong.** Both claims
+  do survive, but "at most once per turn" acquired a second reading once a turn contains N drains
+  producing N outcomes, so the shipped doc adds the disambiguation (`coordinator.rs:49-53`: it is a claim
+  about the CONSUMER). Moved here from the update list only in the accounting sense — it belongs in the
+  numbered rows above, and the v2 attribution of the need to the withdrawn entry drive was mistaken.
 - `coordinator.rs:300-302` (`run_deferred_traversals`: "**Content-mode's async pump is its only
-  caller**") — the loop iterates `drain_same_turn`, never this, so the only-caller claim survives intact.
+  caller**") — **triaged STAYS, updated anyway.** The claim survives intact, but it survives for a
+  reason a reader cannot see from the passage (the loop iterates `drain_same_turn`, never this), so the
+  shipped text says so (`:311-313`). "Still true" was the right verdict; "needs no edit" was not.
 - `coordinator.rs:460-480` (the Phase-2 apply-site KNOWN-DIVERGENCE comment and its app-mode pin
   references, `:472`/`:474`) — it documents the queue-tagging fence, whose pin this PR restructures but
   does not flip, §6.
@@ -829,13 +934,15 @@ traversal-granularity settle, per §0), `#11-nav-supersede-window-vs-ongoing-nav
 `#11-nav-applied-shipped-decouple`.
 
 **Closing note**: records (a) the §7 Q3 residual decision — the residue on non-quiescent exits, and the
-two staging sources that never enter the loop, keep `origin/main`'s unbounded lifetime; and (b) the
-**withdrawn-work slice** (§0 WITHDRAWN) with its known shape, so it is a slot with a design rather than
-a rediscovery. Where the record lives, by stage: **at plan stage**, this memo's §0 WITHDRAWN + §7 Q3;
-**at implementation-PR landing**, restated in the landing memo, with a new slot opened for the withdrawn
-work and the Slice-4 slot body (`#11-session-history-task-queue-model`, the DIRECT-nav serialization
-question, in `project_open-defer-slots`) gaining a pointer to it; **when Slice 4 closes**, its own
-landing record absorbs the pointer's content.
+two staging sources that never enter the loop, keep `origin/main`'s unbounded lifetime, so **§1 is closed
+for quiescent turns only** and no fenced text may read otherwise; and (b) the **withdrawn-work slice**
+(§0 WITHDRAWN) with its known shape, registered as this PR's **second own deferral** (§9) rather than as
+a bare slot, so it carries a re-evaluation trigger and date like any other. Where the record lives, by
+stage: **at plan stage**, this memo's §0 WITHDRAWN + §7 Q3 + §9; **at implementation-PR landing**,
+restated in the landing memo, with the `#11-*` slot opened for the withdrawn work and the Slice-4 slot
+body (`#11-session-history-task-queue-model`, the DIRECT-nav serialization question, in
+`project_open-defer-slots`) gaining a pointer to it; **when Slice 4 closes**, its own landing record
+absorbs the pointer's content.
 
 ---
 
@@ -845,11 +952,20 @@ withdrawn (numbering below is v2's own, carried into v3; v1-Q3 ≠ the Q3 below)
 sites precede `dispatch_event` (`events.rs:76`, `:181`), so no script runs and nothing is staged on
 those turns — the early returns delay *draining*, which v3 does not bound at all, §4.3)
 
-- **Q1 — predicate layer × loop owner** (§4.4): author leans (D) `HostDriver` non-consuming peek ×
-  drive-site loop. (A) is refuted, not merely disfavored; (B) costs 3 implementors to (D)'s 1; coordinator
-  ownership mints a one-consumer drive shape. Ratify or overturn (overturning to coordinator ⇒ re-slice,
-  §5). **Unchanged by the withdrawal** — except that (D)'s "two readers, one question" support is gone
-  (§4.4); the author's read is that the argument stands without it, and that is part of what to ratify.
+- **Q1 — predicate layer × loop owner** (§4.4). **⚠ RE-POSED at v3 — do not answer this from v2's
+  arithmetic, which §4.4 now strikes as FALSE.** v2 asked it as "(B) costs 3 implementors to (D)'s 1;
+  coordinator ownership mints a one-consumer drive shape". Both are struck: a defaulted `-> false` seam
+  makes (B) cost 1 + 2 zero-line defaults, and one-consumer drive shapes are the coordinator's canonical
+  form (§5.2 quotes the precedent while v2 argued against it). What is actually being ratified:
+  - **Predicate layer** — (D) `HostDriver` non-consuming peek. (A) `DrainOutcome`-derived is refuted, not
+    merely disfavored (§4.4). One composed method vs three per-channel peeks is **not** the "naming-level
+    choice" v2 called it — that framing routed a layer-ownership question past scrutiny; one method is
+    chosen for one decision surface, with membership per-channel test-pinned at the engine layer (§8).
+  - **Loop owner** — drive-site, on the *surviving* ground only: Slice B's primitive-vs-schedule contract.
+    Weigh it against the cost §4.4 now states plainly — coordinator ownership would give the loop
+    engine-independent coverage and plausibly **discharge §9's own-deferral #1** instead of shipping it.
+  Overturning to coordinator ⇒ re-slice (§5), which at this point means re-slicing a completed
+  implementation; that is a cost, not an argument, and must not decide the question.
 - **Q2 — bound parameters** (§4.3): ratify cap value (8) and the degrade shape, which is now
   **`eprintln!` and nothing else** — no exit rule, no scheduled frame, no observability seam beyond the
   warning. v2's ratified degrade ("`eprintln` + unified exit rule + peek-gated dispatch-entry drive")
@@ -869,16 +985,55 @@ those turns — the early returns delay *draining*, which v3 does not bound at a
   move the cursor before any drive is reached, and the eventual drive then applies the staged intent
   against the moved cursor — §1's wrong-entry shape, unchanged.
 
-  **The two options, honestly.** (i) **Ship the loop now** — it closes §1 for every turn that reaches
-  quiescence, which is the ordinary case and every pin in §8; the residues are exactly what `origin/main`
-  already has, so nothing regresses; the withdrawn work ships as its own plan-reviewed slice with a known
-  design (§0). (ii) **Hold the loop until the residue slice lands**, on the ground that v1 was rejected
-  for precisely this shape (§4.3) and shipping it now re-adopts a rejected degrade under a narrower
-  claim. Author leans (i): the loop is independently correct and independently tested, the residue slice
-  needs its own plan-review regardless (its v2 form was CONFIRMED wrong), and bundling them would put an
-  edge-dense mechanism back into a PR that has already been through nine rounds — the exact
-  defer-accumulation shape that mis-drew the boundary the first time. But (ii) is not a straw man and
-  plan-review should decide it, not inherit it.
+  **⚠ Do not argue this from "ordinary case" or from "nothing regresses" — both are struck.** v3 first
+  argued (i) on the grounds that quiescent turns are "the ordinary case" and that the residues are
+  `origin/main`'s so nothing regresses. The second is v1's rejected invariant verbatim ("never worse than
+  today" — §4.3), and the first is unsubstantiated and probably false: residue (b) is reached by the
+  **plainest gesture in the browser**. Chrome Back fires `popstate` in place (`handle_chrome_action` →
+  `traverse_to` → `same_document_step`, no drive on that path); the handler stages a `pushState`; a second
+  chrome Back moves the cursor; the next drive that is reached applies the push against the moved cursor
+  and `push_entry`'s truncate destroys live forward entries. That is §1's exact harm, reachable with two
+  toolbar clicks, and this slice neither fixes nor pins it.
+
+  **The argument that survives — residues (b) and (c) are a DIFFERENT defect; residue (a) is this
+  mechanism's own, and is not excused by it.** Two things must be said separately, and an earlier draft
+  of this paragraph ran them together with the word "completely" — which quietly did the same job the
+  struck "ordinary case" did:
+
+  - **(b) and (c) are not this slice's defect at all.** Their staging happens on paths the loop is never
+    on, so no loop could have touched them. They need a drive somewhere on the mover's own dispatch —
+    a *different* mechanism, whose v2 form was CONFIRMED wrong (§0) and which is edge-dense enough that
+    CLAUDE.md mandates its own plan-reviewed PR. **⚠ Do NOT restate that as "it needs a drive at
+    dispatch ENTRY" — that is false and was asserted here.** Entry is one placement; a drive at the
+    **end of the traversal movers** (`handle_chrome_action` Back/Forward, Alt+←/→ — both of which end in
+    `traverse_to` → `same_document_step` and then return) is another, and it does *not* carry the
+    withdrawn form's defect, since nothing in that dispatch waits behind it. It is not obviously right
+    either — the `Navigate`/`Reload` arms rebuild the pipeline, so a drive after them would settle a
+    fresh document's initial staging inside the redraw turn, which is exactly what EXIT 3 forbids
+    (§4.5 (c) reason 2). That split — traversal movers vs rebuild movers — is real design work and is
+    precisely why the slice needs its own gate. The fence is right; "only entry works" was not the
+    reason.
+  - **(a) is this slice's own degrade, and is answered nowhere else.** A cap-hit *is* staging inside a
+    drive that the loop does not settle, so the loop does not close its own defect class exhaustively —
+    only for turns that reach quiescence. What bounds (a) is not a better loop (the cap is the
+    termination requirement) but the same follow-up machinery (b)/(c) need. So (a) rides along with the
+    withdrawn-work slot (§9), and shipping means shipping with (a) open.
+
+  (i) **Ship the loop now.** It is independently correct, independently tested, and orthogonal to the
+  residue slice (which adds a call site; it does not change the loop). Holding it does not make the
+  second fix arrive sooner — that fix needs its own gate regardless — it only couples two
+  independently-reviewable slices, which is the defer-accumulation shape that mis-drew this boundary the
+  first time (`feedback_defer-accumulation-signals-mis-drawn-slice`).
+  (ii) **Hold until the residue slice lands.** Three grounds, and the first is the one v1 was rejected
+  on: shipping this degrade **re-adopts the shape v1 was rejected for** (§4.3 point 1), under a narrower
+  claim rather than a different mechanism; a destructive path armed by two toolbar clicks (the write
+  itself lands on the next input that reaches a drive) should not wait on a second review cycle; and
+  landing under the name "turn completion" invites the reading that §1 is now handled.
+
+  **Author leans (i)**, on the (b)/(c)-are-a-different-defect ground and NOT on either struck one,
+  accepting that (a) ships open. What (i) owes, and pays here: the fenced text must never read as "§1 is
+  fixed". §6's flip note, the drive site's rustdoc residue note, and the flipped pin's docstring all now
+  say quiescent-turns-only explicitly. Plan-review should decide this, not inherit it.
 
   **What is NOT open**: pinning the residue. v2 pinned its narrow residual with a docstring-fenced
   test; that test's scenario ran through the withdrawn entry drive and went with it. The wide residue is
@@ -890,7 +1045,20 @@ those turns — the early returns delay *draining*, which v3 does not bound at a
 
 ## §8 Test strategy
 
-All new/flipped turn-completion tests live in `app_turn_completion_tests.rs` (§5.1).
+All new/flipped turn-completion tests live in `app_turn_completion_tests.rs` (§5.1) — **except the
+predicate-invariant pins, which must NOT** (next bullet).
+
+- **New (engine layer — the §4.4 predicate invariant, both directions)**: four tests in
+  `elidex-js/src/tests_engine_s1c.rs` —
+  `peek_reports_and_does_not_consume_the_history_fifo`, `…_the_navigation_slot`,
+  `peek_includes_window_opens`, `peek_excludes_channels_phase_one_does_not_consume`.
+  **They belong at the engine layer, not the shell, and that is the point**: in the shell the peek is
+  also how a test would ASK whether work is staged, so a predicate that wrongly omits a channel reads
+  "quiescent" to the assertion exactly as it does to the loop — the pin would be circular. Window-opens
+  are the sharpest case: app-mode drains-and-DROPS them, so their consumption has no observable except
+  this peek, and `own_context_action` cannot stand in (the coordinator deliberately excludes them).
+  v2's §8 omitted these entirely while §4.4 called the invariant "the governance rule for every future
+  `HostDriver` channel addition" — the rule had no coverage row.
 
 - **Flip** both slot pins per §6 (new file); **restructure** the straddle pin per §6 (stays in
   `app_history_phase_sep_tests.rs`; its final wrong-entry fence assertions must still fail-if-fixed the
@@ -913,7 +1081,7 @@ All new/flipped turn-completion tests live in `app_turn_completion_tests.rs` (§
   **v2 additionally asserted the follow-up frame's issuance** (the `cfg(test)` counter on
   `App::schedule_followup_dispatch()`) **and the subsequent dispatch-entry drive draining the residue**;
   both assertions went with the withdrawn mechanism (§0) and nothing replaces them — there is no
-  follow-up to observe. `app_turn_completion_terminates_at_the_cap_and_defers_the_residue`.
+  follow-up to observe. `app_turn_completion_terminates_at_the_cap_and_leaves_the_residue_staged`.
 - **Accumulation (axis (g))**: a turn whose iteration 1 latches `suppress_default` and whose iteration 2
   is a quiet settle still suppresses the `<a href>` default (OR-latch; through the real click path). The
   discriminating iteration is a `window.open`-only settle — the coordinator excludes window-opens from
@@ -972,9 +1140,16 @@ All new/flipped turn-completion tests live in `app_turn_completion_tests.rs` (§
 
 ## §9 Defer ledger
 
-Own-deferral budget: expected **1**. Shipped: **1** — the withdrawal *removed* machinery rather than
-deferring more of it, and the work it removed is not a deferral of this slice but a **separate slot with
-its own design** (§0 WITHDRAWN, registered at landing per the §6 closing note).
+Own-deferral budget: expected **1**. Shipped: **2** (≤3, the per-PR cap).
+
+**⚠ The withdrawn dispatch-entry drive IS an own deferral, and v3 first mis-classified it.** v3 argued it
+was "a separate slot with its own design, not a deferral of this slice". That fails
+`feedback_defer_cap_policy`'s own test — an own deferral is a defect one brought in *or* declared scope
+one did not finish — and the entry drive was in v2's **ratified, declared** scope, was implemented, and
+was removed before push. Re-narrowing the memo so the dropped scope falls outside the ledger is the
+plan-stage form of the anti-gaming clause's target ("判定は分類であって編集ではない"). The cap was never
+the issue (2 ≤ 3); what the exclusion actually bought was letting the item skip the 3-element audit — so
+it is reinstated with one.
 
 - **End-to-end verification of the swap-exit behavior — the whole branch, not just one pin** (§8). The
   harness reaches no part of the firing path (marker move → loop exit → the new document's staging
@@ -988,9 +1163,22 @@ its own design** (§0 WITHDRAWN, registered at landing per the §6 closing note)
   later than **2026-10-31** (that cluster's re-evaluation date, per the ledger). *Registration*:
   recorded as a slot in `project_open-defer-slots` at landing time.
 
-**Not deferrals of this slice, and must not be counted as such**: (a) the **withdrawn dispatch-entry
-drive** — a distinct slot with a stated design and owner (§0), opened at landing; (b) the **wide
-residue** of §7 Q3 — `origin/main` behavior this PR neither introduces nor changes, fenced in prose.
-Anything else discovered mid-implementation that is not the turn-completion loop belongs to an existing
-slot (§6) or a new one with the 3-element audit (`Why deferred` / `Re-evaluation trigger` /
-`Re-evaluation date`).
+- **Bounding the residue ahead of the non-drain movers — the withdrawn dispatch-entry drive** (§0
+  WITHDRAWN). Declared in v2's ratified scope, implemented, withdrawn before push. *Why deferred*: the
+  implemented form was CONFIRMED wrong (it ran Phase 1c ahead of the same dispatch's input, so a click
+  could land on a just-swapped document — the ordering `content/event_loop.rs` documents as forbidden),
+  and the correct form is a **different mechanism** — `DrainCoordinator::drain_synchronous_updates`
+  (Phase 1a+1b only) plus an address-bar focus guard — which is edge-dense enough that CLAUDE.md
+  mandates its own plan-reviewed PR; patching it into this one is what mis-drew the boundary.
+  *Re-evaluation trigger*: whichever comes first — Slice 4's mover-routing work opening
+  (`#11-session-history-task-queue-model`), or any report of the two-toolbar-click destructive path in
+  §7 Q3 residue (b). *Re-evaluation date*: **2026-10-31**, the `#11-session-history-task-queue-model`
+  cluster's date — it must not outlive the umbrella that owns its sequencing.
+  *Registration*: its own `#11-*` slot in `project_open-defer-slots` at landing, sequenced with Slice 4,
+  carrying the design above so it is a slot with a solution rather than a rediscovery.
+
+**Not a deferral, and must not be counted as one**: the **wide residue** of §7 Q3 — `origin/main`
+behavior this PR neither introduces nor changes. It is fenced in prose (§6 closing note + the drive
+site's rustdoc) and its *fix* is the slot above; the residue itself is a pre-existing gap, not scope
+this PR declared and dropped. Anything else discovered mid-implementation that is not the
+turn-completion loop belongs to an existing slot (§6) or a new one with the same 3-element audit.

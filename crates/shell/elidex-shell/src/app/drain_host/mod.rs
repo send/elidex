@@ -127,11 +127,27 @@ use super::App;
 ///
 /// A page whose `popstate` handler re-stages unconditionally makes the fixpoint
 /// unreachable, and this loop runs on the single-writer renderer thread, so an
-/// unbounded loop is a hang. Same order (and same degrade shape — `eprintln!` on
-/// the final round, work deferred to the next dispatch) as the in-tree
+/// unbounded loop is a hang. Same order as the in-tree
 /// `MAX_CE_STABILIZATION_ROUNDS`, and far above any legitimate depth: each round
 /// requires the page to have staged NEW work from inside the previous round's
 /// handlers.
+///
+/// **The degrade shape is NOT the same, and that difference is load-bearing.**
+/// Both siblings pair their cap with a *next-frame* statement — "some mutations may
+/// be deferred to next frame", "any remaining messages will be drained on the next
+/// frame" — and this cap must NOT be read as carrying one. Precisely:
+/// `MAX_DRAIN_PER_TAB` really does have a frame behind it, but only in THREADED
+/// mode (`handle_redraw_threaded` → `drain_content_messages`); it is unreachable
+/// inline. `MAX_CE_STABILIZATION_ROUNDS` has no frame behind it inline either — it
+/// lives in `crate::re_render`, which `handle_redraw_inline` never calls — but its
+/// residue is reached by a *broad* input set: every path that re-renders, a mouse
+/// release included. This cap's residue is reached only by
+/// [`App::process_pending_navigation`], whose two callers
+/// (`events::handle_click` / `events::handle_keyboard`) BOTH return early on
+/// ordinary inputs — a hit-test miss, a chrome-band click, an unfocused document.
+/// So this cap borrows the bound and the `eprintln!` and NOT the reachability:
+/// nothing schedules a drive, and the inputs that would reach one are a strict
+/// subset of the inputs that reach either sibling's consumer.
 ///
 /// The drain-start-snapshot bound the coordinator's Phase 2 uses
 /// (`pending_len()`) is deliberately NOT the idiom here: it terminates a drain of
@@ -261,7 +277,7 @@ impl App {
     /// by its Phase 2 must apply before iteration N+1 partitions fresh intents,
     /// else a `location.*` issued in N would apply after intents issued in N+1.
     ///
-    /// # The three exits, and the one follow-up rule
+    /// # The three exits — none of which schedules anything
     ///
     /// (1) **quiescent** — [`HostDriver::has_pending_session_history_work`] reads
     /// false. (2) **cap-hit** — [`MAX_TURN_COMPLETION_ROUNDS`] iterations, for a
@@ -273,7 +289,10 @@ impl App {
     /// swap** — the document marker moved (`current_document_marker`).
     ///
     /// Neither non-quiescent exit records any state: the work stays on the
-    /// **surviving** runtime's channels, which is where the peek reads.
+    /// **surviving** runtime's channels, which is where the peek reads. On the swap
+    /// exit "surviving" is doing real work — what the OLD runtime held is not
+    /// waiting anywhere, it was dropped with that runtime (see
+    /// [`Self::staged_work_pending`]).
     ///
     /// **⚠ What this slice does NOT do — the residue is not bounded here.** On a
     /// non-quiescent exit the staged work waits for the next drive that is actually
@@ -281,7 +300,11 @@ impl App {
     /// a hit-test miss / a chrome-band click / an unset `cursor_pos`, and
     /// `events::handle_keyboard` on an unfocused document, all before this drive. So
     /// the residual lifetime is **unbounded**, exactly as on `origin/main` — this
-    /// slice fixes the *in-turn* settle (the §1 harm) and changes nothing about it.
+    /// slice fixes the *in-turn* settle for turns that reach quiescence (the §1
+    /// harm on that path) and changes nothing about the rest. Two staging sources
+    /// never enter this loop at all and are equally unbounded: a mover that fires
+    /// `popstate` in place (chrome Back/Forward, Alt+←/→, a fragment `navigate`)
+    /// and a fresh document's load-time staging.
     ///
     /// A peek-gated drive at the winit dispatch entry was designed, implemented and
     /// reviewed for this slice to close that, then **withdrawn before push**: it ran
@@ -289,10 +312,15 @@ impl App {
     /// ahead of the same dispatch's own input, so a click could land on a document
     /// the drive had just swapped in. `content/event_loop.rs` documents that exact
     /// ordering as forbidden and omits Phase 1c from its own top drain for the
-    /// reason. Closing the residue needs content-mode's shape
+    /// reason. Closing the residue therefore needs content-mode's SHAPE
     /// ([`DrainCoordinator::drain_synchronous_updates`], Phase 1a+1b only) plus an
-    /// address-bar-focus guard, which is its own plan-reviewed slice alongside
-    /// Slice 4's mover routing (`#11-session-history-task-queue-model`).
+    /// address-bar-focus guard — but **not necessarily at the dispatch entry**: a
+    /// drive at the END of the traversal movers is an open alternative that carries
+    /// no waiting input behind it, while the rebuild movers (`Navigate`/`Reload`)
+    /// cannot take one without settling a fresh document's staging inside the old
+    /// turn (EXIT 3's own rationale). Choosing between those placements is the
+    /// substance of its own plan-reviewed slice, alongside Slice 4's mover routing
+    /// (`#11-session-history-task-queue-model`).
     pub(super) fn process_pending_navigation(&mut self) -> DrainOutcome {
         if self.interactive.is_none() {
             return DrainOutcome::default();
@@ -358,11 +386,15 @@ impl App {
                 // adversarial-but-legal page must degrade, not panic a debug build.
                 // The staged work stays on the current runtime's channels for
                 // the next drive that is reached — bounded work per turn and no
-                // hang, but NOT a bounded residue (see the method doc).
+                // hang, but NOT a bounded residue, and the message must not imply
+                // one: nothing schedules that drive (method doc + the cap's own).
                 eprintln!(
                     "[history] app-mode turn-completion loop hit max rounds \
-                     ({MAX_TURN_COMPLETION_ROUNDS}); the staged session-history work \
-                     is deferred to the next dispatch"
+                     ({MAX_TURN_COMPLETION_ROUNDS}) — a page script is re-staging \
+                     history work every round. The staged work stays on the current \
+                     runtime's channels: nothing schedules a drive, so it applies \
+                     only if some later click/keypress reaches one (and is dropped \
+                     outright if this document is replaced first)"
                 );
             }
         }
@@ -487,18 +519,20 @@ impl App {
             .is_some_and(|i| i.pipeline.runtime.has_pending_session_history_work())
     }
 
-    /// The **document-swap marker** the loop compares across an iteration: the
-    /// current session-history entry's `document_sequence`.
+    /// The **document-swap marker** the loop compares across an iteration.
     ///
-    /// Every rebuild path re-stamps it (`push` / `replace` /
-    /// `restamp_current_document` — the last reached by a reload and by a
-    /// cross-document traversal's commit), and it is allocated monotonically, so a
-    /// changed value IS a swap and there is no ABA. Same-document applies (a
-    /// fragment nav, a same-document traversal) do NOT restamp, so they do not end
-    /// the loop — correct, since their staged follow-ups are this turn's work. A
-    /// mid-loop navigate whose load FAILS does not restamp either (`navigate`
-    /// early-returns before any of the three), so the loop CONTINUES against the
-    /// still-intact old pipeline and FIFO — also correct.
+    /// What re-stamps it and what inherits it is the controller's contract, stated
+    /// once there
+    /// ([`NavigationController::current_document_sequence`](elidex_navigation::NavigationController::current_document_sequence))
+    /// — including the monotonic-allocation argument that gives the comparison no
+    /// ABA. What belongs HERE is only what the loop does with it: a changed value
+    /// ends the turn (EXIT 3), an equal value continues it. Two consequences worth
+    /// naming at this end, because the loop's correctness rests on them:
+    /// same-document applies do not restamp, so a fragment nav or a same-document
+    /// traversal does NOT end the loop — correct, since their staged follow-ups are
+    /// this turn's work; and a mid-loop navigate whose load FAILS does not restamp
+    /// either (`navigate` early-returns before any stamp site), so the loop
+    /// continues against the still-intact old pipeline and FIFO — also correct.
     ///
     /// `pub(super)` for the same reason as [`Self::staged_work_pending`]: the
     /// negative pin on the swap exit is a regression guard, so it must read the

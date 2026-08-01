@@ -296,9 +296,9 @@ fn peek_reports_and_does_not_consume_the_history_fifo() {
     );
     assert!(
         engine.has_pending_session_history_work(),
-        "PEEK, DON'T CONSUME — the drain remains the single drain point, so the \
-         loop can ask twice (its predicate check and the exit rule's) without \
-         destroying what it is asking about"
+        "PEEK, DON'T CONSUME — the drain remains the single drain point, so asking \
+         never answers destructively: two reads in a row agree, and the staged work \
+         survives both"
     );
     assert_eq!(engine.take_pending_history().len(), 1);
     assert!(

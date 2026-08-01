@@ -337,7 +337,7 @@ fn app_turn_outcome_or_latches_suppress_default_across_iterations() {
 /// The degrade is asserted the only honest way: the work is still **STAGED** (the
 /// §4.4 peek), not "a flag was set" — no residue flag exists, by design.
 #[test]
-fn app_turn_completion_terminates_at_the_cap_and_defers_the_residue() {
+fn app_turn_completion_terminates_at_the_cap_and_leaves_the_residue_staged() {
     let mut app = app_at(&popstate_every(PING_PONG), base());
     seed_same_document_pair(&mut app); // [base, /a], cursor on /a
 
@@ -421,8 +421,17 @@ fn app_failed_mid_loop_load_does_not_move_the_document_marker() {
 /// The chain, one drive: `back()` applies → `popstate` stages
 /// `location.href = '#frag'` → iteration 2's Phase 1c runs it, and because it
 /// classifies `SameDocument` it takes `same_document_step` (`app/navigation.rs`) —
-/// a real, SUCCEEDING navigate that fires `hashchange` synchronously → that
-/// handler stages a `pushState` → iteration 3 applies it.
+/// a real, SUCCEEDING navigate — → `hashchange` → that handler stages a
+/// `pushState` → iteration 3 applies it.
+///
+/// The `hashchange` leg rides a **known in-tree divergence**, stated here so the
+/// chain is not mistaken for spec-shaped: WHATWG HTML §7.4.6.2 *update document
+/// for history step application* step 6.4.5 **queues a global task** on the DOM
+/// manipulation task source to fire `hashchange`, whereas `same_document_step`
+/// delivers it inline in a second `deliver_history_step_events` call (which is
+/// what preserves the popstate → scroll → hashchange order without a task queue —
+/// see that function's own comment). The test pins elidex's behavior; it does not
+/// claim the spec settles a queued `hashchange` task inside the same turn.
 ///
 /// A same-document navigate does NOT re-stamp `document_sequence` (the fragment arm
 /// takes `push_same_document`, which INHERITS the current document identity), so the
