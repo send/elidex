@@ -374,11 +374,16 @@ fn identifier_logical_assign_semantics() {
 /// never written — the silent no-op shape the gate exists to ban, and the fourth
 /// instance of "admissibility decided inside a lowering" in this one slice.
 ///
-/// ECMA-262 §14.7.5.7 ForIn/OfBodyEvaluation step 8.g.ii.4.a performs the same
-/// `PutValue(lhsRef, nextValue)` §13.15.2 step 1.e does, so the same gate
-/// governs both.  Step 8.g runs **per iteration**, which is why the rejection is
-/// emitted at the assignment site: an empty iterable performs no assignment and
-/// must not throw.
+/// ECMA-262 §14.7.5.7 ForIn/OfBodyEvaluation routes a **non-destructuring** head
+/// through step 8.g.ii.4.a `Completion(PutValue(lhsRef.[[Value]], nextValue))`
+/// and a **destructuring** one through step 8.g.i.1.a
+/// `DestructuringAssignmentEvaluation` — the analogues of §13.15.2's
+/// `LeftHandSideExpression = AssignmentExpression` step 1.e and its
+/// ObjectLiteral/ArrayLiteral production. Both cases appear in the sweep below,
+/// and neither has a store lowering, which is why one gate covers them.
+///
+/// Step 8.g runs **per iteration**, which is why the rejection is emitted at the
+/// assignment site: an empty iterable performs no assignment and must not throw.
 #[test]
 fn forin_of_heads_share_the_assignment_admissibility_gate() {
     for src in [
