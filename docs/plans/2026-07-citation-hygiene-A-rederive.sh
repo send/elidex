@@ -35,6 +35,9 @@
 #   anchors            -> A-ii (its 7 preflight symbols: A-ii 26 hits, A-i 1)
 #   timing             -> A-ii (the CLI-subprocess axis §4.2.1/§4.5 instrument)
 #   bmemo, staleclaims -> B  (they derive the edit classes B's memo needs)
+#   selfcheck          -> common (it derives a property of the harness AS A WHOLE
+#                                 -- that every block below states its own exit
+#                                 status -- so it belongs to no slice)
 # Helpers are placed with their callers: `_runner` (4 A-ii blocks) -> A-ii;
 # `fixtures` and `_proto` have callers in two files -> common.
 set -uo pipefail
@@ -72,9 +75,14 @@ cd "$REPO_ROOT" || { printf 'FATAL: cannot cd to %s\n' "$REPO_ROOT" >&2; exit 2;
 # own: a callee cannot reach `$1`, so the name in the roster is the name that was
 # dispatched, by construction rather than by every block's good behaviour. Same
 # rule as `_measure`: make the wrong report unrepresentable.
-all() { set -- citations partition keysets column carvecolumn instruments remedies reloadstale \
-                armmatrix suites anchors regions offline couplings suiteset marker budget \
-                filters ruleset timing bmemo
+#
+# `selfcheck` runs FIRST and reads this very roster: it is the check that no block
+# named below hands back an accidental exit status, and `all` is the only place
+# the block set is written down, so deriving its scope from `$@` here is what
+# keeps the check from needing a second list to drift against.
+all() { set -- selfcheck citations partition keysets column carvecolumn instruments remedies \
+                reloadstale armmatrix suites anchors regions offline couplings suiteset marker \
+                budget filters ruleset timing bmemo
         local failed="" rc
         while [ "$#" -gt 0 ]; do
           say "$1"; "$1"; rc=$?

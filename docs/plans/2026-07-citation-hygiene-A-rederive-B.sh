@@ -51,6 +51,7 @@ print(f"  by `webref heading` output : same={same} diff={diff} not-measured={unr
       "   <- the memo's criterion")
 for e in examples: print("    ", e[0] + ":", e[1:])
 PY
+  return $?    # the heredoc'd command IS the measurement; say so
 }
 
 offline() {  # §10-Q1(a) — the SystemExit escape the boundary rests on
@@ -62,6 +63,7 @@ from _webref import spec_labels
 try: print("returned:", spec_labels.shortname_for("CSS Text 3"))
 except SystemExit as e: print("SystemExit ESCAPED _catalog():", e)
 PY
+  return $?    # the heredoc'd command IS the measurement; say so
 }
 
 bmemo() {  # §13 — the classes of edit B's memo needs, grep-derived not read
@@ -70,6 +72,16 @@ bmemo() {  # §13 — the classes of edit B's memo needs, grep-derived not read
   # a perf comment; the line-count grep's first hit was a §3 coverage-map row).
   # A block that does not derive its label is the defect this file exists to end.
   local B=docs/plans/2026-07-citation-hygiene-B-detector-correctness.md
+  # The eleven greps are a LISTING, and for several of them "matched nothing" is
+  # the ANSWER -- item 6 already spells that out, and item 11 matching nothing is
+  # the desired END STATE. So no grep's status is this block's verdict, and until
+  # now the verdict was item 11's by accident: fixing the stale table this block
+  # exists to find would have reported `bmemo(exit 1)` in `all`'s roster, and a
+  # roster that reddens on success stops being read. What IS this block's verdict
+  # is whether the memo was there to grep at all -- without it, eleven silent
+  # greps read as eleven clean items.
+  [ -f "$B" ] || { echo "!! $B is not there — eleven empty greps are not eleven clean items."
+                   return 1; }
   echo "-- 1. file-creation claims for files A creates --"; grep -n 'test_spec_labels' "$B"
   echo "-- 2. pin names colliding with A's --";             grep -nE '^\- \*\*P[0-9]' "$B"
   echo "-- 3. spec_labels.py line anchors --";              grep -n 'spec_labels\.py:' "$B"
@@ -87,6 +99,7 @@ bmemo() {  # §13 — the classes of edit B's memo needs, grep-derived not read
   echo "-- 10. cap-rule restatements (must become a pointer) --"; grep -n 'cleanup-\|per-PR ≤3\|cap' "$B"
   echo "-- 11. line-count table measured at a base where 2 files do not exist --"
   grep -nE '^\|[^|]*(cite_audit|spec_labels|webref_data)[^|]*\|[^|]*[0-9]{2,}' "$B"
+  return 0
 }
 
 staleclaims() {  # §13 — the cross-file claims this memo corrects, by concept not string

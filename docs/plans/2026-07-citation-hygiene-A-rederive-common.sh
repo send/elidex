@@ -676,6 +676,140 @@ lanes() {  # §13 — base, open PRs, worktrees authoring plan-memos, the two ca
   return "$failed"
 }
 
+selfcheck() {  # THE HARNESS AUDITED BY THE HARNESS — every `all` block STATES its status
+  # `_measure` makes a failed measurement unrepresentable as a pass AT THE CALL
+  # SITES THAT USE IT, and nowhere else. That is why `5abe729e`'s sweep -- which
+  # was scoped to the `git`-shaped and `subprocess.run`-shaped sites -- left
+  # `ruleset`'s three `gh api` calls behind, for Codex to find as the SIXTH
+  # instance of one class. Routing the sixth site fixes the site; it does not make
+  # the seventh detectable.
+  #
+  # WHAT IS CHEAPLY DETECTABLE is not "an un-routed measurement" (that needs to
+  # know which commands are measurements, which is a taste judgement no regex
+  # holds) but its CONSEQUENCE, which every instance so far has shared: THE
+  # BLOCK'S EXIT STATUS WAS AN ACCIDENT OF ITS LAST LINE. `ruleset` returned the
+  # third `gh api`'s; `suiteset` returned an `echo`'s; `column`, `carvecolumn`,
+  # `instruments`, `reloadstale` and `remedies` returned `rm -rf`'s; `bmemo`
+  # returned whichever way its eleventh grep happened to fall; `suites`'s own
+  # comment records the same defect as its cause (3). A block that must END IN AN
+  # EXPLICIT `return` cannot have an accidental status: the author has to write
+  # down what the block's verdict IS, and that is the moment the missing
+  # measurement is visible. So this block enforces exactly that, over the roster
+  # DERIVED FROM `all` -- not a second list, which would drift from the first.
+  #
+  # ⚠ WHAT IT DOES NOT CATCH, stated plainly so nobody reads more into a green:
+  # a block ending in a hardcoded `return 0` while discarding a measurement
+  # mid-body passes this check. It is a forcing function at the one place every
+  # instance surfaced, not a proof that every quantity was derived. The proof
+  # obligation still sits with `_measure` at each call site.
+  #
+  # Not routed through `_measure`, deliberately: `_measure` reports a COUNT and
+  # CLEARS `$_MEASURE_OUT` on failure, and here the failure output -- which blocks
+  # and what they end on -- is the whole answer. The python below carries its own
+  # did-it-run guards instead (no parts found, roster unreadable), which is the
+  # same property by the same argument.
+  python3 - "$REPO_ROOT/docs/plans" <<'SELFCHECKPY'
+import pathlib, re, sys
+
+D = pathlib.Path(sys.argv[1])
+DISPATCH = D / "2026-07-citation-hygiene-A-rederive.sh"
+parts = sorted(D.glob("2026-07-citation-hygiene-A-rederive*.sh"))
+if len(parts) < 2:
+    raise SystemExit("!! found %d harness part(s) under %s; a check that read no file "
+                     "reports no problem for a reason that is not 'there are none'."
+                     % (len(parts), D))
+
+m = re.search(r"^all\(\) \{ set -- (.*?)\n\s*local failed",
+              DISPATCH.read_text(encoding="utf-8"), re.S | re.M)
+if m is None:
+    raise SystemExit("!! cannot read `all`'s roster from %s; this check would then range "
+                     "over nothing and pass." % DISPATCH.name)
+roster = m.group(1).replace("\\\n", " ").split()
+
+DEF = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)\(\) \{")
+HEREDOC = re.compile(r"<<-?'([A-Za-z_][A-Za-z0-9_]*)'")
+# `^` or after a `;`/`&&`/`||`: the last thing the block does is hand back a status.
+RETURNS = re.compile(r"(?:^|[;&|]\s*)(?:return|exit)\b[^;]*;?\s*$")
+
+
+def blocks(path):
+    """(name, lineno, body) for column-0 definitions, with heredoc BODIES dropped
+    so a python payload is never parsed as shell."""
+    out, name, start, body, term = [], None, 0, [], None
+    for i, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+        if term is not None:                       # inside a heredoc payload
+            if line.strip() == term:
+                term = None
+            continue
+        d = DEF.match(line)
+        if d and name is None:
+            if line.rstrip().endswith("}"):        # one-liner
+                out.append((d.group(1), i, [line[line.index("{") + 1:].rsplit("}", 1)[0]]))
+            else:
+                name, start, body = d.group(1), i, []
+                h = HEREDOC.search(line)
+                if h:
+                    term = h.group(1)
+            continue
+        if name is not None:
+            if line == "}":
+                out.append((name, start, body))
+                name = None
+                continue
+            body.append(line)
+        h = HEREDOC.search(line)
+        if h:
+            term = h.group(1)
+    return out
+
+
+def uncomment(s):
+    """Drop a trailing `# ...`, quote-aware, so `return "$rc"  # why` still reads
+    as a return. A `#` inside quotes -- every grep ERE in this harness has one --
+    is not a comment."""
+    q = None
+    for i, ch in enumerate(s):
+        if q is not None:
+            if ch == q:
+                q = None
+        elif ch in "'\"":
+            q = ch
+        elif ch == "#" and (i == 0 or s[i - 1].isspace()):
+            return s[:i]
+    return s
+
+
+defined, bad = {}, []
+for path in parts:
+    for name, lineno, body in blocks(path):
+        defined[name] = (path.name, lineno)
+        if name not in roster:
+            continue
+        last = ""
+        for raw in reversed(body):
+            s = raw.strip()
+            if s and not s.startswith("#"):
+                last = s
+                break
+        if not RETURNS.search(uncomment(last).rstrip()):
+            bad.append((path.name, lineno, name, last[:64]))
+
+for name in roster:
+    if name not in defined:
+        bad.append((DISPATCH.name, 0, name, "<dispatched by `all` but defined nowhere>"))
+
+print(f"  {len(parts)} harness parts, {len(defined)} blocks, {len(roster)} on `all`'s roster")
+for fn, lineno, name, last in sorted(bad):
+    print(f"  !! {fn}:{lineno} {name}: ends on {last!r}")
+if bad:
+    print(f"  !! {len(bad)} block(s) whose exit status is their LAST LINE'S rather than")
+    print("  !! a statement about what they measured. End each in an explicit `return`.")
+    sys.exit(1)
+print("  VERDICT: GREEN — every roster block states its own status")
+SELFCHECKPY
+  return $?
+}
+
 # AUTHOR-LOCAL: these reach a per-user memory directory and sibling worktrees, so
 # they cannot run for a second reader. `all` excludes them; run them by name.
 AUTHOR_LOCAL="lanes staleclaims"
