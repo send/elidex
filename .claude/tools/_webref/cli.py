@@ -23,21 +23,18 @@ from .commands.idl import cmd_idl
 from .commands.refresh import cmd_refresh
 from .commands.snapshot import cmd_snapshot
 from .commands.specs import cmd_specs
+from .spec_labels import SHORTNAME_TO_BLURB
 
-COMMON_SHORTNAMES = """\
+# Derived from `spec_labels.SPECS`, which also backs `coverage-map`. This
+# blurb was the second of the two hand-maintained copies of that same
+# enumeration, and the two had drifted apart.
+_SHORTNAME_LINES = "\n".join(
+    f"  {short:<12} {SHORTNAME_TO_BLURB[short]}" for short in SHORTNAME_TO_BLURB
+)
+
+COMMON_SHORTNAMES = f"""\
 Common shortnames:
-  html         HTML LS (Custom Elements / Canvas / Workers / Form / Events — monolithic)
-  dom          DOM LS
-  selectors-4  CSS Selectors L4
-  geometry-1   Geometry Interfaces (DOMRect / DOMMatrix)
-  url          URL LS
-  fetch        Fetch LS
-  streams      Streams LS
-  webcrypto    Web Cryptography API (series → current spec webcrypto-2)
-  xhr          XMLHttpRequest LS
-  webidl       Web IDL
-  ecma262      ECMAScript Language Specification (tc39, biblio.json)
-  ecma402      ECMAScript Internationalization API (tc39, biblio.json)
+{_SHORTNAME_LINES}
 
 Examples:
   .claude/tools/webref heading html 4.13                     # all §4.13.x sections
@@ -74,8 +71,8 @@ def build_parser() -> argparse.ArgumentParser:
         prog=".claude/tools/webref",
         description=(
             "webref lookup helper — spec citation verification for elidex. "
-            "Backs Axis 4 (Spec citation discipline) recipe in "
-            ".claude/skills/elidex-review/axes.md."
+            "Backs the Axis 4 (Spec citation discipline) recipe in elidex's "
+            "pre-push design-review skill, which owns the axis definitions."
         ),
         epilog=COMMON_SHORTNAMES,
         formatter_class=argparse.RawDescriptionHelpFormatter,

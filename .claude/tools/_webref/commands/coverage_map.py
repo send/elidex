@@ -5,30 +5,18 @@ import argparse
 import sys
 
 from ..resolver import lookup_section
+from ..spec_labels import label_for
 
-# Human-readable spec label for the first column of §3 table rows. Falls back
-# to UPPER(shortname-with-dashes-as-spaces) for unmapped shortnames — extend
-# the map when a new spec becomes frequently cited (cosmetic only, not load-
-# bearing for verification).
-_SPEC_LABEL_MAP = {
-    "ecma262": "ECMA-262",
-    "ecma402": "ECMA-402",
-    "html": "WHATWG HTML",
-    "dom": "WHATWG DOM",
-    "url": "WHATWG URL",
-    "fetch": "WHATWG Fetch",
-    "streams": "WHATWG Streams",
-    "xhr": "WHATWG XHR",
-    "webcrypto": "Web Cryptography API",
-    "webidl": "Web IDL",
-    "selectors-4": "CSS Selectors L4",
-    "geometry-1": "Geometry Interfaces L1",
-}
+# Human-readable spec label for the first column of §3 table rows. The
+# enumeration is canonical in `_webref.spec_labels` — see that module for why
+# it is not inlined here. Falls back to UPPER(shortname-with-dashes-as-spaces)
+# for unmapped shortnames (cosmetic only, not load-bearing for verification).
 
 
 def _spec_label(shortname: str) -> str:
-    if shortname in _SPEC_LABEL_MAP:
-        return _SPEC_LABEL_MAP[shortname]
+    label = label_for(shortname)
+    if label is not None:
+        return label
     return shortname.upper().replace("-", " ")
 
 
