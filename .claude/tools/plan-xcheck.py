@@ -44,7 +44,7 @@ def main(path):
             bad("ENUM", f"row marked ✗ with no owner: {c[0][:52]}")
 
     # 5. cells: every §6 cell in exactly one §8 DoD
-    cells=set(re.findall(r"^(\d+[a-z]?)\.\s+\*\*", sect(s,"6"), re.M))
+    cells=set(re.findall(r"^(\d+[a-z]?)\.\s", sect(s,"6"), re.M))
     dod=sect(s,"8")
     listed=set()
     for rng in re.findall(r"cells? ([\d abc,–\-and]+)", dod):
@@ -70,7 +70,43 @@ def main(path):
     if stated and int(stated.group(1))!=actual:
         bad("COUNT", f"own-deferral count says {stated.group(1)}, {actual} slots are tagged own")
 
-    print(f"cross-check: {len(fails)} contradiction(s)")
+
+    # 8. PR columns in §2 / §3 / §10 must name a PR §5.3 defines (or a slot)
+    prs = defined | {"prereq"}
+    for l in pairs:
+        c=[x.strip() for x in l.strip("|").split("|")]
+        if len(c)>=4:
+            tok=c[3].strip("`* ")
+            if tok and not tok.startswith("#11-") and f"PR-{tok}" not in prs and tok not in prs:
+                bad("ROUTE", f"§2 pair {c[0][:28]} -> unknown PR {tok!r}")
+    # 9. §3 Touch column: any PR-xx it names must be defined
+    for l in sect(s,"3").split("\n"):
+        if not l.startswith("| ") or "---" in l: continue
+        for tok in re.findall(r"PR-1[a-z]", l):
+            if tok not in defined: bad("ROUTE", f"§3 names undefined {tok}")
+    # 10. DoD may not cite a cell §6 does not define
+    for c in sorted(listed-cells, key=str):
+        bad("CELL", f"DoD cites cell {c}, which §6 does not define")
+    # 11. §5.3's own cell ranges must agree with §8's
+    s53_cells=set()
+    for rng in re.findall(r"cells? ([\d abc,–\-and]+)", sect(s,"5")):
+        for tok in re.split(r",|and", rng):
+            tok=tok.strip()
+            if re.fullmatch(r"\d+[a-z]?", tok): s53_cells.add(tok)
+            elif re.fullmatch(r"\d+[–-]\d+", tok):
+                a,b=re.split(r"[–-]", tok); s53_cells |= {str(i) for i in range(int(a),int(b)+1)}
+    if s53_cells and s53_cells != listed:
+        for c in sorted(s53_cells ^ listed, key=str):
+            bad("CELL", f"cell {c} is in §5.3's ranges xor §8's, not both")
+    # 12. a superseded line-range must not survive beside its corrected form
+    SUPERSEDED = {":264-301": ":266-303", ":386-409": ":388-411", ":411-637": ":413-639"}
+    MARK = ("predates", "superseded", "pre-#497", "carried from")
+    for old, new in SUPERSEDED.items():
+        if new not in s: continue
+        for ln in s.split("\n"):
+            if old in ln and not any(m in ln for m in MARK):
+                bad("RANGE", f"{old} (superseded) restated alongside {new}: {ln.strip()[:60]}")
+    print(f"cross-check: {len(fails)} contradiction(s)  [cells {len(cells)} defined / {len(listed)} routed, {len(m_rows)} M-rows, {len(defined)} PRs, {len(slots)} slots]")
     for f in fails: print("  "+f)
     return 1 if fails else 0
 
