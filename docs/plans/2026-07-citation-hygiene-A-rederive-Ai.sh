@@ -45,41 +45,112 @@ readers() {  # THE recurring root, made checkable: every reader of a piece of st
   # Prints CODE readers and PROSE readers separately, because the edit sets that
   # failed did so by assigning code and leaving prose -- and by assigning one
   # prose site out of three.
+  #
+  # CODE and PROSE are ONE census PARTITIONED, not two greps. Through A-i round 2
+  # this block ran the code pass as `git grep ... -- .claude | grep -v '^#'` and
+  # the prose pass as `git grep ... -- .claude docs` -- the UNFILTERED SUPERSET.
+  # For any symbol with no leading-`#` reader the two sections therefore printed
+  # byte-identical output (`readers SHORTNAME_TO_LABEL HEAD`: the same 5 lines
+  # twice), and the separation the block advertises -- the separation the failing
+  # edit sets needed -- did not exist. It only LOOKED separable for
+  # `SPEC_LABEL_REVERSE`, which happens to have exactly one comment reader.
+  # Classification is syntactic: a markdown/prose file is prose; a `#`-comment
+  # line is prose; a line inside a docstring is prose, decided by the AST section
+  # that used to only report beside the partition and now decides it; everything
+  # else is code.
+  #
   # The census MUST range over a ref, and default to the baseline the memos
   # declare. Run at HEAD it reports zero readers of a symbol the branch already
-  # deleted -- which is the reassuring-and-useless answer.
+  # deleted -- which is the reassuring-and-useless answer, so an empty census and
+  # a broken partition are LOUD (`!!`) and exit non-zero. A block that silently
+  # reports nothing issues a clean bill of health it did not earn; that is the
+  # failure mode four review rounds went past.
   local sym=${2:-${SYM:-}} ref=${3:-$MAIN}
   [ -n "$sym" ] || { echo "usage: rederive readers <symbol> [ref]   (ref defaults to $MAIN)"; return 2; }
-  echo "== $sym  @ $ref =="
-  echo "-- code readers (non-comment, non-docstring lines) --"
-  git grep -nwE "$sym" "$ref" -- .claude |
-    grep -vE ':[0-9]+: *#' | sed 's/^/   /'
-  echo "-- prose readers (comments, docstrings, markdown) --"
-  git grep -nwE "$sym" "$ref" -- .claude docs | sed 's/^/   /'
-  git grep -nE "^ *#.*$sym" "$ref" -- .claude | sed 's/^/   /'
-  echo "-- inside docstrings (grep cannot tell; review these by eye) --"
   python3 - "$sym" "$ref" <<'READERSPY'
-import ast, subprocess, sys
+import ast, re, subprocess, sys
 sym, ref = sys.argv[1], sys.argv[2]
-files = subprocess.run(["git", "ls-tree", "-r", "--name-only", ref, ".claude/"],
-                       capture_output=True, text=True).stdout.split()
-n = 0
-for f in files:
-    if not f.endswith(".py"):
+
+
+def git(*args):
+    return subprocess.run(["git", *args], capture_output=True, text=True).stdout
+
+
+prefix = ref + ":"
+hits = []
+for raw in git("grep", "-nwE", sym, ref, "--", ".claude", "docs").splitlines():
+    if not raw.startswith(prefix):
         continue
+    path, lineno, text = raw[len(prefix):].split(":", 2)
+    hits.append((path, int(lineno), text))
+
+# Docstring spans, by AST. `git grep` cannot tell a docstring from code, so this
+# is what makes the partition real rather than advertised.
+spans, docsites = {}, []
+for path in sorted({p for p, _, _ in hits if p.endswith(".py")}):
     try:
-        src = subprocess.run(["git", "show", f"{ref}:{f}"], capture_output=True,
-                             text=True).stdout
-        tree = ast.parse(src)
+        tree = ast.parse(git("show", f"{ref}:{path}"))
     except Exception:
         continue
+    rs = []
     for node in ast.walk(tree):
-        doc = ast.get_docstring(node) if isinstance(
-            node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)) else None
-        if doc and sym in doc:
-            name = getattr(node, "name", "<module>")
-            print(f"   {f}: docstring of {name} (line {getattr(node, 'lineno', 1)})")
-            n += 1
-print(f"   ({n} docstring site(s))")
+        if not isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef,
+                                 ast.AsyncFunctionDef)):
+            continue
+        doc = ast.get_docstring(node)
+        if doc is None:
+            continue
+        expr = node.body[0]
+        rs.append((expr.lineno, expr.end_lineno))
+        if sym in doc:
+            docsites.append((path, expr.lineno, getattr(node, "name", "<module>")))
+    spans[path] = rs
+
+COMMENT = re.compile(r"\s*(#|//)")
+
+
+def prose_kind(path, lineno, text):
+    """None means code. Anything else is the reason the line is prose."""
+    if not path.endswith((".py", ".sh", ".toml", ".yml", ".yaml", ".cfg")):
+        return "markdown/prose file"
+    for a, b in spans.get(path, []):
+        if a <= lineno <= b:
+            return "docstring"
+    return "comment" if COMMENT.match(text) else None
+
+
+code, prose = [], []
+for path, lineno, text in hits:
+    kind = prose_kind(path, lineno, text)
+    (prose if kind else code).append((path, lineno, text, kind))
+
+
+def show(rows, what):
+    for path, lineno, text, kind in rows:
+        print(f"   {path}:{lineno}:{text.strip()}" + (f"   [{kind}]" if kind else ""))
+    if not rows:
+        print(f"   (no {what} readers)")
+
+
+print(f"== {sym}  @ {ref} ==")
+print(f"-- code readers ({len(code)}) — not a comment, not a docstring --")
+show(code, "code")
+print(f"-- prose readers ({len(prose)}) — the COMPLEMENT: comments, docstrings, markdown --")
+show(prose, "prose")
+print(f"-- inside docstrings, by AST ({len(docsites)} site(s)) --")
+for path, lineno, name in docsites:
+    print(f"   {path}: docstring of {name} (line {lineno})")
+
+rc = 0
+if not hits:
+    print(f"!! EMPTY CENSUS: no reader of `{sym}` at {ref}. Either the symbol is")
+    print("!! spelled differently, or the ref is wrong (a symbol this branch")
+    print("!! deletes has no readers at HEAD). NOT a clean bill of health.")
+    rc = 1
+elif [(p, n) for p, n, _, _ in code] == [(p, n) for p, n, _, _ in prose]:
+    print("!! CODE AND PROSE SECTIONS ARE IDENTICAL — the partition is broken and")
+    print("!! the separation this block advertises is not being computed.")
+    rc = 1
+sys.exit(rc)
 READERSPY
 }
