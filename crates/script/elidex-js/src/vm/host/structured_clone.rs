@@ -990,8 +990,8 @@ fn validate_transfer(ctx: &mut NativeContext<'_>, options: JsValue) -> Result<()
 /// Phase 2 restriction: real transferable objects are not yet
 /// supported, so a non-empty list throws `DataCloneError`.  A
 /// non-iterable Object (e.g. a plain `{}`, or an Object whose
-/// `@@iterator` is undefined) throws `TypeError` per WebIDL §3.2.27
-/// step 2-3, mirroring the TypeError thrown for non-Object
+/// `@@iterator` is undefined) throws `TypeError` per WebIDL §3.2.21
+/// step 3, mirroring the TypeError thrown for non-Object
 /// primitives.  Shared by `structuredClone`'s
 /// `StructuredSerializeOptions.transfer` and
 /// `window.postMessage`'s transfer argument (legacy and dict form).
@@ -1003,7 +1003,9 @@ pub(super) fn ensure_empty_transfer_list(
     match transfer {
         JsValue::Undefined | JsValue::Null => Ok(()),
         JsValue::Object(obj_id) => {
-            // Fast path: Array with empty elements (the common case).
+            // ⚠ Dense-Array read, so an Array whose `Symbol.iterator` is
+            // overridden does not go through §3.2.21 step 2's `GetMethod`.
+            // Slot: `#11-webidl-sequence-dense-array-fast-path`.
             if let ObjectKind::Array { elements } = &ctx.vm.get_object(obj_id).kind {
                 if elements.is_empty() {
                     return Ok(());
@@ -1013,7 +1015,7 @@ pub(super) fn ensure_empty_transfer_list(
                     format!("{err_prefix}: Transferable objects are not yet supported."),
                 ));
             }
-            // Non-Array object → probe `@@iterator` (WebIDL §3.2.27
+            // Non-Array object → probe `@@iterator` (WebIDL §3.2.21
             // step 2-3).  Missing `@@iterator` → TypeError, not
             // DataCloneError.
             let iter_key = PropertyKey::Symbol(ctx.vm.well_known_symbols.iterator);
@@ -1045,7 +1047,7 @@ pub(super) fn ensure_empty_transfer_list(
             // (IteratorStep / IteratorStepValue), the spec sets
             // `iteratorRecord.[[Done]] = true` and propagates the
             // completion WITHOUT invoking `IteratorClose`.  WebIDL
-            // §3.2.27 "Creating a sequence from iterable" inherits
+            // §3.2.21.1 "Creating a sequence from an iterable" inherits
             // that behaviour via `?`.  Same convention documented
             // in `headers.rs` (`parse_init`) and `blob.rs`
             // (`blob_ctor_parts`); propagating the error via `?`

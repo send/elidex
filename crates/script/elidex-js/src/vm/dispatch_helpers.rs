@@ -6,6 +6,7 @@ use num_bigint::BigInt;
 
 use crate::bytecode::compiled::Constant;
 
+use super::coerce::to_number;
 use super::value::{
     FuncId, JsValue, Object, ObjectKind, PropertyKey, PropertyValue, StringId, VmError,
 };
@@ -232,6 +233,159 @@ impl VmInner {
                 Ok(id)
             }
             _ => Err(VmError::internal("expected string constant")),
+        }
+    }
+}
+
+// ── Opcode bodies added by this slice ────────────────────────────────
+//
+// Extracted rather than written inline: `dispatch.rs` is over the 1000-line
+// threshold, so the umbrella's forward rule is to put an added arm's body in a
+// `dispatch_*.rs` sibling and leave the dispatch loop a table.  The rule covers
+// bodies that need only the VM and their own bytecode operands; `Op::PopCompletion`
+// stays inline because it reads `frame_idx` / `entry_frame_depth` — loop state
+// that is not the opcode's own — and threading both through a helper would trade
+// one line of table for two of plumbing.
+//
+// **Error disposition** is keyed on what a body can return, which the signature
+// fixes at compile time rather than leaving to whichever arm noticed:
+//
+// - `op_pop_under` can fail *only* by breaking a stack invariant, so its arm
+//   propagates with `?` and leaves `run()` by the hard path — the same exit
+//   `Op::Swap` has always taken inline for the identical condition.
+// - `op_get_elem_ref` / `op_inc_dec_elem` / `op_throw_unsupported` can also
+//   raise a JS-level error, so their arms hand everything to `throw_error` and
+//   handler search works normally.  That leaves their (unreachable-by-
+//   construction) invariant guards catchable, which is what every pre-existing
+//   `op_*` helper in this crate already does; unifying the two dispositions on
+//   the error's *kind* engine-wide is `#11-vm-internal-error-hard-exit`.
+
+impl VmInner {
+    /// `Op::PopUnder` — `[a1 … an v -- v]`, discard `n` slots from beneath the
+    /// top while keeping the top.
+    ///
+    /// Drops a member target's reference slots when a logical assignment
+    /// short-circuits, in one instruction rather than an `n`-fold `Swap; Pop`
+    /// dance. Like `Op::Pop`, and unlike `Op::PopCompletion`, it does not write
+    /// `completion_value`: only an ExpressionStatement's value belongs there
+    /// (ECMA-262 §14.5.1), and recording internal housekeeping there made
+    /// `eval("if (globalThis.Math ||= 2) {}")` return the global object instead
+    /// of `undefined`.
+    pub(super) fn op_pop_under(&mut self) -> Result<(), VmError> {
+        let count = self.read_u8_op() as usize;
+        let len = self.stack.len();
+        if len < count + 1 {
+            return Err(VmError::internal("stack underflow on PopUnder"));
+        }
+        let top = self.stack[len - 1];
+        self.stack.truncate(len - count - 1);
+        self.stack.push(top);
+        Ok(())
+    }
+
+    /// `Op::GetElemRef` — `[object key -- object key' value]`, load through a
+    /// computed member reference while keeping the reference for a later store.
+    ///
+    /// The `[object key]` pair is read **in place** rather than popped and
+    /// pushed back.  The stack effect alone does not force that — a
+    /// pop-then-repush produces the identical `[object key -- object key' value]`
+    /// — but the rooting does: key conversion runs
+    /// user `toString` / `@@toPrimitive`, which can allocate enough to trigger a
+    /// collection, and `gc/roots.rs` walks the VM stack but **not** Rust locals.
+    /// A base popped into a local could therefore be collected mid-conversion,
+    /// and this opcode hands that base straight to the following `Op::SetElem` —
+    /// a store through a dangling `ObjectId`, into whatever object recycled the
+    /// slot, or `get_object_mut`'s "object already freed" panic.  Leaving both
+    /// slots on the stack makes that unrepresentable here.  Pinned by
+    /// `get_elem_ref_keeps_temporary_base_rooted`.
+    ///
+    /// The reference is preserved for the same §13.15.2 reason the compiler
+    /// emits this opcode at all: the LeftHandSideExpression is evaluated once
+    /// and that one reference serves both `GetValue` and `PutValue`.
+    ///
+    /// `key'` is the **converted** key: §6.2.5.5 GetValue step 3.c.i writes
+    /// `ToPropertyKey`'s result back into the Reference Record, so a later
+    /// `PutValue` through the same reference does not re-run user
+    /// `toString`/`@@toPrimitive`. Converting inside this opcode also keeps step
+    /// 3.a ahead of step 3.c, so `null[k] += 1` is a `TypeError` even when
+    /// `k.toString()` would also throw.
+    pub(super) fn op_get_elem_ref(&mut self) -> Result<(), VmError> {
+        let len = self.stack.len();
+        if len < 2 {
+            return Err(VmError::internal("stack underflow on GetElemRef"));
+        }
+        let obj = self.stack[len - 2];
+        let key = self.stack[len - 1];
+        match self.get_element_keeping_key(obj, key) {
+            Ok((key, val)) => {
+                // The base slot is already correct; overwrite only the key with
+                // its converted form, then push the value.
+                self.stack[len - 1] = key;
+                self.stack.push(val);
+                Ok(())
+            }
+            Err(e) => {
+                // Consume the reference slots, as every other element opcode
+                // does, before the caller unwinds.
+                self.stack.truncate(len - 2);
+                Err(e)
+            }
+        }
+    }
+
+    /// `Op::IncElem` / `Op::DecElem` — `[object key -- number]`, plus a `prefix`
+    /// operand byte read from the bytecode.
+    ///
+    /// `o[k]++` evaluates its reference once (§13.4.2.1 step 1) and reuses it
+    /// for GetValue (step 3) and PutValue (step 6), so the key is converted
+    /// once — §6.2.5.5 step 3.c.i.  All four update productions this arm serves
+    /// share that shape (§13.4.2.1/§13.4.3.1 postfix, §13.4.4.1/§13.4.5.1
+    /// prefix).  Passing the raw key to both accessors ran a stateful
+    /// `toString` twice, reading one property and writing another — the same
+    /// defect `Op::GetElemRef` removes for compound assignment, fixed here by
+    /// sharing its [`Self::get_element_keeping_key`].
+    ///
+    /// ⚠ Unlike `Op::GetElemRef` this arm **pops** its operands, so `obj` spends
+    /// the key conversion and the `to_number` of the old value in a Rust local
+    /// that `gc/roots.rs` does not walk, and the `set_element` below writes
+    /// through it.  That is merge-base behaviour, unchanged by this slice and
+    /// shared with roughly twenty other arms; the boundary was drawn there
+    /// deliberately, because five successive audits each declared a different
+    /// per-site sweep complete and each was wrong.  Owned by
+    /// `#11-vm-operand-rooting-by-construction`, whose deliverable is an
+    /// invariant making an unrooted hold unrepresentable rather than a sixth
+    /// sweep.
+    pub(super) fn op_inc_dec_elem(&mut self, increment: bool) -> Result<(), VmError> {
+        let prefix = self.read_u8_op() != 0;
+        let raw_key = self.pop()?;
+        let obj = self.pop()?;
+        let (key, old) = self.get_element_keeping_key(obj, raw_key)?;
+        let old_num = to_number(self, old)?;
+        let new_num = if increment {
+            old_num + 1.0
+        } else {
+            old_num - 1.0
+        };
+        self.set_element(obj, key, JsValue::Number(new_num))?;
+        self.stack
+            .push(JsValue::Number(if prefix { new_num } else { old_num }));
+        Ok(())
+    }
+
+    /// `Op::ThrowUnsupported` — build the `TypeError` for a construct the
+    /// compiler cannot lower yet. Always throws; control never falls through.
+    ///
+    /// Throwing here rather than refusing to compile keeps the failure scoped to
+    /// the statement that runs it (umbrella I-1: loud **and** scoped) and
+    /// catchable, mirroring how `Op::CheckTdz` raises the TDZ `ReferenceError`.
+    pub(super) fn op_throw_unsupported(&mut self, func_id: FuncId) -> VmError {
+        let idx = self.read_u16_op();
+        match self.load_constant(func_id, idx) {
+            Ok(JsValue::String(id)) => {
+                VmError::type_error(String::from_utf16_lossy(self.strings.get(id)))
+            }
+            Ok(other) => VmError::type_error(format!("unsupported construct ({other:?})")),
+            Err(e) => e,
         }
     }
 }

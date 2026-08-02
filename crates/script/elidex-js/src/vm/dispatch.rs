@@ -11,13 +11,15 @@ use super::ops::{parse_array_index_u16, try_as_array_index, EndFinallyAction};
 use super::value::{FrameKind, JsValue, ObjectId, ObjectKind, PropertyKey, VmError, VmErrorKind};
 use super::VmInner;
 
-/// §12.5.3.2 DeleteExpression: strict-mode TypeError message when
-/// `[[Delete]]` returns `false`.
+/// ECMA-262 §13.5.1.2 Runtime Semantics: Evaluation, `UnaryExpression : delete
+/// UnaryExpression` step 4.f: strict-mode TypeError message when `[[Delete]]`
+/// returns `false`.
 const NON_CONFIGURABLE_DELETE_MSG: &str = "Cannot delete property: property is not configurable";
 
-/// §12.5.3.2 DeleteExpression step 6 `? ToObject(ref.[[Base]])`.  Null/undefined
-/// throw TypeError (via ToObject); other primitives are boxed to their
-/// wrapper so their [[Delete]] applies to the (temporary) wrapper.
+/// ECMA-262 §13.5.1.2 `UnaryExpression : delete UnaryExpression` step 4.c
+/// `? ToObject(ref.[[Base]])`.  Null/undefined throw TypeError (via ToObject);
+/// other primitives are boxed to their wrapper so their [[Delete]] applies to
+/// the (temporary) wrapper.
 fn resolve_delete_base(vm: &mut VmInner, obj: JsValue) -> Result<super::value::ObjectId, VmError> {
     match obj {
         JsValue::Object(id) => Ok(id),
@@ -45,11 +47,12 @@ impl VmInner {
                 // Fell off the end → implicit ReturnUndefined.
                 if frame_idx == entry_frame_depth {
                     let completion = match self.frames[frame_idx].kind {
-                        // ECMA-262 §16.1.6 ScriptEvaluation step 13.a + 13.b +
+                        // ECMA-262 §16.1.6 ScriptEvaluation step 13.a + 13.b.i +
                         // 17 / §19.2.1.1 PerformEval step 29.a + 30.a + 33 —
                         // script/eval bodies surface the last
                         // ExpressionStatement value captured by the entry-
-                        // gated `Op::Pop` arm.
+                        // gated `Op::PopCompletion` arm (13.b.i / 30.a are the
+                        // empty→`undefined` normalization).
                         FrameKind::Eval => {
                             let v = self.completion_value;
                             self.completion_value = JsValue::Undefined;
@@ -93,16 +96,16 @@ impl VmInner {
                     self.stack.push(val);
                 }
                 Op::Pop => {
+                    // A pure discard — see `Op::PopCompletion` for the recording
+                    // variant.  Internal housekeeping must not write
+                    // `completion_value`: it is not this stack slot's owner.
+                    self.pop()?;
+                }
+                Op::PopCompletion => {
                     let val = self.pop()?;
                     // Capture the last ExpressionStatement value into
                     // `completion_value` only for script/`eval` bodies
                     // (ECMA-262 §16.1.6 step 13.a / §19.2.1.1 step 29.a).
-                    // Function/class-ctor/generator/async bodies discard:
-                    // §10.2.1.4 OCEB + §15.2.3 step 4 yield
-                    // `ReturnCompletion(undefined)` regardless of any
-                    // trailing expression's value. The entry-depth check
-                    // pairs the gate to the only frame whose
-                    // `completion_value` write is observable on return.
                     if frame_idx == entry_frame_depth
                         && self.frames[frame_idx].kind == FrameKind::Eval
                     {
@@ -115,6 +118,10 @@ impl VmInner {
                         return Err(VmError::internal("stack underflow on Swap"));
                     }
                     self.stack.swap(len - 1, len - 2);
+                }
+                Op::PopUnder => {
+                    // Body in `dispatch_helpers.rs` — see `op_pop_under`.
+                    self.op_pop_under()?;
                 }
 
                 // ── Local access ────────────────────────────────────
@@ -454,35 +461,9 @@ impl VmInner {
                     }
                 }
                 Op::IncElem | Op::DecElem => {
-                    let prefix = self.read_u8_op() != 0;
-                    let key = self.pop()?;
-                    let obj_val = self.pop()?;
-                    let old = match self.get_element(obj_val, key) {
-                        Ok(v) => v,
-                        Err(e) => {
-                            self.throw_error(e, entry_frame_depth)?;
-                            continue;
-                        }
-                    };
-                    match to_number(self, old) {
-                        Ok(old_num) => {
-                            let new_num = if op == Op::IncElem {
-                                old_num + 1.0
-                            } else {
-                                old_num - 1.0
-                            };
-                            if let Err(e) = self.set_element(obj_val, key, JsValue::Number(new_num))
-                            {
-                                self.throw_error(e, entry_frame_depth)?;
-                                continue;
-                            }
-                            self.stack.push(JsValue::Number(if prefix {
-                                new_num
-                            } else {
-                                old_num
-                            }));
-                        }
-                        Err(e) => self.throw_error(e, entry_frame_depth)?,
+                    // Body in `dispatch_helpers.rs` — see `op_inc_dec_elem`.
+                    if let Err(e) = self.op_inc_dec_elem(op == Op::IncElem) {
+                        self.throw_error(e, entry_frame_depth)?;
                     }
                 }
 
@@ -533,18 +514,17 @@ impl VmInner {
                     if frame_idx == entry_frame_depth {
                         let return_val = match self.frames[frame_idx].kind {
                             // ECMA-262 §16.1.6 ScriptEvaluation step 13.a +
-                            // 13.b + 17 / §19.2.1.1 PerformEval step 29.a +
+                            // 13.b.i + 17 / §19.2.1.1 PerformEval step 29.a +
                             // 30.a + 33 — script/`eval` bodies surface the
                             // last ExpressionStatement value captured by
-                            // the entry-gated `Op::Pop` arm.
+                            // the entry-gated `Op::PopCompletion` arm.
                             FrameKind::Eval => {
                                 let v = self.completion_value;
                                 self.completion_value = JsValue::Undefined;
                                 v
                             }
-                            // ECMA-262 §10.2.1.4 OrdinaryCallEvaluateBody +
-                            // §15.2.3 step 4 — function / class-ctor /
-                            // generator / async bodies implicit-return
+                            // ECMA-262 §15.2.3 EvaluateFunctionBody step 4 —
+                            // a function body implicit-returns
                             // `ReturnCompletion(undefined)`. The class-ctor
                             // [[Construct]]-observable substitute (§10.2.2
                             // step 12-13 thisArgument or step 15-17
@@ -596,6 +576,12 @@ impl VmInner {
                         }
                     }
                 }
+                Op::GetElemRef => {
+                    // Body in `dispatch_helpers.rs` — see `op_get_elem_ref`.
+                    if let Err(e) = self.op_get_elem_ref() {
+                        self.throw_error(e, entry_frame_depth)?;
+                    }
+                }
                 Op::SetElem => {
                     let val = self.pop()?;
                     let key = self.pop()?;
@@ -620,9 +606,9 @@ impl VmInner {
                     };
                     match self.try_delete_property(id, pk) {
                         Ok(true) => self.stack.push(JsValue::Boolean(true)),
-                        // §12.5.3.2: `delete` operator throws TypeError in
-                        // strict mode when [[Delete]] returns false.  All
-                        // code is strict, so we always throw.
+                        // §13.5.1.2 step 4.f: `delete` operator throws
+                        // TypeError in strict mode when [[Delete]] returns
+                        // false.  All code is strict, so we always throw.
                         Ok(false) => self.throw_error(
                             VmError::type_error(NON_CONFIGURABLE_DELETE_MSG),
                             entry_frame_depth,
@@ -666,8 +652,8 @@ impl VmInner {
                             .and_then(|pk| self.try_delete_property(id, pk))
                         {
                             Ok(true) => self.stack.push(JsValue::Boolean(true)),
-                            // §12.5.3.2: strict-mode throw when [[Delete]]
-                            // returns false.
+                            // §13.5.1.2 step 4.f: strict-mode throw when
+                            // [[Delete]] returns false.
                             Ok(false) => self.throw_error(
                                 VmError::type_error(NON_CONFIGURABLE_DELETE_MSG),
                                 entry_frame_depth,
@@ -780,6 +766,11 @@ impl VmInner {
                 Op::PopExceptionHandler => {
                     let frame = self.frames.last_mut().unwrap();
                     frame.exception_handlers.pop();
+                }
+                Op::ThrowUnsupported => {
+                    // Body in `dispatch_helpers.rs` — see `op_throw_unsupported`.
+                    let err = self.op_throw_unsupported(func_id);
+                    self.throw_error(err, entry_frame_depth)?;
                 }
                 Op::Throw => {
                     let val = self.pop()?;

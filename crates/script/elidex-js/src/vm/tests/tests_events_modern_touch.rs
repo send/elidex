@@ -264,9 +264,9 @@ fn touch_list_item_out_of_range_null() {
 
 #[test]
 fn touch_event_sequence_accepts_iterable_non_array() {
-    // Regression: `sequence<Touch>` falls back to the iterator
-    // protocol for non-Array iterables per WebIDL §3.2.27.  Build a
-    // custom iterable that yields one Touch via `Symbol.iterator`.
+    // Regression: `sequence<Touch>` conversion goes through
+    // `@@iterator` for every input, Array or not (WebIDL §3.2.21 step 2).
+    // Build a custom iterable that yields one Touch via `Symbol.iterator`.
     let out = run(
         "var t = new Touch({ identifier: 1, target: document.body }); \
          var iterable = {}; \
@@ -287,7 +287,7 @@ fn touch_event_sequence_accepts_iterable_non_array() {
 
 #[test]
 fn touch_event_sequence_honours_array_iterator_override() {
-    // Regression: WebIDL §3.2.27 sequence<T> conversion always goes
+    // Regression: WebIDL §3.2.21 step 2 sequence<T> conversion always goes
     // through `@@iterator`.  An Array with overridden
     // `Symbol.iterator` must use the override, not the dense-elements
     // fast-path (which previously bypassed the iterator protocol).

@@ -128,11 +128,10 @@ pub(in crate::vm::host) fn parse_headers_init_entries(
 /// Validate one `[name, value]` pair from the sequence-init form
 /// and return the normalised `(name_sid, value_sid)` tuple.
 ///
-/// Per WebIDL `sequence<sequence<ByteString>>`, the **inner** pair
-/// is converted via the iterator protocol just like the outer
-/// sequence — any iterable yielding exactly two items qualifies
-/// (plain `[name, value]` arrays, `new Set([name, value])`,
-/// user-defined `[Symbol.iterator]` objects, etc.).  Arity ≠ 2
+/// Any iterable yielding exactly two items qualifies (plain
+/// `[name, value]` arrays, `new Set([name, value])`, user-defined
+/// `[Symbol.iterator]` objects, etc.) — except that an Array pair
+/// takes the dense read below, see its ⚠.  Arity ≠ 2
 /// is TypeError; iteration abrupt completion closes the inner
 /// iterator via `.return()` (§7.4.11) (R22.1).
 fn validate_pair_entry(
@@ -163,10 +162,12 @@ fn collect_header_pair_values(
             "{error_prefix}: Sequence header init must contain iterables of length 2"
         )));
     };
-    // Fast path: VM `Array` with exactly two elements.  Same kind
-    // of optimisation as the outer Array fast path in
-    // `parse_headers_init_entries`; an array's `@@iterator` would
-    // yield these same two values.
+    // ⚠ Reads the inner pair's dense `elements` directly, so an Array
+    // pair with an overridden `Symbol.iterator` does not honour the
+    // override — WebIDL §3.2.21 step 2 requires `GetMethod`. The outer
+    // level has no such fast path (see this function's sibling above and
+    // `webidl_sequence.rs`'s module docs, which record why the class was
+    // removed there). Slot: `#11-webidl-sequence-dense-array-fast-path`.
     if let ObjectKind::Array { elements } = &ctx.vm.get_object(pair_id).kind {
         if elements.len() != 2 {
             return Err(VmError::type_error(format!(

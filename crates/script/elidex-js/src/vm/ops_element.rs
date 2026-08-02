@@ -154,9 +154,46 @@ fn classify_typed_array_string_key(vm: &mut VmInner, sid: StringId) -> TypedArra
 }
 
 impl VmInner {
+    /// Load `obj[key]`, returning the **converted** key alongside the value so a
+    /// following store reuses it (`Op::GetElemRef`).
+    ///
+    /// ECMA-262 §6.2.5.5 GetValue step 3.c.i sets `[[ReferencedName]]` to
+    /// `ToPropertyKey`'s result *on the Reference Record*, so the `PutValue` of a
+    /// compound assignment (§13.15.2 step 9) reuses that key instead of running
+    /// user `toString`/`@@toPrimitive` a second time.  Without the memoization a
+    /// stateful key makes the read and the write target different properties.
+    ///
+    /// Step 3.a (base coercion) precedes step 3.c, so the base is rejected before
+    /// the key is converted: `null[k] += 1` is a `TypeError` even when
+    /// `k.toString()` would also throw.
+    ///
+    /// Only an **object** key can invoke user code, so primitives are returned
+    /// unchanged — re-converting them is side-effect-free, and normalising
+    /// `Number` to a string key would forfeit the array / TypedArray index fast
+    /// paths in [`Self::get_element`] for no observable gain.
+    pub(crate) fn get_element_keeping_key(
+        &mut self,
+        obj: JsValue,
+        key: JsValue,
+    ) -> Result<(JsValue, JsValue), VmError> {
+        // §7.2.1 RequireObjectCoercible rejects the same nullish bases as
+        // §6.2.5.5 step 3.a's `ToObject` — that step's ordering guarantee.
+        super::coerce::require_object_coercible(obj)?;
+        let key = if matches!(key, JsValue::Object(_)) {
+            match self.make_property_key(key)? {
+                PropertyKey::String(s) => JsValue::String(s),
+                PropertyKey::Symbol(s) => JsValue::Symbol(s),
+            }
+        } else {
+            key
+        };
+        let value = self.get_element(obj, key)?;
+        Ok((key, value))
+    }
+
     #[allow(clippy::too_many_lines)]
     pub(crate) fn get_element(&mut self, obj: JsValue, key: JsValue) -> Result<JsValue, VmError> {
-        // §6.2.4.5 RequireObjectCoercible: `null[key]` / `undefined[key]` throw.
+        // §7.2.1 RequireObjectCoercible: `null[key]` / `undefined[key]` throw.
         super::coerce::require_object_coercible(obj)?;
         if let JsValue::Object(id) = obj {
             // TypedArray integer-indexed get (ECMA-262 §10.4.5.17).  Must
@@ -649,7 +686,7 @@ impl VmInner {
         key: JsValue,
         val: JsValue,
     ) -> Result<(), VmError> {
-        // §6.2.4.5 RequireObjectCoercible: `null[k] = v` / `undefined[k] = v` throw.
+        // §7.2.1 RequireObjectCoercible: `null[k] = v` / `undefined[k] = v` throw.
         super::coerce::require_object_coercible(obj)?;
         if let JsValue::Object(id) = obj {
             // TypedArray integer-indexed write dispatches ahead of
@@ -763,7 +800,7 @@ impl VmInner {
         }
 
         // Primitive base (after RequireObjectCoercible): box for descriptor
-        // lookup per §6.2.4.8 PutValue step 5.a, keeping the original base
+        // lookup per §6.2.5.6 PutValue step 3.a, keeping the original base
         // as Receiver so `ordinary_set` rejects data writes via §10.1.9.2
         // step 2.b.  (Array-style fast paths don't apply: primitive
         // wrappers are never `ObjectKind::Array`.)

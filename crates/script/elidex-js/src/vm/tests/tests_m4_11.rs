@@ -491,7 +491,7 @@ fn new_arrow_function_throws() {
     eval_throws("var f = () => {}; new f();");
 }
 
-// ─── §6.2.4.5 RequireObjectCoercible for null/undefined base ─────────────
+// ─── §7.2.1 RequireObjectCoercible for null/undefined base ───────────────
 
 #[test]
 fn get_prop_null_throws() {
@@ -535,7 +535,7 @@ fn set_elem_undefined_throws() {
 
 #[test]
 fn delete_prop_null_throws() {
-    // §12.5.3.2 step 6: ToObject(null) throws.
+    // §13.5.1.2 step 4.c: ToObject(null) throws.
     eval_throws("var v = null; delete v.x;");
 }
 

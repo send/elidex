@@ -509,7 +509,7 @@ fn listener_with_aborted_signal_does_not_fire() {
 #[test]
 fn post_message_transfer_non_iterable_object_throws_type_error() {
     setup_bound_vm!(vm, session, dom, doc);
-    // `{}` has no `@@iterator`, so WebIDL §3.2.27 step 3 raises
+    // `{}` has no `@@iterator`, so WebIDL §3.2.21 step 3 raises
     // TypeError (not DataCloneError — the pre-R4 behavior).
     let src = "
         var caught = null;
