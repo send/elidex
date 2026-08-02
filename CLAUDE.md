@@ -49,7 +49,7 @@ webref の cache refresh / snapshot / semantic diff / agent-brief workflow の�
 ### Workflow
 
 - **コミット前**: `cargo fmt --all`
-- **Push 前**: `mise run ci` (check + lint + test-all + doc + deny + ci-sweep cleanup; ci-sweep は `cargo-sweep` 未インストール時 no-op)
+- **Push 前**: `mise run ci` (check + lint + test-all + doc + deny + trip-wires + ci-sweep cleanup; ci-sweep は `cargo-sweep` 未インストール時 no-op)
 - **テストは変更クレートに絞る**: `cargo test -p <crate> --all-features`。`--workspace` / `mise run test` は最終検証時のみ
 - **Git**: main 直接 push 禁止、PR 経由必須。`gh pr merge --auto` 禁止。CI 全 pass を目視確認してから squash merge
 - **並行セッション / worktree 隔離**: 他 Claude instance と working tree を共有し得る (parallel sessions)。**コミットするブランチは専用 worktree で隔離して作業** (新規ブランチ = `git worktree add -b <branch> <dir> origin/main` ← clean base 明示で汚染 HEAD を継がない / 既存ブランチ [in-progress PR の復旧等] = shared tree から外してから `git worktree add <dir> <branch>` ← `-b` は既存名で fail) (shared main tree で直接 commit しない — 並行 instance の branch 切替/commit が HEAD を動かし、`git push HEAD:<branch>` で他人の commit が PR に混入する)。*自分が作っていない WIP / "file modified since read" / HEAD が動いた* のいずれかを見たら STOP → worktree 隔離。commit/push 直前に `git branch --show-current` + `git log --oneline origin/main..HEAD` でスコープ目視し、push は `HEAD:<other>` でなく明示 branch ref。背景 = 共有ツリー経由で並行セッションの commit が PR #285 に混入した incident。pre-push フック (`~/.claude/hooks/git-push-branch-guard.sh`) が branch-mismatch push を機械的にブロック。
@@ -63,7 +63,7 @@ mise run lint        # clippy + fmt check
 mise run fmt         # cargo fmt --all
 ```
 
-その他: `test-all` (+ doc-tests) / `test-doc` / `doc` (RUSTDOCFLAGS=-D warnings) / `bench` (CSS / style / layout)。cargo を呼ぶ task (`check` / `test` / `test-doc` / `test-all` / `lint-clippy` / `doc`) は `--all-features` で gate (feature-gated code 含む)。`lint-fmt` / `deny` は feature と無関係。
+その他: `test-all` (+ doc-tests) / `test-doc` / `doc` (RUSTDOCFLAGS=-D warnings) / `trip-wires` (layering trip-wires = `scripts/trip-wires.sh`、CI の同名 job と同一) / `bench` (CSS / style / layout)。cargo を呼ぶ task (`check` / `test` / `test-doc` / `test-all` / `lint-clippy` / `doc`) は `--all-features` で gate (feature-gated code 含む)。`lint-fmt` / `deny` は feature と無関係。
 
 ## Architecture
 
@@ -89,4 +89,10 @@ mise run fmt         # cargo fmt --all
 
 ## CI
 
-`changes` path filter (`dorny/paths-filter@v4`、`.github/workflows/**` 含む) で以下 3 job を gate: `check` (3 OS × `cargo fmt --all -- --check` + clippy + nextest + doc-tests、後 3 つは `--all-features`) / `doc` (`cargo doc --workspace --no-deps --all-features` + `RUSTDOCFLAGS=-D warnings`) / `deny` (license + supply chain)。**Push to main は path filter bypass で常時全 job 実行**。コマンド詳細 = `.github/workflows/ci.yml`。
+`changes` path filter (`dorny/paths-filter@v4`、`.github/workflows/**` 含む) で以下 3 job を gate: `check` (3 OS × `cargo fmt --all -- --check` + clippy + nextest + doc-tests、後 3 つは `--all-features`) / `doc` (`cargo doc --workspace --no-deps --all-features` + `RUSTDOCFLAGS=-D warnings`) / `deny` (license + supply chain)。**Push to main は path filter bypass で常時全 job 実行**。
+
+4 つ目の job `trip-wires` (`bash scripts/trip-wires.sh` = `mise run trip-wires` と同一 script) は **filter で gate しない** — `main` 宛 PR / `main` への push で常時実行。gate すると `.claude/tools/**` (wire 本体 + `layout-box-reader-allowlist.tsv`) と `scripts/**` (entry point) を filter に列挙する必要があり、allowlist gate の改竄経路自体が「誰かが維持すべき allowlist 項目」になる (`layout-box-reader-allowlist.tsv` だけを触る PR が、それを読む job を skip できてしまう)。wire は toolchain 不要 (~1s) なので filter は何も買わない。理由の正典 = 同 job のコメント。
+
+⚠ **買えるものの範囲**: allowlist drift が **PR で赤くなる**ところまで。`main-protection` ruleset に required-status-check は無いので **merge はブロックされない** (上記「CI 全 pass を目視確認してから squash merge」の慣行が引き続き最終ゲート)。
+
+コマンド詳細 = `.github/workflows/ci.yml`。
