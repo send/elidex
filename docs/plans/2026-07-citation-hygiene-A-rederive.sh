@@ -640,8 +640,16 @@ couplings() {  # §7 / §12(3) — every elidex coupling in the generic tree, by
   local PATHRE='\.claude/(skills|tools)/[A-Za-z0-9_-]+/[A-Za-z0-9_.-]+'
   # A's half of the split tree (§4.0's A column). cite_audit.py / test_cite_audit.py
   # / webref_data.py are B's and must not be counted against A.
-  local AHALF=(.claude/tools/_webref/spec_labels.py .claude/tools/_webref/cli.py
-               .claude/tools/_webref/commands/coverage_map.py .claude/tools/_webref/DESIGN.md)
+  # DERIVED, not listed: A's half is the generic tree minus B's files. An
+  # inclusion list cannot see a file the slice CREATES -- which is exactly what
+  # it missed (test_spec_labels.py), twice, in the block written to catch it.
+  local BFILES='cite_audit|test_cite_audit|webref_data'
+  local AHALF=()
+  while IFS= read -r f; do
+    printf '%s' "$f" | grep -qE "$BFILES" || AHALF+=("$f")
+  done < <(git ls-files '.claude/tools/_webref/*.py' '.claude/tools/_webref/**/*.py' \
+                        '.claude/tools/_webref/*.md')
+  echo "   A-half files: ${#AHALF[@]}"
   echo "-- concept, origin/main baseline --"
   git grep -nE "$CONCEPT" "$MAIN" -- .claude/tools/_webref/ | cat
   echo "-- concept, HEAD (A's files and B's together) --"
@@ -697,13 +705,63 @@ print(f"  a bare line-anchored grep would report               : {loose}")
 MARKERPY
 }
 
+readers() {  # THE recurring root, made checkable: every reader of a piece of state
+  # R7, R8, R9 and A-i R1 all reduced to "a write-path changed; its OTHER readers
+  # were not reconciled". That is an authoring step, not a review finding, and it
+  # was never a command. It is now. Usage: `rederive readers SPEC_LABEL_REVERSE`.
+  # Prints CODE readers and PROSE readers separately, because the edit sets that
+  # failed did so by assigning code and leaving prose -- and by assigning one
+  # prose site out of three.
+  # The census MUST range over a ref, and default to the baseline the memos
+  # declare. Run at HEAD it reports zero readers of a symbol the branch already
+  # deleted -- which is the reassuring-and-useless answer.
+  local sym=${2:-${SYM:-}} ref=${3:-$MAIN}
+  [ -n "$sym" ] || { echo "usage: rederive readers <symbol> [ref]   (ref defaults to $MAIN)"; return 2; }
+  echo "== $sym  @ $ref =="
+  echo "-- code readers (non-comment, non-docstring lines) --"
+  git grep -nwE "$sym" "$ref" -- .claude |
+    grep -vE ':[0-9]+: *#' | sed 's/^/   /'
+  echo "-- prose readers (comments, docstrings, markdown) --"
+  git grep -nwE "$sym" "$ref" -- .claude docs | sed 's/^/   /'
+  git grep -nE "^ *#.*$sym" "$ref" -- .claude | sed 's/^/   /'
+  echo "-- inside docstrings (grep cannot tell; review these by eye) --"
+  python3 - "$sym" "$ref" <<'READERSPY'
+import ast, subprocess, sys
+sym, ref = sys.argv[1], sys.argv[2]
+files = subprocess.run(["git", "ls-tree", "-r", "--name-only", ref, ".claude/"],
+                       capture_output=True, text=True).stdout.split()
+n = 0
+for f in files:
+    if not f.endswith(".py"):
+        continue
+    try:
+        src = subprocess.run(["git", "show", f"{ref}:{f}"], capture_output=True,
+                             text=True).stdout
+        tree = ast.parse(src)
+    except Exception:
+        continue
+    for node in ast.walk(tree):
+        doc = ast.get_docstring(node) if isinstance(
+            node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)) else None
+        if doc and sym in doc:
+            name = getattr(node, "name", "<module>")
+            print(f"   {f}: docstring of {name} (line {getattr(node, 'lineno', 1)})")
+            n += 1
+print(f"   ({n} docstring site(s))")
+READERSPY
+}
+
 budget() {
   echo "-- origin/main base, the touch set --"
   for f in "$PF" .claude/tools/_webref/commands/coverage_map.py .claude/tools/_webref/cli.py \
            .claude/tools/_webref/DESIGN.md mise.toml .github/workflows/ci.yml; do
     echo "$(git show "$MAIN:$f" | wc -l) $f"; done
   echo "-- on this branch --"
-  echo "$(wc -l < docs/plans/2026-07-citation-hygiene-A-enforcement-plumbing.md) A's memo"
+  for m in Ai-spec-label-map Aii-gate-failure-semantics Aiii-suite-scheduler \
+           umbrella B-detector-correctness C-policy-retirement; do
+    f="docs/plans/2026-07-citation-hygiene-$m.md"
+    [ -f "$f" ] && echo "$(wc -l < "$f") $m"
+  done
   echo "$(wc -l < docs/plans/2026-07-citation-hygiene-A-rederive.sh) the re-derivation harness"
   echo "-- preflight.py's LOGIC growth under A --"
   # `wc -l` on the armmatrix proto is not a usable estimate: the proto trims
@@ -837,4 +895,4 @@ all() { for f in citations partition keysets column carvecolumn instruments reme
           say "$f"; "$f"; done
         printf '\n(author-local, excluded from `all`: %s)\n' "$AUTHOR_LOCAL"; }
 
-"${1:-all}"
+"${1:-all}" "$@"
