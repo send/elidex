@@ -207,35 +207,47 @@ a stipulated inventory would have shipped incomplete.
 
 Emit-site counts grep-verified 2026-07-26 (command in §2.1).
 
+⚠ **This table is the probe at baseline `f7d9b5ce`; its Site / Emits / Observable columns are frozen
+there.** Read them as "what the sweep found", never as current state. Slice 0a then landed
+(`658cc302`) and, beyond its three T0 rows, converted **nine** further rows from a silent no-op into a
+*scoped* `Op::ThrowUnsupported` — marked **0a ✅ loud** in the Slice column. The construct is still
+unimplemented and the named slice still owns it; what changed is the **failure mode**, which is the
+very axis 0c is scoped by, so 0c's charter is narrowed accordingly below. Re-derive with
+`grep -rn 'emit_unsupported\|unsupported_member_target' crates/script/elidex-js/src/compiler/`
+(9 call sites at `658cc302`, in `expr_assign.rs`, `expr_ops.rs`, `stmt_loop.rs`,
+`stmt_destructure.rs`). Site line numbers are `f7d9b5ce`-relative and several have moved:
+`compiler/stmt.rs` went 1001→712 when 0a split out `compiler/stmt_loop.rs`, so the `:877-878` and
+`:882` rows now live in that new file.
+
 | Site | Syntax | Emits | Observable | Tier | Slice |
 |---|---|---|---|---|---|
 | `compiler/expr_assign.rs:170` | `obj[k] += v` | **`assert!` → panic** | process abort | **T0** | 0a ✅ |
 | `compiler/expr_ops.rs:29` | **`obj.p \|\|= v` / `&&=` / `??=`** (named member) | **`unreachable!` → panic** — short-circuit was implemented only for the *identifier* target, so every member logical assignment reached `compound_op_to_opcode` | process abort | **T0** | 0a ✅ |
 | `compiler/expr_assign.rs:170` + `expr_ops.rs:29` | **`obj[k] \|\|= v`** (computed logical) | **panic** (both of the above) | process abort | **T0** | 0a ✅ |
-| `compiler/expr_assign.rs:210-212` | `[a,b]=…`, `({x}=…)` | RHS only, no store | silent no-op | T1 | 0b |
+| `compiler/expr_assign.rs:210-212` | `[a,b]=…`, `({x}=…)` | RHS only, no store | silent no-op | T1 | 0b — **0a ✅ loud** |
 | `compiler/expr_member.rs:70-76` | `f(...a)` | spread operand as one arg | silent wrong arity | T1 | 1b |
 | `compiler/expr_class.rs:428` | `class A{x=1}` | **skipped entirely** | field `undefined` | T1 | 2 |
 | `compiler/expr.rs:200-207` | `super.x`, `super[k]` | `PushUndefined` | TypeError at use | T2 | 3 |
 | `compiler/expr.rs:237-239` | `` t`a${1}` `` | `PushUndefined` | tag never called | T1 | 4 |
 | `compiler/expr_member.rs:44`, `expr.rs:230` | `#x` get / `#x in o` | emits `GetPrivate`/`PrivateIn` → dispatch stub | `undefined` / `false` | T1 | 5 |
-| `compiler/expr_assign.rs:202-206` | `o.#x = v` | `Op::Pop` (the `_ =>` arm); **no `SetPrivate` emit site exists at all** | write lost **and** the assignment evaluates to the *object*: `x = (o.#p = 5)` ⇒ `x === o` | T1 | 5 |
+| `compiler/expr_assign.rs:202-206` | `o.#x = v` | `Op::Pop` (the `_ =>` arm); **no `SetPrivate` emit site exists at all** | write lost **and** the assignment evaluates to the *object*: `x = (o.#p = 5)` ⇒ `x === o` | T1 | 5 — **0a ✅ loud** |
 | `compiler/expr.rs:200-207` | `import('x')` | `PushUndefined` | not a Promise | **T1** | *(see §5)* |
 | `compiler/expr_object.rs:117-121` | `{1n: 'x'}` (**literal** key only — `{[1n]:…}` computed is correct, probe-verified) | empty-string key → `{"":"x"}` | wrong key | T1 | 9 |
-| `compiler/expr_ops.rs:249` | `obj.#x++` | emits nothing, old value retained | silent no-op | T1 | 5 |
-| **`compiler/expr_ops.rs:261`** | **`(x)++`, `(a[0])++`** — parenthesized update target | operand evaluated only | **silent no-op** | T1 | 0b |
-| **`compiler/expr_assign.rs:210-212`** | **`(x)+=1`** — parenthesized assign target (same catch-all as destructuring) | RHS only | **silent no-op** | T1 | 0b |
+| `compiler/expr_ops.rs:249` | `obj.#x++` | emits nothing, old value retained | silent no-op | T1 | 5 — **0a ✅ loud** |
+| **`compiler/expr_ops.rs:261`** | **`(x)++`, `(a[0])++`** — parenthesized update target | operand evaluated only | **silent no-op** | T1 | 0b — **0a ✅ loud** |
+| **`compiler/expr_assign.rs:210-212`** | **`(x)+=1`** — parenthesized assign target (same catch-all as destructuring) | RHS only | **silent no-op** | T1 | 0b — **0a ✅ loud** |
 | `compiler/expr_ops.rs:147-149` + **`parser/`** | `delete this.#x` | `Pop; PushTrue` → `true` | wrong constant; ECMA-262 §13.5.1.1 makes it an **early SyntaxError** ⇒ **parse-time** rejection, so 0c's runtime-throw regime is wrong for it (same layer argument as §9 dec. 15). The sibling half of the *same* spec bullet (`delete <identifier>`) is **already** parser-gated, so the two halves must not land in two layers | T1 | **0b** (parser) |
-| `compiler/expr_ops.rs:226` | module-binding **update** (`importedBinding++`) — *not* `delete`; falls to the `:261` catch-all, leaving the current value (the in-code "fall through to push undefined" comment is itself stale) | operand only | silent no-op | T1 | M |
-| `compiler/stmt.rs:877-878` | module-binding `for-in` target | `Pop` | silent no-op | T1 | M |
+| `compiler/expr_ops.rs:226` | module-binding **update** (`importedBinding++`) — *not* `delete`; falls to the `:261` catch-all, leaving the current value (the in-code "fall through to push undefined" comment is itself stale) | operand only | silent no-op | T1 | M — **0a ✅ loud** |
+| `compiler/stmt.rs:877-878` | module-binding `for-in` target | `Pop` | silent no-op | T1 | M — **0a ✅ loud** |
 | `compiler/stmt.rs:31-39` | `import`/`export` **declarations**, grouped into the `Empty`/`Debugger` no-op arm (found by the pass-3 structural sweep) | nothing | silent no-op — **latent**: unreachable until `parse_module` gains a production caller | T1 | M (precondition) |
 | `compiler/expr_class.rs:430-447` | `class A{#x=1}` — `PrivateField` compiled only under `if *is_static`, no else | nothing | silent no-op | T1 | 5 |
 | `compiler/expr.rs:186-189` + **`parser/expr.rs:256-263`** | `ExprKind::Spread` in prefix position (`var y = ...x`) — an early-SyntaxError position per spec; the parser's `Ellipsis` arm is **ungated** | operand only | silent no-op | T1 | **0b** (parser — §9 dec. 15) |
 | `compiler/expr_class.rs:588-590`, `:568`, `:621` | `class{get [k](){}}` + 2 sibling key arms | `CompileError` | **loud reject — not a defect**, listed for completeness | T2 | 2 |
-| `compiler/stmt.rs:882` | `for (obj.prop in …)` | `Pop` | silent no-op | T1 | 0b |
+| `compiler/stmt.rs:882` | `for (obj.prop in …)` | `Pop` | silent no-op | T1 | 0b — **0a ✅ loud** |
 | `compiler/expr_member.rs:92` | **`(o.m)()`** — `compile_call_expr` matches `ExprKind::Member` on the **raw** callee, so a parenthesized callee takes the plain-call branch | `Op::Call` (no receiver pushed) | **`this` is `undefined`** instead of `o` ([C20] step 1.a.i) | T1 | **0b** (the shared `peel_paren` chokepoint — §9 dec. 14) |
 | `compiler/stmt.rs:99-103` | **`for await (x of it)`** — the `is_await: _` discard | compiles identically to sync `for-of` | silent **wrong protocol** (sync iterator used for an async iterable) | T1 | 6 |
 | `compiler/expr_member.rs:60-64` | `f(a×256)` | **`assert!` → panic** | process abort | T0 | 1b |
-| `compiler/expr_assign.rs:215-220` | `AssignTarget::Pattern` | `Op::Pop`, claims to "fail explicitly" but does not | **dead** — parser never constructs this variant | I-4 | 0b |
+| `compiler/expr_assign.rs:215-220` | `AssignTarget::Pattern` | `Op::Pop`, claims to "fail explicitly" but does not | **dead** — parser never constructs this variant | I-4 | 0b — **0a ✅ loud** |
 
 **Verified NOT defects** (checked during the sweep, no action): `delete x` **is** correctly gated by
 the parser ("Cannot delete an unqualified identifier in strict mode") — so `expr_ops.rs:156-159` is
@@ -451,8 +463,11 @@ asserts that encode **ISA/bytecode-format invariants** (jump-offset and operand-
 [[feedback_compiler_asserts_are_isa_invariants]], which directs that "assert → Result" findings on
 those sites be declined with a pointer to that memo. R2 round-2 review flagged that some of these
 *are* user-JS-reachable (a >32 KB function body); that is a known, ratified position, not a defect.
-`expr_assign.rs:102` (`unreachable!("assignment to import binding")`) becomes reachable with
-Slice M and is that slice's to convert.
+⚠ *This invariant used to close by naming `expr_assign.rs:102`
+(`unreachable!("assignment to import binding")`) as becoming reachable with Slice M and Slice M's to
+convert. **Slice 0a already converted it**: `grep -c 'unreachable!' compiler/expr_assign.rs` → 0 at
+`658cc302`, and the site is `emit_unsupported(fc, "assignment to an imported binding is not
+supported")` at `:104`. Slice M inherits no conversion here — only the implementation.*
 
 **I-3 · One argument-emit path.** All call shapes route through **one** helper that decides
 flat-vs-array; Slice 4's tagged-template arg list routes through the same helper. **Carve-out
@@ -521,7 +536,7 @@ narrowly-scoped slice a **terminal unit** (edge-dense base case).
 | **0a — implemented, in review** | Compound **and logical** assignment to member targets — killed **3** panic classes (the plan had recorded 1; the other two were found while implementing and land together, same concept + same files). NB only `Dup`/`Swap` exist, so preserving `[obj key]` across the load needs a **new stack-shuffle opcode** ⇒ handler only (**`bytecode/disasm.rs` needs no arm** — it dispatches generically on `op.operand_size()`; this corrects a cost model that also mis-stated Slices 1b/6/D) | `compiler/expr_assign.rs`, `bytecode/opcode.rs`, `vm/dispatch.rs`, `vm/tests/{mod,tests_member_compound_assign}.rs` | **new** `#11-vm-computed-compound-assignment` | T0 | — |
 | **0b** | *(Deps: **P**)* **Assignment/update target completeness** — destructuring assignment (`[a,b]=…`, `({x}=…)`, for-of patterns), **parenthesized targets** (`(x)++`, `(x)+=1`, `(a[0])++`, **and the parenthesized _callee_ `(o.m)()`** — one shared `peel_paren` chokepoint, §9 dec. 14), `for(obj.p in …)`, **the two early-SyntaxError rejections** (prefix `Spread`, `delete this.#x` — §9 dec. 15) | `compiler/expr_assign.rs`, `compiler/expr_ops.rs`, `compiler/stmt.rs`, **`compiler/expr_member.rs`** (the `(o.m)()` callee match), **`compiler/expr.rs`**, `parser/expr.rs` (Paren normalisation + the ungated `Ellipsis` arm) | **new** `#11-vm-assignment-target-completeness` | T1 | — |
 | **P** | **`IteratorClose` precedence convention** — completion-kind-dependent `iter_close` signature + **15** sites (10 `iter_close(` + 4 `fc.emit(Op::IteratorClose)` + 1 inline re-implementation in `op_array_spread`), **split by governing algorithm first** (**10** ECMA-262 §7.4.11 / **5** WebIDL §3.2.21.1) (§6.2a-2). Gates 0b | `vm/dispatch_iter.rs`, `vm/ops.rs`, `vm/natives_array_hof.rs`, `vm/webidl_sequence.rs`, `vm/host/{typed_array_static,url_search_params,structured_clone,headers/parse_init}.rs`, `compiler/{stmt,expr_yield_star}.rs` | **new** `#11-vm-iteratorclose-precedence-convention` | T1 | — |
-| **0c** | I-1 discharge: **all three** substitution classes → loud throw; **+ §7.2 conformance table** | sweep-derived (§9 dec. 9) — at minimum `compiler/{expr,expr_object,expr_ops,expr_class,expr_assign,stmt}.rs` **+ `vm/dispatch.rs`** (the reachable Layer-B arms: `GetPrivate`/`PrivateIn`) | (invariant, no slot) | — | — |
+| **0c** | I-1 discharge: **all three** substitution classes → loud throw; **+ §7.2 conformance table**. ⚠ **Narrowed by 0a's landing** — the 9 rows marked *0a ✅ loud* in §2.2 are already discharged (all of `expr_assign.rs`'s rows among them). 0c's first act is to **re-run the §2.1 three-pass sweep at `658cc302`** and derive its file list from the residue. The list opposite is the pre-0a one and must not be used as the charter | sweep-derived (§9 dec. 9) — pre-0a list, **stale**: `compiler/{expr,expr_object,expr_ops,expr_class,expr_assign,stmt}.rs` **+ `vm/dispatch.rs`** (the reachable Layer-B arms: `GetPrivate`/`PrivateIn`) | (invariant, no slot) | — | — |
 | **1a** | **Call-spread VM infrastructure** (user-adopted split, §9 dec. 6 — **no call-shape change, plus two named semantic fixes**: decs. 13a + 10; NOT unqualified "behaviour-preserving", see §6.4): `lay_out_call_args` stack-layout helper + `Empty` normalisation + convert `op_super_call_spread` to consume it + correct `op_super_call_spread`'s falsified docstring (the `expr_class.rs:145-152` producer is **spec-required** and is NOT folded — §6.3 / I-3 carve-out) + `ic_call`/`ic_call_method` → `call_ic_idx: Option<usize>` (dec. 11) + remove `op_array_spread`'s `return()` (dec. 13a) + **rooting** the 4 unrooted arg windows (dec. 10 — ⚠ *not* `gc_enabled` bracketing; that was overturned in round 8 because `:893`/`:658` hand off to `make_async_coroutine_and_drive`, which drives the async body) | **`vm/dispatch_helpers.rs`** (home of `lay_out_call_args` — the proven cohesion seam, §5 1000-line note), `vm/dispatch_class.rs`, `vm/dispatch_iter.rs`, `vm/dispatch_ic.rs`, **`vm/dispatch.rs`** (the *only* callers of `ic_call`/`ic_call_method`, which dec. 11 re-signatures — without it 1a does not compile; ⚠ these were `:719`/`:730` at `f7d9b5ce` and are `:705`/`:716` at `658cc302`, so 1a must re-derive them by grep at implementation time rather than reading either pair forward), `vm/interpreter.rs` — **no `compiler/` file** (the fold is withdrawn; edge 32 is a test) | `#11-vm-call-spread-arguments` (shared with 1b) | T1 | 0c |
 | **1b** | **Call-argument spread — compiler + opcodes**: `compile_call_arguments`/`ArgsForm` + `emit_call` aggregation (dec. 2) + `CallMethodSpread` (dec. 2b) + the 3 handlers + arity-based form selection | `compiler/expr_member.rs`, `expr.rs`, `bytecode/opcode.rs`, `bytecode/disasm.rs`, `vm/dispatch.rs`, **`vm/ops.rs`** (`do_new` §3 rows 17/18, the bound-prefix splice `:696-700` for edge 26, and dec. 12's stack bound — which has no implementation today) | `#11-vm-call-spread-arguments` | T1 | **1a** |
 | **2** | Class **instance** field initializers (public) | `compiler/expr_class.rs`, `vm/dispatch.rs`, **`vm/dispatch_class.rs:232-250`** (`construct_synchronous` — the receiver substitution the contract below turns on); **+ `vm/host/custom_elements/`** (no-regression only — see below) | **adopt** `#11-step9-class-extras` | T1 | — |
@@ -534,7 +549,7 @@ narrowly-scoped slice a **terminal unit** (edge-dense base case).
 | **9** | Prototype micro-sweep (T3) **+ the T1 `{1n:…}` key fix** — tier-mixed; the T1 row may be pulled forward if the severity ordering is enforced strictly | `vm/natives_array.rs`, `natives_string.rs`, `natives_object/`, `compiler/expr_object.rs` | **new** `#11-vm-es2021-2024-prototype-sweep` | T3 | — |
 | **10** | `Proxy`/`Reflect` | `vm/object_kind.rs`, `vm/ops_property.rs` | `#11-vm-proxy-reflect` | T3 | 7 |
 | **D** | **Dead-opcode sweep** — mechanically re-derive the §2.3 set and delete what no slice connected | `bytecode/opcode.rs`, `vm/dispatch.rs` | **adopt** `#11-dead-opcode-removal` | — | after 1b-5 |
-| **M** | **ES modules — PROMOTED TO ITS OWN UMBRELLA, outside this plan's slice sequence** (R2 round 5). It carries the `stmt.rs:31-39` precondition, 3 §2.2 rows, I-2's `expr_assign.rs:102` `unreachable!`, I-5's host-fetch-seam boundary, and the `ImportMeta`/`DynamicImport` connects = ≥3 intersecting invariant axes, so the CLAUDE.md edge-dense rule forbids one PR. Only the **`#11-vm-dynamic-import`** T1 carve stays homed here (0c makes `import()` loud; the Promise-returning impl belongs to the module umbrella) | — | `#11-vm-dynamic-import` | T1 | — |
+| **M** | **ES modules — PROMOTED TO ITS OWN UMBRELLA, outside this plan's slice sequence** (R2 round 5). It carries the `stmt.rs:31-39` precondition, 3 §2.2 rows (⚠ two of them — the module-binding update and for-in head — are **0a ✅ loud**, so M inherits their *implementation*, not their conversion; I-2's `expr_assign.rs:102` `unreachable!` is likewise already converted), I-5's host-fetch-seam boundary, and the `ImportMeta`/`DynamicImport` connects = ≥3 intersecting invariant axes, so the CLAUDE.md edge-dense rule forbids one PR. Only the **`#11-vm-dynamic-import`** T1 carve stays homed here (0c makes `import()` loud; the Promise-returning impl belongs to the module umbrella) | — | `#11-vm-dynamic-import` | T1 | — |
 | **—** | `Function`/`eval` | — | `#11-vm-function-constructor-global` | policy | §9 dec. 7 |
 
 **Ordering rationale.** 0a first on severity (process abort). *(Rounds 2-9 put a `vm/dispatch.rs`
