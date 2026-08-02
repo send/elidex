@@ -27,7 +27,7 @@ jobs:
       matrix:
         language: [actions, rust]
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       # Rust CodeQL uses the source-only analyzer (build-mode: none) — it
       # does not support `autobuild`, and `none` avoids the ~10 min tracer
