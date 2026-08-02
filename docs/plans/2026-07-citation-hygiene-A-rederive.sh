@@ -39,17 +39,30 @@
 # `fixtures` and `_proto` have callers in two files -> common.
 set -uo pipefail
 _HARNESS_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-cd "$(git rev-parse --show-toplevel)"
 for _part in common Ai Aii Aiii B; do
   # shellcheck source=/dev/null
   . "$_HARNESS_DIR/2026-07-citation-hygiene-A-rederive-$_part.sh"
 done
 unset _part
+# `-common.sh` resolves $REPO_ROOT from ITS OWN path and exits 2 if it cannot, so
+# by here it is settled. Blocks still run with cwd at the root -- the `git grep`
+# baselines and the `git ls-files` census read it -- but the root is now the repo
+# THIS SCRIPT lives in rather than wherever the caller stood, and a failure is
+# loud. The old line was `cd "$(git rev-parse --show-toplevel)"`, which NO-OPS
+# when the substitution fails; see `-common.sh`'s measurements.
+cd "$REPO_ROOT" || { printf 'FATAL: cannot cd to %s\n' "$REPO_ROOT" >&2; exit 2; }
 
-all() { for f in citations partition keysets column carvecolumn instruments remedies reloadstale \
+# `all` ROLLS UP AND PROPAGATES. A block's verdict line is one line in 300+, and
+# `couplings` is §12(3)'s exit criterion: a reader scrolling `all` has no reason
+# to find a RED buried mid-stream, and a caller had no status to check at all. So
+# the run ends with an anchored roster and exits non-zero if any block failed.
+all() { local f failed=""
+        for f in citations partition keysets column carvecolumn instruments remedies reloadstale \
                  armmatrix suites anchors regions offline couplings suiteset marker budget \
                  filters ruleset timing bmemo; do
-          say "$f"; "$f"; done
-        printf '\n(author-local, excluded from `all`: %s)\n' "$AUTHOR_LOCAL"; }
+          say "$f"; "$f" || failed="$failed $f(exit $?)"; done
+        printf '\n(author-local, excluded from `all`: %s)\n' "$AUTHOR_LOCAL"
+        if [ -n "$failed" ]; then printf 'FAILED BLOCKS:%s\n' "$failed"; return 1; fi
+        printf 'ALL BLOCKS EXITED 0\n'; }
 
 "${1:-all}" "$@"
