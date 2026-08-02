@@ -598,15 +598,17 @@ fn app_failed_mid_loop_load_does_not_move_the_document_marker() {
 /// `same_document_step`'s fragment arm re-stamp the document identity and the
 /// quiescence and entry assertions below fail (the loop takes the swap exit after
 /// iteration 2 and strands the `hashchange`-staged `pushState`).
-/// Re-verified at HEAD: **two** tests fail under that mutation — this one and
+/// **Two** tests fail under that mutation — this one and
 /// [`app_reinstated_navigation_runs_in_iteration_so_its_own_staging_settles`],
 /// which trips it incidentally because its reinstated `location.href = '#one'`
 /// also takes the fragment arm, inside iteration 1 and before the marker
-/// comparison. (An earlier revision of this docstring claimed sole uniqueness; that
-/// was measured before the sibling pin existed.) What IS unique here is the
-/// scenario: the only mid-loop navigate that SUCCEEDS from Phase 1c — the
-/// failed-load sibling reaches `navigate`'s early return — hence the only coverage
-/// of a completed Phase-1c navigation inside the loop.
+/// comparison. **Re-measure that count whenever a test is added that reaches the
+/// fragment arm** — a "only this test covers it" claim here goes stale silently,
+/// since nothing fails when it does.
+///
+/// What IS unique here is the scenario: the only mid-loop navigate that SUCCEEDS
+/// from Phase 1c — the failed-load sibling reaches `navigate`'s early return —
+/// hence the only coverage of a completed Phase-1c navigation inside the loop.
 #[test]
 fn app_same_document_navigate_mid_loop_does_not_end_the_turn() {
     // The popstate half is the shared one-shot builder — the fragment nav's own
