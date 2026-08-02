@@ -579,6 +579,19 @@ impl HostDriver for ElidexJsEngine {
         std::mem::take(&mut self.vm.inner.navigation.pending_window_open).into()
     }
 
+    fn has_pending_session_history_work(&self) -> bool {
+        // Peek exactly the three channels the three drains above consume, and
+        // only those — the trait's predicate invariant (predicate set ≡ the
+        // drain loop's Phase-1 consumed set). Adding a channel to this
+        // expression without a Phase-1 drain behind it makes a turn-completion
+        // loop spin to its round cap; dropping one lets the loop exit
+        // "quiescent" with residue still staged.
+        let nav = &self.vm.inner.navigation;
+        !nav.pending_history.is_empty()
+            || nav.pending_navigation.is_some()
+            || !nav.pending_window_open.is_empty()
+    }
+
     fn set_session_history(&mut self, index: usize, length: usize) {
         // index + length pushed together so they never desync (a `back` moves
         // the index without changing length, so pushing only length would leave

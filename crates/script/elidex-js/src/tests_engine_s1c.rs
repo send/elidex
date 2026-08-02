@@ -261,3 +261,177 @@ fn eval_push_state_gate_uses_document_url_not_inherited_origin() {
     assert_eq!(engine.current_url(), Some(url("about:blank")));
     assert!(engine.take_pending_history().is_empty());
 }
+
+// ---------------------------------------------------------------------------
+// has_pending_session_history_work — the non-consuming quiescence peek
+// ---------------------------------------------------------------------------
+//
+// The predicate invariant on the trait contract is *predicate set ≡ the channel
+// set the drain loop's Phase 1 consumes*, and its consumer (the app-mode
+// turn-completion loop, `elidex-shell` `app/drain_host/mod.rs`) cannot pin either
+// direction from the shell: the peek is also how a shell test would ASK whether
+// work is staged, so a predicate that wrongly omits a channel reads "quiescent"
+// to the assertion as well as to the loop. These tests pin the membership
+// directly, per channel, where the answer is not circular.
+
+#[test]
+fn peek_reports_and_does_not_consume_the_history_fifo() {
+    let (mut engine, mut session, mut dom, doc) = fresh_unbound();
+    // A tuple base URL — a `pushState` to a relative URL from `about:blank` is a
+    // SecurityError (the scheme cannot be rewritten) and would stage nothing.
+    engine.set_current_url(Some(url("https://example.com/")));
+    let mut ctx = ScriptContext::new(&mut session, &mut dom, doc);
+    bind_engine(&mut engine, &mut ctx);
+    assert!(
+        !engine.has_pending_session_history_work(),
+        "nothing staged yet"
+    );
+    let r = ScriptEngine::eval(&mut engine, "history.pushState(null, '', '/a');", &mut ctx);
+    assert!(r.success);
+    engine.unbind();
+
+    assert!(
+        engine.has_pending_session_history_work(),
+        "a staged pushState is session-history work"
+    );
+    assert!(
+        engine.has_pending_session_history_work(),
+        "PEEK, DON'T CONSUME — the drain remains the single drain point, so asking \
+         never answers destructively: two reads in a row agree, and the staged work \
+         survives both"
+    );
+    assert_eq!(engine.take_pending_history().len(), 1);
+    assert!(
+        !engine.has_pending_session_history_work(),
+        "and the real drain clears it"
+    );
+}
+
+#[test]
+fn peek_reports_and_does_not_consume_the_navigation_slot() {
+    let (mut engine, mut session, mut dom, doc) = fresh_unbound();
+    let mut ctx = ScriptContext::new(&mut session, &mut dom, doc);
+    bind_engine(&mut engine, &mut ctx);
+    let r = ScriptEngine::eval(
+        &mut engine,
+        "location.assign('https://a.example/b');",
+        &mut ctx,
+    );
+    assert!(r.success);
+    engine.unbind();
+
+    assert!(engine.has_pending_session_history_work());
+    assert!(engine.take_pending_navigation().is_some());
+    assert!(!engine.has_pending_session_history_work());
+}
+
+#[test]
+fn peek_includes_window_opens() {
+    // The membership a shell test CANNOT pin: `window.open` intents are
+    // drained-and-DROPPED in app-mode (Phase 1a), so their consumption has no
+    // observable except this peek. Excluding them would make the loop exit
+    // "quiescent" with opens still staged on a runtime the next navigation
+    // replaces — and `own_context_action` cannot stand in, because the
+    // coordinator deliberately excludes window-opens from it (they act on OTHER
+    // browsing contexts).
+    let (mut engine, mut session, mut dom, doc) = fresh_unbound();
+    engine.set_current_url(Some(url("https://example.com/")));
+    let mut ctx = ScriptContext::new(&mut session, &mut dom, doc);
+    bind_engine(&mut engine, &mut ctx);
+    let r = ScriptEngine::eval(
+        &mut engine,
+        "window.open('https://example.com/opened', '_blank');",
+        &mut ctx,
+    );
+    assert!(r.success);
+    engine.unbind();
+
+    assert!(
+        engine.has_pending_session_history_work(),
+        "a staged window.open counts — Phase 1a consumes it, so the predicate must \
+         see it (predicate set ≡ Phase-1 consumed set)"
+    );
+    assert!(!engine.take_pending_window_opens().is_empty());
+    assert!(!engine.has_pending_session_history_work());
+}
+
+#[test]
+fn peek_excludes_channels_phase_one_does_not_consume() {
+    // The other direction of the invariant: a channel with its own drain point
+    // elsewhere must NOT widen the predicate, or the app-mode turn-completion loop
+    // spins to its round cap on work no iteration can drain — every click and
+    // keypress paying eight Phase-1/Phase-2 passes and printing the cap warning,
+    // for work that was never session-history work.
+    //
+    // `window.scrollTo` (CSSOM View §4, drained by the render pass via
+    // `take_pending_scroll`) is one representative; `localStorage.setItem`
+    // (drained by the shell's storage broker via `take_pending_storage_changes`)
+    // is the second, and the more valuable of the two — a page that writes
+    // `localStorage` on input is ordinary, so widening the predicate to that
+    // channel would degrade every such page rather than an exotic one.
+    let (mut engine, mut session, mut dom, doc) = fresh_unbound();
+    engine.set_current_url(Some(url("https://example.com/")));
+    let mut ctx = ScriptContext::new(&mut session, &mut dom, doc);
+    bind_engine(&mut engine, &mut ctx);
+    let r = ScriptEngine::eval(&mut engine, "window.scrollTo(0, 100);", &mut ctx);
+    assert!(r.success);
+    #[cfg(feature = "compat-webapi")]
+    {
+        let r = ScriptEngine::eval(&mut engine, "localStorage.setItem('k', 'v');", &mut ctx);
+        assert!(r.success);
+    }
+    engine.unbind();
+
+    assert!(
+        engine.has_pending_scroll(),
+        "precondition: the scroll really is staged"
+    );
+    assert!(
+        !engine.has_pending_session_history_work(),
+        "a staged scroll is NOT session-history work — no Phase 1 of the drain loop \
+         consumes it, so counting it would be an un-drainable cap-loop"
+    );
+
+    // Coverage statement, so the 2-of-5 is not read as a 3-channel gap.
+    //
+    // The forbidden five split on WHERE they live, and that split is what actually
+    // bounds the risk. `pending_scroll` lives on `vm.inner` (`vm_api_viewport.rs`),
+    // which `has_pending_session_history_work(&self)` can reach — so it is the one
+    // channel a careless `||` really could add, and it is pinned above. The other
+    // four (`take_pending_storage_changes`, `take_pending_focus`,
+    // `take_pending_parent_messages`, `take_pending_idb_versionchange_requests`)
+    // all live on the per-VM `HostData`, whose ONLY accessor is
+    // `Vm::host_data(&mut self)` — so widening the peek to any of them does not
+    // compile without also changing the trait method's `&self`, which is a visible
+    // signature change rather than a quiet `||`. That is a structural exclusion,
+    // stronger than any assertion here.
+    //
+    // The storage leg below is kept anyway because it is the one of the four with a
+    // script trigger this harness can reach, and it exercises the composed predicate
+    // end-to-end against a channel that a real page fills on ordinary input. It also
+    // guards the `&self`/`HostData` argument itself: that argument holds only while
+    // those four channels stay `HostData`-homed, so if a future consolidation moves
+    // one onto `vm.inner` the structural exclusion silently becomes prose — this leg
+    // is what would still fail.
+    // `focus` / `parent.postMessage` / IDB-versionchange have no such trigger here
+    // (`element.focus()` fails without an installed host context, `parent` needs a
+    // parent navigable, a versionchange needs a real upgrade transaction).
+    #[cfg(feature = "compat-webapi")]
+    {
+        // Order matters and is the whole test: peek FIRST, drain second. The drain
+        // is consuming, so asserting the peek after it would pass whether or not the
+        // predicate wrongly ORs the storage channel in — vacuous.
+        assert!(
+            !engine.has_pending_session_history_work(),
+            "a staged storage change is NOT session-history work — this is the \
+             channel whose accidental inclusion would cap-loop every input on any \
+             page that writes localStorage"
+        );
+        assert_eq!(
+            engine.take_pending_storage_changes().len(),
+            1,
+            "postcondition: the localStorage write really WAS staged for that peek \
+             to have been a meaningful negative"
+        );
+    }
+}
