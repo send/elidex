@@ -87,6 +87,34 @@ citations() {  # §0.5 / §3 — EVERY label-§ pair the fixture set carries
   rm -rf "$F"
 }
 
+_wtscan() {  # $1 = ERE, $2.. = roots. WORKING-TREE scan, printing `path:line:match`.
+  # Why not `git grep`: it sees TRACKED content only, so a violation in a file
+  # that exists but is not yet added reads GREEN. Not hypothetical -- measured:
+  # with `cite-audit` planted in an UNTRACKED file under `.claude/skills/`, the
+  # git-grep form of this block counted 0 and printed `VERDICT: GREEN`, and a
+  # bare `git add -N` on the same file flipped it to RED. The unit suite these
+  # cross-tree limbs came from walked the filesystem for exactly that reason;
+  # moving them here must not trade the property away. The origin/main
+  # baselines below stay `git grep` -- only git can read a ref.
+  local ere=$1; shift
+  python3 - "$ere" "$@" <<'WTSCANPY'
+import os, re, sys
+ere = re.compile(sys.argv[1])
+for root in sys.argv[2:]:
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = [d for d in dirnames if d not in (".git", "__pycache__")]
+        for fn in sorted(filenames):
+            path = os.path.join(dirpath, fn)
+            try:
+                with open(path, encoding="utf-8") as fh:
+                    for i, line in enumerate(fh, 1):
+                        for m in ere.finditer(line):
+                            print(f"{path}:{i}:{m.group(0)}")
+            except (OSError, UnicodeDecodeError):
+                continue
+WTSCANPY
+}
+
 couplings() {  # §7 / §12(2) / §12(3) — K2 and K3's CROSS-TREE halves
   # SCOPES, written down because this block now carries two of them and
   # conflating them is what the widening below fixes:
@@ -143,10 +171,10 @@ couplings() {  # §7 / §12(2) / §12(3) — K2 and K3's CROSS-TREE halves
   # edits `cli.py`, and Slice C, the earlier routing target, has no `cli.py`
   # mandate. So the gate is a plain grep over the whole generic tree, and the
   # pre-existing instance counts against it like any other.
-  echo "-- FILE PATHS only, HEAD, GENERIC — §12(3)'s actual check --"
-  git grep -noE "$PATHRE" -- "$GENERIC" | cat
+  echo "-- FILE PATHS only, HEAD, GENERIC — §12(3)'s actual check (working tree) --"
+  _wtscan "$PATHRE" "$GENERIC"
   local n_head n_base n_ahalf
-  n_head=$(git grep -oE "$PATHRE" -- "$GENERIC" | wc -l | tr -d ' ')
+  n_head=$(_wtscan "$PATHRE" "$GENERIC" | wc -l | tr -d ' ')
   n_base=$(git grep -oE "$PATHRE" "$MAIN" -- "$GENERIC" | wc -l | tr -d ' ')
   n_ahalf=$(git grep -oE "$PATHRE" -- "${AHALF[@]}" | wc -l | tr -d ' ')
   echo "   elidex file paths at HEAD (K2 / S8 — MUST BE 0) : $n_head"
@@ -157,11 +185,11 @@ couplings() {  # §7 / §12(2) / §12(3) — K2 and K3's CROSS-TREE halves
   # invisible to it. Unlike the suite, this block spells the needles plainly:
   # it lives in `docs/plans/`, which is in NEITHER scope, so it cannot match
   # itself the way an in-tree test file would.
-  echo "-- SLICE-B ARTIFACT NAMES, HEAD, GENERIC + SKILLS (K3 / S7 cross-tree) --"
+  echo "-- SLICE-B ARTIFACT NAMES, HEAD, GENERIC + SKILLS (K3 / S7 cross-tree, working tree) --"
   local B_ART='cite.?audit' B_FT='_catalog'
-  git grep -nE -e "$B_ART" -e "$B_FT" -- "$GENERIC" "$SKILLS" | cat
+  _wtscan "$B_ART|$B_FT" "$GENERIC" "$SKILLS"
   local n_art n_base_art
-  n_art=$(git grep -oE -e "$B_ART" -e "$B_FT" -- "$GENERIC" "$SKILLS" | wc -l | tr -d ' ')
+  n_art=$(_wtscan "$B_ART|$B_FT" "$GENERIC" "$SKILLS" | wc -l | tr -d ' ')
   n_base_art=$(git grep -oE -e "$B_ART" -e "$B_FT" "$MAIN" -- "$GENERIC" "$SKILLS" | wc -l | tr -d ' ')
   echo "   Slice-B artifact names at HEAD (K3 / S7 — MUST BE 0) : $n_art"
   echo "   pre-existing on origin/main (must also be 0)         : $n_base_art"
