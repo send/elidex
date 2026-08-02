@@ -106,10 +106,13 @@ impl VmInner {
                     // Capture the last ExpressionStatement value into
                     // `completion_value` only for script/`eval` bodies
                     // (ECMA-262 §16.1.6 step 13.a / §19.2.1.1 step 29.a).
-                    // Function/class-ctor/generator/async bodies discard:
-                    // §10.2.1.4 OCEB + §15.2.3 step 4 yield
-                    // `ReturnCompletion(undefined)` regardless of any
-                    // trailing expression's value. The entry-depth check
+                    // Statement-list bodies discard: §10.2.1.4 OCEB
+                    // delegates to §10.2.1.3 `EvaluateBody`, whose
+                    // function / class-ctor production ends at §15.2.3
+                    // step 4 `ReturnCompletion(undefined)` and whose
+                    // generator / async ones return the generator or the
+                    // promise (§15.5.2 step 6 / §15.8.4 step 5) — none of
+                    // them a trailing expression's value. The entry-depth check
                     // pairs the gate to the only frame whose
                     // `completion_value` write is observable on return.
                     if frame_idx == entry_frame_depth
@@ -529,10 +532,12 @@ impl VmInner {
                                 self.completion_value = JsValue::Undefined;
                                 v
                             }
-                            // ECMA-262 §10.2.1.4 OrdinaryCallEvaluateBody +
-                            // §15.2.3 step 4 — function / class-ctor /
-                            // generator / async bodies implicit-return
-                            // `ReturnCompletion(undefined)`. The class-ctor
+                            // ECMA-262 §10.2.1.4 OrdinaryCallEvaluateBody
+                            // delegates to §10.2.1.3 `EvaluateBody`; the
+                            // function / class-ctor production ends at
+                            // §15.2.3 step 4 `ReturnCompletion(undefined)`
+                            // (generator / async return the generator or the
+                            // promise instead). The class-ctor
                             // [[Construct]]-observable substitute (§10.2.2
                             // step 12-13 thisArgument or step 15-17
                             // thisBinding) happens out-of-band after this

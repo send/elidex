@@ -121,6 +121,7 @@ mod tests_match_media;
 mod tests_match_media_keepalive;
 mod tests_math;
 mod tests_member_compound_assign;
+mod tests_member_compound_assign_gc;
 mod tests_mutation_observer;
 mod tests_named_node_map;
 mod tests_navigator;

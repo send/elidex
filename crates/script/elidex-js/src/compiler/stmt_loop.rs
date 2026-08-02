@@ -1,15 +1,15 @@
 //! Iteration statements: `for-in` / `for-of` / `while` / `do-while` / `for`.
 //!
-//! ECMA-262 §14.7 Iteration Statements, carved out of `stmt.rs` at the seam the
-//! touch-time 1000-line rule points at: these five arms and
-//! `compile_forin_left_binding` form one family (the helper has no caller
-//! outside `for-in`/`for-of`), while the helpers that stayed behind —
-//! `find_child_block_scope`, `emit_iter_close_range`,
-//! `emit_pending_finally_bodies` — are shared with `Block`, `Try`, `Return`,
-//! `Break` and `Continue` and therefore belong to neither family.
+//! ECMA-262 §14.7 Iteration Statements. The seam is the call graph, not the
+//! line count: `compile_forin_left_binding` has no caller outside `for-in` /
+//! `for-of` and so moves with them, while each helper left in `stmt.rs` is
+//! shared across families — `find_child_block_scope` with `Block` and `Try`,
+//! `emit_iter_close_range` with `Return` and `Break`,
+//! `emit_pending_finally_bodies` with `Return`, `Break`, `Continue` and `Try`.
 //!
-//! Each function takes the arm's destructured fields by reference so the bodies
-//! are unchanged from their inline form; `compile_stmt` is the only caller.
+//! `compile_stmt` is the only caller of every function here, and re-entered by
+//! them for loop bodies. Node ids are `Copy` and passed by value; the two
+//! borrowed parameters are the AST enums `ForInOfLeft` and `ForInit`.
 
 use crate::arena::NodeId;
 #[allow(clippy::wildcard_imports)]
@@ -133,12 +133,18 @@ pub(super) fn compile_for_of(
     fc.emit(Op::Pop); // normal exhaustion: discard iterator without calling .return()
     let end_patch = fc.emit_jump(Op::Jump); // jump over catch handler
 
-    // Catch handler: gate IteratorClose on close_flag, then
-    // re-throw the original exception.  If IteratorClose
-    // itself throws, that new error correctly takes
-    // precedence over the original abrupt completion per
-    // §7.4.11 (a throw from Op::IteratorClose skips the
-    // re-throw below).
+    // Catch handler: gate IteratorClose on close_flag, then re-throw the
+    // original exception.
+    //
+    // ⚠ A throw from `Op::IteratorClose` skips the re-throw below, so
+    // `.return()`'s error wins.  §7.4.11 IteratorClose says the opposite: step
+    // 5 returns the *original* `completion` when it is a throw, and only a
+    // non-throw completion reaches step 6 where `innerResult`'s error is
+    // surfaced.  This handler only ever runs on a throw, so the original should
+    // always win.  Pre-existing, moved verbatim from `stmt.rs`; owned by
+    // `#11-vm-iteratorclose-precedence-convention`, which carries the same
+    // inversion at 15 sites and must change `iter_close`'s signature to fix it
+    // completion-kind-dependently rather than per-site.
     let catch_ip = fc.pc();
     fc.emit_u16(Op::GetLocal, close_flag_slot);
     let skip_close = fc.emit_jump(Op::JumpIfFalse);
@@ -348,27 +354,49 @@ fn compile_forin_left_binding(
                         fc.emit(Op::Pop);
                     }
                     super::resolve::VarLocation::Module(_) => {
+                        // An import binding is immutable: ECMA-262 §16.2.1.6.4
+                        // `SetMutableBinding` for a Module Environment Record
+                        // asserts unreachable for an indirect binding, and the
+                        // early-error rules make a direct assignment a
+                        // SyntaxError — so reaching here at all is a
+                        // parser/resolver gap. Rejected loudly rather than
+                        // discarded: `for (imported of a)` silently ran the body
+                        // with the binding untouched, which is the same
+                        // silent-no-op shape the rest of this arm bans.
+                        // Slot: `#11-vm-assignment-target-completeness`.
                         fc.emit(Op::Pop);
+                        emit_unsupported(fc, "assignment to an imported binding is not supported");
                     }
                 }
             } else {
                 // A for-in/of head is a third *lowering* of an assignment
-                // target, not a third set of targets: ECMA-262 §14.7.5.7
-                // ForIn/OfBodyEvaluation step 8.g.ii.4.a performs the identical
-                // `PutValue(lhsRef, nextValue)` that §13.15.2 step 1.e does.
-                // Until it has one, every non-identifier head — `for (o.p in
-                // obj)`, `for (this.#x of a)`, `for (super.x of a)`,
-                // `for ([a,b] of a)` — is rejected the way the assignment forms
-                // reject theirs, rather than discarding the value through
-                // `Op::Pop`: that silent no-op is the shape umbrella I-1 bans
-                // wherever it appears, and it survived here because
-                // admissibility was decided inside each lowering.
+                // target, not a third set of targets. ECMA-262 §14.7.5.7
+                // ForIn/OfBodyEvaluation routes a **non-destructuring** head
+                // through step 8.g.ii.4.a
+                // `Completion(PutValue(lhsRef.[[Value]], nextValue))` and a
+                // **destructuring** one through step 8.g.i.1.a
+                // `DestructuringAssignmentEvaluation` — the analogues of
+                // §13.15.2's `LeftHandSideExpression = AssignmentExpression`
+                // step 1.e and its ObjectLiteral/ArrayLiteral production. There
+                // is no store lowering here for either, so every non-identifier
+                // head — `for (o.p in obj)`, `for (this.#x of a)`,
+                // `for (super.x of a)`, `for ([a,b] of a)` — is rejected the way
+                // the assignment forms reject theirs, rather than discarding the
+                // value through `Op::Pop`: that silent no-op is the shape
+                // umbrella I-1 bans wherever it appears, and it survived here
+                // because admissibility was decided inside each lowering.
                 //
-                // `unsupported_member_target` supplies the message whenever it
-                // recognises the target, so `for (this.#x of a)` reports the
-                // same cause as `this.#x = v`.  It returning `None` means only
-                // "the *assignment* lowering accepts this shape" — there is no
-                // for-in/of member store yet either way.
+                // Slots: member heads → `#11-vm-assignment-target-completeness`
+                // (with `#11-vm-class-private-fields` / `#11-step9-class-extras`
+                // for the private and `super` cases, whose messages come from
+                // the shared gate so `for (this.#x of a)` reports the same cause
+                // as `this.#x = v`); destructuring heads →
+                // `#11-vm-assignment-target-completeness`, the same slot its
+                // `[a,b] = [b,a]` sibling carries.
+                //
+                // ⚠ The gate returning `None` does NOT mean this head is
+                // lowerable — only that the *assignment* lowering accepts the
+                // shape. See `unsupported_member_target`'s docstring.
                 //
                 // Emitted at the assignment site, not at loop entry: step 8.g
                 // runs per iteration, so an empty iterable performs no

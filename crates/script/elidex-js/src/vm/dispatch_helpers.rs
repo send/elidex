@@ -289,7 +289,7 @@ impl VmInner {
     /// The `[object key]` pair is read **in place** rather than popped and
     /// pushed back.  The stack effect alone does not force that — a
     /// pop-then-repush produces the identical `[object key -- object key' value]`
-    /// and every test still passes — but the rooting does: key conversion runs
+    /// — but the rooting does: key conversion runs
     /// user `toString` / `@@toPrimitive`, which can allocate enough to trigger a
     /// collection, and `gc/roots.rs` walks the VM stack but **not** Rust locals.
     /// A base popped into a local could therefore be collected mid-conversion,

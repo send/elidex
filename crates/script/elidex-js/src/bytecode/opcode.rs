@@ -42,14 +42,20 @@ pub enum Op {
     /// 13.b.i + 17 / §19.2.1.1 steps 29.a + 30.a + 33 surface the script's or
     /// `eval`'s last such value (13.b.i / 30.a normalise an empty completion to
     /// `undefined`).
-    /// Every other body kind discards instead, which is why the dispatch arm
-    /// also gates on the entry frame being `Eval`.  §10.2.1.4
-    /// OrdinaryCallEvaluateBody dispatches per body kind and none of them
-    /// surfaces a trailing expression's value: function and class-constructor
-    /// bodies reach §15.2.3 EvaluateFunctionBody step 4
-    /// `ReturnCompletion(undefined)`, while generator (§15.5.2 step 6), async
-    /// (§15.8.4 step 5) and async-generator (§15.6.2) bodies return the
-    /// generator object or the promise instead.
+    /// A **statement-list** body discards instead, which is why the dispatch
+    /// arm also gates on the entry frame being `Eval`.  §10.2.1.4
+    /// OrdinaryCallEvaluateBody delegates in one step to §10.2.1.3
+    /// `EvaluateBody`, which is syntax-directed over eight productions; of the
+    /// four this opcode can reach, function and class-constructor bodies end at
+    /// §15.2.3 EvaluateFunctionBody step 4 `ReturnCompletion(undefined)`, while
+    /// generator (§15.5.2 step 6), async (§15.8.4 step 5) and async-generator
+    /// (§15.6.2) bodies return the generator object or the promise.
+    ///
+    /// The claim is deliberately scoped to those four: §10.2.1.3's other
+    /// productions do surface an expression's value — §15.3.3
+    /// EvaluateConciseBody step 2 returns the `ExpressionBody`'s value for
+    /// `x => expr`, as does the `Initializer` production for a field. Neither
+    /// reaches this opcode, because neither compiles through a statement list.
     ///
     /// Splitting this out of [`Op::Pop`] is what keeps internal stack
     /// housekeeping — reference cleanup, hoisting stores, destructuring

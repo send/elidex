@@ -14,7 +14,7 @@
 //! short-circuit test fails.
 
 use super::{eval, eval_bool, eval_number, eval_string, eval_throws};
-use crate::vm::{JsValue, Vm};
+use crate::vm::JsValue;
 
 // ── Computed compound: `obj[key] op= v` ──────────────────────────────
 
@@ -158,9 +158,8 @@ fn private_name_assign_is_rejected_not_a_panic_and_not_silent() {
     }
 }
 
-/// The rejection must be **scoped** (umbrella I-1; the umbrella plan-memo
-/// `docs/plans/2026-07-vm-p4-es-language-completeness.md` §9 dec. 5 picks a
-/// runtime throw for unimplemented expressions).  A `CompileError` is loud but not
+/// The rejection must be **scoped** (umbrella I-1; the umbrella's decision 5
+/// picks a runtime throw for unimplemented expressions).  A `CompileError` is loud but not
 /// scoped: it yields no bytecode for the whole script, so one unsupported store
 /// anywhere would take every unrelated statement in the file down with it —
 /// strictly worse than the pre-slice behaviour for `=` and `+=`, which at least
@@ -368,57 +367,6 @@ fn identifier_logical_assign_semantics() {
     assert_eq!(eval_number("var x=1; var r=(x ||= 9); r"), 1.0);
 }
 
-/// `Op::GetElemRef` is rooted **by construction**: it reads the `[object key]`
-/// pair in place instead of popping it, so the base stays on the GC-rooted VM
-/// stack (`gc/roots.rs` walks the stack but not Rust locals) while the key
-/// conversion runs user `toString`.  It is the one arm this slice introduces and
-/// the only one whose rooting the slice owns — `Op::IncElem`/`Op::DecElem` and
-/// the rest of the dispatch loop keep merge-base behaviour under
-/// `#11-vm-operand-rooting-by-construction`.
-///
-/// The stack effect alone would not force the property (a pop-then-repush
-/// produces the same `[object key -- object key' value]`), so it needs a pin:
-/// this test fails on a popping implementation, because the base collected
-/// mid-conversion is then stored through by the following `Op::SetElem`.
-///
-/// The collection is *placed*, not provoked: `setup` performs every allocation
-/// the case needs, the one-shot is armed, and `expr`'s first allocation is the
-/// `var t = {}` inside the key's `toString` — i.e. inside the user-code window.
-/// The one-shot clears itself when it fires, so the assertion is a witness that
-/// a collection really happened there; an allocation-volume heuristic would pass
-/// vacuously if a GC-threshold change ever stopped provoking one.  (Pinning
-/// `gc_threshold` low does NOT work: `collect_garbage` ends by resetting it to
-/// `(live_count * 128).max(32768)`, so a low threshold buys exactly one
-/// collection, at the script's *first* allocation.)
-#[test]
-fn get_elem_ref_keeps_temporary_base_rooted() {
-    // `mk()` hands out the base while dropping the pool's reference, so the
-    // operand slot is the only thing holding it.
-    let setup = "globalThis.pool = []; globalThis.mk = function () { return pool.pop() }; \
-                 pool.push({p: 1}); \
-                 globalThis.k = {toString(){ var t = {}; return 'p' }};";
-    let gc_in_window = |expr: &str| {
-        let mut vm = Vm::new();
-        vm.eval(setup).expect("probe setup must succeed");
-        vm.inner.force_gc_before_next_alloc = true;
-        let result = vm.eval(expr);
-        assert!(
-            !vm.inner.force_gc_before_next_alloc,
-            "no collection was placed in the window — `{expr}` never allocated, \
-             so this case proves nothing about rooting"
-        );
-        result
-    };
-    for expr in ["mk()[k] += 2", "mk()[k] ??= 9", "mk()[k] ||= 9"] {
-        match gc_in_window(expr) {
-            Ok(JsValue::Number(n)) => {
-                assert_eq!(n, if expr.contains("+=") { 3.0 } else { 1.0 }, "{expr}");
-            }
-            other => panic!("expected a number from `{expr}`, got {other:?}"),
-        }
-    }
-}
-
 /// The for-in/of head is the **third** lowering of an assignment target, and it
 /// was the gate's un-swept sibling: `compile_forin_left_binding` decided
 /// admissibility inside its own branch, so every non-identifier head discarded
@@ -465,68 +413,6 @@ fn forin_of_heads_share_the_assignment_admissibility_gate() {
     assert_eq!(eval_string("var x=''; for (x in {q:1}) {} x"), "q");
 }
 
-/// ⚠ CARVED: `#11-vm-operand-rooting-by-construction`.
-///
-/// The compound operators pop both operands before coercing either, so the one
-/// that has not been consumed yet spends the other's user code in a Rust local —
-/// which `gc/roots.rs` does not walk.  ECMA-262 §13.15.3
-/// `ApplyStringOrNumericBinaryOperator` steps 3-4 coerce the **left** operand
-/// first, so it is the right operand that is exposed.
-///
-/// This is **pre-existing, not introduced or widened by this slice**, and the
-/// second case is the proof rather than an assertion: `z -= mk()` reaches
-/// `binary_numeric` through the identifier lowering that predates the slice
-/// entirely, and it fails byte-identically. The slice adds a *spelling* that
-/// reaches an already-reachable defect — `o[k] -= v` used to abort the process
-/// in the compiler, so it never got here at all.
-///
-/// An earlier revision of the `⚠ CARVED` note above claimed this slot "cannot
-/// carry a divergence test — the defect is a GC race, not an observable result".
-/// That was wrong: the one-shot makes the collection deterministic, so the race
-/// has a reproducible observable outcome and can be fenced like any other.
-#[test]
-fn compound_assign_rhs_lost_to_gc_known_divergence() {
-    // `mk()` hands out the RHS while dropping the pool's reference, so the
-    // operand is the only thing holding it.  The LHS `valueOf` allocates, and
-    // the one-shot places the collection there — inside the window where the
-    // popped RHS is unrooted.
-    let probe = |setup: &str, expr: &str| {
-        let mut vm = Vm::new();
-        vm.eval(setup).expect("probe setup must succeed");
-        vm.inner.force_gc_before_next_alloc = true;
-        let result = vm.eval(expr);
-        assert!(
-            !vm.inner.force_gc_before_next_alloc,
-            "no collection was placed in the window — `{expr}` proves nothing"
-        );
-        result
-    };
-    let pool = "globalThis.pool=[]; globalThis.mk=function(){return pool.pop()}; \
-                pool.push({valueOf(){return 2}}); ";
-    let computed = format!(
-        "{pool} globalThis.o={{p:{{valueOf(){{var t={{}}; return 1}}}}}}; globalThis.k='p';"
-    );
-    let identifier = format!("{pool} globalThis.z={{valueOf(){{var t={{}}; return 1}}}};");
-
-    // Spec: both evaluate to `-1`.  Current: the RHS is collected mid-coercion
-    // and its `valueOf` is gone, so `ToPrimitive` fails on the recycled slot.
-    for (setup, expr) in [(&computed, "o[k] -= mk()"), (&identifier, "z -= mk()")] {
-        let err = probe(setup, expr).expect_err(&format!(
-            "`{expr}` no longer loses its RHS to the collector — \
-             `#11-vm-operand-rooting-by-construction` has landed; flip this pin \
-             to assert -1"
-        ));
-        assert_eq!(
-            err.message, "Cannot convert object to primitive value",
-            "{expr} failed for an unexpected reason"
-        );
-    }
-    // Without a collection in the window both are correct, which is what
-    // identifies the defect as rooting rather than arithmetic.
-    assert_eq!(eval_number(&format!("{computed} o[k] -= mk()")), -1.0);
-    assert_eq!(eval_number(&format!("{identifier} z -= mk()")), -1.0);
-}
-
 // ── Carved divergences, pinned so they cannot widen unnoticed ─────────
 //
 // All three are **pre-existing** defects that this slice inherits rather than
@@ -543,7 +429,10 @@ fn compound_assign_rhs_lost_to_gc_known_divergence() {
 // slice roots only `Op::GetElemRef`, the one arm it introduces
 // (`get_elem_ref_keeps_temporary_base_rooted`); `Op::IncElem`/`Op::DecElem` and
 // the rest keep merge-base behaviour, pinned by
-// `compound_assign_rhs_lost_to_gc_known_divergence` below.  The slot's deliverable is an invariant
+// `compound_assign_rhs_lost_to_gc_known_divergence` (the compound operators, via
+// `binary_numeric`) and `inc_elem_base_lost_to_gc_known_divergence` (the
+// `Op::IncElem`/`Op::DecElem` base hold — the arm this slice moved into a helper
+// and routed through `get_element_keeping_key`).  The slot's deliverable is an invariant
 // that makes an unrooted hold unrepresentable, not another per-site sweep —
 // five successive sweeps each declared a different boundary complete and each
 // was falsified by the next round.  `#11-vm-element-access-base-rooting`, which

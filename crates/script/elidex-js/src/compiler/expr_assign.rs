@@ -304,10 +304,18 @@ pub(super) fn compile_assignment(
 /// take, so it must not be decided inside one — which is also why update
 /// expressions share this gate rather than carrying their own.
 ///
+/// ⚠ **`None` means "the assignment/update lowerings accept this shape", not
+/// "every lowering does".** `compile_forin_left_binding` calls this as a
+/// *diagnosis* lookup rather than an admissibility decision: no for-in/of member
+/// store exists at all, so it rejects every member head and uses whatever
+/// message this returns only so that `for (this.#x of a)` reports the same cause
+/// as `this.#x = v`. When `#11-vm-assignment-target-completeness` gives member
+/// heads a store, that call site is the one that has to change with it — there
+/// is no compile-time link.
+///
 /// Rejection is a scoped runtime throw, not a `CompileError`: umbrella I-1 wants
-/// loud **and scoped**, and the umbrella plan-memo
-/// `docs/plans/2026-07-vm-p4-es-language-completeness.md` §9 dec. 5 reserves
-/// `CompileError` for what the compiler already rejects. A `CompileError` emits no bytecode for the whole
+/// loud **and scoped**, and the umbrella's decision 5 reserves `CompileError`
+/// for what the compiler already rejects. A `CompileError` emits no bytecode for the whole
 /// script, so one `this.#x = 1` would take every unrelated statement down with
 /// it. The throw precedes operand evaluation — the construct is unsupported in
 /// full, so running half its side effects first would be a second, subtler
@@ -349,8 +357,12 @@ pub(super) fn unsupported_member_target(
 /// Emit a scoped runtime rejection for a construct the compiler cannot lower.
 ///
 /// One helper so every rejection site produces the same shape — a `TypeError`
-/// carrying a slot-cited message, raised where the construct executes rather
-/// than failing the whole compile.
+/// raised where the construct executes rather than failing the whole compile.
+///
+/// The message is deliberately **slot-free**: it reaches page script as
+/// `e.message`, and a ledger rename would drift a web-observable string with no
+/// compiler signal. Each call site names its owning `#11-*` slot in an adjacent
+/// comment instead.
 pub(super) fn emit_unsupported(fc: &mut FunctionCompiler, message: &str) {
     let idx = fc.add_constant(Constant::Wtf16(message.encode_utf16().collect()));
     fc.emit_u16(Op::ThrowUnsupported, idx);
