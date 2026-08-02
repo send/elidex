@@ -15,7 +15,9 @@ Thanks for your interest in contributing!
 1. Create a feature branch from `main`.
 2. Make your changes with clear, focused commits.
 3. Add tests for new functionality.
-4. Ensure `mise run ci` passes (formatting, clippy, tests, license checks).
+4. Ensure `mise run ci` passes (formatting, clippy, tests, docs, license checks, and the
+   layering trip-wires — the last of these also run as their own CI job, so a drifted
+   trip-wire allowlist reds the PR).
 5. Open a pull request against `main`.
 
 ## Code Style
