@@ -220,14 +220,10 @@ pub(super) fn compile_pattern_store(
             fc.emit_u16(Op::SetGlobal, idx);
             fc.emit(Op::Pop);
         }
+        // No store path for an import binding; same disposition as the
+        // for-in/of head in `stmt_loop.rs`.
+        // Slot: `#11-vm-assignment-target-completeness`.
         super::resolve::VarLocation::Module(_) => {
-            // Same shape, same slot as the for-in/of head in `stmt_loop.rs`: a
-            // binding that resolves to an import has no store path, and
-            // discarding the value silently ran the declaration as a no-op.
-            // Reaching here is a resolver gap (ECMA-262 §16.2.1.6.4
-            // `SetMutableBinding` on a Module Environment Record is unreachable
-            // for an indirect binding), so it is rejected loudly rather than
-            // swallowed.  Slot: `#11-vm-assignment-target-completeness`.
             fc.emit(Op::Pop);
             emit_unsupported(fc, "binding to an imported name is not supported");
         }

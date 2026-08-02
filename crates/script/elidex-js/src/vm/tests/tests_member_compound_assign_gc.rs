@@ -1,15 +1,14 @@
 //! GC-window pins for the member-assignment slice (Slice 0a).
 //!
-//! Split out of `tests_member_compound_assign` at the touch-time threshold: that
-//! module had reached ~790 lines, and this is its real seam — every test here
-//! places a collection with the `force_gc_before_next_alloc` one-shot and asserts
-//! what survives it, which is a different kind of assertion from the behavioural
-//! cases next door and shares a helper (`diverged_from`) they do not use.
+//! Split out of `tests_member_compound_assign` at the touch-time threshold. The
+//! seam: each test here places a collection with the `force_gc_before_next_alloc`
+//! one-shot and asserts what survives it — a different kind of assertion from the
+//! behavioural cases next door.
 //!
-//! One of them pins a property the slice **owns** (`Op::GetElemRef` is rooted by
-//! construction); the other two pin divergences the slice **carries** under
-//! `#11-vm-operand-rooting-by-construction` and flip to the spec answer when that
-//! slot lands.
+//! `get_elem_ref_keeps_temporary_base_rooted` pins a property the slice **owns**;
+//! the two `*_known_divergence` tests pin defects it **carries** under
+//! `#11-vm-operand-rooting-by-construction`, and flip to the spec answer when
+//! that slot lands.
 
 use super::eval_number;
 use crate::vm::{JsValue, Vm};
@@ -109,7 +108,8 @@ fn inc_elem_base_lost_to_gc_known_divergence() {
         );
         result
     };
-    // Spec: `mk()[k]++` is the old value `1`, `--mk()[k]` the new value `0`.
+    // ECMA-262 §13.4.2.1 (postfix `++`) yields the old value, §13.4.5.1 (prefix
+    // `--`) the new one.
     for (expr, expected) in [("mk()[k]++", 1.0), ("--mk()[k]", 0.0)] {
         assert!(
             diverged_from(&probe(expr), expected),
@@ -135,7 +135,7 @@ fn inc_elem_base_lost_to_gc_known_divergence() {
 /// This is **pre-existing, not introduced or widened by this slice**, and the
 /// second case is the proof rather than an assertion: `z -= mk()` reaches
 /// `binary_numeric` through the identifier lowering that predates the slice
-/// entirely, and it fails byte-identically. The slice adds a *spelling* that
+/// entirely, and it diverges too. The slice adds a *spelling* that
 /// reaches an already-reachable defect — `o[k] -= v` used to abort the process
 /// in the compiler, so it never got here at all.
 ///

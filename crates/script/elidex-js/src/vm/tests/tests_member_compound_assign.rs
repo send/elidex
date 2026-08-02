@@ -379,7 +379,7 @@ fn identifier_logical_assign_semantics() {
 /// and a **destructuring** one through step 8.g.i.1.a
 /// `DestructuringAssignmentEvaluation` — the analogues of §13.15.2's
 /// `LeftHandSideExpression = AssignmentExpression` step 1.e and its
-/// ObjectLiteral/ArrayLiteral production. Both cases appear in the sweep below,
+/// destructuring branch at step 5. Both cases appear in the sweep below,
 /// and neither has a store lowering, which is why one gate covers them.
 ///
 /// Step 8.g runs **per iteration**, which is why the rejection is emitted at the
@@ -420,11 +420,10 @@ fn forin_of_heads_share_the_assignment_admissibility_gate() {
 
 // ── Carved divergences, pinned so they cannot widen unnoticed ─────────
 //
-// All three are **pre-existing** defects that this slice inherits rather than
-// introduces — each is verified below to misbehave on a path that predates this
-// slice entirely. Each gets its own plan-reviewed PR; these tests assert the
-// CURRENT (wrong) behaviour so the blast radius is fenced, and flip when the
-// slots land.
+// Pre-existing defects this slice inherits rather than introduces. Each gets its
+// own plan-reviewed PR; the pins assert the CURRENT (wrong) behaviour so the
+// blast radius is fenced, and flip when the slots land. The GC-window pins live
+// in `tests_member_compound_assign_gc`; the rest are below.
 //
 // ⚠ CARVED: `#11-vm-operand-rooting-by-construction`.  Roughly twenty dispatch
 // arms pop an operand into a Rust local and then run user JS before reading or

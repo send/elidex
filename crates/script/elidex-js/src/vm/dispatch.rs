@@ -106,15 +106,9 @@ impl VmInner {
                     // Capture the last ExpressionStatement value into
                     // `completion_value` only for script/`eval` bodies
                     // (ECMA-262 §16.1.6 step 13.a / §19.2.1.1 step 29.a).
-                    // Statement-list bodies discard: §10.2.1.4 OCEB
-                    // delegates to §10.2.1.3 `EvaluateBody`, whose
-                    // function / class-ctor production ends at §15.2.3
-                    // step 4 `ReturnCompletion(undefined)` and whose
-                    // generator / async ones return the generator or the
-                    // promise (§15.5.2 step 6 / §15.8.4 step 5) — none of
-                    // them a trailing expression's value. The entry-depth check
-                    // pairs the gate to the only frame whose
-                    // `completion_value` write is observable on return.
+                    // Every other body discards: the entry-depth check pairs
+                    // the write to the only frame whose `completion_value` is
+                    // observable on return.
                     if frame_idx == entry_frame_depth
                         && self.frames[frame_idx].kind == FrameKind::Eval
                     {
@@ -532,12 +526,9 @@ impl VmInner {
                                 self.completion_value = JsValue::Undefined;
                                 v
                             }
-                            // ECMA-262 §10.2.1.4 OrdinaryCallEvaluateBody
-                            // delegates to §10.2.1.3 `EvaluateBody`; the
-                            // function / class-ctor production ends at
-                            // §15.2.3 step 4 `ReturnCompletion(undefined)`
-                            // (generator / async return the generator or the
-                            // promise instead). The class-ctor
+                            // ECMA-262 §15.2.3 EvaluateFunctionBody step 4 —
+                            // a function body implicit-returns
+                            // `ReturnCompletion(undefined)`. The class-ctor
                             // [[Construct]]-observable substitute (§10.2.2
                             // step 12-13 thisArgument or step 15-17
                             // thisBinding) happens out-of-band after this

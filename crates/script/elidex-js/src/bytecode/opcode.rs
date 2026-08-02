@@ -42,20 +42,12 @@ pub enum Op {
     /// 13.b.i + 17 / §19.2.1.1 steps 29.a + 30.a + 33 surface the script's or
     /// `eval`'s last such value (13.b.i / 30.a normalise an empty completion to
     /// `undefined`).
-    /// A **statement-list** body discards instead, which is why the dispatch
-    /// arm also gates on the entry frame being `Eval`.  §10.2.1.4
-    /// OrdinaryCallEvaluateBody delegates in one step to §10.2.1.3
-    /// `EvaluateBody`, which is syntax-directed over eight productions; of the
-    /// four this opcode can reach, function and class-constructor bodies end at
-    /// §15.2.3 EvaluateFunctionBody step 4 `ReturnCompletion(undefined)`, while
-    /// generator (§15.5.2 step 6), async (§15.8.4 step 5) and async-generator
-    /// (§15.6.2) bodies return the generator object or the promise.
-    ///
-    /// The claim is deliberately scoped to those four: §10.2.1.3's other
-    /// productions do surface an expression's value — §15.3.3
-    /// EvaluateConciseBody step 2 returns the `ExpressionBody`'s value for
-    /// `x => expr`, as does the `Initializer` production for a field. Neither
-    /// reaches this opcode, because neither compiles through a statement list.
+    /// Any other body reaching this opcode must discard instead, which is what
+    /// the dispatch arm's second condition enforces: it writes
+    /// `completion_value` only from the **entry** frame and only when that frame
+    /// is `FrameKind::Eval`. The gate is the invariant — a body kind is
+    /// unobservable here because it runs in a non-entry frame, not because of
+    /// anything about its production.
     ///
     /// Splitting this out of [`Op::Pop`] is what keeps internal stack
     /// housekeeping — reference cleanup, hoisting stores, destructuring

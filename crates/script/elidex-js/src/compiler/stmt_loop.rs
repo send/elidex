@@ -1,15 +1,11 @@
 //! Iteration statements: `for-in` / `for-of` / `while` / `do-while` / `for`.
 //!
-//! ECMA-262 §14.7 Iteration Statements. The seam is the call graph, not the
-//! line count: `compile_forin_left_binding` has no caller outside `for-in` /
-//! `for-of` and so moves with them, while each helper left in `stmt.rs` is
-//! shared across families — `find_child_block_scope` with `Block` and `Try`,
-//! `emit_iter_close_range` with `Return` and `Break`,
-//! `emit_pending_finally_bodies` with `Return`, `Break`, `Continue` and `Try`.
+//! ECMA-262 §14.7 Iteration Statements, split from `stmt.rs` along the call
+//! graph rather than the line count: `compile_forin_left_binding` is used only
+//! by these arms, while the helpers left behind are shared with other statement
+//! families and so belong to neither.
 //!
-//! `compile_stmt` is the only caller of every function here, and re-entered by
-//! them for loop bodies. Node ids are `Copy` and passed by value; the two
-//! borrowed parameters are the AST enums `ForInOfLeft` and `ForInit`.
+//! Each arm is entered from `compile_stmt` and re-enters it for the loop body.
 
 use crate::arena::NodeId;
 #[allow(clippy::wildcard_imports)]
@@ -353,17 +349,10 @@ fn compile_forin_left_binding(
                         fc.emit_u16(Op::SetGlobal, idx);
                         fc.emit(Op::Pop);
                     }
+                    // No store path for an import binding, so the value was
+                    // discarded and the loop ran with the target unwritten.
+                    // Slot: `#11-vm-assignment-target-completeness`.
                     super::resolve::VarLocation::Module(_) => {
-                        // An import binding is immutable: ECMA-262 §16.2.1.6.4
-                        // `SetMutableBinding` for a Module Environment Record
-                        // asserts unreachable for an indirect binding, and the
-                        // early-error rules make a direct assignment a
-                        // SyntaxError — so reaching here at all is a
-                        // parser/resolver gap. Rejected loudly rather than
-                        // discarded: `for (imported of a)` silently ran the body
-                        // with the binding untouched, which is the same
-                        // silent-no-op shape the rest of this arm bans.
-                        // Slot: `#11-vm-assignment-target-completeness`.
                         fc.emit(Op::Pop);
                         emit_unsupported(fc, "assignment to an imported binding is not supported");
                     }
@@ -377,7 +366,7 @@ fn compile_forin_left_binding(
                 // **destructuring** one through step 8.g.i.1.a
                 // `DestructuringAssignmentEvaluation` — the analogues of
                 // §13.15.2's `LeftHandSideExpression = AssignmentExpression`
-                // step 1.e and its ObjectLiteral/ArrayLiteral production. There
+                // step 1.e and its destructuring branch at step 5. There
                 // is no store lowering here for either, so every non-identifier
                 // head — `for (o.p in obj)`, `for (this.#x of a)`,
                 // `for (super.x of a)`, `for ([a,b] of a)` — is rejected the way

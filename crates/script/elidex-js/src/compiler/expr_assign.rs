@@ -99,8 +99,11 @@ fn compile_identifier_store(
             let idx = fc.add_name_u16(name);
             fc.emit_u16(Op::SetGlobal, idx);
         }
+        // Third site with this condition; same disposition as the two in
+        // `stmt_loop.rs` / `stmt_destructure.rs`, rather than a process abort.
+        // Slot: `#11-vm-assignment-target-completeness`.
         VarLocation::Module(_) => {
-            unreachable!("assignment to import binding is not allowed (ECMA-262 §16.2.3.7)");
+            emit_unsupported(fc, "assignment to an imported binding is not supported");
         }
     }
     Ok(())
@@ -361,8 +364,9 @@ pub(super) fn unsupported_member_target(
 ///
 /// The message is deliberately **slot-free**: it reaches page script as
 /// `e.message`, and a ledger rename would drift a web-observable string with no
-/// compiler signal. Each call site names its owning `#11-*` slot in an adjacent
-/// comment instead.
+/// compiler signal. The owning `#11-*` slot is named in a comment near the
+/// rejection instead — either at the call site or on the gate arm that supplied
+/// the message.
 pub(super) fn emit_unsupported(fc: &mut FunctionCompiler, message: &str) {
     let idx = fc.add_constant(Constant::Wtf16(message.encode_utf16().collect()));
     fc.emit_u16(Op::ThrowUnsupported, idx);
