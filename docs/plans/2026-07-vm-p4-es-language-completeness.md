@@ -522,7 +522,7 @@ narrowly-scoped slice a **terminal unit** (edge-dense base case).
 | **0b** | *(Deps: **P**)* **Assignment/update target completeness** — destructuring assignment (`[a,b]=…`, `({x}=…)`, for-of patterns), **parenthesized targets** (`(x)++`, `(x)+=1`, `(a[0])++`, **and the parenthesized _callee_ `(o.m)()`** — one shared `peel_paren` chokepoint, §9 dec. 14), `for(obj.p in …)`, **the two early-SyntaxError rejections** (prefix `Spread`, `delete this.#x` — §9 dec. 15) | `compiler/expr_assign.rs`, `compiler/expr_ops.rs`, `compiler/stmt.rs`, **`compiler/expr_member.rs`** (the `(o.m)()` callee match), **`compiler/expr.rs`**, `parser/expr.rs` (Paren normalisation + the ungated `Ellipsis` arm) | **new** `#11-vm-assignment-target-completeness` | T1 | — |
 | **P** | **`IteratorClose` precedence convention** — completion-kind-dependent `iter_close` signature + **15** sites (10 `iter_close(` + 4 `fc.emit(Op::IteratorClose)` + 1 inline re-implementation in `op_array_spread`), **split by governing algorithm first** (**10** ECMA-262 §7.4.11 / **5** WebIDL §3.2.21.1) (§6.2a-2). Gates 0b | `vm/dispatch_iter.rs`, `vm/ops.rs`, `vm/natives_array_hof.rs`, `vm/webidl_sequence.rs`, `vm/host/{typed_array_static,url_search_params,structured_clone,headers/parse_init}.rs`, `compiler/{stmt,expr_yield_star}.rs` | **new** `#11-vm-iteratorclose-precedence-convention` | T1 | — |
 | **0c** | I-1 discharge: **all three** substitution classes → loud throw; **+ §7.2 conformance table** | sweep-derived (§9 dec. 9) — at minimum `compiler/{expr,expr_object,expr_ops,expr_class,expr_assign,stmt}.rs` **+ `vm/dispatch.rs`** (the reachable Layer-B arms: `GetPrivate`/`PrivateIn`) | (invariant, no slot) | — | — |
-| **1a** | **Call-spread VM infrastructure** (user-adopted split, §9 dec. 6 — **no call-shape change, plus two named semantic fixes**: decs. 13a + 10; NOT unqualified "behaviour-preserving", see §6.4): `lay_out_call_args` stack-layout helper + `Empty` normalisation + convert `op_super_call_spread` to consume it + correct `op_super_call_spread`'s falsified docstring (the `expr_class.rs:145-152` producer is **spec-required** and is NOT folded — §6.3 / I-3 carve-out) + `ic_call`/`ic_call_method` → `call_ic_idx: Option<usize>` (dec. 11) + remove `op_array_spread`'s `return()` (dec. 13a) + **rooting** the 4 unrooted arg windows (dec. 10 — ⚠ *not* `gc_enabled` bracketing; that was overturned in round 8 because `:893`/`:658` hand off to `make_async_coroutine_and_drive`, which drives the async body) | **`vm/dispatch_helpers.rs`** (home of `lay_out_call_args` — the proven cohesion seam, §5 1000-line note), `vm/dispatch_class.rs`, `vm/dispatch_iter.rs`, `vm/dispatch_ic.rs`, **`vm/dispatch.rs`** (`:719`/`:730` are the *only* callers of `ic_call`/`ic_call_method`, which dec. 11 re-signatures — without it 1a does not compile; ⚠ the prereq split may relocate these arms, so 1a must name their post-split home), `vm/interpreter.rs` — **no `compiler/` file** (the fold is withdrawn; edge 32 is a test) | `#11-vm-call-spread-arguments` (shared with 1b) | T1 | 0c |
+| **1a** | **Call-spread VM infrastructure** (user-adopted split, §9 dec. 6 — **no call-shape change, plus two named semantic fixes**: decs. 13a + 10; NOT unqualified "behaviour-preserving", see §6.4): `lay_out_call_args` stack-layout helper + `Empty` normalisation + convert `op_super_call_spread` to consume it + correct `op_super_call_spread`'s falsified docstring (the `expr_class.rs:145-152` producer is **spec-required** and is NOT folded — §6.3 / I-3 carve-out) + `ic_call`/`ic_call_method` → `call_ic_idx: Option<usize>` (dec. 11) + remove `op_array_spread`'s `return()` (dec. 13a) + **rooting** the 4 unrooted arg windows (dec. 10 — ⚠ *not* `gc_enabled` bracketing; that was overturned in round 8 because `:893`/`:658` hand off to `make_async_coroutine_and_drive`, which drives the async body) | **`vm/dispatch_helpers.rs`** (home of `lay_out_call_args` — the proven cohesion seam, §5 1000-line note), `vm/dispatch_class.rs`, `vm/dispatch_iter.rs`, `vm/dispatch_ic.rs`, **`vm/dispatch.rs`** (the *only* callers of `ic_call`/`ic_call_method`, which dec. 11 re-signatures — without it 1a does not compile; ⚠ these were `:719`/`:730` at `f7d9b5ce` and are `:705`/`:716` at `658cc302`, so 1a must re-derive them by grep at implementation time rather than reading either pair forward), `vm/interpreter.rs` — **no `compiler/` file** (the fold is withdrawn; edge 32 is a test) | `#11-vm-call-spread-arguments` (shared with 1b) | T1 | 0c |
 | **1b** | **Call-argument spread — compiler + opcodes**: `compile_call_arguments`/`ArgsForm` + `emit_call` aggregation (dec. 2) + `CallMethodSpread` (dec. 2b) + the 3 handlers + arity-based form selection | `compiler/expr_member.rs`, `expr.rs`, `bytecode/opcode.rs`, `bytecode/disasm.rs`, `vm/dispatch.rs`, **`vm/ops.rs`** (`do_new` §3 rows 17/18, the bound-prefix splice `:696-700` for edge 26, and dec. 12's stack bound — which has no implementation today) | `#11-vm-call-spread-arguments` | T1 | **1a** |
 | **2** | Class **instance** field initializers (public) | `compiler/expr_class.rs`, `vm/dispatch.rs`, **`vm/dispatch_class.rs:232-250`** (`construct_synchronous` — the receiver substitution the contract below turns on); **+ `vm/host/custom_elements/`** (no-regression only — see below) | **adopt** `#11-step9-class-extras` | T1 | — |
 | **3** | Super property references | `compiler/expr.rs`, `expr_member.rs`, `vm/dispatch.rs`, **+ the frame-state axis: `vm/interpreter.rs:795-806`, `vm/value.rs:1038-1046`, `bytecode/compiled.rs:74`** | **adopt** `#11-step9-class-extras` | T2 | — |
@@ -582,35 +582,51 @@ custom-element upgrade path.
 (re-eval 2026-08-08; Slices 2/5 touch `expr_class.rs`) and `#11-reflect-apply-ce-test` (paired with
 Slice 10).
 
-**1000-line touch-time check — ⚠ REVERSED at implementation time (2026-07-27).** `vm/dispatch.rs` is
-**1112 lines**, and rounds 2-9 all carried a mandated "standalone prereq split branch". **Attempting
-it showed that is wrong**: the file is a single function. Measured at `f7d9b5ce`:
+**1000-line touch-time check — the standalone prereq split is withdrawn (2026-07-27), on a narrower
+ground than the first statement of this section claimed.** Rounds 2-9 all carried a mandated
+"standalone prereq split branch" for `vm/dispatch.rs`.
 
-| Measure | Value |
-|---|---|
-| `run()` extent | lines 35-1094 (the rest is `use` + one 18-line `complete_inline_frame`) |
-| opcode match arms | **104**, spanning **1036 of 1113 lines (93%)** |
-| arms ≤ 8 lines | 68 of 104 |
-| arms > 20 lines | 13 |
-| arms using **inline loop control flow** | **29** (16 `continue`, 13 `return`) |
+⚠ **The 2026-07-27 reversal shipped after the §15 convergence call, ungated, and four of its five
+measurements were wrong** — caught by this document's own plan-review at PR-B (`#506`). They are
+restated below from measurement; the erroneous originals were 1036/1113 (93%), 68, 13, and — the
+figure the argument turned on — "29 arms (16 `continue`, 13 `return`)", which summed two occurrence
+counts as though the sets were disjoint. Re-derive with the script in this section's commit rather
+than reading these forward:
 
-CLAUDE.md's discipline is explicit that this is **cohesion judgment, not line-count mechanics**, and
-names the exemption: *「一枚岩の cohesive unit・巨大 generated table・**flat な case table** は対象外」*.
-A 104-arm opcode dispatch table is that case. Two further facts settle it:
+| Measure | `f7d9b5ce` (rounds 2-9 basis) | `658cc302` (0a landed) |
+|---|---|---|
+| file (`wc -l`) | 1112 | **1103** |
+| top-level items besides `run()` | `use`, `fn resolve_delete_base` (L21), `fn complete_inline_frame` | same |
+| opcode match arms | **104**, spanning 1008 of 1112 lines (91%) | **108**, spanning 996 (90%) |
+| arms ≤ 8 lines | 69 of 104 | 75 of 108 |
+| arms > 20 lines | 12 | 11 |
+| arms using inline loop control flow | **20** (13 `continue`, 13 `return`, **6 both**) | **18** |
+| arms > 8 lines with **no** `continue`/`return` | 17 | **18, totalling 293 body lines** |
+| `dispatch_{class,helpers,ic,iter,objects}.rs` | 1725 across 5 files | 1888 |
 
-1. **The extractable work is already done.** The complex arms were long ago pulled into the
-   `dispatch_{class,helpers,ic,iter,objects}.rs` family (1725 lines across 5 files) — which is why
-   68 arms are now ≤8 lines. What remains *is* the table.
-2. **The match cannot be split without a behavioural rewrite.** 29 arms `continue`/`return` the
-   dispatch loop directly and read loop-local state (`entry_frame_depth`, `frame_idx`, `func_id`,
-   `ip`, `bytecode`). Moving them out requires threading a control-flow enum through all 29 — a
-   risky semantic change, the opposite of the behaviour-preserving move a prereq split is supposed
-   to be.
+Two conclusions, and they are **not** the same conclusion:
 
-**Decision: `vm/dispatch.rs` is exempt** — a cohesive flat case table, not a split candidate. The
-prereq-split PR is **removed from the ship order**, which takes a PR off the critical path and
-unblocks the T0 fix immediately. The forward rule for slices that add arms: extract the *arm body*
-into the existing `dispatch_*.rs` family (the established pattern), never grow an arm in place.
+1. **The match is not split.** CLAUDE.md's discipline is cohesion judgment, not line-count mechanics,
+   and names the exemption: *「一枚岩の cohesive unit・巨大 generated table・**flat な case table** は
+   対象外」*. A 104-arm opcode dispatch table is that case. Independently, 20 arms `continue`/`return`
+   the dispatch loop directly and read loop-local state (`entry_frame_depth`, `frame_idx`, `func_id`,
+   `ip`, `bytecode`), so relocating the *match* into a second file means threading a control-flow enum
+   through those 20 — a semantic rewrite, the opposite of what a prereq split is for.
+
+2. **The file is NOT exempt from reduction, and the earlier text claimed it was.** "The match cannot
+   be split without a behavioural rewrite" was true of the match and was then read as covering the
+   file. It does not: 18 arms exceed 8 lines while carrying **no** loop control flow at all, 293 body
+   lines between them, and the `dispatch_*.rs` family is the in-tree seam that already absorbs exactly
+   this shape. Slice 0a demonstrated it — `dispatch_helpers.rs` 237→391, `dispatch_objects.rs`
+   429→438, `dispatch.rs` 1112→1103 — without touching one control-flow arm.
+
+**Decision: no standalone prereq-split PR — because the debt is discharged continuously, not because
+the file cannot be reduced.** The forward rule for every slice that touches this file: extract the
+*arm body* into the existing `dispatch_*.rs` family, never grow an arm in place. That rule is the
+discharge mechanism, so a slice that adds an arm and leaves the file larger has not complied.
+(The withdrawn text also argued the reversal "takes a PR off the critical path and unblocks the T0 fix
+immediately" — schedule is judgment-supporting information, not a design constraint (CLAUDE.md
+*Ideal over pragmatic*), so it is removed rather than restated.)
 
 **Files the watch list still owns** (`#11-d17b-dispatch-expr-file-growth`): `vm/interpreter.rs` 1366
 (1a + Slice 3), `vm/value.rs` 1187 (Slice 3). **Not on any watch list and >1000**:
@@ -979,36 +995,50 @@ converting silent stubs to loud throws.
 
 ## §8. Slot ledger changes at landing
 
-**Adopt (do not duplicate) 2 pre-existing slots**, both currently recorded only in
-`m4-12-pr-d17b-html-element-constructor-base-vm-landing.md`, not in the SoT ledger — this umbrella
-homes them:
+⚠ **This section was written before Slice 0a landed and is a *plan* for registration, not a record of
+it. Re-derive both lists against the live ledger before acting** — at #489's landing 7 of the 11
+below were already registered, so following the section as originally written would have minted
+duplicates (`grep -c '#11-<slot>' <ledger>`; the ledger is the memory-dir
+`project_open-defer-slots.md`, outside this repo, so **landing this document registers nothing**).
+
+**Adopt (do not duplicate) 2 pre-existing slots** — this umbrella homes them:
 
 - `#11-step9-class-extras` — scope "static members / private fields / getters & setters in class
   bodies / computed-name methods / static blocks / `Op::GetSuperProp` + `Op::SetSuperProp`" =
-  exactly Slices 2/3/5. Cited in-code at 4 sites (verified 2026-07-26 via
-  `grep -rn 'step9-class-extras' crates/`: `compiler/expr.rs:204`, `vm/interpreter.rs:801`,
-  `vm/value.rs:1042`, `bytecode/compiled.rs:74`). Partially discharged already (static
-  fields/methods and computed method keys verified working, §1.2). **Slices 2/3/5 retag those 4
-  in-code citations** as they land, so none dangles.
+  exactly Slices 2/3/5. **Already in the SoT ledger** (adopted at #489's landing; the earlier claim
+  that it lived only in `m4-12-pr-d17b-html-element-constructor-base-vm-landing.md` is superseded).
+  Partially discharged already (static fields/methods and computed method keys verified working,
+  §1.2). **Slices 2/3/5 retag every in-code citation `grep -rn 'step9-class-extras' crates/` reports
+  at retag time** — 6 at `658cc302` (`compiler/expr.rs`, `compiler/expr_assign.rs`,
+  `compiler/stmt_loop.rs`, `vm/interpreter.rs`, `vm/value.rs`, `bytecode/compiled.rs`), where this
+  section originally froze a 4-site list measured 2026-07-26; 0a added two. Retagging a frozen list
+  is what leaves the dangle the sentence exists to prevent.
 - `#11-dead-opcode-removal` — "`Op::CreateClass` verifiably dead; bundle with D-26 Op-enum
   re-baseline"; trigger **already fired** at #458. Becomes Slice D, broadened to the §2.3 set.
 
 **Also adopt** `#11-d17b-dispatch-expr-file-growth` (uncounted watch slot, D-17b r1/r2 landings;
 homes the `vm/dispatch.rs` + `compiler/expr_class.rs` + `vm/interpreter.rs` + `vm/value.rs`
-1000-line debt, re-eval 2026-08-08). ⚠ **The `dispatch.rs` facet is NOT discharged** — §5's
-1000-line check rules that file **exempt** (cohesive flat case table), so the slot keeps it as a
-standing no-action entry with a stated reason, and its `interpreter.rs` / `value.rs` /
-`expr_class.rs` facets remain live. **Cold-gate recorded** (⚠ *narrowed round 9 — the round-5 wording over-claimed*): the split's actual
-target **`vm/dispatch.rs` is clear** — verified no branch/worktree/PR touches it (PR #488 layout/ecs,
+1000-line debt, re-eval 2026-08-08). ⚠ **The `dispatch.rs` facet is NOT discharged, and it is not a
+no-action entry either** — §5's 1000-line check exempts the *match* from being split but explicitly
+does **not** exempt the file from reduction; its discharge mechanism is the arm-body extraction rule,
+so the slot's `dispatch.rs` facet is measured against `wc -l` at each slice that touches it (1103 at
+`658cc302`, down from 1112). Its `interpreter.rs` / `value.rs` / `expr_class.rs` facets remain live. **Cold-gate recorded 2026-07-26** (⚠ *narrowed round 9 — the round-5 wording over-claimed; and the open-PR set below is that date's, since superseded — re-run `gh pr list` before relying on it*): **`vm/dispatch.rs` was clear** — verified no branch/worktree/PR touched it (PR #488 layout/ecs,
 PR #487 shell, PR #486 dependabot manifest-only, `vm-input-value-as-date` plan-doc only, and
 `domform-submittable-category` = 0 hits). But the wider claim "nothing touches
 `elidex-js/{compiler,bytecode,vm}`" is **false**: the active L3 lane
 (`elidex-wt-submittable`, `domform-submittable-category`) has committed changes to
 `vm/object_kind.rs`, `vm/globals.rs`, `vm/mod.rs` and 6 `vm/host/` files. **`vm/object_kind.rs` is in
-the module column of Slices 6/7/10** ⇒ cross-lane coordination required there, though not for the
-split, 0a, 0b, 0c, 1a or 1b.
+the module column of Slices 6/7/10** ⇒ cross-lane coordination required there, though not for 0a,
+0b, 0c, 1a or 1b.
 
-**New slots to register** (11), each with the required triple:
+**Slots this umbrella owns** (11), each with the required triple. Registration state measured at
+`658cc302` — **7 are already in the ledger**, recorded there as "Registered here at #489's landing":
+`iteratorclose-precedence-convention`, `assignment-target-completeness`,
+`topropertykey-symbol-from-toprimitive`, `operand-rooting-by-construction`, `internal-error-hard-exit`,
+`delete-elem-raw-key-array-fast-path`, `statement-completion-updateempty`. **Still to register**:
+`async-generators`, `es2021-2024-prototype-sweep`, `dynamic-import`. **To retire, not register**:
+`computed-compound-assignment` — its stated purpose was "a ledger home until it lands", and it landed
+as `658cc302` while never reaching the ledger, so the row below is the only place it has ever existed.
 
 | Slot | Why deferred | Trigger | Re-eval |
 |---|---|---|---|
@@ -1123,7 +1153,9 @@ favour of `#11-step9-class-extras`.
    `compile_arguments` (no I-3 strangler). `op_super_call_spread` is a live consumer today, so the
    helper is not dead on arrival. Decision 6's earlier text conceded the seam exists and then
    dismissed it on "does nothing for the three handlers" — a *completeness* criterion, not the split
-   criterion. §5 already accepts exactly this shape for the `vm/dispatch.rs` prereq.
+   criterion. *(This decision originally cited §5's acceptance of the `vm/dispatch.rs` prereq split as
+   precedent for the same shape. §5 now withdraws that split, so the precedent is gone; the seam
+   argument below stands on its own and is what the decision rests on.)*
 
    Aggravating: Slice 1's load has grown across four rounds to helper + `emit_call` aggregation
    (dec. 2) + new opcode + 3-4 handlers + `lay_out_call_args` + `Empty` normalisation +
@@ -1441,7 +1473,7 @@ the Slice-1 split, and a corrected dead-opcode set that would otherwise have del
 **Decision**: the umbrella is converged **for its purpose** — it is a decomposition and invariant
 document, not an implementation spec. Remaining work moves into the per-slice reviews.
 
-**Ship order**: **Slice 0a** → P → 0b → 0c → 1a → 1b. *(The `vm/dispatch.rs` prereq split that rounds 2-9 mandated was **removed at implementation time** — §5's 1000-line check: it is a cohesive flat case table, and 29 arms use inline loop control flow so the match cannot be split behaviour-preservingly. Nine review rounds carried that mandate; the first hour of implementation falsified it.)*
+**Ship order**: **Slice 0a** → P → 0b → 0c → 1a → 1b. *(The `vm/dispatch.rs` prereq split that rounds 2-9 mandated was **removed at implementation time** — §5's 1000-line check, whose figures were then re-derived at PR-B: the match is a cohesive flat case table and 20 arms use inline loop control flow, so the **match** is not relocated; the **file's** size debt is discharged continuously by the arm-body extraction rule instead. Nine review rounds carried the standalone-split mandate.)*
 Each carries its own `/elidex-plan-review`, at which point that slice's residual §9 decisions,
 module columns and edge rows are settled against code rather than against this document.
 
