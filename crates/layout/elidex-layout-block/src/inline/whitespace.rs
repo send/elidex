@@ -20,9 +20,10 @@ use super::InlineItem;
 /// intact (segment breaks stay as forced breaks).
 ///
 /// Line-edge trimming (§4.1.2 Phase II) and the "white space that collapses away
-/// generates no box" rule (CSS 2 §9.2.2.1 / §9.4.2 — the same composite
-/// `LinePacker` cites) are applied at line-packing
-/// time (see [`super::pack::LinePacker`]), not here.
+/// generates no box" rule are applied at line-packing time, not here — see
+/// [`super::pack::LinePacker`], which carries the citation for the rule it
+/// implements. Naming a section here would restate it at a site that does not
+/// decide it, which is how both of this line's previous citations went wrong.
 pub(super) fn collapse_inline_whitespace(items: &mut [InlineItem]) {
     // Cross-run collapse state: true when the previously emitted character (in any
     // earlier run of this IFC) was a collapsible space, so a following collapsible
