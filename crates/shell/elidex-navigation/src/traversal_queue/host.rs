@@ -4,7 +4,7 @@
 //! Implementing it keeps `ContentState` / `InteractiveState` / the pipeline /
 //! `EcsDom` **behind the trait**, so no shell type crosses the `elidex-navigation`
 //! crate boundary (plan §4.5 "OO→ECS / layer map"). Both shells implement it:
-//! `content/drain_host.rs` (Slice A) and `app/drain_host.rs` (Slice B).
+//! `content/drain_host.rs` (Slice A) and `app/drain_host/host.rs` (Slice B).
 //!
 //! This is also where the substrate's two **contract-level spec divergences** live
 //! — at the contract that binds both shells rather than duplicated at either impl:
@@ -134,7 +134,10 @@ pub trait DrainHost {
     /// `DrainCoordinator::drain_traversal_queue` argues
     /// unreachable (content-mode: the interim buffer guard plus a `pending_len()`
     /// snapshot that never splits a `[Traversal, SyncUpdate]` pair; app-mode:
-    /// structurally void, no reentrant Phase 1), and it belongs to
+    /// structurally void, no reentrant Phase 1 — and its drive-site quiescence
+    /// loop does not reopen it, because every ITERATION runs a Phase 2 that
+    /// empties the queue before the next Phase 1b peeks, so "survive a drain" is
+    /// no more reachable across iterations than across turns), and it belongs to
     /// `#11-sync-navigation-steps-queue-tagging`.
     ///
     /// **The two issue-time hoists are a COUPLED PAIR — neither moves alone.**
@@ -158,7 +161,7 @@ pub trait DrainHost {
     /// the final shape.
     ///
     /// **Engine-wide and pre-existing**, not a property of any one shell: the
-    /// identical predicate is `app/drain_host.rs`'s and `content/drain_host.rs`'s
+    /// identical predicate is `app/drain_host/host.rs`'s and `content/drain_host.rs`'s
     /// `classify_traversal`, which is why the note lives here at the CONTRACT. It is
     /// the **first**-traversal counterpart of the shape
     /// [`pending_traversal`](Self::pending_traversal)'s doc records for SUBSEQUENT
