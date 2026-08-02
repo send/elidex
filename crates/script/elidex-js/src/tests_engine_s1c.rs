@@ -408,23 +408,30 @@ fn peek_excludes_channels_phase_one_does_not_consume() {
     //
     // The storage leg below is kept anyway because it is the one of the four with a
     // script trigger this harness can reach, and it exercises the composed predicate
-    // end-to-end against a channel that a real page fills on ordinary input.
+    // end-to-end against a channel that a real page fills on ordinary input. It also
+    // guards the `&self`/`HostData` argument itself: that argument holds only while
+    // those four channels stay `HostData`-homed, so if a future consolidation moves
+    // one onto `vm.inner` the structural exclusion silently becomes prose — this leg
+    // is what would still fail.
     // `focus` / `parent.postMessage` / IDB-versionchange have no such trigger here
     // (`element.focus()` fails without an installed host context, `parent` needs a
     // parent navigable, a versionchange needs a real upgrade transaction).
     #[cfg(feature = "compat-webapi")]
     {
-        let staged = engine.take_pending_storage_changes();
-        assert_eq!(
-            staged.len(),
-            1,
-            "precondition: the localStorage write really is staged"
-        );
+        // Order matters and is the whole test: peek FIRST, drain second. The drain
+        // is consuming, so asserting the peek after it would pass whether or not the
+        // predicate wrongly ORs the storage channel in — vacuous.
         assert!(
             !engine.has_pending_session_history_work(),
-            "and a staged storage change is NOT session-history work either — this \
-             is the channel whose accidental inclusion would cap-loop every input on \
-             any page that writes localStorage"
+            "a staged storage change is NOT session-history work — this is the \
+             channel whose accidental inclusion would cap-loop every input on any \
+             page that writes localStorage"
+        );
+        assert_eq!(
+            engine.take_pending_storage_changes().len(),
+            1,
+            "postcondition: the localStorage write really WAS staged for that peek \
+             to have been a meaningful negative"
         );
     }
 }

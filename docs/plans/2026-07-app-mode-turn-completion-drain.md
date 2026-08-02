@@ -38,7 +38,8 @@ contracts (§4.7); the flip set (§6): **both** slot pins plus the straddle pin'
 sibling-passage sweep (§5.2); the test-file placement decision (§5.1).
 
 **Scope of the fix, stated exactly.** The loop settles what the turn's handlers staged *for turns that
-reach quiescence* — the ordinary case, and the one §1's pins exercise. It does **not** bound the residue
+reach quiescence*, and no more than that — **not** "the ordinary case"; §7 Q3 strikes that frequency
+claim as unsubstantiated (chrome Back reaches the destructive path in two clicks). It does **not** bound the residue
 on the two non-quiescent exits (cap-hit, pipeline swap), and it does not touch the two staging sources
 that never enter the loop at all (mover-fired popstate staging, load-time staging). For those, the
 residual lifetime stays exactly as unbounded as on `origin/main` — see WITHDRAWN below, which is where
@@ -454,7 +455,8 @@ that never enter the loop (§0 scope). **Two things follow, and plan-review shou
    truncation-without-a-scheduled-next-drive and was rejected because *"'never worse than today' is not
    an acceptable invariant when today is destructive."* v3's degrade is that same shape. What changed is
    not the shape but the **claim**: v1 presented itself as closing §1; v3 closes §1 for turns that reach
-   quiescence (the ordinary case, and every pin in §8), states plainly that it closes nothing on the
+   quiescence — a SCOPE claim carrying no assertion about how common such turns are (§7 Q3 strikes the
+   frequency version) — states plainly that it closes nothing on the
    degraded paths, and hands the residue to a named owner with a known design (§0 WITHDRAWN). The
    alternative — hold the loop back until the residue slice lands — is §7 Q3, and it is a real question,
    not a rhetorical one.
@@ -515,8 +517,9 @@ orthogonal decisions**:
   occupied ∨ window-opens non-empty" (window-opens **included**: app-mode's settle for them is
   drain-and-drop, and excluding them strands opens staged during Phase 2). **1 implementor**, the layer
   that owns the channels, an existing idiom, and a single home for "what counts as staged work". Whether
-  it is one composed method or three per-channel peeks is a naming-level choice for plan-review; the lean
-  is one method (one decision surface). The peek has **ONE reader class** — the loop's quiescence
+  it is one composed method or three per-channel peeks is **not** a naming-level choice — v2 called it
+  one; the correction below supersedes this bullet's framing — and the lean is one method on the
+  one-decision-surface ground. The peek has **ONE reader class** — the loop's quiescence
   predicate (§4.2). (v2 had a second, the dispatch-entry reader, and leaned on "two readers, one
   question" to strengthen the single-home argument. The argument does not depend on it: the alternative
   it rejects — a drive-schedule flag — would be a second answer to a question the channels already hold,
@@ -799,8 +802,8 @@ commit early and three of its counts had already drifted:
 | `app/drain_host/mod.rs` | 632 | split half 1 — drive site |
 | `app/drain_host/host.rs` | 358 | split half 2 — `impl DrainHost for App` |
 | `app/events.rs` | 230 | unchanged in size |
-| `app/mod.rs` | 897 | +37, doc + test-module wiring only |
-| `app_test_support.rs` | 317 | **+136** — nine new helpers (§8's probes + the popstate page builders) |
+| `app/mod.rs` | 897 | net **+13** (25 added / 12 removed), doc + test-module wiring |
+| `app_test_support.rs` | 317 | net **+134** — **ten** new helpers (§8's probes + the popstate page builders) |
 | `app_turn_completion_tests.rs` | 648 | new file (§5.1) |
 | `app_history_phase_sep_tests.rs` | 503 | 756 → 503 (§5.1) |
 | `elidex-script-session/src/engine.rs` | 709 | +1 trait method + contract |
@@ -813,7 +816,7 @@ runs on every touched file, not just the one that grew): the split at `drain_hos
 seam and it **stands after the withdrawal** — 632 + 358, neither near the guideline, and re-merging would
 put the file back at ~990, i.e. straight back at the line the split was taken to clear. No other touched file warrants one: `app/mod.rs`
 (897) and `elidex-js/src/engine.rs` (830) sit in the ~800 band `feedback_touch-time-split-means-while-writing`
-watches, but this PR's deltas into them are +37 doc/wiring and +13 respectively — no substantive growth and
+watches, but this PR's deltas into them are net +13 doc/wiring and +13 respectively — no substantive growth and
 no new seam, so splitting them here would be a line-count reflex, not a cohesion judgment. Recorded rather
 than left silent so the next toucher of either file inherits the measurement.
 
@@ -1010,6 +1013,19 @@ those turns — the early returns delay *draining*, which v3 does not bound at a
   move the cursor before any drive is reached, and the eventual drive then applies the staged intent
   against the moved cursor — §1's wrong-entry shape, unchanged.
 
+  **(d) — and this one is NOT a residue, so it must be weighed separately.** §4.6's ANSWERED block
+  records a fourth destructive path: a `location.*` staged by a `popstate` firing inside iteration N's
+  Phase 2 reaches N+1's Phase 1c with an empty queue, so it is neither suppressed nor held, and applies
+  against the cursor the turn's later traversals moved to. Unlike (a)–(c), the "this PR neither
+  introduces nor changes it" premise **does not hold**: on `origin/main` that navigation fires only if
+  a drive is ever reached (R1/R2 guarantee nothing), whereas this slice makes it land deterministically
+  inside the turn. The outcome is pre-existing; the **determinism is new**, and that is a real delta the
+  ship/hold decision below has to carry. It is owned by the existing
+  `#11-nav-supersede-window-vs-ongoing-navigation` (closing it needs the turn-scoped suppression state
+  §4.3/R4 declines to mint) and is deliberately **not pinned** — pinning it would characterize a
+  divergence the very next slice on that slot is expected to change. That is a decision this section
+  takes, not one the "unchanged pre-existing behavior" rule takes for it.
+
   **⚠ Do not argue this from "ordinary case" or from "nothing regresses" — both are struck.** v3 first
   argued (i) on the grounds that quiescent turns are "the ordinary case" and that the residues are
   `origin/main`'s so nothing regresses. The second is v1's rejected invariant verbatim ("never worse than
@@ -1044,7 +1060,8 @@ those turns — the early returns delay *draining*, which v3 does not bound at a
     termination requirement) but the same follow-up machinery (b)/(c) need. So (a) rides along with the
     withdrawn-work slot (§9), and shipping means shipping with (a) open.
 
-  (i) **Ship the loop now.** It is independently correct, independently tested, and orthogonal to the
+  (i) **Ship the loop now.** It is independently correct, independently tested *except for EXIT 3's
+  presence* (§9 #1 — mutation-verified dead in CI), and orthogonal to the
   residue slice (which adds a call site; it does not change the loop). Holding it does not make the
   second fix arrive sooner — that fix needs its own gate regardless — it only couples two
   independently-reviewable slices, which is the defer-accumulation shape that mis-drew this boundary the
@@ -1131,9 +1148,12 @@ predicate-invariant pins, which must NOT** (next bullet).
   takes `navigate`'s SameDocument arm (`same_document_step`), which succeeds and fires `hashchange`
   synchronously → that handler stages a `pushState` → iteration 3 applies it. A same-document navigate
   takes `push_same_document`, which INHERITS the current document identity, so the marker is unchanged
-  and the loop correctly continues. **Mutation-verified as the only test in the 297-test `elidex-shell`
-  suite that fails when `same_document_step`'s fragment arm re-stamps `document_sequence`** — the
-  §4.5 (c) marker definition, which no assertion about the loop itself can reach. Also the only
+  and the loop correctly continues. **Mutation-verified: it fails when `same_document_step`'s fragment
+  arm re-stamps `document_sequence`** — the §4.5 (c) marker definition, which no assertion about the
+  loop itself can reach. (Re-measured at the final head: **two** tests fail under that mutation — this
+  one directly, and the reinstatement-placement pin below incidentally, since its reinstated fragment
+  navigate takes the same arm. An earlier revision claimed sole uniqueness; that was measured before
+  the second pin existed.) Also the only
   coverage of `hashchange` as a staging vector.
   `app_same_document_navigate_mid_loop_does_not_end_the_turn`.
 - **Swap-exit coverage — honest statement (no in-harness pin of the FIRING path)**: the branch's firing
@@ -1196,7 +1216,7 @@ it is reinstated with one.
 
 - **End-to-end verification of the swap-exit behavior — the whole branch, not just one pin** (§8).
   **Widened at v3 after `/code-review high` mutation-verified the branch is DEAD IN CI**: deleting
-  `if self.current_document_marker() != doc_marker { break; }` outright leaves all 297 `elidex-shell`
+  `if self.current_document_marker() != doc_marker { break; }` outright leaves all 299 `elidex-shell`
   tests green. So what is unverified is not merely the end-to-end behavior but the branch's **presence** —
   every harness-reachable scenario is one where it would not have fired anyway. The two not-firing pins
   (failed load; successful same-document navigate) constrain the marker's inputs and definition, not the

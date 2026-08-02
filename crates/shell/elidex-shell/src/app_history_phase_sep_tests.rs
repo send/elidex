@@ -31,8 +31,10 @@
 //! (`content/event_loop.rs` — `run_deferred_traversals` → `drain_synchronous_updates`
 //! → the bottom `drain_synchronous_phase`) and two INSIDE its input handlers
 //! (`content/event_handlers.rs`, one per handler). That in-handler pair is the
-//! structural counterpart of app-mode's single end-of-input-handler
-//! `drain_same_turn` — the click one consumes `suppress_default` as an early return
+//! structural counterpart of app-mode's single end-of-input-handler DRIVE — whose
+//! `drain_same_turn` is now the ITERATION UNIT of a quiescence loop rather than a
+//! single call, so "single" describes the drive site, not the call count — the
+//! click one consumes `suppress_default` as an early return
 //! exactly as `app/events.rs::handle_click` does — so what app-mode lacks is the
 //! PUMP, not the in-handler drain. The headline difference is
 //! Phase-2 pump timing — content on a later async-pump turn via

@@ -380,7 +380,11 @@ fn app_turn_completion_terminates_at_the_cap_and_leaves_the_residue_staged() {
 ///    SUPPRESSES the navigation and holds it; Phase 2's failed load moves no
 ///    cursor, so the hold is refuted rather than cancelled.
 /// 2. The in-iteration tail reinstates it. It resolves SameDocument, so
-///    `same_document_step` runs and fires `hashchange` inline.
+///    `same_document_step` runs and its `hashchange` handler runs **within this
+///    turn** — the drain-timing divergence from WHATWG HTML §7.4.6.2 step 6.4.5
+///    that [`app_same_document_navigate_mid_loop_does_not_end_the_turn`] states in
+///    full. The discriminator below depends on it, so a change to `hashchange`
+///    scheduling will fail THIS test too, and that is why.
 /// 3. That handler stages a `pushState` — which only a LATER iteration can apply.
 ///
 /// Hoist the tail and step 2 happens after the loop has already exited (Phase 1c
@@ -573,28 +577,36 @@ fn app_failed_mid_loop_load_does_not_move_the_document_marker() {
 /// `pushState` → iteration 3 applies it.
 ///
 /// The `hashchange` leg rides a **known in-tree divergence**, stated here so the
-/// chain is not mistaken for spec-shaped: WHATWG HTML §7.4.6.2 *update document
-/// for history step application* step 6.4.5 **queues a global task** on the DOM
-/// manipulation task source to fire `hashchange`, whereas `same_document_step`
-/// delivers it inline in a second `deliver_history_step_events` call (which is
-/// what preserves the popstate → scroll → hashchange order without a task queue —
-/// see that function's own comment). The test pins elidex's behavior; it does not
-/// claim the spec settles a queued `hashchange` task inside the same turn.
+/// chain is not mistaken for spec-shaped — and stated precisely, because the
+/// obvious summary is wrong. WHATWG HTML §7.4.6.2 *update document for history
+/// step application* step 6.4.5 **queues a global task** on the DOM manipulation
+/// task source to fire `hashchange`, and elidex **does queue it** —
+/// `VmInner::deliver_history_step_events` calls
+/// `queue_task(PendingTask::HashChange)`. The divergence is the **drain timing**:
+/// it then calls `drain_tasks()` immediately, settling that task inside the same
+/// turn instead of leaving it for a later one. So the handler stages into this
+/// turn. The test pins elidex's behavior; it does not claim the spec settles a
+/// queued `hashchange` task inside the turn that queued it.
 ///
 /// A same-document navigate does NOT re-stamp `document_sequence` (the fragment arm
 /// takes `push_same_document`, which INHERITS the current document identity), so the
 /// marker is unchanged and the loop correctly CONTINUES — which is right, since the
 /// staged follow-ups are this turn's own work.
 ///
-/// **This is the only test in the suite that pins the swap marker's DEFINITION**,
-/// which is what the §4.5 (c) argument rests on and which no assertion about the
-/// loop itself can reach: make `same_document_step`'s fragment arm re-stamp the
-/// document identity and every other test in `elidex-shell` still passes, while the
+/// **This test pins the swap marker's DEFINITION directly** — what the §4.5 (c)
+/// argument rests on, and what no assertion about the loop itself can reach: make
+/// `same_document_step`'s fragment arm re-stamp the document identity and the
 /// quiescence and entry assertions below fail (the loop takes the swap exit after
-/// iteration 2 and strands the `hashchange`-staged `pushState`). It also carries the
-/// only mid-loop navigate that SUCCEEDS — the failed-load sibling reaches
-/// `navigate`'s early return, so this is the only coverage of a completed Phase-1c
-/// navigation inside the loop, and of `hashchange` as a staging vector.
+/// iteration 2 and strands the `hashchange`-staged `pushState`).
+/// Re-verified at HEAD: **two** tests fail under that mutation — this one and
+/// [`app_reinstated_navigation_runs_in_iteration_so_its_own_staging_settles`],
+/// which trips it incidentally because its reinstated `location.href = '#one'`
+/// also takes the fragment arm, inside iteration 1 and before the marker
+/// comparison. (An earlier revision of this docstring claimed sole uniqueness; that
+/// was measured before the sibling pin existed.) What IS unique here is the
+/// scenario: the only mid-loop navigate that SUCCEEDS from Phase 1c — the
+/// failed-load sibling reaches `navigate`'s early return — hence the only coverage
+/// of a completed Phase-1c navigation inside the loop.
 #[test]
 fn app_same_document_navigate_mid_loop_does_not_end_the_turn() {
     // The popstate half is the shared one-shot builder — the fragment nav's own

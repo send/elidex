@@ -251,8 +251,12 @@ impl App {
     /// §7.4.4 *URL and history update steps* step 13 **appends** the synchronous
     /// navigation steps to the *traversable* — the §7.3.1.1 session history
     /// traversal queue — outside the task. The spec's settle point is §7.4.6.1
-    /// *apply the history step* **step 14.1.1**: a bounded drain of staged sync-nav
-    /// steps *between* traversal change-jobs, bracketed by `running nested apply
+    /// *apply the history step* **step 14.1.1**: a GATED drain of staged sync-nav
+    /// steps *between* traversal change-jobs — gated per-navigable by
+    /// `navigablesThatMustWaitBeforeHandlingSyncNavigation`, and NOT
+    /// iteration-bounded (its `While` has no round cap; a step it runs may
+    /// re-append, so `MAX_TURN_COMPLETION_ROUNDS` is elidex's own and not an image
+    /// of anything here) — bracketed by `running nested apply
     /// history step`, so that they *"jump the queue at this point … before this
     /// traversal potentially unloads their document"*. The inline shell has no pump
     /// and no parallel queue, so that settle is realized here at **turn
@@ -402,7 +406,9 @@ impl App {
                 // is not the displayed one, so a fresh document's initial scripts
                 // are that later task's business, not this input turn's. The
                 // new document's initial staging is then the next drive's
-                // business, as a NEW turn.
+                // business, as a NEW turn — and WHEN that drive arrives is
+                // unbounded, exactly as on the cap exit below (DRIVE REACHABILITY
+                // R1 + R2). A rebuild does not schedule one.
                 break;
             }
             if !self.staged_work_pending() {
@@ -549,6 +555,15 @@ impl App {
     /// The §4.4 quiescence predicate — "is session-history work staged on the
     /// CURRENT runtime?", read through the non-consuming
     /// [`HostDriver::has_pending_session_history_work`] peek.
+    ///
+    /// **This loop's obligation, per that trait's consumer-side note**: the peek's
+    /// three channels must equal what THIS loop's Phase 1 consumes. They do —
+    /// `drain_same_turn`'s Phase 1a/1b/1c consume window-opens, the history FIFO and
+    /// the navigation slot respectively, and nothing else. A loop built on
+    /// [`DrainCoordinator::drain_synchronous_updates`] instead (Phase 1a+1b only —
+    /// the shape the fenced residue-bounding slice needs) would NOT satisfy it: it
+    /// never consumes the navigation slot, so this predicate would hold it true
+    /// forever and cap-loop. That slice must compose its own predicate.
     ///
     /// Reached through `interactive.pipeline.runtime`, which a swap replaces
     /// wholesale together with the pipeline (`app/navigation.rs`
