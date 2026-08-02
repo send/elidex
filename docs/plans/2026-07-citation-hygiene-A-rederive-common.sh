@@ -87,7 +87,23 @@ citations() {  # §0.5 / §3 — EVERY label-§ pair the fixture set carries
   rm -rf "$F"
 }
 
-couplings() {  # §7 / §12(3) — every elidex coupling in the generic tree, by concept
+couplings() {  # §7 / §12(2) / §12(3) — K2 and K3's CROSS-TREE halves
+  # SCOPES, written down because this block now carries two of them and
+  # conflating them is what the widening below fixes:
+  #   PKG     `.claude/tools/_webref/` — the package. The by-role CONCEPT
+  #           listing below is about the prose A-i rewrote, which lives here.
+  #           `test_spec_labels.py` pins K2 and K3 over exactly this tree.
+  #   GENERIC `.claude/tools/` — what §2 defines the generic core to be, and
+  #           what K2 is an absolute over. WIDER than the package: it also
+  #           holds five elidex trip-wire artifacts owned by other lanes.
+  # The unit suite scans PKG only, so GENERIC minus PKG -- and `.claude/skills/`
+  # for K3 -- can be witnessed HERE and nowhere else. Verified by planting a
+  # violation in each of the three trees; before this widening a plant in
+  # `.claude/tools/` outside the package and a `cite-audit` plant in
+  # `.claude/skills/` both left this block GREEN.
+  local PKG='.claude/tools/_webref/'
+  local GENERIC='.claude/tools/'
+  local SKILLS='.claude/skills/'
   local CONCEPT='\.claude/skills|elidex-plan-review|plan-review|plan-memo|memos abbreviate'
   # An elidex FILE PATH is what DESIGN.md's closing rule forbids; by-role prose it
   # permits. Draft 8 offered one mixed 25-line list as the check for a claim about
@@ -111,15 +127,15 @@ couplings() {  # §7 / §12(3) — every elidex coupling in the generic tree, by
   while IFS= read -r f; do
     printf '%s' "$f" | grep -qE "$BFILES" || AHALF+=("$f")
   done < <(git ls-files '.claude/tools/_webref/*.py' '.claude/tools/_webref/**/*.py' \
-                        '.claude/tools/_webref/*.md')
+                        '.claude/tools/_webref/*.md' '.claude/tools/webref')
   echo "   A-half files: ${#AHALF[@]}"
-  echo "-- concept, origin/main baseline --"
-  git grep -nE "$CONCEPT" "$MAIN" -- .claude/tools/_webref/ | cat
-  echo "-- concept, HEAD (A's files and B's together) --"
-  git grep -nE "$CONCEPT" -- .claude/tools/_webref/ | cat
-  echo "-- FILE PATHS only, origin/main (the pre-existing baseline §7 argues from) --"
-  git grep -noE "$PATHRE" "$MAIN" -- .claude/tools/_webref/ | cat
-  echo "   count: $(git grep -oE "$PATHRE" "$MAIN" -- .claude/tools/_webref/ | wc -l | tr -d ' ')"
+  echo "-- concept, origin/main baseline (PKG — the by-role prose A-i rewrites) --"
+  git grep -nE "$CONCEPT" "$MAIN" -- "$PKG" | cat
+  echo "-- concept, HEAD (PKG; A's files and B's together) --"
+  git grep -nE "$CONCEPT" -- "$PKG" | cat
+  echo "-- FILE PATHS only, origin/main, GENERIC (the baseline §7 argues from) --"
+  git grep -noE "$PATHRE" "$MAIN" -- "$GENERIC" | cat
+  echo "   count: $(git grep -oE "$PATHRE" "$MAIN" -- "$GENERIC" | wc -l | tr -d ' ')"
   # SUPERSEDED, A-i round 1: this block used to gate on the DELTA -- `comm -13`
   # base against head, "ADDED BY A must be empty" -- reasoning that discharging
   # `cli.py`'s pre-existing path was not A's scope. K2 is an ABSOLUTE now (§2,
@@ -127,19 +143,33 @@ couplings() {  # §7 / §12(3) — every elidex coupling in the generic tree, by
   # edits `cli.py`, and Slice C, the earlier routing target, has no `cli.py`
   # mandate. So the gate is a plain grep over the whole generic tree, and the
   # pre-existing instance counts against it like any other.
-  echo "-- FILE PATHS only, HEAD, the whole generic tree — §12(3)'s actual check --"
-  git grep -noE "$PATHRE" -- .claude/tools/_webref/ | cat
+  echo "-- FILE PATHS only, HEAD, GENERIC — §12(3)'s actual check --"
+  git grep -noE "$PATHRE" -- "$GENERIC" | cat
   local n_head n_base n_ahalf
-  n_head=$(git grep -oE "$PATHRE" -- .claude/tools/_webref/ | wc -l | tr -d ' ')
-  n_base=$(git grep -oE "$PATHRE" "$MAIN" -- .claude/tools/_webref/ | wc -l | tr -d ' ')
+  n_head=$(git grep -oE "$PATHRE" -- "$GENERIC" | wc -l | tr -d ' ')
+  n_base=$(git grep -oE "$PATHRE" "$MAIN" -- "$GENERIC" | wc -l | tr -d ' ')
   n_ahalf=$(git grep -oE "$PATHRE" -- "${AHALF[@]}" | wc -l | tr -d ' ')
   echo "   elidex file paths at HEAD (K2 / S8 — MUST BE 0) : $n_head"
   echo "   of which in A's half                            : $n_ahalf"
   echo "   pre-existing on origin/main (A-i discharges it)  : $n_base"
-  if [ "$n_head" = 0 ]; then
-    echo "   VERDICT: GREEN — the generic core names no elidex file path"
+  # K3's CROSS-TREE half. The unit suite scans PKG, so a Slice-B artifact name
+  # re-imported anywhere else under GENERIC, or into `.claude/skills/`, is
+  # invisible to it. Unlike the suite, this block spells the needles plainly:
+  # it lives in `docs/plans/`, which is in NEITHER scope, so it cannot match
+  # itself the way an in-tree test file would.
+  echo "-- SLICE-B ARTIFACT NAMES, HEAD, GENERIC + SKILLS (K3 / S7 cross-tree) --"
+  local B_ART='cite.?audit' B_FT='_catalog'
+  git grep -nE -e "$B_ART" -e "$B_FT" -- "$GENERIC" "$SKILLS" | cat
+  local n_art n_base_art
+  n_art=$(git grep -oE -e "$B_ART" -e "$B_FT" -- "$GENERIC" "$SKILLS" | wc -l | tr -d ' ')
+  n_base_art=$(git grep -oE -e "$B_ART" -e "$B_FT" "$MAIN" -- "$GENERIC" "$SKILLS" | wc -l | tr -d ' ')
+  echo "   Slice-B artifact names at HEAD (K3 / S7 — MUST BE 0) : $n_art"
+  echo "   pre-existing on origin/main (must also be 0)         : $n_base_art"
+  if [ "$n_head" = 0 ] && [ "$n_art" = 0 ]; then
+    echo "   VERDICT: GREEN — no elidex file path, no Slice-B artifact name"
   else
-    echo "   VERDICT: RED — K2 is an absolute; every path listed above must go"
+    [ "$n_head" = 0 ] || echo "   VERDICT: RED — K2 is an absolute; every path listed above must go"
+    [ "$n_art" = 0 ] || echo "   VERDICT: RED — K3: a Slice-B artifact is named outside its slice"
   fi
 }
 
