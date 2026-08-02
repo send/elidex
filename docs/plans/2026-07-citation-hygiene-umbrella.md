@@ -116,19 +116,24 @@ contract for the fall-through it introduces**, which is a constraint below.
   separate axis: a terminal slice under an approved umbrella does not inherit the review apparatus of the
   slice it was carved from.
 - **`docs/plans/2026-07-citation-hygiene-A-rederive.sh` was shared and owed a split. ✅ DISCHARGED by A-i**
-  (`06e50b41`, with `3987bfbc` and `4121b667`), before A-i's implementation. It is now a **68-line dispatcher**
-  — still the only entry point, so every memo's `<block>` citation resolves through the same path — sourcing
-  five parts on the slice seam: `-common` **681**, `-Ai` **171**, `-Aii` **298**, `-B` **124**, `-Aiii` **63**;
-  **1405** lines, **32** blocks, no part past the 700-800 authoring band (`wc -l …-A-rederive*.sh`; blocks by
-  `cat …-A-rederive*.sh | grep -cE '^[A-Za-z_][A-Za-z0-9_]*\(\)'`). ⚠ An earlier revision of this bullet said
-  `-common` **468** / **1091** / **29**, re-derived at `4a3c4616` and then falsified by the two commits after
-  it — the `:91` *counts are commands* constraint failing where a count was derived once and not re-derived
-  after the next edit to what it counts. ⚠ It then happened a **third** time: `-common` **550** / **1186** /
-  **30** was falsified by the `_measure` commit answering Codex round 1, which rewrote every counting site in
-  the harness. A-i's §8 carries the same correction. Whichever
-  slice next touches it re-checks the band rather than re-splitting. ⚠ This bullet is a **status register**,
-  not a scope grant, which is why A-i corrected it in its own commit set rather than deferring it to landing
-  (§9's self-ratification rule covers the four scope-grant clauses in the A-i row, not this).
+  (`06e50b41`, with `3987bfbc` and `4121b667`), before A-i's implementation. It is now a dispatcher — still
+  the only entry point, so every memo's `<block>` citation resolves through the same path — sourcing five
+  parts on the slice seam: `-common`, `-Ai`, `-Aii`, `-B`, `-Aiii`.
+  ⚠ **The layout figures are deliberately not restated here.** They are derived in **A-i §8**
+  (`wc -l …-A-rederive*.sh`), whose `rederive budget` block prints them; that is the one site that states
+  them. This bullet carried its own copy through four revisions and each was falsified by the next commit to
+  the harness — and Codex round 2 found the fifth, where the commit that corrected §8 updated §8 and missed
+  this paragraph, **inside the paragraph describing that exact failure**. Four of those were read as
+  *"a count derived once and not re-derived after the next edit"*; the fifth showed the actual root, which is
+  one level up: **the figure had two homes**, so every fix could only ever update one of them. The remedy for
+  that is a canonical site, not a fifth manual sync
+  (`memory/feedback_duplicated-decision-surface-blocks-converge.md`). ⚠ §8 also now records `-common` as
+  **past** the 700-800 authoring band and the standalone split commit it owes; whichever slice next touches
+  the harness reads §8 rather than this line. ⚠ This bullet is a **status register**, not a scope grant,
+  which is why A-i corrected it in its own commit set rather than deferring it to landing (§9's
+  self-ratification rule covers the four scope-grant clauses in the A-i row, not this) — and *removing* a
+  stale duplicated figure from a status register falls on the same non-grant side, by the distinction
+  `89cc4051` already drew and applied.
 
 ## Cross-lane coordination
 

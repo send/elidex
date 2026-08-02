@@ -340,12 +340,32 @@ and then not re-derived after the next edit to the thing it counts**. ⚠ **And 
 `_measure` commit answering Codex round 1 rewrote every counting site in the harness, falsifying the
 `-common` **550** / **1186** / **30** this memo carried at `07b8e7d8`. Same failure, same cause — which is why
 the figures below are taken from the tree as it now stands rather than carried forward. ⚠ **A fourth time**,
-for completeness rather than as a new lesson: the roster fix below grew the dispatcher, falsifying the
-**68** / **1405** this memo carried one commit ago. Layout now, derived
+for completeness rather than as a new lesson: the roster fix grew the dispatcher, falsifying the
+**68** / **1405** this memo carried one commit ago.
+
+⚠ **A fifth time — and it is a different lesson, which is why the figures now live in exactly one place.**
+Codex round 2 found the umbrella still carrying **68** / **1405** *after* the commit that corrected them
+here; that commit's own report claimed it had updated both homes. Read four times as *"a count derived once
+and not re-derived after the next edit to what it counts"*, the root is one level up: **the quantity had two
+homes**, so every fix could only ever update one of them, and the reviewer had an unbounded supply of stale
+twins (`memory/feedback_duplicated-decision-surface-blocks-converge.md` — 同じ class・別サイト が続いたら
+決定面の重複を grep; canonical site へ collapse). Collapsed rather than re-synced: **this section is the only
+site that states the harness's layout.** `umbrella:118` and §13.1 below now point here and restate nothing,
+and the `rederive budget` block prints the same figures from the tree. Layout now, derived
 (`wc -l …-A-rederive*.sh`; blocks by `cat …-A-rederive*.sh | grep -cE '^[A-Za-z_][A-Za-z0-9_]*\(\)'`):
-dispatcher **87**, `-common` **681**, `-Ai` **171**, `-Aii` **298**, `-B` **124**, `-Aiii` **63**; **1424**
-total, **32** blocks, largest part **681** — still under the 700-800 authoring band, though `-common` is now
-within 19 lines of entering it, so the next slice to touch it re-checks before adding.
+dispatcher **95**, `-common` **815**, `-Ai` **177**, `-Aii` **345**, `-B` **137**, `-Aiii` **120**; **1689**
+total, **33** blocks, largest part **815**.
+
+⚠ **`-common` is now PAST the 700-800 authoring band**, by 15 lines. The commit answering Codex round 2 added
+the `selfcheck` block and routed a measurement in seven others; the previous revision of this paragraph said
+`-common` was *"within 19 lines of entering it, so the next slice to touch it re-checks before adding"* — the
+re-check was done and this is its result, recorded rather than quietly restated as satisfied. **The seam is
+real and named, not a line-count trim**: the harness's own integrity machinery (`_measure`, `_measured`,
+`selfcheck` — the primitive that makes a failed measurement unrepresentable, plus the check that every roster
+block states its own status) is one cohesive unit, and *"every block more than one memo cites"* is another.
+**Owed as a standalone split commit** before the next slice adds to this part — CLAUDE.md puts a split in its
+own commit rather than bundled into a feature or review-fix one, which is why the round-2 commit recorded it
+here instead of taking it.
 
 ---
 
@@ -609,9 +629,9 @@ owed re-derivation.
    ✅ **(a) and (f) were separated out and fixed in A-i's own commit set**, and the separation is the point of
    §9's rule rather than an exception to it: §9 bars a slice from widening or narrowing *what it is approved
    to do*, which is what (b)-(e) state. (a) `:112-113` is a **status register** — "901 lines … Whichever slice
-   next touches it splits it first" — that this PR **discharged** (`06e50b41`; measured, `wc -l
-   …-A-rederive*.sh` is an 87-line dispatcher plus five parts, 1424 total, largest 681 — §8 re-derives these).
-   Landing it as an open
+   next touches it splits it first" — that this PR **discharged** (`06e50b41`: a dispatcher plus five parts
+   on the slice seam. **The figures are in §8 and this row does not restate them** — it used to, and that
+   third home is half of what Codex round 2 found). Landing it as an open
    obligation would set A-ii's author up to redo a split already in the tree. (f) the *review cost tracks
    blast radius* bullet reasoned from "A-i has one invariant", which **the same commit-set falsifies**
    (`grep -cE '^- \*\*K[0-9]'` → 4, `grep -cE '^\| K[0-9] × K[0-9]'` → 5) and which A-i's own §9 no longer
