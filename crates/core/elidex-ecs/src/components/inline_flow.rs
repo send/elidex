@@ -8,16 +8,24 @@
 //! keep the shared component-definition bucket under the 1000-line limit — and on
 //! the same seam the file already grouped them by.
 
-use super::{Entity, Point};
+// Named at their origins rather than re-reached through `super`: this module's own
+// docs argue about the `hecs` / `elidex-plugin` / `elidex-ecs` dependency direction, so
+// the import list should show it. (`inline_style` imports from origin for the same
+// reason; only `use super::*` is ruled out here, by clippy's `wildcard_imports`.)
+use elidex_plugin::Point;
+use hecs::Entity;
 
-/// Persisted collapsed + positioned inline runs for one anonymous inline
-/// formatting context (CSS 2 §9.2.1.1), keyed on the run-start entity.
+/// Persisted collapsed + positioned inline runs for one render-run GROUP within an
+/// inline formatting context (CSS 2 §9.4.2) — not one per IFC. `LinePacker` buckets
+/// `flow_lines` per group, and a relatively-positioned or sticky subtree gets its own
+/// group via `positioned_subflow_key`, so a single IFC persists several of these.
 ///
 /// Produced once by layout (`elidex-layout-block`'s `LinePacker`), consumed by
 /// render's display-list builder — the single source of inline-text geometry
 /// (One-issue-one-way: render no longer re-collects / re-collapses / re-measures
-/// / re-positions the DOM text). Stored on the first top-level child of the
-/// inline run (`run[0]`), the same entity both passes derive as the run start.
+/// / re-positions the DOM text). Stored on each GROUP's own run-start entity: the
+/// top-level group keys on `run[0]`, while a relpos/sticky sub-flow keys on
+/// `positioned_subflow_key`'s first eligible child — a descendant, not a top-level one.
 ///
 /// Lives in `elidex-ecs` (not `elidex-plugin`, where `LayoutBox` lives) because
 /// `InlineFlowRun` references the style-owning `Entity` and `elidex-plugin` does
