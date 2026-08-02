@@ -293,11 +293,25 @@ This umbrella's plan-memo ships with **S1**.
   D2–D6 as production rules; the wire, its registration in `REQUIRED_WIRES` in the same commit, and a
   fixture self-test with a positive and a negative control per assertion. Controls must include the
   `console`-contains-`sole` substring shape, `\b`-fails-empty **and** `\d`-over-matches, a typo'd
-  pathspec, a MALFORMED annotation, a table-cell annotation, and a rustdoc-fenced annotation. S1 also
-  owns the wire's runtime budget against the "~1s, no toolchain" claim, which appears at two sibling
-  sites (`ci.yml` and `CLAUDE.md`) that must be updated together if it moves — and the driver's
-  "layering" label, which appears at three (`trip-wires.sh`, `mise.toml`, `ci.yml`). Name the file's
-  seams before writing, not after: the nearest comparable wire is 493 lines.
+  pathspec, a MALFORMED annotation, a table-cell annotation, and a rustdoc-fenced annotation. Name the
+  file's seams before writing, not after: the nearest comparable wire is 493 lines.
+
+  ⚠ **Two figures in this bullet were wrong in v2's first draft, and S1's own measurement pass caught
+  them — one commit after §0.1 was written.** Both were carried over from v1 without re-measuring,
+  which is the §0.1 defect recurring under the discipline that names it. Recorded rather than quietly
+  patched, because it is the fifth instance and it says something the first four did not: restating an
+  inherited number is the same act as asserting a new one, and inheritance is what makes it feel safe.
+  - The **"~1s"** claim is *already false before S1 adds anything*: `bash scripts/trip-wires.sh`
+    measures **1.20 / 1.20 / 1.28 s** warm here (S1's independent pass got 1.39–1.60 on a busier
+    machine). So S1 does not "budget against ~1s" — it deletes an unverifiable number and anchors to
+    the one machine-enforced bound, `timeout-minutes: 2`. The CI-side runtime is not measurable from a
+    workstation and must be labelled so rather than estimated.
+  - The **"layering" label** is at **6 set-level occurrences across 5 files**, not 3: `ci.yml:145` and
+    `:153`, `CLAUDE.md:66`, `CONTRIBUTING.md:19`, `mise.toml:100`, `scripts/trip-wires.sh:4`
+    (`git grep -niE 'layering trip-wire'` returns 14 in total; the other 8 are per-wire
+    self-descriptions a new wire only adds to). `CONTRIBUTING.md:19` also asserts that a drifted
+    trip-wire **allowlist** reds the PR — a mechanism S1 does not ship and S2 does, so that sentence
+    is S2's to touch, not S1's.
 - **S2** — the ledger under D8, the classification enum (including an honest home for a new
   tree-dependent superlative that cannot carry provenance, which v1's four classes had no slot for and
   which v1 instead absorbed into `not-tree-dependent` by stretching it to cover a judgement), the
