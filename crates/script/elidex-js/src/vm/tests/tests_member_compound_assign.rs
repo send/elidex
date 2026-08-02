@@ -423,14 +423,14 @@ fn forin_of_heads_share_the_assignment_admissibility_gate() {
 // Pre-existing defects this slice inherits rather than introduces. Each gets its
 // own plan-reviewed PR; the pins assert the CURRENT (wrong) behaviour so the
 // blast radius is fenced, and flip when the slots land. The GC-window pins live
-// in `tests_member_compound_assign_gc`; the rest are below.
+// in `tests_member_compound_assign_gc`.
 //
 // ⚠ CARVED: `#11-vm-operand-rooting-by-construction`.  Roughly twenty dispatch
 // arms pop an operand into a Rust local and then run user JS before reading or
 // storing through it; `gc/roots.rs` walks the VM stack but not Rust locals, so a
 // collection in that window yields a value read from a recycled object, a store
 // through a dangling `ObjectId`, or a `get_object`/`get_object_mut` panic.  This
-// slice roots only `Op::GetElemRef`, the one arm it introduces
+// slice roots only `Op::GetElemRef`
 // (`get_elem_ref_keeps_temporary_base_rooted`); `Op::IncElem`/`Op::DecElem` and
 // the rest keep merge-base behaviour, pinned by
 // `compound_assign_rhs_lost_to_gc_known_divergence` (the compound operators, via

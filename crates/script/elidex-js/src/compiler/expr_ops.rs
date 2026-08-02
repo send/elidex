@@ -223,8 +223,10 @@ pub(super) fn compile_update_expr(
                 );
                 return Ok(());
             }
+            // Slot: `#11-vm-assignment-target-completeness`.
             VarLocation::Module(_) => {
-                // Module imports are immutable — fall through to push undefined.
+                emit_unsupported(fc, "assignment to an imported binding is not supported");
+                return Ok(());
             }
         }
     }

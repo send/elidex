@@ -1,9 +1,8 @@
 //! Iteration statements: `for-in` / `for-of` / `while` / `do-while` / `for`.
 //!
 //! ECMA-262 §14.7 Iteration Statements, split from `stmt.rs` along the call
-//! graph rather than the line count: `compile_forin_left_binding` is used only
-//! by these arms, while the helpers left behind are shared with other statement
-//! families and so belong to neither.
+//! graph rather than the line count: `compile_forin_left_binding` moved because
+//! only these arms call it.
 //!
 //! Each arm is entered from `compile_stmt` and re-enters it for the loop body.
 

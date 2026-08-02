@@ -99,8 +99,6 @@ fn compile_identifier_store(
             let idx = fc.add_name_u16(name);
             fc.emit_u16(Op::SetGlobal, idx);
         }
-        // Third site with this condition; same disposition as the two in
-        // `stmt_loop.rs` / `stmt_destructure.rs`, rather than a process abort.
         // Slot: `#11-vm-assignment-target-completeness`.
         VarLocation::Module(_) => {
             emit_unsupported(fc, "assignment to an imported binding is not supported");

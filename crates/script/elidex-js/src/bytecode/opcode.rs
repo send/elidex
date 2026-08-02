@@ -42,12 +42,9 @@ pub enum Op {
     /// 13.b.i + 17 / §19.2.1.1 steps 29.a + 30.a + 33 surface the script's or
     /// `eval`'s last such value (13.b.i / 30.a normalise an empty completion to
     /// `undefined`).
-    /// Any other body reaching this opcode must discard instead, which is what
-    /// the dispatch arm's second condition enforces: it writes
-    /// `completion_value` only from the **entry** frame and only when that frame
-    /// is `FrameKind::Eval`. The gate is the invariant — a body kind is
-    /// unobservable here because it runs in a non-entry frame, not because of
-    /// anything about its production.
+    /// The dispatch arm writes `completion_value` only from the entry frame and
+    /// only when its kind is `FrameKind::Eval`; see [`FrameKind`](crate::vm::value::FrameKind)
+    /// for which bodies that admits and why.
     ///
     /// Splitting this out of [`Op::Pop`] is what keeps internal stack
     /// housekeeping — reference cleanup, hoisting stores, destructuring
