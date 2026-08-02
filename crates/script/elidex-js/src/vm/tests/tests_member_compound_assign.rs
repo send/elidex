@@ -439,8 +439,8 @@ fn forin_of_heads_share_the_assignment_admissibility_gate() {
 // and routed through `get_element_keeping_key`).  The slot's deliverable is an invariant
 // that makes an unrooted hold unrepresentable, not another per-site sweep —
 // five successive sweeps each declared a different boundary complete and each
-// was falsified by the next round.  `#11-vm-element-access-base-rooting`, which
-// an earlier round of this PR recorded as closed, is subsumed by it.
+// was falsified by the next round.  `#11-vm-element-access-base-rooting` is
+// subsumed by it.
 
 /// ⚠ CARVED: `#11-vm-topropertykey-symbol-from-toprimitive`.
 ///

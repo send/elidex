@@ -548,14 +548,9 @@ fn native_touch_event_constructor(
 /// TypeError per WebIDL §3.2.15.  Missing key → empty Vec
 /// (matches WebIDL default).
 ///
-/// Fast-path on `ObjectKind::Array` reads the dense `elements` Vec
-/// directly (`get_property_value` with a stringified index does
-/// NOT hit Array dense storage in this VM — only the bytecode
-/// `LoadElement` opcode does).  Anything else falls back to the
-/// iterator protocol per WebIDL §3.2.21.1 so
-/// `new TouchEvent('t', { touches: customIterable })` behaves per
-/// spec — mirrors `url_search_params.rs` /
-/// `headers::resolve_headers_init`.
+/// Conversion goes through the shared `webidl_sequence_to_vec` helper
+/// unconditionally — see its module docs for why there is no
+/// dense-`ObjectKind::Array` fast path.
 fn parse_touch_sequence(
     ctx: &mut NativeContext<'_>,
     opts_id: ObjectId,
