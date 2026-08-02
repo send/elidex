@@ -38,9 +38,25 @@ fixtures() {
   { echo '# fixture'; echo; echo '## §3. Spec coverage map'; echo; echo "$HDR"
     echo '| §4.10.21 Constraints | s | b | t | ✓ | no |'
   } > "$d/unlabelled.md"
+  # `CSSOM VIEW` is absent from the 24-key pinned map, so this is all-unmapped
+  # AFTER A. It is NOT all-unmapped at the carve (the catalog resolves it to
+  # `cssom-view-1`) and stops being so again when Slice B lands the fall-through
+  # -- see the memo's §6 hand-off. The title is the real one: a citation-hygiene
+  # program must not author spec-shaped text with a fabricated §-title, and
+  # `verify_citation` checks only that the number exists, so nothing would catch it.
   { echo '# fixture'; echo; echo '## §3. Spec coverage map'; echo; echo "$HDR"
-    echo '| CSSOM VIEW §4.2 Foo | s | b | t | ✓ | no |'
+    echo '| CSSOM VIEW §4.2 The MediaQueryList Interface | s | b | t | ✓ | no |'
   } > "$d/allunmapped.md"
+  # item 5's denominator clause -- "N = len(data_rows), MALFORMED ROWS INCLUDED".
+  # No other fixture has a row without a section mark, so through draft 8 the one
+  # clause of item 5 that is a claim about N was the one clause no state measured.
+  # Row 1 is unmapped, row 2 is malformed => citations empty, capability present,
+  # so the reporting arm fires with N=2 AND `malformed_hard_fail` exits 1: the
+  # co-print item 5 asserts is decided separately.
+  { echo '# fixture'; echo; echo '## §3. Spec coverage map'; echo; echo "$HDR"
+    echo '| CSSOM VIEW §4.2 The MediaQueryList Interface | s | b | t | ✓ | no |'
+    echo '| WHATWG HTML Constraints, no section mark | s | b | t | ✓ | no |'
+  } > "$d/malformed.md"
   # the alias spelling row 10 needs; unreachable by any draft-6 fixture.
   { echo '# fixture'; echo; echo '## §3. Spec coverage map'; echo; echo "$HDR"
     echo '| Fetch §2.2.5 Requests | s | b | t | ✓ | no |'
@@ -434,18 +450,43 @@ def main() -> int:
     print(f"§3 Spec coverage map preflight - {plan_path.name}")
     print(f"  total entries  (M):   {M}")
     # item 7c (J1 at the REPORTING layer): with the capability absent these rows
-    # are not "unmapped" - the mapper never ran. The counter states its basis.
-    if unavailable:
+    # are not "unmapped" - the mapper never ran. And item 7b's partition is a
+    # DISPLAY concern too: one merged counter cannot name two classes, and it
+    # says "label" for a row that has none.
+    if map_missing:
         print(f"  unclassified rows:    {unmapped_rows}  (label map unavailable)")
     else:
-        print(f"  unmapped-label rows:  {unmapped_rows}")
-    basis = f" ({unmapped_rows} of {M} counted by label spelling)" if unmapped_rows else ""
-    print(f"  unique specs (K):     {K}{basis}")
+        print(f"  unknown-label rows:   {len(unrecognized_labels)}")
+        print(f"  label-less rows:      {labelless_rows}")
+
+    # item 6's basis qualifier, under item 7c: with no mapper there is no
+    # "label spelling" count to report - every row is unclassified, and the
+    # <label> display notation would present a spec the pinned map DOES know as
+    # one it does not.
+    displayed = sorted(specs_seen)
+    if map_missing:
+        basis = " (label map unavailable - no row classified)"
+    elif unmapped_rows:
+        basis = f" ({unmapped_rows} of {M} counted by label spelling)"
+        displayed += [f"<{lbl}>" for lbl in sorted(set(unrecognized_labels))]
+        unrouted = list(displayed)          # item 7b as drafted: label-less absent
+        if labelless_rows:
+            displayed.append("<label-less>")
+        # item 8: "K and the spec list it prints cannot disagree". MEASURE IT,
+        # under both the routed and the unrouted display, because item 7b moves
+        # label-less rows OUT of `unrecognized_labels` and item 8 never noticed.
+        print(f"PROTO-DISPLAY K={K} routed={len(displayed)} unrouted={len(unrouted)} "
+              f"item8_routed={K == len(displayed)} item8_unrouted={K == len(unrouted)}",
+              file=sys.stderr)
+    else:
+        basis = ""
+    print(f"  unique specs (K):     {K}{basis} "
+          f"({', '.join(displayed) if displayed else '-'})")
 
     # §4.2.4: four remedies, each for its own cause and no other.
-    if unrecognized_labels and not unavailable:
+    if unrecognized_labels and not map_missing:
         print(f"  remedy1 unrecognized: {sorted(set(unrecognized_labels))}", file=sys.stderr)
-    if labelless_rows and not unavailable:
+    if labelless_rows and not map_missing:
         print(f"  remedy2 label-less:   {labelless_rows} row(s)", file=sys.stderr)
 
     # item 5: act-site 2. THREE CANDIDATES, measured side by side.
@@ -487,6 +528,7 @@ PY
 }
 
 armmatrix() {  # §4.2.3 item 5 / §5 — every row, every capability state, 3 predicates
+  local _n=0 _tab=0
   local T; T=$(mktemp -d); git worktree add -q "$T" HEAD
   local R; R=$(mktemp -d); _runner "$R"
   local F; F=$(mktemp -d); fixtures "$F" >/dev/null
@@ -508,12 +550,15 @@ armmatrix() {  # §4.2.3 item 5 / §5 — every row, every capability state, 3 p
                --no-grep-pass "$@" "$F/$fx.md" 2>&1 ); rc=$?
     fi
     [ "$moved" = 1 ] && mv "$R/.shim" "$T/.claude/tools/webref"
-    printf '%-4s %-8s %-18s %-12s EXIT=%d  %s  %s  %s\n' "$lbl" "$st" "$fx" "$*" "$rc" \
-      "$(echo "$out" | grep -o 'PROTO-ARM.*' || echo 'PROTO-ARM  n/a  (marker path)')" \
-      "$(echo "$out" | grep -o 'SPY webref-subprocess=[0-9]*')" \
-      "$(echo "$out" | grep -oE 'citation verify: +.*|HARD FAIL - [a-z§ ]*' | head -1)"
+    _n=$((_n + 1)); case "$lbl" in x*) ;; *) _tab=$((_tab + 1)) ;; esac
+    printf '%-4s %-8s %-18s %-12s EXIT=%d\n' "$lbl" "$st" "$fx" "$*" "$rc"
+    # Print every line the memo cites. Draft 8's filter dropped `remedy*` and had
+    # no `PROTO-DISPLAY`, so two sections cited a block that did not emit their
+    # claim -- the same defect class one level down.
+    echo "$out" | grep -oE 'PROTO-(ARM|DISPLAY) .*|SPY webref-subprocess=[0-9]+|remedy[0-9][a-z -]*|citation verify: +.*|(unclassified|unknown-label|label-less) rows: +[0-9]+|unique specs \(K\): +.*|HARD FAIL - [^.]*' |
+      sed 's/^/       /'
   }
-  echo "row  state    fixture            flags        exit  predicates                        webref-subprocess  verdict"
+  echo "row  state    fixture            flags        exit"
   _row 1   both    labelled;            _row 2   both    labelled --no-verify
   _row 2b  both    dedup;               _row 3   nocli   labelled
   _row 4   nocli   unlabelled;          _row 5   nocli   labelled --no-verify
@@ -523,11 +568,17 @@ armmatrix() {  # §4.2.3 item 5 / §5 — every row, every capability state, 3 p
   _row 11b both    unlabelled;          _row 12  both    nospec
   _row 12b both    nospec-and-header;   _row 13  both    nospec-and-table
   _row 14  nomap   nospec;              _row 15  both    fenced-marker
-  echo "-- states §5 does not tabulate, checked for a fourth predicate divergence --"
+  _row 16  both    malformed
+  echo "-- states §5 does not tabulate, checked for a further predicate divergence --"
   _row x1  nocli   allunmapped;         _row x2  nomap   allunmapped
   _row x3  nocli   nospec;              _row x4  neither unlabelled
   _row x5  nocli   dedup --no-verify;   _row x6  both    unlabelled --no-verify
-  _row x7  both    allunmapped --no-verify
+  _row x7  both    allunmapped --no-verify; _row x8 nomap malformed
+  # The memo may not hand-carry these. Draft 8 said "24 states / 17 §5 rows /
+  # 20 other states"; measured they were 25 / 18 / 21.
+  echo
+  echo "STATES total=$_n  §5-tabulated=$_tab  untabulated=$((_n - _tab))"
+  echo "  (hand-picked cells, NOT a cross-product: 4 capability states x $(ls "$F" | wc -l | tr -d ' ') fixtures x 2 modes would be far more)"
   git worktree remove --force "$T"; rm -rf "$F" "$R"
 }
 
@@ -571,12 +622,35 @@ PY
 }
 
 couplings() {  # §7 / §12(3) — every elidex coupling in the generic tree, by concept
-  echo "-- origin/main baseline --"
-  git grep -nE '\.claude/skills|elidex-plan-review|plan-review|plan-memo|memos abbreviate' \
-    "$MAIN" -- .claude/tools/_webref/ | cat
-  echo "-- HEAD --"
-  git grep -nE '\.claude/skills|elidex-plan-review|plan-review|plan-memo|memos abbreviate' \
-    -- .claude/tools/_webref/ | cat
+  local CONCEPT='\.claude/skills|elidex-plan-review|plan-review|plan-memo|memos abbreviate'
+  # An elidex FILE PATH is what DESIGN.md's closing rule forbids; by-role prose it
+  # permits. Draft 8 offered one mixed 25-line list as the check for a claim about
+  # paths in A's half -- a reviewer eyeball, not a check, and it saw one of the
+  # couplings it was offered as the check for.
+  local PATHRE='\.claude/(skills|tools)/[A-Za-z0-9_-]+/[A-Za-z0-9_.-]+'
+  # A's half of the split tree (§4.0's A column). cite_audit.py / test_cite_audit.py
+  # / webref_data.py are B's and must not be counted against A.
+  local AHALF=(.claude/tools/_webref/spec_labels.py .claude/tools/_webref/cli.py
+               .claude/tools/_webref/commands/coverage_map.py .claude/tools/_webref/DESIGN.md)
+  echo "-- concept, origin/main baseline --"
+  git grep -nE "$CONCEPT" "$MAIN" -- .claude/tools/_webref/ | cat
+  echo "-- concept, HEAD (A's files and B's together) --"
+  git grep -nE "$CONCEPT" -- .claude/tools/_webref/ | cat
+  echo "-- FILE PATHS only, origin/main (the pre-existing baseline §7 argues from) --"
+  git grep -noE "$PATHRE" "$MAIN" -- .claude/tools/_webref/ | cat
+  echo "   count: $(git grep -oE "$PATHRE" "$MAIN" -- .claude/tools/_webref/ | wc -l | tr -d ' ')"
+  echo "-- FILE PATHS only, HEAD, restricted to A's half — §12(3)'s actual check --"
+  git grep -noE "$PATHRE" -- "${AHALF[@]}" | cat
+  # "must be 0" would be the wrong criterion and this block is what shows it:
+  # `cli.py` already carries one on origin/main, so the honest gate is the DELTA.
+  # A must add none; discharging the pre-existing one is not A's scope.
+  local base head
+  base=$(git grep -hoE "$PATHRE" "$MAIN" -- .claude/tools/_webref/ | sort -u)
+  head=$(git grep -hoE "$PATHRE" -- "${AHALF[@]}" | sort -u)
+  echo "   pre-existing on origin/main : $(echo "$base" | grep -c . )"
+  echo "   in A's half at HEAD         : $(echo "$head" | grep -c . )"
+  echo "   ADDED BY A (must be empty)  :"
+  comm -13 <(echo "$base") <(echo "$head") | sed 's/^/     /'
 }
 
 suiteset() {  # §4.3.2 J4 — the set the uncollected-suite check must range over
@@ -646,36 +720,75 @@ lanes() {  # §13 — base, open PRs, worktrees authoring plan-memos, the two ca
   gh pr list --state open --json number,headRefName --jq '.[] | "\(.number) \(.headRefName)"'
   git log --format='%h %s' --grep='carve the cite-audit detector'
   git log --format='%h %s' --grep='re-carve the shared spec-label map'
+  echo "-- worktrees carrying plan-memo diffs --"
   for w in $(git worktree list --porcelain | awk '/^worktree /{print $2}'); do
     n=$(git -C "$w" diff --name-only "$MAIN"...HEAD -- docs/plans/ 2>/dev/null | wc -l)
-    [ "$n" -gt 0 ] && echo "$n $w"
+    [ "$n" -gt 0 ] && echo "  $n $w"
+  done
+  # A's REAL contention is CI topology, and draft 8's version of this block could
+  # not see it: `gh pr list` misses an unpushed branch, and a docs/plans/ filter
+  # misses a branch whose collision is in ci.yml / mise.toml. The Layout lane's
+  # `layout-trip-wire-ci` was invisible to both halves while committing an
+  # OPPOSITE answer on all three files A edits.
+  echo "-- worktrees touching the files A contends on (ci.yml / mise.toml / .claude/tools) --"
+  for w in $(git worktree list --porcelain | awk '/^worktree /{print $2}'); do
+    local f
+    f=$(git -C "$w" diff --name-only "$MAIN"...HEAD -- \
+          .github/workflows/ mise.toml .claude/tools/ 2>/dev/null)
+    [ -n "$f" ] && { echo "  $w  [$(git -C "$w" rev-parse --short HEAD)]"
+                     echo "$f" | sed 's/^/      /'; }
   done
 }
 
 bmemo() {  # §13 — the classes of edit B's memo needs, grep-derived not read
+  # §13 names ELEVEN classes. Draft 8's version had blocks for seven, and two of
+  # those greps returned something other than their own label (`the carve` matched
+  # a perf comment; the line-count grep's first hit was a §3 coverage-map row).
+  # A block that does not derive its label is the defect this file exists to end.
   local B=docs/plans/2026-07-citation-hygiene-B-detector-correctness.md
-  echo "-- file-creation claims for files A creates --"; grep -n 'test_spec_labels' "$B"
-  echo "-- pin names colliding with A's --";            grep -nE '^\- \*\*P[0-9]' "$B"
-  echo "-- spec_labels.py anchors --";                  grep -n 'spec_labels\.py:' "$B"
-  echo "-- Slice A section refs --";                    grep -nE 'Slice A §|A §4' "$B"
-  echo "-- present-tense catalog framing --";           grep -n 'the carve' "$B"
-  echo "-- cap-rule statements --";                     grep -n 'cleanup-' "$B"
-  echo "-- line-count table --";                        grep -n 'cite_audit.py.*|.*[0-9]' "$B" | head -5
+  echo "-- 1. file-creation claims for files A creates --"; grep -n 'test_spec_labels' "$B"
+  echo "-- 2. pin names colliding with A's --";             grep -nE '^\- \*\*P[0-9]' "$B"
+  echo "-- 3. spec_labels.py line anchors --";              grep -n 'spec_labels\.py:' "$B"
+  echo "-- 4. Slice A section refs (swapped §4.1/§4.2) --"; grep -nE 'Slice A §|A §4' "$B"
+  echo "-- 5. §4.1.8's falsified consequence sentence --"
+  grep -nE 'wrong document|silently runs against' "$B"
+  echo "-- 6. present-tense 'extant defect' framing of what the carve did --"
+  grep -nE 'is an? (extant|existing) defect|today the resolver|currently (the )?resolv' "$B" || echo "   (none)"
+  echo "-- 7. §0.1 provenance paragraph naming a base B no longer has --"
+  grep -nE 'branch(es)? from|carve|base' "$B" | head -8
+  echo "-- 8. §4.2's seam list — must name the widening as a third seam --"
+  grep -nE '^\|.*seam|seams?:' "$B" | head -8
+  echo "-- 9. coverage_map's changed last-resort cited as pre-existing --"
+  grep -nE '_spec_label|last.resort|upper\(\)' "$B"
+  echo "-- 10. cap-rule restatements (must become a pointer) --"; grep -n 'cleanup-\|per-PR ≤3\|cap' "$B"
+  echo "-- 11. line-count table measured at a base where 2 files do not exist --"
+  grep -nE '^\|[^|]*(cite_audit|spec_labels|webref_data)[^|]*\|[^|]*[0-9]{2,}' "$B"
 }
 
 staleclaims() {  # §13 — the cross-file claims this memo corrects, by concept not string
   local M=/Users/kazuaki/.claude/projects/-Users-kazuaki-repos-send-sh-elidex/memory
-  echo "-- '10 in-flight memos' concept --"
-  grep -rn '10 in-flight\|10 memos' docs/plans/ "$M" 2>/dev/null
+  # CONCEPT, not string. Draft 8 grepped `10 in-flight\|10 memos`, which does not
+  # match MEMORY.md's Japanese `10 memo` -- so it missed one of the two live sites,
+  # in a memo whose §3.1 mandates concept-greps. The concept is "a count of
+  # in-flight memos in the c3-plan worktree".
+  echo "-- 'N in-flight memos in elidex-wt-c3-plan' concept --"
+  grep -rnE '[0-9]+ *(in-flight|memos?|memo)[^.]{0,40}(c3-plan|in-flight)|c3-plan[^.]{0,40}[0-9]+ *memo' \
+    docs/plans/ "$M" 2>/dev/null
   echo "-- actual in-flight memo count in elidex-wt-c3-plan --"
   git -C /Users/kazuaki/repos/send.sh/elidex-wt-c3-plan diff --name-only "$MAIN"...HEAD -- docs/plans/ | wc -l
   echo "-- 'wrong document' consequence --"
   grep -rn 'wrong document' docs/plans/ "$M" 2>/dev/null
   echo "-- dangling shas in memory --"
-  for s in $(grep -rhoE '`[0-9a-f]{8}`' "$M" | tr -d '`' | sort -u); do
-    git cat-file -e "$s^{commit}" 2>/dev/null && \
-      { git merge-base --is-ancestor "$s" HEAD 2>/dev/null || echo "NON-ANCESTOR $s"; } || echo "UNKNOWN $s"
-  done | sort -u | head -20
+  # Scoped to the shas THIS memo's §13 acts on. Draft 8 ran the check repo-wide
+  # and `head -20`'d 571 non-ancestor results, so all three of item 5's shas sorted
+  # past the cut -- the pointer named a block that could not derive the claim.
+  for s in d3173bed 53558963 99a3e2c3; do
+    printf '  %s: ' "$s"
+    if git cat-file -e "$s^{commit}" 2>/dev/null; then
+      git merge-base --is-ancestor "$s" HEAD 2>/dev/null && echo "ancestor" || echo "NON-ANCESTOR"
+    else echo "UNKNOWN"; fi
+    grep -rn "$s" "$M" docs/plans/ 2>/dev/null | sed 's/^/      /'
+  done
 }
 
 all() { for f in citations partition keysets column carvecolumn instruments remedies reloadstale armmatrix suites \
